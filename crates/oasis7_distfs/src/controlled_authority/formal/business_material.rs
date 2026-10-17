@@ -251,7 +251,12 @@ fn verify_formal_business_material_after_closure(
     let envelope = FormalBusinessResultEnvelopeV1::decode(&object.bytes)?;
     verify_business_metadata_contract(&envelope.delta, reader)?;
     if record.kind == FormalRecordKindV1::Execution
-        && frozen_material.and_then(|material| material.roots.get(&ArtifactRole::Snapshot))
+        && frozen_material
+            .map(|material| material.snapshot_bytes())
+            .transpose()
+            .map_err(|e| invalid(e.to_string()))?
+            .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
+            .as_ref()
             != Some(&record.before_state_root)
     {
         return Err(invalid(
@@ -338,7 +343,12 @@ pub(crate) fn verify_committed_business_material(
             if cut.parent_record.record_id()? != record.parent_record_id
                 || cut.parent_record.activation_ref != record.activation_ref
                 || cut.parent_record.after_state_root != record.before_state_root
-                || frozen_material.and_then(|material| material.roots.get(&ArtifactRole::Snapshot))
+                || frozen_material
+                    .map(|material| material.snapshot_bytes())
+                    .transpose()
+                    .map_err(|e| invalid(e.to_string()))?
+                    .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
+                    .as_ref()
                     != Some(&record.before_state_root)
             {
                 return Err(invalid("historical material hash-bound exact parent"));

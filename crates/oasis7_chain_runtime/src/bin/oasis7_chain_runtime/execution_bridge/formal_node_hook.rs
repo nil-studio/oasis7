@@ -51,6 +51,8 @@ pub(crate) trait FormalNodeWriter: Send {
     ) -> Result<(World, VerifiedFormalReadAnchorV1, NodeExecutionBootstrap), String> {
         Err("formal writer does not expose qualified original genesis history".into())
     }
+    /// One bounded storage maintenance page, independent of business commit.
+    fn advance_storage_maintenance(&mut self) {}
     fn current_head_evidence(&self) -> Result<CurrentHeadEvidence, String>;
     fn pending_continuation(&self) -> Result<Option<NodeLocalExecutionContinuation>, String>;
     fn prepare(&mut self, continuation: &NodeLocalExecutionContinuation) -> Result<(), String>;
@@ -93,6 +95,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
 
     fn world_id(&self) -> &str {
         &self.anchor().head().record().world.world_id
+    }
+
+    fn advance_storage_maintenance(&mut self) {
+        FormalWriter::advance_storage_maintenance(self)
     }
 
     fn committed_read_cut(&self) -> Result<(World, VerifiedFormalReadAnchorV1), String> {
@@ -712,6 +718,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
     fn pending_local_continuation(
         &mut self,
     ) -> Result<Option<NodeLocalExecutionContinuation>, String> {
+        // The Node calls this once per tick, including idle ticks. Reclamation
+        // never changes a continuation or blocks it on closure completion.
+        self.writer.advance_storage_maintenance();
         let pending = self.writer.pending_continuation()?;
         if let Some(consumed) = &self.consumed_terminal {
             return match pending {

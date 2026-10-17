@@ -325,6 +325,10 @@ impl WasmExecutor {
             if !wall_clock_timeout_enabled {
                 // Relaxed SIMD otherwise permits architecture-dependent results.
                 engine_config.relaxed_simd_deterministic(true);
+                // The original WASM and engine are retained for formal replay.
+                // Avoid anonymous file-backed CoW heap images: they are derived
+                // state, not portable native loader dependencies to archive.
+                engine_config.memory_init_cow(false);
             }
             engine_config.debug_info(false);
             let engine = wasmtime::Engine::new(&engine_config)

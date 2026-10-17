@@ -322,3 +322,51 @@ fn world_init_cli_rejects_incomplete_or_unknown_activation_arguments() {
     .expect("world init dispatch");
     assert!(result.unwrap_err().contains("requires exactly"));
 }
+
+#[cfg(unix)]
+#[test]
+fn new_world_prepare_cli_requires_native_schema_before_reading_world_sources() {
+    let (prepared, _, _) = prepared_fixture();
+    let config = WorldInitializationConfigV1 {
+        schema_version: 1,
+        mode: WorldBoundaryModeV1::Genesis,
+        world: prepared.world,
+        snapshot_file: "missing-snapshot.cbor".into(),
+        journal_file: "missing-journal.cbor".into(),
+        trusted_issuer_public_key: prepared.trusted_issuer_public_key,
+        node_bootstrap: prepared.node_bootstrap,
+        authority: prepared.activation_body.authority,
+        recovery_policy: prepared.activation_body.recovery_policy,
+    };
+    let root = private_test_root("oasis7-world-init-native-gate");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = root.join("config.json");
+    write_private_idempotent(
+        &path,
+        &serde_json::to_vec(&config).unwrap(),
+        MAX_CONFIG_BYTES,
+    )
+    .unwrap();
+    let output = root.join("request.cbor");
+    let result = dispatch(
+        [
+            "world",
+            "init",
+            "prepare",
+            "--config",
+            path.to_str().unwrap(),
+            "--request",
+            output.to_str().unwrap(),
+        ]
+        .into_iter(),
+    )
+    .unwrap();
+    assert!(
+        result
+            .unwrap_err()
+            .contains("schema 2 with the original native environment")
+    );
+    assert!(!output.exists());
+    std::fs::remove_dir_all(root).unwrap();
+}

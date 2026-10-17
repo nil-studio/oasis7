@@ -27,6 +27,14 @@ pub fn verify_formal_reservation(
     let body = &reservation.body;
     body.validate()?;
     super::proof::verify_normal_parent_continuity(authority, parent, body.next_position)?;
+    if parent
+        .record()
+        .artifact_roots
+        .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+        && body.schema_version < 3
+    {
+        return Err(invalid("native parent requires native frozen schema"));
+    }
     if body.world != authority.definition().world
         || body.authority_id != authority.authority_id()?
         || body.epoch != authority.definition().epoch
@@ -100,7 +108,7 @@ pub struct FormalFrozenCertificateV1 {
 impl FormalFrozenBodyV1 {
     pub fn validate(&self) -> Result<(), FormalError> {
         self.world.validate()?;
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1..=3)
             || self.epoch == 0
             || self.parent.position == 0
             || self.parent.position.checked_add(1) != Some(self.next_position)
@@ -148,18 +156,48 @@ pub fn verify_frozen_material(
     body: &FormalFrozenBodyV1,
     material: &ClosedRecord,
 ) -> Result<(), FormalError> {
+    verify_frozen_material_retaining_snapshot(body, material).map(|_| ())
+}
+
+/// Perform the same complete verification, retaining an already expanded
+/// versioned Snapshot for a caller's operation-local typed restoration. Legacy
+/// schema 1 keeps its original validation and returns no expanded allocation.
+pub fn verify_frozen_material_retaining_snapshot(
+    body: &FormalFrozenBodyV1,
+    material: &ClosedRecord,
+) -> Result<Option<Vec<u8>>, FormalError> {
     body.validate()?;
     if frozen_material_digest(material)? != body.frozen_material_digest
         || material.payload_digest != body.payload_digest
         || material.before_state_root != body.pre_state_root
         || material.after_state_root != body.pre_state_root
-        || material.roots.get(&ArtifactRole::Snapshot) != Some(&body.pre_state_root)
+        || (body.schema_version == 1
+            && material.roots.get(&ArtifactRole::Snapshot) != Some(&body.pre_state_root))
         || material.roots.get(&ArtifactRole::ExecutionManifest)
             != Some(&body.runtime_manifest_digest)
     {
         return Err(invalid("formal frozen full-material closure mismatch"));
     }
-    Ok(())
+    if (body.schema_version == 3)
+        != material
+            .native_environment()
+            .map_err(|e| invalid(e.to_string()))?
+            .is_some()
+    {
+        return Err(invalid("native frozen environment root required"));
+    }
+    if body.schema_version >= 2 {
+        let expanded = material
+            .snapshot_bytes()
+            .map_err(|e| invalid(e.to_string()))?;
+        if blake3::hash(&expanded).to_hex().as_str() != body.pre_state_root {
+            return Err(invalid(
+                "formal frozen delta Snapshot expanded prestate mismatch",
+            ));
+        }
+        return Ok(Some(expanded));
+    }
+    Ok(None)
 }
 impl FormalFrozenCertificateV1 {
     pub fn verify(
@@ -212,7 +250,8 @@ impl FormalFrozenCertificateV1 {
     }
     pub fn matches_record(&self, record: &CanonicalRecordV1) -> Result<(), FormalError> {
         let body = &self.reservation.body;
-        if record.frozen_reservation_id.as_deref() != Some(body.reservation_id()?.as_str())
+        if (body.schema_version >= 3 && record.schema_version < 5)
+            || record.frozen_reservation_id.as_deref() != Some(body.reservation_id()?.as_str())
             || record.world != body.world
             || record.original_authority_id != body.authority_id
             || record.original_epoch != body.epoch

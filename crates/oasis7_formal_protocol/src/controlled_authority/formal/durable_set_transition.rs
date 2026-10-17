@@ -132,7 +132,7 @@ pub fn verify_normal_durable_set_transition(
         || predecessor.record().world != signed.body.world
         || predecessor.finalizing_authority_id() != authority.authority_id()?
         || boundary.finalizing_authority_id() != authority.authority_id()?
-        || record.schema_version != 2
+        || !matches!(record.schema_version, 2 | 4 | 6)
         || record.kind != FormalRecordKindV1::Execution
         || record.position != signed.body.boundary_position
         || record.parent_record_id != predecessor.head().record_id

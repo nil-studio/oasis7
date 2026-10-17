@@ -224,17 +224,6 @@ pub(super) fn world_service_candidates(
         if key_digest != *map_key {
             return Err("WorldService result map key/correlation mismatch".into());
         }
-        // These revision-chain receipts do not yet have a retained task lookup index.
-        // Keep them hot: archiving them would silently lose task predecessors.
-        // TODO: account for protected receipts when selecting the eligible suffix;
-        // the planner's final count/byte checks intentionally fail closed meanwhile.
-        if matches!(
-            &result.request.signed_payload,
-            crate::runtime::service_admission::WorldServicePayloadV1::GameGoalPublish(_)
-                | crate::runtime::service_admission::WorldServicePayloadV1::GameExecutorControl(_)
-        ) {
-            continue;
-        }
         let canonical_result_cbor = serde_cbor::to_vec(&result).map_err(|e| e.to_string())?;
         if canonical_result_cbor.len() > MAX_RESULT_BYTES_IN_LEAF {
             return Err("WorldService result exceeds retained-history leaf bound".into());
@@ -484,7 +473,7 @@ pub(super) fn stage_feedback_publication(
 }
 
 pub(super) fn stage_game_task_control(
-    world: &World,
+    _world: &World,
     parent: &VerifiedFormalRetainedHistoryParentV1,
     reader: &impl BusinessIndexNodeReader,
     staged: &mut BTreeMap<String, RetainedHistoryLeafV1>,
@@ -493,42 +482,50 @@ pub(super) fn stage_game_task_control(
     if candidate.result.rejected.is_some() {
         return Ok(());
     }
-    let crate::runtime::service_admission::WorldServicePayloadV1::GameTaskCreate(signed) =
-        &candidate.result.request.signed_payload
+    let Some(lookup) =
+        crate::runtime::formal_retained_history::game_task_result_lookup(&candidate.result)?
     else {
         return Ok(());
     };
-    if crate::runtime::service_admission::game_task::validate_owner(world, signed).is_err() {
-        return Ok(());
-    }
-    let request = &signed.request;
-    let lookup = GameTaskControlLookupV1 {
-        agent_id: request.agent_id.clone(),
-        owner_binding: request.owner_binding.clone(),
-        owner_generation: request.owner_generation.0,
-        owner_public_key_digest: digest_text("owner-public-key", &signed.subject_public_key)?,
-        world_id: request.world_id.clone(),
-        genesis_digest: request.genesis_digest.clone(),
-        branch_id: request.branch_id.clone(),
-        reorg_epoch: request.reorg_epoch.0,
+    use crate::runtime::formal_retained_history::{RetainedTaskChainLinkV1, RetainedTaskChainV1};
+    let index_key =
+        retained_key_digest("game-task-control-chain-v1", &lookup).map_err(|e| e.to_string())?;
+    let previous = match staged_or_parent(parent, reader, staged, &index_key)? {
+        None => None,
+        Some(RetainedHistoryLeafV1::GameTaskControlChainIndex(entry)) => Some(entry),
+        Some(_) => return Err("retained task chain head type mismatch".into()),
     };
-    stage_bounded_refs(
+    let count = previous.as_ref().map_or(Ok(1), |entry| {
+        entry
+            .count
+            .checked_add(1)
+            .ok_or("retained task chain count overflow")
+    })?;
+    stage_immutable_leaf(
         parent,
         reader,
         staged,
-        "game-task-control",
-        &lookup,
-        candidate.key_digest.clone(),
-        RetainedIndexKind::GameTaskControl,
-        |result| game_task_result_matches(result, &lookup).map_err(|error| error.to_string()),
-    )
+        "game-task-control-link",
+        &candidate.key_digest,
+        RetainedHistoryLeafV1::GameTaskControlLink(RetainedTaskChainLinkV1 {
+            result_key_digest: candidate.key_digest.clone(),
+            previous: previous.map(|entry| entry.head),
+        }),
+    )?;
+    staged.insert(
+        index_key,
+        RetainedHistoryLeafV1::GameTaskControlChainIndex(RetainedTaskChainV1 {
+            head: candidate.key_digest.clone(),
+            count,
+        }),
+    );
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
 enum RetainedIndexKind {
     AgentChatIntent,
     FeedbackPublication,
-    GameTaskControl,
 }
 
 #[expect(
@@ -560,18 +557,11 @@ fn stage_bounded_refs<T: Serialize>(
         {
             entry.result_key_digests
         }
-        Some(RetainedHistoryLeafV1::GameTaskControlIndex(entry))
-            if matches!(kind, RetainedIndexKind::GameTaskControl) =>
-        {
-            entry.result_key_digests
-        }
         Some(_) => return Err("retained secondary index key/type mismatch".into()),
     };
     let reference_limit = match kind {
         RetainedIndexKind::FeedbackPublication => 1,
-        RetainedIndexKind::AgentChatIntent | RetainedIndexKind::GameTaskControl => {
-            MAX_INDEXED_RESULT_REFS
-        }
+        RetainedIndexKind::AgentChatIntent => MAX_INDEXED_RESULT_REFS,
     };
     if refs.len() > reference_limit
         || refs.windows(2).any(|pair| pair[0] >= pair[1])
@@ -597,11 +587,6 @@ fn stage_bounded_refs<T: Serialize>(
         }
         RetainedIndexKind::FeedbackPublication => {
             RetainedHistoryLeafV1::FeedbackPublicationIndex(RetainedResultRefsV1 {
-                result_key_digests: refs,
-            })
-        }
-        RetainedIndexKind::GameTaskControl => {
-            RetainedHistoryLeafV1::GameTaskControlIndex(RetainedResultRefsV1 {
                 result_key_digests: refs,
             })
         }

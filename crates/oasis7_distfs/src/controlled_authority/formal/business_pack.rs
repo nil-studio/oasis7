@@ -19,6 +19,8 @@ pub(super) const MAX_PACK: u64 = 80 * 1024 * 1024;
 const MAX_LOGICAL: u64 = 64 * 1024 * 1024;
 pub(crate) const MAX_PACK_NODE: u64 = 4 * 1024 * 1024 + 128;
 const MAX_ENTRIES: usize = BUSINESS_INDEX_MAX_UPDATES * (BUSINESS_INDEX_DEPTH + 1);
+#[path = "business_pack_legacy_batch.rs"]
+mod legacy_batch;
 #[cfg(test)]
 static NEXT: AtomicU64 = AtomicU64::new(0);
 fn io(error: std::io::Error) -> FormalError {
@@ -37,7 +39,11 @@ fn raw_or_invalid(
     len: u64,
     id: &str,
     reason: &str,
+    expected: Option<usize>,
 ) -> Result<Option<ObjectFile>, FormalError> {
+    if expected.is_some_and(|expected| len != expected as u64) {
+        return Err(invalid("CAS expected logical byte length differs"));
+    }
     if len > MAX_LOGICAL {
         return Err(invalid(reason));
     }
@@ -61,7 +67,15 @@ fn raw_or_invalid(
     }))
 }
 fn open(path: &Path, id: &str) -> Result<Option<ObjectFile>, FormalError> {
+    open_expected(path, id, None)
+}
+fn open_expected(
+    path: &Path,
+    id: &str,
+    expected: Option<usize>,
+) -> Result<Option<ObjectFile>, FormalError> {
     hash_hex(id)?;
+    super::physical::paths::parents(path)?;
     // Preserve the regular-path boundary on platforms without O_NOFOLLOW.
     // Unix also checks the descriptor below and closes the lookup/open race.
     match fs::symlink_metadata(path) {
@@ -82,12 +96,16 @@ fn open(path: &Path, id: &str) -> Result<Option<ObjectFile>, FormalError> {
         Err(error) => return Err(io(error)),
     };
     let metadata = file.metadata().map_err(io)?;
+    super::physical::paths::metadata(&metadata, false)?;
     if !metadata.is_file() || metadata.len() > MAX_PACK {
         return Err(invalid("logical CAS regular file/physical bound"));
     }
     let mut prefix = vec![0; std::cmp::min(metadata.len(), MAGIC.len() as u64) as usize];
     file.read_exact(&mut prefix).map_err(io)?;
     if prefix != MAGIC {
+        if expected.is_some_and(|expected| metadata.len() != expected as u64) {
+            return Err(invalid("CAS expected logical byte length differs"));
+        }
         if metadata.len() > MAX_LOGICAL {
             return Err(invalid("raw logical CAS object byte bound"));
         }
@@ -99,7 +117,13 @@ fn open(path: &Path, id: &str) -> Result<Option<ObjectFile>, FormalError> {
     }
     let mut rest = [0u8; 24];
     if file.read_exact(&mut rest).is_err() {
-        return raw_or_invalid(file, metadata.len(), id, "truncated CAS pack header");
+        return raw_or_invalid(
+            file,
+            metadata.len(),
+            id,
+            "truncated CAS pack header",
+            expected,
+        );
     }
     let version = u32::from_be_bytes(rest[0..4].try_into().unwrap());
     let count = u32::from_be_bytes(rest[4..8].try_into().unwrap()) as usize;
@@ -120,6 +144,7 @@ fn open(path: &Path, id: &str) -> Result<Option<ObjectFile>, FormalError> {
             metadata.len(),
             id,
             "CAS pack header/count/index/length",
+            expected,
         );
     }
     let wanted = hex::decode(id).map_err(|_| invalid("CAS pack object digest"))?;
@@ -149,6 +174,9 @@ fn open(path: &Path, id: &str) -> Result<Option<ObjectFile>, FormalError> {
                 {
                     return Err(invalid("CAS pack object span"));
                 }
+                if expected.is_some_and(|expected| len != expected as u64) {
+                    return Err(invalid("CAS expected logical byte length differs"));
+                }
                 return Ok(Some(ObjectFile { file, start, len }));
             }
         }
@@ -158,6 +186,7 @@ fn open(path: &Path, id: &str) -> Result<Option<ObjectFile>, FormalError> {
         metadata.len(),
         id,
         "CAS pack lacks its linked logical object",
+        expected,
     )
 }
 fn read_open_object(object: &mut ObjectFile, id: &str) -> Result<Vec<u8>, FormalError> {
@@ -173,105 +202,45 @@ fn read_open_object(object: &mut ObjectFile, id: &str) -> Result<Vec<u8>, Formal
     Ok(bytes)
 }
 pub(crate) fn read_object(path: &Path, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
+    let _pin = super::physical::pin(
+        path.parent().ok_or_else(|| invalid("logical CAS parent"))?,
+        false,
+    )?;
+    read_object_unpinned(path, id)
+}
+/// Only maintenance already holding the physical retire fence may bypass the
+/// reader lease. Ordinary readers must use read_object.
+pub(super) fn read_object_unpinned(path: &Path, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
+    let selected_path = super::physical::selected_path(path, id)?;
+    let path = selected_path.as_path();
+    if let Some(bytes) = super::physical::read_object(path, id, false)? {
+        return Ok(Some(bytes));
+    }
     let Some(mut object) = open(path, id)? else {
         return Ok(None);
     };
     read_open_object(&mut object, id).map(Some)
 }
-/// Registered-local independent readback under the endpoint/storage lease.
-/// Hashes every logical object, but syncs a physical pack only once in this run.
-/// Markers are ephemeral deduplication; they never authorize logical contents.
-#[derive(Default, Clone)]
-struct ReadbackTrace {
-    reads: u64,
-    bytes: u64,
-    open_us: u128,
-    read_hash_us: u128,
-    sync_us: u128,
-    syncs: u64,
-}
-thread_local! {
-    static READBACK_TRACE: std::cell::RefCell<Option<ReadbackTrace>> = const { std::cell::RefCell::new(None) };
-}
-pub(crate) fn begin_readback_trace(enabled: bool) {
-    READBACK_TRACE.with(|trace| *trace.borrow_mut() = enabled.then(ReadbackTrace::default));
-}
-pub(crate) fn finish_readback_trace() {
-    READBACK_TRACE.with(|trace| {
-        if let Some(trace) = trace.borrow_mut().take() {
-            eprintln!("healthy-native-readback reads={} bytes={} open_us={} read_hash_us={} syncs={} sync_us={}",
-                trace.reads, trace.bytes, trace.open_us, trace.read_hash_us, trace.syncs, trace.sync_us);
-        }
-    });
-}
-pub(crate) fn read_object_durable_once(
-    path: &Path,
-    id: &str,
-    sync_markers: &Path,
-) -> Result<Option<Vec<u8>>, FormalError> {
-    let tracing = READBACK_TRACE.with(|trace| trace.borrow().is_some());
-    let started = tracing.then(std::time::Instant::now);
+pub(crate) fn read_object_durable(path: &Path, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
+    let _pin = super::physical::pin(
+        path.parent().ok_or_else(|| invalid("logical CAS parent"))?,
+        false,
+    )?;
+    let selected_path = super::physical::selected_path(path, id)?;
+    let path = selected_path.as_path();
+    if let Some(bytes) = super::physical::read_object(path, id, true)? {
+        return Ok(Some(bytes));
+    }
     let Some(mut object) = open(path, id)? else {
         return Ok(None);
     };
-    #[cfg(unix)]
-    {
-        let metadata = object.file.metadata().map_err(io)?;
-        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
-            return Err(invalid("independent readback registered owner/write mode"));
-        }
-    }
-    let open_us = started
-        .map(|started| started.elapsed().as_micros())
-        .unwrap_or(0);
-    let started = tracing.then(std::time::Instant::now);
     let bytes = read_open_object(&mut object, id)?;
-    let read_hash_us = started
-        .map(|started| started.elapsed().as_micros())
-        .unwrap_or(0);
-    READBACK_TRACE.with(|trace| {
-        if let Some(trace) = trace.borrow_mut().as_mut() {
-            trace.reads += 1;
-            trace.bytes += bytes.len() as u64;
-            trace.open_us += open_us;
-            trace.read_hash_us += read_hash_us;
-        }
-    });
-    #[cfg(unix)]
-    let identity = {
-        let metadata = object.file.metadata().map_err(io)?;
-        format!("physical-{}-{}", metadata.dev(), metadata.ino())
-    };
-    #[cfg(not(unix))]
-    let identity = format!("physical-{id}");
-    let marker = sync_markers.join(identity);
-    // Same-user mutation while the exclusive registered lease is held is outside
-    // the storage contract. The descriptor is no-follow, bounded and hash checked.
-    let synced = match fs::symlink_metadata(&marker) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => true,
-        Ok(_) => return Err(invalid("independent readback sync marker is not regular")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => return Err(io(error)),
-    };
-    if !synced {
-        let started = tracing.then(std::time::Instant::now);
-        object.file.sync_all().map_err(io)?;
-        READBACK_TRACE.with(|trace| {
-            if let Some(trace) = trace.borrow_mut().as_mut() {
-                trace.syncs += 1;
-                trace.sync_us += started
-                    .map(|started| started.elapsed().as_micros())
-                    .unwrap_or(0);
-            }
-        });
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        options.open(marker).map_err(io)?;
-    }
+    object.file.sync_all().map_err(io)?;
     Ok(Some(bytes))
 }
+#[path = "business_pack_readback.rs"]
+mod readback;
+pub(crate) use readback::{begin_readback_trace, finish_readback_trace, read_object_durable_once};
 pub(crate) fn read_range(
     path: &Path,
     id: &str,
@@ -280,6 +249,15 @@ pub(crate) fn read_range(
 ) -> Result<Option<(u64, Vec<u8>)>, FormalError> {
     if limit == 0 || limit > 1024 * 1024 || offset > MAX_LOGICAL {
         return Err(invalid("logical CAS range bound"));
+    }
+    let _pin = super::physical::pin(
+        path.parent().ok_or_else(|| invalid("logical CAS parent"))?,
+        false,
+    )?;
+    let selected_path = super::physical::selected_path(path, id)?;
+    let path = selected_path.as_path();
+    if let Some(value) = super::physical::read_range(path, id, offset, limit)? {
+        return Ok(Some(value));
     }
     let Some(mut object) = open(path, id)? else {
         return Ok(None);
@@ -368,17 +346,34 @@ pub(crate) fn persist(
 ) -> Result<(), FormalError> {
     persist_inner(directory, writes, None)
 }
+// The physical selector was absent inside the caller's pinned batch. Inspect
+// raw/legacy pack bounds before allocating a logical object, not afterwards.
+#[cfg(any(not(unix), test))]
+pub(super) fn read_legacy_durable_expected(
+    path: &Path,
+    id: &str,
+    expected: usize,
+) -> Result<Option<Vec<u8>>, FormalError> {
+    let Some(mut object) = open_expected(path, id, Some(expected))? else {
+        return Ok(None);
+    };
+    if object.len != expected as u64 {
+        return Err(invalid("business existing logical length differs"));
+    }
+    let bytes = read_open_object(&mut object, id)?;
+    object.file.sync_all().map_err(io)?;
+    Ok(Some(bytes))
+}
 fn persist_inner(
     directory: &Path,
     writes: &[BusinessIndexNodeWriteV1],
     interrupt_after_links: Option<usize>,
 ) -> Result<(), FormalError> {
+    let writer = super::physical::publication_guard(directory)?;
     if writes.len() > MAX_ENTRIES {
         return Err(invalid("business CAS pack entry bound"));
     }
     let mut needed = Vec::new();
-    #[cfg(unix)]
-    let mut synced_inodes = std::collections::BTreeSet::new();
     let mut previous = None;
     let mut data_len = 0usize;
     for write in writes {
@@ -397,32 +392,84 @@ fn persist_inner(
         if data_len > 64 * 1024 * 1024 {
             return Err(invalid("business CAS pack data bound"));
         }
-        if let Some(existing) = read_object(&directory.join(&write.digest), &write.digest)? {
-            if existing != write.bytes {
-                return Err(invalid("business immutable logical CAS changed"));
+    }
+    // One read unit has bounded output and fresh physical evidence. Split the
+    // candidate rather than retaining decoded frames across batches.
+    let mut begin = 0usize;
+    while begin < writes.len() {
+        let mut end = begin;
+        let mut bytes = 0usize;
+        while end < writes.len() && end - begin < 1024 {
+            let next = writes[end].bytes.len();
+            if end > begin && bytes + next > 8 * 1024 * 1024 {
+                break;
             }
-            let mut options = OpenOptions::new();
-            options.read(true);
-            #[cfg(unix)]
-            options.custom_flags(libc::O_NOFOLLOW);
-            let existing_file = options.open(directory.join(&write.digest)).map_err(io)?;
-            #[cfg(unix)]
-            {
-                let metadata = existing_file.metadata().map_err(io)?;
-                if synced_inodes.insert((metadata.dev(), metadata.ino())) {
-                    existing_file.sync_all().map_err(io)?;
-                }
-            }
-            #[cfg(not(unix))]
-            existing_file.sync_all().map_err(io)?;
-        } else {
-            needed.push(write);
+            bytes += next;
+            end += 1;
         }
+        let _pin = super::physical::pin(directory, false)?;
+        let requests = writes[begin..end]
+            .iter()
+            .map(|write| {
+                Ok((
+                    super::physical::selected_path(&directory.join(&write.digest), &write.digest)?,
+                    write.digest.clone(),
+                    write.bytes.len(),
+                ))
+            })
+            .collect::<Result<Vec<_>, FormalError>>()?;
+        let existing = if bytes <= 8 * 1024 * 1024 {
+            super::physical::read_durable_batch(directory, &requests)?
+        } else {
+            // Larger logical objects retain the original single-object bound.
+            vec![read_object_durable(&requests[0].0, &requests[0].1)?]
+        };
+        let legacy_requests = requests
+            .iter()
+            .zip(&existing)
+            .filter(|(_, physical)| physical.is_none())
+            .map(|(request, _)| request.clone())
+            .collect::<Vec<_>>();
+        let mut legacy = legacy_batch::read_durable_batch(&legacy_requests)?.into_iter();
+        for (write, physical) in writes[begin..end].iter().zip(existing) {
+            let current = match physical {
+                Some(bytes) => Some(bytes),
+                None => legacy
+                    .next()
+                    .ok_or_else(|| invalid("business legacy batch result missing"))?,
+            };
+            match current {
+                Some(bytes) if bytes != write.bytes => {
+                    return Err(invalid("business immutable logical CAS changed"));
+                }
+                Some(_) => {}
+                None => needed.push(write),
+            }
+        }
+        begin = end;
     }
     if needed.is_empty() {
-        return File::open(directory)
+        File::open(directory)
             .and_then(|file| file.sync_all())
-            .map_err(io);
+            .map_err(io)?;
+        if super::physical::enabled(directory)? {
+            super::physical::roots::retain(
+                directory,
+                &writes.iter().map(|w| w.digest.clone()).collect::<Vec<_>>(),
+            )?;
+        }
+        return Ok(());
+    }
+    let physical = needed
+        .iter()
+        .map(|w| (w.digest.clone(), w.bytes.clone()))
+        .collect::<Vec<_>>();
+    if super::physical::persist_guarded(directory, &physical, &writer)? {
+        super::physical::roots::retain(
+            directory,
+            &writes.iter().map(|w| w.digest.clone()).collect::<Vec<_>>(),
+        )?;
+        return Ok(());
     }
     let index_offset = needed.iter().try_fold(HEADER as u64, |len, write| {
         len.checked_add(write.bytes.len() as u64)
@@ -493,7 +540,14 @@ fn persist_inner(
         .map_err(io)?;
     File::open(directory)
         .and_then(|file| file.sync_all())
-        .map_err(io)
+        .map_err(io)?;
+    if super::physical::enabled(directory)? {
+        super::physical::roots::retain(
+            directory,
+            &writes.iter().map(|w| w.digest.clone()).collect::<Vec<_>>(),
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(all(test, unix))]

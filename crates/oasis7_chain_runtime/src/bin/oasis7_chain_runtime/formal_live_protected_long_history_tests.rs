@@ -309,7 +309,7 @@ fn wait_for_new_long_history_result(
 ) -> Result<(), String> {
     // Volatile admission has no execution SLO. Keep the original bound while
     // allowing an already-running Tick followed by this request's own Tick.
-    wait_for_new_request_result(runtime, request, Duration::from_secs(120), "long history")
+    wait_for_new_request_result(runtime, request, LONG_HISTORY_REQUEST_WAIT, "long history")
         .map(|_| ())
 }
 

@@ -113,7 +113,12 @@ impl Oracle {
                     .set_write_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
                 let lease = h(222);
-                while let Ok(request) = recv::<SignedMonotonicOracleRequestV1>(&mut stream) {
+                while !stopping.load(Ordering::Relaxed) {
+                    let request = match recv::<SignedMonotonicOracleRequestV1>(&mut stream) {
+                        Ok(Some(request)) => request,
+                        Ok(None) => continue,
+                        Err(()) => break,
+                    };
                     let instance_allowed =
                         hook.as_ref()
                             .map_or(request.body.instance == instance, |hook| {

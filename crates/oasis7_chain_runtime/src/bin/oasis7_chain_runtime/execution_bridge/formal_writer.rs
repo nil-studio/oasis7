@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 #[path = "formal_writer_tests.rs"]
 mod tests;
 
+#[path = "formal_writer_attempts.rs"]
+mod attempts;
 #[path = "formal_writer_initial_history.rs"]
 mod initial_history;
 #[path = "formal_writer_recovery.rs"]
@@ -61,6 +63,41 @@ pub(crate) fn pending_test_position(path: &Path) -> Result<u64, String> {
     let pending: Pending = read(path)?;
     verify_frozen_material(&pending.original.body, &pending.material).map_err(|e| e.to_string())?;
     Ok(pending.original.body.next_position)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) fn retirement_test_target(root: &Path, sidecar: &Path) -> Result<(String, u64), String> {
+    let (schema, position, block, digest): (u32, u64, String, String) = read(sidecar)?;
+    let (candidate, proof) = read_published_candidate_at(root, position)?
+        .ok_or("retired original publication missing")?;
+    if schema != 1
+        || position < 2
+        || candidate.candidate.record.position != position
+        || proof.decision.record != candidate.candidate.record
+        || super::formal_attempt_lifecycle::candidate_digest(&candidate)? != digest
+    {
+        return Err("retired original candidate/publication binding differs".into());
+    }
+    let frozen = candidate
+        .frozen_material
+        .as_ref()
+        .ok_or("retired original Frozen missing")?;
+    let reservation = &candidate
+        .frozen
+        .as_ref()
+        .ok_or("retired original reservation missing")?
+        .reservation
+        .body;
+    verify_frozen_material(reservation, frozen).map_err(|error| error.to_string())?;
+    let manifest: super::formal_package::FormalExecutionManifestV1 =
+        super::controlled_capture::decode_role(frozen, ArtifactRole::ExecutionManifest)?;
+    if manifest.continuation.context.node_block_hash != block
+        || block.trim().is_empty()
+        || reservation.next_position != position
+    {
+        return Err("retired original Frozen continuation binding differs".into());
+    }
+    Ok((block, position))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +164,8 @@ pub(crate) struct FormalWriter<P: FormalDurabilityEndpoint, R: FormalDurabilityE
     poisoned: bool,
     business_reader: Option<super::formal_business_package::SharedBusinessReader>,
     recovery: Option<VerifiedRecovery>,
+    attempt_scan: Option<std::fs::ReadDir>,
+    attempt_reclaim_current: Option<PathBuf>,
 }
 #[path = "formal_writer_published.rs"]
 mod published;
@@ -551,7 +590,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             Some(anchor.head().clone()),
         )
         .map_err(|e| e.to_string())?;
-        Ok(Self {
+        let mut instance = Self {
             _lock: lock,
             root,
             writer,
@@ -563,7 +602,19 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             poisoned: false,
             business_reader: None,
             recovery,
-        })
+            attempt_scan: None,
+            attempt_reclaim_current: None,
+        };
+        if let Some((candidate, proof)) =
+            read_published_candidate_at(&instance.root, instance.anchor.head().record().position)?
+        {
+            instance.reclaim_published_attempts(&Published {
+                schema_version: 1,
+                candidate,
+                proof,
+            });
+        }
+        Ok(instance)
     }
     pub(crate) fn anchor(&self) -> &VerifiedFormalReadAnchorV1 {
         &self.anchor
@@ -816,13 +867,13 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                     true,
                 )?
                 .ok_or("formal business predecessor descriptor missing")?;
-                Some((tree, publication.proof))
+                Some((tree, publication.proof, publication.candidate.material))
             } else {
                 None
             };
-            let (body, material) = match (business, transition) {
-                (Some((tree, parent_qualified)), Some(transition)) => {
-                    formal_package::freeze_material_with_business_and_durable_set_transition(
+            let (mut body, mut material) = match (business, transition) {
+                (Some((tree, parent_qualified, parent_material)), transition) => {
+                    formal_package::freeze_material_from_parent(
                         self.anchor.authority(),
                         self.anchor.head(),
                         original,
@@ -830,18 +881,8 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                         &self.release,
                         tree,
                         parent_qualified,
-                        transition,
-                    )?
-                }
-                (Some((tree, parent_qualified)), None) => {
-                    formal_package::freeze_material_with_business(
-                        self.anchor.authority(),
-                        self.anchor.head(),
-                        original,
-                        &self.world,
-                        &self.release,
-                        tree,
-                        parent_qualified,
+                        transition.cloned(),
+                        &parent_material,
                     )?
                 }
                 (None, Some(transition)) => {
@@ -862,6 +903,35 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                     &self.release,
                 )?,
             };
+            if self
+                .anchor
+                .head()
+                .record()
+                .artifact_roots
+                .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+            {
+                let (primary, replica) = self.coordinator.endpoints_mut();
+                let environment =
+                    super::formal_native_environment::stage_current(primary, replica)?;
+                if self
+                    .anchor
+                    .head()
+                    .record()
+                    .artifact_roots
+                    .get(&ArtifactRole::NativeExecutionEnvironment)
+                    != Some(&environment.digest()?)
+                {
+                    return Err(
+                        "Unavailable: native environment changed from the qualified predecessor"
+                            .into(),
+                    );
+                }
+                super::formal_native_environment::attach_frozen(
+                    &mut body,
+                    &mut material,
+                    &environment,
+                )?;
+            }
             let signature_hex = hex::encode(
                 self.writer
                     .sign(&frozen_signing_bytes(&body).map_err(|e| e.to_string())?)
@@ -995,6 +1065,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             {
                 return Err("formal writer original publication mismatch".into());
             }
+            self.reclaim_published_attempts(&original);
             return Ok(original.proof);
         }
         let candidate = self.candidate_for_resume()?;
@@ -1007,6 +1078,12 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         timing.mark("candidate_saved");
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("candidate_saved")?;
+        if let Some(environment) =
+            super::formal_native_environment::descriptor(&candidate.material)?
+        {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::formal_native_environment::verify_registered(primary, replica, &environment)?;
+        }
         let proof = self
             .coordinator
             .submit(candidate.clone())
@@ -1075,6 +1152,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         super::formal_crash_test_boundary::stop_after("publication_saved")?;
         self.anchor = next_anchor;
         self.world = world;
+        self.reclaim_published_attempts(&stored);
         timing.mark("publication_saved");
         // Keep terminal original as an idempotency cache. `acknowledge` is a
         // distinct durable step so a lost return never silently picks next input.
@@ -1088,6 +1166,15 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             })
         {
             return Err("formal writer acknowledgement differs from qualified original".into());
+        }
+        if let Some((candidate, proof)) =
+            read_published_candidate_at(&self.root, self.anchor.head().record().position)?
+        {
+            self.reclaim_published_attempts(&Published {
+                schema_version: 1,
+                candidate,
+                proof,
+            });
         }
         let removed = std::fs::remove_file(self.root.join("pending.cbor"))
             .and_then(|_| std::fs::File::open(&self.root)?.sync_all());

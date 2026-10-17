@@ -183,7 +183,21 @@ fn profile2_prepares_durable_business_nodes_and_rejects_wrong_base_or_missing_en
         .pdir
         .join("formal-objects-v1")
         .join(&env.delta.node_writes[0].digest);
-    fs::remove_file(missing).unwrap();
+    if missing.exists() {
+        fs::remove_file(missing).unwrap();
+    } else {
+        // A missing locator is recoverable from a durable pack recipe. Damage
+        // the real selected descriptor to model loss of original node material.
+        fs::write(
+            fixture
+                .pdir
+                .join("formal-objects-v1")
+                .join(".representation-v1")
+                .join(&env.delta.node_writes[0].digest),
+            b"lost original node representation",
+        )
+        .unwrap();
+    }
     assert!(
         FileFormalEndpoint::open_inner(
             &fixture.pdir,

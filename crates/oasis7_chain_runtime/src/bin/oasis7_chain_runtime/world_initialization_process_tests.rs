@@ -25,63 +25,281 @@ struct PublicPreparedRequest {
     request_digest: String,
     trusted_issuer_public_key: String,
 }
-struct CliChild(Child);
+const CLI_IDLE: Duration = Duration::from_secs(40);
+#[derive(Clone)]
+struct CliWait {
+    expires: Instant,
+    progress: Arc<std::sync::Mutex<CliProgress>>,
+}
+struct CliProgress {
+    last: Instant,
+    completed: u64,
+    last_rpc: String,
+    error: Option<String>,
+}
+impl CliWait {
+    fn new() -> Self {
+        Self {
+            expires: Instant::now() + Duration::from_secs(5 * 60),
+            progress: Arc::new(std::sync::Mutex::new(CliProgress {
+                last: Instant::now(),
+                completed: 0,
+                last_rpc: "none".into(),
+                error: None,
+            })),
+        }
+    }
+    fn begin(&self) {
+        self.progress.lock().unwrap().last = Instant::now();
+    }
+    fn failure(&self) -> Result<Option<String>, String> {
+        let progress = self.progress.lock().map_err(|_| "CLI progress lock")?;
+        let reason = if Instant::now() >= self.expires {
+            Some("five-minute scenario deadline")
+        } else if progress.last.elapsed() >= CLI_IDLE {
+            Some("40s without a completed P/R RPC")
+        } else {
+            None
+        };
+        Ok(progress.error.clone().or_else(|| {
+            reason.map(|reason| {
+                format!(
+                    "{reason}; completed={} last_rpc={} idle={:?}",
+                    progress.completed,
+                    progress.last_rpc,
+                    progress.last.elapsed()
+                )
+            })
+        }))
+    }
+}
+type CliOutput = thread::JoinHandle<Result<Vec<u8>, String>>;
+struct CliChild(
+    Child,
+    Option<CliOutput>,
+    Option<CliOutput>,
+    String,
+    Arc<AtomicBool>,
+    Option<CliWait>,
+);
 impl Drop for CliChild {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
+        self.4.store(true, Ordering::Release);
     }
 }
+fn drain_cli(
+    mut pipe: impl Read + std::os::fd::AsRawFd + Send + 'static,
+    stopped: Arc<AtomicBool>,
+) -> CliOutput {
+    thread::spawn(move || {
+        // A descendant may inherit the pipe after the shipping child exits.
+        // Nonblocking reads plus cancellation keep collection inside the test
+        // deadline even when such a descendant retains an open descriptor.
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&pipe);
+        // SAFETY: the reader owns this live pipe descriptor for this thread.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        const LIMIT: usize = 8 * 1024 * 1024;
+        let mut bytes = Vec::new();
+        let mut buffer = [0; 8192];
+        let mut overflow = false;
+        let mut after_stop = 0usize;
+        loop {
+            if stopped.load(Ordering::Acquire) && after_stop >= LIMIT {
+                break;
+            }
+            let count = match pipe.read(&mut buffer) {
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if stopped.load(Ordering::Acquire) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+                Err(error) => return Err(error.to_string()),
+            };
+            if count == 0 {
+                break;
+            }
+            if stopped.load(Ordering::Acquire) {
+                after_stop += count;
+            }
+            let keep = count.min(LIMIT - bytes.len());
+            bytes.extend_from_slice(&buffer[..keep]);
+            overflow |= keep != count;
+        }
+        if overflow {
+            return Err("world-init CLI output exceeds 8 MiB".into());
+        }
+        Ok(bytes)
+    })
+}
 fn start_cli(binary: &Path, args: &[&str]) -> Result<CliChild, String> {
+    let mut child = Command::new(binary)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    // Drain from spawn, including while the fault gate waits for Prepare.
+    // Waiting for exit before reading a full pipe can deadlock the child.
+    let stopped = Arc::new(AtomicBool::new(false));
+    let stdout = drain_cli(
+        child.stdout.take().ok_or("world-init stdout missing")?,
+        stopped.clone(),
+    );
+    let stderr = drain_cli(
+        child.stderr.take().ok_or("world-init stderr missing")?,
+        stopped.clone(),
+    );
+    let stage = args.iter().take(3).copied().collect::<Vec<_>>().join(" ");
     Ok(CliChild(
-        Command::new(binary)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?,
+        child,
+        Some(stdout),
+        Some(stderr),
+        stage,
+        stopped,
+        None,
     ))
 }
+fn collected(reader: Option<CliOutput>) -> Result<Vec<u8>, String> {
+    reader
+        .ok_or("world-init output reader missing")?
+        .join()
+        .map_err(|_| "world-init output reader panicked")?
+}
 fn finish_cli(mut child: CliChild, success: bool) -> Result<Vec<u8>, String> {
-    let deadline = Instant::now() + Duration::from_secs(40);
+    let started = Instant::now();
+    // Keep the original 40s inactivity bound. Native CLI work may span many
+    // completed RPC pages inside the one fixed scenario expiry.
+    let budget = CLI_IDLE;
+    let mut timed_out = false;
+    let mut timeout_reason = None;
     while child.0.try_wait().map_err(|e| e.to_string())?.is_none() {
-        if Instant::now() >= deadline {
-            return Err("world-init shipping CLI deadline".into());
+        timeout_reason = if let Some(wait) = &child.5 {
+            wait.failure()?
+        } else {
+            (started.elapsed() >= budget).then(|| "40s process deadline".to_owned())
+        };
+        if timeout_reason.is_some() {
+            timed_out = true;
+            child.0.kill().map_err(|e| e.to_string())?;
+            break;
         }
         thread::sleep(Duration::from_millis(10));
     }
-    let mut stdout = Vec::new();
-    child
-        .0
-        .stdout
-        .take()
-        .ok_or("world-init stdout missing")?
-        .read_to_end(&mut stdout)
-        .map_err(|e| e.to_string())?;
-    let mut stderr = Vec::new();
-    child
-        .0
-        .stderr
-        .take()
-        .ok_or("world-init stderr missing")?
-        .read_to_end(&mut stderr)
-        .map_err(|e| e.to_string())?;
     let status = child.0.wait().map_err(|e| e.to_string())?;
-    if status.success() != success {
+    if !timed_out && let Some(wait) = &child.5 {
+        timeout_reason = wait.failure()?;
+        timed_out = timeout_reason.is_some();
+    }
+    child.4.store(true, Ordering::Release);
+    let mut stdout = collected(child.1.take())?;
+    let stderr = collected(child.2.take())?;
+    eprintln!(
+        "world-init CLI stage={} elapsed={:?} status={status}",
+        child.3,
+        started.elapsed()
+    );
+    if timed_out || status.success() != success {
         return Err(format!(
-            "world-init expected success={success}: {status}: {}",
+            "world-init stage={} expected success={success} timed_out={timed_out} budget={budget:?} reason={timeout_reason:?}: {status}: stdout={} stderr={}",
+            child.3,
+            String::from_utf8_lossy(&stdout),
             String::from_utf8_lossy(&stderr)
         ));
     }
+    if !success {
+        // The shipping tracing subscriber may write diagnostics to stdout.
+        stdout.extend_from_slice(&stderr);
+    }
     Ok(stdout)
+}
+#[test]
+fn world_init_cli_drains_both_pipes_before_waiting_for_exit() {
+    let child = start_cli(
+        Path::new("/bin/sh"),
+        &[
+            "-c",
+            "head -c 131072 /dev/zero; head -c 131072 /dev/zero >&2",
+        ],
+    )
+    .unwrap();
+    let stdout = finish_cli(child, true).unwrap();
+    assert_eq!(stdout, vec![0; 131072]);
+}
+#[test]
+fn world_init_cli_collection_does_not_wait_for_inherited_pipe_eof() {
+    let (mut input, output) = std::os::unix::net::UnixStream::pair().unwrap();
+    let inherited = input.try_clone().unwrap();
+    let stopped = Arc::new(AtomicBool::new(false));
+    let reader = drain_cli(output, stopped.clone());
+    input.write_all(b"original child output").unwrap();
+    drop(input);
+    stopped.store(true, Ordering::Release);
+    assert_eq!(collected(Some(reader)).unwrap(), b"original child output");
+    drop(inherited);
+}
+#[test]
+fn world_init_cli_progress_requires_completed_rpc_and_preserves_total_deadline() {
+    let target = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut wait = CliWait::new();
+    let proxy =
+        ReplicaPrepareGate::start(target.local_addr().unwrap(), false, "primary", wait.clone())
+            .unwrap();
+    let frame = serde_cbor::to_vec(&serde_json::json!({"body":{"command":"Head"}})).unwrap();
+    let original = frame.clone();
+    let (arrived, observed) = std::sync::mpsc::channel();
+    let (release, response_ready) = std::sync::mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = target.accept().unwrap();
+        assert_eq!(read_frame(&mut stream).unwrap(), original);
+        arrived.send(()).unwrap();
+        response_ready.recv().unwrap();
+        write_frame(&mut stream, b"original response").unwrap();
+    });
+    let address = proxy.address;
+    let client = thread::spawn(move || {
+        let mut stream = TcpStream::connect(address).unwrap();
+        write_frame(&mut stream, &frame).unwrap();
+        assert_eq!(read_frame(&mut stream).unwrap(), b"original response");
+    });
+    observed.recv_timeout(Duration::from_secs(2)).unwrap();
+    {
+        let mut progress = wait.progress.lock().unwrap();
+        assert_eq!(progress.completed, 0);
+        progress.last = Instant::now() - Duration::from_secs(41);
+    }
+    assert!(wait.failure().unwrap().unwrap().contains("40s without"));
+    release.send(()).unwrap();
+    client.join().unwrap();
+    server.join().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while wait.progress.lock().unwrap().completed == 0 {
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(1));
+    }
+    assert!(wait.failure().unwrap().is_none());
+    assert_eq!(wait.progress.lock().unwrap().last_rpc, "primary:Head");
+    wait.expires = Instant::now() - Duration::from_secs(1);
+    wait.begin();
+    assert!(
+        wait.failure()
+            .unwrap()
+            .unwrap()
+            .contains("five-minute scenario")
+    );
 }
 fn p(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| "world-init non UTF8 fixture path".into())
-}
-fn execute(binary: &Path, args: &[&str], success: bool) -> Result<Vec<u8>, String> {
-    finish_cli(start_cli(binary, args)?, success)
 }
 fn approve(
     request: &Path,
@@ -165,6 +383,15 @@ fn activation_args<'a>(
     ])
 }
 fn run_initialization() -> Result<(), String> {
+    // Linux CI observed 77s of successful original native transfer before the
+    // first Prepare. Bound inactivity across both endpoints, not total pages.
+    let wait = CliWait::new();
+    let execute = |binary: &Path, args: &[&str], success| {
+        wait.begin();
+        let mut child = start_cli(binary, args)?;
+        child.5 = Some(wait.clone());
+        finish_cli(child, success)
+    };
     let binary = PathBuf::from(
         std::env::var_os("OASIS7_FORMAL_NODE_TEST_BIN")
             .ok_or("set shipping OASIS7_FORMAL_NODE_TEST_BIN")?,
@@ -193,7 +420,7 @@ fn run_initialization() -> Result<(), String> {
     oracle_support::write_private(&snapshot_path, &snapshot)?;
     oracle_support::write_private(&journal_path, &journal)?;
     let config = root.join("world-init.json");
-    let mut config_value = serde_json::json!({"schema_version":1,"mode":"genesis","world":identity,
+    let mut config_value = serde_json::json!({"schema_version":2,"mode":"genesis","world":identity,
         "snapshot_file":snapshot_path,"journal_file":journal_path,"trusted_issuer_public_key":fixtures::public(9),
         "node_bootstrap":{"height":0,"consensus_block_hash":fixtures::h(81),"execution_block_hash":fixtures::h(82),"execution_state_root":blake3_hex(&snapshot)},
         "authority":definition,"recovery_policy":seed.authority().policy()});
@@ -218,6 +445,17 @@ fn run_initialization() -> Result<(), String> {
         "--request",
         p(&request)?,
     ];
+    if !cfg!(target_os = "linux") {
+        let error = execute(&binary, &prepare_args, false)?;
+        if !String::from_utf8_lossy(&error).contains("Unavailable") || request.exists() {
+            return Err(format!(
+                "unsupported native platform did not reject preparation without creating a request (request_exists={}): {}",
+                request.exists(),
+                String::from_utf8_lossy(&error),
+            ));
+        }
+        return Ok(());
+    }
     execute(&binary, &prepare_args, true)?;
     let request_bytes = std::fs::read(&request).map_err(|e| e.to_string())?;
     execute(&binary, &prepare_args, true)?;
@@ -282,10 +520,12 @@ fn run_initialization() -> Result<(), String> {
     )?;
     let (_pchild, paddr) = oracle_support::start_endpoint(&endpoint_binary, &pcfg)?;
     let (_rchild, raddr) = oracle_support::start_endpoint(&endpoint_binary, &rcfg)?;
-    let gate = ReplicaPrepareGate::start(raddr)?;
-    let paddr_text = paddr.to_string();
+    let primary_proxy = ReplicaPrepareGate::start(paddr, false, "primary", wait.clone())?;
+    let gate = ReplicaPrepareGate::start(raddr, true, "replica", wait.clone())?;
+    let paddr_text = primary_proxy.address.to_string();
     let gate_text = gate.address.to_string();
-    let raddr_text = raddr.to_string();
+    let raddr_text = gate.address.to_string();
+    wait.begin();
     let mut interrupted = start_cli(
         &binary,
         &activation_args(
@@ -298,18 +538,22 @@ fn run_initialization() -> Result<(), String> {
             &output,
         )?,
     )?;
-    let deadline = Instant::now() + Duration::from_secs(30);
+    interrupted.5 = Some(wait.clone());
+    // Observe completed RPCs at both endpoints: primary verification can keep
+    // progressing while replica is idle. Every step shares the original expiry.
     while !gate.blocked.load(Ordering::Acquire) {
         if let Some(status) = interrupted.0.try_wait().map_err(|e| e.to_string())? {
+            let diagnostics = finish_cli(interrupted, status.success())?;
             return Err(format!(
-                "world-init exited before durable boundary: {status}"
+                "world-init exited before durable boundary: {status}: {}",
+                String::from_utf8_lossy(&diagnostics),
             ));
         }
         if let Some(error) = gate.error.lock().map_err(|_| "gate error lock")?.clone() {
             return Err(error);
         }
-        if Instant::now() >= deadline {
-            return Err("world-init did not reach replica Prepare boundary".into());
+        if let Some(reason) = wait.failure()? {
+            return Err(reason);
         }
         thread::sleep(Duration::from_millis(5));
     }
@@ -318,7 +562,7 @@ fn run_initialization() -> Result<(), String> {
     if killed.signal() != Some(9) || output.exists() {
         return Err("world-init interruption did not preserve unknown/unpublished result".into());
     }
-    drop(gate);
+    gate.release();
     let genesis = authority
         .definition()
         .world
@@ -443,16 +687,24 @@ struct ReplicaPrepareGate {
     blocked: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     error: Arc<std::sync::Mutex<Option<String>>>,
+    hold_prepare: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
 }
 impl ReplicaPrepareGate {
-    fn start(target: SocketAddr) -> Result<Self, String> {
+    fn start(
+        target: SocketAddr,
+        hold: bool,
+        role: &'static str,
+        wait: CliWait,
+    ) -> Result<Self, String> {
         let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
         let address = listener.local_addr().map_err(|e| e.to_string())?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let blocked = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
         let error = Arc::new(std::sync::Mutex::new(None));
+        let hold_prepare = Arc::new(AtomicBool::new(hold));
+        let held = hold_prepare.clone();
         let (b, s, e) = (blocked.clone(), stop.clone(), error.clone());
         let worker = thread::spawn(move || {
             while !s.load(Ordering::Acquire) {
@@ -461,29 +713,49 @@ impl ReplicaPrepareGate {
                         let outcome = (|| -> Result<(), String> {
                             incoming.set_nonblocking(false).map_err(|e| e.to_string())?;
                             incoming
-                                .set_read_timeout(Some(Duration::from_secs(5)))
+                                .set_read_timeout(Some(Duration::from_secs(30)))
                                 .map_err(|e| e.to_string())?;
                             let frame = read_frame(&mut incoming)?;
                             let probe: CommandProbe =
                                 serde_cbor::from_slice(&frame).map_err(|e| e.to_string())?;
-                            if probe.body.command.0 {
+                            if probe.body.command.0 == "Prepare" && held.load(Ordering::Acquire) {
                                 b.store(true, Ordering::Release);
-                                while !s.load(Ordering::Acquire) {
+                                while !s.load(Ordering::Acquire) && held.load(Ordering::Acquire) {
                                     thread::sleep(Duration::from_millis(5));
                                 }
                                 return Ok(());
                             }
                             let mut outgoing =
-                                TcpStream::connect_timeout(&target, Duration::from_secs(5))
+                                TcpStream::connect_timeout(&target, Duration::from_secs(30))
                                     .map_err(|e| e.to_string())?;
                             outgoing
-                                .set_read_timeout(Some(Duration::from_secs(5)))
+                                .set_read_timeout(Some(Duration::from_secs(30)))
+                                .map_err(|e| e.to_string())?;
+                            outgoing
+                                .set_write_timeout(Some(Duration::from_secs(30)))
+                                .map_err(|e| e.to_string())?;
+                            incoming
+                                .set_write_timeout(Some(Duration::from_secs(30)))
                                 .map_err(|e| e.to_string())?;
                             write_frame(&mut outgoing, &frame)?;
                             let response = read_frame(&mut outgoing)?;
-                            write_frame(&mut incoming, &response)
+                            write_frame(&mut incoming, &response)?;
+                            let mut progress =
+                                wait.progress.lock().map_err(|_| "gate progress lock")?;
+                            progress.last = Instant::now();
+                            progress.completed += 1;
+                            progress.last_rpc = format!("{role}:{}", probe.body.command.0);
+                            if progress.completed.is_multiple_of(128) {
+                                eprintln!(
+                                    "world-init RPC progress completed={} last={}",
+                                    progress.completed, progress.last_rpc
+                                );
+                            }
+                            Ok(())
                         })();
                         if let Err(reason) = outcome {
+                            wait.progress.lock().unwrap().error =
+                                Some(format!("{role} proxy: {reason}"));
                             *e.lock().unwrap() = Some(reason);
                             break;
                         }
@@ -492,6 +764,7 @@ impl ReplicaPrepareGate {
                         thread::sleep(Duration::from_millis(5))
                     }
                     Err(err) => {
+                        wait.progress.lock().unwrap().error = Some(format!("{role} accept: {err}"));
                         *e.lock().unwrap() = Some(err.to_string());
                         break;
                     }
@@ -503,8 +776,14 @@ impl ReplicaPrepareGate {
             blocked,
             stop,
             error,
+            hold_prepare,
             worker: Some(worker),
         })
+    }
+}
+impl ReplicaPrepareGate {
+    fn release(&self) {
+        self.hold_prepare.store(false, Ordering::Release);
     }
 }
 impl Drop for ReplicaPrepareGate {
@@ -523,7 +802,7 @@ struct CommandProbe {
 struct CommandBodyProbe {
     command: IsPrepare,
 }
-struct IsPrepare(bool);
+struct IsPrepare(String);
 impl<'de> serde::Deserialize<'de> for IsPrepare {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         struct Visitor;
@@ -543,7 +822,7 @@ impl<'de> serde::Deserialize<'de> for IsPrepare {
                 } else {
                     variant.newtype_variant::<serde::de::IgnoredAny>()?;
                 }
-                Ok(IsPrepare(name == "Prepare"))
+                Ok(IsPrepare(name))
             }
         }
         d.deserialize_enum("Command", &[], Visitor)
@@ -569,7 +848,7 @@ fn write_frame(stream: &mut TcpStream, bytes: &[u8]) -> Result<(), String> {
 }
 #[test]
 #[ignore = "requires shipping runtime + protected endpoint binaries; real CLI SIGKILL activation"]
-fn formal_world_initialization_cli_repeated_and_interrupted_activation_reconciles_original() {
+fn formal_world_initialization_cli_native_platform_and_original_activation() {
     thread::Builder::new()
         .name("formal-world-init-cli".into())
         .stack_size(32 * 1024 * 1024)

@@ -4,7 +4,7 @@
 mod tick_material;
 use super::business_index::{BusinessIndexDeltaV1, BusinessIndexNodeReader, BusinessIndexRootV1};
 use super::*;
-use crate::controlled_authority::replicated_protocol::{ArtifactRole, ClosedRecord};
+use crate::controlled_authority::replicated_protocol::ClosedRecord;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,22 +23,13 @@ struct StateDescriptor {
     retained_history_root: Option<RetainedRoot>,
 }
 fn descriptor(material: &ClosedRecord) -> Result<Option<RetainedRoot>, FormalError> {
-    let hash = material
-        .roots
-        .get(&ArtifactRole::Snapshot)
-        .ok_or_else(|| invalid("retention missing Snapshot role"))?;
-    let object = material
-        .objects
-        .iter()
-        .find(|object| &object.content_hash == hash)
-        .ok_or_else(|| invalid("retention Snapshot closure bytes missing"))?;
-    if blake3::hash(&object.bytes).to_hex().as_str() != hash {
-        return Err(invalid("retention Snapshot role checksum"));
-    }
+    let bytes = material
+        .snapshot_bytes()
+        .map_err(|e| invalid(e.to_string()))?;
     // Abstract protocol fixtures predate the actual World snapshot contract.
     // Once a root exists, malformed/missing successor state is rejected below.
-    let root = if object.bytes.first().is_some_and(|byte| byte >> 5 == 5) {
-        serde_cbor::from_slice::<SnapshotDescriptor>(&object.bytes)
+    let root = if bytes.first().is_some_and(|byte| byte >> 5 == 5) {
+        serde_cbor::from_slice::<SnapshotDescriptor>(&bytes)
             .map_err(|error| invalid(format!("retention snapshot descriptor: {error}")))?
             .state
             .retained_history_root
@@ -72,16 +63,9 @@ pub(super) fn verify_retained_transition(
     let after = descriptor(material)?;
     if after.is_some() {
         let snapshot_bytes = |material: &ClosedRecord| -> Result<Vec<u8>, FormalError> {
-            let hash = material
-                .roots
-                .get(&ArtifactRole::Snapshot)
-                .ok_or_else(|| invalid("Tick Snapshot role missing"))?;
             material
-                .objects
-                .iter()
-                .find(|o| &o.content_hash == hash)
-                .map(|o| o.bytes.clone())
-                .ok_or_else(|| invalid("Tick Snapshot bytes missing"))
+                .snapshot_bytes()
+                .map_err(|e| invalid(e.to_string()))
         };
         let prior_bytes = before_material.map(snapshot_bytes).transpose()?;
         tick_material::verify_tick_prefix_material(

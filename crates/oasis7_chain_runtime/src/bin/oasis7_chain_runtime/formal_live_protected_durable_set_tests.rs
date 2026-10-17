@@ -1022,10 +1022,19 @@ fn exercise_successor_long_history(
                 .map_err(|error| format!("healthy successor delegation {ordinal}: {error}"))?,
             &request.correlation,
         )?;
+        // Admission may race a Tick already in formal qualification. Observe
+        // that Tick and this request's Tick using the existing long-history
+        // limit, without extending the scenario's original absolute expiry.
+        let remaining = case
+            .scenario_deadline
+            .expires_at
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or("healthy successor request exceeded the original scenario deadline")?;
         let result = wait_for_new_request_result(
             &runtime,
             &request,
-            Duration::from_secs(20),
+            remaining.min(LONG_HISTORY_REQUEST_WAIT),
             "healthy successor",
         )
         .map_err(|error| format!("healthy successor change {ordinal}: {error}"))?;

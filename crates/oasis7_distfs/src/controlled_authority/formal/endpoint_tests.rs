@@ -72,6 +72,13 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::new_with_native(None)
+    }
+    fn new_with_native(
+        native: Option<
+            &crate::controlled_authority::formal::native_environment::NativeExecutionEnvironmentV1,
+        >,
+    ) -> Self {
         let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "oasis7-formal-native-{}-{}",
             std::process::id(),
@@ -133,10 +140,13 @@ impl Fixture {
             b"state0".to_vec(),
             b"manifest".to_vec(),
         );
+        if let Some(descriptor) = native {
+            native_tests::attach(&mut closed, descriptor);
+        }
         let mut roots = closed.roots.clone();
         roots.remove(&ArtifactRole::Input);
         let body = InitialActivationBodyV1 {
-            schema_version: 1,
+            schema_version: if native.is_some() { 2 } else { 1 },
             authority: definition,
             recovery_policy: policy.clone(),
             initial_state_root: closed.before_state_root.clone(),
@@ -165,8 +175,11 @@ impl Fixture {
             b"state0".to_vec(),
             b"manifest".to_vec(),
         );
+        if let Some(descriptor) = native {
+            native_tests::attach(&mut closed, descriptor);
+        }
         let record = CanonicalRecordV1 {
-            schema_version: 1,
+            schema_version: if native.is_some() { 5 } else { 1 },
             durable_set_transition_digest: None,
             kind: FormalRecordKindV1::InitialActivation,
             world: authority.definition().world.clone(),
@@ -862,7 +875,17 @@ fn native_formal_sealed_index_transfer_preserves_old_context_and_rejects_second_
     assert_eq!(reopened.head().unwrap(), expected);
     // Removing a sealed source object cannot turn an old request into absence.
     let id = reopened.store.lookup(&h(51)).unwrap().unwrap();
-    fs::remove_file(fixture.pdir.join("formal-objects-v1").join(id)).unwrap();
+    let canonical = fixture.pdir.join("formal-objects-v1").join(&id);
+    let actual = if canonical.exists() {
+        canonical
+    } else {
+        fixture
+            .pdir
+            .join("formal-objects-v1")
+            .join(".representation-v1")
+            .join(&id)
+    };
+    fs::remove_file(actual).unwrap();
     assert!(reopened.query(&h(51)).is_err());
 }
 
@@ -978,3 +1001,86 @@ fn marked_shadow_cannot_initialize_a_serving_endpoint() {
 }
 #[path = "endpoint_durable_set_copy_source_tests.rs"]
 mod durable_set_copy_source_tests;
+
+#[test]
+fn native_verification_pin_is_consumed_and_missing_chunks_require_fresh_readback() {
+    use crate::controlled_authority::formal::native_environment::*;
+    let fixture = Fixture::new();
+    let mut endpoint = fixture.endpoint(EndpointRole::Primary);
+    let bytes = vec![17; 32 * 1024];
+    let digest = blake3::hash(&bytes).to_hex().to_string();
+    let descriptor = NativeExecutionEnvironmentV1 {
+        schema_version: 1,
+        target: "test-linux".into(),
+        os: "linux".into(),
+        arch: "test".into(),
+        components: [
+            NativeEnvironmentRole::Executable,
+            NativeEnvironmentRole::BuildMetadata,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, role)| NativeEnvironmentComponentV1 {
+            role,
+            name: format!("part-{index}"),
+            byte_len: bytes.len() as u64,
+            content_digest: digest.clone(),
+            chunks: vec![NativeEnvironmentChunkV1 {
+                digest: digest.clone(),
+                byte_len: bytes.len() as u32,
+            }],
+        })
+        .collect(),
+    };
+    endpoint
+        .stage_native_environment(
+            &descriptor,
+            &[NativeEnvironmentChunkBytesV1 {
+                digest: digest.clone(),
+                bytes,
+            }],
+        )
+        .unwrap();
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .unwrap()
+            .complete
+    );
+    let directory = fixture.pdir.join("formal-objects-v1");
+    assert!(crate::controlled_authority::formal::physical::pin(&directory, true).is_err());
+    let mut material = fixture.initial.material.clone();
+    let encoded = descriptor.encode().unwrap();
+    let id = descriptor.digest().unwrap();
+    material
+        .roots
+        .insert(ArtifactRole::NativeExecutionEnvironment, id.clone());
+    material.objects.push(ArtifactObject {
+        content_hash: id,
+        bytes: encoded,
+        references: vec![],
+    });
+    drop(endpoint.take_native_environment(&material).unwrap());
+    assert!(
+        crate::controlled_authority::formal::physical::pin(&directory, true)
+            .unwrap()
+            .is_some()
+    );
+    assert!(endpoint.take_native_environment(&material).is_err());
+    for path in [
+        directory.join(&digest),
+        directory.join(".representation-v1").join(&digest),
+    ] {
+        if path.exists() {
+            fs::remove_file(path).unwrap();
+        }
+    }
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .is_err()
+    );
+}
+
+#[path = "endpoint_native_environment_tests.rs"]
+mod native_tests;

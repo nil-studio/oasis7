@@ -140,18 +140,9 @@ pub(super) mod fencing {
     }
 }
 
-fn recv<T: serde::de::DeserializeOwned>(stream: &mut TcpStream) -> Result<T, ()> {
-    use std::io::Read;
-    let mut len = [0; 4];
-    stream.read_exact(&mut len).map_err(|_| ())?;
-    let len = u32::from_be_bytes(len) as usize;
-    if len == 0 || len > 1024 * 1024 {
-        return Err(());
-    }
-    let mut bytes = vec![0; len];
-    stream.read_exact(&mut bytes).map_err(|_| ())?;
-    serde_cbor::from_slice(&bytes).map_err(|_| ())
-}
+#[path = "../../../../oasis7_distfs/src/controlled_authority/formal/endpoint_test_oracle_frame.rs"]
+mod oracle_frame;
+use oracle_frame::recv;
 
 fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<(), ()> {
     use std::io::Write;

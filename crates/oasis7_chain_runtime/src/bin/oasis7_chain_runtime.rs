@@ -121,6 +121,8 @@ mod main_token_submit_api;
 mod membership_cli;
 #[path = "oasis7_chain_runtime/module_release_attestation_submit_api.rs"]
 mod module_release_attestation_submit_api;
+#[path = "oasis7_chain_runtime/native_environment_capture.rs"]
+mod native_environment_capture;
 #[path = "oasis7_chain_runtime/node_keypair_config.rs"]
 mod node_keypair_config;
 #[path = "oasis7_chain_runtime/node_lifecycle.rs"]

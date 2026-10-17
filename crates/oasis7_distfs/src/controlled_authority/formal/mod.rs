@@ -3,6 +3,7 @@
 mod activation;
 mod crypto;
 mod frozen;
+mod maintenance_encoding;
 mod proof;
 mod record;
 mod recovery;
@@ -24,7 +25,9 @@ mod tests;
 pub mod business_index;
 pub mod business_material;
 mod business_pack;
+mod physical;
 pub use business_material::*;
+pub use physical::FormalPhysicalReclaimReport;
 
 pub mod business_history;
 pub use business_history::*;
@@ -44,4 +47,15 @@ mod durable_set_bootstrap;
 pub use durable_set_bootstrap::*;
 
 mod storage_shadow;
-pub use storage_shadow::{FormalStorageShadowReport, build_formal_storage_shadow};
+pub use storage_shadow::{
+    FormalStorageShadowOptions, FormalStorageShadowProgress, FormalStorageShadowReport,
+    advance_formal_storage_shadow, build_formal_storage_shadow,
+    build_formal_storage_shadow_optimized, build_formal_storage_shadow_with_options,
+};
+
+pub mod native_environment;
+pub use native_environment::{
+    NativeEnvironmentChunkBytesV1, NativeEnvironmentVerificationProgressV1,
+};
+
+pub use oasis7_formal_protocol::native_environment as native_environment_protocol;

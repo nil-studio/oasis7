@@ -239,7 +239,8 @@ pub fn verify_formal_candidate(
                 .initial
                 .as_ref()
                 .ok_or_else(|| invalid("initial formal proof missing initial authorization"))?;
-            if record.parent_record_id != record.world.genesis_head()?.record_id
+            if (initial.schema_version == 2) != (record.schema_version == 5)
+                || record.parent_record_id != record.world.genesis_head()?.record_id
                 || record.before_state_root != initial.initial_state_root
                 || record.after_state_root != initial.initial_state_root
                 || record.runtime_manifest_digest != initial.runtime_manifest_digest
@@ -262,7 +263,8 @@ pub fn verify_formal_candidate(
             }
         }
         (FormalRecordKindV1::Execution, Some(parent)) => {
-            if parent.record.world != record.world
+            if (parent.record.schema_version >= 5 && record.schema_version < 5)
+                || parent.record.world != record.world
                 || parent.record.position.checked_add(1) != Some(record.position)
                 || parent.head().record_id != record.parent_record_id
                 || parent.record.after_state_root != record.before_state_root
@@ -272,6 +274,10 @@ pub fn verify_formal_candidate(
             }
             if branch == FormalCompletionBranchV1::Normal {
                 verify_normal_parent_continuity(authority, parent, record.position)?;
+            }
+            if parent.record.artifact_roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment)
+                != record.artifact_roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment) {
+                return Err(invalid("native execution environment cannot change without upgrade protocol"));
             }
             let frozen =
                 frozen.ok_or_else(|| invalid("formal execution missing original frozen proof"))?;

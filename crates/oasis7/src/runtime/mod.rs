@@ -53,6 +53,12 @@ mod rules;
 mod segmenter;
 mod signer;
 mod snapshot;
+mod snapshot_delta;
+pub use snapshot_delta::{
+    MAX_SNAPSHOT_CHAIN_BYTES, MAX_SNAPSHOT_DELTA_BYTES, MAX_SNAPSHOT_DELTA_DEPTH,
+    SnapshotArtifactV1, SnapshotDeltaV1, resolve_snapshot_artifact,
+    resolve_snapshot_artifact_with_depth,
+};
 mod state;
 mod types;
 mod util;

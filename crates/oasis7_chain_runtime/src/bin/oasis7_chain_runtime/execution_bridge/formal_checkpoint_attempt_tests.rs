@@ -199,7 +199,7 @@ fn formal_profile2_checkpoint_boundary_case() {
         .map(|action| action.payload_cbor.len())
         .sum();
 
-    let (frozen_body, frozen_material) = freeze_material_with_business(
+    let (frozen_body, frozen_material) = freeze_material_from_parent(
         parent.authority(),
         parent.head(),
         &original,
@@ -207,8 +207,11 @@ fn formal_profile2_checkpoint_boundary_case() {
         &release,
         initial_business.tree,
         initial_proof,
+        None,
+        &initial.material,
     )
     .unwrap();
+    assert_eq!(frozen_body.schema_version, 2);
     let frozen = SignedFormalFrozenV1 {
         signature_hex: fixtures::sign(frozen_signing_bytes(&frozen_body).unwrap(), 4),
         body: frozen_body,
@@ -257,6 +260,11 @@ fn formal_profile2_checkpoint_boundary_case() {
     .unwrap();
     let after_snapshot: oasis7::runtime::Snapshot =
         capture::decode_role(&candidate.material, ArtifactRole::Snapshot).unwrap();
+    assert_eq!(candidate.candidate.record.schema_version, 3);
+    assert_eq!(
+        blake3_hex(&candidate.material.snapshot_bytes().unwrap()),
+        candidate.candidate.record.after_state_root
+    );
     assert!(
         after_snapshot.tick_consensus_archived_record_count > 0,
         "height-32 fixture must carry an archived Tick prefix"
@@ -265,6 +273,7 @@ fn formal_profile2_checkpoint_boundary_case() {
         super::super::super::formal_business_package::envelope(&candidate.material, true)
             .unwrap()
             .unwrap();
+    assert_eq!(result_envelope.delta.schema_version, 2);
     assert!(
         result_envelope
             .retained_history_delta

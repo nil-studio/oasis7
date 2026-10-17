@@ -38,6 +38,10 @@ fn sync_directory(path: &Path) -> Result<(), FormalError> {
         .map_err(io)
 }
 fn names(directory: &Path) -> Result<Vec<String>, FormalError> {
+    if super::physical::enabled(directory)? {
+        super::physical::roots::verify(directory)?;
+        return super::physical::logical_ids(directory).map(|ids| ids.into_iter().collect());
+    }
     let mut names = Vec::new();
     for entry in fs::read_dir(directory).map_err(io)? {
         let entry = entry.map_err(io)?;
@@ -52,6 +56,18 @@ fn names(directory: &Path) -> Result<Vec<String>, FormalError> {
                     "shadow source has pending staging; recover source first",
                 ));
             }
+            continue;
+        }
+        if matches!(name.as_str(), ".representation-v1" | ".frames-v1") {
+            regular_directory(&entry.path())?;
+            continue;
+        }
+        if name == ".physical-write-v1" {
+            super::physical::enabled(directory)?;
+            continue;
+        }
+        if name == ".physical-guard-v1" {
+            let _pin = super::physical::pin(directory, false)?;
             continue;
         }
         let metadata = fs::symlink_metadata(entry.path()).map_err(io)?;
@@ -101,6 +117,23 @@ pub fn build_formal_storage_shadow(
     destination: &Path,
 ) -> Result<FormalStorageShadowReport, FormalError> {
     build_with_limit(source_endpoint, destination, MAX_LOGICAL_BYTES)
+}
+#[path = "storage_shadow_resume.rs"]
+mod resume;
+#[path = "storage_shadow_stream.rs"]
+mod stream;
+pub use resume::{FormalStorageShadowProgress, advance_formal_storage_shadow};
+pub use stream::{FormalStorageShadowOptions, build_formal_storage_shadow_with_options};
+/// Streaming fresh-world codec shadow; source and output remain non-activating.
+pub fn build_formal_storage_shadow_optimized(
+    source_endpoint: &Path,
+    destination: &Path,
+) -> Result<FormalStorageShadowReport, FormalError> {
+    build_formal_storage_shadow_with_options(
+        source_endpoint,
+        destination,
+        &FormalStorageShadowOptions::default(),
+    )
 }
 fn build_with_limit(
     source_endpoint: &Path,

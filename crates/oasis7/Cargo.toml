@@ -39,6 +39,7 @@ zeroize = "1"
 cap-std = "4"
 cap-fs-ext = "4"
 libc = "0.2"
+oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol" }
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
 oasis7_wasm_executor = { version = "0.1.0", path = "../oasis7_wasm_executor", default-features = false }

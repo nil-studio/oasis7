@@ -10,6 +10,8 @@ mod controlled_live_history;
 mod controlled_live_package;
 mod driver_startup_recovery;
 mod execution_hash;
+#[cfg(unix)]
+mod formal_attempt_lifecycle;
 mod formal_business_package;
 #[cfg(all(test, unix))]
 pub(crate) mod formal_crash_test_boundary;
@@ -19,9 +21,11 @@ mod formal_execution_timing;
 #[cfg(unix)]
 mod formal_executor;
 pub(crate) mod formal_initial;
+pub(crate) mod formal_native_environment;
 #[cfg(unix)]
 pub(crate) mod formal_node_hook;
 pub(crate) mod formal_package;
+pub(crate) mod formal_snapshot;
 #[cfg(unix)]
 pub(crate) mod formal_writer;
 mod product_validation_intent;

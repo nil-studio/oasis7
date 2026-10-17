@@ -16,6 +16,7 @@ impl Store {
     ) -> Result<(), FormalError> {
         let directory = self.path.join("formal-objects-v1");
         let mut small = Vec::new();
+        let writer = super::super::super::physical::publication_guard(&directory)?;
         for write in writes {
             hash_hex(&write.digest)?;
             if blake3::hash(&write.bytes).to_hex().as_str() != write.digest {
@@ -34,20 +35,44 @@ impl Store {
                 if existing != write.bytes {
                     return Err(invalid("closed immutable artifact CAS changed"));
                 }
-                let mut options = OpenOptions::new();
-                options.read(true);
-                #[cfg(unix)]
-                options.custom_flags(libc::O_NOFOLLOW);
-                options.open(&path).map_err(io)?.sync_all().map_err(io)?;
+                super::super::super::business_pack::read_object_durable(&path, &write.digest)?
+                    .ok_or_else(|| invalid("closed artifact lost durable logical locator"))?;
                 sync(&directory)?;
             } else {
-                Self::atomic(&directory, &path, &write.bytes)?;
+                if !super::super::super::physical::persist_guarded(
+                    &directory,
+                    &[(write.digest.clone(), write.bytes.clone())],
+                    &writer,
+                )? {
+                    Self::atomic(&directory, &path, &write.bytes)?;
+                }
             }
         }
+        if super::super::super::physical::enabled(&directory)? {
+            let large = writes
+                .iter()
+                .filter(|write| {
+                    write.bytes.is_empty()
+                        || write.bytes.len() as u64
+                            > super::super::super::business_pack::MAX_PACK_NODE
+                })
+                .map(|write| write.digest.clone())
+                .collect::<Vec<_>>();
+            super::super::super::physical::roots::retain(&directory, &large)?;
+        }
+        drop(writer);
         self.persist_business_nodes(&small)
     }
     pub fn local_object_exists(&self, id: &str) -> bool {
-        self.path.join("formal-objects-v1").join(id).is_file()
+        let path = self.path.join("formal-objects-v1").join(id);
+        // Corrupt selected material is present and must fail verification,
+        // never trigger an unauthenticated absence fallback.
+        super::super::super::physical::selected_path(&path, id).map_or(true, |path| {
+            path.is_file()
+                || path
+                    .parent()
+                    .is_some_and(|root| root.join(".representation-v1").join(id).is_file())
+        })
     }
     pub(crate) fn lookup_from_root(
         root: Option<&str>,

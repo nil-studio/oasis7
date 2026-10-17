@@ -6373,6 +6373,7 @@ dependencies = [
  "oasis7_client_api",
  "oasis7_client_storage",
  "oasis7_distfs",
+ "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_hosted_access",
  "oasis7_model_provider",
@@ -6461,6 +6462,7 @@ dependencies = [
  "oasis7_agent_harness",
  "oasis7_client_api",
  "oasis7_distfs",
+ "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_node",
  "oasis7_proto",
@@ -6603,6 +6605,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "sha2 0.11.0",
+ "zstd",
 ]
 
 [[package]]

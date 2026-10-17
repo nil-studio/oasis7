@@ -314,6 +314,8 @@ impl FileFormalEndpoint {
             provider,
             parent,
             poisoned: false,
+            native_environment_jobs: std::collections::BTreeMap::new(),
+            published_closure_jobs: std::collections::BTreeMap::new(),
             #[cfg(test)]
             controlled: false,
         };

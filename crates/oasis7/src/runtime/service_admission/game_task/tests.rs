@@ -811,8 +811,46 @@ fn goal_snapshot(world: &World) -> crate::runtime::Snapshot {
 #[path = "tests/executor.rs"]
 mod executor_tests;
 
+#[derive(Clone, Default)]
+struct TaskHistoryNodes(std::sync::Arc<std::sync::Mutex<BTreeMap<String, Vec<u8>>>>);
+impl oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader
+    for TaskHistoryNodes
+{
+    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.0.lock().unwrap().get(digest).cloned())
+    }
+}
+fn archive_task_history(world: &mut World) -> TaskHistoryNodes {
+    let nodes = TaskHistoryNodes::default();
+    let parent = crate::runtime::VerifiedFormalRetainedHistoryParentV1::for_test_snapshot(
+        world.state().retained_history_root.clone().unwrap(),
+        &serde_cbor::to_vec(&world.snapshot()).unwrap(),
+    );
+    world
+        .attach_verified_formal_history(parent, std::sync::Arc::new(nodes.clone()))
+        .unwrap();
+    let plan = world.prepare_formal_retention_candidate().unwrap();
+    let delta = plan.delta.as_ref().unwrap();
+    for node in &delta.node_writes {
+        nodes
+            .0
+            .lock()
+            .unwrap()
+            .insert(node.digest.clone(), node.bytes.clone());
+    }
+    world.apply_formal_retention_plan(&plan).unwrap();
+    let parent = crate::runtime::VerifiedFormalRetainedHistoryParentV1::for_test_snapshot(
+        world.state().retained_history_root.clone().unwrap(),
+        &serde_cbor::to_vec(&world.snapshot()).unwrap(),
+    );
+    world
+        .attach_verified_formal_history(parent, std::sync::Arc::new(nodes.clone()))
+        .unwrap();
+    nodes
+}
+
 #[test]
-fn game_goal_retention_overflow_preserves_revision_chain_and_fails_closed() {
+fn game_goal_cold_revision_chain_restores_and_accepts_next_publication() {
     let (mut world, private) = fixture_with_formal_history(true);
     let create = result(&world, request(&private, "retention-task"));
     world.record_world_service_result(create).unwrap();
@@ -830,15 +868,50 @@ fn game_goal_retention_overflow_preserves_revision_chain_and_fails_closed() {
         [&current_control(&world, "agent").unwrap().unwrap().task_id]
         .control
         .clone();
-    let before = world.snapshot();
-    let error = world.prepare_formal_retention_candidate().unwrap_err();
-    assert!(error.contains("WorldService history cannot fit the hot count/byte budget"));
-    assert_eq!(world.snapshot(), before);
-    // Read the exact still-hot chain: no predecessor may disappear on refusal.
-    let hot = super::super::retained_queries::hot_results(&world).unwrap();
-    let reduced = reduce(hot.into_values().collect()).unwrap();
-    assert_eq!(reduced[&expected.task_id].control, expected);
-    assert_eq!(expected.latest_goal_revision.0, 40);
+    let nodes = archive_task_history(&mut world);
+    assert!(
+        world
+            .capability_revocation_state()
+            .world_service_results
+            .len()
+            < 41
+    );
+    assert_eq!(current_control(&world, "agent").unwrap().unwrap(), expected);
+    let parent = crate::runtime::VerifiedFormalRetainedHistoryParentV1::for_test_snapshot(
+        world.state().retained_history_root.clone().unwrap(),
+        &serde_cbor::to_vec(&world.snapshot()).unwrap(),
+    );
+    let mut restored = World::from_verified_formal_snapshot(
+        world.snapshot(),
+        world.journal().clone(),
+        parent,
+        std::sync::Arc::new(nodes.clone()),
+    )
+    .unwrap();
+    assert_eq!(
+        current_control(&restored, "agent").unwrap().unwrap(),
+        expected
+    );
+    let next = goal_result(
+        &restored,
+        goal_request(&private, &expected, "after-cold"),
+        &[],
+        43,
+    );
+    restored.record_world_service_result(next).unwrap();
+    assert_eq!(
+        current_control(&restored, "agent")
+            .unwrap()
+            .unwrap()
+            .latest_goal_revision
+            .0,
+        41
+    );
+    nodes.0.lock().unwrap().clear();
+    assert!(
+        current_control(&world, "agent").is_err(),
+        "missing cold history must fail closed"
+    );
 }
 
 #[test]

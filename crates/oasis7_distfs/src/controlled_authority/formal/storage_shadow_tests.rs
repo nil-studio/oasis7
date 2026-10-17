@@ -193,3 +193,94 @@ fn shadow_bounded_batches_keep_all_objects_across_multiple_packs() {
     }
     assert_eq!(inodes.len(), 2);
 }
+
+#[test]
+fn streamed_shadow_codecs_preserve_bytes_source_and_shadow_refusal_marker() {
+    for optimized in [false, true] {
+        let fixture = Fixture::new();
+        let mut expected = Vec::new();
+        for value in 0u64..1100 {
+            let mut bytes = vec![7; 5000];
+            bytes[..8].copy_from_slice(&value.to_be_bytes());
+            expected.push((fixture.raw(&bytes), bytes));
+        }
+        let report = build_formal_storage_shadow_with_options(
+            &fixture.source,
+            &fixture.target,
+            &FormalStorageShadowOptions {
+                optimized,
+                max_logical_bytes: 8 * 1024 * 1024,
+            },
+        )
+        .unwrap();
+        assert_eq!(report.verified_objects, 1100);
+        assert!(fixture.target.join(SHADOW_MARKER).is_file());
+        for (id, bytes) in expected {
+            assert_eq!(
+                business_pack::read_object(
+                    &fixture.source.join("formal-objects-v1").join(&id),
+                    &id
+                )
+                .unwrap()
+                .unwrap(),
+                bytes
+            );
+            assert_eq!(
+                business_pack::read_object(&fixture.target.join(id.clone()), &id)
+                    .unwrap()
+                    .unwrap(),
+                bytes
+            );
+        }
+    }
+}
+
+#[test]
+fn shadow_resumes_bounded_steps_and_rejects_source_changes() {
+    let fixture = Fixture::new();
+    for id in 0u8..5 {
+        fixture.raw(&vec![id; 10000]);
+    }
+    let options = FormalStorageShadowOptions {
+        optimized: true,
+        max_logical_bytes: 1,
+    };
+    let first = advance_formal_storage_shadow(&fixture.source, &fixture.target, &options).unwrap();
+    assert!(!first.complete);
+    assert_eq!(first.processed_records, 1);
+    let mut result = None;
+    // Separate copy and independent verification passes each advance one
+    // object under this deliberately tiny step budget.
+    for _ in 0..20 {
+        let progress =
+            advance_formal_storage_shadow(&fixture.source, &fixture.target, &options).unwrap();
+        if progress.complete {
+            result = progress.report;
+            break;
+        }
+    }
+    assert_eq!(result.unwrap().verified_objects, 5);
+    assert!(
+        advance_formal_storage_shadow(&fixture.source, &fixture.target, &options)
+            .unwrap()
+            .complete
+    );
+    let changed = Fixture::new();
+    for id in 0u8..5 {
+        changed.raw(&vec![id; 10000]);
+    }
+    assert!(
+        !advance_formal_storage_shadow(&changed.source, &changed.target, &options)
+            .unwrap()
+            .complete
+    );
+    let extra = changed.raw(b"new object after captured immutable source cut");
+    assert!(advance_formal_storage_shadow(&changed.source, &changed.target, &options).is_err());
+    assert!(
+        changed
+            .source
+            .join("formal-objects-v1")
+            .join(extra)
+            .exists()
+    );
+}

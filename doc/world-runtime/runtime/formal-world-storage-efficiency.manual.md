@@ -56,7 +56,32 @@ env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --example formal_storag
 
 必须将全部原对象逐个读回并比较精确 bytes；每次逻辑读取继续校验原 hash。源中未知文件、symlink、非空 staging 或不完整物理盘点都会拒绝，不能跳过 pending 材料来扩大容量收益。输出 JSON 分列原逻辑 bytes、对象数量和源/目标物理盘点；以 allocated_bytes 比较该**对象命名空间**的候选占用。目标 hardlink 的按路径 apparent_bytes 会重复计整个 pack，不代表逻辑内容增长；源/目标保留同一逻辑对象，不能从总磁盘增量推算已释放量。
 
-源文件和 checkpoint 始终保留，目标既有内容绝不覆盖；任何失败都保留源及可能不完整的目标。写入任何对象前先创建并同步 `.shadow-only` 标志；初始化阶段失败可能仅留下空目录。目标只包含对象及打包元数据，不复制 checkpoint、authority 或 generation selector，**不能作为 endpoint 启动或视为可激活的完整恢复 generation**；当前 endpoint open 在创建 checkpoint 前拒绝任何带此标志的目录。成功仅证明该命名空间的全对象精确读回；不证明 typed 全世界闭包、独立故障域、运行时恢复续跑或新 codec。原子激活、旧 reader/rollback capability、迁移恢复、压缩/分块与回收仍需独立实现和验收；本入口不执行这些动作，也不删除源来获得净释放。失败重试使用另一个新目标；清理明确归属的验证输出按仓库交付规则执行。
+源文件和 checkpoint 始终保留，目标既有内容绝不覆盖；任何失败都保留源及可能不完整的目标。写入任何对象前先创建并同步 `.shadow-only` 标志；初始化阶段失败可能仅留下空目录。目标只包含对象及打包元数据，不复制 checkpoint、authority 或 generation selector，**不能作为 endpoint 启动或视为可激活的完整恢复 generation**；endpoint open 在创建 checkpoint 前拒绝任何带此标志的目录。成功仅证明该命名空间的全对象精确读回；不证明 typed 全世界闭包、独立故障域或运行时恢复续跑。此一次性入口不激活、不回收源；失败重试使用另一个新目标。
+
+### 压缩 shadow 与分批续传
+
+新 codec 的离线对照使用 `--optimized`。大历史使用 `--resume`，在源保持停止且不变时重复**同一命令和目标**：
+
+```bash
+env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --example formal_storage_shadow -- \
+  /absolute/source-endpoint /absolute/new-shadow-directory --optimized --resume
+```
+
+每次调用仅推进有界 copy 或 verify 步骤；退出码 0 且 `complete:false` 表示本页成功，**不表示整个 shadow 已完成**。保存 JSON 的 phase、processed_records、total_records，直到 `complete:true` 并取得最终 report；独立 verify 结束前不报全对象读回成功。原始 v1 pack 对照可用同一命令去掉 `--optimized`，两种表示使用不同目标。源 checkpoint、registry、generation、目录身份或 codec 参数变化会拒绝续原操作，不能删源或改游标绕过；私有 catalog 及 `.shadow-only` 在中断期间保留。
+
+### 正式物理代与 attempt 维护
+
+受控端点持有原实例/provider 后，维护调用 `FileFormalEndpoint::advance_physical_generation()`，每次只推进一批，直到 `building:false`。记录每页 selected、copied_objects、total_objects 和前后物理盘点；中断后使用同一正式端点及实例重开续原事务。读 pin、未完成独立闭包核对或未知 selector 会阻止相应退休，不能替换稳定 guard inode、强删 BUILD 或手工切 CURRENT。仅复制 shadow 到 serving 路径不构成这种事务。
+
+`collect_physical_orphans()` 是另一个带 typed-mark 预算的受控入口；超预算只保留，不声称已经清空 orphan。正式 generation 保留全部已登记逻辑对象，分页移除旧代及不再被 overlay 引用的帧；不把历史阶段状态视作垃圾。已知 publication staging 需在完整预检及同一 retire fence 内清理，未知项停止整个相应 sweep。
+
+attempt 回收由真实 Published envelope、P/R 分别读取的完整原闭包及精确替代清单共同决定。Node 空闲轮询和业务完成只推进有界维护页，pending/unknown 不改变业务已提交结果，也不能删除原输出。端点重启后丢弃失去内核 pin 的读回进度，重新验证；完成删除后才释放 P/R 维护 pin。容量报告须列出仍未释放的 attempt 和独有材料。
+
+### 新世界的原 native 环境
+
+新世界的生产 `world init prepare` 入口要求初始化配置 `schema_version:2`：准备批准时绑定原 descriptor，激活时再次匹配且向两个端点各自 stage/verify，之后的新 Frozen 延续同一环境 root。配置 schema 1 仅用于解读或继续此前已准备的原请求，不能用来新建缺 native 闭包的世界；旧 quote/activate 不改原请求身份。
+
+当前捕获入口支持具备完整可读 loaded-file 闭包的 Linux；macOS dyld shared-cache 缺完整原文件时返回 Unavailable。不要替换成仅 executable digest、测试描述符或另一环境来取得批准。构建 target/features/toolchain/Cargo.lock 原 bytes、原 executable 与依赖 chunk 均纳入归档和 full sync；当前二进制或依赖不等于原环境时拒绝重演，按原环境工件恢复。原请求 stage/verify 中断可幂等重试，尚未完成不授予 Frozen 资格。
 
 
 **输入**：包含 raw、旧 business pack、阶段外壳、candidate/frozen、大小对象、CBOR 整数数组 artifact、snapshot/module 的固定 corpus；另有不同授权范围的两个读者。

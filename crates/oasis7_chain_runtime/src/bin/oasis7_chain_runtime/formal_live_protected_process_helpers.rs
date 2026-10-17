@@ -232,6 +232,11 @@ pub(super) fn fresh_request_result(
     Ok(Some(result))
 }
 
+// Volatile admission has no execution SLO: a request can arrive during an
+// already-running Tick and then require its own Tick. Long history fixtures
+// share this observation bound and retain their separate total scenario bound.
+pub(super) const LONG_HISTORY_REQUEST_WAIT: Duration = Duration::from_secs(120);
+
 pub(super) fn wait_for_new_request_result(
     runtime: &FormalLiveRuntime,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,

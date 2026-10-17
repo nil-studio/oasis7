@@ -488,6 +488,9 @@ pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
     package: &ClosedRecord,
     role: ArtifactRole,
 ) -> Result<T, String> {
+    if role == ArtifactRole::Snapshot {
+        return decode_generic(&super::formal_snapshot::bytes(package)?);
+    }
     let reference = package.roots.get(&role).ok_or("capture role unavailable")?;
     decode_generic(object(package, reference)?)
 }

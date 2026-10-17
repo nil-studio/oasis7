@@ -170,6 +170,16 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             .authority()
             .authority_id()
             .map_err(|e| e.to_string())?;
+        if let Some(environment) =
+            super::super::formal_native_environment::descriptor(&pending.material)?
+        {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::super::formal_native_environment::verify_registered(
+                primary,
+                replica,
+                &environment,
+            )?;
+        }
         if pending.original.body.authority_id != active {
             let recovery = self
                 .recovery
@@ -217,6 +227,16 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             .authority()
             .authority_id()
             .map_err(|e| e.to_string())?;
+        if let Some(environment) =
+            super::super::formal_native_environment::descriptor(&pending.material)?
+        {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::super::formal_native_environment::verify_registered(
+                primary,
+                replica,
+                &environment,
+            )?;
+        }
         let recovery = self
             .recovery
             .as_ref()
