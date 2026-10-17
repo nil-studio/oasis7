@@ -44,7 +44,8 @@ class PlannerTests(unittest.TestCase):
     def run_plan(self, **kw):
         args = dict(repo_root=str(self.root), policy=str(HERE / 'codeql-policy.json'), base=self.base,
                     head=self.git('rev-parse', 'HEAD'), checkout=None, mode='observe', event='pull_request',
-                    default_branch='main', profile='default', full=False, pr_number=3, max_slots=2)
+                    default_branch='main', profile='default', full=False, pr_number=3, max_slots=2,
+                    batch_modes=json.dumps({u + '/' + p: 'observe' if p == 'default' else 'baseline' for u, _ in planner.UNITS for p in ('default', 'extended')}))
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
@@ -106,7 +107,17 @@ class PlannerTests(unittest.TestCase):
         self.base = self.git('rev-parse', 'HEAD')
         self.write('build.rs', 'fn main() {}'); self.base = self.commit()
         self.write('web/data.json', '{}'); self.commit()
-        self.assertEqual(len(self.run_plan()['selected_units']), 4)
+        with self.assertRaisesRegex(ValueError, 'unregistered input'): self.run_plan()
+
+    def test_possible_rust_consumption_does_not_register_unknown_paths(self):
+        self.write('build.rs', 'fn main() {}')
+        self.write('web/app.js', 'import data from "./data.json";')
+        self.base = self.commit()
+        for path in ('new.config', 'web/data.json'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'): self.run_plan()
 
     def test_CQ_T13_build_script_text_and_unknown_inputs(self):
         self.write('build.rs', 'fn main() { std::fs::read_to_string("docs/generated.txt").unwrap(); }')
@@ -150,7 +161,7 @@ class PlannerTests(unittest.TestCase):
         self.write('a.py'); self.commit()
         self.assertEqual(self.run_plan(mode='off')['status'], 'disabled')
         self.assertEqual(self.run_plan(mode='baseline')['status'], 'disabled')
-        result = self.run_plan(profile='extended', max_slots=1)
+        result = self.run_plan(profile='extended', max_slots=1, event='schedule')
         row = result['matrix']['include'][0]
         self.assertEqual(row['category'], 'oasis7/python-repo/extended')
         self.assertEqual(row['queries'], 'security-extended')
@@ -159,9 +170,56 @@ class PlannerTests(unittest.TestCase):
 
     def test_unknown_and_symlink_fail_closed(self):
         self.write('new.config'); self.commit()
-        self.assertEqual(len(self.run_plan()['selected_units']), 4)
+        with self.assertRaisesRegex(ValueError, 'unregistered input'): self.run_plan()
+        self.base = self.git('rev-parse', 'HEAD')
         (self.root / 'link.py').symlink_to('/outside'); self.commit()
         with self.assertRaisesRegex(ValueError, 'symbolic link'): self.run_plan()
+
+    def test_batches_default_disabled_and_single_trial(self):
+        self.write("tools/a.py"); self.commit()
+        result = self.run_plan(batch_modes="{}")
+        self.assertEqual(result["status"], "disabled")
+        self.assertEqual(result["candidate_units"], ["python-repo"])
+        self.assertEqual(result["not_selected_reasons"]["python-repo"], "batch_disabled")
+        config = json.dumps({"python-repo/default": "baseline"})
+        self.assertEqual(self.run_plan(batch_modes=config)["status"], "disabled")
+        result = self.run_plan(batch_modes=config, mode="baseline", event="workflow_dispatch", full=True)
+        self.assertEqual(result["selected_units"], ["python-repo"])
+        self.assertEqual(result["batch_modes"], {"python-repo/default": "baseline"})
+        self.assertNotIn("accepted", result)
+        self.assertEqual(result["matrix"]["include"][0]["category"], "oasis7/python-repo/default")
+
+    def test_cli_missing_batch_option_defaults_to_no_scans(self):
+        self.write("tools/a.py"); head = self.commit()
+        output = self.root / "plan-output.json"
+        result = subprocess.run(['python3', str(HERE / 'codeql-plan.py'), '--repo-root', str(self.root),
+            '--policy', str(HERE / 'codeql-policy.json'), '--base', self.base, '--head', head,
+            '--output', str(output), '--mode', 'baseline', '--event', 'workflow_dispatch', '--full'],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(output.read_text())
+        self.assertEqual(value['batch_modes'], {})
+        self.assertEqual(value['status'], 'disabled')
+        self.assertEqual(value['matrix']['include'], [])
+
+    def test_batches_global_ceiling_profiles_and_config_routing(self):
+        self.write("scripts/security/config.py"); self.commit()
+        config = json.dumps({"python-repo/default": "observe", "rust-repo/default": "baseline", "python-repo/extended": "baseline"})
+        result = self.run_plan(batch_modes=config)
+        self.assertEqual(len(result["candidate_units"]), 4)
+        self.assertEqual(result["selected_units"], ["python-repo"])
+        self.assertEqual(result["not_selected_reasons"]["rust-repo"], "pr_baseline_only")
+        self.assertEqual(self.run_plan(batch_modes=config, mode="off")["selected_units"], [])
+        self.assertEqual(self.run_plan(batch_modes=config, mode="baseline")["selected_units"], [])
+        result = self.run_plan(batch_modes=config, event="schedule", profile="extended", full=True)
+        self.assertEqual(result["selected_units"], ["python-repo"])
+        self.assertEqual(result["matrix"]["include"][0]["queries"], "security-extended")
+
+    def test_batch_configuration_rejects_untrusted_shapes(self):
+        for config in ("[]", "null", "{", "{\"python-repo/default\":\"observe\",\"python-repo/default\":\"baseline\"}",
+                       json.dumps({"unknown/default": "baseline"}), json.dumps({"python-repo/default": True}),
+                       json.dumps({"python-repo/extended": "observe"}), json.dumps({"python-repo/default": "off"})):
+            with self.subTest(config=config), self.assertRaises(ValueError): self.run_plan(batch_modes=config)
 
     def test_dynamic_include_and_invalid_cli_configuration(self):
         self.write('src/lib.rs', 'include_bytes!(concat!(env!("OUT_DIR"), "/data"));')
