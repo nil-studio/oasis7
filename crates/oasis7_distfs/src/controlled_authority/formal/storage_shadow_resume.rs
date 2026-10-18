@@ -263,10 +263,10 @@ pub fn advance_formal_storage_shadow(
     options_open.read(true).write(true);
     #[cfg(unix)]
     options_open.custom_flags(libc::O_NOFOLLOW);
-    let lease = options_open.open(lock).map_err(io)?;
-    lease
-        .try_lock()
-        .map_err(|_| invalid("resumable shadow source busy"))?;
+    let _lease = SourceLease::acquire(
+        options_open.open(lock).map_err(io)?,
+        invalid("resumable shadow source busy"),
+    )?;
     let parent = destination
         .parent()
         .ok_or_else(|| invalid("resumable shadow destination parent"))?;
