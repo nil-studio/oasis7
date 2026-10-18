@@ -1,11 +1,10 @@
 //! Canonical owner-controlled executor fences; no private input material.
 use super::*;
-use oasis7_agent_api::game::{
-    GAME_EXECUTOR_CONTROL_DOMAIN, GameExecutorBindingV1, GameExecutorControlV1,
-    GameExecutorOperationV1, GameTaskFenceV1,
-};
+use oasis7_agent_api::game::{GameExecutorControlV1, GameExecutorOperationV1, GameTaskFenceV1};
 
-pub use oasis7_client_api::legacy_task_results::{ExecutorReceipt, verify_executor_control, executor_receipt, strong_key};
+pub use oasis7_client_api::legacy_task_results::{
+    ExecutorReceipt, executor_receipt, strong_key, verify_executor_control,
+};
 pub fn validate_executor_owner(
     world: &World,
     signed: &SignedReadRequest<GameExecutorControlV1>,

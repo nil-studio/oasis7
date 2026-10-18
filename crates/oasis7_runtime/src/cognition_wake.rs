@@ -1,9 +1,9 @@
 //! Runtime-owned durable continuation lifecycle and transitions.
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use super::cognition::is_canonical_identifier;
 use super::cognition_scheduler::SchedulerWakeV1;
 pub use oasis7_agent_api::legacy_scheduler::*;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 const MAX_ID_BYTES: usize = 128;
 const CONTINUATION_SCHEMA: &str = "agent-continuation.v1";
 const CONTINUATION_STATUS_DIGEST_DOMAIN: &str = "oasis7.cognition.continuation-status.v1";

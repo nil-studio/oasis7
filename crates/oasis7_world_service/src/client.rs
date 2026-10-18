@@ -9,7 +9,9 @@ pub use oasis7_game_client::{WorldServiceClientError, WorldServiceQueryState};
 use serde_json::Value;
 /// Compatibility projection adapter. Contract, correlation and validation are
 /// owned by API/Game Client; server projection is retained for local World callers.
-pub type ServiceClientProfile = oasis7_game_client::legacy_profile::LegacyClientProfile<crate::projection::WorldServiceProjection>;
+pub type ServiceClientProfile = oasis7_game_client::legacy_profile::LegacyClientProfile<
+    crate::projection::WorldServiceProjection,
+>;
 pub type RemoteWorldServiceClient =
     oasis7_game_client::world_service_client::RemoteWorldServiceClient<ServiceClientProfile>;
 pub trait WorldServicePort {

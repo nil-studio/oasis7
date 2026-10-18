@@ -1,8 +1,8 @@
 //! Pure receipt identities shared by legacy clients and Runtime.
 use crate::legacy_world_service::*;
+use crate::world_service::private_goal::verify_owner_signature_strict;
 use crate::world_service::*;
 use oasis7_agent_api::game::*;
-use crate::world_service::private_goal::verify_owner_signature_strict;
 pub fn create_control(
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<GameTaskControlV1, String> {
@@ -91,8 +91,7 @@ pub fn validate_result(result: &CanonicalIntentResultV1) -> Result<(), String> {
             serde_json::to_value(create_control(&result.request)?).map_err(|e| e.to_string())?,
         ),
         WorldServicePayloadV1::GameExecutorControl(_) => Some(
-            serde_json::to_value(executor_receipt(&result.request)?)
-                .map_err(|e| e.to_string())?,
+            serde_json::to_value(executor_receipt(&result.request)?).map_err(|e| e.to_string())?,
         ),
         WorldServicePayloadV1::GameGoalPublish(_) => Some(
             serde_json::to_value(publish_receipt(&result.request, result.committed_height)?)

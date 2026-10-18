@@ -99,16 +99,18 @@ pub(in crate::viewer::runtime_live) fn provider_cognition_lease_request(
         request.capability_invocation_context_digest.to_string(),
         runtime_binding.base_world_hash.to_string(),
     );
-    Ok(oasis7_agent_api::legacy_economy::CognitionLeaseRequestV1::new(
-        invocation_key,
-        payer_id,
-        request.agent_subject.clone(),
-        request.agent_session_id.clone(),
-        request.agent_turn_id.clone(),
-        request.decision_request_id.clone(),
-        request.request_digest.to_string(),
-        quote,
-    ))
+    Ok(
+        oasis7_agent_api::legacy_economy::CognitionLeaseRequestV1::new(
+            invocation_key,
+            payer_id,
+            request.agent_subject.clone(),
+            request.agent_session_id.clone(),
+            request.agent_turn_id.clone(),
+            request.decision_request_id.clone(),
+            request.request_digest.to_string(),
+            quote,
+        ),
+    )
 }
 
 impl RuntimeLlmSidecar {

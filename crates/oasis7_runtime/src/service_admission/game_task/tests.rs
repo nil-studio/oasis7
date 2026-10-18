@@ -1,5 +1,6 @@
 use super::*;
 use crate::{Action, WorldState};
+use oasis7_agent_api::game::{DecimalU64, GAME_GOAL_PUBLISH_DOMAIN};
 fn fixture() -> (World, String) {
     fixture_with_formal_history(false)
 }

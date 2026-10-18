@@ -6498,9 +6498,7 @@ dependencies = [
  "oasis7_proto",
  "oasis7_wasm_abi",
  "serde",
- "serde_cbor",
  "serde_json",
- "unicode-normalization",
  "zeroize",
 ]
 

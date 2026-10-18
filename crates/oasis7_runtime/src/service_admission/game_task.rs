@@ -1,8 +1,7 @@
 //! Durable owner task bootstrap derived exclusively from canonical intent results.
 use super::*;
 use crate::World;
-use oasis7_agent_api::game::GAME_GOAL_PUBLISH_DOMAIN;
-use oasis7_agent_api::game::{DecimalU64, GAME_TASK_CREATE_DOMAIN, GameTaskStatusV1};
+use oasis7_agent_api::game::{GAME_TASK_CREATE_DOMAIN, GameTaskStatusV1};
 pub use oasis7_agent_api::game::{
     GameGoalPublishV1, GameGoalReferenceV1, GameTaskControlV1, GameTaskCreateV1,
 };
@@ -44,7 +43,7 @@ pub fn validate_owner(
     Ok(())
 }
 
-pub use oasis7_client_api::legacy_task_results::{create_control, verify_publish, publish_receipt};
+pub use oasis7_client_api::legacy_task_results::{create_control, publish_receipt, verify_publish};
 
 pub fn validate_publish_owner(
     world: &World,

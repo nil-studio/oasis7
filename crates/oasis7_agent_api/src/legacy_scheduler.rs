@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-
 use unicode_normalization::UnicodeNormalization;
 
 const WAKE_SCHEMA: &str = "wake-condition.v1";
@@ -761,13 +760,18 @@ pub struct PreconditionSubjectV1 {
     pub id: String,
 }
 
-
 fn is_canonical_identifier(value: &str, max_bytes: usize) -> bool {
-    !value.trim().is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control) && value.nfc().collect::<String>() == value
+    !value.trim().is_empty()
+        && value.len() <= max_bytes
+        && !value.chars().any(char::is_control)
+        && value.nfc().collect::<String>() == value
 }
-fn is_supported_resource_path(path: &str) -> bool { matches!(path, "agent.resource.electricity" | "agent.resource.data") }
+fn is_supported_resource_path(path: &str) -> bool {
+    matches!(path, "agent.resource.electricity" | "agent.resource.data")
+}
 pub fn digest<T: Serialize>(domain: &str, payload: &T) -> String {
-    let bytes = oasis7_wasm_abi::encode_canonical_cbor(&(domain, payload)).expect("cognition identity payload must be canonicalizable");
+    let bytes = oasis7_wasm_abi::encode_canonical_cbor(&(domain, payload))
+        .expect("cognition identity payload must be canonicalizable");
     format!("blake3:{}", blake3::hash(&bytes))
 }
 use digest as h_v1;

@@ -25,10 +25,7 @@ pub use provisioning::{
 };
 
 pub const COGNITION_ECONOMY_SCHEMA_VERSION: &str = "cognition-economy.v1";
-pub const COGNITION_LEASE_SCHEMA_VERSION: &str = "cognition-lease.v1";
 pub const COGNITION_RECEIPT_SCHEMA_VERSION: &str = "cognition-receipt.v1";
-pub const COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION: &str = "fixed_unit_experimental";
-pub const COGNITION_RESOURCE_VERSION_V1: &str = "cognition_units.v1";
 pub const COGNITION_PROVISIONING_SCHEMA_VERSION: &str = "cognition-provisioning.v1";
 pub const COGNITION_PROVISIONING_RECEIPT_SCHEMA_VERSION: &str = "cognition-provisioning-receipt.v1";
 pub const COGNITION_PROVISIONING_EVENT_SCHEMA_VERSION: &str = "cognition-provisioning-event.v1";
@@ -77,7 +74,11 @@ fn economy_digest<T: Serialize>(domain: &str, value: &T) -> String {
     cognition_digest_v1(domain, value)
 }
 
-pub use oasis7_agent_api::legacy_economy::{CognitionEconomyError, CognitionLeaseQuoteV1, CognitionQuoteV1, CognitionLeaseRequestV1};
+pub use oasis7_agent_api::legacy_economy::{
+    COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION, COGNITION_LEASE_SCHEMA_VERSION,
+    COGNITION_RESOURCE_VERSION_V1, CognitionEconomyError, CognitionLeaseQuoteV1,
+    CognitionLeaseRequestV1, CognitionQuoteV1,
+};
 
 /// Shared labels for the Runtime-owned lease state machine. The shared DTO
 /// carries no transition authority; all accounting remains in this module.

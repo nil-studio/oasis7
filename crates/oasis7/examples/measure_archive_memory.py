@@ -9,6 +9,7 @@ only be compared within the same profile. macOS time -l reports peak RSS bytes;
 Linux time -v reports maximum resident set size in KiB. Neither is live heap.
 """
 import argparse
+import hashlib
 import json
 import pathlib
 import platform
@@ -28,7 +29,10 @@ metadata = {
     "machine": platform.platform(), "architecture": platform.machine(),
     "rust": output(["rustc", "-Vv"]), "allocator": "std::alloc::System with requested-byte meter",
     "profile": "dev (wrapper: debug=0, incremental=0)", "features": "--no-default-features",
-    "binary": str(binary), "repeats": args.repeats,
+    "binary": str(binary), "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+    "tool_sha256": hashlib.sha256(pathlib.Path("crates/oasis7/examples/archive_memory.rs").read_bytes()).hexdigest(),
+    "host_source_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(pathlib.Path("crates/oasis7/src/simulator").glob("kernel_host*.rs"))},
+    "repeats": args.repeats,
     "build": "./scripts/cargo-dev.sh build -p oasis7 --no-default-features --example archive_memory",
     "source_status": output(["git", "status", "--short"]),
 }
