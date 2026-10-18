@@ -165,7 +165,10 @@ fn host_archive_extensions_survive_pending_actions_and_pre_action_hooks() {
     let hook_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let observed = hook_called.clone();
     kernel.add_pre_action_rule_hook(move |id, _, view: &WorldKernel| {
-        assert_eq!(view.journal().get(0).unwrap().runtime_event.cloned(), original_runtime);
+        assert_eq!(
+            view.journal().get(0).unwrap().runtime_event.cloned(),
+            original_runtime
+        );
         observed.store(true, std::sync::atomic::Ordering::SeqCst);
         oasis7_simulator::KernelRuleDecision::allow(id)
     });
