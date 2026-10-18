@@ -8,7 +8,7 @@
 - 配对系统设计：[指挥客户端系统设计](command-center.design.md)
 - 更新日期：2026-10-18
 - 初始设计基线：项目 `main@7039bc376882ab8f84f88ca014f6d7ce642539a8`；技术方案 `56a33562436ffa4b65a66d05e61f26a849b16728`。
-- 本轮实现核对基线：`ecc7f5db13faf101057d5df8570a379509f45b3f`；[日常闭环验证记录](daily-work-verification.manual.md)区分源码、原生交互、受控回放与未验收项。
+- 本轮实现核对基线：`52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6`；[日常闭环验证记录](daily-work-verification.manual.md)区分源码、原生交互、受控回放与未验收项。
 - 初始设计交付记录：[PR #4518](https://github.com/eng-cc/oasis7/pull/4518)；本轮在该设计之上收敛日常工作闭环，当前实现差距见系统设计 §11。
 
 本文定义 oasis7 开发指挥客户端的用户价值、行为、范围和验收条件。局部实现及未证明范围见系统设计 §11；文档状态不代表全部能力已经验收或发布。组件、协议、持久化及技术选型由配对系统设计承接。项目动态事实从[项目状态](README.md)及其来源读取，持续维护方法见[流程手册](command-center.manual.md)。
@@ -103,7 +103,7 @@
 
 ### 核对基线与证据范围
 
-2026-10-17 的设计核对保留在 Git 历史。2026-10-18 实现候选为 `ecc7f5db13faf101057d5df8570a379509f45b3f`；本轮 macOS 26.5 arm64 原生 App、Rust/UI 回归、来源窗口、受控协议样本与耗时见[验证记录](daily-work-verification.manual.md)。三项真实 PR 仅证明各自合入事实；两个同分支历史与输入请求明确使用受控回放，不冒充模型或外部 App 的实际执行。
+2026-10-17 的设计核对保留在 Git 历史。2026-10-18 实现候选为 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6`；本轮 macOS 26.5 arm64 原生 App、Rust/UI 回归、来源窗口、受控协议样本与耗时见[验证记录](daily-work-verification.manual.md)。三项真实 PR 仅证明各自合入事实；两个同分支历史与输入请求明确使用受控回放，不冒充模型或外部 App 的实际执行。
 
 本轮补齐日常工作实现；真实 IME 候选和 VoiceOver 尚未验证，用户于 2026-10-18 表示暂时无法验证，因此 [Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 保留开放，不宣称完整 AC-CC-010/整体验收通过。Apple 签名/管理员集成仍暂停；不扩大部署、公证、额外模型或其他环境的结论。基础历史来源仍见 [PR #4533](https://github.com/nil-studio/oasis7/pull/4533#issuecomment-6162418199)。
 

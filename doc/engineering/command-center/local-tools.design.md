@@ -135,4 +135,4 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 
 ### 2026-10-18 日常闭环候选核对
 
-本 issue 范围的任务入口/默认主题与诊断层级已在候选 `ecc7f5db13faf101057d5df8570a379509f45b3f` 实现，实际来源、自动化和原生证明见[日常闭环验证](daily-work-verification.manual.md)。真实 IME 候选和 VoiceOver 仍未验证，不能由 UI fixture、AX 或源码代签。未据此扩大专题其他尚未开放的范围、外部控制权、Apple 签名或管理员安装。
+本 issue 范围的任务入口/默认主题与诊断层级已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现，实际来源、自动化和原生证明见[日常闭环验证](daily-work-verification.manual.md)。真实 IME 候选和 VoiceOver 仍未验证，不能由 UI fixture、AX 或源码代签。未据此扩大专题其他尚未开放的范围、外部控制权、Apple 签名或管理员安装。
