@@ -8,7 +8,11 @@ enum AttemptReclaimProgress {
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R> {
     pub(crate) fn advance_storage_maintenance_result(&mut self) -> Result<bool, String> {
         if !self.maintenance_session_started {
+            // Preserve a live paged job, but restart discovery for this stopped
+            // session. Completing that inherited job cannot establish EOF for
+            // the discarded iterator: older ReleasePending debt may remain.
             self.attempt_scan = None;
+            self.attempt_scan_complete = false;
             self.attempt_scan_blocked = None;
             self.maintenance_session_started = true;
         }
@@ -19,7 +23,9 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         if let Some(error) = &self.attempt_scan_blocked {
             return Err(error.clone());
         }
-        Ok(self.attempt_scan.is_none() && self.attempt_reclaim_current.is_none())
+        Ok(self.attempt_scan_complete
+            && self.attempt_scan.is_none()
+            && self.attempt_reclaim_current.is_none())
     }
     pub(crate) fn advance_storage_maintenance(&mut self) {
         // A live polling step ends the previous stopped observation session.
@@ -48,6 +54,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                     self.attempt_scan_blocked = Some(
                         "current publication missing; maintenance cannot prove convergence".into(),
                     );
+                } else if self.attempt_scan.is_none() && self.attempt_reclaim_current.is_none() {
+                    // Initial activation has no execution attempt to reclaim.
+                    // Higher, still-unqualified attempts remain protected.
+                    self.attempt_scan_complete = true;
                 }
             }
             Err(error) => {
@@ -70,9 +80,13 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             return;
         }
         if self.attempt_scan.is_none() {
+            self.attempt_scan_complete = false;
             match std::fs::read_dir(self.root.join("attempts")) {
                 Ok(scan) => self.attempt_scan = Some(scan),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    self.attempt_scan_complete = true;
+                    return;
+                }
                 Err(e) => {
                     self.attempt_scan_blocked = Some(e.to_string());
                     eprintln!("formal-attempt inventory blocked reason={e}");
@@ -83,6 +97,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         for _ in 0..16 {
             let Some(next) = self.attempt_scan.as_mut().and_then(Iterator::next) else {
                 self.attempt_scan = None;
+                self.attempt_scan_complete = true;
                 break;
             };
             let path = match next {

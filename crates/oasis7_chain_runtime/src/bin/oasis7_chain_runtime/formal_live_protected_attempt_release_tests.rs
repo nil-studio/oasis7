@@ -359,7 +359,10 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     if manifest["phase"] != "Reclaimed" {
-        return Err("release obligation did not reach durable terminal state".into());
+        return Err(format!(
+            "phase={phase} candidate={digest} release obligation did not reach durable terminal state: lifecycle={}",
+            manifest["phase"]
+        ));
     }
     eprintln!(
         "ATTEMPT_RELEASE_RECOVERY_TERMINAL phase={phase} candidate={digest} lifecycle=Reclaimed original_publication_unchanged=true unique_evidence_unchanged=true recovery_reverify_attempts=0"

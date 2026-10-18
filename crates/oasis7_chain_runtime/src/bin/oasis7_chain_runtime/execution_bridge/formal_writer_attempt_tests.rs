@@ -282,3 +282,107 @@ fn pending_attempt_finishes_while_new_attempt_directories_keep_arriving() {
     drop(writer);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn stopped_maintenance_scans_release_debt_after_inherited_live_job_finishes() {
+    let policy = ReleaseSecurityPolicy::default();
+    let (world, _, anchor, _) = fixtures::actual_world_initial_fixture_with_execution_policy(
+        formal_package::execution_policy_material(&policy)
+            .unwrap()
+            .2,
+    );
+    let primary = endpoint(&anchor, EndpointRole::Primary, false);
+    let replica = endpoint(&anchor, EndpointRole::Replica, false);
+    let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+        "oasis7-attempt-stopped-scan-{}",
+        std::process::id(),
+    ));
+    assert!(!root.exists());
+    let mut writer = FormalWriter::open(
+        root.clone(),
+        fixtures::key(4),
+        policy,
+        world.clone(),
+        anchor,
+        primary.clone(),
+        replica.clone(),
+    )
+    .unwrap();
+    assert!(
+        writer.advance_storage_maintenance_result().unwrap(),
+        "initial activation without a publication has no eligible reclaim work"
+    );
+    writer.prepare(&continuation(&world)).unwrap();
+    writer.resume_original().unwrap();
+    let attempts = root.join("attempts");
+    let current = std::fs::read_dir(&attempts)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let manifest_name = "attempt-lifecycle-v1.cbor";
+    let phase = |path: &Path| -> String {
+        let value: serde_json::Value =
+            serde_cbor::from_slice(&std::fs::read(path.join(manifest_name)).unwrap()).unwrap();
+        value["phase"].as_str().unwrap().into()
+    };
+    // Model a second independently named attempt of the exact same original,
+    // interrupted after its duplicate blobs were removed. Its durable manifest
+    // still binds the original candidate; missing duplicate files are resumable.
+    let debt = attempts.join("prior-release-debt");
+    for path in [&debt, &debt.join("storage"), &debt.join("storage/blobs")] {
+        super::super::super::controlled_live::private_directory(path).unwrap();
+    }
+    let mut manifest: serde_cbor::Value =
+        serde_cbor::from_slice(&std::fs::read(current.join(manifest_name)).unwrap()).unwrap();
+    let serde_cbor::Value::Map(ref mut fields) = manifest else {
+        panic!("attempt map")
+    };
+    fields.insert(
+        serde_cbor::Value::Text("attempt_id".into()),
+        serde_cbor::Value::Text("prior-release-debt".into()),
+    );
+    durable_transaction::write_private_file_durable(
+        &debt.join(manifest_name),
+        &serde_cbor::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    primary.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().release_failures = 1;
+    writer.attempt_reclaim_current = Some(debt.clone());
+    writer.advance_storage_maintenance();
+    assert_eq!(phase(&debt), "ReleasePending");
+
+    // Pin the scheduler to a genuine unfinished modeled closure job without
+    // relying on filesystem enumeration order. A stopped drain discards the
+    // live iterator but must preserve this job's progress and then scan again.
+    primary.0.lock().unwrap().closure_pending_pages = 1;
+    writer.attempt_scan = Some(std::fs::read_dir(&attempts).unwrap());
+    writer.attempt_reclaim_current = Some(current.clone());
+    writer.maintenance_session_started = false;
+    assert!(!writer.advance_storage_maintenance_result().unwrap());
+    assert!(
+        !writer.advance_storage_maintenance_result().unwrap(),
+        "finishing one inherited job is not a complete stopped-session scan"
+    );
+    assert_eq!(phase(&current), "Reclaimed");
+    assert_eq!(phase(&debt), "ReleasePending");
+    let mut complete = false;
+    for arrival in 0..32 {
+        // New unmanaged evidence cannot reset or dilute the existing scan.
+        super::super::super::controlled_live::private_directory(
+            &attempts.join(format!("new-evidence-{arrival}")),
+        )
+        .unwrap();
+        if writer.advance_storage_maintenance_result().unwrap() {
+            complete = true;
+            break;
+        }
+    }
+    assert!(complete, "stopped maintenance must observe directory EOF");
+    assert_eq!(phase(&debt), "Reclaimed");
+    drop(writer);
+    std::fs::remove_dir_all(root).unwrap();
+}
