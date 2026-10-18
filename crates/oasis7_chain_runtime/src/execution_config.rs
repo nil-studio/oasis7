@@ -65,10 +65,12 @@ mod tests {
 
     #[test]
     fn custom_retention_values_are_preserved_at_host_boundary() {
-        let mut source = StorageProfileConfig::default();
-        source.execution_hot_head_heights = 7;
-        source.execution_checkpoint_interval = 3;
-        source.execution_checkpoint_keep = 2;
+        let source = StorageProfileConfig {
+            execution_hot_head_heights: 7,
+            execution_checkpoint_interval: 3,
+            execution_checkpoint_keep: 2,
+            ..StorageProfileConfig::default()
+        };
         let config = ExecutionDriverConfig::from(&source);
         assert_eq!(
             (

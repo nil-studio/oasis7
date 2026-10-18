@@ -42,7 +42,7 @@
 | 对象 | 固定基线事实及定位 | 目标与差距 |
 | --- | --- | --- |
 | Harness | [`oasis7_agent_harness`](../../../crates/oasis7_agent_harness/src/lib.rs) 已导出 actor、TurnEngine、记忆/continuation 与 ModelProvider；[`Cargo.toml`](../../../crates/oasis7_agent_harness/Cargo.toml) 不依赖主应用 | 保留算法，把仍在应用内的模型/prompt/策略接线移为客户端实现；crate 存在不等于路径统一 |
-| 内置接线 | [`agent_harness_adapter`](../../../crates/oasis7/src/simulator/agent_harness_adapter.rs)、[`llm_agent`](../../../crates/oasis7/src/simulator/llm_agent.rs)、[`llm_sidecar`](.) 仍使用 simulator/runtime 类型 | 按权威拆分，客户端只消费合法投影；不能整体搬走 World 权威或以 shadow kernel 补观察 |
+| 内置接线 | [`agent_harness_adapter`](../../../crates/oasis7/src/simulator/agent_harness_adapter.rs)、[`llm_agent`](../../../crates/oasis7/src/simulator/llm_agent.rs)、[`llm_sidecar`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/llm_sidecar.rs) 仍使用 simulator/runtime 类型 | 按权威拆分，客户端只消费合法投影；不能整体搬走 World 权威或以 shadow kernel 补观察 |
 | 普通客户端 | [`client.rs`](https://github.com/eng-cc/oasis7/blob/d6f6ff3d10f0f2990bf17a111d55c7b36ebf0a5d/crates/oasis7/src/bin/oasis7_game_client/client.rs)、[`client_build.rs`](https://github.com/eng-cc/oasis7/blob/d6f6ff3d10f0f2990bf17a111d55c7b36ebf0a5d/crates/oasis7/src/bin/oasis7_game_client/client_build.rs) 已实现签名、报价和原操作恢复，但 import 主 crate 的 runtime/world_service/private_goal_store | 抽轻量客户端与必要公共合同，CLI 变薄；仅换目录而保留反向依赖不算完成 |
 | 外部能力 | [`oasis7-play`](../../../skills/oasis7-play/SKILL.md) 是 prepared-world 普通签名客户端 profile，覆盖移动、转运、内置建厂/配方和原结果查询 | 不等于完整 Game HTTP 写目录、冷进入、通用模块或两个真实 Runtime 全首局已交付 |
 | 权威接缝 | [`RuntimeAuthority`](../../../crates/oasis7_agent_harness/src/authority.rs) 要求宿主验证 lease/receipt/continuation；[`共享 API`](../../../crates/oasis7_agent_api/src/lib.rs) 只承载提案和投影 | 以受信客户端适配供给已验证读模型，不能让客户端自签世界最终性或创建执行许可 |

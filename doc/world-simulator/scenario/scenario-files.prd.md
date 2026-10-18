@@ -118,7 +118,7 @@ Trace refs: O7-REQ-3cf9f857-8083-4527-9648-95e9425a8448；本条承接[Agent 根
 
 Trace refs: O7-REQ-3cf9f857-8083-4527-9648-95e9425a8448；本条承接[Agent 根 SC-1](../../product/agents-world-simulation/prd.md#sc-agent-001)中的场景初始化或来源重建子范围，不代签后续全部权威事件与正式交互结果。
 
-当前 [`bootstrap_generated_sidecar_runtime_world_with_chunk_runtime`](.) 对 `world-generation-provenance.json` 仅调用 `is_file()`，不解析 JSON，也不比较 seed、场景配置、manifest 或 sidecar 内容。文件存在只满足当前调试加载的前置条件，不能把加载成功写成“来源已验证”或“同输入可复现”。
+当前 [`bootstrap_generated_sidecar_runtime_world_with_chunk_runtime`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) 对 `world-generation-provenance.json` 仅调用 `is_file()`，不解析 JSON，也不比较 seed、场景配置、manifest 或 sidecar 内容。文件存在只满足当前调试加载的前置条件，不能把加载成功写成“来源已验证”或“同输入可复现”。
 
 以下是允许作出上述声明的目标验收条件，尚未由该加载入口实现：
 

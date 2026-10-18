@@ -112,7 +112,8 @@ def build_variants(scope):
     if scope == 'ordinary':
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests')]
     if scope in ('formal', 'storage'):
-        # Keep the bin harness: the runtime has no library target. Ordinary
+        # Keep both core libraries and the exact Chain binary harness. Chain
+        # configuration library tests belong to the ordinary required variant;
         # integration tests, viewer executables and snapshot variants run elsewhere.
         # The CI-only marker reproduces shared dependency features from all
         # required roots without compiling their unrelated harnesses.
@@ -125,6 +126,23 @@ def build_variants(scope):
                 '-p', 'oasis7_runtime', '-p', 'oasis7_world_service', '--lib', '--no-run'], []))
         return result
     raise ValueError('unknown build scope: ' + scope)
+
+
+def artifact_logical_name(variant, package, target, test):
+    """Formal aliases identify package, target kind and name, never name alone."""
+    name, kinds = target['name'], tuple(target['kind'])
+    if variant == 'storage-libs':
+        return 'storage-lib-' + name
+    if variant not in ('required', 'formal-required'):
+        return variant
+    if test:
+        aliases = {
+            ('oasis7_chain_runtime', ('bin',), 'oasis7_chain_runtime'): 'runtime-tests',
+            ('oasis7', ('lib',), 'oasis7'): 'oasis7-lib-tests',
+        }
+        return aliases.get((package, kinds, name),
+                           'required-test-' + package + '-' + '-'.join(kinds) + '-' + name)
+    return 'required-executable-' + package + '-' + '-'.join(kinds) + '-' + name
 
 
 def validate_profile(logical, binary):
@@ -179,22 +197,19 @@ def build(bundle, scope='all', cache_state_path=None):
                 target = artifact['target']
                 test = artifact['profile']['test']
                 name = target['name']
-                logical = ('storage-lib-' + name) if variant == 'storage-libs' else variant
-                if variant in ('required', 'formal-required'):
-                    if not test:
-                        logical = 'required-executable-' + name
-                    else:
-                        logical = {'oasis7_chain_runtime': 'runtime-tests', 'oasis7': 'oasis7-lib-tests'}.get(name, 'required-test-' + '-'.join(target['kind']) + '-' + name)
+                manifest = Path(artifact['manifest_path'])
+                package = tomllib.loads(manifest.read_text())['package']['name']
+                logical = artifact_logical_name(variant, package, target, test)
                 if logical in binaries:
                     raise ValueError(f'duplicate executable: {logical}')
                 source = Path(executable)
                 destination = bundle / 'bin' / logical
                 shutil.copy2(source, destination)
                 # Cargo uses the package directory as test cwd, and exposes its binaries.
-                manifest = Path(artifact['manifest_path'])
                 binaries[logical] = dict(path=str(destination.relative_to(bundle)), sha256=digest(destination),
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
-                    test=test, target=name, original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
+                    test=test, package=package, target=name, target_kind=target['kind'],
+                    original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
                     ordinary=variant == 'required' and test, variant=variant,
                     bytes=destination.stat().st_size, libraries=[])
                 validate_profile(logical, binaries[logical])
