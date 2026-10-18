@@ -35,6 +35,45 @@ fn formal_full_node_storage_maintenance_preserves_history() {
         .unwrap();
 }
 
+/// Actual boundary matching regression, not proof of process recovery: neither
+/// an empty immediate Tick nor the original in a later Tick may satisfy retry.
+#[test]
+fn cold_retry_boundary_rejects_empty_tick_and_later_original() {
+    use crate::formal_live_service::test_control::{BoundaryControl, Point};
+    use oasis7_node::{NodeConsensusAction, NodeExecutionCommitContext};
+    let control = BoundaryControl::new();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let original = b"unchanged original intent".to_vec();
+    control
+        .arm(Point::Published, Some(11), Some(original.clone()), deadline)
+        .unwrap();
+    let shared = control.shared();
+    for (height, committed_actions) in [
+        (11, Vec::new()),
+        (
+            12,
+            vec![NodeConsensusAction::from_payload(1, "owner", original).unwrap()],
+        ),
+    ] {
+        let context = NodeExecutionCommitContext {
+            world_id: "cold-retry".into(),
+            node_id: "owner".into(),
+            proposer_id: "owner".into(),
+            height,
+            slot: height,
+            epoch: 0,
+            node_block_hash: "b".repeat(64),
+            action_root: "c".repeat(64),
+            committed_actions,
+            committed_at_unix_ms: 0,
+        };
+        let _scope = shared.resume_scope(&context).unwrap();
+        shared.published(height).unwrap();
+        assert!(control.wait(Instant::now()).is_err());
+    }
+    control.release().unwrap();
+}
+
 pub(super) struct Case {
     pub runtime: FormalLiveRuntime,
     pub runtime_config: PathBuf,
@@ -90,6 +129,15 @@ impl Budget {
                 .map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+    fn phase_deadline(&self, now: Instant) -> Result<Instant, String> {
+        let remaining = self
+            .maximum
+            .saturating_sub(now.saturating_duration_since(self.started));
+        if remaining.is_zero() {
+            return Err("full-node total budget exhausted before cold retry stage".into());
+        }
+        Ok(now + remaining.min(Duration::from_secs(120)))
     }
     fn check(&mut self, stage: &str, completed: u64) -> Result<(), String> {
         if self.started.elapsed() >= self.maximum {
@@ -184,6 +232,59 @@ fn submit_change(case: &Case, runtime: &FormalLiveRuntime, ordinal: u64) -> Resu
         return Err("full-node exact delegation did not execute".into());
     }
     Ok(())
+}
+/// Cold retry is a full-node intent, with the same finite 120s action budget
+/// as the workload, not the unrelated generic 20s publication observer. A fresh
+/// natural-publication synchronization stage has its own bounded 120s budget.
+/// Both stages remain capped by the original whole-case budget.
+fn retry_original_at_exact_publication(
+    original: &SubmitIntentRequest<WorldServicePayloadV1>,
+    runtime: &FormalLiveRuntime,
+    owner: &RemoteWorldServiceClient,
+    budget: &Budget,
+) -> Result<crate::formal_live_service::PublishedReadCut, String> {
+    use crate::formal_live_service::test_control::Point;
+    let control = runtime.published.control_boundaries()?;
+    let synchronization_deadline = budget.phase_deadline(Instant::now())?;
+    // Arrival may consume its entire stage. Its hold must also cover the next
+    // action's admission without extending either stage or the whole-case end.
+    let hold_deadline = synchronization_deadline
+        .checked_add(Duration::from_secs(120))
+        .ok_or("full-node retry hold deadline overflow")?
+        .min(budget.started + budget.maximum);
+    control.arm(Point::Published, None, None, hold_deadline)?;
+    let barrier = control
+        .wait(synchronization_deadline)
+        .map_err(|error| format!("full-node cold retry synchronization: {error}"))?;
+    let expected_position = barrier
+        .position
+        .checked_add(1)
+        .ok_or("full-node cold retry position overflow")?;
+    let action_deadline = budget.phase_deadline(Instant::now())?;
+    assert_volatile_admission(
+        owner.submit(original.clone()).map_err(|e| e.to_string())?,
+        &original.correlation,
+    )?;
+    control.arm(
+        Point::Published,
+        Some(expected_position),
+        Some(correlation::encode_consensus_intent(original)?),
+        action_deadline,
+    )?;
+    let observed = control
+        .wait(action_deadline)
+        .map_err(|error| format!("full-node exact cold retry publication: {error}"))?;
+    if observed.position != expected_position || observed.action_count != 1 {
+        return Err("full-node cold retry did not publish the immediate exact original".into());
+    }
+    // Capture the actual duplicate-containing cut, then release before any
+    // expensive remote proof. Drop cancels the boundary on all error exits.
+    let after = runtime.published.current()?;
+    if after.anchor.head().record().position != expected_position {
+        return Err("full-node cold retry captured a different publication".into());
+    }
+    control.release()?;
+    Ok(after)
 }
 fn restart(case: &mut Case) -> Result<(), String> {
     let (primary, address) =
@@ -390,15 +491,7 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     if lookup_original_commit(&owner, &case.original)? != case.original_commit {
         return Err("cold original CommitRef changed".into());
     }
-    let next = reopened.published.position()? + 1;
-    assert_volatile_admission(
-        owner
-            .submit(case.original.clone())
-            .map_err(|e| e.to_string())?,
-        &case.original.correlation,
-    )?;
-    wait_for_published_position(&reopened, next)?;
-    let after = reopened.published.current()?;
+    let after = retry_original_at_exact_publication(&case.original, &reopened, &owner, &budget)?;
     if lookup_original_commit(&owner, &case.original)? != case.original_commit
         || retained_result_from_hot_or_cold(&after.world, &original_key)? != original_result
         || game_task::current_control(&after.world, "agent").map_err(|e| e.to_string())?
