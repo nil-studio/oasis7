@@ -125,7 +125,7 @@ it('replaces the home with a reading workspace and opens editing only on request
  fireEvent.click(screen.getByRole('button',{name:'关联目标或修复关系'}));
  expect(screen.getByLabelText('查找目标或规范')).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'取消操作'}));
- expect(screen.queryByLabelText('查找目标或规范')).not.toBeInTheDocument();
+ expect(screen.queryByLabelText('查找目标或规范')).not.toBeInTheDocument();await waitFor(()=>expect(screen.getByRole('button',{name:'关联目标或修复关系'})).toHaveFocus());
 });
 it('isolates unsaved input and locator when switching works and restores the original draft',async()=>{
  const value=projection();value.items.push({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:'2'},purpose:{...value.items[0].purpose,value:'另一项工作'}});vi.mocked(bridge.workProjection).mockResolvedValue(value);
