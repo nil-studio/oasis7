@@ -43,7 +43,7 @@
 | Trace refs: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55；[REQ-CC-007](command-center.prd.md#REQ-CC-007) | 用户一次发起内部按步骤登记和发送，未知停步不重放，私有属性先落盘；产品适用性：N/A；reason=工程客户端合同不定义游戏玩家能力；scope=用户一次发起内部按步骤登记和发送，未知停步不重放，私有属性先落盘 | [cc-start-intent](#cc-start-intent) | agent_engineer；现有锁定协议与操作记录 | 不承诺上游幂等，不按 idle/sourceResolved 推断可重发 |
 | [REQ-CC-008](command-center.prd.md#REQ-CC-008) | 不确定副作用持久保留，恢复不自动重发；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=不确定副作用持久保留，恢复不自动重发 | [DES-CC-008](#DES-CC-008) | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)；runtime_engineer；源端可核实事实 | 不承诺上游幂等或完整事件重放 |
 | [REQ-CC-009](command-center.prd.md#REQ-CC-009) | 关窗留后台，完整退出明确处理自管活跃或未知工作；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=关窗留后台，完整退出明确处理自管活跃或未知工作 | [DES-CC-009](#DES-CC-009) | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)；runtime_engineer；进程所有权 | 不保证崩溃、强退、重启后继续 |
-| Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | 中文短查询、IME、键盘、读屏和有界长列表可用；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=中文短查询、IME、键盘、读屏和有界长列表可用 | [DES-CC-010](#DES-CC-010) | [src/App.test.tsx](../../../tools/oasis7-command-center/ui/src/App.test.tsx)；UI 实现 / qa_engineer；真实 macOS | 浏览器模拟不证明系统体验 |
+| Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | 中文短查询、IME、键盘和有界长列表可用；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=中文短查询、IME、键盘和有界长列表可用 | [DES-CC-010](#DES-CC-010) | [src/App.test.tsx](../../../tools/oasis7-command-center/ui/src/App.test.tsx)；UI 实现 / qa_engineer；真实 macOS | 浏览器模拟不证明系统体验 |
 | [REQ-CC-011](command-center.prd.md#REQ-CC-011) | 缓存重建保留个人与未决数据，凭据和展示内容有边界；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=缓存重建保留个人与未决数据，凭据和展示内容有边界 | [DES-CC-011](#DES-CC-011) | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)；runtime_engineer；SQLite / Keychain | 不默认记录或上传完整会话 |
 | [REQ-CC-012](command-center.prd.md#REQ-CC-012) | 本地先行，Codex 实验接入独立启停与降级，基础发布不依赖它；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=本地先行，Codex 实验接入独立启停与降级，基础发布不依赖它 | [DES-CC-012](#DES-CC-012) | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)；产品负责人；环境和协议能力 | 不把 stdio 或非实验 API 当生产支持承诺 |
 | Trace refs: O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6；[REQ-CC-013](command-center.prd.md#REQ-CC-013) | 首页聚合重点、成果、真实请求及返回工作，三场景可用；产品适用性：N/A；reason=开发指挥客户端的工作、来源及会话管理，不定义游戏玩家能力；scope=首页聚合重点、成果、真实请求及返回工作，三场景可用 | [DES-CC-013](#DES-CC-013) | producer_system_designer；主责文档/状态摘要与来源适配器 | 不随刷新运行模型或伪造排序、事实时间 |
@@ -521,15 +521,15 @@ macOS 产物为 `.app` / `.dmg`，按实际目标硬件验证 arm64 和需要支
 
 Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；承接 [REQ-CC-010](command-center.prd.md#REQ-CC-010) 的适用义务。
 
-界面以紧凑列表、表格和按需详情承载四视图，保留筛选与返回位置。Solid 只拥有选择、展开、输入草稿和显示缓存；Rust 投影负责事实与进度。显示来源和读取范围，状态配文字，键盘路径有焦点和可读名称，虚拟列表保持辅助技术可理解的上下文。
+界面以紧凑列表、表格和按需详情承载四视图，保留筛选与返回位置。Solid 只拥有选择、展开、输入草稿和显示缓存；Rust 投影负责事实与进度。显示来源和读取范围，状态配文字，键盘路径有焦点和可读名称，虚拟列表保持清楚的选中项与层级上下文。
 
 [产品信息层级](command-center.prd.md#cc-ui-hierarchy)在组件层实现为一致的“标题/结果/下一动作 → 相关来源与范围 → 原文/诊断”顺序：首页卡片、工作详情、关注卡片使用共享状态和动作组件，禁止每个面板重新堆叠路径、完整 SHA 与统一样式的原始字段。普通操作区不默认显示协议枚举或 JSON；需要它们作判断的原始请求保留可展开原文。未安装/未连接时只展示当前可行动的恢复说明，不把不可执行的完整表单留作默认工作流。
 
-保存、失败和未知结果反馈贴近触发动作并通过可读状态区域通知；焦点按提交结果留在错误字段或进入相应工作结果，不能跳到底部的独立信息区。返回原工作恢复选中项、筛选及滚动/焦点；窄窗口使用列表与详情切换而非多个横向压缩面板。字号、间距和状态色由主题 token 统一，不把密度理解为所有文本使用同一级小字号；实际可读性与 VoiceOver 仍以原生场景验证。
+保存、失败和未知结果反馈贴近触发动作并通过可读状态区域通知；焦点按提交结果留在错误字段或进入相应工作结果，不能跳到底部的独立信息区。返回原工作恢复选中项、筛选及滚动/焦点；窄窗口使用列表与详情切换而非多个横向压缩面板。字号、间距和状态色由主题 token 统一，不把密度理解为所有文本使用同一级小字号；实际可读性仍以原生场景验证。
 
 中文文档采用 [SQLite FTS5 trigram](https://sqlite.org/fts5.html#the_trigram_tokenizer) 子串索引，标题、路径与已有条款 ID 优先；少于三个 Unicode 字符的“规范”“合入”等查询回退到选定范围内的参数化子串查询，限制结果、支持取消与去抖。unicode61 不被当作完整中文分词，trigram 也不被当成覆盖两字搜索。
 
-IME composition 期间 Enter 只用于候选操作，不能误提交搜索/发送；真实 macOS 验证选词、撤销、焦点、文本选择和 VoiceOver。长文档、排序筛选表、持续日志及来源跳转作为同一代表性切片，浏览器 mock 不替代系统体验。
+IME composition 期间 Enter 只用于候选操作，不能误提交搜索/发送；真实 macOS 验证选词、撤销、焦点和文本选择。长文档、排序筛选表、持续日志及来源跳转作为同一代表性切片，浏览器 mock 不替代系统体验。
 
 ### 9.2 容量预算与可观测性
 
@@ -543,7 +543,7 @@ IME composition 期间 Enter 只用于候选操作，不能误提交搜索/发�
 | 慢来源隔离 | 固定候选、假 gh/GitHub 延迟 10 秒或手动释放读取屏障，同时查询已缓存详情、保存关系 | 在慢读取解除前可返回缓存查询与已提交个人保存；超额刷新合并/明确拒绝，旧源保留 | Core/host 受控屏障断言，记录队列高水位与操作顺序；不是原生绝对时延证明 |
 | 迟到/竞争发布 | 刷新 A 后切到 B，A 晚到；刷新期间保存决定、修复关联或变更账号 | A 不覆盖 B，旧个人 revision 不覆盖新保存；来源与投影事务一致 | 临时 worktree/fake source 与 CAS 故障回放；未证明真实 API 完整度 |
 | 大范围/部分读取 | 代表性仓库实际规模加超扫描/分页/显示预算样本 | 已读内容可用，数量/窗口/遗漏范围准确；不把最后 100 PR 当全仓完成度 | 记录文件数/字节、页数、工作数、输出上限及截断；不从单样本推导容量上限 |
-| 存储和控制压力 | DB 队列满/事务失败与真实格式反向请求、退出观察同时发生 | 新副作用暂停，草稿未丢失，原未决记录/私有标记保留，控制路径有限降级 | fake runtime + 存储故障；真实退出/IME/辅助技术另在 App 验证 |
+| 存储和控制压力 | DB 队列满/事务失败与真实格式反向请求、退出观察同时发生 | 新副作用暂停，草稿未丢失，原未决记录/私有标记保留，控制路径有限降级 | fake runtime + 存储故障；真实退出/IME 另在 App 验证 |
 
 对实际 macOS 性能不预设未经测量的毫秒、内存或帧率通过线；实现 PR 固定硬件/系统/构建、冷暖样本窗口及分位数，先定位 I/O、DB、投递和渲染耗时，再由产品/实现负责人确定目标。上述有界配置和受控顺序断言可独立验证，不能因此报告整体性能已达标。
 
@@ -628,7 +628,7 @@ Codex 连接记录实际验证版本与 schema；未启用时执行视图仍可�
 | 目标 | 当前候选实现 | 验证与剩余边界 |
 | --- | --- | --- |
 | 首页判断与统一工作 | WorkRef/SourceFact、四区、最多三项重点、原工作详情、时间窗口/冲突及独立来源状态 | 三项实际 PR；不从合入推断部署/语义符合，无事件时间不宣称完整变化 |
-| 项目及返回 | 同仓显式工作树引用，保留原 Project/environment/instance；筛选、近期打开、位置和 opt-in 普通草稿 | 原生完整重开复测与启动迟到回归；真实 IME/VoiceOver 待验证 |
+| 项目及返回 | 同仓显式工作树引用，保留原 Project/environment/instance；筛选、近期打开、位置和 opt-in 普通草稿 | 原生完整重开复测与启动迟到回归；真实 IME 待验证 |
 | 既有现场与关联 | 多目标确认/修复/移除、原版本和历史；外部工具定位按实际复制/打开能力提供 | 不按同分支认领控制，不按标题猜后继；来源不可读保留未知 |
 | 决定及待处理 | 双同步轨道、具体来源版本、全部范围声明与剩余项、替代决定/完整历史、问题处理历史 | 原确认时间保留；旧 App 改写当前向量仍可读归档，陈述不冒充源回执 |
 | 一次发起 | 持久唯一意图编排原 thread/start、turn/start；未决全量准入与原 ledger 核实恢复 | 原生 fixture 实际请求/回复与故障回归；不运行付费模型、不扩大实验版本 |
@@ -637,7 +637,7 @@ Codex 连接记录实际验证版本与 schema；未启用时执行视图仍可�
 
 原实现入口 `SummarySources` 保留为摘要依据下钻，工作四区由 `WorkOverview` 消费共享投影，不再以大段原文替代首页。普通输入仍按 Project/worktree 隔离；工作 opt-in 草稿与 recentWork 单独版本化保存，读取/写入均排除私有线程。新决定及每次个人记录提交保留完整决定归档；旧版变更只显式接纳，不删除新关系修复、问题终态或历史。
 
-整体验收仍缺真实 IME 候选和 VoiceOver；用户当前暂无法验证，因此 #4848 保留开放。原生正常任务及故障回放的证据范围分别记录，不互相代签。
+整体验收仍缺真实 IME 候选；用户当前暂无法验证，因此 #4848 保留开放。原生正常任务及故障回放的证据范围分别记录，不互相代签。
 
 ### 11.1 验证映射表
 
@@ -655,13 +655,13 @@ Codex 连接记录实际验证版本与 schema；未启用时执行视图仍可�
 | Trace refs: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55；[REQ-CC-007](command-center.prd.md#REQ-CC-007) | [cc-start-intent](#cc-start-intent) | AC-CC-007；各步持久登记，建会话/输入未知不续步不重放 | [codex runtime tests](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) 扩展建会话未知、已建但输入未发送、turn 回执丢失、重开、sourceResolved、私有标记先于 frame 及原目标核对 | 实现 PR 的锁定协议/构建、操作步骤与发送计数/次序 | fixture 不证明模型任务效果或上游 exactly-once；当前分离入口不等于新编排已实现 |
 | [REQ-CC-008](command-center.prd.md#REQ-CC-008) | [DES-CC-008](#DES-CC-008) | AC-CC-008；发送后丢回执、崩溃重开不重发 | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) 发送前登记、失回执、重开和只读核对回放；未知结果不重放 | 实现 PR 的持久操作、故障点与协调结果 | 未证明上游幂等或重放 |
 | [REQ-CC-009](command-center.prd.md#REQ-CC-009) | [DES-CC-009](#DES-CC-009) | AC-CC-009；关窗、活跃/未知退出、外部所有权 | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) 自管进程/退出回放；`src-tauri/src/runtime_commands.rs` 全局退出测试及原生菜单验收 | 实现 PR 的进程树、事件与退出结果 | 未证明强退或重启后继续 |
-| Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | [DES-CC-010](#DES-CC-010) | AC-CC-010；四视图共享信息层级，就地反馈/返回/键盘可用 | [App tests](../../../tools/oasis7-command-center/ui/src/App.test.tsx) 及工作/关注场景扩展焦点、表单错误、窄窗口导航和草稿恢复；真实 macOS 核对中文IME、VoiceOver、原文返回、视觉层级与滚动 | 实现 PR 的实际机器/窗口/构建、场景截图及交互结果 | DOM/fixture 不证明像素可读性、真实辅助技术或性能达标 |
+| Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | [DES-CC-010](#DES-CC-010) | AC-CC-010；四视图共享信息层级，就地反馈/返回/键盘可用 | [App tests](../../../tools/oasis7-command-center/ui/src/App.test.tsx) 及工作/关注场景扩展焦点、表单错误、窄窗口导航和草稿恢复；真实 macOS 核对中文IME、原文返回、视觉层级与滚动 | 实现 PR 的实际机器/窗口/构建、场景截图及交互结果 | DOM/fixture 不证明像素可读性、真实辅助技术或性能达标 |
 | [REQ-CC-011](command-center.prd.md#REQ-CC-011) | [DES-CC-011](#DES-CC-011) | AC-CC-011；清缓存保留个人/未决数据，凭据和内容隔离 | `core/tests/foundation.rs` 缓存/个人数据隔离；[tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) schema2/未决账本回放；主窗口有限权限配置 | 实现 PR 的迁移、内容样本、生产配置核对 | 未证明完整安全审计 |
 | [REQ-CC-012](command-center.prd.md#REQ-CC-012) | [DES-CC-012](#DES-CC-012) | AC-CC-012；默认关闭、启用/停用、独立降级与环境隔离 | [tests/codex_runtime.rs](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) 默认关闭/启停/版本拒绝回放；`ui/src/RuntimePanel.test.tsx` 默认无任务和停用后管理 | 实现 PR 的接入等级、启停与降级场景结果 | 未证明上游生产支持、远端或跨平台能力 |
 | Trace refs: O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6；[REQ-CC-013](command-center.prd.md#REQ-CC-013) | [DES-CC-013](#DES-CC-013) | AC-CC-013；首页四区与共享结果可完成三个日常任务；场景/阈值见 [整体验收](command-center.prd.md#cc-product-acceptance) | 在 [UI入口](../../../tools/oasis7-command-center/ui/src/App.test.tsx) 和核心投影扩展排序、同一交付去重、事件/观察时间区分、局部旧结果/冲突、已处理项不复活；再按本行整体验收跑真实 App 三场景 | 实现 PR 的 source/build、来源窗口、任务耗时/额外搜索、切换/录入与结果 | 现有原文首页及自动化不证明完整首页或日常价值已验收 |
 | Trace refs: O7-REQ-fdf061f8-ebdf-46e3-91a5-a2311e2bcb93；[REQ-CC-014](command-center.prd.md#REQ-CC-014) | [DES-CC-014](#DES-CC-014) | AC-CC-014；关联确认/修复/移除、详情复用与原工具往返 | [association tests](../../../tools/oasis7-command-center/ui/src/association.test.tsx) 扩展同一WorkRef多入口、失效/歧义/个人移除、并发CAS、后继修复和旧库回退；用受支持真实工具验证打开/复制定位及返回原工作 | 实现 PR 的原工作/关系版本、来源/个人记录差异与真实往返结果 | 不支持深链时不宣称已定位；旧手工关联不证明完整生命周期 |
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-015](#DES-CC-015) | AC-CC-015；辅助动作就地反馈并返回原工作，私有/暂停边界不变；任务交互见 [本机工具任务合同](local-tools.design.md#DES-CC-TOOLS-005) | [LocalTools tests](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx) 扩展返回上下文、独立导出/恢复口令、无依赖工作不被阻塞及普通投影私有排除；核心隔离沿本机工具设计的独立验证映射和 §11.2 执行 | 实现 PR 的工具/工作身份、动作结果及真实本机环境 | 不证明特权初装/管理；Apple签名与管理员能力仍暂停 |
-| Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；[REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-016](#DES-CC-016) | AC-CC-016；阅读默认、显式配对和二级诊断可定位主题；专题关系及范围见 [文档阅读合同](document-tree.design.md#DES-CC-TREE-004) | [DocumentInventory tests](../../../tools/oasis7-command-center/ui/src/DocumentInventory.test.tsx) 扩展默认树/详情、二级诊断和来源范围呈现；复用专题既有清单/树/恢复验证，真实 App 核对产品/系统主题定位、返回、键盘/读屏与读取缺口 | 实现 PR 的 source/build、实际来源范围、定位用时与交互结果 | 已有清单/显式树/恢复为局部实现；完整树合同与真实桌面整体验收仍未证明 |
+| Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；[REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-016](#DES-CC-016) | AC-CC-016；阅读默认、显式配对和二级诊断可定位主题；专题关系及范围见 [文档阅读合同](document-tree.design.md#DES-CC-TREE-004) | [DocumentInventory tests](../../../tools/oasis7-command-center/ui/src/DocumentInventory.test.tsx) 扩展默认树/详情、二级诊断和来源范围呈现；复用专题既有清单/树/恢复验证，真实 App 核对产品/系统主题定位、返回、键盘与读取缺口 | 实现 PR 的 source/build、实际来源范围、定位用时与交互结果 | 已有清单/显式树/恢复为局部实现；完整树合同与真实桌面整体验收仍未证明 |
 
 
 ### 11.2 实施时的验证层与关键反例
@@ -672,7 +672,7 @@ Codex 连接记录实际验证版本与 schema；未启用时执行视图仍可�
 | 来源契约 | 临时 Git worktree、假 GitHub、fake app-server；分页、反向请求、断线、重复文本、旧实例晚到事件、回执丢失 |
 | UI 与 JSON | Vitest / Solid Testing Library；类型与 JSON 往返、状态区分、来源跳转、请求身份与重复点击 |
 | 真实桌面 | WebdriverIO + Tauri service embedded provider；真实 IPC、Channel、来源读取、菜单栏、退出与子进程 |
-| 系统与包 | 中文组合输入、候选 Enter、撤销、VoiceOver、长日志、签名包启动、生产权限与测试代码隔离 |
+| 系统与包 | 中文组合输入、候选 Enter、撤销、长日志、签名包启动、生产权限与测试代码隔离 |
 
 当前 [Tauri WebDriver 文档](https://v2.tauri.app/develop/tests/webdriver/)提供 macOS embedded provider 路径；传统直接 `tauri-driver` 路径仍受平台限制。[WDIO 测试插件](https://webdriver.io/docs/desktop-testing/tauri/plugin-setup)仅在专用测试 feature/config 启用，生产排除插件、capability 和监听端口。
 
@@ -724,7 +724,7 @@ Rust 核心 + Solid满足本次“Rust 优先”偏好；UI 全 Rust 尚不是�
 
 | 条件或尚待确认事项 | 处理与责任 | 需要的依据 |
 | --- | --- | --- |
-| UI 必须全 Rust / 禁止 WebView | 产品明确约束后评估 GPUI Kit；接受 WebView 时也评估 Dioxus | 真实中文文档、IME、VoiceOver、日志与分发切片 |
+| UI 必须全 Rust / 禁止 WebView | 产品明确约束后评估 GPUI Kit；接受 WebView 时也评估 Dioxus | 真实中文文档、IME、日志与分发切片 |
 | WKWebView 关键交互无法合理修复 | UI 实现定位后评估原生或固定 Chromium | 可复现系统/构建、影响与替代切片 |
 | 性能不达实际目标 | 先定位 I/O、DB、投递、渲染，再调整对应层 | 机器、负载、阶段耗时与整个进程树资源 |
 | 完整退出后持续执行或多客户端共享 | 产品同步新承诺后提取独立 Rust supervisor | 生命周期、认证、连接与恢复需求 |
