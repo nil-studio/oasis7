@@ -18,9 +18,11 @@
 
 宿主通过显式拆分、重组方法保存内核值与归档扩展；拆出原生内核状态不是删除扩展的授权。完整归档的读取、编辑和回写必须同时保留扩展，不能把原生快照或裁剪的读取视图当作完整归档。内核导出/恢复只消费自身字段，旧归档适配承担扩展所有权，持久化兼容回归覆盖非空 Runtime、player、chain 字段及关联事件。
 
-内核 journal、step 和 replay 使用原生事件。宿主 `WorldKernel` 封装持有完整历史事件并同步所有可变入口，不提供绕过同步的可变内核引用；旧规则回调仍读取完整宿主日志。直接 `WorldKernel` serde 保留旧字段布局与缺省值，进程内 hook/compiler 不进入编码。
+内核 journal、step 和 replay 使用原生事件。宿主 `WorldKernel` 只长期持有原生 journal 和按事件位置对应的 Runtime event sidecar，不再深复制原生事件 payload。`journal()` 返回零分配的借用组合视图，提供 `len/iter/get/last`；调用者需要独立 owned 事件时显式 `to_owned()`，完整归档导出才组合 owned 历史事件。视图不提供可变内核引用；旧规则回调仍读取完整宿主日志。直接 `WorldKernel` serde 保留旧字段布局与缺省值，进程内 hook/compiler 不进入编码。
 
 加载后普通保存保留宿主提供的 Runtime/player 扩展及原 committed-cut chain 证据，不按缺省链身份重建或伪造新提交；显式 `snapshot_with_chain_resource_context` 才负责按调用者提供的上下文重新派生 chain 字段。原本完全由纯内核缺省上下文生成的归档继续随内核状态更新派生字段。
+
+宿主在恢复前用输入快照及其 journal 前缀计算缺省 chain manifest/delta，仅保存输入扩展及其是否区别于缺省派生的判断，不长期保留第二份 WorldModel。该判断属于输入原切点，不能改用 replay 后状态；普通 snapshot 从当前内核导出状态，若输入证据为外部提供则恢复原 chain 字段，始终保留原 Runtime/player 扩展。这与原始整快照相等分支等价：当前状态未变且输入证据等于缺省派生时重新派生结果相同；外部证据无论状态是否变化均保留。无 journal 的配置变化、pending 入队及状态同值恢复不以事件数量代替状态判断。相关兼容与运行内存验证承接 [#4879 B](https://github.com/nil-studio/oasis7/issues/4879)，测量工具 `crates/oasis7/examples/archive_memory.rs` 分开报告 live requested allocation、分配量/次数与操作峰值，进程 RSS 由外部测量记录，不把分配字节等同 RSS。
 
 ## Source compiler 宿主能力
 

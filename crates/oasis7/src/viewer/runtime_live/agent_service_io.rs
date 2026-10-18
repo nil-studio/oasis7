@@ -2,9 +2,8 @@
 use crate::world_service::{
     client::{RemoteWorldServiceClient, WorldServicePort},
     verified_view::VerifiedWorldView,
-    wire::WorldServicePayloadV1,
 };
-use oasis7_client_api::world_service::*;
+use oasis7_client_api::{legacy_world_service::WorldServicePayloadV1, world_service::*};
 use serde_json::Value;
 
 pub(super) enum AgentServiceProgress {

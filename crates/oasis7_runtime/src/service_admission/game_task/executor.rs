@@ -1,52 +1,10 @@
 //! Canonical owner-controlled executor fences; no private input material.
 use super::*;
-use oasis7_agent_api::game::{
-    GAME_EXECUTOR_CONTROL_DOMAIN, GameExecutorBindingV1, GameExecutorControlV1,
-    GameExecutorOperationV1, GameTaskFenceV1,
-};
+use oasis7_agent_api::game::{GameExecutorControlV1, GameExecutorOperationV1, GameTaskFenceV1};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ExecutorReceipt {
-    pub task_id: String,
-    pub task_revision: DecimalU64,
-    pub executor_epoch: DecimalU64,
-    pub executor_binding: Option<GameExecutorBindingV1>,
-    pub task_status: GameTaskStatusV1,
-}
-pub fn verify_executor_control(
-    signed: &SignedReadRequest<GameExecutorControlV1>,
-) -> Result<(), String> {
-    signed.request.validate()?;
-    if let GameExecutorOperationV1::Bind {
-        executor_public_key,
-        ..
-    } = &signed.request.operation
-    {
-        strong_key(executor_public_key)?;
-    }
-    if signed.subject_public_key != signed.request.fence.owner_public_key {
-        return Err("executor control requires owner signature".into());
-    }
-    private_goal_prepare::verify_owner_signature_strict(
-        GAME_EXECUTOR_CONTROL_DOMAIN,
-        &signed.request,
-        &signed.subject_public_key,
-        &signed.signature_hex,
-    )
-}
-fn strong_key(key: &str) -> Result<(), String> {
-    let bytes: [u8; 32] = hex::decode(key)
-        .map_err(|_| "invalid executor key")?
-        .try_into()
-        .map_err(|_| "invalid executor key")?;
-    let key =
-        ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| "invalid executor key")?;
-    if key.is_weak() {
-        return Err("weak executor key".into());
-    }
-    Ok(())
-}
+pub use oasis7_client_api::legacy_task_results::{
+    ExecutorReceipt, executor_receipt, strong_key, verify_executor_control,
+};
 pub fn validate_executor_owner(
     world: &World,
     signed: &SignedReadRequest<GameExecutorControlV1>,
@@ -93,55 +51,6 @@ pub fn validate_executor_owner(
         )?;
     }
     Ok(())
-}
-pub(super) fn executor_receipt(
-    request: &SubmitIntentRequest<WorldServicePayloadV1>,
-) -> Result<ExecutorReceipt, String> {
-    let WorldServicePayloadV1::GameExecutorControl(signed) = &request.signed_payload else {
-        return Err("not executor control".into());
-    };
-    verify_executor_control(signed)?;
-    let r = &signed.request;
-    let epoch = DecimalU64(
-        r.fence
-            .executor_epoch
-            .0
-            .checked_add(1)
-            .ok_or("executor epoch overflow")?,
-    );
-    let binding = match &r.operation {
-        GameExecutorOperationV1::Bind {
-            executor_id,
-            executor_public_key,
-            delegation_generation,
-        } => {
-            strong_key(executor_public_key)?;
-            Some(GameExecutorBindingV1 {
-                executor_id: executor_id.clone(),
-                executor_public_key: executor_public_key.clone(),
-                delegation_generation: *delegation_generation,
-                executor_epoch: epoch,
-            })
-        }
-        GameExecutorOperationV1::Stop => None,
-    };
-    Ok(ExecutorReceipt {
-        task_id: r.fence.task_id.clone(),
-        task_revision: DecimalU64(
-            r.fence
-                .task_revision
-                .0
-                .checked_add(1)
-                .ok_or("task revision overflow")?,
-        ),
-        executor_epoch: epoch,
-        task_status: if binding.is_some() {
-            GameTaskStatusV1::Active
-        } else {
-            GameTaskStatusV1::Suspended
-        },
-        executor_binding: binding,
-    })
 }
 pub(super) fn apply_executor_receipt(control: &mut GameTaskControlV1, receipt: ExecutorReceipt) {
     control.task_revision = receipt.task_revision;

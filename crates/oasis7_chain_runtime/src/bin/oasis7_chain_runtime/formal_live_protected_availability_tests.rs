@@ -144,8 +144,8 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         ));
     }
     // Reopen from the same writer directory only after the endpoint is back;
-    // startup must reconcile the exact original request rather than synthesize
-    // a replacement request or duplicate its effect.
+    // Recovery keeps the exact original operation, whether pending work was
+    // durable or only volatile; it must not synthesize a replacement identity.
     stop_owned_protected_runtime(
         &mut case.runtime,
         Duration::from_secs(120),
@@ -160,19 +160,47 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         .ok_or("C06 CommitRef position overflow")?;
     wait_for_published_position(&reopened, target_position)?;
 
-    // Volatile admission does not promise persistence across reopen. Reoffer
-    // the exact signed original in both cases; an already durable result must
-    // deduplicate, while work that never became durable can now be admitted.
-    let admission = owner_client
-        .submit(case.owner_request.clone())
-        .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
-    assert_volatile_admission(admission, &case.owner_request.correlation)?;
-    eprintln!("C06 recovery_resubmission=exact_original");
-    // A background empty tick can publish a successor before this request is
-    // canonical. Wait for its exact result before asking the external client
-    // to prove it; an arbitrary height is not evidence of request completion.
+    // Volatile admission is not durable pending state and may disappear on
+    // reopen. Query the original first; a successor tick alone proves neither
+    // the request's inclusion nor its successful canonical result.
+    let recovered_commit = match owner_client.lookup_formal_original(case.owner_request.clone()) {
+        Ok(response) => {
+            if response.correlation != case.owner_request.correlation
+                || response.formal_profile.as_ref()
+                    != Some(&oasis7_client_api::world_service::FormalReadProfileV1::controlled())
+                || response.execution_evidence_scope.is_some()
+            {
+                return Err("C06 recovery lookup changed the original request profile".into());
+            }
+            match response.outcome {
+                oasis7_client_api::world_service::IntentOutcome::Committed { commit, .. } => {
+                    eprintln!("C06 recovery lookup=committed replay=false");
+                    Some(*commit)
+                }
+                outcome => return Err(format!("C06 unexpected recovery lookup: {outcome:?}")),
+            }
+        }
+        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            status: 503,
+            message,
+        }) if message == "HistoryUnavailable: no result at the exact qualified lookup cut" => {
+            eprintln!("C06 recovery lookup=exact_cut_without_result replay=same_signed_original");
+            // This controlled fixture uses a known idempotent GameTaskCreate
+            // envelope (also checked below). Only this exact no-result response
+            // permits replaying that same signed original; other failures stop.
+            let admission = owner_client
+                .submit(case.owner_request.clone())
+                .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
+            assert_volatile_admission(admission, &case.owner_request.correlation)?;
+            None
+        }
+        Err(error) => return Err(format!("C06 original lookup after recovery: {error}")),
+    };
     let (cut, result) = wait_for_canonical_request_result(&reopened, &case.owner_request)?;
     let committed = lookup_original_commit(&owner_client, &case.owner_request)?;
+    if recovered_commit.is_some_and(|original| original != committed) {
+        return Err("C06 recovery changed the already committed original result".into());
+    }
     if committed.position <= old_commit.position {
         return Err("C06 recovered request lacks a successor CommitRef".into());
     }

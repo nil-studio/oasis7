@@ -208,12 +208,7 @@ fn world_has_cognition_binding(world: &World) -> bool {
             .is_empty()
 }
 
-/// A subject selector used by a bounded runtime precondition.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct PreconditionSubjectV1 {
-    pub kind: String,
-    pub id: String,
-}
+pub use oasis7_agent_api::legacy_scheduler::PreconditionSubjectV1;
 
 /// A single, fail-closed, all-of MVCC precondition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
