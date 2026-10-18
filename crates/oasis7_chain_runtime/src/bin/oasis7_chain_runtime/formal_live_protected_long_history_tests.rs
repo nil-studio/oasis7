@@ -148,7 +148,11 @@ pub(super) fn exercise_long_history(
                 "long history reopening after {} completed changes",
                 ordinal + 1
             );
-            stop_long_history_runtime(&mut runtime)?;
+            stop_owned_protected_runtime(
+                &mut runtime,
+                Duration::from_secs(120),
+                "long_history_checkpoint_reopen",
+            )?;
             let before = runtime.published.current()?;
             drop(runtime);
             let reopen_started = Instant::now();
@@ -170,7 +174,11 @@ pub(super) fn exercise_long_history(
     // The 70 distinct results are already qualified. Stop while completing
     // that boundary, before cold reads and the deliberately large byte scan
     // allow unrelated empty Ticks to begin. In-flight stop still drains normally.
-    stop_long_history_runtime(&mut runtime)?;
+    stop_owned_protected_runtime(
+        &mut runtime,
+        Duration::from_secs(120),
+        "long_history_completed_changes",
+    )?;
     let cold_started = Instant::now();
     let before = runtime.published.current()?;
     if before.anchor.head().record().position <= 64
@@ -267,7 +275,11 @@ pub(super) fn exercise_long_history(
     wait_for_published_position(&reopened, next)?;
     let after = reopened.published.current()?;
     let duplicate_commit = lookup_original_commit(&owner, original)?;
-    stop_long_history_runtime(&mut reopened)?;
+    stop_owned_protected_runtime(
+        &mut reopened,
+        Duration::from_secs(120),
+        "long_history_cold_reopen",
+    )?;
     if retained_result_from_hot_or_cold(&after.world, &original_key)? != original_result
         || game_task::current_control(&after.world, "agent").map_err(|e| e.to_string())? != control
         || duplicate_commit != *original_commit
@@ -288,38 +300,6 @@ pub(super) fn exercise_long_history(
         history_started.elapsed().as_millis()
     );
     Ok(())
-}
-
-/// Retry only the documented pending outcome on the same owned runtime. A
-/// large final Tick may still be publishing when graceful stop is requested.
-fn stop_long_history_runtime(runtime: &mut FormalLiveRuntime) -> Result<(), String> {
-    let started = Instant::now();
-    let deadline = started + Duration::from_secs(120);
-    eprintln!(
-        "formal_world_history stage=stop event=begin position={} pending_open={}",
-        runtime.published.position()?,
-        runtime.durable_set_arm.pending_open()?
-    );
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err("long history graceful stop still pending after 120s".into());
-        }
-        match runtime.stop(remaining.min(Duration::from_secs(10))) {
-            Ok(()) => {
-                eprintln!(
-                    "formal_world_history stage=stop event=end stage_ms={} position={}",
-                    started.elapsed().as_millis(),
-                    runtime.published.position()?
-                );
-                return Ok(());
-            }
-            Err(error) if error == "formal Node stop is still pending; runtime remains owned" => {
-                eprintln!("long history graceful stop pending; retaining the same runtime owner");
-            }
-            Err(error) => return Err(error),
-        }
-    }
 }
 
 /// A background empty Tick may advance position before the submitted task runs.
