@@ -203,9 +203,13 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         ));
     }
     // Reopen from the same writer directory only after the endpoint is back;
-    // startup must reconcile the exact original request rather than synthesize
-    // a replacement request or duplicate its effect.
-    case.runtime.stop(Duration::from_secs(10))?;
+    // Recovery keeps the exact original operation, whether pending work was
+    // durable or only volatile; it must not synthesize a replacement identity.
+    stop_owned_protected_runtime(
+        &mut case.runtime,
+        Duration::from_secs(120),
+        "C06_before_reopen",
+    )?;
     drop(case.runtime);
     if let Some((_, _, block_hash)) = &saved_original {
         crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::reset_execution_attempts(block_hash);
@@ -218,19 +222,47 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         .ok_or("C06 CommitRef position overflow")?;
     wait_for_published_position(&reopened, target_position)?;
 
+    // Volatile admission is not durable pending state and may disappear on
+    // reopen. Query the original first; a successor tick alone proves neither
+    // the request's inclusion nor its successful canonical result.
+    let recovered_commit = match owner_client.lookup_formal_original(case.owner_request.clone()) {
+        Ok(response) => {
+            if response.correlation != case.owner_request.correlation
+                || response.formal_profile.as_ref()
+                    != Some(&oasis7_client_api::world_service::FormalReadProfileV1::controlled())
+                || response.execution_evidence_scope.is_some()
+            {
+                return Err("C06 recovery lookup changed the original request profile".into());
+            }
+            match response.outcome {
+                oasis7_client_api::world_service::IntentOutcome::Committed { commit, .. } => {
+                    eprintln!("C06 recovery lookup=committed replay=false");
+                    Some(*commit)
+                }
+                outcome => return Err(format!("C06 unexpected recovery lookup: {outcome:?}")),
+            }
+        }
+        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            status: 503,
+            message,
+        }) if message == "HistoryUnavailable: no result at the exact qualified lookup cut" => None,
+        Err(error) => return Err(format!("C06 original lookup after recovery: {error}")),
+    };
     if saved_original.is_none() {
         // The controlled predecessor was an empty Frozen continuation. Its
         // successor publication does not make the queued Volatile envelope
-        // durable across owner teardown. Re-admit that exact signed envelope
-        // once, then await its own canonical result instead of a guessed height.
+        // durable across owner teardown. Only the exact no-result response
+        // permits re-admitting that same signed original once.
         let key = correlation::key_digest(&case.owner_request.correlation.key)?;
-        if reopened
-            .published
-            .observe(|cut| fresh_request_result(&cut.world, &key, &case.owner_request))?
-            .is_some()
+        if recovered_commit.is_some()
+            || reopened
+                .published
+                .observe(|cut| fresh_request_result(&cut.world, &key, &case.owner_request))?
+                .is_some()
         {
             return Err("C06 unfrozen volatile envelope unexpectedly survived as a result".into());
         }
+        eprintln!("C06 recovery lookup=exact_cut_without_result replay=same_signed_original");
         let admission = owner_client
             .submit(case.owner_request.clone())
             .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
@@ -241,8 +273,13 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             Duration::from_secs(20),
             "C06 exact volatile original recovery",
         )?;
+    } else if recovered_commit.is_none() {
+        return Err("C06 durable original did not recover automatically".into());
     }
     let committed = lookup_original_commit(&owner_client, &case.owner_request)?;
+    if recovered_commit.is_some_and(|original| original != committed) {
+        return Err("C06 recovery changed the already committed original result".into());
+    }
     if let Some((position, record_id, _)) = &saved_original {
         let attempts = crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::execution_attempts();
         if committed.position != *position
@@ -313,7 +350,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     }
 
     duplicate_control.release()?;
-    reopened.stop(Duration::from_secs(10))?;
+    stop_owned_protected_runtime(&mut reopened, Duration::from_secs(120), "C06_reopened")?;
     Ok(())
 }
 

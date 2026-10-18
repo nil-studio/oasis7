@@ -53,3 +53,7 @@ pub mod world_service_feedback;
 pub mod world_service_read;
 
 pub mod world_read_observation;
+
+pub mod legacy_world_service;
+
+pub mod legacy_task_results;

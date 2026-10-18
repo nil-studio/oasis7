@@ -135,7 +135,7 @@ UI 提供 tree/treeitem 语义、展开状态与层级；方向键导航与折�
 | 预算边界 | 3000 文件、1 MiB 单文件、16 MiB 总量的前后边界及 64 层输入 | 有界读取/分页，显示遗漏与原快照 | 既有预算及 §6 深度/页数，拒绝无限递归 | §11.1 foundation 故障回放 | 未验证 |
 | 异常恢复 | 权限/超时/并发编辑/中途退出/数据库事务失败 | 不发布混合快照，不丢个人数据 | §7 原子性与拒绝条件；重开前后核对 pointer/个人数据 | §11.1 foundation 回放 | 未验证 |
 
-不承诺未测的启动时间、帧率或内存分位数；实施记录样本环境和测量窗口后再提出性能目标。跨平台 Core fixture 只证明逻辑，macOS 读屏/窄窗口必须真实验证。
+不承诺未测的启动时间、帧率或内存分位数；实施记录样本环境和测量窗口后再提出性能目标。跨平台 Core fixture 只证明逻辑，macOS 窄窗口必须真实验证。
 
 ## 10. 兼容、迁移与回滚
 
@@ -149,7 +149,7 @@ UI 提供 tree/treeitem 语义、展开状态与层级；方向键导航与折�
 | --- | --- | --- | --- | --- | --- |
 | [REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-TREE-001](#DES-CC-TREE-001) | 四域/专业树、配对、历史与歧义 | 扩展 [foundation tests](../../../tools/oasis7-command-center/core/tests/foundation.rs)，并补生命周期反例：多父、多配对、重复 ID/锚点、循环、任意原始状态值、已知状态附注及紧邻全角括号 token 归一、无配对和断链 fixture | 实现 PR 的 source HEAD 与实际测试结果 | 生命周期基础已有程序回归；树关系反例待实现 |
 | [REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-TREE-002](#DES-CC-TREE-002) | 有界读取、快照一致性和隔离 | 扩展 [foundation tests](../../../tools/oasis7-command-center/core/tests/foundation.rs) 的故障回放覆盖删除/权限/超限/并发修改/旧请求晚到及部分刷新保留成功快照和旧库/缓存版本升级回退；覆盖 doc 链接到仓库内 `.env`、目录外目标及祖先目录链接的拒绝反例；检查无外部读取、模型调用和源写入 | 实现 PR 的候选及失败/恢复结果 | 章节索引并发反例已有程序回归；独立树快照、迁移与完整 corpus 性能未验证 |
-| [REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-TREE-003](#DES-CC-TREE-003) | AC-CC-016：搜索祖先、往返和个人位置 | 扩展 [UI tests](../../../tools/oasis7-command-center/ui/src/App.test.tsx) 覆盖筛选/分页/恢复；真实 macOS App 完成三分钟定位、键盘/IME/读屏和窄窗口任务 | 实现 PR 的 App build、语料规模、耗时与具体卡点 | 浏览器/DOM 测试不能代签原生体验 |
+| [REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-TREE-003](#DES-CC-TREE-003) | AC-CC-016：搜索祖先、往返和个人位置 | 扩展 [UI tests](../../../tools/oasis7-command-center/ui/src/App.test.tsx) 覆盖筛选/分页/恢复；真实 macOS App 完成三分钟定位、键盘/IME和窄窗口任务 | 实现 PR 的 App build、语料规模、耗时与具体卡点 | 浏览器/DOM 测试不能代签原生体验 |
 | Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；[REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-TREE-004](#DES-CC-TREE-004) | 默认主题阅读、诊断分层和原工作往返 | 扩展 [文档阅读回归](../../../tools/oasis7-command-center/ui/src/AppDocumentReading.test.tsx)：首次默认/已保存偏好、空筛选/部分读取/失效引用、条款直达、返回栈及迟到恢复；真实 macOS 按 AC-CC-016 定位产品专题及配对设计，再返回原工作、筛选和焦点，记录额外搜索与切换 | 实现 PR source/build、语料、任务耗时及真实截图 | 尚未实现本节阅读调整；DOM/设计检查不证明实际阅读或原生可访问性 |
 
 生命周期解析基础已由 [lifecycle_metadata.rs](../../../tools/oasis7-command-center/core/src/lifecycle_metadata.rs) 和现有来源详情承接：原始声明与规范化类别分开，新增可选字段兼容旧阅读记录；[生命周期回归](../../../tools/oasis7-command-center/core/tests/document_lifecycle.rs)覆盖附注、全角分隔符、未知原值和错误声明。这不提供文件级树、筛选或真实桌面验收。
@@ -232,8 +232,8 @@ UI 提供类别选择、原始声明输入、叶项类别标签和“显示历�
 
 ## 12. 风险与未决项
 
-历史 Markdown 导航不完全统一，初版只解析声明过的有限关系，未识别模式保留诊断并可从目录查漏。不得以标题相似度补关系。完整文档集可能超出既有预算，实施时先测实际规模和交互成本，再调整分页/预算并保持覆盖透明。真实 App 的读屏组件适配、未跟踪预览选择和基线选择入口仍需实施验证；本设计不新增付费、部署或生产访问要求。
+历史 Markdown 导航不完全统一，初版只解析声明过的有限关系，未识别模式保留诊断并可从目录查漏。不得以标题相似度补关系。完整文档集可能超出既有预算，实施时先测实际规模和交互成本，再调整分页/预算并保持覆盖透明。真实 App 的未跟踪预览选择和基线选择入口仍需实施验证；本设计不新增付费、部署或生产访问要求。
 
 ### 2026-10-18 日常闭环候选核对
 
-本 issue 范围的任务入口/默认主题与诊断层级已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现，实际来源、自动化和原生证明见[日常闭环验证](daily-work-verification.manual.md)。真实 IME 候选和 VoiceOver 仍未验证，不能由 UI fixture、AX 或源码代签。未据此扩大专题其他尚未开放的范围、外部控制权、Apple 签名或管理员安装。
+本 issue 范围的任务入口/默认主题与诊断层级已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现，实际来源、自动化和原生证明见[日常闭环验证](daily-work-verification.manual.md)。真实 IME 已获用户于 2026-10-18 人工确认，来源及构建范围见上述验证记录；不由 UI fixture、AX 或源码代签。未据此扩大专题其他尚未开放的范围、外部控制权、Apple 签名或管理员安装。

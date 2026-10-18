@@ -53,3 +53,6 @@ pub mod node_contribution;
 pub mod world_industry;
 
 pub mod module_visual;
+
+pub mod legacy_economy;
+pub mod legacy_scheduler;

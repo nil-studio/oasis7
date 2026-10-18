@@ -125,9 +125,9 @@ Trace ID: O7-REQ-3013b8cf-e3db-4506-a30a-db34e25ed636
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
-- 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
-- 剩余范围：探索、物流、charter的相邻frontier组合准入、跳跃/私有副本拒绝与同一世界接入的专属producer与Viewer/Agent消费者仍未核清。产品§5.3明确地图、邻接、物流与侦察能力何时进入可验证实现尚未决定；此policy/candidate边界不证明代码必然不存在。
+- 实现与验证依据：按本条探索+物流+charter组合前置复核生产路径：当前 dispatcher 的物流、工业、普通治理动作是分开路由（[event_processing.rs:423–477](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_runtime/src/world/event_processing.rs#L423-L477)）；当前源码命中 frontier 的 economy 入口只是把目标词归为 Expansion 生产队列优先级（[economy.rs:1128–1154](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_runtime/src/world/economy.rs#L1128-L1154)），不是相邻未知区域发现、物流建立、charter联合准入。未找到可将上述机制与本条 frontier 实体、相邻资格及同世界扩展 receipt 直接绑定的生产消费者。检索结果仅作线索，不作全库不存在证明；不由普通Move/物流/世界身份提升为本卡部分实现。
+- 核对日期与基线：2026-10-18；需求、专业设计及源码固定 main `97ceafff06d0a76b79eef8e34fc4c49f470ceb05`；本轮逐文件内容重算 Git blob 与完整固定树核对，行界与原要求锚点已验证；只读静态审查，未执行模型、Runtime、业务测试或 GUI 验收。
+- 剩余范围：具体未知为：frontier身份/邻接producer、探索/物流/charter组合准入与拒绝、同世界时间线/经济/历史接入，以及玩家/Agent可读原因与恢复入口。产品§5.3与Non-Goals（[frontier-expansion-and-world-information-boundaries.prd.md:210–221](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L210-L221)）保留何时进入可验证地图/邻接/物流/侦察实现的未定决策，本轮不代选policy、不宣称代码必不存在或当前可进入frontier。原FI-1及AC-WR-FI-001不变。
 
 - 性质：`目标要求`
 - 适用条件：玩家、Agent 或组织尝试进入未知相邻区域。
@@ -145,9 +145,9 @@ Trace ID: O7-REQ-066843dd-9e40-4148-8933-d369d16b55a2
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
-- 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
-- 剩余范围：pioneer priority的地点/用途/里程碑/期限、受让资格、撤销到期、关联倒手去重及单次归属消费的专属producer与Viewer/Agent消费者仍未核清。产品§5.3明确地图、邻接、物流与侦察能力何时进入可验证实现尚未决定；此policy/candidate边界不证明代码必然不存在。
+- 实现与验证依据：原生授权grant有动作范围、期限、预算与撤销检查（[agent_delegation.rs:319–383](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_runtime/src/world/agent_delegation.rs#L319-L383)），当前 Expansion 优先级只是生产队列分类（[economy.rs:1128–1154](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_runtime/src/world/economy.rs#L1128-L1154)）。两者均不是 pioneer priority 的开发机会权威，不能替代其地点/用途/里程碑、转让、到期、消费或独立 tenure。固定树路径与pioneer/frontier代码检索、当前dispatcher复核尚未定位这一机会实体→受让资格复核→单次归属/消费 receipt→玩家/Agent状态的直接链；未将一般授权幂等性或可读状态作为本卡交付。
+- 核对日期与基线：2026-10-18；需求、专业设计及源码固定 main `97ceafff06d0a76b79eef8e34fc4c49f470ceb05`；本轮逐文件内容重算 Git blob 与完整固定树核对，行界与原要求锚点已验证；只读静态审查，未执行模型、Runtime、业务测试或 GUI 验收。
+- 剩余范围：未核清 priority 原期限与剩余范围/里程碑、当前受让资格与待决变动原子处理、并发/重试/关联倒手/历史receipt重放、争议安全披露不冻结，以及独立tenure不被追溯没收。还需原§2.3 charter状态转换下待决tenure请求不能跨授权确认/迁移、同范围单一处置及下一步消费者。保留[frontier-expansion-and-world-information-boundaries.prd.md:210–221](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L210-L221)的长期/当前未承诺边界；无专属交付闭包证据，保持具体未知而非未实现，不调整期限或资格policy。
 
 - 性质：`目标要求`
 - 适用条件：探索或开发里程碑产生先行机会、转让或到期。
@@ -165,9 +165,9 @@ Trace ID: O7-REQ-23640893-de22-4940-9b25-ed08c9ab0f7e
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
-- 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
-- 剩余范围：frontier公共事实/最低安全披露/授权live inventory和route的分类、来源/freshness/不确定性及失权恢复的专属producer与Viewer/Agent消费者仍未核清。产品§5.3明确地图、邻接、物流与侦察能力何时进入可验证实现尚未决定；此policy/candidate边界不证明代码必然不存在。
+- 实现与验证依据：重新区分通用读取与本条信息分类：M1 QueryObservation按距离筛选其他Agent并带time/visibility_range（[lib.rs:162–220](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_builtin_wasm_modules/m1_rule_visibility/src/lib.rs#L162-L220)），formal read按public/agent及当前签名授权构造投影（[formal_read_service.rs:108–129](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_world_service/src/formal_read_service.rs#L108-L129)），客户端校验tick、world/branch/finality与scope（[world_read_observation.rs:94–153](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/crates/oasis7_client_api/src/world_read_observation.rs#L94-L153)）。这些分别是空间观察及读取可信边界，不直接决定同一frontier的已结算公共事实、最低公共安全披露、有界商业私有期或授权live inventory/routes。未核到上述分类producer及公共baseline/来源范围/freshness不确定性/失权后下一步的frontier直接消费者；不以一般可见性、签名读取或缓存版本代签。
+- 核对日期与基线：2026-10-18；需求、专业设计及源码固定 main `97ceafff06d0a76b79eef8e34fc4c49f470ceb05`；本轮逐文件内容重算 Git blob 与完整固定树核对，行界与原要求锚点已验证；只读静态审查，未执行模型、Runtime、业务测试或 GUI 验收。
+- 剩余范围：具体未知：探索数据有界私用→最低安全/通行披露→最终公共baseline，公共事实可审计与实时库存/路线等侦察、关系、购买、合同或授权分类；每项来源、范围、freshness与不确定性，以及授权失效、冲突和过期时刷新/替代/等待/停止的消费链。保留[frontier-expansion-and-world-information-boundaries.prd.md:210–221](https://github.com/nil-studio/oasis7/blob/97ceafff06d0a76b79eef8e34fc4c49f470ceb05/doc/product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#L210-L221)的未定侦察实现时点及不承诺当前实时情报/公共baseline边界，不替用户选择保密期或披露policy。
 
 - 性质：`目标要求`
 - 适用条件：玩家或 Agent 读取探索数据、公共事实或实时运营信息。

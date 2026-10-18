@@ -24,7 +24,7 @@
 
 <a id="cc-status-core-crate-extraction"></a>
 
-核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865) 已合入 `665183c94c4d1c5359dfa6b4234db08b4d55bf34`，原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871) 已合入 `3c86ecd24657ee05556694b5ed0d41a470cf7b8e`。完整 Runtime / World Service、客户端证明消费及消费者迁移由草稿 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 承接；本轮核对候选为 `97d3eb99f8cfb09460b8b47940c28c5cc8425b07`，仍在验证、尚未合入。剩余回归与同条件编译影响测量以该 PR 为准，不预设提速比例，不将结构拆分提升为游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。
+核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853) 与 [后续 #4879](https://github.com/nil-studio/oasis7/issues/4879)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865)、原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871)、完整 Runtime / World Service 及客户端证明消费迁移 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 均已合入，#4853 已关闭；#4873 合入提交为 `177eeb11c17ed2f2da3670b31b0f1d57eaf1190f`。后续 #4879 的当前候选已提供完整 legacy Scheduler 具体合同与独立客户端 profile，并将宿主归档改为内核事件借用视图和稀疏 runtime-event 附属数据，不再长期保留旧内核模型。固定本地负载下恢复后的宿主存活请求分配约降 54%；这是特定 dev profile 的分配器测量，不能推断线上 RSS 降幅。实际合入、完整测试与测量范围仍以该任务及其实现 PR 为准。不将结构拆分提升为新游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。
 
 局部文档更新（2026-10-12，仅 [#4438](https://github.com/eng-cc/oasis7/issues/4438)）：以 `27db6f894bd106e9a4fee9ee3062cd8fd86e1056` 核对 L4 工具链，补齐[构建/驱动、实际 Hosted 会话及结果合同](../../testing/prd.md#l4-build-driver)与[事实/体验判定边界](../../testing/prd.md#l4-evidence-judgment)，同步旧试玩入口。该 Issue 已以 `not_planned` 关闭，作为历史文档承接来源，不再承担新的 runner/scaffold 修复或验收义务；本次没有新试玩或部署结论，不刷新其他条目的核验时间。
 
@@ -167,7 +167,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 [Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 的四区、共享工作详情、关联修复、决定同步/历史、外部定位、一次明确发起、主题阅读与任务工具增量已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现。本轮本地 Rust 212 项、UI 160 项通过；macOS 原生已核对三项实际 PR、处理/回看、完整重开、窄窗口及受控协议请求一次回复。详细来源、版本、耗时及证明限制见[验证记录](daily-work-verification.manual.md)。
 
-真实 IME 候选及 VoiceOver 当前未验证，用户表示暂无法验证；因此 Issue 保留开放，基础产品不宣称全部验收通过。实施 PR 的实际 CI/合入状态拥有交付结论；本段不刷新其他主线、节点或部署事实，也不扩大模型、Apple 签名及管理员授权。
+用户于 2026-10-18 人工确认“IME我试了可以”，补齐本 Issue 最后一项适用交互验收；VoiceOver 按用户要求移出范围，日常工作闭环验收完成。实施 PR 的实际 CI/合入状态拥有交付结论；本段不刷新其他主线、节点或部署事实，也不扩大模型、Apple 签名及管理员授权。
 
 ### 文档全局树设计（2026-10-13，文档范围）
 

@@ -446,7 +446,11 @@ pub(in super::super) fn run(
         {
             return Err("survivor duplicate changed original agent/owner/resources/result".into());
         }
-        runtime.stop(Duration::from_secs(10))?;
+        stop_owned_protected_runtime(
+            &mut runtime,
+            Duration::from_secs(120),
+            "survivor_before_reopen",
+        )?;
     }
     Ok(())
 }

@@ -1,7 +1,9 @@
 //! Lossless adapters for the historical host-owned combined archives.
 use super::persist::{PlayerGameplaySnapshot, WorldSnapshot};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::runtime::{Snapshot as RuntimeSnapshot, WorldEvent as RuntimeWorldEvent};
+use crate::runtime::Snapshot as RuntimeSnapshot;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use crate::runtime::WorldEvent as RuntimeWorldEvent;
 use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 use oasis7_simulator::WorldEventKind;
 use oasis7_simulator::{KernelEvent, KernelSnapshot};
@@ -10,7 +12,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use serde_json::Value as RuntimeSnapshot;
 #[cfg(target_arch = "wasm32")]
-use serde_json::Value as RuntimeWorldEvent;
+pub(crate) use serde_json::Value as RuntimeWorldEvent;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorldEvent {
@@ -105,3 +107,6 @@ impl WorldEvent {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod retention_tests;

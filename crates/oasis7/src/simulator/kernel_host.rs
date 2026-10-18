@@ -1,10 +1,16 @@
 //! Host assembly and historical archive compatibility for the native kernel.
+mod archive_origin;
 mod codec;
 mod forwarding;
+mod journal_view;
+use super::archive::RuntimeWorldEvent;
 use super::archive::{WorldEvent, WorldSnapshotExtensions};
 use super::persist::{PersistError, WorldJournal, WorldSnapshot};
 use super::{KernelJournal, KernelSnapshot};
 use crate::chain_resource_schema::ChainResourceDerivationContext;
+use archive_origin::ArchiveOrigin;
+use journal_view::split_events;
+pub use journal_view::{WorldEventRef, WorldJournalView};
 use oasis7_simulator::ConsumeReason;
 use oasis7_simulator::LongTermMemoryEntry;
 use oasis7_simulator::WorldKernel as NativeKernel;
@@ -15,12 +21,12 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct WorldKernel {
     kernel: NativeKernel,
-    journal: Vec<WorldEvent>,
-    archive_origin: Option<Box<(KernelSnapshot, WorldSnapshotExtensions)>>,
+    runtime_events: std::collections::BTreeMap<usize, RuntimeWorldEvent>,
+    archive_origin: Option<Box<ArchiveOrigin>>,
 }
 impl PartialEq for WorldKernel {
     fn eq(&self, other: &Self) -> bool {
-        self.kernel == other.kernel && self.journal == other.journal
+        self.kernel == other.kernel && self.runtime_events == other.runtime_events
     }
 }
 // Immutable access exposes pure queries without allowing journal synchronization to be bypassed.
@@ -41,15 +47,9 @@ impl WorldKernel {
         kernel.set_module_source_compiler(Arc::new(
             crate::module_source_compiler::HostModuleSourceCompiler,
         ));
-        let journal = kernel
-            .journal()
-            .iter()
-            .cloned()
-            .map(|event| WorldEvent::from_kernel_parts(event, None))
-            .collect();
         Self {
             kernel,
-            journal,
+            runtime_events: Default::default(),
             archive_origin: None,
         }
     }
@@ -79,7 +79,7 @@ impl WorldKernel {
         intent: super::LlmEffectIntentTrace,
     ) {
         self.kernel.record_effect_intent(agent_id, intent);
-        self.sync_journal();
+        self.assert_journal_sidecar();
     }
     pub(super) fn record_effect_receipt(
         &mut self,
@@ -87,26 +87,24 @@ impl WorldKernel {
         receipt: super::LlmEffectReceiptTrace,
     ) {
         self.kernel.record_effect_receipt(agent_id, receipt);
-        self.sync_journal();
+        self.assert_journal_sidecar();
     }
-    fn sync_journal(&mut self) {
-        let native = self.kernel.journal();
+    fn assert_journal_sidecar(&mut self) {
         assert!(
-            native.len() >= self.journal.len(),
+            self.runtime_events
+                .last_key_value()
+                .is_none_or(|(index, _)| *index < self.kernel.journal().len()),
             "native kernel journal cannot shrink"
-        );
-        self.journal.extend(
-            native[self.journal.len()..]
-                .iter()
-                .cloned()
-                .map(|event| WorldEvent::from_kernel_parts(event, None)),
         );
     }
     pub(crate) fn into_model(self) -> WorldModel {
         self.kernel.into_state().model
     }
-    pub fn journal(&self) -> &[WorldEvent] {
-        &self.journal
+    pub fn journal(&self) -> WorldJournalView<'_> {
+        WorldJournalView {
+            events: self.kernel.journal(),
+            runtime_events: &self.runtime_events,
+        }
     }
     pub fn kernel_snapshot(&self) -> KernelSnapshot {
         self.kernel.kernel_snapshot()
@@ -117,43 +115,23 @@ impl WorldKernel {
     pub fn journal_snapshot(&self) -> WorldJournal {
         WorldJournal {
             version: JOURNAL_VERSION,
-            events: self.journal.clone(),
+            events: self.journal().iter().map(WorldEventRef::to_owned).collect(),
         }
     }
     pub fn snapshot(&self) -> WorldSnapshot {
-        if let Some((native, extensions)) = self.archive_origin.as_deref()
-            && *native == self.kernel_snapshot()
-        {
-            return WorldSnapshot::from_kernel_parts(native.clone(), extensions.clone());
-        }
         let mut snapshot = self.snapshot_with_chain_resource_context(
             ChainResourceDerivationContext::simulator_default(self.time()),
         );
-        if let Some((native, extensions)) = self.archive_origin.as_deref() {
-            let context = ChainResourceDerivationContext::simulator_default(native.time);
-            let prefix = &self.kernel.journal()[..native.journal_len];
-            let derived_manifest = oasis7_simulator::from_simulator_state(
-                context,
-                &native.model,
-                &native.config,
-                &native.chunk_runtime,
-                prefix,
-            );
-            let derived_delta =
-                oasis7_simulator::latest_from_simulator_journal(context, &derived_manifest, prefix);
-            // Host-supplied chain evidence describes its original committed cut.
-            // Only the explicit context API may replace that evidence. Ordinary
-            // pure-kernel archives continue refreshing their default derivation.
-            if extensions.chain_resource_manifest != derived_manifest
-                || extensions.latest_chain_resource_delta != derived_delta
-            {
-                snapshot.chain_resource_manifest = extensions.chain_resource_manifest.clone();
-                snapshot.latest_chain_resource_delta =
-                    extensions.latest_chain_resource_delta.clone();
-            }
+        if let Some(origin) = self.archive_origin.as_deref()
+            && origin.external_chain_evidence
+        {
+            snapshot.chain_resource_manifest = origin.extensions.chain_resource_manifest.clone();
+            snapshot.latest_chain_resource_delta =
+                origin.extensions.latest_chain_resource_delta.clone();
         }
         snapshot
     }
+
     pub fn snapshot_with_chain_resource_context(
         &self,
         context: ChainResourceDerivationContext<'_>,
@@ -177,11 +155,11 @@ impl WorldKernel {
                 runtime_snapshot: self
                     .archive_origin
                     .as_deref()
-                    .and_then(|(_, extensions)| extensions.runtime_snapshot.clone()),
+                    .and_then(|origin| origin.extensions.runtime_snapshot.clone()),
                 player_gameplay: self
                     .archive_origin
                     .as_deref()
-                    .and_then(|(_, extensions)| extensions.player_gameplay.clone()),
+                    .and_then(|origin| origin.extensions.player_gameplay.clone()),
                 chain_resource_manifest,
                 latest_chain_resource_delta,
             },
@@ -192,22 +170,18 @@ impl WorldKernel {
         journal: WorldJournal,
     ) -> Result<Self, PersistError> {
         let (native, extensions) = snapshot.into_kernel_parts();
-        let events = journal
-            .events
-            .iter()
-            .cloned()
-            .map(|event| event.into_kernel_parts().0)
-            .collect();
-        let kernel = NativeKernel::from_kernel_snapshot(
-            native.clone(),
-            KernelJournal {
-                version: journal.version,
-                events,
-            },
-        )?;
+        let (events, runtime_events) = split_events(journal.events);
+        let native_journal = KernelJournal {
+            version: journal.version,
+            events,
+        };
+        native.validate_version()?;
+        native_journal.validate_version()?;
+        let origin = ArchiveOrigin::new(&native, extensions, &native_journal.events)?;
+        let kernel = NativeKernel::from_kernel_snapshot(native, native_journal)?;
         let mut host = Self::from_native(kernel);
-        host.journal = journal.events;
-        host.archive_origin = Some(Box::new((native, extensions)));
+        host.runtime_events = runtime_events;
+        host.archive_origin = Some(Box::new(origin));
         Ok(host)
     }
     pub fn replay_from_snapshot(
@@ -229,23 +203,21 @@ impl WorldKernel {
         compiler: Option<Arc<dyn oasis7_agent_api::module_source::ModuleSourceCompiler>>,
     ) -> Result<Self, PersistError> {
         let (native, extensions) = snapshot.into_kernel_parts();
-        let events = journal
-            .events
-            .iter()
-            .cloned()
-            .map(|event| event.into_kernel_parts().0)
-            .collect();
+        let (events, runtime_events) = split_events(journal.events);
         let native_journal = KernelJournal {
             version: journal.version,
             events,
         };
-        let kernel = NativeKernel::replay_from_kernel_snapshot(native.clone(), native_journal)?;
+        native.validate_version()?;
+        native_journal.validate_version()?;
+        let origin = ArchiveOrigin::new(&native, extensions, &native_journal.events)?;
+        let kernel = NativeKernel::replay_from_kernel_snapshot(native, native_journal)?;
         let mut host = Self::from_native(kernel);
         if let Some(compiler) = compiler {
             host.kernel.set_module_source_compiler(compiler);
         }
-        host.journal = journal.events;
-        host.archive_origin = Some(Box::new((native, extensions)));
+        host.runtime_events = runtime_events;
+        host.archive_origin = Some(Box::new(origin));
         Ok(host)
     }
     pub fn save_to_dir(&self, dir: impl AsRef<Path>) -> Result<(), PersistError> {

@@ -47,6 +47,8 @@ gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
 
 固定预算：矩阵最多并行 3 组；普通消费者最长 150 分钟；可选容量 job 最长 360 分钟，内部执行预算 18,000 秒、外层 case 截止 19,000 秒。容量源语料每域逻辑上限 4GiB，shadow 每步默认 64MiB，保留产品 1GiB 单步硬限制；磁盘可用空间下限 3GiB。fixture、原始表示、优化表示和元数据的实际占用可能先触达磁盘预算。1k/10k 不保证在 hosted runner 的 6 小时内完成，预算耗尽必须保留 partial 进度并使本次失败，不能把较小高度结果改为目标规模通过。
 
+受保护进程 fixture 的正常停止沿用正式 pending 合同：保留同一 runtime/stop worker，在一次固定总截止内继续等待，停止完成前不释放所有权或重开。C02、C06、survivor 与长历史的正常停止总预算为 120 秒，每次等待最多 10 秒；effect 场景保留 30 秒总预算，已有整场景截止的 healthy fixture 继续受原截止约束。只继续等待准确的 stop-pending 状态，其他错误或总截止耗尽仍失败；这些验收等待界不是产品停止时延 SLO。
+
 消费者保留实际 selected inventory、artifact manifest、逐 case 原始日志、JSONL 判定、容量 report/progress、资源采样与故障计数；结果 artifact 保留 14 天，构建包保留 2 天。资源报告区分采样的进程集合 RSS 与精确峰值；容量原生工件归档、设备写入/写放大和生产提交延迟未测时继续明确为空。汇总要求所有预期 label、完整 case 数、原返回码和 cleanup 都成功；缺失、取消、超时、零测试、缺报告、未知 job 状态或未清除故障不能通过。可选长跑未选择时单独标 not_run，不影响已选择组的真实结果。
 
 **证明边界**：这套 CI 是同机故障模型及对象命名空间验收；disk-full 是真实 tmpfs 空间耗尽，不是物理块设备故障。现有单元错误注入不冒充真实块设备 ENOSPC/fsync 故障演练；未加入真实跨版本 shipping 升级/回退组合、独立 Agent 自主试玩、硬件掉电或真实双独立故障域。S6、完整设备 I/O、目标规模与其他尚无完整入口的条款分别保持未验证，不能由整个 workflow 绿色代签。
