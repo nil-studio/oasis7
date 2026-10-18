@@ -2,6 +2,7 @@
 """Select ordinary CI groups from Git data. No network, task state or candidate code execution."""
 import argparse
 import fnmatch
+import hashlib
 import json
 import posixpath
 import re
@@ -66,7 +67,7 @@ def independent_target_input(path, directory, manifest):
     return not library.startswith(roots)
 
 
-def cargo_graph(ref):
+def cargo_graph(ref, generated_inputs=()):
     """Resolve workspace path edges including dev/build/target and renamed dependencies.
 
     Optional dependencies are included conservatively, so no feature combination is lost.
@@ -74,6 +75,7 @@ def cargo_graph(ref):
     """
     records = git('ls-tree', '-r', '-z', ref).split(b'\0')
     entries = []
+    blob_modes = {}
     tracked_paths = set()
     for record in records:
         if not record:
@@ -83,6 +85,7 @@ def cargo_graph(ref):
         tracked_paths.add(path.decode('utf-8', 'surrogateescape'))
         if kind == b'blob' and (path.endswith(b'Cargo.toml') or path.endswith(b'.rs')):
             entries.append((oid, path.decode('utf-8', 'surrogateescape')))
+            blob_modes[path.decode('utf-8', 'surrogateescape')] = mode
     data = subprocess.check_output(['git', 'cat-file', '--batch'], input=b''.join(oid + b'\n' for oid, _ in entries))
     blobs = {}
     offset = 0
@@ -115,6 +118,27 @@ def cargo_graph(ref):
         manifests[name] = (directory, manifest)
     if not manifests:
         raise ValueError('no workspace packages')
+    # Trust only reviewed, self-contained producers whose repository inputs are
+    # covered by CONTROL. Check the actual build entry and bytes at every ref;
+    # a stale file left behind after switching generators is not authoritative.
+    generated_outputs = {}
+    for entry in generated_inputs:
+        if entry['package'] not in manifests:
+            continue
+        directory, manifest = manifests[entry['package']]
+        build = manifest['package'].get('build', 'build.rs')
+        if not isinstance(build, str) or not build:
+            continue
+        producer = posixpath.normpath(posixpath.join(directory, build))
+        if (producer != entry['producer']
+                or (directory and not producer.startswith(directory + '/'))
+                or not any(fnmatch.fnmatchcase(producer, pattern) for pattern in CONTROL)):
+            continue
+        contents = blobs.get(producer)
+        if (contents is None or blob_modes.get(producer) not in (b'100644', b'100755')
+                or hashlib.sha256(contents).hexdigest() != entry['producer_sha256']):
+            continue
+        generated_outputs[entry['package']] = set(entry['outputs'])
     by_directory = {directory: name for name, (directory, _) in manifests.items()}
     reverse = {name: set() for name in manifests}
     workspace_dependencies = workspace.get('dependencies', {})
@@ -198,6 +222,7 @@ def cargo_graph(ref):
         library_owners = set(owners) if path not in leaf_inputs else set()
         literal = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"\s*,?\s*\)', source))
         concatenated = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"([^"\n]+)"\s*,?\s*\)\s*,?\s*\)', source))
+        generated = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)\s*,\s*"/([^"\n]+)"\s*,?\s*\)\s*,?\s*\)', source))
         for match in literal:
             candidate = posixpath.normpath(posixpath.join(posixpath.dirname(path), match.group(1)))
             embedded.setdefault(candidate, set()).update(owners)
@@ -221,8 +246,13 @@ def cargo_graph(ref):
                         embedded.setdefault(candidate, set()).add(owner)
                         if owner in library_owners:
                             library_embeds.setdefault(candidate, set()).add(owner)
-        if len(re.findall(r'include_(?:str|bytes)!', source)) > len(literal) + len(concatenated):
-            embedded.setdefault('__unresolved_embed__', set()).update(owners)
+        unresolved = len(re.findall(r'include_(?:str|bytes)!', source)) - len(literal) - len(concatenated)
+        for owner in owners:
+            # OUT_DIR belongs to the compiling package, including each library
+            # that imports this source. One owner's registration cannot exempt another.
+            known = sum(match.group(1) in generated_outputs.get(owner, set()) for match in generated)
+            if unresolved > known:
+                embedded.setdefault('__unresolved_embed__', set()).add(owner)
     embedded['__leaf_inputs__'] = leaf_inputs
     embedded['__library_directories__'] = library_directories
     embedded['__library_readers__'] = library_readers
@@ -254,6 +284,30 @@ def validate_config(config):
     for rule in config['rules']:
         if not rule.get('match') or not set(rule.get('groups', [])).issubset(groups):
             raise ValueError('invalid directory mapping')
+        excluded = rule.get('exclude', [])
+        if not isinstance(excluded, list) or any(not isinstance(pattern, str) or not pattern for pattern in excluded):
+            raise ValueError('invalid directory exclusions')
+    generated = config.get('generated_inputs', [])
+    if not isinstance(generated, list):
+        raise ValueError('invalid generated input inventory')
+    packages = set()
+    for entry in generated:
+        if (not isinstance(entry, dict)
+                or set(entry) != {'package', 'producer', 'producer_sha256', 'outputs'}):
+            raise ValueError('invalid generated input registration')
+        package, producer = entry['package'], entry['producer']
+        digest, outputs = entry['producer_sha256'], entry['outputs']
+        if (not isinstance(package, str) or not package or package in packages
+                or not isinstance(producer, str) or not producer
+                or posixpath.isabs(producer) or posixpath.normpath(producer) != producer
+                or '\\' in producer or '..' in producer.split('/')
+                or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                or not isinstance(outputs, list) or not outputs
+                or any(not isinstance(name, str) or name in ('.', '..')
+                       or not re.fullmatch(r'[A-Za-z0-9_.-]+', name) for name in outputs)
+                or len(outputs) != len(set(outputs))):
+            raise ValueError('invalid generated input identity')
+        packages.add(package)
     return config
 
 
@@ -288,7 +342,7 @@ def select(config, base, source_head, test_head=None, additions=()):
             paths = list(dict.fromkeys(changed_paths(source_base, source_oid)
                                        + changed_paths(target, test_head)))
             graph_refs.extend([source_base, target])
-        graphs = [cargo_graph(ref) for ref in dict.fromkeys(graph_refs)]
+        graphs = [cargo_graph(ref, config.get('generated_inputs', [])) for ref in dict.fromkeys(graph_refs)]
         for path in paths:
             controlled = any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
             if controlled:
@@ -316,7 +370,8 @@ def select(config, base, source_head, test_head=None, additions=()):
                     affected.update(owners)
                     affected.update(reverse_consumers(library_owners, reverse))
             for rule in config['rules']:
-                if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match']):
+                if (any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
+                        and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule.get('exclude', []))):
                     matched = True
                     chosen.update(rule.get('groups', []))
                     support_rule |= 'workspace_support' in rule.get('groups', [])
