@@ -9,9 +9,9 @@
   - 当前追踪：GitHub Issue / GitHub Project
   - 本文件仅保留历史 AHA 发布 provenance，不是现行 operator runbook。
 - 代码主线：
-  - `crates/oasis7/src/runtime/reward_asset.rs`
-  - `crates/oasis7/src/runtime/world/resources.rs`
-  - `crates/oasis7/src/runtime/tests/reward_asset.rs`
+  - `crates/oasis7_runtime/src/reward_asset.rs`
+  - `crates/oasis7_runtime/src/world/resources.rs`
+  - `crates/oasis7_runtime/src/tests/reward_asset.rs`
   - `crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`
 
 ## 交付摘要
@@ -46,5 +46,5 @@
 
 ## 已知事项
 - `mintsig:v1` 仍为可重算摘要语义，不等同于真实私钥签名；后续可平滑升级到硬签名方案（如 `mintsig:v2`）。
-- 原发布窗口曾记录无关格式化漂移（不是今日工作区状态）：`crates/oasis7/src/runtime/node_points.rs`，本轮未回退。
+- 原发布窗口曾记录无关格式化漂移（不是今日工作区状态）：`crates/oasis7_runtime/src/node_points.rs`，本轮未回退。
 - 历史 `oasis7_viewer_live` 命令与 flags 不再构成当前运行入口；现行证据以 chain-runtime CLI、runtime root 与 report artifacts 为准。

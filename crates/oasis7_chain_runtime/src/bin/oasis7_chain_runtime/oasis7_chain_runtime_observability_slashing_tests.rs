@@ -1,10 +1,10 @@
 use oasis7::geometry::GeoPos;
-use oasis7::runtime::{Action, GovernanceIdentityStatus, World};
 use oasis7_node::{
     NodeConsensusMisbehaviorEvidenceSnapshot, NodeConsensusSlashingIntentSnapshot,
     NodeConsensusSlashingReceiptSnapshot, NodeConsensusSnapshot, NodeRole, NodeSnapshot,
 };
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::{Action, GovernanceIdentityStatus, World};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -243,7 +243,7 @@ fn build_chain_status_payload_marks_consensus_misbehavior_critical() {
 #[test]
 fn status_server_attaches_governance_slashing_receipts_from_execution_world() {
     let world_dir = slashing_temp_dir("slashing-receipt-world");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     register_slashing_agent(&mut world, "node-a");
     world
         .set_governance_identity_profile("node-a", 100, 0, GovernanceIdentityStatus::Active)
@@ -316,7 +316,7 @@ fn status_server_attaches_governance_slashing_receipts_from_execution_world() {
 #[test]
 fn status_server_treats_accepted_slashing_appeal_as_resolved_receipt() {
     let world_dir = slashing_temp_dir("slashing-receipt-appeal-accepted-world");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     register_slashing_agent(&mut world, "node-a");
     world
         .set_governance_identity_profile("node-a", 100, 0, GovernanceIdentityStatus::Active)

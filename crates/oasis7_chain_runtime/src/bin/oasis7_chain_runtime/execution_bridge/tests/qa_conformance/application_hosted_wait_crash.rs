@@ -101,7 +101,7 @@ fn retained_original(bytes: &[u8]) -> SubmitIntentRequest<WorldServicePayloadV1>
         cognition["memory_write_intents"],
         cognition["response"]["base_decision_response"]["memory_write_intents"]
     );
-    let proposal: oasis7::runtime::CognitionContinuationProposalV1 =
+    let proposal: oasis7_runtime::CognitionContinuationProposalV1 =
         serde_json::from_value(wait["runtime"].clone()).unwrap();
     checkpoint["provider_scheduler_pending"]
         .as_object()
@@ -342,7 +342,7 @@ pub(super) fn recover_parent(
     else {
         panic!("original canonical Wait Admit must be committed before recovery");
     };
-    let receipt: oasis7::runtime::AgentContinuation = serde_json::from_value(receipt).unwrap();
+    let receipt: oasis7_runtime::AgentContinuation = serde_json::from_value(receipt).unwrap();
     let world = fixture.driver.lock().unwrap().execution_world.clone();
     let actual = world
         .capability_revocation_state()
@@ -383,7 +383,7 @@ pub(super) fn recover_parent(
             .any(
                 |lease| lease.lease_id == origin["lease_id"].as_str().unwrap()
                     && lease.request_digest == origin["request_digest"].as_str().unwrap()
-                    && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Reserved
+                    && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Reserved
             )
     );
     assert!(!world.capability_revocation_state().world_service_results.values().filter_map(|value|

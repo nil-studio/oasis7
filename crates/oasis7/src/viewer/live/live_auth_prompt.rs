@@ -294,7 +294,7 @@ impl LiveWorld {
             });
         }
         Ok(AgentChatAck {
-        auth_nonce: None,
+            auth_nonce: None,
             agent_id: request.agent_id,
             accepted_at_tick: self.kernel.time(),
             message_len: message.chars().count(),
@@ -463,7 +463,7 @@ impl LiveWorld {
             return Some(profile.clone());
         }
         self.kernel.journal().iter().rev().find_map(|event| {
-            let crate::simulator::WorldEventKind::AgentPromptUpdated { profile, .. } = &event.kind
+            let oasis7_simulator::WorldEventKind::AgentPromptUpdated { profile, .. } = &event.kind
             else {
                 return None;
             };
@@ -509,8 +509,8 @@ impl LiveWorld {
                             .kernel
                             .model()
                             .agent_prompt_profiles
-                        .get(&profile.agent_id)
-                        .map(|entry| entry.version),
+                            .get(&profile.agent_id)
+                            .map(|entry| entry.version),
                         ..PromptControlError::default_legacy()
                     });
                 };

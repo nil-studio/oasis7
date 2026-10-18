@@ -1,6 +1,6 @@
 use super::{io, source, transaction, tree};
-use oasis7::runtime::{Action, ChainResourceDerivationContext, LocalCasStore, World};
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
+use oasis7_runtime::{Action, ChainResourceDerivationContext, LocalCasStore};
 use std::{
     collections::BTreeMap,
     fs,
@@ -102,7 +102,7 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
     .unwrap();
     let world_id = "legacy-migration-world";
     let genesis = format!("sha256:{}", hex::encode([0x42; 32]));
-    let initial = World::new();
+    let initial = oasis7::runtime_host::world::new();
     initial
         .save_to_dir_with_chain_resource_context(
             &world,
@@ -137,8 +137,8 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
     let committed_actions = if with_simulator_action {
         let payload = oasis7::consensus_action_payload::encode_consensus_action_payload(
             &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_simulator_action(
-                oasis7::simulator::Action::HarvestRadiation { agent_id: "agent-0".into(), max_amount: 1 },
-                oasis7::simulator::ActionSubmitter::System,
+                oasis7_simulator::Action::HarvestRadiation { agent_id: "agent-0".into(), max_amount: 1 },
+                oasis7_simulator::ActionSubmitter::System,
             )).unwrap();
         vec![oasis7_node::NodeConsensusAction::from_payload(1, "old-observer", payload).unwrap()]
     } else {
@@ -167,13 +167,13 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
     let record: serde_json::Value = io::read(&records.join(format!("{:020}.json", 1))).unwrap();
     let store = LocalCasStore::new(cas.clone());
     let cas_bytes = |name: &str| store.get_verified(record[name].as_str().unwrap()).unwrap();
-    let before = World::from_snapshot(
+    let before = oasis7::runtime_host::world::from_snapshot(
         serde_cbor::from_slice(&cas_bytes("snapshot_ref")).unwrap(),
         serde_cbor::from_slice(&cas_bytes("journal_ref")).unwrap(),
     )
     .unwrap();
     assert_eq!(before.state().time, 1);
-    let before_root = oasis7::runtime::blake3_hex(&serde_cbor::to_vec(&before.snapshot()).unwrap());
+    let before_root = oasis7_runtime::blake3_hex(&serde_cbor::to_vec(&before.snapshot()).unwrap());
     assert_eq!(
         record["execution_state_root"].as_str(),
         Some(before_root.as_str())
@@ -184,7 +184,7 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
         agent_id: "pending-after-cut".into(),
         pos: oasis7::geometry::GeoPos::new(1, 2, 3),
     });
-    let feedback = oasis7::simulator::FeedbackEnvelopeV1 {
+    let feedback = oasis7_agent_api::FeedbackEnvelopeV1 {
         feedback_id: "retained-feedback".into(),
         feedback_seq: 1,
         agent_subject: "fixture-agent".into(),
@@ -201,8 +201,8 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
     staged.enqueue_runtime_feedback(feedback.clone()).unwrap();
     staged.enqueue_runtime_feedback(feedback).unwrap();
     staged.save_to_dir(&world).unwrap();
-    let staged = World::load_from_dir(&world).unwrap();
-    let staged_root = oasis7::runtime::blake3_hex(&serde_cbor::to_vec(&staged.snapshot()).unwrap());
+    let staged = oasis7::runtime_host::world::load_from_dir(&world).unwrap();
+    let staged_root = oasis7_runtime::blake3_hex(&serde_cbor::to_vec(&staged.snapshot()).unwrap());
     io::write(&records.join("product-validation-intent.json"),&serde_json::json!({"schema_version":1,"world_id":world_id,"height":2,"journal_len":staged.journal().len(),"pre_step_execution_state_root":before_root,"staged_execution_state_root":staged_root})).unwrap();
     // Distinct replication CAS, writer/guard state and reward-prefixed data.
     io::write(
@@ -221,7 +221,7 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
     )
     .unwrap();
     let blob = b"separate-replication-material";
-    let hash = oasis7::runtime::blake3_hex(blob);
+    let hash = oasis7_runtime::blake3_hex(blob);
     fs::write(
         replication.join("store/blobs").join(format!("{hash}.blob")),
         blob,
@@ -474,7 +474,7 @@ fn legacy_migration_rejects_hash_valid_but_unrecoverable_simulator_journal() {
     let mut record: serde_json::Value = io::read(&record_path).unwrap();
     let store = LocalCasStore::new(fixture.root.join("independent-cas"));
     let malformed =
-        oasis7::runtime::BlobStore::put_bytes(&store, b"not simulator journal CBOR").unwrap();
+        oasis7_runtime::BlobStore::put_bytes(&store, b"not simulator journal CBOR").unwrap();
     record["simulator_mirror"]["journal_ref"] = serde_json::json!(malformed);
     io::write(&record_path, &record).unwrap();
     assert!(

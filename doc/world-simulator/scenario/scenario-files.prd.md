@@ -18,7 +18,7 @@
 ## 2. User Experience & Functionality
 
 ### In Scope
-- `crates/oasis7/scenarios/*.json` 作为默认场景文件集合。
+- `crates/oasis7_simulator/scenarios/*.json` 作为默认场景文件集合。
 - `WorldScenario` 从场景文件加载配置（include_str 嵌入编译产物）。
 - 地点生成表达 `location_generator`：由 `seed` 决定地点数量与命名。
 - 场景文件覆盖所有现有场景：minimal/two_bases/.../asteroid_fragment_detail_bootstrap/asteroid_fragment_triad_region_bootstrap。
@@ -140,8 +140,8 @@ Trace refs: O7-REQ-3cf9f857-8083-4527-9648-95e9425a8448；本条承接[Agent 根
 说明：
 - 只有显式 `power_bootstrap` 场景 JSON 注入 `power_plants`；其他内置场景（包括全部 `asteroid_fragment*` 场景）均无隐式电力设施。如需设施，必须在场景数据中显式声明。
 - `WorldInitConfig` / `build_world_model` 的设施注入只是场景数据初始化行为，不新增 runtime 电力规则、WASM/动作 ABI、owner 电力余额、链上经济或治理权威，也不得与 `m1_power_storage` 语义混同。
-- `scenario_specs_match_ids` 定位于 `crates/oasis7/src/simulator/scenario.rs`，用于约束“枚举 ID 与 JSON ID 一致”。
-- 其余命名测试主要位于 `crates/oasis7/src/simulator/tests/init.rs` 与 `crates/oasis7_ops_tools/tests/oasis7_init_demo.rs`。
+- `scenario_specs_match_ids` 定位于 `crates/oasis7_simulator/src/scenario.rs`，用于约束“枚举 ID 与 JSON ID 一致”。
+- 其余命名测试主要位于 `crates/oasis7_simulator/src/tests/init.rs` 与 `crates/oasis7_ops_tools/tests/oasis7_init_demo.rs`。
 - 场景矩阵应随测试变更同步更新，避免“文档保留但测试漂移”。
 
 ## 6. Validation & Decision Record

@@ -3,11 +3,13 @@ use super::control_plane::{
 };
 use super::*;
 use crate::runtime::Action as RuntimeAction;
-use crate::simulator::{ResourceKind, ResourceOwner, WorldKernel};
+use crate::simulator::WorldKernel;
 use crate::viewer::{
     GameplayActionError, ScheduleRecipeQuotePreflight, ScheduleRecipeQuoteRequest,
     VerifiedPlayerAuth, verify_schedule_recipe_quote_auth_proof,
 };
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::ResourceOwner;
 
 impl ViewerRuntimeLiveServer {
     /// Computes the canonical ScheduleRecipe quote for the authenticated player's bound Agent.
@@ -85,13 +87,14 @@ impl ViewerRuntimeLiveServer {
             self.seed_model.as_ref(),
         );
         let quote = WorldKernel::with_model(self.snapshot_config.clone(), model)
-            .quote_schedule_recipe_runtime_signals(
+            .query_schedule_recipe(
                 &ResourceOwner::Agent {
                     agent_id: agent_id.to_string(),
                 },
                 request.factory_id.as_str(),
                 request.recipe_id.as_str(),
                 request.batches,
+                oasis7_simulator::ScheduleResourceScope::HostLedgers,
             )
             .map_err(|reason| GameplayActionError {
                 code: "schedule_recipe_quote_rejected".to_string(),
@@ -170,13 +173,12 @@ impl ViewerRuntimeLiveServer {
                 target_agent_id: Some(agent_id.to_string()),
             });
         };
-        let (local_shortage_delay_ticks, shortage_reason) = self
+        let readiness = self
             .world
-            .schedule_recipe_local_scarcity_delay_for_quote(
+            .quote_recipe_execution_readiness(
                 request.factory_id.as_str(),
                 request.recipe_id.as_str(),
-                &canonical_plan.consume,
-                &canonical_plan.produce,
+                &canonical_plan,
             )
             .map_err(|message| GameplayActionError {
                 code: "schedule_recipe_quote_rejected".to_string(),
@@ -184,6 +186,8 @@ impl ViewerRuntimeLiveServer {
                 action_id: Some("quote_schedule_recipe".to_string()),
                 target_agent_id: Some(agent_id.to_string()),
             })?;
+        let local_shortage_delay_ticks = readiness.local_shortage_delay_ticks;
+        let shortage_reason = readiness.shortage_reason;
         Ok(ScheduleRecipeQuotePreflight {
             owner_agent_id: agent_id.to_string(),
             factory_id: quote.factory_id,

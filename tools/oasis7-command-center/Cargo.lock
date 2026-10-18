@@ -2206,6 +2206,7 @@ dependencies = [
  "libc",
  "oasis7_context",
  "oasis7_local_signer",
+ "oasis7_signer_protocol",
  "pulldown-cmark",
  "rusqlite",
  "serde",
@@ -2247,6 +2248,7 @@ dependencies = [
  "nix",
  "oasis7_context",
  "oasis7_secure_envelope",
+ "oasis7_signer_protocol",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2264,6 +2266,18 @@ dependencies = [
  "serde",
  "serde_json",
  "zeroize",
+]
+
+[[package]]
+name = "oasis7_signer_protocol"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]

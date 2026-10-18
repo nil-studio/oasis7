@@ -379,14 +379,14 @@ impl WorldServiceTransport {
     }
 }
 
-pub mod private_key_file;
+pub use oasis7_client_storage::private_key_file;
 #[cfg(unix)]
-pub mod private_storage;
+pub use oasis7_client_storage::private_storage;
 
 mod task_client;
 pub use task_client::WorldServiceTaskClient;
 
-pub mod operation_store;
+pub use oasis7_client_storage::operation_store;
 
 mod verified_task_view;
 pub use verified_task_view::{
@@ -446,3 +446,19 @@ fn quote_error_category(path: &str, status: u16, reader: &mut impl Read) -> Opti
 }
 
 pub mod formal_read;
+
+pub mod verified_world_view;
+
+pub mod remote_world_service;
+
+pub mod formal_business;
+pub mod world_service_client;
+
+pub mod membership;
+
+#[cfg(test)]
+mod world_service_test_profile;
+
+pub mod read_projection;
+
+pub mod task_original_view;

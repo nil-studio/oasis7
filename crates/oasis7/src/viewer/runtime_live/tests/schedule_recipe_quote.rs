@@ -62,17 +62,22 @@ fn runtime_schedule_recipe_quote_is_authenticated_read_only_and_exposes_player_p
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             32,
         )
         .expect("seed electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 16)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            16,
+        )
         .expect("seed data");
-    server
-        .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 32);
+    server.world.set_resource_balance(
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
+        32,
+    );
     let site_ledger = crate::runtime::MaterialLedgerId::site("site-smelter");
     server
         .world
@@ -171,17 +176,22 @@ fn runtime_schedule_recipe_quote_matches_recipe_started_duration_for_same_snapsh
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             32,
         )
         .expect("seed electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 16)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            16,
+        )
         .expect("seed data");
-    server
-        .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 32);
+    server.world.set_resource_balance(
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
+        32,
+    );
     let site_ledger = crate::runtime::MaterialLedgerId::site("site-smelter");
     server
         .world
@@ -285,7 +295,7 @@ fn runtime_schedule_recipe_quote_matches_recipe_started_duration_for_same_snapsh
             .world
             .agent_resource_balance(
                 agent_id.as_str(),
-                crate::simulator::ResourceKind::Electricity
+                oasis7_agent_api::world_action::ResourceKind::Electricity
             )
             .expect("builder electricity after recipe start"),
         quote.electricity_after
@@ -293,7 +303,7 @@ fn runtime_schedule_recipe_quote_matches_recipe_started_duration_for_same_snapsh
     assert_eq!(
         server
             .world
-            .resource_balance(crate::simulator::ResourceKind::Electricity),
+            .resource_balance(oasis7_agent_api::world_action::ResourceKind::Electricity),
         32,
         "the world electricity pool is not the recipe payer"
     );
@@ -332,17 +342,21 @@ fn runtime_schedule_recipe_quote_uses_factory_site_materials_not_global_stock() 
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             32,
         )
         .expect("seed builder electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 0)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            0,
+        )
         .expect("seed low local data");
     server
         .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 0);
+        .set_resource_balance(oasis7_agent_api::world_action::ResourceKind::Electricity, 0);
     let site_ledger = crate::runtime::MaterialLedgerId::site("site-smelter");
     server
         .world
@@ -403,7 +417,7 @@ fn runtime_schedule_recipe_quote_uses_factory_site_materials_not_global_stock() 
             .world
             .agent_resource_balance(
                 agent_id.as_str(),
-                crate::simulator::ResourceKind::Electricity
+                oasis7_agent_api::world_action::ResourceKind::Electricity
             )
             .expect("builder electricity after recipe start"),
         16
@@ -411,7 +425,7 @@ fn runtime_schedule_recipe_quote_uses_factory_site_materials_not_global_stock() 
     assert_eq!(
         server
             .world
-            .resource_balance(crate::simulator::ResourceKind::Electricity),
+            .resource_balance(oasis7_agent_api::world_action::ResourceKind::Electricity),
         0,
         "global electricity remains irrelevant to the owner-held power debit"
     );
@@ -450,17 +464,22 @@ fn runtime_schedule_recipe_quote_requires_factory_builder_electricity_not_world_
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             0,
         )
         .expect("drain factory builder electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 16)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            16,
+        )
         .expect("seed builder data");
-    server
-        .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 32);
+    server.world.set_resource_balance(
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
+        32,
+    );
 
     let err = server
         .handle_schedule_recipe_quote(signed_schedule_recipe_quote_request(
@@ -516,17 +535,21 @@ fn runtime_schedule_recipe_quote_reports_factory_builder_electricity_after_not_w
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             32,
         )
         .expect("seed builder electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 16)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            16,
+        )
         .expect("seed builder data");
     server
         .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 0);
+        .set_resource_balance(oasis7_agent_api::world_action::ResourceKind::Electricity, 0);
 
     let quote = server
         .handle_schedule_recipe_quote(signed_schedule_recipe_quote_request(
@@ -581,17 +604,22 @@ fn runtime_schedule_recipe_quote_rejects_when_factory_builder_electricity_is_ins
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             15,
         )
         .expect("seed insufficient builder electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 100)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            100,
+        )
         .expect("seed high local data");
-    server
-        .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 100);
+    server.world.set_resource_balance(
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
+        100,
+    );
 
     let request = signed_schedule_recipe_quote_request(
         crate::viewer::FACTORY_SMELTER_MK1,
@@ -615,7 +643,7 @@ fn runtime_schedule_recipe_quote_rejects_when_factory_builder_electricity_is_ins
             .world
             .agent_resource_balance(
                 agent_id.as_str(),
-                crate::simulator::ResourceKind::Electricity
+                oasis7_agent_api::world_action::ResourceKind::Electricity
             )
             .expect("builder electricity after rejected quote"),
         15
@@ -623,7 +651,7 @@ fn runtime_schedule_recipe_quote_rejects_when_factory_builder_electricity_is_ins
     assert_eq!(
         server
             .world
-            .resource_balance(crate::simulator::ResourceKind::Electricity),
+            .resource_balance(oasis7_agent_api::world_action::ResourceKind::Electricity),
         100,
         "an insufficient builder quote must not inspect or debit the world pool"
     );
@@ -639,7 +667,7 @@ fn runtime_schedule_recipe_quote_rejects_when_factory_builder_electricity_is_ins
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             32,
         )
         .expect("restore builder electricity");
@@ -679,7 +707,7 @@ fn runtime_schedule_recipe_quote_rejects_when_factory_builder_electricity_is_ins
             .world
             .agent_resource_balance(
                 agent_id.as_str(),
-                crate::simulator::ResourceKind::Electricity
+                oasis7_agent_api::world_action::ResourceKind::Electricity
             )
             .expect("builder electricity after material rejection"),
         32
@@ -687,7 +715,7 @@ fn runtime_schedule_recipe_quote_rejects_when_factory_builder_electricity_is_ins
     assert_eq!(
         server
             .world
-            .resource_balance(crate::simulator::ResourceKind::Electricity),
+            .resource_balance(oasis7_agent_api::world_action::ResourceKind::Electricity),
         100
     );
 }
@@ -725,13 +753,17 @@ fn runtime_schedule_recipe_quote_rejects_alias_without_canonical_runtime_plan() 
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             32,
         )
         .expect("seed electricity");
     server
         .world
-        .set_agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data, 16)
+        .set_agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            16,
+        )
         .expect("seed data");
 
     let request = signed_schedule_recipe_quote_request(

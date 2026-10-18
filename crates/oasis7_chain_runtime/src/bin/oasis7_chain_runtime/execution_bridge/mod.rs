@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use oasis7::runtime::{BlobStore, LocalCasStore, blake3_hex};
 use oasis7_proto::distributed::{BlobRef, WIRE_ENCODING_CBOR, WorldBlock, WorldHeadAnnounce};
+use oasis7_runtime::{BlobStore, LocalCasStore, blake3_hex};
 use serde::{Deserialize, Serialize};
 
 pub(crate) mod controlled_live;
@@ -10,6 +10,8 @@ mod controlled_live_history;
 mod controlled_live_package;
 mod driver_startup_recovery;
 mod execution_hash;
+#[cfg(unix)]
+mod formal_attempt_lifecycle;
 mod formal_business_package;
 #[cfg(all(test, unix))]
 pub(crate) mod formal_crash_test_boundary;
@@ -19,9 +21,11 @@ mod formal_execution_timing;
 #[cfg(unix)]
 mod formal_executor;
 pub(crate) mod formal_initial;
+pub(crate) mod formal_native_environment;
 #[cfg(unix)]
 pub(crate) mod formal_node_hook;
 pub(crate) mod formal_package;
+pub(crate) mod formal_snapshot;
 #[cfg(unix)]
 pub(crate) mod formal_writer;
 mod product_validation_intent;
@@ -761,7 +765,7 @@ pub(super) struct ExecutionModuleResolutionAnchor {
     pub module_id: String,
     pub module_version: String,
     pub wasm_hash: String,
-    pub install_target: oasis7::simulator::ModuleInstallTarget,
+    pub install_target: oasis7_agent_api::world_action::ModuleInstallTarget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

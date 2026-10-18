@@ -4,7 +4,7 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::SigningKey;
-use oasis7::simulator::{WorldEventKind, WorldSnapshot};
+use oasis7::simulator::WorldSnapshot;
 use oasis7::viewer::{
     AgentChatRequest, AuthoritativeReconnectSyncRequest, AuthoritativeRecoveryCommand,
     AuthoritativeSessionRegisterRequest, AuthoritativeSessionRevokeRequest,
@@ -15,6 +15,7 @@ use oasis7::viewer::{
     sign_prompt_control_apply_auth_proof, sign_prompt_control_rollback_auth_proof,
     sign_session_register_auth_proof,
 };
+use oasis7_simulator::WorldEventKind;
 use serde_json::{Value, json};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:5023";

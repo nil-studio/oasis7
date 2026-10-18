@@ -13,11 +13,11 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 - Product boundary: [`Agent 所有权与持续经营`](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001)；本 runbook 保留受限 grant 的运营执行权威，只有在该产品义务被完整吸收且无 live reference 后才可删除。
 - Related gameplay authority: `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`; mutable execution history is in the GitHub task issue evidence.
 - Runtime Dependencies:
-  - `crates/oasis7/src/runtime/world/event_processing/action_to_event_core.rs`
-  - `crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs`
-  - `crates/oasis7/src/runtime/state/apply_domain_event_main_token.rs`
-  - `crates/oasis7/src/runtime/world/governance.rs`
-  - `crates/oasis7/src/runtime/tests/agent_claims.rs`
+  - `crates/oasis7_runtime/src/world/event_processing/action_to_event_core.rs`
+  - `crates/oasis7_runtime/src/world/event_processing/action_to_event_policy_contract.rs`
+  - `crates/oasis7_runtime/src/state/apply_domain_event_main_token.rs`
+  - `crates/oasis7_runtime/src/world/governance.rs`
+  - `crates/oasis7_runtime/src/tests/agent_claims.rs`
 
 <a id="public-claim-boundary"></a>
 ## Public claim boundary

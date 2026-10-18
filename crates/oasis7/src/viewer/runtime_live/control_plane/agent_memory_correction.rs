@@ -7,6 +7,45 @@ use crate::viewer::auth::verify_agency_control_auth_proof;
 use serde_json::{Value, json};
 use unicode_normalization::UnicodeNormalization;
 
+/// One-call adapter over the actual live host registration and Agent binding.
+pub(super) struct CurrentOwnerAuthority<'a> {
+    pub(super) server: &'a ViewerRuntimeLiveServer,
+}
+impl crate::runtime::OwnerControlHostAuthority for CurrentOwnerAuthority<'_> {
+    fn validate_registered_owner(
+        &self,
+        player_id: &str,
+        public_key: &str,
+        agent_id: &str,
+        world_id: &str,
+        reorg_epoch: u64,
+    ) -> Result<(), String> {
+        if world_id != self.server.config.world_id || reorg_epoch != self.server.reorg_epoch {
+            return Err("request world or reorg epoch is no longer current".into());
+        }
+        self.server
+            .session_policy
+            .validate_known_session_key(player_id, public_key)?;
+        super::ensure_agent_player_access_runtime(
+            &self.server.world,
+            &self.server.llm_sidecar,
+            agent_id,
+            player_id,
+            Some(public_key),
+        )
+        .map_err(|error| error.message)
+    }
+}
+
+impl ViewerRuntimeLiveServer {
+    #[cfg(test)]
+    pub(in crate::viewer::runtime_live) fn current_owner_authority(
+        &self,
+    ) -> impl crate::runtime::OwnerControlHostAuthority + '_ {
+        CurrentOwnerAuthority { server: self }
+    }
+}
+
 fn agency_error(request_id: &str, code: &str, message: impl Into<String>) -> AgencyControlResponse {
     AgencyControlResponse::error(request_id, code, message)
 }
@@ -364,7 +403,10 @@ impl ViewerRuntimeLiveServer {
             kind,
         };
         let _ = owner_id;
-        match self.world.agent_owner_control_replay(owner_id, control_id) {
+        match self
+            .world
+            .signed_owner_control_replay(request, &CurrentOwnerAuthority { server: self })
+        {
             Ok(Some((existing, disposition))) if existing == control => {
                 Some(AgencyControlResponse::success(
                     request.request_id.clone(),
@@ -434,27 +476,19 @@ impl ViewerRuntimeLiveServer {
                 "pending intent override requires an exact delegation grant revision",
             );
         }
-        let control = AgentOwnerControlV1 {
-            control_id: control_id.clone(),
-            agent_id: request.agent_id.clone(),
-            intent_id: intent_id.clone(),
-            request_digest,
-            grant_id,
-            expected_grant_revision,
-            kind,
-        };
         let mut candidate = self.world.clone();
-        let disposition =
-            match candidate.bind_agent_owner_control(verified.player_id.as_str(), control) {
-                Ok(disposition) => disposition,
-                Err(error) => {
-                    return agency_error(
-                        &request.request_id,
-                        "owner_control_rejected",
-                        format!("{error:?}"),
-                    );
-                }
-            };
+        let disposition = match candidate
+            .apply_signed_owner_control(request, &CurrentOwnerAuthority { server: self })
+        {
+            Ok(disposition) => disposition,
+            Err(error) => {
+                return agency_error(
+                    &request.request_id,
+                    "owner_control_rejected",
+                    format!("{error:?}"),
+                );
+            }
+        };
         if let Err(error) = self
             .llm_sidecar
             .consume_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
@@ -688,7 +722,9 @@ impl ViewerRuntimeLiveServer {
             );
         }
         let mut candidate = self.world.clone();
-        if let Err(error) = candidate.install_agent_delegation_grant(grant) {
+        if let Err(error) = candidate
+            .apply_signed_delegation_control(request, &CurrentOwnerAuthority { server: self })
+        {
             return agency_error(
                 &request.request_id,
                 "grant_install_rejected",
@@ -756,11 +792,10 @@ impl ViewerRuntimeLiveServer {
                 "delegation grant revision changed or is already revoked",
             );
         }
-        let mut revoked = current.grant.clone();
-        revoked.revision = revoked.revision.saturating_add(1);
-        revoked.revoked = true;
         let mut candidate = self.world.clone();
-        if let Err(error) = candidate.install_agent_delegation_grant(revoked) {
+        if let Err(error) = candidate
+            .apply_signed_delegation_control(request, &CurrentOwnerAuthority { server: self })
+        {
             return agency_error(
                 &request.request_id,
                 "grant_revoke_rejected",

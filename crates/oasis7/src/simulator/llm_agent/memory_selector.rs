@@ -1,5 +1,5 @@
 use super::super::memory::{AgentMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind};
-use super::super::types::WorldTime;
+use oasis7_simulator::WorldTime;
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,7 +227,8 @@ fn recency_score(now: WorldTime, timestamp: WorldTime) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulator::{Action, AgentDecision};
+    use crate::simulator::AgentDecision;
+    use oasis7_simulator::Action;
 
     #[test]
     fn memory_selector_respects_top_k_limits() {

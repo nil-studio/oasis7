@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "f6a74ecfce65c80bce4ddb98f0700acc04226d3de5ea7bb47b96a3d1b4b4204a",
+    "content_sha256": "e749b8d3613b8bbefe745ea715c4985d5423ed1cf8f6035aed55f58a8f37eb27",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_mixed_implementation_record",
-    "note": "on-demand audit-export design and 2026-03-04 implementation snapshot; current behavior requires code verification",
+    "note": "on-demand audit-export design and 2026-03-04 implementation snapshot; current behavior requires code verification Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/world-runtime/governance/audit-export.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

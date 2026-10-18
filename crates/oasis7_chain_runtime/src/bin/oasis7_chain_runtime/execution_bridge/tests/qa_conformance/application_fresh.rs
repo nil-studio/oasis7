@@ -44,7 +44,7 @@ pub(super) fn preflight(client: &RemoteWorldServiceClient, root: &std::path::Pat
     let context = preflight
         .test_prepare_canonical_provider_response(
             "agent-a",
-            oasis7::simulator::Action::MoveAgent {
+            oasis7_simulator::Action::MoveAgent {
                 agent_id: "agent-a".into(),
                 to: "runtime:2:2:0".into(),
             },

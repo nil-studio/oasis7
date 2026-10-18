@@ -1,7 +1,7 @@
 use super::super::{checkpoint, driver::NodeRuntimeExecutionDriver};
 use super::*;
-use oasis7::runtime::{Action, BlobStore};
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
+use oasis7_runtime::{Action, BlobStore};
 use std::{
     fs,
     path::PathBuf,
@@ -139,7 +139,7 @@ fn warm_restore_cannot_hide_proof_identity_fixed_or_current_head_changes() {
     let mut returned = fixture.pin(1).unwrap();
     returned.world.submit_action(Action::RegisterAgent {
         agent_id: "consumer-only".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     returned.world.step().unwrap();
     assert!(

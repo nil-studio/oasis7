@@ -1,7 +1,7 @@
 use crate::runtime;
-use crate::simulator::{Action as SimulatorAction, ActionSubmitter};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use oasis7_client_api::MainTokenTransfer;
+use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 use serde::{Deserialize, Serialize};
 
 pub use oasis7_client_api::{
@@ -179,17 +179,7 @@ impl ConsensusActionPayloadEnvelope {
     }
 }
 
-pub fn main_token_action_auth_required(action: &runtime::Action) -> bool {
-    matches!(
-        action,
-        runtime::Action::TransferMainToken { .. }
-            | runtime::Action::ClaimMainTokenVesting { .. }
-            | runtime::Action::InitializeMainTokenGenesis { .. }
-            | runtime::Action::DistributeMainTokenTreasury { .. }
-            | runtime::Action::TopUpRestrictedStarterClaimLiveopsPool { .. }
-            | runtime::Action::UpdateRestrictedStarterClaimAdminRegistry { .. }
-    )
-}
+pub use oasis7_agent_api::world_action::main_token_action_auth_required;
 
 fn main_token_transfer_from_runtime_action(action: &runtime::Action) -> Option<MainTokenTransfer> {
     let runtime::Action::TransferMainToken {

@@ -73,8 +73,8 @@
   - `scripts/wasm-release-evidence-report.sh`
   - `crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs`
   - `.github/workflows/wasm-determinism-gate.yml`
-  - `crates/oasis7/src/runtime/world/artifacts/m4_builtin_modules.sha256`
-  - `crates/oasis7/src/runtime/world/artifacts/m5_builtin_modules.sha256`
+  - `crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.sha256`
+  - `crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.sha256`
 - Edge Cases & Error Handling:
   - git diff base 不可解析：planner 必须回退为 `m1,m4,m5` 全量运行，不能静默漏跑。
   - GitHub-hosted macOS 无 Docker daemon：独立 gate 只跑 Linux canonical runner；可导入真实 Docker-capable `darwin-arm64` summary 补充跨宿主产物证据，该证据不属于 `test_tier_full` 测试层级。

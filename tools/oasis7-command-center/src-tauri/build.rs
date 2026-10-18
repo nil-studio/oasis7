@@ -32,6 +32,8 @@ fn main() {
         "start_private_runtime_turn",
         "open_project",
         "query_view",
+        "query_work_projection",
+        "refresh_work_checks",
         "search_rules",
         "query_document_inventory",
         "query_document_directory",

@@ -2,10 +2,11 @@ use oasis7::chain_pos_defaults;
 use oasis7::observability::{
     TRACE_SESSION_ID_ENV, emit_stderr_or_event, init_tracing, resolve_trace_session_id,
 };
-use oasis7::runtime::MajorWorldEventVisibilityPermission;
-use oasis7::simulator::{ProviderExecutionMode, WorldScenario};
+use oasis7::simulator::ProviderExecutionMode;
 use oasis7_launcher_config::default_chain_replication_bootstrap_peers_vec;
 use oasis7_proto::storage_profile::StorageProfile;
+use oasis7_runtime::MajorWorldEventVisibilityPermission;
+use oasis7_simulator::WorldScenario;
 use std::collections::BTreeSet;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};

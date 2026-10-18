@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use oasis7::runtime::{
-    BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,
-    Snapshot as RuntimeSnapshot, World as RuntimeWorld, blake3_hex,
-};
 use oasis7::simulator::{
     WorldJournal as SimulatorJournal, WorldKernel, WorldSnapshot as SimulatorSnapshot,
+};
+use oasis7_runtime::{
+    BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,
+    Snapshot as RuntimeSnapshot, blake3_hex,
 };
 
 use super::checkpoint::{
@@ -480,12 +480,13 @@ impl NodeRuntimeExecutionDriver {
         let restored_resource_manifest = snapshot.chain_resource_manifest.clone();
         let restored_resource_delta = snapshot.latest_chain_resource_delta.clone();
         let runtime_rebuild_started_at = Instant::now();
-        let mut restored_world = RuntimeWorld::from_snapshot(snapshot, journal).map_err(|err| {
-            format!(
-                "execution driver rebuild runtime world failed at height {}: {:?}",
-                target_height, err
-            )
-        })?;
+        let mut restored_world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+            .map_err(|err| {
+                format!(
+                    "execution driver rebuild runtime world failed at height {}: {:?}",
+                    target_height, err
+                )
+            })?;
         // Module artifact bytes are restored by `World::from_snapshot` from
         // the canonical CAS snapshot payload. Do not consult `world_dir`
         // here: it may contain a newer module-store cache than this

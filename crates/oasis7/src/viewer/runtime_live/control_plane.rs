@@ -19,7 +19,7 @@ use crate::runtime::{
     AgentIntentAuthorityContext, AgentIntentProviderFailureDisposition, AgentIntentV2,
     World as RuntimeWorld,
 };
-use crate::simulator::{AgentPromptProfile, PromptUpdateOperation, WorldEventKind};
+use oasis7_simulator::{AgentPromptProfile, PromptUpdateOperation, WorldEventKind};
 use sha2::{Digest, Sha256};
 
 #[path = "control_plane/agent_chat.rs"]
@@ -254,44 +254,16 @@ impl ViewerRuntimeLiveServer {
         if self.chain_link_enabled() {
             return;
         }
-        let effect_intent_id = self
-            .world
-            .state()
-            .agents
-            .get(agent_id)
-            .and_then(|cell| cell.intent.as_ref())
-            .filter(|intent| {
-                intent.intent_id == intent_id
-                    && intent.request_digest == request_digest
-                    && intent.status == "accepted"
-            })
-            .and_then(|intent| intent.effect_intent_id.clone());
-        let Some(effect_intent_id) = effect_intent_id else {
-            return;
-        };
-        let Some(receipt_event_id) = self.world.journal().events.iter().find_map(|event| {
-            matches!(
-                &event.body,
-                crate::runtime::WorldEventBody::ReceiptAppended(receipt)
-                    if receipt.identity_key() == effect_intent_id
-            )
-            .then_some(event.id)
-        }) else {
-            return;
-        };
-        if let Err(error) = self.world.complete_agent_intent_with_receipt_exact(
-            agent_id,
-            intent_id,
-            request_digest,
-            receipt_event_id,
-        ) {
-            tracing::warn!(
-                agent_id,
-                intent_id,
-                receipt_event_id,
-                error = ?error,
-                "receipt-bound Agent Chat completion was not applied"
-            );
+        if let Err(error) =
+            self.world
+                .reconcile_agent_intent_receipt(crate::runtime::AgentIntentReference {
+                    agent_id,
+                    intent_id,
+                    request_digest,
+                })
+        {
+            tracing::warn!(agent_id, intent_id, error = ?error,
+                "receipt-bound Agent Chat completion was not applied");
         }
     }
 
@@ -349,10 +321,12 @@ impl ViewerRuntimeLiveServer {
                 failure.pending.request_digest.as_deref(),
             ) {
                 self.world
-                    .transition_agent_chat_provider_failure_exact(
-                        failure.pending.agent_id.as_str(),
-                        intent_id,
-                        request_digest,
+                    .record_agent_provider_failure(
+                        crate::runtime::AgentIntentReference {
+                            agent_id: failure.pending.agent_id.as_str(),
+                            intent_id,
+                            request_digest,
+                        },
                         disposition,
                     )
                     .err()

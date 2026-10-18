@@ -46,7 +46,7 @@ impl EffectScenario {
             new_sender_after_store_loss: true,
         })
     }
-    pub(super) fn prepare_world(&self, world: &mut oasis7::runtime::World) -> Result<(), String> {
+    pub(super) fn prepare_world(&self, world: &mut oasis7_runtime::World) -> Result<(), String> {
         let contract = self.receiver.contract();
         let output = oasis7_wasm_abi::ModuleOutput {
             new_state: Some((1..=16).collect()),
@@ -79,7 +79,7 @@ impl EffectScenario {
         world
             .register_module_artifact(hash.clone(), &wasm)
             .map_err(|e| format!("C13 artifact: {e:?}"))?;
-        world.add_capability(oasis7::runtime::CapabilityGrant::allow_all("c13-effects"));
+        world.add_capability(oasis7_runtime::CapabilityGrant::allow_all("c13-effects"));
         let module = ModuleManifest {
             module_id: "m.formal-c13-one-shot".into(),
             name: "C13 persistent reducer".into(),

@@ -1,5 +1,5 @@
 use super::*;
-use crate::simulator::ModuleInstallTarget;
+use oasis7_agent_api::world_action::ModuleInstallTarget;
 
 #[test]
 fn decision_tool_schema_includes_module_lifecycle_actions_and_fields() {
@@ -289,23 +289,23 @@ fn llm_agent_module_lifecycle_status_module_reads_observation_snapshot() {
     });
 
     let mut observation = make_observation();
-    observation.module_lifecycle = crate::simulator::ObservedModuleLifecycleState {
+    observation.module_lifecycle = oasis7_simulator::ObservedModuleLifecycleState {
         artifacts: vec![
-            crate::simulator::ObservedModuleArtifactRecord {
+            oasis7_simulator::ObservedModuleArtifactRecord {
                 wasm_hash: "hash-live-a".to_string(),
                 publisher_agent_id: "agent-1".to_string(),
                 module_id_hint: Some("m.llm.lifecycle".to_string()),
                 bytes_len: 128,
                 deployed_at_tick: 42,
             },
-            crate::simulator::ObservedModuleArtifactRecord {
+            oasis7_simulator::ObservedModuleArtifactRecord {
                 wasm_hash: "hash-other".to_string(),
                 publisher_agent_id: "agent-2".to_string(),
                 module_id_hint: Some("m.other".to_string()),
                 bytes_len: 64,
                 deployed_at_tick: 43,
             },
-            crate::simulator::ObservedModuleArtifactRecord {
+            oasis7_simulator::ObservedModuleArtifactRecord {
                 wasm_hash: "hash-live-b".to_string(),
                 publisher_agent_id: "agent-3".to_string(),
                 module_id_hint: Some("m.llm.lifecycle".to_string()),
@@ -314,7 +314,7 @@ fn llm_agent_module_lifecycle_status_module_reads_observation_snapshot() {
             },
         ],
         installed_modules: vec![
-            crate::simulator::InstalledModuleState {
+            oasis7_simulator::InstalledModuleState {
                 module_id: "m.llm.lifecycle".to_string(),
                 module_version: "0.2.0".to_string(),
                 wasm_hash: "hash-live-a".to_string(),
@@ -323,7 +323,7 @@ fn llm_agent_module_lifecycle_status_module_reads_observation_snapshot() {
                 active: true,
                 installed_at_tick: 43,
             },
-            crate::simulator::InstalledModuleState {
+            oasis7_simulator::InstalledModuleState {
                 module_id: "m.other".to_string(),
                 module_version: "0.1.0".to_string(),
                 wasm_hash: "hash-other".to_string(),
@@ -332,7 +332,7 @@ fn llm_agent_module_lifecycle_status_module_reads_observation_snapshot() {
                 active: true,
                 installed_at_tick: 44,
             },
-            crate::simulator::InstalledModuleState {
+            oasis7_simulator::InstalledModuleState {
                 module_id: "m.llm.lifecycle".to_string(),
                 module_version: "0.3.0".to_string(),
                 wasm_hash: "hash-live-b".to_string(),
@@ -540,10 +540,10 @@ fn llm_agent_current_observation_module_exposes_build_ready_context() {
 fn llm_agent_power_order_book_status_module_reads_snapshot_with_limit() {
     let behavior = LlmAgentBehavior::new("agent-1", base_config(), MockClient::default());
     let mut observation = make_observation();
-    observation.power_market = crate::simulator::ObservedPowerMarketState {
+    observation.power_market = oasis7_simulator::ObservedPowerMarketState {
         next_order_id: 9,
         open_orders: vec![
-            crate::simulator::PowerOrderState {
+            oasis7_simulator::PowerOrderState {
                 order_id: 3,
                 owner: ResourceOwner::Agent {
                     agent_id: "agent-1".to_string(),
@@ -553,7 +553,7 @@ fn llm_agent_power_order_book_status_module_reads_snapshot_with_limit() {
                 limit_price_per_pu: 2,
                 created_at: 30,
             },
-            crate::simulator::PowerOrderState {
+            oasis7_simulator::PowerOrderState {
                 order_id: 4,
                 owner: ResourceOwner::Agent {
                     agent_id: "agent-2".to_string(),
@@ -608,9 +608,9 @@ fn llm_agent_power_order_book_status_module_reads_snapshot_with_limit() {
 fn llm_agent_module_market_status_module_filters_wasm_hash() {
     let behavior = LlmAgentBehavior::new("agent-1", base_config(), MockClient::default());
     let mut observation = make_observation();
-    observation.module_market = crate::simulator::ObservedModuleMarketState {
+    observation.module_market = oasis7_simulator::ObservedModuleMarketState {
         listings: vec![
-            crate::simulator::ModuleArtifactListingState {
+            oasis7_simulator::ModuleArtifactListingState {
                 order_id: 11,
                 wasm_hash: "hash-a".to_string(),
                 seller_agent_id: "agent-1".to_string(),
@@ -618,7 +618,7 @@ fn llm_agent_module_market_status_module_filters_wasm_hash() {
                 price_amount: 7,
                 listed_at_tick: 15,
             },
-            crate::simulator::ModuleArtifactListingState {
+            oasis7_simulator::ModuleArtifactListingState {
                 order_id: 12,
                 wasm_hash: "hash-b".to_string(),
                 seller_agent_id: "agent-2".to_string(),
@@ -626,7 +626,7 @@ fn llm_agent_module_market_status_module_filters_wasm_hash() {
                 price_amount: 5,
                 listed_at_tick: 16,
             },
-            crate::simulator::ModuleArtifactListingState {
+            oasis7_simulator::ModuleArtifactListingState {
                 order_id: 15,
                 wasm_hash: "hash-b".to_string(),
                 seller_agent_id: "agent-5".to_string(),
@@ -636,7 +636,7 @@ fn llm_agent_module_market_status_module_filters_wasm_hash() {
             },
         ],
         bids: vec![
-            crate::simulator::ModuleArtifactBidState {
+            oasis7_simulator::ModuleArtifactBidState {
                 order_id: 13,
                 wasm_hash: "hash-a".to_string(),
                 bidder_agent_id: "agent-3".to_string(),
@@ -644,7 +644,7 @@ fn llm_agent_module_market_status_module_filters_wasm_hash() {
                 price_amount: 4,
                 placed_at_tick: 17,
             },
-            crate::simulator::ModuleArtifactBidState {
+            oasis7_simulator::ModuleArtifactBidState {
                 order_id: 14,
                 wasm_hash: "hash-b".to_string(),
                 bidder_agent_id: "agent-4".to_string(),
@@ -652,7 +652,7 @@ fn llm_agent_module_market_status_module_filters_wasm_hash() {
                 price_amount: 9,
                 placed_at_tick: 18,
             },
-            crate::simulator::ModuleArtifactBidState {
+            oasis7_simulator::ModuleArtifactBidState {
                 order_id: 16,
                 wasm_hash: "hash-b".to_string(),
                 bidder_agent_id: "agent-6".to_string(),
@@ -746,9 +746,9 @@ fn llm_agent_module_market_status_module_filters_wasm_hash() {
 fn llm_agent_social_state_status_module_respects_include_inactive_flag() {
     let behavior = LlmAgentBehavior::new("agent-1", base_config(), MockClient::default());
     let mut observation = make_observation();
-    observation.social_state = crate::simulator::ObservedSocialState {
+    observation.social_state = oasis7_simulator::ObservedSocialState {
         facts: vec![
-            crate::simulator::SocialFactState {
+            oasis7_simulator::SocialFactState {
                 fact_id: 1,
                 actor: ResourceOwner::Agent {
                     agent_id: "agent-1".to_string(),
@@ -765,11 +765,11 @@ fn llm_agent_social_state_status_module_respects_include_inactive_flag() {
                 expires_at_tick: None,
                 stake: None,
                 challenge: None,
-                lifecycle: crate::simulator::SocialFactLifecycleState::Active,
+                lifecycle: oasis7_simulator::SocialFactLifecycleState::Active,
                 created_at_tick: 20,
                 updated_at_tick: 20,
             },
-            crate::simulator::SocialFactState {
+            oasis7_simulator::SocialFactState {
                 fact_id: 2,
                 actor: ResourceOwner::Agent {
                     agent_id: "agent-3".to_string(),
@@ -786,13 +786,13 @@ fn llm_agent_social_state_status_module_respects_include_inactive_flag() {
                 expires_at_tick: None,
                 stake: None,
                 challenge: None,
-                lifecycle: crate::simulator::SocialFactLifecycleState::Revoked,
+                lifecycle: oasis7_simulator::SocialFactLifecycleState::Revoked,
                 created_at_tick: 21,
                 updated_at_tick: 21,
             },
         ],
         edges: vec![
-            crate::simulator::SocialEdgeState {
+            oasis7_simulator::SocialEdgeState {
                 edge_id: 10,
                 declarer: ResourceOwner::Agent {
                     agent_id: "agent-1".to_string(),
@@ -809,11 +809,11 @@ fn llm_agent_social_state_status_module_respects_include_inactive_flag() {
                 backing_fact_ids: vec![1],
                 ttl_ticks: None,
                 expires_at_tick: None,
-                lifecycle: crate::simulator::SocialEdgeLifecycleState::Active,
+                lifecycle: oasis7_simulator::SocialEdgeLifecycleState::Active,
                 created_at_tick: 22,
                 updated_at_tick: 22,
             },
-            crate::simulator::SocialEdgeState {
+            oasis7_simulator::SocialEdgeState {
                 edge_id: 11,
                 declarer: ResourceOwner::Agent {
                     agent_id: "agent-3".to_string(),
@@ -830,7 +830,7 @@ fn llm_agent_social_state_status_module_respects_include_inactive_flag() {
                 backing_fact_ids: vec![2],
                 ttl_ticks: None,
                 expires_at_tick: None,
-                lifecycle: crate::simulator::SocialEdgeLifecycleState::Expired,
+                lifecycle: oasis7_simulator::SocialEdgeLifecycleState::Expired,
                 created_at_tick: 23,
                 updated_at_tick: 23,
             },

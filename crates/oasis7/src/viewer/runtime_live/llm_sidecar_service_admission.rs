@@ -159,14 +159,14 @@ impl RuntimeLlmSidecar {
             .ok_or("authenticated feedback history missing")?;
         // A resumed partition cannot evade an outstanding fence in its canonical
         // source session. Both checks use the authenticated scoped history.
-        history.check_fresh_session(agent, canonical_session)?;
-        history.check_fresh_session(agent, session)?;
+        crate::world_service_feedback_host::check_fresh_session(history, agent, canonical_session)?;
+        crate::world_service_feedback_host::check_fresh_session(history, agent, session)?;
         if let Some(runner) = self
             .runner
             .as_mut()
             .and_then(RuntimeDecisionRunner::async_runner_mut)
         {
-            history.restore_preverified(agent, runner)?;
+            crate::world_service_feedback_host::restore_preverified(history, agent, runner)?;
             if runner.feedback_recovery_blocked(agent, canonical_session)
                 || runner.feedback_recovery_blocked(agent, session)
             {
@@ -496,7 +496,7 @@ impl RuntimeLlmSidecar {
             (
                 format!("prefix:{}", request.transport_attempt),
                 crate::world_service::wire::SchedulerOperationV1::ProviderPrefix {
-                    request: request.clone(),
+                    request: crate::simulator::agent_api_compat::request_context_to_api(request),
                     context_digest: async_support::runtime_provider_context_digest(request),
                 },
             )

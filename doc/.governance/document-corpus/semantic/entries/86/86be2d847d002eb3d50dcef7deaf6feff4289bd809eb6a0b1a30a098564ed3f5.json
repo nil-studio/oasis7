@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "7d3e3fe0d3f396a472d1cae725929fb4f466a392b61ed71991ad246a79ea7146",
+    "content_sha256": "03f96e0692bffee1e8c7212ce5acb0ae21166d8e69e67572345ed4e0a25b3641",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_design_companion",
-    "note": "current draft and implementation-mapping companion; not readiness evidence; developer workflow record projection updated, product authority retained Scoped document review for issue #4455 on 2026-10-12: The successful tick target now specifies stable-instance wake/clear provenance, atomic publication, direct replay, compatibility and planned real-WASM continuation cases; failed routes retain the original schedule and established audit disposition. This is document review only, not runtime execution or release acceptance; existing authority, decision owner and disposition are retained.",
+    "note": "current draft and implementation-mapping companion; not readiness evidence; developer workflow record projection updated, product authority retained Scoped document review for issue #4455 on 2026-10-12: The successful tick target now specifies stable-instance wake/clear provenance, atomic publication, direct replay, compatibility and planned real-WASM continuation cases; failed routes retain the original schedule and established audit disposition. This is document review only, not runtime execution or release acceptance; existing authority, decision owner and disposition are retained. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/world-runtime/runtime/runtime-integration.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

@@ -112,7 +112,7 @@ fn assert_frozen_replay(boundary: &str) {
         let original_digest =
             fs::read_to_string(fixture.records.join("test-interrupted-candidate-digest")).unwrap();
         assert_eq!(
-            oasis7::runtime::blake3_hex(&to_cbor(&evidence.proposal.body.record).unwrap()),
+            oasis7_runtime::blake3_hex(&to_cbor(&evidence.proposal.body.record).unwrap()),
             original_digest,
             "replay must preserve the complete deterministic record, not only its state root"
         );

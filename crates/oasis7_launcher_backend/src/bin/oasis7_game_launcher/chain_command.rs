@@ -175,7 +175,7 @@ pub(super) fn build_oasis7_chain_runtime_args(options: &CliOptions) -> Vec<Strin
 pub(super) fn prepare_oasis7_chain_runtime_args(
     options: &CliOptions,
 ) -> Result<Vec<String>, String> {
-    use oasis7::runtime::development_node_config::*;
+    use oasis7::development_node_config::*;
     super::cli::validate_chain_node_id(&options.chain_node_id)?;
     if !options.chain_network_tier_manifest.trim().is_empty() {
         if options.chain_node_auto_attest_all_validators

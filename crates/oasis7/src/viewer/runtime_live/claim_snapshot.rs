@@ -4,7 +4,7 @@ use crate::runtime::{
     M1_STORAGE_CARGO_MODULE_ID, M1_STORAGE_POWER_MODULE_ID, M1_TRANSFER_RULE_MODULE_ID,
     M1_VISIBILITY_RULE_MODULE_ID, MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
     RestrictedStarterClaimGrantStatus, WorldState, agent_claim_cap_for_tier, agent_claim_quote,
-    agent_claim_reputation_tier, auto_restricted_starter_claim_amount,
+    agent_claim_reputation_tier,
 };
 use crate::simulator::persist::{
     PlayerAgentClaimChoiceCandidateSnapshot, PlayerAgentClaimChoiceQuoteSnapshot,
@@ -64,12 +64,10 @@ pub(super) fn build_player_agent_claim_snapshot(
                 .activation_fee_amount
                 .saturating_add(quote.claim_bond_amount)
                 .saturating_add(quote.upkeep_per_epoch);
-            let auto_restricted_starter_claim_amount = auto_restricted_starter_claim_amount(
-                quote.slot_index,
+            let auto_restricted_starter_claim_amount = quote.preview_restricted_starter_grant(
                 liquid_main_token_balance,
                 restricted_starter_claim_balance,
                 liveops_pool_balance,
-                total_upfront_amount,
                 has_active_restricted_grant,
             );
             let eligible_claim_balance = if quote.slot_index == 1 {

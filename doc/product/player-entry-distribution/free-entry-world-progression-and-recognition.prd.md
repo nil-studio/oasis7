@@ -97,9 +97,11 @@ Trace ID: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898
 - 系统设计状态：未核实
 - 系统设计依据：已核对本专题列出的专业权威入口，尚未核清本功能全部义务的准确系统设计承接；产品语义及根 PRD 导航不作为技术覆盖证明。
 - 实现状态：未核实
-- 实现与验证依据：按 AC 对账免费与可选服务的权限/成本，核对取消、失效与恢复不改变世界权力；待取得同候选记录。本次文档核对不证明行为验收；未核清该范围实际实现 PR/测试运行。
-- 核对日期与基线：2026-10-14；需求与专业文档基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；只读文本快照审读；入口和验收范围见上述功能点；未执行运行环境或浏览器验收。
-- 剩余范围：设计：免费基础进入、可选 hosting/storage/support 的权力隔离及中断恢复的技术承接仍待逐项核清；实现：尚缺对应候选的实现/交付与完整验收证据。
+- 实现与验证依据：Viewer action menu → 显式 ClaimStarterOc action → chain/local submit；独立 runtime StarterOcClaimed 投影写余额/claim。 资源发放路径与 hosted session 不是一回事；源码确认真正资源写入有独立 event/player/agent 绑定，不能用 session 发放证明免费或付费隔离。 [crates/oasis7/src/viewer/runtime_live/player_gameplay.rs:118–159](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7/src/viewer/runtime_live/player_gameplay.rs#L118-L159)；[crates/oasis7/src/viewer/gameplay_actions.rs:86–116](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7/src/viewer/gameplay_actions.rs#L86-L116)；[crates/oasis7/src/viewer/runtime_live/player_gameplay.rs:734–817](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7/src/viewer/runtime_live/player_gameplay.rs#L734-L817)；[crates/oasis7/src/runtime/world/starter_oc_claim_publication.rs:162–174](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7/src/runtime/world/starter_oc_claim_publication.rs#L162-L174)
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
+- 剩余范围：hosting/storage/support 的订购/取消/迁移到世界权限/历史保留的真实对应链仍未核清。此处资源链不是购买/取消消费者，故不升部分实现。
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="ac-entry-free-001"></a>
 ### AC-ENTRY-FREE-001：服务中断保留独立基线与历史
@@ -123,10 +125,12 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 - 适用范围：成熟世界认可/机会组合与早期入口信号不产生世界效果的负边界；沿用本条原有阶段和前置条件。
 - 系统设计状态：未核实
 - 系统设计依据：已核对本专题列出的专业权威入口，尚未核清本功能全部义务的准确系统设计承接；产品语义及根 PRD 导航不作为技术覆盖证明。
-- 实现状态：未核实
-- 实现与验证依据：按 AC 对账成熟世界认可来源/失效和早期信号负例，核对历史及独立基线；待取得专业规则与入口组合记录。本次文档核对不证明行为验收；未核清该范围实际实现 PR/测试运行。
-- 核对日期与基线：2026-10-14；需求与专业文档基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；只读文本快照审读；入口和验收范围见上述功能点；未执行运行环境或浏览器验收。
-- 剩余范围：设计：成熟世界认可/机会组合与早期入口信号不产生世界效果的负边界的技术承接仍待逐项核清；实现：尚缺对应候选的实现/交付与完整验收证据。
+- 实现状态：部分实现
+- 实现与验证依据：早期负边界已交付的窄范围是仓库PR参与intake程序：PR/body输入仅生成draft/deferred或拒绝导入，CLI/round scan终点只打印候选ledger/JSON，approval/distribution保持空且没有世界提交/结算调用。该外部参与入口不自动产生奖励或世界资格；历史具体round仍记录pending，仅作该轮佐证。 [import-entry](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-import.py#L67-L114)；[intake](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme_reward_pr_intake_lib.py#L150-L232)；[scan](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-round-scan.py#L104-L153)；[scan-output](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-round-scan.py#L204-L361)；[actual-pending](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/doc/readme/governance/readme-limited-preview-contributor-reward-distribution-closure-round-2026-04-13.md#L3-L30)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
+- 核对日期与基线：2026-10-17；需求PR #4842 `0901927131b3e7c919fc6b092e77ae8895579989`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
+- 剩余范围：核清免费进入、付费便利、访问、其他外部参与信号的全部实际authority/消费者；成熟阶段入口仍须接MW004/CR003来源、范围期限、失效历史及独立基线。不得把仅PR intake程序无世界提交扩写为所有下游或线上自定义接管输出者均无效果，approved奖励也不得混同成熟机会。
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="ac-entry-free-002"></a>
 ### AC-ENTRY-FREE-002：认可到期不会重放为新资格

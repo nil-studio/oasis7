@@ -130,7 +130,7 @@ fn record_live_conflict(
 }
 
 fn capture_validation_conflict(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     context: &TaskContextIdentityV1,
     point: ReadCheckPoint,
     error: &str,

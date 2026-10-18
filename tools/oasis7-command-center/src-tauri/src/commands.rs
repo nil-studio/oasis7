@@ -15,11 +15,13 @@ struct Application {
     core: CommandCenter,
     github: GitHubClient,
     validated: bool,
+    github_generation: u64,
 }
 
 pub struct Host {
     application: Arc<Mutex<Application>>,
     slots: Arc<Semaphore>,
+    github_slots: Arc<Semaphore>,
     pub(crate) project: Arc<Mutex<Option<Project>>>,
 }
 
@@ -35,8 +37,10 @@ impl Host {
                 core,
                 github,
                 validated: false,
+                github_generation: 0,
             })),
             slots: Arc::new(Semaphore::new(4)),
+            github_slots: Arc::new(Semaphore::new(1)),
             project: Arc::new(Mutex::new(None)),
         })
     }
@@ -88,6 +92,7 @@ pub async fn open_project(host: State<'_, Host>, path: String) -> Result<Snapsho
         }
         let current = app.core.snapshot().project.map(|p| (p.id, p.path));
         if previous != current {
+            app.github_generation += 1;
             app.github.reset();
             if let Some(snapshot) = app.core.load_github_cache().map_err(error)? {
                 app.github = GitHubClient::restore(snapshot);
@@ -176,12 +181,40 @@ pub async fn refresh_github(
     host: State<'_, Host>,
     gh_path: Option<String>,
 ) -> Result<GitHubSnapshot, String> {
+    let _source_permit = host
+        .github_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "GitHub 来源正在读取，请待本次读取完成后重试".to_string())?;
+    let (project, generation, previous) = host
+        .run(|app| {
+            let project = app.core.snapshot().project.ok_or("请先选择项目")?;
+            app.github_generation += 1;
+            Ok((project, app.github_generation, app.github.snapshot()))
+        })
+        .await?;
+    let root = project.path.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        let mut candidate = GitHubClient::restore(previous);
+        candidate.refresh(std::path::Path::new(&root), gh_path.as_deref())
+    })
+    .await
+    .map_err(|_| "GitHub 后台读取未能完成".to_string())?;
     host.run(move |app| {
-        let project = app.core.snapshot().project.ok_or("请先选择项目")?;
-        let mut candidate = GitHubClient::restore(app.github.snapshot());
-        let snapshot = candidate.refresh(std::path::Path::new(&project.path), gh_path.as_deref());
+        let current = app
+            .core
+            .snapshot()
+            .project
+            .ok_or("项目上下文已变化，请刷新后重试")?;
+        if generation != app.github_generation
+            || current.id != project.id
+            || current.path != project.path
+            || current.environment != project.environment
+        {
+            return Err("GitHub 来源读取已被新请求或项目切换取代，请重新读取当前来源".into());
+        }
         app.core.save_github_cache(&snapshot).map_err(error)?;
-        app.github = candidate;
+        app.github = GitHubClient::from_observation(snapshot.clone());
         Ok(snapshot)
     })
     .await
@@ -211,6 +244,7 @@ pub async fn choose_project(
         }
         let current = app.core.snapshot().project.map(|p| (p.id, p.path));
         if previous != current {
+            app.github_generation += 1;
             app.github.reset();
             if let Some(snapshot) = app.core.load_github_cache().map_err(error)? {
                 app.github = GitHubClient::restore(snapshot);
@@ -356,4 +390,120 @@ pub async fn load_document_tree_last_view(
 ) -> Result<oasis7_command_center_core::document_tree_reading::DocumentTreeLastView, String> {
     host.run(move |app| app.core.load_document_tree_last_view(scope).map_err(error))
         .await
+}
+
+#[tauri::command]
+pub async fn query_work_projection(
+    host: State<'_, Host>,
+    runtime: State<'_, crate::runtime_commands::RuntimeHost>,
+) -> Result<oasis7_command_center_core::work_projection::WorkProjection, String> {
+    let observed = runtime
+        .project_work(&host, |runtime, project| runtime.public_snapshot(project))
+        .await;
+    host.run(move |app| {
+        let snapshot = app.core.snapshot();
+        let mut projection = oasis7_command_center_core::work_projection::project_work(
+            &snapshot,
+            &app.github.snapshot(),
+            observed.as_ref().ok(),
+            &oasis7_command_center_core::now(),
+        )
+        .map_err(error)?;
+        if observed.is_err() {
+            let source = &mut projection.sources[1];
+            source.state = "error".into();
+            source.error =
+                Some("会话来源读取失败；其他工作来源仍可使用，不能据此推断没有会话。".into());
+        }
+        Ok(projection)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn refresh_work_checks(
+    host: State<'_, Host>,
+    number: String,
+    gh_path: Option<String>,
+) -> Result<GitHubSnapshot, String> {
+    let _source_permit = host
+        .github_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "GitHub 来源正在读取，请稍后重试".to_string())?;
+    let (project, generation, repository, pull) = host
+        .run(move |app| {
+            let project = app.core.snapshot().project.ok_or("请先选择项目")?;
+            let snapshot = app.github.snapshot();
+            let repository = snapshot.repository.ok_or("请先读取 PR 来源")?;
+            let pull = snapshot
+                .pulls
+                .into_iter()
+                .find(|pull| pull.id == number)
+                .ok_or("原 PR 不在已读取范围，请先刷新列表")?;
+            Ok((project, app.github_generation, repository, pull))
+        })
+        .await?;
+    let root = project.path.clone();
+    let repo = repository.clone();
+    let head = pull.head_oid.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        oasis7_command_center_core::github::read_pull_checks(
+            std::path::Path::new(&root),
+            gh_path.as_deref(),
+            &repo,
+            &head,
+        )
+    })
+    .await
+    .map_err(|_| "CI 后台读取未能完成".to_string())?;
+    host.run(move |app| {
+        let current = app.core.snapshot().project.ok_or("项目上下文已变化")?;
+        let mut snapshot = app.github.snapshot();
+        if generation != app.github_generation
+            || current.id != project.id
+            || current.path != project.path
+            || current.environment != project.environment
+            || snapshot.repository.as_deref() != Some(&repository)
+        {
+            return Err("CI 来源已变化，请刷新后重试".into());
+        }
+        let target = snapshot
+            .pulls
+            .iter_mut()
+            .find(|target| target.id == pull.id && target.head_oid == pull.head_oid)
+            .ok_or("PR HEAD 已变化，请重新读取检查")?;
+        let source = match result {
+            Ok((checks, coverage)) => {
+                target.checks = checks;
+                oasis7_command_center_core::github::PullChecksSource {
+                    schema_version: 1,
+                    state: if target.checks.is_empty() {
+                        "empty"
+                    } else {
+                        "partial"
+                    }
+                    .into(),
+                    observed_at: Some(oasis7_command_center_core::now()),
+                    coverage,
+                    error: None,
+                }
+            }
+            Err(error) => oasis7_command_center_core::github::PullChecksSource {
+                schema_version: 1,
+                state: "error".into(),
+                observed_at: target
+                    .checks_source
+                    .as_ref()
+                    .and_then(|source| source.observed_at.clone()),
+                coverage: "本次读取失败；保留该 HEAD 最近已读取检查，不推导完整成功。".into(),
+                error: Some(oasis7_command_center_core::github::public_error(&error)),
+            },
+        };
+        target.checks_source = Some(source);
+        app.core.save_github_cache(&snapshot).map_err(error)?;
+        app.github = GitHubClient::from_observation(snapshot.clone());
+        Ok(snapshot)
+    })
+    .await
 }

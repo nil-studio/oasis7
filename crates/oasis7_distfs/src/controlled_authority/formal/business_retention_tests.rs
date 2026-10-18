@@ -100,3 +100,94 @@ fn retention_delta_uses_closed_before_after_and_rejects_missing_changed_corrupt_
         verify_retained_transition(false, &after, Some(&before), Some(&altered), &reader).is_err()
     );
 }
+
+#[test]
+fn retained_original_bytes_path_preserves_delta_and_prefix_validation() {
+    use super::super::business_index::*;
+    let reader = Nodes(BTreeMap::new());
+    let empty = BusinessIndexRootV1::empty().unwrap();
+    let before = material(Some(root(empty.clone())));
+    let delta = BusinessIndexDeltaV1::build(
+        empty,
+        vec![BusinessIndexLeafV1 {
+            key_digest: metadata_key_digest(),
+            kind: BusinessIndexLeafKindV1::CommitMetadata,
+            canonical_value: b"archive".to_vec(),
+        }],
+        &reader,
+    )
+    .unwrap();
+    let after = material(Some(root(delta.new.clone())));
+    let before_bytes = before.snapshot_bytes().unwrap();
+    let after_bytes = after.snapshot_bytes().unwrap();
+    assert!(
+        verify_retained_transition(false, &after, Some(&before), Some(&delta), &reader).is_ok()
+    );
+    assert!(
+        verify_retained_transition_from_bytes(
+            false,
+            &after_bytes,
+            Some(&before_bytes),
+            Some(&delta),
+            &reader
+        )
+        .is_ok()
+    );
+    assert!(
+        verify_retained_transition_from_bytes(
+            false,
+            &after_bytes,
+            Some(&before_bytes),
+            None,
+            &reader
+        )
+        .is_err()
+    );
+    assert!(
+        verify_retained_transition_from_bytes(
+            false,
+            &before_bytes,
+            Some(&after_bytes),
+            Some(&delta),
+            &reader
+        )
+        .is_err()
+    );
+    let mut wrong_delta = delta.clone();
+    wrong_delta.base_root = "00".repeat(32);
+    assert!(
+        verify_retained_transition_from_bytes(
+            false,
+            &after_bytes,
+            Some(&before_bytes),
+            Some(&wrong_delta),
+            &reader
+        )
+        .is_err()
+    );
+    // A malformed hot Tick certificate must still be rejected by the original
+    // TickSnapshotMaterial decoder, even when retained roots/delta are valid.
+    let mut changed: serde_cbor::Value = serde_cbor::from_slice(&after_bytes).unwrap();
+    let serde_cbor::Value::Map(ref mut map) = changed else {
+        panic!("snapshot map")
+    };
+    map.insert(
+        serde_cbor::Value::Text("tick_consensus_records".into()),
+        serde_cbor::Value::Array(vec![serde_cbor::Value::Null]),
+    );
+    map.insert(
+        serde_cbor::Value::Text("tick_consensus_total_record_count".into()),
+        serde_cbor::Value::Integer(1),
+    );
+    let malformed = serde_cbor::to_vec(&changed).unwrap();
+    assert!(
+        verify_retained_transition_from_bytes(
+            false,
+            &malformed,
+            Some(&before_bytes),
+            Some(&delta),
+            &reader
+        )
+        .is_err()
+    );
+}

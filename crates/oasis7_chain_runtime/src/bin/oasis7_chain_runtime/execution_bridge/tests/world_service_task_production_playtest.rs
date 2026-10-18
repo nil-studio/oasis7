@@ -31,18 +31,22 @@ pub(super) fn fixture_kind(
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = RuntimeWorld::new_with_state(if starter_chain {
+    let mut world = oasis7::runtime_host::world::new_with_state(if starter_chain {
         super::starter_chain_playtest::initial_state()
     } else {
         initial_state()
     });
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world
-        .set_agent_resource_balance("agent-a", oasis7::simulator::ResourceKind::Electricity, 100)
+        .set_agent_resource_balance(
+            "agent-a",
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
+            100,
+        )
         .unwrap();
     world.submit_action(Action::ClaimStarterOc {
         agent_id: "agent-a".into(),
@@ -82,7 +86,7 @@ pub(super) fn fixture_kind(
         super::starter_chain_playtest::authorize(&mut world);
     } else {
         world
-            .install_test_native_delegation_grant(oasis7::runtime::AgentDelegationGrantV1 {
+            .install_test_native_delegation_grant(oasis7_runtime::AgentDelegationGrantV1 {
                 grant_id: "production-recipe-budget".into(),
                 source_id: format!(
                     "starter_claim:agent-a:{}",
@@ -118,7 +122,7 @@ pub(super) fn fixture_kind(
     world
         .save_to_dir_with_chain_resource_context(
             dir.join("world"),
-            oasis7::runtime::ChainResourceDerivationContext {
+            oasis7_runtime::ChainResourceDerivationContext {
                 world_id: "w1",
                 chain_id: "w1",
                 genesis_ref: Some(identity.genesis_digest.as_str()),
@@ -142,7 +146,7 @@ pub(super) fn fixture_kind(
         "w1",
         world.state().time,
         "world-service-local-setup-boundary",
-        &oasis7::runtime::ReleaseSecurityPolicy::default(),
+        &oasis7_runtime::ReleaseSecurityPolicy::default(),
     )
     .unwrap();
     let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
@@ -159,7 +163,7 @@ pub(super) fn fixture_kind(
 fn initial_state() -> WorldState {
     let mut state = WorldState::default();
     state.material_ledgers.insert(
-        oasis7::runtime::MaterialLedgerId::site("production-site"),
+        oasis7_runtime::MaterialLedgerId::site("production-site"),
         [
             ("iron_ore".into(), 8),
             ("carbon_fuel".into(), 2),
@@ -170,7 +174,7 @@ fn initial_state() -> WorldState {
     );
     state.factory_profiles.insert(
         "production-factory".into(),
-        oasis7::runtime::FactoryProfileV1 {
+        oasis7_runtime::FactoryProfileV1 {
             factory_id: "production-factory".into(),
             tier: 1,
             recipe_slots: 1,
@@ -179,7 +183,7 @@ fn initial_state() -> WorldState {
     );
     state.factories.insert(
         "production-factory".into(),
-        oasis7::runtime::FactoryState {
+        oasis7_runtime::FactoryState {
             factory_id: "production-factory".into(),
             site_id: "production-site".into(),
             builder_agent_id: "agent-a".into(),
@@ -195,8 +199,8 @@ fn initial_state() -> WorldState {
                 throughput_bps: 10000,
                 maintenance_per_tick: 0,
             },
-            input_ledger: oasis7::runtime::MaterialLedgerId::site("production-site"),
-            output_ledger: oasis7::runtime::MaterialLedgerId::site("production-site"),
+            input_ledger: oasis7_runtime::MaterialLedgerId::site("production-site"),
+            output_ledger: oasis7_runtime::MaterialLedgerId::site("production-site"),
             durability_ppm: 1000000,
             production: Default::default(),
             site_authority_revision: None,
@@ -216,7 +220,7 @@ pub(super) fn goal() -> GoalContentV1 {
     }
 }
 pub(super) fn witness(world: &RuntimeWorld) -> serde_json::Value {
-    serde_json::json!({"input_iron_ore":world.ledger_material_balance(&oasis7::runtime::MaterialLedgerId::site("production-site"),"iron_ore"),"input_carbon_fuel":world.ledger_material_balance(&oasis7::runtime::MaterialLedgerId::site("production-site"),"carbon_fuel"),"output_iron_ingot":world.ledger_material_balance(&oasis7::runtime::MaterialLedgerId::site("production-site"),"iron_ingot"),"output_slag":world.ledger_material_balance(&oasis7::runtime::MaterialLedgerId::site("production-site"),"slag"),"pending_recipe_jobs":world.state().pending_recipe_jobs,"factory":world.state().factories.get("production-factory"),"causal_receipts":world.agent_causal_receipts("agent-a").unwrap(),"electricity":world.state().agents["agent-a"].state.resources.get(oasis7::simulator::ResourceKind::Electricity)})
+    serde_json::json!({"input_iron_ore":world.ledger_material_balance(&oasis7_runtime::MaterialLedgerId::site("production-site"),"iron_ore"),"input_carbon_fuel":world.ledger_material_balance(&oasis7_runtime::MaterialLedgerId::site("production-site"),"carbon_fuel"),"output_iron_ingot":world.ledger_material_balance(&oasis7_runtime::MaterialLedgerId::site("production-site"),"iron_ingot"),"output_slag":world.ledger_material_balance(&oasis7_runtime::MaterialLedgerId::site("production-site"),"slag"),"pending_recipe_jobs":world.state().pending_recipe_jobs,"factory":world.state().factories.get("production-factory"),"causal_receipts":world.agent_causal_receipts("agent-a").unwrap(),"electricity":world.state().agents["agent-a"].state.resources.get(oasis7_agent_api::world_action::ResourceKind::Electricity)})
 }
 #[test]
 #[ignore = "explicit production prepared-world service; independent player uses shipped task Skill"]
@@ -326,7 +330,7 @@ fn private_task_production_signed_quote_first_product_and_restart() {
         let initial = pin();
         assert_eq!(
             initial.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                &oasis7_runtime::MaterialLedgerId::site("production-site"),
                 "iron_ore"
             ),
             8
@@ -470,7 +474,7 @@ fn private_task_production_signed_quote_first_product_and_restart() {
                     forced_action_rejection = true;
                     assert_eq!(
                         pin().world.ledger_material_balance(
-                            &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                            &oasis7_runtime::MaterialLedgerId::site("production-site"),
                             "iron_ore"
                         ),
                         8,
@@ -617,7 +621,7 @@ fn private_task_production_signed_quote_first_product_and_restart() {
         let delivered = loop {
             let p = pin();
             if p.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                &oasis7_runtime::MaterialLedgerId::site("production-site"),
                 "iron_ingot",
             ) == 3
             {
@@ -631,21 +635,21 @@ fn private_task_production_signed_quote_first_product_and_restart() {
         };
         assert_eq!(
             delivered.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                &oasis7_runtime::MaterialLedgerId::site("production-site"),
                 "iron_ore"
             ),
             4
         );
         assert_eq!(
             delivered.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                &oasis7_runtime::MaterialLedgerId::site("production-site"),
                 "carbon_fuel"
             ),
             1
         );
         assert_eq!(
             delivered.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                &oasis7_runtime::MaterialLedgerId::site("production-site"),
                 "slag"
             ),
             1
@@ -661,8 +665,8 @@ fn private_task_production_signed_quote_first_product_and_restart() {
             "production-recipe-budget"
         );
         assert_eq!(receipt.authorization.as_ref().unwrap().cost_units, 8);
-        let starts=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::RecipeStarted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
-        let finishes=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::RecipeCompleted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
+        let starts=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::RecipeStarted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
+        let finishes=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::RecipeCompleted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
         assert_eq!(starts, 1);
         assert_eq!(finishes, 1);
         quote_retry::assert_delayed_quote_retry_reuses_original(&quote_proof, &quoted, &delegate);
@@ -697,7 +701,7 @@ fn private_task_production_signed_quote_first_product_and_restart() {
         assert!(matches[0].rejected.is_none());
         assert_eq!(
             restarted.execution_world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("production-site"),
+                &oasis7_runtime::MaterialLedgerId::site("production-site"),
                 "iron_ingot"
             ),
             3

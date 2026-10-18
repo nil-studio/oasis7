@@ -1,7 +1,7 @@
 use super::authoritative::compute_runtime_snapshot_hash;
 use super::session_policy::RuntimeRecoveryCursor;
 use super::*;
-use crate::simulator::WorldEventKind;
+use oasis7_simulator::WorldEventKind;
 
 pub(super) struct RuntimeSessionMutationSnapshot {
     session_policy: RuntimeSessionPolicy,

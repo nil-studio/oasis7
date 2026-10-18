@@ -1,3 +1,9 @@
+#[cfg(test)]
+mod artifact_pipeline_contract_tests;
+
+#[cfg(test)]
+mod builder_context_tests;
+
 mod build_timing;
 mod build_util;
 #[cfg(test)]
@@ -668,6 +674,10 @@ fn wasm_env_value_or_default(suffix: &str, default: &str) -> String {
         .unwrap_or_else(|| default.to_string())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The explicit canonical build receipt fields preserve the existing hash schema"
+)]
 fn compute_build_manifest_hash(
     profile: &str,
     target: &str,

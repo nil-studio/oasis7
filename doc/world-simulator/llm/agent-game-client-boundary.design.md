@@ -54,6 +54,13 @@
 <a id="des-agc-001"></a>
 ### DES-AGC-001：职责、依赖与复用边界
 
+`oasis7_client_storage` 承载私有目录、私钥文件、加密记录、操作状态和本地模型调用预算持久化；不依赖 HTTP transport 或世界执行。共享客户端与世界服务直接消费该存储库，`oasis7_game_client` 保留旧公开路径的重导出。文件格式、权限校验、锁、原子写入和预算语义保持不变；本地预算与操作记录不授予世界权限。
+
+World Service 客户端 port、远程 transport、verified view 和客户端 proof 消费由 `oasis7_game_client` 拥有；服务端受权投影、结果发布和私有目标存储由 `oasis7_world_service` 拥有，World 权威状态与恢复由 `oasis7_runtime` 拥有。Game Client 与 Harness 的 normal/build 依赖不包含主应用、Runtime、Simulator 或 Service。Game Client 的协议/cache 单测使用独立协议夹具，真实 World 集成测试位于 Service，不通过后端 dev 依赖重新拉入执行实现。
+
+独立读取的 `WorldReadProjectionV1` 保存原投影语义值作为规范签名及 commitment 的输入，并另行解析窄的 `WorldReadObservationV1`；不在客户端构造完整可执行 World。HTTP 只恢复既有公开 factory-build/material-transit action map 的数字 key，不转换数字形态的 Agent 或 governance 字符串 ID。这里保持规范 CBOR 签名与规范 JSON 投影承诺，不承诺任意普通 CBOR map 字段顺序。`DeviceClient::capabilities` 经既有原始 `/view` 读取使用该 DTO，同时执行原任务投影的 owner、task fence、feedback lineage、world/scope 和信任 pin 校验。普通 DTO 不能构造 verified view 或回读凭据；收到、pending、committed 及未知结果后按原 operation identity 查询的边界保持不变。
+
+
 ```text
 外部 Runtime + Skill            官方内置 Harness
      |                              |

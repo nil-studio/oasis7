@@ -2,7 +2,8 @@ use super::runtime_state_to_simulator_model;
 use super::{RuntimeLlmSidecar, ViewerLiveDecisionMode};
 use crate::geometry::GeoPos;
 use crate::runtime::WorldState;
-use crate::simulator::{ModuleVisualAnchor, ModuleVisualEntity, WorldModel};
+use oasis7_agent_api::world_entity::{ModuleVisualAnchor, ModuleVisualEntity};
+use oasis7_simulator::WorldModel;
 
 #[test]
 fn runtime_state_to_simulator_model_projects_persisted_module_visual_entities() {

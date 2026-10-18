@@ -1,9 +1,9 @@
 //! Claimed-Agent construction and first production through the real native service.
 use super::*;
-use oasis7::runtime::*;
 use oasis7::world_service::private_task_context::*;
 use oasis7::world_service::task_factory_quote::*;
 use oasis7::world_service::task_recipe_quote::*;
+use oasis7_runtime::*;
 #[path = "world_service_task_starter_chain_expiry_recovery.rs"]
 mod expiry_recovery;
 #[path = "world_service_task_starter_chain_factory_quote_retry.rs"]
@@ -152,7 +152,7 @@ pub(super) fn witness(world: &RuntimeWorld) -> serde_json::Value {
         "pending_recipe_jobs":world.state().pending_recipe_jobs,
         "industry_progress":world.state().industry_progress,
         "causal_receipts":world.agent_causal_receipts("agent-a").unwrap(),
-        "electricity":world.state().agents["agent-a"].state.resources.get(oasis7::simulator::ResourceKind::Electricity)})
+        "electricity":world.state().agents["agent-a"].state.resources.get(oasis7_agent_api::world_action::ResourceKind::Electricity)})
 }
 #[test]
 #[ignore = "explicit claimed-Agent starter-chain service; independent player uses shipped task Skill"]
@@ -570,7 +570,7 @@ fn private_task_starter_chain_build_feed_first_product_and_restart() {
             delivered.world.state().agents["agent-a"]
                 .state
                 .resources
-                .get(oasis7::simulator::ResourceKind::Electricity),
+                .get(oasis7_agent_api::world_action::ResourceKind::Electricity),
             100 - i64::try_from(total).unwrap()
         );
         for (kind, grant, cost) in [
@@ -761,7 +761,7 @@ fn read_context_until_expiry<F: Fn() -> u64>(
     }
 }
 
-fn settle_expired_context<F: Fn() -> oasis7::runtime::RuntimeCognitionBaseBindingV1>(
+fn settle_expired_context<F: Fn() -> oasis7_runtime::RuntimeCognitionBaseBindingV1>(
     client: &RemoteWorldServiceClient,
     delegate: &str,
     world: &WorldIdentity,

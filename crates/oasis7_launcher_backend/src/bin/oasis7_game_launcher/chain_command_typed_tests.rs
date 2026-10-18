@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime::development_node_config::*;
+use oasis7::development_node_config::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 fn options() -> CliOptions {

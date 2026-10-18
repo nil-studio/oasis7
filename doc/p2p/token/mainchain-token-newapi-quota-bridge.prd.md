@@ -79,7 +79,7 @@
 ## 4. Technical Specifications
 - Architecture Overview: 架构采用独立 bridge-service。它包含 `binding API`、`deposit route allocator`、`chain watcher`、`bridge_ledger store`、`pricing engine`、`LetAI OpenAPI adapter` 与 `reconciliation worker`。`oasis7` 侧继续负责链上资产真值；LetAI Run 侧继续负责用户、项目、`token_key` 与额度消费；bridge-service 只做“已确认 `OC` 入账 -> LetAI OpenAPI user/project/token/topup/query”映射。
 - Integration Points:
-  - `crates/oasis7/src/runtime/main_token.rs`
+  - `crates/oasis7_runtime/src/main_token.rs`
   - `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/transfer_submit_api.rs`
   - `crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/server.rs`
   - `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md`

@@ -80,8 +80,9 @@ fn signed_rollback_envelope(
         checkpoint.journal.clone(),
     )
     .expect("reconstruct authoritative target")
-    .current_state_root_hash()
-    .expect("target state root");
+    .execution_state_identity()
+    .expect("target state root")
+    .state_root_hash;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock")

@@ -19,7 +19,7 @@ pub(super) fn verify_missing_store(client: &RemoteWorldServiceClient) {
     let config = application_hosted::server_config(client, false, Duration::from_secs(60), None);
     let mut server = ViewerRuntimeLiveServer::new(config).unwrap();
     client.describe().unwrap();
-    let action = oasis7::simulator::Action::MoveAgent {
+    let action = oasis7_simulator::Action::MoveAgent {
         agent_id: "agent-a".into(),
         to: "runtime:2:2:0".into(),
     };

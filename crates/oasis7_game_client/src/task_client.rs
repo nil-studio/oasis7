@@ -33,6 +33,9 @@ impl WorldServiceTaskClient {
         self.transport = self.transport.with_query_state(state);
         self
     }
+    pub(crate) fn query_state(&self) -> WorldServiceQueryState {
+        self.transport.query_state.clone()
+    }
     pub fn config(&self) -> &WorldServiceClientConfig {
         self.transport.config()
     }

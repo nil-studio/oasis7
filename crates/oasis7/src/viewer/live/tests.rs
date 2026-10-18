@@ -7,7 +7,7 @@ use oasis7_node::{
 use std::io::{BufRead, BufReader, BufWriter};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,18 +20,18 @@ fn set_test_llm_env() -> std::sync::MutexGuard<'static, ()> {
         .expect("env lock");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-            oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-4o-mini");
+        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-4o-mini");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-            oasis7::env_mut::set_var(
-                crate::simulator::ENV_LLM_BASE_URL,
-                "https://api.openai.com/v1",
-            );
+        oasis7::env_mut::set_var(
+            crate::simulator::ENV_LLM_BASE_URL,
+            "https://api.openai.com/v1",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-            oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
+        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
     }
     guard
 }
@@ -272,7 +272,7 @@ fn viewer_live_llm_timeout_defaults_to_trust_floor_budget() {
     let _guard = viewer_live_llm_timeout_env_lock().lock().expect("env lock");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-            oasis7::env_mut::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
+        oasis7::env_mut::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
     }
     assert_eq!(resolve_viewer_live_llm_timeout_ms(180_000), 30_000);
     assert_eq!(resolve_viewer_live_llm_timeout_ms(8_000), 8_000);
@@ -283,13 +283,13 @@ fn viewer_live_llm_timeout_respects_env_ceiling_without_expanding_budget() {
     let _guard = viewer_live_llm_timeout_env_lock().lock().expect("env lock");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-            oasis7::env_mut::set_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS", "9000");
+        oasis7::env_mut::set_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS", "9000");
     }
     assert_eq!(resolve_viewer_live_llm_timeout_ms(180_000), 9_000);
     assert_eq!(resolve_viewer_live_llm_timeout_ms(4_000), 4_000);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-            oasis7::env_mut::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
+        oasis7::env_mut::remove_var("OASIS7_VIEWER_LIVE_LLM_TIMEOUT_MS");
     }
 }
 
@@ -370,22 +370,33 @@ fn step_control_is_deferred_from_request_handler() {
 fn legacy_live_server_rejects_market_quote_decision_with_stable_code() {
     let config = WorldConfig::default();
     let init = WorldInitConfig::from_scenario(WorldScenario::Minimal, &config);
-    let mut world = LiveWorld::new(config, init, ViewerLiveDecisionMode::Script).expect("init world");
+    let mut world =
+        LiveWorld::new(config, init, ViewerLiveDecisionMode::Script).expect("init world");
     let mut session = ViewerLiveSession::new();
     let (mut writer, peer) = test_writer_pair();
 
-    session.handle_request(
-        ViewerRequest::QuoteMarketDecision {
-            request: crate::viewer::MarketQuoteDecisionRequest { consume: vec![], player_id: "player".to_string(), public_key: None, auth: None },
-        },
-        &mut writer,
-        &mut world,
-        "test-world",
-    ).expect("unsupported request is a response");
+    session
+        .handle_request(
+            ViewerRequest::QuoteMarketDecision {
+                request: crate::viewer::MarketQuoteDecisionRequest {
+                    consume: vec![],
+                    player_id: "player".to_string(),
+                    public_key: None,
+                    auth: None,
+                },
+            },
+            &mut writer,
+            &mut world,
+            "test-world",
+        )
+        .expect("unsupported request is a response");
 
     let line = read_response_line(&peer, Duration::from_secs(1)).expect("response line");
-    let response: crate::viewer::ViewerResponse = serde_json::from_str(line.trim()).expect("decode response");
-    assert!(matches!(response, crate::viewer::ViewerResponse::GameplayActionError { error } if error.code == "unsupported_in_live_server" && error.action_id.as_deref() == Some("quote_market_decision")));
+    let response: crate::viewer::ViewerResponse =
+        serde_json::from_str(line.trim()).expect("decode response");
+    assert!(
+        matches!(response, crate::viewer::ViewerResponse::GameplayActionError { error } if error.code == "unsupported_in_live_server" && error.action_id.as_deref() == Some("quote_market_decision"))
+    );
 }
 
 #[test]
@@ -434,9 +445,9 @@ fn live_world_llm_event_driven_gate_avoids_repeated_empty_ticks() {
     let _env_guard = set_test_llm_env();
     let config = WorldConfig::default();
     let mut init = WorldInitConfig::default();
-    init.agents = crate::simulator::AgentSpawnConfig {
+    init.agents = oasis7_simulator::AgentSpawnConfig {
         count: 0,
-        ..crate::simulator::AgentSpawnConfig::default()
+        ..oasis7_simulator::AgentSpawnConfig::default()
     };
     let mut world = LiveWorld::new(config, init, ViewerLiveDecisionMode::Llm).expect("init ok");
 
@@ -466,9 +477,9 @@ fn live_world_llm_mailbox_preserves_multiple_requests() {
     let _env_guard = set_test_llm_env();
     let config = WorldConfig::default();
     let mut init = WorldInitConfig::default();
-    init.agents = crate::simulator::AgentSpawnConfig {
+    init.agents = oasis7_simulator::AgentSpawnConfig {
         count: 0,
-        ..crate::simulator::AgentSpawnConfig::default()
+        ..oasis7_simulator::AgentSpawnConfig::default()
     };
     let mut world = LiveWorld::new(config, init, ViewerLiveDecisionMode::Llm).expect("init ok");
 
@@ -505,9 +516,9 @@ fn live_world_event_drive_gate_tracks_llm_mailbox() {
     let _env_guard = set_test_llm_env();
     let config = WorldConfig::default();
     let mut init = WorldInitConfig::default();
-    init.agents = crate::simulator::AgentSpawnConfig {
+    init.agents = oasis7_simulator::AgentSpawnConfig {
         count: 0,
-        ..crate::simulator::AgentSpawnConfig::default()
+        ..oasis7_simulator::AgentSpawnConfig::default()
     };
     let mut world = LiveWorld::new(config, init, ViewerLiveDecisionMode::Llm).expect("init ok");
 
@@ -534,9 +545,9 @@ fn live_world_non_consensus_path_is_event_drive_only() {
     let _env_guard = set_test_llm_env();
     let llm_config = WorldConfig::default();
     let mut llm_init = WorldInitConfig::default();
-    llm_init.agents = crate::simulator::AgentSpawnConfig {
+    llm_init.agents = oasis7_simulator::AgentSpawnConfig {
         count: 0,
-        ..crate::simulator::AgentSpawnConfig::default()
+        ..oasis7_simulator::AgentSpawnConfig::default()
     };
     let llm_world =
         LiveWorld::new(llm_config, llm_init, ViewerLiveDecisionMode::Llm).expect("init");
@@ -551,9 +562,9 @@ fn live_world_non_consensus_path_is_event_drive_only() {
 fn live_world_script_event_drive_stops_requeue_on_idle_step() {
     let config = WorldConfig::default();
     let mut init = WorldInitConfig::default();
-    init.agents = crate::simulator::AgentSpawnConfig {
+    init.agents = oasis7_simulator::AgentSpawnConfig {
         count: 0,
-        ..crate::simulator::AgentSpawnConfig::default()
+        ..oasis7_simulator::AgentSpawnConfig::default()
     };
     let mut world = LiveWorld::new(config, init, ViewerLiveDecisionMode::Script).expect("init");
 
@@ -607,7 +618,7 @@ fn restore_behavior_long_term_memory_from_model_applies_persisted_entries() {
     let init = WorldInitConfig::from_scenario(WorldScenario::Minimal, &config);
     let (mut kernel, _) = initialize_kernel(config, init).expect("init ok");
 
-    let persisted = crate::simulator::LongTermMemoryEntry::new("mem-3", 7, "persisted insight")
+    let persisted = oasis7_simulator::LongTermMemoryEntry::new("mem-3", 7, "persisted insight")
         .with_tag("persisted");
     kernel
         .set_agent_long_term_memory("agent-0", vec![persisted.clone()])
@@ -631,7 +642,7 @@ fn sync_llm_runner_long_term_memory_writes_back_to_world_model() {
     let (mut kernel, _) = initialize_kernel(config, init).expect("init ok");
 
     let mut behavior = LlmAgentBehavior::from_env("agent-0").expect("build llm behavior");
-    let runtime_entry = crate::simulator::LongTermMemoryEntry::new("mem-9", 15, "runtime memory")
+    let runtime_entry = oasis7_simulator::LongTermMemoryEntry::new("mem-9", 15, "runtime memory")
         .with_tag("runtime");
     behavior.restore_long_term_memory_entries(std::slice::from_ref(&runtime_entry));
 

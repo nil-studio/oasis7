@@ -3,7 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-use oasis7::simulator::{WorldConfig, WorldInitConfig, WorldScenario, initialize_kernel};
+use oasis7::simulator::initialize_kernel;
+use oasis7_simulator::{WorldConfig, WorldInitConfig, WorldScenario};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 

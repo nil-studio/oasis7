@@ -92,7 +92,7 @@ impl RuntimeAuthority for VerifiedWorldMemoryAuthority<'_> {
                 "verified World readback does not match the exact committed feedback context",
             ));
         }
-        Ok(receipt.agent_api_projection())
+        Ok(oasis7_agent_api::RuntimeReceiptLineageV1::from(receipt))
     }
 
     fn validated_feedback_history(

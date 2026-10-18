@@ -35,7 +35,7 @@ fn wasm_hash(bytes: &[u8]) -> String {
 #[cfg(feature = "test_tier_required")]
 #[test]
 fn governance_module_happy_path_updates_registry() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-lifecycle-happy";
@@ -100,7 +100,7 @@ fn governance_module_happy_path_updates_registry() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn shadow_failure_blocks_apply() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let module_manifest = ModuleManifest {
@@ -140,7 +140,7 @@ fn shadow_failure_blocks_apply() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_routing_emits_event() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-routing";
@@ -228,7 +228,7 @@ fn module_routing_emits_event() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn replay_preserves_module_events() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-replay";
@@ -308,7 +308,7 @@ fn replay_preserves_module_events() {
     world.step_with_modules(&mut sandbox).unwrap();
 
     let journal = world.journal().clone();
-    let restored = World::from_snapshot(snapshot, journal).unwrap();
+    let restored = oasis7::runtime_host::world::from_snapshot(snapshot, journal).unwrap();
 
     let has_emit = restored
         .journal()

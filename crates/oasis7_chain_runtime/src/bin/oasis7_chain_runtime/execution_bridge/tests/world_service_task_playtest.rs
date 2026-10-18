@@ -205,7 +205,7 @@ fn verified_terminal_stale_action(
     );
     let stale = format!(
         "{:?}",
-        oasis7::runtime::WorldError::DistributedValidationFailed {
+        oasis7_runtime::WorldError::DistributedValidationFailed {
             reason: "stale_base".into()
         }
     );
@@ -812,7 +812,7 @@ fn run_prepared_world_service_kind_with_cognition_503(
             if !logistics
                 && !production
                 && !starter_chain
-                && position == oasis7::GeoPos::new(200, 0, 0)
+                && position == oasis7_agent_api::world_action::GeoPos::new(200, 0, 0)
                 && control.active_goal_revision == DecimalU64(1)
                 && goal2_submission.is_none()
             {

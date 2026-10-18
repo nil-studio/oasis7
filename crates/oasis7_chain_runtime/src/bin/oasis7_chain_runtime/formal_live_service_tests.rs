@@ -346,7 +346,7 @@ fn formal_changes_empty_range_is_qualified_and_substituted_stream_is_rejected() 
 fn world_with_owner() -> (World, SigningKey) {
     let owner = fixtures::key(71);
     let owner_public = hex::encode(owner.verifying_key().to_bytes());
-    let mut world = World::new_with_state(WorldState::default())
+    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default())
         .try_with_cognition_scheduler(
             SchedulerPolicyV1 {
                 schema_version: SchedulerPolicyV1::SCHEMA_VERSION.into(),
@@ -363,7 +363,7 @@ fn world_with_owner() -> (World, SigningKey) {
         .unwrap();
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world.submit_action(Action::ClaimStarterOc {

@@ -1,7 +1,7 @@
 use super::*;
-use oasis7::runtime::{Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, WorldState};
 use oasis7::world_service::*;
 use oasis7_node::{NodeConsensusAction, NodeExecutionHook};
+use oasis7_runtime::{Action, CognitionLeaseQuoteV1, CognitionLeaseRequestV1, WorldState};
 
 fn commit(
     driver: &mut NodeRuntimeExecutionDriver,
@@ -39,10 +39,10 @@ fn request(
 }
 
 pub(crate) fn live_fixture_world(world_id: &str, public: &str) -> RuntimeWorld {
-    let mut world = RuntimeWorld::new_with_state(WorldState::default());
+    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default());
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world.submit_action(Action::ClaimStarterOc {
@@ -101,7 +101,7 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
     world
         .save_to_dir_with_chain_resource_context(
             dir.join("world"),
-            oasis7::runtime::ChainResourceDerivationContext {
+            oasis7_runtime::ChainResourceDerivationContext {
                 world_id: "w1",
                 chain_id: "w1",
                 genesis_ref: Some(identity.genesis_digest.as_str()),
@@ -125,7 +125,7 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
         "w1",
         world.state().time,
         "world-service-local-setup-boundary",
-        &oasis7::runtime::ReleaseSecurityPolicy::default(),
+        &oasis7_runtime::ReleaseSecurityPolicy::default(),
     )
     .unwrap();
     let mut driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
@@ -245,10 +245,10 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
             "digest-a",
             CognitionLeaseQuoteV1::new("quote-a", "cognition_units", 1).with_authority(
                 "owner-a",
-                oasis7::runtime::COGNITION_RESOURCE_VERSION_V1,
+                oasis7_runtime::COGNITION_RESOURCE_VERSION_V1,
                 "provider_cognition",
                 "agent_turn",
-                oasis7::runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
+                oasis7_runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
                 quote_authority,
                 driver
                     .execution_world
@@ -388,11 +388,11 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
         committed_actions: vec![committed.clone()],
         committed_at_unix_ms: 3000,
     };
-    let mut world = RuntimeWorld::new();
+    let mut world = oasis7::runtime_host::world::new();
     for index in 0..4 {
         world.submit_action(Action::RegisterAgent {
             agent_id: format!("queued-{index}"),
-            pos: oasis7::GeoPos::new(0, 0, 0),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
         });
     }
     let staged = super::super::world_service_execution::apply_intents(
@@ -425,7 +425,7 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
     assert_eq!(snapshot.pending_actions[4].action, action);
     let dir = temp_dir("service-recipe-origin");
     world.save_to_dir(&dir).unwrap();
-    let restored = RuntimeWorld::load_from_dir(&dir).unwrap();
+    let restored = oasis7::runtime_host::world::load_from_dir(&dir).unwrap();
     assert_eq!(
         restored.snapshot().pending_actions[4].committed_recipe_origin,
         Some(origin)

@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "aea259156fe07b143cf511d6296ffca25cc78eb8892d362d25e00ff418bccb25",
+    "content_sha256": "440780d2204cdccd07ac8d50828d82fadc6c07dd43a19f7c597968bb6d2d9cdf",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_mixed_implementation_record",
-    "note": "on-demand governance-event design and 2026-03-04 implementation snapshot",
+    "note": "on-demand governance-event design and 2026-03-04 implementation snapshot Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/world-runtime/governance/governance-events.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

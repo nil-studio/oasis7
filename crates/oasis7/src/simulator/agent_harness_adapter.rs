@@ -4,6 +4,7 @@
 //! admission. This adapter keeps simulator observations and behavior callbacks
 //! in Oasis while ensuring providers never receive Runtime or World access.
 
+use super::super::archive::WorldEvent;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -26,9 +27,9 @@ use super::super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
 };
 use super::super::decision_provider::MemoryWriteIntent;
-use super::super::kernel::{Observation, WorldEvent};
-use super::super::types::Action;
-use super::super::types::WorldTime;
+use oasis7_simulator::Action;
+use oasis7_simulator::Observation;
+use oasis7_simulator::WorldTime;
 
 pub(super) type ProductionKey = (String, String, String, u64, u64);
 

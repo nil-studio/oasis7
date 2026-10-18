@@ -7,12 +7,13 @@ use super::*;
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
-use oasis7::runtime::LocalCasStore;
-use oasis7::simulator::{
-    Action as SimulatorAction, ActionSubmitter, ChunkCoord, WorldConfig, WorldInitConfig,
-    WorldScenario, WorldSnapshot, initialize_kernel,
-};
+use oasis7::simulator::{WorldSnapshot, initialize_kernel};
+use oasis7_agent_api::world_geometry::ChunkCoord;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
+use oasis7_runtime::LocalCasStore;
+use oasis7_simulator::{
+    Action as SimulatorAction, ActionSubmitter, WorldConfig, WorldInitConfig, WorldScenario,
+};
 use std::fs;
 
 #[test]

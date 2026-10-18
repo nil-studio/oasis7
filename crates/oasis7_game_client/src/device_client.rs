@@ -118,8 +118,25 @@ impl Client {
             })
     }
     pub fn capabilities(&self) -> Result<Value, String> {
-        let view = self.public_view()?;
-        let projection = view.projection();
+        let view = self
+            .remote
+            .read_original_view(ReadWorldViewRequest {
+                observation_nonce: None,
+                formal_anchor: None,
+                contract_version: 1,
+                world: self.world.clone(),
+                scope_id: format!("agent:{}", self.agent),
+                min_commit: None,
+                fixed_commit: None,
+                deadline_unix_ms: None,
+            })
+            .map_err(|error| {
+                format!(
+                    "signed Agent read unavailable ({})",
+                    polling::failure_tag(&error)
+                )
+            })?;
+        let projection = view.projection().observation();
         let grants: Vec<_> = projection
             .native_delegation_authorizations
             .iter()

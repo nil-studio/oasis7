@@ -42,7 +42,7 @@ fn turn_context(
     super::agent_cognition_identity::production_turn_context(request)
 }
 
-fn observation() -> crate::simulator::Observation {
+fn observation() -> oasis7_simulator::Observation {
     super::agent_cognition_identity::production_observation("agent-1", 42)
 }
 
@@ -116,7 +116,7 @@ fn completed_turn(
 fn valid_runtime_lease_is_required_before_provider_dispatch_and_carried_to_outcome() {
     let request = request_context();
     let context = turn_context(&request);
-    let mut world = World::new();
+    let mut world = crate::runtime_host::world::new();
     let lease = reserve_lease(
         &mut world,
         &request,
@@ -180,7 +180,7 @@ fn valid_runtime_lease_is_required_before_provider_dispatch_and_carried_to_outco
 fn invalid_or_closed_lease_fences_dispatch_without_provider_call() {
     let request = request_context();
     let context = turn_context(&request);
-    let mut world = World::new();
+    let mut world = crate::runtime_host::world::new();
     let lease = reserve_lease(
         &mut world,
         &request,
@@ -226,7 +226,7 @@ fn lease_identity_mismatch_and_expiry_fence_provider_without_world_effect() {
     let request = request_context();
     let context = turn_context(&request);
 
-    let mut world = World::new();
+    let mut world = crate::runtime_host::world::new();
     let mismatched = world
         .set_cognition_resource_balance(ACCOUNT_ID, RESOURCE, 4)
         .and_then(|_| {
@@ -258,7 +258,7 @@ fn lease_identity_mismatch_and_expiry_fence_provider_without_world_effect() {
             .contains("cognition_lease_identity_mismatch")
     );
 
-    let mut expiring_world = World::new();
+    let mut expiring_world = crate::runtime_host::world::new();
     let expiring = reserve_lease(
         &mut expiring_world,
         &request,
@@ -294,7 +294,7 @@ fn lease_identity_mismatch_and_expiry_fence_provider_without_world_effect() {
 #[test]
 fn api_lease_view_requires_the_complete_runtime_admission_validator() {
     let request = request_context();
-    let mut world = World::new();
+    let mut world = crate::runtime_host::world::new();
     let lease = reserve_lease(
         &mut world,
         &request,
@@ -329,7 +329,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         );
     }
 
-    let mut mismatched_world = World::new();
+    let mut mismatched_world = crate::runtime_host::world::new();
     mismatched_world
         .set_cognition_resource_balance(ACCOUNT_ID, RESOURCE, 4)
         .expect("seed Runtime cognition balance for mismatched lease");
@@ -357,7 +357,7 @@ fn api_lease_view_requires_the_complete_runtime_admission_validator() {
         .contains("cognition_lease_identity_mismatch")
     );
 
-    let mut expired_world = World::new();
+    let mut expired_world = crate::runtime_host::world::new();
     let expired = reserve_lease(
         &mut expired_world,
         &request,

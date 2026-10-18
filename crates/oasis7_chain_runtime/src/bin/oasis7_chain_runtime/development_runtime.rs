@@ -4,7 +4,7 @@ use super::{
     CliOptions,
     cli::{TrafficProfile, default_p2p_node_role, validate_effective_options},
 };
-use oasis7::runtime::development_node_config::*;
+use oasis7::development_node_config::*;
 use oasis7_node::{NodeHolePunchViability, NodeRole, NodeUserMode, PosValidator};
 use std::{
     collections::BTreeSet,

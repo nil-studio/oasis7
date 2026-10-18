@@ -413,7 +413,7 @@ impl ViewerRuntimeLiveServer {
         }
         if let (Some(current), Some(next)) = (&self.verified_world_view, &prepared.verified_view) {
             let caught_up = if next.formal_commit().is_some() || current.formal_commit().is_some() {
-                next.formally_satisfies_view(current)
+                next.certifies_successor_of(current)
             } else {
                 next.version()
                     .commit
@@ -495,12 +495,14 @@ impl ViewerRuntimeLiveServer {
         } else {
             (
                 self.world
-                    .observer_authority_digest()
-                    .map_err(ViewerRuntimeLiveServerError::Runtime)?,
+                    .observer_authority_identity()
+                    .map_err(ViewerRuntimeLiveServerError::Runtime)?
+                    .authority_digest,
                 prepared
                     .world
-                    .observer_authority_digest()
-                    .map_err(ViewerRuntimeLiveServerError::Runtime)?,
+                    .observer_authority_identity()
+                    .map_err(ViewerRuntimeLiveServerError::Runtime)?
+                    .authority_digest,
             )
         };
         let prepared_identity = (
@@ -625,8 +627,8 @@ impl ViewerRuntimeLiveServer {
             runtime_events_after_baseline(
                 self.world.journal().events.as_slice(),
                 prepared.world.journal().events.as_slice(),
-                self.world.observer_last_event_era(),
-                prepared.world.observer_last_event_era(),
+                self.world.last_journal_event_position().era,
+                prepared.world.last_journal_event_position().era,
             )
         });
         if let Some(view) = prepared.verified_view.take() {

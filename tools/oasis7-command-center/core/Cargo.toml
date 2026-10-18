@@ -8,6 +8,7 @@ getrandom = "0.4"
 zeroize = "1"
 oasis7_context = { path = "../../../crates/oasis7_context" }
 oasis7_local_signer = { path = "../../../crates/oasis7_local_signer" }
+oasis7_signer_protocol = { path = "../../../crates/oasis7_signer_protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }

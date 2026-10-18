@@ -137,11 +137,28 @@ pub(super) struct VerifiedCandidateMaterialClosureV1<'a> {
     material: &'a ClosedRecord,
     frozen_body: Option<&'a FormalFrozenBodyV1>,
     frozen_material: Option<&'a ClosedRecord>,
+    // At most two original expanded buffers (64 MiB each), never cloned or
+    // serialized. Decision uses the discard entry point; only Prepare retains.
+    after_snapshot: Option<Vec<u8>>,
+    before_snapshot: Option<Vec<u8>>,
 }
 
 impl<'a> VerifiedCandidateMaterialClosureV1<'a> {
     pub(super) fn verify(
         candidate: &'a endpoint::FormalCandidateMaterialV1,
+    ) -> Result<Self, FormalError> {
+        Self::verify_inner(candidate, false)
+    }
+
+    pub(super) fn verify_retaining_snapshots(
+        candidate: &'a endpoint::FormalCandidateMaterialV1,
+    ) -> Result<Self, FormalError> {
+        Self::verify_inner(candidate, true)
+    }
+
+    fn verify_inner(
+        candidate: &'a endpoint::FormalCandidateMaterialV1,
+        retain_snapshot_bytes: bool,
     ) -> Result<Self, FormalError> {
         let record = &candidate.candidate.record;
         let material = &candidate.material;
@@ -150,20 +167,33 @@ impl<'a> VerifiedCandidateMaterialClosureV1<'a> {
             .as_ref()
             .map(|certificate| &certificate.reservation.body);
         let frozen_material = candidate.frozen_material.as_ref();
-        verify_record_material(record, material)?;
-        match (frozen_body, frozen_material) {
-            (Some(body), Some(frozen)) => verify_frozen_material(body, frozen)?,
-            (None, None) if record.kind == FormalRecordKindV1::InitialActivation => {}
+        let after_snapshot = if retain_snapshot_bytes {
+            verify_record_material_retaining_snapshot(record, material)?
+        } else {
+            verify_record_material(record, material)?;
+            None
+        };
+        let before_snapshot = match (frozen_body, frozen_material) {
+            (Some(body), Some(frozen)) if retain_snapshot_bytes => {
+                verify_frozen_material_retaining_snapshot(body, frozen)?
+            }
+            (Some(body), Some(frozen)) => {
+                verify_frozen_material(body, frozen)?;
+                None
+            }
+            (None, None) if record.kind == FormalRecordKindV1::InitialActivation => None,
             _ => {
                 return Err(invalid("formal candidate complete original frozen closure"));
             }
-        }
+        };
         Ok(Self {
             candidate,
             record,
             material,
             frozen_body,
             frozen_material,
+            after_snapshot,
+            before_snapshot,
         })
     }
 
@@ -208,7 +238,14 @@ pub fn verify_formal_business_material(
         _ => return Err(invalid("formal business profile contract")),
     }
     verify_record_material(record, material)?;
-    verify_formal_business_material_after_closure(record, material, parent, frozen_material, reader)
+    verify_formal_business_material_after_closure(
+        record,
+        material,
+        parent,
+        frozen_material,
+        reader,
+        None,
+    )
 }
 
 pub(super) fn verify_formal_business_material_with_closure(
@@ -229,7 +266,36 @@ pub(super) fn verify_formal_business_material_with_closure(
         2 => {}
         _ => return Err(invalid("formal business profile contract")),
     }
-    verify_formal_business_material_after_closure(record, material, parent, frozen_material, reader)
+    // None is the legacy verifier's original contract. Resolve only here,
+    // where this profile-2 Prepare already needed descriptor/prefix bytes.
+    let after_fallback;
+    let after_bytes = if let Some(bytes) = closure.after_snapshot.as_deref() {
+        bytes
+    } else {
+        after_fallback = material
+            .snapshot_bytes()
+            .map_err(|e| invalid(e.to_string()))?;
+        &after_fallback
+    };
+    let before_fallback;
+    let before_bytes = if let Some(bytes) = closure.before_snapshot.as_deref() {
+        Some(bytes)
+    } else if let Some(material) = frozen_material {
+        before_fallback = material
+            .snapshot_bytes()
+            .map_err(|e| invalid(e.to_string()))?;
+        Some(before_fallback.as_slice())
+    } else {
+        None
+    };
+    verify_formal_business_material_after_closure(
+        record,
+        material,
+        parent,
+        frozen_material,
+        reader,
+        Some((after_bytes, before_bytes)),
+    )
 }
 
 fn verify_formal_business_material_after_closure(
@@ -238,6 +304,7 @@ fn verify_formal_business_material_after_closure(
     parent: Option<&endpoint::VerifiedFormalBusinessParentV1>,
     frozen_material: Option<&ClosedRecord>,
     reader: &impl BusinessIndexNodeReader,
+    snapshots: Option<(&[u8], Option<&[u8]>)>,
 ) -> Result<Option<VerifiedFormalBusinessMaterialV1>, FormalError> {
     let root = material
         .roots
@@ -250,21 +317,39 @@ fn verify_formal_business_material_after_closure(
         .ok_or_else(|| invalid("profile2 missing Result envelope bytes"))?;
     let envelope = FormalBusinessResultEnvelopeV1::decode(&object.bytes)?;
     verify_business_metadata_contract(&envelope.delta, reader)?;
-    if record.kind == FormalRecordKindV1::Execution
-        && frozen_material.and_then(|material| material.roots.get(&ArtifactRole::Snapshot))
-            != Some(&record.before_state_root)
-    {
-        return Err(invalid(
-            "retention exact signed Frozen predecessor Snapshot root",
-        ));
+    if record.kind == FormalRecordKindV1::Execution {
+        let before_root = if let Some((_, before)) = snapshots {
+            before.map(|bytes| blake3::hash(bytes).to_hex().to_string())
+        } else {
+            frozen_material
+                .map(|material| material.snapshot_bytes())
+                .transpose()
+                .map_err(|e| invalid(e.to_string()))?
+                .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
+        };
+        if before_root.as_ref() != Some(&record.before_state_root) {
+            return Err(invalid(
+                "retention exact signed Frozen predecessor Snapshot root",
+            ));
+        }
     }
-    retention::verify_retained_transition(
-        record.kind == FormalRecordKindV1::InitialActivation,
-        material,
-        frozen_material,
-        envelope.retained_history_delta.as_ref(),
-        reader,
-    )?;
+    if let Some((after, before)) = snapshots {
+        retention::verify_retained_transition_from_bytes(
+            record.kind == FormalRecordKindV1::InitialActivation,
+            after,
+            before,
+            envelope.retained_history_delta.as_ref(),
+            reader,
+        )?;
+    } else {
+        retention::verify_retained_transition(
+            record.kind == FormalRecordKindV1::InitialActivation,
+            material,
+            frozen_material,
+            envelope.retained_history_delta.as_ref(),
+            reader,
+        )?;
+    }
     let parent_result_root =
         history_validation::verify_parent_history_cut(record, &envelope, parent)?;
     let empty;
@@ -338,7 +423,12 @@ pub(crate) fn verify_committed_business_material(
             if cut.parent_record.record_id()? != record.parent_record_id
                 || cut.parent_record.activation_ref != record.activation_ref
                 || cut.parent_record.after_state_root != record.before_state_root
-                || frozen_material.and_then(|material| material.roots.get(&ArtifactRole::Snapshot))
+                || frozen_material
+                    .map(|material| material.snapshot_bytes())
+                    .transpose()
+                    .map_err(|e| invalid(e.to_string()))?
+                    .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
+                    .as_ref()
                     != Some(&record.before_state_root)
             {
                 return Err(invalid("historical material hash-bound exact parent"));

@@ -97,7 +97,7 @@ pub(super) fn start(
                     .leases
                     .values()
                     .any(|l| l.lease_id == origin["lease_id"].as_str().unwrap()
-                        && l.status == oasis7::runtime::CognitionLeaseStatusV1::Settled)
+                        && l.status == oasis7_runtime::CognitionLeaseStatusV1::Settled)
             );
             let height = guard.state.last_applied_committed_height + 1;
             commit_request(&mut guard, height, None);
@@ -355,14 +355,14 @@ pub(super) fn finish(
         .values()
         .any(|lease| {
             lease.lease_id == origin["lease_id"].as_str().unwrap()
-                && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
         });
     let no_successor = active.is_empty();
-    let predecessors: Vec<oasis7::runtime::AgentContinuation> =
+    let predecessors: Vec<oasis7_runtime::AgentContinuation> =
         serde_json::from_value(world.cognition_continuations()).unwrap();
     let predecessor_rejected = predecessors.iter().any(|entry| {
         entry.continuation_id == selected["continuation_id"].as_str().unwrap()
-            && entry.status == oasis7::runtime::ContinuationStatusV1::Rejected
+            && entry.status == oasis7_runtime::ContinuationStatusV1::Rejected
     });
     let reserve_count = results.iter().filter(|result| matches!(&result.request.signed_payload, WorldServicePayloadV1::Scheduler(signed) if matches!(signed.request.operation, SchedulerOperationV1::ReserveLease(_)))).count();
     let prefix_count = results.iter().filter(|result| matches!(&result.request.signed_payload, WorldServicePayloadV1::Scheduler(signed) if matches!(signed.request.operation, SchedulerOperationV1::ProviderPrefix { .. }))).count();

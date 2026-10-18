@@ -11,6 +11,7 @@ pub mod github;
 mod index;
 pub mod process;
 pub mod tools;
+pub mod work_projection;
 use domain::*;
 use rusqlite::{Connection, params};
 use std::path::Path;

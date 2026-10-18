@@ -6,7 +6,7 @@
 //! operator-supplied compatibility claim.
 
 use super::{local_io as io, model::NodeConfig};
-use oasis7::runtime::World;
+use oasis7_runtime::World;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -357,7 +357,7 @@ fn probe_compatibility_state(config: &NodeConfig) -> Result<Value, String> {
 fn decoded_world_snapshot_root(world: &World) -> Result<String, String> {
     let snapshot = serde_cbor::to_vec(&world.snapshot())
         .map_err(|error| format!("serialize decoded World snapshot: {error}"))?;
-    Ok(oasis7::runtime::blake3_hex(&snapshot))
+    Ok(oasis7_runtime::blake3_hex(&snapshot))
 }
 
 /// Return the maximum height declared by a numbered execution-record file.

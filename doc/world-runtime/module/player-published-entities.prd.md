@@ -115,7 +115,7 @@
 | --- | --- | --- | --- | --- |
 | PRD-WORLD_RUNTIME-010 | TASK-WORLD_RUNTIME-010/011 | `test_tier_required` | 新增发布单 + profile 变更单测、`runtime::tests::module_action_loop` 回归 | 模块发布、profile 落账 |
 | PRD-WORLD_RUNTIME-011 | TASK-WORLD_RUNTIME-012 | `test_tier_full` | 三节点发布 SLA 测试：`crates/oasis7/tests/module_release_sla_triad.rs` 输出 `output/world-runtime/module_release_sla_triad.json` | 发布链路时延 |
-| PRD-WORLD_RUNTIME-012 | TASK-WORLD_RUNTIME-010/011/013/014/015 | `test_tier_required` | 角色审批、签名校验、冲突拒绝路径测试（`crates/oasis7/src/runtime/tests/module_action_loop_regressions.rs` + `crates/oasis7/src/runtime/world/module_release_publication_transaction_regressions.rs` 覆盖 release shadow/approve/apply 场景） | 安全与治理门禁 |
+| PRD-WORLD_RUNTIME-012 | TASK-WORLD_RUNTIME-010/011/013/014/015 | `test_tier_required` | 角色审批、签名校验、冲突拒绝路径测试（`crates/oasis7_runtime/src/tests/module_action_loop_regressions.rs` + `crates/oasis7_runtime/src/world/module_release_publication_transaction_regressions.rs` 覆盖 release shadow/approve/apply 场景） | 安全与治理门禁 |
 - Decision Log:
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
 | --- | --- | --- | --- |

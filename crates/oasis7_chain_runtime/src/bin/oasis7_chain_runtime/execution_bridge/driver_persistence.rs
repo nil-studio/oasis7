@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use oasis7::runtime::{
+use oasis7_runtime::{
     ChainResourceDerivationContext, MainTokenConfig, MainTokenSupplyState, ReleaseSecurityPolicy,
     World as RuntimeWorld, production_hardened_main_token_config,
 };
@@ -115,12 +115,12 @@ pub(crate) fn load_execution_world_with_policy(
     let snapshot_path = world_dir.join("snapshot.json");
     let journal_path = world_dir.join("journal.json");
     if !snapshot_path.exists() || !journal_path.exists() {
-        let mut world = RuntimeWorld::new_production_hardened()
+        let mut world = oasis7::runtime_host::world::new_production_hardened()
             .with_release_security_policy(release_security_policy.clone());
         normalize_execution_world_main_token_config_for_policy(&mut world, release_security_policy);
         return Ok(world);
     }
-    RuntimeWorld::load_from_dir(world_dir)
+    oasis7::runtime_host::world::load_from_dir(world_dir)
         .map_err(|err| {
             format!(
                 "load execution world from {} failed: {:?}",

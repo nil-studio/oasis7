@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use oasis7::runtime::World as RuntimeWorld;
+use oasis7_runtime::World as RuntimeWorld;
 
 use super::write_bytes_atomic;
 use super::{

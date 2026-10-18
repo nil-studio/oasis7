@@ -5,7 +5,7 @@ use super::*;
 pub(super) fn setup_wake_handoff_recovery_fixture(
     lineage_path: &std::path::Path,
 ) -> Box<ViewerRuntimeLiveServer> {
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("world", "recovery-wake-branch", 0, None, "pending", 0)
         .expect("Runtime cognition binding");

@@ -3,8 +3,8 @@ use ed25519_dalek::SigningKey;
 use oasis7::consensus_action_payload::{
     sign_main_token_runtime_action_auth, sign_threshold_main_token_runtime_action_auth,
 };
-use oasis7::runtime::{Action, main_token_account_id_from_node_public_key};
 use oasis7_node::{NodeConfig, NodeRole, NodeRuntime};
+use oasis7_runtime::{Action, main_token_account_id_from_node_public_key};
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -131,7 +131,7 @@ fn initialize_main_token_genesis_submit_handler_accepts_threshold_request() {
         .expect("controller binding"),
     )));
     let action = Action::InitializeMainTokenGenesis {
-        allocations: vec![oasis7::runtime::MainTokenGenesisAllocationPlan {
+        allocations: vec![oasis7_runtime::MainTokenGenesisAllocationPlan {
             bucket_id: "public_testnet_faucet_genesis".to_string(),
             ratio_bps: 10_000,
             recipient: faucet_account.clone(),

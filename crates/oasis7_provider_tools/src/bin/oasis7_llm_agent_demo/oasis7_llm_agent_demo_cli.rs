@@ -6,10 +6,13 @@ use std::process;
 use std::time::Instant;
 
 use oasis7::simulator::{
-    initialize_kernel, Action as SimulatorAction, ActionCatalogEntry, ActionResult, AgentBehavior,
-    AgentDecision, AgentDecisionTrace, AgentRunner, LlmAgentBehavior, OpenAiChatCompletionClient,
-    ProviderBackedAgentBehavior, ProviderExecutionMode, ProviderLoopbackAdapter, RejectReason,
-    RuntimePerfSnapshot, WorldConfig, WorldEvent, WorldInitConfig, WorldScenario,
+    ActionCatalogEntry, ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace,
+    AgentRunner, LlmAgentBehavior, OpenAiChatCompletionClient, ProviderBackedAgentBehavior,
+    ProviderExecutionMode, ProviderLoopbackAdapter, RuntimePerfSnapshot, WorldEvent,
+    initialize_kernel,
+};
+use oasis7_simulator::{
+    Action as SimulatorAction, RejectReason, WorldConfig, WorldInitConfig, WorldScenario,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,9 +25,9 @@ use llm_io::print_llm_io_trace;
 #[cfg(test)]
 use llm_io::truncate_for_llm_io_log;
 use runtime_bridge::{
+    RuntimeGameplayBridge, RuntimeGameplayPreset, RuntimeGameplayPresetHandles,
     advance_kernel_time_with_noop_move, execute_action_in_kernel, execute_system_action_in_kernel,
-    is_bridgeable_action, RuntimeGameplayBridge, RuntimeGameplayPreset,
-    RuntimeGameplayPresetHandles,
+    is_bridgeable_action,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,7 +213,10 @@ impl DemoAgentBehavior {
                 let current = behavior.prompt_overrides();
                 behavior.apply_prompt_overrides(
                     switch.llm_system_prompt.clone().or(current.system_prompt),
-                    switch.llm_short_term_goal.clone().or(current.short_term_goal),
+                    switch
+                        .llm_short_term_goal
+                        .clone()
+                        .or(current.short_term_goal),
                     switch.llm_long_term_goal.clone().or(current.long_term_goal),
                 );
             }
@@ -233,7 +239,7 @@ impl AgentBehavior for DemoAgentBehavior {
         }
     }
 
-    fn decide(&mut self, observation: &oasis7::simulator::Observation) -> AgentDecision {
+    fn decide(&mut self, observation: &oasis7_simulator::Observation) -> AgentDecision {
         match self {
             Self::Llm(behavior) => behavior.decide(observation),
             Self::ProviderBacked { behavior, .. } => behavior.decide(observation),
@@ -630,8 +636,8 @@ fn execute_required_kernel_bootstrap_action(
 
 fn grant_agent_resource_for_bootstrap(
     kernel: &mut oasis7::simulator::WorldKernel,
-    owner: &oasis7::simulator::ResourceOwner,
-    kind: oasis7::simulator::ResourceKind,
+    owner: &oasis7_simulator::ResourceOwner,
+    kind: oasis7_agent_api::world_action::ResourceKind,
     amount: i64,
     label: &str,
 ) -> Result<(), String> {
@@ -671,21 +677,21 @@ fn run_industrial_coverage_bootstrap(
                 actor_agent_id
             )
         })?;
-    let owner = oasis7::simulator::ResourceOwner::Agent {
+    let owner = oasis7_simulator::ResourceOwner::Agent {
         agent_id: actor_agent_id.clone(),
     };
 
     grant_agent_resource_for_bootstrap(
         kernel,
         &owner,
-        oasis7::simulator::ResourceKind::Electricity,
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
         200_000,
         "industrial coverage bootstrap grant electricity pre-harvest",
     )?;
     grant_agent_resource_for_bootstrap(
         kernel,
         &owner,
-        oasis7::simulator::ResourceKind::Data,
+        oasis7_agent_api::world_action::ResourceKind::Data,
         200_000,
         "industrial coverage bootstrap grant data pre-harvest",
     )?;
@@ -726,14 +732,14 @@ fn run_industrial_coverage_bootstrap(
     grant_agent_resource_for_bootstrap(
         kernel,
         &owner,
-        oasis7::simulator::ResourceKind::Electricity,
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
         200_000,
         "industrial coverage bootstrap grant electricity pre-factory",
     )?;
     grant_agent_resource_for_bootstrap(
         kernel,
         &owner,
-        oasis7::simulator::ResourceKind::Data,
+        oasis7_agent_api::world_action::ResourceKind::Data,
         200_000,
         "industrial coverage bootstrap grant data pre-factory",
     )?;
@@ -759,14 +765,14 @@ fn run_industrial_coverage_bootstrap(
     grant_agent_resource_for_bootstrap(
         kernel,
         &owner,
-        oasis7::simulator::ResourceKind::Electricity,
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
         200_000,
         "industrial coverage bootstrap grant electricity pre-recipe",
     )?;
     grant_agent_resource_for_bootstrap(
         kernel,
         &owner,
-        oasis7::simulator::ResourceKind::Data,
+        oasis7_agent_api::world_action::ResourceKind::Data,
         200_000,
         "industrial coverage bootstrap grant data pre-recipe",
     )?;

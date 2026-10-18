@@ -1,8 +1,6 @@
-use super::super::super::social::{SocialAdjudicationDecision, SocialStake};
-use super::super::super::types::{
-    Action, ModuleInstallTarget, PowerOrderSide, ResourceOwner, PPM_BASE,
-};
-use super::{parse_owner_spec, parse_resource_kind, LlmDecisionPayload, LlmSocialStakePayload};
+use super::{LlmDecisionPayload, LlmSocialStakePayload, parse_owner_spec, parse_resource_kind};
+use oasis7_simulator::{Action, ModuleInstallTarget, PPM_BASE, PowerOrderSide, ResourceOwner};
+use oasis7_simulator::{SocialAdjudicationDecision, SocialStake};
 use std::collections::{BTreeMap, BTreeSet};
 
 const GOVERNANCE_MIN_VOTING_WINDOW_TICKS: u64 = 1;

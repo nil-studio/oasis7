@@ -14,6 +14,7 @@ pub enum ArtifactRole {
     ExecutionManifest,
     Wasm,
     Rules,
+    NativeExecutionEnvironment,
 }
 const ROLES: [ArtifactRole; 9] = [
     ArtifactRole::Input,
@@ -85,6 +86,63 @@ fn decode_objects<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Artifact
     bounded_vec::<D, ArtifactObject, MAX_OBJECTS>(d)
 }
 impl ClosedRecord {
+    /// Resolve an explicitly versioned Snapshot delta closure to its original
+    /// canonical bytes. Legacy raw artifacts retain their exact representation.
+    pub fn snapshot_bytes(&self) -> Result<Vec<u8>, ProtocolError> {
+        let root = self
+            .roots
+            .get(&ArtifactRole::Snapshot)
+            .ok_or_else(|| invalid("Snapshot role missing"))?;
+        let read = |hash: &str| -> Result<Vec<u8>, String> {
+            let object = self
+                .objects
+                .iter()
+                .find(|object| object.content_hash == hash)
+                .ok_or("Snapshot dependency unavailable")?;
+            if blake3::hash(&object.bytes).to_hex().as_str() != hash {
+                return Err("Snapshot dependency hash mismatch".into());
+            }
+            if let Some(artifact) =
+                crate::snapshot_delta::SnapshotArtifactV1::decode(&object.bytes)?
+                && object.references != [artifact.base_ref]
+            {
+                return Err("Snapshot artifact declared base reference mismatch".into());
+            }
+            Ok(object.bytes.clone())
+        };
+        let bytes = read(root).map_err(invalid)?;
+        if crate::snapshot_delta::SnapshotArtifactV1::decode(&bytes)
+            .map_err(invalid)?
+            .is_none()
+        {
+            return Ok(bytes);
+        }
+        crate::snapshot_delta::resolve_snapshot_artifact_bytes(root, &read).map_err(invalid)
+    }
+
+    /// The descriptor is signed material; its chunks remain explicit external dependencies.
+    pub fn native_environment(
+        &self,
+    ) -> Result<Option<crate::native_environment::NativeExecutionEnvironmentV1>, ProtocolError>
+    {
+        let Some(id) = self.roots.get(&ArtifactRole::NativeExecutionEnvironment) else {
+            return Ok(None);
+        };
+        let object = self
+            .objects
+            .iter()
+            .find(|object| &object.content_hash == id)
+            .ok_or_else(|| invalid("native descriptor object missing"))?;
+        if !object.references.is_empty() {
+            return Err(invalid(
+                "native external chunks are not embedded references",
+            ));
+        }
+        crate::native_environment::NativeExecutionEnvironmentV1::decode(&object.bytes)
+            .map(Some)
+            .map_err(invalid)
+    }
+
     /// Caller must supply an authorized, correctly executed record and declare
     /// every recovery dependency. This validates typed declared closure only,
     /// not player authorization, WASM behavior, result correctness or real fsync.
@@ -92,7 +150,7 @@ impl ClosedRecord {
         crypto::hash_hex(&self.payload_digest)?;
         crypto::hash_hex(&self.before_state_root)?;
         crypto::hash_hex(&self.after_state_root)?;
-        if self.roots.len() != ROLES.len()
+        if !(ROLES.len()..=ROLES.len() + 1).contains(&self.roots.len())
             || ROLES.iter().any(|r| !self.roots.contains_key(r))
             || self.objects.is_empty()
             || self.objects.len() > MAX_OBJECTS
@@ -101,6 +159,7 @@ impl ClosedRecord {
                 "record requires all nine roles and bounded objects",
             ));
         }
+        self.native_environment()?;
         let mut total = 0usize;
         let mut objects = BTreeMap::new();
         let mut previous: Option<&str> = None;

@@ -1,4 +1,4 @@
-use crate::simulator::{
+use oasis7_simulator::{
     MicroDepotActionKind, MicroDepotDecision, MicroDepotDeltaClass, MicroDepotEffectPreview,
     MicroDepotPressureClass, MicroDepotProposal, MicroDepotProposalResourceDebit,
     MicroDepotQuotePreview, MicroDepotQuoteRequest,

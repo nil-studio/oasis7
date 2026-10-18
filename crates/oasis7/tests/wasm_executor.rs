@@ -97,7 +97,7 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
 
 #[test]
 fn wasm_executor_runs_module_and_emits_event() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_hash = sha256_hex(WASM_EXECUTOR_TEST_MODULE);
@@ -126,7 +126,7 @@ fn wasm_executor_runs_module_and_emits_event() {
 
 #[test]
 fn wasm_executor_replay_preserves_module_emits() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_hash = sha256_hex(WASM_EXECUTOR_TEST_MODULE);
@@ -147,7 +147,7 @@ fn wasm_executor_replay_preserves_module_emits() {
 
     let snapshot = world.snapshot();
     let journal = world.journal().clone();
-    let restored = World::from_snapshot(snapshot, journal).unwrap();
+    let restored = oasis7::runtime_host::world::from_snapshot(snapshot, journal).unwrap();
 
     let original_emit = world
         .journal()

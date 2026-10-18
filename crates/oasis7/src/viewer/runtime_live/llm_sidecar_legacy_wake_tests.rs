@@ -30,7 +30,8 @@ fn legacy_sidecar_wake_fixture() -> (
     let session_id = "session-test";
     let turn_id = "turn-legacy-sidecar-wake";
     let request_id = "request-legacy-sidecar-wake";
-    let mut world = RuntimeWorld::new().with_cognition_scheduler(legacy_sidecar_wake_policy(), 1);
+    let mut world =
+        crate::runtime_host::world::new().with_cognition_scheduler(legacy_sidecar_wake_policy(), 1);
     world
         .bind_cognition_runtime(world_id, branch_id, 0, None, "pending", 0)
         .expect("Runtime cognition binding");

@@ -6,8 +6,8 @@ OUT_DIR="$ROOT_DIR/.tmp/builtin-wasm"
 PROFILE="release"
 DRY_RUN=0
 LIST_ONLY=0
-MODULE_IDS_PATH="$ROOT_DIR/crates/oasis7/src/runtime/world/artifacts/m1_builtin_module_ids.txt"
-MODULE_MANIFEST_MAP_PATH="$ROOT_DIR/crates/oasis7/src/runtime/world/artifacts/builtin_module_manifest_map.txt"
+MODULE_IDS_PATH="$ROOT_DIR/crates/oasis7_runtime/src/world/artifacts/m1_builtin_module_ids.txt"
+MODULE_MANIFEST_MAP_PATH="$ROOT_DIR/crates/oasis7_runtime/src/world/artifacts/builtin_module_manifest_map.txt"
 
 declare -a REQUESTED_MODULE_IDS=()
 

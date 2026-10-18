@@ -1,0 +1,20 @@
+[package]
+name = "oasis7_simulator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_cbor = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+blake3 = "1"
+
+[features]
+default = []
+test_tier_required = []
+test_tier_full = ["test_tier_required"]

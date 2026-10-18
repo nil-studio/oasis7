@@ -3,12 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use oasis7::runtime::{
-    BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,
-    Snapshot as RuntimeSnapshot, World as RuntimeWorld, blake3_hex,
-};
 use oasis7_node::{
     NodeExecutionCheckpointBundle, NodeExecutionCheckpointInstallContext, NodeExecutionCommitResult,
+};
+use oasis7_runtime::{
+    BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,
+    Snapshot as RuntimeSnapshot, World as RuntimeWorld, blake3_hex,
 };
 use serde::{Deserialize, Serialize};
 
@@ -683,8 +683,8 @@ pub(super) fn install_checkpoint_bundle(
     let restored_resource_manifest = snapshot.chain_resource_manifest.clone();
     let restored_resource_delta = snapshot.latest_chain_resource_delta.clone();
     let rebuild_started_at = Instant::now();
-    let mut restored_world =
-        RuntimeWorld::from_snapshot(snapshot.clone(), journal).map_err(|err| {
+    let mut restored_world = oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal)
+        .map_err(|err| {
             format!(
                 "rebuild execution checkpoint world failed at height {}: {err:?}",
                 context.height

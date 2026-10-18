@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
 
 use super::agent::AgentDecision;
-use super::types::{Action, WorldTime};
+use oasis7_simulator::{Action, WorldTime};
 
 const MAX_BOUNDED_TOP_N_LIMIT: usize = 1024;
 
@@ -232,57 +232,7 @@ impl ShortTermMemory {
 // Long-Term Memory
 // ============================================================================
 
-/// Long-term memory entry: a summarized or indexed piece of knowledge.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LongTermMemoryEntry {
-    /// Unique identifier for this entry.
-    pub id: String,
-    /// The world time when this was stored.
-    pub created_at: WorldTime,
-    /// Last accessed time.
-    pub last_accessed: WorldTime,
-    /// Access count (for LRU-like eviction).
-    pub access_count: u64,
-    /// The content of the memory.
-    pub content: String,
-    /// Tags for categorization and retrieval.
-    pub tags: Vec<String>,
-    /// Importance score.
-    pub importance: f64,
-}
-
-impl LongTermMemoryEntry {
-    /// Create a new long-term memory entry.
-    pub fn new(id: impl Into<String>, created_at: WorldTime, content: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            created_at,
-            last_accessed: created_at,
-            access_count: 0,
-            content: content.into(),
-            tags: Vec::new(),
-            importance: 0.5,
-        }
-    }
-
-    /// Add a tag to this entry.
-    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
-        self.tags.push(tag.into());
-        self
-    }
-
-    /// Set the importance score.
-    pub fn with_importance(mut self, importance: f64) -> Self {
-        self.importance = importance.clamp(0.0, 1.0);
-        self
-    }
-
-    /// Mark this entry as accessed.
-    pub fn mark_accessed(&mut self, time: WorldTime) {
-        self.last_accessed = time;
-        self.access_count += 1;
-    }
-}
+pub use oasis7_simulator::LongTermMemoryEntry;
 
 /// Long-term memory store with basic retrieval.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

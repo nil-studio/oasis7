@@ -1,6 +1,6 @@
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
-use oasis7::runtime::{GovernanceFinalitySignerRegistry, World as RuntimeWorld};
 use oasis7_node::NodeRole;
+use oasis7_runtime::{GovernanceFinalitySignerRegistry, World as RuntimeWorld};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -364,7 +364,7 @@ fn load_world_from_isolated_copy(
     let load_result = copy_authority_world_tree(execution_world_dir, isolated_dir.as_path())
         .and_then(|()| {
             if exact {
-                RuntimeWorld::load_from_dir(isolated_dir.as_path())
+                oasis7::runtime_host::world::load_from_dir(isolated_dir.as_path())
                     .map_err(|error| format!("load original persisted world: {error:?}"))
             } else {
                 super::execution_bridge::load_execution_world(isolated_dir.as_path())

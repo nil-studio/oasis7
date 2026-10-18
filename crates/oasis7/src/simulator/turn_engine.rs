@@ -24,8 +24,8 @@ use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, FeedbackEnvelopeV1,
     ResponseArtifactIdentityV1,
 };
-use super::kernel::Observation;
 use crate::runtime::{CognitionLeaseV1, RuntimeReceiptLineageV1};
+use oasis7_simulator::Observation;
 
 #[derive(Debug, Clone)]
 pub struct TurnRequest {

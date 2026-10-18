@@ -58,7 +58,7 @@ All implemented fields are included in `TransferMainToken` signing payload and i
 
 ### Integration and verification
 
-Primary implementation surfaces are `crates/oasis7/src/runtime/events.rs`, `crates/oasis7/src/consensus_action_payload.rs`, `crates/oasis7_node/src/node_runtime_core.rs`, chain-runtime transfer/explorer APIs, `oasis7_web_launcher`, and client-launcher `transfer_auth` / explorer support.
+Primary implementation surfaces are `crates/oasis7_runtime/src/events.rs`, `crates/oasis7/src/consensus_action_payload.rs`, `crates/oasis7_node/src/node_runtime_core.rs`, chain-runtime transfer/explorer APIs, `oasis7_web_launcher`, and client-launcher `transfer_auth` / explorer support.
 
 Required targeted evidence:
 

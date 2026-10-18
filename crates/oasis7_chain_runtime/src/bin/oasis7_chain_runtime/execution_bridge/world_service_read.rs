@@ -1,8 +1,8 @@
 //! One immutable record pins snapshot, journal and proof. Mutable cache paths
 //! are never a read authority for WorldService.
 use super::{ExecutionBridgeRecord, WorldHeadProofV1, checkpoint};
-use oasis7::runtime::{Journal, LocalCasStore, Snapshot, World, blake3_hex};
 use oasis7::world_service::*;
+use oasis7_runtime::{Journal, LocalCasStore, Snapshot, World, blake3_hex};
 use std::path::Path;
 
 #[path = "world_service_restore_cache.rs"]
@@ -105,7 +105,7 @@ pub(crate) fn verify_archived_initial_publication(
     {
         return Err("pinned proof does not bind execution record and CAS refs".into());
     }
-    let world = World::from_snapshot(snapshot, journal)
+    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|_| "pinned world snapshot could not be restored")?;
     let binding = world
         .current_cognition_runtime_binding()

@@ -290,8 +290,8 @@ impl NativeHistoryResolver {
         let world = if snapshot.state.retained_history_root.is_some() {
             let bytes = serde_cbor::to_vec(&snapshot).map_err(|e| e.to_string())?;
             let parent =
-                oasis7::runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
-            World::from_verified_formal_snapshot(
+                oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
+            oasis7::runtime_host::world::from_verified_formal_snapshot(
                 snapshot,
                 journal,
                 parent,
@@ -303,7 +303,7 @@ impl NativeHistoryResolver {
                     "profile2 historical restore requires retained-history descriptor".into(),
                 );
             }
-            World::from_snapshot(snapshot, journal)
+            oasis7::runtime_host::world::from_snapshot(snapshot, journal)
         }
         .map_err(|e| format!("{e:?}"))?
         .with_release_security_policy(self.release.clone());

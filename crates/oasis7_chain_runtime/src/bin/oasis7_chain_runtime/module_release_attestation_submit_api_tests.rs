@@ -7,11 +7,11 @@ use super::{
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadBody, decode_consensus_action_payload,
 };
-use oasis7::runtime::Action;
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,
 };
+use oasis7_runtime::Action;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::Ordering;

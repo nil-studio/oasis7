@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
-use oasis7::runtime::Action;
 use oasis7_node::NodeRuntime;
+use oasis7_runtime::Action;
 use serde::{Deserialize, Serialize};
 
 const MODULE_RELEASE_ATTESTATION_SUBMIT_PATH: &str = "/v1/chain/module-release/attestation/submit";

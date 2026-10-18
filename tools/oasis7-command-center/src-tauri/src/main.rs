@@ -120,6 +120,8 @@ fn main() {
             runtime_commands::start_private_runtime_turn,
             commands::open_project,
             commands::query_view,
+            commands::query_work_projection,
+            commands::refresh_work_checks,
             commands::search_rules,
             commands::query_document_inventory,
             commands::query_document_directory,

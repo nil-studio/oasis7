@@ -3,9 +3,9 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use oasis7::runtime::{
+use oasis7_runtime::{
     MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL, MAIN_TOKEN_TREASURY_BUCKET_SECURITY_RESERVE,
-    MAIN_TOKEN_TREASURY_BUCKET_STAKING_REWARD, World,
+    MAIN_TOKEN_TREASURY_BUCKET_STAKING_REWARD,
 };
 use serde::Deserialize;
 
@@ -98,7 +98,7 @@ fn main() {
 }
 
 fn build_audit_report(options: &CliOptions) -> Result<GovernanceRegistryAuditReport, String> {
-    let world = World::load_from_dir(options.world_dir.as_path())
+    let world = oasis7::runtime_host::world::load_from_dir(options.world_dir.as_path())
         .map_err(|err| format!("load world {} failed: {err:?}", options.world_dir.display()))?;
     let audited_manifest_digest = audited_manifest_digest(options.public_manifest.as_deref())?;
     let manifest_slots = if let Some(path) = options.public_manifest.as_ref() {
@@ -176,12 +176,12 @@ fn build_audit_report(options: &CliOptions) -> Result<GovernanceRegistryAuditRep
         (
             ROLLBACK_ON_CALL_SLOT_ID,
             "on_call",
-            oasis7::runtime::RollbackAuthorityRole::OnCall,
+            oasis7_runtime::RollbackAuthorityRole::OnCall,
         ),
         (
             ROLLBACK_GOVERNANCE_SLOT_ID,
             "governance",
-            oasis7::runtime::RollbackAuthorityRole::Governance,
+            oasis7_runtime::RollbackAuthorityRole::Governance,
         ),
     ]
     .into_iter()
@@ -259,11 +259,11 @@ fn build_audit_report(options: &CliOptions) -> Result<GovernanceRegistryAuditRep
             [
                 (
                     ROLLBACK_ON_CALL_SLOT_ID,
-                    oasis7::runtime::RollbackAuthorityRole::OnCall,
+                    oasis7_runtime::RollbackAuthorityRole::OnCall,
                 ),
                 (
                     ROLLBACK_GOVERNANCE_SLOT_ID,
-                    oasis7::runtime::RollbackAuthorityRole::Governance,
+                    oasis7_runtime::RollbackAuthorityRole::Governance,
                 ),
             ]
             .into_iter()
@@ -496,10 +496,10 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{CliOptions, build_audit_report, parse_options, validate_audit_report};
-    use oasis7::runtime::{
+    use oasis7_runtime::{
         Action, GovernanceExecutionPolicy, GovernanceFinalitySignerRegistry,
         GovernanceMainTokenControllerRegistry, GovernanceThresholdSignerPolicy,
-        RollbackAuthorityRecord, RollbackAuthorityRegistry, RollbackAuthorityRole, World,
+        RollbackAuthorityRecord, RollbackAuthorityRegistry, RollbackAuthorityRole,
     };
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
@@ -534,7 +534,8 @@ mod tests {
     fn provision_rollback_fixture(world_dir: &std::path::Path, manifest_path: &std::path::Path) {
         const ON_CALL: &str = "1111111111111111111111111111111111111111111111111111111111111111";
         const GOVERNANCE: &str = "2222222222222222222222222222222222222222222222222222222222222222";
-        let mut world = World::load_from_dir(world_dir).expect("load fixture world");
+        let mut world =
+            oasis7::runtime_host::world::load_from_dir(world_dir).expect("load fixture world");
         let _ = std::fs::remove_dir_all(world_dir.join(".distfs-state"));
         world
             .set_rollback_authority_registry(rollback_registry(ON_CALL, GOVERNANCE))
@@ -571,7 +572,7 @@ mod tests {
         let world_dir = root.join("world");
         let manifest_path = root.join("public_manifest.json");
         std::fs::create_dir_all(&world_dir).expect("create world dir");
-        let mut world = World::new();
+        let mut world = oasis7::runtime_host::world::new();
         world
             .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
                 slot_id: "governance.finality.v1".to_string(),
@@ -764,7 +765,7 @@ mod tests {
         let world_dir = root.join("world");
         let manifest_path = root.join("public_manifest.json");
         std::fs::create_dir_all(&world_dir).expect("create world dir");
-        let mut world = World::new();
+        let mut world = oasis7::runtime_host::world::new();
         world
             .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
                 slot_id: "governance.finality.v1".to_string(),
@@ -936,7 +937,7 @@ mod tests {
         let world_dir = root.join("world");
         let manifest_path = root.join("public_manifest.json");
         std::fs::create_dir_all(&world_dir).expect("create world dir");
-        let mut world = World::new();
+        let mut world = oasis7::runtime_host::world::new();
         world
             .set_governance_execution_policy(GovernanceExecutionPolicy {
                 epoch_length_ticks: 10,
@@ -1054,7 +1055,8 @@ mod tests {
         const DRIFTED_GOVERNANCE: &str =
             "3333333333333333333333333333333333333333333333333333333333333333";
         let (world_dir, manifest_path) = write_world_and_manifest();
-        let mut world = World::load_from_dir(world_dir.as_path()).expect("load fixture world");
+        let mut world = oasis7::runtime_host::world::load_from_dir(world_dir.as_path())
+            .expect("load fixture world");
         world
             .set_rollback_authority_registry(rollback_registry(ON_CALL, GOVERNANCE))
             .expect("set governed rollback registry");

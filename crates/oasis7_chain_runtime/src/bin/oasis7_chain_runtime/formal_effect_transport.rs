@@ -631,7 +631,7 @@ struct EffectRequestBodyV1 {
     payload_digest: String,
     effect_request_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    intent: Option<oasis7::runtime::EffectIntent>,
+    intent: Option<oasis7_runtime::EffectIntent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     committed_at: Option<super::formal_effect_outbox::QualifiedEffectCommitRefV1>,
 }
@@ -715,7 +715,7 @@ fn stable_effect_request_digest(
 
 fn stable_effect_request_digest_fields(
     identity: &ExternalEffectIdentityV1,
-    intent: &oasis7::runtime::EffectIntent,
+    intent: &oasis7_runtime::EffectIntent,
     payload_digest: &str,
     target_id: &str,
     contract_digest: &str,

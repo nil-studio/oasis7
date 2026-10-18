@@ -4,9 +4,10 @@ use oasis7::simulator::{
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR,
     CONTINUOUS_AGENT_CONTEXT_VERSION, ContinuationBudgetV1, ContinuationProposalV1,
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, DecisionRequest, Digest32,
-    GoalSnapshotInputV1, GoalSnapshotProjector, MemoryContextSnapshotV1, Observation,
-    RuntimeBindingV1, WakeConditionV1, h_v1,
+    GoalSnapshotInputV1, GoalSnapshotProjector, MemoryContextSnapshotV1, RuntimeBindingV1,
+    WakeConditionV1, h_v1,
 };
+use oasis7_simulator::Observation;
 use oasis7_wasm_abi::CapabilityCatalogSnapshot;
 use serde_json::json;
 

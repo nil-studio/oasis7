@@ -1,10 +1,12 @@
 use super::super::execution_bridge;
-use super::{World, build_minimal_status_payload_with_world_dir, fs, temp_dir};
+use super::{build_minimal_status_payload_with_world_dir, fs, temp_dir};
 
 #[test]
 fn persisted_module_tick_status_is_isolated_from_parallel_test_live_metrics() {
     let dir = temp_dir("module-routing-parallel-test-isolation");
-    World::new().save_to_dir(&dir).expect("save healthy world");
+    oasis7::runtime_host::world::new()
+        .save_to_dir(&dir)
+        .expect("save healthy world");
     let published = std::sync::Barrier::new(2);
     let reader_finished = std::sync::Barrier::new(2);
 
@@ -12,7 +14,7 @@ fn persisted_module_tick_status_is_isolated_from_parallel_test_live_metrics() {
     // live publication must remain visible to its owning test but not its peers.
     let (persisted_payload, live_payload) = std::thread::scope(|scope| {
         let publisher = scope.spawn(|| {
-            let mut metrics = oasis7::runtime::ModuleTickRoutingMetricsSnapshot {
+            let mut metrics = oasis7_runtime::ModuleTickRoutingMetricsSnapshot {
                 routing_count: 4,
                 ..Default::default()
             };

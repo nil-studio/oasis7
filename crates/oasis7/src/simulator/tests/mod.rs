@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::geometry::GeoPos;
-use crate::models::DEFAULT_AGENT_HEIGHT_CM;
 use std::fs;
 
 fn restore_runner_feedback_history(
@@ -80,49 +79,22 @@ mod agent_cognition_live_harness;
 mod agent_cognition_live_pilot_parity;
 mod agent_cognition_memory;
 mod agent_feedback_recovery;
-mod asteroid_fragment;
-mod basics;
-mod boundary_extremes;
-mod chunking;
-mod conservation;
-mod consistency;
 mod decision_provider;
 mod fine_grain_persistence;
-mod fragment_physics;
-mod fragment_replenishment_quote;
-mod init;
-mod init_agent_frag_spawn;
-mod init_position_contract;
-mod kernel;
-mod kernel_rule_decisions;
-mod kernel_rule_invariants;
-mod kernel_wasm_rule_bridge;
 mod kernel_wasm_sandbox_bridge;
 mod memory;
-mod micro_depot_install_acceptance;
 mod micro_depot_measured_supply;
-mod micro_depot_schema_compatibility;
 #[cfg(not(target_arch = "wasm32"))]
 mod model_provider;
 mod module_lifecycle;
-mod module_visual;
-mod monotonicity;
-mod native_resolution_contract;
 mod persist;
-mod persist_journal_invariants;
-mod physics_parameters;
-mod player_agent_claim_snapshot;
-mod power;
-mod power_sale_quote;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_http;
 mod runner;
 mod runner_query_trace;
-mod social;
-mod social_persist;
-mod social_revoke_quote;
-mod submitter_access;
 #[cfg(not(target_arch = "wasm32"))]
 mod turn_engine;
+
+mod player_agent_claim_snapshot;

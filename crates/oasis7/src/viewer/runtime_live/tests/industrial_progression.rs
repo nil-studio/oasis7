@@ -4,9 +4,10 @@ use crate::runtime::{
     MaterialLedgerId, MaterialStack, WorldState,
 };
 use crate::simulator::{
-    PlayerGameplayGoalKind, PlayerGameplayRecentFeedback, PlayerGameplayStageStatus, ResourceKind,
+    PlayerGameplayGoalKind, PlayerGameplayRecentFeedback, PlayerGameplayStageStatus,
 };
 use crate::viewer::FACTORY_SMELTER_MK1;
+use oasis7_agent_api::world_action::ResourceKind;
 
 pub(super) fn setup_runtime_industrial_gameplay_session(
     signer_seed: u8,
@@ -95,12 +96,17 @@ pub(super) fn build_first_smelter_via_gameplay_action(
         .world
         .set_material_balance("hardware_part", 200)
         .expect("seed maintenance parts for repeated recipes");
+    server.world.set_resource_balance(
+        oasis7_agent_api::world_action::ResourceKind::Electricity,
+        2_000,
+    );
     server
         .world
-        .set_resource_balance(crate::simulator::ResourceKind::Electricity, 2_000);
-    server
-        .world
-        .set_agent_resource_balance(agent_id, crate::simulator::ResourceKind::Electricity, 2_000)
+        .set_agent_resource_balance(
+            agent_id,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
+            2_000,
+        )
         .expect("seed factory-builder electricity for repeated recipes");
 }
 

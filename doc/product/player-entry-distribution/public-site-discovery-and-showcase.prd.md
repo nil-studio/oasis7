@@ -201,11 +201,14 @@ Trace ID: O7-REQ-a4f7d9b0-6c28-4e15-a90d-3b62c5e87401
 - 系统设计状态：已覆盖
 - 系统设计依据：[沉浸交付](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-immersion)。
 - 产品体验依据：[多屏分镜与动效](public-site-discovery-and-showcase.design.md#cinematic-experience)。
-- 验证计划：[视觉与动效验证](../../site/github-pages/public-site-discovery-and-showcase.design.md#immersion-verification)；尚未执行。
-- 实现状态：未核实
-- 实现与验证依据：当前条款为新增视觉要求，尚无逐项候选实现核对、多屏稿、滚动录像或访客观察；既有素材和页面不能自动认定为不足，也不能代签本要求。
+- 验证计划：[视觉与动效验证](../../site/github-pages/public-site-discovery-and-showcase.design.md#immersion-verification)；PR #4811仅报告静态构图的局部浏览器回归，完整视觉、访客与性能验收未完成。
+- 实现状态：部分实现
+- 实现与验证依据：静态观测站构图已交付：双语Hero/工业近景/四步/结果/预览/小说顺序，概念身份、窄屏主体及减少动效样式存在；当前设计首期无持续动效或视频，因此不将未显示暂停按钮认作缺陷。 [静态与条件增强设计](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/site/github-pages/public-site-discovery-and-showcase.design.md#des-site-immersion)；[中文首页构图、概念图与固定案例来源](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/index.html#L85-L117)；[英文首页对应结构](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/en/index.html#L85-L117)；[观测站局部布局、响应式与减少动效](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/assets/styles.css#L3940-L4085)；[双语五视口回归定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/site-discovery-browser.test.cjs#L17-L60)；[导航滚动/焦点现行实现](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/assets/app.js#L1010-L1034)。[交付PR #4811](https://github.com/nil-studio/oasis7/pull/4811)。PR #4811（head 114ae1ed27b3f7a442aada9732e598004bf0a65f，merge b5476a616dd3d4dbc29f332ee42ed848903c1f60）报告external headed Chrome双语360/390/768/1024/1440及33组回归；本次读取报告与测试定义，未独立重跑或取得全部原始产物，不外推当前main、访客感知、Web Vitals、线上部署。
 - 核对日期与基线：2026-10-16；原文档基线 `62e1314368752726e85a050794c8f9b0dcebe123`；本次为设计条款核对，无页面视觉验收。
-- 剩余范围：多屏视觉设计、原创素材取舍、对应静态/增强实现、真实浏览器与访客验证；排期和候选记录归当前 PR。
+- 剩余范围：系统设计范围与未覆盖边界沿本条原设计依据；实现与验证：逐条视觉结果、真实访客科技感/沉浸感/记忆点及性能证据仍缺；完整导航/恢复体验待核，不能把静态构图交付升级为全部实现或已验证。按条件增强是否适用逐项核对，不强制新增动效/视频。
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
+- 适用边界说明：导航观察SITE-NAV-OBS-01已在现有核验范围：当前hashchange仍调用无条件scrollIntoView，键盘焦点可选择平台按钮。它关联连续探索/不阻塞导航的核对，但原精确导航义务主要由004/006承接；不是本次新建缺陷，不以此推断整条007运行失败。
+
 
 ## 5. 验收与证据
 
@@ -293,4 +296,4 @@ Trace ID: O7-REQ-a4f7d9b0-6c28-4e15-a90d-3b62c5e87401
 | [REQ-SITE-DISCOVERY-004](#req-site-discovery-004) / [AC-SITE-DISCOVERY-004](#ac-site-discovery-004) | `viewer_engineer` / `qa_engineer` | [site authority](../../site/design.md#homepage-layout-authority) | [系统验证计划](../../site/github-pages/public-site-discovery-and-showcase.design.md#verification)，实现后取得同候选结果；本 PR 只验证文档 | `test_tier_required`；页面实现另按 S6 选择真实浏览器范围 |
 | [REQ-SITE-DISCOVERY-005](#req-site-discovery-005) / [AC-SITE-DISCOVERY-005](#ac-site-discovery-005) | `viewer_engineer` / `qa_engineer` | [site authority](../../site/design.md#homepage-layout-authority) | [系统验证计划](../../site/github-pages/public-site-discovery-and-showcase.design.md#verification)，实现后取得同候选结果；本 PR 只验证文档 | `test_tier_required`；页面实现另按 S6 选择真实浏览器范围 |
 | [REQ-SITE-DISCOVERY-006](#req-site-discovery-006) / [AC-SITE-DISCOVERY-006](#ac-site-discovery-006) | `viewer_engineer` / `qa_engineer` | [site authority](../../site/design.md#homepage-layout-authority) | [系统验证计划](../../site/github-pages/public-site-discovery-and-showcase.design.md#verification)，实现后取得同候选结果；本 PR 只验证文档 | `test_tier_required`；页面实现另按 S6 选择真实浏览器范围 |
-| [REQ-SITE-DISCOVERY-007](#req-site-discovery-007) / [AC-SITE-DISCOVERY-007](#ac-site-discovery-007) | `game_visual_interaction_designer` / `viewer_engineer` / `qa_engineer` | [沉浸交付](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-immersion) | [视觉与动效验证](../../site/github-pages/public-site-discovery-and-showcase.design.md#immersion-verification)，同候选多屏、录像、性能与访客记录；均待实施 | `test_tier_required`；页面实现沿现有 S6，不新增工作流 |
+| [REQ-SITE-DISCOVERY-007](#req-site-discovery-007) / [AC-SITE-DISCOVERY-007](#ac-site-discovery-007) | `game_visual_interaction_designer` / `viewer_engineer` / `qa_engineer` | [沉浸交付](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-immersion) | [视觉与动效验证](../../site/github-pages/public-site-discovery-and-showcase.design.md#immersion-verification)，静态构图已交付，PR #4811报告局部浏览器记录；完整同候选多屏、适用录像、性能与访客记录仍待核实 | `test_tier_required`；页面实现沿现有 S6，不新增工作流 |

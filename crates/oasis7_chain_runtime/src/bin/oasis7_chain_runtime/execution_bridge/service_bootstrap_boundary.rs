@@ -3,9 +3,9 @@
 use super::driver::NodeRuntimeExecutionDriver;
 use super::execution_hash::ExecutionHashPayload;
 use super::{ExecutionBridgeRecord, checkpoint, to_cbor, world_service_read, write_bytes_atomic};
-use oasis7::runtime::{BlobStore, Journal, Snapshot, World, blake3_hex};
 use oasis7::world_service::WorldIdentity;
 use oasis7_node::NodeExecutionBootstrap;
+use oasis7_runtime::{BlobStore, Journal, Snapshot, blake3_hex};
 use serde::{Deserialize, Serialize};
 
 const FILE: &str = "local-execution-bootstrap.json";
@@ -60,7 +60,7 @@ fn validate(
         return Err("service setup boundary snapshot/journal mismatch".into());
     }
     let journal_len = journal.len();
-    let world = World::from_snapshot(snapshot, journal)
+    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|error| format!("service setup world: {error:?}"))?;
     if world
         .current_cognition_runtime_binding()

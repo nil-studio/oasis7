@@ -68,9 +68,9 @@ Trace ID: O7-REQ-21f1c7b1-8be0-438e-8f92-d4d1b34be0e6
 - 系统设计状态：部分覆盖
 - 系统设计依据：[声明场景与证据身份](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-scope-evidence)及[受限结论与扩面边界](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-rollout-boundary)承接组合身份、证据不足不扩面和明确下一步。剩余：各入口玩家可读受限/退化呈现及真实组合全范围验证，不能由局部parity设计代签。
 - 实现状态：未核实
-- 实现与验证依据：本轮文档关系核对未核清本条全范围实现与验收；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化。2026-10-15 局部实现核对发现[共享客户端 PR](https://github.com/eng-cc/oasis7/pull/4734)已合入 `25b4d211a612d783172e6266307c71c62b8c00c0`；[工业任务执行器候选](https://github.com/eng-cc/oasis7/tree/50e128cbe369f8f6adca6556ff99784c7f7c93ad)尚未合入，已通过脚本决策驱动的真实 HTTP 建厂、投料、排产及原结果恢复验证。该协议切片不代签真实模型、全部内置能力迁移或本条 provider 全范围一致性；整体验收由 [#4726](https://github.com/eng-cc/oasis7/issues/4726)承接，状态仍为未核实。
-- 核对日期与基线：2026-10-15；需求审读基线 `4e94163a3dff9ba69f6959b406ca3fcedf8aa097`，局部设计关系沿本轮文档核对；实现仅核验上述固定提交/候选，未核验部署环境，未执行本条全范围行为验收。
-- 剩余范围：设计：继续核清各入口玩家可读受限/退化表面的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现与验证依据：[实际bench证据身份](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_provider_tools/src/bin/oasis7_provider_parity_bench.rs#L50-L53)固定simulator_world_kernel/not_certified；[报告输入校验](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/scripts/provider-parity-p0.sh#L269-L288)拒绝smoke冒充认证，[聚合与输出](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/scripts/provider-parity-p0.sh#L884-L978)区分benchmark/parity/release并输出blocked。这是已实现专业报告防过度claim能力，未核到报告成为产品支持声明发布源。[正式模型配置](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/config.rs#L10-L22)明确非public support attestation，[玩家表面](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_viewer/software_safe_src/model_connection_panel.jsx#L146-L180)消费部署preset/技术状态；尚未建立声明provider组合、场景、权限、证据窗口→玩家受限表达的消费者。本轮未运行模型或验收。
+- 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
+- 剩余范围：待定位专业authority当前支持声明的正式发布源/版本，以及Launcher/Viewer/pure API读取声明组合与证据范围的连接；核清超范围/证据不足如何显示limited/degraded/blocked和真实下一步。报告自身blocked与实验模型UI真实存在，但不替代切换连续性的产品承诺边界；不把此报告称为不存在。
 
 - 要求：provider 切换的连续性只能在专业 authority 已声明的 provider 组合、玩家场景、权限和证据范围内作出产品承诺；技术接通、一次成功或历史样本不能扩大当前支持、默认或发布结论。
 - 验收：AC-AGENT-PARITY-001
@@ -92,10 +92,10 @@ Trace ID: O7-REQ-70188c23-ddbf-49ca-8a70-3fa05c152ba5
 - 功能点：[REQ-AGENT-PARITY-002](#req-agent-parity-002)；适用范围沿本条原条件与 [AC-AGENT-PARITY-002](#ac-agent-parity-002)，不扩大入口或阶段。
 - 系统设计状态：部分覆盖
 - 系统设计依据：[专业承接条款](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-003)：原请求身份、持久 handoff、迟到结果隔离与不重放；玩家可读状态与各真实 provider/入口的全范围承接须另行核对。
-- 实现状态：未核实
-- 实现与验证依据：[PSW 验证映射](../../world-simulator/llm/provider-switch-intent-continuity.design.md#111-验证映射表)明确 PSW-01..09 为计划测试、相邻恢复测试不代签 cutover；本轮未重核代码与真实 provider 结果，不把该历史描述提升为当前全范围未实现结论。文档任务见 [#4694](https://github.com/eng-cc/oasis7/issues/4694)。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：玩家可读状态与各真实 provider/入口的全范围承接须另行核对。实现/验证：本条全部适用验收尚未完成同候选证据核对。
+- 实现状态：部分实现
+- 实现与验证依据：[先扫描原操作且pending/unknown阻塞](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task.rs#L231-L277)与[共享SDK恢复#4768](https://github.com/nil-studio/oasis7/pull/4768#issuecomment-6202399190)确认重连/不确定投递原件恢复切片；#4768 reviewed source bb2149f230d2e5a68b61376cc5ac44e708ef1d39、合入2f6ba83a246cf871d8cb06c378d406aaa5291b73的实际handler/Node及CI只沿记录范围。[PSW验证计划](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/world-simulator/llm/provider-switch-intent-continuity.design.md#L171-L196)仍将PSW-01..09区分为计划；原件恢复不代签跨provider cutover、durable pending handoff或真实provider配对。
+- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 剩余范围：已交付重连/不确定投递时原操作身份保持与unknown阻塞的有界native/SDK切片；provider/lane切换绑定、持久pending handoff、迟到结果隔离、玩家状态投影及PSW-01..09真实配对证据仍未核清。
 
 - 要求：provider 切换、重连或体验降级必须保留候选、待决、已结算和已拒绝请求的真实区别，不得自动重放旧请求、伪造取消或产生第二次世界效果。
 - 验收：AC-AGENT-PARITY-002
@@ -147,10 +147,10 @@ Trace ID: O7-REQ-d452396d-291d-41a5-a912-6d615b58c29e
 - 功能点：REQ-AGENT-PARITY-004；仅适用实际声明的执行方/平台/访问组合，不新增默认值或运行位置承诺。
 - 系统设计状态：已覆盖
 - 系统设计依据：[独立控制与世界推进](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-003)、[执行方生命周期和费用隔离](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-005)、[受控迁移](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-006)。
-- 实现状态：未核实
-- 实现与验证依据：已有 launcher/provider 入口不证明新第一方客户端的端到端选择、生命周期和费用表达；[#4726](https://github.com/eng-cc/oasis7/issues/4726)跟踪实现与实际证据，尚无本条同候选组合结果。
-- 核对日期与基线：2026-10-15；源码/原合同 `d6f6ff3d10f0f2990bf17a111d55c7b36ebf0a5d`；仅远程源码和文档审读，未启动模型、节点或 UI。
-- 剩余范围：设计条款已承接；实现/验证需启动交付、真实运行状态、停止/恢复、预算失败与适用玩家 surface 证据。
+- 实现状态：部分实现
+- 实现与验证依据：[可信Launcher执行器选择、预算和状态](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/execution.rs#L48-L126)及[执行位置、计费/预算、停止与效果呈现](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/model_connection_panel.jsx#L147-L180)确认第一方native受限入口；[已合入#4744](https://github.com/nil-studio/oasis7/pull/4744#issuecomment-6209860321)报告对应Launcher/UI、确定性真实节点与预算释放验证，tested source d5c111b560d1a8a11dd6169121ab615c3d229028。组件fixture不证明真实登录/供应商/完整游戏；本轮仅静态重读。
+- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 剩余范围：已交付受限第一方native Launcher选择、实际执行状态、预算/Stop表达；其他声明执行方/平台组合、全部保留能力迁移、真实供应商与完整玩家surface验收仍未核清。关闭页面可能停止续期的明确边界不等于持续托管承诺。
 
 <a id="ac-agent-parity-004"></a>
 ### AC-AGENT-PARITY-004：清楚选择、停止与重新继续

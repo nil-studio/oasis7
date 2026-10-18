@@ -187,10 +187,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：[官网来源标识](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-evidence)承接网站来源子范围；认领经济四层模型见叶子卡。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：其他公开渠道、完整当前事实审核与 README/QA/LiveOps 同窗口闭包未核实。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：README 当前边界与 source/test 链接；首页固定受控案例 → claim gate → Pages build。 当前 README 不再被泛化为旧七月 review；能定位公开限定文案及构建检查，但 gate 针对特定首页 DOM，不审核 README 每条专业事实。 [README.md:8–33](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/README.md#L8-L33)；[scripts/site-homepage-claim-check.sh:392–442](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/site-homepage-claim-check.sh#L392-L442)；[.github/workflows/pages.yml:23–39](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/.github/workflows/pages.yml#L23-L39)
+- 剩余范围：根 README 每项现行 claim 与专业 authority/同窗 QA 的完整对账记录未核清；保留发布/玩法边界，不能以文案诚实或构建检查代签当前验收。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-002"></a>
 #### SC-2：成功标准与状态
@@ -205,10 +207,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：[下载同候选展示](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)与叶子首次注册/返回设计承接相应入口。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：所有公开入口的 primary mode/版本/平台和独立验证路径未全核清，不能以官网一条链代签。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：release API 同快照 → 平台 source map → 版本/说明/checksum/安装要求可见。 真实官网公开发现与下载展示子链已闭合到消费者；快照缺少 primary mode/QA verdict，平台切换不生成独立验证路径。 [site/assets/release-candidate.js:3–26](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/release-candidate.js#L3-L26)；[site/assets/app.js:616–658](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/app.js#L616-L658)；[site/assets/app.js:758–866](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/app.js#L758-L866)；[crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs:966–985](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L966-L985)
+- 剩余范围：所有公开入口的 mode/版本/平台/可重复验证组合仍未核清；本轮定位缺的是页面元数据到实际运行候选的语义连接。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-003"></a>
 #### SC-3：成功标准与状态
@@ -222,11 +226,13 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 引用定位与组合边界：O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1（[REQ-ENTRY-LAUNCH-001](local-launch-session-continuity-and-recovery.prd.md#req-entry-launch-001)）; O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270（[REQ-ENTRY-MODE-002](access-modes-and-release-readiness.prd.md#req-entry-mode-002)）; O7-REQ-d23033f5-0d4d-40b6-8745-1374374af0c3（[REQ-SITE-DISCOVERY-004](public-site-discovery-and-showcase.prd.md#req-site-discovery-004)）。
 - 系统设计状态：部分覆盖
 - 系统设计依据：[Launcher 重新验证](../../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation)与[下载状态](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)已区分本地探测、最后已知候选和真实结果。
-- 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：Web/native 全部模式后端与回退表达未核清；Launcher 配置/凭据及当前尝试诊断实现缺口仍按叶子卡保留。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现状态：部分实现
+- 实现与验证依据：Launcher viewer URL→WebGL2/Wasm loader→host adapter→fatal unavailable→玩家不可用及 Retry Renderer 的生产链已定位。该 Viewer 子范围不会用不可用 bridge 假装 ready。 [生产 URL 固定 render_mode=viewer，独立 ws 与 hosted_access 参数](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L966-L985)；[真实 Wasm bridge 初始化失败返回 unavailable，而非假 ready](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_runtime_loader.js#L108-L149)；[生产 host adapter 消费 runtime loader](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host_adapter.js#L70-L110)；[fatal→卸载/清除 Rust 渲染状态→unavailable 与真实 runtime metadata](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L932-L960)；[玩家图形不可用说明与 Retry Renderer](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1280-L1293)。本轮静态审读；测试定义及历史 PR 结果不替代完整验收。
+- 剩余范围：其他平台发行资产、native/Web 全部后端和内部模式切换/回退表示尚未逐入口核清；该链不证明整体真实发布体验。
+- 核对日期与基线：2026-10-17；需求/源码 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，main `bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5` 仅后继文档调整；未执行本项业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-004"></a>
 #### SC-4：成功标准与状态
@@ -241,10 +247,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：[官网编辑/发布/纠正](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-publishing)明确事实核对、同步与部署分离。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：全渠道专业 PRD-ID、QA verdict、发布授权和 LiveOps 同步的组合技术/操作承接未核实。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：Pages workflow → homepage claim check → upload site。 存在真实构建门禁，固定 case/source/window 和双语 disclosure 校验；解析对象为网站文件，输出为退出码。 [scripts/site-homepage-claim-check.sh:392–442](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/site-homepage-claim-check.sh#L392-L442)；[.github/workflows/pages.yml:23–39](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/.github/workflows/pages.yml#L23-L39)；[README.md:8–33](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/README.md#L8-L33)
+- 剩余范围：这条真实 gate 未承接专业 PRD-ID→QA verdict→LiveOps owner 授权。需外部操作记录核对，不由 upload/build 成功推定已发布授权。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-005"></a>
 #### SC-5：成功标准与状态
@@ -259,10 +267,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：模式与失败恢复已有叶子所列首次绑定/返回子范围；[官网下载](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)只消费模式事实，不定义新模式。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：viewer/pure_api 独立可玩性、parity 与 observer/blocked 分类的完整专业组合未核实；不得互相代签。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：Launcher no-LLM fail-fast → viewer URL；页面唯一 viewer 验证面 → release metadata。 no-LLM guard 的错误清晰且禁止玩法 fallback；render/deployment 与 candidate 的字段边界已识别，仍非 viewer/pure_api 独立 playable/parity 分类。 [crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs:335–344](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L335-L344)；[crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs:966–985](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L966-L985)；[site/assets/release-candidate.js:3–26](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/release-candidate.js#L3-L26)
+- 剩余范围：两 mode 的能力/阶段/证据及 observer/blocked 分类完整事实源与消费者未核清；不因一个 viewer 入口 guard 升根组合状态。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-006"></a>
 #### SC-6：成功标准与状态
@@ -277,10 +287,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：[下载候选](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)、[Launcher 重验](../../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation)及[升级首写](../../site/design.md#manual-upgrade-first-write)分别承接各自阶段。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：端到端跨阶段候选/平台/primary mode 关联及全部受支持入口仍未核实；局部阶段设计不关闭本 SC 的 full 发行链。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：官网发现/平台下载 → Windows bundle 安装 → Launcher viewer URL；各阶段源已定位。 release 页面 tag/资产，NSIS RELEASE_VERSION，Launcher render_mode 是三个不同数据面；页面提供的历史验证随新 tag 收窄。 [site/assets/app.js:616–658](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/app.js#L616-L658)；[site/assets/app.js:758–866](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/app.js#L758-L866)；[scripts/windows-release-installer.nsi:34–52](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/windows-release-installer.nsi#L34-L52)；[crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs:966–985](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L966-L985)；[site/assets/app.js:1051–1065](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/app.js#L1051-L1065)
+- 剩余范围：未核清一个生产 DTO/收据把下载 tag/hash、实际安装字节、运行 build/backend/primary mode 关联为同候选；不能将并列代码串成已验证全链。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-007"></a>
 #### SC-7：成功标准与状态
@@ -295,10 +307,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：未核实
 - 系统设计依据：世界内认可/机会主责与入口负边界见 FREE-002；贡献操作状态见 PART-001；尚未确认免费基础路径、可选服务和世界规则的完整系统设计组合。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：可选服务中断/取消及非权力隔离、跨入口认可与长期/current claim 组合仍未核实；不因纯沟通部分而把技术义务标不适用。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：首局显式资源动作、贡献 draft/approved/pending 链、公开当前/目标限制分别定位。 这些切片没有把可选便利服务取消/恢复、成熟世界机会或当前公开能力连接起来；批准贡献款仍是未关闭履约义务。 [crates/oasis7/src/viewer/gameplay_actions.rs:86–116](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7/src/viewer/gameplay_actions.rs#L86-L116)；[doc/readme/governance/readme-limited-preview-contributor-reward-distribution-closure-round-2026-04-13.md:3–16](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/doc/readme/governance/readme-limited-preview-contributor-reward-distribution-closure-round-2026-04-13.md#L3-L16)；[README.md:8–33](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/README.md#L8-L33)；[site/index.html:263–283](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/index.html#L263-L283)
+- 剩余范围：要核清的是服务生命周期→权限/历史/独立进入与成熟认可→入口的组合消费，不是再证明普通会话刷新或模板存在。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-008"></a>
 #### SC-8：成功标准与状态
@@ -311,10 +325,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：[首写预检与三类结果](../../site/design.md#manual-upgrade-first-write)、逐平台验证矩阵已明确原状态清点、写入方静止、备份关联、未知首写禁止降级及权威非回退。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：各实际安装/Launcher/runtime 入口的接线、候选兼容描述与每种旧格式转换尚未核实；平台实际执行、身份/会话与原请求回查须分别证明。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：实际 Windows install File /r → Launcher UX 读取/保存；公开说明手动覆盖与备份。 Windows install section 在覆盖前没有消费兼容三分结果；UX 解析失败回默认后可直接写新状态。卸载会删全目录是实际代码而非推测。 [scripts/windows-release-installer.nsi:34–52](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/windows-release-installer.nsi#L34-L52)；[crates/oasis7_client_launcher/src/self_guided_storage.rs:8–56](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_client_launcher/src/self_guided_storage.rs#L8-L56)；[crates/oasis7_client_launcher/src/self_guided.rs:226–261](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_client_launcher/src/self_guided.rs#L226-L261)；[scripts/windows-release-installer.nsi:55–62](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/windows-release-installer.nsi#L55-L62)；[site/index.html:263–283](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/index.html#L263-L283)
+- 剩余范围：已经定位 Windows/UX 生产缺口；其他平台、runtime 世界旧格式与首次不可逆写入仍须独立审计。不能把 operator backup/rollback 当玩家入口安全证明。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-009"></a>
 #### SC-9：成功标准与状态
@@ -326,11 +342,13 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - Trace refs: O7-REQ-a15a1b8e-8b7f-4c6a-9cb5-2f949730496c；[SC-9 唯一声明](#sc-entry-009)。
 - 系统设计状态：部分覆盖
 - 系统设计依据：[runtime 原决定接收](../../world-runtime/design.md#runtime-controlled-candidate-recovery-receiver)与 [P2P 原 candidate 恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1)区分 pending 重审、固定原决定续接和未知结果；SC-9-U1～U5 保留玩家组合判据。
-- 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：会话/读取权限/Agent 授权与原请求结果的跨入口状态 DTO、玩家可见下一步及实际查询权限接线未全核清；既有恢复目标不代签全部 hosted 与两模式样例。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现状态：部分实现
+- 实现与验证依据：Viewer canonical Agent goal 子范围：原签名 request pending 重送、身份改变停止、ACK 原 tuple 校验、超时 unknown、当前 owner 的当前有效 goal 签名读取与反馈显示已接到生产消费者。另有 v2 join/refresh/release 绑定会话与 world/key/epoch。 [实际 Agent Chat 注册→当前 owner read→签名→保存原 request→发送](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L2660-L2694)；[pending 不宣布接受；重送同一签名 request；世界/branch/reorg/身份变化或连接不可用时停止重送](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_canonical_goal_module.js#L1-L30)；[canonical 请求超时明确 unknown，提示刷新当前世界](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L945-L970)；[生产 ACK 消费者验证 runtime identity/原 tuple，pending 不当 accepted](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L3121-L3138)；[当前已注册主体/世界/权限范围、签名请求、响应相关性与 min commit；失败清除可用 owner view](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_canonical_owner_read_module.js#L26-L120)；[仅当前 owner 的有效 canonical goal；ACK 绑定原 tuple](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_canonical_goal_module.js#L60-L75)；[玩家 Agent Chat 展示 canonical goal、stage 及反馈详情](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L3975-L3988)；[v2 HTTP world 入口验证账号 session/open_preview 与逐账号世界绑定](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/world.rs#L65-L138)；[重新验证会话，授予短期 player_session，绑定 world/key/epoch；非泛化世界权限](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/world.rs#L338-L394)。本轮静态审读；测试定义及历史 PR 结果不替代完整验收。
+- 剩余范围：不能扩大为完整 SC-9：pure_api、已结算经济 receipt、跨重新认证原请求持久查询、Agent 委托到期/撤销与尚未决定/固定执行恢复的全部接线及 U1–U5 同候选案例仍未全核清。 当前 goal 要求 current_intent_id 匹配，不能证明任意历史请求/receipt 可查询。
+- 核对日期与基线：2026-10-17；需求/源码 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，main `bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5` 仅后继文档调整；未执行本项业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-010"></a>
 #### SC-10：成功标准与状态
@@ -343,10 +361,12 @@ SC-1～SC-7 复用叶子要求的 Trace refs，只作为组合验收，不重复
 - 系统设计状态：部分覆盖
 - 系统设计依据：[资产校验至使用及首写合同](../../site/design.md#manual-upgrade-first-write)、逐平台完整性负例矩阵已规定缺失/不可验/不匹配停止，以及对象替换重验。
 - 实现状态：未核实
-- 实现与验证依据：叶子或专业局部实现只保持其各自证据范围，未取得本 SC 全部条件的同候选组合证明；§5.1 为验证要求，不是通过记录。
-- 剩余范围：每个实际受支持平台的入口防护/资产校验到使用接线尚未核实；页面 checksum 显示不证明本地字节核对或安装前阻断。
-- 核对日期与基线：2026-10-15；文档候选 `dffd797f`，文本关系审读；运行环境与完整组合实现未核实。
+- 实现与验证依据：候选 JSON URL/checksum存在性 → 页面推荐 → Windows installer复制；Linux .deb 打包只生成文件/元数据。 页面检查仅确认 checksum 资产存在，不读取校验文件内容或下载字节。Windows 写入 section 不核该外部候选校验关系；不是包格式自检/OS策略是否存在的全称断言。 [site/assets/release-candidate.js:3–26](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/release-candidate.js#L3-L26)；[scripts/windows-release-installer.nsi:34–52](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/windows-release-installer.nsi#L34-L52)；[scripts/package-native-installer.sh:185–218](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/scripts/package-native-installer.sh#L185-L218)；[site/index.html:263–283](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/index.html#L263-L283)
+- 剩余范围：实际安装前的缺失/不可验/不匹配停止、对象替换后独立重验与安全下一步尚未接通于已读 Windows 链；其他平台另核，不宣称全仓无校验。
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
 
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="sc-entry-011"></a>
 ### 5.4 SC-11：既有 HTML 路演 deck 的独立接收与状态
@@ -359,10 +379,12 @@ Trace ID: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6
 - Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；本节唯一声明。
 - 系统设计状态：未核实
 - 系统设计依据：[Site 有限接收](../../site/design.md#site-roadshow-deck-receiver)与 [deck 页面原状态](../../site/deck/html-roadshow-deck-page-2026-06-19.design.md#required-states)提供准确定位；尚未核实本范围全部系统义务的覆盖，链接可解析不等于已覆盖。
-- 实现状态：未核实
-- 实现与验证依据：[原专业验证要求](../../site/prd.md#validation-site-012)及 [页面比较说明](../../site/deck/html-roadshow-deck-page-2026-06-19.design.md#implementation-comparison-notes)不是本次运行证据；没有本范围完整同候选实现/验收记录。
-- 剩余范围：静态发布适配、双语/固定顺序、hash/键盘触控/窄屏、入口与回链、持续 preview 的完整设计及实际证据仍未逐项核实；不以 Image2、历史任务、合入或其它页面结果代签。
+- 实现状态：部分实现
+- 实现与验证依据：PR #202交付双语静态Reveal页面和本地vendor；当前源码保留固定顺序、持续preview、回链、hash/touch与移动前后控制。PR #539提供历史页面修改与响应式检查记录，不能替代当前完整验收。 [有限设计接收](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/site/design.md#site-roadshow-deck-receiver)；[双语/回链及持续preview](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/deck/index.html#L25-L48)；[Reveal hash/touch及移动导航](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/deck/index.html#L380-L420)；[英文对应导航](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/site/deck/en/index.html#L380-L420)；[静态Pages发布配置](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/.github/workflows/pages.yml#L1-L40)。[交付PR #202](https://github.com/nil-studio/oasis7/pull/202)；[交付PR #539](https://github.com/nil-studio/oasis7/pull/539)。本次未执行仓库测试、浏览器、安装、部署或实际业务操作；测试源码仅为定义。 PR #202/#539保留历史记录；未取得本固定候选完整行为证据。
+- 剩余范围：系统设计范围与未覆盖边界沿本条原设计依据；实现与验证：现行候选双语直接访问、hash/键盘触控/窄屏密集内容、入口回链、静态发布与实际线上部署分开验证；完整设计覆盖仍未核实。
 - 核对日期与基线：2026-10-15；原文基线 `a51afcd46c9e949fd4cfa8af84619ace70eeb5bd`，只读文档关系核对；没有执行浏览器、站点、部署、发布或体验验收。
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
+
 
 ## 6. Non-Goals
 

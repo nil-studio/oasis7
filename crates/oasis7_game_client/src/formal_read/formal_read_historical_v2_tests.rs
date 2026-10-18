@@ -1,11 +1,11 @@
 use super::fixtures::*;
 use super::*;
-use oasis7::runtime::{BlobStore, LocalCasStore};
-use oasis7::world_service::client::{
-    FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
-};
+
+use crate::remote_world_service::{FormalReadTrustConfigV1, WorldServiceClientConfig};
+type RemoteWorldServiceClient =
+    crate::remote_world_service::RemoteWorldServiceReader<WorldServiceProjection>;
 use oasis7_client_api::world_service::WorldIdentity;
-use oasis7_distfs::controlled_authority::formal::{
+use oasis7_formal_protocol::controlled_authority::formal::{
     business_history::FormalHistoricalCutV1,
     business_index::{
         BusinessIndexDeltaV1, BusinessIndexNodeReader, BusinessIndexNodeWriteV1,
@@ -40,12 +40,12 @@ pub(super) fn memory_index_nodes(writes: Vec<BusinessIndexNodeWriteV1>) -> Memor
 }
 
 pub(super) fn profile2_initial_fixture() -> (
-    oasis7::runtime::World,
+    fixtures::protocol_world::ProtocolWorld,
     InitialActivationTrustV1,
     VerifiedFormalReadAnchorV1,
     FormalQualifiedCommitProofV1,
 ) {
-    let (world, trust, original, _) = actual_world_initial_fixture();
+    let (world, trust, original, _) = protocol_initial_fixture();
     let mut body = original.initial_certificate().body.clone();
     body.authority.profile_version = 2;
     let certificate = SignedInitialActivationV1 {
@@ -248,10 +248,11 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
     };
     let recovery_tail = RecoveryTailWitnessV1::Frozen(frozen_certificate.clone());
     let next2 = super::successor(original, 2, 13, 14, 15, 2);
-    let minimum = oasis7_distfs::controlled_authority::formal::issuer::IssuerAnchorV1::initial(
-        original.policy(),
-    )
-    .unwrap();
+    let minimum =
+        oasis7_formal_protocol::controlled_authority::formal::issuer::IssuerAnchorV1::initial(
+            original.policy(),
+        )
+        .unwrap();
     let (step2, issuer_anchor2) = super::recovery_step(
         original,
         anchor.head(),
@@ -298,11 +299,10 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
     record.action_root = h(64);
     record.event_root = h(65);
     record.result_root = h(66);
-    record.projection_root =
-        oasis7::world_service::formal_projection::commitments_for_world(&world)
-            .unwrap()
-            .root()
-            .unwrap();
+    record.projection_root = fixtures::protocol_world::commitments_for_world(&world)
+        .unwrap()
+        .root()
+        .unwrap();
     record.artifact_roots.insert(
         ArtifactRole::ExecutionManifest,
         frozen.runtime_manifest_digest.clone(),
@@ -449,7 +449,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
             imported.current.head(),
             position as u8,
             result_root.clone(),
-            &oasis7::world_service::formal_projection::commitments_for_world(&world)
+            &fixtures::protocol_world::commitments_for_world(&world)
                 .unwrap()
                 .root()
                 .unwrap(),
@@ -494,7 +494,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
 fn e2_normal_result_remains_readable_from_e3_current_root() {
     let (world, trust, anchor, _) = profile2_initial_fixture();
     let original = anchor.authority();
-    let projection_root = oasis7::world_service::formal_projection::commitments_for_world(&world)
+    let projection_root = fixtures::protocol_world::commitments_for_world(&world)
         .unwrap()
         .root()
         .unwrap();
@@ -622,7 +622,7 @@ fn e2_normal_result_remains_readable_from_e3_current_root() {
 fn e2_recovery_result_remains_readable_after_e2_and_e3_normal_commits() {
     let (world, trust, anchor, _) = profile2_initial_fixture();
     let original = anchor.authority();
-    let projection_root = oasis7::world_service::formal_projection::commitments_for_world(&world)
+    let projection_root = fixtures::protocol_world::commitments_for_world(&world)
         .unwrap()
         .root()
         .unwrap();
@@ -846,7 +846,7 @@ fn e2_recovery_result_remains_readable_after_e2_and_e3_normal_commits() {
 #[test]
 fn historical_normal_lookup_survives_qualification_cache_eviction() {
     let (world, trust, anchor, _initial_proof) = profile2_initial_fixture();
-    let projection_root = oasis7::world_service::formal_projection::commitments_for_world(&world)
+    let projection_root = fixtures::protocol_world::commitments_for_world(&world)
         .unwrap()
         .root()
         .unwrap();
@@ -981,9 +981,9 @@ fn historical_normal_lookup_survives_qualification_cache_eviction() {
         hex::encode(random_suffix)
     ));
     std::fs::create_dir(&history_store_root).unwrap();
-    let history_store = LocalCasStore::new(&history_store_root);
+    let history_store = history_store_root.clone();
     for (digest, bytes) in &persisted_pages {
-        history_store.put(digest, bytes).unwrap();
+        std::fs::write(history_store.join(digest), bytes).unwrap();
     }
 
     let origin_checkpoint = anchor.checkpoint();
@@ -1010,9 +1010,8 @@ fn historical_normal_lookup_survives_qualification_cache_eviction() {
         anchor.clone(),
     )
     .unwrap();
-    // The unit-test verifier and the core adapter's ordinary dependency are
-    // distinct crate identities. Preserve the complete portable cursor at the
-    // same serialization boundary used by a reopened external client.
+    // Preserve the complete portable cursor across the same serialization
+    // boundary used by a reopened external client.
     let expected_cursor =
         serde_json::from_value(serde_json::to_value(live.replay_cursor().unwrap()).unwrap())
             .unwrap();
@@ -1020,9 +1019,11 @@ fn historical_normal_lookup_survives_qualification_cache_eviction() {
         .resume_formal_history_pages(
             &origin_digest,
             persisted_pages.iter().map(|(digest, _)| {
-                history_store
-                    .get_verified(digest)
-                    .map(|bytes| (digest.clone(), bytes))
+                std::fs::read(history_store.join(digest))
+                    .map(|bytes| {
+                        assert_eq!(blake3::hash(&bytes).to_hex().as_str(), digest);
+                        (digest.clone(), bytes)
+                    })
                     .map_err(|error| format!("{error:?}"))
             }),
             &expected_cursor,

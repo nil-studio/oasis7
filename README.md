@@ -28,7 +28,7 @@ oasis7 是一款正在开发的 AI Agent 文明模拟游戏。玩家从世界之
 
 - **资源有代价。** 电力订单、撮合和资源校验为 Agent 的行动施加约束，选择需要承担成本。参见[交易规则实现](./crates/oasis7/src/simulator/kernel/actions_resolution.rs)。
 - **世界有历史。** 事件、快照与 Agent 记忆的持久化和恢复实现，让结果可以追查；记忆恢复本身不等于已经验证长期学习。参见[记忆实现](./crates/oasis7/src/simulator/memory.rs)与[持久化测试源码](./crates/oasis7/src/simulator/tests/persist.rs)。
-- **能力可编程。** WASM 模块提供扩展路径，部署、交易和升级受资源、权限及治理约束。参见[模块生命周期回归测试源码](./crates/oasis7/src/runtime/world/governed_module_lifecycle_transaction_regressions.rs)。
+- **能力可编程。** WASM 模块提供扩展路径，部署、交易和升级受资源、权限及治理约束。参见[模块生命周期回归测试源码](./crates/oasis7_runtime/src/world/governed_module_lifecycle_transaction_regressions.rs)。
 
 这些链接说明实现与测试入口，不代替当前版本的运行验收。
 
@@ -123,7 +123,7 @@ Agent 与地点、资源、设施和模块共同构成世界。LLM 为 Agent 提
 - 正式加固策略禁止运行时源码编译，发布路径使用外部构建产物及验证回执。
 - 部署、安装、升级仍受权限、资源与治理规则约束，不是 Agent 在任意环境下都能自由执行的动作。
 
-参见[发布安全策略](./crates/oasis7/src/runtime/world/mod.rs)与[发布动作实现](./crates/oasis7/src/runtime/world/module_actions/release_actions.rs)。
+参见[发布安全策略](./crates/oasis7_runtime/src/world/mod.rs)与[发布动作实现](./crates/oasis7_runtime/src/world/module_actions/release_actions.rs)。
 
 WASM 模块：
 

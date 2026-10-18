@@ -80,20 +80,17 @@ fn validate_resume_receipt(fixture: &Fixture, stdout: &str) {
     let handoff=world.capability_revocation_state().world_service_results.values()
         .filter_map(|value|serde_json::from_value::<wire::CanonicalIntentResultV1>(value.clone()).ok())
         .filter(|result|result.rejected.is_none() && matches!(&result.request.signed_payload,WorldServicePayloadV1::Scheduler(signed) if matches!(&signed.request.operation,SchedulerOperationV1::ResumeWake {..})))
-        .filter_map(|result|serde_json::from_value::<oasis7::runtime::CognitionWakeHandoffResultV1>(result.receipt).ok())
+        .filter_map(|result|serde_json::from_value::<oasis7_runtime::CognitionWakeHandoffResultV1>(result.receipt).ok())
         .find(|result|result.continuation.continuation_id==original).expect("actual Resume receipt association missing");
     assert_eq!(
         handoff.continuation.status,
-        oasis7::runtime::ContinuationStatusV1::Consumed
+        oasis7_runtime::ContinuationStatusV1::Consumed
     );
     let next = handoff
         .replanned_continuation
         .expect("actual Resume successor receipt missing");
     assert_ne!(next.continuation_id, original);
-    assert_eq!(
-        next.status,
-        oasis7::runtime::ContinuationStatusV1::Scheduled
-    );
+    assert_eq!(next.status, oasis7_runtime::ContinuationStatusV1::Scheduled);
     let mut config = fixture.client.config().clone();
     config.scope_id = "agent:agent-a".into();
     let client = RemoteWorldServiceClient::new(config).unwrap();

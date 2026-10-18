@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "79659612342d07eee0c85b043d5a255caa4c78438939145bd938834ef17f0322",
+    "content_sha256": "a35690822ff71970f2109de7a600e87a7ce8bda591643594e8ab84e678b476f3",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_target_contract",
-    "note": "retained active current/target hardening contract; dated roadmap, migration decision and migration-check record remain historical provenance; current bounded implementation, target acceptance and unrun security/finality/release proof remain distinct",
+    "note": "retained active current/target hardening contract; dated roadmap, migration decision and migration-check record remain historical provenance; current bounded implementation, target acceptance and unrun security/finality/release proof remain distinct Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/world-runtime/governance/zero-trust-governance-receipt-hardening-2026-02-26.prd.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

@@ -398,7 +398,7 @@ fn arm_digest(intent: &DurableSetArmIntentV1) -> Result<String, String> {
         &transition_digest,
         &intent.transition,
     ))?;
-    Ok(oasis7::runtime::blake3_hex(&bytes))
+    Ok(oasis7_runtime::blake3_hex(&bytes))
 }
 
 fn encode_intent(intent: &DurableSetArmIntentV1) -> Result<Vec<u8>, String> {

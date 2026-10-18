@@ -41,6 +41,7 @@ COPY Cargo.toml Cargo.lock /opt/oasis7/
 COPY vendor-egui-winit-0.33.3 /opt/oasis7/vendor-egui-winit-0.33.3
 COPY crates /opt/oasis7/crates
 COPY vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0
+COPY tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner
 COPY tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite
 COPY tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe
 COPY scripts/build-wasm-module.sh /opt/oasis7/scripts/build-wasm-module.sh

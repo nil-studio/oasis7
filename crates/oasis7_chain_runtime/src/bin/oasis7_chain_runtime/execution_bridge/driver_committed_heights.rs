@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::Path;
 
-use oasis7::runtime::{
+use oasis7_node::NodeSnapshot;
+use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, LocalCasStore, World as RuntimeWorld, blake3_hex,
 };
-use oasis7_node::NodeSnapshot;
 use oasis7_wasm_abi::ModuleSandbox;
 
 use super::checkpoint::{

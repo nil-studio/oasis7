@@ -2,7 +2,7 @@ use super::super::*;
 use crate::geometry::GeoPos;
 use crate::models::AgentState;
 use crate::runtime::{AgentCell, M1_STORAGE_POWER_MODULE_ID};
-use crate::simulator::AgentPowerStatus;
+use oasis7_simulator::AgentPowerStatus;
 
 #[test]
 fn runtime_state_to_simulator_model_projects_authoritative_storage_power_state() {

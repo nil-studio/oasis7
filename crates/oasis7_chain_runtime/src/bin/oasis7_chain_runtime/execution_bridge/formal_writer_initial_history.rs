@@ -140,7 +140,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         let snapshot: Snapshot = capture::decode_snapshot(&snapshot_bytes)?;
         let journal_bytes = object(ArtifactRole::Journal)?;
         let journal: Journal = capture::decode_generic(&journal_bytes)?;
-        let mut world = World::from_snapshot(snapshot, journal)
+        let mut world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|error| format!("{error:?}"))?
             .with_release_security_policy(self.release.clone());
         if world.state().time != 0
@@ -173,7 +173,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 "retained initial Node boundary differs from externally committed genesis".into(),
             );
         }
-        let parent = oasis7::runtime::VerifiedFormalRetainedHistoryParentV1::verify(
+        let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(
             &anchor,
             &snapshot_bytes,
         )?;

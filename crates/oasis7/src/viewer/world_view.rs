@@ -120,7 +120,7 @@ pub(super) fn build_with_authority(
     build_inner(&snapshot.config.space, world, query, &prepared, false)
 }
 fn query_id(
-    space: &crate::simulator::SpaceConfig,
+    space: &oasis7_simulator::SpaceConfig,
     prepared: &Prepared,
     q: &Query,
     scope_key: &str,
@@ -173,7 +173,7 @@ fn query_objects(prepared: &Prepared, q: &Query, bounds: Option<Rect>) -> Vec<pr
     objects
 }
 fn build_inner(
-    space: &crate::simulator::SpaceConfig,
+    space: &oasis7_simulator::SpaceConfig,
     world: &str,
     query: Value,
     prepared: &Prepared,
@@ -187,7 +187,7 @@ fn build_inner(
     build_page(space, world, &query, prepared, source_frozen, &objects)
 }
 fn build_page(
-    space: &crate::simulator::SpaceConfig,
+    space: &oasis7_simulator::SpaceConfig,
     world: &str,
     query: &Value,
     prepared: &Prepared,
@@ -298,7 +298,7 @@ pub(super) struct SessionProjection {
     source_scope: String,
     source_cut_key: String,
     created: std::time::Instant,
-    space: crate::simulator::SpaceConfig,
+    space: oasis7_simulator::SpaceConfig,
     prepared: Prepared,
     delta: Option<delta::Baseline>,
     source_confirmed: bool,
@@ -484,11 +484,11 @@ mod tests {
         let mut snapshot = WorldKernel::new().snapshot();
         snapshot.model.agents.insert(
             "page-a".into(),
-            crate::simulator::Agent::new("page-a", "", crate::geometry::GeoPos::new(1, 2, 0)),
+            oasis7_simulator::Agent::new("page-a", "", crate::geometry::GeoPos::new(1, 2, 0)),
         );
         snapshot.model.agents.insert(
             "page-b".into(),
-            crate::simulator::Agent::new("page-b", "", crate::geometry::GeoPos::new(3, 4, 0)),
+            oasis7_simulator::Agent::new("page-b", "", crate::geometry::GeoPos::new(3, 4, 0)),
         );
         snapshot
     }
@@ -573,9 +573,9 @@ mod tests {
         let secret = "private_pending_action".repeat(1024 * 1024);
         source
             .pending_actions
-            .push(crate::simulator::ActionEnvelope {
+            .push(oasis7_simulator::ActionEnvelope {
                 id: 1,
-                action: crate::simulator::Action::RegisterAgent {
+                action: oasis7_simulator::Action::RegisterAgent {
                     agent_id: secret,
                     location_id: "private".into(),
                 },
@@ -597,7 +597,7 @@ mod tests {
         // Metadata is only SpaceConfig; there is no WorldSnapshot/pending-actions field.
         assert_eq!(
             std::mem::size_of_val(&cached.space),
-            std::mem::size_of::<crate::simulator::SpaceConfig>()
+            std::mem::size_of::<oasis7_simulator::SpaceConfig>()
         );
     }
     #[test]

@@ -52,7 +52,7 @@ REQ-WR-IA-003 / AC-WR-IA-003 包含记忆驱动、社交、治理或冲突决策
 | 当前可核对接点 | 目标状态 | 待实现或待验证的差距 |
 | --- | --- | --- |
 | [branch_commitment.rs](../../../crates/oasis7/src/viewer/runtime_live/branch_commitment.rs) 根据 BranchReady 与 enabled 动作筛选推荐，含即时收益、后续步骤与风险 | 阶段一致性、动作可用性与路线价值分别成立 | 两个 enabled 动作不证明机会成本、后续两次决策或持续能力；内部 Governance 阶段不代表政治玩法开放 |
-| [builtin_recipe_catalog.rs](../../../crates/oasis7/src/runtime/builtin_recipe_catalog.rs) 与 [builtin_factory_catalog.rs](../../../crates/oasis7/src/runtime/builtin_factory_catalog.rs) 提供规范配方和建设规格 | 比较合金与 Assembler 时核对共享的铁锭/铜线、额外建设材料、地点及各自消费账本 | 只有铁锭不能证明两条路线已就绪；建成 Assembler 不证明其后继配方都可运行；静态维护/槽位字段不证明实际有效瓶颈 |
+| [builtin_recipe_catalog.rs](../../../crates/oasis7_runtime/src/builtin_recipe_catalog.rs) 与 [builtin_factory_catalog.rs](../../../crates/oasis7_runtime/src/builtin_factory_catalog.rs) 提供规范配方和建设规格 | 比较合金与 Assembler 时核对共享的铁锭/铜线、额外建设材料、地点及各自消费账本 | 只有铁锭不能证明两条路线已就绪；建成 Assembler 不证明其后继配方都可运行；静态维护/槽位字段不证明实际有效瓶颈 |
 | [gameplay_actions.rs](../../../crates/oasis7/src/viewer/gameplay_actions.rs) 将部分快捷动作绑定固定批量，再使用 canonical plan；first_delivery_preview 的数量和 local_need 仍含静态文案 | 本次总量与单批数量分开，预览/提交/实际结果一致；用途与需求分层 | 固定多批动作不能展示为单批成果；静态文案不得充当真实报价、生产结果或需求方证据 |
 | [gameplay_snapshot.rs](../../../crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs) 组合动作、阶段、反馈、阻塞与因果信号 | 各入口消费同一可见事实，区分请求状态、方案和世界结果 | 字段存在不证明当前上下文绑定、完整 causal receipt、迟到结果处理或两入口组合可用 |
 | [正式游戏 Skill](../../../skills/oasis7-play/SKILL.md) 描述 prepared-world native task：签名客户端、已配置 Agent、任务/上下文、建厂与配方报价、原结果查询 | 复用真实支持的动作与授权，不要求模型绕过游戏接口 | 该 profile 不提供冷启动、claim/pairing、社交或完整 HTTP 写目录；不能从 CLI 支持推断 Viewer 默认代办或所有 Runtime 已接通 |

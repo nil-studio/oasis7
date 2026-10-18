@@ -91,7 +91,9 @@ impl RuntimeAuthority for VerifiedProviderServiceMemoryAuthority<'_> {
                 "service-authorized memory context differs from the original signed request",
             ));
         }
-        Ok(receipt.lineage.agent_api_projection())
+        Ok(oasis7_agent_api::RuntimeReceiptLineageV1::from(
+            &receipt.lineage,
+        ))
     }
 
     fn validated_feedback_history(
@@ -193,7 +195,8 @@ impl RuntimeLlmSidecar {
             .ok_or("canonical original feedback missing")?;
         if serde_json::to_value(&record.feedback).map_err(|e| e.to_string())?
             != serde_json::to_value(feedback).map_err(|e| e.to_string())?
-            || record.receipt_lineage.as_ref() != Some(receipt)
+            || record.receipt_lineage.as_ref()
+                != Some(&oasis7_agent_api::RuntimeReceiptLineageV1::from(receipt))
         {
             return Err("canonical feedback/receipt history mismatch".into());
         }

@@ -89,7 +89,7 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
 #[cfg(feature = "test_tier_required")]
 #[test]
 fn module_route_encodes_event_input_as_cbor() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-cbor-input";
@@ -161,7 +161,7 @@ fn module_route_encodes_event_input_as_cbor() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_route_encodes_action_input_as_cbor() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-cbor-action";
@@ -238,7 +238,7 @@ fn module_route_encodes_action_input_as_cbor() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_route_pure_input_omits_state() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-cbor-pure";

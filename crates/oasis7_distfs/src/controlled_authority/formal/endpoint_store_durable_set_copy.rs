@@ -23,6 +23,7 @@ enum Visit {
     Entry(String, Option<FormalHeadRefV1>),
     Business(String, usize),
     Raw(String, Vec<u8>),
+    Native(String, u32),
 }
 impl Visit {
     fn id(&self) -> &str {
@@ -31,7 +32,8 @@ impl Visit {
             | Self::History(id, _)
             | Self::Entry(id, _)
             | Self::Business(id, _)
-            | Self::Raw(id, _) => id,
+            | Self::Raw(id, _)
+            | Self::Native(id, _) => id,
         }
     }
     fn edge_digest(&self) -> Result<String, FormalError> {
@@ -41,6 +43,7 @@ impl Visit {
             Self::Entry(_, expected) => serde_cbor::to_vec(expected),
             Self::Business(_, depth) => serde_cbor::to_vec(depth),
             Self::Raw(..) => serde_cbor::to_vec(&()),
+            Self::Native(_, size) => serde_cbor::to_vec(size),
         }
         .map_err(|error| invalid(error.to_string()))?;
         hash(
@@ -55,6 +58,7 @@ impl Visit {
             Self::Entry(..) => 2,
             Self::Business(..) => 3,
             Self::Raw(..) => 4,
+            Self::Native(..) => 5,
         }
     }
 }
@@ -124,14 +128,8 @@ fn publish_raw_copy_object(directory: &Path, id: &str, bytes: &[u8]) -> Result<(
         if existing != bytes {
             return Err(invalid("healthy copy immutable local object changed"));
         }
-        let mut options = OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_NOFOLLOW);
-        }
-        options.open(&path).map_err(io)?.sync_all().map_err(io)?;
+        crate::controlled_authority::formal::business_pack::read_object_durable(&path, id)?
+            .ok_or_else(|| invalid("healthy copy existing logical locator missing"))?;
     } else {
         Store::atomic(directory, &path, bytes)?;
     }
@@ -549,6 +547,32 @@ pub(crate) fn copy_authenticated_closure(
                 }
                 let started = trace.start();
                 verify_record_material(record, &candidate.material)?;
+                for material in
+                    std::iter::once(&candidate.material).chain(candidate.frozen_material.iter())
+                {
+                    if let Some(descriptor) = material
+                        .native_environment()
+                        .map_err(|e| invalid(e.to_string()))?
+                    {
+                        let marker = visits.join(format!(
+                            "native-environment-{}",
+                            descriptor.digest().map_err(invalid)?
+                        ));
+                        if !marker.try_exists().map_err(io)? {
+                            crate::controlled_authority::formal::native_environment::verify_material_chunks(material, |id| {
+                                if copy {
+                                    source_memo.as_mut().ok_or_else(|| invalid("native copy source absent"))?
+                                        .read_object(id)?.ok_or_else(|| invalid("native copy chunk absent"))
+                                } else {
+                                    crate::controlled_authority::formal::business_pack::read_object_durable(
+                                        &objects.join(id), id)?.ok_or_else(|| invalid("native independent chunk absent"))
+                                }
+                            }, |_, _| Ok(()))?;
+                            write_private_marker(&marker, &[])?;
+                        }
+                    }
+                }
+
                 trace.material_us += elapsed_us(started);
                 let started = trace.start();
                 enqueue_material(
@@ -613,6 +637,11 @@ pub(crate) fn copy_authenticated_closure(
                 }
             }
             Visit::Raw(..) => {}
+            Visit::Native(_, size) => {
+                if bytes.len() != *size as usize {
+                    return Err(invalid("native copied chunk length"));
+                }
+            }
         }
         // Logical raw hash stays unchanged even when the source is a physical pack.
         if copy && first_object {
@@ -667,6 +696,16 @@ fn enqueue_material(
             object.bytes.clone(),
         ));
     }
+    if let Some(descriptor) = material
+        .native_environment()
+        .map_err(|e| invalid(e.to_string()))?
+    {
+        for component in descriptor.components {
+            for chunk in component.chunks {
+                work.push(Visit::Native(chunk.digest, chunk.byte_len));
+            }
+        }
+    }
     if profile_version != 2 {
         return Ok(());
     }
@@ -696,12 +735,10 @@ fn enqueue_material(
     struct Root {
         index_root: BusinessIndexRootV1,
     }
-    let snapshot = material
-        .objects
-        .iter()
-        .find(|o| material.roots.get(&ArtifactRole::Snapshot) == Some(&o.content_hash))
-        .ok_or_else(|| invalid("healthy copy Snapshot closure missing"))?;
-    let decoded: Snapshot = decode(&snapshot.bytes)?;
+    let snapshot_bytes = material
+        .snapshot_bytes()
+        .map_err(|e| invalid(e.to_string()))?;
+    let decoded: Snapshot = decode(&snapshot_bytes)?;
     if let Some(root) = decoded.state.retained_history_root {
         root.index_root.validate().map_err(invalid)?;
         work.push(Visit::Business(root.index_root.node_root, 0));

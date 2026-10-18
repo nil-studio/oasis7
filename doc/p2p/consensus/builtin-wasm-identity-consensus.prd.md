@@ -57,13 +57,13 @@
 ### 原文技术约束（保真）
 #### 接口 / 数据
 - 现有 hash 清单继续保留：
-  - `crates/oasis7/src/runtime/world/artifacts/m1_builtin_modules.sha256`
-  - `crates/oasis7/src/runtime/world/artifacts/m4_builtin_modules.sha256`
-  - `crates/oasis7/src/runtime/world/artifacts/m5_builtin_modules.sha256`
+  - `crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.sha256`
+  - `crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.sha256`
+  - `crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.sha256`
 - 新增 identity manifest：
-  - `crates/oasis7/src/runtime/world/artifacts/m1_builtin_modules.identity.json`
-  - `crates/oasis7/src/runtime/world/artifacts/m4_builtin_modules.identity.json`
-  - `crates/oasis7/src/runtime/world/artifacts/m5_builtin_modules.identity.json`
+  - `crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.identity.json`
+  - `crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.identity.json`
+  - `crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.identity.json`
 - runtime 本地缓存索引（新增）：
   - ` .distfs/builtin_wasm/module_hash_index.txt`
   - 语义：记录 `module_id -> 最近一次可验证加载成功的 wasm_hash`，用于非 canonical 平台复用本地构建产物，避免每次启动重复编译。

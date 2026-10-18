@@ -93,7 +93,7 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
 #[cfg(feature = "test_tier_required")]
 #[test]
 fn reducer_state_updates_and_is_reused() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-state";
@@ -162,7 +162,7 @@ fn reducer_state_updates_and_is_reused() {
 
     let snapshot = world.snapshot();
     let journal = world.journal().clone();
-    let restored = World::from_snapshot(snapshot, journal).unwrap();
+    let restored = oasis7::runtime_host::world::from_snapshot(snapshot, journal).unwrap();
     assert_eq!(
         restored.state().module_states.get("m.state"),
         Some(&b"state-1".to_vec())
@@ -172,7 +172,7 @@ fn reducer_state_updates_and_is_reused() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn pure_module_new_state_is_rejected() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-state-pure";

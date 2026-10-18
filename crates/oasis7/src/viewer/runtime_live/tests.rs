@@ -1,9 +1,10 @@
 use super::*;
-use crate::simulator::{AgentDecision, ResourceOwner};
+use crate::simulator::AgentDecision;
 use crate::simulator::{
     DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
     ProviderExecutionMode,
 };
+use oasis7_simulator::ResourceOwner;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::Ordering;

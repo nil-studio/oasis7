@@ -775,12 +775,12 @@ fn parse_chain_link_policy(raw: &str) -> Result<&'static str, String> {
 
 fn parse_major_world_event_visibility(
     raw: &str,
-) -> Result<oasis7::runtime::MajorWorldEventVisibilityPermission, String> {
+) -> Result<oasis7_runtime::MajorWorldEventVisibilityPermission, String> {
     match raw.trim() {
-        "unknown" => Ok(oasis7::runtime::MajorWorldEventVisibilityPermission::Unknown),
-        "public" => Ok(oasis7::runtime::MajorWorldEventVisibilityPermission::Public),
-        "restricted" => Ok(oasis7::runtime::MajorWorldEventVisibilityPermission::Restricted),
-        "denied" => Ok(oasis7::runtime::MajorWorldEventVisibilityPermission::Denied),
+        "unknown" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Unknown),
+        "public" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Public),
+        "restricted" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Restricted),
+        "denied" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Denied),
         value => Err(format!(
             "--major-world-event-visibility must be one of unknown|public|restricted|denied, got `{value}`"
         )),
@@ -788,13 +788,13 @@ fn parse_major_world_event_visibility(
 }
 
 pub(super) fn major_world_event_visibility_as_str(
-    visibility: oasis7::runtime::MajorWorldEventVisibilityPermission,
+    visibility: oasis7_runtime::MajorWorldEventVisibilityPermission,
 ) -> &'static str {
     match visibility {
-        oasis7::runtime::MajorWorldEventVisibilityPermission::Unknown => "unknown",
-        oasis7::runtime::MajorWorldEventVisibilityPermission::Public => "public",
-        oasis7::runtime::MajorWorldEventVisibilityPermission::Restricted => "restricted",
-        oasis7::runtime::MajorWorldEventVisibilityPermission::Denied => "denied",
+        oasis7_runtime::MajorWorldEventVisibilityPermission::Unknown => "unknown",
+        oasis7_runtime::MajorWorldEventVisibilityPermission::Public => "public",
+        oasis7_runtime::MajorWorldEventVisibilityPermission::Restricted => "restricted",
+        oasis7_runtime::MajorWorldEventVisibilityPermission::Denied => "denied",
     }
 }
 

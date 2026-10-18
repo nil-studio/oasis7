@@ -10,8 +10,8 @@ use oasis7::consensus_action_payload::{
     decode_consensus_action_payload, encode_consensus_action_payload,
     verify_main_token_runtime_action_auth,
 };
-use oasis7::runtime::Action;
 use oasis7_node::NodeRuntime;
+use oasis7_runtime::Action;
 use serde::{Deserialize, Serialize};
 
 #[path = "transfer_submit_explorer_p1_api.rs"]

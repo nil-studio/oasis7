@@ -2,9 +2,6 @@
 //! formal initial world. This module never creates a World or manufactures
 //! identity, issuer trust, or an activation signature.
 use ed25519_dalek::SigningKey;
-use oasis7::runtime::{
-    Journal, ObserverReadLimits, ReleaseSecurityPolicy, Snapshot, World, blake3_hex,
-};
 use oasis7_distfs::controlled_authority::formal::{
     AuthorityDefinitionV1, FormalCompletionBranchV1, FormalRecordKindV1, FormalWorldIdentityV1,
     InitialActivationBodyV1, InitialActivationTrustV1, RecoveryPolicyV1, SignedInitialActivationV1,
@@ -12,6 +9,9 @@ use oasis7_distfs::controlled_authority::formal::{
     coordinator::{FormalCoordinator, FormalCoordinatorErrorV1},
     transport::RemoteFormalEndpoint,
     verify_formal_qualified, verify_initial_activation,
+};
+use oasis7_runtime::{
+    Journal, ObserverReadLimits, ReleaseSecurityPolicy, Snapshot, World, blake3_hex,
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -22,10 +22,14 @@ use std::time::Duration;
 
 #[cfg(not(test))]
 use super::execution_bridge::formal_initial::{InitialNodeBootstrapV1, InitialWorldClosure};
+#[cfg(not(test))]
+use super::execution_bridge::formal_native_environment;
 #[cfg(test)]
 use super::execution_bridge_real_tests::real_execution_bridge::formal_initial::{
     InitialNodeBootstrapV1, InitialWorldClosure,
 };
+#[cfg(test)]
+use super::execution_bridge_real_tests::real_execution_bridge::formal_native_environment;
 
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_WORLD_BYTES: u64 = 64 * 1024 * 1024;
@@ -140,6 +144,13 @@ fn dispatch_init<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Stri
     match action {
         "prepare" => {
             exact_flags(&values, &["--config", "--request"])?;
+            let config: WorldInitializationConfigV1 = serde_json::from_slice(
+                &read_private_owned_bounded(path_arg(&values, "--config")?, MAX_CONFIG_BYTES)?,
+            )
+            .map_err(|error| format!("world initialization config: {error}"))?;
+            if config.schema_version != 2 {
+                return Err("new world initialization requires config schema 2 with the original native environment; legacy schema 1 is only for previously prepared requests".into());
+            }
             prepare(
                 path_arg(&values, "--config")?,
                 path_arg(&values, "--request")?,
@@ -336,6 +347,13 @@ pub(super) fn activate(
         None,
     )
     .map_err(|error| format!("formal activation coordinator: {error}"))?;
+    if let Some(original) = formal_native_environment::descriptor(&candidate.material)? {
+        let (primary, replica) = coordinator.endpoints_mut();
+        let staged = formal_native_environment::stage_current(primary, replica)?;
+        if staged != original {
+            return Err("Unavailable: current native environment differs from the externally approved initial closure".into());
+        }
+    }
     let proof = coordinator.submit(candidate.clone()).map_err(|error| match error {
         FormalCoordinatorErrorV1::OutcomeUnknown { request_digest, cause } => format!(
             "OutcomeUnknown for original formal activation {request_digest}: {cause}; retry with the same request and approval"
@@ -378,9 +396,9 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
         let config_bytes = read_private_owned_bounded(&config_path, MAX_CONFIG_BYTES)?;
         let config: WorldInitializationConfigV1 = serde_json::from_slice(&config_bytes)
             .map_err(|error| format!("world initialization config: {error}"))?;
-        if config.schema_version != 1 || config.authority.profile_version != 2 {
+        if !matches!(config.schema_version, 1 | 2) || config.authority.profile_version != 2 {
             return Err(
-                "world initialization requires exact schema 1 and formal profile version 2".into(),
+                "world initialization requires schema 1 or 2 and formal profile version 2".into(),
             );
         }
         validate_issuer_public_key(&config.trusted_issuer_public_key)?;
@@ -413,10 +431,10 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
             .map_err(|error| format!("formal World snapshot CBOR: {error}"))?;
         let journal: Journal = serde_cbor::from_slice(&journal_bytes)
             .map_err(|error| format!("formal World journal CBOR: {error}"))?;
-        let world = World::from_snapshot(snapshot, journal)
+        let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|error| format!("restore explicit formal World boundary: {error:?}"))?;
         let release = ReleaseSecurityPolicy::production_hardened();
-        let closure = match config.mode {
+        let mut closure = match config.mode {
             WorldBoundaryModeV1::Existing => {
                 InitialWorldClosure::from_existing_world_with_node_bootstrap(
                     &world,
@@ -435,6 +453,10 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
             }
         }
         .map_err(|error| format!("prepare explicit initial World closure: {error}"))?;
+        if config.schema_version == 2 {
+            let native = super::native_environment_capture::capture(|_, _| Ok(()))?;
+            closure = closure.with_native_environment(&native)?;
+        }
         let activation_body = closure
             .activation_body(config.authority, config.recovery_policy)
             .map_err(|error| format!("formal v2 activation body: {error}"))?;

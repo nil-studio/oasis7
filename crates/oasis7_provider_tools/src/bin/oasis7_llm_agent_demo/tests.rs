@@ -1,11 +1,10 @@
 use super::*;
 #[cfg(feature = "test_tier_full")]
 use oasis7::runtime::{EconomicContractStatus, GovernanceProposalStatus};
+use oasis7::simulator::{AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEvent};
 #[cfg(feature = "test_tier_full")]
-use oasis7::simulator::ResourceKind;
-use oasis7::simulator::{
-    Action, AgentDecision, AgentDecisionTrace, LlmStepTrace, WorldEvent, WorldEventKind,
-};
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{Action, WorldEventKind};
 
 #[cfg(feature = "test_tier_full")]
 fn tracked_baseline_fixture_dir() -> std::path::PathBuf {
@@ -127,7 +126,10 @@ fn parse_options_accepts_provider_loopback_http() {
     )
     .expect("provider loopback options");
 
-    assert_eq!(options.decision_source, DecisionSource::ProviderLoopbackHttp);
+    assert_eq!(
+        options.decision_source,
+        DecisionSource::ProviderLoopbackHttp
+    );
     assert_eq!(
         options.agent_provider_url.as_deref(),
         Some("http://127.0.0.1:5841")
@@ -167,7 +169,10 @@ fn provider_loopback_transport_timeout_preserves_decision_budget() {
     )
     .expect("provider loopback options");
 
-    assert_eq!(resolve_provider_loopback_transport_timeout_ms(&options), 60_000);
+    assert_eq!(
+        resolve_provider_loopback_transport_timeout_ms(&options),
+        60_000
+    );
 }
 
 #[test]
@@ -460,7 +465,7 @@ fn reject_reason_metric_key_uses_serde_tag_name() {
 #[test]
 fn action_metric_key_uses_serde_tag_name() {
     let key = action_metric_key(&Action::BuildFactory {
-        owner: oasis7::simulator::ResourceOwner::Agent {
+        owner: oasis7_simulator::ResourceOwner::Agent {
             agent_id: "agent-0".to_string(),
         },
         location_id: "loc-0".to_string(),
@@ -511,7 +516,7 @@ fn observe_action_result_counts_success_and_first_tick_per_action_kind() {
     let mut report = DemoRunReport::new("llm_bootstrap".to_string(), 1);
     let success = ActionResult {
         action: Action::BuildFactory {
-            owner: oasis7::simulator::ResourceOwner::Agent {
+            owner: oasis7_simulator::ResourceOwner::Agent {
                 agent_id: "agent-0".to_string(),
             },
             location_id: "loc-0".to_string(),
@@ -524,7 +529,7 @@ fn observe_action_result_counts_success_and_first_tick_per_action_kind() {
             id: 7,
             time: 7,
             kind: WorldEventKind::FactoryBuilt {
-                owner: oasis7::simulator::ResourceOwner::Agent {
+                owner: oasis7_simulator::ResourceOwner::Agent {
                     agent_id: "agent-0".to_string(),
                 },
                 location_id: "loc-0".to_string(),
@@ -538,7 +543,7 @@ fn observe_action_result_counts_success_and_first_tick_per_action_kind() {
     };
     let failure = ActionResult {
         action: Action::ScheduleRecipe {
-            owner: oasis7::simulator::ResourceOwner::Agent {
+            owner: oasis7_simulator::ResourceOwner::Agent {
                 agent_id: "agent-0".to_string(),
             },
             factory_id: "factory.alpha".to_string(),

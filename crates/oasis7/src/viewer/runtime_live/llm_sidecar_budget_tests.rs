@@ -124,7 +124,7 @@ fn native_budget_denial_round_trips_through_live_sidecar_without_effects() {
         oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
     }
     let config =
-        crate::viewer::ViewerRuntimeLiveServerConfig::new(crate::simulator::WorldScenario::Minimal)
+        crate::viewer::ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal)
             .with_world_id("runtime-budget-denial")
             .with_decision_mode(ViewerLiveDecisionMode::Llm)
             .with_test_cognition_runtime_binding("main", 0, None, "pending", 0);
@@ -295,7 +295,7 @@ fn budget_wait_without_response_context_enters_terminal_cleanup() {
         oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
     }
     let config =
-        crate::viewer::ViewerRuntimeLiveServerConfig::new(crate::simulator::WorldScenario::Minimal)
+        crate::viewer::ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal)
             .with_world_id("runtime-budget-no-response")
             .with_decision_mode(ViewerLiveDecisionMode::Llm)
             .with_test_cognition_runtime_binding("main", 0, None, "pending", 0);

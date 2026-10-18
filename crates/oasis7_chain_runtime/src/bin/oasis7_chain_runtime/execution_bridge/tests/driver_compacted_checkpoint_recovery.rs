@@ -4,11 +4,11 @@ use super::super::checkpoint::{
 };
 use super::super::driver::NodeRuntimeExecutionDriver;
 use super::*;
-use oasis7::runtime::{
+use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
+use oasis7_runtime::{
     LocalCasStore, Manifest, ModuleAbiContract, ModuleActivation, ModuleChangeSet, ModuleKind,
     ModuleLimits, ModuleManifest, ModuleRole, PolicySet, World as RuntimeWorld,
 };
-use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 
 fn install_module_fixture(world: &mut RuntimeWorld, module_id: &str, wasm_bytes: &[u8]) -> String {
     world.set_policy(PolicySet::allow_all());
@@ -66,7 +66,7 @@ fn install_module_fixture(world: &mut RuntimeWorld, module_id: &str, wasm_bytes:
         .approve_proposal(
             proposal_id,
             "execution-bridge-recovery-fixture-approver",
-            oasis7::runtime::ProposalDecision::Approve,
+            oasis7_runtime::ProposalDecision::Approve,
         )
         .expect("approve module fixture proposal");
     world
@@ -154,7 +154,7 @@ struct ModuleRecoveryFixture {
     records_dir: std::path::PathBuf,
     storage_root: std::path::PathBuf,
     module_hash: String,
-    module_registry: oasis7::runtime::ModuleRegistry,
+    module_registry: oasis7_runtime::ModuleRegistry,
     record: ExecutionBridgeRecord,
 }
 
@@ -163,7 +163,7 @@ fn seed_module_recovery_fixture(dir: &std::path::Path) -> ModuleRecoveryFixture 
     let world_dir = dir.join("world");
     let records_dir = dir.join("records");
     let storage_root = dir.join("store");
-    let mut historical_world = RuntimeWorld::new();
+    let mut historical_world = oasis7::runtime_host::world::new();
     let module_hash = install_module_fixture(
         &mut historical_world,
         "m.execution-bridge.historical",
@@ -202,7 +202,7 @@ fn seed_module_recovery_fixture(dir: &std::path::Path) -> ModuleRecoveryFixture 
 
     // Leave a newer module-bearing world in the mutable cache. A historical
     // restore must continue to use only the snapshot CAS payload.
-    let mut newer_world = RuntimeWorld::new();
+    let mut newer_world = oasis7::runtime_host::world::new();
     install_module_fixture(
         &mut newer_world,
         "m.execution-bridge.newer",

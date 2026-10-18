@@ -1,12 +1,12 @@
 //! Offline capture for the bounded origin-bearing ScheduleRecipe path.
 //! This index records execution outcomes; it is not the ingress nonce ledger.
 use super::{ExecutionBridgeRecord, ExecutionExternalEffectMaterialization, to_cbor};
-use oasis7::runtime::blake3_hex;
-use oasis7::runtime::{BlobStore, Journal, LocalCasStore, Snapshot, World};
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     ArtifactObject, ArtifactRole, ClosedRecord,
 };
 use oasis7_node::{NodeExecutionCommitContext, compute_consensus_action_root};
+use oasis7_runtime::blake3_hex;
+use oasis7_runtime::{BlobStore, Journal, LocalCasStore, Snapshot, World};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -18,7 +18,7 @@ pub(super) struct CapturePreparation {
     pub schema_version: u32,
     pub scope: String,
     pub context: NodeExecutionCommitContext,
-    pub release_security_policy: oasis7::runtime::ReleaseSecurityPolicy,
+    pub release_security_policy: oasis7_runtime::ReleaseSecurityPolicy,
     #[serde(
         serialize_with = "serialize_bytes",
         deserialize_with = "deserialize_bytes"
@@ -36,14 +36,14 @@ struct PreparationBinding {
     schema_version: u32,
     scope: String,
     context: NodeExecutionCommitContext,
-    release_security_policy: oasis7::runtime::ReleaseSecurityPolicy,
+    release_security_policy: oasis7_runtime::ReleaseSecurityPolicy,
     before_snapshot_ref: String,
     before_journal_ref: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct OutcomeEntry {
-    pub submission: oasis7::runtime::GameplaySubmissionOrigin,
+    pub submission: oasis7_runtime::GameplaySubmissionOrigin,
     pub input_hash: String,
     pub execution_height: u64,
     pub execution_block_hash: String,
@@ -76,7 +76,7 @@ pub(super) struct CaptureManifest {
 
 pub(super) fn supported_origin(
     context: &NodeExecutionCommitContext,
-) -> Result<oasis7::runtime::CommittedRecipeOrigin, String> {
+) -> Result<oasis7_runtime::CommittedRecipeOrigin, String> {
     if context.committed_actions.len() != 1 {
         return Err("capture supports exactly one origin-bearing ScheduleRecipe".into());
     }
@@ -139,9 +139,9 @@ pub(super) fn validate_snapshot_continuity(
     previous_pre: Option<&Snapshot>,
     next: &CapturePreparation,
 ) -> Result<(), String> {
-    use oasis7::runtime::{ChainResourceDelta, ChainResourceDerivationContext};
+    use oasis7_runtime::ChainResourceDerivationContext;
     use sha2::{Digest, Sha256};
-    let world = World::from_snapshot(post.clone(), journal)
+    let world = oasis7::runtime_host::world::from_snapshot(post.clone(), journal)
         .map_err(|e| format!("prefix restore: {e:?}"))?;
     let incoming = decode_snapshot(&next.before_snapshot)?;
     let manifest_hash = hex::encode(Sha256::digest(
@@ -171,7 +171,7 @@ pub(super) fn validate_snapshot_continuity(
         return Err("unrecognized resource annotation transition".into());
     }
     let resource = &incoming.chain_resource_manifest;
-    let expected_delta = ChainResourceDelta::latest_from_runtime_manifest(
+    let expected_delta = oasis7_runtime::chain_resource::latest_from_runtime_manifest(
         ChainResourceDerivationContext {
             world_id: &resource.world_id,
             chain_id: &resource.chain_id,
@@ -261,8 +261,11 @@ pub(super) fn build(
     let after: Snapshot = decode_snapshot(snapshot_bytes)?;
     // Validate both historical byte sets using the existing restore contract,
     // including inline module SHA256 and journal-prefix commitments.
-    World::from_snapshot(after.clone(), decode_generic::<Journal>(journal_bytes)?)
-        .map_err(|e| format!("invalid post-execution world: {e:?}"))?;
+    oasis7::runtime_host::world::from_snapshot(
+        after.clone(),
+        decode_generic::<Journal>(journal_bytes)?,
+    )
+    .map_err(|e| format!("invalid post-execution world: {e:?}"))?;
     if before.state.time.saturating_add(1) != preparation.context.height
         || after.state.time != preparation.context.height
         || record.height != preparation.context.height
@@ -272,7 +275,7 @@ pub(super) fn build(
     {
         return Err("capture state/context binding mismatch".into());
     }
-    let before_world = World::from_snapshot(
+    let before_world = oasis7::runtime_host::world::from_snapshot(
         before.clone(),
         decode_generic::<Journal>(&preparation.before_journal)?,
     )
@@ -488,6 +491,9 @@ pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
     package: &ClosedRecord,
     role: ArtifactRole,
 ) -> Result<T, String> {
+    if role == ArtifactRole::Snapshot {
+        return decode_generic(&super::formal_snapshot::bytes(package)?);
+    }
     let reference = package.roots.get(&role).ok_or("capture role unavailable")?;
     decode_generic(object(package, reference)?)
 }
@@ -558,11 +564,11 @@ pub(super) fn validate_package_budget(bytes: &[u8]) -> Result<(), String> {
     // ClosedRecord contains at most 8MiB aggregate byte closure and 64
     // objects with bounded refs. Byte nodes plus 64KiB typed metadata remain
     // finite; ordinary Snapshot and Journal keep their original budgets.
-    let limits = oasis7::runtime::ObserverReadLimits {
+    let limits = oasis7_runtime::ObserverReadLimits {
         max_file_bytes: 16 * 1024 * 1024,
         max_single_allocation_bytes: 8 * 1024 * 1024,
         max_elements: 8 * 1024 * 1024 + 64 * 1024,
-        ..oasis7::runtime::ObserverReadLimits::default()
+        ..oasis7_runtime::ObserverReadLimits::default()
     };
     World::validate_offline_closed_record_cbor_budget(bytes, limits)
         .map_err(|e| format!("closed capture budget: {e:?}"))?;
@@ -595,13 +601,13 @@ fn deserialize_bytes<'de, D: serde::Deserializer<'de>>(decoder: D) -> Result<Vec
 pub(super) fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, String> {
     World::validate_offline_snapshot_cbor_budget(
         bytes,
-        oasis7::runtime::ObserverReadLimits::default(),
+        oasis7_runtime::ObserverReadLimits::default(),
     )
     .map_err(|e| format!("snapshot budget: {e:?}"))?;
     serde_cbor::from_slice(bytes).map_err(|e| e.to_string())
 }
 pub(super) fn decode_generic<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
-    World::validate_offline_cbor_budget(bytes, oasis7::runtime::ObserverReadLimits::default())
+    World::validate_offline_cbor_budget(bytes, oasis7_runtime::ObserverReadLimits::default())
         .map_err(|e| format!("typed capture budget: {e:?}"))?;
     serde_cbor::from_slice(bytes).map_err(|e| e.to_string())
 }

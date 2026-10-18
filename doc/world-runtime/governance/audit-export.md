@@ -4,7 +4,7 @@
 
 本分册为 `doc/world-runtime/prd.md` 的详细展开。2026-03-04 实现口径保留为当时记录；它不代表本次已执行导出或确认当前部署。
 
-当前接口与筛选的源码入口为 [World::save_audit_log](../../../crates/oasis7/src/runtime/world/audit.rs) 与 [AuditFilter / AuditEventKind](../../../crates/oasis7/src/runtime/audit.rs)。下方事件名按 `baded561af0808d9d5cb154d8acc68efe54e80db`（2026-10-13）枚举静态核对；后续新增/变更应以消费代码同版本的枚举与 serde 注解为完整权威，不能把此列表当作跨版本不变协议。
+当前接口与筛选的源码入口为 [World::save_audit_log](../../../crates/oasis7_runtime/src/world/audit.rs) 与 [AuditFilter / AuditEventKind](../../../crates/oasis7_runtime/src/audit.rs)。下方事件名按 `baded561af0808d9d5cb154d8acc68efe54e80db`（2026-10-13）枚举静态核对；后续新增/变更应以消费代码同版本的枚举与 serde 注解为完整权威，不能把此列表当作跨版本不变协议。
 
 ## 当前实现口径（2026-03-04）
 - 导出入口：`World::save_audit_log(path, filter)`。

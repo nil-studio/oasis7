@@ -18,7 +18,7 @@
 ## 3. 关键接口 / 入口
 - `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md`
 - `doc/testing/evidence/token-genesis-allocation-audit-template.md`
-- `crates/oasis7/src/runtime/main_token.rs`
+- `crates/oasis7_runtime/src/main_token.rs`
 
 ## 4. 约束与边界
 - checklist 只做 QA 门禁，不替代 producer 的经济决策。

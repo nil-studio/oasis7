@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7 = { path = "../oasis7", default-features = false }
 oasis7_observability = { path = "../oasis7_observability" }
 oasis7_letai_credit_adapter = { path = "../oasis7_letai_credit_adapter" }

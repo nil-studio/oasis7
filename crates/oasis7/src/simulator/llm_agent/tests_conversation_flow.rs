@@ -1,9 +1,11 @@
 use super::*;
 use crate::geometry::GeoPos;
-use crate::simulator::{
-    Action, LlmChatRole, Observation, ObservedAgent, ObservedLocation, PowerOrderSide,
-    RejectReason, ResourceKind, ResourceOwner, ResourceStock, SocialAdjudicationDecision,
-    SocialStake, WorldEvent, WorldEventKind,
+use crate::simulator::{LlmChatRole, WorldEvent};
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_agent_api::world_resource::ResourceStock;
+use oasis7_simulator::{
+    Action, Observation, ObservedAgent, ObservedLocation, PowerOrderSide, RejectReason,
+    ResourceOwner, SocialAdjudicationDecision, SocialStake, WorldEventKind,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;

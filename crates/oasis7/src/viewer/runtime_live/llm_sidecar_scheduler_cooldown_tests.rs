@@ -83,7 +83,7 @@ fn scheduler_query_cooldown_survives_client_recreation_without_submit_replay() {
             canonical_agent_chat: None,
             game_task_control: None,
             native_delegation_authorizations: Vec::new(),
-            state: RuntimeWorld::new().state().clone(),
+            state: crate::runtime_host::world::new().state().clone(),
             events: vec![],
             runtime_binding: Some(context.request_context.runtime_binding.clone()),
             agent_context: None,

@@ -123,7 +123,7 @@ pub fn prepare_file_frozen(
         || prepared.request.signer_id != input.signer_id
         || prepared.request.grant_id.0.as_deref() != Some(&input.grant_id)
         || prepared.payload
-            != oasis7_local_signer::detached::signing_payload_from_digest(
+            != oasis7_signer_protocol::detached::signing_payload_from_digest(
                 &context, &hash, file_size,
             )
             .map_err(invalid)?
@@ -194,7 +194,7 @@ pub fn verify_file_signature(
         .try_into()
         .map_err(|_| invalid("Ed25519 signature must have 64 bytes"))?;
     let (digest, size) = file_digest(file_path)?;
-    oasis7_local_signer::detached::verify_file_digest_signature(
+    oasis7_signer_protocol::detached::verify_file_digest_signature(
         &context, &digest, size, &key, &signature,
     )
     .map_err(invalid)?;
@@ -309,7 +309,7 @@ pub fn file_prepare_identity(input: &FileSignInput) -> Result<(String, String)> 
 }
 fn prepare_identity_from_source(
     input: &FileSignInput,
-    cfg: &oasis7_local_signer::types::InstallationConfig,
+    cfg: &oasis7_signer_protocol::types::InstallationConfig,
     context: &protocol::SignContext,
     source: (&str, u64, u64, u64),
 ) -> Result<(String, String)> {
@@ -363,7 +363,7 @@ fn validate_prepare_input(
     deployment_id: &str,
 ) -> Result<protocol::SignContext> {
     let context: protocol::SignContext = serde_json::from_value(input.context.clone())?;
-    oasis7_local_signer::detached::signing_payload(&context, b"").map_err(invalid)?;
+    oasis7_signer_protocol::detached::signing_payload(&context, b"").map_err(invalid)?;
     if context.deployment_id != deployment_id {
         return Err(invalid("deployment does not match installation"));
     }
@@ -406,7 +406,7 @@ fn read_prepared(
     {
         return Err(invalid("Prepared request input or payload drift"));
     }
-    oasis7_local_signer::detached::validate_signing_payload(&payload, &request.context)
+    oasis7_signer_protocol::detached::validate_signing_payload(&payload, &request.context)
         .map_err(invalid)?;
     Ok(oasis7_local_signer::job::PreparedJob { request, payload })
 }
@@ -439,7 +439,7 @@ fn read_source_evidence(
     {
         return Err(invalid("Original source evidence is invalid"));
     }
-    let envelope = oasis7_local_signer::detached::validate_signing_payload(
+    let envelope = oasis7_signer_protocol::detached::validate_signing_payload(
         &prepared.payload,
         &prepared.request.context,
     )

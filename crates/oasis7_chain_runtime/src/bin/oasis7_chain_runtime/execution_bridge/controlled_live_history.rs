@@ -5,13 +5,13 @@ use super::{
     controlled_capture as capture, controlled_live_package as package, to_cbor,
 };
 use crate::controlled_live_config::GuardedAuthority;
-use oasis7::runtime::{Journal, Snapshot, World, blake3_hex};
 use oasis7::world_service::{CommitRef, ExecutionBinding, WorldIdentity, authority};
 use oasis7_distfs::controlled_authority::{
     LocalRequestIdentity,
     replicated_protocol::{ArtifactRole, DurabilityEvidence, HeadAnchor, verify_evidence},
 };
 use oasis7_node::NodeLocalExecutionContinuation;
+use oasis7_runtime::{Journal, Snapshot, World, blake3_hex};
 use std::path::{Path, PathBuf};
 
 pub(super) const MAX_HISTORY_RECORDS: u64 = 128;
@@ -39,9 +39,9 @@ pub(super) struct VerifiedRuntimeHead {
 impl VerifiedRuntimeHead {
     pub(super) fn world(
         &self,
-        policy: &oasis7::runtime::ReleaseSecurityPolicy,
+        policy: &oasis7_runtime::ReleaseSecurityPolicy,
     ) -> Result<World, String> {
-        World::from_snapshot(self.snapshot.clone(), self.journal.clone())
+        oasis7::runtime_host::world::from_snapshot(self.snapshot.clone(), self.journal.clone())
             .map(|w| w.with_release_security_policy(policy.clone()))
             .map_err(|e| format!("verified controlled world restore: {e:?}"))
     }

@@ -120,11 +120,11 @@ Trace ID: O7-REQ-ebb0248c-1dca-4d58-a283-8d198fb6cf63
 Trace ID: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376
 
 - 系统设计状态：部分覆盖
-- 实现状态：未核实
+- 实现状态：部分实现
 - 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-007](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007)。已承接：本条的意图接受、阻塞恢复或因果纠正及结果投影合同。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已有专业因果 receipt 合同；本轮未完整核对 memory reason/evidence、stakes、alternative、correction earliest-effect 到结果的所有实际 producer 与真实 provider 证据。
+- 实现与验证依据：已交付部分因果receipt生产及owner读面：cognition提交实际调用finish_agent_causal_commit，按同一action的domain event refs生成actual consequence，并保留reason/evidence/stakes/alternative/correction refs；snapshot真实按当前intent关联receipt及私有memory correction。接受纠正与实际效果receipt保持分层。显式supported动作限Move/Factory/Transfer/Recipe，不能外推全部社交/治理/冲突因果链。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L46-L123)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L166-L205)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/cognition_persistence.rs#L1037-L1046)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_delegation.rs#L664-L801)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/player_agency_projection.rs#L101-L194)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L373-L413)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/llm_sidecar_memory_correction.rs#L29-L48)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/tests/agent_memory_correction_control.rs#L898-L965)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
+- 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
+- 剩余范围：已确认receipt→owner snapshot与记忆纠正关联的局部生产链；社交/治理/冲突动作尚未进入所读producer显式supported集，须核清各类reason/evidence/stakes/alternative的真实输入、纠正最早生效点和权威结果。真实provider、正式玩家可理解性与跨入口组合验收仍缺。
 
 - 性质：`目标要求`
 - 适用条件：记忆驱动、社交、治理或冲突等会改变玩家取舍的 Agent 决策。

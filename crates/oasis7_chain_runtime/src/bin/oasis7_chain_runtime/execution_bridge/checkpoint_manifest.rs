@@ -142,7 +142,7 @@ impl ExecutionCheckpointManifest {
                 ));
             }
         };
-        Ok(oasis7::runtime::blake3_hex(payload.as_slice()))
+        Ok(oasis7_runtime::blake3_hex(payload.as_slice()))
     }
 
     pub(super) fn validate(&self) -> Result<(), String> {

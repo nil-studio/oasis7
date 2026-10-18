@@ -37,7 +37,7 @@ fn runtime_background_play_commits_provider_response_without_latency_stale_base(
                     let decision = if request_number == 1 {
                         crate::simulator::ProviderDecision::Act {
                             action_ref: "move_agent".to_string(),
-                            action: crate::simulator::Action::MoveAgent {
+                            action: oasis7_simulator::Action::MoveAgent {
                                 agent_id: decoded
                                     .base_decision_request
                                     .observation
@@ -407,7 +407,7 @@ fn live_stale_parent_correction_rebinds_only_after_real_rejected_terminal() {
                 let response = crate::simulator::DecisionResponse {
                     decision: crate::simulator::ProviderDecision::Act {
                         action_ref: "move_agent".into(),
-                        action: crate::simulator::Action::MoveAgent {
+                        action: oasis7_simulator::Action::MoveAgent {
                             agent_id: decoded.agent_subject.clone(),
                             to: decoded
                                 .base_decision_request

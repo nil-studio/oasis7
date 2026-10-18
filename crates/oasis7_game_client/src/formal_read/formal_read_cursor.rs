@@ -232,13 +232,13 @@ impl<P: FormalReadProjection> FormalReadVerifier<P> {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
-    type FormalReadVerifier =
-        super::super::FormalReadVerifier<oasis7::world_service::projection::WorldServiceProjection>;
+    type FormalReadVerifier = super::super::FormalReadVerifier<
+        oasis7_client_api::world_read_observation::WorldReadObservationV1,
+    >;
 
     #[test]
     fn cursor_budget_exhaustion_retains_prior_frames_and_refuses_new_cut_export() {
-        let (world, trust, anchor, _) =
-            super::super::tests::fixtures::actual_world_initial_fixture();
+        let (world, trust, anchor, _) = super::super::tests::fixtures::protocol_initial_fixture();
         let (mut request, mut reply) = super::super::tests::response(
             &world,
             &anchor,

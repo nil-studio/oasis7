@@ -11,7 +11,6 @@ use super::{
     parse_validator_spec, reserve_startup_reconcile_bind_guard,
 };
 use ed25519_dalek::SigningKey;
-use oasis7::runtime::World as RuntimeWorld;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, LiveAutoNatStatus, LiveHolePunchState, LivePublicPortReachability,
     LiveTransportKind, NodeAutoNatStatus, NodeConfig, NodeHolePunchViability, NodeNetworkPolicy,
@@ -454,7 +453,7 @@ fn parse_validator_spec_rejects_zero_stake() {
 
 #[test]
 fn balances_payload_reports_empty_world_without_error() {
-    let world = RuntimeWorld::new();
+    let world = oasis7::runtime_host::world::new();
     let payload = build_chain_balances_payload_from_world(
         "node-a",
         "live-a",

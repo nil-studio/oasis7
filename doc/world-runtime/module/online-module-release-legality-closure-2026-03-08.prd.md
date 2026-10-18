@@ -88,16 +88,16 @@
   - 执行平面：节点按 `active_manifest_hash` 拉取 artifact，做签名与身份校验后加载执行。
   - 兼容平面：现有 `ModuleRelease*` 流程保留为迁移接口，但必须写入 release manifest 映射并逐步切换到统一发布证据面。
 - Integration Points:
-  - `crates/oasis7/src/runtime/world/governance.rs`
-  - `crates/oasis7/src/runtime/world/base_layer.rs`
-  - `crates/oasis7/src/runtime/world/module_actions_impl_part1.rs`
-  - `crates/oasis7/src/runtime/world/module_actions_impl_part2.rs`
-  - `crates/oasis7/src/runtime/events.rs`
-  - `crates/oasis7/src/runtime/state.rs`
-  - `crates/oasis7/src/runtime/world/release_manifest.rs`
-  - `crates/oasis7/src/runtime/builtin_wasm_identity_manifest.rs`
-  - `crates/oasis7/src/runtime/{m1,m4,m5}_builtin_wasm_artifact.rs`
-  - `crates/oasis7/src/runtime/builtin_wasm_materializer.rs`
+  - `crates/oasis7_runtime/src/world/governance.rs`
+  - `crates/oasis7_runtime/src/world/base_layer.rs`
+  - `crates/oasis7_runtime/src/world/module_actions_impl_part1.rs`
+  - `crates/oasis7_runtime/src/world/module_actions_impl_part2.rs`
+  - `crates/oasis7_runtime/src/events.rs`
+  - `crates/oasis7_runtime/src/state.rs`
+  - `crates/oasis7_runtime/src/world/release_manifest.rs`
+  - `crates/oasis7_runtime/src/builtin_wasm_identity_manifest.rs`
+  - `crates/oasis7_runtime/src/{m1,m4,m5}_builtin_wasm_artifact.rs`
+  - `crates/oasis7_runtime/src/builtin_wasm_materializer.rs`
   - `crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs`
   - `doc/p2p/consensus/builtin-wasm-identity-consensus.prd.md`
   - `doc/p2p/prd.md`（PoS 与 committed execution 当前合同）

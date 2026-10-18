@@ -5,11 +5,11 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oasis7::simulator::WorldScenario;
 use oasis7::viewer::{
     PromptControlApplyRequest, PromptControlCommand, VIEWER_PROTOCOL_VERSION, ViewerControl,
     ViewerLiveServer, ViewerLiveServerConfig, ViewerRequest, ViewerResponse, ViewerStream,
 };
+use oasis7_simulator::WorldScenario;
 
 #[test]
 fn live_server_accepts_client_and_emits_snapshot_and_event() {

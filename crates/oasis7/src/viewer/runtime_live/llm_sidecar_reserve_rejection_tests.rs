@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn verified_pre_effect_reserve_rejection_retires_original_without_replacing_checkpoint() {
     let config =
-        crate::viewer::ViewerRuntimeLiveServerConfig::new(crate::simulator::WorldScenario::Minimal);
+        crate::viewer::ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);
     let mut server = crate::viewer::ViewerRuntimeLiveServer::new(config).unwrap();
     let context =
         crate::viewer::runtime_live::control_plane::llm_sidecar::tests::test_provider_context(

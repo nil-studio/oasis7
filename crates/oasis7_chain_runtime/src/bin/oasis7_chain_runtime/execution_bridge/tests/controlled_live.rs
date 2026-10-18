@@ -255,7 +255,7 @@ fn actual_node_unknown_restart_preserves_original_signed_request_and_private_pre
         input,
         to_cbor(&original.continuation.context.committed_actions).unwrap()
     );
-    let candidate_digest = oasis7::runtime::blake3_hex(&to_cbor(&candidate).unwrap());
+    let candidate_digest = oasis7_runtime::blake3_hex(&to_cbor(&candidate).unwrap());
     node.stop().unwrap();
     drop(node);
     fs::remove_file(&fixture.replica).unwrap();
@@ -299,7 +299,7 @@ fn actual_node_unknown_restart_preserves_original_signed_request_and_private_pre
     let evidence_bytes = fs::read(history::evidence_path(&fixture.records, 2)).unwrap();
     let evidence: DurabilityEvidence = serde_json::from_slice(&evidence_bytes).unwrap();
     assert_eq!(
-        oasis7::runtime::blake3_hex(&to_cbor(&evidence.proposal.body.record).unwrap()),
+        oasis7_runtime::blake3_hex(&to_cbor(&evidence.proposal.body.record).unwrap()),
         candidate_digest
     );
     let completed: PendingTransaction =

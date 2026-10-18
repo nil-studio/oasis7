@@ -90,7 +90,7 @@ fixture v87 / production v30 / endpoint release v14 的普通提交/重启、完
 - TODO：在具有精确已提交 execution record/CAS 根的 qualified World 上验证真正不同 SHA 的正向 shipping 升级。当前 compatibility_observer 夹具只具备 materialized World 而没有执行资格，探针必须在停止原节点前拒绝；不同 SHA 的计划或拒绝、同映像真实失败启动回滚均不代签成功升级。不得通过放宽未证明 World 的兼容性检查完成该项。
 - TODO：补充 macOS 以外平台的 executable-image/no-follow 路径与真实不同版本产物升级矩阵。验收为合法 prior/candidate 通过、错误加载映像及不兼容持久格式在停止前拒绝；shell stub 不代签真实升级。
 - TODO：验证首启 bootstrap 已写入 seed World、但尚未提交 execution record/CAS 时的中断恢复。当前兼容性探针明确拒绝该未证明切面；本轮失败启动回滚测试限于 bootstrap 写入前，不代签该后续场景。验收须绑定获批 seed 与冻结原配置，不能放宽未知 World 的兼容性拒绝。
-- TODO：独立测试工作区的 rustls 补丁升级与兼容矩阵验证。根生产 `Cargo.lock` 已由 0.23.45 升级到 0.23.46，`cargo deny check advisories` 通过；`tests/libp2p-compat/{legacy,candidate}/Cargo.lock` 仍为 0.23.45，`tools/scenario_test_runner/Cargo.lock` 仍为 0.23.43，它们不在根 workspace advisory 检查范围内。本轮未更新这些历史/独立 fixture，不能宣称所有仓库依赖图已清零。
+- TODO：独立测试工作区的 rustls 补丁升级与兼容矩阵验证。根生产 `Cargo.lock` 已由 0.23.45 升级到 0.23.46，`cargo deny check advisories` 通过；`tests/libp2p-compat/{legacy,candidate}/Cargo.lock` 仍为 0.23.45，这些 libp2p fixture 不在根 workspace advisory 检查范围内；`scenario_test_runner` 已迁入根 workspace，使用根锁文件。本轮未更新这些历史/独立 fixture，不能宣称所有仓库依赖图已清零。
 - TODO（P2）：补齐 `--formal-live-config` 与 list CLI 参数的互斥检查。当前 scalar 参数冲突会拒绝，但 `--replication-network-peer` / `--node-validator` 等 list 参数不进入 seen，可能被接受后忽略；正式运行仍只消费固定配置，不授予额外权限。验收应明确拒绝这些混用参数，并覆盖 list 回归。
 - TODO（P2）：将 inventory + tier manifest 缺 registry 的错误提前到参数校验；目前完整 authority binder 仍拒绝该组合，但拒绝发生在 runtime lock/keypair 准备之后。inventory 单独输入已补齐早期拒绝，不能以该项 TODO 绕过 authority binding。
 - TODO：将本机诊断日志整理为可复用的操作故障排查步骤，保留阶段及原 operation 身份，避免仅凭超时判断故障原因。

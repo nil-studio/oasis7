@@ -182,7 +182,7 @@ fn no_mount_service_entry() {
             .and_then(|nonces| nonces.get(&owner_public))
             .copied();
         let matching_events=pinned.world.journal().events.iter().filter(|event|matches!(&event.body,
-            oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::DataCollectedAuthenticated {
+            oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::DataCollectedAuthenticated {
                 collector_agent_id,player_id,nonce:551,..}) if collector_agent_id=="agent-a" && player_id=="owner-a")).count();
         let witness = serde_json::json!({"schema":"pre2.actual-service-instance/v1",
             "pid":std::process::id(),"node_id":snapshot.node_id,"world_id":snapshot.world_id,
@@ -411,9 +411,10 @@ fn no_mount_application_acceptance() {
             "Hosted completion deadline elapsed after durable read"
         );
         if durable_terminal_committed
-            && view.projection().state.agents["agent-a"].state.pos == oasis7::GeoPos::new(2, 2, 0)
+            && view.projection().state.agents["agent-a"].state.pos
+                == oasis7_agent_api::world_action::GeoPos::new(2, 2, 0)
             && view.projection().cognition_leases.iter().any(|lease| {
-                lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
                     && lease.settled_amount > 0
             })
         {
@@ -642,12 +643,12 @@ fn no_mount_endpoint_switch_acceptance() {
         })
         .unwrap();
     for change in changes.changes {
-        let event: oasis7::runtime::WorldEvent = serde_json::from_value(change.change).unwrap();
+        let event: oasis7_runtime::WorldEvent = serde_json::from_value(change.change).unwrap();
         assert!(
             !matches!(
                 event.body,
-                oasis7::runtime::WorldEventBody::Domain(
-                    oasis7::runtime::DomainEvent::DataCollectedAuthenticated { nonce: 551, .. }
+                oasis7_runtime::WorldEventBody::Domain(
+                    oasis7_runtime::DomainEvent::DataCollectedAuthenticated { nonce: 551, .. }
                 )
             ),
             "duplicate gameplay effect after endpoint switch"

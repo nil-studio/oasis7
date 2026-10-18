@@ -57,6 +57,8 @@ mod failover;
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
+#[path = "formal_full_sync_native.rs"]
+mod native_environment;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
 use cas_lifecycle::CasBudget;
@@ -529,7 +531,7 @@ impl FormalFullSyncSession {
         let manifest = self.fetch_manifest(&cut)?;
         let mut budget = CasBudget::new(self.config.max_total_sync_bytes);
         let material = self.fetch_record_closure(&anchor, &cut, &manifest, &mut budget)?;
-        let snapshot_hash = material
+        let _snapshot_hash = material
             .roots
             .get(&ArtifactRole::Snapshot)
             .ok_or("verified record has no Snapshot artifact")?;
@@ -537,7 +539,8 @@ impl FormalFullSyncSession {
             .roots
             .get(&ArtifactRole::Journal)
             .ok_or("verified record has no Journal artifact")?;
-        let snapshot_bytes = object_bytes(&material, snapshot_hash)?;
+        let expanded_snapshot = material.snapshot_bytes().map_err(|e| e.to_string())?;
+        let snapshot_bytes = expanded_snapshot.as_slice();
         let journal_bytes = object_bytes(&material, journal_hash)?;
         if blake3::hash(snapshot_bytes).to_hex().as_str() != cut.after_state_root {
             return Err("full-sync Snapshot does not match qualified after_state_root".into());
@@ -573,8 +576,10 @@ impl FormalFullSyncSession {
             store: Arc::clone(&self.cas),
             integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),
         });
-        let world = World::from_verified_formal_snapshot(snapshot, journal, parent, reader)
-            .map_err(|error| format!("full-sync cold restore: {error:?}"))?;
+        let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+            snapshot, journal, parent, reader,
+        )
+        .map_err(|error| format!("full-sync cold restore: {error:?}"))?;
         let restored_bytes = serde_cbor::to_vec(&world.snapshot())
             .map_err(|error| format!("full-sync restored Snapshot encode: {error}"))?;
         if blake3::hash(&restored_bytes).to_hex().as_str() != cut.after_state_root {
@@ -663,6 +668,7 @@ impl FormalFullSyncSession {
             objects,
         };
         verify_record_material(record, &material).map_err(|error| error.to_string())?;
+        self.fetch_native_environment(cut, &material, budget)?;
         for object in &material.objects {
             self.persist_cas_object(&object.content_hash, &object.bytes)
                 .map_err(|error| format!("persist full-sync artifact: {error}"))?;
@@ -1138,6 +1144,7 @@ fn native_role(role: WireArtifactRole) -> ArtifactRole {
         WireArtifactRole::ExecutionManifest => ArtifactRole::ExecutionManifest,
         WireArtifactRole::Wasm => ArtifactRole::Wasm,
         WireArtifactRole::Rules => ArtifactRole::Rules,
+        WireArtifactRole::NativeExecutionEnvironment => ArtifactRole::NativeExecutionEnvironment,
     }
 }
 

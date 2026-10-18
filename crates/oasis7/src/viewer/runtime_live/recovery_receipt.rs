@@ -285,7 +285,11 @@ impl ViewerRuntimeLiveServer {
             )
         })?;
         let now_ms = current_unix_time_ms();
-        let current_state_root = self.world.current_state_root_hash().ok();
+        let current_state_root = self
+            .world
+            .execution_state_identity()
+            .map(|identity| identity.state_root_hash)
+            .ok();
         let readiness = self
             .rollback_readiness
             .get(&authorization_nonce)
@@ -461,15 +465,19 @@ impl ViewerRuntimeLiveServer {
                 source_event_id: entry.source_event_id,
             })
             .collect::<Vec<_>>();
-        let current_state_root = self.world.current_state_root_hash().map_err(|err| {
-            recovery_error(
-                "rollback_candidate_state_root_unavailable",
-                format!("{err:?}"),
-                Some(outcome.target_batch_id.clone()),
-                None,
-                None,
-            )
-        })?;
+        let current_state_root = self
+            .world
+            .execution_state_identity()
+            .map(|identity| identity.state_root_hash)
+            .map_err(|err| {
+                recovery_error(
+                    "rollback_candidate_state_root_unavailable",
+                    format!("{err:?}"),
+                    Some(outcome.target_batch_id.clone()),
+                    None,
+                    None,
+                )
+            })?;
         if let Some(audit) = audit_evidence.as_ref() {
             let valid = super::recovery_audit::verify_strict_audit_evidence(
                 &self.world,

@@ -236,7 +236,7 @@ impl super::WorldGate {
             if commit.world != expected.world {
                 return Err("Wait Admit CommitRef world differs from signed candidate".into());
             }
-            let admitted: oasis7::runtime::AgentContinuation = serde_json::from_value(receipt)
+            let admitted: oasis7_runtime::AgentContinuation = serde_json::from_value(receipt)
                 .map_err(|_| {
                     "authenticated Wait Admit receipt is not AgentContinuation".to_string()
                 })?;

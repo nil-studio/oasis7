@@ -78,7 +78,7 @@ fn generated_world_sidecar_initializes_runtime_live_snapshot_map() {
         .chunks
         .iter()
         .find_map(|(coord, state)| {
-            matches!(state, crate::simulator::ChunkState::Generated).then_some(*coord)
+            matches!(state, oasis7_simulator::ChunkState::Generated).then_some(*coord)
         })
         .expect("generated sidecar chunk");
     let (public_key, private_key) = test_signer(252);

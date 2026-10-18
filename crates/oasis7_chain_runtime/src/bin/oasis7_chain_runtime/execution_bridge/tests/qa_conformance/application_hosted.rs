@@ -1,11 +1,11 @@
 //! Native provider actor installation followed only by the real hosted serving loop.
 use super::*;
-use oasis7::simulator::WorldScenario;
 use oasis7::viewer::{
     ControlCompletionStatus, ViewerLiveDecisionMode, ViewerResponse, ViewerRuntimeLiveServer,
     ViewerRuntimeLiveServerConfig,
 };
 use oasis7::world_service::client::WorldServiceAgentSignerConfig;
+use oasis7_simulator::WorldScenario;
 use std::io::{BufRead, BufReader, Write};
 
 #[test]
@@ -207,7 +207,7 @@ pub(super) fn prepare_server_for_policy(
         ),
     ))
     .unwrap();
-    let action = oasis7::simulator::Action::MoveAgent {
+    let action = oasis7_simulator::Action::MoveAgent {
         agent_id: "agent-a".into(),
         to: "runtime:2:2:0".into(),
     };

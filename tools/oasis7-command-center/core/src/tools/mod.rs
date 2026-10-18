@@ -10,7 +10,8 @@ pub use signing::{
 };
 pub mod secrets;
 use crate::{Error, Result};
-use oasis7_local_signer::{identity, installation, protocol};
+use oasis7_local_signer::installation;
+use oasis7_signer_protocol::{identity, protocol};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -119,7 +120,7 @@ pub fn record_prepare_validation_failure(
 fn invalid(s: impl ToString) -> Error {
     Error::Invalid(s.to_string())
 }
-fn binding() -> Result<(oasis7_local_signer::types::InstallationConfig, PathBuf)> {
+fn binding() -> Result<(oasis7_signer_protocol::types::InstallationConfig, PathBuf)> {
     let cfg = installation::load_fixed_installation_config().map_err(invalid)?;
     let uid = installation::current_uid();
     if installation::current_euid() != uid || cfg.caller(uid).is_none() {

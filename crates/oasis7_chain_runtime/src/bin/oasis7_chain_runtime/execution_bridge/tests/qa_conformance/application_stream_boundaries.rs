@@ -636,7 +636,7 @@ pub(super) fn validate_repeated_receipts(fixture: &Fixture, root: &std::path::Pa
                 .cognition_leases
                 .iter()
                 .any(|lease| lease.request_digest == digest
-                    && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled)
+                    && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled)
         );
         assert!(results.iter().any(|prefix| matches!(&prefix.request.signed_payload,WorldServicePayloadV1::Scheduler(signed) if matches!(&signed.request.operation,wire::SchedulerOperationV1::ProviderPrefix{request,..} if request.request_digest.to_string()==digest)) && prefix.rejected.is_none() && prefix.committed_height < result.committed_height));
         println!(

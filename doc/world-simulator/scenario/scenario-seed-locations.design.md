@@ -24,11 +24,11 @@
 
 ## 3. 关键接口 / 入口
 
-[场景源码](../../../crates/oasis7/src/simulator/scenario.rs)中 `WorldScenario::load_spec` 读取内置 JSON，`WorldScenarioSpec::into_init_config` 使用 `self.seed` 与 `config.space` 调用 `ScenarioLocationGeneratorConfig::generate_locations`，再把同一 seed 写入 init。文件加载路径返回 `ScenarioSpecError`，不把解析失败改成另一个随机场景。
+[场景源码](../../../crates/oasis7_simulator/src/scenario.rs)中 `WorldScenario::load_spec` 读取内置 JSON，`WorldScenarioSpec::into_init_config` 使用 `self.seed` 与 `config.space` 调用 `ScenarioLocationGeneratorConfig::generate_locations`，再把同一 seed 写入 init。文件加载路径返回 `ScenarioSpecError`，不把解析失败改成另一个随机场景。
 
 - `count` 决定数量；ID 是 `id_prefix + index`，名称是 `name_prefix + 空格 + index`，profile/resources 采用默认值。相同 seed 并不使不同 count、前缀或空间成为等价输入。
 - 坐标取 seed、index 与固定混合常量的 `splitmix64` 派生，分别映射到 width/depth/height，并 round/clamp 为整数厘米；`coord_from_hash` 对非正维度返回 0，常规 build_init 路径先 sanitize config。测试须记录 effective config，不能把 sanitization 前输入冒充实际空间。
-- [初始化源码](../../../crates/oasis7/src/simulator/init.rs)对出生候选排序，优先 `frag-` 集合，无 fragment 则普通地点；同 seed 还需同候选集合、Agent start_index/count 与配置。允许多个 Agent 选择同地点，无地点且 count>0 返回 `SpawnLocationMissing`。本专题不改变 frag 几何偏移和玩家推荐理由。
+- [初始化源码](../../../crates/oasis7_simulator/src/init.rs)对出生候选排序，优先 `frag-` 集合，无 fragment 则普通地点；同 seed 还需同候选集合、Agent start_index/count 与配置。允许多个 Agent 选择同地点，无地点且 count>0 返回 `SpawnLocationMissing`。本专题不改变 frag 几何偏移和玩家推荐理由。
 
 <a id="seed-input-design"></a>
 ## 4. 约束与边界
@@ -72,5 +72,5 @@
 
 | 上游 requirement / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [普通地点确定性](scenario-seed-locations.prd.md#location-determinism) | [设计约束](#seed-input-design) | 普通地点与 chunk trigger order 承诺分开 | 候选版本的[验证入口](../../../crates/oasis7/src/simulator/tests/init.rs)：`init_is_deterministic_with_seed` 对比整模型/report（其中 agents.count=0，不证明出生）；`init_requires_spawn_location` 覆盖空候选拒绝。补普通 generator 同 seed/config 相等、不同 seed 区分及固定候选的 Agent 出生对比；`init_position_contract.rs` 整数坐标测试检查显式坐标/fragment。Simulator 离线层，记录 candidate、effective config/seed、排序后候选及输出；不声称跨 chunk 顺序无关 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
-| [有效 seed](scenario-seed-locations.prd.md#location-effective-seed) | [设计约束](#seed-input-design) | override 在生成前生效，显式坐标不重生成 | 候选版本的[验证入口](../../../crates/oasis7/src/simulator/tests/init.rs)：以`tools/scenario_test_runner/src/lib.rs` 内嵌测试的 `explicit_init_passes_without_requiring_seed_override` 为既有显式输入入口；新增 named scenario 的 override 前置、无 override 等于模板、显式坐标不变、Agent/fragment 同根四组定向断言，直接检查生成后的地点/config/model。runner helper 回归与接线修复仍待实现；固定候选离线执行，保存 seed 与模型差异，不以解析成功作为通过 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
+| [普通地点确定性](scenario-seed-locations.prd.md#location-determinism) | [设计约束](#seed-input-design) | 普通地点与 chunk trigger order 承诺分开 | 候选版本的[验证入口](../../../crates/oasis7_simulator/src/tests/init.rs)：`init_is_deterministic_with_seed` 对比整模型/report（其中 agents.count=0，不证明出生）；`init_requires_spawn_location` 覆盖空候选拒绝。补普通 generator 同 seed/config 相等、不同 seed 区分及固定候选的 Agent 出生对比；`init_position_contract.rs` 整数坐标测试检查显式坐标/fragment。Simulator 离线层，记录 candidate、effective config/seed、排序后候选及输出；不声称跨 chunk 顺序无关 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
+| [有效 seed](scenario-seed-locations.prd.md#location-effective-seed) | [设计约束](#seed-input-design) | override 在生成前生效，显式坐标不重生成 | 候选版本的[验证入口](../../../crates/oasis7_simulator/src/tests/init.rs)：以`tools/scenario_test_runner/src/lib.rs` 内嵌测试的 `explicit_init_passes_without_requiring_seed_override` 为既有显式输入入口；新增 named scenario 的 override 前置、无 override 等于模板、显式坐标不变、Agent/fragment 同根四组定向断言，直接检查生成后的地点/config/model。runner helper 回归与接线修复仍待实现；固定候选离线执行，保存 seed 与模型差异，不以解析成功作为通过 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |

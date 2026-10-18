@@ -36,10 +36,10 @@ fn fixture(
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = RuntimeWorld::new_with_state(WorldState::default());
+    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default());
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world.submit_action(Action::ClaimStarterOc {
@@ -80,7 +80,7 @@ fn fixture(
     world
         .save_to_dir_with_chain_resource_context(
             dir.join("world"),
-            oasis7::runtime::ChainResourceDerivationContext {
+            oasis7_runtime::ChainResourceDerivationContext {
                 world_id: "w1",
                 chain_id: "w1",
                 genesis_ref: Some(identity.genesis_digest.as_str()),
@@ -104,7 +104,7 @@ fn fixture(
         "w1",
         world.state().time,
         "world-service-local-setup-boundary",
-        &oasis7::runtime::ReleaseSecurityPolicy::default(),
+        &oasis7_runtime::ReleaseSecurityPolicy::default(),
     )
     .unwrap();
     let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(

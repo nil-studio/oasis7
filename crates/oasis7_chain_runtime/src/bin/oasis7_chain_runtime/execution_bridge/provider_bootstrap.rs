@@ -3,10 +3,10 @@ use std::fs;
 #[cfg(any(not(test), feature = "test_tier_required"))]
 use std::path::{Path, PathBuf};
 
-use oasis7::runtime::{ProviderBackedBootstrapAuthorityV1, World as RuntimeWorld};
 #[cfg(any(not(test), feature = "test_tier_required"))]
 use oasis7_node::NodeRuntime;
 use oasis7_node::{NodeReplicatedExecutionInputV1, PROVIDER_BACKED_BOOTSTRAP_EXECUTION_INPUT_KIND};
+use oasis7_runtime::{ProviderBackedBootstrapAuthorityV1, World as RuntimeWorld};
 
 use super::driver::NodeRuntimeExecutionDriver;
 
@@ -14,7 +14,7 @@ impl NodeRuntimeExecutionDriver {
     fn execution_world_without_persistence(&self) -> Result<RuntimeWorld, String> {
         let snapshot = self.execution_world.snapshot();
         let has_inline_module_artifacts = !snapshot.module_artifact_bytes.is_empty();
-        let mut world = RuntimeWorld::from_snapshot(
+        let mut world = oasis7::runtime_host::world::from_snapshot(
             snapshot,
             self.execution_world.journal().clone(),
         )
@@ -121,7 +121,7 @@ fn detached_execution_world_for_bootstrap(world_dir: &Path) -> Result<RuntimeWor
     // normalization (including production main-token defaults) after load;
     // applying that policy here would change the state root before preflight
     // and reject an otherwise valid current world as stale.
-    let current = RuntimeWorld::load_from_dir(world_dir).map_err(|error| {
+    let current = oasis7::runtime_host::world::load_from_dir(world_dir).map_err(|error| {
         format!(
             "load current execution world for ProviderBacked bootstrap preflight failed: {error:?}"
         )
@@ -130,7 +130,7 @@ fn detached_execution_world_for_bootstrap(world_dir: &Path) -> Result<RuntimeWor
     let has_inline_module_artifacts = !snapshot.module_artifact_bytes.is_empty();
     let journal = current.journal().clone();
     let release_security_policy = current.release_security_policy().clone();
-    let mut detached = RuntimeWorld::from_snapshot(snapshot, journal)
+    let mut detached = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|error| {
             format!(
             "clone current execution world for ProviderBacked bootstrap preflight failed: {error:?}"

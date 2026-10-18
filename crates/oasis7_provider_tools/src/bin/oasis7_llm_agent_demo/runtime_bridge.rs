@@ -1,13 +1,11 @@
 use oasis7::runtime::{
     Action as RuntimeAction, CrisisStatus, DomainEvent as RuntimeDomainEvent,
-    EconomicContractFulfillmentKind,
-    RejectReason as RuntimeRejectReason, World as RuntimeWorld,
+    EconomicContractFulfillmentKind, RejectReason as RuntimeRejectReason, World as RuntimeWorld,
     WorldEventBody as RuntimeWorldEventBody,
 };
-use oasis7::simulator::{
-    Action as SimulatorAction, ActionResult, RejectReason, ResourceKind, ResourceOwner, WorldEvent,
-    WorldEventKind, WorldKernel,
-};
+use oasis7::simulator::{ActionResult, WorldEvent, WorldKernel};
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{Action as SimulatorAction, RejectReason, ResourceOwner, WorldEventKind};
 
 fn simulator_gameplay_action_to_runtime(action: &SimulatorAction) -> Option<RuntimeAction> {
     match action {
@@ -342,9 +340,10 @@ impl RuntimeGameplayBridge {
                 action_id: rejected_action_id,
                 reason,
             }) = &event.body
-                && *rejected_action_id == action_id {
-                    return Some(reason.clone());
-                }
+                && *rejected_action_id == action_id
+            {
+                return Some(reason.clone());
+            }
         }
         None
     }
@@ -453,7 +452,7 @@ impl RuntimeGameplayBridge {
     }
 
     pub(crate) fn from_kernel(kernel: &WorldKernel) -> Result<Self, String> {
-        let mut world = RuntimeWorld::new();
+        let mut world = oasis7::runtime_host::world::new();
         let mut agent_ids: Vec<String> = kernel.model().agents.keys().cloned().collect();
         agent_ids.sort();
         for agent_id in &agent_ids {

@@ -1,7 +1,7 @@
 //! Exact original gameplay effect for zero-height crash/recovery fixtures.
 use super::*;
 pub(super) fn first_agent_effect(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<Vec<u8>, String> {
     let WorldServicePayloadV1::GameplayJson(bytes) = &request.signed_payload else {
@@ -29,7 +29,7 @@ pub(super) fn first_agent_effect(
         .agents
         .get(&action.target_agent_id)
         .ok_or("original first agent absent")?;
-    let oasis7::runtime::Action::RegisterAgent { agent_id, pos } =
+    let oasis7_runtime::Action::RegisterAgent { agent_id, pos } =
         oasis7::viewer::build_runtime_action_from_gameplay_request(&action)
             .map_err(|e| e.message)?
     else {

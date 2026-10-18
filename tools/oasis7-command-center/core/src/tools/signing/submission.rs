@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn prepared_identity(
     job_id: &str,
-    cfg: &oasis7_local_signer::types::InstallationConfig,
+    cfg: &oasis7_signer_protocol::types::InstallationConfig,
     prepared: &oasis7_local_signer::job::PreparedJob,
     source: &FileSourceEvidence,
 ) -> Result<(String, String)> {

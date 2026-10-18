@@ -11,7 +11,7 @@ pub(super) fn verify_release(public: &RemoteWorldServiceClient) {
     let mut connection = public.config().clone();
     connection.scope_id = "agent:agent-a".into();
     let client = RemoteWorldServiceClient::new(connection.clone()).unwrap();
-    let mut config = ViewerRuntimeLiveServerConfig::new(oasis7::simulator::WorldScenario::Minimal);
+    let mut config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);
     config.world_id = "w1".into();
     config.world_service = Some(connection);
     config.provider_lineage_store = Some(
@@ -30,7 +30,7 @@ pub(super) fn verify_release(public: &RemoteWorldServiceClient) {
     let original = server
         .test_prepare_canonical_provider_response(
             "agent-a",
-            oasis7::simulator::Action::MoveAgent {
+            oasis7_simulator::Action::MoveAgent {
                 agent_id: "agent-a".into(),
                 to: "runtime:2:2:0".into(),
             },
@@ -113,13 +113,13 @@ pub(super) fn verify_release(public: &RemoteWorldServiceClient) {
         response.validate(&original_release.correlation).unwrap();
         match response.outcome {
             IntentOutcome::Committed { commit, receipt } => {
-                let receipt: oasis7::runtime::CognitionReceiptV1 =
+                let receipt: oasis7_runtime::CognitionReceiptV1 =
                     serde_json::from_value(receipt).unwrap();
                 receipt.validate().unwrap();
                 assert_eq!(receipt.operation, "release");
                 assert_eq!(
                     receipt.status,
-                    oasis7::runtime::CognitionLeaseStatusV1::Released
+                    oasis7_runtime::CognitionLeaseStatusV1::Released
                 );
                 assert_eq!(receipt.lease_id, lease_id);
                 let expected = &reserved["cognition_lease"];
@@ -169,7 +169,7 @@ pub(super) fn verify_release(public: &RemoteWorldServiceClient) {
             .cognition_leases
             .iter()
             .any(|lease| lease.lease_id == lease_id
-                && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Released)
+                && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Released)
     );
     let before = server.test_canonical_provider_summary();
     assert!(

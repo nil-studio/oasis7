@@ -2,10 +2,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use oasis7::runtime::{
-    BlobStore, LocalCasStore, ModuleRegistry, World as RuntimeWorld, blake3_hex,
-};
 use oasis7_node::NodeExecutionCommitContext;
+use oasis7_runtime::{BlobStore, LocalCasStore, ModuleRegistry, World as RuntimeWorld, blake3_hex};
 
 use super::checkpoint::{
     execution_bridge_record_path, execution_checkpoint_manifest_path,

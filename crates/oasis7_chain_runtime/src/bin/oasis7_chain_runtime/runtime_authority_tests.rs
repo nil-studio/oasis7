@@ -4,7 +4,7 @@ use oasis7::network_tier_manifest::{
     NetworkTierEndpointPolicy, NetworkTierManifest, NetworkTierPromotionPolicy,
     NetworkTierRuntimeRefs, NetworkTierTokenPolicy, NetworkTierValidatorPolicy,
 };
-use oasis7::runtime::{
+use oasis7_runtime::{
     ChainResourceDerivationContext, GovernanceFinalitySignerRegistry, World as RuntimeWorld,
 };
 use std::collections::BTreeMap;
@@ -384,7 +384,7 @@ fn rejects_inventory_digest_drift_without_mutating_existing_world() {
     let explicit_registry =
         super::super::governance_registry::load_genesis_finality_registry(registry.as_path())
             .expect("load fixture registry");
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world
         .set_governance_finality_signer_registry(explicit_registry)
         .expect("set persisted effective registry");
@@ -423,7 +423,7 @@ fn rejects_inventory_digest_drift_without_mutating_existing_world() {
 fn rejects_explicit_registry_that_does_not_match_persisted_effective_registry() {
     let (registry, inventory, manifest_path) = write_authority_fixture();
     let world_dir = manifest_path.parent().expect("fixture root").join("world");
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),
@@ -478,7 +478,7 @@ fn accepts_governed_registry_after_persisted_world_normalizes_threshold_bps() {
         super::super::governance_registry::load_genesis_finality_registry(registry.as_path())
             .expect("load fixture registry");
     assert_eq!(explicit_registry.threshold_bps, 0);
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world
         .set_governance_finality_signer_registry(explicit_registry)
         .expect("set persisted effective registry");
@@ -619,7 +619,7 @@ fn observer_registry_authority_survives_persisted_world_restart_without_mutation
     let explicit_registry =
         super::super::governance_registry::load_genesis_finality_registry(registry.as_path())
             .expect("load observer registry");
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world
         .set_governance_finality_signer_registry(explicit_registry)
         .expect("set persisted observer registry");
@@ -675,7 +675,7 @@ fn rejects_persisted_unbound_world_for_public_testnet_authority() {
     let explicit_registry =
         super::super::governance_registry::load_genesis_finality_registry(registry.as_path())
             .expect("load fixture registry");
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world
         .set_governance_finality_signer_registry(explicit_registry)
         .expect("set persisted effective registry");
@@ -753,7 +753,7 @@ fn rejects_authority_when_persisted_world_id_does_not_match_inventory() {
     let explicit_registry =
         super::super::governance_registry::load_genesis_finality_registry(registry.as_path())
             .expect("load fixture registry");
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world
         .set_governance_finality_signer_registry(explicit_registry)
         .expect("set persisted effective registry");

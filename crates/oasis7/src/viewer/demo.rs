@@ -1,9 +1,11 @@
 use std::path::Path;
 
 use crate::geometry::space_distance_cm;
-use crate::simulator::{
-    Action, PersistError, ResourceKind, ResourceOwner, WorldConfig, WorldInitConfig,
-    WorldInitError, WorldInitReport, WorldKernel, WorldScenario, initialize_kernel,
+use crate::simulator::{WorldKernel, initialize_kernel};
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{
+    Action, PersistError, ResourceOwner, WorldConfig, WorldInitConfig, WorldInitError,
+    WorldInitReport, WorldScenario,
 };
 
 #[derive(Debug, Clone, PartialEq)]

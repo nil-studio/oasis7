@@ -25,11 +25,11 @@ use super::product_validation_intent::{
 };
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::runtime::{BlobStore, LocalCasStore, ModuleArtifactIdentity, World as RuntimeWorld};
 use oasis7_node::{
     NodeConsensusSnapshot, NodeExecutionCommitContext, NodeRole, NodeSnapshot,
     compute_consensus_action_root,
 };
+use oasis7_runtime::{BlobStore, LocalCasStore, ModuleArtifactIdentity, World as RuntimeWorld};
 use oasis7_wasm_abi::ModuleOutput;
 use oasis7_wasm_executor::FixedSandbox;
 use sha2::{Digest, Sha256};
@@ -181,7 +181,7 @@ fn product_validation_intent_marker_first_crash_window_reconciles_predecessor() 
     let world_dir = dir.join("world");
     let records_dir = dir.join("records");
     let storage_root = dir.join("store");
-    let world = RuntimeWorld::new();
+    let world = oasis7::runtime_host::world::new();
     persist_execution_world(world_dir.as_path(), &world).expect("persist predecessor world");
     let action_root = "action-root-1".to_string();
     let context = NodeExecutionCommitContext {
@@ -237,7 +237,7 @@ fn product_validation_intent_marker_first_crash_window_reconciles_predecessor() 
 #[test]
 fn product_validation_intent_roundtrip_preserves_external_effect_cas_bytes() {
     let dir = temp_dir("product-validation-intent-evidence");
-    let world = RuntimeWorld::new();
+    let world = oasis7::runtime_host::world::new();
     let action_root = compute_consensus_action_root(&[]).expect("empty action root");
     let context = NodeExecutionCommitContext {
         world_id: "w1".to_string(),
@@ -297,7 +297,7 @@ fn product_validation_intent_roundtrip_preserves_external_effect_cas_bytes() {
 
 #[test]
 fn product_validation_intent_recognizes_previous_same_height_generation() {
-    let predecessor = RuntimeWorld::new();
+    let predecessor = oasis7::runtime_host::world::new();
     let mut previous_generation = predecessor.clone();
     previous_generation
         .step()
@@ -329,7 +329,7 @@ fn product_validation_intent_recognizes_previous_same_height_generation() {
 fn bridge_committed_heights_persists_records_and_state() {
     let dir = temp_dir("execution-bridge");
     let store = LocalCasStore::new(dir.join("store"));
-    let mut world = RuntimeWorld::new();
+    let mut world = oasis7::runtime_host::world::new();
     let mut sandbox = FixedSandbox::succeed(ModuleOutput {
         new_state: None,
         effects: Vec::new(),
@@ -389,7 +389,7 @@ fn bridge_committed_heights_persists_records_and_state() {
 fn bridge_committed_heights_is_noop_when_height_not_advanced() {
     let dir = temp_dir("execution-bridge-noop");
     let store = LocalCasStore::new(dir.join("store"));
-    let mut world = RuntimeWorld::new();
+    let mut world = oasis7::runtime_host::world::new();
     let mut sandbox = FixedSandbox::succeed(ModuleOutput {
         new_state: None,
         effects: Vec::new(),

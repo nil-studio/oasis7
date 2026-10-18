@@ -390,7 +390,7 @@ fn runtime_refine_quote_is_signed_deterministic_and_non_mutating() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             50,
         )
         .expect("seed electricity");
@@ -398,7 +398,7 @@ fn runtime_refine_quote_is_signed_deterministic_and_non_mutating() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Data,
+            oasis7_agent_api::world_action::ResourceKind::Data,
             2_500,
         )
         .expect("seed compound");
@@ -436,7 +436,7 @@ fn runtime_refine_quote_is_signed_deterministic_and_non_mutating() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Data,
+            oasis7_agent_api::world_action::ResourceKind::Data,
             6_002,
         )
         .expect("seed existing progress");
@@ -456,7 +456,7 @@ fn runtime_refine_quote_is_signed_deterministic_and_non_mutating() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Data,
+            oasis7_agent_api::world_action::ResourceKind::Data,
             6_005,
         )
         .expect("seed satisfied goal");
@@ -475,7 +475,7 @@ fn runtime_refine_quote_is_signed_deterministic_and_non_mutating() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             0,
         )
         .expect("drain electricity");
@@ -520,7 +520,7 @@ fn runtime_power_survival_quote_is_signed_deterministic_non_mutating_and_binds_b
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             5,
         )
         .expect("seed critical electricity");
@@ -614,7 +614,7 @@ fn runtime_power_survival_quote_accepts_legacy_signed_buy_power_request_without_
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             5,
         )
         .expect("seed critical electricity");
@@ -686,7 +686,7 @@ fn runtime_power_survival_quote_supports_signed_non_mutating_harvest_radiation_r
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             5,
         )
         .expect("seed critical electricity");
@@ -829,7 +829,7 @@ fn runtime_refine_quote_does_not_require_or_mutate_gameplay_readiness() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Data,
+            oasis7_agent_api::world_action::ResourceKind::Data,
             2_500,
         )
         .expect("seed compound");
@@ -880,13 +880,16 @@ fn runtime_collect_data_quotes_and_submits_the_exact_authenticated_request() {
         .world
         .set_agent_resource_balance(
             agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             20,
         )
         .expect("seed electricity");
     let data_before = server
         .world
-        .agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data)
+        .agent_resource_balance(
+            agent_id.as_str(),
+            oasis7_agent_api::world_action::ResourceKind::Data,
+        )
         .expect("initial data balance");
 
     let preflight = signed_collect_data_command(
@@ -941,7 +944,10 @@ fn runtime_collect_data_quotes_and_submits_the_exact_authenticated_request() {
     assert_eq!(
         server
             .world
-            .agent_resource_balance(agent_id.as_str(), crate::simulator::ResourceKind::Data)
+            .agent_resource_balance(
+                agent_id.as_str(),
+                oasis7_agent_api::world_action::ResourceKind::Data
+            )
             .expect("data balance"),
         data_before + 11
     );

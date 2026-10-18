@@ -1,15 +1,15 @@
 //! Deterministic conformance: a scripted, unpaid ModelProvider drives the real
 //! SDK/Harness through HTTP and NodeRuntime. This is not autonomous model play.
 use super::*;
-use oasis7::runtime::{
-    Action, MaterialLedgerId, STARTER_SMELTER_FACTORY_ID, STARTER_SMELTER_RECIPE_ID,
-};
 use oasis7_agent_harness::{
     ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
     ModelProviderTrace, ModelProviderTurn, ModelProviderUsage, NativeTaskRunConfig,
     NativeTaskRunner, NativeTaskStopReason, SdkNativeTaskHost,
 };
 use oasis7_game_client::{device_client::Client, operation_store::ClientStateKind};
+use oasis7_runtime::{
+    Action, MaterialLedgerId, STARTER_SMELTER_FACTORY_ID, STARTER_SMELTER_RECIPE_ID,
+};
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::atomic::AtomicUsize};
 
@@ -405,7 +405,7 @@ fn diagnose_rejected_feedback(
         .count();
     let stale = format!(
         "{:?}",
-        oasis7::runtime::WorldError::DistributedValidationFailed {
+        oasis7_runtime::WorldError::DistributedValidationFailed {
             reason: "stale_base".into()
         }
     );
@@ -626,7 +626,7 @@ fn native_task_runner_http_scripted_factory_chain_and_restart_conformance() {
                         let category = if reason
                             == format!(
                                 "{:?}",
-                                oasis7::runtime::WorldError::DistributedValidationFailed {
+                                oasis7_runtime::WorldError::DistributedValidationFailed {
                                     reason: "stale_base".into()
                                 }
                             ) {
@@ -742,7 +742,7 @@ fn native_task_runner_http_scripted_factory_chain_and_restart_conformance() {
                 Some(
                     format!(
                         "{:?}",
-                        oasis7::runtime::WorldError::DistributedValidationFailed {
+                        oasis7_runtime::WorldError::DistributedValidationFailed {
                             reason: "stale_base".into()
                         }
                     )
@@ -809,7 +809,7 @@ fn native_task_runner_http_scripted_factory_chain_and_restart_conformance() {
             delivered.world.state().agents["agent-a"]
                 .state
                 .resources
-                .get(oasis7::simulator::ResourceKind::Electricity),
+                .get(oasis7_agent_api::world_action::ResourceKind::Electricity),
             100 - i64::try_from(total).unwrap()
         );
         for (kind, grant, cost) in [

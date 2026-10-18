@@ -15,9 +15,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::observability::{emit_stderr_or_event, init_tracing};
-use oasis7::runtime::{
-    NodeAssetBalance, NodeRewardMintRecord, ReleaseSecurityPolicy, RewardAssetConfig,
-};
 use oasis7_node::{
     Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, NodeConfig,
     NodeConsensusSlashingReceiptSnapshot, NodeNetworkPolicy, NodePosConfig, NodeReplicationConfig,
@@ -26,6 +23,9 @@ use oasis7_node::{
 };
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord};
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::{
+    NodeAssetBalance, NodeRewardMintRecord, ReleaseSecurityPolicy, RewardAssetConfig,
+};
 use runtime_status_util::now_unix_ms;
 use serde::Serialize;
 use tracing::{Level, error, info};
@@ -121,6 +121,8 @@ mod main_token_submit_api;
 mod membership_cli;
 #[path = "oasis7_chain_runtime/module_release_attestation_submit_api.rs"]
 mod module_release_attestation_submit_api;
+#[path = "oasis7_chain_runtime/native_environment_capture.rs"]
+mod native_environment_capture;
 #[path = "oasis7_chain_runtime/node_keypair_config.rs"]
 mod node_keypair_config;
 #[path = "oasis7_chain_runtime/node_lifecycle.rs"]

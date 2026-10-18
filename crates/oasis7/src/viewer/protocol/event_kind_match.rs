@@ -1,4 +1,4 @@
-use crate::simulator::WorldEventKind;
+use oasis7_simulator::WorldEventKind;
 
 use super::ViewerEventKind;
 

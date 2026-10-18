@@ -110,7 +110,7 @@ JSON 的 `error_code` 仍为字符串，HTTP 状态类别与响应 shape 保持�
 
 从现有 claim 判断提取小型纯函数，输入为不可变 canonical `WorldState` 与验签所得 player/key，输出唯一 collector Agent 或 typed 拒绝原因。零份与重复匹配分别返回 `CollectDataQualificationError`；Agent 是否存在及资源是否足够继续在消费者的 quote/execution 层检查，不能取第一项或自动补 claim。Viewer 的 service preflight、world-service submit 和仍支持的兼容 HTTP CollectData adapter 复用该函数。
 
-`WorldServiceProjection::from_world` 已在[字段 allowlist](../../../crates/oasis7/src/world_service/projection.rs)中保留 `starter_oc_claims` 与 Agent 资源，因此预检使用当前获准的 [VerifiedWorldView](../../../crates/oasis7/src/world_service/verified_view.rs)，无需扩大公开字段或新建 owner endpoint。一次计算固定其 projection 和 `ProjectionVersion/CommitRef`，claim、collector 和电力余额都来自该不可变视图。缺少可用权威视图、隔离身份不匹配或现行 freshness 条件不满足时返回需刷新/不可判断，不把未知数据当成空 claim 或默认资格；固定本次计算输入不等于要求开放历史 owner-read。
+`WorldServiceProjection::from_world` 已在[字段 allowlist](../../../crates/oasis7_world_service/src/projection.rs)中保留 `starter_oc_claims` 与 Agent 资源，因此预检使用当前获准的 [VerifiedWorldView](../../../crates/oasis7_game_client/src/verified_world_view.rs)，无需扩大公开字段或新建 owner endpoint。一次计算固定其 projection 和 `ProjectionVersion/CommitRef`，claim、collector 和电力余额都来自该不可变视图。缺少可用权威视图、隔离身份不匹配或现行 freshness 条件不满足时返回需刷新/不可判断，不把未知数据当成空 claim 或默认资格；固定本次计算输入不等于要求开放历史 owner-read。
 
 缺少 verified view 时，现有 provider readiness 检查可能先以 `llm_init_failed` 和 `canonical Agent observation unavailable` 拒绝；不统一改写成某个新同步错误码。验证应断言原有 gate 的真实结果，以及未消费认证 nonce、未改变世界状态，再分别测试可达的 canonical claim 拒绝分支。
 

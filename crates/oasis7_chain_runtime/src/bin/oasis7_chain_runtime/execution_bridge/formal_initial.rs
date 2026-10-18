@@ -5,7 +5,6 @@ use super::{
     to_cbor,
 };
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::runtime::{ReleaseSecurityPolicy, World, blake3_hex};
 use oasis7_distfs::controlled_authority::formal::{
     business_index::BusinessIndexNodeReader,
     business_material::{FORMAL_BUSINESS_ENVELOPE_DOMAIN_V1, FormalBusinessResultEnvelopeV1},
@@ -14,6 +13,7 @@ use oasis7_distfs::controlled_authority::{
     formal::{endpoint::FormalCandidateMaterialV1, *},
     replicated_protocol::{ArtifactObject, ArtifactRole, ClosedRecord},
 };
+use oasis7_runtime::{ReleaseSecurityPolicy, World, blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 struct EmptyBusinessIndex;
@@ -48,6 +48,7 @@ pub(crate) struct InitialWorldClosure {
     state_root: String,
     governing_manifest_digest: String,
     execution_policy_digest: String,
+    executable_digest: String,
     roots: BTreeMap<ArtifactRole, String>,
     objects: BTreeMap<String, ArtifactObject>,
     event_root: String,
@@ -57,6 +58,48 @@ pub(crate) struct InitialWorldClosure {
     retained_history_initialized: bool,
 }
 impl InitialWorldClosure {
+    /// Extend the unsigned approval input with exact external native bytes.
+    /// The original manifest remains reachable; historical v1 approvals keep
+    /// their original identities and cannot acquire this requirement silently.
+    pub(crate) fn with_native_environment(
+        mut self,
+        native: &oasis7_formal_protocol::native_environment::NativeExecutionEnvironmentV1,
+    ) -> Result<Self, String> {
+        use oasis7_formal_protocol::native_environment::NativeEnvironmentRole;
+        native.validate()?;
+        if !native.components.iter().any(|component| {
+            component.role == NativeEnvironmentRole::Executable
+                && component.content_digest == self.executable_digest
+        }) {
+            return Err("initial native executable differs from approved execution policy".into());
+        }
+        if self
+            .roots
+            .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+        {
+            return Err("initial native environment already attached".into());
+        }
+        let native_ref = insert(&mut self.objects, native.encode()?, vec![]);
+        let old_manifest = self
+            .roots
+            .get(&ArtifactRole::ExecutionManifest)
+            .ok_or("initial execution manifest missing")?
+            .clone();
+        let manifest = insert(
+            &mut self.objects,
+            to_cbor((
+                "oasis7.formal.initial_execution_manifest.v2",
+                &self.world,
+                &old_manifest,
+                &native_ref,
+            ))?,
+            vec![old_manifest, native_ref.clone()],
+        );
+        self.roots
+            .insert(ArtifactRole::NativeExecutionEnvironment, native_ref);
+        self.roots.insert(ArtifactRole::ExecutionManifest, manifest);
+        Ok(self)
+    }
     /// Prepare commitments for an external activation authority to authorize.
     /// The supplied checkpoint must already carry its exact chain/world/genesis.
     pub(crate) fn from_existing_world(
@@ -157,9 +200,10 @@ impl InitialWorldClosure {
             );
         }
         validate_modules(&snapshot)?;
-        let mut restored = World::from_snapshot(snapshot.clone(), world.journal().clone())
-            .map_err(|e| format!("{e:?}"))?
-            .with_release_security_policy(release.clone());
+        let mut restored =
+            oasis7::runtime_host::world::from_snapshot(snapshot.clone(), world.journal().clone())
+                .map_err(|e| format!("{e:?}"))?
+                .with_release_security_policy(release.clone());
         if snapshot.state.retained_history_root.is_some() {
             // Explicit initial preparation may inspect only the canonical empty
             // index. Restore its process-local reader without minting lineage.
@@ -284,6 +328,7 @@ impl InitialWorldClosure {
             state_root,
             governing_manifest_digest: governing,
             execution_policy_digest: policy_digest,
+            executable_digest: executable,
             roots,
             objects,
             event_root: blake3_hex(&to_cbor(&world.journal().events)?),
@@ -320,7 +365,14 @@ impl InitialWorldClosure {
             return Err("formal initial authority/world/start mismatch".into());
         }
         Ok(InitialActivationBodyV1 {
-            schema_version: 1,
+            schema_version: if self
+                .roots
+                .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+            {
+                2
+            } else {
+                1
+            },
             authority,
             recovery_policy,
             initial_state_root: self.state_root.clone(),
@@ -362,7 +414,14 @@ impl InitialWorldClosure {
         material.validate().map_err(|e| e.to_string())?;
         capture::validate_package_budget(&to_cbor(&material)?)?;
         let canonical = CanonicalRecordV1 {
-            schema_version: 1,
+            schema_version: if self
+                .roots
+                .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+            {
+                5
+            } else {
+                1
+            },
             durable_set_transition_digest: None,
             kind: FormalRecordKindV1::InitialActivation,
             world: self.world.clone(),

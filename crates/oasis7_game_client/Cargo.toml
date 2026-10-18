@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_client_storage = { path = "../oasis7_client_storage" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
@@ -20,13 +21,3 @@ zeroize = "1"
 blake3 = "1"
 serde_cbor = "0.11"
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
-
-[target.'cfg(unix)'.dependencies]
-cap-std = "4"
-cap-fs-ext = "4"
-libc = "0.2"
-chacha20poly1305 = { version = "0.11", features = ["zeroize"] }
-
-[dev-dependencies]
-oasis7_distfs = { path = "../oasis7_distfs" }
-oasis7 = { path = "../oasis7", default-features = false, features = ["test_tier_required"] }

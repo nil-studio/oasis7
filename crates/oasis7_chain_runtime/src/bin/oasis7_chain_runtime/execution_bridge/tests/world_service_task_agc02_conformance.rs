@@ -1,8 +1,8 @@
 //! AGC02: independent processes and the Rust SDK exercise the same native contract.
 //! Scripted fixed decisions only; timings are diagnostics, never benchmarks.
 use super::*;
-use oasis7::runtime::{Action, MaterialLedgerId, STARTER_SMELTER_FACTORY_ID};
 use oasis7_game_client::{device_client::Client, operation_store::ClientStateKind};
+use oasis7_runtime::{Action, MaterialLedgerId, STARTER_SMELTER_FACTORY_ID};
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -154,7 +154,7 @@ fn trial(binary: &Path, external_cli: bool) -> (Value, Value) {
             "control":control,"grants":projection.native_delegation_authorizations,
             "catalog_entries":projection.agent_context.as_ref().unwrap().capability_catalog.entries,
             "materials":material_balances(&before.world),
-            "electricity":before.world.state().agents["agent-a"].state.resources.get(oasis7::simulator::ResourceKind::Electricity)});
+            "electricity":before.world.state().agents["agent-a"].state.resources.get(oasis7_agent_api::world_action::ResourceKind::Electricity)});
         let started = Instant::now();
         if external_cli {
             assert!(cli(
@@ -332,7 +332,7 @@ fn trial(binary: &Path, external_cli: bool) -> (Value, Value) {
         factory.as_object_mut().unwrap().remove("built_at");
         let final_state = json!({"admitted":true,"rejected_invalid_selection":true,"action":signed.request.action,
             "materials":material_balances(&after.world), "grant":authorization.grant.grant_id,"cost":authorization.cost_units,
-            "electricity":after.world.state().agents["agent-a"].state.resources.get(oasis7::simulator::ResourceKind::Electricity),
+            "electricity":after.world.state().agents["agent-a"].state.resources.get(oasis7_agent_api::world_action::ResourceKind::Electricity),
             "factory":factory});
         // Recovery via a separate process must query the immutable original.
         if external_cli {

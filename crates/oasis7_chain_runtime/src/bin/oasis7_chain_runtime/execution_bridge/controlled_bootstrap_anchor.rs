@@ -2,12 +2,12 @@
 
 use super::execution_hash::ExecutionHashPayload;
 use super::{ExecutionBridgeRecord, controlled_capture as capture, to_cbor};
-use oasis7::runtime::{
-    ChainResourceDerivationContext, Journal, ReleaseSecurityPolicy, Snapshot, World, blake3_hex,
-};
 use oasis7_distfs::controlled_authority::{
     activation::VerifiedInitialActivation,
     replicated_protocol::{ArtifactObject, ArtifactRole, ClosedRecord},
+};
+use oasis7_runtime::{
+    ChainResourceDerivationContext, Journal, ReleaseSecurityPolicy, Snapshot, blake3_hex,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -176,7 +176,7 @@ pub(crate) fn verify_bootstrap_anchor(
     }
     // Restore validates actual journal prefix and artifact SHA256; it has no path,
     // dispatcher, module executor, signer or configured persistence destination.
-    let world = World::from_snapshot(snapshot.clone(), journal.clone())
+    let world = oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
         .map_err(|e| format!("bootstrap world restore: {e:?}"))?;
     if to_cbor(world.snapshot())? != snapshot_bytes || to_cbor(world.journal())? != journal_bytes {
         return Err("bootstrap restored bytes differ from original checkpoint".into());

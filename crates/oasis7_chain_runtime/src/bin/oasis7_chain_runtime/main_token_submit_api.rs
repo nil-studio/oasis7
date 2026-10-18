@@ -7,8 +7,8 @@ use oasis7::consensus_action_payload::{
     MainTokenActionAuthProof, MainTokenActionAuthScheme, MainTokenActionParticipantSignature,
     encode_consensus_action_payload, verify_main_token_runtime_action_auth,
 };
-use oasis7::runtime::{Action, MainTokenGenesisAllocationPlan};
 use oasis7_node::NodeRuntime;
+use oasis7_runtime::{Action, MainTokenGenesisAllocationPlan};
 use serde::{Deserialize, Serialize};
 
 const MAIN_TOKEN_SUBMIT_PATH: &str = "/v1/chain/main-token/submit";

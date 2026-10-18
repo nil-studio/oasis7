@@ -1,12 +1,12 @@
 use super::status_payload_tests::{
     build_minimal_status_payload, build_minimal_status_payload_with_storage_root,
 };
-use oasis7::runtime::{BlobStore, LocalCasStore};
 use oasis7_proto::distributed::{
     BlobRef, ExecutionBindingEvidenceV1, HeadConsensusEvidenceV1, WIRE_ENCODING_CBOR,
     WORLD_HEAD_PROOF_CLAIM_BOUNDARY_V1, WORLD_HEAD_PROOF_HASH_DOMAIN_V1,
     WORLD_HEAD_PROOF_V1_SCHEMA, WorldBlock, WorldHeadAnnounce, WorldHeadProofV1,
 };
+use oasis7_runtime::{BlobStore, LocalCasStore};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,7 +44,7 @@ fn write_chain_proof_fixture_at(records_dir: &Path, storage_root: &Path) -> Stri
         timestamp_ms,
         signature: "runtime_bridge_evidence_only_v1".to_string(),
     };
-    let block_hash = oasis7::runtime::blake3_hex(
+    let block_hash = oasis7_runtime::blake3_hex(
         serde_cbor::to_vec(&block)
             .expect("encode proof block")
             .as_slice(),
@@ -99,7 +99,7 @@ fn write_chain_proof_fixture_at(records_dir: &Path, storage_root: &Path) -> Stri
     let proof_ref = store
         .put_bytes(proof_bytes.as_slice())
         .expect("persist world head proof fixture");
-    let proof_hash = oasis7::runtime::blake3_hex(
+    let proof_hash = oasis7_runtime::blake3_hex(
         serde_cbor::to_vec(&(WORLD_HEAD_PROOF_HASH_DOMAIN_V1, &proof))
             .expect("encode proof hash payload")
             .as_slice(),

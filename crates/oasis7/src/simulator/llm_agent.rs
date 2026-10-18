@@ -1,5 +1,6 @@
 //! LLM-powered agent behavior and OpenAI-compatible completion client.
 
+use super::archive::WorldEvent;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -14,13 +15,13 @@ use super::agent::{
     LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmEffectIntentTrace,
     LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
 };
-use super::kernel::{Observation, RejectReason, WorldEvent, WorldEventKind};
 use super::llm_defaults::DEFAULT_LLM_MODEL;
 use super::memory::{AgentMemory, LongTermMemoryEntry, MemoryEntry};
-use super::types::{
+use oasis7_simulator::{
     Action, CM_PER_KM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY, ModuleInstallTarget, ResourceKind,
     ResourceOwner,
 };
+use oasis7_simulator::{Observation, RejectReason, WorldEventKind};
 
 mod behavior_budget;
 mod behavior_context;

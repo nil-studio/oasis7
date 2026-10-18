@@ -163,8 +163,8 @@ Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；O7-REQ-3f7d612d-5a6a-4
   - `crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`
   - `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/mod.rs`
   - `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime.rs`
-  - `crates/oasis7/src/runtime/world/persistence.rs`
-  - `crates/oasis7/src/runtime/snapshot.rs`
+  - `crates/oasis7_runtime/src/world/persistence.rs`
+  - `crates/oasis7_runtime/src/snapshot.rs`
   - `crates/oasis7_node/src/replication.rs`
   - `crates/oasis7_cas/src/store.rs`
   - `doc/world-runtime/runtime/runtime-integration.md`

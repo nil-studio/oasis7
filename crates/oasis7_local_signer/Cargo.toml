@@ -17,6 +17,7 @@ name = "oasis7_local_signer_runtime_gate"
 path = "src/bin/oasis7_local_signer_runtime_gate.rs"
 
 [dependencies]
+oasis7_signer_protocol = { path = "../oasis7_signer_protocol" }
 oasis7_context = { path = "../oasis7_context" }
 oasis7_secure_envelope = { path = "../oasis7_secure_envelope" }
 argon2 = { version = "0.5", features = ["zeroize"] }

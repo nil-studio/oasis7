@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime::{WorldEvent, WorldEventBody};
+use oasis7_runtime::{WorldEvent, WorldEventBody};
 
 pub(super) fn describe(
     service: &Service<'_>,

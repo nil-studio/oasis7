@@ -238,12 +238,12 @@ fn runtime_agent_chat_provider_mode_accepts_feedback_without_echo_receipt() {
     );
     assert!(server.pending_virtual_events.iter().any(|event| matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
             if event_agent_id == &agent_id && message == "我在测试地点，资源是 electricity=32 data=8。"
     )));
     assert!(!server.pending_virtual_events.iter().any(|event| matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
             if event_agent_id == &agent_id && message.contains("[local-mock-receipt]")
     )));
     clear_runtime_provider_env();
@@ -369,7 +369,7 @@ fn runtime_agent_chat_provider_mode_surfaces_async_reply_failure_after_ack() {
     assert!(errors[0].message.contains("provider_agent_chat_failed"));
     assert!(server.pending_virtual_events.iter().all(|event| !matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, .. }
             if event_agent_id == &agent_id
     )));
     clear_runtime_provider_env();
@@ -581,7 +581,7 @@ fn runtime_agent_chat_provider_mode_persists_rejection_without_agent_chat_capabi
     );
     assert!(server.pending_virtual_events.iter().all(|event| !matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { .. }
     )));
     clear_runtime_provider_env();
 }

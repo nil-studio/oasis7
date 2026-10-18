@@ -89,11 +89,11 @@
 Trace ID: O7-REQ-918d9050-5f73-40ad-b9d4-aba87233bdd1
 
 - 系统设计状态：部分覆盖
-- 实现状态：未核实
+- 实现状态：部分实现
 - 系统设计依据：[emergency-supply-authorization-and-settlement.design / des-wr-es-001](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-001)。已承接：授权、冻结分配、退出或物理结算中本条对应的 runtime 合同与验证场景。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：授权包有专业设计；系统性危机证据、阈值/政策 owner 决定及 dedicated runtime effect producer 未核定，不能从常态报价推导紧急路径。
+- 实现与验证依据：常态材料短缺仍按库存/税/运输损耗报价，库存不足拒绝排程，读面提供reduce_or_source_materials，而非授予紧急资格；这是本条常态市场直接子范围。最小授权包→专用紧急效果尚未交付；普通CrisisSpawn/Timeout不是该授权包。 [market](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy_support.rs#L318-L372)；[recipe](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L675-L792)；[quote](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/market_quote_decision_preview.rs#L29-L104)；[quote-read](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/viewer/runtime_live/market_quote_decision.rs#L25-L161)；[lifecycle](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L25-L237)；[crisis-state](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/gameplay_state.rs#L188-L216)。当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 核对日期与基线：2026-10-17；需求、专业设计和实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用文件逐Git blob校验；未引入未合PR #4865；当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 剩余范围：仍需交付紧急授权身份、完整包校验、范围/期限逐提交复核、缺项原子拒绝和专用结果读面；危机阈值/必需品/授权政策由owner明确。验证普通波动与局部故障对照和完整/缺项危机组合，不能以无紧急producer证明例外已安全生效。 实施待安排： [Refs #4866](https://github.com/nil-studio/oasis7/issues/4866)；本状态审查不关闭该任务。
 
 - 要求：普通价格波动、局部故障和暂时短缺维持常态市场；只有预声明的系统性必需品危机具备证据、范围、授权来源、起止时间、介入方式和复核入口的最小授权包时，才可产生紧急世界效果。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)
@@ -115,11 +115,11 @@ Trace refs: O7-REQ-918d9050-5f73-40ad-b9d4-aba87233bdd1；声明：[REQ-WR-ES-00
 Trace ID: O7-REQ-18fe18ca-4920-4fe0-aad3-69b5fc7b80a7
 
 - 系统设计状态：部分覆盖
-- 实现状态：未核实
+- 实现状态：未实现
 - 系统设计依据：[emergency-supply-authorization-and-settlement.design / des-wr-es-002](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-002)。已承接：授权、冻结分配、退出或物理结算中本条对应的 runtime 合同与验证场景。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：冻结批次与确定性 tie-resolution 有设计；优先政策、seed 来源和实际 snapshot/replay 代码与结果未核清。
+- 实现与验证依据：已沿冻结批次的适用前提核对typed入口、native/builtin生成器、持久状态和publication：当前交付没有授权批次、冻结资格/需求/资源/政策集合、分配向量及其receipt producer。普通市场报价与通用snapshot/原子publication不能充当冻结保供批次。 [action](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_agent_api/src/world_action/action.rs#L9-L558)；[event](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/events/domain_event.rs#L13-L936)；[bootstrap](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/bootstrap_gameplay.rs#L15-L100)；[lifecycle](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L25-L237)；[native](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L283-L505)；[builtin-crisis](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_builtin_wasm_modules/m5_gameplay_crisis_cycle/src/lib.rs#L20-L92)；[builtin-economic](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_builtin_wasm_modules/m5_gameplay_economic_overlay/src/lib.rs#L20-L100)；[state](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/state.rs#L630-L674)；[publication](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/publication.rs#L328-L440)；[es-design](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/doc/world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#L50-L143)。当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 核对日期与基线：2026-10-17；需求、专业设计和实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用文件逐Git blob校验；未引入未合PR #4865；当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 剩余范围：实现已明确的冻结集合、批次身份、条件提交、分配结果和重放/去重合同；owner另行冻结优先规则、tie resolution、seed证明及窗口。需同候选乱序/重复/漂移/竞争的资源与receipt对账。 实施待安排： [Refs #4866](https://github.com/nil-studio/oasis7/issues/4866)；本状态审查不关闭该任务。
 
 - 要求：同一授权批次必须冻结资格、需求、范围、资源和政策快照，使用已声明的优先依据与 tie resolution；快照漂移只能原子拒绝或形成新批次，不能以隐藏到达顺序追溯重排。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
@@ -141,11 +141,11 @@ Trace refs: O7-REQ-18fe18ca-4920-4fe0-aad3-69b5fc7b80a7；声明：[REQ-WR-ES-00
 Trace ID: O7-REQ-51922b18-cc1e-4894-9c12-66c0a6def6d1
 
 - 系统设计状态：部分覆盖
-- 实现状态：未核实
+- 实现状态：未实现
 - 系统设计依据：[emergency-supply-authorization-and-settlement.design / des-wr-es-003](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-003)。已承接：授权、冻结分配、退出或物理结算中本条对应的 runtime 合同与验证场景。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：到期/撤销与不迁移请求有设计；实际旧批次失效、历史保留、常态替代/申诉读面和恢复测试未核清。
+- 实现与验证依据：当前普通crisis仅Active/Resolved/TimedOut，并未承载紧急授权、待决保供请求、需求lineage、预留/履行量；native/builtin超时惩罚和通用grant到期不执行本条授权边界切换。不存在可回读/恢复的本合同业务状态，不能把普通日志历史当作保供历史已交付。 [crisis-state](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/gameplay_state.rs#L188-L216)；[native](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L283-L505)；[builtin-crisis](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_builtin_wasm_modules/m5_gameplay_crisis_cycle/src/lib.rs#L20-L92)；[state](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/state.rs#L630-L674)；[action](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_agent_api/src/world_action/action.rs#L9-L558)；[event](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/events/domain_event.rs#L13-L936)；[snapshot](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/persistence.rs#L306-L380)；[restore](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/persistence.rs#L735-L785)；[es-design](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/doc/world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#L50-L143)。当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 核对日期与基线：2026-10-17；需求、专业设计和实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用文件逐Git blob校验；未引入未合PR #4865；当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 剩余范围：交付紧急授权/请求状态、失效谓词、旧请求不迁移、跨授权需求累计与预留释放/最终结算竞态合同，以及历史/下一步读面；在途处置政策另行确认。验收边界tick、撤销/续期、部分完成、重启/重连/回放。 实施待安排： [Refs #4866](https://github.com/nil-studio/oasis7/issues/4866)；本状态审查不关闭该任务。
 
 - 要求：紧急授权到期、撤销或范围改变时，未确认的请求不能自动跨入新授权；未使用资格失效，已确认 receipt 与历史结果保留，玩家可见常态替代、补证、申诉或重新规划路径。
 - 专业权威：[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)
@@ -167,11 +167,11 @@ Trace refs: O7-REQ-51922b18-cc1e-4894-9c12-66c0a6def6d1；声明：[REQ-WR-ES-00
 Trace ID: O7-REQ-c17942de-f8ae-44fe-8525-88560dccf0a3
 
 - 系统设计状态：部分覆盖
-- 实现状态：未核实
+- 实现状态：部分实现
 - 系统设计依据：[emergency-supply-authorization-and-settlement.design / des-wr-es-004](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-004)。已承接：授权、冻结分配、退出或物理结算中本条对应的 runtime 合同与验证场景。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：市场例外与退出边界有设计；补偿/公开分配政策和路线/到达/存储/合同 settlement 不可旁路的组合未核定。
+- 实现与验证依据：正常材料短缺/价格成本由库存、税及运输损耗报价，排程与运输仍检查材料、路线可用/容量，MaterialTransit到达复核ready_at并产生物流结算记录；这是原REQ正常市场及物流的直接窄子范围。未将普通物流receipt冒称紧急allocated/partial，也未证明紧急介入不可旁路。 [market](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy_support.rs#L318-L372)；[recipe](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L675-L792)；[logistics](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/logistics.rs#L197-L280)；[transit](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L20-L155)；[arrival](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L151-L350)；[dispatch](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/publication.rs#L160-L220)；[publication](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/event_processing/publication.rs#L328-L440)；[quote-read](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/viewer/runtime_live/market_quote_decision.rs#L25-L161)；[es-design](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/doc/world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#L50-L143)。当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 核对日期与基线：2026-10-17；需求、专业设计和实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用文件逐Git blob校验；未引入未合PR #4865；当前仓库默认/native及随仓builtin路径的只读静态审读；未执行Rust、正式玩家入口、跨节点或业务验收，测试源码不记为PASS。
+- 剩余范围：实现紧急授权、品类/地点/主体/期限限制、补偿守恒与资格约束、退出和待决隔离、专用结果投影；补齐与真实物流/存储/合同结算的联合条件，而非新增旁路。政策由owner冻结；需完整ES-004组合与正式surface验证。 实施待安排： [Refs #4866](https://github.com/nil-studio/oasis7/issues/4866)；本状态审查不关闭该任务。
 
 - 要求：正常价格、供需、竞争和局部故障继续由市场、合约与物流形成；只有预声明的系统性必需品危机并具备事实证据、品类、受影响范围、授权来源、开始/到期时间、介入方式、补偿/公开分配、复核和申诉入口的最小授权包，才可产生紧急世界效果。介入不得变成常态限价、永久配给、任意没收、可转让/可叠加资格或绕过路线、到达、存储、合同结算、世界资格与 receipt 的旁路。
 - 专业权威：[`PRD-GAME-018`](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-05)、[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)

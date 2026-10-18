@@ -87,9 +87,10 @@ pub(super) fn observation(
         logical.transport_attempt = 1;
         let context_digest =
             oasis7::simulator::h_v1("oasis7.cognition.context.v1", &logical).to_string();
+        let incoming_bytes = serde_cbor::to_vec(incoming).expect("encode original host request");
         let prefix = results.iter().find(|result| matches!(&result.request.signed_payload,
             WorldServicePayloadV1::Scheduler(signed) if matches!(&signed.request.operation,
-                SchedulerOperationV1::ProviderPrefix{request,context_digest:actual} if request == incoming && actual == &context_digest)))
+                SchedulerOperationV1::ProviderPrefix{request,context_digest:actual} if serde_cbor::to_vec(request).expect("encode contract request") == incoming_bytes && actual == &context_digest)))
             .expect("actual committed exact ProviderPrefix before model response");
         assert_eq!(prefix.receipt["dispatched"], true);
         assert_eq!(prefix.receipt["request_digest"], digest);
@@ -119,7 +120,7 @@ pub(super) fn observation(
                     && lease.agent_session_id == incoming.agent_session_id
                     && lease.agent_turn_id == incoming.agent_turn_id
                     && lease.decision_request_id == incoming.decision_request_id
-                    && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Reserved
+                    && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Reserved
             })
             .expect("independent signed view has exact Reserved lease");
         let evidence = serde_json::json!({"request_digest":digest,"agent_turn_id":incoming.agent_turn_id,
@@ -135,20 +136,17 @@ pub(super) fn observation(
                     && resume.agent_turn_id == incoming.agent_turn_id && resume.decision_request_id == incoming.decision_request_id
                     && resume.context_digest == context_digest))).expect("resumed model requires preceding exact canonical Resume");
             assert!(resume_result.committed_height < reserve.committed_height);
-            let receipt: oasis7::runtime::CognitionWakeHandoffResultV1 =
+            let receipt: oasis7_runtime::CognitionWakeHandoffResultV1 =
                 serde_json::from_value(resume_result.receipt.clone()).unwrap();
             assert_eq!(
                 receipt.continuation.status,
-                oasis7::runtime::ContinuationStatusV1::Consumed
+                oasis7_runtime::ContinuationStatusV1::Consumed
             );
             let next = receipt
                 .replanned_continuation
                 .as_ref()
                 .expect("Resume exact successor");
-            assert_eq!(
-                next.status,
-                oasis7::runtime::ContinuationStatusV1::Scheduled
-            );
+            assert_eq!(next.status, oasis7_runtime::ContinuationStatusV1::Scheduled);
             assert_ne!(next.continuation_id, receipt.continuation.continuation_id);
             publish_marker(&root.join("hosted-resumed-model.json"), &serde_json::to_vec(&serde_json::json!({
                 "request_digest":digest,"lease_id":lease.lease_id,"resume_height":resume_result.committed_height,
@@ -488,7 +486,7 @@ pub(super) fn report(fixture: &Fixture, root: &std::path::Path, models: usize) {
     let view = client.read_view(read).unwrap();
     assert_eq!(
         view.projection().state.agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(2, 2, 0)
+        oasis7_agent_api::world_action::GeoPos::new(2, 2, 0)
     );
     for (lease_id, request_digest) in [
         (origin["lease_id"].as_str().unwrap(), origin_digest),
@@ -500,7 +498,7 @@ pub(super) fn report(fixture: &Fixture, root: &std::path::Path, models: usize) {
                 .iter()
                 .any(|lease| lease.lease_id == lease_id
                     && lease.request_digest == request_digest
-                    && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled)
+                    && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled)
         );
     }
     let memory: serde_json::Value =

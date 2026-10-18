@@ -281,7 +281,7 @@ fn terminal_agent_chat_waits_past_ack_for_reply_or_error() {
         event: oasis7::simulator::WorldEvent {
             id: 1,
             time: 8,
-            kind: oasis7::simulator::WorldEventKind::AgentSpoke {
+            kind: oasis7_simulator::WorldEventKind::AgentSpoke {
                 agent_id: "agent-0".to_string(),
                 location_id: "loc-1".to_string(),
                 message: "reply".to_string(),
@@ -371,7 +371,7 @@ fn pure_api_negotiates_canonical_chat_with_shipped_viewer() {
     use oasis7::world_service::{WorldIdentity, client::WorldServiceClientConfig};
     use std::sync::{Arc, Mutex};
     let private = fixed_private_key_hex(73);
-    let mut config = ViewerRuntimeLiveServerConfig::new(oasis7::simulator::WorldScenario::Minimal);
+    let mut config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);
     config.world_id = "canonical-cli-fixture".into();
     config.world_service = Some(WorldServiceClientConfig {
         formal_read_trust: None,

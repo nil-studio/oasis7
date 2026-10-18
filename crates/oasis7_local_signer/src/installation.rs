@@ -11,12 +11,7 @@ use crate::local_fs::{
 };
 use crate::types::{INSTALLATION_SCHEMA, InstallationConfig};
 
-#[cfg(target_os = "macos")]
-pub const INSTALLATION_CONFIG_PATH: &str = "/private/etc/oasis7/local-signer-installation.json";
-#[cfg(target_os = "linux")]
-pub const INSTALLATION_CONFIG_PATH: &str = "/etc/oasis7/local-signer-installation.json";
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub const INSTALLATION_CONFIG_PATH: &str = "";
+pub use oasis7_signer_protocol::types::INSTALLATION_CONFIG_PATH;
 pub const FIXED_SUDO_PATH: &str = "/usr/bin/sudo";
 const MAX_INSTALLATION_BYTES: usize = 64 * 1024;
 

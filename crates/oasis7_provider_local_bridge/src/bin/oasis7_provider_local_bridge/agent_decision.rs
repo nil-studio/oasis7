@@ -1,8 +1,9 @@
 use oasis7::simulator::{
-    Action, ActionCatalogEntry, AgentQuery, DecisionRequest, DecisionResponse,
-    MicroDepotQuoteRequest, ProviderDecision, ProviderDiagnostics, ProviderErrorEnvelope,
-    ProviderModuleCommand, ProviderTokenUsage, ProviderTraceEnvelope, ProviderTranscriptEntry,
+    ActionCatalogEntry, DecisionRequest, DecisionResponse, ProviderDecision, ProviderDiagnostics,
+    ProviderErrorEnvelope, ProviderModuleCommand, ProviderTokenUsage, ProviderTraceEnvelope,
+    ProviderTranscriptEntry,
 };
+use oasis7_simulator::{Action, AgentQuery, MicroDepotQuoteRequest};
 use oasis7_wasm_abi::AgentCommandResponse;
 use serde::Deserialize;
 use serde_json::{Value, json};

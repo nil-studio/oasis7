@@ -123,7 +123,7 @@ pub fn install_bundled(resource_root: &Path, user_root: &Path) -> Result<CliInst
     }
     let bytes = fs::read(&binary)?;
     if bytes.len() as u64 != c.size_bytes
-        || oasis7_local_signer::identity::sha256_hex(&bytes) != c.sha256
+        || oasis7_signer_protocol::identity::sha256_hex(&bytes) != c.sha256
     {
         return Err(Error::Invalid("Bundled CLI catalog digest mismatch".into()));
     }
@@ -192,16 +192,16 @@ pub fn bundle_identity(resource_root: &Path, user_root: &Path) -> Result<(String
     validate_catalog(&parsed)?;
     let binary = fs::read(resource_root.join("oasis7_context"))?;
     if parsed.file != "oasis7_context"
-        || oasis7_local_signer::identity::sha256_hex(&binary) != parsed.sha256
+        || oasis7_signer_protocol::identity::sha256_hex(&binary) != parsed.sha256
     {
         return Err(Error::Invalid("CLI catalog file digest mismatch".into()));
     }
-    let fingerprint = oasis7_local_signer::identity::sha256_hex(
-        &oasis7_local_signer::identity::canonical_json(&(
+    let fingerprint = oasis7_signer_protocol::identity::sha256_hex(
+        &oasis7_signer_protocol::identity::canonical_json(&(
             user_root,
             parsed.release_id,
             &catalog,
-            oasis7_local_signer::identity::sha256_hex(&binary),
+            oasis7_signer_protocol::identity::sha256_hex(&binary),
         ))
         .map_err(|e| Error::Invalid(e.to_string()))?,
     );
@@ -368,7 +368,7 @@ mod tests {
                 target: current_target(),
                 release_id: "release-one".into(),
                 file: "oasis7_context".into(),
-                sha256: oasis7_local_signer::identity::sha256_hex(bytes),
+                sha256: oasis7_signer_protocol::identity::sha256_hex(bytes),
                 size_bytes: bytes.len() as u64,
             };
             fs::write(
@@ -432,7 +432,7 @@ mod tests {
             target: current_target(),
             release_id: "release-one".into(),
             file: "oasis7_context".into(),
-            sha256: oasis7_local_signer::identity::sha256_hex(bytes),
+            sha256: oasis7_signer_protocol::identity::sha256_hex(bytes),
             size_bytes: bytes.len() as u64,
         };
         fs::write(

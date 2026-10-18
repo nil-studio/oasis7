@@ -54,6 +54,18 @@ assert_key_equals "$sdk_output" scope all
 assert_key_equals "$sdk_output" run_all true
 assert_reason_contains "$sdk_output" "shared_wasm_pipeline:crates/oasis7_wasm_sdk/src/lib.rs"
 
+# Artifact ownership moved with Runtime; each module set keeps its exact scope.
+for module in m1 m4 m5; do
+  for artifact in "${module}_builtin_module_ids.txt" "${module}_builtin_modules.sha256" "${module}_builtin_modules.identity.json"; do
+    output="$(plan_for_path "crates/oasis7_runtime/src/world/artifacts/$artifact")"
+    assert_key_equals "$output" scope partial
+    assert_key_equals "$output" selected_module_sets "$module"
+  done
+done
+output="$(plan_for_path crates/oasis7_runtime/src/world/artifacts/builtin_module_manifest_map.txt)"
+assert_key_equals "$output" scope all
+assert_key_equals "$output" selected_module_sets m1,m4,m5
+
 unrelated_output="$(plan_for_path doc/engineering/project.md)"
 assert_key_equals "$unrelated_output" scope skip
 assert_key_equals "$unrelated_output" run_all false

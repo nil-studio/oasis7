@@ -168,7 +168,7 @@ fn provider_dispatch_http_restart_fence_issues_one_request() {
     }
 
     let world_id = "http-dispatch-marker-world";
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime(
             world_id,

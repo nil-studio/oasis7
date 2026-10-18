@@ -5,6 +5,8 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
+oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_launcher_config = { version = "0.1.0", path = "../oasis7_launcher_config" }
 oasis7 = { path = "../oasis7", default-features = false }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }

@@ -80,7 +80,7 @@ fn real_tcp_hosted_act_unpublished_original_replays_exactly_once_canonically() {
 
 #[test]
 fn real_tcp_hosted_settlement_unpublished_original_replays_exactly_once_canonically() {
-    use oasis7::runtime::{CognitionLeaseQuoteV1, CognitionLeaseRequestV1};
+    use oasis7_runtime::{CognitionLeaseQuoteV1, CognitionLeaseRequestV1};
     let fixture = Fixture::with_controlled_commits(true);
     let registration = fixture.delegation();
     fixture.client.submit(registration.clone()).unwrap();
@@ -115,10 +115,10 @@ fn real_tcp_hosted_settlement_unpublished_original_replays_exactly_once_canonica
                     "qa-request",
                     CognitionLeaseQuoteV1::new("qa-quote", "cognition_units", 1).with_authority(
                         "owner-a",
-                        oasis7::runtime::COGNITION_RESOURCE_VERSION_V1,
+                        oasis7_runtime::COGNITION_RESOURCE_VERSION_V1,
                         "provider_cognition",
                         "agent_turn",
-                        oasis7::runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
+                        oasis7_runtime::COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
                         authority,
                         world
                             .current_cognition_runtime_binding()

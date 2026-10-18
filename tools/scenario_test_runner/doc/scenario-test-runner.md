@@ -8,7 +8,7 @@
 ## 范围
 
 ### In Scope
-- 独立工具：`tools/scenario_test_runner`（独立 Cargo 项目）。
+- 场景工具：`tools/scenario_test_runner`（根 Cargo workspace 成员，使用根锁文件，直接依赖 `oasis7_simulator`）。
 - 场景文件格式（YAML/JSON）：可选 `scenario` 或 `init`，可选 `WorldConfig`，含基础断言。
 - CLI：按单文件或目录批量执行，输出可读的通过/失败摘要。
 - 内置断言：agents/locations 数量、必含 IDs、小行星碎片带是否启用、agent->location 位置匹配。

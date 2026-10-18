@@ -83,6 +83,26 @@ class Ownership(unittest.TestCase):
         dependencies = manifest('oasis7_formal_protocol')['dependencies']
         self.assertTrue({'oasis7_distfs', 'oasis7_cas', 'zstd'}.isdisjoint(dependencies))
 
+    def test_signer_protocol_and_client_storage_are_independent_foundations(self):
+        for root, forbidden in (
+            ('oasis7_signer_protocol', {'oasis7_local_signer', 'oasis7_context', 'oasis7_secure_envelope', 'libc', 'nix', 'argon2', 'chacha20poly1305'}),
+            ('oasis7_client_storage', {'oasis7_game_client', 'oasis7', 'oasis7_distfs', 'oasis7_model_provider', 'reqwest'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get('dependencies', {})]
+                tables += [target.get('dependencies', {}) for target in data.get('target', {}).values()]
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+
     def test_client_proof_library_has_no_normal_world_or_node_dependency(self):
         pending, visited = ['oasis7_game_client'], set()
         while pending:

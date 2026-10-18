@@ -8,8 +8,8 @@ use super::{
     formal_live_service::{FormalLiveHistoryResolver, FormalLiveState, PublishedReadState},
 };
 use ed25519_dalek::SigningKey;
-use oasis7::runtime::World;
 use oasis7_distfs::controlled_authority::formal::VerifiedFormalReadAnchorV1;
+use oasis7_runtime::World;
 use serde::{Deserialize, Serialize};
 use std::{
     path::Path,

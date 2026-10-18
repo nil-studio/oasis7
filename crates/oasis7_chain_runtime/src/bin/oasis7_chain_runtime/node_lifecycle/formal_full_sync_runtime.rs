@@ -90,7 +90,7 @@ pub(super) fn supervise(
         .spawn(move || {
             let result = (|| {
                 let mut next_poll = Instant::now();
-                let mut restored_world: Option<oasis7::runtime::World> = None;
+                let mut restored_world: Option<oasis7_runtime::World> = None;
                 while !worker_stop.load(Ordering::SeqCst) {
                     if Instant::now() >= next_poll {
                         drop(restored_world.take());

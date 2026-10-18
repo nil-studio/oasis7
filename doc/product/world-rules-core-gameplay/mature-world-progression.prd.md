@@ -163,9 +163,9 @@ Trace ID: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：局部工业阶段/杠杆分类投影存在，未核清成熟世界独立行动→区域后果→新能力→下一决策的正式可玩链。
+- 实现与验证依据：已核当前默认工业分支、snapshot和M5 meta：可用动作筛选与世界反馈真实存在，但local_need/区域价值/回访理由由action-id静态模板产生；累计meta points并不等于成熟区域贡献及有限影响。 [branch](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/viewer/runtime_live/branch_commitment.rs#L8-L168)；[snapshot](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L124-L246)；[dispatch](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478)；[bootstrap](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/bootstrap_gameplay.rs#L14-L99)；[emit](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L25-L254)；[meta-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/governance_meta_publication.rs#L496-L550)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
+- 核对日期与基线：2026-10-17；需求PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
+- 剩余范围：仍需追清真实区域需求/贡献producer、结算到新增选择/恢复弹性/议价或区域用途的authority，以及玩家归因、独立路线和回访consumer。当前默认分支没有该结算闭合，不把未知custom artifact推为不存在。
 
 - 性质：`目标要求`
 - 适用条件：玩家完成首次持续能力后，在已有组织、治理和历史的成熟世界继续游玩。
@@ -201,11 +201,11 @@ Trace ID: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182
 Trace ID: O7-REQ-7e2cd84b-9145-4e2f-b3c2-f9c451cec6c5
 
 - 系统设计状态：未核实
-- 实现状态：未核实
+- 实现状态：部分实现
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：未核清自愿费/levy 的授权、公开账目、到期复核和无效征费原子拒绝，及独立成长/通行/恢复不被隐性收费阻断。
+- 实现与验证依据：当前可排他物流服务已具真实报价与费用/路线/替代建议；TransferMaterial按当下容量/余额预验，开始托管费用、完成分配owner并保存receipt，报价不等于结算。这是本条服务费直接子范围，非借GR008状态汇总。 [service-quote](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/logistics.rs#L860-L952)；[service-budget](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/agent_delegation.rs#L388-L417)；[service-producer](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/event_processing/action_to_event_core.rs#L640-L701)；[service-escrow](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L45-L140)；[service-receipt](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L288-L354)；[service-read](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/projection.rs#L675-L690)；[levy-boundary](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/governance_meta_publication.rs#L238-L401)；[bootstrap](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/bootstrap_gameplay.rs#L14-L99)；[emit](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L25-L254)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
+- 核对日期与基线：2026-10-17；需求PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
+- 剩余范围：继续实现/核验levy的charter预授权、用途/受益范围、上限/预算、到期、公开账目、复核及失效原子拒绝；当前普通票局/默认builtin不提供该合同。完整受益/失效/退出解释、独立/基本通行/恢复不被隐性租金阻断及四状态读面仍缺本条完整证据。 实施待安排： [Refs #4861](https://github.com/nil-studio/oasis7/issues/4861)；本状态审查不关闭该任务。
 
 - 性质：`目标要求`
 - 适用条件：区域服务费、维护费或公共品 levy 的提案、授权、结算、失效和复核。
@@ -223,9 +223,9 @@ Trace ID: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：未核清认可来源/用途/期限到有界 hold、容量机会 receipt、失效/撤销及反滥用复核的完整链；信誉数据不等于世界机会已结算。
+- 实现与验证依据：已正向追到social fact生命周期以及默认economic overlay的合同去重→MetaGrant→points/achievement/tier→Viewer事件。上述真实机制不具本条认可来源/地域用途/期限→容量机会申领与receipt消费者，不能以social/合同去重或meta累积分数代签。 [social](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_simulator/src/kernel/social.rs#L397-L645)；[meta-producer](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_builtin_wasm_modules/m5_gameplay_economic_overlay/src/lib.rs#L116-L230)；[meta-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/governance_meta_publication.rs#L496-L550)；[meta-state](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/gameplay_state.rs#L220-L233)；[meta-read](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/viewer/runtime_live/mapping.rs#L477-L490)；[dispatch](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478)；[bootstrap](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/bootstrap_gameplay.rs#L14-L99)；[emit](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L25-L254)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
+- 核对日期与基线：2026-10-17；需求PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
+- 剩余范围：尚需核清generic认可authority和入口：相称来源/范围用途期限复核、preview/pending/hold/当前条件重验、单次receipt分配、失效保历史/独立恢复、不可转让叠加与声明反滥用规则；当前已核meta链只写累计进度，不推未知外部部署不存在。
 
 - 性质：`目标要求`
 - 适用条件：可核验的贡献、信誉或区域历史被用于成熟世界中的未来机会、候选资格、可见度、协作邀请、有限优先级或容量申领。
@@ -243,9 +243,9 @@ Trace ID: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：未取得同候选/窗口的全部 source/sink、关键变化、治理影响因果审计；工业单链守恒或局部 green 不能代签长期经济健康。
+- 实现与验证依据：内部OC审计已真实从权威supply/发行/财库记录计算source/sink与告警，longrun内部API消费告警并能拒绝；这不是仅存在audit字段。但已核调用链未确立同候选/证据窗口的成熟世界产品审计入口，缺epoch记录还被读为0，不能当缺证hold。 [oc-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/main_token_monetary_publication.rs#L390-L459)；[oc-audit](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/main_token_economy_audit.rs#L8-L100)；[longrun](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/operability_release_gate.rs#L8-L142)；[audit-tests](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/tests/operability_release_gate.rs#L1-L98)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
+- 核对日期与基线：2026-10-17；需求PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
+- 剩余范围：核清正式CLI/服务/发布审计消费者及World epoch与候选/root/证据窗口对应；补齐所有适用非levy资源source/sink、关键变化和治理影响因果链，缺失/冲突/过期blocked/hold与保留缺口的补证重核。现有内部OC子机制不作为整卡未实现，也不在适用入口未清时升级部分实现。
 
 - 性质：`边界要求`
 - 适用条件：同一候选版本和证据窗口内，对成熟世界长期经济健康、候选门禁或公开 claim 输入进行产品审计。

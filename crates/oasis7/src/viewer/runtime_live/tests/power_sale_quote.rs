@@ -58,7 +58,7 @@ fn runtime_power_sale_quote_is_seller_session_bound_signed_deterministic_and_map
         .world
         .set_agent_resource_balance(
             seller_agent_id.as_str(),
-            crate::simulator::ResourceKind::Electricity,
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
             15,
         )
         .expect("seed seller electricity");

@@ -96,11 +96,15 @@ impl VerifiedAuthorityV1 {
 impl InitialActivationBodyV1 {
     pub fn validate(&self) -> Result<(), FormalError> {
         self.authority.verify_policy(&self.recovery_policy)?;
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1 | 2)
             || self.authority.epoch != 1
             || self.authority.valid_from_position != 1
             || self.authority.predecessor_authority_id.is_some()
-            || self.artifact_roots.len() != 8
+            || self.artifact_roots.len() != if self.schema_version == 2 { 9 } else { 8 }
+            || self
+                .artifact_roots
+                .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+                != (self.schema_version == 2)
             || self.artifact_roots.contains_key(&ArtifactRole::Input)
         {
             return Err(invalid("initial formal authorization boundary/roots"));

@@ -1,10 +1,11 @@
 //! Application-only provider exercise: no node directory or execution driver handle.
 use super::*;
-use oasis7::simulator::{MemoryWriteIntent, WorldScenario};
+use oasis7::simulator::MemoryWriteIntent;
 use oasis7::viewer::{
     ViewerLiveDecisionMode, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
 };
 use oasis7::world_service::client::WorldServiceAgentSignerConfig;
+use oasis7_simulator::WorldScenario;
 
 pub(super) fn verify_provider_closure(public_client: &RemoteWorldServiceClient) {
     let mut connection = public_client.config().clone();
@@ -24,7 +25,7 @@ pub(super) fn verify_provider_closure(public_client: &RemoteWorldServiceClient) 
             .join("provider-closure-lineage.json"),
     );
     let mut server = ViewerRuntimeLiveServer::new(config).unwrap();
-    let action = oasis7::simulator::Action::MoveAgent {
+    let action = oasis7_simulator::Action::MoveAgent {
         agent_id: "agent-a".into(),
         to: "runtime:2:2:0".into(),
     };
@@ -105,14 +106,14 @@ pub(super) fn verify_provider_closure(public_client: &RemoteWorldServiceClient) 
         .unwrap();
     assert_eq!(
         view.projection().state.agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(2, 2, 0)
+        oasis7_agent_api::world_action::GeoPos::new(2, 2, 0)
     );
     assert!(
         view.projection()
             .cognition_leases
             .iter()
             .any(
-                |lease| lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                |lease| lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
                     && lease.settled_amount > 0
             ),
         "canonical lease settlement missing"

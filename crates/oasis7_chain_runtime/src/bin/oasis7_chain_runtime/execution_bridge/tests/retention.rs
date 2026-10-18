@@ -11,10 +11,10 @@ use super::super::{bridge_committed_heights, driver::NodeRuntimeExecutionDriver}
 use super::*;
 use std::collections::BTreeSet;
 
-use oasis7::runtime::BlobStore;
-use oasis7::runtime::{LocalCasStore, World as RuntimeWorld};
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::BlobStore;
+use oasis7_runtime::LocalCasStore;
 use oasis7_wasm_abi::ModuleOutput;
 use oasis7_wasm_executor::FixedSandbox;
 
@@ -87,7 +87,7 @@ fn execution_checkpoint_cadence_trims_old_manifests_and_clears_record_refs() {
 fn bridge_committed_heights_persists_sparse_checkpoint_at_default_interval() {
     let dir = temp_dir("execution-bridge-default-checkpoint");
     let store = LocalCasStore::new(dir.join("store"));
-    let mut world = RuntimeWorld::new();
+    let mut world = oasis7::runtime_host::world::new();
     let mut sandbox = FixedSandbox::succeed(ModuleOutput {
         new_state: None,
         effects: Vec::new(),
@@ -330,7 +330,7 @@ fn execution_bridge_retention_maintenance_fails_for_missing_required_refs() {
 fn bridge_committed_heights_sweeps_archive_refs_outside_default_hot_window() {
     let dir = temp_dir("execution-bridge-default-retention-sweep");
     let store = LocalCasStore::new(dir.join("store"));
-    let mut world = RuntimeWorld::new();
+    let mut world = oasis7::runtime_host::world::new();
     let mut sandbox = FixedSandbox::succeed(ModuleOutput {
         new_state: None,
         effects: Vec::new(),
@@ -949,7 +949,7 @@ fn retention_reconciliation_is_marker_driven_across_restart() {
         records_dir.clone(),
         storage_root.clone(),
         state.clone(),
-        RuntimeWorld::new(),
+        oasis7::runtime_host::world::new(),
         Box::new(FixedSandbox::succeed(ModuleOutput {
             new_state: None,
             effects: Vec::new(),
@@ -975,7 +975,7 @@ fn retention_reconciliation_is_marker_driven_across_restart() {
         records_dir,
         storage_root,
         state,
-        RuntimeWorld::new(),
+        oasis7::runtime_host::world::new(),
         Box::new(FixedSandbox::succeed(ModuleOutput {
             new_state: None,
             effects: Vec::new(),

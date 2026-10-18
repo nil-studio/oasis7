@@ -4,7 +4,6 @@
 use super::super::*;
 use super::{CheckpointParent, HotBody, PrivateRoot, Store};
 use ed25519_dalek::SigningKey;
-use oasis7::runtime::{ChainResourceDerivationContext, PolicySet, ReleaseSecurityPolicy};
 use oasis7_distfs::controlled_authority::{
     formal::{
         coordinator::FormalCoordinator,
@@ -18,6 +17,7 @@ use oasis7_distfs::controlled_authority::{
     },
     replicated_protocol::EndpointRole,
 };
+use oasis7_runtime::{ChainResourceDerivationContext, PolicySet, ReleaseSecurityPolicy};
 use serde_json::Value;
 use std::{
     fs,
@@ -110,7 +110,7 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         fixtures::h(10),
         fixtures::h(11),
     );
-    let world = oasis7::runtime::World::from_snapshot(snapshot, world.journal().clone())
+    let world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
         .map_err(|error| format!("restore handoff genesis World: {error:?}"))?;
 
     let mut definition = seed_anchor.authority().definition().clone();
@@ -120,7 +120,7 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         directory_fingerprint(&primary_data).map_err(|error| error.to_string())?;
     definition.replica.instance.storage_fingerprint =
         directory_fingerprint(&replica_data).map_err(|error| error.to_string())?;
-    let state_root = oasis7::runtime::blake3_hex(
+    let state_root = oasis7_runtime::blake3_hex(
         &serde_cbor::to_vec(&world.snapshot()).map_err(|error| error.to_string())?,
     );
     let bootstrap = crate::execution_bridge_real_tests::real_execution_bridge::formal_initial::InitialNodeBootstrapV1 {

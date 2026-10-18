@@ -1,11 +1,6 @@
 use super::cli::TrafficProfile;
 use super::{build_chain_status_payload, release_security_policy_for_storage_profile};
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::runtime::{
-    Manifest, ModuleAbiContract, ModuleActivation, ModuleArtifactIdentity, ModuleChangeSet,
-    ModuleKind, ModuleLimits, ModuleManifest, ModuleRole, ModuleSubscription,
-    ModuleSubscriptionStage, PolicySet, ProposalDecision, ReleaseSecurityPolicy, World,
-};
 use oasis7::simulator::RuntimePerfSnapshot;
 use oasis7_node::{
     GossipTrafficMetricsSnapshot, Libp2pReachabilitySnapshot, NodeConsensusSnapshot,
@@ -14,6 +9,11 @@ use oasis7_node::{
 };
 use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole};
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::{
+    Manifest, ModuleAbiContract, ModuleActivation, ModuleArtifactIdentity, ModuleChangeSet,
+    ModuleKind, ModuleLimits, ModuleManifest, ModuleRole, ModuleSubscription,
+    ModuleSubscriptionStage, PolicySet, ProposalDecision, ReleaseSecurityPolicy, World,
+};
 use oasis7_wasm_abi::{
     ModuleCallFailure, ModuleCallRequest, ModuleOutput, ModuleSandbox, ModuleTickLifecycleDirective,
 };
@@ -593,7 +593,7 @@ fn build_chain_status_payload_warns_when_transfer_lifecycle_failures_cross_thres
 #[test]
 fn build_chain_status_payload_surfaces_persisted_module_tick_routing_metrics() {
     let dir = temp_dir("module-routing-status");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     install_tick_module(&mut world);
     let mut sandbox = CountingSandbox::default();
     world
@@ -646,7 +646,7 @@ fn build_chain_status_payload_surfaces_persisted_module_tick_routing_metrics() {
 #[test]
 fn build_chain_status_payload_warns_when_module_tick_routing_is_degraded() {
     let dir = temp_dir("module-routing-observability-alert");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     install_tick_module(&mut world);
     world.save_to_dir(&dir).expect("save execution world");
     let snapshot_path = dir.join("snapshot.json");
@@ -686,7 +686,7 @@ fn build_chain_status_payload_warns_when_module_tick_routing_is_degraded() {
 #[test]
 fn build_chain_status_payload_does_not_warn_for_historical_module_tick_miss_after_recovery() {
     let dir = temp_dir("module-routing-observability-historical-miss");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     install_tick_module(&mut world);
     world.save_to_dir(&dir).expect("save execution world");
     let snapshot_path = dir.join("snapshot.json");
@@ -724,7 +724,7 @@ fn build_chain_status_payload_does_not_warn_for_historical_module_tick_miss_afte
 #[test]
 fn build_chain_status_payload_does_not_claim_persisted_module_tick_duration_degradation() {
     let dir = temp_dir("module-routing-observability-one-slow-route");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     install_tick_module(&mut world);
     world.save_to_dir(&dir).expect("save execution world");
     let snapshot_path = dir.join("snapshot.json");
@@ -764,7 +764,7 @@ fn build_chain_status_payload_does_not_claim_persisted_module_tick_duration_degr
 #[test]
 fn build_chain_status_payload_warns_for_sustained_slow_live_module_tick_routes() {
     let dir = temp_dir("module-routing-observability-sustained-slow-live");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     install_tick_module(&mut world);
     let mut sandbox = SlowRecurringTickSandbox::default();
     for _ in 0..4 {

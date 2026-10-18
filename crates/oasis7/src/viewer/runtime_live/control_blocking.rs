@@ -1,6 +1,7 @@
 use super::*;
 use crate::runtime::{AgentIntentV2, WorldEventBody as RuntimeWorldEventBody};
-use crate::simulator::{ChunkRuntimeConfig, WorldKernel};
+use crate::simulator::WorldKernel;
+use oasis7_simulator::ChunkRuntimeConfig;
 
 fn canonical_player_intent_status(status: &str) -> Option<&'static str> {
     match status.trim() {
@@ -353,8 +354,9 @@ impl ViewerRuntimeLiveServer {
             }
         }
 
-        let micro_depot_facilities =
-            WorldKernel::micro_depot_player_facility_snapshots_from_model(&model);
+        let projection_kernel = WorldKernel::with_model(self.snapshot_config.clone(), model);
+        let model = projection_kernel.model();
+        let micro_depot_facilities = projection_kernel.micro_depot_player_facility_snapshots();
         // A shared runtime/provider fault remains visible even when this
         // connection also has a rejected private request. Successful world
         // progress is the fallback when there is no scoped request feedback.
@@ -450,7 +452,7 @@ impl ViewerRuntimeLiveServer {
             chunk_generation_schema_version: CHUNK_GENERATION_SCHEMA_VERSION,
             time: runtime_state.time,
             config: self.snapshot_config.clone(),
-            model,
+            model: projection_kernel.into_model(),
             runtime_snapshot: Some(runtime_snapshot),
             player_gameplay: Some(player_gameplay),
             chain_resource_manifest,

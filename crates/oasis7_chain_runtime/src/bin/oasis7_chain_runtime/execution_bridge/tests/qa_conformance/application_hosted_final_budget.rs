@@ -69,7 +69,7 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
                     .values()
                     .any(|lease| {
                         lease.request_digest == digest
-                            && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                            && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
                     });
                 let continuation = world
                     .active_cognition_continuations()
@@ -272,11 +272,11 @@ pub(super) fn report(
             if continuation_id == selected["continuation_id"].as_str().unwrap()))
         })
         .unwrap();
-    let receipt: oasis7::runtime::CognitionBudgetConsumptionV1 =
+    let receipt: oasis7_runtime::CognitionBudgetConsumptionV1 =
         serde_json::from_value(consume.receipt.clone()).unwrap();
     assert_eq!(
         receipt.status,
-        oasis7::runtime::ContinuationStatusV1::Completed
+        oasis7_runtime::ContinuationStatusV1::Completed
     );
     assert_eq!(receipt.remaining_budget.value, 0);
     assert!(
@@ -284,7 +284,7 @@ pub(super) fn report(
             .active_cognition_continuations()
             .unwrap()
             .iter()
-            .all(|entry| entry.status == oasis7::runtime::ContinuationStatusV1::Consumed),
+            .all(|entry| entry.status == oasis7_runtime::ContinuationStatusV1::Consumed),
         "only historical consumed predecessors may remain"
     );
     assert!(world.cognition_in_flight_wakes().unwrap().is_empty());

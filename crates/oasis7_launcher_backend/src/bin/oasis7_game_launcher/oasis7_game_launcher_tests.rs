@@ -24,10 +24,11 @@ use super::{
     viewer_dev_dist_candidates,
 };
 use oasis7::simulator::ProviderExecutionMode;
-use oasis7::simulator::{WorldConfig, WorldModel, WorldSnapshot};
+use oasis7::simulator::WorldSnapshot;
 use oasis7::viewer::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
 use oasis7_launcher_config::DEFAULT_CHAIN_REPLICATION_BOOTSTRAP_PEERS;
 use oasis7_proto::storage_profile::StorageProfile;
+use oasis7_simulator::{WorldConfig, WorldModel};
 
 #[path = "provider_lineage_tests.rs"]
 mod provider_lineage_tests;

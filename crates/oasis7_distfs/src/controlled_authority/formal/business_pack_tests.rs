@@ -263,3 +263,32 @@ fn registered_readback_rejects_other_uid_writable_cas_even_with_valid_hash() {
     assert!(read_object_durable_once(&path, &id, &markers).is_err());
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn retry_registers_durable_objects_after_interrupted_retention_publication() {
+    let (dir, writes) = fixture();
+    super::physical::initialize(&dir).unwrap();
+    let first = &writes[0];
+    // Reproduce publication completed before its retention ledger update.
+    super::physical::persist(&dir, &[(first.digest.clone(), first.bytes.clone())]).unwrap();
+    assert_eq!(super::physical::roots::count(&dir).unwrap(), 0);
+    // A mixed retry must register both existing and newly published objects.
+    persist(&dir, &writes).unwrap();
+    let (ids, _, complete) =
+        super::physical::roots::page(&dir, &super::physical::roots::start(), 1024).unwrap();
+    assert!(complete);
+    for write in &writes {
+        assert!(ids.contains(&write.digest));
+    }
+    // An entirely existing retry must repair an unpublished ledger as well.
+    let (other, _) = fixture();
+    super::physical::initialize(&other).unwrap();
+    super::physical::persist(&other, &[(first.digest.clone(), first.bytes.clone())]).unwrap();
+    persist(&other, std::slice::from_ref(first)).unwrap();
+    let (ids, _, complete) =
+        super::physical::roots::page(&other, &super::physical::roots::start(), 1024).unwrap();
+    assert!(complete);
+    assert_eq!(ids, vec![first.digest.clone()]);
+    fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(other).unwrap();
+}

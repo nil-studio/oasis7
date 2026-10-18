@@ -13,44 +13,31 @@
 mod agent;
 pub(crate) mod agent_api_compat;
 mod agent_intent_summary;
-mod asteroid_fragment;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_pilot;
 #[cfg(not(target_arch = "wasm32"))]
 mod async_agent_runner;
-mod chunking;
 mod cognition_policy;
 mod cognition_response_identity;
 mod continuous_agent_budget;
 mod continuous_agent_harness;
 mod decision_provider;
-mod frag_spawn;
-mod fragment_physics;
-mod init;
-mod init_module_visual;
-mod kernel;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod llm_agent;
 mod llm_defaults;
 mod memory;
 #[cfg(not(target_arch = "wasm32"))]
 mod model_provider;
-mod module_visual;
-mod native_resolution;
 pub(crate) mod persist;
-mod power;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 mod provider_loopback_http;
 mod runner;
 pub(crate) mod runtime_perf;
-mod scenario;
-mod social;
 #[cfg(not(target_arch = "wasm32"))]
 mod turn_engine;
-mod types;
-mod world_model;
 
 #[cfg(test)]
 mod tests;
@@ -69,7 +56,6 @@ pub use agent_intent_summary::{
     AgentIntentStatusV1, AgentIntentSummaryError, AgentIntentSummaryTemplateV1,
     AgentIntentSummaryV1, canonical_agent_intent_summary,
 };
-pub use asteroid_fragment::generate_fragments;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
@@ -82,10 +68,6 @@ pub use async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
     AsyncTurnLifecycle, AsyncWorldEffect, AsyncWorldProgress, RuntimeReceiptReadbackHandleV1,
     RuntimeReceiptReadbackVerifier,
-};
-pub use chunking::{
-    CHUNK_SIZE_X_CM, CHUNK_SIZE_Y_CM, CHUNK_SIZE_Z_CM, ChunkBounds, ChunkCoord, chunk_bounds,
-    chunk_coord_of, chunk_coords, chunk_grid_dims, chunk_seed,
 };
 pub use cognition_policy::{
     ContinuationAuthorityContextV1, ContinuationBudgetProgressV1, ContinuationBudgetV1,
@@ -123,24 +105,28 @@ pub use decision_provider::{
     ProviderObservation, ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage,
     ProviderTraceEnvelope, ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
-pub use fragment_physics::{
+pub use oasis7_simulator::ChunkRuntimeConfig;
+pub use oasis7_simulator::generate_fragments;
+pub use oasis7_simulator::{
+    AgentSpawnConfig, AsteroidFragmentInitConfig, LocationSeedConfig, OriginLocationConfig,
+    PowerPlantSeedConfig, WorldInitConfig, WorldInitError, WorldInitReport, build_world_model,
+};
+pub use oasis7_simulator::{
+    CHUNK_SIZE_X_CM, CHUNK_SIZE_Y_CM, CHUNK_SIZE_Z_CM, ChunkBounds, ChunkCoord, chunk_bounds,
+    chunk_coord_of, chunk_coords, chunk_grid_dims, chunk_seed,
+};
+pub use oasis7_simulator::{
     CM3_PER_M3, CompoundComposition, CuboidSizeCm, FragmentBlock, FragmentBlockField,
     FragmentCompoundKind, FragmentPhysicalProfile, GridPosCm, MIN_BLOCK_EDGE_CM, infer_element_ppm,
     mass_grams_from_volume_density, synthesize_fragment_budget, synthesize_fragment_profile,
 };
-pub use init::{
-    AgentSpawnConfig, AsteroidFragmentInitConfig, LocationSeedConfig, OriginLocationConfig,
-    PowerPlantSeedConfig, WorldInitConfig, WorldInitError, WorldInitReport, build_world_model,
-    initialize_kernel,
-};
-pub use kernel::ChunkRuntimeConfig;
-pub(crate) use kernel::default_schedule_recipe_readiness;
+pub(crate) fn default_schedule_recipe_readiness(
+    recipe_id: &str,
+    batches: i64,
+) -> Option<oasis7_simulator::RecipeResourceCost> {
+    oasis7_simulator::WorldKernel::new().recipe_resource_cost(recipe_id, batches)
+}
 
-pub use kernel::{
-    Observation, ObservedAgent, ObservedLocation, ObservedModuleArtifactRecord,
-    ObservedModuleLifecycleState, ObservedModuleMarketState, ObservedPowerMarketState,
-    ObservedSocialState, WorldKernel,
-};
 #[cfg(not(target_arch = "wasm32"))]
 pub use llm_agent::{
     LlmAgentBehavior, LlmAgentBuildError, LlmAgentConfig, LlmClientError,
@@ -170,13 +156,41 @@ pub use model_provider::{
     ModelProviderResponse, ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry,
     ModelProviderTurn, ModelProviderUsage,
 };
-pub use module_visual::{ModuleVisualAnchor, ModuleVisualEntity};
-pub use native_resolution::{
+pub use oasis7_simulator::{
+    Action, ActionEnvelope, ActionId, ActionSubmitter, AgentId, AssetId,
+    CHUNK_GENERATION_SCHEMA_VERSION, CM_PER_KM, ChunkResourceBudget,
+    DEFAULT_ELEMENT_RECOVERABILITY_PPM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY,
+    DEFAULT_VISIBILITY_RANGE_CM, ElementBudgetError, ElementComposition, FacilityId,
+    FragmentElementKind, FragmentRefillPreview, FragmentResourceBudget, JOURNAL_VERSION,
+    LocationId, LocationProfile, MaterialKind, ModuleInstallTarget, PPM_BASE, PowerOrderSide,
+    RefineQuote, ResourceKind, ResourceOwner, ResourceStock, SNAPSHOT_VERSION, ScheduleQuote,
+    StockError, WorldEventId, WorldTime,
+};
+pub use oasis7_simulator::{
+    Agent, AgentActivityProjectionV1, AgentExecutionDebugContext, AgentKinematics,
+    AgentPromptProfile, Asset, AssetKind, AsteroidFragmentConfig, BoundaryReservation, ChunkState,
+    EconomyConfig, Factory, FragmentResourceError, InstalledModuleState, Location,
+    MaterialDistributionStrategy, MaterialRadiationFactors, MaterialWeights,
+    ModuleArtifactBidState, ModuleArtifactListingState, ModuleArtifactState, PhysicsConfig,
+    PhysicsParameterSpec, PowerOrderBookState, PowerOrderState, RegionalInfrastructure,
+    SpaceConfig, ThermalStatus, WorldConfig, WorldModel, physics_parameter_specs,
+};
+pub use oasis7_simulator::{
     CmMappingRule, NativeResolutionDeclaration, NativeResolutionKind, NativeResolutionValue,
     RUNTIME_NATIVE_RESOLUTIONS, RoundingRule, fragment_block_native_resolution,
     native_resolution_by_subsystem, runtime_native_resolutions,
 };
-pub(crate) use oasis7_agent_api::world_quote::canonical_recipe_base_duration_ticks;
+pub use oasis7_simulator::{ModuleVisualAnchor, ModuleVisualEntity};
+pub use oasis7_simulator::{
+    Observation, ObservedAgent, ObservedLocation, ObservedModuleArtifactRecord,
+    ObservedModuleLifecycleState, ObservedModuleMarketState, ObservedPowerMarketState,
+    ObservedSocialState,
+};
+pub use oasis7_simulator::{ScenarioSpecError, WorldScenario, WorldScenarioSpec};
+pub use oasis7_simulator::{
+    SocialAdjudicationDecision, SocialChallengeState, SocialEdgeLifecycleState, SocialEdgeState,
+    SocialFactImpactQuote, SocialFactLifecycleState, SocialFactState, SocialStake,
+};
 pub use persist::{
     PersistError, PlayerAgentClaimOwnedSnapshot, PlayerAgentClaimQuoteSnapshot,
     PlayerAgentClaimSnapshot, PlayerGameplayAction, PlayerGameplayCausalityKind,
@@ -202,38 +216,14 @@ pub use runner::{
     AgentQuota, AgentRunner, AgentStats, AgentTickResult, RateLimitPolicy, RateLimitState,
     RegisteredAgent, RunnerLogEntry, RunnerLogKind, RunnerMetrics, SkippedReason,
 };
-pub use scenario::{ScenarioSpecError, WorldScenario, WorldScenarioSpec};
-pub use social::{
-    SocialAdjudicationDecision, SocialChallengeState, SocialEdgeLifecycleState, SocialEdgeState,
-    SocialFactImpactQuote, SocialFactLifecycleState, SocialFactState, SocialStake,
-};
 #[cfg(not(target_arch = "wasm32"))]
 pub use turn_engine::{
     RuntimeReadbackProof, TurnEngine, TurnEngineError, TurnEngineEvent, TurnEnginePhase,
     TurnRequest,
 };
-pub use types::{
-    Action, ActionEnvelope, ActionId, ActionSubmitter, AgentId, AssetId,
-    CHUNK_GENERATION_SCHEMA_VERSION, CM_PER_KM, ChunkResourceBudget,
-    DEFAULT_ELEMENT_RECOVERABILITY_PPM, DEFAULT_MOVE_COST_PER_KM_ELECTRICITY,
-    DEFAULT_VISIBILITY_RANGE_CM, ElementBudgetError, ElementComposition, FacilityId,
-    FragmentElementKind, FragmentRefillPreview, FragmentResourceBudget, JOURNAL_VERSION,
-    LocationId, LocationProfile, MaterialKind, ModuleInstallTarget, PPM_BASE, PowerOrderSide,
-    RefineQuote, ResourceKind, ResourceOwner, ResourceStock, SNAPSHOT_VERSION, ScheduleQuote,
-    StockError, WorldEventId, WorldTime,
-};
-pub use world_model::{
-    Agent, AgentActivityProjectionV1, AgentExecutionDebugContext, AgentKinematics,
-    AgentPromptProfile, Asset, AssetKind, AsteroidFragmentConfig, BoundaryReservation, ChunkState,
-    EconomyConfig, Factory, FragmentResourceError, InstalledModuleState, Location,
-    MaterialDistributionStrategy, MaterialRadiationFactors, MaterialWeights,
-    ModuleArtifactBidState, ModuleArtifactListingState, ModuleArtifactState, PhysicsConfig,
-    PhysicsParameterSpec, PowerOrderBookState, PowerOrderState, RegionalInfrastructure,
-    SpaceConfig, ThermalStatus, WorldConfig, WorldModel, physics_parameter_specs,
-};
 
 // Re-export power system types
-pub use power::{
+pub use oasis7_simulator::{
     AgentPowerState, AgentPowerStatus, ConsumeReason, PlantStatus, PowerConfig, PowerEvent,
     PowerPlant, PowerSaleQuote, PowerSurvivalQuote,
 };
@@ -243,7 +233,7 @@ pub use runtime_perf::{
 };
 
 // Re-export event types from kernel
-pub use kernel::{
+pub use oasis7_simulator::{
     ChunkGenerationCause, KernelRuleCost, KernelRuleDecision, KernelRuleDecisionMergeError,
     KernelRuleModuleContext, KernelRuleModuleInput, KernelRuleModuleOutput, KernelRuleVerdict,
     MICRO_DEPOT_DEBIT_AMOUNT_CRITICAL, MICRO_DEPOT_DEBIT_AMOUNT_HIGH, MICRO_DEPOT_DEBIT_AMOUNT_LOW,
@@ -254,7 +244,16 @@ pub use kernel::{
     MicroDepotInstallQuote, MicroDepotPlayerContext, MicroDepotPlayerFacilitySnapshot,
     MicroDepotPressureClass, MicroDepotProposal, MicroDepotProposalResourceDebit,
     MicroDepotQuotePreview, MicroDepotRegionContext, MicroDepotResourceDebit, MicroDepotStatus,
-    PowerOrderFill, PromptUpdateOperation, RejectReason, WorldEvent, WorldEventKind,
+    PowerOrderFill, PromptUpdateOperation, RejectReason, WorldEventKind,
     compute_micro_depot_proposal_hash, evaluate_micro_depot_quote_with_module,
     merge_kernel_rule_decisions,
 };
+
+pub mod archive;
+pub use archive::WorldSnapshotExtensions;
+pub use oasis7_simulator::{KernelEvent, KernelJournal, KernelSnapshot};
+
+mod kernel_host;
+pub use archive::WorldEvent;
+pub use kernel_host::{WorldKernel, initialize_kernel};
+pub use oasis7_simulator::WorldKernel as NativeKernel;

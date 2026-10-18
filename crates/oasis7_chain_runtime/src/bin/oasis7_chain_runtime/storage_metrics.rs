@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
-use oasis7::runtime::LocalCasStore;
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::LocalCasStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -601,7 +601,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use oasis7::runtime::{World as RuntimeWorld, measure_directory_storage_bytes};
+    use oasis7::node_points_observation::measure_directory_storage_bytes;
     use oasis7_proto::storage_profile::StorageProfile;
 
     use super::super::{
@@ -863,7 +863,7 @@ mod tests {
         fs::create_dir_all(paths.execution_world_dir.as_path())
             .expect("create execution world dir");
 
-        let world = RuntimeWorld::new();
+        let world = oasis7::runtime_host::world::new();
         world
             .save_to_dir(paths.execution_world_dir.as_path())
             .expect("initial save should succeed");

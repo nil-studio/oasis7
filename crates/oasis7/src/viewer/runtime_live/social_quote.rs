@@ -4,7 +4,7 @@ use super::control_plane::{
 use super::session_policy::map_session_policy_error_code;
 use super::support::send_response;
 use super::*;
-use crate::simulator::{ResourceKind, ResourceOwner, SocialStake, WorldJournal, WorldKernel};
+use crate::simulator::{WorldJournal, WorldKernel};
 use crate::viewer::auth::{
     verify_adjudicate_social_fact_quote_auth_proof, verify_declare_social_edge_quote_auth_proof,
     verify_publish_social_fact_quote_auth_proof, verify_revoke_social_fact_quote_auth_proof,
@@ -17,6 +17,8 @@ use crate::viewer::protocol::{
     RevokeSocialFactQuotePreflight, RevokeSocialFactQuoteRequest, SocialAdjudicationDecision,
     SocialContactQuotePreflight, SocialContactQuoteRequest,
 };
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{ResourceOwner, SocialStake};
 use std::collections::HashMap;
 
 impl ViewerRuntimeLiveServer {
@@ -109,10 +111,10 @@ impl ViewerRuntimeLiveServer {
         );
         let decision = match request.decision {
             SocialAdjudicationDecision::Confirm => {
-                crate::simulator::SocialAdjudicationDecision::Confirm
+                oasis7_simulator::SocialAdjudicationDecision::Confirm
             }
             SocialAdjudicationDecision::Retract => {
-                crate::simulator::SocialAdjudicationDecision::Retract
+                oasis7_simulator::SocialAdjudicationDecision::Retract
             }
         };
         let quote = WorldKernel::with_model(self.snapshot_config.clone(), model)
@@ -414,7 +416,7 @@ impl ViewerRuntimeLiveServer {
         );
         let mut simulator_event_ids = HashMap::new();
         let journal = WorldJournal {
-            version: crate::simulator::JOURNAL_VERSION,
+            version: oasis7_simulator::JOURNAL_VERSION,
             events: self
                 .world
                 .journal()

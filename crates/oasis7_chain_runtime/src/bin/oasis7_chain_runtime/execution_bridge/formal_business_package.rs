@@ -1,6 +1,5 @@
 //! Runtime interpretation of the shared profile-2 business envelope.
 use super::controlled_capture as capture;
-use oasis7::runtime::World;
 use oasis7::world_service::formal_result::FormalBusinessResultTreeV1;
 use oasis7_distfs::controlled_authority::{
     formal::{
@@ -9,6 +8,7 @@ use oasis7_distfs::controlled_authority::{
     },
     replicated_protocol::{ArtifactRole, ClosedRecord},
 };
+use oasis7_runtime::World;
 pub(super) struct EmptyBusinessReader;
 impl BusinessIndexNodeReader for EmptyBusinessReader {
     fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {

@@ -1,5 +1,4 @@
 use super::{CliOptions, run_import};
-use oasis7::runtime::World;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -75,7 +74,7 @@ fn import_fails_closed_while_live_world_writer_lock_is_held() {
     let root = temp_dir();
     let world_dir = root.join("world");
     std::fs::create_dir_all(&root).expect("create fixture root");
-    let mut world = World::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world.step().expect("seed observable world state");
     world.save_to_dir(&world_dir).expect("seed world directory");
     let manifest_path = root.join("public-manifest.json");
@@ -114,7 +113,8 @@ fn import_fails_closed_while_live_world_writer_lock_is_held() {
         files_before,
         "failed import must not mutate any world-directory byte"
     );
-    let restored = World::load_from_dir(&world_dir).expect("reload untouched world");
+    let restored =
+        oasis7::runtime_host::world::load_from_dir(&world_dir).expect("reload untouched world");
     assert_eq!(restored.snapshot(), snapshot_before);
     assert_eq!(restored.journal(), &journal_before);
     let _ = std::fs::remove_dir_all(root);

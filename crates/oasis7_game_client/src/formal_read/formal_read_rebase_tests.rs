@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
-    let (mut world, trust, origin, _) = actual_world_initial_fixture();
+    let (mut world, trust, origin, _) = protocol_initial_fixture();
     let mut current_anchor = origin.clone();
     let mut active = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
     let stale_cas = active.replay_cursor().unwrap();
@@ -14,8 +14,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     for index in 1..=33 {
         previous_anchor = current_anchor.clone();
         previous_world = world.clone();
-        let (next_world, next_anchor, proof) =
-            actual_world_successor_fixture(&current_anchor, world);
+        let (next_world, next_anchor, proof) = protocol_successor_fixture(&current_anchor, world);
         let old_anchor = active.anchor_ref().unwrap();
         let (mut request, mut reply) = response(
             &next_world,
@@ -43,7 +42,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     );
     let minimum = last.unwrap();
     let expected = active.replay_cursor().unwrap();
-    let make_fresh = |world: &oasis7::runtime::World,
+    let make_fresh = |world: &fixtures::protocol_world::ProtocolWorld,
                       anchor: &VerifiedFormalReadAnchorV1,
                       steps: Vec<FormalReadStepV1>| {
         let mut fresh = FormalReadVerifier::new(&trust, origin.clone()).unwrap();
@@ -81,7 +80,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     let mut fork_world = previous_world.clone();
     fork_world.step().unwrap();
     let (fork_world, fork_anchor, fork_proof) =
-        actual_world_successor_fixture(&previous_anchor, fork_world);
+        protocol_successor_fixture(&previous_anchor, fork_world);
     let mut fork_steps = steps[..32].to_vec();
     fork_steps.push(FormalReadStepV1::Commit(Box::new(fork_proof)));
     let fork = make_fresh(&fork_world, &fork_anchor, fork_steps);
@@ -121,7 +120,7 @@ fn formal_cursor_rebase_across_33_cuts_requires_exact_ancestry_and_cache_cas() {
     // The independent network read may select a newer publication. It must
     // retain the old exact minimum, and only its own new cut may be exported.
     let minimum = reply.version.commit.clone();
-    let (new_world, new_anchor, new_proof) = actual_world_successor_fixture(&current_anchor, world);
+    let (new_world, new_anchor, new_proof) = protocol_successor_fixture(&current_anchor, world);
     let mut newer_steps = steps;
     newer_steps.push(FormalReadStepV1::Commit(Box::new(new_proof)));
     let newer = make_fresh(&new_world, &new_anchor, newer_steps);

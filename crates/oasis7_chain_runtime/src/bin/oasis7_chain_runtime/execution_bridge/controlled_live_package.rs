@@ -3,11 +3,11 @@ use super::{
     ExecutionBridgeRecord, ExecutionExternalEffectMaterialization, controlled_capture as capture,
     execution_hash::ExecutionHashPayload, to_cbor,
 };
-use oasis7::runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, blake3_hex};
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     ArtifactObject, ArtifactRole, ClosedRecord, FixedTrust,
 };
 use oasis7_node::{NodeLocalExecutionContinuation, compute_consensus_action_root};
+use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -351,10 +351,10 @@ fn validate_transition_inner(
         None
     } else {
         Some((
-            World::from_snapshot(before.clone(), before_journal.clone())
+            oasis7::runtime_host::world::from_snapshot(before.clone(), before_journal.clone())
                 .map_err(|e| format!("live predecessor restore: {e:?}"))?
                 .with_release_security_policy(release_policy.clone()),
-            World::from_snapshot(after.clone(), after_journal.clone())
+            oasis7::runtime_host::world::from_snapshot(after.clone(), after_journal.clone())
                 .map_err(|e| format!("live candidate restore: {e:?}"))?,
         ))
     };

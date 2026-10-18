@@ -2,7 +2,8 @@ use super::industrial_progression::{
     expect_player_gameplay, setup_industrial_gameplay_with_completed_jobs,
 };
 use super::*;
-use crate::simulator::{PlayerGameplayGoalKind, ResourceKind};
+use crate::simulator::PlayerGameplayGoalKind;
+use oasis7_agent_api::world_action::ResourceKind;
 
 #[test]
 fn runtime_gameplay_snapshot_binds_a_deterministic_first_delivery_preview_to_each_midloop_branch() {

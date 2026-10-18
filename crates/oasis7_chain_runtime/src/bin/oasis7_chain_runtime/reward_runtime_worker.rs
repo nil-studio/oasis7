@@ -1,3 +1,4 @@
+use oasis7::node_points_observation::measure_directory_storage_bytes;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,14 +8,14 @@ use std::thread;
 use std::time::Duration;
 
 use oasis7::observability::emit_stderr_or_event;
-use oasis7::runtime::{
-    Action as RuntimeAction, BlobStore, LocalCasStore, NodePointsConfig,
-    NodePointsRuntimeCollector, NodePointsRuntimeCollectorSnapshot, NodePointsRuntimeHeuristics,
-    NodePointsRuntimeObservation, ProtocolPowerReserve, RewardAssetConfig,
-    RewardSignatureGovernancePolicy, World as RuntimeWorld, measure_directory_storage_bytes,
-};
 use oasis7_distfs::StorageChallengeProbeCursorState;
 use oasis7_node::{NodeRole, NodeRuntime, PosConsensusStatus};
+use oasis7_runtime::{
+    Action as RuntimeAction, BlobStore, LocalCasStore, NodePointsConfig,
+    NodePointsRuntimeCollector, NodePointsRuntimeCollectorSnapshot, NodePointsRuntimeHeuristics,
+    ProtocolPowerReserve, RewardAssetConfig, RewardSignatureGovernancePolicy,
+    World as RuntimeWorld,
+};
 use serde::Serialize;
 use tracing::Level;
 
@@ -246,7 +247,7 @@ fn reward_runtime_loop(
             }
         };
 
-    let mut reward_world = RuntimeWorld::new_production_hardened();
+    let mut reward_world = oasis7::runtime_host::world::new_production_hardened();
     reward_world.set_reward_asset_config(config.reward_asset_config.clone());
     reward_world.set_reward_signature_governance_policy(RewardSignatureGovernancePolicy {
         require_mintsig_v2: true,
@@ -300,11 +301,12 @@ fn reward_runtime_loop(
         let observed_at_unix_ms = super::now_unix_ms();
         let effective_storage_bytes =
             measure_directory_storage_bytes(config.storage_root.as_path());
-        let mut observation = NodePointsRuntimeObservation::from_snapshot(
-            &snapshot,
-            effective_storage_bytes,
-            observed_at_unix_ms,
-        );
+        let mut observation =
+            oasis7::node_points_observation::node_points_observation_from_snapshot(
+                &snapshot,
+                effective_storage_bytes,
+                observed_at_unix_ms,
+            );
         if snapshot.role == NodeRole::Storage {
             match collect_distfs_challenge_report_with_config(
                 config.storage_root.as_path(),
@@ -591,7 +593,7 @@ fn ensure_distfs_probe_seed_blob(
 #[cfg(test)]
 mod tests {
     use super::ensure_distfs_probe_seed_blob;
-    use oasis7::runtime::LocalCasStore;
+    use oasis7_runtime::LocalCasStore;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 

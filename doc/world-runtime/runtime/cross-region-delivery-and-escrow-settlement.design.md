@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | 运输与 tariff | runtime PRD 记录 transfer/transit、路线预留、损耗、tariff escrow 与一次运输 receipt。 | 保留现有兼容通路；运输 receipt 不自动升级为商业交付凭据。 | [执行矩阵](../prd.md#industrial-execution-status-and-authority-matrix) / runtime_engineer |
 | 商业交付与 escrow | 完整合同状态、目的地保管和所有权关联未验证。 | 独立物流/保管/所有权状态、里程碑账本及原子提交。 | 本设计目标；尚无完整实现审计 / runtime_engineer |
-| 玩家读面与恢复 | 现有报价测试只覆盖对应运输范围。 | 同候选跨 surface、重启、replay 与争议恢复验收。 | [运输报价测试](../../../crates/oasis7/src/runtime/tests/logistics_transfer_quote.rs)；完整合同仍未验证 / qa_engineer |
+| 玩家读面与恢复 | 现有报价测试只覆盖对应运输范围。 | 同候选跨 surface、重启、replay 与争议恢复验收。 | [运输报价测试](../../../crates/oasis7_runtime/src/tests/logistics_transfer_quote.rs)；完整合同仍未验证 / qa_engineer |
 
 ## 4. 边界与结构
 

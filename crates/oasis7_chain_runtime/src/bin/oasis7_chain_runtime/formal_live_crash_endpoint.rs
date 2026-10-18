@@ -16,6 +16,31 @@ impl CrashBoundaryFormalEndpoint {
     }
 }
 impl FormalDurabilityEndpoint for CrashBoundaryFormalEndpoint {
+    fn stage_native_environment(
+        &mut self,
+        descriptor: &native_environment::NativeExecutionEnvironmentV1,
+        chunks: &[NativeEnvironmentChunkBytesV1],
+    ) -> Result<(), FormalError> {
+        self.inner.stage_native_environment(descriptor, chunks)
+    }
+    fn advance_native_environment_verification(
+        &mut self,
+        descriptor: &native_environment::NativeExecutionEnvironmentV1,
+    ) -> Result<NativeEnvironmentVerificationProgressV1, FormalError> {
+        self.inner
+            .advance_native_environment_verification(descriptor)
+    }
+
+    fn verify_published_closure(
+        &mut self,
+        request: &str,
+        digest: &str,
+    ) -> Result<
+        oasis7_distfs::controlled_authority::formal::coordinator::FormalPublishedClosureReceiptV1,
+        FormalError,
+    > {
+        self.inner.verify_published_closure(request, digest)
+    }
     fn install_recovery_frozen(
         &mut self,
         certificate: FormalFrozenCertificateV1,

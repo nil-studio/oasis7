@@ -1,11 +1,11 @@
 use super::build_chain_status_payload;
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7::simulator::RuntimePerfSnapshot;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, NodeConsensusSnapshot, NodeNetworkPolicy,
     NodeReachabilityAutoDetection, NodeRole, NodeSnapshot, NodeUserMode,
 };
 use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole};
+use oasis7_runtime::ReleaseSecurityPolicy;
 use std::path::Path;
 
 pub(super) fn build_minimal_status_payload_with_world_dir_runtime_perf_wasm_traffic_and_observer_error(

@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 import re
 import unittest
@@ -64,6 +65,112 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def test_manual_and_scheduled_selection_stays_explicit_full(self):
+        self.assertIn("if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'",
+                      JOBS['select'])
+        select_step = JOBS['select'].split('      - id: select\n', 1)[1].split(
+            '      - id: formal-select\n', 1)[0]
+        select_script = textwrap.dedent(select_step.split('        run: |\n', 1)[1])
+        formal_step = JOBS['select'].split('      - id: formal-select\n', 1)[1].split(
+            '      - uses:', 1)[0]
+        formal_script = textwrap.dedent(formal_step.split('        run: |\n', 1)[1])
+        for event in ('workflow_dispatch', 'schedule'):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'github-output'
+                result = subprocess.run(
+                    ['bash', '-c', select_script],
+                    cwd=ROOT,
+                    env=dict(os.environ, EVENT_NAME=event, GITHUB_OUTPUT=str(output)),
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                plan_line = next(line for line in output.read_text().splitlines()
+                                 if line.startswith('plan='))
+                plan = json.loads(plan_line.removeprefix('plan='))
+                self.assertEqual(plan, {'scope': 'explicit-full', 'groups': []})
+                output.write_text('')
+                formal_result = subprocess.run(
+                    ['bash', '-c', formal_script],
+                    cwd=ROOT,
+                    env=dict(os.environ, EVENT_NAME=event, GITHUB_OUTPUT=str(output)),
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(formal_result.returncode, 0, formal_result.stderr)
+                self.assertIn('run_formal_process=true', output.read_text().splitlines())
+
+        # Explicit-full builds the shared bundle without activating the
+        # baseline job's PR/push-only range resolver.
+        self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'explicit-full'",
+                      JOBS['oasis7-test-build'])
+        self.assertNotIn("fromJSON(needs.select.outputs.plan).scope == 'explicit-full'",
+                         JOBS['baseline'])
+        self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", JOBS['baseline'])
+
+    def test_explicit_full_gate_requires_event_specific_completion(self):
+        gate = JOBS['explicit-full-gate']
+        condition = gate.split('    runs-on:', 1)[0]
+        self.assertIn('always()', condition)
+        self.assertIn("github.event_name == 'schedule'", condition)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'", condition)
+        self.assertNotIn("inputs.run_mode == 'newapi_bridge_package'", condition)
+        self.assertIn('needs: [select, oasis7-test-build, formal-process, full-regression, candidate-full-regression]', gate)
+        script = textwrap.dedent(gate.split('        run: |\n', 1)[1])
+
+        def run_gate(event, ref, run_mode, overrides=None):
+            values = {
+                'EVENT_NAME': event,
+                'REF': ref,
+                'RUN_MODE': run_mode,
+                'PLAN': '{"scope":"explicit-full","groups":[]}',
+                'SELECT_RESULT': 'success',
+                'TEST_BUILD_RESULT': 'success',
+                'FORMAL_RESULT': 'success',
+                'FULL_RESULT': 'skipped',
+                'CANDIDATE_RESULT': 'skipped',
+            }
+            values.update(overrides or {})
+            return subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                                  env=dict(os.environ, **values))
+
+        valid_runs = (
+            ('schedule', 'refs/heads/main', '', {'FULL_RESULT': 'success'}),
+            ('workflow_dispatch', 'refs/heads/main', 'full', {'FULL_RESULT': 'success'}),
+            ('workflow_dispatch', 'refs/heads/feature', 'full', {'CANDIDATE_RESULT': 'success'}),
+        )
+        for event, ref, run_mode, overrides in valid_runs:
+            with self.subTest(event=event, ref=ref):
+                result = run_gate(event, ref, run_mode, overrides)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+        for variable in ('SELECT_RESULT', 'TEST_BUILD_RESULT', 'FORMAL_RESULT', 'FULL_RESULT'):
+            for state in ('', 'skipped', 'failure', 'cancelled'):
+                with self.subTest(variable=variable, state=state):
+                    result = run_gate('schedule', 'refs/heads/main', '',
+                                      {'FULL_RESULT': 'success', variable: state})
+                    self.assertNotEqual(result.returncode, 0)
+
+        for state in ('', 'success', 'failure', 'cancelled'):
+            with self.subTest(unexpected_candidate_state=state):
+                result = run_gate('schedule', 'refs/heads/main', '',
+                                  {'FULL_RESULT': 'success', 'CANDIDATE_RESULT': state})
+                self.assertNotEqual(result.returncode, 0)
+        for state in ('', 'skipped', 'failure', 'cancelled'):
+            with self.subTest(missing_or_failed_candidate_state=state):
+                result = run_gate('workflow_dispatch', 'refs/heads/feature', 'full',
+                                  {'CANDIDATE_RESULT': state})
+                self.assertNotEqual(result.returncode, 0)
+        for state in ('', 'success', 'failure', 'cancelled'):
+            with self.subTest(unexpected_main_state=state):
+                result = run_gate('workflow_dispatch', 'refs/heads/feature', 'full',
+                                  {'CANDIDATE_RESULT': 'success', 'FULL_RESULT': state})
+                self.assertNotEqual(result.returncode, 0)
+
+        nonfull = run_gate('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package',
+                           {'FULL_RESULT': 'success'})
+        self.assertNotEqual(nonfull.returncode, 0)
+
     def test_command_center_is_reusable_and_required(self):
         workflow = (ROOT / '.github/workflows/command-center.yml').read_text()
         self.assertIn('  workflow_call:', workflow)
@@ -341,6 +448,9 @@ run_cargo() {
     printf 'BUILD|%s\\n' "$*" >> "$CI_LOG"
     [[ "${FAIL_PHASE:-}" != build ]] || return 47
     printf '{"reason":"compiler-artifact","target":{"name":"oasis7_viewer_live"},"executable":"%s"}\\n' "$VIEWER_BIN"
+  elif [[ "$1" == check ]]; then
+    printf 'CHECK|%s\\n' "$*" >> "$CI_LOG"
+    [[ "${FAIL_PHASE:-}" != check ]] || return 49
   else
     printf 'TEST|%s|VIEWER=%s\\n' "$*" "${PRE2_VIEWER_BINARY:-}" >> "$CI_LOG"
     [[ "${FAIL_PHASE:-}" != test ]] || return 48
@@ -356,6 +466,8 @@ run_cargo() {
             calls = log.read_text().splitlines()
             self.assertEqual(sum(call.startswith('BUILD|') for call in calls), 2)
             self.assertEqual(sum(call.startswith('TEST|') for call in calls), 2)
+            self.assertIn('CHECK|check -p oasis7_agent_api -p oasis7_simulator --target wasm32-unknown-unknown --locked', calls)
+            self.assertTrue(all('-p oasis7_simulator' in call for call in calls if call.startswith('TEST|')))
             for feature in ('test_tier_required', 'test_tier_full,wasmtime,viewer_live_integration'):
                 build_index = next((index for index, call in enumerate(calls)
                                     if call.startswith('BUILD|') and f'--features {feature} ' in call), None)

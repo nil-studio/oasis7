@@ -18,15 +18,15 @@ use oasis7::consensus_action_payload::{
     ConsensusActionPayloadBody, decode_consensus_action_payload,
     sign_main_token_runtime_action_auth,
 };
-use oasis7::runtime::{
-    Action, EconomicContractFulfillmentKind, EconomicContractState, EconomicContractStatus,
-    MainTokenAccountBalance, MainTokenConfig, MainTokenSupplyState, World, WorldState,
-    main_token_account_id_from_node_public_key,
-};
-use oasis7::simulator::ResourceKind;
+use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,
+};
+use oasis7_runtime::{
+    Action, EconomicContractFulfillmentKind, EconomicContractState, EconomicContractStatus,
+    MainTokenAccountBalance, MainTokenConfig, MainTokenSupplyState, WorldState,
+    main_token_account_id_from_node_public_key,
 };
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
@@ -282,7 +282,7 @@ fn seed_world_for_explorer_p1(temp_dir: &Path) {
         },
     );
 
-    let world = World::new_with_state(state);
+    let world = oasis7::runtime_host::world::new_with_state(state);
     world
         .save_to_dir(temp_dir)
         .expect("save seeded world for explorer p1 tests");
@@ -667,7 +667,7 @@ fn preflight_transfer_rejects_restricted_only_balance() {
             .as_nanos()
     ));
     fs::create_dir_all(&temp_dir).expect("create temp dir");
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_main_token_supply(MainTokenSupplyState {
         total_supply: 125,
         circulating_supply: 125,

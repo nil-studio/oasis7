@@ -6,7 +6,7 @@
 
 ## 当前查询入口与范围
 
-完整变体、字段类型、默认值与 serde 表示以 [GovernanceEvent](../../../crates/oasis7/src/runtime/governance.rs)、[WorldEventBody](../../../crates/oasis7/src/runtime/world_event.rs) 及 [AuditEventKind](../../../crates/oasis7/src/runtime/audit.rs) 为准，使用时对齐消费代码的同一版本。
+完整变体、字段类型、默认值与 serde 表示以 [GovernanceEvent](../../../crates/oasis7_runtime/src/governance.rs)、[WorldEventBody](../../../crates/oasis7_runtime/src/world_event.rs) 及 [AuditEventKind](../../../crates/oasis7_runtime/src/audit.rs) 为准，使用时对齐消费代码的同一版本。
 
 2026-10-13 对 `baded561af0808d9d5cb154d8acc68efe54e80db` 的静态核对表明，治理枚举除下面四种历史示例外，还包含 Queued、FinalityEpochSnapshotSet/Removed、EmergencyBrakeActivated/Released、EmergencyVetoed、IdentityPenaltyApplied/Appealed/Resolved、RestrictedStarterClaimAdminRegistryUpdated 及 ValidatorAdmissionSubmitted/Approved/Activated/Revoked。此处用于说明旧例非穷举，不另建一套完整字段权威；不声称已运行导出、回放或 serde round-trip。
 
@@ -79,6 +79,6 @@
 - 因果链通过 `caused_by` 保留 action/effect 关联。
 
 ## 实现锚点
-- `crates/oasis7/src/runtime/governance.rs`
-- `crates/oasis7/src/runtime/world_event.rs`
-- `crates/oasis7/src/runtime/audit.rs`
+- `crates/oasis7_runtime/src/governance.rs`
+- `crates/oasis7_runtime/src/world_event.rs`
+- `crates/oasis7_runtime/src/audit.rs`

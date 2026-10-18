@@ -113,9 +113,11 @@ Trace ID: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264
 - 系统设计依据：[逐账号首次绑定与恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)经专业 REQ/AC 承接同世界首次注册、已绑定账号返回及其 blocked/未知结果的逐入口证据和失败恢复；这是后继设计目标，不是已开放准入。
 - 本次补充系统设计依据：[Viewer 决策模式](../../p2p/viewer-live/oasis7-viewer-live-decision-mode.design.md#vl-des-observer)仅承接direct viewer Script observer/debug 与 launcher/gameplay/release 的证据隔离；其余原剩余范围保留，系统设计仍为部分覆盖，原实现状态和历史核对基线不变。
 - 实现状态：未核实
-- 实现与验证依据：按 AC 分别核对 viewer/pure_api 当前入口及证据，加入 alias/另一模式代签负例；待取得逐入口记录。本次文档核对不证明行为验收；未核清该范围实际实现 PR/测试运行。
-- 核对日期与基线：2026-10-14；需求与专业文档基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；只读文本快照审读；入口和验收范围见上述功能点；未执行运行环境或浏览器验收。
-- 剩余范围：设计：viewer/pure_api 入口的唯一模式、阶段、能力及独立证据表达中首次注册/返回以外的技术承接仍待逐项核清；实现：尚缺对应候选的实现/交付与完整验收证据。
+- 实现与验证依据：release snapshot → 页面阶段/平台展示；Launcher no-LLM guard → viewer URL。 下载 DTO 实际只携带版本/资产；render_mode 固定 viewer；可见网页明确仅验证面，但未形成 phase/capability/evidence 的统一模式事实。 [site/assets/release-candidate.js:3–26](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/assets/release-candidate.js#L3-L26)；[crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs:335–344](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L335-L344)；[crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs:966–985](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L966-L985)；[site/index.html:383–387](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/site/index.html#L383-L387)
+- 核对日期与基线：2026-10-17；源码 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，本轮固定源码/操作记录只读复核；未运行安装、浏览器、模型或业务验收。
+- 剩余范围：primary mode 与适用能力/证据的逐入口显式绑定、pure_api 独立消费者仍未核清。保留未核实；已定位两个真实生产入口的表达边界。
+
+- 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
 <a id="ac-entry-mode-001"></a>
 ### AC-ENTRY-MODE-001：入口证据独立证明模式能力

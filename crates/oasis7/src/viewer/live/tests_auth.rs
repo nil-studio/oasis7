@@ -73,7 +73,7 @@ fn prompt_control_apply_requires_llm_mode() {
     assert!(world.kernel.model().agent_player_bindings.is_empty());
     assert!(!world.kernel.journal().iter().any(|event| matches!(
         event.kind,
-        crate::simulator::WorldEventKind::AgentPromptUpdated { .. }
+        oasis7_simulator::WorldEventKind::AgentPromptUpdated { .. }
     )));
 }
 
@@ -435,10 +435,10 @@ fn agent_chat_upgrades_compat_player_binding_with_public_key() {
                 auth: None,
                 intent_tick: None,
                 intent_seq: None,
-            world_id: None,
-            reorg_epoch: None,
-            authority_scope: None,
-            replaces_intent_id: None,
+                world_id: None,
+                reorg_epoch: None,
+                authority_scope: None,
+                replaces_intent_id: None,
                 canonical_authority: None,
             },
             6,

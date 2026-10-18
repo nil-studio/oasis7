@@ -75,7 +75,7 @@ fn runtime_prompt_control_hosted_local_mock_provider_requires_runtime_context() 
         .replace_provider_backed_runner_for_test("hosted-local-mock-agent")
         .expect("ProviderBacked test actor");
     let error = sidecar
-        .apply_prompt_profile_to_driver(&crate::simulator::AgentPromptProfile {
+        .apply_prompt_profile_to_driver(&oasis7_simulator::AgentPromptProfile {
             agent_id: "hosted-local-mock-agent".to_string(),
             short_term_goal_override: Some("must not project".to_string()),
             ..Default::default()
@@ -115,7 +115,7 @@ fn runtime_prompt_control_hosted_local_mock_provider_rejects_rotated_runtime_bin
         .set_provider_test_binding(rotated_binding);
     let error = server
         .llm_sidecar
-        .apply_prompt_profile_to_driver(&crate::simulator::AgentPromptProfile {
+        .apply_prompt_profile_to_driver(&oasis7_simulator::AgentPromptProfile {
             agent_id,
             short_term_goal_override: Some("must not cross Runtime heads".to_string()),
             ..Default::default()
@@ -211,7 +211,7 @@ fn runtime_prompt_control_hosted_local_mock_provider_refreshes_after_runtime_reb
     );
     server
         .llm_sidecar
-        .apply_prompt_profile_to_driver(&crate::simulator::AgentPromptProfile {
+        .apply_prompt_profile_to_driver(&oasis7_simulator::AgentPromptProfile {
             agent_id,
             short_term_goal_override: Some("new-runtime-head-goal".to_string()),
             ..Default::default()
@@ -231,7 +231,7 @@ fn runtime_prompt_control_hosted_local_mock_provider_requires_initialized_runner
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     sidecar.enable_hosted_local_mock_test_lane();
     let error = sidecar
-        .apply_prompt_profile_to_driver(&crate::simulator::AgentPromptProfile {
+        .apply_prompt_profile_to_driver(&oasis7_simulator::AgentPromptProfile {
             agent_id: "hosted-local-mock-agent".to_string(),
             short_term_goal_override: Some("must not acknowledge without a driver".to_string()),
             ..Default::default()
@@ -596,7 +596,7 @@ fn runtime_prompt_control_hosted_local_mock_missing_context_and_wrong_tuple_fail
         !RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm).supports_prompt_control_result(),
         "valid tuple without an installed Hosted Runtime fixture must remain disabled"
     );
-    let mut empty_world = RuntimeWorld::new();
+    let mut empty_world = crate::runtime_host::world::new();
     let fixture_error = crate::viewer::runtime_live::control_plane::install_hosted_local_mock_test_capability_fixtures(
         &mut empty_world,
         true,

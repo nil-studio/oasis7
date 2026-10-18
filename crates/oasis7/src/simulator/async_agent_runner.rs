@@ -11,6 +11,8 @@
 //! commit.  This keeps the async boundary useful for both Builtin and
 //! ProviderBacked behaviors without granting an actor authority over the
 //! world.
+use super::WorldKernel;
+use super::archive::WorldEvent;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -40,13 +42,13 @@ use super::continuous_agent_harness::{
 use super::decision_provider::{
     ActionCatalogEntry, MemoryWriteIntent, MockDecisionProvider, ProviderBackedAgentBehavior,
 };
-use super::kernel::{WorldEvent, WorldKernel};
-use super::types::WorldTime;
+
 use oasis7_agent_harness::{
     AsyncAgentRunner as HarnessRunner, AsyncAgentRunnerError as HarnessRunnerError,
     AsyncAgentTurnOutcome as HarnessTurnOutcome, AsyncTurnId as HarnessTurnId,
     CompatibilityTurnRequest as HarnessCompatibilityTurnRequest, RuntimeAuthority,
 };
+use oasis7_simulator::WorldTime;
 
 pub(crate) struct CommittedFeedbackMemoryInput<'a> {
     pub(crate) agent: &'a str,
@@ -252,7 +254,7 @@ fn map_harness_error(error: HarnessRunnerError) -> AsyncAgentRunnerError {
 
 fn production_outcome_from_harness(
     turn_id: AsyncTurnId,
-    completion: HarnessTurnOutcome<super::types::Action, AgentQuery>,
+    completion: HarnessTurnOutcome<oasis7_simulator::Action, AgentQuery>,
     result: Option<BehaviorTurnResult>,
     metadata: TurnMetadata,
     cognition_lease: Option<CognitionLeaseV1>,
@@ -325,7 +327,7 @@ struct RuntimeFeedbackReplayMetadata {
 }
 
 type SharedHarnessRunner = HarnessRunner<
-    super::types::Action,
+    oasis7_simulator::Action,
     AgentQuery,
     Observation,
     BehaviorTurnResult,

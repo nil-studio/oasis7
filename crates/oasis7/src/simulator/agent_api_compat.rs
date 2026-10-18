@@ -5,7 +5,8 @@
 //! durable receipt derivation, and world-readback verification stay in their
 //! existing Oasis7-owned paths.
 
-use crate::simulator::{Action, AgentQuery, DecisionRequest, DecisionResponse};
+use crate::simulator::{DecisionRequest, DecisionResponse};
+use oasis7_simulator::{Action, AgentQuery};
 
 #[cfg(test)]
 use super::continuous_agent_harness::MemoryWriteIntentV1;

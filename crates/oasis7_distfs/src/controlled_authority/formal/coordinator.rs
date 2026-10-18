@@ -1,13 +1,43 @@
 //! Writer-side orchestration; receipt keys remain in the two endpoint services.
-use super::{endpoint::*, *};
+use super::{crypto::invalid, endpoint::*, *};
 use crate::controlled_authority::replicated_protocol::{ClosedRecord, EndpointRole};
 
 pub trait FormalDurabilityEndpoint: Send {
+    fn stage_native_environment(
+        &mut self,
+        _descriptor: &native_environment::NativeExecutionEnvironmentV1,
+        _chunks: &[NativeEnvironmentChunkBytesV1],
+    ) -> Result<(), FormalError> {
+        Err(invalid("native environment staging unavailable"))
+    }
+    fn advance_native_environment_verification(
+        &mut self,
+        _descriptor: &native_environment::NativeExecutionEnvironmentV1,
+    ) -> Result<NativeEnvironmentVerificationProgressV1, FormalError> {
+        Err(invalid("native environment verification unavailable"))
+    }
+
+    /// Release only maintenance read pins; this never changes authority,
+    /// qualification, or the logical retention set.
+    fn release_published_closure(&mut self, _candidate_digest: &str) -> Result<(), FormalError> {
+        Ok(())
+    }
     fn install_recovery_frozen(
         &mut self,
         certificate: FormalFrozenCertificateV1,
         material: ClosedRecord,
     ) -> Result<(), FormalError>;
+    /// Independent registered-local typed closure readback. Unsupported adapters
+    /// must fail closed; a qualification receipt alone is not this evidence.
+    fn verify_published_closure(
+        &mut self,
+        _request: &str,
+        _candidate_digest: &str,
+    ) -> Result<FormalPublishedClosureReceiptV1, FormalError> {
+        Err(invalid(
+            "independent published closure readback unavailable",
+        ))
+    }
     fn head(&mut self) -> Result<FormalHeadRefV1, FormalError>;
     fn query(&mut self, request: &str) -> Result<FormalQueryOutcomeV1, FormalError>;
     fn freeze(
@@ -38,7 +68,41 @@ pub trait FormalDurabilityEndpoint: Send {
         proof: FormalQualifiedCommitProofV1,
     ) -> Result<FormalHeadRefV1, FormalError>;
 }
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormalPublishedClosureReceiptV1 {
+    pub candidate_digest: String,
+    pub qualified_proof_digest: String,
+    pub inventory_digest: String,
+    pub logical_objects: u64,
+    pub logical_bytes: u64,
+}
+
 impl FormalDurabilityEndpoint for FileFormalEndpoint {
+    fn stage_native_environment(
+        &mut self,
+        descriptor: &native_environment::NativeExecutionEnvironmentV1,
+        chunks: &[NativeEnvironmentChunkBytesV1],
+    ) -> Result<(), FormalError> {
+        FileFormalEndpoint::stage_native_environment(self, descriptor, chunks)
+    }
+    fn advance_native_environment_verification(
+        &mut self,
+        descriptor: &native_environment::NativeExecutionEnvironmentV1,
+    ) -> Result<NativeEnvironmentVerificationProgressV1, FormalError> {
+        FileFormalEndpoint::advance_native_environment_verification(self, descriptor)
+    }
+
+    fn release_published_closure(&mut self, candidate_digest: &str) -> Result<(), FormalError> {
+        Self::release_published_closure(self, candidate_digest)
+    }
+    fn verify_published_closure(
+        &mut self,
+        request: &str,
+        candidate_digest: &str,
+    ) -> Result<FormalPublishedClosureReceiptV1, FormalError> {
+        Self::verify_published_closure(self, request, candidate_digest)
+    }
     fn install_recovery_frozen(
         &mut self,
         certificate: FormalFrozenCertificateV1,

@@ -347,9 +347,9 @@
 
 产品仅接收[既有事实/决策消费者切片](../../product/world-rules-core-gameplay/prd.md#source-current-goal-impact)；以下既有专业算法与公式原文保持，不由产品句推导新增算法。
 
-当前 [`RefineCompound` 执行路径](../../../crates/oasis7/src/simulator/kernel/actions_core.rs) 从同一 owner 的 `ResourceKind::Data` 扣除投入 `M = compound_mass_g`，再把 `H = hardware_output` 加回该余额。合法成功动作的余额由提交前 `D` 变为 `D - M + H`；`compound` / `hardware` 是该旧动作的输入/产出名称，不是两份独立库存。
+当前 [`RefineCompound` 执行路径](../../../crates/oasis7_simulator/src/kernel/actions_core.rs) 从同一 owner 的 `ResourceKind::Data` 扣除投入 `M = compound_mass_g`，再把 `H = hardware_output` 加回该余额。合法成功动作的余额由提交前 `D` 变为 `D - M + H`；`compound` / `hardware` 是该旧动作的输入/产出名称，不是两份独立库存。
 
-该消费者的目标报价必须比较完整动作前后：对第一工业目标需求 `B`，`hardware_shortfall_before = max(B - D, 0)`，`hardware_shortfall_after = max(B - (D - M + H), 0)`。不得把已扣除投入的 `D - M` 当作动作前余额；`partial_progress` 只有在动作后的净缺口严格缩小且仍大于 0 时才成立，产出 `H > 0` 本身不足以证明推进。当前 [`quote_refine_compound`](../../../crates/oasis7/src/simulator/kernel/actions_refine_quote.rs) 仍以 `D - M` 计算 before，这属于待修实现偏差；本次文档不宣称报价已修复或相关回归已通过。
+该消费者的目标报价必须比较完整动作前后：对第一工业目标需求 `B`，`hardware_shortfall_before = max(B - D, 0)`，`hardware_shortfall_after = max(B - (D - M + H), 0)`。不得把已扣除投入的 `D - M` 当作动作前余额；`partial_progress` 只有在动作后的净缺口严格缩小且仍大于 0 时才成立，产出 `H > 0` 本身不足以证明推进。当前 [`quote_refine_compound`](../../../crates/oasis7_simulator/src/kernel/actions_refine_quote.rs) 仍以 `D - M` 计算 before，这属于待修实现偏差；本次文档不宣称报价已修复或相关回归已通过。
 
 [M4 工业材料合同](../m4/industrial-resource-flow-contract.prd.md#工业与材料) 定义的是 domain 拥有的 `MaterialStack.kind` 标签与材料账本；其 `compound`、`hardware` 不能自动映射为内建 `ResourceKind`。按 M4 账本消费材料时，应使用对应实际材料和账本合同，不能套用本节 legacy Data 余额公式，也不能据本节修改 M4 类型或增加内建资源种类。
 

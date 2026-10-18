@@ -2,7 +2,6 @@ use super::*;
 use crate::viewer::runtime_live::periodic_connection_diagnostic::{ConnectionTrace, TraceSink};
 use crate::world_service::{
     authority, client::WorldServiceClientConfig, projection::WorldServiceProjection,
-    verified_view::VerifiedWorldView,
 };
 use oasis7_client_api::world_service::{
     CHANGES_PATH, CommitRef, EventCursor, ExecutionBinding, ProjectionVersion,
@@ -100,10 +99,7 @@ impl LiveFixture {
         let base_request = fixture_view_request(identity.clone());
         let base_response =
             fixture_view_response(projection.clone(), base_commit, server.world.state().time);
-        server.verified_world_view = Some(
-            VerifiedWorldView::new(base_response, &base_request)
-                .expect("construct initial verified view"),
-        );
+        server.verified_world_view = Some(verified_fixture_assertion(base_response, &base_request));
 
         let service_private_key = hex::encode([9; 32]);
         let (entered_tx, entered_rx) = mpsc::channel();
@@ -663,4 +659,29 @@ fn disabled_trace_keeps_real_snapshot_delivery_and_eof_without_diagnostic_record
     );
     assert!(fixture.sink.observed().is_empty());
     assert_eq!(fixture.sink.attempted(), 0);
+}
+
+fn verified_fixture_assertion(
+    response: oasis7_client_api::world_service::ReadWorldViewResponse<
+        crate::world_service::projection::WorldServiceProjection,
+    >,
+    request: &oasis7_client_api::world_service::ReadWorldViewRequest,
+) -> crate::world_service::verified_view::VerifiedWorldView {
+    use crate::world_service::authority;
+    let path = oasis7_client_api::world_service::VIEW_PATH;
+    let request =
+        authority::sign_read_request(path, request.clone(), &hex::encode([7; 32])).unwrap();
+    let digest = authority::request_digest(path, &request).unwrap();
+    let response =
+        authority::sign_service_response(path, digest, response, &hex::encode([9; 32])).unwrap();
+    let key = authority::sign_read_request("fixture", (), &hex::encode([9; 32]))
+        .unwrap()
+        .subject_public_key;
+    crate::world_service::verified_view::VerifiedWorldView::verify_service_assertion(
+        response,
+        &request,
+        &key,
+        crate::world_service::verified_view::ReadEvidencePolicy::Ordinary,
+    )
+    .unwrap()
 }

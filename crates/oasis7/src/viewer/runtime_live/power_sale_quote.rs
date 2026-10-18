@@ -3,11 +3,12 @@ use super::control_plane::{
 };
 use super::session_policy::map_session_policy_error_code;
 use super::*;
-use crate::simulator::{ResourceOwner, WorldKernel};
+use crate::simulator::WorldKernel;
 use crate::viewer::auth::verify_power_sale_quote_auth_proof;
 use crate::viewer::protocol::{
     GameplayActionError, PowerSaleQuotePreflight, PowerSaleQuoteRequest,
 };
+use oasis7_simulator::ResourceOwner;
 
 impl ViewerRuntimeLiveServer {
     /// Computes the kernel's `SellPower` preflight for the seller bound to the signed session.

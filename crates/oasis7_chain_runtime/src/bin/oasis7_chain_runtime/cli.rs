@@ -15,13 +15,13 @@ use std::str::FromStr;
 
 use oasis7::chain_pos_defaults;
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
-use oasis7::runtime::RewardAssetConfig;
 use oasis7_node::{
     NodeAutoNatStatus, NodeHolePunchViability, NodePublicPortReachability,
     NodeReachabilityAutoDetection, NodeRole, NodeUserMode, PosValidator,
 };
 use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole, PeerReachabilityClass};
 use oasis7_proto::storage_profile::StorageProfile;
+use oasis7_runtime::RewardAssetConfig;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 

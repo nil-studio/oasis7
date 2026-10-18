@@ -172,7 +172,7 @@ fn recovered_committed_replay_requires_exact_authenticated_receipt_lineage() {
         lineage: Some(oasis7_agent_harness::FeedbackHistoryLineage {
             original_envelope_digest: format!("blake3:{}", "b".repeat(64)),
             delivery_state: "acked".into(),
-            receipt_lineage: Some(receipt.agent_api_projection()),
+            receipt_lineage: Some(oasis7_agent_api::RuntimeReceiptLineageV1::from(&receipt)),
         }),
     };
     runner

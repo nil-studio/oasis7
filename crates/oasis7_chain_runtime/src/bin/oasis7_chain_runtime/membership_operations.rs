@@ -21,10 +21,9 @@ pub(super) fn read(
     {
         return Err("membership read is not caught up".into());
     }
-    let root =
-        oasis7::runtime::WorldGovernanceMembershipView::world_state_root_hash(&pinned.world)?;
+    let root = oasis7_runtime::WorldGovernanceMembershipView::world_state_root_hash(&pinned.world)?;
     let scope = verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE;
-    let view = oasis7::runtime::WorldGovernanceMembershipView::read(
+    let view = oasis7_runtime::WorldGovernanceMembershipView::read(
         &pinned.world,
         &pinned.commit,
         &root,

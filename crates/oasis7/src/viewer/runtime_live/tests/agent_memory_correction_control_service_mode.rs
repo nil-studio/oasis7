@@ -199,7 +199,11 @@ fn signed_runtime_agency_controls_fail_closed_in_service_mode_and_preserve_offli
             let before_snapshot = serde_json::to_value(server.world.snapshot()).unwrap();
             let before_journal = serde_json::to_value(server.world.journal()).unwrap();
             let before_cognition = server.world.cognition().clone();
-            let before_root = server.world.current_state_root_hash().unwrap();
+            let before_root = server
+                .world
+                .execution_state_identity()
+                .unwrap()
+                .state_root_hash;
             let denied = server.handle_agency_control_request(request.clone());
             assert_eq!(denied.status, "error", "{denied:?}");
             assert_eq!(
@@ -218,7 +222,14 @@ fn signed_runtime_agency_controls_fail_closed_in_service_mode_and_preserve_offli
                 serde_json::to_value(server.world.journal()).unwrap(),
                 before_journal
             );
-            assert_eq!(server.world.current_state_root_hash().unwrap(), before_root);
+            assert_eq!(
+                server
+                    .world
+                    .execution_state_identity()
+                    .unwrap()
+                    .state_root_hash,
+                before_root
+            );
             assert_eq!(server.world.cognition(), &before_cognition);
             assert!(
                 server
@@ -233,7 +244,7 @@ fn signed_runtime_agency_controls_fail_closed_in_service_mode_and_preserve_offli
             server.config.world_service = None;
             server.config.chain_status_bind = None;
             let offline_command = request.command.clone();
-            let offline = server.handle_agency_control_request(request);
+            let offline = server.handle_agency_control_request(request.clone());
             assert_eq!(
                 offline.status, "ok",
                 "operation={operation_index}: {offline:?}"
@@ -297,7 +308,7 @@ fn signed_runtime_agency_controls_fail_closed_in_service_mode_and_preserve_offli
                 } => {
                     let (actual, _) = server
                         .world
-                        .agent_owner_control_replay(PLAYER_ID, &control_id)
+                        .signed_owner_control_replay(&request, &server.current_owner_authority())
                         .unwrap()
                         .unwrap();
                     assert_eq!(
@@ -322,7 +333,7 @@ fn signed_runtime_agency_controls_fail_closed_in_service_mode_and_preserve_offli
                 } => {
                     let (actual, disposition) = server
                         .world
-                        .agent_owner_control_replay(PLAYER_ID, &control_id)
+                        .signed_owner_control_replay(&request, &server.current_owner_authority())
                         .unwrap()
                         .unwrap();
                     assert_eq!(

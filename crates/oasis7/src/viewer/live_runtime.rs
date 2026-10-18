@@ -13,11 +13,14 @@ use tracing::Level;
 
 use crate::geometry::space_distance_cm;
 use crate::simulator::{
-    initialize_kernel, Action, ActionResult, ActionSubmitter, AgentDecision, AgentDecisionTrace,
-    AgentPromptProfile, AgentRunner, LlmAgentBehavior, LlmAgentBuildError, LlmAgentConfig,
-    OpenAiChatCompletionClient, PromptUpdateOperation, ResourceKind, ResourceOwner, RunnerMetrics,
-    WorldConfig, WorldEvent, WorldEventKind, WorldInitConfig, WorldInitError, WorldKernel,
-    WorldScenario, WorldSnapshot,
+    ActionResult, AgentDecision, AgentDecisionTrace, AgentRunner, LlmAgentBehavior,
+    LlmAgentBuildError, LlmAgentConfig, OpenAiChatCompletionClient, RunnerMetrics, WorldEvent,
+    WorldKernel, WorldSnapshot, initialize_kernel,
+};
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{
+    Action, ActionSubmitter, AgentPromptProfile, PromptUpdateOperation, ResourceOwner, WorldConfig,
+    WorldEventKind, WorldInitConfig, WorldInitError, WorldScenario,
 };
 
 #[path = "live/consensus_bridge.rs"]
@@ -25,15 +28,15 @@ mod consensus_bridge;
 use consensus_bridge::*;
 
 use super::auth::{
-    verify_agent_chat_auth_proof, verify_prompt_control_apply_auth_proof,
-    verify_prompt_control_rollback_auth_proof, PromptControlAuthIntent,
+    PromptControlAuthIntent, verify_agent_chat_auth_proof, verify_prompt_control_apply_auth_proof,
+    verify_prompt_control_rollback_auth_proof,
 };
 use super::protocol::{
-    viewer_event_kind_matches, AgentChatAck, AgentChatError, AgentChatRequest,
-    ControlCompletionAck, ControlCompletionStatus, PromptControlAck, PromptControlApplyRequest,
-    PromptControlCommand, PromptControlError, PromptControlOperation, PromptControlRollbackRequest,
-    ViewerControl, ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse,
-    ViewerStream, VIEWER_PROTOCOL_VERSION,
+    AgentChatAck, AgentChatError, AgentChatRequest, ControlCompletionAck, ControlCompletionStatus,
+    PromptControlAck, PromptControlApplyRequest, PromptControlCommand, PromptControlError,
+    PromptControlOperation, PromptControlRollbackRequest, VIEWER_PROTOCOL_VERSION, ViewerControl,
+    ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse, ViewerStream,
+    viewer_event_kind_matches,
 };
 #[path = "live/live_auth_prompt.rs"]
 mod live_auth_prompt;
@@ -290,8 +293,8 @@ impl ViewerLiveServer {
             };
             let signal_kind = signal.kind();
             let signal_started_at = Instant::now();
-            let action_result: Result<LiveLoopIterationAction, ViewerLiveServerError> = (|| {
-                match signal {
+            let action_result: Result<LiveLoopIterationAction, ViewerLiveServerError> =
+                (|| match signal {
                     LiveLoopSignal::Request(command) => {
                         let was_emitting = session.should_emit_event();
                         let outcome = session.handle_request(
@@ -401,8 +404,7 @@ impl ViewerLiveServer {
                         self.handle_step_request(&mut session, &mut writer, count, request_id)?;
                         Ok(LiveLoopIterationAction::Continue)
                     }
-                }
-            })();
+                })();
             backpressure.record_handled(signal_kind, signal_started_at.elapsed());
             match normalize_live_loop_action_result(action_result) {
                 Ok(LiveLoopIterationAction::Continue) => {}

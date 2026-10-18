@@ -178,20 +178,17 @@ impl ViewerRuntimeLiveServer {
         // Commit the canonical intent before touching the provider or emitting
         // a local echo. A provider timeout must never leave an observable chat
         // side effect whose runtime authority was not persisted.
-        let record_outcome = self
-            .world
-            .record_agent_chat_intent_with_authority(
-                verified.player_id.as_str(),
-                agent_id.as_str(),
-                intent.intent_seq,
-                message.as_str(),
-                authority.clone(),
-            )
-            .map_err(|error| AgentChatError {
-                code: "intent_persistence_failed".to_string(),
-                message: format!("failed to persist canonical agent intent: {error:?}"),
-                agent_id: Some(agent_id.clone()),
-            })?;
+        let mut candidate = self.world.clone();
+        let record_outcome = candidate.record_signed_local_agent_chat(
+            &request,
+            &super::agent_memory_correction::CurrentOwnerAuthority { server: self },
+        );
+        self.world = candidate;
+        let record_outcome = record_outcome.map_err(|error| AgentChatError {
+            code: "intent_persistence_failed".to_string(),
+            message: format!("failed to persist canonical agent intent: {error:?}"),
+            agent_id: Some(agent_id.clone()),
+        })?;
         if record_outcome.is_replay() {
             // A durable replay remains authoritative after sidecar cache loss;
             // suppress duplicate provider and echo effects for the same tuple.
@@ -279,10 +276,8 @@ impl ViewerRuntimeLiveServer {
                     AgentIntentProviderFailureDisposition::Rejected
                 };
                 self.world
-                    .transition_agent_chat_provider_failure_exact(
-                        agent_id.as_str(),
-                        accepted_intent.intent_id.as_str(),
-                        accepted_intent.request_digest.as_str(),
+                    .record_agent_provider_failure(
+                        crate::runtime::AgentIntentReference { agent_id: agent_id.as_str(), intent_id: accepted_intent.intent_id.as_str(), request_digest: accepted_intent.request_digest.as_str() },
                         disposition,
                     )
                     .map_err(|disposition_error| AgentChatError {

@@ -16,7 +16,6 @@ use oasis7::network_tier_manifest::{
     NetworkTierEndpointPolicy, NetworkTierManifest, NetworkTierPromotionPolicy,
     NetworkTierRuntimeRefs, NetworkTierTokenPolicy, NetworkTierValidatorPolicy,
 };
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, LiveAutoNatStatus, LivePublicPortReachability, LiveTransportKind,
     NodeAutoNatStatus, NodeConsensusSnapshot, NodeHolePunchViability, NodeNetworkPolicy,
@@ -24,6 +23,7 @@ use oasis7_node::{
     NodeSnapshot, NodeUserMode, NodeValidatorStakeProofSnapshot,
 };
 use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole, PeerReachabilityClass};
+use oasis7_runtime::ReleaseSecurityPolicy;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;

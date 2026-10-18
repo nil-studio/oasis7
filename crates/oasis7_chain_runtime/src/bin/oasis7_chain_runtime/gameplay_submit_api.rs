@@ -55,7 +55,7 @@ impl GameplayNonceLedger {
 }
 
 struct AuthorizedGameplaySubmit {
-    action: oasis7::runtime::Action,
+    action: oasis7_runtime::Action,
     legacy_auth: Option<oasis7::viewer::VerifiedPlayerAuth>,
 }
 
@@ -184,14 +184,14 @@ fn handle_gameplay_submit(
 
     let submission_origin = match (&runtime_action, authorized.legacy_auth.as_ref()) {
         (
-            oasis7::runtime::Action::ScheduleRecipe {
+            oasis7_runtime::Action::ScheduleRecipe {
                 requester_agent_id,
                 factory_id,
                 recipe_id,
                 ..
             },
             Some(auth),
-        ) => Some(oasis7::runtime::GameplaySubmissionOrigin {
+        ) => Some(oasis7_runtime::GameplaySubmissionOrigin {
             verified_player_id: auth.player_id.clone(),
             public_key: auth.public_key.clone(),
             auth_nonce: auth.nonce,
@@ -233,7 +233,7 @@ fn handle_gameplay_submit(
             return Ok(());
         }
     };
-    let payload_hash = oasis7::runtime::blake3_hex(&payload);
+    let payload_hash = oasis7_runtime::blake3_hex(&payload);
     let action_id = match next_gameplay_action_id() {
         Ok(action_id) => action_id,
         Err(err) => {
@@ -327,7 +327,7 @@ fn authorize_chain_gameplay_submit(
                     )
                 })?;
             Ok(AuthorizedGameplaySubmit {
-                action: oasis7::runtime::Action::CollectDataAuthenticated {
+                action: oasis7_runtime::Action::CollectDataAuthenticated {
                     collector_agent_id: collector_agent_id.to_owned(),
                     electricity_cost: request.electricity_cost,
                     data_amount: request.data_amount,
@@ -343,8 +343,8 @@ fn authorize_chain_gameplay_submit(
 }
 
 fn build_gameplay_submit_action_payload(
-    action: oasis7::runtime::Action,
-    origin: Option<oasis7::runtime::GameplaySubmissionOrigin>,
+    action: oasis7_runtime::Action,
+    origin: Option<oasis7_runtime::GameplaySubmissionOrigin>,
 ) -> Result<Vec<u8>, String> {
     let envelope = match origin {
         Some(origin) => ConsensusActionPayloadEnvelope::from_recipe_submission(action, origin),

@@ -22,6 +22,10 @@
 
 局部增量（2026-10-12，仅 Cargo 拆分）：[#4626](https://github.com/eng-cc/oasis7/pull/4626) 已合入 `133d70e45b71bd062032a734d68be1e290692b2c`，统一生产 cognition memory/continuation 核心并保留 Runtime authority；对应 main Rust [38212520926](https://github.com/eng-cc/oasis7/actions/runs/38212520926) 已成功。本分支正在补支持包 profile 选测隔离，尚未合入或完成 V0。用户确认提速收益已验证；实际自主试玩明确不在此次 Cargo V0 验收范围，不据此宣称实玩通过。该增量不刷新下面其他项目/部署事实的核验时间。
 
+<a id="cc-status-core-crate-extraction"></a>
+
+核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865) 已合入 `665183c94c4d1c5359dfa6b4234db08b4d55bf34`，原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871) 已合入 `3c86ecd24657ee05556694b5ed0d41a470cf7b8e`。完整 Runtime / World Service、客户端证明消费及消费者迁移由草稿 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 承接；本轮核对候选为 `97d3eb99f8cfb09460b8b47940c28c5cc8425b07`，仍在验证、尚未合入。剩余回归与同条件编译影响测量以该 PR 为准，不预设提速比例，不将结构拆分提升为游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。
+
 局部文档更新（2026-10-12，仅 [#4438](https://github.com/eng-cc/oasis7/issues/4438)）：以 `27db6f894bd106e9a4fee9ee3062cd8fd86e1056` 核对 L4 工具链，补齐[构建/驱动、实际 Hosted 会话及结果合同](../../testing/prd.md#l4-build-driver)与[事实/体验判定边界](../../testing/prd.md#l4-evidence-judgment)，同步旧试玩入口。该 Issue 已以 `not_planned` 关闭，作为历史文档承接来源，不再承担新的 runner/scaffold 修复或验收义务；本次没有新试玩或部署结论，不刷新其他条目的核验时间。
 
 | 来源 | 本轮基线 |
@@ -76,6 +80,8 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 来源：[基础设施当前阶段](../../product/world-infrastructure/prd.md#world-infrastructure-current-stage)、[#4363 历史条件](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
 
 2026-10-12 目标设计收敛：[原候选恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 固定执行前完整材料与原请求重放；[正式权威 v1](../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 和 [epoch 接管](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 明确激活、普通证明消费者及旧写者隔离顺序。下一步按这些主责合同实现与验证；现有工程证明、离线 verifier 和本地双目录仍不足以完成正式开放。
+
+存储优化局部候选核对（2026-10-18，仅 [PR #4870](https://github.com/nil-studio/oasis7/pull/4870)）：原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包已在该候选实现并完成局部验证，长历史进程门禁仍待收口。固定小规模对象命名空间样本已测得显著空间收益，同时有读取成本；准确版本、收益与分布见实施 PR。当前没有部署节点，真实独立双故障域与更大规模验收未执行。候选尚未合入，不扩大 main 的已交付或部署结论；下一步按[当前实施与退出门槛](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)修复并完成适用验证，本段不刷新其他主线或环境的核验时间。
 
 ### 2. 真实首产物、阻塞恢复与回访
 

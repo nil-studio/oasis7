@@ -20,6 +20,13 @@ use std::collections::BTreeMap;
 pub trait FormalReadProjection:
     serde::Serialize + serde::de::DeserializeOwned + Clone + std::fmt::Debug
 {
+    fn read_metadata(
+        &self,
+    ) -> Result<oasis7_client_api::world_service_read::WorldServiceProjectionMetadataV1, String>
+    {
+        serde_json::from_value(serde_json::to_value(self).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
+    }
     fn validate_contents(
         response: &ReadWorldViewResponse<Self>,
         request: &ReadWorldViewRequest,

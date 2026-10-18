@@ -2,7 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 #[derive(Default)]
-struct MemoryNodes(BTreeMap<String, Vec<u8>>);
+pub(super) struct MemoryNodes(BTreeMap<String, Vec<u8>>);
 
 impl BusinessIndexNodeReader for MemoryNodes {
     fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
@@ -11,14 +11,14 @@ impl BusinessIndexNodeReader for MemoryNodes {
 }
 
 impl MemoryNodes {
-    fn persist(&mut self, writes: &[BusinessIndexNodeWriteV1]) {
+    pub(super) fn persist(&mut self, writes: &[BusinessIndexNodeWriteV1]) {
         for write in writes {
             self.0.insert(write.digest.clone(), write.bytes.clone());
         }
     }
 }
 
-fn digest(byte: u8) -> String {
+pub(super) fn digest(byte: u8) -> String {
     hex::encode([byte; 32])
 }
 
@@ -30,7 +30,7 @@ fn leaf(key_digest: String, kind: BusinessIndexLeafKindV1, value: u8) -> Busines
     }
 }
 
-fn updates(metadata: u8, outcomes: &[(String, u8)]) -> Vec<BusinessIndexLeafV1> {
+pub(super) fn updates(metadata: u8, outcomes: &[(String, u8)]) -> Vec<BusinessIndexLeafV1> {
     let mut leaves = vec![leaf(
         metadata_key_digest(),
         BusinessIndexLeafKindV1::CommitMetadata,

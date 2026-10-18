@@ -454,9 +454,9 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 
 ### Consumer compatibility: gameplay lifecycle protocol boundary
 
-- Gameplay 生命周期沿用 `validated Action -> DomainEvent -> WorldState` 的 runtime 权威链；动作校验与路由以 `crates/oasis7/src/runtime/world/event_processing.rs` 为准，事件与持久状态以 `crates/oasis7/src/runtime/events.rs` 及 state apply 路径为准。
-- 周期性治理、危机、战争与元进度推进由 `crates/oasis7/src/runtime/world/gameplay_loop.rs` 在 tick 中确定性执行；存在激活的 Gameplay tick module 时先校验并应用其 directive，只有没有激活 Gameplay tick module 时才整体使用 native fallback，激活模块后不会因某类 directive 缺失而逐项回退。具体动作名单、阈值、评分和玩家可读后果不在本 runtime 入口复制。
-- 内建 Gameplay 模块的注册、`ModuleRole::Gameplay` 绑定与 readiness 由 `crates/oasis7/src/runtime/world/bootstrap_gameplay.rs` 和当前回归测试承接。模块存在或 readiness 通过不替代 gameplay 专业域的可玩性与后果可读性验收。
+- Gameplay 生命周期沿用 `validated Action -> DomainEvent -> WorldState` 的 runtime 权威链；动作校验与路由以 `crates/oasis7_runtime/src/world/event_processing.rs` 为准，事件与持久状态以 `crates/oasis7_runtime/src/events.rs` 及 state apply 路径为准。
+- 周期性治理、危机、战争与元进度推进由 `crates/oasis7_runtime/src/world/gameplay_loop.rs` 在 tick 中确定性执行；存在激活的 Gameplay tick module 时先校验并应用其 directive，只有没有激活 Gameplay tick module 时才整体使用 native fallback，激活模块后不会因某类 directive 缺失而逐项回退。具体动作名单、阈值、评分和玩家可读后果不在本 runtime 入口复制。
+- 内建 Gameplay 模块的注册、`ModuleRole::Gameplay` 绑定与 readiness 由 `crates/oasis7_runtime/src/world/bootstrap_gameplay.rs` 和当前回归测试承接。模块存在或 readiness 通过不替代 gameplay 专业域的可玩性与后果可读性验收。
 - Gameplay manifest 必须使用 `ModuleRole::Gameplay` 并携带合法 contract：mode 非空、去空白后唯一，`min_players >= 1`，设置 `max_players` 时必须满足 `max_players >= min_players`；非 Gameplay manifest 不得携带该 contract。register、activate、deactivate、upgrade 都必须对变更后的 active set 预检，同一 `(mode, GameplayModuleKind)` 最多只能有一个 active module；mode 判等统一按[派生 mode key 合同](#gameplay-mode-identity-contract)，不能只在输入校验时 trim。
 - `gameplay_modules()` 与 `gameplay_mode_readiness(mode)` 返回确定排序的 active-set / coverage snapshot；readiness 只表示 runtime operational coverage，不是玩家体验、视觉或发布验收。
 - Base module governance 负责通用 identity、version、artifact、interface/export、subscription、capability 与 limit 校验，只把 Gameplay contract 和变更后 active-set slot 冲突交给 gameplay layer。这是内部实现职责拆分，不创建新的 ABI 或规则语义边界；公开协议仍以本页和 `doc/world-runtime/wasm/wasm-interface.md` 为准。
@@ -483,7 +483,7 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 - Direct raw governance proposal `Approved`, `Queued`, and `Applied` events prepare a full-event-bound proposal replacement before publication. They retain the raw reducer's rejection, queue-validation, and informational applied-hash behavior while keeping the specialized paired approval/queue and governed manifest-application batches unchanged.
 - Direct raw capability admission events with replayable authority proof, agent/system identity, invocation context, budget account, or grant now use a full-event-bound prepared sidecar projection. The four admission maps and derived authorization root publish atomically; legacy unbound authority shapes remain fail-closed, while command commits and effect-receipt closure retain their larger specialized transaction boundaries.
 - Persisted instances retain module identity/version/hash, owner, install target, activation state, and installation time so replay routes by stable instance identity rather than global `module_id` replacement. Governed proposal apply now stages ordered lifecycle events and every touched registry/artifact/schedule/cache/manifest/proposal/journal/consensus projection in a typed prepared batch and publishes only on full success; atomically aligning registry with persisted instance state, recovery/replay, receipt/outbox, and every non-proposal lifecycle entrypoint remains a target transaction contract.
-- Evidence anchors: `crates/oasis7/src/runtime/module_store.rs`, `runtime/error.rs`, `runtime/tests/persistence.rs`, and `runtime/world/module_store_load_transaction_regressions.rs` cover default roundtrip, tamper rejection, legacy no-store load, and late-record atomicity.
+- Evidence anchors: `crates/oasis7_runtime/src/module_store.rs`, `runtime/error.rs`, `runtime/tests/persistence.rs`, and `runtime/world/module_store_load_transaction_regressions.rs` cover default roundtrip, tamper rejection, legacy no-store load, and late-record atomicity.
 
 ## 里程碑
 - M1 (2026-03-03): 完成模块设计 PRD 主体重写与任务改造。

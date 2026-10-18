@@ -87,9 +87,9 @@ Trace ID: O7-REQ-86ed9522-e22d-4706-9b1e-3e1452a9fb3c
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“准入生命周期、权限/tier与固定cadence公平”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
 - 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清准入生命周期、权限/tier与固定cadence公平的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现与验证依据：[bootstrap完整输入与原子安装](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/provider_backed_bootstrap.rs#L19-L80)接受治理finality、identity、grant、invocation与cognition allowance，[catalog消费者](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/capability_catalog.rs#L17-L100)读取当前identity及verified/有效grant；[live撤销](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/capability_authorization.rs#L327-L340)拒绝revoked/superseded。闭合的是治理授权链，尚未核到产品认证证据/tier/试点scope的producer如何生成或限制该输入。[认知调度](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/cognition_scheduler.rs#L635-L676)限制每Agent每tick wake，并不证明认证恢复后的权威action slot公平；[DevLocal生命周期](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/local_test_provider_grant_lifecycle.rs#L18-L36)明确startup-only。本轮未执行验收。
+- 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
+- 剩余范围：待定位认证profile状态authority及正式选择入口、暂停/撤销向new-intent准入和未committed请求重评估的消费者、恢复新scope的显式重确认及同eligible actor/action slot排序。cognition wake配额、普通grant状态或本地启动续期均不作为该产品认证准入的直接交付。
 
 - 要求：provider profile 只有在适用场景、权限、tier 和证据范围内才可被选择或形成新的权威意图来源；所有 provider 共享同一权威 cadence 与 action slots，不因性能、调用量或付费便利获得额外世界机会。
 - 验收：AC-AGENT-LEARNING-001
@@ -112,9 +112,9 @@ Trace ID: O7-REQ-dc313559-e262-478c-8a8d-ee2f9817e5e7
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“训练/认证变化、当前能力与历史及待决重确认”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
 - 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清训练/认证变化、当前能力与历史及待决重确认的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现与验证依据：[授权持久状态字段](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/capability_authorization.rs#L166-L196)与[授权root](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/capability_authorization_state.rs#L71-L115)保存grant/revocation/context/nonce/receipt/effect link；[模块command成本证据](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/cognition_command.rs#L19-L69)绑定host quote及module/version，不是训练成本或认证provenance。[普通命令幂等执行](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/cognition_command.rs#L74-L145)与live grant消费者已经存在，但训练完成/失败/到期/重训事件→当前scope→旧待决重新确认/关联新请求→玩家历史读取仍未核到。本轮静态审读，不将QA复签或grant verified当作产品认证。
+- 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
+- 剩余范围：具体未知为训练/认证provenance、成本、模块来源和复核/重训/撤销状态的生产writer与持久权威；相应有效scope及受影响行动reader、成功后不自动恢复旧待决的确认入口、责任/已结算结果保留。普通nonce/receipt历史和治理finality不能代签。
 
 - 要求：训练、认证、模块和重训只能在新证据明确支持的范围内改变能力；复核、失败、到期或撤销期间必须显示当前有效范围与受影响行动，并保留既有 provenance、责任和已结算结果。
 - 验收：AC-AGENT-LEARNING-002

@@ -44,7 +44,7 @@
   - `agents: AgentSpawnConfig`
   - `power_plants: Vec<PowerPlantSeedConfig>`
 - `WorldScenario` 的场景能力与覆盖测试以[场景文件主矩阵](scenario-files.prd.md#场景测试覆盖矩阵2026-02-06)为唯一完整清单；本页只解释初始化用途，不再维护第二份能力表。
-  - 场景定义文件：`crates/oasis7/scenarios/*.json`（编译期嵌入）。
+  - 场景定义文件：`crates/oasis7_simulator/scenarios/*.json`（编译期嵌入）。
   - 只有 `power_bootstrap` 显式声明默认发电设施；`twin_region_bootstrap`、`asteroid_fragment_bootstrap` 的默认设施数均为 0。初始电力资源库存不等于发电设施。
 
 ### 场景使用建议

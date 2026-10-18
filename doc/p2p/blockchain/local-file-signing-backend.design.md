@@ -64,6 +64,9 @@ Static recheck: `a0b6ab12ad14c6c881e48cecdb4adbdb322dd30e`, 2026-10-15. The hist
 
 ## 4. 边界与结构
 
+`oasis7_signer_protocol` owns bounded IPC framing, wire types, domain-separated request identities and pure payload validation. It has no key store, host privilege, installation or process-management dependency. `oasis7_local_signer` retains custody, authorization decisions, filesystem checks and worker/admin execution, and reexports existing protocol paths for source compatibility. Extraction does not change schemas, signed bytes or grant semantics.
+
+
 ### des-local-signer-install
 
 Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3. The local negative obligation from [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) is that installation, caller/task labels, grants and file signatures confer no blockchain/governance authority. Fresh success remains INSTALLED_UNREADY without key/policy/grant. This is not proof of validator admission, governance rotation, network role isolation or a compromised-service/full-topology scenario.

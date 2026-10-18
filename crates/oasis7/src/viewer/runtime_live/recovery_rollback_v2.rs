@@ -24,6 +24,7 @@ impl ViewerRuntimeLiveServer {
         &mut self,
         request: AuthoritativeRollbackV2Request,
     ) -> Result<AuthoritativeRecoveryAck<u64>, AuthoritativeRecoveryError> {
+        let retry_approval = request.approval.clone();
         let intent = request.approval.intent;
         if intent.schema_version != 2 {
             return Err(recovery_error(
@@ -58,45 +59,11 @@ impl ViewerRuntimeLiveServer {
                 None,
             )
         })?;
-        let retry_approval = crate::runtime::RollbackAuthorizationEnvelope {
-            intent: crate::runtime::RollbackIntent {
-                schema_version: intent.schema_version,
-                rollback_ticket: intent.rollback_ticket.clone(),
-                snapshot_hash: intent.rollback_checkpoint.snapshot_hash.clone(),
-                snapshot_journal_len: intent.rollback_checkpoint.snapshot_journal_len,
-                target_journal_len: intent.replay_target.target_journal_len,
-                target_journal_commitment: Some(intent.replay_target.journal_commitment.clone()),
-                expected_target_state_root: intent.replay_target.expected_target_state_root.clone(),
-                target_batch_id: Some(intent.replay_target.batch_id.clone()),
-                reason: intent.reason.clone(),
-                issued_at_ms: intent.issued_at_ms,
-                expires_at_ms: intent.expires_at_ms,
-                nonce: intent.nonce.clone(),
-            },
-            signatures: request
-                .approval
-                .signatures
-                .iter()
-                .map(|signature| crate::runtime::RollbackApprovalSignature {
-                    authority_id: signature.authority_id.clone(),
-                    role: match signature.role {
-                        crate::viewer::protocol::RollbackAuthorityRole::OnCall => {
-                            crate::runtime::RollbackAuthorityRole::OnCall
-                        }
-                        crate::viewer::protocol::RollbackAuthorityRole::Governance => {
-                            crate::runtime::RollbackAuthorityRole::Governance
-                        }
-                    },
-                    signature_scheme: signature.signature_scheme.clone(),
-                    signature_hex: signature.signature_hex.clone(),
-                })
-                .collect(),
-        };
+
         if self
             .world
-            .authenticate_committed_rollback_retry(
+            .is_authenticated_committed_rollback_v2_retry(
                 &retry_approval,
-                &canonical_v2_payload,
                 super::recovery_receipt::current_unix_time_ms(),
             )
             .map_err(|err| {
@@ -213,7 +180,11 @@ impl ViewerRuntimeLiveServer {
             rollback_checkpoint.snapshot.clone(),
             replay_target.journal.clone(),
         )
-        .and_then(|world| world.current_state_root_hash())
+        .and_then(|world| {
+            world
+                .execution_state_identity()
+                .map(|identity| identity.state_root_hash)
+        })
         .map_err(|err| {
             super::recovery_receipt::rollback_runtime_error(
                 err,

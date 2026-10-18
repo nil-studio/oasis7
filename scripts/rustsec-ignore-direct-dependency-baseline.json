@@ -3,7 +3,7 @@
   "owner": "repository_health_engineer",
   "reviewed_at": "2026-10-17",
   "expires": "2026-10-31",
-  "rationale": "Ratchet exact direct Cargo manifest declarations for the three remaining RustSec ignore crates; the 30-day review window requires revalidation of dependency scope and direct manifests by 2026-10-31, with no automatic renewal or scope expansion. The shared native client retains the existing serde_cbor wire/cache codec extracted from oasis7 for format compatibility; only that exact direct manifest and its first-party consumers are added, without renewing the expiry or approving a new advisory. The chain runtime retains the existing serde_cbor codec extracted from oasis7; register its exact manifest and dependency closure without renewing expiry or adding an advisory. The local CAS and pure formal protocol retain serde_cbor implementations extracted from oasis7_distfs for unchanged on-disk and wire formats; register only those two direct manifests with the existing advisory and expiry. The client production graph now excludes distfs/CAS/zstd, and neither lockfile changes a third-party version.",
+  "rationale": "Ratchet exact direct Cargo manifest declarations for the three remaining RustSec ignore crates; the 30-day review window requires revalidation of dependency scope and direct manifests by 2026-10-31, with no automatic renewal or scope expansion. The shared native client retains the existing serde_cbor wire/cache codec extracted from oasis7 for format compatibility; only that exact direct manifest and its first-party consumers are added, without renewing the expiry or approving a new advisory. The chain runtime retains the existing serde_cbor codec extracted from oasis7; register its exact manifest and dependency closure without renewing expiry or adding an advisory. The local CAS and pure formal protocol retain serde_cbor implementations extracted from oasis7_distfs for unchanged on-disk and wire formats; register only those two direct manifests with the existing advisory and expiry. The client storage extraction retains the same serde_cbor cache codec in oasis7_client_storage, without changing the advisory or expiry. The client production graph now excludes distfs/CAS/zstd, and neither lockfile changes a third-party version. The Simulator extraction retains the existing serde_cbor native snapshot/journal codec from oasis7; add its exact direct manifest and the now-workspace scenario runner consumer, preserving the existing advisory and 2026-10-31 expiry.",
   "ignored_direct_manifests": {
     "paste": [],
     "ttf-parser": [],
@@ -49,6 +49,7 @@
       "crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/Cargo.toml",
       "crates/oasis7_cas/Cargo.toml",
       "crates/oasis7_chain_runtime/Cargo.toml",
+      "crates/oasis7_client_storage/Cargo.toml",
       "crates/oasis7_consensus/Cargo.toml",
       "crates/oasis7_distfs/Cargo.toml",
       "crates/oasis7_formal_protocol/Cargo.toml",
@@ -56,6 +57,9 @@
       "crates/oasis7_net/Cargo.toml",
       "crates/oasis7_node/Cargo.toml",
       "crates/oasis7_proto/Cargo.toml",
+      "crates/oasis7_runtime/Cargo.toml",
+      "crates/oasis7_world_service/Cargo.toml",
+      "crates/oasis7_simulator/Cargo.toml",
       "crates/oasis7_wasm_executor/Cargo.toml",
       "crates/oasis7_wasm_sdk/Cargo.toml",
       "tools/wasm_module_observe/Cargo.toml"

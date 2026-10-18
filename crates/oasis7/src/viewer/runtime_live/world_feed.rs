@@ -290,15 +290,15 @@ fn project_module_visual_event(
         return None;
     };
 
-    match crate::runtime::parse_module_visual_emit(module_emit).ok()?? {
-        crate::runtime::ModuleVisualMutation::Upsert(entity) => {
+    match oasis7_agent_api::module_visual::parse_module_visual_emit(module_emit).ok()?? {
+        oasis7_agent_api::module_visual::ModuleVisualMutation::Upsert(entity) => {
             let entity_id = non_empty_identity(&entity.entity_id)?;
             Some(ModuleVisualEventProjection {
                 kind: MODULE_VISUAL_ENTITY_UPSERTED_KIND,
                 entity_id,
             })
         }
-        crate::runtime::ModuleVisualMutation::Remove(entity_id) => {
+        oasis7_agent_api::module_visual::ModuleVisualMutation::Remove(entity_id) => {
             Some(ModuleVisualEventProjection {
                 kind: MODULE_VISUAL_ENTITY_REMOVED_KIND,
                 entity_id: non_empty_identity(&entity_id)?,
@@ -480,12 +480,12 @@ mod tests {
 
     #[test]
     fn module_visual_emit_events_project_authoritative_ids_for_upsert_and_remove() {
-        let entity = crate::simulator::ModuleVisualEntity {
+        let entity = oasis7_agent_api::world_entity::ModuleVisualEntity {
             entity_id: "module-relay".to_string(),
             module_id: "fixture.visual-module".to_string(),
             kind: "relay".to_string(),
             label: Some("Relay".to_string()),
-            anchor: crate::simulator::ModuleVisualAnchor::Absolute {
+            anchor: oasis7_agent_api::world_entity::ModuleVisualAnchor::Absolute {
                 pos: crate::geometry::GeoPos::new(100, 200, 0),
             },
         };
@@ -534,12 +534,12 @@ mod tests {
 
     #[test]
     fn module_visual_events_do_not_require_major_event_visibility_authority() {
-        let entity = crate::simulator::ModuleVisualEntity {
+        let entity = oasis7_agent_api::world_entity::ModuleVisualEntity {
             entity_id: "runtime-entity".to_string(),
             module_id: "fixture.visual-module".to_string(),
             kind: "runtime_driver".to_string(),
             label: None,
-            anchor: crate::simulator::ModuleVisualAnchor::Absolute {
+            anchor: oasis7_agent_api::world_entity::ModuleVisualAnchor::Absolute {
                 pos: crate::geometry::GeoPos::new(1, 2, 3),
             },
         };

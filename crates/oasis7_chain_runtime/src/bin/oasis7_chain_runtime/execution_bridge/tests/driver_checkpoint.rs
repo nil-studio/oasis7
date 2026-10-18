@@ -10,12 +10,12 @@ use super::super::driver_checkpoint_install::{
     CheckpointInstallFault, set_checkpoint_install_fault_for_test,
 };
 use super::*;
-use oasis7::runtime::LocalCasStore;
 use oasis7_node::{
     NodeExecutionCheckpointInstallContext, NodeExecutionCommitContext, NodeExecutionHook,
     compute_consensus_action_root,
 };
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::LocalCasStore;
 
 #[test]
 fn node_runtime_execution_driver_exports_and_installs_checkpoint_bundle() {

@@ -8,8 +8,9 @@ use crate::simulator::{
     AgentBehavior, AgentDecision, AsyncAgentRunner, AsyncAgentTurnOutcome,
     ContinuousAgentTurnContextV1, MemoryContextSnapshotV1, MemoryCorrectionV1, MemoryWriteIntent,
     MemoryWriteIntentPolicyV1, MemoryWriteIntentV1, MemoryWritePolicyContextV1,
-    MemoryWritePolicyOutcome, MemoryWriteStore, Observation,
+    MemoryWritePolicyOutcome, MemoryWriteStore,
 };
+use oasis7_simulator::Observation;
 use serde_json::json;
 
 const AGENT_ID: &str = "agent-memory-1";

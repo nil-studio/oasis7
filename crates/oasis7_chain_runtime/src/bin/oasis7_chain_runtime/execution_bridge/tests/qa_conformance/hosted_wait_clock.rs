@@ -38,7 +38,7 @@ pub(super) fn start(fixture: &Fixture, root: std::path::PathBuf) -> Clock {
                     .any(|lease| {
                         lease.lease_id == lease_id
                             && lease.request_digest == digest
-                            && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                            && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
                     });
                 let continuation = guard
                     .execution_world

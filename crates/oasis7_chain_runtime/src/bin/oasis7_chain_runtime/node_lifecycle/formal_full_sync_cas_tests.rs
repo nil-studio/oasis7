@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime::BlobStore;
+use oasis7_runtime::BlobStore;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},

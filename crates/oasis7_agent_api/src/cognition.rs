@@ -398,13 +398,18 @@ impl ContinuousAgentRequestContextV1 {
                 format!("Runtime capability catalog is invalid: {error}"),
             )
         })?;
-        if self.capability_catalog_digest != h_v1(COGNITION_CAPABILITY_CATALOG_DOMAIN, catalog)
-            || self.capability_invocation_context_digest
-                != h_v1(COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, invocation)
+        if self.capability_catalog_digest != h_v1(COGNITION_CAPABILITY_CATALOG_DOMAIN, catalog) {
+            return Err(CognitionError::new(
+                "capability_context_digest_mismatch",
+                "capability catalog digest does not match the Runtime-bound snapshot",
+            ));
+        }
+        if self.capability_invocation_context_digest
+            != h_v1(COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, invocation)
         {
             return Err(CognitionError::new(
                 "capability_context_digest_mismatch",
-                "capability catalog or invocation digest does not match the Runtime-bound context",
+                "capability invocation context digest does not match the Runtime-bound context",
             ));
         }
         if catalog.snapshot_id != invocation.catalog_snapshot_id

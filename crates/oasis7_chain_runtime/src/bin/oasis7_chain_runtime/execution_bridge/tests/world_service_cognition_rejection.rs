@@ -1,6 +1,6 @@
 //! Registered canonical execution retains only authenticated stale rejection metadata.
 use super::*;
-use oasis7::runtime::{
+use oasis7_runtime::{
     RuntimeCognitionCommitRequestV1, RuntimeCognitionResponseArtifactV1, RuntimeFeedbackRequestV1,
 };
 
@@ -51,7 +51,7 @@ fn fixture() -> (
             request,
             action: Action::MoveAgent {
                 agent_id: "agent-a".into(),
-                to: oasis7::GeoPos::new(10, 0, 0),
+                to: oasis7_agent_api::world_action::GeoPos::new(10, 0, 0),
             },
             response_artifact: artifact,
             delegation_generation: 0,
@@ -185,10 +185,8 @@ fn authenticated_stale_rejection_publishes_exact_outbox_without_business_effect_
     assert!(canonical.rejected.is_some());
     assert!(canonical.receipt.is_null());
     assert_eq!(canonical.request, original);
-    let history = oasis7::world_service::projection::WorldServiceFeedbackHistory::from_world(
-        &world, "agent-a",
-    )
-    .unwrap();
+    let history =
+        oasis7::world_service::projection::feedback_history_from_world(&world, "agent-a").unwrap();
     assert_eq!(history.records.len(), 1);
     assert!(history.records[0].receipt_lineage.is_none());
     let before = serde_json::to_value(world.snapshot()).unwrap();
@@ -225,7 +223,7 @@ fn prevalidation_failures_and_unrelated_actor_never_publish_stale_feedback() {
             "actor" => {
                 signed.request.action = Action::MoveAgent {
                     agent_id: "another-agent".into(),
-                    to: oasis7::GeoPos::new(10, 0, 0),
+                    to: oasis7_agent_api::world_action::GeoPos::new(10, 0, 0),
                 };
                 signed =
                     sign_read_request("cognition", signed.request, &hex::encode([7; 32])).unwrap();

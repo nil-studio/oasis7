@@ -134,7 +134,7 @@ classify_changed_path() {
     scripts/wasm-release-evidence-report.sh|\
     scripts/wasm-summary-bundle-smoke.sh|\
     crates/oasis7_wasm_build|crates/oasis7_wasm_build/*|crates/oasis7_wasm_build/**/*|\
-    crates/oasis7/src/runtime/world/artifacts/builtin_module_manifest_map.txt|\
+    crates/oasis7_runtime/src/world/artifacts/builtin_module_manifest_map.txt|\
     crates/oasis7_wasm_sdk|crates/oasis7_wasm_sdk/*|crates/oasis7_wasm_sdk/**/*|\
     crates/oasis7_wasm_abi|crates/oasis7_wasm_abi/*|crates/oasis7_wasm_abi/**/*|\
     crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs)
@@ -144,19 +144,19 @@ classify_changed_path() {
       mark_all "shared_wasm_pipeline:${path}"
       ;;
     scripts/sync-m4-builtin-wasm-artifacts.sh|\
-    crates/oasis7/src/runtime/world/artifacts/m4_*|\
+    crates/oasis7_runtime/src/world/artifacts/m4_*|\
     crates/oasis7_builtin_wasm_modules/m4_*|\
     crates/oasis7_builtin_wasm_modules/m4_*/**|\
     crates/oasis7_builtin_wasm_modules/_templates/m4_*)
       mark_module "m4" "module_set:m4:${path}"
       ;;
     scripts/sync-m5-builtin-wasm-artifacts.sh|\
-    crates/oasis7/src/runtime/world/artifacts/m5_*|\
+    crates/oasis7_runtime/src/world/artifacts/m5_*|\
     crates/oasis7_builtin_wasm_modules/m5_*|\
     crates/oasis7_builtin_wasm_modules/m5_*/**)
       mark_module "m5" "module_set:m5:${path}"
       ;;
-    crates/oasis7/src/runtime/world/artifacts/m1_*|\
+    crates/oasis7_runtime/src/world/artifacts/m1_*|\
     crates/oasis7_builtin_wasm_modules/m1_*|\
     crates/oasis7_builtin_wasm_modules/m1_*/**)
       mark_module "m1" "module_set:m1:${path}"

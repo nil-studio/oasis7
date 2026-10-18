@@ -1,15 +1,15 @@
 use crate::authority;
-use oasis7::world_service::projection::WorldServiceProjection;
+type WorldServiceProjection = oasis7_client_api::world_read_observation::WorldReadObservationV1;
 use oasis7_client_api::formal_projection::{ProjectionAudienceV1, ProjectionCommitmentsV1};
 type FormalReadVerifier = super::FormalReadVerifier<WorldServiceProjection>;
 use super::*;
-#[path = "../../../oasis7/src/world_service/formal_read_fixtures.rs"]
+#[path = "protocol_fixtures.rs"]
 pub(super) mod fixtures;
-#[path = "../../../oasis7/src/world_service/formal_read_response_fixture.rs"]
+#[path = "protocol_response_fixture.rs"]
 mod response_fixture;
 use ed25519_dalek::Signer;
 use fixtures::*;
-use oasis7_distfs::controlled_authority::{
+use oasis7_formal_protocol::controlled_authority::{
     fencing::*,
     replicated_protocol::{ArtifactRole, EndpointRole, HeadAnchor},
 };
@@ -79,12 +79,14 @@ fn seal_tail(witness: &RecoveryTailWitnessV1, predecessor: &VerifiedAuthorityV1)
         RecoveryTailWitnessV1::Empty => SealedTailV1::empty(),
         RecoveryTailWitnessV1::Frozen(frozen) => SealedTailV1 {
             kind: SealedTailKindV1::Frozen,
-            request: Some(oasis7_distfs::controlled_authority::LocalRequestIdentity {
-                verified_subject: "test-agent".into(),
-                operation_domain: "formal-execution".into(),
-                nonce_scope: predecessor.authority_id().unwrap(),
-                request_id: frozen.reservation.body.request_digest.clone(),
-            }),
+            request: Some(
+                oasis7_formal_protocol::controlled_authority::LocalRequestIdentity {
+                    verified_subject: "test-agent".into(),
+                    operation_domain: "formal-execution".into(),
+                    nonce_scope: predecessor.authority_id().unwrap(),
+                    request_id: frozen.reservation.body.request_digest.clone(),
+                },
+            ),
             position: Some(frozen.reservation.body.next_position),
             frozen_input_digest: Some(frozen.reservation.body.reservation_id().unwrap()),
             frozen_certificate_digest: None,
@@ -288,7 +290,7 @@ fn recovery_step(
 }
 #[test]
 fn formal_header_scope_and_proof_absence_fail_closed_without_cache_changes() {
-    let (world, trust, anchor, _) = actual_world_initial_fixture();
+    let (world, trust, anchor, _) = protocol_initial_fixture();
     let (request, response) = response(
         &world,
         &anchor,
@@ -306,9 +308,8 @@ fn formal_header_scope_and_proof_absence_fail_closed_without_cache_changes() {
             1 => value.version.commit.binding.authority_generation += 1,
             2 => value.version.commit.binding.permission_generation += 1,
             3 => {
-                value.execution_evidence_scope = Some(
-                    oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into(),
-                )
+                value.execution_evidence_scope =
+                    Some(crate::verified_world_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into())
             }
             4 => {
                 value
@@ -341,7 +342,7 @@ fn formal_header_scope_and_proof_absence_fail_closed_without_cache_changes() {
     let excessive = FormalReadHistoryV1 {
         schema_version: 1,
         steps: vec![
-            FormalReadStepV1::Commit(Box::new(actual_world_initial_fixture().3));
+            FormalReadStepV1::Commit(Box::new(protocol_initial_fixture().3));
             MAX_FORMAL_HISTORY_STEPS + 1
         ],
     };
@@ -352,10 +353,10 @@ fn formal_header_scope_and_proof_absence_fail_closed_without_cache_changes() {
 
 #[test]
 fn configured_checkpoint_cannot_be_replaced_by_another_higher_pinned_anchor() {
-    use oasis7::world_service::client::{
-        FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
-    };
-    let (world, trust, anchor, _) = actual_world_initial_fixture();
+    use crate::remote_world_service::{FormalReadTrustConfigV1, WorldServiceClientConfig};
+    type RemoteWorldServiceClient =
+        crate::remote_world_service::RemoteWorldServiceReader<WorldServiceProjection>;
+    let (world, trust, anchor, _) = protocol_initial_fixture();
     let checkpoint = anchor.checkpoint();
     let config = WorldServiceClientConfig {
         formal_read_trust: Some(FormalReadTrustConfigV1 {
@@ -425,9 +426,11 @@ fn configured_checkpoint_cannot_be_replaced_by_another_higher_pinned_anchor() {
 
 #[test]
 fn typed_qualified_successor_allows_bound_governance_and_permission_evolution() {
-    use oasis7::world_service::formal_projection::projection_leaf;
-    use oasis7_distfs::controlled_authority::replicated_protocol::{ArtifactRole, EndpointRole};
-    let (world, trust, anchor, _) = actual_world_initial_fixture();
+    use oasis7_client_api::formal_projection::projection_leaf;
+    use oasis7_formal_protocol::controlled_authority::replicated_protocol::{
+        ArtifactRole, EndpointRole,
+    };
+    let (world, trust, anchor, _) = protocol_initial_fixture();
     let mut verifier = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
     let (mut request, initial) = response(
         &world,
@@ -573,10 +576,10 @@ fn typed_qualified_successor_allows_bound_governance_and_permission_evolution() 
 
 #[test]
 fn formal_cursor_restore_failure_is_atomic_and_existing_projection_cache_cannot_rewind() {
-    use oasis7::world_service::client::{
-        FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
-    };
-    let (world, trust, anchor, _) = actual_world_initial_fixture();
+    use crate::remote_world_service::{FormalReadTrustConfigV1, WorldServiceClientConfig};
+    type RemoteWorldServiceClient =
+        crate::remote_world_service::RemoteWorldServiceReader<WorldServiceProjection>;
+    let (world, trust, anchor, _) = protocol_initial_fixture();
     let (request, reply) = response(
         &world,
         &anchor,
@@ -633,7 +636,7 @@ fn formal_cursor_restore_failure_is_atomic_and_existing_projection_cache_cannot_
 
 #[test]
 fn retained_recovery_e3_completes_original_frozen_tail_from_external_e1_pin() {
-    let (world, trust, anchor, initial_proof) = actual_world_initial_fixture();
+    let (world, trust, anchor, initial_proof) = protocol_initial_fixture();
     let origin_checkpoint = anchor.checkpoint();
     let origin_digest = origin_checkpoint.digest().unwrap();
     let (request, mut reply) = response(
@@ -1057,9 +1060,12 @@ impl super::FormalReadProjection for WorldServiceProjection {
         response: &ReadWorldViewResponse<Self>,
         request: &ReadWorldViewRequest,
     ) -> Result<(), String> {
-        <Self as oasis7::world_service::formal_read::FormalReadProjection>::validate_contents(
-            response, request,
-        )
+        response
+            .validate(request)
+            .map_err(|error| error.to_string())?;
+        response
+            .view
+            .validate_bound_contents(&response.version, response.logical_tick, request)
     }
 }
 
@@ -1077,7 +1083,7 @@ impl super::FormalReadProjection for NoopSchemaProjection {
 
 #[test]
 fn generic_formal_verifier_owns_envelope_checks_even_with_noop_schema_validator() {
-    let (world, trust, anchor, _) = actual_world_initial_fixture();
+    let (world, trust, anchor, _) = protocol_initial_fixture();
     let (request, original) = response(
         &world,
         &anchor,

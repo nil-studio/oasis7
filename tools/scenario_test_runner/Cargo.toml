@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-oasis7 = { path = "../../crates/oasis7", default-features = false }
+oasis7_simulator = { path = "../../crates/oasis7_simulator" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
-
-[workspace]
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }

@@ -92,12 +92,15 @@ pub(super) fn boundary_selector(
             .ok_or("exact H artifact bytes missing")?;
         Ok(&object.bytes)
     };
-    let snapshot: oasis7::runtime::Snapshot =
-        serde_cbor::from_slice(decode(ArtifactRole::Snapshot)?)
-            .map_err(|error| error.to_string())?;
-    let journal: oasis7::runtime::Journal = serde_cbor::from_slice(decode(ArtifactRole::Journal)?)
+    let expanded_snapshot = candidate
+        .material
+        .snapshot_bytes()
         .map_err(|error| error.to_string())?;
-    let world = oasis7::runtime::World::from_snapshot(snapshot, journal)
+    let snapshot: oasis7_runtime::Snapshot =
+        serde_cbor::from_slice(&expanded_snapshot).map_err(|error| error.to_string())?;
+    let journal: oasis7_runtime::Journal = serde_cbor::from_slice(decode(ArtifactRole::Journal)?)
+        .map_err(|error| error.to_string())?;
+    let world = oasis7_runtime::World::from_snapshot(snapshot, journal)
         .map_err(|error| format!("restore exact H selector World: {error:?}"))?;
     // This checks canonical Snapshot, identity, governing and projection roots
     // against the opaque qualified anchor before deriving a read selector.

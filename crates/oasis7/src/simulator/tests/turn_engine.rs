@@ -9,11 +9,10 @@ use super::agent_cognition_identity::{
 };
 use crate::runtime::{
     COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION, COGNITION_RESOURCE_VERSION_V1,
-    CognitionLeaseQuoteV1, CognitionLeaseRequestV1, World,
+    CognitionLeaseQuoteV1, CognitionLeaseRequestV1,
 };
-use crate::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, Observation,
-};
+use crate::simulator::{ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1};
+use oasis7_simulator::Observation;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
@@ -24,7 +23,7 @@ impl AgentBehavior for WaitBehavior {
         "agent-1"
     }
 
-    fn decide(&mut self, _observation: &crate::simulator::Observation) -> AgentDecision {
+    fn decide(&mut self, _observation: &oasis7_simulator::Observation) -> AgentDecision {
         AgentDecision::Wait
     }
 }
@@ -93,7 +92,7 @@ fn runtime_lease(request: &TurnRequest) -> crate::runtime::CognitionLeaseV1 {
     const ACCOUNT_ID: &str = "account-agent-1";
     const RESOURCE: &str = "cognition_units";
 
-    let mut world = World::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .set_cognition_resource_balance(ACCOUNT_ID, RESOURCE, 4)
         .expect("seed Runtime cognition balance");

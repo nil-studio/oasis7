@@ -1,4 +1,4 @@
-use oasis7::runtime::blake3_hex;
+use oasis7_runtime::blake3_hex;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]

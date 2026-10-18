@@ -1,11 +1,11 @@
 use std::iter::Peekable;
 use std::path::Path;
 
-use oasis7::runtime::LocalCasStore;
 use oasis7_distfs::{
     StorageChallengeAdaptivePolicy, StorageChallengeProbeConfig, StorageChallengeProbeCursorState,
     StorageChallengeProbeReport,
 };
+use oasis7_runtime::LocalCasStore;
 use serde::Serialize;
 
 pub(super) const DEFAULT_REWARD_RUNTIME_DISTFS_PROBE_MAX_SAMPLE_BYTES: u32 = 64 * 1024;

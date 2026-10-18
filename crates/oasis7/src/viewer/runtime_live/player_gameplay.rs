@@ -24,9 +24,8 @@ use super::control_plane::{
 };
 use super::*;
 use crate::runtime::{IndustryStage, StarterIndustrialFeasibilityResult, WorldState};
-use crate::simulator::{
-    PlayerGameplayAction, PlayerGameplayRecentFeedback, ResourceOwner, WorldKernel,
-};
+use crate::simulator::{PlayerGameplayAction, PlayerGameplayRecentFeedback, WorldKernel};
+use oasis7_simulator::ResourceOwner;
 use oasis7_wasm_abi::MaterialStack;
 #[path = "power_survival_quote.rs"]
 mod power_survival_quote;

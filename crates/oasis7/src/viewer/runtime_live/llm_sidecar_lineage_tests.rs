@@ -42,7 +42,7 @@ fn runtime_provider_continuation_recovery_fence_blocks_retained_context_after_re
         oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
     }
     let world_id = "fenced-continuation-world";
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime(world_id, "continuation-fence-branch", 0, None, "pending", 0)
         .expect("Runtime cognition binding");
@@ -437,7 +437,7 @@ fn provider_dispatch_persists_active_marker_before_actor_start() {
         oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
     }
     let world_id = "durable-dispatch-marker-world";
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime(
             world_id,
@@ -615,7 +615,7 @@ fn provider_dispatch_persistence_failure_does_not_start_actor() {
         oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
     }
     let world_id = "failed-dispatch-marker-world";
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime(
             world_id,

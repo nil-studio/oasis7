@@ -4,10 +4,10 @@
 use super::execution_bridge::controlled_bootstrap_anchor::VerifiedBootstrapAnchor;
 #[cfg(test)]
 use super::execution_bridge_real_tests::real_execution_bridge::controlled_bootstrap_anchor::VerifiedBootstrapAnchor;
-use oasis7::runtime::{ReleaseSecurityPolicy, blake3_hex};
 use oasis7_distfs::controlled_authority::{
     activation::InitialActivationPolicy, replicated_protocol::HeadAnchor,
 };
+use oasis7_runtime::{ReleaseSecurityPolicy, blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 

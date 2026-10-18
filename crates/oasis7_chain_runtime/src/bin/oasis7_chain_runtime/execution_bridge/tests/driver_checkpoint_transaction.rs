@@ -68,7 +68,7 @@ fn snapshot_startup_publication_tree(root: &std::path::Path) -> Vec<StartupPubli
 }
 
 fn startup_publication_tree_digest(entries: &[StartupPublicationEntry]) -> String {
-    oasis7::runtime::blake3_hex(format!("{entries:?}").as_bytes())
+    oasis7_runtime::blake3_hex(format!("{entries:?}").as_bytes())
 }
 
 fn syntactically_valid_checkpoint_install_marker() -> Vec<u8> {

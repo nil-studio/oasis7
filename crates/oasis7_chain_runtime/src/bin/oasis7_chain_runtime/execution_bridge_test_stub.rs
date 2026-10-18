@@ -10,9 +10,9 @@ pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::{
 };
 use std::path::Path;
 
-use oasis7::runtime::{ReleaseSecurityPolicy, World as RuntimeWorld};
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook};
 use oasis7_proto::storage_profile::StorageProfileConfig;
+use oasis7_runtime::{ReleaseSecurityPolicy, World as RuntimeWorld};
 
 pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::ExecutionCheckpointStatusEvidence;
 pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::driver_observability::{
@@ -78,9 +78,9 @@ pub(super) fn load_execution_world(world_dir: &Path) -> Result<RuntimeWorld, Str
     let snapshot_path = world_dir.join("snapshot.json");
     let journal_path = world_dir.join("journal.json");
     if !snapshot_path.exists() || !journal_path.exists() {
-        return Ok(RuntimeWorld::new_production_hardened());
+        return Ok(oasis7::runtime_host::world::new_production_hardened());
     }
-    RuntimeWorld::load_from_dir(world_dir)
+    oasis7::runtime_host::world::load_from_dir(world_dir)
         .map_err(|err| {
             format!(
                 "load execution world from {} failed: {:?}",

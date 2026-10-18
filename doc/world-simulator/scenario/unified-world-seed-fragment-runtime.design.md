@@ -215,7 +215,7 @@ Provider observation 使用同一 snapshot 派生，禁止单独查本地缓存�
 
 Trace refs: O7-REQ-9a16e402-a0e7-45eb-8122-4741155843c2；唯一工程声明与范围见下方对应 PRD 身份。
 
-[既有生成事实身份](unified-world-seed-fragment-runtime.prd.md#uws-simulator-facts)只接收当前 Simulator 子范围。[init.rs](../../../crates/oasis7/src/simulator/init.rs)、[chunking.rs](../../../crates/oasis7/src/simulator/chunking.rs)和[chain_resource_schema.rs](../../../crates/oasis7/src/chain_resource_schema.rs)分别定位真实初始化、确定性 chunk 派生和 from_simulator_model 投影。fragment/chunk total/remaining 仍沿[chunked 原专业需求](chunked-fragment-generation.prd.md)，不从 snapshot 字段重新发明资源账本。当前 runtime_agent_chunk_v1 路径从 world/chain/config hash 派生 seed，构造 runtime-starter refs 与预算；它与 Simulator 路径共用 DTO 不证明两者统一成同一自然资源生成事实。
+[既有生成事实身份](unified-world-seed-fragment-runtime.prd.md#uws-simulator-facts)只接收当前 Simulator 子范围。[init.rs](../../../crates/oasis7_simulator/src/init.rs)、[chunking.rs](../../../crates/oasis7_simulator/src/chunking.rs)和[chain_resource_schema.rs](../../../crates/oasis7/src/chain_resource_schema.rs)分别定位真实初始化、确定性 chunk 派生和 from_simulator_model 投影。fragment/chunk total/remaining 仍沿[chunked 原专业需求](chunked-fragment-generation.prd.md)，不从 snapshot 字段重新发明资源账本。当前 runtime_agent_chunk_v1 路径从 world/chain/config hash 派生 seed，构造 runtime-starter refs 与预算；它与 Simulator 路径共用 DTO 不证明两者统一成同一自然资源生成事实。
 
 产品消费者仍适用 R1/R2/R5/R6 及 AC1/AC4/AC5/AC7；工程投影来源不是它们的端到端验收。CG6/CG10 的 ChunkGenerated 重建校验与 CG7 的泛称生成/补种 delta 义务存在未裁决冲突；本专题 §4.3 禁止重生成还原 remaining，不自动决定初始几何事件应重建还是携带完整布局。本登记不替任一旧义务宣布过时。
 

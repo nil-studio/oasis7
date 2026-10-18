@@ -4,6 +4,36 @@ use std::sync::Mutex;
 static BUILTIN_WASM_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn builtin_module_manifests_follow_runtime_artifact_owner() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (module_id, relative_path, source) in [
+        (
+            "m1.rule.move",
+            M1_BUILTIN_MODULE_IDS_PATH,
+            include_str!("../../oasis7_runtime/src/world/artifacts/m1_builtin_module_ids.txt"),
+        ),
+        (
+            "m4.economy.production",
+            M4_BUILTIN_MODULE_IDS_PATH,
+            include_str!("../../oasis7_runtime/src/world/artifacts/m4_builtin_module_ids.txt"),
+        ),
+        (
+            "m5.gameplay.war.core",
+            M5_BUILTIN_MODULE_IDS_PATH,
+            include_str!("../../oasis7_runtime/src/world/artifacts/m5_builtin_module_ids.txt"),
+        ),
+    ] {
+        let actual = builtin_module_ids_path_for(module_id, &root).expect("builtin owner path");
+        assert_eq!(actual, root.join(relative_path));
+        assert_eq!(
+            fs::read_to_string(actual).expect("runtime manifest"),
+            source
+        );
+        assert!(source.lines().any(|line| !line.trim().is_empty()));
+    }
+}
+
+#[test]
 fn builtin_module_ids_path_supports_m5_prefix() {
     let root = Path::new("/tmp/workspace");
     let path = builtin_module_ids_path_for("m5.gameplay.war.core", root).expect("m5 path");

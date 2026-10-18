@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use oasis7::runtime::World as RuntimeWorld;
+use oasis7_runtime::World as RuntimeWorld;
 
 use super::execution_bridge;
 use super::{ChainBalancesResponse, DEFAULT_RECENT_MINT_RECORD_LIMIT, now_unix_ms};

@@ -51,7 +51,7 @@ fn pos(x: i64, y: i64) -> GeoPos {
 #[cfg(feature = "test_tier_required")]
 #[test]
 fn module_subscription_event_filters_by_agent_id() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -137,7 +137,7 @@ fn module_subscription_event_filters_by_agent_id() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_action_filters_by_agent_id() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -223,7 +223,7 @@ fn module_subscription_action_filters_by_agent_id() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_invalid_filter_is_rejected() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -292,7 +292,7 @@ fn module_subscription_invalid_filter_is_rejected() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_rejects_mixed_kinds_without_stage() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -357,7 +357,7 @@ fn module_subscription_rejects_mixed_kinds_without_stage() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_rejects_action_kinds_in_post_event_stage() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -422,7 +422,7 @@ fn module_subscription_rejects_action_kinds_in_post_event_stage() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_any_matches() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -510,7 +510,7 @@ fn module_subscription_any_matches() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_numeric_range_matches() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 
@@ -599,7 +599,7 @@ fn module_subscription_numeric_range_matches() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_subscription_regex_matches() {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     world.add_capability(CapabilityGrant::allow_all("cap.module"));
 

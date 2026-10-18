@@ -2,8 +2,8 @@ use super::super::EXECUTION_BRIDGE_RECORD_SCHEMA_V3;
 use super::super::checkpoint::{execution_bridge_record_path, load_execution_bridge_record};
 use super::super::driver::NodeRuntimeExecutionDriver;
 use super::temp_dir;
-use oasis7::runtime::{LocalCasStore, Snapshot as RuntimeSnapshot};
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
+use oasis7_runtime::{LocalCasStore, Snapshot as RuntimeSnapshot};
 use std::fs;
 
 fn commit_context(

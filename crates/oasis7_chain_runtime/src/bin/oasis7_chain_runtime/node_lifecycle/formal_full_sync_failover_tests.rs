@@ -1,6 +1,6 @@
 use super::*;
-use oasis7::runtime::{BlobStore, LocalCasStore};
 use oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole;
+use oasis7_runtime::{BlobStore, LocalCasStore};
 use std::net::{TcpListener, TcpStream};
 
 fn local_instance(label: &str) -> LocalInstance {

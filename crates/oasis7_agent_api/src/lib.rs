@@ -40,3 +40,16 @@ pub mod world_cognition;
 pub mod world_context;
 
 pub mod world_quote;
+
+pub mod intent_summary;
+pub mod world_entity;
+pub mod world_geometry;
+pub mod world_resource;
+
+pub mod module_source;
+
+pub mod node_contribution;
+
+pub mod world_industry;
+
+pub mod module_visual;

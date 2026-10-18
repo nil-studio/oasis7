@@ -57,7 +57,6 @@ mod strict_http;
 mod topology_no_mount;
 mod topology_pressure;
 mod viewer_process;
-use oasis7::runtime::{Action, WorldState};
 use oasis7::world_service::client::{
     RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort,
 };
@@ -65,6 +64,7 @@ use oasis7::world_service::*;
 use oasis7_node::{
     NodeConfig, NodeConsensusAction, NodeExecutionCommitResult, NodeExecutionHook, NodeRuntime,
 };
+use oasis7_runtime::{Action, WorldState};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{
@@ -149,11 +149,11 @@ impl Fixture {
             // never a mutation or a filter applied around the clock assertion.
             state.crises.insert(
                 "fixture.clock.active".into(),
-                oasis7::runtime::CrisisState {
+                oasis7_runtime::CrisisState {
                     crisis_id: "fixture.clock.active".into(),
                     kind: "supply_shock".into(),
                     severity: 1,
-                    status: oasis7::runtime::CrisisStatus::Active,
+                    status: oasis7_runtime::CrisisStatus::Active,
                     opened_at: 0,
                     expires_at: u64::MAX,
                     resolver_agent_id: None,
@@ -164,9 +164,9 @@ impl Fixture {
                 },
             );
         }
-        let mut world = RuntimeWorld::new_with_state(state);
+        let mut world = oasis7::runtime_host::world::new_with_state(state);
         if scheduler {
-            use oasis7::runtime::SchedulerPolicyV1;
+            use oasis7_runtime::SchedulerPolicyV1;
             world = world
                 .try_with_cognition_scheduler(
                     SchedulerPolicyV1 {
@@ -185,7 +185,7 @@ impl Fixture {
         }
         world.submit_action(Action::RegisterAgent {
             agent_id: "agent-a".into(),
-            pos: oasis7::GeoPos::new(0, 0, 0),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
         });
         world.step().unwrap();
         world.submit_action(Action::ClaimStarterOc {
@@ -197,7 +197,7 @@ impl Fixture {
         world
             .set_agent_resource_balance(
                 "agent-a",
-                oasis7::simulator::ResourceKind::Electricity,
+                oasis7_agent_api::world_action::ResourceKind::Electricity,
                 100_000,
             )
             .unwrap();
@@ -240,7 +240,7 @@ impl Fixture {
         world
             .save_to_dir_with_chain_resource_context(
                 root.join("world"),
-                oasis7::runtime::ChainResourceDerivationContext {
+                oasis7_runtime::ChainResourceDerivationContext {
                     world_id: "w1",
                     chain_id: "w1",
                     genesis_ref: Some(identity.genesis_digest.as_str()),
@@ -264,7 +264,7 @@ impl Fixture {
             "w1",
             2,
             "qa-local-setup-boundary-h2",
-            &oasis7::runtime::ReleaseSecurityPolicy::default(),
+            &oasis7_runtime::ReleaseSecurityPolicy::default(),
         )
         .unwrap();
         let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
@@ -1002,7 +1002,7 @@ fn real_tcp_controlled_agent_cognition_receipt_and_read() {
 }
 
 fn cognition_request(fixture: &Fixture) -> SubmitIntentRequest<WorldServicePayloadV1> {
-    use oasis7::runtime::{RuntimeCognitionCommitRequestV1, RuntimeCognitionResponseArtifactV1};
+    use oasis7_runtime::{RuntimeCognitionCommitRequestV1, RuntimeCognitionResponseArtifactV1};
     let world = fixture.driver.lock().unwrap().execution_world.clone();
     let digest =
         |label: &str| oasis7::simulator::h_v1("oasis7.test.qa-conformance.v1", &label).to_string();
@@ -1049,7 +1049,7 @@ fn cognition_request(fixture: &Fixture) -> SubmitIntentRequest<WorldServicePaylo
                 request,
                 action: Action::MoveAgent {
                     agent_id: "agent-a".into(),
-                    to: oasis7::GeoPos::new(1, 1, 0),
+                    to: oasis7_agent_api::world_action::GeoPos::new(1, 1, 0),
                 },
                 response_artifact,
                 delegation_generation: 1,

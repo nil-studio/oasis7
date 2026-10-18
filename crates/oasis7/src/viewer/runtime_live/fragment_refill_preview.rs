@@ -3,13 +3,14 @@ use super::control_plane::{
 };
 use super::session_policy::map_session_policy_error_code;
 use super::*;
-use crate::simulator::{ChunkCoord, FragmentRefillPreview};
 use crate::viewer::auth::verify_fragment_refill_preview_auth_proof;
 use crate::viewer::protocol::{
     FragmentRefillElementRemaining, FragmentRefillPreviewChunk,
     FragmentRefillPreviewProtocolRequest, FragmentRefillPreviewRequest,
     FragmentRefillPreviewResponse, GameplayActionError,
 };
+use oasis7_agent_api::world_geometry::ChunkCoord;
+use oasis7_simulator::FragmentRefillPreview;
 
 const ACTION_ID: &str = "preview_fragment_replenishment";
 
@@ -172,7 +173,7 @@ fn fragment_refill_preview_response(quote: FragmentRefillPreview) -> FragmentRef
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::simulator::FragmentElementKind;
+    use oasis7_agent_api::world_resource::FragmentElementKind;
     use std::collections::BTreeMap;
 
     #[test]

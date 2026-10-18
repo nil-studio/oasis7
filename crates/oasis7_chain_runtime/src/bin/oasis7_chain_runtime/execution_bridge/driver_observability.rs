@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use oasis7::runtime::ModuleTickRoutingMetricsSnapshot;
+use oasis7_runtime::ModuleTickRoutingMetricsSnapshot;
 
 use super::ExecutionBridgeRecord;
 

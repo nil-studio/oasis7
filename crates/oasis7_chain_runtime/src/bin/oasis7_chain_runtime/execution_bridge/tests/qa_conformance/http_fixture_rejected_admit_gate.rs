@@ -56,7 +56,7 @@ struct AdmitRejectedCandidate {
     payload_digest: String,
     request_bytes_digest: String,
     captured_base_binding_digest: String,
-    captured_base_binding: oasis7::runtime::RuntimeCognitionBaseBindingV1,
+    captured_base_binding: oasis7_runtime::RuntimeCognitionBaseBindingV1,
     original_request: SubmitIntentRequest<WorldServicePayloadV1>,
 }
 

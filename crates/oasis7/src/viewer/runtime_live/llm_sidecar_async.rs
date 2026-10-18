@@ -128,7 +128,9 @@ impl RuntimeLlmSidecar {
             &context.request_context,
             &format!("failure:{}", context.request_context.transport_attempt),
             crate::world_service::wire::SchedulerOperationV1::ProviderFailure {
-                request: context.request_context.clone(),
+                request: crate::simulator::agent_api_compat::request_context_to_api(
+                    &context.request_context,
+                ),
                 reason: reason.into(),
             },
         )
@@ -225,7 +227,9 @@ impl RuntimeLlmSidecar {
             &context.request_context,
             &format!("prefix:{}", context.request_context.transport_attempt),
             crate::world_service::wire::SchedulerOperationV1::ProviderPrefix {
-                request: context.request_context.clone(),
+                request: crate::simulator::agent_api_compat::request_context_to_api(
+                    &context.request_context,
+                ),
                 context_digest: runtime_provider_context_digest(&context.request_context),
             },
         )

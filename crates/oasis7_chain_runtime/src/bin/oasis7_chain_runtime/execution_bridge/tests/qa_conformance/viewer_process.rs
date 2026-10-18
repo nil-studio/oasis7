@@ -370,7 +370,7 @@ fn verify_signed_collect_data(lost_ack: bool) {
     }
     let world = fixture.driver.lock().unwrap().execution_world.clone();
     let matching = world.journal().events.iter().filter(|event| matches!(&event.body,
-        oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::DataCollectedAuthenticated {
+        oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::DataCollectedAuthenticated {
             collector_agent_id, electricity_cost: 7, data_amount: 11, player_id, nonce: 55, ..
         }) if collector_agent_id == "agent-a" && player_id == "owner-a"
     )).count();

@@ -5,7 +5,8 @@ use crate::runtime::{
 };
 #[cfg(target_arch = "wasm32")]
 use crate::simulator::ActionResult;
-use crate::simulator::{Action as SimulatorAction, FeedbackEnvelopeV1};
+use crate::simulator::FeedbackEnvelopeV1;
+use oasis7_simulator::Action as SimulatorAction;
 use serde_json::Value as JsonValue;
 
 #[cfg(test)]
@@ -1039,9 +1040,15 @@ impl RuntimeLlmSidecar {
                     None,
                     Some("no_effect".to_string()),
                 );
-                world.enqueue_runtime_feedback(feedback).map_err(|error| {
-                    format!("Runtime feedback outbox enqueue failed after provider wait: {error:?}")
-                })?;
+                world
+                    .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+                        &feedback,
+                    ))
+                    .map_err(|error| {
+                        format!(
+                            "Runtime feedback outbox enqueue failed after provider wait: {error:?}"
+                        )
+                    })?;
                 self.record_provider_terminal_state(
                     agent_id.as_str(),
                     &context,

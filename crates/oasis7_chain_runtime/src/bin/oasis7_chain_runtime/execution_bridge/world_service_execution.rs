@@ -137,7 +137,7 @@ pub(super) fn apply_intents(
                                 .iter()
                                 .find(|committed| committed.action_id == action_id)
                                 .ok_or("service recipe consensus action missing")?;
-                            let origin = oasis7::runtime::CommittedRecipeOrigin {
+                            let origin = oasis7_runtime::CommittedRecipeOrigin {
                                 submission,
                                 consensus_action_id: committed.action_id,
                                 consensus_submitter_player_id: committed

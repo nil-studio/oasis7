@@ -5,7 +5,8 @@ use super::industrial_progression::{
 };
 use super::*;
 use crate::runtime::{Action, ProductProfileV1, RecipeProfileV1};
-use crate::simulator::{PlayerGameplayGoalKind, PlayerGameplayStageStatus, ResourceKind};
+use crate::simulator::{PlayerGameplayGoalKind, PlayerGameplayStageStatus};
+use oasis7_agent_api::world_action::ResourceKind;
 
 mod assembler_power_boundaries;
 mod starter_chain_prerequisite;

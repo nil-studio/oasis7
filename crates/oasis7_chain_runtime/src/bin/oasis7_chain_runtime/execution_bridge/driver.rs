@@ -2,11 +2,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use crate::release_security_policy_for_storage_profile;
-use oasis7::runtime::{
-    BlobStore, ChainResourceDerivationContext, LocalCasStore, RuntimeCommittedTickContext,
-    World as RuntimeWorld, WorldError, blake3_hex,
-};
-use oasis7::simulator::{Action as SimulatorAction, ActionSubmitter, WorldEventKind, WorldKernel};
+use oasis7::simulator::WorldKernel;
 use oasis7_node::{
     EXECUTION_MISSING_PREDECESSOR_RECORD_SIGNATURE, NodeExecutionBootstrap,
     NodeExecutionCheckpointBlob, NodeExecutionCheckpointBundle,
@@ -14,6 +10,11 @@ use oasis7_node::{
     NodeExecutionHook, compute_consensus_action_root,
 };
 use oasis7_proto::storage_profile::StorageProfileConfig;
+use oasis7_runtime::{
+    BlobStore, ChainResourceDerivationContext, LocalCasStore, RuntimeCommittedTickContext,
+    World as RuntimeWorld, WorldError, blake3_hex,
+};
+use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter, WorldEventKind};
 use oasis7_wasm_abi::ModuleSandbox;
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
 

@@ -1,5 +1,6 @@
 use super::*;
-use oasis7::simulator::{Action, ActionCatalogEntry, AgentQuery};
+use oasis7::simulator::ActionCatalogEntry;
+use oasis7_simulator::{Action, AgentQuery};
 
 #[test]
 fn parse_model_decision_maps_quote_micro_depot_install_from_serialized_action() {

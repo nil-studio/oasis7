@@ -12,8 +12,7 @@ use oasis7::observability::emit_stderr_or_event;
 use oasis7::simulator::RuntimePerfHealth;
 use oasis7::simulator::unsupported_runtime_perf_snapshot;
 use oasis7::simulator::{
-    PersistError, RunnerMetrics, RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot,
-    WorldTime,
+    RunnerMetrics, RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot,
 };
 use oasis7::viewer::{
     AgentChatError, AuthoritativeChallengeError, AuthoritativeRecoveryError, ControlCompletionAck,
@@ -21,6 +20,7 @@ use oasis7::viewer::{
     ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse, ViewerStream,
     viewer_event_kind_matches,
 };
+use oasis7_simulator::{PersistError, WorldTime};
 
 #[derive(Debug, Clone)]
 pub struct ViewerServerConfig {
@@ -788,7 +788,8 @@ fn unsupported_viewer_runtime_perf_snapshot() -> RuntimePerfSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::simulator::{RejectReason, WorldEventKind, WorldKernel};
+    use oasis7::simulator::WorldKernel;
+    use oasis7_simulator::{RejectReason, WorldEventKind};
     use std::io::{BufRead, BufReader, BufWriter};
     use std::net::{TcpListener, TcpStream};
     use std::time::{Duration, Instant};

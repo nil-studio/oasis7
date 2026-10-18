@@ -273,7 +273,7 @@ pub(super) fn verify_canonical_completion(fixture: &Fixture, root: &std::path::P
             .cognition_leases
             .iter()
             .filter(|lease| lease.request_digest == digest
-                && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled)
+                && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled)
             .count(),
         1,
         "one settled original lease"

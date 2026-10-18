@@ -839,7 +839,7 @@ fn runtime_provider_feedback_delivery_failure_survives_reload_without_readmissio
         .journal()
         .save_json(runtime_world_dir.join("journal.json"))
         .expect("persist Runtime journal with pending terminal feedback");
-    let persisted_world = RuntimeWorld::load_from_dir(&runtime_world_dir)
+    let persisted_world = crate::runtime_host::world::load_from_dir(&runtime_world_dir)
         .expect("restore Runtime world with pending terminal feedback");
     assert_eq!(
         persisted_world.pending_runtime_feedback().unwrap().len(),
@@ -939,7 +939,7 @@ fn runtime_provider_backed_wake_resumes_with_fresh_request_and_origin_lineage() 
                 } else {
                     crate::simulator::ProviderDecision::Act {
                         action_ref: "move_agent".to_string(),
-                        action: crate::simulator::Action::MoveAgent {
+                        action: oasis7_simulator::Action::MoveAgent {
                             agent_id: decoded.base_decision_request.observation.agent_id.clone(),
                             to: "runtime:0:0:0".to_string(),
                         },

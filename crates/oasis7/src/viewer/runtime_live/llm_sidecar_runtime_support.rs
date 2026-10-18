@@ -1,8 +1,7 @@
 use super::super::mapping::runtime_state_to_simulator_model;
 use super::*;
-use crate::simulator::{
-    CHUNK_GENERATION_SCHEMA_VERSION, SNAPSHOT_VERSION, WorldJournal, WorldSnapshot,
-};
+use crate::simulator::{WorldJournal, WorldSnapshot};
+use oasis7_simulator::{CHUNK_GENERATION_SCHEMA_VERSION, SNAPSHOT_VERSION};
 
 impl RuntimeLlmSidecar {
     /// Rebuild the simulator shadow from the authoritative Runtime snapshot

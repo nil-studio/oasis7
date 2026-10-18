@@ -24,7 +24,7 @@ fn observer_fixture() -> (PathBuf, RuntimeWorld, String, serde_json::Value) {
     let public = sign_read_request("fixture", (), &private)
         .unwrap()
         .subject_public_key;
-    let mut world = RuntimeWorld::new_with_state(WorldState::default());
+    let mut world = crate::runtime_host::world::new_with_state(WorldState::default());
     world.submit_action(RuntimeAction::RegisterAgent {
         agent_id: "owner-agent".into(),
         pos: crate::GeoPos::new(0, 0, 0),
@@ -103,10 +103,10 @@ fn observer_fixture() -> (PathBuf, RuntimeWorld, String, serde_json::Value) {
             "fixture",
         )
         .unwrap();
-    let observer = RuntimeWorld::load_observer_from_dir_cancellable(
+    let observer = RuntimeWorld::load_observer_with_control(
         &dir,
         crate::runtime::ObserverReadLimits::default(),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        crate::runtime::ObserverLoadControl::default(),
     )
     .unwrap();
     (dir, observer, public, original)
@@ -238,9 +238,7 @@ fn canonical_goal_outbound_filter_preserves_non_chat_and_filters_effect_inputs()
 
 #[test]
 fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessions() {
-    use crate::world_service::{
-        authority, client::WorldServiceClientConfig, verified_view::VerifiedWorldView,
-    };
+    use crate::world_service::{authority, client::WorldServiceClientConfig};
     use oasis7_client_api::world_service::*;
     use std::{
         io::{Read, Write},
@@ -376,8 +374,10 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     });
     let mut public_request = request.clone();
     public_request.scope_id = "public".into();
-    server.verified_world_view =
-        Some(VerifiedWorldView::new(response.clone(), &public_request).unwrap());
+    server.verified_world_view = Some(verified_fixture_assertion(
+        response.clone(),
+        &public_request,
+    ));
     assert!(
         server
             .verified_world_view
@@ -478,8 +478,7 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     let mut newer_public = response;
     newer_public.version.commit.position += 1;
     newer_public.continuation.commit = newer_public.version.commit.clone();
-    server.verified_world_view =
-        Some(VerifiedWorldView::new(newer_public, &public_request).unwrap());
+    server.verified_world_view = Some(verified_fixture_assertion(newer_public, &public_request));
     server.invalidate_owner_read_session(&mut owner);
     server.configure_service_provider();
     assert!(owner.owner_read_view.is_none());
@@ -526,4 +525,29 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     );
 
     fs::remove_dir_all(dir).unwrap();
+}
+
+fn verified_fixture_assertion(
+    response: oasis7_client_api::world_service::ReadWorldViewResponse<
+        crate::world_service::projection::WorldServiceProjection,
+    >,
+    request: &oasis7_client_api::world_service::ReadWorldViewRequest,
+) -> crate::world_service::verified_view::VerifiedWorldView {
+    use crate::world_service::authority;
+    let path = oasis7_client_api::world_service::VIEW_PATH;
+    let request =
+        authority::sign_read_request(path, request.clone(), &hex::encode([7; 32])).unwrap();
+    let digest = authority::request_digest(path, &request).unwrap();
+    let response =
+        authority::sign_service_response(path, digest, response, &hex::encode([9; 32])).unwrap();
+    let key = authority::sign_read_request("fixture", (), &hex::encode([9; 32]))
+        .unwrap()
+        .subject_public_key;
+    crate::world_service::verified_view::VerifiedWorldView::verify_service_assertion(
+        response,
+        &request,
+        &key,
+        crate::world_service::verified_view::ReadEvidencePolicy::Ordinary,
+    )
+    .unwrap()
 }

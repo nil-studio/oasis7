@@ -477,7 +477,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
         &captured,
         Action::MoveAgent {
             agent_id: "agent-a".into(),
-            to: oasis7::GeoPos::new(1, 0, 0),
+            to: oasis7_agent_api::world_action::GeoPos::new(1, 0, 0),
         },
     )
     .unwrap();
@@ -497,7 +497,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     );
     assert_eq!(
         driver.execution_world.state().agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(1, 0, 0)
+        oasis7_agent_api::world_action::GeoPos::new(1, 0, 0)
     );
     assert_eq!(
         http(
@@ -653,7 +653,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
                     &g2_captured,
                     Action::MoveAgent {
                         agent_id: "agent-a".into(),
-                        to: oasis7::GeoPos::new(2, 0, 0),
+                        to: oasis7_agent_api::world_action::GeoPos::new(2, 0, 0),
                     },
                 )
                 .unwrap(),
@@ -670,7 +670,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     );
     assert_eq!(
         driver.execution_world.state().agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(2, 0, 0)
+        oasis7_agent_api::world_action::GeoPos::new(2, 0, 0)
     );
     // A context lease expires before the still-valid grant. Cleanup is entirely public.
     let mut expiry_request = g2_prepare.request.clone();
@@ -960,7 +960,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
                     &fresh_captured,
                     Action::MoveAgent {
                         agent_id: "agent-a".into(),
-                        to: oasis7::GeoPos::new(3, 0, 0),
+                        to: oasis7_agent_api::world_action::GeoPos::new(3, 0, 0),
                     },
                 )
                 .unwrap(),
@@ -977,7 +977,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     );
     assert_eq!(
         driver.execution_world.state().agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(3, 0, 0)
+        oasis7_agent_api::world_action::GeoPos::new(3, 0, 0)
     );
     // Settled and expired contexts no longer authorize writes, but their exact
     // receipts remain recoverable for the current live task fence beyond hot history.

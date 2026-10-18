@@ -83,8 +83,9 @@ fn signed_strict_audit_evidence(
             reorg_epoch: receipt.committed_reorg_epoch,
             candidate_state_root: server
                 .world
-                .current_state_root_hash()
-                .expect("current root"),
+                .execution_state_identity()
+                .expect("current root")
+                .state_root_hash,
             audit_report_bytes,
             manifest_bytes,
             issued_at_ms,
@@ -266,9 +267,10 @@ fn readiness_reevaluation_stays_blocked_without_fresh_strict_audit_evidence() {
         restarted_readiness.candidate_state_root, blocked_receipt.target_state_root,
         "persisted all-clear evidence records the observed candidate root"
     );
-    let restored = RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
-        .expect("load generation")
-        .expect("persisted generation");
+    let restored =
+        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+            .expect("load generation")
+            .expect("persisted generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
         serde_json::from_slice(&restored.recovery_metadata).expect("decode generation");
     let mut restarted_server =
@@ -414,7 +416,11 @@ fn receipt_retrieval_expires_stale_readiness_and_rechecks_current_evidence() {
                 .snapshot_hash
                 .clone(),
             reorg_epoch: server.reorg_epoch,
-            candidate_state_root: server.world.current_state_root_hash().expect("root"),
+            candidate_state_root: server
+                .world
+                .execution_state_identity()
+                .expect("root")
+                .state_root_hash,
             strict_audit_evidence_digest: stale_evidence.evidence_digest.clone(),
             strict_audit_observed_at_ms: stale_evidence.issued_at_ms,
             strict_audit_evidence: Some(stale_evidence),
@@ -554,9 +560,10 @@ fn durable_receipt_does_not_fabricate_player_compensation_for_system_events() {
     assert!(classified.player_id.is_none());
     assert!(classified.compensation.is_none());
 
-    let restored_generation = RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
-        .expect("load generation")
-        .expect("committed recovery generation");
+    let restored_generation =
+        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+            .expect("load generation")
+            .expect("committed recovery generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
         serde_json::from_slice(&restored_generation.recovery_metadata)
             .expect("decode recovery generation");
@@ -937,9 +944,10 @@ fn authorized_rejected_compensation_transition_survives_restart() {
             .ready_for_all_clear,
         "GetRollbackReceipt must preserve Reevaluate readiness for rejected terminal cases"
     );
-    let restored = RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
-        .expect("load generation")
-        .expect("durable generation");
+    let restored =
+        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+            .expect("load generation")
+            .expect("durable generation");
     let restored_generation: RuntimeAuthoritativeRecoveryGeneration =
         serde_json::from_slice(&restored.recovery_metadata).expect("decode generation");
     let mut restarted =

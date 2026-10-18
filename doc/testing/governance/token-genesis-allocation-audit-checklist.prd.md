@@ -65,8 +65,8 @@
 - Integration Points:
   - `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md`
   - `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md`
-  - `crates/oasis7/src/runtime/main_token.rs`
-  - `crates/oasis7/src/runtime/world/event_processing.rs`
+  - `crates/oasis7_runtime/src/main_token.rs`
+  - `crates/oasis7_runtime/src/world/event_processing.rs`
   - `doc/testing/evidence/token-genesis-allocation-audit-template.md`
 - Edge Cases & Error Handling:
   - 若参数表暂时没有真实多签地址，只给逻辑账户名，允许 `conditional draft review`，但不得给最终 `pass`。

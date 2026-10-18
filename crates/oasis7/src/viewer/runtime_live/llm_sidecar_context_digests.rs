@@ -1,4 +1,4 @@
-use crate::simulator::Observation;
+use oasis7_simulator::Observation;
 
 pub(super) fn provider_wait_precondition_digest(observation: &Observation) -> String {
     crate::simulator::h_v1("oasis7.cognition.provider-wait-precondition.v1", &{

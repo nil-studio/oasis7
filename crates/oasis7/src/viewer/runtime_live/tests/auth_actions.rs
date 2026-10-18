@@ -286,7 +286,7 @@ fn runtime_background_play_tolerates_transient_llm_failure_after_confirmed_progr
                     let response = crate::simulator::DecisionResponse {
                         decision: crate::simulator::ProviderDecision::Act {
                             action_ref: "move_agent".to_string(),
-                            action: crate::simulator::Action::MoveAgent {
+                            action: oasis7_simulator::Action::MoveAgent {
                                 agent_id: decoded
                                     .base_decision_request
                                     .observation
@@ -482,7 +482,7 @@ fn runtime_background_play_stops_on_non_retryable_provider_error_after_progress(
                     let response = crate::simulator::DecisionResponse {
                         decision: crate::simulator::ProviderDecision::Act {
                             action_ref: "speak_to_nearby".to_string(),
-                            action: crate::simulator::Action::SpeakToNearby {
+                            action: oasis7_simulator::Action::SpeakToNearby {
                                 agent_id: decoded
                                     .base_decision_request
                                     .observation

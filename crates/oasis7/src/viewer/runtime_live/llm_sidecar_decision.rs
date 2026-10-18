@@ -44,7 +44,7 @@ impl RuntimeLlmSidecar {
                 if let Some(view) = self.provider_service_projection.as_ref()
                     && let Some(authority) = view.agent_context.as_ref()
                     && let Some(history) = view.feedback_history.as_ref()
-                    && let Err(message) = history.restore_preverified(&authority.agent_id, runner) {
+                    && let Err(message) = crate::world_service_feedback_host::restore_preverified(history, &authority.agent_id, runner) {
                         tracing::warn!(%message, "authenticated feedback recovery fenced");
                     }
             } else if runner.active_turn_count() == 0

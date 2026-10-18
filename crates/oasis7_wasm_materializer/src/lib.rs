@@ -52,11 +52,11 @@ const DEFAULT_WASM_BUILDER_IMAGE_DIGEST: &str =
 const DEFAULT_WASM_CANONICAL_CONTAINER_PLATFORM: &str = "linux-x86_64";
 const BUILTIN_WASM_BUILD_PROFILE: &str = "release";
 const M1_BUILTIN_MODULE_IDS_PATH: &str =
-    "crates/oasis7/src/runtime/world/artifacts/m1_builtin_module_ids.txt";
+    "crates/oasis7_runtime/src/world/artifacts/m1_builtin_module_ids.txt";
 const M4_BUILTIN_MODULE_IDS_PATH: &str =
-    "crates/oasis7/src/runtime/world/artifacts/m4_builtin_module_ids.txt";
+    "crates/oasis7_runtime/src/world/artifacts/m4_builtin_module_ids.txt";
 const M5_BUILTIN_MODULE_IDS_PATH: &str =
-    "crates/oasis7/src/runtime/world/artifacts/m5_builtin_module_ids.txt";
+    "crates/oasis7_runtime/src/world/artifacts/m5_builtin_module_ids.txt";
 const BUILTIN_MODULE_HASH_INDEX_PATH: &str = "module_hash_index.txt";
 
 fn builtin_wasm_env_key(suffix: &str) -> String {

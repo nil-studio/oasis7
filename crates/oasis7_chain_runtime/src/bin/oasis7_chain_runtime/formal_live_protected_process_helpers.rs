@@ -23,9 +23,9 @@ pub(super) fn assert_live_descends_from_view(
     Ok(())
 }
 
-pub(super) fn world_with_owner_seed() -> (oasis7::runtime::World, SigningKey) {
+pub(super) fn world_with_owner_seed() -> (oasis7_runtime::World, SigningKey) {
     let owner = fixtures::key(71);
-    let world = oasis7::runtime::World::new_with_state(WorldState::default())
+    let world = oasis7_runtime::World::new_with_state(WorldState::default())
         .try_with_cognition_scheduler(
             SchedulerPolicyV1 {
                 schema_version: SchedulerPolicyV1::SCHEMA_VERSION.into(),
@@ -44,7 +44,7 @@ pub(super) fn world_with_owner_seed() -> (oasis7::runtime::World, SigningKey) {
 }
 
 pub(super) fn install_wasmtime_action_observer(
-    world: &mut oasis7::runtime::World,
+    world: &mut oasis7_runtime::World,
 ) -> Result<(), String> {
     let mut hasher = Sha256::new();
     hasher.update(WASM_EXECUTOR_TEST_MODULE);
@@ -177,7 +177,7 @@ pub(super) fn request_for_first_agent(
 }
 
 pub(super) fn retained_result_from_hot_or_cold(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     result_key: &str,
 ) -> Result<oasis7::world_service::CanonicalIntentResultV1, String> {
     optional_retained_result_from_hot_or_cold(world, result_key)?
@@ -185,7 +185,7 @@ pub(super) fn retained_result_from_hot_or_cold(
 }
 
 pub(super) fn optional_retained_result_from_hot_or_cold(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     result_key: &str,
 ) -> Result<Option<oasis7::world_service::CanonicalIntentResultV1>, String> {
     if let Some(value) = world
@@ -209,7 +209,7 @@ pub(super) fn optional_retained_result_from_hot_or_cold(
 /// submission. Its first result belongs to the bounded recent-result window;
 /// absence means execution has not published yet, not a cold-history lookup.
 pub(super) fn fresh_request_result(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     key: &str,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<Option<oasis7::world_service::CanonicalIntentResultV1>, String> {
@@ -231,6 +231,11 @@ pub(super) fn fresh_request_result(
     }
     Ok(Some(result))
 }
+
+// Volatile admission has no execution SLO: a request can arrive during an
+// already-running Tick and then require its own Tick. Long history fixtures
+// share this observation bound and retain their separate total scenario bound.
+pub(super) const LONG_HISTORY_REQUEST_WAIT: Duration = Duration::from_secs(120);
 
 pub(super) fn wait_for_new_request_result(
     runtime: &FormalLiveRuntime,
@@ -307,10 +312,10 @@ pub(super) fn wait_for_new_request_result(
 
 #[test]
 fn fresh_request_absence_never_reads_cold_history() {
-    let mut staged = oasis7::runtime::World::new();
+    let mut staged = oasis7_runtime::World::new();
     staged.initialize_empty_formal_history().unwrap();
     let world =
-        oasis7::runtime::World::from_snapshot(staged.snapshot(), staged.journal().clone()).unwrap();
+        oasis7_runtime::World::from_snapshot(staged.snapshot(), staged.journal().clone()).unwrap();
     let identity = WorldIdentity {
         world_id: "formal-fixture-world".into(),
         genesis_digest: fixtures::h(8),
@@ -430,7 +435,14 @@ pub(super) fn wait_for_published_position(
     runtime: &FormalLiveRuntime,
     position: u64,
 ) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    wait_for_published_position_until(runtime, position, Instant::now() + Duration::from_secs(20))
+}
+
+pub(super) fn wait_for_published_position_until(
+    runtime: &FormalLiveRuntime,
+    position: u64,
+    deadline: Instant,
+) -> Result<(), String> {
     loop {
         let published_position = runtime.published.position()?;
         if published_position >= position {
@@ -447,6 +459,11 @@ pub(super) fn wait_for_published_position(
             ));
         }
         if Instant::now() >= deadline {
+            // Publication can advance while the diagnostic snapshot is read.
+            let published_position = runtime.published.position()?;
+            if published_position >= position {
+                return Ok(());
+            }
             let pending_proposal = snapshot
                 .consensus
                 .pending_proposal
@@ -553,7 +570,7 @@ pub(super) fn free_loopback_address() -> Result<std::net::SocketAddr, String> {
     listener.local_addr().map_err(|error| error.to_string())
 }
 
-pub(super) fn wasm_emit_count(world: &oasis7::runtime::World) -> usize {
+pub(super) fn wasm_emit_count(world: &oasis7_runtime::World) -> usize {
     world
         .journal()
         .events
@@ -561,7 +578,7 @@ pub(super) fn wasm_emit_count(world: &oasis7::runtime::World) -> usize {
         .filter(|event| {
             matches!(
                 &event.body,
-                oasis7::runtime::WorldEventBody::ModuleEmitted(emission)
+                oasis7_runtime::WorldEventBody::ModuleEmitted(emission)
                     if emission.kind == "wasm.test"
             )
         })
@@ -600,7 +617,7 @@ pub(super) fn assert_admin_commit_did_not_emit_wasm(
         .as_ref()
         .ok_or("administrative Frozen closure missing")?;
     verify_frozen_material(&frozen.reservation.body, before).map_err(|error| error.to_string())?;
-    let journal = |material: &oasis7_distfs::controlled_authority::replicated_protocol::ClosedRecord| -> Result<oasis7::runtime::Journal, String> {
+    let journal = |material: &oasis7_distfs::controlled_authority::replicated_protocol::ClosedRecord| -> Result<oasis7_runtime::Journal, String> {
         let hash = material.roots.get(&oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole::Journal)
             .ok_or("administrative Journal role missing")?;
         let object = material.objects.iter().find(|object| &object.content_hash == hash)
@@ -610,7 +627,7 @@ pub(super) fn assert_admin_commit_did_not_emit_wasm(
     let before = journal(before)?;
     let after = journal(&candidate.material)?;
     if after.events.iter().any(|event| {
-        matches!(&event.body, oasis7::runtime::WorldEventBody::ModuleEmitted(emission) if emission.kind == "wasm.test")
+        matches!(&event.body, oasis7_runtime::WorldEventBody::ModuleEmitted(emission) if emission.kind == "wasm.test")
             && !before.events.contains(event)
     }) {
         return Err("administrative exact commit unexpectedly executed simulation modules".into());

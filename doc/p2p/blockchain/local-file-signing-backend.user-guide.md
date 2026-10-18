@@ -36,7 +36,7 @@ sudo "$RELEASE/oasis7_local_signer_admin" enable --purpose rollback_strict_audit
 
 ### Policy 和 grant 的内容
 
-精确字段与校验规则见 [types.rs](../../../crates/oasis7_local_signer/src/types.rs)。JSON 不接受未知字段；所有 SHA-256 使用 64 位小写 hex。`policy-install` 与 `approve-batch` 的候选文件必须逐字节等于 `canonical_json` 对已解析类型的输出：先转为 `serde_json::Value`，再用 `serde_json::to_vec` 编码为紧凑 UTF-8 JSON；对象键按字典序排列，没有缩进、额外空格、BOM 或末尾换行，字符串转义也必须与该序列化器一致。可选字段按类型序列化规则输出（包括显式 null）。先生成最终 canonical 字节，再计算其 SHA-256；仅摘要正确并不能使普通格式化 JSON 被接受。
+精确字段与校验规则见 [types.rs](../../../crates/oasis7_signer_protocol/src/types.rs)。JSON 不接受未知字段；所有 SHA-256 使用 64 位小写 hex。`policy-install` 与 `approve-batch` 的候选文件必须逐字节等于 `canonical_json` 对已解析类型的输出：先转为 `serde_json::Value`，再用 `serde_json::to_vec` 编码为紧凑 UTF-8 JSON；对象键按字典序排列，没有缩进、额外空格、BOM 或末尾换行，字符串转义也必须与该序列化器一致。可选字段按类型序列化规则输出（包括显式 null）。先生成最终 canonical 字节，再计算其 SHA-256；仅摘要正确并不能使普通格式化 JSON 被接受。
 
 | 候选 | 必须绑定的内容 |
 | --- | --- |
@@ -47,14 +47,14 @@ sudo "$RELEASE/oasis7_local_signer_admin" enable --purpose rollback_strict_audit
 
 `not_before` 和 `expires_at` 是 UTC Unix 毫秒，前者必须小于后者。source_head_oid 是 40 位小写 Git OID。policy 上限为 64 个 batch item、每项 16 个 distinct request、payload 16 MiB；实际使用可设更小值。
 
-`operation_key` 必须用 [identity::operation_key](../../../crates/oasis7_local_signer/src/identity.rs) 的算法生成：SHA-256(domain `oasis7.local-operation.v2\0` + installation/deployment/network/purpose/signer 的 UTF-8 字节，分别加 4 字节大端长度前缀 + 原始 32 字节 payload SHA-256)。不能用 job ID 或自行拼接字符串替代。协议绑定包含 authority_id、rollback_ticket、receipt_id、nonce；它们必须与 payload 和请求一致。
+`operation_key` 必须用 [identity::operation_key](../../../crates/oasis7_signer_protocol/src/identity.rs) 的算法生成：SHA-256(domain `oasis7.local-operation.v2\0` + installation/deployment/network/purpose/signer 的 UTF-8 字节，分别加 4 字节大端长度前缀 + 原始 32 字节 payload SHA-256)。不能用 job ID 或自行拼接字符串替代。协议绑定包含 authority_id、rollback_ticket、receipt_id、nonce；它们必须与 payload 和请求一致。
 
 启用后以实际 caller 再运行 `doctor`。新版同时检查启用 purpose 的绑定密钥是否 active；inactive、archived、deleted 密钥会使其返回未就绪。`ready: true` 仍不保证某个请求拥有有效 grant、正确上下文或剩余额度；提交时逐项校验。
 
 ## 调用者：一次签名
 
 1. 执行 `"$RELEASE/oasis7_local_signer" prepare --job-id "$JOB"`。空 job 返回 `JOB_DIRECTORY_READY` 和真实 work_dir。
-2. 在该目录放入 `input.json` 和 `payload.bin`，使用 caller 所有的普通文件和私有目录，不使用符号链接。Rollback payload 来自业务协议生成器；[rollback.rs](../../../crates/oasis7_local_signer/src/rollback.rs) 校验其 canonical 编码和协议绑定。文件签名使用下面的 `file-payload` 生成器。
+2. 在该目录放入 `input.json` 和 `payload.bin`，使用 caller 所有的普通文件和私有目录，不使用符号链接。Rollback payload 来自业务协议生成器；[rollback.rs](../../../crates/oasis7_signer_protocol/src/rollback.rs) 校验其 canonical 编码和协议绑定。文件签名使用下面的 `file-payload` 生成器。
 3. 再执行同一 `prepare`，预期 `PREPARED`。它生成 `request.json` 与 `request.payload.sha256` 并固定 request_id；保存这些文件。
 4. 执行 `"$RELEASE/oasis7_local_signer" submit --job-id "$JOB"`。检查退出码和完整 JSON；成功必须是 `status: committed` 且 error_code 为 null。
 5. 保存公开结果，核对 request_id、operation_key、公钥、signature_base64 和 audit_digest；业务消费者使用协议规定的消息及公钥验证签名，不以 CLI 成功代替业务验签。

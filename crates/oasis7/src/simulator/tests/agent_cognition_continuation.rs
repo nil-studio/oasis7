@@ -8,9 +8,10 @@ use crate::runtime::{AgentContinuation, ContinuationBudgetV1, ContinuationStatus
 use crate::simulator::{
     AsyncAgentRunner, ContinuationAuthorityContextV1, ContinuationCurrentContextV1,
     ContinuationHarness, ContinuationInvalidationReason, ContinuationProposalV1,
-    ContinuousAgentTurnContextV1, Digest32, GoalSnapshotV1, MemoryContextSnapshotV1, Observation,
+    ContinuousAgentTurnContextV1, Digest32, GoalSnapshotV1, MemoryContextSnapshotV1,
     RuntimeContinuationStatusV1,
 };
+use oasis7_simulator::Observation;
 use serde_json::{Value, json};
 
 const WORLD_ID: &str = "world-continuation-fixture";

@@ -134,9 +134,9 @@ Trace ID: O7-REQ-fd8b7e31-afa8-4361-81f0-849c07099dfd
 - 系统设计状态：部分覆盖
 - 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-observation)；原目标已存在，正式接线与四项未决仍限制覆盖。
 - 实现状态：未核实
-- 实现与验证依据：[逐项验证计划](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan) 与 [消费者验证入口](../../../testing-manual.md#uws-v-consumers)，本次未执行业务测试，局部源码和采用记录不证明正式组合。
-- 核对日期与基线：2026-10-15；`a90a1384fb94fc036c929125c84717e5614762ad`；实际实施候选与运行环境未核实。
-- 剩余范围：只接收 R5 原观察一致性；不新增观察权限、不保证任意 surface 可读性或选择新的 DTO/表示模型。 对应正式 profile 的输入、权威材料、真实消费者输出和完整验收仍须同候选核实。
+- 实现与验证依据：已按固定源码 `6463975178f3d32ef6d8e19e14f0b24f1c7f9471` 核查：Viewer compat_snapshot 从 runtime snapshot 调用共享 mapper 并复制 chain resource manifest/delta；Provider 从 Runtime state 或 canonical service projection 重建 shadow 后 observe，沿同一 mapper 继承 seed location ID，但 shadow manifest/delta 为 Default，provider resource_summary 来自 Agent self_resources。共享 mapper 与 seed ID 是已实现局部事实，不能证明共同 snapshot identity、附近 fragment remaining/chunk 资源摘要或正式 provenance 贯通。#4693 同树 required 的具名 TCP 周期读与迟到完成围栏 PASS 只覆盖读取可靠性，不覆盖本卡组合验收。 定位：[mapping](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/viewer/runtime_live/mapping.rs)；[control_blocking](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/viewer/runtime_live/control_blocking.rs)；[llm_sidecar_runtime_support](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runtime_support.rs)；[llm_sidecar_provider_observation](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/viewer/runtime_live/llm_sidecar_provider_observation.rs)。
+- 核对日期与基线：2026-10-17；`6463975178f3d32ef6d8e19e14f0b24f1c7f9471`；13份合同/源码本地字节与该 SHA tree blob 一致；本轮只读审查，未执行业务测试或现场验收。
+- 剩余范围：只接收 R5 原观察一致性；不新增观察权限、不保证任意 surface 可读性或选择新的 DTO/表示模型。待核清 Viewer 与 Provider 共同采样身份和切点、正式 profile 的 fragment terrain/附近资源 remaining 与 chunk 摘要及其权威来源贯通、fallback/派生锚点不误标规则，并取得同候选真实消费者组合证据；不能把自资源或周期传输可靠性代签同快照资源观察。
 
 ## 4. 路线图
 
@@ -187,9 +187,9 @@ Trace ID: O7-REQ-3cf9f857-8083-4527-9648-95e9425a8448
 - 系统设计依据：[场景加载约束](../../world-simulator/scenario/scenario-files.design.md#scenario-loading-design)及[生成来源与固定输入重建](../../world-simulator/scenario/scenario-files.design.md#generated-world-provenance-design)承接初始化与来源重建切片；五列承接及六列验证反链本SC。
 - 初始化切片补充：[分块生成既有义务与验证](../../world-simulator/scenario/chunked-fragment-generation.design.md#chunk-generation-existing-obligations)接收同一有效 seed/config/chunk trigger order 的初始化确定性；只补反链，不改变本卡组合状态或全部权威事件及交互重现的剩余范围。该专题的[回放规范冲突](../../world-simulator/scenario/chunked-fragment-generation.design.md#chunk-replay-conflict-register)仍待裁决，不由本反链消解。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：固定场景有效seed、配置和触发顺序的确定性初始化；不能由加载成功代签整个权威事件及交互结果重现。
+- 实现与验证依据：[chunk seed函数](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/chunking.rs#L89-L100)固定world seed与坐标映射；[正式初始化输入](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_initialization.rs#L1-L62)只接收operator准备的snapshot/journal和外部批准，不创建世界或生成seed。函数与导入入口之间未建立SC-1的固定场景生成消费链。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：需定位生成seed/config/trigger order实际生产端及其进入同一formal初始snapshot/journal的身份绑定，再核关键场景权威事件和交互结果重放；当前不是只欠重复运行。原chunk replay规范冲突仍保留。
 
 <a id="sc-agent-002"></a>
 #### 功能状态卡：SC-2 组合
@@ -202,9 +202,9 @@ Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb（[REQ-EXT-003](external
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：外部Runtime观察、决策和权威结果切片以所列叶项为准；builtin及其他provider、正式玩家反馈、完整因果链不能由外部Runtime子集代签。
+- 实现与验证依据：[Launcher实际runner接线](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/execution.rs#L90-L115)连接SdkNativeTaskHost；[SDK world/agent/fence与原操作恢复](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task_sdk.rs#L65-L127)和[runner原操作扫描](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task.rs#L231-L277)按原operation回读。[玩家执行诊断](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/model_connection_panel.jsx#L146-L180)显示第一方执行状态/效果数，尚未证明把每轮输入、决策与同一世界裁决原因关联为玩家因果链。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：核清builtin及各声明provider的决策trace生产端、input/context revision、operation/intent/receipt关联及玩家表面读取；第一方report和外部Runtime不是同一actor，不能以诊断数值拼接世界事件。
 
 <a id="sc-agent-002-builtin-input-integrity"></a>
 ##### SC-2 已接收子范围：builtin 当前输入完整性
@@ -258,10 +258,10 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616（[REQ-AGENT-STAGE-001](
 - 功能点：SC-3，本卡成功标准原文与 §5.1 对应行共同限定范围。
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
-- 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：世界数据来源、个人反馈及结构化错误已有叶级关系；主Web全部核心动作、真实世界与正式入口组合尚未形成完整设计/实现证据。
+- 实现状态：部分实现
+- 实现与验证依据：[会话主体选择](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L194-L220)→[WorldSnapshot/player_gameplay生产](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L345-L455)→[同snapshot玩家摘要](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L332-L380)→[Web host实际消费](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L44-L65)构成当前Web状态子链；[接受等待/世界约束/拒绝读取](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L475-L553)区分反馈语义。此直接子范围不是将HTTP错误码与任意UI拼接。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：主Web全部核心动作的结构化失败到可执行恢复仍未核齐；formal profile的read authority、每类行动的提交/回读与同玩家scope还需逐项连通，不能由runtime-live子范围宣称正式全动作闭合。
 
 <a id="sc-agent-004"></a>
 #### 功能状态卡：SC-4 组合
@@ -274,9 +274,9 @@ Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264（[REQ-ENTRY-MODE-001](.
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：入口MODE-001/002的独立模式与失败表达及PARITY-001的体验连续性共同约束；Launcher/Viewer/pure API的所有声明与证据组合仍须按本SC分别核验。
+- 实现与验证依据：[Viewer来源authority](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/viewer/runtime_live/world_view_source.rs#L7-L73)区分local_bound、formal_verified、signed_service_assertion并绑定世界/权限版本；[Provider mode合同](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_agent_api/src/provider.rs#L12-L35)及观察校验限制模式数据。[专业报告输出](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/scripts/provider-parity-p0.sh#L884-L978)独立区分benchmark/parity/release blocked，[部署配置边界](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/config.rs#L10-L22)不把配置视为public support attestation。上述真实消费者各自闭合来源/模式或报告，但未核到Launcher、Viewer、pure API共同消费支持声明及证据窗口，不以模式enum或技术ready推根组合。
+- 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
+- 剩余范围：具体尚未定位支持claim的权威发布记录及Launcher/Viewer/pure API三入口的版本、模式、provider组合和证据窗口reader；专业报告与世界来源校验到产品受限/退化说明的消费链仍未知。尤其pure API当前支持承诺不能由Viewer source标签代签。
 
 <a id="sc-agent-005"></a>
 #### 功能状态卡：SC-5 组合
@@ -289,9 +289,9 @@ Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6（[REQ-AGENT-SURFACE-003
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：基础设施DWE-001/002/003的确定性、待决/提交与lineage义务是依赖；本SC另要求等价重排序、重复投递/跨入口重试后accepted/rejected集合及replay/Viewer/pure API原因一致，不能由单一去重或反馈隔离代签。
+- 实现与验证依据：[同world/agent/fence原操作恢复](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task_sdk.rs#L65-L127)保留Action/Outcome/Prefix并poll_original；[Viewer反馈选择](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L357-L385)区分请求反馈与共享世界blocker。它们没有建立同一冲突窗口等价重排序的accepted/rejected集合与replay/Viewer/API原因映射。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：需定位冲突窗口ID、等价意图规范排序及裁决producer，连到三入口原receipt/替代原因；#4673涉及correlation/persistence及task链，旧恢复源码不代签其最新语义。不能以去重或反馈隔离替代并发集合确定性。
 
 <a id="sc-agent-006"></a>
 #### 功能状态卡：SC-6 组合
@@ -304,9 +304,9 @@ Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb（[REQ-EXT-003](external
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：外部Runtime上下文有效性和学习情报历史仅覆盖各自叶范围；builtin输入不足、各provider的新鲜度及正式surface刷新/纠正/重排组合仍未完整承接。
+- 实现与验证依据：[执行前fence与context退休](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task.rs#L294-L330)和[需要新决策的结果处理](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task.rs#L456-L520)防止当前native继续消费失效context；[对象freshness显示](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_world_view_inspector.jsx#L4-L13)仅消费空间对象来源。两者并非同一provider observation版本的显示/纠正链。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：核清builtin不完整输入及各provider observation/context producer，如何绑定正式surface新鲜度、刷新/纠正/重排动作与新的决策；空间位置freshness不能代签认知输入新鲜度，且native第一方不能代签所有provider。
 
 Trace refs: O7-REQ-d1ea0352-7f1a-426b-907a-cf41571a1e7f；仅引用 §5.1 已接收的 [builtin 当前输入完整性子范围](#sc-agent-002-builtin-input-integrity)，不另发身份，也不以该子范围代签 SC-6 的正式 surface 与各 provider 组合。
 
@@ -321,9 +321,9 @@ Trace refs: O7-REQ-bd792456-4b98-4891-b5e3-e24b1de4f1a1（[REQ-EXT-004](external
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：多轮决策、权威回读及首局义务仅作组合入口；工业资源/物流/市场/威胁/治理约束到实际世界更新及玩家主因果、成本、blocker和下一步仍需同候选端到端证据。
+- 实现与验证依据：[第一方native runner](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/execution.rs#L90-L115)和[工具调用与权威结果处理](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task.rs#L456-L520)构成执行切片；[玩家因果/进展派生](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L75-L135)可从feedback或世界进展生成文案。尚未核到工业决策输入、原operation、成本和该玩家feedback共用的因果标识。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：需选一条真实Agent工业链，把约束输入→决策→接受/拒绝→世界效果→该玩家主因果/成本/进展/blocker/下一步连续串起；自然世界进展fallback和确定性provider fixture不证明自主Agent链。保留builtin恢复/预览原子范围，不扩为根完成。
 
 <a id="sc-agent-007-factory-recovery"></a>
 ##### SC-7 已接收子范围：builtin 失败恢复与反循环
@@ -363,10 +363,10 @@ Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf（[REQ-WR-AOS-001](../wo
 - 功能点：SC-8，本卡成功标准原文与 §5.1 对应行共同限定范围。
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
-- 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：消费AOS-001/002的认领承诺及失控恢复；本SC保留当前账号/共享Agent区分、surface可读选择和受限启动帮助不得成为免费控制的独立组合验收。
+- 实现状态：部分实现
+- 实现与验证依据：[绑定映射producer](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/mapping.rs#L120-L127)→[当前会话/绑定待同步/其他/未绑定分类](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_agent_claim_display_model.js#L53-L115)→[Agent列表真实badge](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2257-L2285)直接交付SC-8的账号区分子范围；[认领action actor约束](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_agent_claim_display_model.js#L143-L157)要求claimer匹配当前boundAgent。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：首次认领承诺、持续维护/可维持时间/风险及无法维持后的恢复/释放/重新规划尚需完整权威quote→表面→行动链；受限启动帮助资产/补贴边界未由当前session分类证明。formal链认领归属与Web会话映射不能直接等同。
 
 <a id="sc-agent-009"></a>
 #### 功能状态卡：SC-9 组合
@@ -378,10 +378,10 @@ Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36（[REQ-PROMPT-001](agent
 - 功能点：SC-9，本卡成功标准原文与 §5.1 对应行共同限定范围。
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
-- 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：Prompt叶项逐一保留对话/草稿/配置、目标与资格、默认/override、accepted/applied、能力缺失、可达性及迟到反馈边界；部分叶项覆盖不代表全surface组合完成。
+- 实现状态：部分实现
+- 实现与验证依据：[独立聊天、草稿与Prompt操作](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3453-L3636)→[会话/绑定/authority身份](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_prompt_control_module.js#L60-L91)→[权威preview/accepted/applied与scope](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_plane/prompt_control_enhanced.rs#L589-L635)→[结果读取及snapshot刷新](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_prompt_control_module.js#L202-L253)构成同Agent/request的直接链；ack明确runtime-instance且persistence/sync none，未把接受当世界效果。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：默认/effective与clear提交前来源解释、预设全部来源和各适用入口尚未闭合；ProviderBacked能力边界、迟到反馈/切主体和完整输入可达性需逐项核清。当前runtime-instance应用不代表持久目标或跨Runtime协作采纳。
 
 <a id="sc-agent-010"></a>
 #### 功能状态卡：SC-10 组合
@@ -393,10 +393,10 @@ Trace refs: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef（[REQ-AGENT-SURFACE-001
 - 功能点：SC-10，本卡成功标准原文与 §5.1 对应行共同限定范围。
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
-- 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：surface叶项保留viewport/语言、连接/未知结果、反馈归属、typed错误与preflight的各自边界；正式入口组合及真实玩家可读性没有由单项代码或设计证明。
+- 实现状态：部分实现
+- 实现与验证依据：[snapshot生产](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L345-L455)→[当前玩家摘要](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L332-L380)→[host输入](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L44-L65)；[context loss停止旧会话](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L967-L985)及[获准目标/原回执保留与重试](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1280-L1301)是SC-10直接恢复子链，未改写权威结果。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：完整viewport/密度/语言/连接中/恢复失败的四个决策锚点实现仍未核齐；断连unknown原请求lookup、身份scope变化清除和恢复下一步须各入口核查。renderer恢复不代签网络恢复或进展。
 
 <a id="sc-agent-011"></a>
 #### 功能状态卡：SC-11 组合
@@ -409,9 +409,9 @@ Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad（[REQ-AGENT-AUTH-001](a
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：本专题AC-1～9保留自治选择、高后果授权、累计额度、团队扩张、工业供给、转让、异议/override和责任归因；不能由两项局部授权/历史Trace代签全部组合。
+- 实现与验证依据：[native grant来源](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/agent_delegation.rs#L159-L185)绑定starter owner并明确organization_source_unsupported；[exact owner control](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/agent_delegation_controls.rs#L33-L127)重验owner/intent/digest/grant revision；[WorldService签名authority](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/world_service/agent_authority.rs#L7-L65)匹配canonical owner claim与identity。[claim终态](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/agent_claim_terminal_publication.rs#L225-L244)是释放/回收结算，不是团队转让/退休历史组合。未把叶项底座状态自动汇总为根实现，本轮未运行组合验收。
+- 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
+- 剩余范围：尚未核清高自治/有界授权的可读选择及有效后续确认producer如何到达现有grant/override；累计额度和严重后果同入口重验、组织issuer责任链、团队扩张/异议及真实转让/退休历史的共同因果reader仍缺定位。既有签名验证不证明用户已在这些产品入口作出有效确认。
 
 <a id="sc-agent-012"></a>
 #### 功能状态卡：SC-12 组合
@@ -424,9 +424,9 @@ Trace refs: O7-REQ-86ed9522-e22d-4706-9b1e-3e1452a9fb3c（[REQ-AGENT-LEARNING-00
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：provider准入/暂停/撤销、固定cadence、训练重训历史、情报私有/披露/更新均沿叶项完整范围；Local Provider parity不是该长期组合已设计或已交付证据。
+- 实现与验证依据：[proof-bearing bootstrap](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/provider_backed_bootstrap.rs#L19-L80)→[当前catalog](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/capability_catalog.rs#L17-L100)和[授权root](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/capability_authorization_state.rs#L71-L115)闭合普通治理授权与审计事实；[wake公平调度](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/cognition_scheduler.rs#L635-L676)仅约束认知wake。[parity报告窄结论](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/scripts/provider-parity-p0.sh#L884-L915)保留not-certified/blocked，非产品学习认证。尚未核到代表性样例中认证状态、有限试点、训练历史、情报安全边界和权威slot使用同一scope/候选的组合绑定。
+- 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
+- 剩余范围：需串起产品认证状态authority→profile可选性/新意图准入→暂停撤销对待决处理→恢复新scope重确认和正常action slot，及训练provenance/成本历史与情报freshness/安全披露的共同reader。根组合不由LEARNING叶项、普通grant、认知配额或QA parity报告自动归并；本轮无真实样例验收。
 
 <a id="sc-agent-013"></a>
 #### 功能状态卡：SC-13 组合
@@ -438,10 +438,10 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616（[REQ-AGENT-STAGE-001](
 - 功能点：SC-13，本卡成功标准原文与 §5.1 对应行共同限定范围。
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
-- 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：舞台叶项的局部专业设计不代签Web/native分别浏览、下钻、定位、间接指导及renderer降级的组合；当前表现与长期空间目标仍须分开。
+- 实现状态：部分实现
+- 实现与验证依据：[世界snapshot/summary真实输入](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L44-L65)→[对象、路线、可信位置与只读定位](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_world_view_inspector.jsx#L4-L37)；[renderer及失败后文本恢复](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1255-L1301)直接交付Web子范围。[交付范围记录](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/product/agents-world-simulation/player-readable-world-stage.prd.md#L263-L277)关联#4825/#4834并明确原生容器未实现；不借产品状态替代上述生产代码。 本轮静态核查，不新增行为验收。
+- 核对日期与基线：2026-10-17；需求/设计/源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；最新main `0ec10379419b0aaedb9d16157b81c92f4e6e3495` 仅作delta边界参考，不将旧源码或历史运行改称最新候选通过。
+- 剩余范围：受支持native内嵌容器仍需交付；逐端总览/区域/Fragment下钻、平移缩放、事件选择返回合法指导以及世界效果需核完整。只读路线不授权terrain edit/harvest/build；当前Web子范围不证明长期空间表现或R5跨入口共同身份。
 
 <a id="sc-agent-014"></a>
 #### 功能状态卡：SC-14 组合
@@ -454,9 +454,9 @@ Trace refs: O7-REQ-b3e367c3-c72d-4959-b599-613ac652dab8（[REQ-EXT-001](external
 - 系统设计状态：未核实
 - 系统设计依据：已核对 §5.1 专业责任与上列精确叶项/组合关系；叶项已确认的专业条款仅证明其实际子范围，尚不能判定整个根组合的系统设计覆盖。
 - 实现状态：未核实
-- 实现与验证依据：叶项中固定源码或历史 Task 只证明原候选、入口和局部范围；尚无本根全部适用条件的同候选组合证据，未执行本 SC 行为验收。
-- 核对日期与基线：2026-10-15；需求及设计审读基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；只读文档及已记录证据核对，无新增 Runtime、provider、浏览器、部署或真人运行。
-- 剩余范围：外部Runtime、世界舞台复用叶项及协作七项共同承接；OpenClaw/Codex、Web/native各自的完整首局、授权/问答/目标版本与恢复不能相互代签，历史prepared-world原生切片不等于当前组合通过。
+- 实现与验证依据：[两Runtime声明profile](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/doc/world-simulator/llm/external-agent-runtime-adapter.design.md#L71-L79)分别规定Codex app-server和OpenClaw Gateway，但声明不是可复现运行证据；[已交付Skill范围](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/skills/oasis7-play/SKILL.md#L1-L25)只承诺prepared-world普通签名客户端。真实第一方执行链及[实际预算生产接线](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_agent_harness/src/native_task_sdk.rs#L65-L99)→[持久物理调用预算](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_client_storage/src/native_run_budget.rs#L28-L190)已核，不能替代两个driver。[私有路由分派](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_goal.rs#L380-L431)、[共享存储实际schema](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_client_api/src/world_service/client_state.rs#L8-L27)与[实际HTTP读面](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_viewer_runtime/src/game_read_api.rs#L124-L156)正向显示现有任务控制/私有目标/context/原操作读取范围；client_storage迁移未新增正式报告、问答、审批或跨表面协作身份。
+- 核对日期与基线：2026-10-17；状态卡按 A `0901927131b3e7c919fc6b092e77ae8895579989`，静态生产源码固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`，22个引用/闭包源逐 Git blob 校验；另比较 `5d503f0ca79bcc68708a32672a48a2786ad51395` 迁移前源码。未运行模型、Runtime、浏览器或行为验收，未把测试源码当本轮PASS。
+- 剩余范围：分别定位两Runtime实际版本/schema/平台/profile、首局与恢复生产接线，及同world/task/goal revision的Web/桌面接收采纳、TaskReport、question/in_reply_to、审批决定恢复。当前5卡静态闭包不完整；保留未核实，不以target设计、缺文件或搜索零结果宣布两driver不存在，不执行模型补证。
 
 ## 6. Non-Goals
 

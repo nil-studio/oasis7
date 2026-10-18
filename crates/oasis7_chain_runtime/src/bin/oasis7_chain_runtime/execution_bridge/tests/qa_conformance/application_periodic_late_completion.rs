@@ -81,7 +81,7 @@ fn run_periodic_late_completion_case(change: &str, slow_case: Option<(Duration, 
         fs::write(root.join("world-periodic-slow-view"), b"slow case").unwrap();
     }
     let release = GateRelease(root.clone());
-    let mut config = ViewerRuntimeLiveServerConfig::new(oasis7::simulator::WorldScenario::Minimal);
+    let mut config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);
     config.world_id = "w1".into();
     let mut world_service = fixture.client.config().clone();
     if let Some((timeout, _)) = slow_case {

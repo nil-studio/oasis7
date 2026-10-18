@@ -9,11 +9,45 @@ use crate::identity::{operation_key, request_key};
 use crate::installation::{current_egid, current_uid};
 use crate::local_fs::{create_private_dir, write_private_new};
 use crate::protocol::{IPC_SCHEMA, RollbackProtocolContext, SignContext};
-use crate::rollback::{UnsignedRollbackPayload, canonical_signing_payload};
 use crate::types::{
     CallerBinding, GRANT_SCHEMA, GrantItem, INSTALLATION_SCHEMA, KeyBinding, POLICY_SCHEMA,
     PolicyLimits,
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UnsignedRollbackPayload {
+    pub(crate) schema_version: u32,
+    pub(crate) authority_id: String,
+    pub(crate) rollback_ticket: String,
+    pub(crate) receipt_id: String,
+    pub(crate) canonical_intent_digest: String,
+    pub(crate) recovery_snapshot_hash: String,
+    pub(crate) reorg_epoch: u64,
+    pub(crate) candidate_state_root: String,
+    pub(crate) strict_registry_audit_passed: bool,
+    pub(crate) strict_manifest_audit_passed: bool,
+    pub(crate) audit_report_bytes: Vec<u8>,
+    pub(crate) manifest_bytes: Vec<u8>,
+    pub(crate) evidence_digest: String,
+    pub(crate) issued_at_ms: u64,
+    pub(crate) expires_at_ms: u64,
+    pub(crate) nonce: String,
+    pub(crate) signature_scheme: String,
+}
+
+pub(crate) fn canonical_signing_payload(
+    unsigned: &UnsignedRollbackPayload,
+) -> Result<Vec<u8>, SignerError> {
+    let serialized =
+        serde_json::to_vec(unsigned).map_err(|_| SignerError::CryptoOrBindingInvalid)?;
+    let mut payload =
+        Vec::with_capacity(b"oasis7:rollback-strict-audit-evidence:v1\0".len() + serialized.len());
+    payload.extend_from_slice(b"oasis7:rollback-strict-audit-evidence:v1\0");
+    payload.extend_from_slice(&serialized);
+    Ok(payload)
+}
 
 struct Scratch(PathBuf);
 

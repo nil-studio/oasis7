@@ -21,7 +21,7 @@ fn fingerprint(dir: &Path) -> BTreeMap<PathBuf, String> {
             let value = if p.is_symlink() {
                 format!("link:{}", std::fs::read_link(&p).unwrap().display())
             } else {
-                oasis7::runtime::blake3_hex(&std::fs::read(&p).unwrap())
+                oasis7_runtime::blake3_hex(&std::fs::read(&p).unwrap())
             };
             (p, value)
         })

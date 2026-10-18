@@ -7,7 +7,8 @@
 //! synthetic module installation hook in release builds.
 
 use crate::runtime::{World as RuntimeWorld, WorldEventBody as RuntimeWorldEventBody};
-use crate::simulator::{ModuleVisualAnchor, ModuleVisualEntity, WorldModel};
+use oasis7_agent_api::world_entity::{ModuleVisualAnchor, ModuleVisualEntity};
+use oasis7_simulator::WorldModel;
 use oasis7_wasm_abi::{
     ModuleCallFailure, ModuleCallRequest, ModuleEmit, ModuleOutput, ModuleSandbox,
 };
@@ -314,8 +315,64 @@ fn ack_path_for(command_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::{World, WorldEventBody};
+    use crate::runtime::WorldEventBody;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn install_visual_driver(
+        world: &mut RuntimeWorld,
+    ) -> Result<String, crate::runtime::WorldError> {
+        use crate::runtime::{
+            ModuleKind, ModuleLimits, ModuleManifest, ModuleRecord, ModuleRegistry, ModuleRole,
+        };
+        const MODULE_ID: &str = "runtime.qa.module_visual_driver";
+        const VERSION: &str = "1.0.0";
+        const ARTIFACT: &[u8] = b"oasis7-runtime-module-visual-driver-v1";
+
+        let wasm_hash = {
+            use sha2::Digest;
+            hex::encode(sha2::Sha256::digest(ARTIFACT))
+        };
+        world.register_module_artifact(wasm_hash.clone(), ARTIFACT)?;
+        let mut snapshot = world.snapshot();
+        let manifest = ModuleManifest {
+            module_id: MODULE_ID.to_string(),
+            name: "Runtime module visual QA driver".to_string(),
+            version: VERSION.to_string(),
+            kind: ModuleKind::Pure,
+            role: ModuleRole::AgentInternal,
+            wasm_hash,
+            interface_version: "wasm-1".to_string(),
+            exports: vec!["call".to_string()],
+            subscriptions: Vec::new(),
+            required_caps: Vec::new(),
+            abi_contract: Default::default(),
+            artifact_identity: None,
+            limits: ModuleLimits {
+                max_mem_bytes: 1024,
+                max_gas: 10_000,
+                max_call_rate: u32::MAX,
+                max_output_bytes: 4096,
+                max_effects: 0,
+                max_emits: 1,
+            },
+        };
+        let key = ModuleRegistry::record_key(MODULE_ID, VERSION);
+        snapshot.module_registry.records.insert(
+            key,
+            ModuleRecord {
+                manifest,
+                registered_at: world.state().time,
+                registered_by: "runtime-module-visual-driver".to_string(),
+                audit_event_id: None,
+            },
+        );
+        snapshot
+            .module_registry
+            .active
+            .insert(MODULE_ID.to_string(), VERSION.to_string());
+        *world = crate::runtime_host::world::from_snapshot(snapshot, world.journal().clone())?;
+        Ok(MODULE_ID.to_string())
+    }
 
     fn test_path() -> PathBuf {
         let nonce = SystemTime::now()
@@ -340,7 +397,7 @@ mod tests {
 
     #[test]
     fn fresh_world_does_not_bootstrap_test_driver_module() {
-        let world = World::new();
+        let world = crate::runtime_host::world::new();
         assert!(
             !world
                 .module_registry()
@@ -361,14 +418,12 @@ mod tests {
         let command_path = test_path();
         let _ = fs::remove_file(&command_path);
         let _ = fs::remove_file(ack_path_for(&command_path));
-        let mut world = World::new();
+        let mut world = crate::runtime_host::world::new();
         let mut driver = RuntimeModuleVisualDriver {
             command_path: command_path.clone(),
             ack_path: ack_path_for(&command_path),
             read_offset: 0,
-            runtime_module_id: world
-                .install_test_runtime_module_visual_driver()
-                .expect("install driver module"),
+            runtime_module_id: install_visual_driver(&mut world).expect("install driver module"),
         };
         let mut seed_model = None;
         let runtime_module_id = driver.runtime_module_id.clone();

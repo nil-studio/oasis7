@@ -4,13 +4,13 @@
 //! identities, create storage, discover trust from an endpoint, or promote the
 //! engineering configuration into a formal profile.
 use ed25519_dalek::SigningKey;
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7::world_service::client::FormalReadTrustConfigV1;
 use oasis7_distfs::controlled_authority::formal::{
     FormalCompletionBranchV1, FormalQualifiedCommitProofV1, FormalRecordKindV1,
     VerifiedFormalReadAnchorV1, endpoint::FormalCandidateMaterialV1, verify_formal_candidate,
     verify_formal_qualified, verify_record_material,
 };
+use oasis7_runtime::ReleaseSecurityPolicy;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
@@ -282,9 +282,9 @@ fn load_approved_initial(
 ) -> Result<ApprovedInitialPublicationV1, String> {
     super::controlled_live_config::require_private_owned(path, false)?;
     let bytes = super::controlled_history_cli::read_bounded(path, MAX_INITIAL_BYTES)?;
-    oasis7::runtime::World::validate_offline_cbor_budget(
+    oasis7_runtime::World::validate_offline_cbor_budget(
         &bytes,
-        oasis7::runtime::ObserverReadLimits::default(),
+        oasis7_runtime::ObserverReadLimits::default(),
     )
     .map_err(|error| format!("approved initial publication budget: {error:?}"))?;
     let publication: ApprovedInitialPublicationV1 = serde_cbor::from_slice(&bytes)

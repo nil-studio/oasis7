@@ -2,64 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::Write;
 
-pub(super) const AGENCY_CONTROL_REQUEST_TYPE: &str = "agency_control_request";
+pub(super) use oasis7_proto::agency_control::AGENCY_CONTROL_REQUEST_TYPE;
 pub(super) const AGENCY_CONTROL_RESPONSE_TYPE: &str = "agency_control_response";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum AgencyControlOperation {
-    Inspect,
-    CorrectMemory {
-        correction_id: String,
-        target_memory_id: String,
-        expected_revision: u64,
-        replacement_summary: String,
-    },
-    InstallDelegation {
-        grant_id: String,
-        object_id: String,
-        action_kinds: Vec<String>,
-        period_id: String,
-        valid_from_tick: u64,
-        valid_until_tick: u64,
-        limit_units: u64,
-    },
-    RevokeDelegation {
-        grant_id: String,
-        expected_revision: u64,
-    },
-    OverridePendingIntent {
-        control_id: String,
-        intent_id: String,
-        request_digest: String,
-        grant_id: String,
-        expected_grant_revision: u64,
-    },
-    InterruptPendingIntent {
-        control_id: String,
-        intent_id: String,
-        request_digest: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        grant_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        expected_grant_revision: Option<u64>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct AgencyControlRequest {
-    #[serde(rename = "type")]
-    pub(super) frame_type: String,
-    pub(super) request_id: String,
-    pub(super) player_id: String,
-    pub(super) public_key: String,
-    pub(super) agent_id: String,
-    pub(super) world_id: String,
-    pub(super) reorg_epoch: u64,
-    pub(super) command: AgencyControlOperation,
-    pub(super) auth: Option<crate::viewer::protocol::PlayerAuthProof>,
-}
+pub(super) use oasis7_proto::agency_control::{AgencyControlOperation, AgencyControlRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

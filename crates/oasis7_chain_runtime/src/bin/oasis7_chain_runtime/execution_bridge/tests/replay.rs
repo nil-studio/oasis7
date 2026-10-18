@@ -5,7 +5,7 @@ use super::super::checkpoint::{
 };
 use super::super::external_effect::build_execution_replay_plan;
 use super::*;
-use oasis7::runtime::LocalCasStore;
+use oasis7_runtime::LocalCasStore;
 
 #[test]
 fn execution_replay_plan_without_checkpoint_replays_full_log() {

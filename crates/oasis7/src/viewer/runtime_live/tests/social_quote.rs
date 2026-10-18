@@ -1,7 +1,7 @@
 use super::*;
-use crate::simulator::{
-    ResourceKind, ResourceOwner, SocialChallengeState, SocialFactLifecycleState, SocialFactState,
-    SocialStake,
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{
+    ResourceOwner, SocialChallengeState, SocialFactLifecycleState, SocialFactState, SocialStake,
 };
 
 fn seed_active_social_backing_fact(server: &mut ViewerRuntimeLiveServer, agent_id: &str) -> u64 {

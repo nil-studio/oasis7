@@ -3,12 +3,13 @@ use super::super::control_plane::{
 };
 use super::super::session_policy::map_session_policy_error_code;
 use super::super::*;
-use crate::simulator::{ResourceOwner, WorldKernel};
+use crate::simulator::WorldKernel;
 use crate::viewer::auth::verify_power_survival_quote_auth_proof;
 use crate::viewer::protocol::{
     GameplayActionError, PowerSurvivalQuotePreflight, PowerSurvivalQuoteRequest,
     PowerSurvivalRecoveryAction,
 };
+use oasis7_simulator::ResourceOwner;
 
 impl ViewerRuntimeLiveServer {
     /// Computes the simulator-kernel `BuyPower` survival quote from a fresh, read-only runtime

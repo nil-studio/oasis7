@@ -315,11 +315,11 @@ fn drain_upstream_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::simulator::WorldScenario;
     use oasis7::viewer::{
         VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse, ViewerRuntimeLiveServer,
         ViewerRuntimeLiveServerConfig, ViewerStream,
     };
+    use oasis7_simulator::WorldScenario;
     use std::sync::mpsc;
     use std::time::Instant;
     use tungstenite::connect;

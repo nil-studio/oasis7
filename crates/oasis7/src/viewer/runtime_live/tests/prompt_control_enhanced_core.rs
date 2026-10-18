@@ -82,7 +82,7 @@ fn runtime_prompt_control_enhanced_apply_is_idempotent_per_authority_epoch() {
     assert_eq!(replay.version, first.version);
     assert!(server.pending_virtual_events.iter().any(|event| matches!(
         event.kind,
-        crate::simulator::WorldEventKind::AgentPromptUpdated { .. }
+        oasis7_simulator::WorldEventKind::AgentPromptUpdated { .. }
     )));
 }
 

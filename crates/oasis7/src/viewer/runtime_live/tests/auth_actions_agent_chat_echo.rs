@@ -72,7 +72,7 @@ fn runtime_agent_chat_echo_env_enqueues_agent_spoke_virtual_event() {
     let events: Vec<_> = server.pending_virtual_events.drain(..).collect();
     assert!(events.iter().any(|event| matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
             if event_agent_id == &agent_id && message == "[local-mock-receipt] 已收到消息；当前本地 mock provider 不生成真实 Agent 回复：hello runtime echo"
     )));
 }
@@ -150,7 +150,7 @@ fn runtime_agent_chat_echo_env_accepts_chat_without_llm_runner_config() {
     let events: Vec<_> = server.pending_virtual_events.drain(..).collect();
     assert!(events.iter().any(|event| matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
             if event_agent_id == &agent_id && message == "[local-mock-receipt] 已收到消息；当前本地 mock provider 不生成真实 Agent 回复：hello runtime echo without llm config"
     )));
 }
@@ -218,7 +218,7 @@ fn runtime_agent_chat_echo_removed_old_brand_env_is_ignored() {
     let events: Vec<_> = server.pending_virtual_events.drain(..).collect();
     assert!(!events.iter().any(|event| matches!(
         &event.kind,
-        crate::simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
+        oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
             if event_agent_id == &agent_id && message == "[local-mock-receipt] 已收到消息；当前本地 mock provider 不生成真实 Agent 回复：hello removed old brand runtime echo"
     )));
 }

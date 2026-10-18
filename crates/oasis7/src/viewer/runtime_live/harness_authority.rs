@@ -214,7 +214,7 @@ impl RuntimeAuthority for RuntimeWorldAuthority<'_> {
             ));
         }
         self.verify_response_identity(&actual, response_identity)?;
-        Ok(actual.agent_api_projection())
+        Ok(oasis7_agent_api::RuntimeReceiptLineageV1::from(&actual))
     }
 
     fn verify_memory_receipt(
@@ -246,7 +246,7 @@ impl RuntimeAuthority for RuntimeWorldAuthority<'_> {
                 "committed receipt does not match the provider memory intent context",
             ));
         }
-        Ok(actual.agent_api_projection())
+        Ok(oasis7_agent_api::RuntimeReceiptLineageV1::from(&actual))
     }
 
     fn validated_feedback_history(&self) -> Result<Vec<FeedbackHistoryProjection>, CognitionError> {
@@ -268,10 +268,9 @@ impl RuntimeAuthority for RuntimeWorldAuthority<'_> {
                             cognition_error("runtime_feedback_payload_invalid", error)
                         })?;
                 let receipt_lineage = if feedback.status == "committed" {
-                    Some(
-                        self.committed_feedback_lineage(&feedback)?
-                            .agent_api_projection(),
-                    )
+                    Some(oasis7_agent_api::RuntimeReceiptLineageV1::from(
+                        &self.committed_feedback_lineage(&feedback)?,
+                    ))
                 } else {
                     None
                 };
@@ -433,7 +432,7 @@ mod world_readback_tests {
 
     #[test]
     fn runtime_world_authority_verifies_durable_receipt_and_response_before_minting_handle() {
-        let mut world = RuntimeWorld::new();
+        let mut world = crate::runtime_host::world::new();
         world
             .bind_cognition_runtime("world-readback", "main", 0, None, "pending", 0)
             .expect("bind Runtime World");
@@ -581,7 +580,7 @@ mod world_readback_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::{RuntimeFeedbackOutboxRecordV1, RuntimeFeedbackProjectionV1};
+    use crate::runtime::RuntimeFeedbackOutboxRecordV1;
 
     fn rejected_feedback(agent: &str, session: &str, seq: u64) -> OasisFeedbackEnvelopeV1 {
         OasisFeedbackEnvelopeV1 {
@@ -601,11 +600,11 @@ mod tests {
     }
 
     fn record(feedback: &OasisFeedbackEnvelopeV1, state: &str) -> RuntimeFeedbackOutboxRecordV1 {
-        let mut record = RuntimeFeedbackOutboxRecordV1::from_feedback_with_projection(
-            feedback,
-            RuntimeFeedbackProjectionV1::default(),
-        )
-        .expect("feedback creates a valid outbox record");
+        let mut record = crate::runtime_host::world::new()
+            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+                feedback,
+            ))
+            .expect("feedback creates a valid outbox record");
         record.state = state.to_string();
         record
             .validate()
@@ -615,13 +614,19 @@ mod tests {
 
     #[test]
     fn runtime_history_projects_ack_state_from_durable_outbox() {
-        let mut world = RuntimeWorld::new();
+        let mut world = crate::runtime_host::world::new();
         let acked = rejected_feedback("agent-a", "session-a", 1);
         let pending = rejected_feedback("agent-a", "session-a", 2);
-        world.enqueue_runtime_feedback(acked.clone()).unwrap();
+        world
+            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(&acked))
+            .unwrap();
         world.claim_runtime_feedback(&acked.feedback_id).unwrap();
         world.ack_runtime_feedback(&acked.feedback_id).unwrap();
-        world.enqueue_runtime_feedback(pending.clone()).unwrap();
+        world
+            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+                &pending,
+            ))
+            .unwrap();
 
         let authority = RuntimeWorldAuthority::new(&world);
         let history = authority.validated_feedback_history().unwrap();
@@ -640,12 +645,14 @@ mod tests {
 
     #[test]
     fn history_rejects_a_forged_durable_envelope_digest() {
-        let mut world = RuntimeWorld::new();
+        let mut world = crate::runtime_host::world::new();
         let feedback = rejected_feedback("agent-a", "session-a", 1);
         let mut forged = record(&feedback, "acked");
         forged.envelope_digest = format!("blake3:{}", "b".repeat(64));
         world
-            .enqueue_runtime_feedback(feedback)
+            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+                &feedback,
+            ))
             .expect("Runtime accepts the original payload");
         // The authority reads only the actual World record; a detached record
         // cannot be substituted for that durable history.

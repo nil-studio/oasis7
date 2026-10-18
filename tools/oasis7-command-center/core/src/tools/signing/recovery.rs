@@ -147,8 +147,10 @@ pub fn reconcile_file_prepare(
         || prepared.request.signer_id != input.signer_id
         || prepared.request.grant_id.0.as_deref() != Some(&input.grant_id)
         || prepared.payload
-            != oasis7_local_signer::detached::signing_payload_from_digest(&context, &digest, size)
-                .map_err(invalid)?
+            != oasis7_signer_protocol::detached::signing_payload_from_digest(
+                &context, &digest, size,
+            )
+            .map_err(invalid)?
     {
         return Err(invalid("Prepared files do not match original intent"));
     }

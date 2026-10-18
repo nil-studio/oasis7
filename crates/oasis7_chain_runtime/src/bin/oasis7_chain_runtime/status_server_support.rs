@@ -720,10 +720,10 @@ pub(super) fn attach_governance_slashing_receipts(
                 appeal_deadline_tick: record.appeal_deadline_tick,
                 applied: matches!(
                     record.status,
-                    oasis7::runtime::GovernanceIdentityPenaltyStatus::Applied
-                        | oasis7::runtime::GovernanceIdentityPenaltyStatus::Appealed
-                        | oasis7::runtime::GovernanceIdentityPenaltyStatus::AppealAccepted
-                        | oasis7::runtime::GovernanceIdentityPenaltyStatus::AppealRejected
+                    oasis7_runtime::GovernanceIdentityPenaltyStatus::Applied
+                        | oasis7_runtime::GovernanceIdentityPenaltyStatus::Appealed
+                        | oasis7_runtime::GovernanceIdentityPenaltyStatus::AppealAccepted
+                        | oasis7_runtime::GovernanceIdentityPenaltyStatus::AppealRejected
                 ),
             })
         })
@@ -734,13 +734,13 @@ pub(super) fn attach_governance_slashing_receipts(
 }
 
 fn governance_identity_penalty_status_label(
-    status: oasis7::runtime::GovernanceIdentityPenaltyStatus,
+    status: oasis7_runtime::GovernanceIdentityPenaltyStatus,
 ) -> &'static str {
     match status {
-        oasis7::runtime::GovernanceIdentityPenaltyStatus::Applied => "applied",
-        oasis7::runtime::GovernanceIdentityPenaltyStatus::Appealed => "appealed",
-        oasis7::runtime::GovernanceIdentityPenaltyStatus::AppealAccepted => "appeal_accepted",
-        oasis7::runtime::GovernanceIdentityPenaltyStatus::AppealRejected => "appeal_rejected",
+        oasis7_runtime::GovernanceIdentityPenaltyStatus::Applied => "applied",
+        oasis7_runtime::GovernanceIdentityPenaltyStatus::Appealed => "appealed",
+        oasis7_runtime::GovernanceIdentityPenaltyStatus::AppealAccepted => "appeal_accepted",
+        oasis7_runtime::GovernanceIdentityPenaltyStatus::AppealRejected => "appeal_rejected",
     }
 }
 

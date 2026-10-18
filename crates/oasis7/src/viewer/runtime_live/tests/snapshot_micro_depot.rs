@@ -11,11 +11,11 @@ fn compat_snapshot_exposes_micro_depot_facility_state_and_evidence() {
     let mut model = WorldModel::default();
     model.regional_infrastructure.insert(
         "depot-compat".to_string(),
-        crate::simulator::RegionalInfrastructure {
+        oasis7_simulator::RegionalInfrastructure {
             facility_id: "depot-compat".to_string(),
             kind: "micro_depot".to_string(),
             location_id: "loc-compat".to_string(),
-            owner: crate::simulator::ResourceOwner::Agent {
+            owner: oasis7_simulator::ResourceOwner::Agent {
                 agent_id: "agent-0".to_string(),
             },
             owner_claim_id: "claim-compat".to_string(),

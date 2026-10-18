@@ -214,6 +214,7 @@ jobs:
     if: >-
       needs.select.result == 'success' &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
@@ -1652,6 +1653,46 @@ jobs:
           name: rust-governance-report
           path: output/rust-governance
           if-no-files-found: error
+
+  explicit-full-gate:
+    name: explicit-full-gate
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    needs: [select, oasis7-test-build, formal-process, full-regression, candidate-full-regression]
+    steps:
+      - name: Require complete explicit full run
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RUN_MODE: ${{ inputs.run_mode }}
+          PLAN: ${{ needs.select.outputs.plan }}
+          SELECT_RESULT: ${{ needs.select.result }}
+          TEST_BUILD_RESULT: ${{ needs.oasis7-test-build.result }}
+          FORMAL_RESULT: ${{ needs.formal-process.result }}
+          FULL_RESULT: ${{ needs.full-regression.result }}
+          CANDIDATE_RESULT: ${{ needs.candidate-full-regression.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$PLAN" == '{"scope":"explicit-full","groups":[]}' ]] || fail 'selection did not produce the explicit-full plan'
+          [[ "$SELECT_RESULT" == success ]] || fail 'scope selection did not succeed'
+          [[ "$TEST_BUILD_RESULT" == success ]] || fail 'ordinary test artifact build did not succeed'
+          [[ "$FORMAL_RESULT" == success ]] || fail 'formal process suite did not succeed'
+          case "$EVENT_NAME:$RUN_MODE:$REF" in
+            schedule::refs/heads/main|workflow_dispatch:full:refs/heads/main)
+              [[ "$FULL_RESULT" == success ]] || fail 'main full regression did not succeed'
+              [[ "$CANDIDATE_RESULT" == skipped ]] || fail 'candidate full regression should be skipped on main'
+              ;;
+            workflow_dispatch:full:*)
+              [[ "$CANDIDATE_RESULT" == success ]] || fail 'candidate full regression did not succeed'
+              [[ "$FULL_RESULT" == skipped ]] || fail 'main full regression should be skipped off main'
+              ;;
+            *) fail 'explicit-full gate ran for an unsupported event or ref' ;;
+          esac
 
   newapi-bridge-package:
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'

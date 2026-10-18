@@ -73,14 +73,14 @@ pub(super) fn assert_original_terminal(fixture: &Fixture, root: &Path) {
         original["provider_memory_store"]
     );
     let world = fixture.driver.lock().unwrap().execution_world.clone();
-    let all: Vec<oasis7::runtime::AgentContinuation> =
+    let all: Vec<oasis7_runtime::AgentContinuation> =
         serde_json::from_value(world.cognition_continuations()).unwrap();
     let selected: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("hosted-final-budget-selected.json")).unwrap())
             .unwrap();
     assert!(all.iter().any(
         |c| c.continuation_id == selected["continuation_id"].as_str().unwrap()
-            && c.status == oasis7::runtime::ContinuationStatusV1::Completed
+            && c.status == oasis7_runtime::ContinuationStatusV1::Completed
             && c.remaining_budget.value == 0
     ));
     assert!(world.cognition_in_flight_wakes().unwrap().is_empty());

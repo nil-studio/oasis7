@@ -14,17 +14,19 @@ use crate::simulator::AgentRunner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::simulator::AsyncAgentRunner;
 use crate::simulator::{
-    Action as SimulatorAction, ActionCatalogEntry, AgentDecision, AgentDecisionTrace,
-    AgentPromptProfile, ChunkRuntimeConfig,
+    ActionCatalogEntry, AgentDecision, AgentDecisionTrace,
     ContinuationProposalV1 as SimulatorContinuationProposalV1, ContinuousAgentResponseContextV1,
-    LlmAgentBehavior, LlmAgentConfig, Location, MemoryWriteStore, OpenAiChatCompletionClient,
+    LlmAgentBehavior, LlmAgentConfig, MemoryWriteStore, OpenAiChatCompletionClient,
     ProviderAgentChatRequest, ProviderBackedAgentBehavior, ProviderExecutionMode,
-    ProviderLoopbackAdapter, ProviderLoopbackHttpClient, ResourceOwner, RuntimeBindingV1,
-    WorldConfig, WorldEvent, WorldEventKind, WorldKernel, WorldModel,
+    ProviderLoopbackAdapter, ProviderLoopbackHttpClient, RuntimeBindingV1, WorldEvent, WorldKernel,
     evaluate_provider_compatibility, provider_agent_chat_log_key,
 };
 use crate::viewer::live::ViewerLiveDecisionMode;
 use crate::viewer::protocol::{AgentChatAck, AgentChatError};
+use oasis7_simulator::{
+    Action as SimulatorAction, AgentPromptProfile, ChunkRuntimeConfig, Location, ResourceOwner,
+    WorldConfig, WorldEventKind, WorldModel,
+};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -426,7 +428,7 @@ impl RuntimeLlmSidecar {
         &mut self,
         world: &mut RuntimeWorld,
         mut cognition: RuntimeProviderActionContext,
-        _action: crate::simulator::Action,
+        _action: oasis7_simulator::Action,
     ) -> Result<(), String> {
         self.ensure_canonical_agent_durable_admission()?;
         let agent_id = cognition.request.request_context.agent_subject.clone();

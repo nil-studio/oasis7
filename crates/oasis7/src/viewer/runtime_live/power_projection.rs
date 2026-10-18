@@ -1,5 +1,5 @@
 use crate::runtime::{M1_POWER_STORAGE_CAPACITY, M1_STORAGE_POWER_MODULE_ID, WorldState};
-use crate::simulator::{AgentPowerStatus, PowerConfig};
+use oasis7_simulator::{AgentPowerStatus, PowerConfig};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 

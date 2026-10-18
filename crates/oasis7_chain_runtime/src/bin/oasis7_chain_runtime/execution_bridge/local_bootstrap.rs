@@ -4,10 +4,10 @@ use super::checkpoint::{
 use super::driver::{NodeRuntimeExecutionDriver, persist_execution_bridge_state};
 use super::execution_hash::ExecutionHashPayload;
 use super::external_effect::execution_world_snapshot_root;
-use oasis7::runtime::ReleaseSecurityPolicy;
-use oasis7::runtime::blake3_hex;
 use oasis7_node::NodeExecutionBootstrap;
 use oasis7_proto::storage_profile::StorageProfileConfig;
+use oasis7_runtime::ReleaseSecurityPolicy;
+use oasis7_runtime::blake3_hex;
 
 /// Restore the consensus boundary from one verified service commit. Commit
 /// height and gameplay tick remain independent; all CAS material is required.

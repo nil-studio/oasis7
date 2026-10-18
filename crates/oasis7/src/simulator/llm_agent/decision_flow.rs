@@ -1,8 +1,8 @@
 use super::super::agent::{AgentDecision, AgentQuery, MicroDepotQuoteRequest};
-use super::super::kernel::{MicroDepotActionKind, MicroDepotPressureClass};
-use super::super::types::{Action, ResourceKind, ResourceOwner};
 use super::LlmCompletionTurn;
 use super::prompt_assembly::{PromptSectionKind, PromptSectionPriority};
+use oasis7_simulator::{Action, ResourceKind, ResourceOwner};
+use oasis7_simulator::{MicroDepotActionKind, MicroDepotPressureClass};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

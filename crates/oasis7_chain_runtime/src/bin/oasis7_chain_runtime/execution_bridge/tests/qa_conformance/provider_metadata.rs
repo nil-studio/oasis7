@@ -183,7 +183,7 @@ impl MetadataServer {
                                 } else {
                                     oasis7::simulator::ProviderDecision::Act {
                                         action_ref: "move_agent".into(),
-                                        action: oasis7::simulator::Action::MoveAgent {
+                                        action: oasis7_simulator::Action::MoveAgent {
                                             agent_id: incoming.agent_subject.clone(),
                                             to: "runtime:2:2:0".into(),
                                         },

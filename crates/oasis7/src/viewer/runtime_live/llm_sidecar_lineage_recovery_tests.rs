@@ -77,7 +77,7 @@ fn bound_provider_lease_test_world_with_binding(
     finality_status: &str,
     finality_block_hash: Option<String>,
 ) -> RuntimeWorld {
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime(
             "lease-recovery-world",
@@ -743,7 +743,7 @@ fn committed_marker_recovery_settles_provider_lease_before_clearing_mirror() {
         "agent-a".to_string(),
         async_support::RuntimeLlmDecision {
             agent_id: "agent-a".to_string(),
-            decision: AgentDecision::Act(crate::simulator::Action::MoveAgent {
+            decision: AgentDecision::Act(oasis7_simulator::Action::MoveAgent {
                 agent_id: "agent-a".to_string(),
                 to: "loc-recovery".to_string(),
             }),
@@ -964,8 +964,9 @@ fn malformed_runtime_wake_projection_fences_provider_dispatch_and_persists_recov
         "schema_version": "scheduler.v1",
         "in_flight": "malformed"
     });
-    let mut malformed_world = RuntimeWorld::from_snapshot(snapshot, valid_world.journal().clone())
-        .expect("malformed scheduler projection remains loadable for adapter fault injection");
+    let mut malformed_world =
+        crate::runtime_host::world::from_snapshot(snapshot, valid_world.journal().clone())
+            .expect("malformed scheduler projection remains loadable for adapter fault injection");
 
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     sidecar.configure_provider_lineage_store(path.clone());
@@ -1140,7 +1141,7 @@ fn provider_lineage_restore_quarantines_missing_or_mismatched_active_identity() 
 fn provider_lineage_hydrates_sequences_and_session_from_runtime_projection() {
     let mut world = RuntimeWorld::default();
     world
-        .enqueue_runtime_feedback(crate::simulator::FeedbackEnvelopeV1 {
+        .enqueue_runtime_feedback(oasis7_agent_api::FeedbackEnvelopeV1 {
             feedback_id: "runtime-feedback:agent-0:7".to_string(),
             feedback_seq: 7,
             agent_subject: "agent-0".to_string(),

@@ -1,6 +1,7 @@
 use super::{GameplayActionRequest, build_runtime_action_from_gameplay_request};
 use crate::runtime::{Action as RuntimeAction, IndustryStage, MaterialLedgerId, WorldState};
-use crate::simulator::{ResourceKind, default_schedule_recipe_readiness};
+use crate::simulator::default_schedule_recipe_readiness;
+use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_wasm_abi::MaterialStack;
 use std::collections::{BTreeMap, BTreeSet};
 

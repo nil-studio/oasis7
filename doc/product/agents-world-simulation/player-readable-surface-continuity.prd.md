@@ -85,10 +85,10 @@ Trace ID: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef
 - 功能点：[REQ-AGENT-SURFACE-001](#req-agent-surface-001)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-001](#ac-agent-surface-001)，不扩大入口或阶段。
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“viewport/语言/连接状态的同一决策锚点”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清viewport/语言/连接状态的同一决策锚点的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现状态：部分实现
+- 实现与验证依据：[Runtime gameplay快照生产](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L345-L455)→[snapshot到玩家摘要](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L332-L380)→[snapshot/summary输入host](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L44-L65)→[世界HUD目标/blocker/next入口](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L315-L350)及[同一原回执读取](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L231-L273)构成真实生产/读取链；[双语locale选择与fallback](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_locale_preferences_module.js#L68-L78)与[Web世界host与图形失败文本/恢复](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1255-L1325)支持双语及图形失效保留目标/回执的直接子范围。
+- 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
+- 剩余范围：完整desktop/窄屏/低高度、双语fallback和连接中断/恢复中/恢复失败组合仍未逐一核清；不是仅欠测试。需核四个决策锚点在每个适用表面的实现、可读性与真实下一步；保留权限/世界结果不因展示变化改变的验收。
 
 - 要求：在受支持 viewport、语言和连接状态下，玩家必须能找到当前目标、主要 blocker、最近可信反馈和下一决策或恢复入口；呈现变化不得改写权限或世界结果。
 - 验收：AC-AGENT-SURFACE-001
@@ -110,10 +110,10 @@ Trace ID: O7-REQ-d7081137-94a9-4524-b08a-fc3fbfcb9f64
 - 功能点：[REQ-AGENT-SURFACE-002](#req-agent-surface-002)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-002](#ac-agent-surface-002)，不扩大入口或阶段。
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“模式不支持、权限/规则阻塞、传输中断与未知请求区分”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清模式不支持、权限/规则阻塞、传输中断与未知请求区分的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现状态：部分实现
+- 实现与验证依据：[模式/就绪拒绝代码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L482-L527)生产llm_mode_required/llm_init_failed；[实际发送前gate及请求状态](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L1207-L1297)区分blocked、unsupported-before-send与queued，[状态读取和可读解释](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L475-L553)区分accepted等待committed、world_constraint、rejected及completed。[FeedbackCard 实际界面](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L491-L516)；[gameplay 执行状态实际界面](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2575-L2602)消费独立状态。这是模式/阻塞/已受理的直接子范围，不是仅凭enum存在。
+- 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
+- 剩余范围：断连时[pending失败处理](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L1134-L1152)仍写semantic error；尚需核清每条实际行动的unknown原请求lookup、适用替代/等待/返回，以及重连不会创造能力/效果的全链。不能把完整未知请求恢复仅写成待验收；本轮未执行行为验证。
 
 - 要求：当当前模式不支持某行动、权限/规则阻塞或请求已被接受时，surface 必须与连接中断和未确认请求区分，并给出适用的替代、等待、返回或重新验证路径。
 - 验收：AC-AGENT-SURFACE-002
@@ -164,10 +164,10 @@ Trace ID: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4
 - 功能点：[REQ-AGENT-SURFACE-004](#req-agent-surface-004)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-004](#ac-agent-surface-004)，不扩大入口或阶段。
 - 系统设计状态：部分覆盖
 - 系统设计依据：[专业承接条款](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-error-code-preservation)：合法鉴权后的业务错误码保真；各失败类别到玩家恢复动作的完整表现承接须另核。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：各失败类别到玩家恢复动作的完整表现承接须另核。实现/验证：本条全部适用验收尚未完成同候选证据核对。
+- 实现状态：部分实现
+- 实现与验证依据：[合法鉴权后builder错误码保真](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/gameplay_submit_api.rs#L275-L295)当前直接返回err.code/err.message，已不再把该分支统一改写为invalid_request。这是HTTP adapter切片，不是所有失败类型的玩家恢复体验。历史[PR#2485 review](https://github.com/nil-studio/oasis7/pull/2485#discussion_r3614431998)保留原问题语境；本轮没有取得此修复的独立运行结果，不将现状静态核对写成测试通过。
+- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 剩余范围：已确认合法鉴权后的builder错误码保真；各失败类别到修正输入、身份/权限、世界条件、等待和安全停止的正式surface映射、未知结果与所有入口验收仍未核清。
 
 - 性质与适用条件：目标要求；适用于本人有权获得的行动拒绝与失败说明。
 - 要求：产品必须保留足以区分修正输入、重新确认身份或权限、补齐世界条件、等待或安全停止的失败含义；已有明确原因不能统一降成“请求错误”或“请重连”。原因不足或结果未知时如实说明，不能编造成功、失败细节或必然有效的重试。
@@ -193,10 +193,10 @@ Trace ID: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d
 - 功能点：[REQ-AGENT-SURFACE-005](#req-agent-surface-005)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-005](#ac-agent-surface-005)，不扩大入口或阶段。
 - 系统设计状态：部分覆盖
 - 系统设计依据：[专业承接条款](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#collect-data-preflight-consistency)：CollectData 同一权威状态下预检与提交资格一致；其他受支持行动的适用范围和正式表面反馈须另核。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：其他受支持行动的适用范围和正式表面反馈须另核。实现/验证：本条全部适用验收尚未完成同候选证据核对。
+- 实现状态：部分实现
+- 实现与验证依据：[CollectData共同授权和资格计算](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/collect_data.rs#L113-L164)确认Preflight/Submit消费同一请求及data_collection_preflight，blocked时拒绝；[精确签名请求测试](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/tests/auth_actions_collect_data.rs#L855)为已读测试定义。[原交付#2485](https://github.com/nil-studio/oasis7/pull/2485)在source cac54892196bfd304401cebc6bb70d2b3ea3d681报告局部测试通过，不能代签当前全部受支持行动；本轮未执行。
+- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 剩余范围：已确认runtime-live CollectData同请求共用资格计算切片；需逐项核清chain/WorldService正式路径、其他已提供preflight的受支持行动及状态漂移时玩家提示，并取得同候选组合验收。
 
 - 性质与适用条件：目标要求；仅适用于已提供提交前检查的受支持行动，不要求所有行动新增检查入口。
 - 要求：对同一经确认身份、同一行动意图与同一权威世界状态，检查对共享资格条件的判断必须与提交时的资格校验一致；无法确认身份或权威状态时明确不可确认或阻塞。检查不得被表达为行动已接受、已执行或已结算，也不保证状态变化后的提交成功。

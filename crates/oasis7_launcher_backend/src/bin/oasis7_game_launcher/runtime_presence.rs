@@ -258,7 +258,7 @@ fn sleep_until_next_probe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::simulator::{WorldConfig, WorldModel};
+    use oasis7_simulator::{WorldConfig, WorldModel};
     use std::io::{BufRead, BufReader, BufWriter, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;

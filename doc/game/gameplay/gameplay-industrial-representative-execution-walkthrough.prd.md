@@ -53,7 +53,7 @@ fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 in
 
 ## 5. Current/target evidence cutline
 
-当前 bounded evidence 仅能指向 `crates/oasis7/src/simulator/types.rs:630-641` 的 `BuildFactory`/`ScheduleRecipe` action 形状，以及 `actions_resolution.rs:361-447` 的建厂校验与通用成本处理；这不证明两输入 join、受限物流、output bundle、terminal settlement 或 progression walkthrough 已在 runtime、Viewer 或 Agent 组合实现。当前 gameplay surface 只能把本合同作为 target contract，不得宣称 current complete。
+当前 bounded evidence 仅能指向 `crates/oasis7_simulator/src/types.rs:630-641` 的 `BuildFactory`/`ScheduleRecipe` action 形状，以及 `actions_resolution.rs:361-447` 的建厂校验与通用成本处理；这不证明两输入 join、受限物流、output bundle、terminal settlement 或 progression walkthrough 已在 runtime、Viewer 或 Agent 组合实现。当前 gameplay surface 只能把本合同作为 target contract，不得宣称 current complete。
 
 目标 evidence 需要一份 fresh composite runtime + QA fixture：同一 candidate 从档案读取、玩家选择、提交、执行、production/terminal receipt 到下一动作均可追溯，并能证明 profile/authority 缺失时 fail closed。Viewer、pure API 与 Agent 需从同一 snapshot/revision 得到等义档案与结果后，才能把该 walkthrough 标为 current-evidence-backed。
 

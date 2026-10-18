@@ -4,11 +4,11 @@ use super::{
 };
 use crate::cli::DEFAULT_NODE_ID;
 use oasis7::geometry::GeoPos;
-use oasis7::runtime::{Action, MainTokenSupplyState, World};
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,
 };
+use oasis7_runtime::{Action, MainTokenSupplyState, World};
 use std::fs;
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
@@ -122,11 +122,11 @@ fn register_agent(world: &mut World, agent_id: &str) {
 }
 
 fn configure_claim_world() -> World {
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world
-        .set_governance_execution_policy(oasis7::runtime::GovernanceExecutionPolicy {
+        .set_governance_execution_policy(oasis7_runtime::GovernanceExecutionPolicy {
             epoch_length_ticks: 1,
-            ..oasis7::runtime::GovernanceExecutionPolicy::default()
+            ..oasis7_runtime::GovernanceExecutionPolicy::default()
         })
         .expect("set governance policy");
     register_agent(&mut world, "alice");
@@ -153,7 +153,7 @@ fn auto_funding_claim_world_dir() -> PathBuf {
     let mut world = configure_claim_world();
     world
         .set_main_token_treasury_balance(
-            oasis7::runtime::MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
+            oasis7_runtime::MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
             325,
         )
         .expect("seed dedicated pool");

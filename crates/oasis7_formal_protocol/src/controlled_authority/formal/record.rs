@@ -200,11 +200,16 @@ impl CanonicalRecordV1 {
         self.world.validate()?;
         if !matches!(
             (self.schema_version, &self.durable_set_transition_digest),
-            (1, None) | (2, Some(_))
-        ) || (self.schema_version == 2 && self.kind != FormalRecordKindV1::Execution)
+            (1, None) | (2, Some(_)) | (3, None) | (4, Some(_)) | (5, None) | (6, Some(_))
+        ) || (!matches!(self.schema_version, 1 | 5)
+            && self.kind != FormalRecordKindV1::Execution)
             || self.position == 0
             || self.original_epoch == 0
-            || self.artifact_roots.len() != 9
+            || self.artifact_roots.len() != if self.schema_version >= 5 { 10 } else { 9 }
+            || self
+                .artifact_roots
+                .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+                != (self.schema_version >= 5)
         {
             return Err(invalid("formal record version/position/closure roots"));
         }
@@ -267,6 +272,16 @@ pub fn verify_record_material(
     record: &CanonicalRecordV1,
     material: &ClosedRecord,
 ) -> Result<(), FormalError> {
+    verify_record_material_retaining_snapshot(record, material).map(|_| ())
+}
+
+/// Complete original verification, retaining only a versioned Snapshot already
+/// expanded by this pass. Legacy schemas preserve their original checks and
+/// return None without an additional Snapshot read or allocation.
+pub fn verify_record_material_retaining_snapshot(
+    record: &CanonicalRecordV1,
+    material: &ClosedRecord,
+) -> Result<Option<Vec<u8>>, FormalError> {
     record.validate()?;
     material.validate().map_err(|e| invalid(e.to_string()))?;
     if record.payload_digest != material.payload_digest
@@ -276,5 +291,36 @@ pub fn verify_record_material(
     {
         return Err(invalid("formal record material commitment mismatch"));
     }
-    Ok(())
+    if record.schema_version >= 5
+        && material
+            .native_environment()
+            .map_err(|e| invalid(e.to_string()))?
+            .is_none()
+    {
+        return Err(invalid("native environment root required"));
+    }
+    if record.schema_version < 3
+        && let Some(object) = material.objects.iter().find(|object| {
+            material.roots.get(&ArtifactRole::Snapshot) == Some(&object.content_hash)
+        })
+        && crate::snapshot_delta::SnapshotArtifactV1::decode(&object.bytes)
+            .map_err(invalid)?
+            .is_some()
+    {
+        return Err(invalid(
+            "legacy formal record cannot reinterpret Snapshot delta artifacts",
+        ));
+    }
+    if record.schema_version >= 3 {
+        let expanded = material
+            .snapshot_bytes()
+            .map_err(|e| invalid(e.to_string()))?;
+        if blake3::hash(&expanded).to_hex().as_str() != record.after_state_root {
+            return Err(invalid(
+                "formal delta Snapshot expanded state-root mismatch",
+            ));
+        }
+        return Ok(Some(expanded));
+    }
+    Ok(None)
 }

@@ -1,7 +1,6 @@
 //! Actual private runtime execution, gated by dual durable formal Frozen input.
 use super::{ExecutionBridgeState, checkpoint, controlled_capture as capture, formal_package};
 use ed25519_dalek::SigningKey;
-use oasis7::runtime::World;
 use oasis7_distfs::controlled_authority::formal::{
     coordinator::ExecutableFormalFrozenV1, endpoint::FormalCandidateMaterialV1, *,
 };
@@ -81,6 +80,7 @@ fn execute_with_business_reader(
     read_anchor: Option<&VerifiedFormalReadAnchorV1>,
     recovery: Option<&VerifiedRecovery>,
 ) -> Result<FormalCandidateMaterialV1, String> {
+    let verified_snapshot = formal_package::VerifiedFrozenSnapshot::new(frozen, authority, parent)?;
     let (mut world, original) = formal_package::restore_executable(
         frozen,
         authority,
@@ -88,6 +88,7 @@ fn execute_with_business_reader(
         None,
         read_anchor,
         business_reader,
+        &verified_snapshot,
     )?;
     let formal_retention = authority.definition().profile_version == 2;
     if formal_retention {
@@ -98,7 +99,7 @@ fn execute_with_business_reader(
         let reader = business_reader.ok_or("formal retention CAS reader unavailable")?;
         let bytes = super::to_cbor(world.snapshot())?;
         let retained =
-            oasis7::runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
+            oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
         world.attach_verified_formal_history(retained, reader.0.clone())?;
     }
     // Create a new private attempt. Existing partial attempts are evidence,
@@ -114,6 +115,7 @@ fn execute_with_business_reader(
         return Err("formal attempt identity collision".into());
     }
     super::controlled_live::private_directory(&attempt)?;
+    let _attempt_pin = super::formal_attempt_lifecycle::active(&attempt, frozen)?;
     let world_dir = attempt.join("world");
     super::controlled_live::private_directory(&world_dir)?;
     let identity = oasis7::world_service::WorldIdentity {
@@ -202,8 +204,8 @@ fn execute_with_business_reader(
                 .ok_or("formal output effect missing")?,
         )
         .map_err(|e| format!("{e:?}"))?;
-    let output_snapshot: oasis7::runtime::Snapshot = capture::decode_snapshot(&snapshot)?;
-    let output_journal: oasis7::runtime::Journal = capture::decode_generic(&journal)?;
+    let output_snapshot: oasis7_runtime::Snapshot = capture::decode_snapshot(&snapshot)?;
+    let output_journal: oasis7_runtime::Journal = capture::decode_generic(&journal)?;
     let after = if formal_retention {
         executor
             .execution_world
@@ -213,7 +215,8 @@ fn execute_with_business_reader(
             )
             .map_err(|e| format!("{e:?}"))?
     } else {
-        World::from_snapshot(output_snapshot, output_journal).map_err(|e| format!("{e:?}"))?
+        oasis7::runtime_host::world::from_snapshot(output_snapshot, output_journal)
+            .map_err(|e| format!("{e:?}"))?
     };
     let reader = business_reader.cloned().unwrap_or_else(|| {
         super::formal_business_package::SharedBusinessReader(std::sync::Arc::new(
@@ -237,7 +240,7 @@ fn execute_with_business_reader(
     } else {
         None
     };
-    formal_package::candidate_with_business_reader(
+    let candidate = formal_package::candidate_with_business_reader(
         frozen,
         authority,
         parent,
@@ -248,5 +251,19 @@ fn execute_with_business_reader(
         &reader,
         retained_outputs.as_ref(),
         recovery,
-    )
+        &verified_snapshot,
+    )?;
+    // The local executor has no serving reader; drop its private store handles
+    // before publishing the immutable duplicate-output delete list.
+    let outputs = [
+        record.snapshot_ref,
+        record.journal_ref,
+        record.external_effect_ref,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    drop(executor);
+    super::formal_attempt_lifecycle::awaiting(&attempt, &candidate, &outputs)?;
+    Ok(candidate)
 }

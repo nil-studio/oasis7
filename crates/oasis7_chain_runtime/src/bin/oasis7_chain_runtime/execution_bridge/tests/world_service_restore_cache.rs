@@ -2,7 +2,7 @@ use super::*;
 use std::cell::Cell;
 
 fn input() -> (Snapshot, Journal) {
-    let world = World::new();
+    let world = oasis7::runtime_host::world::new();
     (world.snapshot(), world.journal().clone())
 }
 
@@ -17,13 +17,13 @@ fn successful_restore_reuse_skips_repeated_restore_and_isolates_consumer_mutatio
     let calls = Cell::new(0);
     let run = || {
         calls.set(calls.get() + 1);
-        World::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     };
     let baseline = restore_with(&cache, key.clone(), run).unwrap();
     let mut returned = restore_with(&cache, key.clone(), run).unwrap();
-    returned.submit_action(oasis7::runtime::Action::RegisterAgent {
+    returned.submit_action(oasis7_runtime::Action::RegisterAgent {
         agent_id: "caller-private-mutation".into(),
-        pos: oasis7::GeoPos::new(1, 2, 3),
+        pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
     });
     returned.step().unwrap();
     let next = restore_with(&cache, key, run).unwrap();
@@ -45,7 +45,7 @@ fn complete_journal_key_failures_and_oversized_entries_do_not_reuse_restore() {
     let (snapshot, journal) = input();
     let run = || {
         calls.set(calls.get() + 1);
-        World::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     };
     let first = Key::from_bytes(b"same-snapshot", b"full-journal-a");
     let different_journal = Key::from_bytes(b"same-snapshot", b"full-journal-b");
@@ -61,7 +61,7 @@ fn complete_journal_key_failures_and_oversized_entries_do_not_reuse_restore() {
         assert!(
             restore_with(&cache, failed.clone(), || {
                 calls.set(calls.get() + 1);
-                Err(oasis7::runtime::WorldError::JournalMismatch)
+                Err(oasis7_runtime::WorldError::JournalMismatch)
             })
             .is_err()
         );
@@ -116,7 +116,7 @@ fn fifo_capacity_and_poison_fallback_preserve_actual_restore() {
     let (snapshot, journal) = input();
     let run = || {
         calls.set(calls.get() + 1);
-        World::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     };
     let first = Key::from_bytes(b"first", b"journal");
     restore_with(&cache, first.clone(), run).unwrap();
@@ -148,9 +148,9 @@ fn fifo_capacity_and_poison_fallback_preserve_actual_restore() {
 fn same_complete_journal_with_different_snapshot_bytes_restores_distinct_worlds() {
     let cache = Mutex::new(RestoreCache::default());
     let (first, journal) = input();
-    let other_world = World::new_with_state(oasis7::runtime::WorldState {
+    let other_world = oasis7::runtime_host::world::new_with_state(oasis7_runtime::WorldState {
         time: 7,
-        ..oasis7::runtime::WorldState::default()
+        ..oasis7_runtime::WorldState::default()
     });
     let second = other_world.snapshot();
     assert!(other_world.journal() == &journal);

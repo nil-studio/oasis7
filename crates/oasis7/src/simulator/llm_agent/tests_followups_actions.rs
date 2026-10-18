@@ -53,10 +53,12 @@ fn llm_agent_repair_round_can_recover_invalid_output() {
     let trace = behavior.take_decision_trace().expect("trace exists");
     let diagnostics = trace.llm_diagnostics.expect("diagnostics");
     assert_eq!(diagnostics.retry_count, 1);
-    assert!(trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.step_type == "repair"));
+    assert!(
+        trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.step_type == "repair")
+    );
 }
 
 #[test]
@@ -106,10 +108,12 @@ fn llm_agent_long_run_stress_keeps_pipeline_stable() {
             trace.llm_effect_receipts.len(),
             trace.llm_effect_intents.len()
         );
-        assert!(trace
-            .llm_step_trace
-            .iter()
-            .any(|step| step.step_type == "dialogue_turn" || step.step_type == "repair"));
+        assert!(
+            trace
+                .llm_step_trace
+                .iter()
+                .any(|step| step.step_type == "dialogue_turn" || step.step_type == "repair")
+        );
         assert!(!trace.llm_prompt_section_trace.is_empty());
         let input_len = trace.llm_input.unwrap_or_default().len();
         assert!(input_len < 120_000, "llm_input too large: {input_len}");
@@ -218,10 +222,12 @@ fn cognition_budget_zero_model_calls_denies_before_provider_and_effects() {
     assert_eq!(behavior.decide(&make_observation()), AgentDecision::Wait);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let trace = behavior.take_decision_trace().expect("budget trace exists");
-    assert!(trace
-        .llm_error
-        .as_deref()
-        .is_some_and(|error| error.starts_with("budget_exhausted:")));
+    assert!(
+        trace
+            .llm_error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("budget_exhausted:"))
+    );
     assert!(trace.llm_effect_intents.is_empty());
     assert!(trace.llm_effect_receipts.is_empty());
     assert!(behavior.take_memory_write_intents().is_empty());
@@ -232,8 +238,7 @@ fn cognition_budget_zero_tool_calls_denies_module_before_execution() {
     let calls = Arc::new(AtomicUsize::new(0));
     let client = CountingSequenceMockClient::new(
         vec![
-            r#"{"type":"module_call","module":"agent.modules.list","args":{}}"#
-                .to_string(),
+            r#"{"type":"module_call","module":"agent.modules.list","args":{}}"#.to_string(),
             r#"{"decision":"move_agent","to":"loc-2"}"#.to_string(),
         ],
         Arc::clone(&calls),
@@ -245,10 +250,12 @@ fn cognition_budget_zero_tool_calls_denies_module_before_execution() {
     assert_eq!(behavior.decide(&make_observation()), AgentDecision::Wait);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let trace = behavior.take_decision_trace().expect("budget trace exists");
-    assert!(trace
-        .llm_error
-        .as_deref()
-        .is_some_and(|error| error.starts_with("budget_exhausted:")));
+    assert!(
+        trace
+            .llm_error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("budget_exhausted:"))
+    );
     assert!(trace.llm_effect_intents.is_empty());
     assert!(trace.llm_effect_receipts.is_empty());
     assert!(behavior.take_memory_write_intents().is_empty());
@@ -271,10 +278,12 @@ fn cognition_budget_counts_repair_calls_before_reentering_provider() {
     assert_eq!(behavior.decide(&make_observation()), AgentDecision::Wait);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let trace = behavior.take_decision_trace().expect("budget trace exists");
-    assert!(trace
-        .llm_error
-        .as_deref()
-        .is_some_and(|error| error.starts_with("budget_exhausted:")));
+    assert!(
+        trace
+            .llm_error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("budget_exhausted:"))
+    );
     assert!(trace.llm_effect_intents.is_empty());
     assert!(trace.llm_effect_receipts.is_empty());
 }
@@ -359,12 +368,16 @@ fn llm_agent_long_term_memory_can_export_and_restore() {
     restored.restore_long_term_memory_entries(&exported);
     let restored_exported = restored.export_long_term_memory_entries();
     assert_eq!(restored_exported.len(), 2);
-    assert!(restored_exported
-        .iter()
-        .any(|entry| entry.content.contains("mined node alpha")));
-    assert!(restored_exported
-        .iter()
-        .any(|entry| entry.content.contains("factory beta stalled")));
+    assert!(
+        restored_exported
+            .iter()
+            .any(|entry| entry.content.contains("mined node alpha"))
+    );
+    assert!(
+        restored_exported
+            .iter()
+            .any(|entry| entry.content.contains("factory beta stalled"))
+    );
 }
 
 #[test]
@@ -547,9 +560,11 @@ fn llm_agent_user_prompt_contains_memory_digest_section() {
 
     if memory_trace.included {
         assert!(prompt_output.user_prompt.contains("[Memory Digest]"));
-        assert!(prompt_output
-            .user_prompt
-            .contains("recent-memory-note-for-prompt"));
+        assert!(
+            prompt_output
+                .user_prompt
+                .contains("recent-memory-note-for-prompt")
+        );
     } else {
         assert!(!prompt_output.user_prompt.contains("[Memory Digest]"));
     }
@@ -679,11 +694,13 @@ fn llm_agent_emits_parse_error_in_trace() {
 
     let trace = behavior.take_decision_trace().expect("trace should exist");
     assert!(trace.parse_error.is_some());
-    assert!(trace
-        .llm_output
-        .as_deref()
-        .unwrap_or_default()
-        .contains("not json"));
+    assert!(
+        trace
+            .llm_output
+            .as_deref()
+            .unwrap_or_default()
+            .contains("not json")
+    );
     let diagnostics = trace.llm_diagnostics.as_ref().expect("diagnostics");
     assert_eq!(diagnostics.model.as_deref(), Some("gpt-test"));
     assert_eq!(diagnostics.retry_count, 1);
@@ -731,14 +748,18 @@ fn llm_agent_force_replan_after_repeated_actions() {
     let trace = behavior.take_decision_trace().expect("trace exists");
     let llm_input = trace.llm_input.unwrap_or_default();
     assert!(llm_input.contains("[Anti-Repetition Guard]"));
-    assert!(trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.output_summary.contains("replan guard requires")));
-    assert!(trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.output_summary.contains("module_call")));
+    assert!(
+        trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.output_summary.contains("replan guard requires"))
+    );
+    assert!(
+        trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.output_summary.contains("module_call"))
+    );
 }
 
 #[test]
@@ -782,10 +803,12 @@ fn llm_agent_force_replan_allows_switch_to_new_terminal_action_without_module_ca
     let trace = behavior.take_decision_trace().expect("trace exists");
     assert!(trace.parse_error.is_none());
     assert!(trace.llm_effect_intents.is_empty());
-    assert!(!trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.output_summary.contains("replan guard requires")));
+    assert!(
+        !trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.output_summary.contains("replan guard requires"))
+    );
 }
 
 #[test]
@@ -870,17 +893,19 @@ fn llm_agent_force_replan_breaks_repeated_harvest_loop_with_repair() {
 
     let trace = behavior.take_decision_trace().expect("trace exists");
     assert!(trace.parse_error.is_none());
-    assert!(trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.output_summary.contains("replan guard requires")));
+    assert!(
+        trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.output_summary.contains("replan guard requires"))
+    );
 }
 
 #[test]
 fn llm_agent_mock_sequence_recovers_and_completes_factory_recipe_chain() {
-    let world_config = crate::simulator::WorldConfig::default();
-    let world_init = crate::simulator::WorldInitConfig::from_scenario(
-        crate::simulator::WorldScenario::LlmBootstrap,
+    let world_config = oasis7_simulator::WorldConfig::default();
+    let world_init = oasis7_simulator::WorldInitConfig::from_scenario(
+        oasis7_simulator::WorldScenario::LlmBootstrap,
         &world_config,
     );
     let (mut kernel, _) =
@@ -1001,10 +1026,12 @@ fn llm_agent_execute_until_continues_without_llm_until_event() {
     ));
     let second_trace = behavior.take_decision_trace().expect("second trace");
     assert!(second_trace.llm_input.is_none());
-    assert!(second_trace
-        .llm_output
-        .unwrap_or_default()
-        .contains("execute_until continue"));
+    assert!(
+        second_trace
+            .llm_output
+            .unwrap_or_default()
+            .contains("execute_until continue")
+    );
 
     observation.time = 22;
     observation.visible_agents.push(ObservedAgent {
@@ -1079,10 +1106,12 @@ fn llm_agent_auto_reentry_arms_execute_until_for_repeated_actions() {
         AgentDecision::Act(Action::HarvestRadiation { max_amount: 9, .. })
     ));
     let second_trace = behavior.take_decision_trace().expect("second trace");
-    assert!(second_trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.step_type == "execute_until_auto_reentry"));
+    assert!(
+        second_trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.step_type == "execute_until_auto_reentry")
+    );
 
     behavior.on_action_result(&ActionResult {
         action: Action::HarvestRadiation {
@@ -1112,10 +1141,12 @@ fn llm_agent_auto_reentry_arms_execute_until_for_repeated_actions() {
     ));
     let third_trace = behavior.take_decision_trace().expect("third trace");
     assert!(third_trace.llm_input.is_none());
-    assert!(third_trace
-        .llm_step_trace
-        .iter()
-        .any(|step| step.step_type == "execute_until_continue"));
+    assert!(
+        third_trace
+            .llm_step_trace
+            .iter()
+            .any(|step| step.step_type == "execute_until_continue")
+    );
 
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }

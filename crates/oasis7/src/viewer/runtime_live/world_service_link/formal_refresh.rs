@@ -49,7 +49,7 @@ pub(super) fn prepare_formal_refresh(
         committed_height: view.version().commit.position,
         source: (None, None),
         source_epoch: 0,
-        world: RuntimeWorld::new_with_state(view.projection().state.clone()),
+        world: crate::runtime_host::world::new_with_state(view.projection().state.clone()),
         verified_view: Some(view),
         // Snapshot refresh does not assert a lossless Changes stream.
         service_events: Some(Vec::new()),

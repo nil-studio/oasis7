@@ -371,7 +371,7 @@ fn run_inner() {
             "bounded fixture change drain did not finish"
         );
     }
-    assert!(delivered.iter().any(|change|matches!(serde_json::from_value::<oasis7::runtime::WorldEvent>(change.clone()).unwrap().body,oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::DataCollectedAuthenticated {collector_agent_id,electricity_cost:7,data_amount:11,player_id,nonce:10,..}) if collector_agent_id=="agent-a" && player_id=="owner-a")),"signed gameplay event missing from protected continuation");
+    assert!(delivered.iter().any(|change|matches!(serde_json::from_value::<oasis7_runtime::WorldEvent>(change.clone()).unwrap().body,oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::DataCollectedAuthenticated {collector_agent_id,electricity_cost:7,data_amount:11,player_id,nonce:10,..}) if collector_agent_id=="agent-a" && player_id=="owner-a")),"signed gameplay event missing from protected continuation");
     let mut wrong_era = cursor;
     wrong_era.era = wrong_era.era.saturating_add(1);
     assert!(

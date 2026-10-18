@@ -1,4 +1,4 @@
-use oasis7::simulator::{
+use oasis7_simulator::{
     WorldConfig, WorldInitConfig, WorldInitReport, WorldModel, WorldScenario, build_world_model,
 };
 use serde::Deserialize;
@@ -178,7 +178,7 @@ pub fn load_scenario_file(path: &Path) -> Result<ScenarioFile, ScenarioError> {
     let ext = path.extension().and_then(|value| value.to_str());
 
     if supported_scenario_extension(ext, "yaml") || supported_scenario_extension(ext, "yml") {
-        serde_yaml::from_str(&contents).map_err(|err| ScenarioError::Parse {
+        serde_saphyr::from_str(&contents).map_err(|err| ScenarioError::Parse {
             path: path.to_path_buf(),
             message: err.to_string(),
         })
@@ -283,6 +283,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn yaml_fixture_keeps_scenario_and_expectations() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios/triad_p2p.yaml");
+        let scenario = load_scenario_file(&path).expect("parse existing YAML fixture");
+        assert_eq!(scenario.scenario.as_deref(), Some("triad_p2p_bootstrap"));
+        assert_eq!(scenario.seed, Some(7));
+        assert_eq!(scenario.expect.agents, Some(3));
+        assert_eq!(
+            scenario.expect.require_locations,
+            ["node-a", "node-b", "node-c"]
+        );
+        assert_eq!(scenario.expect.agent_locations["agent-0"], "node-a");
+        let minimal: ScenarioFile = serde_saphyr::from_str(
+            "version: 1\nname: yaml-minimal\nscenario: minimal\nexpect:\n  agents: 1\n  locations: 1\n  require_locations: [origin]\n",
+        ).expect("parse runnable YAML scenario");
+        let outcome = run_loaded_scenario(&minimal, "yaml-minimal").expect("run YAML scenario");
+        assert!(outcome.passed, "{:?}", outcome.failures);
+    }
+
+    #[test]
     fn scenario_from_builtin_template_passes_expectations() {
         let scenario = ScenarioFile {
             version: 1,
@@ -375,7 +394,7 @@ expect:
   agents: 1
 "#;
 
-        let err = serde_yaml::from_str::<ScenarioFile>(input)
+        let err = serde_saphyr::from_str::<ScenarioFile>(input)
             .expect_err("unknown top-level fields should fail parse");
         assert!(
             err.to_string().contains("unknown field `unexpected`"),
@@ -395,7 +414,7 @@ expect:
     - agent-0
 "#;
 
-        let err = serde_yaml::from_str::<ScenarioFile>(input)
+        let err = serde_saphyr::from_str::<ScenarioFile>(input)
             .expect_err("unknown expectation fields should fail parse");
         assert!(
             err.to_string().contains("unknown field `require_agentz`"),

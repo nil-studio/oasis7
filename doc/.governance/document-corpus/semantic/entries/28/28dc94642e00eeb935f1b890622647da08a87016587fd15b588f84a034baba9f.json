@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "516b982eddf4e33cc44573c9f22879dc868840f4dfbe67dd9985dea602614ad8",
+    "content_sha256": "694e1bdf8e22b0d6201a88206a2953c69fddfcf3687313eeae1bb29b02dedff2",
     "current_authority": "doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_target_contract",
-    "note": "current target design; fresh release evidence still required Scoped ownership review: chain process sources move to oasis7_chain_runtime and pure projection commitments move to oasis7_client_api; world execution and audience authorization remain with oasis7. Existing runtime requirements, protocol bytes, authority, disposition and evidence boundaries are retained.",
+    "note": "current target design; fresh release evidence still required Scoped ownership review: chain process sources move to oasis7_chain_runtime and pure projection commitments move to oasis7_client_api; world execution and audience authorization remain with oasis7. Existing runtime requirements, protocol bytes, authority, disposition and evidence boundaries are retained. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

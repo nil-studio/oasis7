@@ -1,6 +1,6 @@
 use super::*;
-use oasis7::runtime::{EffectIntent, EffectOrigin};
 use oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1;
+use oasis7_runtime::{EffectIntent, EffectOrigin};
 use serde_json::json;
 use std::{
     fs,

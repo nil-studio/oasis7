@@ -73,18 +73,18 @@ configure_module_set() {
   case "$module_set" in
     m1)
       sync_script_path="./scripts/sync-m1-builtin-wasm-artifacts.sh"
-      hash_manifest_path="$repo_root/crates/oasis7/src/runtime/world/artifacts/m1_builtin_modules.sha256"
-      identity_manifest_path="$repo_root/crates/oasis7/src/runtime/world/artifacts/m1_builtin_modules.identity.json"
+      hash_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.sha256"
+      identity_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.identity.json"
       ;;
     m4)
       sync_script_path="./scripts/sync-m4-builtin-wasm-artifacts.sh"
-      hash_manifest_path="$repo_root/crates/oasis7/src/runtime/world/artifacts/m4_builtin_modules.sha256"
-      identity_manifest_path="$repo_root/crates/oasis7/src/runtime/world/artifacts/m4_builtin_modules.identity.json"
+      hash_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.sha256"
+      identity_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.identity.json"
       ;;
     m5)
       sync_script_path="./scripts/sync-m5-builtin-wasm-artifacts.sh"
-      hash_manifest_path="$repo_root/crates/oasis7/src/runtime/world/artifacts/m5_builtin_modules.sha256"
-      identity_manifest_path="$repo_root/crates/oasis7/src/runtime/world/artifacts/m5_builtin_modules.identity.json"
+      hash_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.sha256"
+      identity_manifest_path="$repo_root/crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.identity.json"
       ;;
     *)
       echo "error: unsupported --module-set value: $module_set" >&2

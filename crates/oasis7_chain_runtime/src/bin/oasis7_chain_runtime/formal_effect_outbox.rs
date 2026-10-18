@@ -4,11 +4,11 @@
 //! mutator. A `QualifiedEffectOutboxV1` can only be built from an opaque
 //! verified formal anchor and the complete closed record at that anchor.
 
-use oasis7::runtime::{EffectIntent, blake3_hex};
 use oasis7_distfs::controlled_authority::{
     formal::{FormalWorldIdentityV1, VerifiedFormalReadAnchorV1, verify_record_material},
     replicated_protocol::{ArtifactRole, ClosedRecord},
 };
+use oasis7_runtime::{EffectIntent, blake3_hex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;

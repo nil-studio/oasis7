@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::{
     EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER, EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER,
 };
-use oasis7::runtime::{BlobStore, LocalCasStore};
+use oasis7_runtime::{BlobStore, LocalCasStore};
 
 use super::{
     EXECUTION_BRIDGE_RECORD_SCHEMA_V2, EXECUTION_BRIDGE_RECORD_SCHEMA_V3,
@@ -22,7 +22,7 @@ mod task_evidence;
 pub(super) fn refresh_live_task_read_evidence(
     records: &Path,
     store: &LocalCasStore,
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     hot: u64,
 ) -> Result<ValidatedTaskRetention, String> {
     task_evidence::refresh(records, store, world, hot)

@@ -5,10 +5,10 @@ use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 pub(super) use super::recovery_persistence::RuntimeRecoveryFaultInjection;
-use crate::simulator::WorldEventKind;
 use crate::viewer::{
     claim_registration_grant_nonce_for_recovery, consume_registration_grant_nonce,
 };
+use oasis7_simulator::WorldEventKind;
 
 #[path = "recovery/session_mutations.rs"]
 mod session_mutations;
@@ -188,6 +188,7 @@ impl ViewerRuntimeLiveServer {
                     None,
                 )
             })?;
+        let retained_target_snapshot = checkpoint.snapshot.clone();
         if let Some(checkpoint_ref) = approval.intent.rollback_checkpoint.as_ref() {
             let rollback_checkpoint = self
                 .stable_checkpoints
@@ -406,7 +407,11 @@ impl ViewerRuntimeLiveServer {
             checkpoint.snapshot.clone(),
             checkpoint.journal.clone(),
         )
-        .and_then(|world| world.current_state_root_hash())
+        .and_then(|world| {
+            world
+                .execution_state_identity()
+                .map(|identity| identity.state_root_hash)
+        })
         .map_err(|err| rollback_runtime_error(err, checkpoint.batch_id.clone()))?;
         if approval.intent.target_journal_len != checkpoint.journal.len()
             || approval.intent.expected_target_state_root != target_state_root
@@ -436,49 +441,33 @@ impl ViewerRuntimeLiveServer {
         let candidate_reorg_epoch = self.reorg_epoch.saturating_add(1);
 
         let rollback_result = if let Some(payload) = canonical_v2_payload.as_deref() {
-            candidate_world.rollback_to_snapshot_with_reconciliation_v2(
+            let intent_bytes = payload
+                .strip_prefix(b"oasis7:governed-rollback-replay:v2\0")
+                .ok_or_else(|| {
+                    rollback_runtime_error(
+                        crate::runtime::WorldError::Serde(
+                            "rollback v2 signing domain mismatch".into(),
+                        ),
+                        checkpoint.batch_id.clone(),
+                    )
+                })?;
+            let intent =
+                serde_json::from_slice::<oasis7_proto::viewer::RollbackIntentV2>(intent_bytes)
+                    .map_err(|error| {
+                        rollback_runtime_error(
+                            crate::runtime::WorldError::Serde(error.to_string()),
+                            checkpoint.batch_id.clone(),
+                        )
+                    })?;
+            let typed_approval = oasis7_proto::viewer::RollbackAuthorizationEnvelopeV2 {
+                intent,
+                signatures: approval.signatures.clone(),
+            };
+            candidate_world.apply_governed_rollback_v2(
                 checkpoint.snapshot.clone(),
                 checkpoint.journal.clone(),
-                rollback_reason,
-                Some(target_batch_id.as_str()),
-                crate::runtime::RollbackAuthorizationEnvelope {
-                    intent: crate::runtime::RollbackIntent {
-                        schema_version: approval.intent.schema_version,
-                        rollback_ticket: approval.intent.rollback_ticket,
-                        snapshot_hash: approval.intent.snapshot_hash,
-                        snapshot_journal_len: approval.intent.snapshot_journal_len,
-                        target_journal_len: approval.intent.target_journal_len,
-                        target_journal_commitment: approval
-                            .intent
-                            .replay_target
-                            .as_ref()
-                            .map(|target| target.journal_commitment.clone()),
-                        expected_target_state_root: approval.intent.expected_target_state_root,
-                        target_batch_id: approval.intent.target_batch_id,
-                        reason: approval.intent.reason,
-                        issued_at_ms: approval.intent.issued_at_ms,
-                        expires_at_ms: approval.intent.expires_at_ms,
-                        nonce: approval.intent.nonce,
-                    },
-                    signatures: approval
-                        .signatures
-                        .into_iter()
-                        .map(|signature| crate::runtime::RollbackApprovalSignature {
-                            authority_id: signature.authority_id,
-                            role: match signature.role {
-                                crate::viewer::protocol::RollbackAuthorityRole::OnCall => {
-                                    crate::runtime::RollbackAuthorityRole::OnCall
-                                }
-                                crate::viewer::protocol::RollbackAuthorityRole::Governance => {
-                                    crate::runtime::RollbackAuthorityRole::Governance
-                                }
-                            },
-                            signature_scheme: signature.signature_scheme,
-                            signature_hex: signature.signature_hex,
-                        })
-                        .collect(),
-                },
-                payload,
+                retained_target_snapshot,
+                &typed_approval,
                 super::recovery_receipt::current_unix_time_ms(),
             )
         } else {

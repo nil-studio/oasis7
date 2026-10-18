@@ -22,7 +22,7 @@ impl ViewerRuntimeLiveServer {
                 "authoritative recovery fenced generation epoch mismatch".to_string(),
             ));
         }
-        self.world = committed.world;
+        self.world = crate::runtime_host::install_runtime_capabilities(committed.world);
         self.authoritative_batches = generation.authoritative_batches;
         self.next_authoritative_batch_id = generation.next_authoritative_batch_id;
         self.authoritative_challenges = generation.authoritative_challenges;

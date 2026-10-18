@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 const DEADLINE: Duration = Duration::from_secs(5);
 
 fn actual_restore() -> Result<World, WorldError> {
-    let world = World::new();
-    World::from_snapshot(world.snapshot(), world.journal().clone())
+    let world = oasis7::runtime_host::world::new();
+    oasis7::runtime_host::world::from_snapshot(world.snapshot(), world.journal().clone())
 }
 
 fn wait_for_join(cache: &Mutex<RestoreCache>, key: &Key) {
@@ -69,9 +69,9 @@ fn simultaneous_same_content_restores_once_and_returns_isolated_worlds() {
     release_tx.send(()).unwrap();
     let baseline = leader.join().unwrap().unwrap();
     let mut returned = follower.join().unwrap().unwrap();
-    returned.submit_action(oasis7::runtime::Action::RegisterAgent {
+    returned.submit_action(oasis7_runtime::Action::RegisterAgent {
         agent_id: "independent-follower".into(),
-        pos: oasis7::GeoPos::new(1, 2, 3),
+        pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
     });
     returned.step().unwrap();
     let next = restore_with(&cache, key, || panic!("warm original must remain retained")).unwrap();

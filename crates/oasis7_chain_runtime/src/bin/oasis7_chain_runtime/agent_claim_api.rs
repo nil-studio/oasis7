@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
-use oasis7::runtime::{Action, DomainEvent, RejectReason, World, WorldEventBody};
 use oasis7_node::NodeRuntime;
+use oasis7_runtime::{Action, DomainEvent, RejectReason, World, WorldEventBody};
 use serde::{Deserialize, Serialize};
 
 const AGENT_CLAIM_SUBMIT_PATH: &str = "/v1/chain/agent-claim/submit";

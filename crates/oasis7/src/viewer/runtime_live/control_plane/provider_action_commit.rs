@@ -5,7 +5,8 @@ use crate::runtime::{
     RuntimeCognitionResponseArtifactV1, RuntimeFeedbackProjectionV1, World as RuntimeWorld,
     classify_cognition_commit_error,
 };
-use crate::simulator::{Action as SimulatorAction, h_v1};
+use crate::simulator::h_v1;
+use oasis7_simulator::Action as SimulatorAction;
 
 impl ViewerRuntimeLiveServer {
     /// Retry sidecar finalization from the committed Runtime receipt.
@@ -182,76 +183,44 @@ impl ViewerRuntimeLiveServer {
         let (request, response_artifact) = provider_cognition_commit_inputs(&self.world, cognition)
             .map_err(ProviderRuntimeActionCommitError::Message)?;
         let mut transaction = self.world.clone();
-        let already_committed = transaction
-            .cognition()
-            .get("commit_records")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .any(|marker| {
-                marker.get("status").and_then(serde_json::Value::as_str) == Some("committed")
-                    && marker
-                        .get("decision_request_id")
-                        .and_then(serde_json::Value::as_str)
-                        == Some(request.decision_request_id.as_str())
-                    && marker
-                        .get("request_digest")
-                        .and_then(serde_json::Value::as_str)
-                        == Some(request.request_digest.as_str())
-            });
-        if !already_committed {
-            let explanation = cognition
-                .response
-                .base_decision_response
-                .public_agency_explanation();
-            let intent_id = transaction
-                .state()
-                .agents
-                .get(&request.agent_id)
-                .and_then(|cell| cell.intent.as_ref())
-                .filter(|intent| matches!(intent.status.as_str(), "accepted" | "blocked"))
-                .map(|intent| intent.intent_id.clone());
-            let context = crate::runtime::AgentDecisionCausalContextV1 {
-                intent_id,
-                // This is a proposal, explicitly distinct from the actual
-                // domain event references published by the transaction.
-                expected_consequence: serde_json::json!({"status":explanation.status,"provenance":explanation.provenance,"prediction":explanation.expected_consequence}),
-                stakes: serde_json::json!({"provenance":"agent_explanation_unverified","summary":explanation.stakes}),
-                alternative: serde_json::json!({"provenance":"agent_explanation_unverified","alternatives":explanation.alternatives}),
-                evidence_refs: vec![
-                    request.observation_digest.clone(),
-                    cognition
-                        .request
-                        .request_context
-                        .memory_snapshot_digest
-                        .to_string(),
-                ],
-                correction_refs: self
-                    .llm_sidecar
-                    .correction_refs_for_decision(&request.agent_id, &request.decision_request_id),
-                reason: explanation.reason,
-                dissent: explanation.dissent,
-                ..Default::default()
-            };
-            if let Err(error) = transaction.bind_agent_causal_decision(
-                &request.decision_request_id,
-                &request.agent_id,
-                runtime_action,
-                context,
-            ) {
+        let explanation = cognition
+            .response
+            .base_decision_response
+            .public_agency_explanation();
+        let evidence = crate::runtime::ProviderDecisionEvidenceV1 {
+            // This is a proposal, explicitly distinct from the actual
+            // domain event references published by the transaction.
+            expected_consequence: serde_json::json!({"status":explanation.status,"provenance":explanation.provenance,"prediction":explanation.expected_consequence}),
+            stakes: serde_json::json!({"provenance":"agent_explanation_unverified","summary":explanation.stakes}),
+            alternative: serde_json::json!({"provenance":"agent_explanation_unverified","alternatives":explanation.alternatives}),
+            evidence_refs: vec![
+                request.observation_digest.clone(),
+                cognition
+                    .request
+                    .request_context
+                    .memory_snapshot_digest
+                    .to_string(),
+            ],
+            correction_refs: self
+                .llm_sidecar
+                .correction_refs_for_decision(&request.agent_id, &request.decision_request_id),
+            reason: explanation.reason,
+            dissent: explanation.dissent,
+        };
+        let (committed, returned_lineage) = match transaction.commit_provider_cognition_action(
+            request,
+            runtime_action.clone(),
+            response_artifact,
+            evidence,
+        ) {
+            Ok(result) => result,
+            Err(crate::runtime::ProviderCognitionCommitError::AgencyBinding(error)) => {
                 self.world = transaction;
                 return Err(ProviderRuntimeActionCommitError::Message(format!(
                     "Runtime agency binding rejected: {error:?}"
                 )));
             }
-        }
-        let (committed, returned_lineage) = match transaction.commit_cognition_action(
-            request,
-            runtime_action.clone(),
-            response_artifact,
-        ) {
-            Ok(result) => result,
-            Err(error) => {
+            Err(crate::runtime::ProviderCognitionCommitError::Commit(error)) => {
                 self.world = transaction;
                 return Err(
                     if matches!(
@@ -597,8 +566,10 @@ pub(in crate::viewer::runtime_live) fn validate_provider_service_receipt(
         "reorg_epoch": request.captured_base_binding.reorg_epoch,
         "runtime_manifest_hash": request.captured_base_binding.runtime_manifest_hash,
     });
-    let exact_response_artifact_digest =
-        crate::runtime::response_artifact_digest(&response_artifact);
+    let exact_response_artifact_digest = oasis7_agent_api::world_cognition::cognition_digest_v1(
+        "oasis7.cognition.response.v1",
+        &response_artifact,
+    );
     if marker.response_artifact_digest.is_empty()
         || marker.response_artifact_digest != exact_response_artifact_digest
     {

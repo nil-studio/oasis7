@@ -23,7 +23,7 @@ pub(super) fn world_fixture() -> (World, String, WorldIdentity, CommitRef) {
     let key = authority::sign_read_request("fixture", (), &private)
         .unwrap()
         .subject_public_key;
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-0".into(),
         pos: oasis7::GeoPos::new(0, 0, 0),
@@ -302,7 +302,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
         }
     });
     let mut config = oasis7::viewer::ViewerRuntimeLiveServerConfig::new(
-        oasis7::simulator::WorldScenario::Minimal,
+        oasis7_simulator::WorldScenario::Minimal,
     );
     config.world_id = identity.world_id.clone();
     config.world_service = Some(client::WorldServiceClientConfig {

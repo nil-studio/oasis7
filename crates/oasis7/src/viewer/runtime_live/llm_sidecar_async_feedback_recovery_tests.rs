@@ -67,7 +67,9 @@ fn recovery_feedback(agent: &str, session: &str, seq: u64, id: &str) -> Feedback
 fn enqueue_acknowledged_feedback(world: &mut RuntimeWorld, feedback: FeedbackEnvelopeV1) {
     let feedback_id = feedback.feedback_id.clone();
     world
-        .enqueue_runtime_feedback(feedback)
+        .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+            &feedback,
+        ))
         .expect("Runtime stores feedback history");
     world
         .claim_runtime_feedback(&feedback_id)
@@ -109,7 +111,7 @@ fn async_poll_delivers_completed_result_then_skips_only_fenced_session() {
     let blocked_agent = "agent-a-blocked";
     let allowed_agent = "agent-z-allowed";
     let world_id = "feedback-admission-fence-world";
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime(
             world_id,

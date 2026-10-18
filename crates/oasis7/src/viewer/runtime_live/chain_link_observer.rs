@@ -104,10 +104,10 @@ fn prepare_chain_linked_runtime_update(
         )
     })?;
     let chain_status = fetch_chain_status_snapshot(bind)?;
-    let world = RuntimeWorld::load_observer_from_dir_cancellable(
+    let world = RuntimeWorld::load_observer_with_control(
         root,
         crate::runtime::ObserverReadLimits::default(),
-        cancellation,
+        crate::runtime::ObserverLoadControl::from_shared_cancellation(cancellation),
     )
     .map_err(|error| {
         ViewerRuntimeLiveServerError::Init(format!("observer load rejected: {error:?}"))

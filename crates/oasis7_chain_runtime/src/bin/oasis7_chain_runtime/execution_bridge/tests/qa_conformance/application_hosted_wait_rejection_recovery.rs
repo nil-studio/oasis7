@@ -188,7 +188,7 @@ pub(super) fn assert_original_terminal(fixture: &Fixture, root: &Path) {
     let IntentOutcome::Committed { commit, receipt } = response.outcome else {
         panic!("original compensation authenticated Lookup must commit")
     };
-    let receipt: oasis7::runtime::CognitionReceiptV1 = serde_json::from_value(receipt).unwrap();
+    let receipt: oasis7_runtime::CognitionReceiptV1 = serde_json::from_value(receipt).unwrap();
     receipt.validate().unwrap();
     assert_eq!(receipt.lease_id, origin["lease_id"].as_str().unwrap());
     assert_eq!(receipt.consumed_amount, 1);

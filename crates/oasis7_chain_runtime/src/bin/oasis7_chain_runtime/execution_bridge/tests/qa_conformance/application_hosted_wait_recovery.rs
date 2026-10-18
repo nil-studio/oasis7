@@ -305,15 +305,15 @@ pub(super) fn recover_parent(
     else {
         panic!("original canonical Resume must be committed before recovery");
     };
-    let receipt: oasis7::runtime::CognitionWakeHandoffResultV1 =
+    let receipt: oasis7_runtime::CognitionWakeHandoffResultV1 =
         serde_json::from_value(receipt).unwrap();
     assert_eq!(
         receipt.continuation.status,
-        oasis7::runtime::ContinuationStatusV1::Consumed
+        oasis7_runtime::ContinuationStatusV1::Consumed
     );
     assert_eq!(
         receipt.replanned_continuation.as_ref().unwrap().status,
-        oasis7::runtime::ContinuationStatusV1::Scheduled
+        oasis7_runtime::ContinuationStatusV1::Scheduled
     );
     let world = fixture.driver.lock().unwrap().execution_world.clone();
     let actual = world
@@ -341,7 +341,7 @@ pub(super) fn recover_parent(
             .any(
                 |lease| lease.lease_id == origin["lease_id"].as_str().unwrap()
                     && lease.request_digest == origin["request_digest"].as_str().unwrap()
-                    && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                    && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
             )
     );
     let selected: serde_json::Value =

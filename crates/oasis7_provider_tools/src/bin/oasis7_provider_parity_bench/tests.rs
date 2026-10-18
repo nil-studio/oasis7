@@ -4,9 +4,10 @@ use super::recovery_ledger::{
 };
 use super::*;
 use oasis7::simulator::{
-    Action, ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse,
-    FeedbackEnvelopeV1, cognition_response_digest, golden_decision_provider_fixtures,
+    ContinuousAgentResponseContextV1, DecisionProvider, DecisionResponse, FeedbackEnvelopeV1,
+    cognition_response_digest, golden_decision_provider_fixtures,
 };
+use oasis7_simulator::Action;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
@@ -119,7 +120,7 @@ fn sample_patrol_observation() -> Observation {
         visibility_range_cm: 1_000,
         visible_agents: Vec::new(),
         visible_locations: vec![
-            oasis7::simulator::ObservedLocation {
+            oasis7_simulator::ObservedLocation {
                 location_id: "loc-1".to_string(),
                 name: "base".to_string(),
                 pos: oasis7::geometry::GeoPos {
@@ -130,7 +131,7 @@ fn sample_patrol_observation() -> Observation {
                 profile: Default::default(),
                 distance_cm: 0,
             },
-            oasis7::simulator::ObservedLocation {
+            oasis7_simulator::ObservedLocation {
                 location_id: "loc-2".to_string(),
                 name: "neighbor".to_string(),
                 pos: oasis7::geometry::GeoPos {

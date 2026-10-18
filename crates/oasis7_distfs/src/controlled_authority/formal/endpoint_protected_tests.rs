@@ -2,7 +2,7 @@
 //! verify protocol plumbing; they provide NO real physical fencing evidence.
 use super::*;
 use fencing::*;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -13,17 +13,23 @@ struct Ledger {
     pending: Option<CheckpointIntentV1>,
     seal: Option<EpochSealBodyV1>,
 }
-fn recv<T: serde::de::DeserializeOwned>(stream: &mut TcpStream) -> Result<T, ()> {
-    let mut len = [0; 4];
-    stream.read_exact(&mut len).map_err(|_| ())?;
-    let len = u32::from_be_bytes(len) as usize;
-    if len == 0 || len > 1024 * 1024 {
-        return Err(());
-    }
-    let mut bytes = vec![0; len];
-    stream.read_exact(&mut bytes).map_err(|_| ())?;
-    serde_cbor::from_slice(&bytes).map_err(|_| ())
+#[path = "endpoint_test_oracle_frame.rs"]
+mod oracle_frame;
+use oracle_frame::recv;
+
+#[test]
+fn oracle_idle_is_retryable_but_started_frames_are_bounded() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (mut server, _) = listener.accept().unwrap();
+    server
+        .set_read_timeout(Some(Duration::from_millis(20)))
+        .unwrap();
+    assert_eq!(recv::<u8>(&mut server), Ok(None));
+    client.write_all(&[0]).unwrap();
+    assert!(recv::<u8>(&mut server).is_err());
 }
+
 fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<(), ()> {
     let bytes = serde_cbor::to_vec(reply).unwrap();
     stream
@@ -658,3 +664,22 @@ mod durable_set_seal_tests;
 
 #[path = "endpoint_durable_set_install_tests.rs"]
 mod durable_set_install_tests;
+
+/// Test-only oracle custody; this supplies no real physical-domain evidence.
+pub(super) fn native_rpc_endpoint(fixture: &Fixture) -> (FileFormalEndpoint, impl Drop) {
+    let oracle = Oracle::start(fixture, EndpointRole::Primary);
+    let endpoint = FileFormalEndpoint::open_protected(
+        &fixture.pdir,
+        FormalEndpointAuthorizationV1 {
+            authority: fixture.authority.clone(),
+            original: fixture.authority.clone(),
+            recovery: None,
+            parent: None,
+        },
+        EndpointRole::Primary,
+        oracle.provider(fixture),
+        None,
+    )
+    .unwrap();
+    (endpoint, oracle)
+}

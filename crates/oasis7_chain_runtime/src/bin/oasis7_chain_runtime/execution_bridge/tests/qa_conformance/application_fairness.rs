@@ -801,7 +801,7 @@ pub(super) fn validate_canonical_identity(fixture: &Fixture) {
     let view = client.read_view(request).unwrap();
     assert_eq!(
         view.projection().state.agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(2, 2, 0)
+        oasis7_agent_api::world_action::GeoPos::new(2, 2, 0)
     );
     assert!(
         view.projection()
@@ -809,7 +809,7 @@ pub(super) fn validate_canonical_identity(fixture: &Fixture) {
             .iter()
             .any(
                 |lease| lease.request_digest == signed.request.request.request_digest
-                    && lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
+                    && lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled
             )
     );
     println!(

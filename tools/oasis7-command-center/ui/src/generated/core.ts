@@ -1,4 +1,12 @@
 // Generated from Rust DTOs by cargo run -p oasis7-command-center-core --example export_types
+export type WorkRef = { "kind": "pullRequest", host: string, repository: string, number: string, } | { "kind": "session", namespace: string, projectId: string, environment: string, threadId: string, };
+export type SourceFact = { source: WorkRef, revision: string | null, verifiedAt: string | null, eventAt: string | null, readAt: string, coverage: string, };
+export type FactCell = { value: string, evidence: SourceFact, };
+export type WorkGoal = { sectionId: string, title: string | null, revision: string | null, confirmedAt: string, };
+export type WorkRun = { instanceId: string, turnId: string | null, state: string, owned: boolean, };
+export type WorkItem = { reference: WorkRef, purpose: FactCell, result: FactCell, remaining: string, sourceUrl: string | null, goals: Array<WorkGoal>, checks: Array<Check>, checksSource?: PullChecksSource, runs: Array<WorkRun>, };
+export type WorkSource = { kind: string, state: string, coverage: string, verifiedAt: string | null, error: string | null, };
+export type WorkProjection = { schemaVersion: number, projectId: string, environment: string, readAt: string, sources: Array<WorkSource>, items: Array<WorkItem>, };
 export type ContextBinding = { id: string, bindingVersion: number, root: string, storeId: string, projectId: string, registeredProjectId: string, name: string, directoryIdentity: string, };
 export type ContextEntry = { id: string, revision: string, rawText: string, metadataJson: string, verificationState: string, };
 export type ContextSummary = { id: string, title: string, kind: string, environment: string, state: string, revision: string, verification_state: string, summary: string, };
@@ -165,8 +173,9 @@ export type GitSnapshot = { status: string, worktrees: string, };
 export type WorkAssociation = { workUrl: string, goalSectionIds: Array<string>, confirmedAt: string, };
 export type Snapshot = { associations: Array<WorkAssociation>, project: Project | null, sources: Array<SourceStatus>, sections: Array<DocumentSection>, decisions: Array<DecisionRecord>, preferences: Preferences, readingPositions: Array<ReadingPosition>, git: GitSnapshot, };
 export type GitHubSnapshot = { state: string, repository: string | null, account: string | null, observedAt: string | null, lastAttempt: string | null, coverage: string, error: string | null, pulls: Array<PullRequest>, };
-export type PullRequest = { id: string, title: string, url: string, state: string, headOid: string, reviewDecision: string | null, checks: Array<Check>, };
-export type Check = { name: string, state: string, testedOid: string | null, url: string | null, };
+export type PullRequest = { id: string, title: string, url: string, state: string, headOid: string, reviewDecision: string | null, checks: Array<Check>, checksSource?: PullChecksSource, };
+export type Check = { name: string, state: string, testedOid: string | null, sourceOid?: string, url: string | null, };
+export type PullChecksSource = { schemaVersion: number, state: string, observedAt: string | null, coverage: string, error: string | null, };
 export type RuntimeTarget = { instanceId: string, threadId: string, turnId: string, };
 export type RuntimeSession = { purpose: string, scope: string, model: string | null, basisRevision: string, threadId: string, instanceId: string, turnId: string | null, state: string, owned: boolean, backgroundState: string, restorableHistory: boolean, privateSources: Array<PrivateInputRef>, };
 export type RuntimeOperation = { id: string, instanceId: string, threadId: string | null, turnId: string | null, method: string, state: string, fingerprint: string, createdAt: string, error: string | null, };

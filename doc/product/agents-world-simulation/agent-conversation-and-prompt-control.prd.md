@@ -107,10 +107,10 @@ Trace ID: O7-REQ-a82f1ee8-9d70-442c-9972-5f49f6665293
 - 功能点：[REQ-PROMPT-002](#req-prompt-002)；适用范围沿本条原条件与 [AC-PROMPT-002](#ac-prompt-002)，不扩大入口或阶段。
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“对话、预设、本地草稿及持续配置的技术消费”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清对话、预设、本地草稿及持续配置的技术消费的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现状态：部分实现
+- 实现与验证依据：[software-safe聊天、草稿与独立预览/应用入口](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3450-L3606)及[草稿与权威刷新隔离](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_prompt_control_module.js#L139-L166)确认聊天输入和Prompt草稿分开，编辑只置dirty，预览/应用由独立操作触发。[权威snapshot后刷新测试](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_prompt_control_protocol.test.jsx#L412)是测试定义，本轮未运行；[历史runtime交付#3686](https://github.com/nil-studio/oasis7/pull/3686)只证明原runtime/Agent子集，不能代签当前UI全范围。
+- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 剩余范围：已确认software-safe聊天/Prompt草稿及预览/应用分离；预设填充、全部适用入口的持续配置语义与玩家区分效果仍待逐项源码及同候选验收，保留原设计未核实边界。
 
 - 适用条件：玩家查看、填充、编辑或发送内容。
 - 要求：入口必须区分一次对话、预设填充、本地草稿和持续 Prompt/目标调整；填充或编辑不得被呈现为已发送或已应用。
@@ -126,10 +126,10 @@ Trace ID: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d
 - 功能点：[REQ-PROMPT-003](#req-prompt-003)；适用范围沿本条原条件与 [AC-PROMPT-003](#ac-prompt-003)，不扩大入口或阶段。
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“默认/override 来源及清除操作的真实含义”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清默认/override 来源及清除操作的真实含义的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现状态：部分实现
+- 实现与验证依据：[override草稿来源](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L669-L686)、[未修改/清除转换](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L1654-L1664)及[真实override输入与独立动作](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3551-L3636)已交付当前override来源与未修改不变更子范围。[Builtin有效值](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/llm_agent/behavior_prompt.rs#L4-L23)回退已加载config；[runner初始化](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runner.rs#L280-L295)另注入phase1短期目标，不能把后续clear说成恢复初始值。当前面板仅显示override/版本/反馈，尚无clear恢复来源或default/effective值的提交前预告；未完成五种来源、各适用入口及运行验收。 本轮未精确归属本子范围的实现交付PR/Task，固定生产源码支持上述子范围；#4694为文档任务，不作实现交付依据。
+- 核对日期与基线：2026-10-17；需求与静态实现基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；canonical Web与Builtin限定子链；本轮未执行浏览器、IME、Runtime或仓库测试；不作当前main组合验证。
+- 剩余范围：设计：保留未核实，逐项核清默认/override与清除语义的专业承接；实现：canonical Web尚缺default/effective及clear提交前解释，草稿/预设等来源和其他适用入口仍未闭合。Builtin clear回退config与初始化phase1短期目标不可混同；ProviderBacked生产默认拒绝不扩大支持。验证：上述来源、未修改、空白set/clear、恢复及真实玩家可读性。
 
 - 适用条件：当前内容来自默认值、当前生效值、override、草稿或预设。
 - 要求：入口必须让玩家分辨这些来源；恢复默认或清除 override 必须在提交前表达真实含义，清空输入不得无说明地同时表示空值和恢复默认。
@@ -183,10 +183,10 @@ Trace ID: O7-REQ-6f348a2d-cb87-4838-8447-21c8eebf6d07
 - 功能点：[REQ-PROMPT-006](#req-prompt-006)；适用范围沿本条原条件与 [AC-PROMPT-006](#ac-prompt-006)，不扩大入口或阶段。
 - 系统设计状态：未核实
 - 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“IME、焦点、发送及响应式的实际支持矩阵”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
-- 实现状态：未核实
-- 实现与验证依据：本轮只核对文档关系，尚未核清本条实现 Task/PR、固定实现提交与实际验收记录；[#4694](https://github.com/eng-cc/oasis7/issues/4694)只跟踪文档规范化，不证明本功能已交付。
-- 核对日期与基线：2026-10-14；需求/设计基线 `7f8a77069c9f7d316500dce11c6ab65da5ac36b3`；远程文档快照审读；实现基线与运行环境未核实，未执行本条行为验收。
-- 剩余范围：设计：核清IME、焦点、发送及响应式的实际支持矩阵的精确承接及失败边界；实现/验证：取得本条适用入口的同候选证据。
+- 实现状态：部分实现
+- 实现与验证依据：[Chat多行编辑和显式发送](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3453-L3475)、[Prompt草稿与独立配置动作](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3551-L3636)直接实现编辑/发送/配置分离；[窄屏Prompt专属布局](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/viewer_terminal_shell.css#L1632-L1666)提供紧凑textarea、单行rollback及焦点环，[实际加载](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/viewer.html#L2836)已接入。[路由Escape保护](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_navigation.jsx#L48-L66)仅证明局部isComposing/229隔离，不代签Chat完整IME。仍有完整输入/焦点/尺寸和结果恢复实现义务未逐项核清；本轮静态审读，未执行浏览器或行为测试。 本轮未精确归属本子范围的实现交付PR/Task，固定生产源码支持上述子范围；#4694为文档任务，不作实现交付依据。
+- 核对日期与基线：2026-10-17；需求与静态实现基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；canonical Web；本轮未执行浏览器、IME、Runtime或仓库测试；不作当前main组合验证。
+- 剩余范围：设计：保留未核实，核清实际输入/响应式矩阵的专业承接；实现：受支持窄屏/低高度中目标、草稿、主动作、结果、恢复全矩阵，切Agent焦点归属、组合输入时序和世界输入隔离仍未逐项核清，不能只称欠测试。验证：真实IME/CJK/长文本、换行/显式发送、焦点回归及尺寸组合；不采用历史Enter发送或自动聚焦保证。
 
 - 适用条件：受支持的窗口、设备尺寸和文本输入场景。
 - 要求：目标 Agent、草稿、主动作、结果和恢复路径必须可达；输入法、焦点、换行、发送和高影响配置动作不得互相误触。未验证的历史快捷键或布局不得被写成当前保证。

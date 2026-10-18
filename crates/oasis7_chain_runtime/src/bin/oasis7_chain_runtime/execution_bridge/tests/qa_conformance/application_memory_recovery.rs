@@ -124,7 +124,7 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
     }
     let mut server = created.unwrap();
     if mode.starts_with("memory-crash") || mode.starts_with("memory-ack-") {
-        let action = oasis7::simulator::Action::MoveAgent {
+        let action = oasis7_simulator::Action::MoveAgent {
             agent_id: "agent-a".into(),
             to: "runtime:2:2:0".into(),
         };

@@ -3,8 +3,42 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 const LIMIT: usize = 64 * 1024 * 1024;
+fn decode_native_batch<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Vec<super::super::NativeEnvironmentChunkBytesV1>, D::Error> {
+    struct Batch;
+    impl<'de> serde::de::Visitor<'de> for Batch {
+        type Value = Vec<super::super::NativeEnvironmentChunkBytesV1>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("at most eight native chunks")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut sequence: A,
+        ) -> Result<Self::Value, A::Error> {
+            if sequence.size_hint().is_some_and(|length| length > 8) {
+                return Err(serde::de::Error::custom("native batch count bound"));
+            }
+            let mut chunks = Vec::new();
+            while let Some(chunk) = sequence.next_element()? {
+                if chunks.len() == 8 {
+                    return Err(serde::de::Error::custom("native batch count bound"));
+                }
+                chunks.push(chunk);
+            }
+            Ok(chunks)
+        }
+    }
+    decoder.deserialize_seq(Batch)
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) enum Command {
+    StageNativeEnvironment(
+        Box<super::super::native_environment::NativeExecutionEnvironmentV1>,
+        #[serde(deserialize_with = "decode_native_batch")]
+        Vec<super::super::NativeEnvironmentChunkBytesV1>,
+    ),
+    VerifyNativeEnvironment(Box<super::super::native_environment::NativeExecutionEnvironmentV1>),
     Head,
     Query(String),
     Freeze(Box<SignedFormalFrozenV1>, Box<ClosedRecord>),
@@ -18,6 +52,13 @@ pub(crate) enum Command {
     ),
     InstallProof(Box<FormalDecisionProofV1>),
     PublishQualified(Box<FormalQualifiedCommitProofV1>),
+    VerifyPublishedClosure {
+        request: String,
+        candidate_digest: String,
+    },
+    ReleasePublishedClosure {
+        candidate_digest: String,
+    },
     ArchiveManifest,
     ArchiveObject(String),
     ArchiveChunk {
@@ -67,6 +108,8 @@ pub(crate) enum Value {
     Prepare(Box<FormalPrepareReceiptV1>),
     Final(Box<FormalFinalReceiptV1>),
     ProofComplete(Box<FormalProofCompleteReceiptV1>),
+    NativeEnvironment(super::super::NativeEnvironmentVerificationProgressV1),
+    PublishedClosure(super::super::coordinator::FormalPublishedClosureReceiptV1),
     ArchiveManifest(Box<SignedFormalArchiveTransferV1>),
     ArchiveObject(Option<Vec<u8>>),
     ArchiveChunk(Option<FormalArchiveChunkV1>),
@@ -183,17 +226,36 @@ pub(super) fn read_before_deadline<T: serde::de::DeserializeOwned>(
     remaining(deadline)?;
     serde_cbor::from_slice(&bytes).map_err(|error| invalid(error.to_string()))
 }
+#[cfg(test)]
 pub(super) fn write_before_deadline<T: Serialize>(
     stream: &mut TcpStream,
     value: &T,
     deadline: Instant,
 ) -> Result<(), FormalError> {
+    let bytes = prepare_before_deadline(value, deadline)?;
+    write_prepared_before_deadline(stream, &bytes, deadline)
+}
+
+fn prepare_before_deadline<T: Serialize>(
+    value: &T,
+    deadline: Instant,
+) -> Result<Vec<u8>, FormalError> {
+    remaining(deadline)?;
     let bytes = serde_cbor::to_vec(value).map_err(|error| invalid(error.to_string()))?;
     if bytes.len() > LIMIT {
         return Err(invalid("formal RPC bounded frame"));
     }
+    remaining(deadline)?;
+    Ok(bytes)
+}
+
+fn write_prepared_before_deadline(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    deadline: Instant,
+) -> Result<(), FormalError> {
     let header = (bytes.len() as u32).to_be_bytes();
-    for mut remaining_bytes in [&header[..], &bytes[..]] {
+    for mut remaining_bytes in [&header[..], bytes] {
         while !remaining_bytes.is_empty() {
             stream
                 .set_write_timeout(Some(remaining(deadline)?))
@@ -207,6 +269,33 @@ pub(super) fn write_before_deadline<T: Serialize>(
     }
     Ok(())
 }
+
+pub(super) fn connect_and_write_before_deadline<T: Serialize>(
+    address: &SocketAddr,
+    value: &T,
+    deadline: Instant,
+) -> Result<TcpStream, FormalError> {
+    connect_and_write_using(address, value, deadline, TcpStream::connect_timeout)
+}
+
+fn connect_and_write_using<T: Serialize>(
+    address: &SocketAddr,
+    value: &T,
+    deadline: Instant,
+    connect: impl FnOnce(&SocketAddr, Duration) -> std::io::Result<TcpStream>,
+) -> Result<TcpStream, FormalError> {
+    // Finish local encoding before the peer begins its first-read timeout.
+    // The caller's one absolute deadline includes this preparation.
+    let bytes = prepare_before_deadline(value, deadline)?;
+    let mut stream = connect(address, remaining(deadline)?).map_err(io)?;
+    configure(&stream, remaining(deadline)?)?;
+    write_prepared_before_deadline(&mut stream, &bytes, deadline)?;
+    Ok(stream)
+}
+
+#[cfg(test)]
+#[path = "wire_encode_order_tests.rs"]
+mod encode_order_tests;
 
 #[cfg(test)]
 mod deadline_tests {
@@ -238,5 +327,44 @@ mod deadline_tests {
         );
         drop(stream);
         sender.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod native_batch_tests {
+    use super::*;
+    #[test]
+    fn native_stage_decoder_rejects_oversized_declared_batch_before_chunk_values() {
+        // CBOR externally tagged enum map: StageNativeEnvironment:[descriptor,batch].
+        let descriptor = super::super::super::native_environment::NativeExecutionEnvironmentV1 {
+            schema_version: 1,
+            target: "test".into(),
+            os: "linux".into(),
+            arch: "test".into(),
+            components: vec![],
+        };
+        let chunk = super::super::super::NativeEnvironmentChunkBytesV1 {
+            digest: "ab".repeat(32),
+            bytes: vec![1],
+        };
+        let value = Command::StageNativeEnvironment(Box::new(descriptor), vec![chunk; 9]);
+        let bytes = serde_cbor::to_vec(&value).unwrap();
+        let error = serde_cbor::from_slice::<Command>(&bytes)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("native batch count bound"));
+        let mut hostile = bytes;
+        // The final 9-item array is preceded by its declaration; replacing it
+        // with an impossible count must hit the same count gate, not allocation.
+        let position = hostile
+            .windows(2)
+            .position(|pair| pair == [0x89, 0xa2])
+            .unwrap();
+        hostile.splice(
+            position..position + 1,
+            [0x9b, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+        );
+        assert!(serde_cbor::from_slice::<Command>(&hostile).is_err());
     }
 }

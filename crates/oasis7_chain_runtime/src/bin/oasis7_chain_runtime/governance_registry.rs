@@ -2,14 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
-use oasis7::runtime::{
-    GovernanceFinalitySignerRegistry, GovernanceMainTokenControllerRegistry,
-    GovernanceThresholdSignerPolicy, RollbackAuthorityRecord, RollbackAuthorityRegistry,
-    RollbackAuthorityRole,
-};
 use oasis7_node::{
     NodeConfig, NodeMainTokenControllerBindingConfig, NodeMainTokenControllerSignerPolicy,
     NodePosConfig, PosValidator,
+};
+use oasis7_runtime::{
+    GovernanceFinalitySignerRegistry, GovernanceMainTokenControllerRegistry,
+    GovernanceThresholdSignerPolicy, RollbackAuthorityRecord, RollbackAuthorityRegistry,
+    RollbackAuthorityRole,
 };
 use serde::Deserialize;
 
@@ -508,7 +508,7 @@ fn execution_world_has_persisted_state(execution_world_dir: &Path) -> bool {
         || execution_world_dir.join(".distfs-state").exists()
 }
 
-fn world_is_bootstrap_only(world: &oasis7::runtime::World) -> bool {
+fn world_is_bootstrap_only(world: &oasis7_runtime::World) -> bool {
     world.snapshot().tick_consensus_records.is_empty() && world.journal().is_empty()
 }
 

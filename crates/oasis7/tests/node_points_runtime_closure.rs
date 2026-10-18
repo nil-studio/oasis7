@@ -1,14 +1,12 @@
 #![cfg(any(feature = "test_tier_required", feature = "test_tier_full"))]
+use oasis7::node_points_observation::measure_directory_storage_bytes;
 
 use std::fs;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use oasis7::runtime::{
-    NodePointsConfig, NodePointsRuntimeCollector, NodePointsRuntimeHeuristics,
-    measure_directory_storage_bytes,
-};
+use oasis7::runtime::{NodePointsConfig, NodePointsRuntimeCollector, NodePointsRuntimeHeuristics};
 use oasis7_node::{NodeConfig, NodeReplicationConfig, NodeRole, NodeRuntime};
 
 #[test]
@@ -112,7 +110,13 @@ fn sample_runtime(
     let snapshot = runtime.snapshot();
     let storage_bytes = measure_directory_storage_bytes(replication_root);
     let _ = collector
-        .observe_snapshot(&snapshot, storage_bytes, now_unix_ms())
+        .observe(
+            oasis7::node_points_observation::node_points_observation_from_snapshot(
+                &snapshot,
+                storage_bytes,
+                now_unix_ms(),
+            ),
+        )
         .expect("observe snapshot");
 }
 

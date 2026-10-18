@@ -5,6 +5,8 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_simulator = { path = "../oasis7_simulator" }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
 oasis7 = { path = "../oasis7", default-features = false }
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 serde = { version = "1", features = ["derive"] }

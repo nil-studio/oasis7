@@ -1,0 +1,24 @@
+[package]
+name = "oasis7_client_storage"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Private client persistence, bounded key loading and durable local budgets"
+
+[dependencies]
+oasis7_client_api = { path = "../oasis7_client_api" }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_cbor = "0.11"
+blake3 = "1"
+zeroize = "1"
+getrandom = "0.4"
+hex = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+cap-std = "4"
+cap-fs-ext = "4"
+libc = "0.2"
+chacha20poly1305 = { version = "0.11", features = ["zeroize"] }

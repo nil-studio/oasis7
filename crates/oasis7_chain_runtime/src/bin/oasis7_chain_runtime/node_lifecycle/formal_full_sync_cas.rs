@@ -5,7 +5,7 @@
 //! currently loaded cut; unpinned objects are only collectible after those
 //! roots have been published.
 
-use oasis7::runtime::LocalCasStore;
+use oasis7_runtime::LocalCasStore;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -125,7 +125,7 @@ pub(super) fn verify_read_only_cas(store: &LocalCasStore) -> Result<serde_json::
         "object_count": blobs.len(),
         "pin_count": pins.len(),
         "total_bytes": total_bytes,
-        "roots_digest": oasis7::runtime::blake3_hex(&digest_input)
+        "roots_digest": oasis7_runtime::blake3_hex(&digest_input)
     }))
 }
 

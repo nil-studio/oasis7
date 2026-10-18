@@ -2,12 +2,12 @@ use crate::runtime::{CognitionLeaseStatusV1, CognitionLeaseV1};
 
 use super::super::agent::{AgentDecision, AgentDecisionTrace};
 use super::super::continuous_agent_harness::ContinuousAgentRequestContextV1;
-use super::super::types::WorldTime;
 use super::budget;
 use super::{
     ActorCompletion, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback,
     AsyncTurnLifecycle, AsyncWorldEffect, BehaviorTurnResult, Observation, TurnMetadata,
 };
+use oasis7_simulator::WorldTime;
 
 /// Recover the structured provider error emitted by the provider-backed
 /// behavior. `AgentBehavior::decide` is intentionally an infallible interface,

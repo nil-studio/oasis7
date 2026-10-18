@@ -48,7 +48,10 @@ fn install_collect_data_verified_projection(
         .unwrap()
         .state
         .resources
-        .set(crate::simulator::ResourceKind::Electricity, 30)
+        .set(
+            oasis7_agent_api::world_action::ResourceKind::Electricity,
+            30,
+        )
         .unwrap();
     let request = ReadWorldViewRequest {
         formal_anchor: None,
@@ -80,8 +83,29 @@ fn install_collect_data_verified_projection(
         },
         view: projection,
     };
+    let signed_request = crate::world_service::authority::sign_read_request(
+        VIEW_PATH,
+        request.clone(),
+        &test_signer(241).1,
+    )
+    .unwrap();
+    let digest =
+        crate::world_service::authority::request_digest(VIEW_PATH, &signed_request).unwrap();
+    let signed_response = crate::world_service::authority::sign_service_response(
+        VIEW_PATH,
+        digest,
+        response,
+        &test_signer(240).1,
+    )
+    .unwrap();
     server.verified_world_view = Some(
-        crate::world_service::verified_view::VerifiedWorldView::new(response, &request).unwrap(),
+        crate::world_service::verified_view::VerifiedWorldView::verify_service_assertion(
+            signed_response,
+            &signed_request,
+            &test_signer(240).0,
+            crate::world_service::verified_view::ReadEvidencePolicy::Ordinary,
+        )
+        .unwrap(),
     );
     server.config.world_service = Some(crate::world_service::client::WorldServiceClientConfig {
         endpoint: "http://127.0.0.1:9".into(),
@@ -122,7 +146,11 @@ fn runtime_collect_data_service_preflight_uses_one_verified_claim_and_balance_pr
         );
         server
             .world
-            .set_agent_resource_balance(&collector, crate::simulator::ResourceKind::Electricity, 2)
+            .set_agent_resource_balance(
+                &collector,
+                oasis7_agent_api::world_action::ResourceKind::Electricity,
+                2,
+            )
             .unwrap();
         install_collect_data_verified_projection(
             &mut server,

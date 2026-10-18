@@ -25,7 +25,7 @@ pub(super) fn process(
     {
         return Err(PrivateError::QuoteBaseDrift);
     }
-    if oasis7::runtime::builtin_factory_spec(&proof.request.factory_kind, &proof.request.factory_id)
+    if oasis7_runtime::builtin_factory_spec(&proof.request.factory_kind, &proof.request.factory_id)
         .is_none()
     {
         return Err(PrivateError::Forbidden);

@@ -116,6 +116,10 @@
     "command_center": []
   },
   "package_groups": {
+    "scenario_test_runner": ["oasis7_required"],
+    "oasis7_runtime": ["oasis7_required", "launcher_web"],
+    "oasis7_world_service": ["oasis7_required"],
+    "oasis7_simulator": ["oasis7_required", "launcher_web"],
     "oasis7_agent_api": [
       "workspace_support"
     ],
@@ -186,6 +190,13 @@
     ],
     "oasis7_model_provider": [
       "workspace_support"
+    ],
+    "oasis7_client_storage": [
+      "workspace_support"
+    ],
+    "oasis7_signer_protocol": [
+      "workspace_support",
+      "command_center"
     ],
     "oasis7_local_signer": [
       "workspace_support",
@@ -346,7 +357,7 @@
     {
       "match": [
         "doc/world-simulator/scenario/**",
-        "crates/oasis7/scenarios/**",
+        "crates/oasis7_simulator/scenarios/**",
         "crates/oasis7/src/simulator/scenario.rs",
         "crates/oasis7_ops_tools/tests/oasis7_init_demo.rs"
       ],
@@ -551,6 +562,7 @@
         "scripts/local-signer/tests/**",
         "doc/p2p/blockchain/local-file-signing-backend.runbook.md",
         "crates/oasis7_local_signer/**",
+        "crates/oasis7_signer_protocol/**",
         "crates/oasis7_context/**",
         "crates/oasis7_secure_envelope/**"
       ],

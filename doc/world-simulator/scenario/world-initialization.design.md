@@ -24,7 +24,7 @@
 
 ## 3. 关键接口 / 入口
 
-[初始化源码](../../../crates/oasis7/src/simulator/init.rs)的 `build_world_model(&WorldConfig, &WorldInitConfig)` 返回 `Result<(WorldModel, WorldInitReport), WorldInitError>`；`initialize_kernel` 在模型成功构建后包装 `WorldKernel`。场景文件经 [WorldScenarioSpec::into_init_config](../../../crates/oasis7/src/simulator/scenario.rs)进入同一配置层。
+[初始化源码](../../../crates/oasis7_simulator/src/init.rs)的 `build_world_model(&WorldConfig, &WorldInitConfig)` 返回 `Result<(WorldModel, WorldInitReport), WorldInitError>`；`initialize_kernel` 在模型成功构建后包装 `WorldKernel`。场景文件经 [WorldScenarioSpec::into_init_config](../../../crates/oasis7_simulator/src/scenario.rs)进入同一配置层。
 
 - 配置和场景调用方提供 seed、origin、locations、fragment、agents、power_plants；模型构造方负责位置、ID、资源和设施引用校验。配置中的 owner 引用校验不是玩家授权，也不能凭配置在正式世界授予资产。
 - 当前源码先 sanitize world/init config，创建 chunk 索引；依次装配 origin、自定义地点、seed-position/bootstrap chunks、Agent，再按 Agent 位置确保 chunk，最后处理显式设施及 module visual entities。不能把简化的装配顺序当作省略后两步的许可。
@@ -74,5 +74,5 @@
 
 | 上游 requirement / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [显式设施](world-initialization.prd.md#init-explicit-facilities) | [设计约束](#init-state-design) | 默认区域/碎片场景设施为 0，power_bootstrap 显式正例，单一矩阵 | 候选版本的[验证入口](../../../crates/oasis7/src/simulator/tests/init.rs)：运行 `twin_region_bootstrap_seeds_regions`、`asteroid_fragment_bootstrap_seeds_fragments_and_resources`、`scenarios_are_stable` 的 PowerBootstrap/plant-1 分支及 `init_seeds_power_facilities`、`init_rejects_facility_with_missing_owner`；检查零设施、显式设施和引用拒绝；Simulator 离线层，固定候选/config/seed，静态核对与实际执行分别记录 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
+| [显式设施](world-initialization.prd.md#init-explicit-facilities) | [设计约束](#init-state-design) | 默认区域/碎片场景设施为 0，power_bootstrap 显式正例，单一矩阵 | 候选版本的[验证入口](../../../crates/oasis7_simulator/src/tests/init.rs)：运行 `twin_region_bootstrap_seeds_regions`、`asteroid_fragment_bootstrap_seeds_fragments_and_resources`、`scenarios_are_stable` 的 PowerBootstrap/plant-1 分支及 `init_seeds_power_facilities`、`init_rejects_facility_with_missing_owner`；检查零设施、显式设施和引用拒绝；Simulator 离线层，固定候选/config/seed，静态核对与实际执行分别记录 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |
 | [时间与初始事件](world-initialization.prd.md#init-time-events) | [设计约束](#init-state-design) | 时间 0 可有 Init 事件，snapshot 与 journal 覆盖范围分开 | 候选版本的[验证入口](../../../crates/oasis7/src/simulator/tests/persist.rs)：`initialize_kernel_records_chunk_generated_init_events` 检查 enabled Init 事件和 manifest/delta 一致；`kernel_persist_and_restore` 与 `restore_rejects_mismatched_journal_len` 检查配对恢复/拒绝。另以 fragment-disabled fixture 核对 time=0 和无 Init chunk 事件（该组合需补定向断言，非已有测试已覆盖）；Simulator 离线层，同候选固定输入，分别保留执行输出 | 实施 PR 的候选、命令、fixture 与真实结果 | 不代签未执行回归、真实模型、浏览器、节点或发布验收 |

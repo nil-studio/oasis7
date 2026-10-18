@@ -1,13 +1,13 @@
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadBody, decode_consensus_action_payload_envelope,
 };
-use oasis7::runtime::Action as RuntimeAction;
-use oasis7::runtime::ProviderBackedBootstrapAuthorityV1;
-use oasis7::simulator::{Action as SimulatorAction, ActionSubmitter};
 use oasis7_node::{
     NodeExecutionCommitContext, decode_replicated_execution_input_action,
     validate_replicated_execution_input_actions,
 };
+use oasis7_runtime::Action as RuntimeAction;
+use oasis7_runtime::ProviderBackedBootstrapAuthorityV1;
+use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 
 #[expect(
     clippy::type_complexity,
@@ -17,10 +17,7 @@ pub(super) fn decode_committed_actions(
     context: &NodeExecutionCommitContext,
 ) -> Result<
     (
-        Vec<(
-            RuntimeAction,
-            Option<oasis7::runtime::CommittedRecipeOrigin>,
-        )>,
+        Vec<(RuntimeAction, Option<oasis7_runtime::CommittedRecipeOrigin>)>,
         Vec<(SimulatorAction, ActionSubmitter)>,
         Option<Vec<ProviderBackedBootstrapAuthorityV1>>,
         Vec<(
@@ -86,7 +83,7 @@ pub(super) fn decode_committed_actions(
                         service_intents.push((action.action_id, request));
                     } else {
                         let origin = envelope.gameplay_submission_origin.map(|submission| {
-                            oasis7::runtime::CommittedRecipeOrigin {
+                            oasis7_runtime::CommittedRecipeOrigin {
                                 submission,
                                 consensus_action_id: action.action_id,
                                 consensus_submitter_player_id: action.submitter_player_id.clone(),

@@ -164,7 +164,7 @@ fn assert_queued_provider_decision_survives_restore(decision: AgentDecision) {
 #[test]
 fn provider_lineage_restore_delivers_queued_action_once_without_readmission() {
     assert_queued_provider_decision_survives_restore(AgentDecision::Act(
-        crate::simulator::Action::MoveAgent {
+        oasis7_simulator::Action::MoveAgent {
             agent_id: "agent-queued".to_string(),
             to: "loc-queued".to_string(),
         },

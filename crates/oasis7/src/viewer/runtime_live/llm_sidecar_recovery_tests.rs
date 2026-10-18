@@ -321,7 +321,7 @@ fn restore_reconciles_committed_runtime_record_without_sidecar_terminal_marker()
             .as_nanos()
     ));
     let agent_id = "agent-committed-recovery";
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("world", "main", 0, None, "pending", 0)
         .expect("Runtime cognition binding");
@@ -431,7 +431,7 @@ fn restore_reconciles_committed_runtime_record_without_sidecar_terminal_marker()
         .push_back(async_support::RuntimeLlmDecision {
             agent_id: "agent-committed-recovery-sibling".to_string(),
             // This placeholder protects queue identity preservation, not Wait admission.
-            decision: AgentDecision::Act(crate::simulator::Action::MoveAgent {
+            decision: AgentDecision::Act(oasis7_simulator::Action::MoveAgent {
                 agent_id: "agent-committed-recovery-sibling".into(),
                 to: "loc-recovery".into(),
             }),
@@ -442,7 +442,7 @@ fn restore_reconciles_committed_runtime_record_without_sidecar_terminal_marker()
         });
     let queued = async_support::RuntimeLlmDecision {
         agent_id: agent_id.to_string(),
-        decision: AgentDecision::Act(crate::simulator::Action::MoveAgent {
+        decision: AgentDecision::Act(oasis7_simulator::Action::MoveAgent {
             agent_id: agent_id.into(),
             to: "loc-recovery".into(),
         }),
@@ -606,7 +606,7 @@ fn assert_terminal_marker_suppresses_queued_provider_decision(decision: AgentDec
 #[test]
 fn provider_lineage_restore_terminal_marker_suppresses_queued_action_replay() {
     assert_terminal_marker_suppresses_queued_provider_decision(AgentDecision::Act(
-        crate::simulator::Action::MoveAgent {
+        oasis7_simulator::Action::MoveAgent {
             agent_id: "agent-terminal-queued".to_string(),
             to: "loc-terminal-queued".to_string(),
         },
@@ -621,7 +621,7 @@ fn provider_lineage_restore_terminal_marker_suppresses_queued_wait_replay() {
 
 #[test]
 fn provider_transport_exhaustion_closes_recovered_runtime_prefix_before_release() {
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("world", "recovery-branch", 0, None, "pending", 0)
         .expect("Runtime cognition binding");
@@ -752,7 +752,7 @@ fn restored_mismatched_active_identity_terminalizes_runtime_before_release() {
     active_marker.request_context.request_digest = marker_digest.clone();
     active_marker.turn_context.request_digest = marker_digest;
 
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("world", "quarantine-branch", 0, None, "pending", 0)
         .expect("Runtime cognition binding");
@@ -884,7 +884,7 @@ fn restored_missing_active_identity_terminalizes_runtime_and_feedback() {
     active_marker.request_context.request_digest = marker_digest.clone();
     active_marker.turn_context.request_digest = marker_digest;
 
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("world", "missing-terminal-branch", 0, None, "pending", 0)
         .expect("Runtime cognition binding");

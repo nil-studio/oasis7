@@ -65,7 +65,8 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
             )
         })
         .collect::<Vec<_>>();
-    server.world = RuntimeWorld::from_snapshot(snapshot, journal).expect("restore census fixture");
+    server.world = crate::runtime_host::world::from_snapshot(snapshot, journal)
+        .expect("restore census fixture");
 
     let now_ms = crate::viewer::runtime_live::recovery_receipt::current_unix_time_ms();
     for (index, (batch_id, event_id, _, _)) in sources.iter().enumerate() {
@@ -116,9 +117,10 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
         assert!(resolved.compensation.is_none());
         assert!(!resolved.system_authored);
     }
-    let persisted = RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
-        .expect("load generation")
-        .expect("persisted generation");
+    let persisted =
+        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+            .expect("load generation")
+            .expect("persisted generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
         serde_json::from_slice(&persisted.recovery_metadata).expect("decode generation");
     let persisted_outcome = persisted
@@ -177,10 +179,11 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
         let world_before = restarted.world.snapshot();
         let nonces_before = restarted.consumed_rollback_operator_nonces.clone();
         let readiness_before = restarted.rollback_readiness.clone();
-        let generation_before = RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
-            .expect("load generation before retry")
-            .expect("generation before retry")
-            .recovery_metadata;
+        let generation_before =
+            crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+                .expect("load generation before retry")
+                .expect("generation before retry")
+                .recovery_metadata;
         restarted
             .handle_authoritative_recovery(
                 AuthoritativeRecoveryCommand::ResolveRollbackAttribution { request: retry },
@@ -190,7 +193,7 @@ fn governed_player_attribution_preserves_non_rejected_census_semantics_across_re
         assert_eq!(restarted.consumed_rollback_operator_nonces, nonces_before);
         assert_eq!(restarted.rollback_readiness, readiness_before);
         assert_eq!(
-            RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
+            crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
                 .expect("load generation after retry")
                 .expect("generation after retry")
                 .recovery_metadata,

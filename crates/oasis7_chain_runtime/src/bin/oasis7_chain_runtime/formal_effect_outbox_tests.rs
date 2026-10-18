@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime::EffectOrigin;
+use oasis7_runtime::EffectOrigin;
 
 fn world(name: &str) -> FormalWorldIdentityV1 {
     FormalWorldIdentityV1 {

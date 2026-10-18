@@ -69,7 +69,7 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
 ### 应用主链（world + runtime + simulator + viewer 协议）
 - 核心 crate：`crates/oasis7`
 - 主要测试分布：
-  - 运行时：`crates/oasis7/src/runtime/tests/*.rs`
+  - 运行时：`crates/oasis7_runtime/src/tests/*.rs`
   - 模拟器：`crates/oasis7/src/simulator/tests/*.rs`
   - LLM 行为：`crates/oasis7/src/simulator/llm_agent/tests_part2.rs`
   - Viewer live 服务：`crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`（内置 `#[cfg(test)]`）

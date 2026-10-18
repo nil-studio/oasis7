@@ -23,13 +23,13 @@ impl ViewerRuntimeLiveServer {
         let Some(view) = &self.verified_world_view else {
             return SourceAuthority::unknown();
         };
-        let Ok(reader) = config.read_authority_identity() else {
+        let Ok(reader) = config.read_authority() else {
             return SourceAuthority::unknown();
         };
         if view.version().commit.world != config.expected_world
             || self.config.world_id != config.expected_world.world_id
             || view.version().visibility_scope != config.scope_id
-            || !view.read_authority_matches(&reader)
+            || !view.belongs_to(&reader)
             || view.evidence_policy() != ReadEvidencePolicy::Ordinary
             || view.execution_evidence_scope().is_some()
             || view.logical_tick() != self.world.state().time
@@ -59,7 +59,7 @@ impl ViewerRuntimeLiveServer {
             "visibility_scope":version.visibility_scope,"viewer_epoch":self.reorg_epoch.to_string(),
             "audience_hash":audience_hash,"evidence":evidence,
             "contract_version":oasis7_client_api::world_service::WORLD_SERVICE_CONTRACT_VERSION,
-            "reader_binding":reader
+            "reader_binding":reader.cache_partition_key()
         });
         SourceAuthority::remote(binding, scope_binding, actual_digest).with_events(
             &view.projection().events,
@@ -78,6 +78,25 @@ mod tests {
     };
     use oasis7_client_api::world_service::*;
 
+    fn authenticated_fixture_view(
+        response: ReadWorldViewResponse<WorldServiceProjection>,
+        request: &ReadWorldViewRequest,
+        config: &WorldServiceClientConfig,
+        policy: ReadEvidencePolicy,
+    ) -> VerifiedWorldView {
+        use crate::world_service::{authority, client::RemoteWorldServiceClient};
+        let signed =
+            authority::sign_read_request(VIEW_PATH, request.clone(), &config.read_private_key_hex)
+                .unwrap();
+        let digest = authority::request_digest(VIEW_PATH, &signed).unwrap();
+        let response =
+            authority::sign_service_response(VIEW_PATH, digest, response, &hex::encode([9; 32]))
+                .unwrap();
+        RemoteWorldServiceClient::new_with_evidence_policy(config.clone(), policy)
+            .unwrap()
+            .accept_view_response(response, signed)
+            .unwrap()
+    }
     fn fixture() -> ViewerRuntimeLiveServer {
         fixture_bound(1, 1, false)
     }
@@ -95,14 +114,20 @@ mod tests {
                 0,
             ),
         );
-        server.world = RuntimeWorld::new_with_state(state);
+        server.world = crate::runtime_host::world::new_with_state(state);
         let world = WorldIdentity {
             world_id: "view-world".into(),
             genesis_digest: "genesis".into(),
         };
         let config = WorldServiceClientConfig {
             endpoint: "http://127.0.0.1:1".into(),
-            trusted_service_public_key: "ab".repeat(32),
+            trusted_service_public_key: crate::world_service::authority::sign_read_request(
+                "fixture",
+                (),
+                &hex::encode([9; 32]),
+            )
+            .unwrap()
+            .subject_public_key,
             expected_world: world.clone(),
             scope_id: "public".into(),
             read_private_key_hex: hex::encode([7; 32]),
@@ -159,19 +184,16 @@ mod tests {
             },
             view: projection,
         };
-        server.verified_world_view = Some(
-            VerifiedWorldView::new_with_evidence_policy(
-                response,
-                &request,
-                if controlled {
-                    ReadEvidencePolicy::AllowControlledPrerequisite
-                } else {
-                    ReadEvidencePolicy::Ordinary
-                },
-            )
-            .unwrap()
-            .bind_read_authority(config.read_authority_identity().unwrap()),
-        );
+        server.verified_world_view = Some(authenticated_fixture_view(
+            response,
+            &request,
+            &config,
+            if controlled {
+                ReadEvidencePolicy::AllowControlledPrerequisite
+            } else {
+                ReadEvidencePolicy::Ordinary
+            },
+        ));
         server.config.world_service = Some(config);
         server
     }
@@ -202,7 +224,7 @@ mod tests {
         let mut server = fixture();
         let mut changed = server.world.state().clone();
         changed.agents.get_mut("a").unwrap().state.pos.x_cm += 1;
-        server.world = RuntimeWorld::new_with_state(changed);
+        server.world = crate::runtime_host::world::new_with_state(changed);
         assert!(!server.world_view_source_authority("alice").current());
         let mut server = fixture();
         server
@@ -213,20 +235,34 @@ mod tests {
             .read_private_key_hex = hex::encode([8; 32]);
         assert!(!server.world_view_source_authority("alice").current());
         let first = fixture().world_view_source_authority("alice");
-        let identity = server
-            .config
-            .world_service
-            .as_ref()
-            .unwrap()
-            .read_authority_identity()
-            .unwrap();
-        server.verified_world_view = Some(
-            server
-                .verified_world_view
-                .take()
-                .unwrap()
-                .bind_read_authority(identity),
-        );
+        let config = server.config.world_service.as_ref().unwrap();
+        let view = server.verified_world_view.as_ref().unwrap();
+        let response = ReadWorldViewResponse {
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            formal_profile: None,
+            formal_proof: None,
+            execution_evidence_scope: view.execution_evidence_scope().map(str::to_owned),
+            version: view.version().clone(),
+            logical_tick: view.logical_tick(),
+            continuation: view.continuation().clone(),
+            view: view.projection().clone(),
+        };
+        let request = ReadWorldViewRequest {
+            observation_nonce: None,
+            formal_anchor: None,
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            world: config.expected_world.clone(),
+            scope_id: config.scope_id.clone(),
+            min_commit: None,
+            fixed_commit: None,
+            deadline_unix_ms: None,
+        };
+        server.verified_world_view = Some(authenticated_fixture_view(
+            response,
+            &request,
+            config,
+            ReadEvidencePolicy::Ordinary,
+        ));
         let rebound = server.world_view_source_authority("alice");
         assert!(rebound.current());
         assert_ne!(
@@ -302,7 +338,7 @@ mod tests {
         );
         state.module_visual_entities.insert(
             "facility".into(),
-            crate::simulator::ModuleVisualEntity::default(),
+            oasis7_agent_api::world_entity::ModuleVisualEntity::default(),
         );
         assert_ne!(digest, spatial_state_digest(&state));
         let mut state = server.world.state().clone();

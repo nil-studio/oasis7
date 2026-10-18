@@ -6,11 +6,11 @@ use std::thread;
 
 use oasis7::observability::init_tracing;
 use oasis7::runtime::MajorWorldEventVisibilityPermission;
-use oasis7::simulator::WorldScenario;
 use oasis7::viewer::{
     ChainLinkPolicy, ProviderBackedBootstrapAuthorityV1, ViewerLiveDecisionMode,
     ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
 };
+use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::{ViewerWebBridge, ViewerWebBridgeConfig};
 use tracing::{error, info, warn};
 #[path = "oasis7_viewer_live/world_service_bootstrap.rs"]

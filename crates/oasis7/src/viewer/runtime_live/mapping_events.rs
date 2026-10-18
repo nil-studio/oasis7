@@ -3,7 +3,7 @@ use crate::runtime::{
     MaterialStack as RuntimeMaterialStack, RejectReason as RuntimeRejectReason,
     WorldEvent as RuntimeWorldEvent,
 };
-use crate::simulator::{
+use oasis7_simulator::{
     RejectReason as SimulatorRejectReason, ResourceOwner, WorldEventKind, WorldModel,
 };
 

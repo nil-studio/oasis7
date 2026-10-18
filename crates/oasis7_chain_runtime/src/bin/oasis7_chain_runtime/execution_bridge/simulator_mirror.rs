@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use oasis7::runtime::ChainResourceDerivationContext;
 use oasis7::simulator::WorldKernel;
+use oasis7_runtime::ChainResourceDerivationContext;
 
 pub(crate) fn simulator_world_dir_from_execution_world_dir(world_dir: &Path) -> std::path::PathBuf {
     match world_dir.file_name().and_then(|name| name.to_str()) {

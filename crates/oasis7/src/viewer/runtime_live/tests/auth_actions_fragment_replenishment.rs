@@ -1,7 +1,7 @@
 use super::*;
 
 fn signed_fragment_refill_preview_request(
-    chunk: crate::simulator::ChunkCoord,
+    chunk: oasis7_agent_api::world_geometry::ChunkCoord,
     player_id: &str,
     nonce: u64,
     public_key_hex: &str,
@@ -50,7 +50,7 @@ fn runtime_fragment_refill_preview_disables_local_named_scenario_without_mutatio
         public_key.as_str(),
         private_key.as_str(),
     );
-    let chunk = crate::simulator::ChunkCoord { x: 0, y: 0, z: 0 };
+    let chunk = oasis7_agent_api::world_geometry::ChunkCoord { x: 0, y: 0, z: 0 };
     assert!(server.llm_sidecar.chunk_runtime.asteroid_fragment_enabled);
     for _ in 0..40 {
         server
@@ -131,7 +131,7 @@ fn runtime_fragment_refill_preview_does_not_classify_unknown_service_projection_
         max_response_bytes: 4096,
     });
     let request = signed_fragment_refill_preview_request(
-        crate::simulator::ChunkCoord { x: 0, y: 0, z: 0 },
+        oasis7_agent_api::world_geometry::ChunkCoord { x: 0, y: 0, z: 0 },
         "player-service-refill-preview",
         284,
         &public_key,
@@ -170,7 +170,7 @@ fn runtime_fragment_refill_preview_requires_an_auth_proof() {
 
     let error = server
         .handle_fragment_refill_preview(crate::viewer::FragmentRefillPreviewRequest {
-            chunk: crate::simulator::ChunkCoord { x: 0, y: 0, z: 0 },
+            chunk: oasis7_agent_api::world_geometry::ChunkCoord { x: 0, y: 0, z: 0 },
             player_id: "player-fragment-refill-preview".to_string(),
             public_key: None,
             auth: None,

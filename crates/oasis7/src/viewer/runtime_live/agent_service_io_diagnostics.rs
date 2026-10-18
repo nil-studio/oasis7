@@ -279,7 +279,7 @@ mod tests {
         let server = Arc::new(Mutex::new(
             super::super::ViewerRuntimeLiveServer::new(
                 super::super::ViewerRuntimeLiveServerConfig::new(
-                    crate::simulator::WorldScenario::Minimal,
+                    oasis7_simulator::WorldScenario::Minimal,
                 ),
             )
             .unwrap(),

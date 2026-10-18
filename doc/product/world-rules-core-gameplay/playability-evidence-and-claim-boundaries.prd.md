@@ -84,11 +84,11 @@ fixture、live 自动化和真人记录分别汇总；结构代理计数及默�
 Trace ID: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3
 
 - 系统设计状态：未核实
-- 实现状态：未核实
+- 实现状态：部分实现
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：有局部工业行动/结果和继续选择证据，但未逐条核清全部受支持路径的玩家杠杆→世界变化→持续价值→下一决策；不能以世界自主活跃替代。
+- 实现与验证依据：canonical starter production_only路径已有玩家来源绑定的配方结算、owner输出和持久里程碑，实际snapshot/Viewer展示消耗、产出和下一Assembler候选，并明确仍需当前材料/电力/授权；这是本条玩家行动→因果结果→新选择的确切子范围。 [实际完成路径增加owner output ledger余额并记录持久starter milestone/settlement summary。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L454-L575) [实际milestone匹配且Assembler authority合法时开放open_assembler_candidate_only，非只读静态文案。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/state/starter_industrial.rs#L159-L207) [owner/site/origin/正量产出重验后把持久settlement投影到实际player feasibility。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/starter_industrial_outcome.rs#L11-L85) [实际组件展示结算投入、数量、owner及有条件的下一候选。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/industrial_starter_outcome_card.jsx#L3-L24) [主Viewer挂载工业成果卡，非孤立组件。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2690-L2700) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
+- 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
+- 剩余范围：不扩展为所有受支持玩法或成熟区域交付；仅候选资格不证明建造成功/稳定产能/交付。其余路径的玩家归因与真实下一行动、失败/重连恢复和正式入口实测仍需核清。
 
 - 要求：每个受支持的游玩路径都必须形成“玩家行动 -> 可归因世界变化 -> 新选择或持续价值 -> 下一决策/回访理由”的链路；环境活跃、Agent 自主推进或静态展示不能代替玩家杠杆。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`首局与持续游玩`](first-session-and-continuation.prd.md)
@@ -112,9 +112,9 @@ Trace ID: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已读取历史独立 Agent 样本的严格范围限制；尚未逐项核对所有 claim 消费者防止 L4 代签 L5，且本轮没有真实人类外部反应证据。
+- 实现与验证依据：L4B runner确有watch/hold与human-equivalence文字、scaffold内部人类佐证说明；但未认定为本条防层级代签的直接交付：它仍以step/progress/ACK自动推导Agent继续与玩家杠杆。 [现行合同禁止step/progress/ACK自动生成Agent继续或杠杆分；旧runner产物默认为unreviewed且不覆盖已评审verdict。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/testing/prd.md#L183-L190) [真实runner summary writer把单次正向结果限定watch、负向hold并输出human_equivalence_note，不把本次Agent动作当作真人意愿。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/run-playability-l4b-agent.sh#L522-L590) [既有summary更新直接替换combined_stage_recommendation并写入human_equivalence_note；未读取比较单位或已有独立blocker，已由现行合同保留的实现缺口，非新finding。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/run-playability-l4b-agent.sh#L697-L739) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
+- 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
+- 剩余范围：层级输出限制不是完整consumer防代签；human note含L4A/L5 corroboration歧义，其他产品评审/公开claim消费者未穷尽。单次runner仍以world-step/progress+submit ack产生leverage pass，不能据此证明实际玩家因果完成；默认构建/session等旧缺口来自#4438，PR4641合同承接且原Issue按决定停止独立跟踪，关闭不表示修复，本轮没有真实L4/L5执行。
 
 - 要求：自动化、受控探针、L4A synthetic 和 L4B 具身 Agent 只能支持各自层级的规则、困惑或受限继续游玩结论；只有相应范围的 L5 真实人类/真实环境信号才可支持外部玩家反应，且不能扩写为广泛市场成功。
 - 专业权威：[`doc/testing/prd.md`](../../testing/prd.md)、[`testing-manual.md`](../../../testing-manual.md)
@@ -142,9 +142,9 @@ Trace ID: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：本轮已核对本条产品原义、适用条件及验收边界，未完成相应生产路径、调用入口和运行结果审计。具体缺口见“剩余范围”；不以文档、文件或测试名称存在推断实现完成。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：尚未核清每个 go/watch/hold/block 消费入口绑定同体验目标、formal入口、候选/变更、窗口/环境的完整比较单位及缺证拒绝。
+- 实现与验证依据：L4 scaffold实际记录git_head、formal_surfaces、run_id、known_blockers和证据路径；runner实际记录起止时间、target_claim/change_scope及原始状态路径，构成比较单位的部分归属资料。 [现行合同明确PR4641仅文档承接、#4438按决定关闭而实现未修；current_attempt和事实/体验判断须分离。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/testing/prd.md#L147-L195) [真实scaffold writer写git_head、formal_surfaces、run_id、known_blockers与artifact路径；这些是已交付证据归属记录，不是完整comparison-unit判定。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/prepare-playability-l4-review.sh#L429-L482) [manifest读入只提取output_dir/card_path/summary_path，未校验git_head/formal_surfaces与当前run。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/run-playability-l4b-agent.sh#L124-L152) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
+- 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
+- 剩余范围：完整兼容比较与独立阻断保留未交付于已查summary updater：manifest读取未校验git_head/formal_surfaces，summary直接写单run watch/hold。该缺口已由#4438关闭决定及PR4641现行合同明确保留，非本轮新finding；尚未执行复现，不宣称发生实际错误发布，其他消费者未穷尽。
 
 - 要求：`go/watch/hold/block` 只能比较同一体验目标、formal 玩家入口、候选版本/变更范围、证据窗口及适用环境（若环境影响解释）的证据；范围不明或证据不可回链时不得升级结论。
 - 专业权威：[`doc/testing/prd.md`](../../testing/prd.md)、[`testing-manual.md`](../../../testing-manual.md)

@@ -20,7 +20,7 @@ fn actual_world_history(
     crate::world_service::projection::WorldServiceProjection,
     String,
 ) {
-    let mut world = RuntimeWorld::new();
+    let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("feedback-guard-world", "main", 0, None, "pending", 0)
         .unwrap();
@@ -56,7 +56,11 @@ fn actual_world_history(
             reject_reason: Some("stale_base".into()),
             provenance: "runtime_authoritative".into(),
         };
-        world.enqueue_runtime_feedback(feedback.clone()).unwrap();
+        world
+            .enqueue_runtime_feedback(crate::simulator::agent_api_compat::feedback_to_api(
+                &feedback,
+            ))
+            .unwrap();
         world.claim_runtime_feedback(&feedback.feedback_id).unwrap();
         world.ack_runtime_feedback(&feedback.feedback_id).unwrap();
     }

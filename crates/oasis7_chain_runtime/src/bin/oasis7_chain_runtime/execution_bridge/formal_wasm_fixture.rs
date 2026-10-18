@@ -1,7 +1,7 @@
 //! Actual module fixture for formal runtime replay; test authorities only.
 use super::*;
 use crate::formal_live_runtime::tests::protected_process_tests::common;
-use oasis7::runtime::{
+use oasis7_runtime::{
     Manifest, ModuleAbiContract, ModuleActivation, ModuleChangeSet, ModuleKind, ModuleLimits,
     ModuleManifest, ModuleRole, ModuleSubscription, ModuleSubscriptionStage, PolicySet,
     ProposalDecision,
@@ -131,7 +131,7 @@ pub(super) fn world_with_formal_history() -> World {
 
 fn prepared_wasm_world(identity: &FormalWorldIdentityV1, initialize_formal_history: bool) -> World {
     // Module admission precedes external initial activation; this is a test setup.
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     if initialize_formal_history {
         world.initialize_empty_formal_history().unwrap();
@@ -145,7 +145,7 @@ fn prepared_wasm_world(identity: &FormalWorldIdentityV1, initialize_formal_histo
         .bind_cognition_runtime(&identity.world_id, "main", 0, None, "pending", 0)
         .unwrap();
     let snapshot = world.snapshot_with_chain_resource_context(
-        oasis7::runtime::ChainResourceDerivationContext {
+        oasis7_runtime::ChainResourceDerivationContext {
             world_id: &identity.world_id,
             chain_id: &identity.chain_id,
             genesis_ref: Some(&identity.genesis_digest),
@@ -157,5 +157,5 @@ fn prepared_wasm_world(identity: &FormalWorldIdentityV1, initialize_formal_histo
         fixtures::h(10),
         fixtures::h(11),
     );
-    World::from_snapshot(snapshot, world.journal().clone()).unwrap()
+    oasis7::runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap()
 }

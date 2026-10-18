@@ -8,11 +8,15 @@ use crate::viewer::runtime_live::agency_control::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-
 const PLAYER_ID: &str = "agency-owner";
-
 #[path = "agent_memory_correction_control_service_mode.rs"]
 mod service_mode;
+fn root_identity(world: &crate::runtime::World) -> String {
+    world
+        .execution_state_identity()
+        .expect("world state identity")
+        .state_root_hash
+}
 
 fn owner_server(seed: u8) -> (ViewerRuntimeLiveServer, String, String, String) {
     owner_server_with_config(
@@ -61,23 +65,28 @@ pub(super) fn owner_server_with_config(
         .handle_gameplay_action(claim)
         .expect("owner starter claim accepted");
     server.world.step().expect("apply owner starter claim");
-    server
-        .world
-        .record_agent_chat_intent_with_authority(
-            PLAYER_ID,
-            agent_id.as_str(),
-            1_002,
-            "work on the assigned task",
-            crate::runtime::AgentIntentAuthorityContext {
-                intent_tick: Some(server.world.state().time),
-                world_id: Some(server.config.world_id.clone()),
-                reorg_epoch: Some(server.reorg_epoch),
-                authority_scope: Some("player_agent_chat".to_string()),
-                replaces_intent_id: None,
-            },
-        )
+    let mut chat = crate::viewer::AgentChatRequest {
+        agent_id: agent_id.clone(),
+        message: "work on the assigned task".into(),
+        player_id: Some(PLAYER_ID.into()),
+        public_key: Some(public_key.clone()),
+        auth: None,
+        intent_tick: Some(server.world.state().time),
+        intent_seq: Some(1_002),
+        world_id: Some(server.config.world_id.clone()),
+        reorg_epoch: Some(server.reorg_epoch),
+        authority_scope: Some("player_agent_chat".into()),
+        replaces_intent_id: None,
+        canonical_authority: None,
+    };
+    chat.auth = Some(
+        crate::viewer::sign_agent_chat_auth_proof(&chat, 1_002, &public_key, &private_key).unwrap(),
+    );
+    let mut candidate = server.world.clone();
+    candidate
+        .record_signed_local_agent_chat(&chat, &server.current_owner_authority())
         .expect("record canonical pending owner intent");
-
+    server.world = candidate;
     let starter_claim = server
         .world
         .state()
@@ -89,27 +98,29 @@ pub(super) fn owner_server_with_config(
         starter_claim.public_key.as_deref(),
         Some(public_key.as_str())
     );
-    let claim_time = starter_claim.claimed_at;
-    server
-        .world
-        .install_agent_delegation_grant(crate::runtime::AgentDelegationGrantV1 {
-            grant_id: "owner-grant".to_string(),
-            source_id: format!("starter_claim:{agent_id}:{claim_time}"),
-            issuer_id: PLAYER_ID.to_string(),
-            owner_id: PLAYER_ID.to_string(),
-            organization_id: None,
-            agent_id: agent_id.clone(),
+    let install = signed_agency_request(
+        &server,
+        &agent_id,
+        "fixture-owner-grant",
+        AgencyControlOperation::InstallDelegation {
+            grant_id: "owner-grant".into(),
             object_id: agent_id.clone(),
-            action_kinds: vec!["MoveAgent".to_string()],
-            revision: 1,
-            period_id: "owner-test-period".to_string(),
+            action_kinds: vec!["MoveAgent".into()],
+            period_id: "owner-test-period".into(),
             valid_from_tick: server.world.state().time,
             valid_until_tick: server.world.state().time.saturating_add(100),
             limit_units: 4,
-            resource_kind: "electricity".to_string(),
-            revoked: false,
-        })
+        },
+        1_003,
+        PLAYER_ID,
+        &public_key,
+        &private_key,
+    );
+    let mut candidate = server.world.clone();
+    candidate
+        .apply_signed_delegation_control(&install, &server.current_owner_authority())
         .expect("install exact source owner grant");
+    server.world = candidate;
     (server, agent_id, public_key, private_key)
 }
 
@@ -286,7 +297,7 @@ fn owner_interrupt_cancels_only_exact_pending_intent_and_replay_is_read_only() {
 fn agency_control_owner_auth_is_bound_to_every_signed_field_and_never_mutates_on_denial() {
     let _provider_lock = lock_test_llm_env();
     let (mut server, agent_id, public_key, private_key) = owner_server(92);
-    let before = server.world.current_state_root_hash().expect("before root");
+    let before = root_identity(&server.world);
     let (intent_id, request_digest) = current_intent(&server, agent_id.as_str());
     let mut request = signed_agency_request(
         &server,
@@ -314,13 +325,7 @@ fn agency_control_owner_auth_is_bound_to_every_signed_field_and_never_mutates_on
             .validate_player_auth_nonce(PLAYER_ID, 1_002)
             .is_ok()
     );
-    assert_eq!(
-        server
-            .world
-            .current_state_root_hash()
-            .expect("after stale request"),
-        before
-    );
+    assert_eq!(root_identity(&server.world), before);
 
     let (intruder_public, intruder_private) = test_signer(93);
     register_runtime_session(
@@ -353,13 +358,7 @@ fn agency_control_owner_auth_is_bound_to_every_signed_field_and_never_mutates_on
             .validate_player_auth_nonce("intruder-player", 1_101)
             .is_ok()
     );
-    assert_eq!(
-        server
-            .world
-            .current_state_root_hash()
-            .expect("after intruder"),
-        before
-    );
+    assert_eq!(root_identity(&server.world), before);
 
     let mut forged = signed_agency_request(
         &server,
@@ -396,13 +395,7 @@ fn agency_control_owner_auth_is_bound_to_every_signed_field_and_never_mutates_on
             .validate_player_auth_nonce(PLAYER_ID, 1_002)
             .is_ok()
     );
-    assert_eq!(
-        server
-            .world
-            .current_state_root_hash()
-            .expect("after forged command"),
-        before
-    );
+    assert_eq!(root_identity(&server.world), before);
 }
 
 #[test]
@@ -624,7 +617,7 @@ fn inspection_and_player_snapshot_share_owner_projection_but_unauthenticated_sna
 fn inaccessible_or_stale_memory_correction_does_not_consume_nonce_or_change_runtime() {
     let _provider_lock = lock_test_llm_env();
     let (mut server, agent_id, public_key, private_key) = owner_server(95);
-    let before = server.world.current_state_root_hash().expect("before root");
+    let before = root_identity(&server.world);
     let correction = signed_agency_request(
         &server,
         agent_id.as_str(),
@@ -652,13 +645,7 @@ fn inaccessible_or_stale_memory_correction_does_not_consume_nonce_or_change_runt
             .validate_player_auth_nonce(PLAYER_ID, 1_002)
             .is_ok()
     );
-    assert_eq!(
-        server
-            .world
-            .current_state_root_hash()
-            .expect("after correction"),
-        before
-    );
+    assert_eq!(root_identity(&server.world), before);
     let owner_corrections = server
         .llm_sidecar
         .agent_memory_corrections(agent_id.as_str());
@@ -770,7 +757,7 @@ fn owner_signed_memory_correction_applies_to_matching_provider_receipt_and_reloa
                     crate::simulator::DecisionResponse {
                         decision: crate::simulator::ProviderDecision::Act {
                             action_ref: "move_agent".to_string(),
-                            action: crate::simulator::Action::MoveAgent {
+                            action: oasis7_simulator::Action::MoveAgent {
                                 agent_id: decoded
                                     .base_decision_request
                                     .observation

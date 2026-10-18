@@ -3,19 +3,18 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
-use std::io;
 use std::path::Path;
 
-use super::kernel::WorldEvent;
-use super::kernel::{ChunkRuntimeConfig, MicroDepotPlayerFacilitySnapshot};
-use super::types::{
-    ActionEnvelope, ActionId, CHUNK_GENERATION_SCHEMA_VERSION, JOURNAL_VERSION, SNAPSHOT_VERSION,
-    WorldEventId, WorldTime,
-};
-use super::world_model::{WorldConfig, WorldModel};
+use super::archive::WorldEvent;
 use crate::chain_resource_schema::{ChainResourceDelta, ChainResourceManifest};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::Snapshot as RuntimeSnapshot;
+use oasis7_simulator::{
+    ActionEnvelope, ActionId, CHUNK_GENERATION_SCHEMA_VERSION, JOURNAL_VERSION, SNAPSHOT_VERSION,
+    WorldEventId, WorldTime,
+};
+use oasis7_simulator::{ChunkRuntimeConfig, MicroDepotPlayerFacilitySnapshot};
+use oasis7_simulator::{WorldConfig, WorldModel};
 use oasis7_wasm_abi::MaterialStack;
 #[cfg(target_arch = "wasm32")]
 use serde_json::Value as RuntimeSnapshot;
@@ -623,7 +622,7 @@ pub struct PlayerStarterIndustrialSettledOutcome {
     pub settlement_job_id: u64,
     pub settled_at: WorldTime,
     pub output_ledger: crate::industry_types::MaterialLedgerId,
-    pub settlement: crate::industry_types::StarterIndustrialSettlementSummaryV1,
+    pub settlement: oasis7_agent_api::world_industry::StarterIndustrialSettlementSummaryV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1008,35 +1007,7 @@ impl Default for WorldJournal {
 // Errors
 // ============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PersistError {
-    Io(String),
-    Serde(String),
-    SnapshotMismatch {
-        expected: usize,
-        actual: usize,
-    },
-    ReplayConflict {
-        message: String,
-    },
-    UnsupportedVersion {
-        kind: String,
-        version: u32,
-        expected: u32,
-    },
-}
-
-impl From<io::Error> for PersistError {
-    fn from(err: io::Error) -> Self {
-        PersistError::Io(err.to_string())
-    }
-}
-
-impl From<serde_json::Error> for PersistError {
-    fn from(err: serde_json::Error) -> Self {
-        PersistError::Serde(err.to_string())
-    }
-}
+pub use oasis7_simulator::PersistError;
 
 // ============================================================================
 // Helper functions

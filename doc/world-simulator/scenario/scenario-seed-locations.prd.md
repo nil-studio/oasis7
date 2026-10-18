@@ -19,7 +19,7 @@
 - 扩展 `WorldScenarioSpec`：新增地点生成配置，移除 `locations`。
 - 基于 `seed` + 空间尺寸，确定性生成 `LocationSeedConfig` 列表。
 - `build_world_model` 中 Agent 出生逻辑改为“从现有地点随机挑选”。
-- 调整内置 `crates/oasis7/scenarios/*.json` 到新格式（不做兼容）。
+- 调整内置 `crates/oasis7_simulator/scenarios/*.json` 到新格式（不做兼容）。
 - 更新相关单元测试与文档。
 
 ### Out of Scope

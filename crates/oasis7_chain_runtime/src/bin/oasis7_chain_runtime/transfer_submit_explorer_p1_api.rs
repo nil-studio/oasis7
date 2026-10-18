@@ -3,8 +3,8 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use oasis7::runtime::{EconomicContractState, EconomicContractStatus};
 use oasis7_node::NodeRuntime;
+use oasis7_runtime::{EconomicContractState, EconomicContractStatus};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

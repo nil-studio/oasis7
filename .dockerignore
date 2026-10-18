@@ -12,6 +12,8 @@
 !vendor-egui-winit-0.33.3/
 !vendor-egui-winit-0.33.3/**
 !tools/
+!tools/scenario_test_runner/
+!tools/scenario_test_runner/**
 !tools/wasm_build_suite/
 !tools/wasm_build_suite/**
 !tools/wasm_module_observe/

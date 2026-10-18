@@ -411,7 +411,7 @@ fn runtime_live_agent_chat_echo_flushes_virtual_event_immediately_over_socket() 
             ViewerResponse::Event { event } => {
                 saw_echo_event |= matches!(
                     &event.kind,
-                    crate::simulator::WorldEventKind::AgentSpoke {
+                    oasis7_simulator::WorldEventKind::AgentSpoke {
                         agent_id: event_agent_id,
                         message,
                         ..
@@ -437,7 +437,7 @@ fn runtime_simulator_action_mapping_equivalence_covers_core_gameplay_and_economy
     let server =
         ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal))
             .expect("runtime server");
-    let assert_mapped = |action: crate::simulator::Action, expected: RuntimeAction| {
+    let assert_mapped = |action: oasis7_simulator::Action, expected: RuntimeAction| {
         let mapped = control_plane::simulator_action_to_runtime(&action, &server.world)
             .expect("action should map to runtime");
         assert_eq!(mapped, expected);
@@ -445,7 +445,7 @@ fn runtime_simulator_action_mapping_equivalence_covers_core_gameplay_and_economy
 
     let move_target = GeoPos::new(10, 20, 30);
     assert_mapped(
-        crate::simulator::Action::MoveAgent {
+        oasis7_simulator::Action::MoveAgent {
             agent_id: "agent-1".to_string(),
             to: location_id_for_pos(move_target),
         },
@@ -455,7 +455,7 @@ fn runtime_simulator_action_mapping_equivalence_covers_core_gameplay_and_economy
         },
     );
     assert_mapped(
-        crate::simulator::Action::TransferResource {
+        oasis7_simulator::Action::TransferResource {
             from: ResourceOwner::Agent {
                 agent_id: "agent-1".to_string(),
             },
@@ -473,7 +473,7 @@ fn runtime_simulator_action_mapping_equivalence_covers_core_gameplay_and_economy
         },
     );
     assert_mapped(
-        crate::simulator::Action::DeclareWar {
+        oasis7_simulator::Action::DeclareWar {
             initiator_agent_id: "agent-1".to_string(),
             war_id: "war.alpha".to_string(),
             aggressor_alliance_id: "alliance.a".to_string(),
@@ -491,7 +491,7 @@ fn runtime_simulator_action_mapping_equivalence_covers_core_gameplay_and_economy
         },
     );
     assert_mapped(
-        crate::simulator::Action::OpenEconomicContract {
+        oasis7_simulator::Action::OpenEconomicContract {
             creator_agent_id: "agent-1".to_string(),
             contract_id: "contract.alpha".to_string(),
             counterparty_agent_id: "agent-2".to_string(),
@@ -660,7 +660,7 @@ fn runtime_simulator_action_mapping_covers_module_artifact_actions() {
     source_files.insert("module.toml".to_string(), b"manifest".to_vec());
     source_files.insert("src/lib.rs".to_string(), b"pub fn run() {}".to_vec());
 
-    let compile = crate::simulator::Action::CompileModuleArtifactFromSource {
+    let compile = oasis7_simulator::Action::CompileModuleArtifactFromSource {
         publisher_agent_id: "agent-1".to_string(),
         module_id: "module.alpha".to_string(),
         manifest_path: "module.toml".to_string(),
@@ -680,7 +680,7 @@ fn runtime_simulator_action_mapping_covers_module_artifact_actions() {
         }
     );
 
-    let deploy = crate::simulator::Action::DeployModuleArtifact {
+    let deploy = oasis7_simulator::Action::DeployModuleArtifact {
         publisher_agent_id: "agent-1".to_string(),
         wasm_hash: "hash.alpha".to_string(),
         wasm_bytes: vec![0xAA, 0xBB],
@@ -697,7 +697,7 @@ fn runtime_simulator_action_mapping_covers_module_artifact_actions() {
         }
     );
 
-    let list = crate::simulator::Action::ListModuleArtifactForSale {
+    let list = oasis7_simulator::Action::ListModuleArtifactForSale {
         seller_agent_id: "agent-1".to_string(),
         wasm_hash: "hash.alpha".to_string(),
         price_kind: ResourceKind::Data,
@@ -715,7 +715,7 @@ fn runtime_simulator_action_mapping_covers_module_artifact_actions() {
         }
     );
 
-    let buy = crate::simulator::Action::BuyModuleArtifact {
+    let buy = oasis7_simulator::Action::BuyModuleArtifact {
         buyer_agent_id: "agent-2".to_string(),
         wasm_hash: "hash.alpha".to_string(),
     };
@@ -736,7 +736,7 @@ fn runtime_simulator_action_mapping_includes_industrial_actions() {
         ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal))
             .expect("runtime server");
 
-    let build_factory = crate::simulator::Action::BuildFactory {
+    let build_factory = oasis7_simulator::Action::BuildFactory {
         owner: ResourceOwner::Agent {
             agent_id: "agent-1".to_string(),
         },
@@ -770,7 +770,7 @@ fn runtime_simulator_action_mapping_includes_industrial_actions() {
         }
     );
 
-    let schedule_recipe = crate::simulator::Action::ScheduleRecipe {
+    let schedule_recipe = oasis7_simulator::Action::ScheduleRecipe {
         owner: ResourceOwner::Agent {
             agent_id: "agent-1".to_string(),
         },
@@ -803,7 +803,7 @@ fn runtime_simulator_action_mapping_includes_industrial_actions() {
         }
     );
 
-    let transfer_to_location = crate::simulator::Action::TransferResource {
+    let transfer_to_location = oasis7_simulator::Action::TransferResource {
         from: ResourceOwner::Agent {
             agent_id: "agent-1".to_string(),
         },

@@ -53,7 +53,7 @@
     - UDP gossip 自动发现对端地址并动态加入广播 peers。
   - `crates/oasis7`
     - `oasis7_viewer_live` 的 `triad_distributed` 参数与启动路径支持“最小引导拓扑”。
-  - `crates/oasis7/src/runtime/world/persistence.rs`
+  - `crates/oasis7_runtime/src/world/persistence.rs`
     - DistFS 恢复失败审计记录落盘。
   - 测试
     - `oasis7_node` / `oasis7_consensus` / `oasis7_viewer_live` / runtime persistence 的 required-tier 回归。

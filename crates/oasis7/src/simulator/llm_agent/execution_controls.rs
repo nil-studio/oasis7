@@ -1,10 +1,10 @@
 use super::super::agent::{ActionResult, AgentDecision};
-use super::super::kernel::{Observation, RejectReason, WorldEventKind};
-use super::super::types::Action;
 use super::decision_flow::{
     ExecuteUntilCondition, ExecuteUntilDirective, ExecuteUntilEventKind,
     summarize_execute_until_conditions,
 };
+use oasis7_simulator::Action;
+use oasis7_simulator::{Observation, RejectReason, WorldEventKind};
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct ActionReplanGuardState {
@@ -319,7 +319,7 @@ fn reject_reason_is_insufficient_electricity(reason: &RejectReason) -> bool {
     matches!(
         reason,
         RejectReason::InsufficientResource { kind, .. }
-            if matches!(kind, super::super::types::ResourceKind::Electricity)
+            if matches!(kind, oasis7_simulator::ResourceKind::Electricity)
     ) || matches!(reason, RejectReason::AgentShutdown { .. })
 }
 

@@ -1021,7 +1021,7 @@ mod tests {
     fn delivery_event_uses_the_actual_response_outbox_result() {
         for expect_success in [true, false] {
             let config =
-                ViewerRuntimeLiveServerConfig::new(crate::simulator::WorldScenario::Minimal);
+                ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);
             let mut output = super::super::response_outbox::ResponseOutbox::new(
                 super::super::response_outbox::ResponseLimits::from_config(&config),
             );
@@ -1082,7 +1082,7 @@ mod tests {
         );
 
         let mut poll = SessionPoll::default();
-        let config = ViewerRuntimeLiveServerConfig::new(crate::simulator::WorldScenario::Minimal);
+        let config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);
         let mut output = super::super::response_outbox::ResponseOutbox::new(
             super::super::response_outbox::ResponseLimits::from_config(&config),
         );

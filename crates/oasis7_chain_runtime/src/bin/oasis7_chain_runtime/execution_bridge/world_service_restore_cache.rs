@@ -1,6 +1,6 @@
 //! Successful detached restores only. This is never a record, CAS or authority cache.
-use oasis7::runtime::WorldError;
-use oasis7::runtime::{Journal, Snapshot, World};
+use oasis7_runtime::WorldError;
+use oasis7_runtime::{Journal, Snapshot, World};
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
@@ -51,11 +51,11 @@ pub(super) fn restore(
     journal_bytes: &[u8],
     snapshot: Snapshot,
     journal: Journal,
-) -> Result<World, oasis7::runtime::WorldError> {
+) -> Result<World, oasis7_runtime::WorldError> {
     restore_with(
         cache,
         Key::from_bytes(snapshot_bytes, journal_bytes),
-        || World::from_snapshot(snapshot, journal),
+        || oasis7::runtime_host::world::from_snapshot(snapshot, journal),
     )
 }
 

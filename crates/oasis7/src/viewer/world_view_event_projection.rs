@@ -1,6 +1,7 @@
 //! Explicit historical positions from the already-authorized typed event stream.
-use crate::runtime::{DomainEvent, ModuleVisualMutation, WorldEvent, WorldEventBody};
-use crate::simulator::ModuleVisualAnchor;
+use crate::runtime::{DomainEvent, WorldEvent, WorldEventBody};
+use oasis7_agent_api::module_visual::ModuleVisualMutation;
+use oasis7_agent_api::world_entity::ModuleVisualAnchor;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -24,7 +25,7 @@ pub(super) fn project(events: &[WorldEvent], world: &str, epoch: u64) -> Vec<Val
                 }
                 WorldEventBody::ModuleEmitted(emit) => {
                     let ModuleVisualMutation::Upsert(entity) =
-                        crate::runtime::parse_module_visual_emit(emit).ok()??
+                        oasis7_agent_api::module_visual::parse_module_visual_emit(emit).ok()??
                     else {
                         return None;
                     };

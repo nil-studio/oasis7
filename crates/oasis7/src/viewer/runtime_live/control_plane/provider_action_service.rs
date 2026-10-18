@@ -5,7 +5,7 @@ impl ViewerRuntimeLiveServer {
     pub fn test_prepare_canonical_provider_response_with_memory(
         &mut self,
         agent_id: &str,
-        action: crate::simulator::Action,
+        action: oasis7_simulator::Action,
         intents: Vec<crate::simulator::MemoryWriteIntent>,
     ) -> Result<serde_json::Value, String> {
         self.config.ensure_service_agent_lineage_store()?;
@@ -47,7 +47,7 @@ impl ViewerRuntimeLiveServer {
     pub fn test_prepare_canonical_provider_response(
         &mut self,
         agent_id: &str,
-        action: crate::simulator::Action,
+        action: oasis7_simulator::Action,
     ) -> Result<serde_json::Value, String> {
         self.config.ensure_service_agent_lineage_store()?;
         use crate::world_service::client::WorldServicePort;
@@ -79,7 +79,7 @@ impl ViewerRuntimeLiveServer {
     pub fn test_queue_canonical_provider_response(
         &mut self,
         cognition: serde_json::Value,
-        action: crate::simulator::Action,
+        action: oasis7_simulator::Action,
     ) -> Result<(), String> {
         self.config.ensure_service_agent_lineage_store()?;
         use crate::world_service::client::WorldServicePort;

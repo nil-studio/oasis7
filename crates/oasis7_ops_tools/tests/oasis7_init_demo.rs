@@ -109,7 +109,7 @@ fn oasis7_init_demo_runs_triad_summary() {
 fn oasis7_init_demo_runs_from_scenario_file() {
     let bin = env!("CARGO_BIN_EXE_oasis7_init_demo");
     let scenario_path = format!(
-        "{}/../oasis7/scenarios/minimal.json",
+        "{}/../oasis7_simulator/scenarios/minimal.json",
         env!("CARGO_MANIFEST_DIR")
     );
     let output = Command::new(bin)

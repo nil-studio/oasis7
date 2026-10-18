@@ -12,9 +12,9 @@ use super::status_payload_network_tier::ChainNetworkTierStatus;
 use super::status_payload_p2p::ChainP2pStatus;
 use super::status_payload_world_resource::ChainWorldResourceStatus;
 use super::storage_metrics;
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7::simulator::RuntimePerfSnapshot;
 use oasis7_node::{NodeRole, NodeSnapshot, NodeValidatorStakeProofSnapshot};
+use oasis7_runtime::ReleaseSecurityPolicy;
 use serde::Serialize;
 use std::path::Path;
 
@@ -313,9 +313,9 @@ mod tests {
     };
     use super::super::status_payload_world_resource::ChainWorldResourceStatus;
     use super::*;
-    use oasis7::runtime::blake3_hex;
     use oasis7_node::{NodeConsensusSnapshot, NodeRole, NodeSnapshot};
     use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+    use oasis7_runtime::blake3_hex;
     use serde::Serialize;
     use std::collections::BTreeMap;
 

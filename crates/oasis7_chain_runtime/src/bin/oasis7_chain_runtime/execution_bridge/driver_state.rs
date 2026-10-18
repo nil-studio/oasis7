@@ -28,7 +28,7 @@ pub(crate) struct NodeRuntimeExecutionDriver {
         Option<oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexDeltaV1>,
     pub(crate) formal_new_results: Vec<oasis7::world_service::CanonicalIntentResultV1>,
     pub(crate) formal_event_root: Option<String>,
-    pub(crate) formal_unpruned_journal: Option<oasis7::runtime::Journal>,
+    pub(crate) formal_unpruned_journal: Option<oasis7_runtime::Journal>,
     pub(crate) formal_journal_cursors: Vec<(u64, u64)>,
     /// Diagnostic resource identity only; this field grants no write authority.
     pub(crate) resource_identity: Option<ExecutionResourceIdentity>,

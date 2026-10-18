@@ -1,7 +1,8 @@
 //! Allowlisted spatial records; no private Runtime state is retained in the cache.
 use super::index::{Rect, SpatialIndex};
-use crate::simulator::{ModuleVisualAnchor, WorldSnapshot};
+use crate::simulator::WorldSnapshot;
 use crate::viewer::world_view_authority::SourceAuthority;
+use oasis7_agent_api::world_entity::ModuleVisualAnchor;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 #[path = "world_view_aggregation.rs"]
@@ -24,7 +25,7 @@ pub(super) struct Prepared {
     pub source_binding: Option<Value>,
     pub epoch: String,
     pub observed_at_tick: String,
-    pub space: crate::simulator::SpaceConfig,
+    pub space: oasis7_simulator::SpaceConfig,
     pub deleted_factories: BTreeSet<String>,
 }
 fn decimal(value: Value) -> Value {

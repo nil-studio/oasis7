@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "c0663aed5d186afc9958fe0d9d25f99704e40d2ef03d6b48c070cd9ee033de93",
+    "content_sha256": "b7829425b604b42dc0683a87584413de876f22886fe32f212cd199f87861dcbf",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_design_companion",
-    "note": "current draft module lifecycle companion; not implemented production capability evidence Scoped document review for #4417 and #4497: preserve independent retirement recovery, instance-version reuse, shared-content metadata and canonical mode obligations, including raw-event compatibility and historical snapshots. Revoked-grant discovery and failed tick wording remain bounded by existing authority and execution checks. Review only; no implementation, replay, security or release acceptance is asserted. Existing authority, owner and disposition are retained.",
+    "note": "current draft module lifecycle companion; not implemented production capability evidence Scoped document review for #4417 and #4497: preserve independent retirement recovery, instance-version reuse, shared-content metadata and canonical mode obligations, including raw-event compatibility and historical snapshots. Revoked-grant discovery and failed tick wording remain bounded by existing authority and execution checks. Review only; no implementation, replay, security or release acceptance is asserted. Existing authority, owner and disposition are retained. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/world-runtime/module/module-lifecycle.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

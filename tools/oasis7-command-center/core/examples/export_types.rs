@@ -5,12 +5,21 @@ use oasis7_command_center_core::document_inventory::*;
 use oasis7_command_center_core::document_semantic_tree::*;
 use oasis7_command_center_core::document_tree_reading::*;
 use oasis7_command_center_core::domain::*;
-use oasis7_command_center_core::github::{Check, GitHubSnapshot, PullRequest};
+use oasis7_command_center_core::github::{Check, GitHubSnapshot, PullChecksSource, PullRequest};
 use oasis7_command_center_core::tools::jobs::ToolJob;
 use oasis7_command_center_core::tools::*;
+use oasis7_command_center_core::work_projection::*;
 use ts_rs::TS;
 fn main() {
     let declarations = [
+        WorkRef::decl(),
+        SourceFact::decl(),
+        FactCell::decl(),
+        WorkGoal::decl(),
+        WorkRun::decl(),
+        WorkItem::decl(),
+        WorkSource::decl(),
+        WorkProjection::decl(),
         ContextBinding::decl(),
         ContextEntry::decl(),
         ContextSummary::decl(),
@@ -67,6 +76,7 @@ fn main() {
         GitHubSnapshot::decl(),
         PullRequest::decl(),
         Check::decl(),
+        PullChecksSource::decl(),
         RuntimeTarget::decl(),
         RuntimeSession::decl(),
         RuntimeOperation::decl(),

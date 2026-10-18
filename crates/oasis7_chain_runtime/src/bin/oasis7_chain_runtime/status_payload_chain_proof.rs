@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use oasis7::runtime::LocalCasStore;
 use oasis7_proto::distributed::WorldHeadProofV1;
+use oasis7_runtime::LocalCasStore;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -446,7 +446,7 @@ mod checkpoint_status_tests {
             .expect("encode v2 manifest hash payload"),
             other => panic!("unsupported fixture schema {other}"),
         };
-        let manifest_hash = oasis7::runtime::blake3_hex(hash_bytes.as_slice());
+        let manifest_hash = oasis7_runtime::blake3_hex(hash_bytes.as_slice());
         let manifest_rel_path = format!("{height:020}/manifest.json");
         let manifest_path = records_dir.join("checkpoints").join(&manifest_rel_path);
         fs::create_dir_all(manifest_path.parent().expect("manifest parent"))

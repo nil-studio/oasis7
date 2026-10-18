@@ -1,11 +1,10 @@
 use oasis7_proto::viewer as proto;
 
+use crate::simulator::{AgentDecisionTrace, RunnerMetrics, WorldEvent, WorldSnapshot};
+use oasis7_agent_api::world_geometry::ChunkCoord;
 #[cfg(test)]
-use crate::simulator::WorldEventKind;
-use crate::simulator::{
-    AgentDecisionTrace, ChunkCoord, FragmentRefillPreview, RunnerMetrics, WorldEvent,
-    WorldSnapshot, WorldTime,
-};
+use oasis7_simulator::WorldEventKind;
+use oasis7_simulator::{FragmentRefillPreview, WorldTime};
 
 mod event_kind_match;
 pub use event_kind_match::viewer_event_kind_matches;

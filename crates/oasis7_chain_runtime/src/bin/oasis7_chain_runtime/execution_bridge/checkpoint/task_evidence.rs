@@ -159,7 +159,7 @@ pub(super) fn protected_heights(
     Ok(result)
 }
 // Receipt retention follows the task fence, independently of context write leases.
-fn current_task_receipt(world: &oasis7::runtime::World, result: &CanonicalIntentResultV1) -> bool {
+fn current_task_receipt(world: &oasis7_runtime::World, result: &CanonicalIntentResultV1) -> bool {
     if result.rejected.is_some() {
         return false;
     }
@@ -209,7 +209,7 @@ fn historical_values_at_height(
     Ok(selected)
 }
 fn live_results(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     records: &Path,
     store: &LocalCasStore,
     previous: &BTreeSet<u64>,
@@ -309,7 +309,7 @@ fn live_results(
 pub(super) fn refresh(
     records: &Path,
     store: &LocalCasStore,
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     hot: u64,
 ) -> Result<super::ValidatedTaskRetention, String> {
     let previous = protected_heights(records, store)?;

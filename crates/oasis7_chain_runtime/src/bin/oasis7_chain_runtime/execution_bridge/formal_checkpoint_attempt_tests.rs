@@ -1,9 +1,7 @@
 //! Regression for checkpoint boundaries in one-shot formal executor attempts.
 use super::*;
-use oasis7::runtime::{
-    ReleaseSecurityPolicy, VerifiedFormalRetainedHistoryParentV1, World, blake3_hex,
-};
 use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader;
+use oasis7_runtime::{ReleaseSecurityPolicy, VerifiedFormalRetainedHistoryParentV1, blake3_hex};
 use std::{
     collections::BTreeMap,
     fs,
@@ -132,7 +130,7 @@ fn formal_profile2_checkpoint_boundary_case() {
     let retained_parent =
         VerifiedFormalRetainedHistoryParentV1::verify(&parent, &to_cbor(&snapshot).unwrap())
             .unwrap();
-    let world = World::from_verified_formal_snapshot(
+    let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
         snapshot,
         world.journal().clone(),
         retained_parent,
@@ -180,9 +178,9 @@ fn formal_profile2_checkpoint_boundary_case() {
         "node-a",
         oasis7::consensus_action_payload::encode_consensus_action_payload(
             &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
-                oasis7::runtime::Action::RegisterAgent {
+                oasis7_runtime::Action::RegisterAgent {
                     agent_id: "checkpoint-boundary-agent".into(),
-                    pos: oasis7::GeoPos::new(0, 0, 0),
+                    pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
                 },
             ),
         )
@@ -199,7 +197,7 @@ fn formal_profile2_checkpoint_boundary_case() {
         .map(|action| action.payload_cbor.len())
         .sum();
 
-    let (frozen_body, frozen_material) = freeze_material_with_business(
+    let (frozen_body, frozen_material) = freeze_material_from_parent(
         parent.authority(),
         parent.head(),
         &original,
@@ -207,8 +205,11 @@ fn formal_profile2_checkpoint_boundary_case() {
         &release,
         initial_business.tree,
         initial_proof,
+        None,
+        &initial.material,
     )
     .unwrap();
+    assert_eq!(frozen_body.schema_version, 2);
     let frozen = SignedFormalFrozenV1 {
         signature_hex: fixtures::sign(frozen_signing_bytes(&frozen_body).unwrap(), 4),
         body: frozen_body,
@@ -255,8 +256,13 @@ fn formal_profile2_checkpoint_boundary_case() {
         FormalCompletionBranchV1::Normal,
     )
     .unwrap();
-    let after_snapshot: oasis7::runtime::Snapshot =
+    let after_snapshot: oasis7_runtime::Snapshot =
         capture::decode_role(&candidate.material, ArtifactRole::Snapshot).unwrap();
+    assert_eq!(candidate.candidate.record.schema_version, 3);
+    assert_eq!(
+        blake3_hex(&candidate.material.snapshot_bytes().unwrap()),
+        candidate.candidate.record.after_state_root
+    );
     assert!(
         after_snapshot.tick_consensus_archived_record_count > 0,
         "height-32 fixture must carry an archived Tick prefix"
@@ -265,6 +271,7 @@ fn formal_profile2_checkpoint_boundary_case() {
         super::super::super::formal_business_package::envelope(&candidate.material, true)
             .unwrap()
             .unwrap();
+    assert_eq!(result_envelope.delta.schema_version, 2);
     assert!(
         result_envelope
             .retained_history_delta
@@ -272,12 +279,14 @@ fn formal_profile2_checkpoint_boundary_case() {
             .is_some_and(|delta| !delta.node_writes.is_empty()),
         "archived Tick prefix must be included in the retained-history candidate delta"
     );
-    let journal: oasis7::runtime::Journal =
+    let journal: oasis7_runtime::Journal =
         capture::decode_role(&candidate.material, ArtifactRole::Journal).unwrap();
-    assert!(journal.events.iter().any(|event| matches!(
-        event.body,
-        oasis7::runtime::WorldEventBody::ModuleEmitted(_)
-    )));
+    assert!(
+        journal
+            .events
+            .iter()
+            .any(|event| matches!(event.body, oasis7_runtime::WorldEventBody::ModuleEmitted(_)))
+    );
 
     let mut attempts = fs::read_dir(scratch.path())
         .unwrap()

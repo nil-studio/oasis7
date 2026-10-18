@@ -5,7 +5,7 @@ use crate::node_lifecycle::{
     actions, bootstrap, local_io as io,
     model::{self, ChainAnchor, NodeConfig},
 };
-use oasis7::runtime::{ChainResourceDerivationContext, Journal, Snapshot, World};
+use oasis7_runtime::{ChainResourceDerivationContext, Journal, Snapshot};
 use serde_json::{Value, json};
 use std::{
     fs::{self, OpenOptions},
@@ -512,7 +512,7 @@ impl PackageFixture {
         let world_source = Path::new(env!("CARGO_MANIFEST_DIR")).join(
             "../../doc/testing/evidence/public-testnet-governed-bootstrap-world-2026-06-06/world",
         );
-        let world = World::from_snapshot(
+        let world = oasis7::runtime_host::world::from_snapshot(
             Snapshot::load_json(world_source.join("snapshot.json")).unwrap(),
             Journal::load_json(world_source.join("journal.json")).unwrap(),
         )

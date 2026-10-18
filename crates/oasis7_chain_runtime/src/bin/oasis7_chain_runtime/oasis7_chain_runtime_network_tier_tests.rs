@@ -3,7 +3,6 @@
 use super::build_chain_status_payload;
 use super::cli::parse_options;
 use oasis7::network_tier_manifest::{LoadedNetworkTierManifest, NETWORK_TIER_MANIFEST_SCHEMA_V1};
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, NodeConsensusSnapshot, NodeNetworkPolicy, NodePeerCommittedHead,
     NodeReachabilityAutoDetection, NodeRole, NodeSnapshot, NodeUserMode,
@@ -11,6 +10,7 @@ use oasis7_node::{
 };
 use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole};
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::ReleaseSecurityPolicy;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -549,15 +549,15 @@ fn status_payload_exposes_loaded_network_tier_manifest() {
     assert_eq!(tier.token_symbol, "OC");
     assert_eq!(
         payload.world_resource.schema_version,
-        oasis7::runtime::CHAIN_RESOURCE_MANIFEST_SCHEMA_V1
+        oasis7_runtime::CHAIN_RESOURCE_MANIFEST_SCHEMA_V1
     );
     assert_eq!(
         payload.world_resource.delta_schema_version,
-        oasis7::runtime::CHAIN_RESOURCE_DELTA_SCHEMA_V1
+        oasis7_runtime::CHAIN_RESOURCE_DELTA_SCHEMA_V1
     );
     assert_eq!(
         payload.world_resource.chunk_generation_schema_version,
-        oasis7::runtime::CHUNK_GENERATION_SCHEMA_V1
+        oasis7_runtime::CHUNK_GENERATION_SCHEMA_V1
     );
     assert_eq!(payload.world_resource.chain_id, "oasis7-public_testnet");
     assert_eq!(payload.world_resource.readiness_status, "not_ready");

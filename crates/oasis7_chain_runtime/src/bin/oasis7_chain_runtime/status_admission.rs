@@ -232,7 +232,7 @@ pub(crate) fn start_test_server(
         signer_private_key_hex: signer.private_key_hex.clone(),
         reward_runtime_epoch_duration_secs: None,
         reward_runtime_auto_redeem: false,
-        reward_asset_config: oasis7::runtime::RewardAssetConfig::default(),
+        reward_asset_config: oasis7_runtime::RewardAssetConfig::default(),
         reward_initial_reserve_power_units: 0,
         reward_runtime_node_identity_bindings: BTreeMap::new(),
         reward_distfs_probe_config: super::distfs_probe_runtime::DistfsProbeRuntimeConfig::default(
@@ -260,7 +260,7 @@ pub(crate) fn start_test_server(
         root.join("records"),
         root.join("store"),
         None,
-        oasis7::runtime::ReleaseSecurityPolicy::default(),
+        oasis7_runtime::ReleaseSecurityPolicy::default(),
         policy,
         super::reward_runtime_worker::init_shared_metrics(&reward_config),
         storage_metrics,

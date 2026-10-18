@@ -791,7 +791,7 @@ fn prepare_world_service_update_with_trace_context(
     } else {
         view.projection().events.clone()
     };
-    let world = RuntimeWorld::new_with_state(view.projection().state.clone());
+    let world = crate::runtime_host::world::new_with_state(view.projection().state.clone());
     Ok(PreparedChainLinkedRuntimeUpdate {
         committed_height: view.version().commit.position,
         // Legacy observer source fencing does not apply to authenticated

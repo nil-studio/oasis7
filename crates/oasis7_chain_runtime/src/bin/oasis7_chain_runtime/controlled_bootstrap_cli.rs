@@ -7,11 +7,11 @@ use super::execution_bridge::controlled_bootstrap_anchor::{
 use super::execution_bridge_real_tests::real_execution_bridge::controlled_bootstrap_anchor::{
     VerifiedBootstrapAnchor, verify_bootstrap_anchor,
 };
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7_distfs::controlled_authority::{
     activation::{InitialActivationPolicy, verify_initial_activation},
     replicated_protocol::{ArtifactRole, DurabilityEvidence, FixedTrust, HeadAnchor},
 };
+use oasis7_runtime::ReleaseSecurityPolicy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

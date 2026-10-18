@@ -3,7 +3,7 @@ use super::historical_v2_tests::{normal_execution_proof_with_signers, profile2_i
 use super::*;
 
 fn fixture() -> (
-    oasis7::runtime::World,
+    fixtures::protocol_world::ProtocolWorld,
     InitialActivationTrustV1,
     VerifiedFormalReadAnchorV1,
     FormalQualifiedCommitProofV1,
@@ -252,7 +252,7 @@ fn healthy_durable_set_read_rejects_missing_boundary_predecessor_or_dual_install
 #[test]
 fn healthy_durable_set_read_retains_original_result_after_epoch_change_without_old_cache() {
     use super::historical_v2_tests::{EmptyIndexNodes, memory_index_nodes};
-    use oasis7_distfs::controlled_authority::formal::{
+    use oasis7_formal_protocol::controlled_authority::formal::{
         business_history::FormalHistoricalCutV1,
         business_index::{BusinessIndexDeltaV1, BusinessIndexRootV1},
     };

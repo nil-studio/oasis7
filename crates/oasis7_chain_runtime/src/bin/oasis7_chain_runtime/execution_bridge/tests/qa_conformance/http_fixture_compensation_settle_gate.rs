@@ -97,13 +97,13 @@ impl WorldGate {
             }
             thread::sleep(Duration::from_millis(2));
         };
-        let receipt: oasis7::runtime::CognitionReceiptV1 =
+        let receipt: oasis7_runtime::CognitionReceiptV1 =
             serde_json::from_value(receipt).map_err(|e| e.to_string())?;
         receipt.validate().map_err(|e| e.to_string())?;
         let mut state = self.compensation_settle.lock().unwrap();
         let (world, agent, lease) = state.arm.as_ref().unwrap();
         if receipt.operation != "settle"
-            || receipt.status != oasis7::runtime::CognitionLeaseStatusV1::Settled
+            || receipt.status != oasis7_runtime::CognitionLeaseStatusV1::Settled
             || &receipt.lease_id != lease
             || &receipt.agent_id != agent
             || receipt.consumed_amount != 1

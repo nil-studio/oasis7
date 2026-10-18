@@ -18,10 +18,10 @@ pub(super) fn fixture() -> (
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = RuntimeWorld::new_with_state(initial_state());
+    let mut world = oasis7::runtime_host::world::new_with_state(initial_state());
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
-        pos: oasis7::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world.submit_action(Action::ClaimStarterOc {
@@ -59,7 +59,7 @@ pub(super) fn fixture() -> (
         .provision_cognition_for_agent("agent-a", "provision-a", "owner-a", 100)
         .unwrap();
     world
-        .install_test_native_delegation_grant(oasis7::runtime::AgentDelegationGrantV1 {
+        .install_test_native_delegation_grant(oasis7_runtime::AgentDelegationGrantV1 {
             grant_id: "logistics-transfer-budget".into(),
             source_id: format!(
                 "starter_claim:agent-a:{}",
@@ -83,8 +83,8 @@ pub(super) fn fixture() -> (
     let quote = world
         .logistics_transfer_quote(
             "agent-a",
-            &oasis7::runtime::MaterialLedgerId::agent("agent-a"),
-            &oasis7::runtime::MaterialLedgerId::site("logistics-site"),
+            &oasis7_runtime::MaterialLedgerId::agent("agent-a"),
+            &oasis7_runtime::MaterialLedgerId::site("logistics-site"),
             "iron_ingot",
             10,
             1,
@@ -105,7 +105,7 @@ pub(super) fn fixture() -> (
     world
         .save_to_dir_with_chain_resource_context(
             dir.join("world"),
-            oasis7::runtime::ChainResourceDerivationContext {
+            oasis7_runtime::ChainResourceDerivationContext {
                 world_id: "w1",
                 chain_id: "w1",
                 genesis_ref: Some(identity.genesis_digest.as_str()),
@@ -129,7 +129,7 @@ pub(super) fn fixture() -> (
         "w1",
         world.state().time,
         "world-service-local-setup-boundary",
-        &oasis7::runtime::ReleaseSecurityPolicy::default(),
+        &oasis7_runtime::ReleaseSecurityPolicy::default(),
     )
     .unwrap();
     let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
@@ -146,16 +146,16 @@ pub(super) fn fixture() -> (
 fn initial_state() -> WorldState {
     let mut state = WorldState::default();
     state.material_ledgers.insert(
-        oasis7::runtime::MaterialLedgerId::agent("agent-a"),
+        oasis7_runtime::MaterialLedgerId::agent("agent-a"),
         [("iron_ingot".into(), 20)].into_iter().collect(),
     );
     state.material_ledgers.insert(
-        oasis7::runtime::MaterialLedgerId::site("logistics-site"),
+        oasis7_runtime::MaterialLedgerId::site("logistics-site"),
         [("iron_ingot".into(), 0)].into_iter().collect(),
     );
     state.factories.insert(
         "logistics-factory".into(),
-        oasis7::runtime::FactoryState {
+        oasis7_runtime::FactoryState {
             factory_id: "logistics-factory".into(),
             site_id: "logistics-site".into(),
             builder_agent_id: "agent-a".into(),
@@ -171,8 +171,8 @@ fn initial_state() -> WorldState {
                 throughput_bps: 10000,
                 maintenance_per_tick: 0,
             },
-            input_ledger: oasis7::runtime::MaterialLedgerId::site("logistics-site"),
-            output_ledger: oasis7::runtime::MaterialLedgerId::site("logistics-site"),
+            input_ledger: oasis7_runtime::MaterialLedgerId::site("logistics-site"),
+            output_ledger: oasis7_runtime::MaterialLedgerId::site("logistics-site"),
             durability_ppm: 1000000,
             production: Default::default(),
             site_authority_revision: None,
@@ -189,7 +189,7 @@ pub(super) fn goal() -> GoalContentV1 {
     GoalContentV1 { goal_text: "Deliver exactly 10 units of iron_ingot from your agent inventory to the receiving depot at logistics-site. The destination is the input site ledger of logistics-factory, one kilometer away. Choose and submit a valid native material transfer yourself, then verify the material has arrived; movement alone does not fulfill the goal.".into(), soft_constraints: vec!["Use current canonical executor authority and the task action lane. Do not repeat a settled delivery.".into()] }
 }
 pub(super) fn witness(world: &RuntimeWorld) -> serde_json::Value {
-    serde_json::json!({"source_balance":world.ledger_material_balance(&oasis7::runtime::MaterialLedgerId::agent("agent-a"),"iron_ingot"),"destination_balance":world.ledger_material_balance(&oasis7::runtime::MaterialLedgerId::site("logistics-site"),"iron_ingot"),"pending_transits":world.state().pending_material_transits,"transfer_receipts":world.state().direct_material_transfer_receipts,"causal_receipts":world.agent_causal_receipts("agent-a").unwrap(),"factory":world.state().factories.get("logistics-factory")})
+    serde_json::json!({"source_balance":world.ledger_material_balance(&oasis7_runtime::MaterialLedgerId::agent("agent-a"),"iron_ingot"),"destination_balance":world.ledger_material_balance(&oasis7_runtime::MaterialLedgerId::site("logistics-site"),"iron_ingot"),"pending_transits":world.state().pending_material_transits,"transfer_receipts":world.state().direct_material_transfer_receipts,"causal_receipts":world.agent_causal_receipts("agent-a").unwrap(),"factory":world.state().factories.get("logistics-factory")})
 }
 #[test]
 #[ignore = "explicit logistics prepared-world service; independent player uses shipped task Skill"]
@@ -286,7 +286,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
         let initial = pin();
         assert_eq!(
             initial.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::agent("agent-a"),
+                &oasis7_runtime::MaterialLedgerId::agent("agent-a"),
                 "iron_ingot"
             ),
             20
@@ -298,8 +298,8 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
         let deadline = Instant::now() + cadence * 24;
         let action = Action::TransferMaterial {
             requester_agent_id: "agent-a".into(),
-            from_ledger: oasis7::runtime::MaterialLedgerId::agent("agent-a"),
-            to_ledger: oasis7::runtime::MaterialLedgerId::site("logistics-site"),
+            from_ledger: oasis7_runtime::MaterialLedgerId::agent("agent-a"),
+            to_ledger: oasis7_runtime::MaterialLedgerId::site("logistics-site"),
             kind: "iron_ingot".into(),
             amount: 10,
             distance_km: 1,
@@ -401,7 +401,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
                     forced_action_rejection = true;
                     assert_eq!(
                         pin().world.ledger_material_balance(
-                            &oasis7::runtime::MaterialLedgerId::agent("agent-a"),
+                            &oasis7_runtime::MaterialLedgerId::agent("agent-a"),
                             "iron_ingot"
                         ),
                         20,
@@ -545,7 +545,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
         let delivered = loop {
             let p = pin();
             if p.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("logistics-site"),
+                &oasis7_runtime::MaterialLedgerId::site("logistics-site"),
                 "iron_ingot",
             ) == 10
             {
@@ -556,7 +556,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
         };
         assert_eq!(
             delivered.world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::agent("agent-a"),
+                &oasis7_runtime::MaterialLedgerId::agent("agent-a"),
                 "iron_ingot"
             ),
             10
@@ -579,8 +579,8 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
             receipt.authorization.as_ref().unwrap().grant.grant_id,
             "logistics-transfer-budget"
         );
-        let starts=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::MaterialTransitStarted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
-        let finishes=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7::runtime::WorldEventBody::Domain(oasis7::runtime::DomainEvent::MaterialTransitCompleted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
+        let starts=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::MaterialTransitStarted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
+        let finishes=delivered.world.journal().events.iter().filter(|e|matches!(&e.body,oasis7_runtime::WorldEventBody::Domain(oasis7_runtime::DomainEvent::MaterialTransitCompleted {requester_agent_id,..}) if requester_agent_id=="agent-a")).count();
         assert_eq!(starts, 1);
         assert_eq!(finishes, 1);
         drop(stop_host);
@@ -614,7 +614,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
         assert!(matches[0].rejected.is_none());
         assert_eq!(
             restarted.execution_world.ledger_material_balance(
-                &oasis7::runtime::MaterialLedgerId::site("logistics-site"),
+                &oasis7_runtime::MaterialLedgerId::site("logistics-site"),
                 "iron_ingot"
             ),
             10

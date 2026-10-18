@@ -46,7 +46,7 @@ pub(super) fn configure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::simulator::WorldScenario;
+    use oasis7_simulator::WorldScenario;
     use std::time::Duration;
 
     fn service() -> WorldServiceClientConfig {

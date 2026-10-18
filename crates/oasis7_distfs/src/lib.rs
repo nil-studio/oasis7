@@ -24,6 +24,7 @@ mod feedback;
 mod feedback_p2p;
 mod replication;
 mod segmentation;
+pub mod storage_inventory;
 
 pub use feedback::*;
 pub use feedback_p2p::*;

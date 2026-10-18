@@ -160,7 +160,7 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 
 产品审读基线保持 `03fb58784a65de9f02a43dfeafc3e882bb04e5f2`。发布前核对 `7039bc376882ab8f84f88ca014f6d7ce642539a8` 时，main 已增加独立、认证且不要求应用挂载世界目录的 World Service；以下是对本设计物理接入的收敛，不是再造一套基础设施。
 
-- 当前 `crates/oasis7/src/world_service/wire.rs` 已定义 POST `/v1/world/describe`、`submit`、`lookup`、`view`、`changes`，并使用 `SignedReadRequest<T>`、`SignedServiceResponse<T>`、`WorldServicePayloadV1`。`client` / `verified_view` 是新 Game API 的底层调用与验证位置；不能改为读共享 snapshot 文件或由 Viewer 本地 World 代替。
+- 当前 `crates/oasis7_runtime/src/service_admission/wire.rs` 已定义 POST `/v1/world/describe`、`submit`、`lookup`、`view`、`changes`，并使用 `SignedReadRequest<T>`、`SignedServiceResponse<T>`、`WorldServicePayloadV1`。`client` / `verified_view` 是新 Game API 的底层调用与验证位置；不能改为读共享 snapshot 文件或由 Viewer 本地 World 代替。
 - `GameApiIngress` 是面向玩家和执行器的 `/v1/game` 资源适配层，底层 WorldReadPort 使用 signed view/changes，DecisionAdmissionPort 使用 signed Cognition/Scheduler 的 submit/lookup。已有服务回复签名只证明受信服务断言，不等于共识最终性；继续核对 CommitRef、WorldBinding、receipt 与请求关联。
 - 已有 `AgentSignerDelegationChangeV1` 的 owner 签名、Agent identity generation、delegation generation、nonce 和 delegate public key 不得被新 opaque token 取代。协作设计的 executor_epoch 是更窄的任务执行实例 fence，验证组合为 `(agent_identity_generation, delegation_generation, task_executor_epoch)`；任务 fence 只能收窄已有委托，不能自行授予或恢复 world signer 权限。
 - 当前 payload 覆盖 GameplayJson、Cognition、FeedbackAck、Delegation、Scheduler，不包含本文的完整任务/目标/问答/审批写入。实施时为这些控制命令增加版本化的 typed payload 与世界侧校验，不把自由 JSON 当现成管理权限。服务器不支持所需变体时返回 capability_unavailable，而非绕过 World Service 直写文件。

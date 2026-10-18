@@ -10,13 +10,12 @@ use crate::runtime::{
 #[cfg(test)]
 use crate::simulator::RuntimePerfHealth;
 use crate::simulator::runtime_perf::unsupported_runtime_perf_snapshot;
-use crate::simulator::{
-    ChunkRuntimeConfig, Location, RuntimePerfSnapshot, WorldKernel, WorldModel,
-};
+use crate::simulator::{RuntimePerfSnapshot, WorldKernel};
 use crate::viewer::gameplay_actions::{
     FACTORY_ASSEMBLER_MK1, FACTORY_SMELTER_MK1, STARTER_INDUSTRIAL_ELECTRICITY,
     formal_release_default_seed_model,
 };
+use oasis7_simulator::{ChunkRuntimeConfig, Location, WorldModel};
 
 use super::*;
 
@@ -376,7 +375,7 @@ pub(super) fn bootstrap_runtime_live_world(
 > {
     if config.world_service.is_some() {
         return Ok((
-            RuntimeWorld::new_production_hardened(),
+            crate::runtime_host::world::new_production_hardened(),
             WorldConfig::default(),
             None,
             ChunkRuntimeConfig::default(),
@@ -395,7 +394,7 @@ pub(super) fn bootstrap_runtime_live_world(
             Ok((world, snapshot_config, None, chunk_runtime))
         }
         None if config.world_service.is_some() || config.chain_status_bind.is_some() => Ok((
-            RuntimeWorld::new_production_hardened(),
+            crate::runtime_host::world::new_production_hardened(),
             WorldConfig::default(),
             None,
             ChunkRuntimeConfig::default(),
@@ -464,9 +463,10 @@ fn bootstrap_runtime_world_from_model(
     model: &WorldModel,
     label: &str,
 ) -> Result<(RuntimeWorld, WorldConfig), String> {
-    let mut world = RuntimeWorld::new_production_hardened();
-    world
-        .initialize_module_visual_entities(&model.module_visual_entities)
+    let mut world =
+        crate::runtime_host::world::new_production_hardened_with_initial_module_visuals(
+            &model.module_visual_entities,
+        )
         .map_err(|err| format!("{label} initialize module visuals failed: {err:?}"))?;
     world.set_resource_balance(ResourceKind::Electricity, 400);
     for (material, amount) in [
@@ -583,7 +583,7 @@ pub fn bootstrap_formal_release_runtime_world() -> Result<(RuntimeWorld, WorldCo
                 FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID
             )
         })?;
-    let mut world = RuntimeWorld::new_production_hardened();
+    let mut world = crate::runtime_host::world::new_production_hardened();
     world.set_resource_balance(ResourceKind::Electricity, 400);
     for (material, amount) in [
         ("structural_frame", 40),

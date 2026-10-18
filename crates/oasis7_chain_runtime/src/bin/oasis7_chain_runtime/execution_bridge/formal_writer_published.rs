@@ -21,11 +21,11 @@ pub(super) fn decode_count() -> usize {
 pub(super) fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     World::validate_offline_formal_writer_envelope_cbor_budget(
         bytes,
-        oasis7::runtime::ObserverReadLimits {
+        oasis7_runtime::ObserverReadLimits {
             max_file_bytes: 64 * 1024 * 1024,
             max_single_allocation_bytes: 8 * 1024 * 1024,
             max_elements: 24 * 1024 * 1024 + 64 * 1024,
-            ..oasis7::runtime::ObserverReadLimits::default()
+            ..oasis7_runtime::ObserverReadLimits::default()
         },
     )
     .map_err(|error| format!("formal writer envelope budget: {error:?}"))?;

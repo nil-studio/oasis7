@@ -24,10 +24,12 @@ use crate::runtime::{
     WorldError as RuntimeWorldError, WorldEventBody as RuntimeWorldEventBody, blake3_hex,
 };
 use crate::simulator::{
-    AgentDecisionTrace, CHUNK_GENERATION_SCHEMA_VERSION, PlayerGameplayRecentFeedback,
-    RejectReason as SimulatorRejectReason, ResourceKind, RunnerMetrics, SNAPSHOT_VERSION,
-    WorldConfig, WorldEvent, WorldInitConfig, WorldModel, WorldScenario, WorldSnapshot,
-    build_world_model,
+    AgentDecisionTrace, PlayerGameplayRecentFeedback, RunnerMetrics, WorldEvent, WorldSnapshot,
+};
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_simulator::{
+    CHUNK_GENERATION_SCHEMA_VERSION, RejectReason as SimulatorRejectReason, SNAPSHOT_VERSION,
+    WorldConfig, WorldInitConfig, WorldModel, WorldScenario, build_world_model,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -291,7 +293,7 @@ impl ViewerRuntimeLiveServer {
             std::fs::write(&preflight_path, b"authoritative-recovery-preflight")?;
             std::fs::remove_file(&preflight_path)?;
             if let Some(committed) =
-                RuntimeWorld::load_authoritative_recovery_generation(&recovery_dir)
+                crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
                     .map_err(ViewerRuntimeLiveServerError::Runtime)?
             {
                 let metadata = committed.recovery_metadata;

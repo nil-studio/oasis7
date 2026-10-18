@@ -1,5 +1,4 @@
 use super::*;
-use oasis7::runtime::ReleaseSecurityPolicy;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, NodeConsensusSnapshot, NodeNetworkPolicy,
     NodeReachabilityAutoDetection, NodeReplicationGapSyncRouteSnapshot, NodeRole, NodeSnapshot,
@@ -7,6 +6,7 @@ use oasis7_node::{
 };
 use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole};
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
+use oasis7_runtime::ReleaseSecurityPolicy;
 use std::collections::BTreeMap;
 use std::path::Path;
 

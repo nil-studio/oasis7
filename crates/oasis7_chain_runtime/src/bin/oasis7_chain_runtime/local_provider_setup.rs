@@ -2,13 +2,13 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use oasis7::runtime::{
+use oasis7::viewer::viewer_bootstrap_formal_release_runtime_world;
+use oasis7_runtime::{
     ChainResourceDerivationContext, LOCAL_TEST_PROVIDER_GRANT_RENEWAL_THRESHOLD_TICKS,
     LocalTestProviderAuthorityConfig, LocalTestProviderGrantStatus,
     LocalTestProviderModuleArtifact, LocalTestProviderSessionMode,
     ProviderBackedBootstrapAuthorityV1, ReleaseSecurityPolicy, World as RuntimeWorld,
 };
-use oasis7::viewer::viewer_bootstrap_formal_release_runtime_world;
 use serde::Deserialize;
 
 use super::cli::CliOptions;
@@ -92,7 +92,7 @@ pub(super) fn ensure_local_test_provider_authority(
     }
 
     if snapshot_exists {
-        let mut world = RuntimeWorld::load_from_dir(world_dir).map_err(|error| {
+        let mut world = oasis7::runtime_host::world::load_from_dir(world_dir).map_err(|error| {
             format!(
                 "load existing execution world for local test authority setup failed: {error:?}"
             )
@@ -316,7 +316,7 @@ fn temporary_authority_path(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::cli::CliOptions;
-    use oasis7::runtime::{Action, DomainEvent, WorldEventBody};
+    use oasis7_runtime::{Action, DomainEvent, WorldEventBody};
 
     #[test]
     #[expect(
@@ -360,7 +360,7 @@ mod tests {
             authority_bytes.as_slice(),
         )
         .expect("decode authority output");
-        let mut world = RuntimeWorld::load_from_dir(&world_dir).expect("load world");
+        let mut world = oasis7::runtime_host::world::load_from_dir(&world_dir).expect("load world");
         assert!(world.current_cognition_runtime_binding().is_ok());
         assert!(
             world
@@ -445,7 +445,8 @@ mod tests {
         world
             .save_to_dir(&world_dir)
             .expect("persist post-spend world");
-        let restarted = RuntimeWorld::load_from_dir(&world_dir).expect("restart post-spend world");
+        let restarted = oasis7::runtime_host::world::load_from_dir(&world_dir)
+            .expect("restart post-spend world");
         assert_eq!(restarted.main_token_liquid_balance("starter-agent-0"), 0);
         assert_eq!(
             restarted.main_token_liquid_balance("local-test-recipient"),
@@ -454,7 +455,8 @@ mod tests {
         let journal_len_after_spend = restarted.journal().events.len();
         ensure_local_test_provider_authority(&options, world_dir.as_path())
             .expect("durable setup should be idempotent");
-        let reused = RuntimeWorld::load_from_dir(&world_dir).expect("reload reused world");
+        let reused =
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("reload reused world");
         assert_eq!(reused.journal().events.len(), journal_len_after_spend);
         assert_eq!(reused.main_token_liquid_balance("starter-agent-0"), 0);
         assert_eq!(
@@ -522,7 +524,8 @@ mod tests {
             .grant
             .expires_at_tick
             .expect("initial grant expiry");
-        let mut world = RuntimeWorld::load_from_dir(&world_dir).expect("load initial world");
+        let mut world =
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("load initial world");
         while world.state().time <= old_expiry {
             world.step().expect("advance expired-grant fixture");
         }
@@ -551,7 +554,8 @@ mod tests {
             renewed_authority.grant.expires_at_tick,
             Some(expired_tick.saturating_add(300))
         );
-        let renewed_world = RuntimeWorld::load_from_dir(&world_dir).expect("load renewed world");
+        let renewed_world =
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("load renewed world");
         assert_eq!(
             renewed_world
                 .capability_grants_v2()
@@ -568,7 +572,8 @@ mod tests {
 
         ensure_local_test_provider_authority(&options, world_dir.as_path())
             .expect("reuse renewed local grant");
-        let restarted = RuntimeWorld::load_from_dir(&world_dir).expect("restart renewed world");
+        let restarted =
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("restart renewed world");
         assert_eq!(restarted.journal().events.len(), journal_len_after_renewal);
         assert_eq!(
             restarted
@@ -652,7 +657,8 @@ mod tests {
             .grant
             .expires_at_tick
             .expect("initial grant expiry");
-        let mut world = RuntimeWorld::load_from_dir(&world_dir).expect("load initial world");
+        let mut world =
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("load initial world");
         let at_margin_tick = expiry.saturating_sub(240);
         while world.state().time < at_margin_tick {
             world.step().expect("advance to renewal margin");
@@ -673,7 +679,7 @@ mod tests {
             initial_authority.grant.grant_id
         );
         assert_eq!(
-            RuntimeWorld::load_from_dir(&world_dir)
+            oasis7::runtime_host::world::load_from_dir(&world_dir)
                 .expect("reload margin world")
                 .journal()
                 .events
@@ -682,7 +688,7 @@ mod tests {
         );
 
         let mut below_margin =
-            RuntimeWorld::load_from_dir(&world_dir).expect("reload margin world");
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("reload margin world");
         below_margin.step().expect("advance below renewal margin");
         assert_eq!(expiry.saturating_sub(below_margin.state().time), 239);
         let below_margin_tick = below_margin.state().time;
@@ -703,7 +709,8 @@ mod tests {
             renewed.grant.expires_at_tick,
             Some(below_margin_tick.saturating_add(300))
         );
-        let renewed_world = RuntimeWorld::load_from_dir(&world_dir).expect("reload renewed world");
+        let renewed_world =
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("reload renewed world");
         assert_eq!(
             renewed_world
                 .capability_grants_v2()
@@ -714,7 +721,7 @@ mod tests {
         ensure_local_test_provider_authority(&options, world_dir.as_path())
             .expect("reuse reissued grant after restart");
         assert_eq!(
-            RuntimeWorld::load_from_dir(&world_dir)
+            oasis7::runtime_host::world::load_from_dir(&world_dir)
                 .expect("reload reissued world")
                 .journal()
                 .events
@@ -776,7 +783,7 @@ mod tests {
             .expires_at_tick
             .expect("initial grant expiry");
         let mut expired_world =
-            RuntimeWorld::load_from_dir(&world_dir).expect("load initial world");
+            oasis7::runtime_host::world::load_from_dir(&world_dir).expect("load initial world");
         while expired_world.state().time <= old_expiry {
             expired_world.step().expect("advance expired world");
         }
@@ -797,7 +804,7 @@ mod tests {
             fs::read(&authority_path).expect("authority remains old after interruption"),
             old_authority_bytes
         );
-        let partially_persisted = RuntimeWorld::load_from_dir(&world_dir)
+        let partially_persisted = oasis7::runtime_host::world::load_from_dir(&world_dir)
             .expect("world remains replayable after publication interruption");
         assert!(partially_persisted.journal().events.len() > expired_world.journal().events.len());
         let journal_after_interruption = partially_persisted.journal().events.len();
@@ -821,7 +828,7 @@ mod tests {
             recovered_authority.grant.grant_id,
             old_authority.grant.grant_id
         );
-        let recovered_world = RuntimeWorld::load_from_dir(&world_dir)
+        let recovered_world = oasis7::runtime_host::world::load_from_dir(&world_dir)
             .expect("reload reconciled world after interruption");
         assert_eq!(
             recovered_world.journal().events.len(),

@@ -1,5 +1,5 @@
 use super::*;
-use crate::simulator::WorldEventKind;
+use oasis7_simulator::WorldEventKind;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[path = "chain_sync_recovery.rs"]
 mod chain_sync_recovery;

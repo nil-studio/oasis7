@@ -61,9 +61,9 @@ impl ViewerRuntimeLiveServer {
                 && server.pending_world_service_gameplay.is_empty()
                 && view.version().commit.world == config.expected_world
                 && view.version().visibility_scope == config.scope_id
-                && view.read_authority_matches(
+                && view.belongs_to(
                     &config
-                        .read_authority_identity()
+                        .read_authority()
                         .map_err(ViewerRuntimeLiveServerError::Init)?,
                 )
             {
@@ -72,7 +72,9 @@ impl ViewerRuntimeLiveServer {
                     committed_height: view.version().commit.position,
                     source: (None, None),
                     source_epoch: 0,
-                    world: RuntimeWorld::new_with_state(view.projection().state.clone()),
+                    world: crate::runtime_host::world::new_with_state(
+                        view.projection().state.clone(),
+                    ),
                     verified_view: Some(view),
                     // No new cursor, event or intent disposition is observed.
                     service_events: Some(Vec::new()),

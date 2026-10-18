@@ -6,7 +6,7 @@ use super::control_plane::{
 use super::player_gameplay::{CollectDataResult, data_collection_preflight};
 use super::*;
 use crate::runtime::Action as RuntimeAction;
-use crate::simulator::ResourceKind;
+use oasis7_agent_api::world_action::ResourceKind;
 
 impl ViewerRuntimeLiveServer {
     pub(super) fn handle_collect_data_protocol_request(

@@ -8,7 +8,6 @@ use super::{
 use crate::controlled_live_config::{
     GuardedAuthority, GuardedReadAuthority, read_existing_signing_key,
 };
-use oasis7::runtime::LocalCasStore;
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     ClosedRecord, EndpointRole, EndpointStatus, FileEndpoint, ProtocolOutcome,
     ReplicatedCoordinator,
@@ -18,6 +17,7 @@ use oasis7_node::{
     NodeExecutionBootstrap, NodeExecutionCommitContext, NodeExecutionCommitOutcome,
     NodeExecutionCommitResult, NodeExecutionHook, NodeLocalExecutionContinuation,
 };
+use oasis7_runtime::LocalCasStore;
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -531,7 +531,7 @@ impl GuardedExecutionDriver {
             // Keep only a test oracle, never a candidate consumed by recovery.
             durable_transaction::write_file_durable(
                 &self.records.join("test-interrupted-candidate-digest"),
-                oasis7::runtime::blake3_hex(&to_cbor(&closed)?).as_bytes(),
+                oasis7_runtime::blake3_hex(&to_cbor(&closed)?).as_bytes(),
             )?;
             // SAFETY: this test-only boundary runs in an isolated subprocess.
             unsafe {

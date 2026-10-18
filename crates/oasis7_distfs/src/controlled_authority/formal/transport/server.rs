@@ -126,6 +126,26 @@ impl FormalEndpointServer {
                 self.endpoint.publish_qualified(*proof)?;
                 Ok(Value::Complete)
             }
+            Command::StageNativeEnvironment(descriptor, chunks) => {
+                self.endpoint
+                    .stage_native_environment(&descriptor, &chunks)?;
+                Ok(Value::Complete)
+            }
+            Command::VerifyNativeEnvironment(descriptor) => self
+                .endpoint
+                .advance_native_environment_verification(&descriptor)
+                .map(Value::NativeEnvironment),
+            Command::VerifyPublishedClosure {
+                request,
+                candidate_digest,
+            } => self
+                .endpoint
+                .verify_published_closure(&request, &candidate_digest)
+                .map(Value::PublishedClosure),
+            Command::ReleasePublishedClosure { candidate_digest } => {
+                self.endpoint.release_published_closure(&candidate_digest)?;
+                Ok(Value::Complete)
+            }
             Command::ArchiveManifest => self
                 .endpoint
                 .archive_manifest()

@@ -427,8 +427,8 @@ pub(super) fn finish_with_result(
             v.origin_request_digest == origin["request_digest"].as_str().unwrap()
                 && &v.continuation_proposal_id == proposal_id
         });
-    let settled = lease.status == oasis7::runtime::CognitionLeaseStatusV1::Settled
-        && lease.settled_amount > 0;
+    let settled =
+        lease.status == oasis7_runtime::CognitionLeaseStatusV1::Settled && lease.settled_amount > 0;
     let results = world
         .capability_revocation_state()
         .world_service_results

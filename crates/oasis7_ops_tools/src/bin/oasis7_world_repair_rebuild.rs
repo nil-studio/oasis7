@@ -2,10 +2,12 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use oasis7::geometry::GeoPos;
-use oasis7::runtime::{
+use oasis7::simulator::WorldKernel;
+use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_runtime::{
     Action as RuntimeAction, ChainResourceDerivationContext, Journal, World, WorldError, blake3_hex,
 };
-use oasis7::simulator::{ResourceKind, WorldConfig, WorldKernel, WorldModel};
+use oasis7_simulator::{WorldConfig, WorldModel};
 
 struct CliOptions {
     source_world_dir: Option<PathBuf>,
@@ -45,10 +47,10 @@ fn run() -> Result<(), WorldError> {
             let journal_path = source_world_dir.join("journal.json");
             let journal = Journal::load_json(journal_path.as_path())?;
 
-            let seed_world = World::new();
+            let seed_world = oasis7::runtime_host::world::new();
             let seed_snapshot = seed_world.snapshot();
             (
-                World::from_snapshot(seed_snapshot, journal)?,
+                oasis7::runtime_host::world::from_snapshot(seed_snapshot, journal)?,
                 format!("source_world_dir={}", source_world_dir.display()),
                 0,
                 false,
@@ -90,7 +92,7 @@ fn run() -> Result<(), WorldError> {
     } else {
         rebuilt.save_to_dir(options.output_world_dir.as_path())?;
     }
-    let verified = World::load_from_dir(options.output_world_dir.as_path())?;
+    let verified = oasis7::runtime_host::world::load_from_dir(options.output_world_dir.as_path())?;
 
     println!("{source_label}");
     println!("output_world_dir={}", options.output_world_dir.display());
@@ -128,7 +130,7 @@ fn align_generated_bootstrap_world_to_commit_height(
     snapshot.tick_consensus_hot_from_tick = None;
     snapshot.tick_consensus_hot_to_tick = None;
     snapshot.tick_consensus_rejection_audit_events.clear();
-    World::from_snapshot(snapshot, Journal::new())
+    oasis7::runtime_host::world::from_snapshot(snapshot, Journal::new())
 }
 
 fn resource_context_hash(world_id: &str) -> String {
@@ -169,7 +171,7 @@ fn bootstrap_runtime_world_from_model(
     model: &WorldModel,
     label: &str,
 ) -> Result<(World, WorldConfig), String> {
-    let mut world = World::new_production_hardened();
+    let mut world = oasis7::runtime_host::world::new_production_hardened();
     world.set_resource_balance(ResourceKind::Electricity, 400);
     for (material, amount) in [
         ("structural_frame", 40),
@@ -391,7 +393,7 @@ mod tests {
         let mut tampered_snapshot = aligned_snapshot;
         tampered_snapshot.journal_commitment = "tampered".to_string();
         assert_eq!(
-            World::from_snapshot(tampered_snapshot, Journal::new())
+            oasis7::runtime_host::world::from_snapshot(tampered_snapshot, Journal::new())
                 .expect_err("tampered empty journal commitment must fail"),
             WorldError::JournalMismatch
         );

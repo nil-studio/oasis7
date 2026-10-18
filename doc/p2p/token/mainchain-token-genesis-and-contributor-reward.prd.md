@@ -105,7 +105,7 @@
   - `doc/readme/governance/readme-limited-preview-contributor-reward-ledger.md`
   - `doc/game/prd.md`
   - `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`
-  - `crates/oasis7/src/runtime/main_token.rs`
+  - `crates/oasis7_runtime/src/main_token.rs`
   - `testing-manual.md`
 - Execution Path Decision:
   - `TIGR-4` 当前选定 `early_contributor_reward_reserve -> protocol:early-contributor-reward -> reward multisig issues only the final actual-value-reviewed amount recorded in an approved canonical README reward ledger row` 作为 limited preview 执行路径；贡献资格、证据分类、review status、producer approval 与 distribution 前 actual-value review 语义以该 pack / ledger 为准。

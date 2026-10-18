@@ -1,8 +1,8 @@
 use std::env;
 use std::process;
 
-use oasis7::simulator::WorldScenario;
 use oasis7::viewer::generate_viewer_demo;
+use oasis7_simulator::WorldScenario;
 
 fn main() {
     let mut args = env::args().skip(1);

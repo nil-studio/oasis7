@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "7292f95f8fa58c36ccfab6067f04dd3b2709e6c7b08f09c061ea6c0c2418eb94",
+    "content_sha256": "dd9e06e238ed91302e94636f8958d327b244ebe12b0c5e4b0fe8f4a7b307eaaf",
     "current_authority": "doc/testing/longrun/game-world-state-sync-commit-closure-2026-06-26.prd.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_current_authority",
-    "note": "current closure test design; developer workflow record projection updated, product authority retained Scoped document review for issue #4455 on 2026-10-12: AC-DCS-002/005 and the runtime suffix requirement now map to separate J1/J2 continuation obligations within SR2-RT-03; existing case counts, full service proof and unexecuted status are retained. This is document review only, not runtime execution or release acceptance; existing authority, decision owner and disposition are retained.",
+    "note": "current closure test design; developer workflow record projection updated, product authority retained Scoped document review for issue #4455 on 2026-10-12: AC-DCS-002/005 and the runtime suffix requirement now map to separate J1/J2 continuation obligations within SR2-RT-03; existing case counts, full service proof and unexecuted status are retained. This is document review only, not runtime execution or release acceptance; existing authority, decision owner and disposition are retained. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
     "path": "doc/testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

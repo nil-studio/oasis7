@@ -110,7 +110,7 @@ fn world_module_store_roundtrip() {
         .as_nanos();
     let dir = std::env::temp_dir().join(format!("oasis7-store-world-{unique}"));
 
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     let wasm_bytes = b"world-store-bytes";
     let hash = wasm_hash(wasm_bytes);
@@ -162,7 +162,7 @@ fn world_module_store_roundtrip() {
 
     world.save_module_store_to_dir(&dir).unwrap();
 
-    let mut restored = World::new();
+    let mut restored = oasis7::runtime_host::world::new();
     restored.load_module_store_from_dir(&dir).unwrap();
 
     let key = ModuleRegistry::record_key("m.world", "0.1.0");
@@ -182,7 +182,7 @@ fn world_save_to_dir_with_modules_roundtrip() {
         .as_nanos();
     let dir = std::env::temp_dir().join(format!("oasis7-store-full-{unique}"));
 
-    let mut world = World::new();
+    let mut world = oasis7::runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     let wasm_bytes = b"world-store-full";
     let hash = wasm_hash(wasm_bytes);
@@ -234,7 +234,7 @@ fn world_save_to_dir_with_modules_roundtrip() {
 
     world.save_to_dir_with_modules(&dir).unwrap();
 
-    let mut restored = World::load_from_dir_with_modules(&dir).unwrap();
+    let mut restored = oasis7::runtime_host::world::load_from_dir_with_modules(&dir).unwrap();
     let key = ModuleRegistry::record_key("m.full", "0.1.0");
     assert!(restored.module_registry().records.contains_key(&key));
     let artifact = restored.load_module(&hash).unwrap();

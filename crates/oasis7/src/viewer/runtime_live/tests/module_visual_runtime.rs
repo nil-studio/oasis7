@@ -42,6 +42,19 @@ fn visual_remove_event() -> WorldEventBody {
     )
 }
 
+fn publish_visual_fixture(world: &mut crate::runtime::World, body: WorldEventBody) {
+    let snapshot = world.snapshot();
+    let mut journal = world.journal().clone();
+    journal.events.push(crate::runtime::WorldEvent {
+        id: snapshot.last_event_id.checked_add(1).unwrap_or(1),
+        time: world.state().time,
+        caused_by: None,
+        body,
+    });
+    *world = crate::runtime_host::world::from_snapshot(snapshot, journal)
+        .expect("replay production visual event through public recovery boundary");
+}
+
 #[test]
 fn production_server_snapshot_projects_visual_upsert_remove_and_recovery() {
     let mut server =
@@ -49,20 +62,14 @@ fn production_server_snapshot_projects_visual_upsert_remove_and_recovery() {
             .expect("runtime live server");
     let baseline = server.world.snapshot();
 
-    server
-        .world
-        .append_event_for_test(visual_upsert_event(), None)
-        .expect("publish production visual upsert");
+    publish_visual_fixture(&mut server.world, visual_upsert_event());
     let upserted = server.compat_snapshot(None);
     assert_eq!(
         upserted.model.module_visual_entities[ENTITY_ID].module_id,
         MODULE_ID
     );
 
-    server
-        .world
-        .append_event_for_test(visual_remove_event(), None)
-        .expect("publish production visual remove");
+    publish_visual_fixture(&mut server.world, visual_remove_event());
     let removed = server.compat_snapshot(None);
     assert!(!removed.model.module_visual_entities.contains_key(ENTITY_ID));
 

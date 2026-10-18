@@ -45,7 +45,7 @@ fn safe_stage(stage: &str) -> &'static str {
 
 #[test]
 fn operation_store_real_stop_readback_cas_identity_and_reserved_resources() {
-    let (_fixture, config, handle, current) = operation_fixture();
+    let (_fixture, config, receiver_cleanup, current) = operation_fixture_with_stop_signal();
     let binding = actions::binding(&config).unwrap();
     let root = binding.data_dir.join("management");
     let request = Request {
@@ -73,9 +73,19 @@ fn operation_store_real_stop_readback_cas_identity_and_reserved_resources() {
     assert!(store.admit(planner::plan(other).unwrap()).is_err());
     assert!(executor::resume(&mut store, "stop-one", 9).is_err());
     let result = executor::resume(&mut store, "stop-one", record.revision).unwrap();
-    assert_eq!(result.state, "succeeded");
+    let stop_succeeded = result.state == "succeeded";
+    let phase = safe_stage(&result.stage);
+    let blocker_class = safe_blocker_class(result.blocker.as_deref());
+    let receiver_cleanup_ok = receiver_cleanup.finish(!stop_succeeded).is_ok();
+    assert_eq!(
+        result.state,
+        "succeeded",
+        "phase={phase} blocker_class={blocker_class} dispatched={} native_results={} receiver_cleanup={receiver_cleanup_ok}",
+        result.dispatched,
+        result.results.len(),
+    );
+    assert!(receiver_cleanup_ok, "test receiver cleanup failed");
     assert_eq!(result.results[0].target.incarnation, current.incarnation);
-    handle.join().unwrap().unwrap();
     drop(store);
     let mut reopened = Store::open(&root).unwrap();
     let duplicate = reopened

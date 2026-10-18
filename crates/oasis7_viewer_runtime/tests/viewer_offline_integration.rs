@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oasis7::simulator::WorldScenario;
 use oasis7::viewer::{
     VIEWER_PROTOCOL_VERSION, ViewerControl, ViewerRequest, ViewerResponse, ViewerStream,
     generate_viewer_demo,
 };
+use oasis7_simulator::WorldScenario;
 
 #[cfg(feature = "test_tier_required")]
 #[test]

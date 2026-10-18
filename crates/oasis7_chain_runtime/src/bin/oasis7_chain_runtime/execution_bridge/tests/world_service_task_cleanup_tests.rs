@@ -56,7 +56,7 @@ fn private_task_prepared_world_no_model_authority_cleanup() {
     );
     assert_eq!(
         pinned.world.state().agents["agent-a"].state.pos,
-        oasis7::GeoPos::new(0, 0, 0)
+        oasis7_agent_api::world_action::GeoPos::new(0, 0, 0)
     );
     fs::remove_file(ready).unwrap();
     fs::remove_dir_all(root).unwrap();

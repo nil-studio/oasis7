@@ -5,7 +5,6 @@ use super::agent_cognition_identity::{
     request_from_value,
 };
 use super::restore_runner_feedback_history;
-use crate::runtime::World;
 use crate::simulator::{
     AgentBehavior, AgentCognitionStore, AsyncAgentRunner, LlmAgentBehavior,
     OpenAiChatCompletionClient,
@@ -311,7 +310,7 @@ fn transport_retry_keeps_request_model_budget_consumed() {
     );
     let mut runner = AsyncAgentRunner::new(16).expect("create target actor runner");
     runner.register(behavior).expect("register builtin actor");
-    let world = World::new();
+    let world = crate::runtime_host::world::new();
     restore_runner_feedback_history(&mut runner, &world);
     let turn_id = runner
         .start_turn_with_request_context_and_observation(
@@ -513,7 +512,7 @@ fn native_model_budget_caps_openai_internal_concurrency_retry() {
     let behavior = LlmAgentBehavior::new("agent-1", config, client);
     let mut runner = AsyncAgentRunner::new(16).expect("create target actor runner");
     runner.register(behavior).expect("register native actor");
-    let world = World::new();
+    let world = crate::runtime_host::world::new();
     restore_runner_feedback_history(&mut runner, &world);
     let turn_id = runner
         .start_turn_with_request_context_and_observation(
@@ -631,7 +630,7 @@ fn native_provider_error_remains_failed_after_budget_wait_normalization() {
     );
     let mut runner = AsyncAgentRunner::new(16).expect("create target actor runner");
     runner.register(behavior).expect("register builtin actor");
-    let world = World::new();
+    let world = crate::runtime_host::world::new();
     restore_runner_feedback_history(&mut runner, &world);
     let turn_id = runner
         .start_turn_with_request_context_and_observation(

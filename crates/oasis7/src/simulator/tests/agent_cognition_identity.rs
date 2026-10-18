@@ -7,7 +7,7 @@
 use super::*;
 use crate::runtime::{
     AgentContinuation, AgentDecisionEnvelopeV1, MvccValidator, WakeConditionV1,
-    WakeConditionValidator, World,
+    WakeConditionValidator,
 };
 use crate::simulator::{
     AgentCognitionStore, AsyncAgentRunner, COGNITION_CAPABILITY_CATALOG_DOMAIN,
@@ -509,7 +509,7 @@ fn harness_finality_binding_rejects_unknown_status_and_missing_verified_hash() {
 #[test]
 fn runtime_finality_digest_type_rejects_unprefixed_block_hash() {
     let candidate = runtime_envelope_with_finality("verified", &"a".repeat(64));
-    let error = MvccValidator::validate(&World::new(), &candidate)
+    let error = MvccValidator::validate(&crate::runtime_host::world::new(), &candidate)
         .expect_err("runtime must reject an untyped finality block hash");
     assert_eq!(error.code(), "recovery_pending");
 }

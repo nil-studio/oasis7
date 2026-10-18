@@ -46,11 +46,11 @@ pub(super) fn assert_original_terminal(fixture: &Fixture, root: &Path) {
     let selected: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("hosted-wait-selected.json")).unwrap()).unwrap();
     let world = fixture.driver.lock().unwrap().execution_world.clone();
-    let continuations: Vec<oasis7::runtime::AgentContinuation> =
+    let continuations: Vec<oasis7_runtime::AgentContinuation> =
         serde_json::from_value(world.cognition_continuations()).unwrap();
     assert!(continuations.iter().any(|c| c.continuation_id
         == selected["continuation_id"].as_str().unwrap()
-        && c.status == oasis7::runtime::ContinuationStatusV1::Rejected));
+        && c.status == oasis7_runtime::ContinuationStatusV1::Rejected));
     assert!(world.active_cognition_continuations().unwrap().is_empty());
     assert!(world.cognition_in_flight_wakes().unwrap().is_empty());
 }
@@ -76,7 +76,7 @@ pub(super) fn recover_parent(
     );
     let checkpoint: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let pending = checkpoint["provider_scheduler_pending"].as_object().unwrap().values().find(|v| {
-        serde_json::from_value::<WorldServicePayloadV1>(v["payload"].clone()).is_ok_and(|payload| matches!(payload, WorldServicePayloadV1::Scheduler(signed) if matches!(signed.request.operation, SchedulerOperationV1::TransitionContinuation { to: oasis7::runtime::ContinuationStatusV1::Rejected, .. })))
+        serde_json::from_value::<WorldServicePayloadV1>(v["payload"].clone()).is_ok_and(|payload| matches!(payload, WorldServicePayloadV1::Scheduler(signed) if matches!(signed.request.operation, SchedulerOperationV1::TransitionContinuation { to: oasis7_runtime::ContinuationStatusV1::Rejected, .. })))
     }).expect("actual fixed signed rejection compensation checkpoint");
     let lookup = LookupIntentRequest {
         contract_version: 1,

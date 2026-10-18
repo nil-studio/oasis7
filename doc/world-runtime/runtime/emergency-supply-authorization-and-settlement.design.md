@@ -34,7 +34,7 @@
 | 对象 | 当前基线 | 目标状态 | 差距 / owner |
 | --- | --- | --- | --- |
 | 产品要求 | 上游已有四组稳定 REQ/AC 与 ES-1..8 组合验收。 | 每组要求有系统条款和可执行验收场景。 | 本文补齐设计承接，不新增产品真值。 |
-| 治理保护 | [治理入口](../../../crates/oasis7/src/runtime/world/governance.rs) 已有 emergency brake/veto。 | 保供授权有独立身份、范围、期限和政策输入。 | brake/veto 不构成保供资格；runtime_engineer / blockchain_ops_engineer。 |
+| 治理保护 | [治理入口](../../../crates/oasis7_runtime/src/world/governance.rs) 已有 emergency brake/veto。 | 保供授权有独立身份、范围、期限和政策输入。 | brake/veto 不构成保供资格；runtime_engineer / blockchain_ops_engineer。 |
 | 保供状态与结算 | 未验证；本次未完成所有实现路径与部署审计。 | 授权、冻结批次、请求、资源及 receipt 可联合恢复。 | 本文逻辑合同尚无对应 wire/schema 与专用集成测试；runtime_engineer。 |
 | 玩家与真实网络 | 未验证。 | 自己的结果、依据、未完成量与下一步在正式读面可核对。 | viewer_engineer / qa_engineer；不得由文档检查推导已交付。 |
 

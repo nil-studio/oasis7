@@ -252,6 +252,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "annotate-snippets"
+version = "0.12.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f211a51805bc641f3ad5b7664c77d2547af685cc33b4cd8d31964027a46f13f1"
+dependencies = [
+ "anstyle",
+ "memchr",
+ "unicode-width",
+]
+
+[[package]]
+name = "anstyle"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -305,6 +322,12 @@ dependencies = [
  "password-hash",
  "zeroize",
 ]
+
+[[package]]
+name = "arraydeque"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
 
 [[package]]
 name = "arrayref"
@@ -3550,6 +3573,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs_io"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fba3fe847045ecff794b9c138293a80db914678c453ad63fbf0c6a9eb6e00b22"
+dependencies = [
+ "encoding_rs",
+]
+
+[[package]]
 name = "epaint"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4314,6 +4346,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91"
 dependencies = [
  "bitflags 2.13.1",
+]
+
+[[package]]
+name = "granit-parser"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da55feca5d1625466bae068f9fd4b87892caeae70c3fe671ddb0f50d41aebf37"
+dependencies = [
+ "arraydeque",
+ "smallvec",
 ]
 
 [[package]]
@@ -6329,6 +6371,7 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_agent_harness",
  "oasis7_client_api",
+ "oasis7_client_storage",
  "oasis7_distfs",
  "oasis7_game_client",
  "oasis7_hosted_access",
@@ -6336,11 +6379,14 @@ dependencies = [
  "oasis7_node",
  "oasis7_observability",
  "oasis7_proto",
+ "oasis7_runtime",
+ "oasis7_simulator",
  "oasis7_wasm_abi",
  "oasis7_wasm_executor",
  "oasis7_wasm_materializer",
  "oasis7_wasm_router",
  "oasis7_wasm_store",
+ "oasis7_world_service",
  "rand_chacha",
  "rand_core 0.10.1",
  "reqwest 0.13.5",
@@ -6367,9 +6413,11 @@ name = "oasis7_agent_api"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "hex",
  "oasis7_wasm_abi",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -6415,9 +6463,12 @@ dependencies = [
  "oasis7_agent_harness",
  "oasis7_client_api",
  "oasis7_distfs",
+ "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_node",
  "oasis7_proto",
+ "oasis7_runtime",
+ "oasis7_simulator",
  "oasis7_wasm_abi",
  "oasis7_wasm_executor",
  "oasis7_wasm_router",
@@ -6459,6 +6510,7 @@ dependencies = [
  "oasis7",
  "oasis7_client_api",
  "oasis7_proto",
+ "oasis7_simulator",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -6484,6 +6536,26 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
+]
+
+[[package]]
+name = "oasis7_client_storage"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "chacha20poly1305 0.11.0",
+ "getrandom 0.4.3",
+ "hex",
+ "libc",
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_wasm_abi",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -6535,6 +6607,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "sha2 0.11.0",
+ "zstd",
 ]
 
 [[package]]
@@ -6554,17 +6627,12 @@ name = "oasis7_game_client"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "cap-fs-ext",
- "cap-std",
- "chacha20poly1305 0.11.0",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
- "libc",
- "oasis7",
  "oasis7_agent_api",
  "oasis7_client_api",
- "oasis7_distfs",
+ "oasis7_client_storage",
  "oasis7_formal_protocol",
  "oasis7_wasm_abi",
  "reqwest 0.13.5",
@@ -6610,6 +6678,8 @@ dependencies = [
  "oasis7_launcher_ui",
  "oasis7_model_provider",
  "oasis7_proto",
+ "oasis7_runtime",
+ "oasis7_simulator",
  "prost 0.13.5",
  "reqwest 0.13.5",
  "rusqlite",
@@ -6665,6 +6735,7 @@ dependencies = [
  "nix 0.31.3",
  "oasis7_context",
  "oasis7_secure_envelope",
+ "oasis7_signer_protocol",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -6754,7 +6825,10 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "oasis7",
+ "oasis7_agent_api",
  "oasis7_proto",
+ "oasis7_runtime",
+ "oasis7_simulator",
  "oasis7_wasm_abi",
  "reqwest 0.13.5",
  "serde",
@@ -6782,6 +6856,7 @@ dependencies = [
  "oasis7",
  "oasis7_letai_credit_adapter",
  "oasis7_observability",
+ "oasis7_simulator",
  "oasis7_wasm_abi",
  "reqwest 0.13.5",
  "serde",
@@ -6795,9 +6870,40 @@ name = "oasis7_provider_tools"
 version = "0.1.0"
 dependencies = [
  "oasis7",
+ "oasis7_agent_api",
+ "oasis7_simulator",
  "oasis7_wasm_abi",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "oasis7_runtime"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "ed25519-dalek",
+ "hex",
+ "hmac 0.13.0",
+ "libc",
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_distfs",
+ "oasis7_formal_protocol",
+ "oasis7_proto",
+ "oasis7_wasm_abi",
+ "oasis7_wasm_executor",
+ "oasis7_wasm_materializer",
+ "oasis7_wasm_router",
+ "oasis7_wasm_store",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "sha2 0.11.0",
+ "unicode-normalization",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6814,6 +6920,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "oasis7_signer_protocol"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "oasis7_simulator"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "hex",
+ "oasis7_agent_api",
+ "oasis7_wasm_abi",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "oasis7_viewer_runtime"
 version = "0.1.0"
 dependencies = [
@@ -6822,6 +6954,7 @@ dependencies = [
  "oasis7",
  "oasis7_agent_api",
  "oasis7_client_api",
+ "oasis7_simulator",
  "oasis7_wasm_abi",
  "reqwest 0.13.5",
  "serde",
@@ -6900,6 +7033,36 @@ dependencies = [
  "oasis7_wasm_abi",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "oasis7_world_service"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "chacha20poly1305 0.11.0",
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "hex",
+ "libc",
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_client_storage",
+ "oasis7_distfs",
+ "oasis7_game_client",
+ "oasis7_proto",
+ "oasis7_runtime",
+ "oasis7_wasm_abi",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_cbor",
+ "serde_ignored",
+ "serde_json",
+ "sha2 0.11.0",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -8554,6 +8717,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scenario_test_runner"
+version = "0.1.0"
+dependencies = [
+ "oasis7_simulator",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8644,6 +8817,20 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-saphyr"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a253edfdea34032da21af84e16fcc94f4c7a6ba237f9f3bc2dbf43cea8535c44"
+dependencies = [
+ "annotate-snippets",
+ "encoding_rs_io",
+ "granit-parser",
+ "num-traits",
+ "serde_core",
+ "smallvec",
 ]
 
 [[package]]
