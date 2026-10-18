@@ -1,16 +1,10 @@
+import { readFileSync } from "node:fs";
+import { scheduleRecipeQuotes } from "./schedule_recipe_quote_fixture.js";
 import { fireEvent, render, screen, within } from "@solidjs/testing-library";
 import { describe, expect, it, vi } from "vitest";
 import { ScheduleRecipeQuoteCard, ScheduleRecipeQuotePanel } from "./schedule_recipe_quote_card.jsx";
 
-const normalQuote = {
-  owner_agent_id: "agent-0", factory_id: "factory-0", recipe_id: "assemble_hardware", batches: 2,
-  base_duration_ticks: 6, electricity_cost: 12, electricity_after: 88, hardware_cost: 4,
-  data_output: 8, finished_product_id: "hardware", finished_product_units: 2,
-  local_shortage_delay_ticks: 0, shortage_reason: "none", recommended_pre_step: "schedule_now",
-  runway_before_ticks: 40, runway_after_ticks: 40, downtime_threshold_ppm: 250000,
-  continue_production_risk: "normal", maintenance_pressure_delta: "unchanged",
-  recommended_maintenance_action: "none",
-};
+const normalQuote = scheduleRecipeQuotes.low;
 
 function tr(locale, zh, en) { return locale === "zh" ? zh : en; }
 
@@ -30,6 +24,33 @@ describe("ScheduleRecipeQuoteCard", () => {
     expect(within(card).queryByText("Data output")).not.toBeInTheDocument();
     expect(within(card).getByText(/Maintenance: not tracked for this quote/i)).toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: /schedule|submit|commit/i })).not.toBeInTheDocument();
+  });
+
+  it.each(["zh", "en"])("renders producer risk and recovery tokens in %s", (locale) => {
+    for (const risk of ["low", "elevated"]) {
+      const { unmount } = render(() => <ScheduleRecipeQuoteCard quote={scheduleRecipeQuotes[risk]} locale={locale} tr={tr} />);
+      const warning = screen.getByTestId("schedule-recipe-quote-risk");
+      const recommendation = screen.getByTestId("schedule-recipe-quote-recommendation");
+      expect(warning).toHaveTextContent(risk === "low" ? tr(locale, "低电力风险", "Low power risk") : tr(locale, "电力风险升高", "Elevated power risk"));
+      expect(recommendation).toHaveTextContent(risk === "low" ? tr(locale, "可安排生产", "Schedule production now") : tr(locale, "先恢复电力，再安排生产", "Restore power before scheduling production"));
+      expect(warning.classList.contains("feedback-summary--warn")).toBe(risk === "elevated");
+      expect(recommendation.classList.contains("feedback-summary--warn")).toBe(risk === "elevated");
+      unmount();
+    }
+  });
+
+  it("keeps the shared fixture vocabulary aligned with the Rust producer", () => {
+    const producer = readFileSync("../oasis7_simulator/src/kernel/actions_schedule_quote.rs", "utf8");
+    expect(producer).toContain('if risk_is_elevated { "elevated" } else { "low" }');
+    for (const quote of Object.values(scheduleRecipeQuotes)) {
+      expect(producer).toContain(`"${quote.recommended_pre_step}"`);
+    }
+  });
+
+  it.each(["zh", "en"])("keeps unknown tokens conservative in %s", (locale) => {
+    render(() => <ScheduleRecipeQuoteCard quote={{ ...normalQuote, continue_production_risk: "future_risk", recommended_pre_step: "future_step" }} locale={locale} tr={tr} />);
+    expect(screen.getByTestId("schedule-recipe-quote-risk")).toHaveTextContent(tr(locale, "电力风险待确认", "Power risk pending"));
+    expect(screen.getByTestId("schedule-recipe-quote-recommendation")).toHaveTextContent(tr(locale, "重新请求预估后再决定", "Request a fresh quote before deciding"));
   });
 
   it.each(["critical", "shutdown"])("warns before neutral metrics for %s power risk", (continueProductionRisk) => {

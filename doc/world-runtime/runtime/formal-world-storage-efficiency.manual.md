@@ -3,7 +3,7 @@
 - 状态：active；本文是目标验收步骤，不表示相应实现、测试入口或生产能力已交付。
 - Owner：runtime_engineer；共同执行/审读：qa_engineer、blockchain_ops_engineer、wasm_platform_engineer。
 - 设计权威：[正式无损存储设计](formal-world-storage-efficiency.design.md#des-lws-001)；产品结果见[完整世界历史与无损存储](../../product/world-infrastructure/lossless-world-history-storage.prd.md#lws-acceptance)。
-- 文档输入：`nil-studio/oasis7@4220622fde069346a828d42572eea61c0073d95e` 上本 PR 候选。本次仅定义手册，未运行以下场景、迁移实际数据或测量容量。
+- 初始设计输入：`nil-studio/oasis7@4220622fde069346a828d42572eea61c0073d95e`；该初始交付仅定义目标手册。后续自动化入口见下节，实际运行与未覆盖范围由对应实施 PR 和 workflow run 记录。
 
 <a id="lws-validation-use"></a>
 ## 1. 使用前提与结果范围
@@ -24,6 +24,32 @@
 本手册 `passed` 只表示该固定场景的预期满足；`failed` 表示结果违反合同；`blocked` 表示条件尚不能判定；`not_run` 表示未执行。它们是验证记录用语，不替代原运行时的 committed/unknown、服务资格或业务结果。required 局部、full 真实集成、独立故障域及平台耐久性分别记录，不相互代签。
 
 按本次实际启用子集选择场景：S0–S3 物理优化可独立验收/部署，S4 完整 delta 和 S5 Merkle v2 可分别后置。物理阶段仍须证明原材料恢复后的新工作连续；非空 delta 与 v2 未启用时独立标未验证，不用完整 T snapshot 或 v1 成功代签，也不将它们捆成物理优化前置。
+
+<a id="lws-manual-ci"></a>
+### 1.1 手动存储专项 CI
+
+仓库 Actions 的 **Storage Acceptance**（[workflow](../../../.github/workflows/storage-acceptance.yml)）只有 `workflow_dispatch` 入口，不改变普通 PR 的 required checks、生产权限或部署。选择待测分支后固定该次 `github.sha`；producer 构建一次 native executables，消费者核对同 run 的 source、二进制 hash、实际测试清单与依赖闭包。无生产凭据，不接入现有世界。
+
+```bash
+gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
+  -f capacity_scale=10 -f repeat_faults=1
+```
+
+| 默认组 | 自动化覆盖与判定 |
+| --- | --- |
+| units | CAS、正式协议、DistFS、Runtime、World Service 的普通测试及链运行时存储相关测试；覆盖原字节、压缩/range、损坏、迁移/物理代、reader pin/GC、完整 delta、Merkle v2、冷历史与 native 闭包的实际测试清单 |
+| runtime-protocol / world-history / healthy-set / storage-recovery / lifecycle-cli | 复用正式进程分片，包括 Node/P/R、丢回复、SIGKILL、原请求续做、冷恢复、70 请求历史与边界重开、full sync、授权/epoch/副本集转换；分片覆盖从现行清单计算，不复制容易漂移的过滤名单 |
+| capacity-10 | 实际 World/profile2 的 10 高度对象语料；两目录分别重建与全量精确读回，输出 raw/优化 allocated、完整/range 热读分布和语料增长点 |
+| disk-full | 在独立私有 64MiB tmpfs 中写至真实 ENOSPC，调用生产物理发布 API，核对旧对象/selector/inode 不变；释放空间后重开、重试并精确读回，最后卸载该专属文件系统 |
+| network-delay / network-loss | 对固定的真实 RPC/原请求恢复子集施加 loopback netem；delay 为 2ms±1ms，loss 档另含 0.2% 丢包、0.1% 重复与 1% 乱序。要求实际流量，loss 档还要求观察到 drop；保存 kernel/参数/计数并清除本 job 的专属 qdisc |
+
+`repeat_faults=1/2/3` 只改变每档网络故障子集的重复次数；每个结果均保留，失败后不自动重试覆盖。`capacity_scale=1000/10000` 在默认组外增加该真实高度长跑；默认 10 不意味着已覆盖更大规模。为兼容 Ubuntu 24.04 的 iproute2，网络模型不设置新版工具的 PRNG seed；固定的是故障参数，重复运行不保证同一包序列，须保留实际 kernel/计数及原始失败；loopback 注入不是生产网络性能基准，参见 [netem 手册](https://man7.org/linux/man-pages/man8/tc-netem.8.html)。
+
+固定预算：矩阵最多并行 3 组；普通消费者最长 150 分钟；可选容量 job 最长 360 分钟，内部执行预算 18,000 秒、外层 case 截止 19,000 秒。容量源语料每域逻辑上限 4GiB，shadow 每步默认 64MiB，保留产品 1GiB 单步硬限制；磁盘可用空间下限 3GiB。fixture、原始表示、优化表示和元数据的实际占用可能先触达磁盘预算。1k/10k 不保证在 hosted runner 的 6 小时内完成，预算耗尽必须保留 partial 进度并使本次失败，不能把较小高度结果改为目标规模通过。
+
+消费者保留实际 selected inventory、artifact manifest、逐 case 原始日志、JSONL 判定、容量 report/progress、资源采样与故障计数；结果 artifact 保留 14 天，构建包保留 2 天。资源报告区分采样的进程集合 RSS 与精确峰值；容量原生工件归档、设备写入/写放大和生产提交延迟未测时继续明确为空。汇总要求所有预期 label、完整 case 数、原返回码和 cleanup 都成功；缺失、取消、超时、零测试、缺报告、未知 job 状态或未清除故障不能通过。可选长跑未选择时单独标 not_run，不影响已选择组的真实结果。
+
+**证明边界**：这套 CI 是同机故障模型及对象命名空间验收；disk-full 是真实 tmpfs 空间耗尽，不是物理块设备故障。现有单元错误注入不冒充真实块设备 ENOSPC/fsync 故障演练；未加入真实跨版本 shipping 升级/回退组合、独立 Agent 自主试玩、硬件掉电或真实双独立故障域。S6、完整设备 I/O、目标规模与其他尚无完整入口的条款分别保持未验证，不能由整个 workflow 绿色代签。
 
 <a id="v-lws-history"></a>
 ## 2. V-LWS-HISTORY：全历史、冷热与检查点覆盖

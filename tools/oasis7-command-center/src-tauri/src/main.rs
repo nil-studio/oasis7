@@ -25,7 +25,6 @@ fn main() {
         .setup(|app| {
             let directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&directory)?;
-            app.manage(Host::open(directory.join("command-center.sqlite"))?);
             app.manage(context_commands::ContextHost::open(
                 directory.join("command-center.sqlite"),
             )?);
@@ -37,6 +36,10 @@ fn main() {
             )?;
             app.manage(tools);
             app.manage(runtime);
+            app.manage(Host::open_with_runtime_privacy(
+                directory.join("command-center.sqlite"),
+                directory.join("command-center-runtime.sqlite"),
+            )?);
             let show = MenuItem::with_id(app, "show", "打开指挥中心", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出指挥中心", true, Some("CmdOrCtrl+Q"))?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -120,6 +123,12 @@ fn main() {
             runtime_commands::start_private_runtime_turn,
             commands::open_project,
             commands::query_view,
+            commands::cancel_source_reads,
+            commands::import_sign_context,
+            commands::add_worktree_reference,
+            commands::read_github_window,
+            commands::query_daily_work,
+            commands::save_daily_work,
             commands::query_work_projection,
             commands::refresh_work_checks,
             commands::search_rules,
@@ -131,6 +140,8 @@ fn main() {
             commands::reset_document_tree_reading,
             commands::load_document_tree_last_view,
             commands::save_decision_draft,
+            commands::replace_decision,
+            commands::query_decision_history,
             commands::save_preference,
             commands::read_source,
             commands::refresh_source,
@@ -146,6 +157,9 @@ fn main() {
             runtime_commands::set_runtime_enabled,
             runtime_commands::connect_runtime,
             runtime_commands::create_runtime_session,
+            runtime_commands::start_work,
+            runtime_commands::query_start_work_records,
+            runtime_commands::get_public_runtime,
             runtime_commands::continue_runtime_session,
             runtime_commands::start_runtime_turn,
             runtime_commands::steer_runtime_turn,

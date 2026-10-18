@@ -86,6 +86,12 @@ pub struct WorkSource {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkProjection {
+    #[serde(default)]
+    #[ts(optional)]
+    pub view_revision: Option<String>,
+    #[serde(default)]
+    #[ts(optional, type = "number | null")]
+    pub personal_revision: Option<u64>,
     pub schema_version: u32,
     pub project_id: String,
     pub environment: String,
@@ -127,8 +133,12 @@ pub fn project_work(
             let evidence = SourceFact {
                 source: reference.clone(),
                 revision: Some(pull.head_oid.clone()),
-                verified_at: github.observed_at.clone(),
-                event_at: None,
+                verified_at: pull
+                    .metadata
+                    .as_ref()
+                    .map(|m| m.observed_at.clone())
+                    .or_else(|| github.observed_at.clone()),
+                event_at: pull.metadata.as_ref().and_then(|m| m.merged_at.clone()),
                 read_at: read_at.into(),
                 coverage: github.coverage.clone(),
             };
@@ -221,6 +231,8 @@ pub fn project_work(
         }
     }
     Ok(WorkProjection {
+        view_revision: None,
+        personal_revision: None,
         schema_version: 1,
         project_id: project.id.clone(),
         environment: project.environment.clone(),

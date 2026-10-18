@@ -226,17 +226,36 @@ pub(super) fn read_before_deadline<T: serde::de::DeserializeOwned>(
     remaining(deadline)?;
     serde_cbor::from_slice(&bytes).map_err(|error| invalid(error.to_string()))
 }
+#[cfg(test)]
 pub(super) fn write_before_deadline<T: Serialize>(
     stream: &mut TcpStream,
     value: &T,
     deadline: Instant,
 ) -> Result<(), FormalError> {
+    let bytes = prepare_before_deadline(value, deadline)?;
+    write_prepared_before_deadline(stream, &bytes, deadline)
+}
+
+fn prepare_before_deadline<T: Serialize>(
+    value: &T,
+    deadline: Instant,
+) -> Result<Vec<u8>, FormalError> {
+    remaining(deadline)?;
     let bytes = serde_cbor::to_vec(value).map_err(|error| invalid(error.to_string()))?;
     if bytes.len() > LIMIT {
         return Err(invalid("formal RPC bounded frame"));
     }
+    remaining(deadline)?;
+    Ok(bytes)
+}
+
+fn write_prepared_before_deadline(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    deadline: Instant,
+) -> Result<(), FormalError> {
     let header = (bytes.len() as u32).to_be_bytes();
-    for mut remaining_bytes in [&header[..], &bytes[..]] {
+    for mut remaining_bytes in [&header[..], bytes] {
         while !remaining_bytes.is_empty() {
             stream
                 .set_write_timeout(Some(remaining(deadline)?))
@@ -250,6 +269,33 @@ pub(super) fn write_before_deadline<T: Serialize>(
     }
     Ok(())
 }
+
+pub(super) fn connect_and_write_before_deadline<T: Serialize>(
+    address: &SocketAddr,
+    value: &T,
+    deadline: Instant,
+) -> Result<TcpStream, FormalError> {
+    connect_and_write_using(address, value, deadline, TcpStream::connect_timeout)
+}
+
+fn connect_and_write_using<T: Serialize>(
+    address: &SocketAddr,
+    value: &T,
+    deadline: Instant,
+    connect: impl FnOnce(&SocketAddr, Duration) -> std::io::Result<TcpStream>,
+) -> Result<TcpStream, FormalError> {
+    // Finish local encoding before the peer begins its first-read timeout.
+    // The caller's one absolute deadline includes this preparation.
+    let bytes = prepare_before_deadline(value, deadline)?;
+    let mut stream = connect(address, remaining(deadline)?).map_err(io)?;
+    configure(&stream, remaining(deadline)?)?;
+    write_prepared_before_deadline(&mut stream, &bytes, deadline)?;
+    Ok(stream)
+}
+
+#[cfg(test)]
+#[path = "wire_encode_order_tests.rs"]
+mod encode_order_tests;
 
 #[cfg(test)]
 mod deadline_tests {

@@ -104,7 +104,8 @@ fn chinese_dirty_index_survives_restart_and_cache_rebuild() {
             confirmed: true,
         })
         .unwrap();
-    assert_ne!(reconfirmed.confirmed_at.as_deref(), Some("1"));
+    // Editing wording/reason preserves the original confirmation; replacement gets a new identity.
+    assert_eq!(reconfirmed.confirmed_at.as_deref(), Some("1"));
     assert_eq!(reconfirmed.reason, "更新理由");
     std::fs::write(
         repo.join("doc/prd.md"),

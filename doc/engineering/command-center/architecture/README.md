@@ -84,7 +84,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 - ARCH-06：局部双端持久证明不等于正式 CommitRef，若干原子发布切片不等于整个 World 的根事务；同机双目录不能证明独立故障域。
 - ARCH-07：已有 execution bridge v3、CAS、sidecar、retention/GC/replay 的实现合同；[本地恢复边界](../../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-accept-service-boundary)不证明分布式可得性或完整灾备。
 
-ARCH-07 局部实现候选核对（2026-10-18，仅 [PR #4870](https://github.com/nil-studio/oasis7/pull/4870)）：[当前实施与退出条件](../../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)涵盖原字节共享压缩、事务物理代、发布后独立闭包读回与 attempt 回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生执行工件。新世界直接创建新物理表示；逻辑身份、独立持久条件与重新服务权限不因 codec 改变。候选已取得局部容量与恢复证据，长历史进程门禁仍待收口；准确版本、范围和读取代价由实施 PR 记录，不能外推规模或生产延迟。该候选尚未合入，当前无部署节点，S6 真实双故障域与更大规模验收未执行；其他架构和环境基线不变。
+ARCH-07 局部实现核对（2026-10-18）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入[当前存储实现](../../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)，覆盖共享压缩、事务物理代、独立闭包读回与 attempt 回收、完整增量、Merkle v2、任务控制冷链和原生工件。新世界直接创建新物理表示；codec 不改变逻辑身份、独立持久条件或服务权限。已验证版本有局部容量和同机恢复证据；后续按[手动专项入口](../../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)逐场景核对网络模型、资源预算与所选规模，具体运行不外推生产延迟。当前无部署节点，真实双故障域和更大规模未完成验收；其他架构及环境基线不变。
 
 节点生命周期实现（2026-10-17 核对）：[PR #4683](https://github.com/eng-cc/oasis7/pull/4683) 接通原请求持久恢复、健康集合转换与可续做节点生命周期；本机验证范围和平台/部署 TODO 见[实施边界](../../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)。代码已合入（`da890a9125a435969b82f5a14ab3c9143cc0690e`）；具体历史验证范围以实施 PR 与 runbook 为准，当前部署与独立故障域未核验。
 

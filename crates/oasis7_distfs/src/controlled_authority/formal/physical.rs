@@ -547,3 +547,7 @@ use paths::sync;
 #[path = "physical_staging.rs"]
 mod staging;
 pub(super) use staging::{preflight as staging_preflight, reclaim as reclaim_staging};
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "physical_enospc_tests.rs"]
+mod enospc_tests;

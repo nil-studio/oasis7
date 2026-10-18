@@ -81,7 +81,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 2026-10-12 目标设计收敛：[原候选恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 固定执行前完整材料与原请求重放；[正式权威 v1](../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 和 [epoch 接管](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 明确激活、普通证明消费者及旧写者隔离顺序。下一步按这些主责合同实现与验证；现有工程证明、离线 verifier 和本地双目录仍不足以完成正式开放。
 
-存储优化局部候选核对（2026-10-18，仅 [PR #4870](https://github.com/nil-studio/oasis7/pull/4870)）：原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包已在该候选实现并完成局部验证，长历史进程门禁仍待收口。固定小规模对象命名空间样本已测得显著空间收益，同时有读取成本；准确版本、收益与分布见实施 PR。当前没有部署节点，真实独立双故障域与更大规模验收未执行。候选尚未合入，不扩大 main 的已交付或部署结论；下一步按[当前实施与退出门槛](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)修复并完成适用验证，本段不刷新其他主线或环境的核验时间。
+存储实现边界核对（2026-10-18）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。
 
 ### 2. 真实首产物、阻塞恢复与回访
 
@@ -162,6 +162,12 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 以 `main@0ec10379419b0aaedb9d16157b81c92f4e6e3495` 核对产品、系统设计与实现入口。目标仍是“首页看清重点—统一工作详情—接续原工具或自管执行—回看结果”；[产品需求](command-center.prd.md#REQ-CC-013)补齐首页字段、动作和异常状态，[关联需求](command-center.prd.md#REQ-CC-014)约定复用、修复与跨视图接续，[待处理需求](command-center.prd.md#REQ-CC-006)区分真实输入、已决定事项与同步缺口。[系统设计](command-center.design.md)承接工作投影、来源时效、持久化兼容及并发读取；工具和文档阅读分别沿[任务入口](local-tools.design.md#DES-CC-TOOLS-005)与[主题阅读](document-tree.design.md#DES-CC-TREE-004)调整。
 
 已有原文视图、手工关联和实验 runtime 是实现基础；首页现有[来源阅读降级入口](../../../tools/oasis7-command-center/ui/src/SummarySources.tsx)仍不能替代四区投影、统一工作详情及[完整用户任务](command-center.prd.md#cc-product-acceptance)。具体范围见[差距表](command-center.design.md#1104-日常工作闭环的实现差距)。以上是设计目标与源码观察，不表示功能实现、PR 合入、桌面或性能验收，不刷新其他目标、PR 与环境事实。Apple 签名/管理员集成的已有暂停继续有效。
+
+### 日常工作闭环实现候选（2026-10-18）
+
+[Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 的四区、共享工作详情、关联修复、决定同步/历史、外部定位、一次明确发起、主题阅读与任务工具增量已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现。本轮本地 Rust 212 项、UI 160 项通过；macOS 原生已核对三项实际 PR、处理/回看、完整重开、窄窗口及受控协议请求一次回复。详细来源、版本、耗时及证明限制见[验证记录](daily-work-verification.manual.md)。
+
+真实 IME 候选及 VoiceOver 当前未验证，用户表示暂无法验证；因此 Issue 保留开放，基础产品不宣称全部验收通过。实施 PR 的实际 CI/合入状态拥有交付结论；本段不刷新其他主线、节点或部署事实，也不扩大模型、Apple 签名及管理员授权。
 
 ### 文档全局树设计（2026-10-13，文档范围）
 

@@ -6,9 +6,9 @@
 - module：`engineering`
 - 上位产品文档：[engineering 主 PRD](../prd.md#PRD-ENGINEERING-034)
 - 配对系统设计：[指挥客户端系统设计](command-center.design.md)
-- 更新日期：2026-10-17
+- 更新日期：2026-10-18
 - 初始设计基线：项目 `main@7039bc376882ab8f84f88ca014f6d7ce642539a8`；技术方案 `56a33562436ffa4b65a66d05e61f26a849b16728`。
-- 本轮实现核对基线：`main@0ec10379419b0aaedb9d16157b81c92f4e6e3495`；设计和实现分别说明，核对范围见[功能状态证据边界](#cc-product-evidence-baseline)。
+- 本轮实现核对基线：`52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6`；[日常闭环验证记录](daily-work-verification.manual.md)区分源码、原生交互、受控回放与未验收项。
 - 初始设计交付记录：[PR #4518](https://github.com/eng-cc/oasis7/pull/4518)；本轮在该设计之上收敛日常工作闭环，当前实现差距见系统设计 §11。
 
 本文定义 oasis7 开发指挥客户端的用户价值、行为、范围和验收条件。局部实现及未证明范围见系统设计 §11；文档状态不代表全部能力已经验收或发布。组件、协议、持久化及技术选型由配对系统设计承接。项目动态事实从[项目状态](README.md)及其来源读取，持续维护方法见[流程手册](command-center.manual.md)。
@@ -103,9 +103,9 @@
 
 ### 核对基线与证据范围
 
-核对日期为 2026-10-17，需求基线为本文件本次设计修订，实现基线为 [`main@0ec10379419b0aaedb9d16157b81c92f4e6e3495`](https://github.com/nil-studio/oasis7/tree/0ec10379419b0aaedb9d16157b81c92f4e6e3495/tools/oasis7-command-center)。以下实现链接定位该基线的对应源码入口；本次在 Linux 环境核对文档与代码，没有执行真实 macOS 页面、图形往返或模型任务验收。源码与已有自动化入口支持“存在何种基础”的判断，不证明整个用户任务已通过。
+2026-10-17 的设计核对保留在 Git 历史。2026-10-18 实现候选为 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6`；本轮 macOS 26.5 arm64 原生 App、Rust/UI 回归、来源窗口、受控协议样本与耗时见[验证记录](daily-work-verification.manual.md)。三项真实 PR 仅证明各自合入事实；两个同分支历史与输入请求明确使用受控回放，不冒充模型或外部 App 的实际执行。
 
-历史基础实现入口见 [PR #4533 的原始记录](https://github.com/nil-studio/oasis7/pull/4533#issuecomment-6162418199)，其结论仍只限原版本与样本。新增页面和状态合同尚无完整实现/真实 App 验收记录；设计覆盖、实现交付与证据限制分别保留在对应要求及[系统验证映射](command-center.design.md#cc-system-verification)。状态卡中的“未核实”不表示能力不存在，而是未对该条全部适用义务形成当前基线结论。
+本轮补齐日常工作实现；真实 IME 候选和 VoiceOver 尚未验证，用户于 2026-10-18 表示暂时无法验证，因此 [Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 保留开放，不宣称完整 AC-CC-010/整体验收通过。Apple 签名/管理员集成仍暂停；不扩大部署、公证、额外模型或其他环境的结论。基础历史来源仍见 [PR #4533](https://github.com/nil-studio/oasis7/pull/4533#issuecomment-6162418199)。
 
 <a id="REQ-CC-001"></a>
 
@@ -125,10 +125,10 @@ Trace ID: O7-REQ-6e70287f-a156-4544-997d-5c1752e5efde
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-001](command-center.design.md#DES-CC-001)。
-- 实现状态：部分实现
-- 实现与验证依据：[项目与个人上下文](../../../tools/oasis7-command-center/core/src/lib.rs)已有本地打开和工作树隔离。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：跨工作树总览、配置折叠与工作级恢复尚未完整实现；AC-CC-001 的真实 App 范围未重新验证。
+- 实现状态：已实现待验证
+- 实现与验证依据：显式同仓工作树阅读引用保留原执行身份，项目设置折叠，工作/筛选/普通草稿恢复。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：真实 IME/读屏尚待补齐；跨平台和全部来源规模没有扩大保证。
 
 <a id="REQ-CC-002"></a>
 
@@ -158,10 +158,10 @@ Trace ID: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-002](command-center.design.md#DES-CC-002)。
-- 实现状态：部分实现
-- 实现与验证依据：[GitHub 来源](../../../tools/oasis7-command-center/core/src/github.rs)已有有限窗口和失败保留。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：逐字段时效/冲突解释、完整局部刷新反馈及慢来源隔离尚待实现和验证。
+- 实现状态：已实现待验证
+- 实现与验证依据：逐字段 SourceFact、REST 分页/已知 PR 补读、旧摘要与实际合入冲突、来源隔离及慢源/取消回归。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：本次 REST 窗口有限，实际测试对象缺 receipt 仍未知；不推断部署或全仓完成。
 
 <a id="REQ-CC-003"></a>
 
@@ -208,10 +208,10 @@ Trace ID: O7-REQ-eb004bfb-41c7-4e8f-aa5b-1f52cec6cf08
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-004](command-center.design.md#DES-CC-004)。
-- 实现状态：部分实现
-- 实现与验证依据：[决定存储](../../../tools/oasis7-command-center/core/src/lib.rs)和[声明读取](../../../tools/oasis7-command-center/core/src/index.rs)已有草稿、确认和显式后继基础。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：决定版本与同步证据的独立状态、证据核实和待同步关闭尚待实现。
+- 实现状态：已实现待验证
+- 实现与验证依据：两条同步轨道、具体版本证据、部分范围/剩余项、决定替代与原确认时间/完整历史、旧版回退冲突保护。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：用户需明确核实适用范围；自动化不判断实现语义，IME/读屏待补。
 
 <a id="REQ-CC-005"></a>
 
@@ -244,10 +244,10 @@ Trace ID: O7-REQ-a6126ad0-2f2d-47ad-a504-5e9ceff92cff
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-005](command-center.design.md#DES-CC-005)。
-- 实现状态：部分实现
-- 实现与验证依据：[执行界面](../../../tools/oasis7-command-center/ui/src/App.tsx)和[自管连接](../../../tools/oasis7-command-center/ui/src/RuntimePanel.tsx)分别提供 PR/CI 与有限会话信息。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：统一工作详情、已有外部现场接续、主动作与跨视图返回尚待实现和真实 App 验证。
+- 实现状态：已实现待验证
+- 实现与验证依据：首页/执行/待处理共用 WorkRef 工作详情，外部定位、实际运行实例及两个目标关系分别保留。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：外部定位只有复制/打开能力，不接管控制；其他来源需要明确接入。
 
 <a id="REQ-CC-006"></a>
 
@@ -279,10 +279,10 @@ Trace ID: O7-REQ-649217d9-4c9c-43fb-898e-4fd3606a0bf5
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-006](command-center.design.md#DES-CC-006)。
-- 实现状态：部分实现
-- 实现与验证依据：[运行时请求](../../../tools/oasis7-command-center/ui/src/RuntimePanel.tsx)有真实请求入口；[当前待处理视图](../../../tools/oasis7-command-center/ui/src/App.tsx)仍包含已确认决定。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：真实请求、补核和决定同步的分组计数及可闭合历史尚待实现；已确认不等于再次待批准。
+- 实现状态：已实现待验证
+- 实现与验证依据：个人问题与真正 runtime 请求分离；回答、来源已处理、待核实和历史不互相冒充。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：原工具个人陈述不替代源回执；实际 IME/读屏仍缺。
 
 <a id="REQ-CC-007"></a>
 
@@ -306,10 +306,10 @@ Trace ID: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-007](command-center.design.md#DES-CC-007)。
-- 实现状态：部分实现
-- 实现与验证依据：[RuntimePanel](../../../tools/oasis7-command-center/ui/src/RuntimePanel.tsx)已有分步建立会话、输入和有限反馈。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：继承上下文、实际输入预览、一次明确发送及部分成功/未知的工作级反馈尚待实现。
+- 实现状态：已实现待验证
+- 实现与验证依据：目的/范围/输入预览、持久单次意图、原 thread/start 与 turn/start 子操作、未知停止与原操作核对。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：本轮使用受控协议 fixture，无付费模型或生产执行证明；保持默认关闭。
 
 <a id="REQ-CC-008"></a>
 
@@ -323,10 +323,10 @@ Trace ID: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55
 
 - 系统设计状态：未核实
 - 系统设计依据：[DES-CC-008](command-center.design.md#DES-CC-008)保留不确定操作与恢复合同；本次不改变该合同或重作完整覆盖判定。
-- 实现状态：未核实
-- 实现与验证依据：[操作与恢复实现](../../../tools/oasis7-command-center/core/src/codex/mod.rs)及[现有回放测试](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)可定位；本次没有运行完整故障或原生恢复验收。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：后续单次发送须复验既有未知不重发与原实例绑定，不能由本次设计修订推定 AC-CC-008 已通过。
+- 实现状态：已实现待验证
+- 实现与验证依据：失回执、重启不重放、超展示窗口未决防护及原 ledger 核实恢复已回归。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：故障证明来自确定性协议回放，不替代全部真实上游故障与跨崩溃执行支持。
 
 <a id="REQ-CC-009"></a>
 
@@ -342,10 +342,10 @@ Trace ID: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55
 
 - 系统设计状态：未核实
 - 系统设计依据：[DES-CC-009](command-center.design.md#DES-CC-009)保留窗口、退出与所有权合同；本次未重作完整生命周期覆盖判定。
-- 实现状态：未核实
-- 实现与验证依据：[运行宿主入口](../../../tools/oasis7-command-center/src-tauri/src/runtime_commands.rs)和[现有退出测试](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)可定位；无本基线完整 macOS 退出记录。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：工作级返回不得改变原运行生命周期；菜单栏、活跃/未知退出及异常恢复仍需对应实际环境证据。
+- 实现状态：已实现待验证
+- 实现与验证依据：原生安全空闲完整退出、普通草稿重开恢复及运行生命周期回归。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：活跃/未知故障主要由回放证明，不能外推所有系统版本；本轮不改外部运行所有权。
 
 <a id="REQ-CC-010"></a>
 
@@ -369,10 +369,10 @@ Trace ID: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-010](command-center.design.md#DES-CC-010)。
-- 实现状态：部分实现
-- 实现与验证依据：[现有界面](../../../tools/oasis7-command-center/ui/src/App.tsx)、[样式](../../../tools/oasis7-command-center/ui/src/style.css)和[输入测试](../../../tools/oasis7-command-center/ui/src/App.test.tsx)提供基础交互。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：任务信息层级、就地反馈与完整跨视图焦点返回待实现；真实 IME、VoiceOver、窄窗口与性能未由源码核对证明。
+- 实现状态：已实现待验证
+- 实现与验证依据：四区和统一详情、可读正文、局部状态、键盘焦点及原生窄窗口/长身份已核对。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：真实 IME 候选和 VoiceOver 暂无法验证；保持 #4848 开放，首次加载单独记录。
 
 <a id="REQ-CC-011"></a>
 
@@ -386,10 +386,10 @@ Trace ID: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245
 
 - 系统设计状态：未核实
 - 系统设计依据：[DES-CC-011](command-center.design.md#DES-CC-011)保留个人数据、私有输入和恢复边界；本次未重作全量隐私设计审计。
-- 实现状态：未核实
-- 实现与验证依据：[持久化](../../../tools/oasis7-command-center/core/src/lib.rs)、[资料隔离测试](../../../tools/oasis7-command-center/core/tests/context.rs)与[未决操作测试](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)可定位；未在本基线重跑完整隐私验收。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：新工作投影及返回路径必须验证不会复制私有内容或删除个人/未决数据；不因补文档扩大旧证据范围。
+- 实现状态：已实现待验证
+- 实现与验证依据：独立版本 personal 分组、SQLite v2、双 DB 私有标记过滤、后变私有记录隐藏、旧 App 内容保留及未决意图防重放回归。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：私有正文仍只在原隔离入口使用；本轮不证明新平台或全机数据管理。
 
 <a id="REQ-CC-012"></a>
 
@@ -407,10 +407,10 @@ Trace ID: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245
 
 - 系统设计状态：未核实
 - 系统设计依据：[DES-CC-012](command-center.design.md#DES-CC-012)保留可选实验、停用和发布等级合同；本次未重新评定连接器生产支持。
-- 实现状态：未核实
-- 实现与验证依据：[自管连接器](../../../tools/oasis7-command-center/core/src/codex/mod.rs)有默认关闭与受限版本入口；本次未重新执行启停或真实模型验证。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：保持默认不运行与实验等级；新交互仍需在启用、停用和活跃/未知范围内验证，不能以未启用代替。
+- 实现状态：已实现待验证
+- 实现与验证依据：基础首页/PR/外部接续在实验关闭时可用；原生 fixture 明确启用后连接并一次发送/回复。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：真实模型、其他 CLI 版本、Apple 签名和管理员安装没有新增授权或验收。
 
 <a id="REQ-CC-013"></a>
 
@@ -439,10 +439,10 @@ Trace ID: O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-013](command-center.design.md#DES-CC-013)。
-- 实现状态：部分实现
-- 实现与验证依据：[SummarySources](../../../tools/oasis7-command-center/ui/src/SummarySources.tsx)提供摘要章节入口；[首页](../../../tools/oasis7-command-center/ui/src/App.tsx)仍以原文为主。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：四区投影、主动作、时间窗口与空/旧/冲突状态尚待实现；三项日常任务没有完整真实 App 验收。
+- 实现状态：已实现待验证
+- 实现与验证依据：首页四区、合计最多三项重点、事件比较基线、局部冲突、原 PR 直达及原生三任务路径。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：原生 IME/VoiceOver 仍待补；不以本轮局部数据推导总体进度或启动性能保证。
 
 <a id="REQ-CC-014"></a>
 
@@ -462,10 +462,10 @@ Trace ID: O7-REQ-fdf061f8-ebdf-46e3-91a5-a2311e2bcb93
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-014](command-center.design.md#DES-CC-014)。
-- 实现状态：部分实现
-- 实现与验证依据：[手工关联](../../../tools/oasis7-command-center/ui/src/App.tsx)与[存储](../../../tools/oasis7-command-center/core/src/lib.rs)能保留已确认 URL/章节关系。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：明确关系复用、候选解释、失效修复、原入口与工作级返回尚待实现。
+- 实现状态：已实现待验证
+- 实现与验证依据：工作内候选依据、多目标确认、修复/移除及历史、外部原定位和返回工作。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：标题相似不迁移关系，未读取/歧义的目标需明确核对；外部控制权不在本轮范围。
 
 <a id="REQ-CC-015"></a>
 
@@ -495,10 +495,10 @@ Apple 签名和管理员助手按用户 2026-10-12 指令暂缓，特权初装�
 
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-015](command-center.design.md#DES-CC-015)及[工具任务设计](local-tools.design.md#DES-CC-TOOLS-005)。
-- 实现状态：部分实现
-- 实现与验证依据：[LocalTools](../../../tools/oasis7-command-center/ui/src/LocalTools.tsx)已有资料、快照、CLI 与已有 signer 的基础入口。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：任务式入口、独立导出/恢复口令上下文、请求导入核对、就地反馈与安全返回尚待实现；暂停能力不属于实现承诺。
+- 实现状态：已实现待验证
+- 实现与验证依据：任务式本机工具、固定导出条目/整库、独立口令/过期清理、严格 SignContext 导入预览和独立前提。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：实际 signer/管理员/Apple 签名仍暂停；导出范围和严格协议由 UI/纯协议回归证明，未新增生产签名证明。
 
 <a id="REQ-CC-016"></a>
 
@@ -525,9 +525,9 @@ Trace ID: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f
 - 系统设计状态：已覆盖
 - 系统设计依据：[DES-CC-016](command-center.design.md#DES-CC-016)及[阅读默认入口](document-tree.design.md#DES-CC-TREE-004)。
 - 实现状态：部分实现
-- 实现与验证依据：[文档清单](../../../tools/oasis7-command-center/ui/src/DocumentInventory.tsx)已有文件、目录、显式产品/专业树及阅读恢复；受实际索引预算约束。证据边界见[共用核对范围](#cc-product-evidence-baseline)。
-- 核对日期与基线：2026-10-17；[固定需求/实现基线、环境与验收范围](#cc-product-evidence-baseline)。
-- 剩余范围：默认阅读入口与诊断降层尚待实现；固定提交/untracked 范围、独立树快照及完整 AC-CC-016 仍以专题设计的真实边界为准。
+- 实现与验证依据：未保存偏好时默认产品主题，与专业树并列；章节可读正文、显式配对、诊断折叠与返回。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
+- 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
+- 剩余范围：本 issue 的默认阅读/诊断降层已实现；固定提交/untracked、独立树快照等完整专题边界仍依原设计，不据此扩大。
 
 <a id="cc-product-states"></a>
 

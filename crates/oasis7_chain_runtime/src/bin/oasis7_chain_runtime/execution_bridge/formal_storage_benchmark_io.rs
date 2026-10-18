@@ -31,12 +31,13 @@ struct Domain {
     samples: BTreeSet<String>,
     raw_written: u64,
     raw_write_ns: u128,
+    max_logical_bytes: u64,
 }
 pub(super) struct Corpus {
     domains: [Domain; 2],
 }
 impl Corpus {
-    pub(super) fn new(root: &Path) -> Self {
+    pub(super) fn new(root: &Path, max_logical_bytes: u64) -> Self {
         let domain = |role: &str| {
             let path = root.join(format!("source-{role}"));
             let optimized = root.join(format!("optimized-{role}"));
@@ -57,6 +58,7 @@ impl Corpus {
                 samples: BTreeSet::new(),
                 raw_written: 0,
                 raw_write_ns: 0,
+                max_logical_bytes,
             }
         };
         Self {
@@ -171,14 +173,32 @@ impl Corpus {
                 .unwrap();
         }
     }
-    pub(super) fn compare(&self) -> Vec<serde_json::Value> {
+    pub(super) fn inventories(&self) -> Vec<serde_json::Value> {
+        self.domains
+            .iter()
+            .enumerate()
+            .map(|(index, domain)| {
+                let inventory = inventory_storage(&domain.root.join("formal-objects-v1"));
+                assert!(
+                    inventory.complete,
+                    "incomplete capacity inventory: {:?}",
+                    inventory.errors
+                );
+                serde_json::json!({"domain":if index == 0 {"primary"} else {"replica"},
+                "objects":inventory.unique_files,"logical_bytes":inventory.unique_apparent_bytes,
+                "allocated_bytes":inventory.allocated_bytes})
+            })
+            .collect()
+    }
+    pub(super) fn compare(&self, progress: &mut Progress) -> Vec<serde_json::Value> {
         self.domains.iter().enumerate().map(|(index,domain)| {
             let before=inventory_storage(&domain.root.join("formal-objects-v1")); assert!(before.complete);
             let started=Instant::now();
             eprintln!("STORAGE_CAPACITY_PHASE=shadow_start domain={index}");
-            let options=FormalStorageShadowOptions { optimized:true, max_logical_bytes:64*1024*1024 };
+            let options=FormalStorageShadowOptions { optimized:true, max_logical_bytes:progress.step_bytes };
             let mut previous_phase=String::new();
             let shadow=loop {
+                progress.check_time();
                 let progress=advance_formal_storage_shadow(&domain.root,&domain.optimized.join("formal-objects-v1"),&options).unwrap();
                 if progress.phase != previous_phase {
                     eprintln!("STORAGE_CAPACITY_PHASE=shadow_{} domain={index} processed={} total={}",progress.phase,progress.processed_records,progress.total_records);
@@ -212,6 +232,14 @@ impl Domain {
         let id = blake3_hex(bytes);
         let path = self.root.join("formal-objects-v1").join(&id);
         let timer = Instant::now();
+        if !path.exists() {
+            assert!(
+                self.raw_written
+                    .checked_add(bytes.len() as u64)
+                    .is_some_and(|total| total <= self.max_logical_bytes),
+                "capacity corpus logical budget exceeded; partial run is not PASS"
+            );
+        }
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -240,4 +268,22 @@ fn percentiles(mut values: Vec<u128>) -> serde_json::Value {
     assert!(!values.is_empty());
     let n = values.len();
     serde_json::json!({"count":n,"p50_ns":values[(n-1)/2],"p95_ns":values[(95*n).div_ceil(100).saturating_sub(1).min(n-1)],"p99_ns":values[(99*n).div_ceil(100).saturating_sub(1).min(n-1)],"max_ns":values[n-1]})
+}
+
+#[test]
+fn capacity_total_logical_budget_counts_deduplicated_bytes_and_fails_before_write() {
+    let scratch = Scratch::new();
+    let mut corpus = Corpus::new(scratch.path(), 8);
+    corpus.common(b"12345678");
+    corpus.common(b"12345678");
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            corpus.common(b"9");
+        }))
+        .is_err()
+    );
+    for domain in corpus.inventories() {
+        assert_eq!(domain["objects"], 1);
+        assert_eq!(domain["logical_bytes"], 8);
+    }
 }
