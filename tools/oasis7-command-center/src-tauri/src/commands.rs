@@ -235,10 +235,8 @@ pub async fn query_view(host: State<'_, Host>) -> Result<Snapshot, String> {
     let (validated, path) = host
         .run(|app| Ok((app.validated, app.core.current_project().map(|p| p.path))))
         .await?;
-    if !validated {
-        if let Some(path) = path {
-            return local_read(&host, path, false).await;
-        }
+    if !validated && let Some(path) = path {
+        return local_read(&host, path, false).await;
     }
     host.run(|app| {
         app.core.reload_personal().map_err(error)?;
