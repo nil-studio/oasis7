@@ -45,7 +45,7 @@ gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
 | disk-full | 在独立私有 64MiB tmpfs 中写至真实 ENOSPC，调用生产物理发布 API，核对旧对象/selector/inode 不变；释放空间后重开、重试并精确读回，最后卸载该专属文件系统 |
 | network-delay / network-loss | 对固定的真实 RPC/原请求恢复子集施加 loopback netem；delay 为 2ms±1ms，loss 档另含 0.2% 丢包、0.1% 重复与 1% 乱序。要求实际流量，loss 档还要求观察到 drop；保存 kernel/参数/计数并清除本 job 的专属 qdisc |
 
-`repeat_faults=1/2/3` 只改变每档网络故障子集的重复次数；每个结果均保留，失败后不自动重试覆盖。`capacity_scale=1000/10000` 在默认组外增加该真实高度长跑；默认 10 不意味着已覆盖更大规模。`full_node_scale=1000/10000` 独立增加正式 writer 完整目录长跑，与对象命名空间的 capacity 长跑分开选择和报告。为兼容 Ubuntu 24.04 的 iproute2，网络模型不设置新版工具的 PRNG seed；固定的是故障参数，重复运行不保证同一包序列，须保留实际 kernel/计数及原始失败；loopback 注入不是生产网络性能基准，参见 [netem 手册](https://man7.org/linux/man-pages/man8/tc-netem.8.html)。
+`repeat_faults=1/2/3` 只改变每档网络故障子集的重复次数；每个结果均保留，失败后不自动重试覆盖。`capacity_scale=1000/10000` 在默认组外增加该真实高度长跑；默认 10 不意味着已覆盖更大规模。`full_node_scale=1000/10000` 独立增加正式 writer 完整目录长跑，与对象命名空间的 capacity 长跑分开选择和报告。仅 full-node 消费者启用现有 `OASIS7_FORMAL_EXECUTION_TIMING=1`，原始日志保留 writer 阶段 begin/end/error 及耗时，用于区分执行、双端资格、维护与发布等待；它不改变业务行为、截止或通过条件。为兼容 Ubuntu 24.04 的 iproute2，网络模型不设置新版工具的 PRNG seed；固定的是故障参数，重复运行不保证同一包序列，须保留实际 kernel/计数及原始失败；loopback 注入不是生产网络性能基准，参见 [netem 手册](https://man7.org/linux/man-pages/man8/tc-netem.8.html)。
 
 固定预算：矩阵最多并行 3 组；普通消费者最长 150 分钟；可选容量 job 最长 360 分钟，内部执行预算 18,000 秒、外层 case 截止 19,000 秒。默认消费者及 10 高度校准的容量源语料每域逻辑上限仍为 4GiB；仅可选 `capacity-long` job（1,000/10,000 高度）覆盖为每域 16GiB（17,179,869,184 bytes），不改变正式 writer 的 full-node job 或通用默认值。shadow 每步默认 64MiB，保留产品 1GiB 单步硬限制；磁盘可用空间下限仍为 3GiB。逻辑上限不是磁盘预留，fixture、原始表示、优化表示和元数据的实际占用可能先触达磁盘预算；必须核对该次 CI 主机的真实可用资源，不能从 runner 标签推定足够。16GiB 仍可能不足以完成 10,000 高度，1k/10k 也不保证在 hosted runner 的 6 小时内完成；任何预算耗尽必须保留 partial 进度并使本次失败，不能把较小高度结果改为目标规模通过。
 

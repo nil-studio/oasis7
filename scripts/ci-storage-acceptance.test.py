@@ -52,6 +52,14 @@ class Contracts(unittest.TestCase):
         self.assertIn('timeout-minutes: 360', jobs['capacity-long'])
         self.assertIn('steps: *acceptance-consumer', jobs['capacity-long'])
 
+    def test_execution_timing_is_enabled_only_for_full_node_consumers(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        variable = 'OASIS7_FORMAL_EXECUTION_TIMING'
+        self.assertEqual(workflow.count(variable), 1)
+        step = workflow.split('- name: Run acceptance with exact inventory and process cleanup\n', 1)[1].split('      - name:', 1)[0]
+        self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
+        self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
+
     def test_storage_scope_adds_libraries_without_changing_formal(self):
         formal = acceptance.artifacts.build_variants('formal')
         storage = acceptance.artifacts.build_variants('storage')

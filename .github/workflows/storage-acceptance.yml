@@ -146,6 +146,7 @@ jobs:
           FAULT_REPEATS: ${{ inputs.repeat_faults }}
           SCALE: ${{ matrix.scale }}
           OASIS7_STORAGE_ENOSPC_ROOT: ${{ runner.temp }}/storage-enospc
+          OASIS7_FORMAL_EXECUTION_TIMING: ${{ matrix.group == 'full-node' && '1' || '' }}
         run: |
           repeats=1
           if [[ "$NETWORK" != none ]]; then repeats="$FAULT_REPEATS"; fi
