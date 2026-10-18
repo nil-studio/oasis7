@@ -16,6 +16,24 @@ const MAX_LOGICAL_BYTES: u64 = 1024 * 1024 * 1024;
 const BATCH_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const SHADOW_MARKER: &str = ".shadow-only";
 
+/// Operation-scoped source lease. A fork inherits the same open file
+/// description, so close alone need not release its flock while a child lives.
+/// Explicit unlock is scoped to this acquired lease; long-lived endpoint owner
+/// leases retain their existing crash/descriptor lifetime semantics.
+struct SourceLease(File);
+impl SourceLease {
+    fn acquire(file: File, busy: FormalError) -> Result<Self, FormalError> {
+        file.try_lock().map_err(|_| busy)?;
+        Ok(Self(file))
+    }
+}
+impl Drop for SourceLease {
+    fn drop(&mut self) {
+        // The owned File remains open through unlock and is closed afterwards.
+        let _ = File::unlock(&self.0);
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct FormalStorageShadowReport {
     pub verified_objects: usize,
@@ -156,10 +174,10 @@ fn build_with_limit(
     options.read(true).write(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
-    let lease = options.open(lock_path).map_err(io)?;
-    lease
-        .try_lock()
-        .map_err(|_| FormalError::Conflict("formal endpoint locked".into()))?;
+    let lease = SourceLease::acquire(
+        options.open(lock_path).map_err(io)?,
+        FormalError::Conflict("formal endpoint locked".into()),
+    )?;
     let parent = destination
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -240,3 +258,7 @@ fn build_with_limit(
 #[cfg(all(test, unix))]
 #[path = "storage_shadow_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "storage_shadow_lease_tests.rs"]
+mod lease_tests;

@@ -62,11 +62,14 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     match owner_client.submit(case.owner_request.clone()) {
         Ok(admission) => {
             assert_volatile_admission(admission, &case.owner_request.correlation)?;
+            eprintln!("C06 initial_admission=volatile");
         }
         Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
             status: 503,
             message,
-        }) if message == "formal runtime is not ready" => (),
+        }) if message == "formal runtime is not ready" => {
+            eprintln!("C06 initial_admission=refused_degraded");
+        }
         Err(error) => return Err(format!("C06 ordinary owner submit: {error}")),
     };
 
