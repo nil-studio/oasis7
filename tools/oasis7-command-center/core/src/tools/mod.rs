@@ -9,6 +9,15 @@ pub use signing::{
     signer_job_identity, signer_submit_identity, submit_file_frozen, verify_file_signature,
 };
 pub mod secrets;
+pub fn import_sign_context(input: &str) -> crate::Result<serde_json::Value> {
+    if input.len() > 65536 {
+        return Err(crate::Error::Invalid("SignContext 超过 64 KiB 预算".into()));
+    }
+    let context: oasis7_signer_protocol::protocol::SignContext = serde_json::from_str(input)?;
+    oasis7_signer_protocol::detached::signing_payload(&context, &[])
+        .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+    Ok(serde_json::to_value(context)?)
+}
 use crate::{Error, Result};
 use oasis7_local_signer::installation;
 use oasis7_signer_protocol::{identity, protocol};
