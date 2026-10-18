@@ -1,7 +1,7 @@
 //! Shared receipt-gated projection; no actor identity or awaiting outcome is synthesized.
 use super::*;
 
-pub(crate) fn project_receipt_memory<A: RuntimeAuthority>(
+pub fn project_receipt_memory<A: RuntimeAuthority>(
     context: &ContinuousAgentTurnContextV1,
     feedback: &FeedbackEnvelopeV1,
     runtime_receipt: &RuntimeReceiptLineageV1,

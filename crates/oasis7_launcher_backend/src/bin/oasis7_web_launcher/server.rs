@@ -36,7 +36,7 @@ pub(super) fn run_server(options: CliOptions) -> Result<(), String> {
         options.console_static_dir,
         options.initial_config,
     )));
-    let trace_session_id = oasis7::observability::resolve_trace_session_id("oasis7_web_launcher");
+    let trace_session_id = oasis7_observability::resolve_trace_session_id("oasis7_web_launcher");
 
     println!("oasis7_web_launcher started");
     println!(
@@ -70,7 +70,7 @@ pub(super) fn run_server(options: CliOptions) -> Result<(), String> {
                     if let Err(err) = handle_connection(stream, Some(peer_addr), shared) {
                         let stderr_message =
                             format!("warning: oasis7_web_launcher request failed: {err}");
-                        oasis7::observability::emit_stderr_or_event(
+                        oasis7_observability::emit_stderr_or_event(
                             Level::WARN,
                             stderr_message.as_str(),
                             "web launcher request handling failed",
@@ -629,7 +629,7 @@ mod tests {
         ] {
             // SAFETY: This test/setup code mutates process environment in a controlled scope.
             unsafe {
-                oasis7::env_mut::remove_var(name);
+                std::env::remove_var(name);
             }
         }
     }
@@ -807,21 +807,21 @@ mod tests {
         clear_hosted_strong_auth_env();
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var(
+            std::env::set_var(
                 "OASIS7_HOSTED_STRONG_AUTH_PUBLIC_KEY",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             );
         }
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var(
+            std::env::set_var(
                 "OASIS7_HOSTED_STRONG_AUTH_PRIVATE_KEY",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             );
         }
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var("OASIS7_HOSTED_STRONG_AUTH_APPROVAL_CODE", "preview-code");
+            std::env::set_var("OASIS7_HOSTED_STRONG_AUTH_APPROVAL_CODE", "preview-code");
         }
 
         let mut config = LauncherConfig::default();

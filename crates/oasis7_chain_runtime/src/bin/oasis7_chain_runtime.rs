@@ -226,8 +226,9 @@ mod execution_bridge;
 
 const DEFAULT_RECENT_MINT_RECORD_LIMIT: usize = 20;
 const STORAGE_METRICS_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
-const EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER: &str = "retention-degraded";
-const EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER: &str = "retention-in-progress";
+use oasis7_chain_runtime::execution_config::{
+    EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER, release_security_policy_for_storage_profile,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimePaths {
@@ -926,16 +927,6 @@ fn stop_runtime(runtime: &Arc<Mutex<NodeRuntime>>) {
     }
 }
 
-pub(crate) fn release_security_policy_for_storage_profile(
-    storage_profile: StorageProfile,
-) -> ReleaseSecurityPolicy {
-    if matches!(storage_profile, StorageProfile::ReleaseDefault) {
-        ReleaseSecurityPolicy::production_hardened()
-    } else {
-        ReleaseSecurityPolicy::default()
-    }
-}
-
 fn build_node_replication_config(
     node_id: &str,
     replication_root: &Path,
@@ -1166,3 +1157,6 @@ mod status_payload_tests;
 #[cfg(test)]
 #[path = "oasis7_chain_runtime/oasis7_chain_runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+use oasis7_chain_runtime::execution_config::EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER;

@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::simulator::ActionCatalogEntry;
+use oasis7_agent_api::ActionCatalogEntry;
 use oasis7_simulator::{Action, AgentQuery};
 
 #[test]

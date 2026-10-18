@@ -9,7 +9,7 @@ use super::{
     formal_read::FormalReadVerifier, projection::WorldServiceProjection,
 };
 use oasis7_client_api::world_service::*;
-use oasis7_distfs::controlled_authority::formal::{
+use oasis7_formal_protocol::controlled_authority::formal::{
     CanonicalRecordV1, VerifiedCommittedHistoricalCutV1, VerifiedFormalReadAnchorV1,
     business_index::{
         BusinessIndexDeltaV1, BusinessIndexInclusionV1, BusinessIndexLeafKindV1,
@@ -58,7 +58,7 @@ impl FormalBusinessResultTreeV1 {
     /// externally approved activation closure before the canonical ID exists.
     pub fn for_initial_world(
         world: &World,
-        identity: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
+        identity: &oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1,
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<FormalBusinessResultTreeUpdateV1, String> {
         if !world
@@ -114,7 +114,7 @@ impl FormalBusinessResultTreeV1 {
         world: &World,
         record: &CanonicalRecordV1,
         previous: &Self,
-        parent_proof: &oasis7_distfs::controlled_authority::formal::FormalQualifiedCommitProofV1,
+        parent_proof: &oasis7_formal_protocol::controlled_authority::formal::FormalQualifiedCommitProofV1,
         new_results: &[CanonicalIntentResultV1],
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<FormalBusinessResultTreeUpdateV1, String> {
@@ -126,7 +126,7 @@ impl FormalBusinessResultTreeV1 {
         {
             return Err("formal historical cut differs from candidate predecessor".into());
         }
-        let cut = oasis7_distfs::controlled_authority::formal::business_history::FormalHistoricalCutV1::from_proof(parent_proof)
+        let cut = oasis7_formal_protocol::controlled_authority::formal::business_history::FormalHistoricalCutV1::from_proof(parent_proof)
             .and_then(|cut| cut.leaf()).map_err(|error| error.to_string())?;
         Self::extend_inner(
             world,
@@ -258,11 +258,11 @@ impl FormalBusinessResultTreeV1 {
     }
     pub fn historical_cut_inclusion(
         &self,
-        world: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
+        world: &oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1,
         position: u64,
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<BusinessIndexInclusionV1, String> {
-        let key = oasis7_distfs::controlled_authority::formal::business_history::formal_historical_cut_key(world, position)
+        let key = oasis7_formal_protocol::controlled_authority::formal::business_history::formal_historical_cut_key(world, position)
             .map_err(|error| error.to_string())?;
         self.index_root.prove(&key, reader)
     }
@@ -459,7 +459,7 @@ fn metadata_for_world(
 
 fn metadata_for_boundary(
     world: &World,
-    identity: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
+    identity: &oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1,
     position: u64,
     after_state_root: &str,
     governing_manifest_digest: &str,
@@ -840,4 +840,4 @@ pub fn decode_canonical_result_leaf(
 }
 
 #[cfg(test)]
-use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeV1;
+use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeV1;

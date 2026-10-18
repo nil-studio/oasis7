@@ -58,7 +58,7 @@ scope = [
     "crates/oasis7_ops_tools/src",
     "crates/oasis7_provider_tools/Cargo.toml",
     "crates/oasis7_provider_tools/src",
-    "crates/oasis7/src/viewer",
+    "crates/oasis7_viewer_runtime/src/viewer",
     "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs",
     "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher",
     "crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher.rs",

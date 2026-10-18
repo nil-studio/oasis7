@@ -1,7 +1,7 @@
 //! Real scoped collection interleaves two independently authenticated reads.
 use super::application_stream_boundaries::Session;
 use super::*;
-use oasis7::viewer::{
+use oasis7_viewer_runtime::viewer::{
     CollectDataCommand, CollectDataRequest, ViewerRuntimeLiveServer, sign_collect_data_auth_proof,
 };
 use std::fs;

@@ -1,7 +1,7 @@
 //! Actual signed TCP reads reach the production periodic completion fence.
 //! Internal session/pending substitution is a test drive, not a successful public admission.
 use super::*;
-use oasis7::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
+use oasis7_viewer_runtime::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
 
 struct GateRelease(std::path::PathBuf);
 impl Drop for GateRelease {

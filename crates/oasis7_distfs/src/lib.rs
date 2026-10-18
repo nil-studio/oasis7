@@ -1,8 +1,5 @@
 //! Distributed storage coordination built on the local CAS and pure proof layers.
-use oasis7_proto::distributed::{SnapshotManifest, StateChunkRef};
-use oasis7_proto::distributed_storage::{JournalSegmentRef, SegmentConfig};
 use oasis7_proto::world_error::WorldError;
-use serde::{Serialize, de::DeserializeOwned};
 
 pub use oasis7_cas::{
     BlobReadReceipt, BlobStore, FileIndexAuditReport, FileIndexManifest, FileIndexManifestRef,
@@ -23,13 +20,12 @@ pub mod controlled_authority;
 mod feedback;
 mod feedback_p2p;
 mod replication;
-mod segmentation;
 pub mod storage_inventory;
 
 pub use feedback::*;
 pub use feedback_p2p::*;
+pub use oasis7_cas::{assemble_journal, assemble_snapshot, segment_journal, segment_snapshot};
 pub use replication::*;
-pub use segmentation::*;
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

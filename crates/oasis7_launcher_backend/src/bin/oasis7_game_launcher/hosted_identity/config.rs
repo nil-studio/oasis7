@@ -32,7 +32,7 @@ pub(crate) struct IdentityConfig {
 
 impl IdentityConfig {
     pub fn from_env() -> Result<Option<Self>, String> {
-        if !oasis7::viewer::hosted_identity_v2_enabled_checked()? {
+        if !oasis7_client_api::viewer_auth::hosted_identity_v2_enabled_checked()? {
             const ROLLBACK_BOUNDARY: &str = "identity v2 storage prevents legacy startup; keep identity v2 enabled and close registration instead";
             if let Some(path) =
                 env::var_os("OASIS7_HOSTED_IDENTITY_SQLITE_PATH").filter(|path| !path.is_empty())

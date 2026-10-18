@@ -24,7 +24,7 @@ pub struct EffectReceipt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub birth_era: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub world: Option<oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1>,
+    pub world: Option<oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent_payload_digest: Option<String>,
     pub intent_id: String,

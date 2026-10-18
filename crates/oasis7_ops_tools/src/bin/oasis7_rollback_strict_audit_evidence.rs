@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use oasis7::viewer::{RollbackStrictAuditEvidenceInput, build_unsigned_strict_audit_evidence};
+use oasis7_client_api::rollback_audit_evidence::{
+    RollbackStrictAuditEvidenceInput, build_unsigned_strict_audit_evidence,
+};
 
 #[derive(Debug)]
 struct Options {
@@ -108,7 +110,8 @@ fn verify_audited_manifest_binding(report: &[u8], manifest: &[u8]) -> Result<(),
         .and_then(serde_json::Value::as_str)
         .filter(|digest| digest.len() == 64 && hex::decode(digest).is_ok())
         .ok_or_else(|| "audit report manifest digest is missing or malformed".to_string())?;
-    if oasis7::viewer::strict_audit_manifest_digest(manifest) != digest {
+    if oasis7_client_api::rollback_audit_evidence::strict_audit_manifest_digest(manifest) != digest
+    {
         return Err("audit report does not bind the supplied manifest".to_string());
     }
     Ok(())
@@ -257,7 +260,7 @@ mod tests {
             "overall_single_failure_tolerance_pass": true,
             "manifest_match_pass": true,
             "rollback_blockers": [],
-            "audited_manifest_digest": oasis7::viewer::strict_audit_manifest_digest(manifest)
+            "audited_manifest_digest": oasis7_client_api::rollback_audit_evidence::strict_audit_manifest_digest(manifest)
         }))
         .expect("audit report")
     }

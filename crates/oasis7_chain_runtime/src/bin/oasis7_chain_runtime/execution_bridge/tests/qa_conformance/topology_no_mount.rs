@@ -302,7 +302,9 @@ fn no_mount_application_acceptance() {
     );
     send(&mut stream, serde_json::json!({"type":"request_snapshot"}));
     receive(&mut stream, "snapshot");
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let (owner, public) = register_owner_session(&mut stream);
     let mut command = CollectDataCommand::Submit {
         request: CollectDataRequest {
@@ -483,7 +485,7 @@ fn register_owner_session(stream: &mut BufReader<TcpStream>) -> (String, String)
         .subject_public_key;
     // Establish the player's session through the shipped authenticated protocol,
     // exactly as a normal client does before submitting gameplay.
-    let mut registration = oasis7::viewer::AuthoritativeSessionRegisterRequest {
+    let mut registration = oasis7_viewer_runtime::viewer::AuthoritativeSessionRegisterRequest {
         player_id: "owner-a".into(),
         public_key: Some(public.clone()),
         registration_grant: None,
@@ -492,8 +494,13 @@ fn register_owner_session(stream: &mut BufReader<TcpStream>) -> (String, String)
         force_rebind: false,
     };
     registration.auth = Some(
-        oasis7::viewer::sign_session_register_auth_proof(&registration, 550, &public, &owner)
-            .unwrap(),
+        oasis7_viewer_runtime::viewer::sign_session_register_auth_proof(
+            &registration,
+            550,
+            &public,
+            &owner,
+        )
+        .unwrap(),
     );
     send(
         stream,

@@ -1,6 +1,6 @@
 //! Two real processes reconcile one rejected Admit and its committed settlement.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::{io::Write, path::Path};
 #[test]
 fn real_tcp_hosted_rejected_wait_compensation_crash_recovers_original_identity() {

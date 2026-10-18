@@ -253,7 +253,9 @@ fn run_inner() {
         })
         .unwrap();
     // A real signed gameplay mutation crosses the same isolated application boundary.
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let public = sign_read_request("owner", (), &env("PRE2_APP_OWNER"))
         .unwrap()
         .subject_public_key;

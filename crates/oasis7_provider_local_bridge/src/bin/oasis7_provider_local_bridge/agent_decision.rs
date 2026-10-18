@@ -1,7 +1,7 @@
-use oasis7::simulator::{
-    ActionCatalogEntry, DecisionRequest, DecisionResponse, ProviderDecision, ProviderDiagnostics,
-    ProviderErrorEnvelope, ProviderModuleCommand, ProviderTokenUsage, ProviderTraceEnvelope,
-    ProviderTranscriptEntry,
+use super::{DecisionResponse, ProviderDecision};
+use oasis7_agent_api::{
+    ActionCatalogEntry, DecisionRequest, ProviderDiagnostics, ProviderErrorEnvelope,
+    ProviderModuleCommand, ProviderTokenUsage, ProviderTraceEnvelope, ProviderTranscriptEntry,
 };
 use oasis7_simulator::{Action, AgentQuery, MicroDepotQuoteRequest};
 use oasis7_wasm_abi::AgentCommandResponse;

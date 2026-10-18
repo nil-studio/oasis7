@@ -3,7 +3,10 @@ use super::hosted_player_session::{
     HostedPlayerSessionIssuer,
 };
 use super::*;
-use oasis7::viewer::{HostedStrongAuthGrant, sign_hosted_prompt_control_strong_auth_grant};
+use oasis7_client_api::{
+    viewer_auth::sign_hosted_prompt_control_strong_auth_grant,
+    viewer_protocol::HostedStrongAuthGrant,
+};
 use serde::Serialize;
 
 pub(super) const HOSTED_STRONG_AUTH_GRANT_ROUTE: &str = "/api/public/strong-auth/grant";

@@ -1,5 +1,5 @@
 use super::*;
-use oasis7_distfs::BlobStore;
+use oasis7_cas::BlobStore;
 
 fn sidecar_generation_root_dir(store_root: &Path) -> std::path::PathBuf {
     store_root.join(SIDECAR_GENERATION_ROOT_DIR)

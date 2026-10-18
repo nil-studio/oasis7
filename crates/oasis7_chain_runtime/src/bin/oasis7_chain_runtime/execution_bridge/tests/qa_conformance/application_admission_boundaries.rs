@@ -1,6 +1,8 @@
 //! Real metadata/control/checkpoint boundaries for ordinary fresh hosted admission.
 use super::*;
-use oasis7::viewer::{ControlCompletionStatus, ViewerResponse, ViewerRuntimeLiveServer};
+use oasis7_viewer_runtime::viewer::{
+    ControlCompletionStatus, ViewerResponse, ViewerRuntimeLiveServer,
+};
 use std::io::{BufRead, BufReader, Write};
 
 #[test]
@@ -56,10 +58,12 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     ));
     if mode == "fresh-bad-store" {
         match created {
-            Err(oasis7::viewer::ViewerRuntimeLiveServerError::Init(reason)) => assert!(
-                reason.contains("Not a directory") || reason.contains("not a directory"),
-                "actual regular-file parent filesystem rejection required"
-            ),
+            Err(oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError::Init(reason)) => {
+                assert!(
+                    reason.contains("Not a directory") || reason.contains("not a directory"),
+                    "actual regular-file parent filesystem rejection required"
+                )
+            }
             Err(other) => panic!("unexpected checkpoint constructor failure: {other:?}"),
             Ok(_) => panic!(
                 "regular-file checkpoint parent must fail before model or canonical admission"
@@ -476,6 +480,8 @@ fn ready(value: &serde_json::Value) -> bool {
     }
 }
 
-fn control_diagnostic(ack: &oasis7::viewer::ControlCompletionAck) -> serde_json::Value {
+fn control_diagnostic(
+    ack: &oasis7_viewer_runtime::viewer::ControlCompletionAck,
+) -> serde_json::Value {
     serde_json::json!({"request_id":ack.request_id,"status":ack.status,"error_code":ack.error_code,"error_message":ack.error_message.as_ref().map(|s|s.chars().take(256).collect::<String>())})
 }

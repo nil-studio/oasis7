@@ -1,6 +1,6 @@
 //! Bounded loopback-only fencing queries and issuer-authorized release RPC.
 use super::*;
-use oasis7::viewer::{
+use oasis7_client_api::viewer_protocol::{
     AuthoritativeReconnectSyncRequest, AuthoritativeRecoveryCommand, HostedSessionReleaseRequest,
     VIEWER_PROTOCOL_VERSION, ViewerRequest,
 };

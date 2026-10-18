@@ -20,6 +20,10 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
+DEFAULT_SNAPSHOT_REGRESSIONS = (
+    ('viewer-snapshot-tests', 'snapshot_progress::'),
+    ('snapshot-tests', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'),
+)
 
 
 def output(command):
@@ -106,13 +110,15 @@ def build_variants(scope):
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
         ('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], []),
+        ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
         return variants
     if scope == 'ordinary':
-        return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests')]
+        return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage'):
-        # Keep the bin harness: the runtime has no library target. Ordinary
+        # Keep both core libraries and the exact Chain binary harness. Chain
+        # configuration library tests belong to the ordinary required variant;
         # integration tests, viewer executables and snapshot variants run elsewhere.
         # The CI-only marker reproduces shared dependency features from all
         # required roots without compiling their unrelated harnesses.
@@ -125,6 +131,23 @@ def build_variants(scope):
                 '-p', 'oasis7_runtime', '-p', 'oasis7_world_service', '--lib', '--no-run'], []))
         return result
     raise ValueError('unknown build scope: ' + scope)
+
+
+def artifact_logical_name(variant, package, target, test):
+    """Formal aliases identify package, target kind and name, never name alone."""
+    name, kinds = target['name'], tuple(target['kind'])
+    if variant == 'storage-libs':
+        return 'storage-lib-' + name
+    if variant not in ('required', 'formal-required'):
+        return variant
+    if test:
+        aliases = {
+            ('oasis7_chain_runtime', ('bin',), 'oasis7_chain_runtime'): 'runtime-tests',
+            ('oasis7', ('lib',), 'oasis7'): 'oasis7-lib-tests',
+        }
+        return aliases.get((package, kinds, name),
+                           'required-test-' + package + '-' + '-'.join(kinds) + '-' + name)
+    return 'required-executable-' + package + '-' + '-'.join(kinds) + '-' + name
 
 
 def validate_profile(logical, binary):
@@ -179,22 +202,19 @@ def build(bundle, scope='all', cache_state_path=None):
                 target = artifact['target']
                 test = artifact['profile']['test']
                 name = target['name']
-                logical = ('storage-lib-' + name) if variant == 'storage-libs' else variant
-                if variant in ('required', 'formal-required'):
-                    if not test:
-                        logical = 'required-executable-' + name
-                    else:
-                        logical = {'oasis7_chain_runtime': 'runtime-tests', 'oasis7': 'oasis7-lib-tests'}.get(name, 'required-test-' + '-'.join(target['kind']) + '-' + name)
+                manifest = Path(artifact['manifest_path'])
+                package = tomllib.loads(manifest.read_text())['package']['name']
+                logical = artifact_logical_name(variant, package, target, test)
                 if logical in binaries:
                     raise ValueError(f'duplicate executable: {logical}')
                 source = Path(executable)
                 destination = bundle / 'bin' / logical
                 shutil.copy2(source, destination)
                 # Cargo uses the package directory as test cwd, and exposes its binaries.
-                manifest = Path(artifact['manifest_path'])
                 binaries[logical] = dict(path=str(destination.relative_to(bundle)), sha256=digest(destination),
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
-                    test=test, target=name, original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
+                    test=test, package=package, target=name, target_kind=target['kind'],
+                    original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
                     ordinary=variant == 'required' and test, variant=variant,
                     bytes=destination.stat().st_size, libraries=[])
                 validate_profile(logical, binaries[logical])
@@ -260,9 +280,10 @@ def dependency_closure(manifest, config, suite=None, shard=None):
     if suite == 'ordinary':
         required = {name for name, binary in binaries.items()
                     if (binary.get('ordinary') and set(binary['tests']) - set(binary['ignored_tests']))
-                    or name in ('viewer', 'snapshot-tests') or name.startswith('required-executable-')}
-        if 'snapshot-tests' not in required:
-            raise ValueError('missing default-feature snapshot harness')
+                    or name in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests') or name.startswith('required-executable-')}
+        for owner, _ in DEFAULT_SNAPSHOT_REGRESSIONS:
+            if owner not in required:
+                raise ValueError('missing default-feature snapshot harness: ' + owner)
         return required
     required = set()
     for entry in selected_entries(manifest, config, suite, shard):
@@ -748,12 +769,14 @@ def execute(bundle, suite, results, shard=None):
     manifest, env = load(bundle, suite if not shard else None, shard)
     if suite == 'ordinary' and not shard:
         entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items() if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
-        binary = manifest['binaries']['snapshot-tests']
-        for pattern in ['snapshot_progress::', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields']:
+        for owner, pattern in DEFAULT_SNAPSHOT_REGRESSIONS:
+            if owner not in manifest['binaries']:
+                raise ValueError('missing default-feature snapshot harness: ' + owner)
+            binary = manifest['binaries'][owner]
             names = [name for name in binary['tests'] if pattern in name and name not in binary['ignored_tests']]
             if not names:
                 raise ValueError('missing snapshot regression: ' + pattern)
-            entries.append(dict(binary='snapshot-tests', filter=pattern, count=len(names)))
+            entries.append(dict(binary=owner, filter=pattern, count=len(names)))
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):

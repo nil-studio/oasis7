@@ -80,7 +80,7 @@
 - Architecture Overview: headless-runtime 作为无界面运行链路，连接 runtime/p2p 能力并提供生产可运维能力，强调协议一致性与可恢复性。
 - Integration Points:
   - `crates/oasis7_proto/src/viewer.rs` 的 `PlayerAuthProof` 与受保护请求字段。
-  - `crates/oasis7/src/viewer/auth.rs`、simulator live auth 路由与 `WorldModel.player_auth_last_nonce`。
+  - `crates/oasis7_client_api/src/viewer_auth.rs`、simulator live auth 路由与 `WorldModel.player_auth_last_nonce`。
   - `doc/world-runtime/runtime/runtime-storage-footprint-governance.prd.md` 的 checkpoint、replay、retention 与 GC 合同。
   - `testing-manual.md`
 - Auth and replay contract:

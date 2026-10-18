@@ -1,7 +1,7 @@
 use super::*;
 use crate::formal_read::{FormalReadHistoryV1, FormalReadReplayCursorV1, FormalReadStepV1};
 use crate::formal_read_fixtures as fixtures;
-use oasis7_distfs::controlled_authority::{
+use oasis7_formal_protocol::controlled_authority::{
     formal::*,
     replicated_protocol::{ArtifactRole, EndpointRole},
 };

@@ -57,7 +57,7 @@ bridge 不持久化世界状态，不创建重试队列，不在重连时自动�
 
 | 上游 requirement | 本设计条款 | 独立 obligation 与适用条件 | 验证方法 / source / scenario / candidate | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [客户端独立交互与重连](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-004) | [传输与会话释放](viewer-websocket-http-bridge.design.md#bridge-session) | 本地Web连接按完整JSON行双向转发；断连释放全部upstream引用并允许刷新后重连 | [测试手册](../../../testing-manual.md#testing-web-ui-closed-loop-smoke)；执行 `cargo test -p oasis7 viewer::web_bridge::tests`，再真实刷新Web页面；L2 转发/拆行/并发/刷新，L4A真实Web重连；记录 source、TCP/WS绑定、runtime场景、客户端构建与浏览器；测试使用本地可用端口 | 实际PR/验证记录：bridge测试输出和退出码；转发/拆行/并发/刷新样例；真实Web重连的state、console、截图与服务端会话日志 | Rust桥接测试不代签真实Web错误显示或原生客户端；未覆盖公网安全、无限并发与跨断线exactly-once |
+| [客户端独立交互与重连](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-004) | [传输与会话释放](viewer-websocket-http-bridge.design.md#bridge-session) | 本地Web连接按完整JSON行双向转发；断连释放全部upstream引用并允许刷新后重连 | [测试手册](../../../testing-manual.md#testing-web-ui-closed-loop-smoke)；执行 `cargo test -p oasis7_viewer_runtime web_bridge::tests`，再真实刷新Web页面；L2 转发/拆行/并发/刷新，L4A真实Web重连；记录 source、TCP/WS绑定、runtime场景、客户端构建与浏览器；测试使用本地可用端口 | 实际PR/验证记录：bridge测试输出和退出码；转发/拆行/并发/刷新样例；真实Web重连的state、console、截图与服务端会话日志 | Rust桥接测试不代签真实Web错误显示或原生客户端；未覆盖公网安全、无限并发与跨断线exactly-once |
 
 ## 12. 决策、风险与未决范围
 

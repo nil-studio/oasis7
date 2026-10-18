@@ -86,3 +86,6 @@ fn default_bootstrap_peers() -> Vec<String> {
         .map(|peer| (*peer).to_string())
         .collect()
 }
+
+/// Default identity of the built-in formal release world.
+pub const FORMAL_RELEASE_DEFAULT_WORLD_ID: &str = "live-formal-release-default";

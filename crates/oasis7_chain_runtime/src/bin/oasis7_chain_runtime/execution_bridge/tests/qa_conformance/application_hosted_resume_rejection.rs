@@ -1,6 +1,6 @@
 //! Real stale-base Resume rejection retains the original selected wake authority.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 #[test]
 fn real_tcp_hosted_resume_rejection_compensates_original_selected_wake() {
     application_harness::run_isolated_application_mode(

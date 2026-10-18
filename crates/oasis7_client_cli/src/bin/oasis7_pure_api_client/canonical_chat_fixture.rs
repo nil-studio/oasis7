@@ -301,7 +301,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
             );
         }
     });
-    let mut config = oasis7::viewer::ViewerRuntimeLiveServerConfig::new(
+    let mut config = oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerConfig::new(
         oasis7_simulator::WorldScenario::Minimal,
     );
     config.world_id = identity.world_id.clone();
@@ -316,7 +316,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
         max_response_bytes: 1024 * 1024,
     });
     let server = Arc::new(Mutex::new(
-        oasis7::viewer::ViewerRuntimeLiveServer::new(config).unwrap(),
+        oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer::new(config).unwrap(),
     ));
     let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = tcp.local_addr().unwrap().to_string();
@@ -329,7 +329,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
             }
         {
             let (socket, _) = tcp.accept().unwrap();
-            oasis7::viewer::ViewerRuntimeLiveServer::test_serve_shared_stream(
+            oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer::test_serve_shared_stream(
                 server.clone(),
                 socket,
             )

@@ -24,7 +24,6 @@ pub mod runtime;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod runtime_host;
 pub mod simulator;
-pub mod viewer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod world_service;
 #[cfg(not(target_arch = "wasm32"))]

@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::world_service::authority;
+use oasis7_client_api::world_service as authority;
 use oasis7_client_api::world_service::{ProjectionVersion, ReadWorldViewRequest, VIEW_PATH};
 use oasis7_proto::viewer::{CanonicalAgentChatViewV1, CanonicalAgentOwnerFenceV1};
 use serde::Deserialize;
@@ -446,7 +446,7 @@ pub(super) fn retry(
         .auth
         .as_ref()
         .ok_or("original signed owner proof missing")?;
-    let verified = oasis7::viewer::verify_agent_chat_auth_proof(&chat, proof)?;
+    let verified = oasis7_proto::player_auth::verify_agent_chat_auth_proof(&chat, proof)?;
     if chat.agent_id.is_empty()
         || chat.world_id.is_none()
         || verified.nonce == 0

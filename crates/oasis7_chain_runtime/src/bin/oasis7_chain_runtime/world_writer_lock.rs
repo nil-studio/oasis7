@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use oasis7::viewer::ExclusiveDirectoryProcessLock;
+use oasis7::runtime_host::auth_storage::ExclusiveDirectoryProcessLock;
 
 pub(super) fn acquire_live_world_writer_lock(
     world_dir: &Path,

@@ -28,10 +28,12 @@ mod challenge_scheduler;
 mod compressed_range_cache;
 mod manifest;
 mod pin_store;
+mod segmentation;
 
 pub use challenge::*;
 pub use challenge_scheduler::*;
 pub use manifest::*;
+pub use segmentation::{assemble_journal, assemble_snapshot, segment_journal, segment_snapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashAlgorithm {
@@ -551,3 +553,6 @@ pub fn to_canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, WorldError>
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod segmentation_tests;

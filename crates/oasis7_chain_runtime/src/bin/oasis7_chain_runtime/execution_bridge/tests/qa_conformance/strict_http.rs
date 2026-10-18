@@ -2,7 +2,9 @@
 use super::*;
 #[test]
 fn real_tcp_strict_guarantee_fields_defaults_and_opaque_gameplay_bytes() {
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let fixture = Fixture::with_controlled_commits(true);
     let endpoint = &fixture.client.config().endpoint;
     let http = reqwest::blocking::Client::builder()
