@@ -52,6 +52,12 @@
 
 本节承接 [PRD 的账本与净缺口条款](industrial-resource-flow-contract.prd.md#industrial-quote-ledger-semantics)，只定义待修正或验证的领域映射，不把文档修订当作实现通过。Simulator WorldKernel 与 Runtime World 各从自己的当前权威状态计算；消费者不另算一套“可执行性”。
 
+### 配方排产报价的电力风险投影
+
+Trace refs: O7-REQ-84a63552-d68d-48eb-80dc-23cff7531242；承接[报价余额与运行保障分离](../../product/world-rules-core-gameplay/prd.md#root-sc16-runway)。
+
+`ScheduleRecipe` 的 `electricity_after` 是当次资源账本余额；`runway_before_ticks / runway_after_ticks` 来自 Agent idle battery，排产本身不扣 battery。消费者保持两者分离及只读报价声明，不从余额推断运行安全。kernel 的 `continue_production_risk=low` 显示低电力风险，`elevated` 显示风险升高并保留警示；后者合并 critical/shutdown，消费者不得擅自细分。`recommended_pre_step=schedule_now` 表示可安排生产，`restore_power_before_scheduling` 表示先恢复电力再排产；中英文保持同义。未知 risk/pre-step 保留待确认和重新请求预估的保守提示，不默认为安全，也不自动排产。UI 与视觉 fixture 使用这两组实际 producer 词表，并覆盖未知值回退；fixture 验证不代替真实 Runtime 或游戏试玩。
+
 ### 6.1 Simulator 精炼净变化
 
 对同一个 owner、snapshot 与 BuildFactory 目标，令 `D` 为动作前可用于建厂的 Data、`M` 为精炼投入、`H` 为按现有公式得到的产出、`B` 为该目标的 Data 成本。先验证精炼原有 amount、owner、电力、最小产出和溢出条件，再只读计算：
