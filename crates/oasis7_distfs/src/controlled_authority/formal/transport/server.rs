@@ -1,10 +1,14 @@
 use super::*;
 use std::net::TcpListener;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+#[path = "readiness.rs"]
+mod readiness;
 pub struct FormalEndpointServer {
     endpoint: FileFormalEndpoint,
     timeout: Duration,
     last_rpc: std::time::Instant,
+    #[cfg(test)]
+    readiness_counts: (u64, u64),
 }
 impl FormalEndpointServer {
     pub fn new(endpoint: FileFormalEndpoint, timeout: Duration) -> Result<Self, FormalError> {
@@ -15,6 +19,8 @@ impl FormalEndpointServer {
             endpoint,
             timeout,
             last_rpc: std::time::Instant::now(),
+            #[cfg(test)]
+            readiness_counts: (0, 0),
         })
     }
     #[cfg(test)]
@@ -32,6 +38,10 @@ impl FormalEndpointServer {
     pub(crate) fn short_maintenance_quiet_for_test(&mut self) {
         self.endpoint.short_maintenance_quiet_for_test();
     }
+    #[cfg(test)]
+    pub(crate) fn readiness_counts_for_test(&self) -> (u64, u64) {
+        self.readiness_counts
+    }
     fn run_maintenance(&mut self, now: std::time::Instant) {
         if now.saturating_duration_since(self.last_rpc) < Duration::from_millis(100) {
             return;
@@ -43,16 +53,29 @@ impl FormalEndpointServer {
     pub fn serve_one(&mut self, listener: &TcpListener) -> Result<(), FormalError> {
         wire::address(listener.local_addr().map_err(wire::io)?)?;
         listener.set_nonblocking(true).map_err(wire::io)?;
+        let mut readiness = readiness::ListenerReadiness::new(listener).map_err(wire::io)?;
         let (mut stream, peer) = loop {
             match listener.accept() {
                 Ok(connection) => break connection,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    self.run_maintenance(std::time::Instant::now());
-                    std::thread::sleep(Duration::from_millis(50));
+                    // Readiness wakes immediately for a new connection; the
+                    // timeout is an idle maintenance interval, not RPC latency.
+                    let deadline = Instant::now() + Duration::from_millis(50);
+                    let ready = readiness.wait_until(deadline).map_err(wire::io)?;
+                    #[cfg(test)]
+                    if ready {
+                        self.readiness_counts.0 += 1;
+                    } else {
+                        self.readiness_counts.1 += 1;
+                    }
+                    if !ready {
+                        self.run_maintenance(Instant::now());
+                    }
                 }
                 Err(error) => return Err(wire::io(error)),
             }
         };
+        readiness.close().map_err(wire::io)?;
         // Accepted sockets retain their original per-RPC deadline configuration.
         let result = self.serve_stream(&mut stream, peer);
         // Bounded O(2) cache cleanup is independent of generation quiet/debt and

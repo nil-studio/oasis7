@@ -187,3 +187,43 @@ fn continuous_growth_debt_starts_and_advances_without_thirty_seconds_of_data_qui
         "an existing job must advance even as data keeps arriving"
     );
 }
+
+#[test]
+fn sequential_authenticated_head_rpcs_observe_readiness_without_poll_sleep() {
+    use crate::controlled_authority::formal::transport::RemoteFormalEndpoint;
+    use std::net::TcpListener;
+    const REQUESTS: usize = 24;
+    let fixture = Fixture::new();
+    let (endpoint, _oracle) = super::protected_tests::native_rpc_endpoint(&fixture);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let worker = std::thread::spawn(move || {
+        let mut server = FormalEndpointServer::new(endpoint, Duration::from_secs(3)).unwrap();
+        for _ in 0..REQUESTS {
+            server.serve_one(&listener).unwrap();
+        }
+        server.readiness_counts_for_test()
+    });
+    let head = fixture.authority.definition().world.genesis_head().unwrap();
+    let mut client = RemoteFormalEndpoint::new(
+        address,
+        Duration::from_secs(3),
+        fixture.authority.clone(),
+        EndpointRole::Primary,
+        key(4),
+        head.clone(),
+    )
+    .unwrap();
+    let start = Instant::now();
+    for _ in 0..REQUESTS {
+        assert_eq!(client.head().unwrap(), head);
+    }
+    let elapsed = start.elapsed();
+    let (readable, timeouts) = worker.join().unwrap();
+    eprintln!(
+        "formal_endpoint_serial_rpc requests={REQUESTS} elapsed_ms={} readable_wakes={readable} idle_timeouts={timeouts}",
+        elapsed.as_millis()
+    );
+    // Latency is observation evidence, not a tight wall-clock gate on shared CI.
+    // The separate socket tests require actual readiness and timeout outcomes.
+}
