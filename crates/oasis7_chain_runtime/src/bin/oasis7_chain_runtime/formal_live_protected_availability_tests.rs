@@ -16,11 +16,18 @@ use std::{
 
 const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 
+#[derive(Clone, Copy, Debug)]
+pub(super) enum AdmissionCase {
+    QueuedBehindEmptyFrozen,
+    OriginalCandidateSaved,
+}
+
 /// Constructed by the shared process fixture after the normal signed initial
 /// publication is readable and before the first owner request is submitted.
 /// The replica listener must be a fixed loopback address so the same runtime
 /// configuration can reconnect after the endpoint child is restarted.
 pub(super) struct AvailabilityCase {
+    pub(super) admission: AdmissionCase,
     pub(super) runtime: FormalLiveRuntime,
     pub(super) runtime_config: PathBuf,
     pub(super) endpoint_binary: std::ffi::OsString,
@@ -45,10 +52,43 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     let owner_client = RemoteWorldServiceClient::new(case.owner_client_config.clone())
         .map_err(|error| error.to_string())?;
 
-    // Lose the real replica first. The runtime may not have observed the
-    // failure yet, so an immediate ordinary owner submit can still be accepted
-    // as volatile work; qualification must then stop when the writer notices
-    // that one protected side is gone.
+    // Fix both sides of the admission race. A prepared empty Tick leaves the
+    // subsequently admitted owner envelope only in the volatile queue. A saved
+    // original candidate has already executed, so recovery must reuse its exact
+    // immutable record instead of executing the envelope again.
+    use crate::formal_live_service::test_control::Point;
+    let control = case.runtime.published.control_boundaries()?;
+    let boundary_deadline = Instant::now() + Duration::from_secs(20);
+    let (point, exact_action) = match case.admission {
+        AdmissionCase::QueuedBehindEmptyFrozen => (Point::BeforeResume, None),
+        AdmissionCase::OriginalCandidateSaved => (
+            Point::CandidateSaved,
+            Some(correlation::encode_consensus_intent(&case.owner_request)?),
+        ),
+    };
+    control.arm(point, None, exact_action, boundary_deadline)?;
+    if matches!(case.admission, AdmissionCase::OriginalCandidateSaved) {
+        assert_volatile_admission(
+            owner_client
+                .submit(case.owner_request.clone())
+                .map_err(|error| format!("C06 submit original before candidate freeze: {error}"))?,
+            &case.owner_request.correlation,
+        )?;
+    }
+    let stopped_at = control.wait(boundary_deadline)?;
+    let saved_original = match case.admission {
+        AdmissionCase::QueuedBehindEmptyFrozen if stopped_at.action_count == 0 => None,
+        AdmissionCase::OriginalCandidateSaved if stopped_at.action_count == 1 => Some((
+            stopped_at.position,
+            stopped_at
+                .record_id
+                .ok_or("C06 saved candidate record ID missing")?,
+            stopped_at
+                .node_block_hash
+                .ok_or("C06 original Node block hash missing")?,
+        )),
+        _ => return Err("C06 controlled admission boundary had different input".into()),
+    };
     case.replica_child.kill_sigkill_and_wait()?;
 
     // Select the baseline from the runtime's opaque, atomically published
@@ -59,17 +99,27 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     let baseline = case.runtime.published.current()?;
     let (old_commit, expected_projection) = commit_ref_for_opaque_cut(&baseline, &case.world)?;
 
-    let admitted = match owner_client.submit(case.owner_request.clone()) {
-        Ok(admission) => {
-            assert_volatile_admission(admission, &case.owner_request.correlation)?;
-            true
-        }
-        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
-            status: 503,
-            message,
-        }) if message == "formal runtime is not ready" => false,
-        Err(error) => return Err(format!("C06 ordinary owner submit: {error}")),
-    };
+    let admission = owner_client
+        .submit(case.owner_request.clone())
+        .map_err(|error| {
+            format!("C06 ordinary owner submit before failure observation: {error}")
+        })?;
+    assert_volatile_admission(admission, &case.owner_request.correlation)?;
+    let queued = case
+        .runtime
+        .runtime
+        .lock()
+        .map_err(|_| "C06 Node observation lock poisoned")?
+        .snapshot()
+        .consensus
+        .pending_consensus_actions
+        .submit_buffer_action_count;
+    if queued != 1 {
+        return Err(format!(
+            "C06 expected one volatile original envelope, queued={queued}"
+        ));
+    }
+    control.release()?;
 
     let status = wait_for_degraded_status(&case.public_client_config)?;
     if status.ready
@@ -82,6 +132,17 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         return Err(format!(
             "C06 lost-replica status did not report degraded pending at the old cut: {status:?}"
         ));
+    }
+    match owner_client.submit(case.owner_request.clone()) {
+        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            status: 503,
+            message,
+        }) if message == "formal runtime is not ready" => {}
+        result => {
+            return Err(format!(
+                "C06 degraded runtime did not refuse new admission: {result:?}"
+            ));
+        }
     }
 
     // The owner request was volatile or refused after degradation; a lone endpoint must not
@@ -146,6 +207,9 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     // a replacement request or duplicate its effect.
     case.runtime.stop(Duration::from_secs(10))?;
     drop(case.runtime);
+    if let Some((_, _, block_hash)) = &saved_original {
+        crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::reset_execution_attempts(block_hash);
+    }
     let mut reopened = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
     reopened.start()?;
     let target_position = old_commit
@@ -154,23 +218,42 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         .ok_or("C06 CommitRef position overflow")?;
     wait_for_published_position(&reopened, target_position)?;
 
-    if !admitted {
-        let next = reopened
+    if saved_original.is_none() {
+        // The controlled predecessor was an empty Frozen continuation. Its
+        // successor publication does not make the queued Volatile envelope
+        // durable across owner teardown. Re-admit that exact signed envelope
+        // once, then await its own canonical result instead of a guessed height.
+        let key = correlation::key_digest(&case.owner_request.correlation.key)?;
+        if reopened
             .published
-            .current()?
-            .anchor
-            .head()
-            .record()
-            .position
-            .checked_add(1)
-            .ok_or("C06 recovery position overflow")?;
+            .observe(|cut| fresh_request_result(&cut.world, &key, &case.owner_request))?
+            .is_some()
+        {
+            return Err("C06 unfrozen volatile envelope unexpectedly survived as a result".into());
+        }
         let admission = owner_client
             .submit(case.owner_request.clone())
             .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
         assert_volatile_admission(admission, &case.owner_request.correlation)?;
-        wait_for_published_position(&reopened, next)?;
+        wait_for_new_request_result(
+            &reopened,
+            &case.owner_request,
+            Duration::from_secs(20),
+            "C06 exact volatile original recovery",
+        )?;
     }
     let committed = lookup_original_commit(&owner_client, &case.owner_request)?;
+    if let Some((position, record_id, _)) = &saved_original {
+        let attempts = crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::execution_attempts();
+        if committed.position != *position
+            || committed.execution_block_hash != *record_id
+            || attempts != 0
+        {
+            return Err(format!(
+                "C06 durable original changed identity or re-executed: attempts={attempts}"
+            ));
+        }
+    }
     if committed.position <= old_commit.position {
         return Err("C06 recovered request lacks a successor CommitRef".into());
     }
@@ -196,20 +279,27 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
 
     // Repeating the same signed envelope must resolve to the same immutable
     // result and task, even after endpoint/runtime reopen.
+    let duplicate_control = reopened.published.control_boundaries()?;
+    let duplicate_deadline = Instant::now() + Duration::from_secs(20);
+    duplicate_control.arm(
+        Point::Published,
+        None,
+        Some(correlation::encode_consensus_intent(&case.owner_request)?),
+        duplicate_deadline,
+    )?;
+    let next_position = reopened
+        .published
+        .position()?
+        .checked_add(1)
+        .ok_or("C06 duplicate position overflow")?;
     let duplicate = owner_client
         .submit(case.owner_request.clone())
         .map_err(|error| format!("C06 duplicate original request: {error}"))?;
     assert_volatile_admission(duplicate, &case.owner_request.correlation)?;
-    let next_position = reopened
-        .published
-        .current()?
-        .anchor
-        .head()
-        .record()
-        .position
-        .checked_add(1)
-        .ok_or("C06 duplicate position overflow")?;
-    wait_for_published_position(&reopened, next_position)?;
+    let observed = duplicate_control.wait(duplicate_deadline)?;
+    if observed.position < next_position || observed.action_count != 1 {
+        return Err("C06 duplicate envelope was not qualified in a successor continuation".into());
+    }
     if lookup_original_commit(&owner_client, &case.owner_request)? != committed {
         return Err("C06 retry changed the original CommitRef".into());
     }
@@ -222,6 +312,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         return Err("C06 retry duplicated or changed the canonical Game task effect".into());
     }
 
+    duplicate_control.release()?;
     reopened.stop(Duration::from_secs(10))?;
     Ok(())
 }
@@ -334,7 +425,16 @@ fn protected_endpoint_children_replica_unavailable_preserves_exact_read_and_reco
     std::thread::Builder::new()
         .name("formal-protected-availability".into())
         .stack_size(32 * 1024 * 1024)
-        .spawn(super::run_protected_runtime_availability_case)
+        .spawn(|| {
+            for admission in [
+                AdmissionCase::QueuedBehindEmptyFrozen,
+                AdmissionCase::OriginalCandidateSaved,
+            ] {
+                eprintln!("C06 controlled admission={admission:?}");
+                super::run_protected_runtime_availability_case(admission)?;
+            }
+            Ok::<_, String>(())
+        })
         .expect("spawn protected availability fixture")
         .join()
         .expect("protected availability fixture thread panicked")

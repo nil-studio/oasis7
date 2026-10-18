@@ -184,7 +184,7 @@ fn run_protected_runtime_case_with_deadline(
         crash_phase,
         long_history,
         None,
-        false,
+        None,
         scenario_deadline,
     )
 }
@@ -192,11 +192,13 @@ fn run_protected_runtime_case_with_deadline(
 fn run_protected_runtime_effect_case(
     scenario: &effect_tests::EffectScenario,
 ) -> Result<(), String> {
-    run_protected_runtime_fixture(true, None, false, Some(scenario), false, None)
+    run_protected_runtime_fixture(true, None, false, Some(scenario), None, None)
 }
 
-fn run_protected_runtime_availability_case() -> Result<(), String> {
-    run_protected_runtime_fixture(false, None, false, None, true, None)
+fn run_protected_runtime_availability_case(
+    admission: availability_tests::AdmissionCase,
+) -> Result<(), String> {
+    run_protected_runtime_fixture(false, None, false, None, Some(admission), None)
 }
 
 fn run_protected_runtime_fixture(
@@ -204,7 +206,7 @@ fn run_protected_runtime_fixture(
     crash_phase: Option<&str>,
     long_history: bool,
     effect_scenario: Option<&effect_tests::EffectScenario>,
-    unavailable_replica: bool,
+    unavailable_replica: Option<availability_tests::AdmissionCase>,
     scenario_deadline: Option<ScenarioDeadline>,
 ) -> Result<(), String> {
     let endpoint_binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN")
@@ -389,7 +391,7 @@ fn run_protected_runtime_fixture(
         &initial_trust,
         &certificate,
     )?;
-    if unavailable_replica {
+    if unavailable_replica.is_some() {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;
@@ -706,8 +708,9 @@ fn run_protected_runtime_fixture(
     }
     let mut runtime = runtime.ok_or("non-shipping fixture runtime missing")?;
     let initial_view = initial_view.ok_or("non-shipping fixture initial view missing")?;
-    if unavailable_replica {
+    if let Some(admission) = unavailable_replica {
         return availability_tests::exercise(availability_tests::AvailabilityCase {
+            admission,
             runtime,
             runtime_config: runtime_config_path,
             endpoint_binary,
