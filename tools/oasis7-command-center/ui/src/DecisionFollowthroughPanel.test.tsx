@@ -1,8 +1,9 @@
-import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
-import { describe,it,expect,vi } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@solidjs/testing-library';
+import { describe,it,expect,vi,afterEach } from 'vitest';
 import Panel from './DecisionFollowthroughPanel';
 import type { DailyWorkState,SyncEvidence } from './generated/core';
 import type { Snapshot } from './types';
+afterEach(cleanup);
 const decision={id:'d',content:'明确决定',reason:'理由',scope:'全部范围',relatedSection:null,state:'confirmed',confirmedAt:'1',formalUpdate:'notVerified',implementationSync:'notVerified'};
 const snapshot={decisions:[decision],sections:[]} as unknown as Snapshot;
 const evidence=(full:boolean,remaining:string[]=[]):SyncEvidence=>({state:'verified',source:'section',revision:'r',scope:'一个条款',conclusion:'核实',coversFullScope:full,remaining,checkedAt:'2',decisionDigest:'digest'});

@@ -84,3 +84,13 @@ it('sends relation repair/removal with the original scope and expected revision'
  const button=screen.getByRole('button',{name:'移除个人关系'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
  await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({projectId:'p',environment:'local',expectedRevision:8,action:{kind:'removeRelation',id:'relation'}})));
 });
+it('allows a ready runtime to start exactly once after persisting the preview identity',async()=>{
+ vi.mocked(runtimeBridge.publicSnapshot).mockResolvedValue({projectId:'p',environment:'local',enabled:true,state:'ready',sessions:[],requests:[],operations:[]} as unknown as RuntimeSnapshot);
+ vi.mocked(runtimeBridge.startWork).mockImplementation(()=>new Promise(()=>{}));
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalled());
+ fireEvent.input(screen.getByLabelText('范围'),{target:{value:'only the selected work'}});fireEvent.input(screen.getByLabelText('实际输入'),{target:{value:'explicit ordinary input'}});
+ fireEvent.click(screen.getByRole('button',{name:'预览实际发送内容'}));const send=screen.getByRole('button',{name:'明确发起一次工作'});await waitFor(()=>expect(send).toBeEnabled());fireEvent.click(send);fireEvent.click(send);
+ await waitFor(()=>expect(runtimeBridge.startWork).toHaveBeenCalledTimes(1));
+ const id=vi.mocked(runtimeBridge.startWork).mock.calls[0][0];expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({action:expect.objectContaining({kind:'navigate',navigation:expect.objectContaining({startIntentId:id})})}));expect(send).toBeDisabled();
+});

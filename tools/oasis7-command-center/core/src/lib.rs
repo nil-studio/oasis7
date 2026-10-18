@@ -428,8 +428,9 @@ impl CommandCenter {
         draft: DecisionDraft,
         previous_id: Option<String>,
     ) -> Result<DecisionRecord> {
+        let tx = self.db.unchecked_transaction()?;
         let stored: Vec<DecisionRecord> =
-            load(&self.db, "personal", &self.personal_key("decisions"))?.unwrap_or_default();
+            load(&tx, "personal", &self.personal_key("decisions"))?.unwrap_or_default();
         if serde_json::to_vec(&stored)? != serde_json::to_vec(&self.current.decisions)? {
             return Err(Error::Invalid(
                 "决定已被其他窗口或旧版修改；未覆盖，请先重新读取".into(),
@@ -527,7 +528,6 @@ impl CommandCenter {
                 .ok_or_else(|| Error::Invalid("被替代决定不存在或未确认".into()))?;
             previous.state = "superseded".into();
         }
-        let tx = self.db.unchecked_transaction()?;
         if let Some(previous) = self.current.decisions.iter().find(|d| d.id == record.id) {
             save(
                 &tx,
