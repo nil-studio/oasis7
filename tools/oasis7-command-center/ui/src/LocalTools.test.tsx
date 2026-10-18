@@ -258,9 +258,12 @@ describe('prepared request recovery after restart', () => {
     fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
     const recover = await screen.findByRole('button', { name: '恢复此固定签名请求' });
     await waitFor(() => expect(recover).toBeEnabled());
+    fireEvent.click(screen.getByRole('button',{name:'签名'}));
     fireEvent.input(screen.getByLabelText('签名 Job ID'), { target: { value: 'manual-job' } });
-    fireEvent.click(recover);
+    fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
+    fireEvent.click(screen.getByRole('button',{name:'恢复此固定签名请求'}));
     await screen.findByText('Legacy original input unavailable; inspect manually');
+    fireEvent.click(screen.getByRole('button',{name:'签名'}));
     expect(screen.getByLabelText('签名 Job ID')).toHaveValue('manual-job');
     expect(screen.getByLabelText('签名 Job ID')).toBeEnabled();
     expect(api.prepare).not.toHaveBeenCalled(); expect(api.submit).not.toHaveBeenCalled();
@@ -274,6 +277,7 @@ describe('prepared request recovery after restart', () => {
     fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
     fireEvent.click(screen.getByRole('button', { name: '恢复此固定签名请求' }));
     await screen.findByText('当前已有另一固定请求，请先核对原 Job；不能覆盖。');
+    fireEvent.click(screen.getByRole('button',{name:'签名'}));
     expect(screen.getByLabelText('签名 Job ID')).toHaveValue('original-job');
     expect(api.recoverPrepare).not.toHaveBeenCalled();
   });
@@ -330,5 +334,34 @@ describe('explicit encrypted export scope and short-lived secrets',()=>{
     expect(api.importSignContext).toHaveBeenCalledWith(JSON.stringify(imported));expect(api.prepare).not.toHaveBeenCalled();
     fireEvent.input(screen.getByLabelText('完整签名上下文'),{target:{value:'{}'}});
     expect(screen.queryByText('完整已导入上下文预览')).not.toBeInTheDocument();
+  });
+});
+
+
+describe('task form mounting and draft retention',()=>{
+  it('mounts only the selected task form and restores drafts when returning',async()=>{
+    await openEntry();
+    fireEvent.input(screen.getByLabelText('资料正文'),{target:{value:'retained ordinary draft'}});
+    expect(screen.queryByLabelText('签名 Job ID')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'签名'}));
+    expect(screen.queryByLabelText('资料正文')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('签名 Job ID')).toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('签名 Job ID'),{target:{value:'retained-job'}});
+    fireEvent.click(screen.getByRole('button',{name:'独立验签'}));
+    expect(screen.queryByLabelText('签名 Job ID')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('验签上下文')).toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('验签上下文'),{target:{value:'retained verification context'}});
+    fireEvent.click(screen.getByRole('button',{name:'备份与恢复'}));
+    expect(screen.queryByLabelText('验签上下文')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('快照口令')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'终端 CLI'}));
+    expect(screen.queryByLabelText('快照口令')).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'从本 App 启用资料 CLI'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
+    expect(screen.queryByRole('button',{name:'从本 App 启用资料 CLI'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'核对操作记录'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'签名'}));expect(screen.getByLabelText('签名 Job ID')).toHaveValue('retained-job');
+    fireEvent.click(screen.getByRole('button',{name:'独立验签'}));expect(screen.getByLabelText('验签上下文')).toHaveValue('retained verification context');
+    fireEvent.click(screen.getByRole('button',{name:'资料'}));expect(screen.getByLabelText('资料正文')).toHaveValue('retained ordinary draft');
   });
 });
