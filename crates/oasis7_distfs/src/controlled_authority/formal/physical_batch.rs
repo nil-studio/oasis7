@@ -8,6 +8,51 @@ thread_local! {
     static COUNTS: std::cell::Cell<(usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
 }
 
+/// Publication keeps its live root pin and writer fence across these pages.
+/// Each page reads current durable bytes independently, including when called
+/// again after publishing new selectors. No input bytes become read evidence.
+pub(super) fn read_each_durable(
+    root: &Path,
+    objects: &[(String, Vec<u8>)],
+    mut accept: impl FnMut(&str, &[u8], Option<Vec<u8>>) -> Result<(), FormalError>,
+) -> Result<(), FormalError> {
+    let mut begin = 0usize;
+    while begin < objects.len() {
+        let mut end = begin;
+        let mut bytes = 0usize;
+        while end < objects.len() && end - begin < COUNT {
+            let next = objects[end].1.len();
+            if next > LIMIT {
+                return Err(invalid("physical publication logical object bound"));
+            }
+            if end > begin && bytes + next > OUTPUT {
+                break;
+            }
+            bytes += next;
+            end += 1;
+        }
+        let requests = objects[begin..end]
+            .iter()
+            .map(|(id, expected)| (root.join(id), id.clone(), expected.len()))
+            .collect::<Vec<_>>();
+        let current = if bytes > OUTPUT {
+            // A larger single logical object retains the original 64 MiB
+            // read bound; it cannot enlarge a shared-frame batch.
+            vec![read_object(&requests[0].0, &requests[0].1, true)?]
+        } else {
+            read_durable_batch(root, &requests)?
+        };
+        if current.len() != end - begin {
+            return Err(invalid("physical publication batch coverage"));
+        }
+        for ((id, expected), current) in objects[begin..end].iter().zip(current) {
+            accept(id, expected, current)?;
+        }
+        begin = end;
+    }
+    Ok(())
+}
+
 /// Paths have already been resolved under the caller's live root pin. `None`
 /// means no physical selector; the caller must use the ordinary legacy reader.
 pub(crate) fn read_durable_batch(
@@ -169,6 +214,8 @@ mod unix {
             }
         }
         // Sync the retained descriptor itself and all its dependency names.
+        #[cfg(test)]
+        publication::record_recipe_sync();
         anchor.file.sync_all().map_err(io)?;
         for frame in &anchor.recipe.frames {
             sync(&anchor.root.join(FRAMES).join(&frame.stored))?;
@@ -249,6 +296,79 @@ mod unix {
 mod tests {
     use super::super::tests::{Fixture, object};
     use super::*;
+    #[test]
+    fn publication_pages_cover_count_byte_and_large_single_object_boundaries() {
+        let count_bound = (0..COUNT + 1)
+            .map(|index| object(format!("{index:05}{}", "x".repeat(251)).into_bytes()))
+            .collect::<Vec<_>>();
+        let byte_bound = (0..17)
+            .map(|index| object(vec![index; OUTPUT / 16]))
+            .collect();
+        let large_then_empty = vec![object(vec![83; OUTPUT + 1]), object(vec![])];
+        for (objects, expected_groups) in [(count_bound, 2), (byte_bound, 2), (large_then_empty, 1)]
+        {
+            let fixture = Fixture::new();
+            let mut sorted = objects.clone();
+            sorted.sort_by(|left, right| left.0.cmp(&right.0));
+            assert!(persist(&fixture.0, &sorted).unwrap());
+            let mut seen = 0usize;
+            COUNTS.with(|counts| counts.set((0, 0, 0)));
+            read_each_durable(&fixture.0, &objects, |id, expected, current| {
+                assert_eq!(id, objects[seen].0);
+                assert_eq!(current.as_deref(), Some(expected));
+                seen += 1;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(
+                seen,
+                objects.len(),
+                "no object can be lost at a batch boundary"
+            );
+            COUNTS.with(|counts| assert_eq!(counts.get().0, expected_groups));
+        }
+    }
+    #[test]
+    fn publication_next_page_rereads_frames_and_propagates_failed_validation() {
+        let fixture = Fixture::new();
+        let mut objects = (0..COUNT + 1)
+            .map(|index| object(format!("{index:05}{}", "x".repeat(251)).into_bytes()))
+            .collect::<Vec<_>>();
+        objects.sort_by(|left, right| left.0.cmp(&right.0));
+        assert!(persist(&fixture.0, &objects).unwrap());
+        let mut rejected = 0usize;
+        assert!(
+            read_each_durable(&fixture.0, &objects, |_, _, _| {
+                rejected += 1;
+                Err(invalid("injected logical value rejection"))
+            })
+            .is_err()
+        );
+        assert_eq!(
+            rejected, 1,
+            "a failed logical check stops publication immediately"
+        );
+        let (_, recipe) = selector(&fixture.0.join(&objects[0].0), &objects[0].0)
+            .unwrap()
+            .unwrap();
+        let mut seen = 0usize;
+        assert!(
+            read_each_durable(&fixture.0, &objects, |_, expected, current| {
+                assert_eq!(current.as_deref(), Some(expected));
+                seen += 1;
+                if seen == COUNT {
+                    // Prior-page bytes were valid. Reusing them after this
+                    // mutation would incorrectly authorize the next object.
+                    for frame in &recipe.frames {
+                        fs::write(fixture.0.join(FRAMES).join(&frame.stored), b"corrupt").unwrap();
+                    }
+                }
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(seen, COUNT, "no stale frame may satisfy the next page");
+    }
     #[test]
     fn physical_fifo_selector_is_rejected_without_blocking_open() {
         const CHILD_ROOT: &str = "OASIS7_TEST_PHYSICAL_FIFO_ROOT";

@@ -24,7 +24,7 @@ fn formal_full_node_storage_maintenance_preserves_history() {
                 None,
                 false,
                 None,
-                false,
+                None,
                 None,
                 FixtureCase::FullNodeStorage,
             )

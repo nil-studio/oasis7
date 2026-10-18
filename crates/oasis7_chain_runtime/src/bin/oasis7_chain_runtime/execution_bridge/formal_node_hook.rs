@@ -210,6 +210,12 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
 /// The implementation must swap the complete `(World, anchor)` pair atomically.
 pub(crate) trait FormalPublicationSink: Send + Sync {
     fn publish(&self, world: World, anchor: VerifiedFormalReadAnchorV1) -> Result<(), String>;
+    #[cfg(test)]
+    fn test_boundary_control(
+        &self,
+    ) -> Result<Option<Arc<crate::formal_live_service::test_control::BoundaryState>>, String> {
+        Ok(None)
+    }
 }
 
 /// An actual `NodeExecutionHook` backed by dual-durable Frozen/qualified formal
@@ -797,6 +803,15 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         if continuation.context != context {
             return Err("formal pending Node continuation differs from requested commit".into());
         }
+        #[cfg(test)]
+        let _test_resume = self
+            .publication_sink
+            .as_ref()
+            .map(|sink| sink.test_boundary_control())
+            .transpose()?
+            .flatten()
+            .map(|control| control.resume_scope(&continuation.context))
+            .transpose()?;
         let proof_record_id = self.writer.resume_original()?;
         timing.mark("original_resumed");
         let evidence = self.writer.committed_execution()?;

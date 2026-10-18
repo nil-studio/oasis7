@@ -277,7 +277,13 @@ fn selector(
         recipe::decode_recipe_cached(&read(&selected, META_LIMIT)?)?,
     )))
 }
+#[cfg(test)]
+thread_local! {
+    static FRAME_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 fn decode_frame(root: &Path, frame: &Frame) -> Result<Vec<u8>, FormalError> {
+    #[cfg(test)]
+    FRAME_DECODES.with(|count| count.set(count.get() + 1));
     let stored = read(&root.join(FRAMES).join(&frame.stored), FRAME)?;
     if blake3::hash(&stored).to_hex().as_str() != frame.stored {
         return Err(invalid("physical stored checksum"));
@@ -402,25 +408,19 @@ pub(crate) fn persist_guarded(
         ));
     }
     publication::recover_objects(root, objects)?;
-    let objects = publication::with_readback_markers(|markers| {
-        objects
-            .iter()
-            .filter_map(
-                |(id, bytes)| match read_object_durable_once(&root.join(id), id, markers) {
-                    Ok(Some(previous)) if previous == *bytes => None,
-                    Ok(Some(_)) => Some(Err(invalid(
-                        "physical existing immutable logical value changed",
-                    ))),
-                    Ok(None) => Some(Ok((id.clone(), bytes.clone()))),
-                    Err(error) => Some(Err(error)),
-                },
-            )
-            .collect::<Result<Vec<_>, FormalError>>()
+    let mut needed = Vec::new();
+    batch::read_each_durable(root, objects, |id, bytes, previous| {
+        match previous {
+            Some(previous) if previous == bytes => {}
+            Some(_) => return Err(invalid("physical existing immutable logical value changed")),
+            None => needed.push((id.to_owned(), bytes.to_vec())),
+        }
+        Ok(())
     })?;
-    if objects.is_empty() {
+    if needed.is_empty() {
         return Ok(true);
     }
-    let objects = objects.as_slice();
+    let objects = needed.as_slice();
     let mut payload = Vec::new();
     let mut spans = Vec::new();
     let mut previous = None;
@@ -512,11 +512,9 @@ pub(crate) fn persist_guarded(
     }
     sync(&root.join(SELECTORS))?;
     sync(root)?;
-    publication::with_readback_markers(|markers| {
-        for (id, bytes) in objects {
-            if read_object_durable_once(&root.join(id), id, markers)?.as_deref() != Some(bytes) {
-                return Err(invalid("physical publication readback"));
-            }
+    batch::read_each_durable(root, objects, |_, bytes, current| {
+        if current.as_deref() != Some(bytes) {
+            return Err(invalid("physical publication readback"));
         }
         Ok(())
     })?;

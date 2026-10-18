@@ -1,5 +1,6 @@
 //! C03 kills the runtime process at fsynced durable protocol boundaries.
 use super::*;
+use crate::formal_live_service::test_control::{BoundaryControl, Point};
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -237,11 +238,24 @@ pub(super) fn run_crash_recovery(
         scenario.report_stage("exact crash recovery reopen started")?;
         crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::reset_execution_attempts(&original_block_hash);
         let mut runtime = FormalLiveRuntime::open_with_native_history(config)?;
+        scenario.report_stage("exact crash recovery open completed")?;
+        let control = runtime.published.control_boundaries()?;
+        control.arm(Point::Published, None, None, scenario.expires_at)?;
         runtime.start()?;
         wait_for_published_position(&runtime, target_position)?;
+        let observed = control.wait(
+            scenario
+                .expires_at
+                .min(Instant::now() + Duration::from_secs(20)),
+        )?;
+        if observed.point != Point::Published || observed.position < target_position {
+            return Err("C03 controlled publication did not reach the original target".into());
+        }
+        scenario.report_stage("exact crash recovery publication observed")?;
         let public =
             RemoteWorldServiceClient::new(public_config.clone()).map_err(|e| e.to_string())?;
         let view = read_until_position(&public, world, target_position)?;
+        scenario.report_stage("exact crash recovery signed view verified")?;
         let cut = runtime.published.current()?;
         let attempts = crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::execution_attempts();
         let expected_attempts = if reopen == 0
@@ -285,6 +299,7 @@ pub(super) fn run_crash_recovery(
                 ));
             }
         };
+        scenario.report_stage("exact crash recovery original lookup verified")?;
         if original_commit.position != target_position {
             return Err(format!(
                 "C03 original result changed its qualified decision identity: expected position {target_position}, got {}",
@@ -312,6 +327,7 @@ pub(super) fn run_crash_recovery(
         {
             return Err("C03 repeat recovery changed original immutable identity".into());
         }
+        scenario.report_stage("exact crash recovery original identity and effect verified")?;
         let before = runtime.published.current()?;
         let emissions = wasm_emit_count(&before.world);
         let next = before
@@ -323,12 +339,30 @@ pub(super) fn run_crash_recovery(
             .ok_or("C03 duplicate position overflow")?;
         let admission = owner.submit(request.clone()).map_err(|e| e.to_string())?;
         assert_volatile_admission(admission, &request.correlation)?;
+        control.arm(
+            Point::Published,
+            Some(next),
+            Some(correlation::encode_consensus_intent(request)?),
+            scenario.expires_at,
+        )?;
         wait_for_published_position(&runtime, next)?;
+        let observed = control.wait(
+            scenario
+                .expires_at
+                .min(Instant::now() + Duration::from_secs(20)),
+        )?;
+        if observed.position != next || observed.action_count != 1 {
+            return Err(
+                "C03 duplicate was not executed in its selected qualified continuation".into(),
+            );
+        }
+        scenario.report_stage("exact crash recovery duplicate publication observed")?;
         let after = runtime.published.current()?;
         if wasm_emit_count(&after.world) != emissions || after.world.state().agents.len() != 1 {
             return Err("C03 original retry produced a second Wasmtime/agent effect".into());
         }
         let repeated = lookup_original_commit(&owner, request)?;
+        scenario.report_stage("exact crash recovery repeated lookup verified")?;
         let old = runtime.history.fixed_publication(&repeated)?;
         if reference.as_ref() != Some(&repeated)
             || Some(first_agent_test_effect::first_agent_effect(
@@ -341,11 +375,65 @@ pub(super) fn run_crash_recovery(
         eprintln!(
             "C03 phase={phase} reopen={reopen} exact identity/effect/retry assertions passed; stopping same runtime owner"
         );
-        super::durable_set_tests::stop_healthy_runtime(&mut runtime, scenario)?;
+        stop_after_controlled_publication(&mut runtime, &control, scenario)?;
         scenario.report_stage("exact crash recovery reopen stopped")?;
     }
     eprintln!(
         "C03 phase={phase} SIGKILL verified; original qualified once; two exact reopen reads"
     );
     Ok(())
+}
+
+/// The HTTP assertions run against the real signed service while the writer is
+/// paused just after its immutable publication. Initiate the original graceful
+/// stop before releasing that in-flight callback, so assertion time cannot
+/// manufacture another empty continuation. The production stop path is intact.
+fn stop_after_controlled_publication(
+    runtime: &mut FormalLiveRuntime,
+    control: &BoundaryControl,
+    scenario: ScenarioDeadline,
+) -> Result<(), String> {
+    let result = runtime.stop(Duration::ZERO);
+    if result.as_ref().err().map(String::as_str)
+        != Some("formal Node stop is still pending; runtime remains owned")
+    {
+        control.release()?;
+        return Err(format!(
+            "C03 in-flight stop did not retain its owner: {result:?}"
+        ));
+    }
+    let deadline = scenario
+        .expires_at
+        .min(Instant::now() + Duration::from_secs(10));
+    loop {
+        match runtime.runtime.try_lock() {
+            Err(std::sync::TryLockError::WouldBlock) => break,
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err("C03 stop owner observation lock poisoned".into());
+            }
+            Ok(node) => drop(node),
+        }
+        if Instant::now() >= deadline {
+            return Err("C03 original stop worker did not take ownership before deadline".into());
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    let pending = runtime
+        .stop_worker
+        .as_ref()
+        .ok_or("C03 pending stop owner missing")?;
+    match pending.result.recv_timeout(
+        deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(10)),
+    ) {
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        result => {
+            return Err(format!(
+                "C03 in-flight stop completed before publication release: {result:?}"
+            ));
+        }
+    }
+    control.release()?;
+    super::durable_set_tests::stop_healthy_runtime(runtime, scenario)
 }

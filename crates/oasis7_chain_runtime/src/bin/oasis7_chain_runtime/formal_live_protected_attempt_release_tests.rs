@@ -56,7 +56,7 @@ fn formal_attempt_release_crash_and_transport_failure_recover_live_remote_pins()
                 None,
                 false,
                 None,
-                false,
+                None,
                 None,
                 FixtureCase::AttemptRelease,
             )

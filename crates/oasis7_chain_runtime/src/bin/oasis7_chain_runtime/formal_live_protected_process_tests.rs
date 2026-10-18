@@ -195,7 +195,7 @@ fn run_protected_runtime_case_with_deadline(
         crash_phase,
         long_history,
         None,
-        false,
+        None,
         scenario_deadline,
         FixtureCase::Standard,
     )
@@ -209,14 +209,24 @@ fn run_protected_runtime_effect_case(
         None,
         false,
         Some(scenario),
-        false,
+        None,
         None,
         FixtureCase::Standard,
     )
 }
 
-fn run_protected_runtime_availability_case() -> Result<(), String> {
-    run_protected_runtime_fixture(false, None, false, None, true, None, FixtureCase::Standard)
+fn run_protected_runtime_availability_case(
+    admission: availability_tests::AdmissionCase,
+) -> Result<(), String> {
+    run_protected_runtime_fixture(
+        false,
+        None,
+        false,
+        None,
+        Some(admission),
+        None,
+        FixtureCase::Standard,
+    )
 }
 
 fn run_protected_runtime_fixture(
@@ -224,7 +234,7 @@ fn run_protected_runtime_fixture(
     crash_phase: Option<&str>,
     long_history: bool,
     effect_scenario: Option<&effect_tests::EffectScenario>,
-    unavailable_replica: bool,
+    unavailable_replica: Option<availability_tests::AdmissionCase>,
     scenario_deadline: Option<ScenarioDeadline>,
     fixture_case: FixtureCase,
 ) -> Result<(), String> {
@@ -410,7 +420,7 @@ fn run_protected_runtime_fixture(
         &initial_trust,
         &certificate,
     )?;
-    if unavailable_replica {
+    if unavailable_replica.is_some() {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;
@@ -740,8 +750,9 @@ fn run_protected_runtime_fixture(
             original: owner_request.clone(),
         });
     }
-    if unavailable_replica {
+    if let Some(admission) = unavailable_replica {
         return availability_tests::exercise(availability_tests::AvailabilityCase {
+            admission,
             runtime,
             runtime_config: runtime_config_path,
             endpoint_binary,
