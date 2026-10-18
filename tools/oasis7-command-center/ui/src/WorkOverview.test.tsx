@@ -173,3 +173,9 @@ it('prioritizes requests belonging to the selected work without opening an unrel
  expect(screen.getByText(/1 项已知待答：请核对这项工作/)).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'处理请求（1）'}));expect(onView).toHaveBeenLastCalledWith('attention');expect(bridge.openSource).not.toHaveBeenCalled();expect(runtimeBridge.startWork).not.toHaveBeenCalled();
 });
+
+it('filters by the readable Chinese result without changing source facts',async()=>{
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByRole('button',{name:'修复本地工具'});fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'已合入'}});
+ expect(screen.getByRole('button',{name:'修复本地工具'})).toBeInTheDocument();
+});
