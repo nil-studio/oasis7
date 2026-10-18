@@ -70,8 +70,13 @@ fn journal_view_borrows_native_payload_and_survives_sidecar_tail_append() {
         profile: Default::default(),
     });
     host.step().unwrap();
+    host.submit_action(oasis7_simulator::Action::RegisterAgent {
+        agent_id: "before-restore".into(),
+        location_id: "origin".into(),
+    });
+    host.step().unwrap();
     let mut journal = host.journal_snapshot();
-    journal.events[0].runtime_event = Some(original.journal().events.last().unwrap().clone());
+    journal.events[1].runtime_event = Some(original.journal().events.last().unwrap().clone());
     let mut host = WorldKernel::from_snapshot(host.snapshot(), journal.clone()).unwrap();
     let native: &oasis7_simulator::WorldKernel = &host;
     assert!(std::ptr::eq(
@@ -86,10 +91,13 @@ fn journal_view_borrows_native_payload_and_survives_sidecar_tail_append() {
         host.step().unwrap();
     }
     assert_eq!(host.journal().get(0).unwrap().to_owned(), journal.events[0]);
+    assert_eq!(host.journal().get(1).unwrap().to_owned(), journal.events[1]);
+    assert!(host.journal().get(0).unwrap().runtime_event.is_none());
+    assert!(host.journal().get(1).unwrap().runtime_event.is_some());
     assert!(
         host.journal()
             .iter()
-            .skip(1)
+            .skip(2)
             .all(|event| event.runtime_event.is_none())
     );
     let owned = host.journal_snapshot();

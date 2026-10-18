@@ -38,11 +38,7 @@ impl Serialize for WorldKernel {
 impl<'de> Deserialize<'de> for WorldKernel {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let state = LegacyKernelState::deserialize(deserializer)?;
-        let (native_events, runtime_events): (Vec<_>, Vec<_>) = state
-            .journal
-            .into_iter()
-            .map(WorldEvent::into_kernel_parts)
-            .unzip();
+        let (native_events, runtime_events) = split_events(state.journal);
         let kernel = NativeKernel::from_state(KernelState {
             time: state.time,
             config: state.config,
@@ -55,11 +51,7 @@ impl<'de> Deserialize<'de> for WorldKernel {
             intel_ttl_ticks: state.intel_ttl_ticks,
         });
         let mut host = WorldKernel::from_native(kernel);
-        host.runtime_events = runtime_events
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, event)| event.map(|event| (i, event)))
-            .collect();
+        host.runtime_events = runtime_events;
         Ok(host)
     }
 }

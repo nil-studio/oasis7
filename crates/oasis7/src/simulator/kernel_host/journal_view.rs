@@ -91,3 +91,22 @@ impl serde::Serialize for WorldJournalView<'_> {
         serializer.collect_seq(self.iter())
     }
 }
+
+/// Move each native event once; allocate sidecar entries only for actual Runtime events.
+pub(super) fn split_events(
+    events: Vec<WorldEvent>,
+) -> (
+    Vec<oasis7_simulator::KernelEvent>,
+    std::collections::BTreeMap<usize, RuntimeWorldEvent>,
+) {
+    let mut native = Vec::with_capacity(events.len());
+    let mut runtime = std::collections::BTreeMap::new();
+    for (index, event) in events.into_iter().enumerate() {
+        let (event, runtime_event) = event.into_kernel_parts();
+        native.push(event);
+        if let Some(event) = runtime_event {
+            runtime.insert(index, event);
+        }
+    }
+    (native, runtime)
+}

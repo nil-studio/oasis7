@@ -9,6 +9,7 @@ use super::persist::{PersistError, WorldJournal, WorldSnapshot};
 use super::{KernelJournal, KernelSnapshot};
 use crate::chain_resource_schema::ChainResourceDerivationContext;
 use archive_origin::ArchiveOrigin;
+use journal_view::split_events;
 pub use journal_view::{WorldEventRef, WorldJournalView};
 use oasis7_simulator::ConsumeReason;
 use oasis7_simulator::LongTermMemoryEntry;
@@ -169,11 +170,7 @@ impl WorldKernel {
         journal: WorldJournal,
     ) -> Result<Self, PersistError> {
         let (native, extensions) = snapshot.into_kernel_parts();
-        let (events, runtime_events): (Vec<_>, Vec<_>) = journal
-            .events
-            .into_iter()
-            .map(WorldEvent::into_kernel_parts)
-            .unzip();
+        let (events, runtime_events) = split_events(journal.events);
         let native_journal = KernelJournal {
             version: journal.version,
             events,
@@ -183,11 +180,7 @@ impl WorldKernel {
         let origin = ArchiveOrigin::new(&native, extensions, &native_journal.events)?;
         let kernel = NativeKernel::from_kernel_snapshot(native, native_journal)?;
         let mut host = Self::from_native(kernel);
-        host.runtime_events = runtime_events
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, event)| event.map(|event| (i, event)))
-            .collect();
+        host.runtime_events = runtime_events;
         host.archive_origin = Some(Box::new(origin));
         Ok(host)
     }
@@ -210,11 +203,7 @@ impl WorldKernel {
         compiler: Option<Arc<dyn oasis7_agent_api::module_source::ModuleSourceCompiler>>,
     ) -> Result<Self, PersistError> {
         let (native, extensions) = snapshot.into_kernel_parts();
-        let (events, runtime_events): (Vec<_>, Vec<_>) = journal
-            .events
-            .into_iter()
-            .map(WorldEvent::into_kernel_parts)
-            .unzip();
+        let (events, runtime_events) = split_events(journal.events);
         let native_journal = KernelJournal {
             version: journal.version,
             events,
@@ -227,11 +216,7 @@ impl WorldKernel {
         if let Some(compiler) = compiler {
             host.kernel.set_module_source_compiler(compiler);
         }
-        host.runtime_events = runtime_events
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, event)| event.map(|event| (i, event)))
-            .collect();
+        host.runtime_events = runtime_events;
         host.archive_origin = Some(Box::new(origin));
         Ok(host)
     }
