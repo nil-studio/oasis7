@@ -82,6 +82,7 @@ impl FileFormalEndpoint {
         self.physical_maintenance.short_quiet = true;
     }
     pub(crate) fn maintenance_tick(&mut self, now: Instant) -> Result<bool, FormalError> {
+        self.reap_idle_native_environment_verifications(now);
         let root = self.store.path.join("formal-objects-v1");
         if !super::super::super::physical::enabled(&root)? {
             return Ok(false);

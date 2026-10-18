@@ -75,7 +75,12 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             &case.owner_request.correlation,
         )?;
     }
-    let stopped_at = control.wait(boundary_deadline)?;
+    let stopped_at = control.wait(boundary_deadline).map_err(|error| {
+        format!(
+            "C06 stage=initial_controlled_admission boundary={point:?} admission={:?}: {error}",
+            case.admission
+        )
+    })?;
     let saved_original = match case.admission {
         AdmissionCase::QueuedBehindEmptyFrozen if stopped_at.action_count == 0 => None,
         AdmissionCase::OriginalCandidateSaved if stopped_at.action_count == 1 => Some((
@@ -333,7 +338,8 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         .submit(case.owner_request.clone())
         .map_err(|error| format!("C06 duplicate original request: {error}"))?;
     assert_volatile_admission(duplicate, &case.owner_request.correlation)?;
-    let observed = duplicate_control.wait(duplicate_deadline)?;
+    let observed = duplicate_control.wait(duplicate_deadline).map_err(|error|format!(
+        "C06 stage=duplicate_after_volatile_admission_before_exact_publication admission={:?}: {error}",case.admission))?;
     if observed.position < next_position || observed.action_count != 1 {
         return Err("C06 duplicate envelope was not qualified in a successor continuation".into());
     }

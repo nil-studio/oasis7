@@ -3,6 +3,8 @@ use super::*;
 use std::collections::BTreeSet;
 #[path = "physical_generation_catalog.rs"]
 mod catalog;
+#[path = "physical_generation_import.rs"]
+mod import;
 #[path = "physical_overlay_gc.rs"]
 mod overlay;
 #[path = "physical_generation_retire.rs"]
@@ -267,6 +269,17 @@ impl GenerationSession {
         self.overlay = overlay::Session::default();
     }
     pub(crate) fn prepare(&mut self, directory: &Path, nonce: &str) -> Result<(), FormalError> {
+        self.prepare_inner(directory, nonce, false)
+    }
+    fn prepare_generation(&mut self, directory: &Path, nonce: &str) -> Result<(), FormalError> {
+        self.prepare_inner(directory, nonce, true)
+    }
+    fn prepare_inner(
+        &mut self,
+        directory: &Path,
+        nonce: &str,
+        generation: bool,
+    ) -> Result<(), FormalError> {
         let metadata = fs::symlink_metadata(directory).map_err(io)?;
         #[cfg(unix)]
         let identity = (
@@ -280,7 +293,11 @@ impl GenerationSession {
         if self.recovered.as_ref() == Some(&identity) {
             super::validate_initialized(directory)?;
         } else {
-            initialize(directory)?;
+            if generation {
+                super::initialize_generation(directory)?;
+            } else {
+                initialize(directory)?;
+            }
             self.recovered = Some(identity);
         }
         Ok(())
@@ -361,7 +378,7 @@ fn advance_inner(
     }
     let dir = building(root, &state);
     directory(&dir)?;
-    session.prepare(&dir, &state.nonce)?;
+    session.prepare_generation(&dir, &state.nonce)?;
     if !state.catalog_retired.is_empty() {
         catalog::prune_with_limit(
             &dir,
@@ -402,36 +419,12 @@ fn advance_inner(
             }
         }
         if !batch.is_empty() {
-            let writes = batch
-                .iter()
-                .map(
-                    |(id, bytes)| super::super::business_index::BusinessIndexNodeWriteV1 {
-                        digest: id.clone(),
-                        bytes: bytes.clone(),
-                    },
-                )
-                .collect::<Vec<_>>();
-            if writes.iter().all(|w| {
-                !w.bytes.is_empty()
-                    && w.bytes.len() as u64 <= super::super::business_pack::MAX_PACK_NODE
-            }) {
-                super::super::business_pack::persist(&dir, &writes)?;
-            } else {
-                for (id, bytes) in &batch {
-                    if !persist(&dir, &[(id.clone(), bytes.clone())])? {
-                        publication::publish(&dir, &dir.join(id), bytes)?;
-                    }
-                }
+            for (id, bytes) in &batch {
+                import::object(root, &dir, id, bytes)?;
             }
-            let mut done = Vec::new();
-            for (id, bytes) in batch {
-                if super::super::business_pack::read_object_durable(&dir.join(&id), &id)?.as_deref()
-                    != Some(bytes.as_slice())
-                {
-                    return Err(invalid("generation exact independent readback mismatch"));
-                }
-                done.push(id);
-            }
+            // import::object independently re-reads each original target span
+            // before returning. Only successful imports reach this completion.
+            let done = batch.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
             catalog::merge_retired(
                 &mut state.catalog_retired,
                 catalog::add(&dir, &mut state.completed, &done)?,

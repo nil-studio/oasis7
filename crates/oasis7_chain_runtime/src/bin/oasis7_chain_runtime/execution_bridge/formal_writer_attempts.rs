@@ -242,12 +242,17 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             &actual.candidate,
             &publication_digest,
         )? {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::super::formal_native_environment::release_unused_verification(
+                primary,
+                replica,
+                &actual.candidate,
+            )?;
             #[cfg(all(test, unix))]
             super::super::formal_crash_test_boundary::attempt_release_boundary(
                 "release_before_primary",
                 &actual.candidate,
             )?;
-            let (primary, replica) = self.coordinator.endpoints_mut();
             primary
                 .release_published_closure(&digest)
                 .map_err(|e| e.to_string())?;
@@ -327,6 +332,11 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         if !complete {
             return Ok(AttemptReclaimProgress::Pending);
         }
+        super::super::formal_native_environment::release_unused_verification(
+            primary,
+            replica,
+            &actual.candidate,
+        )?;
         #[cfg(all(test, unix))]
         super::super::formal_crash_test_boundary::attempt_release_boundary(
             "release_before_primary",

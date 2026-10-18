@@ -94,6 +94,8 @@ jobs:
       max-parallel: 3
       matrix:
         include:
+          - {label: attempt-release, group: attempt-release, network: none, scale: '10'}
+          - {label: full-node-10, group: full-node, network: none, scale: '10'}
           - {label: units, group: units, network: none, scale: '10'}
           - {label: runtime-protocol, group: runtime-protocol, network: none, scale: '10'}
           - {label: world-history, group: world-history, network: none, scale: '10'}
@@ -101,8 +103,6 @@ jobs:
           - {label: storage-recovery, group: storage-recovery, network: none, scale: '10'}
           - {label: lifecycle-cli, group: lifecycle-cli, network: none, scale: '10'}
           - {label: capacity-10, group: capacity, network: none, scale: '10'}
-          - {label: full-node-10, group: full-node, network: none, scale: '10'}
-          - {label: attempt-release, group: attempt-release, network: none, scale: '10'}
           - {label: disk-full, group: disk, network: none, scale: '10'}
           - {label: network-delay, group: network, network: delay, scale: '10'}
           - {label: network-loss, group: network, network: loss, scale: '10'}

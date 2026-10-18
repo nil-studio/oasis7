@@ -152,7 +152,12 @@ fn pin_busy(root: &Path) -> Result<Option<bool>, String> {
         )),
     }
 }
-fn assert_pins(primary: &Path, replica: &Path, expected: (bool, bool)) -> Result<(), String> {
+fn assert_pins(
+    primary: &Path,
+    replica: &Path,
+    expected: (bool, bool),
+    context: &str,
+) -> Result<(), String> {
     // An endpoint may briefly take the same fence for its own maintenance.
     // Allow that operation to finish; a retained closure pin never unlocks.
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -163,7 +168,7 @@ fn assert_pins(primary: &Path, replica: &Path, expected: (bool, bool)) -> Result
         }
         if Instant::now() >= deadline {
             return Err(format!(
-                "remote maintenance pins {actual:?} != {expected:?}"
+                "{context}: remote maintenance pins {actual:?} != {expected:?}"
             ));
         }
         thread::sleep(Duration::from_millis(20));
@@ -189,7 +194,12 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     endpoints_alive(&case)?;
     let primary = case.root.join("primary-data");
     let replica = case.root.join("replica-data");
-    assert_pins(&primary, &replica, (false, false))?;
+    assert_pins(
+        &primary,
+        &replica,
+        (false, false),
+        &format!("phase={phase} candidate=not-yet-selected stage=baseline"),
+    )?;
     drop(case.runtime);
     let request_path = case.root.join("release-original.cbor");
     oracle_support::write_private(
@@ -254,7 +264,12 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
         "release_replica_reply_lost" => (false, false),
         _ => return Err("unknown release phase".into()),
     };
-    assert_pins(&primary, &replica, expected)?;
+    assert_pins(
+        &primary,
+        &replica,
+        expected,
+        &format!("phase={phase} candidate={digest} stage=before_writer_sigkill"),
+    )?;
     child.0.kill().map_err(|e| e.to_string())?;
     let status = child.0.wait().map_err(|e| e.to_string())?;
     if status.signal() != Some(9) {
@@ -334,7 +349,6 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     if reverified.exists() {
         return Err("release recovery recreated an already verified closure job".into());
     }
-    assert_pins(&primary, &replica, (false, false))?;
     if std::fs::read(&publication_path).map_err(|e| e.to_string())? != publication
         || std::fs::read(&unique).map_err(|e| e.to_string())? != b"unique unresolved evidence"
     {
@@ -347,6 +361,15 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     if manifest["phase"] != "Reclaimed" {
         return Err("release obligation did not reach durable terminal state".into());
     }
+    eprintln!(
+        "ATTEMPT_RELEASE_RECOVERY_TERMINAL phase={phase} candidate={digest} lifecycle=Reclaimed original_publication_unchanged=true unique_evidence_unchanged=true recovery_reverify_attempts=0"
+    );
+    assert_pins(
+        &primary,
+        &replica,
+        (false, false),
+        &format!("phase={phase} candidate={digest} stage=after_recovery_terminal_checks"),
+    )?;
     let mut runtime = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
     runtime.start()?;
     let (cut, _) = wait_for_canonical_request_result(&runtime, &case.original)?;

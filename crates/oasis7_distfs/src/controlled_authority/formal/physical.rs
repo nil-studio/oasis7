@@ -128,6 +128,12 @@ pub(super) fn enabled(directory: &Path) -> Result<bool, FormalError> {
     }
 }
 pub(super) fn initialize(directory: &Path) -> Result<(), FormalError> {
+    initialize_inner(directory, false)
+}
+pub(super) fn initialize_generation(directory: &Path) -> Result<(), FormalError> {
+    initialize_inner(directory, true)
+}
+fn initialize_inner(directory: &Path, generation: bool) -> Result<(), FormalError> {
     directory_setup(directory)?;
     let existing = enabled(directory)?;
     for name in [GUARD, PUBLICATION_GUARD] {
@@ -155,7 +161,11 @@ pub(super) fn initialize(directory: &Path) -> Result<(), FormalError> {
     if existing {
         roots::count(directory)?;
     }
-    publication::recover(directory)?;
+    if generation {
+        publication::recover_members(directory)?;
+    } else {
+        publication::recover(directory)?;
+    }
     Ok(())
 }
 /// Validate fixed structure for a build already fully recovered by this live

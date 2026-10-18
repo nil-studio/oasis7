@@ -5,9 +5,13 @@ use oasis7_distfs::{
         endpoint::{FileFormalEndpoint, FormalEndpointAuthorizationV1},
         fencing::{RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1},
     },
-    storage_inventory::inventory_storage,
+    storage_inventory::inventory_storage_with_entry_limit,
 };
 use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
+
+// The 10-change calibration has about 32k paths; allow the 1000-change
+// selection room to measure without promising a byte/RSS bound.
+const INVENTORY_ENTRY_LIMIT: usize = 5_000_000;
 
 pub(super) fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
     serde_cbor::to_vec(value)
@@ -15,8 +19,14 @@ pub(super) fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 pub(super) fn inventory(root: &Path) -> Result<Value, String> {
-    let total = inventory_storage(root);
+    let total = inventory_storage_with_entry_limit(root, INVENTORY_ENTRY_LIMIT);
     if !total.complete {
+        eprintln!(
+            "STORAGE_FULL_NODE_INVENTORY_PARTIAL={}",
+            serde_json::json!({
+                "status":"partial", "entry_count_budget":INVENTORY_ENTRY_LIMIT, "inventory":&total
+            })
+        );
         return Err(format!(
             "incomplete full-node inventory: {:?}",
             total.errors
@@ -25,14 +35,14 @@ pub(super) fn inventory(root: &Path) -> Result<Value, String> {
     let mut attribution = BTreeMap::new();
     for name in ["primary-data", "replica-data", "formal-writer"] {
         let path = root.join(name);
-        let value = inventory_storage(&path);
+        let value = inventory_storage_with_entry_limit(&path, INVENTORY_ENTRY_LIMIT);
         if !value.complete {
             return Err(format!("incomplete {name} inventory"));
         }
         let mut categories = BTreeMap::new();
         for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
-            let value = inventory_storage(&entry.path());
+            let value = inventory_storage_with_entry_limit(&entry.path(), INVENTORY_ENTRY_LIMIT);
             if !value.complete {
                 return Err("incomplete category inventory".into());
             }
@@ -44,7 +54,7 @@ pub(super) fn inventory(root: &Path) -> Result<Value, String> {
         );
     }
     Ok(
-        serde_json::json!({"complete":true,"total":total,"attribution":attribution,
+        serde_json::json!({"complete":true,"total":total,"attribution":attribution,"entry_count_budget_per_inventory":INVENTORY_ENTRY_LIMIT,
         "scope":"entire fixture root, including P/R native executable/environment CAS, endpoint checkpoints/provider files, generation metadata, writer publications/attempts and private fixture metadata; shared installed binaries/build caches outside root excluded; categories are attribution and must not be summed"}),
     )
 }

@@ -56,6 +56,14 @@ impl FormalDurabilityEndpoint for CrashBoundaryFormalEndpoint {
             .advance_native_environment_verification(descriptor)
     }
 
+    fn release_native_environment_verification(
+        &mut self,
+        descriptor_digest: &str,
+    ) -> Result<(), FormalError> {
+        self.inner
+            .release_native_environment_verification(descriptor_digest)
+    }
+
     fn verify_published_closure(
         &mut self,
         request: &str,

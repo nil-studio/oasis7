@@ -55,6 +55,10 @@ impl FormalEndpointServer {
         };
         // Accepted sockets retain their original per-RPC deadline configuration.
         let result = self.serve_stream(&mut stream, peer);
+        // Bounded O(2) cache cleanup is independent of generation quiet/debt and
+        // cannot be starved by a continuous sequence of otherwise valid RPCs.
+        self.endpoint
+            .reap_idle_native_environment_verifications(std::time::Instant::now());
         // Never insert synchronous copy/fsync work between back-to-back RPCs.
         // A later idle accept poll observes the debt under the quiet gate.
         self.last_rpc = std::time::Instant::now();
@@ -178,6 +182,11 @@ impl FormalEndpointServer {
                 .endpoint
                 .advance_native_environment_verification(&descriptor)
                 .map(Value::NativeEnvironment),
+            Command::ReleaseNativeEnvironmentVerification { descriptor_digest } => {
+                self.endpoint
+                    .release_native_environment_verification(&descriptor_digest)?;
+                Ok(Value::Complete)
+            }
             Command::VerifyPublishedClosure {
                 request,
                 candidate_digest,

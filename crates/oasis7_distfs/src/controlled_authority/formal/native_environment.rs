@@ -161,6 +161,7 @@ mod tests {
 pub(crate) struct EndpointVerificationJob {
     pub job: VerificationJob,
     pub _pin: std::fs::File,
+    pub last_activity: std::time::Instant,
 }
 
 #[cfg(test)]

@@ -249,6 +249,11 @@ Linux 捕获固定 loaded-image 和 mapped backing-file FD，前后核对文件�
 
 原环境合同覆盖绑定时的 loaded-file 闭包；恢复及候选封装再次核对当前映像，新增动态依赖或原环境不同会拒绝继续。它不归档内核内存或声称支持未声明的未来 native plugin。旧 native 环境的原 bytes 可经认证 archive 和 durable-set copy 取回；不能自动改用部署机当前二进制、库或摘要解释原结果。当前协议没有隐式 native 环境升级，连续执行保持原环境 root。
 
+原生环境逐页验证 job 的 read pin 只保护本次验证消费，不是历史保留根。正常 Prepare 消费并释放该 job；恢复重放若两端已为同一原候选 Qualified，可能直接返回原证明而不再进入 Prepare，协调者须在返回前按原 candidate material 与 Frozen material 中的精确 descriptor digest，分别请求 P/R 释放未消费的验证 job。释放经原 writer RPC 权限与端点 guard 核对；合法 digest 的重复释放幂等，不删除 descriptor/chunk、不改变原 CommitRef 或合格证明。任一端释放失败须保留可重试结果，不能假定其 pin 已解除；释放后的新 Prepare 仍须重新取得本地原字节验证，不把过去的完整验证缓存作为授权。无此能力的适配器明确失败，不以空实现冒充已释放。
+
+为覆盖 writer 在 native 验证结束、尚未持久化 Frozen/attempt 前崩溃的弃置窗口，端点最多两个 native verification job 另有 300 秒**无活动缓存期限**：仅用当前进程的单调 `Instant`，每次 advance 开始及结束续期；默认维护入口先于 generation/debt/quiet 判断执行 O(2) 淘汰，且每个 RPC 响应后也独立执行，持续服务不会饿死回收。advance 与 Prepare 消费前同样拒用已过期 job。过期时整体丢弃未完成或已完成 job 和 read pin，后续必须从原 chunks 重新验证；不保留可复用的旧 receipt/完成标志，不删除 chunks，不对历史、Frozen、未决请求或持久化恢复根施加 TTL。合法调用暂停超过期限会失去这份临时验证进度，不能把该结果解释为原业务失败；P/R 验证须交错推进并在等待另一端时续期已完成端，单次原 RPC deadline 不改变。
+Published attempt 的 ReleasePending 收尾也须按同一精确身份重试原生验证 job 的释放，再释放 closure pin；只有 P/R 全部确认后才写入 Reclaimed，覆盖释放回包丢失后由原生恢复直接回到已发布 head、未重新调用 submit 的路径。
+
 ### 6.6 Merkle v1 与 v2
 
 现行 v1 的 verify 会调用 build，再以 rebuilt == 原 delta 比较全部字段和 node_writes。因此旧 delta 内暂时中间根所用节点也是原编码的一部分；不能在物理整理中修改它们或直接过滤后覆写旧 envelope。v1 首先只做精确字节压缩、共享默认路径表示和 pack 重排。
@@ -435,6 +440,8 @@ S2 另有 `build_formal_storage_shadow` 和 `formal_storage_shadow` example：�
 另有 `advance_formal_storage_shadow` 分批入口：绑定不变的源 checkpoint、registry、selector 与目录元数据，持久化私有 catalog 和经校验游标；copy、独立 verify 与临时统计清理分阶段推进，每步最多 1,024 records，采用原单轮逻辑预算，不把总历史物化进一个 Vec。中断后只续同一源和原操作；源变更明确拒绝，shadow-only 标志持续阻止作为 serving endpoint 使用。verify 页持久化唯一对象计数及逻辑字节数，中断重试不重复计数；收尾只扫描文件元数据，不再隐藏全量 payload 读取，临时统计材料分批清理后才计算最终占用。旧一次性 API 保留原预算语义。
 
 正式 endpoint 的 `advance_physical_generation` 使用独立带 checksum 的 build/selection/retire 状态和分片 catalog；单次复制、退休最多 1,024 对象/8 MiB（单个较大有界对象除外）。切换前在稳定根 fence 内补查 overlay，新选中代损坏不得回落到旧 overlay。旧代及根 orphan frames 分页回收；仍被新 overlay 引用的共享帧保留。catalog v3 采用按内容 hash 认证的层级目录：manifest 只保存固定大小的根引用及计数，每个内部节点最多 16 个子引用，每个叶最多 4,096 个有序 IDs；叶满时按下一个 hash nibble 分裂，深度只受原 64 位十六进制对象 hash 的自然边界限制，不以固定分片总数限制历史。lookup、分页及验证沿原 hash 路径进行，不把完整目录装入 manifest 或内存。每轮提交新目录根后，以可恢复清单分批回收不再被当前 objects/completed 根引用的旧目录节点；仍被任一根引用的节点必须保留，不能用索引版本堆积换取表面 payload 节省。同步 typed orphan GC 另有独立 mark 预算，预算不足只保留，分批 generation 不继承其整轮 1 GiB/262,144 对象限制。
+
+generation 导入已存在表示时，先通过实际 selected source locator 重新读取并验证每个原逻辑对象，再保持原 recipe、frame 编码及 legacy pack 布局；不可把 hash 排序后重拼批次的重压缩视为天然收益。不可变文件可在同一受控文件系统内按原表示用 hardlink 迁入新代，frame 仍按原 stored hash 去重，selector/alias 仍保持原一致性和耐久发布顺序。候选逐对象独立读回及完整 catalog 覆盖后才允许切换；损坏、错配或不完整表示阻止切换和源删除。逻辑页预算与单对象边界不变，文件名、inode 及目录元数据不能代替原内容验证。一个小对象可共用原有最大 64MiB recipe 或 80MiB legacy pack；导入对其额外 frame 路径做有界类型、owner、尺寸检查和 hardlink，不为未捕获成员扩大内容权威，也不把元数据步声称为硬 10ms 截止。generation 专用重开恢复只核对实际存在的 selector ID、其原 span/hash 及 alias 一致性，仅修复该捕获成员，不展开 recipe 其余成员或增加其 retention/catalog；普通 endpoint 的完整发布批次恢复保持不变。此路径避免改变批边界破坏已有共享，但新增 catalog、保留目录和其他元数据仍须计入容量实测，不能据此宣称每次维护净占用必然不增。
 
 默认正式 endpoint 的单 owner 服务循环在 RPC 响应完成后记录业务活动，连续空闲至少 100ms 时才调度物理 generation 页，每秒最多一步；busy/pin 阻塞时退让，维护错误单独暴露，不改写已发送的业务响应或授予 serving 资格。已有 build/retire 工作优先续做。无 build 时，首次及后续新增保留记录达到 max(1,024, 上轮完成时保留记录数/4) 可触发批量重建，不要求数据静默 30 秒；较小首批或小尾部要求数据静默 30 秒，后者还要求距上轮完成至少 300 秒。失败物理写入产生的 staging/orphan 也属于待维护工作，不能仅按成功提交计数忽略；无新对象、残余或未完成事务时保持静止，不循环重写同一历史。自动路径复用 generation 已有的旧代和 root orphan 分页清理；全量 typed `collect_physical_orphans` 保留为显式有预算入口，不伪称它已是逐 RPC 的有界步骤。
 
