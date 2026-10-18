@@ -16,6 +16,58 @@ use std::{
 
 const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 
+#[test]
+fn availability_recovery_queues_original_before_releasing_published_cut() {
+    use crate::formal_live_service::test_control::{BoundaryControl, Point};
+    use oasis7_node::{NodeConsensusAction, NodeExecutionCommitContext};
+    use std::sync::mpsc;
+    let control = BoundaryControl::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    control
+        .arm(Point::Published, Some(4), None, deadline)
+        .unwrap();
+    let (queued, incoming) = mpsc::channel::<Vec<u8>>();
+    let (done, completion) = mpsc::channel();
+    let shared = control.shared();
+    let worker = thread::spawn(move || {
+        shared.published(4).unwrap();
+        let payload = incoming.recv_timeout(Duration::from_secs(5)).unwrap();
+        let context = NodeExecutionCommitContext {
+            world_id: "recovery-world".into(),
+            node_id: "owner".into(),
+            proposer_id: "owner".into(),
+            height: 6,
+            slot: 6,
+            epoch: 0,
+            node_block_hash: "b".repeat(64),
+            action_root: "c".repeat(64),
+            committed_actions: vec![
+                NodeConsensusAction::from_payload(1, "owner", payload).unwrap(),
+            ],
+            committed_at_unix_ms: 0,
+        };
+        let _scope = shared.resume_scope(&context).unwrap();
+        shared.published(5).unwrap();
+        done.send(()).unwrap();
+    });
+    assert_eq!(control.wait(deadline).unwrap().position, 4);
+    let original = b"unchanged signed original".to_vec();
+    queued.send(original.clone()).unwrap();
+    assert!(matches!(
+        completion.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    control
+        .arm(Point::Published, Some(5), Some(original), deadline)
+        .unwrap();
+    let observed = control.wait(deadline).unwrap();
+    assert_eq!(observed.position, 5);
+    assert_eq!(observed.action_count, 1);
+    control.release().unwrap();
+    completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    worker.join().unwrap();
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) enum AdmissionCase {
     QueuedBehindEmptyFrozen,
@@ -220,12 +272,33 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::reset_execution_attempts(block_hash);
     }
     let mut reopened = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
+    // Hold the first naturally produced recovery publication before the Node
+    // can freeze another empty continuation. HTTP lookup/re-admission below
+    // must observe this exact cut, rather than race an unrelated background Tick.
+    let recovery_control = reopened.published.control_boundaries()?;
+    let recovery_position = reopened
+        .published
+        .position()?
+        .checked_add(1)
+        .ok_or("C06 recovery boundary position overflow")?;
+    let recovery_deadline = Instant::now() + Duration::from_secs(20);
+    recovery_control.arm(
+        Point::Published,
+        Some(recovery_position),
+        None,
+        recovery_deadline,
+    )?;
     reopened.start()?;
     let target_position = old_commit
         .position
         .checked_add(1)
         .ok_or("C06 CommitRef position overflow")?;
-    wait_for_published_position(&reopened, target_position)?;
+    let recovery_boundary = recovery_control
+        .wait(recovery_deadline)
+        .map_err(|error| format!("C06 exact recovery publication boundary: {error}"))?;
+    if recovery_boundary.position != recovery_position || recovery_position < target_position {
+        return Err("C06 recovery did not publish the exact successor boundary".into());
+    }
 
     // Volatile admission is not durable pending state and may disappear on
     // reopen. Query the original first; a successor tick alone proves neither
@@ -268,16 +341,36 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             return Err("C06 unfrozen volatile envelope unexpectedly survived as a result".into());
         }
         eprintln!("C06 recovery lookup=exact_cut_without_result replay=same_signed_original");
+        let replay_position = recovery_position
+            .checked_add(1)
+            .ok_or("C06 replay boundary position overflow")?;
+        let replay_deadline = Instant::now() + Duration::from_secs(20);
         let admission = owner_client
             .submit(case.owner_request.clone())
             .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
         assert_volatile_admission(admission, &case.owner_request.correlation)?;
-        wait_for_new_request_result(
-            &reopened,
-            &case.owner_request,
-            Duration::from_secs(20),
-            "C06 exact volatile original recovery",
+        // Queue the unchanged signed original while the prior publication is
+        // held. Rearming releases that hold atomically, so its own next Tick
+        // cannot be preceded by another empty Frozen continuation.
+        recovery_control.arm(
+            Point::Published,
+            Some(replay_position),
+            Some(correlation::encode_consensus_intent(&case.owner_request)?),
+            replay_deadline,
         )?;
+        let replayed = recovery_control
+            .wait(replay_deadline)
+            .map_err(|error| format!("C06 exact volatile original recovery boundary: {error}"))?;
+        if replayed.position != replay_position || replayed.action_count != 1 {
+            return Err("C06 replay did not use the immediate exact original continuation".into());
+        }
+        if reopened
+            .published
+            .observe(|cut| fresh_request_result(&cut.world, &key, &case.owner_request))?
+            .is_none()
+        {
+            return Err("C06 exact replay publication lacks its original successful result".into());
+        }
     } else if recovered_commit.is_none() {
         return Err("C06 durable original did not recover automatically".into());
     }
@@ -321,14 +414,8 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
 
     // Repeating the same signed envelope must resolve to the same immutable
     // result and task, even after endpoint/runtime reopen.
-    let duplicate_control = reopened.published.control_boundaries()?;
+    let duplicate_control = recovery_control;
     let duplicate_deadline = Instant::now() + Duration::from_secs(20);
-    duplicate_control.arm(
-        Point::Published,
-        None,
-        Some(correlation::encode_consensus_intent(&case.owner_request)?),
-        duplicate_deadline,
-    )?;
     let next_position = reopened
         .published
         .position()?
@@ -338,9 +425,15 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         .submit(case.owner_request.clone())
         .map_err(|error| format!("C06 duplicate original request: {error}"))?;
     assert_volatile_admission(duplicate, &case.owner_request.correlation)?;
+    duplicate_control.arm(
+        Point::Published,
+        Some(next_position),
+        Some(correlation::encode_consensus_intent(&case.owner_request)?),
+        duplicate_deadline,
+    )?;
     let observed = duplicate_control.wait(duplicate_deadline).map_err(|error|format!(
         "C06 stage=duplicate_after_volatile_admission_before_exact_publication admission={:?}: {error}",case.admission))?;
-    if observed.position < next_position || observed.action_count != 1 {
+    if observed.position != next_position || observed.action_count != 1 {
         return Err("C06 duplicate envelope was not qualified in a successor continuation".into());
     }
     if lookup_original_commit(&owner_client, &case.owner_request)? != committed {

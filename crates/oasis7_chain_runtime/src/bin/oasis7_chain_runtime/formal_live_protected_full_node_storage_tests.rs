@@ -222,7 +222,14 @@ fn compact(config: &Path, budget: &mut Budget) -> Result<u64, String> {
     }
     unreachable!()
 }
-pub(super) fn exercise(mut case: Case) -> Result<(), String> {
+// Each exact delegated intent advances one logical tick. Reserve a bounded
+// 1024 ticks for fixture setup, continuation, and verification around the run.
+pub(super) fn capability_lifetime_ticks() -> Result<u64, String> {
+    requested_commits()?
+        .checked_add(1024)
+        .ok_or_else(|| "full-node capability lifetime overflow".into())
+}
+fn requested_commits() -> Result<u64, String> {
     let requested = std::env::var("OASIS7_STORAGE_FULL_NODE_COMMITS")
         .unwrap_or_else(|_| "10".into())
         .parse::<u64>()
@@ -230,6 +237,10 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     if ![10, 1000, 10000].contains(&requested) {
         return Err("full-node commits must be 10,1000,10000".into());
     }
+    Ok(requested)
+}
+pub(super) fn exercise(mut case: Case) -> Result<(), String> {
+    let requested = requested_commits()?;
     let mut budget = Budget::new(requested)?;
     io::fix_listen(&case.primary_config, case.primary_address)?;
     io::fix_listen(&case.replica_config, case.replica_address)?;

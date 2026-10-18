@@ -306,11 +306,15 @@ fn run_protected_runtime_fixture(
         .bind_cognition_runtime(&identity.world_id, "main", 0, None, "pending", 0)
         .map_err(|error| format!("bind existing formal World: {error:?}"))?;
     if !genesis_mode {
-        world
-            .install_test_provider_capability_fixture("agent")
-            .map_err(|error| {
-                format!("install Runtime-owned provider authority fixture: {error:?}")
-            })?;
+        if fixture_case == FixtureCase::FullNodeStorage {
+            world.install_test_provider_capability_fixture_with_lifetime(
+                "agent",
+                full_node_storage_tests::capability_lifetime_ticks()?,
+            )
+        } else {
+            world.install_test_provider_capability_fixture("agent")
+        }
+        .map_err(|error| format!("install Runtime-owned provider authority fixture: {error:?}"))?;
     }
     let snapshot = world.snapshot_with_chain_resource_context(
         oasis7_runtime::ChainResourceDerivationContext {
