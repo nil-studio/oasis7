@@ -179,3 +179,10 @@ it('filters by the readable Chinese result without changing source facts',async(
  await screen.findByRole('button',{name:'修复本地工具'});fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'已合入'}});
  expect(screen.getByRole('button',{name:'修复本地工具'})).toBeInTheDocument();
 });
+
+it('restores the detail top independently of the old work list scroll offset',async()=>{
+ const record=state();record.navigation={...record.navigation,selected:projection().items[0].reference,scrollTop:1800,detailScrollTop:0};vi.mocked(bridge.dailyWork).mockResolvedValue(record);
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByRole('region',{name:'工作详情'});await waitFor(()=>expect(window.scrollTo).toHaveBeenCalledWith(0,0));
+ expect(window.scrollTo).not.toHaveBeenCalledWith(0,1800);
+});
