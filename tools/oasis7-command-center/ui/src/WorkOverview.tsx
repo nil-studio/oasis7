@@ -35,14 +35,14 @@ export default function WorkOverview(props: Props) {
   const [preview,setPreview] = createSignal(false);
   const [sendLocked,setSendLocked] = createSignal(false);
   const [showHistory,setShowHistory] = createSignal(false);
-  let generation=0, interaction=0, disposed=false, currentScope='';
+  let generation=0, interaction=0, disposed=false, currentScope='', restorePending=true;
   let origin:HTMLElement|undefined, detail:HTMLElement|undefined, list:HTMLElement|undefined;
   let unlisten:(()=>void)|undefined;
   const sessionInputs = new Map<string,{navigation:WorkNavigation;goalQuery:string;goalId:string;repairId:string|null;note:string;locator:string;purpose:string;scope:string}>();
   const key = () => props.snapshot?.project ? JSON.stringify([props.snapshot.project.id,props.snapshot.project.environment]) : '';
   async function read(restore=false) {
     const project=props.snapshot?.project;if(!project||disposed)return;
-    const token=++generation, intent=interaction;setLoading(true);
+    const token=++generation, intent=interaction, restoring=restore||restorePending;setLoading(true);
     const [work,records,source,starts]=await Promise.allSettled([safely(()=>bridge.workProjection()),safely(()=>bridge.dailyWork()),safely(()=>runtimeBridge.publicSnapshot()),safely(()=>runtimeBridge.startWorkRecords())]);
     if(token!==generation||disposed||key()!==currentScope)return;
     if(work.status==='fulfilled') {
@@ -52,7 +52,7 @@ export default function WorkOverview(props: Props) {
     } else setError(errorMessage(work.reason));
     if(records.status==='fulfilled'&&records.value.projectId===project.id&&records.value.environment===project.environment&&records.value.schemaVersion===1){
       if(!personal()||records.value.revision>=personal()!.revision)setPersonal(records.value);setPersonalError('');
-      if(restore&&intent===interaction){const transient=sessionInputs.get(currentScope);const saved=transient?.navigation??records.value.navigation;if(transient){setGoalQuery(transient.goalQuery);setGoalId(transient.goalId);setRepairId(transient.repairId);setNote(transient.note);setLocator(transient.locator);}setNav(saved);setPurpose(transient?.purpose??saved.draftPurpose);setScopeText(transient?.scope??saved.draftScope);setSelected(saved.selected?workKey(saved.selected):undefined);queueMicrotask(()=>{if(intent===interaction){window.scrollTo?.(0,saved.detailScrollTop||saved.scrollTop);}});}
+      if(restoring&&intent===interaction){restorePending=false;const transient=sessionInputs.get(currentScope);const saved=transient?.navigation??records.value.navigation;if(transient){setGoalQuery(transient.goalQuery);setGoalId(transient.goalId);setRepairId(transient.repairId);setNote(transient.note);setLocator(transient.locator);}setNav(saved);setPurpose(transient?.purpose??saved.draftPurpose);setScopeText(transient?.scope??saved.draftScope);setSelected(saved.selected?workKey(saved.selected):undefined);queueMicrotask(()=>{if(intent===interaction){window.scrollTo?.(0,saved.detailScrollTop||saved.scrollTop);}});}
     }else setPersonalError(records.status==='rejected'?errorMessage(records.reason):'个人记录范围不匹配，未恢复。');
     if(source.status==='fulfilled'&&source.value.projectId===project.id&&source.value.environment===project.environment)setRuntime(source.value);
     if(starts.status==='fulfilled')setIntents(starts.value);
@@ -61,7 +61,7 @@ export default function WorkOverview(props: Props) {
   createEffect(()=>{
     props.sourceGeneration;props.snapshot?.associations;props.snapshot?.decisions;
     const next=key();untrack(()=>{const changed=next!==currentScope;
-    if(changed){if(currentScope)sessionInputs.set(currentScope,{navigation:{...nav(),selected:item()?.reference??null},goalQuery:goalQuery(),goalId:goalId(),repairId:repairId(),note:note(),locator:locator(),purpose:purpose(),scope:scopeText()});currentScope=next;++generation;++interaction;setProjection(undefined);setPersonal(undefined);setRuntime(undefined);setIntents([]);setSelected(undefined);setNav(emptyNavigation());setSendLocked(false);setPreview(false);setPersonalError('');setGoalQuery('');setGoalId('');setRepairId(null);setNote('');setLocator('');setPurpose('');setScopeText('');}
+    if(changed){if(currentScope)sessionInputs.set(currentScope,{navigation:{...nav(),selected:item()?.reference??null},goalQuery:goalQuery(),goalId:goalId(),repairId:repairId(),note:note(),locator:locator(),purpose:purpose(),scope:scopeText()});currentScope=next;restorePending=true;++generation;++interaction;setProjection(undefined);setPersonal(undefined);setRuntime(undefined);setIntents([]);setSelected(undefined);setNav(emptyNavigation());setSendLocked(false);setPreview(false);setPersonalError('');setGoalQuery('');setGoalId('');setRepairId(null);setNote('');setLocator('');setPurpose('');setScopeText('');}
     if(next)void read(changed);});
   });
   void subscribeRuntime(()=>void read(),()=>{}).then(stop=>{if(disposed)stop();else unlisten=stop;}).catch(()=>{});
@@ -73,7 +73,7 @@ export default function WorkOverview(props: Props) {
     catch(e){if(scope===currentScope&&!disposed)setPersonalError(`未保存：${errorMessage(e)}。当前输入已保留，请先重读并核对差异。`);}
     finally{setSaving(false);}
   }
-  function changed(patch:Partial<WorkNavigation>){++interaction;setNav({...nav(),...patch});}
+  function changed(patch:Partial<WorkNavigation>){restorePending=false;++interaction;setNav({...nav(),...patch});}
   async function remember(patch:Partial<WorkNavigation>={}){changed(patch);await save({kind:'navigate',navigation:{...nav(),selected:item()?.reference??null,returnView:nav().returnView}});}
   const works=createMemo(()=>projection()?.items??[]);
   const item=()=>works().find(w=>workKey(w.reference)===selected());

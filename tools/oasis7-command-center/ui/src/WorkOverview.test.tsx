@@ -94,3 +94,9 @@ it('allows a ready runtime to start exactly once after persisting the preview id
  await waitFor(()=>expect(runtimeBridge.startWork).toHaveBeenCalledTimes(1));
  const id=vi.mocked(runtimeBridge.startWork).mock.calls[0][0];expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({action:expect.objectContaining({kind:'navigate',navigation:expect.objectContaining({startIntentId:id})})}));expect(send).toBeDisabled();
 });
+it('restores persisted navigation when a startup source refresh supersedes the first read',async()=>{
+ const record=state();record.navigation={...record.navigation,selected:projection().items[0].reference,filter:'工具',draft:'persistent draft',draftPurpose:'purpose',draftScope:'scope',retainDraft:true};
+ let first!:(value:DailyWorkState)=>void;vi.mocked(bridge.dailyWork).mockImplementationOnce(()=>new Promise(resolve=>{first=resolve;})).mockResolvedValue(record);
+ const [source,setSource]=createSignal(0);render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={source()} onExecution={()=>{}}/>);
+ await waitFor(()=>expect(first).toBeTypeOf('function'));setSource(1);await screen.findByRole('region',{name:'工作详情'});expect(screen.getByLabelText('筛选工作')).toHaveValue('工具');expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');first(state());await Promise.resolve();expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');expect(runtimeBridge.startWork).not.toHaveBeenCalled();
+});
