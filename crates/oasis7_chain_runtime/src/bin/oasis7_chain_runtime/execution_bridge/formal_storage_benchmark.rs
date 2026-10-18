@@ -20,6 +20,9 @@ use std::{
 #[path = "formal_storage_benchmark_io.rs"]
 mod io_fixture;
 use io_fixture::{Corpus, Scratch};
+#[path = "formal_storage_benchmark_progress.rs"]
+mod progress;
+use progress::Progress;
 #[derive(Clone)]
 struct IndexReader(PathBuf);
 impl BusinessIndexNodeReader for IndexReader {
@@ -197,8 +200,18 @@ fn restore(
     fixture.candidate = candidate;
 }
 fn run(heights: u64) {
+    let mut progress = Progress::from_env(heights);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_inner(heights, &mut progress);
+    }));
+    if let Err(error) = result {
+        progress.partial();
+        std::panic::resume_unwind(error);
+    }
+}
+fn run_inner(heights: u64, progress: &mut Progress) {
     let scratch = Scratch::new();
-    let mut corpus = Corpus::new(scratch.path());
+    let mut corpus = Corpus::new(scratch.path(), progress.max_logical_bytes);
     let mut fixture = initial();
     corpus.capture(&fixture.candidate, &fixture.proof);
     let index = Arc::new(IndexReader(corpus.primary_objects()));
@@ -216,7 +229,9 @@ fn run(heights: u64) {
     .unwrap();
     let reader = super::super::super::formal_business_package::SharedBusinessReader(index.clone());
     let execution = Instant::now();
+    progress.sample(0, &corpus);
     for height in 1..=heights {
+        progress.check_time();
         let candidate = execute_step(&fixture, &reader, &scratch.path().join("attempts"));
         let proof = fixtures::qualified_proof(
             candidate.candidate.record.clone(),
@@ -230,22 +245,23 @@ fn run(heights: u64) {
         );
         corpus.capture(&candidate, &proof);
         restore(&mut fixture, candidate, index.clone(), proof);
-        if height % 100 == 0 {
-            eprintln!("storage-capacity actual formal heights={height}/{heights}");
+        if height % progress.interval == 0 || height == heights {
+            progress.sample(height, &corpus);
         }
     }
     let execution_ns = execution.elapsed().as_nanos();
     assert_eq!(fixture.world.state().time, heights);
     eprintln!("STORAGE_CAPACITY_PHASE=source_capture_complete heights={heights}");
-    let reports = corpus.compare();
+    let reports = corpus.compare(progress);
     let report = serde_json::json!({
-        "schema_version":1,"executed_heights":heights,"head":fixture.anchor.head().head(),
+        "schema_version":1,"status":"passed","executed_heights":heights,"head":fixture.anchor.head().head(),
         "scope":"actual World/profile2 artifacts, all five typed phase envelopes and CAS nodes; fixture signers; same-filesystem P/R directories, not S6 fault-domain evidence; source retained; namespace benchmark excludes native executable/environment chunk corpus and native checkpoint/provider/generation activation evidence",
         "execution_and_raw_capture_ns":execution_ns,"domains":reports,
         "unmeasured": { "peak_rss_bytes":null, "device_write_bytes":null,
             "write_amplification":null, "shipping_endpoint_commit_latency":null, "native_environment_archive_bytes":null },
         "attempt_scratch":inventory_storage(&scratch.path().join("attempts")),
     });
+    progress.complete(&report);
     eprintln!(
         "STORAGE_CAPACITY_REPORT={}",
         serde_json::to_string(&report).unwrap()
