@@ -321,7 +321,8 @@ pub(crate) fn prepare_world_retention_candidate(
     let (proposed_root, delta) = if updates.is_empty() {
         (parent.root().clone(), None)
     } else {
-        let delta = BusinessIndexDeltaV1::build(parent.root().index_root.clone(), updates, reader)?;
+        let delta =
+            BusinessIndexDeltaV1::build_v2(parent.root().index_root.clone(), updates, reader)?;
         let descriptor = FormalRetainedHistoryRootV1::from_index_root(delta.new.clone())?;
         (descriptor, Some(delta))
     };

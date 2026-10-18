@@ -1,6 +1,8 @@
 use super::*;
 #[path = "formal_checkpoint_attempt_tests.rs"]
 mod checkpoint_attempt_tests;
+#[path = "formal_frozen_snapshot_tests.rs"]
+mod frozen_snapshot_tests;
 use crate::formal_read_fixtures as fixtures;
 #[path = "formal_wasm_fixture.rs"]
 mod wasm_fixture;
@@ -12,6 +14,10 @@ use oasis7_distfs::controlled_authority::{
     replicated_protocol::EndpointRole,
 };
 use oasis7_node::NodeExecutionCommitContext;
+
+#[path = "formal_snapshot_checkpoint_fixture.rs"]
+mod snapshot_checkpoint_fixture;
+use snapshot_checkpoint_fixture::frozen_at_snapshot_depth;
 
 // In-memory test receivers exercise the runtime handoff only. Native durable
 // endpoint and independent-provider qualification have separate storage tests.
@@ -347,6 +353,82 @@ fn formal_initial_existing_world_has_complete_approved_material_and_stable_ident
 }
 
 #[test]
+fn native_initial_approval_binds_external_descriptor_without_claiming_missing_bytes() {
+    use oasis7_formal_protocol::native_environment::{
+        NativeEnvironmentChunkV1, NativeEnvironmentComponentV1, NativeEnvironmentRole,
+        NativeExecutionEnvironmentV1,
+    };
+    let (world, trust, anchor, _) = fixtures::actual_world_initial_fixture();
+    let release = ReleaseSecurityPolicy::default();
+    let executable_digest = crate::controlled_execution_policy::executable_digest().unwrap();
+    // A declared external image is deliberately absent. These are protocol
+    // fixture commitments, not a captured Linux/macOS execution environment.
+    let native = NativeExecutionEnvironmentV1 {
+        schema_version: 1,
+        target: "protocol-fixture".into(),
+        os: "fixture".into(),
+        arch: "fixture".into(),
+        components: [
+            NativeEnvironmentRole::Executable,
+            NativeEnvironmentRole::BuildMetadata,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, role)| NativeEnvironmentComponentV1 {
+            role,
+            name: format!("fixture-{index}"),
+            byte_len: 1,
+            content_digest: if index == 0 {
+                executable_digest.clone()
+            } else {
+                fixtures::h(44)
+            },
+            chunks: vec![NativeEnvironmentChunkV1 {
+                digest: fixtures::h(44),
+                byte_len: 1,
+            }],
+        })
+        .collect(),
+    };
+    let draft = || {
+        super::super::formal_initial::InitialWorldClosure::from_existing_world(
+            &world,
+            &anchor.authority().definition().world,
+            &release,
+        )
+        .unwrap()
+        .with_native_environment(&native)
+        .unwrap()
+    };
+    let body = draft()
+        .activation_body(
+            anchor.authority().definition().clone(),
+            anchor.authority().policy().clone(),
+        )
+        .unwrap();
+    assert_eq!(body.schema_version, 2);
+    let certificate = SignedInitialActivationV1 {
+        signature_hex: fixtures::sign(initial_activation_signing_bytes(&body).unwrap(), 9),
+        body,
+    };
+    let (_, candidate) = draft()
+        .authorize(&certificate, &trust, &fixtures::key(4))
+        .unwrap();
+    assert_eq!(candidate.candidate.record.schema_version, 5);
+    assert_eq!(candidate.material.roots.len(), 10);
+    verify_record_material(&candidate.candidate.record, &candidate.material).unwrap();
+    assert_eq!(
+        super::super::formal_native_environment::descriptor(&candidate.material).unwrap(),
+        Some(native.clone())
+    );
+    assert!(
+        native
+            .verify(|_| Err("fixture external bytes unavailable".into()))
+            .is_err()
+    );
+}
+
+#[test]
 #[cfg(unix)]
 fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
     let (world, anchor) = wasm_fixture::world_and_anchor();
@@ -374,14 +456,8 @@ fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
         .iter()
         .map(|action| action.payload_cbor.len())
         .sum();
-    let (body, material) = freeze_material(
-        anchor.authority(),
-        anchor.head(),
-        &original,
-        &world,
-        &ReleaseSecurityPolicy::default(),
-    )
-    .unwrap();
+    let (body, material) =
+        frozen_at_snapshot_depth(anchor.authority(), anchor.head(), &original, &world, 8);
     let input = SignedFormalFrozenV1 {
         signature_hex: fixtures::sign(frozen_signing_bytes(&body).unwrap(), 4),
         body,
@@ -407,6 +483,7 @@ fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
         .unwrap()
         .join(format!("oasis7-formal-wasm-replay-{}", std::process::id()));
     assert!(!root.exists());
+    super::frozen_snapshot::reset_counts();
     let first = super::super::formal_executor::execute_normal(
         &executable,
         anchor.authority(),
@@ -415,6 +492,10 @@ fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
         &fixtures::key(4),
     )
     .unwrap();
+    // These counts cover only the Node token, not endpoint verification or
+    // candidate after-state validation. Both typed restores share one expansion.
+    assert_eq!(super::frozen_snapshot::counts(), (1, 2));
+    super::frozen_snapshot::reset_counts();
     let second = super::super::formal_executor::execute_normal(
         &executable,
         anchor.authority(),
@@ -423,7 +504,36 @@ fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
         &fixtures::key(4),
     )
     .unwrap();
+    assert_eq!(super::frozen_snapshot::counts(), (1, 2));
     assert_eq!(first, second);
+    let checkpoint = &first.material.roots[&ArtifactRole::Snapshot];
+    assert_eq!(checkpoint, &first.candidate.record.after_state_root);
+    assert_eq!(
+        blake3_hex(&first.material.snapshot_bytes().unwrap()),
+        first.candidate.record.after_state_root,
+    );
+    let old_prestate = &executable.material().roots[&ArtifactRole::Snapshot];
+    assert!(
+        first
+            .material
+            .objects
+            .iter()
+            .any(|object| &object.content_hash == old_prestate)
+    );
+    assert_eq!(first.frozen_material.as_ref(), Some(executable.material()));
+    let mut next_frozen_snapshot = BTreeMap::new();
+    let inherited_root = super::super::formal_snapshot::inherit(
+        &mut next_frozen_snapshot,
+        &first.material,
+        &first.material.snapshot_bytes().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(&inherited_root, checkpoint);
+    assert_eq!(
+        next_frozen_snapshot.len(),
+        1,
+        "next Frozen inherits only the new complete Snapshot"
+    );
     let journal: oasis7_runtime::Journal =
         capture::decode_role(&first.material, ArtifactRole::Journal).unwrap();
     assert!(
@@ -449,3 +559,7 @@ fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(unix)]
+#[path = "formal_storage_benchmark.rs"]
+mod storage_benchmark;

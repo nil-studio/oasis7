@@ -18,6 +18,7 @@ fn protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_on
                 "primary_published",
                 "dual_qualified",
                 "publication_saved",
+                "attempt_output_unlinked",
                 "read_published",
             ]
             .contains(&selected.as_str()),
@@ -32,6 +33,7 @@ fn protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_on
         "primary_published",
         "dual_qualified",
         "publication_saved",
+        "attempt_output_unlinked",
         "read_published",
     ] {
         if selected_phase
@@ -90,7 +92,14 @@ impl Drop for RuntimeChild {
     }
 }
 fn wait_marker(child: &mut RuntimeChild, marker: &Path, expected: &[u8]) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    // The attempt retire phase is reached by genuine idle-tick maintenance:
+    // full native/environment and sparse-tree verification spans bounded pages.
+    let seconds = if expected == b"attempt_output_unlinked" {
+        180
+    } else {
+        30
+    };
+    let deadline = Instant::now() + Duration::from_secs(seconds);
     loop {
         if marker.exists() {
             let bytes = crate::controlled_history_cli::read_bounded(marker, 1024)?;
@@ -118,6 +127,14 @@ pub(super) fn run_crash_recovery(
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
     initial_emits: usize,
 ) -> Result<(), String> {
+    // C03 previously had no shared scenario deadline. Use the healthy fixture's
+    // existing five-minute scenario budget once, including both exact reopens
+    // and retries of the same pending stop owner. The phase/RPC bounds stay put.
+    let started_at = Instant::now();
+    let scenario = ScenarioDeadline {
+        started_at,
+        expires_at: started_at + Duration::from_secs(5 * 60),
+    };
     let root = config.parent().ok_or("crash fixture root missing")?;
     let marker = root.join("runtime-crash-phase");
     let target_request = root.join("crash-original-request.cbor");
@@ -176,6 +193,7 @@ pub(super) fn run_crash_recovery(
         return Err(format!("C03 did not observe SIGKILL: {status}"));
     }
     drop(child);
+    scenario.report_stage("runtime SIGKILL observed")?;
 
     let config_value: Value =
         serde_json::from_slice(&std::fs::read(config).map_err(|e| e.to_string())?)
@@ -186,8 +204,15 @@ pub(super) fn run_crash_recovery(
             .ok_or("test writer directory missing")?,
     )
     .join("pending.cbor");
-    let original_block_hash = crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_block_hash(&pending_file)?;
-    let target_position = crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_position(&pending_file)?;
+    let (original_block_hash, target_position) = if phase == "attempt_output_unlinked" {
+        crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::retirement_test_target(
+            pending_file.parent().ok_or("writer root missing")?,
+            &marker.with_extension("retirement-target.cbor"),
+        )?
+    } else {
+        (crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_block_hash(&pending_file)?,
+         crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_position(&pending_file)?)
+    };
     if phase == "primary_published" {
         // Force the retained genesis path to use the endpoint's durable
         // logical artifact CAS, not an old local Published C0 byte cache.
@@ -209,6 +234,7 @@ pub(super) fn run_crash_recovery(
     let mut qualified_record = None;
     let mut exact_effect = None;
     for reopen in 0..2 {
+        scenario.report_stage("exact crash recovery reopen started")?;
         crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::reset_execution_attempts(&original_block_hash);
         let mut runtime = FormalLiveRuntime::open_with_native_history(config)?;
         runtime.start()?;
@@ -260,7 +286,10 @@ pub(super) fn run_crash_recovery(
             }
         };
         if original_commit.position != target_position {
-            return Err("C03 original result changed its qualified decision identity".into());
+            return Err(format!(
+                "C03 original result changed its qualified decision identity: expected position {target_position}, got {}",
+                original_commit.position
+            ));
         }
         let exact_original = runtime.history.fixed_publication(&original_commit)?;
         if wasm_emit_count(exact_original.world()) != initial_emits + 1 {
@@ -309,7 +338,11 @@ pub(super) fn run_crash_recovery(
         {
             return Err("C03 original retry changed CommitRef/agent/owner/resources/result".into());
         }
-        runtime.stop(Duration::from_secs(10))?;
+        eprintln!(
+            "C03 phase={phase} reopen={reopen} exact identity/effect/retry assertions passed; stopping same runtime owner"
+        );
+        super::durable_set_tests::stop_healthy_runtime(&mut runtime, scenario)?;
+        scenario.report_stage("exact crash recovery reopen stopped")?;
     }
     eprintln!(
         "C03 phase={phase} SIGKILL verified; original qualified once; two exact reopen reads"

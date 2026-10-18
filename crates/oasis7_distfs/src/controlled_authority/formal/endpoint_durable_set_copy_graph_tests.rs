@@ -335,7 +335,14 @@ fn healthy_copy_walker_preserves_raw_native_codecs_and_independently_rechecks_al
         let bytes = target_source.read_object(&id).unwrap().unwrap();
         assert_eq!(blake3::hash(&bytes).to_hex().as_str(), id);
         assert_eq!(bytes, source.read_object(&id).unwrap().unwrap());
-        let original = fs::metadata(fixture.pdir.join("formal-objects-v1").join(&id)).unwrap();
+        let original_root = fixture.pdir.join("formal-objects-v1");
+        let canonical = original_root.join(&id);
+        let original = fs::metadata(if canonical.exists() {
+            canonical
+        } else {
+            original_root.join(".representation-v1").join(&id)
+        })
+        .unwrap();
         assert_ne!(
             (metadata.dev(), metadata.ino()),
             (original.dev(), original.ino())

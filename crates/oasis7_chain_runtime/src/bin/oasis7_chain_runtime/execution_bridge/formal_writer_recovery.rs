@@ -170,6 +170,16 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             .authority()
             .authority_id()
             .map_err(|e| e.to_string())?;
+        if let Some(environment) =
+            super::super::formal_native_environment::descriptor(&pending.material)?
+        {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::super::formal_native_environment::verify_registered(
+                primary,
+                replica,
+                &environment,
+            )?;
+        }
         if pending.original.body.authority_id != active {
             let recovery = self
                 .recovery
@@ -207,6 +217,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     }
 
     pub(super) fn candidate_for_resume(&mut self) -> Result<FormalCandidateMaterialV1, String> {
+        let timing = super::super::formal_execution_timing::FormalExecutionTiming::begin(
+            "candidate",
+            self.anchor.head().record().position,
+        );
         let pending = self
             .pending
             .as_ref()
@@ -217,6 +231,22 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             .authority()
             .authority_id()
             .map_err(|e| e.to_string())?;
+        if let Some(environment) =
+            super::super::formal_native_environment::descriptor(&pending.material)?
+        {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            timing.step(
+                "verify_native",
+                Some(&pending.original.body.request_digest),
+                || {
+                    super::super::formal_native_environment::verify_registered(
+                        primary,
+                        replica,
+                        &environment,
+                    )
+                },
+            )?;
+        }
         let recovery = self
             .recovery
             .as_ref()
@@ -274,21 +304,28 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 Some(&self.anchor),
             );
         }
-        let executable = self
-            .coordinator
-            .freeze(pending.original, pending.material)
+        let executable = timing
+            .step("dual_freeze", None, || {
+                self.coordinator.freeze(pending.original, pending.material)
+            })
             .map_err(|error| error.to_string())?;
         if let Some(candidate) = pending.candidate {
             return Ok(candidate);
         }
-        formal_executor::execute_normal_with_business_reader(
-            &executable,
-            self.anchor.authority(),
-            self.anchor.head(),
-            &self.root.join("attempts"),
-            &self.writer,
-            self.business_reader.as_ref(),
-            Some(&self.anchor),
+        timing.step(
+            "execute_normal",
+            Some(&executable.input().body.request_digest),
+            || {
+                formal_executor::execute_normal_with_business_reader(
+                    &executable,
+                    self.anchor.authority(),
+                    self.anchor.head(),
+                    &self.root.join("attempts"),
+                    &self.writer,
+                    self.business_reader.as_ref(),
+                    Some(&self.anchor),
+                )
+            },
         )
     }
 }

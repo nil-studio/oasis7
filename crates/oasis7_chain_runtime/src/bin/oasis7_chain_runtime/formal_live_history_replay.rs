@@ -435,6 +435,10 @@ pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
     material: &ClosedRecord,
     role: ArtifactRole,
 ) -> Result<T, String> {
+    if role == ArtifactRole::Snapshot {
+        let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
+        return serde_cbor::from_slice(&bytes).map_err(|e| e.to_string());
+    }
     let hash = material
         .roots
         .get(&role)

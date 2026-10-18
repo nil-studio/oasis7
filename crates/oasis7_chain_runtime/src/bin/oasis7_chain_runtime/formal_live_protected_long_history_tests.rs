@@ -7,6 +7,26 @@ use oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMateri
 #[test]
 #[ignore = "long-running actual protected endpoints; requires OASIS7_FORMAL_ENDPOINT_TEST_BIN"]
 fn protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original() {
+    // Set timing in a child environment before any fixture threads exist.
+    // Mutating this already multithreaded libtest process's global environment
+    // would be unsafe. The exact child stays in the CI-owned process group.
+    if std::env::var("OASIS7_FORMAL_EXECUTION_TIMING").as_deref() != Ok("1") {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .env("OASIS7_FORMAL_EXECUTION_TIMING", "1")
+            .args([
+                "formal_live_runtime::tests::protected_process_tests::long_history_tests::protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original",
+                "--ignored", "--exact", "--nocapture", "--test-threads=1",
+            ])
+            .status()
+            .expect("start exact long-history test with timing enabled");
+        // Child stdout/stderr is inherited, preserving its original panic and
+        // diagnostics. CI checks the final (outer) one-test summary.
+        assert!(
+            status.success(),
+            "long-history timing child failed: {status}"
+        );
+        return;
+    }
     thread::Builder::new()
         .name("formal-long-world".into())
         .stack_size(32 * 1024 * 1024)
@@ -27,8 +47,10 @@ pub(super) fn exercise_long_history(
     identity: &WorldIdentity,
     owner_key: &SigningKey,
     original: &SubmitIntentRequest<WorldServicePayloadV1>,
+    endpoint_pids: [u32; 2],
     original_commit: &oasis7_client_api::world_service::CommitRef,
 ) -> Result<(), String> {
+    let _proc_sampler = super::proc_sampler::Sampler::start(endpoint_pids);
     let history_started = Instant::now();
     let owner = RemoteWorldServiceClient::new(owner_config.clone()).map_err(|e| e.to_string())?;
     let original_tick = runtime
@@ -309,7 +331,7 @@ fn wait_for_new_long_history_result(
 ) -> Result<(), String> {
     // Volatile admission has no execution SLO. Keep the original bound while
     // allowing an already-running Tick followed by this request's own Tick.
-    wait_for_new_request_result(runtime, request, Duration::from_secs(120), "long history")
+    wait_for_new_request_result(runtime, request, LONG_HISTORY_REQUEST_WAIT, "long history")
         .map(|_| ())
 }
 

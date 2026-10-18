@@ -122,7 +122,7 @@
     "lifecycle-cli": [
       {
         "binary": "runtime-tests",
-        "name": "formal_live_runtime::tests::protected_process_tests::world_initialization_tests::formal_world_initialization_cli_repeated_and_interrupted_activation_reconciles_original",
+        "name": "formal_live_runtime::tests::protected_process_tests::world_initialization_tests::formal_world_initialization_cli_native_platform_and_original_activation",
         "ignored": true
       },
       {

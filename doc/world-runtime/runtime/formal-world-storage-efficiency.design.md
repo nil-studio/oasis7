@@ -3,7 +3,7 @@
 - 状态：active；表示本 PR 候选的目标合同，不表示相关优化已经实现、启用或验收。
 - Owner：runtime_engineer；共同审读：blockchain_ops_engineer、wasm_platform_engineer、qa_engineer。
 - 适用范围：正式持久世界的端点、执行 attempt、历史依赖闭包、存储表示、迁移与恢复；覆盖 Primary/Replica 各独立故障域。
-- 文档基线：[4220622fde069346a828d42572eea61c0073d95e](https://github.com/nil-studio/oasis7/commit/4220622fde069346a828d42572eea61c0073d95e)；静态源码审读基线为 `2676c835cc50f12d7fd16a762eaa21f026ae79d4`，期间变更只涉及文档，相关存储源码未变。下文源码定位统一固定到文档基线；本轮没有实际世界存储样本、运行验收或节省比例。
+- 文档基线：[4220622fde069346a828d42572eea61c0073d95e](https://github.com/nil-studio/oasis7/commit/4220622fde069346a828d42572eea61c0073d95e)；静态源码审读基线为 `2676c835cc50f12d7fd16a762eaa21f026ae79d4`，期间变更只涉及文档，相关存储源码未变。下文源码定位统一固定到文档基线；该初始设计审读没有实际世界存储样本、运行验收或节省比例，后续实现与证据范围见 §10.2 及实施 PR。
 - 产品来源：[无损世界历史存储 PRD](../../product/world-infrastructure/lossless-world-history-storage.prd.md#req-lws-001)。
 - 专业配套：[既有 storage 治理](runtime-storage-footprint-governance.design.md#storage-history-dependency)、[同世界恢复](../design.md#runtime-recovery-design)、[事件后缀控制状态恢复](../design.md#runtime-journal-suffix-recovery-design)。
 - 验证操作：[无损存储验收手册](formal-world-storage-efficiency.manual.md#lws-validation-use)；步骤是目标合同，实际入口、候选和结果须由实现交付记录。
@@ -156,6 +156,18 @@ StorageGenerationV1:
 
 recipe 依赖必须无环、限制深度/分片数/累计输出量，所有依赖都进入闭包。物理索引仅是 locator，不能据其自报 logical_hash 判定可信。没有对应 schema/codec 能力时应明确拒绝，不把解码失败当作“这是旧 raw 文件”继续猜测。
 
+### 6.1.1 新世界的首个物理表示版本
+
+无运行世界的全新创建直接启用物理表示 v1，不等待现场迁移。原逻辑对象名及 canonical bytes 保持；新表示用 `.representation-v1/<logical_hash>` 的显式选择器定位，不额外创建重复的根目录 digest 链接，绝不只凭 payload magic 猜 codec。若兼容对象同时具有选择器及根目录链接，两者必须指向同一 inode，否则拒绝歧义表示。旧 raw/pack 没有选择器时仍由旧读者路径验证。
+
+物理 recipe 固定有界内容分块：最小 4 KiB、平均约 16 KiB、最大 64 KiB，使用固定字节散列滚动规则；每个 frame 独立选择 raw 或 zstd level 3，仅实际更小时压缩。frame 按存储内容 checksum 命名，同时声明解码长度及原 frame hash。共享 recipe index 为一批逻辑对象保存精确原字节切片，不重序列化嵌入的 CBOR。单对象保持 64 MiB、整批逻辑 bytes 保持 64 MiB、描述文件上限 16 MiB；完整对象返回前重新核对原逻辑 hash。range 只读取交叠 frame，保持既有未认证传输分片合同，接收端仍须完整校验对象。
+
+文件及目录 fsync 后才能发布引用；新 selector 出现前，新物理文件不构成正式对象。物理 frame、recipe 依赖计入完整闭包和保留理由；不能把 selector 或 frame 当新的业务/服务权威。没有部署节点时，本地故障测试不证明 S6 独立故障域验收。
+
+frame/recipe 先写私有暂存文件并 fsync，再原子发布且不覆盖既有对象；遇相同名称时比较原 bytes。recipe 外壳及内部 CBOR 均校验规范编码和 checksum，索引采用 32-byte digest 的紧凑 tuple，避免把二进制展开为整数数组。读取检查受控目录、最终文件的类型、owner 和写权限并使用 `O_NOFOLLOW`；这不声称抵御已获同一用户权限的并发恶意修改。 解析缓存最多保留 32 项、16 MiB 计费内存；每次仍重新读取当前完整 recipe 并计算内容 hash，只有同一完整内容才能复用已通过规范编码及覆盖检查的解析结果。缓存不信任路径、inode 或 mtime，不缓存 frame 原字节，也不替代本轮耐久同步或原逻辑 hash 校验。
+
+稳定 `.physical-guard-v1` 负责退休及代选择：reader 和不可变追加持 shared，GC/selector 切换持 exclusive。另一个稳定 `.physical-publication-guard-v1` 串行 CAS、selector 批次补全、raw/pack fallback 及 retained ledger 追加；固定取锁顺序为 root→publication，反序释放，reader 不取 publication。跨页闭包/native 读回持 root shared，不能阻挡后续合法追加。已启用目录缺任一 guard 时拒绝重建，不能通过替换锁 inode 绕过存活 reader。
+
 ### 6.2 阶段外壳、正式 pack 与范围读取
 
 目标阶段存储记录只持有原阶段元数据片段、共享 candidate/frozen 的逻辑对象引用及 exact recipe。Frozen、prepare/decision/proof 的原回执内容与每次状态转换均保留；重建后的整个 FormalRequestState 仍与原 v1 bytes 相同。目标不是把现有 FormalRequestState 字段直接改成引用。
@@ -188,7 +200,9 @@ Trace refs: O7-REQ-46fb6d36-e9c9-41d5-98df-200b93d68670；承接 [REQ-LWS-003](.
 
 冷查询还必须满足后续新请求的前驱判断：目标绑定、控制权、授权、去重与原请求关联不能因前驱下冷而误判不存在或重复执行。迁移某类热集合前，须验证既有消费者在冷命中、暂不可读和超预算时分别继续、受阻或拒绝的准确语义。
 
-GameGoalPublish 与 GameExecutorControl 需要按原任务、版本链与关联身份建立认证冷索引及前驱查询；这是当前未完成的目标。基线明确保热这两类回执以免丢失前驱，保护条目使热预算不能收敛时仍拒绝不安全归档。新索引/查询与跨窗口续跑通过前，继续保留热材料并报告预算限制；不能先 prune 再要求消费者接受缺失。
+GameGoalPublish 与 GameExecutorControl 按原任务、版本链与关联身份建立认证冷索引及前驱查询。原仅保存两条创建候选的索引维持原语义，新增独立的 `game-task-control-chain-v1` 命名空间承接完整控制链；不通过扩大或覆写旧索引改变已签原结果。跨窗口恢复后须继续核对原目标和执行者前驱，不能把查询失败解释为不存在。
+
+任务控制冷索引按原 owner/history scope 保存认证 head/count，每个不可变 link 绑定原 result reference 和前驱 link。创建、目标发布、执行控制三类原回执均可沿完整链查询。一次查询最多遍历 4,096 links；超过预算返回 Unavailable，缺 link、环、count 或原 scope 不符返回 Invalid，保留历史并阻止误判前驱不存在。更早的原 result 仍可按身份直接读取；查询预算不授予删除历史的权限。
 
 近期对完整 snapshot 和 module bytes 做 byte-preserving chunk recipe，共享相同内容，重建原 snapshot 再计算原 state root。可比较固定块与内容定义分块；实现前冻结 chunker 参数与限制，按真实变更样本选择，不能假定前缀插入后固定块仍有高命中。小对象保留直接表示，避免分块元数据反而放大。
 
@@ -217,6 +231,24 @@ Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；承接 [REQ-LWS-007](.
 
 恢复入口区分三种材料：已有持久候选时继续精确原候选，不重跑 execution；只有原 Frozen 时，必须先具备原输入、已物化非确定性结果、执行版本及原 authority 许可，才能沿现有恢复合同继续同一预留；外部响应丢失时，按原 effect/幂等身份查询交付事实。无法取回原结果或外部系统不支持可判定的原请求核对时保持 blocked/unknown，不通过再次调用补造历史，也不宣称外部物理恰好一次。
 
+### 6.5.1 新世界的完整快照增量编码
+
+完整增量的第一个版本按 Snapshot 顶层字段保存原始 CBOR value 切片，携带完整且有序的字段清单、精确 base/target 原字节 hash；不从业务事件、最大 ID 或默认值推断任何字段。allocator、era、预分配、pending/inflight、模块 wake/clear、模块状态和原外部结果都作为原字段的一部分进入完整覆盖。字段集合变化、缺失、重复、顺序错误及 hash 不符均拒绝应用。
+
+Snapshot artifact 使用明确版本的 `oasis7.runtime.snapshot-delta.v1\0` envelope，绑定 base artifact reference 和声明的链深度。普通新 record schema 3、durable transition schema 4 将 Snapshot artifact 的 content hash 与展开后的原 `after_state_root` 分开绑定；Frozen schema 2 允许同样的引用，但展开 bytes 必须等于原 prestate。旧 record/Frozen verifier 保持原合同，不能对旧签名材料重新解释。创世激活仍保存完整原 snapshot。
+
+链深度上限 32，字段数上限 255，字段名上限 256 bytes；单对象上限 64 MiB，恢复链累计编码预算 256 MiB。达到深度、字段覆盖变化或增量不比完整 snapshot 更小时写新的完整 checkpoint。ClosedRecord 的对象数、payload 和执行层原有更小预算同时约束实际写入，不能凭本节较大上限扩大消费者预算。每个 envelope 都包含其所需的有界 snapshot 闭包；恢复、历史、full sync、Frozen 验证及独立耐久读回共用精确字节 resolver。
+
+### 6.5.2 原生执行环境的原字节闭包
+
+新增 `NativeExecutionEnvironment` artifact role 指向 ClosedRecord 内的小型、规范编码 descriptor；其外部 chunk 引用使用独立 typed walker，不能伪装成已包含在 ClosedRecord 内的普通 references。每个组件绑定原文件总长、完整内容 hash 和有序 chunk；descriptor 保存真实 target/OS/arch，组件包括原 loaded executable、实际已加载的文件依赖及原 features/toolchain/Cargo.lock 构建材料。每块上限 1 MiB，descriptor 上限 1 MiB，单个执行环境上限 4 GiB，不扩大原 ClosedRecord、对象、RPC 上限。
+
+新 activation schema 2、新 record schema 5/6、Frozen schema 3 明确要求此 role；旧 schema 的身份及 verifier 保持原合同。新世界初始化配置 schema 2 在外部批准前捕获完整 descriptor，激活时须再次匹配原 descriptor；签 Frozen 前逐批向 P/R 各自 stage 并由各自本地耐久读回。stage 每批最多 8 块/8 MiB，verify 每步最多 8 块，跨步持同一内核读 pin，重启重新验证。完成进度在本次 freeze/prepare 消费后释放，不作为永久“已归档”缓存；stage 和 verifier 都不授世界写入或服务资格。
+
+Linux 捕获固定 loaded-image 和 mapped backing-file FD，前后核对文件身份及映像清单；inode/device 只用于本次核对，不进入逻辑 descriptor 身份。原生环境不匹配、映像已被替换/删除、依赖不可读或平台无法提供完整原文件时返回 Unavailable。当前 macOS dyld shared-cache 原闭包不支持此捕获入口，不能仅保留主 executable 冒充完成。匿名 JIT 是由已保留原 WASM 与原 engine 派生的运行态；新受控 engine 禁用 memory-init CoW 文件映像，不能按任意 memfd 名称忽略可能的原依赖。该选择写入执行策略 profile 3 的原 CBOR（`memory_init_cow:false`），不改变正式世界的协议 profile version 2。
+
+原环境合同覆盖绑定时的 loaded-file 闭包；恢复及候选封装再次核对当前映像，新增动态依赖或原环境不同会拒绝继续。它不归档内核内存或声称支持未声明的未来 native plugin。旧 native 环境的原 bytes 可经认证 archive 和 durable-set copy 取回；不能自动改用部署机当前二进制、库或摘要解释原结果。当前协议没有隐式 native 环境升级，连续执行保持原环境 root。
+
 ### 6.6 Merkle v1 与 v2
 
 现行 v1 的 verify 会调用 build，再以 rebuilt == 原 delta 比较全部字段和 node_writes。因此旧 delta 内暂时中间根所用节点也是原编码的一部分；不能在物理整理中修改它们或直接过滤后覆写旧 envelope。v1 首先只做精确字节压缩、共享默认路径表示和 pack 重排。
@@ -224,6 +256,8 @@ Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；承接 [REQ-LWS-007](.
 新的 delta v2 可以采用批量更新、最终 root 新可达节点集合与明确顺序，减少同批被覆盖的临时路径。必须单独声明 schema、确定性构造/验证、大小边界与父根语义，保留 v1 verifier。跨版本边界由实际 producer/consumer 能力及原升级 authority 接受，不能只修改 schema 常量或让新 build 重解释旧 v1。
 
 v2 构造评估至少明确：沿原逻辑更新顺序计算最终树，从最终根区分父树已存在节点与本批新节点，仅收录仍被最终根需要的新节点；对输出进行确定排序与 hash/引用校验，拒绝重复冲突、缺节点和额外节点。验证器独立重建同一最小集合再比较全部 v2 字段，不能仅验证 new_root。默认先保留现有树与 root 算法；若另改树结构或根定义，必须作为进一步的逻辑协议变更评审和验收。
+
+新世界 producer 显式生成 schema_version 2；节点编码与根算法不变。构造先按原 key 顺序应用 updates，仅沿最终 root 收集本批仍可达且父树不存在的节点，按 digest 排序。父树存在性由受认证的更新路径判定，不以任意本地 CAS 命中改变结果；验证按版本独立重建完整最小集合并比较，额外、缺少、重复或顺序错误的写入均拒绝。构造前限制累计 leaf bytes 为 64 MiB，避免仅靠单叶与数量上限造成过量中间分配。v1 build 和 verifier 继续保存原字节与中间 node_writes。
 
 256 层索引每个 branch 原编码为 104 B，一个新键路径的 branch 约 26 KiB；pack 的 44 B/entry 索引还有额外开销。这是结构分析，不是实测总量或节省承诺。v2 的精确构造、编码与预算须在专门实现 gate 固定；物理 gate 不依赖这项决策。
 
@@ -367,11 +401,12 @@ Trace refs: O7-REQ-87c0cd77-0b20-4eba-90ff-5a492e85b3a0；承接 [REQ-LWS-006](.
 若新逻辑 checkpoint/delta 或 Merkle v2 已产生历史，旧逻辑读者未必可恢复，不能通过物理解压解决。应保留兼容新旧逻辑的 binary，必要时暂停新写/保持受限读取并修复；不得重写已签历史、回退 epoch/head、补造旧格式结果或取消已经产生的外部效果。
 
 <a id="storage-efficiency-rollout"></a>
+<a id="current-storage-implementation"></a>
 ### 10.2 分阶段实施及退出门槛
 
 现行前置入口：`oasis7_distfs::storage_inventory::inventory_storage` 及 `storage_inventory` example 提供只读分域 inode/allocated 基线，使用边界见[容量入口](formal-world-storage-efficiency.manual.md#v-lws-capacity)。这是 S0 的本地物理计量子范围，尚未覆盖运行时 typed root/pin 完整盘点或真实世界基准。
 
-S1 的既有表示读取统一由 `business_pack::read_object` 承接本地 raw/pack，`Store::get` 在逻辑 bytes 校验后解码，`Store::put` 重复检查比较逻辑 bytes；没有改变 canonical serializer 或写入格式。下表是后续新 codec 启用前必须继续维护的消费者边界，不能将 raw/pack 通过视为新 codec 已支持。
+S1 由 `business_pack::read_object` 统一承接 raw、既有 pack、显式物理 recipe 及所选 generation；`Store::get` 在逻辑 bytes 校验后解码，`Store::put` 重复检查比较逻辑 bytes。物理 codec 不改变 canonical serializer。下表是必须持续维护的消费者边界；每次新增 codec 或 typed 外部引用都要覆盖这些入口。
 
 | 消费者 | 现行入口与边界 |
 | --- | --- |
@@ -380,14 +415,36 @@ S1 的既有表示读取统一由 `business_pack::read_object` 承接本地 raw/
 | range / chunk / 本地 archive | endpoint_store_native.rs、endpoint_chunk.rs、endpoint_archive_file.rs → business_pack::read_range；保持原分片认证合同 |
 | registered durable readback | endpoint_store_durable_set_copy.rs → read_object_durable_once；每对象校验、每 inode 同步 |
 | RPC / transfer / remote archive | endpoint_archive_transfer.rs、transport/client.rs；消费逻辑 bytes/chunk，不把物理 pack 传为逻辑对象 |
-| offline/published / native restore | 上述逻辑接口的消费者；大 envelope 与完整闭包预算、逐调用审计及新格式能力 gate 仍未完成 |
+| offline/published / native restore | 上述逻辑接口、共享 Snapshot resolver、原 native typed chunks；不能依赖 writer attempt 或其他故障域补齐本域缺失 |
 
 S2 另有 `build_formal_storage_shadow` 和 `formal_storage_shadow` example：在持有原 endpoint 独占 lease 时，将全部 digest 对象重建到新目录的既有 v1 pack/raw 表示，并逐对象精确读回。固定 8 MiB payload 批次、65,536 对象、1 GiB 总逻辑输入及原单对象 64 MiB 上限；大于既有 pack node 上限或为空的对象保持 raw。目标必须在源外且不存在，对象写入前先同步 shadow-only 标志（初始化失败可只留下空目录）；未知条目、非空 staging、超预算或校验失败保留源并停止。它只提供对象命名空间的候选物理占用，未携带 checkpoint/authority/selector，不能作为 endpoint 或完整恢复 generation 激活；当前 Store open 在创建 checkpoint 前拒绝 shadow-only 标志。操作和失败边界见[shadow 入口](formal-world-storage-efficiency.manual.md#v-lws-codec)。
 
-上述子范围不启用压缩、recipe、迁移或回收；S0/S1 整体退出条件仍按下表和 §11 验证，正式写入保持原表示。
+另有 `advance_formal_storage_shadow` 分批入口：绑定不变的源 checkpoint、registry、selector 与目录元数据，持久化私有 catalog 和经校验游标；copy、独立 verify 与临时统计清理分阶段推进，每步最多 1,024 records，采用原单轮逻辑预算，不把总历史物化进一个 Vec。中断后只续同一源和原操作；源变更明确拒绝，shadow-only 标志持续阻止作为 serving endpoint 使用。verify 页持久化唯一对象计数及逻辑字节数，中断重试不重复计数；收尾只扫描文件元数据，不再隐藏全量 payload 读取，临时统计材料分批清理后才计算最终占用。旧一次性 API 保留原预算语义。
+
+正式 endpoint 的 `advance_physical_generation` 使用独立带 checksum 的 build/selection/retire 状态和分片 catalog；单次复制、退休最多 1,024 对象/8 MiB（单个较大有界对象除外）。切换前在稳定根 fence 内补查 overlay，新选中代损坏不得回落到旧 overlay。旧代及根 orphan frames 分页回收；仍被新 overlay 引用的共享帧保留。catalog v3 采用按内容 hash 认证的层级目录：manifest 只保存固定大小的根引用及计数，每个内部节点最多 16 个子引用，每个叶最多 4,096 个有序 IDs；叶满时按下一个 hash nibble 分裂，深度只受原 64 位十六进制对象 hash 的自然边界限制，不以固定分片总数限制历史。lookup、分页及验证沿原 hash 路径进行，不把完整目录装入 manifest 或内存。每轮提交新目录根后，以可恢复清单分批回收不再被当前 objects/completed 根引用的旧目录节点；仍被任一根引用的节点必须保留，不能用索引版本堆积换取表面 payload 节省。同步 typed orphan GC 另有独立 mark 预算，预算不足只保留，分批 generation 不继承其整轮 1 GiB/262,144 对象限制。
+
+attempt 回收要求原 Published envelope 与 P/R 分别完成的独立 typed 闭包读回。每个闭包作业在活跃内核 pin 内分页，重启失去 pin 后重新读回；未完成或 unknown 保留 attempt。稀疏树遍历页保留最多 256 节点/8 MiB 的工作上限，并在完整校验一个节点后按 1 秒软工作时窗让出；软时窗不替代原 RPC 截止时间，也不允许部分校验节点进入 receipt。业务提交与 Node 空闲轮询仅推进有界维护步骤；源中独有的 world/外部结果/未决义务不能因已经 Qualified 而删除。完整实现是否达到退出门槛仍按下表和 §11 的实际 source/environment 证据判断。
+
+同一共享 recipe 的多个小对象允许通过一次明确的有界批量读取验证：单批最多 1,024 个请求对象、8 MiB 返回原字节，超过该字节界的单对象沿原 64 MiB 上限独立读取。批内持有原物理根 pin，重新读取并校验每个涉及 recipe 的当前完整内容及每个涉及 frame；同一分组内的 frame 只需解码一次，各逻辑对象仍分别验证完整原 hash。按 recipe 分组后逐组释放元数据，仅保留一个最多 64 KiB 的解码 frame 暂存，返回字节仍受 8 MiB 批界限制。各 alias 都通过受控路径及 O_NOFOLLOW 新打开并校验 owner、类型和写权限；仅允许在本批仍持有 anchor FD 时，以 dev/ino 证明 alias 指向该同一物理文件，不能据此证明内容正确。每组仍须从 anchor FD 本次完整读取并校验 recipe，逐项确认请求对象的成员关系、长度及覆盖。最多同时持有 16 个 anchor FD，达到上限先验证并释放当前分组再继续，不无界持有文件。函数返回即丢弃批内复用状态；下一批即便遇到相同 inode 也重新完整读取和校验，不以 inode/mtime 复用内容，不跨调用保留 frame 原字节，也不复用其他端点的结果。全局解析缓存仍受原固定预算约束。耐久读取在同一批内对共享不可变表示同步一次；不得为已有对象先做一遍普通全读、再重复全读只为同步。批量错误仍阻止相应持久化成功或删除源副本，不将部分验证结果视为完整 receipt。
+
+上述 16 个 FD 指保留到分组完成的 anchor，另允许一个临时 probe FD 校验新 alias 身份；probe 不计入保留组，不能累计。frame 解码复用只覆盖当前 recipe 分组；不同 recipe 或已释放后重新遇到的分组仍重新读验，不能为全调用去重引入无界 frame 缓存。
+
+尚未启用物理 codec 的受控 CAS 根仍需保持原 pack 的耐久去重：同一有界批内可按上述当前 FD 身份对共享原 pack 分组，本批重新检查固定 pack header 和各请求的二分索引、span 与声明长度，逐对象读取并验证原 hash，分组结束对 anchor 文件同步一次。不能因新增 codec 批量分支移除原有按 inode 的批内同步去重，退化为共享 pack 的每个成员各自 fsync。该路径同样受 1,024 请求/8 MiB 输出、16 anchor 加一个 probe 的限制，不物化完整 pack，不跨调用缓存内容，也不通过更改根的 codec 启用状态或测试材料来声称优化收益。
+
+同一次有界物理写入中，每个新 frame 仍先完成原文件 fsync、无覆盖发布及既有内容一致性检查；允许将 frame 目录和私有 staging 目录的重复 fsync 合并到该次 frame 批次结束。所有相关目录同步成功后，才可发布引用这些 frame 的 recipe/selector；其本身仍沿原发布顺序耐久同步，不跨写入调用延迟。目录同步失败或中途崩溃时，尚未发布的引用不得获得成功回执，源材料必须保留；仅留下可由原批次重试重建的未选中 frame/暂存文件，不能把文件内容同步等同于目录项已耐久。
 
 
-阶段是技术依赖顺序，可在后续实现交付中合并处理，不新增 workflow、审批次数或每阶段强制 PR。本文这次文档交付不执行迁移、不删除运行数据。
+同一次 Node 执行对同一 Frozen 的恢复和候选重建，允许复用一次完整验证得到的原 Snapshot 字节，避免重复展开相同 delta 链。该证明仅绑定本次借用的精确 Frozen、authority 和 parent；等值副本也不能替代绑定对象，不可序列化、克隆或跨执行、恢复重试、RPC 复用。构造时仍验证原材料、完整依赖闭包、body digest、Snapshot 链和原前态 hash，不允许用执行后 World 补齐原材料。最多额外持有一份 64 MiB 原 Snapshot；原深度 32 与链输入 256 MiB 上限保持不变，不缓存全部中间历史。每次恢复继续检查权限、证书、manifest、当前 native 环境、树与 transition；重建后的 body 和全部 material 必须与原 Frozen 精确相等，才可复用其内容验证证明。现有公共 verify/attach 接口保持原行为，返回同一验证 pass 已展开字节的内部接口不得改变旧 schema 的原验证或分配语义；恢复专用 attachment 路径必须接收不可自行制造的证明并立即核对完整重建结果，不提供通用跳过验证开关。
+
+SnapshotDelta 的验证接受上限仍为深度 32、链输入 256 MiB；生产者不必耗尽该上限。新生成 Snapshot 默认最多连续 8 层 delta，下一次变更写完整 checkpoint，以限制逐层重组、hash 和闭包解码的重复成本；不重写已有签名历史，也不删除早期 checkpoint 或 delta。原 Snapshot 字节、状态根和业务效果保持一致，新 artifact 的身份随合法 producer 输出重新生成。完整 checkpoint 仍经过相同有界物理 CDC/压缩和完整性验证；不能预先宣称更密 checkpoint 的实际空间开销为零，须将完整长历史耗时和容量证据一起报告。验证器对已有 9–32 层合法链继续完整验证，超过上限仍拒绝，不能把 producer 策略变成历史读取上限。
+
+单个端点 Prepare 的既有 request-local 候选闭包证明，允许保留同一完整验证 pass 得到的原 before Frozen 与 after record 的 Snapshot 字节，供原前态匹配、retention descriptor 和 Tick prefix 检查借用。证明仍绑定精确借用的 candidate、record、material、Frozen body/source；不跨端点、RPC 或 Decision 复用，不接收执行后 World 作为原前态替代。完整闭包、对象 hash、原前后状态根、证书、native 环境、两个 delta 及原 retention/prefix 校验全部保留；只消除同一不可变材料在一次校验中的重复展开。两个原字节缓冲各不超过 64 MiB、合计不超过 128 MiB，不克隆额外缓冲；已有两个 encoded 闭包各 8 MiB 上限保持。原 typed Tick tail 允许合法 legacy 长度，不能把其 Value 容器误称固定小型视图，需保留原解码语义并分别测量峰值。公开 record/Frozen verifier 的旧行为保持：旧 schema 本来不展开时仍不新增展开、校验或分配，只在原来就需要 Snapshot 的 Prepare 路径补一次原读取。Decision 是新的独立校验调用，不能沿用 Prepare 的证明。实现和验收须区分源码消除的重复次数与真实 Linux 进程耗时，不以次数变化代替完整场景通过。
+
+Node writer 从同一不可变候选恢复时，也可将 record 完整验证同一 pass 返回的原 Snapshot 字节直接交给原 typed Snapshot decoder，避免验证后立即再次展开同一链。该原字节仅在本次恢复内使用、解码后释放；旧 schema 未返回字节时沿原读取路径。原 journal、状态根、qualified anchor、retained parent、World boundary、树及 release policy 检查不变，不能将这种字节复用视为免除其他恢复检查或跨候选缓存。
+
+World 的共享正式历史 reader 完整转发底层 `BusinessIndexNodeReader` 的路径预取、已缓存节点读取、内容缓存与普通节点读取，避免透明适配器截断既有整路径双端预取，使冷 Journal/Tick 恢复退化为逐节点远程调用。原远端 reader 的签名、root/key、双端路径一致性和固定缓存预算不变；`BusinessIndexRoot` 仍从合格根逐节点校验 hash、深度与路径，缺失或损坏仍拒绝。预取与逻辑内容缓存只服务恢复读取，不代签端点独立持久闭包读回或删除授权；包含未合格 overlay 的其他 reader 不盲目套用远端根预取。
+
+阶段是技术依赖顺序，可合并实施，不新增 workflow、审批次数或每阶段强制 PR。当前无运行世界时直接创建新表示；本地实现与验证不代替真实节点部署验收。
 
 S0–S3 的物理优化与生命周期治理可按已验证范围独立交付、部署。S4 完整 delta 与 S5 Merkle v2 可以分别后置，彼此也不作为物理优化的前置条件。S6 对本次实际启用的子集执行全部适用部署验收；未启用能力维持原数据/格式与必要限制，明确标为未验证，不要求等待所有逻辑演进后才能部署已通过的物理优化。
 
@@ -445,8 +502,8 @@ V-LWS-FAULT 至少覆盖源有损坏、新包坏块、原状态不明、文件/�
 
 ### 12.2 需要实施时定案的参数与责任
 
-本设计已确定完整性、身份、状态、事务、消费者、验证与迁移边界；尚未把 codec/frame/chunker 参数、最大 delta 深度、并发/内存/I/O 额度或真实恢复时限声明为部署默认值。Runtime/DistFS 在 S0/S1 用固定负载与现行消费者上限提出具体值，ops 给出真实容量/独立域条件，QA 在启用前冻结指标；未完成时维持旧写入及不回收，不能以占位参数开启生产。
+codec/frame/chunker、delta 深度及 native 分块的首版硬边界分别见 §6.1.1、§6.5.1、§6.5.2，分批维护使用 §10.2 的操作预算；这些源码边界不等于已达成部署性能指标。并发额度、磁盘预留、真实恢复时限及 1,000/10,000 高度的容量/成本仍须用同负载实测，ops 给出真实容量和独立域条件，QA 按适用启用范围冻结指标。预算不足时保留原历史及未决材料并报告受阻，不以占位指标接受生产。
 
 增加对象类型、改变 canonical serializer、切换模块 ABI、扩充 archive source、升级文件系统或更换故障域，均触发受影响闭包/能力/预算重新验证。需要扩大超出现有边界的产品服务能力时回到产品承诺和专业 owner，不从这份设计推断已支持任意规模。
 
-本次交付范围是上述可实施合同、阶段依赖及验证计划。源码改造、压缩实测、运行数据迁移、回收动作与正式发布均尚未由本文证明；后续交付按实际代码和证据逐项更新状态。
+本文提供合同、具体实现边界、阶段依赖和验证方法；不代签源码测试、压缩收益、运行数据迁移、真实故障域恢复或正式发布。实现交付按实际代码和证据逐项更新状态，缺部署环境时保留未执行结论。

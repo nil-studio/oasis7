@@ -213,12 +213,26 @@ fn proposal_id_rollover_is_installed_and_replayed() {
         state_root
     );
 
-    let restored =
-        World::from_snapshot(replay_base, world.journal().clone()).expect("replay max proposal id");
+    let restored = World::from_snapshot(replay_base.clone(), world.journal().clone())
+        .expect("replay max proposal id");
     assert_eq!(restored.proposals(), world.proposals());
     assert_eq!(restored.snapshot().next_proposal_id, 1);
     assert_eq!(restored.snapshot().proposal_id_era, 8);
     assert_eq!(restored.journal(), world.journal());
+    let delta = SnapshotDeltaV1::between(&replay_base, &world.snapshot()).unwrap();
+    let mut delta_restored =
+        World::from_snapshot(delta.apply(&replay_base).unwrap(), world.journal().clone()).unwrap();
+    assert_eq!(delta_restored.snapshot(), world.snapshot());
+    let live_next = world
+        .propose_manifest_update(proposal_manifest(), "alice")
+        .unwrap();
+    let restored_next = delta_restored
+        .propose_manifest_update(proposal_manifest(), "alice")
+        .unwrap();
+    assert_eq!(live_next, 1);
+    assert_eq!(live_next, restored_next);
+    assert_eq!(delta_restored.snapshot(), world.snapshot());
+    assert_eq!(delta_restored.journal(), world.journal());
 }
 
 #[test]

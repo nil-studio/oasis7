@@ -38,6 +38,37 @@ pub(crate) fn select_original_input(
     }
     Ok(())
 }
+/// The real retired attempt may precede the writer's current heartbeat.
+/// This test receipt identifies that exact attempt; it is never delete authority.
+pub(crate) fn stop_after_retirement(position: u64, candidate_digest: &str) -> Result<(), String> {
+    let block = ACTIVE_CRASH_BLOCK
+        .lock()
+        .map_err(|_| "crash target lock poisoned")?
+        .clone();
+    if let Some(block) = block {
+        let marker = PathBuf::from(
+            std::env::var_os("OASIS7_FORMAL_TEST_CRASH_MARKER")
+                .ok_or("crash phase marker path missing")?,
+        );
+        let target = marker.with_extension("retirement-target.cbor");
+        let bytes = serde_cbor::to_vec(&(1u32, position, block, candidate_digest))
+            .map_err(|error| error.to_string())?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&target)
+            .map_err(|error| error.to_string())?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|error| error.to_string())?;
+        std::fs::File::open(target.parent().ok_or("crash target parent missing")?)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| error.to_string())?;
+    }
+    stop_after("attempt_output_unlinked")
+}
 pub(crate) fn stop_after(phase: &str) -> Result<(), String> {
     if std::env::var("OASIS7_FORMAL_TEST_CRASH_PHASE")
         .ok()

@@ -16,8 +16,8 @@ use crate::{
         RetainedOwnerChatNonceHighWaterV1, RetainedResultRefsV1, RetainedWorldServiceResultV1,
         VerifiedFormalRetainedHistoryParentV1, capability_invocation_context_key,
         chat_result_matches, digest_text, encode_retained_leaf, feedback_result_matches,
-        game_task_result_matches, is_correlation_key_digest, is_digest, is_terminal_agent_intent,
-        retained_key_digest, retained_leaf,
+        is_correlation_key_digest, is_digest, is_terminal_agent_intent, retained_key_digest,
+        retained_leaf,
     },
 };
 use oasis7_distfs::controlled_authority::formal::business_index::{

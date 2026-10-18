@@ -8,6 +8,10 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 pub const BUSINESS_INDEX_SCHEMA_V1: u32 = 1;
+/// Minimal final-new-reachable writes; node and result-root codecs remain v1.
+pub const BUSINESS_INDEX_SCHEMA_V2: u32 = 2;
+#[path = "business_index_v2.rs"]
+mod v2;
 pub const BUSINESS_INDEX_DEPTH: usize = 256;
 pub const BUSINESS_INDEX_MAX_UPDATES: usize = 1024;
 #[path = "business_index_codec.rs"]
@@ -377,7 +381,15 @@ impl BusinessIndexDeltaV1 {
         {
             return Err("business index delta baseRoot does not match parent result_root".into());
         }
-        let rebuilt = Self::build(self.base.clone(), self.updates.clone(), reader)?;
+        let rebuilt = match self.schema_version {
+            BUSINESS_INDEX_SCHEMA_V1 => {
+                Self::build(self.base.clone(), self.updates.clone(), reader)?
+            }
+            BUSINESS_INDEX_SCHEMA_V2 => {
+                Self::build_v2(self.base.clone(), self.updates.clone(), reader)?
+            }
+            _ => return Err("business index delta unsupported version".into()),
+        };
         if rebuilt != *self {
             return Err("business index delta does not reproduce its signed newRoot".into());
         }
@@ -385,8 +397,10 @@ impl BusinessIndexDeltaV1 {
     }
 
     fn validate_shape(&self) -> Result<(), String> {
-        if self.schema_version != BUSINESS_INDEX_SCHEMA_V1
-            || !valid_digest(&self.base_root)
+        if !matches!(
+            self.schema_version,
+            BUSINESS_INDEX_SCHEMA_V1 | BUSINESS_INDEX_SCHEMA_V2
+        ) || !valid_digest(&self.base_root)
             || !valid_digest(&self.new_root)
             || self.base.canonical_result_root()? != self.base_root
             || self.new.canonical_result_root()? != self.new_root

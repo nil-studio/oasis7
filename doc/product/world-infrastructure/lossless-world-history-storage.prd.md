@@ -12,8 +12,8 @@
 - Last reviewed：`2026-10-17`
 - 适用入口：具有历史保留承诺的正式持久世界及其受权读取、恢复、迁移和节点运维；玩家、Agent、Viewer 与 pure API 通过既有世界服务消费结果。
 - 专业域权威：[P2P 权威与持久条件](../../p2p/prd.md#p2p-authority-profiles)、[Runtime 恢复与服务](../../world-runtime/design.md#runtime-recovery-design)、[正式世界存储效率设计](../../world-runtime/runtime/formal-world-storage-efficiency.design.md)、[验证规范](../../testing/prd.md)。
-- 文档基线：`nil-studio/oasis7@4220622fde069346a828d42572eea61c0073d95e`；本次候选只修改产品与系统设计。
-- 实现审读基线：`nil-studio/oasis7@2676c835cc50f12d7fd16a762eaa21f026ae79d4`；2026-10-17 静态源码审查，未运行节点、故障演练或容量基准。后续 main 前进不自动扩大该实现证据范围。
+- 初始设计基线：`nil-studio/oasis7@4220622fde069346a828d42572eea61c0073d95e`；其静态审读属于初始文档证据，不能代替后续实现验收。
+- 初始实现审读基线：`nil-studio/oasis7@2676c835cc50f12d7fd16a762eaa21f026ae79d4`；2026-10-17 静态源码审查。下列状态卡保留该初始证据来源；当前实现范围与接受边界见[效果与证据范围](#lws-evidence-scope)，后续 main 前进不自动扩大旧证据。
 
 本文定义“在完整历史、原世界身份和合法资产连续的前提下减少存储”的产品结果。压缩编码、对象分块、索引、事务、协议、具体预算与测试命令由专业设计拥有；本专题不新增玩家收费、世界规则或公开能力声明。
 
@@ -66,7 +66,7 @@
 - 用新世界、清空目录、历史重签或重新生成模型回答来修复原世界。
 - 承诺任意大小历史在一次请求内读完、任意设备都可保存全部历史、零恢复耗时或固定压缩比例。
 - 强制记录未进入世界合同的草稿、任意调试日志或凭证；访问、敏感数据和保留义务仍由原专业合同约束，存储优化不扩大可见范围。
-- 直接发布新 UI、自动接管、自动删除实际数据、部署新存储服务或切换现有世界格式；本次为文档交付。
+- 新增独立 UI、改变服务权威或未经验证删除正式历史。全新世界可以直接使用已实现的新格式；已有世界的维护仍遵循同世界迁移合同，现场部署遵循适用运维入口。
 
 `dev_local` 等工程档位的短窗口不能覆盖正式世界的完整历史承诺。后续单权威到多节点的合法演进仍使用同一世界协议，上层按相同身份、请求、结果和可用性语义工作。
 
@@ -121,7 +121,7 @@
 - 系统设计状态：已覆盖
 - 系统设计依据：[完整性与依赖闭包](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#des-lws-001)承接保留范围、历史版本、必要内容与缺证拒绝。
 - 实现状态：部分实现
-- 实现与验证依据：[正式已发布记录](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_writer_published.rs)及[正式归档读取](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7/src/runtime/world/formal_retention.rs)有局部实现；本次 PR 只形成目标合同，尚无本要求完整运行证据。
+- 实现与验证依据：[正式已发布记录](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_writer_published.rs)及[正式归档读取](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7/src/runtime/world/formal_retention.rs)有局部实现；初始设计交付只形成目标合同，尚无本要求完整运行证据。
 - 核对日期与基线：2026-10-17；需求为文档基线 `4220622fde069346a828d42572eea61c0073d95e` 上本 PR 候选；实现为上述固定 `2676c835cc50f12d7fd16a762eaa21f026ae79d4`，静态审查正式持久/归档入口，未执行 AC。
 - 剩余范围：设计目标已承接；完整范围依赖清单、长期规模、优化后全历史及多版本恢复的同候选实现与验证仍待完成。
 
@@ -372,7 +372,9 @@
 <a id="lws-evidence-scope"></a>
 ### 5.2 效果与证据范围
 
-本次 PR 的执行记录只应声明产品/系统设计修改、静态依据与实际运行的文档检查，不声明上述行为场景通过。九项状态卡中固定源码链接证明相应局部实现可审读，不代表已完成本专题全部义务；任务与后续实际命令、配置、版本、环境和 verdict 保留在真实 PR/验证记录中，不虚构 Issue 或批准记录。
+初始设计及状态卡中的固定源码链接只证明当时的局部实现可审读。后续源码承接范围包括保持原 bytes 的共享压缩、统一读取与分批物理代，完整快照增量和新索引版本，任务控制冷链、原生执行工件闭包，以及发布后独立读回再回收尝试输出；具体合同及参数由[专业设计当前入口](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)维护。不得把存在源码或文档检查扩成行为场景通过，状态卡的“部分实现”也不授予部署接受。
+
+当前没有部署节点，S6 两个真实独立故障域的验收未执行。原始命令、source/tested tree、配置、平台、实际结果和未覆盖项保存在实现 PR/验证记录；本地双目录、测试签名者、进程 SIGKILL 或合成执行环境分别只证明其实际范围。原生环境不完整的平台须报告不可用，不能用另一环境替代原工件来完成验收。
 
 容量比较至少覆盖状态变化少但提交多、活跃实体持续增长、长业务与控制历史、大型执行工件、归档边界和迁移中断等不同数据形态。必须统计完整节点与独立持久端的真实物理范围；同域复用只计一次，独立副本分别计入，缺失数据保留不可用状态。具体计量、规模和阈值由[系统验证设计](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#des-lws-009)确定。
 

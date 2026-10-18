@@ -316,6 +316,74 @@ impl FormalArchiveSourceV1 for RemoteArchiveSource {
     }
 }
 impl FormalDurabilityEndpoint for RemoteFormalEndpoint {
+    fn stage_native_environment(
+        &mut self,
+        descriptor: &super::super::native_environment::NativeExecutionEnvironmentV1,
+        chunks: &[super::super::NativeEnvironmentChunkBytesV1],
+    ) -> Result<(), FormalError> {
+        descriptor.validate().map_err(invalid)?;
+        if chunks.is_empty()
+            || chunks.len() > 8
+            || chunks.iter().map(|chunk| chunk.bytes.len()).sum::<usize>() > 8 * 1024 * 1024
+        {
+            return Err(invalid("native stage batch budget"));
+        }
+        match self
+            .call(Command::StageNativeEnvironment(
+                Box::new(descriptor.clone()),
+                chunks.to_vec(),
+            ))?
+            .0
+        {
+            Value::Complete => Ok(()),
+            _ => Err(invalid("native stage response type")),
+        }
+    }
+    fn advance_native_environment_verification(
+        &mut self,
+        descriptor: &super::super::native_environment::NativeExecutionEnvironmentV1,
+    ) -> Result<super::super::NativeEnvironmentVerificationProgressV1, FormalError> {
+        let id = descriptor.digest().map_err(invalid)?;
+        match self
+            .call(Command::VerifyNativeEnvironment(Box::new(
+                descriptor.clone(),
+            )))?
+            .0
+        {
+            Value::NativeEnvironment(progress) if progress.descriptor_digest == id => Ok(progress),
+            _ => Err(invalid("native verification response identity/type")),
+        }
+    }
+
+    fn release_published_closure(&mut self, candidate_digest: &str) -> Result<(), FormalError> {
+        match self
+            .call(Command::ReleasePublishedClosure {
+                candidate_digest: candidate_digest.into(),
+            })?
+            .0
+        {
+            Value::Complete => Ok(()),
+            _ => Err(invalid("formal closure release response type")),
+        }
+    }
+    fn verify_published_closure(
+        &mut self,
+        request: &str,
+        candidate_digest: &str,
+    ) -> Result<super::super::coordinator::FormalPublishedClosureReceiptV1, FormalError> {
+        match self
+            .call(Command::VerifyPublishedClosure {
+                request: request.into(),
+                candidate_digest: candidate_digest.into(),
+            })?
+            .0
+        {
+            Value::PublishedClosure(receipt) if receipt.candidate_digest == candidate_digest => {
+                Ok(receipt)
+            }
+            _ => Err(invalid("formal independent closure response identity/type")),
+        }
+    }
     fn head(&mut self) -> Result<FormalHeadRefV1, FormalError> {
         let (value, head) = self.call(Command::Head)?;
         if !matches!(value, Value::Complete) {

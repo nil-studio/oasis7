@@ -14,6 +14,8 @@ fn deterministic_replay_requires_finite_budgets_and_preserves_mode_on_clone() {
     #[cfg(feature = "wasmtime")]
     {
         let legacy = WasmExecutor::new(WasmExecutorConfig::default()).unwrap();
+        assert!(!executor.engine().get_memory_init_cow());
+        assert!(legacy.engine().get_memory_init_cow());
         // A legacy compiled artifact cannot bypass the deterministic lowering.
         assert_ne!(
             compiled_engine_fingerprint(executor.engine(), executor.config()),
@@ -25,6 +27,51 @@ fn deterministic_replay_requires_finite_budgets_and_preserves_mode_on_clone() {
             .unwrap()
             .wall_clock_timeout_enabled
     );
+}
+
+#[test]
+#[cfg(all(feature = "wasmtime", target_os = "linux"))]
+fn deterministic_replay_keeps_derived_heap_out_of_native_backing_file_inventory() {
+    let before = std::fs::read_to_string("/proc/self/maps").unwrap();
+    let executor = WasmExecutor::new_for_deterministic_replay(Default::default()).unwrap();
+    let module = wasmtime::Module::new(
+        executor.engine(),
+        wat::parse_str(
+            r#"
+        (module
+            (memory (export "memory") 2)
+            (data (i32.const 0) "original-state")
+            (func (export "read") (result i32) i32.const 0 i32.load8_u))
+    "#,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut store = wasmtime::Store::new(executor.engine(), ());
+    store.set_fuel(1024).unwrap();
+    store.set_epoch_deadline(u64::MAX);
+    let instance = wasmtime::Instance::new(&mut store, &module, &[]).unwrap();
+    assert_eq!(
+        instance
+            .get_typed_func::<(), i32>(&mut store, "read")
+            .unwrap()
+            .call(&mut store, ())
+            .unwrap(),
+        b'o' as i32
+    );
+    let after = std::fs::read_to_string("/proc/self/maps").unwrap();
+    for mapping in after
+        .lines()
+        .filter(|line| !before.lines().any(|old| old == *line))
+    {
+        // A missing pathname or deleted file with a nonzero inode would make
+        // the strict original-native-file capturer correctly refuse this run.
+        let fields = mapping.split_whitespace().collect::<Vec<_>>();
+        if fields[4] != "0" {
+            assert!(fields.len() >= 6 && fields[5].starts_with('/'), "{mapping}");
+            assert!(!mapping.ends_with(" (deleted)"), "{mapping}");
+        }
+    }
 }
 
 #[test]

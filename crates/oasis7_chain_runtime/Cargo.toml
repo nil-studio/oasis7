@@ -10,6 +10,7 @@ path = "src/bin/oasis7_chain_runtime.rs"
 required-features = ["node-libp2p"]
 
 [dependencies]
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7 = { path = "../oasis7", default-features = false }

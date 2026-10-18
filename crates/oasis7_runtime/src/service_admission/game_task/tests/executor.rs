@@ -384,8 +384,8 @@ fn game_task_executor_core_commit_rejects_unfenced_and_uncaptured_actions_withou
     };
     let mut artifact = crate::RuntimeCognitionResponseArtifactV1 {
         schema_version: 1,
-        context_discriminator:
-            crate::RuntimeCognitionResponseArtifactV1::CONTEXT_DISCRIMINATOR.into(),
+        context_discriminator: crate::RuntimeCognitionResponseArtifactV1::CONTEXT_DISCRIMINATOR
+            .into(),
         context_version: 1,
         agent_session_id: "session".into(),
         agent_turn_id: "turn".into(),
@@ -417,7 +417,7 @@ fn game_task_executor_core_commit_rejects_unfenced_and_uncaptured_actions_withou
 mod legacy_retirement;
 
 #[test]
-fn game_executor_retention_overflow_preserves_revision_chain_and_fails_closed() {
+fn game_executor_cold_revision_chain_accepts_next_control() {
     let (mut world, owner) = fixture_with_formal_history(true);
     let create = result(&world, request(&owner, "retention-create"));
     let initial = create_control(&create.request).unwrap();
@@ -447,14 +447,44 @@ fn game_executor_retention_overflow_preserves_revision_chain_and_fails_closed() 
         world.record_world_service_result(accepted).unwrap();
     }
     let expected = current_control(&world, "agent").unwrap().unwrap();
-    let before = world.snapshot();
-    let error = world.prepare_formal_retention_candidate().unwrap_err();
-    assert!(error.contains("WorldService history cannot fit the hot count/byte budget"));
-    assert_eq!(world.snapshot(), before);
-    let hot = crate::service_admission::retained_queries::hot_results(&world).unwrap();
-    assert_eq!(
-        reduce(hot.into_values().collect()).unwrap()[&expected.task_id].control,
-        expected
+    let nodes = archive_task_history(&mut world);
+    let parent = crate::VerifiedFormalRetainedHistoryParentV1::for_test_snapshot(
+        world.state().retained_history_root.clone().unwrap(),
+        &serde_cbor::to_vec(&world.snapshot()).unwrap(),
     );
-    assert_eq!(expected.executor_epoch.0, 40);
+    let mut world = World::from_verified_formal_snapshot(
+        world.snapshot(),
+        world.journal().clone(),
+        parent,
+        std::sync::Arc::new(nodes),
+    )
+    .unwrap();
+    assert!(
+        world
+            .capability_revocation_state()
+            .world_service_results
+            .len()
+            < 42
+    );
+    assert_eq!(current_control(&world, "agent").unwrap().unwrap(), expected);
+    let next = execute(
+        &world,
+        executor_request(
+            &owner,
+            &expected,
+            "after-cold-bind",
+            bind(&delegate, 1, "after-cold-executor"),
+        ),
+        &[],
+        44,
+    );
+    world.record_world_service_result(next).unwrap();
+    assert_eq!(
+        current_control(&world, "agent")
+            .unwrap()
+            .unwrap()
+            .executor_epoch
+            .0,
+        41
+    );
 }

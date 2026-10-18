@@ -1,4 +1,6 @@
-use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader;
+use oasis7_distfs::controlled_authority::formal::business_index::{
+    BusinessIndexNodeReader, BusinessIndexRootV1,
+};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -24,6 +26,18 @@ impl std::fmt::Debug for SharedFormalHistoryReader {
 }
 
 impl BusinessIndexNodeReader for SharedFormalHistoryReader {
+    fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+        self.reader.prefetch_path(root, key)
+    }
+
+    fn read_cached_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.reader.read_cached_node(digest)
+    }
+
+    fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
+        self.reader.cache_content_node(digest, bytes)
+    }
+
     fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
         self.reader.read_node(digest)
     }

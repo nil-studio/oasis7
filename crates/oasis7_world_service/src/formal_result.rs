@@ -88,7 +88,7 @@ impl FormalBusinessResultTreeV1 {
             &TreeLeafV1::CommitMetadata(metadata.clone()),
         )?;
         let delta =
-            BusinessIndexDeltaV1::build(BusinessIndexRootV1::empty()?, vec![update], reader)?;
+            BusinessIndexDeltaV1::build_v2(BusinessIndexRootV1::empty()?, vec![update], reader)?;
         let tree = Self {
             schema_version: FORMAL_BUSINESS_RESULT_SCHEMA_V1,
             metadata,
@@ -235,7 +235,7 @@ impl FormalBusinessResultTreeV1 {
             )?);
         }
         updates.sort_by(|left, right| left.key_digest.cmp(&right.key_digest));
-        let delta = BusinessIndexDeltaV1::build(base, updates, reader)?;
+        let delta = BusinessIndexDeltaV1::build_v2(base, updates, reader)?;
         let tree = Self {
             schema_version: FORMAL_BUSINESS_RESULT_SCHEMA_V1,
             metadata,

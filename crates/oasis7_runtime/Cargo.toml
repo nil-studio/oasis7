@@ -13,6 +13,7 @@ oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_proto = { path = "../oasis7_proto" }
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 oasis7_distfs = { path = "../oasis7_distfs" }
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_wasm_materializer = { path = "../oasis7_wasm_materializer" }
 oasis7_wasm_executor = { path = "../oasis7_wasm_executor", default-features = false }
 oasis7_wasm_router = { path = "../oasis7_wasm_router" }

@@ -502,6 +502,8 @@ impl DurableSetCandidateV1 {
             provider: self.provider,
             parent: Some(activation.boundary().clone()),
             poisoned: false,
+            native_environment_jobs: std::collections::BTreeMap::new(),
+            published_closure_jobs: std::collections::BTreeMap::new(),
             #[cfg(test)]
             controlled: false,
         };
@@ -618,6 +620,8 @@ impl FileFormalEndpoint {
             provider: candidate.provider,
             parent: Some(activation.boundary().clone()),
             poisoned: false,
+            native_environment_jobs: std::collections::BTreeMap::new(),
+            published_closure_jobs: std::collections::BTreeMap::new(),
             #[cfg(test)]
             controlled: false,
         };

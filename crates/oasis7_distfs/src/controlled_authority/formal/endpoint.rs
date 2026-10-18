@@ -11,7 +11,11 @@ use std::sync::Arc;
 mod types;
 pub use types::*;
 #[path = "endpoint_chunk.rs"]
-mod chunk;
+pub(super) mod chunk;
+#[path = "endpoint_published_closure.rs"]
+mod published_closure;
+#[path = "endpoint_storage_maintenance.rs"]
+mod storage_maintenance;
 #[path = "endpoint_store.rs"]
 mod store;
 pub use chunk::{FORMAL_ARCHIVE_CHUNK_LIMIT, FORMAL_ARCHIVE_OBJECT_LIMIT, FormalArchiveChunkV1};
@@ -87,6 +91,10 @@ pub struct FileFormalEndpoint {
     provider: Arc<dyn fencing::MonotonicEndpointProvider>,
     parent: Option<VerifiedFormalCommitV1>,
     poisoned: bool,
+    native_environment_jobs:
+        std::collections::BTreeMap<String, super::native_environment::EndpointVerificationJob>,
+    published_closure_jobs:
+        std::collections::BTreeMap<String, store::published_closure::ClosureJob>,
     #[cfg(test)]
     controlled: bool,
 }
@@ -189,6 +197,8 @@ impl FileFormalEndpoint {
             provider,
             parent,
             poisoned: false,
+            native_environment_jobs: std::collections::BTreeMap::new(),
+            published_closure_jobs: std::collections::BTreeMap::new(),
             #[cfg(test)]
             controlled,
         };
@@ -501,6 +511,7 @@ impl FileFormalEndpoint {
     ) -> Result<FormalFrozenReceiptV1, FormalError> {
         let mut guard = self.guard()?;
         verify_frozen_material(&input.body, &material)?;
+        drop(self.take_native_environment(&material)?);
         let request = input.body.request_digest.clone();
         if let Some(entry) = self.load(&request)? {
             match entry {
@@ -548,6 +559,11 @@ impl FileFormalEndpoint {
                 .as_ref()
                 .ok_or_else(|| invalid("formal freeze requires committed activation"))?,
         )?;
+        if self.parent.as_ref().and_then(|parent| parent.record().artifact_roots.get(
+            &crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment))
+            != material.roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment) {
+            return Err(invalid("native frozen environment differs from committed parent"));
+        }
         self.write(
             FormalRequestStateV1::Frozen {
                 input: input.clone(),
@@ -638,6 +654,7 @@ impl FileFormalEndpoint {
     fn candidate_context<'a>(
         &self,
         candidate: &'a FormalCandidateMaterialV1,
+        retain_snapshot_bytes: bool,
     ) -> Result<
         (
             VerifiedCandidateContextV1,
@@ -645,8 +662,13 @@ impl FileFormalEndpoint {
         ),
         FormalError,
     > {
-        let closure =
-            super::business_material::VerifiedCandidateMaterialClosureV1::verify(candidate)?;
+        // This flag controls allocation lifetime only: both entry points do
+        // the same complete material verification. Only Prepare reuses bytes.
+        let closure = if retain_snapshot_bytes {
+            super::business_material::VerifiedCandidateMaterialClosureV1::verify_retaining_snapshots(candidate)?
+        } else {
+            super::business_material::VerifiedCandidateMaterialClosureV1::verify(candidate)?
+        };
         let recovery = (candidate.branch != FormalCompletionBranchV1::Normal)
             .then_some(self.recovery.as_ref())
             .flatten();
@@ -671,7 +693,8 @@ impl FileFormalEndpoint {
     ) -> Result<FormalPrepareReceiptV1, FormalError> {
         let mut guard = self.guard()?;
         let request = candidate.candidate.record.request_digest.clone();
-        let (context, material_closure) = self.candidate_context(&candidate)?;
+        let (context, material_closure) = self.candidate_context(&candidate, true)?;
+        drop(self.take_native_environment(&candidate.material)?);
         if context.finalizing_authority().authority_id()? != self.authority.authority_id()? {
             return Err(invalid("formal candidate finalizer endpoint"));
         }
@@ -810,7 +833,7 @@ impl FileFormalEndpoint {
         else {
             return Err(invalid("formal decision durable prepare receipt missing"));
         };
-        let (context, _material_closure) = self.candidate_context(&candidate)?;
+        let (context, _material_closure) = self.candidate_context(&candidate, false)?;
         verify_formal_prepare_receipt(&primary, &candidate, &context, EndpointRole::Primary)?;
         verify_formal_prepare_receipt(&replica, &candidate, &context, EndpointRole::Replica)?;
         let local = match self.role {
@@ -1016,3 +1039,6 @@ pub use business_parent::VerifiedFormalBusinessParentV1;
 mod committed_material;
 pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
+
+#[path = "endpoint_native_environment.rs"]
+mod native_environment;

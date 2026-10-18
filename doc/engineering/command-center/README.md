@@ -81,6 +81,8 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 2026-10-12 目标设计收敛：[原候选恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 固定执行前完整材料与原请求重放；[正式权威 v1](../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 和 [epoch 接管](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 明确激活、普通证明消费者及旧写者隔离顺序。下一步按这些主责合同实现与验证；现有工程证明、离线 verifier 和本地双目录仍不足以完成正式开放。
 
+存储优化局部候选核对（2026-10-18，仅 [PR #4870](https://github.com/nil-studio/oasis7/pull/4870)）：原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包已在该候选实现并完成局部验证，长历史进程门禁仍待收口。固定小规模对象命名空间样本已测得显著空间收益，同时有读取成本；准确版本、收益与分布见实施 PR。当前没有部署节点，真实独立双故障域与更大规模验收未执行。候选尚未合入，不扩大 main 的已交付或部署结论；下一步按[当前实施与退出门槛](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)修复并完成适用验证，本段不刷新其他主线或环境的核验时间。
+
 ### 2. 真实首产物、阻塞恢复与回访
 
 starter 候选、owner 目标持久化等前置已有代码；Web guest 启动/只读世界推进和 Hosted 修复分别已合入。

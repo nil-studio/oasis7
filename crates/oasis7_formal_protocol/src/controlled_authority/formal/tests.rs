@@ -395,3 +395,22 @@ mod business_history_recovery_tests;
 
 #[path = "durable_set_tests.rs"]
 mod durable_set_tests;
+
+#[path = "snapshot_artifact_protocol_tests.rs"]
+mod snapshot_artifact_protocol_tests;
+
+#[test]
+fn initial_native_root_requires_explicit_activation_schema() {
+    use crate::controlled_authority::replicated_protocol::ArtifactRole;
+    let (certificate, _, _, _) = initial();
+    let mut body = certificate.body;
+    body.validate().unwrap();
+    body.artifact_roots
+        .insert(ArtifactRole::NativeExecutionEnvironment, h(94));
+    assert!(body.validate().is_err());
+    body.schema_version = 2;
+    body.validate().unwrap();
+    body.artifact_roots
+        .remove(&ArtifactRole::NativeExecutionEnvironment);
+    assert!(body.validate().is_err());
+}

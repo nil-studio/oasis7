@@ -18,6 +18,10 @@ static TEMP: AtomicU64 = AtomicU64::new(0);
 pub(super) mod durable_set;
 #[path = "endpoint_store_native.rs"]
 mod native;
+#[path = "endpoint_store_published_closure.rs"]
+pub(super) mod published_closure;
+#[path = "endpoint_store_root_verification.rs"]
+mod root_verification;
 
 pub(super) use oasis7_formal_protocol::controlled_authority::formal::proof::{
     NativeCheckpointParentV1 as CheckpointParent, NativeHistoryLinkV1 as HistoryLink,
@@ -159,6 +163,11 @@ impl Store {
         directory(&path.join("formal-objects-v1"))?;
         super::super::business_pack::cleanup_staging_locked(&path.join("formal-objects-v1"))?;
         let file = path.join(HOT);
+        if !file.try_exists().map_err(io)?
+            || super::super::physical::enabled(&path.join("formal-objects-v1"))?
+        {
+            super::super::physical::initialize(&path.join("formal-objects-v1"))?;
+        }
         let bytes = if file.try_exists().map_err(io)? {
             read(&file)?
         } else {
@@ -208,8 +217,8 @@ impl Store {
     pub fn raw_object(&self, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
         hash_hex(id)?;
         let path = self.path.join("formal-objects-v1").join(id);
-        if path.try_exists().map_err(io)? {
-            return super::super::business_pack::read_object(&path, id);
+        if let Some(bytes) = super::super::business_pack::read_object(&path, id)? {
+            return Ok(Some(bytes));
         }
         for source in &self.sources {
             if let Some(bytes) = source.read_object(id)? {
@@ -263,12 +272,24 @@ impl Store {
         let id = blake3::hash(&bytes).to_hex().to_string();
         let dir = self.path.join("formal-objects-v1");
         let target = dir.join(&id);
-        if target.try_exists().map_err(io)? {
-            if self.raw_object(&id)?.as_deref() != Some(bytes.as_slice()) {
+        let writer = super::super::physical::publication_guard(&dir)?;
+        if let Some(existing) = super::super::business_pack::read_object(&target, &id)? {
+            if existing != bytes {
                 return Err(invalid("formal immutable object changed"));
             }
+            super::super::business_pack::read_object_durable(&target, &id)?;
+            sync(&dir)?;
         } else {
-            Self::atomic(&dir, &target, &bytes)?;
+            if !super::super::physical::persist_guarded(
+                &dir,
+                &[(id.clone(), bytes.clone())],
+                &writer,
+            )? {
+                Self::atomic(&dir, &target, &bytes)?;
+            }
+        }
+        if super::super::physical::enabled(&dir)? {
+            super::super::physical::roots::retain(&dir, std::slice::from_ref(&id))?;
         }
         Ok(id)
     }

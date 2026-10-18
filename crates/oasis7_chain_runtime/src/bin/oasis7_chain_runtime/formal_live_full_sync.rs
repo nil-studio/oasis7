@@ -88,6 +88,30 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
                 return Err("record-closure object cannot claim retained-tree metadata".into());
             }
             object.bytes.clone()
+        } else if let Some(chunk) = material
+            .native_environment()
+            .map_err(|error| error.to_string())?
+            .and_then(|environment| {
+                environment
+                    .components
+                    .into_iter()
+                    .flat_map(|component| component.chunks)
+                    .find(|chunk| chunk.digest == signed.request.content_hash)
+            })
+        {
+            if signed.request.business_path.is_some()
+                || signed.request.retained_history_root_digest.is_some()
+            {
+                return Err("native chunk cannot claim a retained-tree path".into());
+            }
+            let bytes = service
+                .history
+                .full_sync_business_object(&anchor, &chunk.digest)?
+                .ok_or("full-sync original native chunk unavailable")?;
+            if bytes.len() != chunk.byte_len as usize {
+                return Err("full-sync original native chunk length".into());
+            }
+            bytes
         } else {
             let retained_root = retained_root
                 .as_deref()
@@ -502,7 +526,14 @@ fn manifest(
         })
         .collect();
     let manifest = FormalFullSyncManifestV1 {
-        schema_version: 1,
+        schema_version: if material
+            .roots
+            .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+        {
+            2
+        } else {
+            1
+        },
         cut,
         artifact_roots,
         objects,
@@ -523,21 +554,14 @@ fn wire_role(role: ArtifactRole) -> WireRole {
         ArtifactRole::ExecutionManifest => WireRole::ExecutionManifest,
         ArtifactRole::Wasm => WireRole::Wasm,
         ArtifactRole::Rules => WireRole::Rules,
+        ArtifactRole::NativeExecutionEnvironment => WireRole::NativeExecutionEnvironment,
     }
 }
 
 fn retained_history_root(material: &ClosedRecord) -> Result<Option<String>, String> {
-    let hash = material
-        .roots
-        .get(&ArtifactRole::Snapshot)
-        .ok_or("full-sync record has no Snapshot root")?;
-    let bytes = material
-        .objects
-        .iter()
-        .find(|object| &object.content_hash == hash)
-        .ok_or("full-sync Snapshot object missing")?;
+    let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
     let snapshot: oasis7_runtime::Snapshot =
-        serde_cbor::from_slice(&bytes.bytes).map_err(|error| error.to_string())?;
+        serde_cbor::from_slice(&bytes).map_err(|error| error.to_string())?;
     Ok(snapshot
         .state
         .retained_history_root
@@ -553,17 +577,9 @@ fn verify_business_path(
     path: &[String],
     target: &str,
 ) -> Result<Vec<u8>, String> {
-    let snapshot_hash = material
-        .roots
-        .get(&ArtifactRole::Snapshot)
-        .ok_or("full-sync Snapshot root missing")?;
-    let snapshot_bytes = material
-        .objects
-        .iter()
-        .find(|object| &object.content_hash == snapshot_hash)
-        .ok_or("full-sync Snapshot object missing")?;
+    let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
     let snapshot: oasis7_runtime::Snapshot =
-        serde_cbor::from_slice(&snapshot_bytes.bytes).map_err(|error| error.to_string())?;
+        serde_cbor::from_slice(&bytes).map_err(|error| error.to_string())?;
     let retained = snapshot
         .state
         .retained_history_root

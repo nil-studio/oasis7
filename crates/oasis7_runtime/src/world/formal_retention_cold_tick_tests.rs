@@ -76,6 +76,84 @@ fn exact_test_parent(world: &World) -> VerifiedFormalRetainedHistoryParentV1 {
         &serde_cbor::to_vec(&world.snapshot()).unwrap(),
     )
 }
+#[derive(Clone, Copy)]
+enum PrefetchFault {
+    None,
+    Corrupt,
+    Missing,
+}
+struct PrefetchedColdNodes {
+    source: SharedMemoryNodes,
+    cached: std::sync::Mutex<BTreeMap<String, Vec<u8>>>,
+    prefetches: std::sync::atomic::AtomicUsize,
+    uncached_reads: std::sync::atomic::AtomicUsize,
+    fault: PrefetchFault,
+}
+impl BusinessIndexNodeReader for PrefetchedColdNodes {
+    fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+        self.prefetches
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = root.path_nodes(key, &self.source)?;
+        let mut cached = self.cached.lock().unwrap();
+        for (index, mut node) in path.nodes.into_iter().enumerate() {
+            if index == 0 {
+                match self.fault {
+                    PrefetchFault::None => {}
+                    PrefetchFault::Corrupt => node.bytes = vec![0xff],
+                    PrefetchFault::Missing => continue,
+                }
+            }
+            cached.insert(node.digest, node.bytes);
+        }
+        Ok(())
+    }
+    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        if let Some(bytes) = self.cached.lock().unwrap().get(digest).cloned() {
+            return Ok(Some(bytes));
+        }
+        self.uncached_reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err("cold node requires its authenticated path prefetch".into())
+    }
+}
+#[test]
+fn formal_typed_snapshot_cold_tick_restore_prefetches_and_verifies_each_path() {
+    let (world, nodes) = cold_tick_world(true);
+    for fault in [
+        PrefetchFault::None,
+        PrefetchFault::Corrupt,
+        PrefetchFault::Missing,
+    ] {
+        let reader = Arc::new(PrefetchedColdNodes {
+            source: nodes.clone(),
+            cached: std::sync::Mutex::new(BTreeMap::new()),
+            prefetches: std::sync::atomic::AtomicUsize::new(0),
+            uncached_reads: std::sync::atomic::AtomicUsize::new(0),
+            fault,
+        });
+        let result = World::from_verified_formal_snapshot(
+            world.snapshot(),
+            world.journal().clone(),
+            exact_test_parent(&world),
+            reader.clone(),
+        );
+        match fault {
+            PrefetchFault::None => {
+                let restored = result.expect("cold World restore must prefetch the exact paths");
+                assert_eq!(restored.snapshot(), world.snapshot());
+                assert_eq!(restored.journal(), world.journal());
+                assert_eq!(
+                    reader
+                        .uncached_reads
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    0
+                );
+            }
+            PrefetchFault::Corrupt | PrefetchFault::Missing => assert!(result.is_err()),
+        }
+        assert!(reader.prefetches.load(std::sync::atomic::Ordering::Relaxed) > 0);
+    }
+}
 #[test]
 fn formal_typed_snapshot_restores_cold_tick_before_validation_without_replay() {
     let (world, nodes) = cold_tick_world(true);

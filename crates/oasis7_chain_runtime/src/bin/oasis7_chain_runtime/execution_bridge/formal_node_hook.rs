@@ -51,6 +51,8 @@ pub(crate) trait FormalNodeWriter: Send {
     ) -> Result<(World, VerifiedFormalReadAnchorV1, NodeExecutionBootstrap), String> {
         Err("formal writer does not expose qualified original genesis history".into())
     }
+    /// One bounded storage maintenance page, independent of business commit.
+    fn advance_storage_maintenance(&mut self) {}
     fn current_head_evidence(&self) -> Result<CurrentHeadEvidence, String>;
     fn pending_continuation(&self) -> Result<Option<NodeLocalExecutionContinuation>, String>;
     fn prepare(&mut self, continuation: &NodeLocalExecutionContinuation) -> Result<(), String>;
@@ -93,6 +95,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
 
     fn world_id(&self) -> &str {
         &self.anchor().head().record().world.world_id
+    }
+
+    fn advance_storage_maintenance(&mut self) {
+        FormalWriter::advance_storage_maintenance(self)
     }
 
     fn committed_read_cut(&self) -> Result<(World, VerifiedFormalReadAnchorV1), String> {
@@ -633,6 +639,10 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         &mut self,
         continuation: &NodeLocalExecutionContinuation,
     ) -> Result<(), String> {
+        let mut timing = super::formal_execution_timing::FormalExecutionTiming::begin(
+            "node_prepare_continuation",
+            continuation.context.height,
+        );
         let admission_gate = self.admission_gate.clone();
         let _admission = admission_gate
             .as_ref()
@@ -641,7 +651,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
                     .map_err(|_| "formal Node admission gate poisoned".to_string())
             })
             .transpose()?;
+        timing.mark("admission_gate_acquired");
         let pending = self.writer.pending_continuation()?;
+        timing.mark("pending_read");
         if let Some(consumed) = &self.consumed_terminal {
             let original = pending
                 .as_ref()
@@ -712,6 +724,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
     fn pending_local_continuation(
         &mut self,
     ) -> Result<Option<NodeLocalExecutionContinuation>, String> {
+        // The Node calls this once per tick, including idle ticks. Reclamation
+        // never changes a continuation or blocks it on closure completion.
+        self.writer.advance_storage_maintenance();
         let pending = self.writer.pending_continuation()?;
         if let Some(consumed) = &self.consumed_terminal {
             return match pending {
@@ -750,6 +765,10 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         expected_execution_block_hash: Option<&str>,
         expected_execution_state_root: Option<&str>,
     ) -> Result<NodeExecutionCommitOutcome, String> {
+        let mut timing = super::formal_execution_timing::FormalExecutionTiming::begin(
+            "node_commit_outcome",
+            context.height,
+        );
         if expected_execution_block_hash.is_some() || expected_execution_state_root.is_some() {
             return Err(
                 "formal Node execution rejects network-supplied expected continuation".into(),
@@ -768,12 +787,15 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
             return Err("formal pending Node continuation differs from requested commit".into());
         }
         let proof_record_id = self.writer.resume_original()?;
+        timing.mark("original_resumed");
         let evidence = self.writer.committed_execution()?;
+        timing.mark("committed_evidence_read");
         if evidence.formal_record_id != proof_record_id {
             return Err("formal writer proof and qualified publication head differ".into());
         }
         let result = result_for_continuation(&continuation, &evidence)?;
         self.publish_committed_read_cut(&proof_record_id)?;
+        timing.mark("read_cut_published");
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("read_published")?;
         Ok(NodeExecutionCommitOutcome::Applied(result))
@@ -783,6 +805,10 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         &mut self,
         context: &NodeExecutionCommitContext,
     ) -> Result<(), String> {
+        let mut timing = super::formal_execution_timing::FormalExecutionTiming::begin(
+            "node_complete_continuation",
+            context.height,
+        );
         let admission_gate = self.admission_gate.clone();
         let _admission = admission_gate
             .as_ref()
@@ -791,6 +817,7 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
                     .map_err(|_| "formal Node admission gate poisoned".to_string())
             })
             .transpose()?;
+        timing.mark("admission_gate_acquired");
         if self
             .consumed_terminal
             .as_ref()
@@ -808,6 +835,7 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
             );
         }
         let evidence = self.writer.committed_execution()?;
+        timing.mark("committed_evidence_read");
         result_for_continuation(&continuation, &evidence)?;
         // Node invokes completion before persisting its next-slot and action
         // reservation counters. Retain the durable terminal receipt; only the

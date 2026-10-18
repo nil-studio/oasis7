@@ -32,6 +32,40 @@ impl FileFormalArchiveSourceV1 {
             directory: directory.join("formal-objects-v1"),
         })
     }
+    /// Representation-independent inventory of at most 65,536 local logical hashes.
+    /// This reads no authority/head and rejects unknown namespace entries.
+    pub fn logical_ids(&self) -> Result<Vec<String>, FormalError> {
+        const MAX_IDS: usize = 65_536;
+        let _pin = super::super::physical::pin(&self.directory, false)?;
+        if super::super::physical::enabled(&self.directory)? {
+            return super::super::physical::logical_ids(&self.directory)
+                .map(|ids| ids.into_iter().collect());
+        }
+        // Legacy raw/pack archives have no physical selector namespace. Keep
+        // this compatibility local to the archive reader, not generation GC.
+        let mut ids = Vec::new();
+        for entry in fs::read_dir(&self.directory).map_err(|e| FormalError::Io(e.to_string()))? {
+            let entry = entry.map_err(|e| FormalError::Io(e.to_string()))?;
+            let id = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| invalid("formal archive logical filename encoding"))?;
+            let metadata =
+                fs::symlink_metadata(entry.path()).map_err(|e| FormalError::Io(e.to_string()))?;
+            if id == ".business-pack-staging-v1" && metadata.is_dir() {
+                super::super::physical::paths::metadata(&metadata, true)?;
+                continue;
+            }
+            super::super::physical::paths::metadata(&metadata, false)?;
+            hash_hex(&id)?;
+            if !metadata.is_file() || ids.len() >= MAX_IDS {
+                return Err(invalid("formal archive logical inventory type/count"));
+            }
+            ids.push(id);
+        }
+        ids.sort();
+        Ok(ids)
+    }
 }
 impl FormalArchiveSourceV1 for FileFormalArchiveSourceV1 {
     fn read_range(
@@ -66,7 +100,11 @@ mod tests {
         let id = blake3::hash(bytes).to_hex().to_string();
         assert_eq!(source.read_object(&id).unwrap(), None);
         fs::write(objects.join(&id), bytes).unwrap();
+        assert_eq!(source.logical_ids().unwrap(), vec![id.clone()]);
         assert_eq!(source.read_object(&id).unwrap().unwrap(), bytes);
+        fs::write(objects.join(".unknown-metadata"), b"unknown").unwrap();
+        assert!(source.logical_ids().is_err());
+        fs::remove_file(objects.join(".unknown-metadata")).unwrap();
         fs::write(objects.join(&id), b"corrupt").unwrap();
         assert!(source.read_object(&id).is_err());
         let file = fs::File::create(objects.join(&id)).unwrap();
@@ -82,6 +120,45 @@ mod tests {
             std::os::unix::fs::symlink(actual, objects.join(&id)).unwrap();
             assert!(source.read_object(&id).is_err());
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn logical_inventory_reads_selector_only_and_selected_generation_objects() {
+        use crate::controlled_authority::formal::{business_index, business_pack, physical};
+        use std::os::unix::fs::DirBuilderExt;
+        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "oasis7-formal-logical-inventory-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let objects = root.join("formal-objects-v1");
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        fs::DirBuilder::new().mode(0o700).create(&objects).unwrap();
+        physical::initialize(&objects).unwrap();
+        let bytes = vec![7; 200_000];
+        let id = blake3::hash(&bytes).to_hex().to_string();
+        business_pack::persist(
+            &objects,
+            &[business_index::BusinessIndexNodeWriteV1 {
+                digest: id.clone(),
+                bytes: bytes.clone(),
+            }],
+        )
+        .unwrap();
+        assert!(!objects.join(&id).exists());
+        let source = FileFormalArchiveSourceV1::new(root.clone()).unwrap();
+        assert_eq!(source.logical_ids().unwrap(), vec![id.clone()]);
+        let mut selected = false;
+        for _ in 0..32 {
+            if !physical::advance_generation(&objects).unwrap().building {
+                selected = true;
+                break;
+            }
+        }
+        assert!(selected, "generation must finish within the fixture budget");
+        assert_eq!(source.logical_ids().unwrap(), vec![id.clone()]);
+        assert_eq!(source.read_object(&id).unwrap().unwrap(), bytes);
         fs::remove_dir_all(root).unwrap();
     }
     #[cfg(unix)]

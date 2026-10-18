@@ -64,6 +64,8 @@ mod healthy_operation_tests;
 mod long_history_tests;
 #[path = "formal_live_protected_process_oracle.rs"]
 mod oracle_support;
+#[path = "formal_live_protected_proc_sampler.rs"]
+mod proc_sampler;
 #[path = "world_initialization_process_tests.rs"]
 mod world_initialization_tests;
 
@@ -820,6 +822,7 @@ fn run_protected_runtime_fixture(
             &world_identity,
             &owner_key,
             &owner_request,
+            [primary_child.pid(), replica_child.pid()],
             first_result_commit
                 .as_ref()
                 .ok_or("long history needs owner request")?,

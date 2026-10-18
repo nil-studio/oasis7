@@ -13,10 +13,15 @@ pub struct FormalArchiveChunkV1 {
     #[serde(serialize_with = "encode_bytes", deserialize_with = "decode_bytes")]
     pub bytes: Vec<u8>,
 }
-fn encode_bytes<S: serde::Serializer>(bytes: &[u8], encoder: S) -> Result<S::Ok, S::Error> {
+pub(crate) fn encode_bytes<S: serde::Serializer>(
+    bytes: &[u8],
+    encoder: S,
+) -> Result<S::Ok, S::Error> {
     encoder.serialize_bytes(bytes)
 }
-fn decode_bytes<'de, D: serde::Deserializer<'de>>(decoder: D) -> Result<Vec<u8>, D::Error> {
+pub(crate) fn decode_bytes<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<Vec<u8>, D::Error> {
     struct Visitor;
     impl<'de> serde::de::Visitor<'de> for Visitor {
         type Value = Vec<u8>;

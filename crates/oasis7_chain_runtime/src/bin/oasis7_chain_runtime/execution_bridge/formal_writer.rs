@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 #[path = "formal_writer_tests.rs"]
 mod tests;
 
+#[path = "formal_writer_attempts.rs"]
+mod attempts;
 #[path = "formal_writer_initial_history.rs"]
 mod initial_history;
 #[path = "formal_writer_recovery.rs"]
@@ -61,6 +63,41 @@ pub(crate) fn pending_test_position(path: &Path) -> Result<u64, String> {
     let pending: Pending = read(path)?;
     verify_frozen_material(&pending.original.body, &pending.material).map_err(|e| e.to_string())?;
     Ok(pending.original.body.next_position)
+}
+
+#[cfg(all(test, unix))]
+pub(crate) fn retirement_test_target(root: &Path, sidecar: &Path) -> Result<(String, u64), String> {
+    let (schema, position, block, digest): (u32, u64, String, String) = read(sidecar)?;
+    let (candidate, proof) = read_published_candidate_at(root, position)?
+        .ok_or("retired original publication missing")?;
+    if schema != 1
+        || position < 2
+        || candidate.candidate.record.position != position
+        || proof.decision.record != candidate.candidate.record
+        || super::formal_attempt_lifecycle::candidate_digest(&candidate)? != digest
+    {
+        return Err("retired original candidate/publication binding differs".into());
+    }
+    let frozen = candidate
+        .frozen_material
+        .as_ref()
+        .ok_or("retired original Frozen missing")?;
+    let reservation = &candidate
+        .frozen
+        .as_ref()
+        .ok_or("retired original reservation missing")?
+        .reservation
+        .body;
+    verify_frozen_material(reservation, frozen).map_err(|error| error.to_string())?;
+    let manifest: super::formal_package::FormalExecutionManifestV1 =
+        super::controlled_capture::decode_role(frozen, ArtifactRole::ExecutionManifest)?;
+    if manifest.continuation.context.node_block_hash != block
+        || block.trim().is_empty()
+        || reservation.next_position != position
+    {
+        return Err("retired original Frozen continuation binding differs".into());
+    }
+    Ok((block, position))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,10 +164,16 @@ pub(crate) struct FormalWriter<P: FormalDurabilityEndpoint, R: FormalDurabilityE
     poisoned: bool,
     business_reader: Option<super::formal_business_package::SharedBusinessReader>,
     recovery: Option<VerifiedRecovery>,
+    attempt_scan: Option<std::fs::ReadDir>,
+    attempt_reclaim_current: Option<PathBuf>,
 }
 #[path = "formal_writer_published.rs"]
 mod published;
 pub(crate) use published::{read_published_candidate_at, read_published_proof_at};
+
+#[path = "formal_writer_restore.rs"]
+mod restoration;
+use restoration::{restore, restore_qualified};
 
 fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
     let bytes = crate::controlled_history_cli::read_bounded(path, 64 * 1024 * 1024)?;
@@ -172,62 +215,6 @@ pub(crate) fn initial_business_nodes(
     Ok(writes)
 }
 
-fn restore(
-    candidate: &FormalCandidateMaterialV1,
-    release: &ReleaseSecurityPolicy,
-) -> Result<World, String> {
-    verify_record_material(&candidate.candidate.record, &candidate.material)
-        .map_err(|e| e.to_string())?;
-    let snapshot: Snapshot = capture::decode_role(&candidate.material, ArtifactRole::Snapshot)?;
-    let journal: Journal = capture::decode_role(&candidate.material, ArtifactRole::Journal)?;
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
-        .map_err(|e| format!("{e:?}"))?
-        .with_release_security_policy(release.clone());
-    if blake3_hex(&to_cbor(world.snapshot())?) != candidate.candidate.record.after_state_root {
-        return Err("formal writer restored candidate root mismatch".into());
-    }
-    super::formal_business_package::tree(
-        &candidate.material,
-        &candidate.candidate.record,
-        &world,
-        false,
-    )?;
-    Ok(world)
-}
-fn restore_qualified(
-    candidate: &FormalCandidateMaterialV1,
-    release: &ReleaseSecurityPolicy,
-    anchor: &VerifiedFormalReadAnchorV1,
-    reader: std::sync::Arc<dyn business_index::BusinessIndexNodeReader + Send + Sync>,
-) -> Result<World, String> {
-    verify_record_material(&candidate.candidate.record, &candidate.material)
-        .map_err(|e| e.to_string())?;
-    if &candidate.candidate.record != anchor.head().record() {
-        return Err("formal restore candidate differs from qualified anchor".into());
-    }
-    let snapshot: Snapshot = capture::decode_role(&candidate.material, ArtifactRole::Snapshot)?;
-    let journal: Journal = capture::decode_role(&candidate.material, ArtifactRole::Journal)?;
-    if snapshot.state.retained_history_root.is_none() {
-        if anchor.authority().definition().profile_version == 2 {
-            return Err("profile2 native restore requires retained-history descriptor".into());
-        }
-        return restore(candidate, release);
-    }
-    let bytes = to_cbor(&snapshot)?;
-    let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
-    let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
-        snapshot, journal, parent, reader,
-    )
-    .map_err(|e| format!("{e:?}"))?
-    .with_release_security_policy(release.clone());
-    super::formal_business_package::tree(
-        &candidate.material,
-        &candidate.candidate.record,
-        &world,
-        false,
-    )?;
-    Ok(world)
-}
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R> {
     #[cfg(test)]
     pub(crate) fn open(
@@ -553,7 +540,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             Some(anchor.head().clone()),
         )
         .map_err(|e| e.to_string())?;
-        Ok(Self {
+        let mut instance = Self {
             _lock: lock,
             root,
             writer,
@@ -565,7 +552,19 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             poisoned: false,
             business_reader: None,
             recovery,
-        })
+            attempt_scan: None,
+            attempt_reclaim_current: None,
+        };
+        if let Some((candidate, proof)) =
+            read_published_candidate_at(&instance.root, instance.anchor.head().record().position)?
+        {
+            instance.reclaim_published_attempts(&Published {
+                schema_version: 1,
+                candidate,
+                proof,
+            });
+        }
+        Ok(instance)
     }
     pub(crate) fn anchor(&self) -> &VerifiedFormalReadAnchorV1 {
         &self.anchor
@@ -765,7 +764,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         original: &NodeLocalExecutionContinuation,
         transition: Option<&SignedNormalDurableSetTransitionV1>,
     ) -> Result<(), String> {
-        let _timing = super::formal_execution_timing::FormalExecutionTiming::begin(
+        let timing = super::formal_execution_timing::FormalExecutionTiming::begin(
             "freeze",
             original.context.height,
         );
@@ -818,52 +817,88 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                     true,
                 )?
                 .ok_or("formal business predecessor descriptor missing")?;
-                Some((tree, publication.proof))
+                Some((tree, publication.proof, publication.candidate.material))
             } else {
                 None
             };
-            let (body, material) = match (business, transition) {
-                (Some((tree, parent_qualified)), Some(transition)) => {
-                    formal_package::freeze_material_with_business_and_durable_set_transition(
-                        self.anchor.authority(),
-                        self.anchor.head(),
-                        original,
-                        &self.world,
-                        &self.release,
-                        tree,
-                        parent_qualified,
-                        transition,
-                    )?
+            let (mut body, mut material) =
+                timing.step("build_frozen", None, || -> Result<_, String> {
+                    Ok(match (business, transition) {
+                        (Some((tree, parent_qualified, parent_material)), transition) => {
+                            formal_package::freeze_material_from_parent(
+                                self.anchor.authority(),
+                                self.anchor.head(),
+                                original,
+                                &self.world,
+                                &self.release,
+                                tree,
+                                parent_qualified,
+                                transition.cloned(),
+                                &parent_material,
+                            )?
+                        }
+                        (None, Some(transition)) => {
+                            formal_package::freeze_material_with_durable_set_transition(
+                                self.anchor.authority(),
+                                self.anchor.head(),
+                                original,
+                                &self.world,
+                                &self.release,
+                                transition,
+                            )?
+                        }
+                        (None, None) => formal_package::freeze_material(
+                            self.anchor.authority(),
+                            self.anchor.head(),
+                            original,
+                            &self.world,
+                            &self.release,
+                        )?,
+                    })
+                })?;
+            if self
+                .anchor
+                .head()
+                .record()
+                .artifact_roots
+                .contains_key(&ArtifactRole::NativeExecutionEnvironment)
+            {
+                let (primary, replica) = self.coordinator.endpoints_mut();
+                let environment =
+                    timing.step("stage_native", Some(&body.request_digest), || {
+                        super::formal_native_environment::stage_current(primary, replica)
+                    })?;
+                if self
+                    .anchor
+                    .head()
+                    .record()
+                    .artifact_roots
+                    .get(&ArtifactRole::NativeExecutionEnvironment)
+                    != Some(&environment.digest()?)
+                {
+                    return Err(
+                        "Unavailable: native environment changed from the qualified predecessor"
+                            .into(),
+                    );
                 }
-                (Some((tree, parent_qualified)), None) => {
-                    formal_package::freeze_material_with_business(
-                        self.anchor.authority(),
-                        self.anchor.head(),
-                        original,
-                        &self.world,
-                        &self.release,
-                        tree,
-                        parent_qualified,
-                    )?
-                }
-                (None, Some(transition)) => {
-                    formal_package::freeze_material_with_durable_set_transition(
-                        self.anchor.authority(),
-                        self.anchor.head(),
-                        original,
-                        &self.world,
-                        &self.release,
-                        transition,
-                    )?
-                }
-                (None, None) => formal_package::freeze_material(
-                    self.anchor.authority(),
-                    self.anchor.head(),
-                    original,
-                    &self.world,
-                    &self.release,
-                )?,
-            };
+                timing.step("attach_native", None, || {
+                    super::formal_native_environment::attach_frozen(
+                        &mut body,
+                        &mut material,
+                        &environment,
+                    )
+                })?;
+            }
+            timing.material("frozen_material", &body.request_digest, || {
+                (
+                    material.objects.len(),
+                    material
+                        .objects
+                        .iter()
+                        .map(|object| object.bytes.len())
+                        .sum(),
+                )
+            });
             let signature_hex = hex::encode(
                 self.writer
                     .sign(&frozen_signing_bytes(&body).map_err(|e| e.to_string())?)
@@ -879,7 +914,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 candidate: None,
                 frozen_certificate: None,
             });
-            if let Err(error) = self.persist() {
+            if let Err(error) = timing.step("persist_frozen", None, || self.persist()) {
                 self.poisoned = true;
                 return Err(error);
             }
@@ -997,21 +1032,51 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             {
                 return Err("formal writer original publication mismatch".into());
             }
+            self.reclaim_published_attempts(&original);
             return Ok(original.proof);
         }
-        let candidate = self.candidate_for_resume()?;
+        let candidate =
+            timing.step("candidate_for_resume", None, || self.candidate_for_resume())?;
+        timing.material(
+            "candidate_material",
+            &candidate.candidate.record.request_digest,
+            || {
+                (
+                    candidate.material.objects.len(),
+                    candidate
+                        .material
+                        .objects
+                        .iter()
+                        .map(|object| object.bytes.len())
+                        .sum(),
+                )
+            },
+        );
         timing.mark("candidate");
         self.pending
             .as_mut()
             .ok_or("formal pending missing")?
             .candidate = Some(candidate.clone());
-        self.persist()?;
+        timing.step(
+            "persist_candidate",
+            Some(&candidate.candidate.record.request_digest),
+            || self.persist(),
+        )?;
         timing.mark("candidate_saved");
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("candidate_saved")?;
-        let proof = self
-            .coordinator
-            .submit(candidate.clone())
+        if let Some(environment) =
+            super::formal_native_environment::descriptor(&candidate.material)?
+        {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::formal_native_environment::verify_registered(primary, replica, &environment)?;
+        }
+        let proof = timing
+            .step(
+                "submit_candidate",
+                Some(&candidate.candidate.record.request_digest),
+                || self.coordinator.submit(candidate.clone()),
+            )
             .map_err(|e| e.to_string())?;
         timing.mark("dual_qualified");
         #[cfg(all(test, unix))]
@@ -1077,6 +1142,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         super::formal_crash_test_boundary::stop_after("publication_saved")?;
         self.anchor = next_anchor;
         self.world = world;
+        self.reclaim_published_attempts(&stored);
         timing.mark("publication_saved");
         // Keep terminal original as an idempotency cache. `acknowledge` is a
         // distinct durable step so a lost return never silently picks next input.
@@ -1090,6 +1156,15 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             })
         {
             return Err("formal writer acknowledgement differs from qualified original".into());
+        }
+        if let Some((candidate, proof)) =
+            read_published_candidate_at(&self.root, self.anchor.head().record().position)?
+        {
+            self.reclaim_published_attempts(&Published {
+                schema_version: 1,
+                candidate,
+                proof,
+            });
         }
         let removed = std::fs::remove_file(self.root.join("pending.cbor"))
             .and_then(|_| std::fs::File::open(&self.root)?.sync_all());

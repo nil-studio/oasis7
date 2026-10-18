@@ -86,6 +86,11 @@ mod snapshot_parent;
 mod tick_archive;
 pub use snapshot_parent::VerifiedFormalRetainedHistoryParentV1;
 pub(crate) use tick_archive::retained_tick_consensus_leaves;
+#[path = "formal_retained_history_task_control.rs"]
+mod task_control;
+pub(crate) use task_control::{
+    GameTaskControlLookupV1, game_task_result_lookup, game_task_result_matches,
+};
 
 /// Read-only view of a retained index root. A view can be built from a
 /// qualified parent or from a delta that was recomputed against that parent;
@@ -235,9 +240,7 @@ macro_rules! impl_retained_history_read_methods {
                         )
                     })?;
                 let witnessed_nonce = match &witness.request.signed_payload {
-                    crate::service_admission::WorldServicePayloadV1::AgentChat(
-                        request,
-                    ) => {
+                    crate::service_admission::WorldServicePayloadV1::AgentChat(request) => {
                         if let Some(auth) = request.auth.as_ref()
                             && digest_text("owner-public-key", &auth.public_key)
                                 .map_err(RetainedHistoryReadError::Invalid)?
@@ -336,32 +339,102 @@ macro_rules! impl_retained_history_read_methods {
                 reader: &impl BusinessIndexNodeReader,
             ) -> Result<Vec<CanonicalIntentResultV1>, RetainedHistoryReadError> {
                 let lookup = lookup.canonicalized()?;
-                let key = retained_key_digest("game-task-control", &lookup)?;
-                let entry = match self.read_leaf(&key, reader)? {
-                    None => return Ok(Vec::new()),
-                    Some(RetainedHistoryLeafV1::GameTaskControlIndex(entry)) => entry,
+                // The old two-reference create/ambiguity index stays readable;
+                // complete revision chains use a distinct namespace and leaf schema.
+                let old_key = retained_key_digest("game-task-control", &lookup)?;
+                let mut results = match self.read_leaf(&old_key, reader)? {
+                    None => Vec::new(),
+                    Some(RetainedHistoryLeafV1::GameTaskControlIndex(entry)) => {
+                        validate_result_refs(&entry.result_key_digests)?;
+                        let mut legacy = Vec::new();
+                        for reference in entry.result_key_digests {
+                            let result = self
+                                .read_world_service_result(&reference, reader)?
+                                .ok_or_else(|| {
+                                    RetainedHistoryReadError::Invalid(
+                                        "legacy task index result absent".into(),
+                                    )
+                                })?;
+                            if !game_task_result_matches(&result, &lookup)? {
+                                return Err(RetainedHistoryReadError::Invalid(
+                                    "legacy task index scope mismatch".into(),
+                                ));
+                            }
+                            legacy.push(result);
+                        }
+                        legacy
+                    }
                     Some(_) => {
                         return Err(RetainedHistoryReadError::Invalid(
-                            "retained Game task index leaf kind mismatch".into(),
+                            "legacy task index leaf type mismatch".into(),
                         ));
                     }
                 };
-                validate_result_refs(&entry.result_key_digests)?;
-                let mut results = Vec::with_capacity(entry.result_key_digests.len());
-                for result_key_digest in entry.result_key_digests {
+                let key = retained_key_digest("game-task-control-chain-v1", &lookup)?;
+                let entry = match self.read_leaf(&key, reader)? {
+                    None => return Ok(results),
+                    Some(RetainedHistoryLeafV1::GameTaskControlChainIndex(entry)) => entry,
+                    Some(_) => {
+                        return Err(RetainedHistoryReadError::Invalid(
+                            "retained task chain head type mismatch".into(),
+                        ));
+                    }
+                };
+                if entry.count == 0 {
+                    return Err(RetainedHistoryReadError::Invalid(
+                        "retained task chain is empty".into(),
+                    ));
+                }
+                if entry.count > 4096 {
+                    return Err(RetainedHistoryReadError::Unavailable(
+                        "retained task chain exceeds query budget".into(),
+                    ));
+                }
+                let mut chain_count = 0usize;
+                let mut cursor = Some(entry.head);
+                let mut seen = std::collections::BTreeSet::new();
+                while let Some(reference) = cursor {
+                    if chain_count >= entry.count as usize
+                        || !seen.insert(reference.clone())
+                        || !is_correlation_key_digest(&reference)
+                    {
+                        return Err(RetainedHistoryReadError::Invalid(
+                            "retained task chain count/cycle/reference mismatch".into(),
+                        ));
+                    }
+                    let key = retained_key_digest("game-task-control-link", &reference)?;
+                    let Some(RetainedHistoryLeafV1::GameTaskControlLink(link)) =
+                        self.read_leaf(&key, reader)?
+                    else {
+                        return Err(RetainedHistoryReadError::Invalid(
+                            "retained task chain link absent".into(),
+                        ));
+                    };
+                    if link.result_key_digest != reference {
+                        return Err(RetainedHistoryReadError::Invalid(
+                            "retained task chain link identity mismatch".into(),
+                        ));
+                    }
                     let result = self
-                        .read_world_service_result(&result_key_digest, reader)?
+                        .read_world_service_result(&reference, reader)?
                         .ok_or_else(|| {
                             RetainedHistoryReadError::Invalid(
-                                "retained Game task index points to an absent result".into(),
+                                "retained task chain result absent".into(),
                             )
                         })?;
                     if !game_task_result_matches(&result, &lookup)? {
                         return Err(RetainedHistoryReadError::Invalid(
-                            "retained Game task index points to a nonmatching result".into(),
+                            "retained task chain result scope mismatch".into(),
                         ));
                     }
+                    cursor = link.previous;
                     results.push(result);
+                    chain_count += 1;
+                }
+                if chain_count != entry.count as usize {
+                    return Err(RetainedHistoryReadError::Invalid(
+                        "retained task chain incomplete".into(),
+                    ));
                 }
                 Ok(results)
             }
@@ -699,42 +772,6 @@ impl FeedbackPublicationLookupV1 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct GameTaskControlLookupV1 {
-    pub agent_id: String,
-    pub owner_binding: String,
-    pub owner_generation: u64,
-    pub owner_public_key_digest: String,
-    pub world_id: String,
-    pub genesis_digest: String,
-    pub branch_id: String,
-    pub reorg_epoch: u64,
-}
-
-impl GameTaskControlLookupV1 {
-    fn canonicalized(&self) -> Result<Self, RetainedHistoryReadError> {
-        if [
-            &self.agent_id,
-            &self.owner_binding,
-            &self.owner_public_key_digest,
-            &self.world_id,
-            &self.genesis_digest,
-            &self.branch_id,
-        ]
-        .iter()
-        .any(|value| value.trim().is_empty())
-            || self.owner_generation == 0
-            || !is_digest(&self.owner_public_key_digest)
-        {
-            return Err(RetainedHistoryReadError::Invalid(
-                "Game task retained lookup identity".into(),
-            ));
-        }
-        Ok(self.clone())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RetainedCapabilityNonceV1 {
@@ -869,6 +906,19 @@ pub(crate) struct RetainedResultRefsV1 {
     pub result_key_digests: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RetainedTaskChainV1 {
+    pub head: String,
+    pub count: u64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RetainedTaskChainLinkV1 {
+    pub result_key_digest: String,
+    pub previous: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[expect(
@@ -885,6 +935,8 @@ pub(crate) enum RetainedHistoryLeafV1 {
     AgentChatIntentIndex(RetainedResultRefsV1),
     FeedbackPublicationIndex(RetainedResultRefsV1),
     GameTaskControlIndex(RetainedResultRefsV1),
+    GameTaskControlChainIndex(RetainedTaskChainV1),
+    GameTaskControlLink(RetainedTaskChainLinkV1),
     CapabilityNonce(RetainedCapabilityNonceV1),
     AgentIntent(RetainedAgentIntentV1),
     AgentIntentReorgEpochs(DistinctReorgEpochSummaryV1),
@@ -968,6 +1020,8 @@ fn retained_leaf_kind(value: &RetainedHistoryLeafV1) -> BusinessIndexLeafKindV1 
         | RetainedHistoryLeafV1::AgentChatIntentIndex(_)
         | RetainedHistoryLeafV1::FeedbackPublicationIndex(_)
         | RetainedHistoryLeafV1::GameTaskControlIndex(_)
+        | RetainedHistoryLeafV1::GameTaskControlChainIndex(_)
+        | RetainedHistoryLeafV1::GameTaskControlLink(_)
         | RetainedHistoryLeafV1::AgentIntentReorgEpochs(_) => {
             BusinessIndexLeafKindV1::CommitMetadata
         }
@@ -1090,31 +1144,6 @@ pub(crate) fn feedback_result_matches(
             .and_then(|value| value.get("receipt_id"))
             .and_then(serde_json::Value::as_str)
             == lookup.runtime_receipt_id.as_deref()
-}
-
-pub(crate) fn game_task_result_matches(
-    result: &CanonicalIntentResultV1,
-    lookup: &GameTaskControlLookupV1,
-) -> Result<bool, RetainedHistoryReadError> {
-    if result.rejected.is_some() {
-        return Ok(false);
-    }
-    let crate::service_admission::WorldServicePayloadV1::GameTaskCreate(signed) =
-        &result.request.signed_payload
-    else {
-        return Ok(false);
-    };
-    let request = &signed.request;
-    let owner_public_key_digest = digest_text("owner-public-key", &signed.subject_public_key)
-        .map_err(RetainedHistoryReadError::Invalid)?;
-    Ok(request.agent_id == lookup.agent_id
-        && request.owner_binding == lookup.owner_binding
-        && request.owner_generation.0 == lookup.owner_generation
-        && owner_public_key_digest == lookup.owner_public_key_digest
-        && request.world_id == lookup.world_id
-        && request.genesis_digest == lookup.genesis_digest
-        && request.branch_id == lookup.branch_id
-        && request.reorg_epoch.0 == lookup.reorg_epoch)
 }
 
 fn serialize_bytes<S>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error>

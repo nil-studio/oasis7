@@ -87,6 +87,10 @@ fn suspend_tick_output() -> ModuleOutput {
 }
 
 fn world_with_tick_modules() -> World {
+    world_with_tick_module_kind(ModuleKind::Reducer)
+}
+
+fn world_with_tick_module_kind(kind: ModuleKind) -> World {
     let wasm_bytes = b"module-tick-routing-transaction";
     let wasm_hash = util::sha256_hex(wasm_bytes);
     let mut world = World::new();
@@ -95,8 +99,12 @@ fn world_with_tick_modules() -> World {
     world
         .register_module_artifact(wasm_hash.clone(), wasm_bytes)
         .expect("register tick route artifact");
-    activate_module_manifest(&mut world, tick_manifest("m.tick.a", wasm_hash.as_str()));
-    activate_module_manifest(&mut world, tick_manifest("m.tick.b", wasm_hash.as_str()));
+    for id in ["m.tick.a", "m.tick.b"] {
+        let mut manifest = tick_manifest(id, wasm_hash.as_str());
+        manifest.kind = kind.clone();
+        manifest.exports = vec![kind.entrypoint().into()];
+        activate_module_manifest(&mut world, manifest);
+    }
     world
 }
 
@@ -342,4 +350,52 @@ fn tick_route_wake_then_suspend_persists_post_route_snapshot() {
     let restored = World::from_snapshot(after_suspend, world.journal().clone())
         .expect("restore post-route tick snapshot");
     assert_eq!(restored.snapshot(), world.snapshot());
+}
+
+#[test]
+fn complete_delta_preserves_two_instance_pure_wake_clear_and_next_due_work() {
+    let mut live = world_with_tick_module_kind(ModuleKind::Pure);
+    let checkpoint = live.snapshot();
+    let mut pure_output = tick_output();
+    pure_output.new_state = None;
+    pure_output.effects.clear();
+    let mut sandbox = TickSandbox::new(pure_output.clone(), false);
+    live.route_tick_to_modules(&mut sandbox).unwrap();
+    let wake = live.snapshot();
+    assert_eq!(wake.module_tick_schedule.len(), 2);
+    assert_eq!(wake.state.module_states, checkpoint.state.module_states);
+    let delta = SnapshotDeltaV1::between(&checkpoint, &wake).unwrap();
+    let mut restored =
+        World::from_snapshot(delta.apply(&checkpoint).unwrap(), live.journal().clone()).unwrap();
+    let mut recovered_sandbox = TickSandbox::new(pure_output.clone(), false);
+    for world in [&mut live, &mut restored] {
+        world
+            .step_with_modules(&mut TickSandbox::new(pure_output.clone(), false))
+            .unwrap();
+    }
+    assert_eq!(live.snapshot(), restored.snapshot());
+    assert_eq!(
+        live.snapshot()
+            .module_tick_routing_metrics
+            .last_invoked_count,
+        0
+    );
+    sandbox.output.tick_lifecycle = Some(ModuleTickLifecycleDirective::Suspend);
+    recovered_sandbox.output.tick_lifecycle = Some(ModuleTickLifecycleDirective::Suspend);
+    live.step_with_modules(&mut sandbox).unwrap();
+    restored.step_with_modules(&mut recovered_sandbox).unwrap();
+    assert_eq!(live.snapshot(), restored.snapshot());
+    assert_eq!(
+        live.snapshot()
+            .module_tick_routing_metrics
+            .last_invoked_count,
+        2
+    );
+    let clear = SnapshotDeltaV1::between(&wake, &live.snapshot()).unwrap();
+    let cleared = clear.apply(&wake).unwrap();
+    assert!(cleared.module_tick_schedule.is_empty());
+    let mut cleared_world = World::from_snapshot(cleared, live.journal().clone()).unwrap();
+    let mut no_calls = TickSandbox::new(pure_output, false);
+    cleared_world.step_with_modules(&mut no_calls).unwrap();
+    assert_eq!(no_calls.calls, 0);
 }

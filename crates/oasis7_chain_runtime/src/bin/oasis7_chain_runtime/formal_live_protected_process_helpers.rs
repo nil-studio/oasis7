@@ -232,6 +232,11 @@ pub(super) fn fresh_request_result(
     Ok(Some(result))
 }
 
+// Volatile admission has no execution SLO: a request can arrive during an
+// already-running Tick and then require its own Tick. Long history fixtures
+// share this observation bound and retain their separate total scenario bound.
+pub(super) const LONG_HISTORY_REQUEST_WAIT: Duration = Duration::from_secs(120);
+
 pub(super) fn wait_for_new_request_result(
     runtime: &FormalLiveRuntime,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
@@ -430,7 +435,14 @@ pub(super) fn wait_for_published_position(
     runtime: &FormalLiveRuntime,
     position: u64,
 ) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    wait_for_published_position_until(runtime, position, Instant::now() + Duration::from_secs(20))
+}
+
+pub(super) fn wait_for_published_position_until(
+    runtime: &FormalLiveRuntime,
+    position: u64,
+    deadline: Instant,
+) -> Result<(), String> {
     loop {
         let published_position = runtime.published.position()?;
         if published_position >= position {
@@ -447,6 +459,11 @@ pub(super) fn wait_for_published_position(
             ));
         }
         if Instant::now() >= deadline {
+            // Publication can advance while the diagnostic snapshot is read.
+            let published_position = runtime.published.position()?;
+            if published_position >= position {
+                return Ok(());
+            }
             let pending_proposal = snapshot
                 .consensus
                 .pending_proposal

@@ -224,6 +224,7 @@ pub enum FormalFullSyncArtifactRoleV1 {
     ExecutionManifest,
     Wasm,
     Rules,
+    NativeExecutionEnvironment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -253,8 +254,8 @@ pub struct FormalFullSyncManifestV1 {
 impl FormalFullSyncManifestV1 {
     pub fn validate(&self) -> Result<(), String> {
         self.cut.validate()?;
-        if self.schema_version != 1
-            || self.artifact_roots.len() != 9
+        if !matches!(self.schema_version, 1 | 2)
+            || self.artifact_roots.len() != if self.schema_version == 2 { 10 } else { 9 }
             || self.objects.is_empty()
             || self.objects.len() > MAX_FULL_SYNC_OBJECTS
             || self
@@ -271,7 +272,9 @@ impl FormalFullSyncManifestV1 {
                 return Err("formal full-sync artifact root identity".into());
             }
         }
-        if roots.len() != 9
+        if roots.len() != if self.schema_version == 2 { 10 } else { 9 }
+            || roots.contains_key(&FormalFullSyncArtifactRoleV1::NativeExecutionEnvironment)
+                != (self.schema_version == 2)
             || !roots.contains_key(&FormalFullSyncArtifactRoleV1::Snapshot)
             || !roots.contains_key(&FormalFullSyncArtifactRoleV1::Journal)
         {

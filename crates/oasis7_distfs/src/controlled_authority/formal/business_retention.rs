@@ -4,7 +4,7 @@
 mod tick_material;
 use super::business_index::{BusinessIndexDeltaV1, BusinessIndexNodeReader, BusinessIndexRootV1};
 use super::*;
-use crate::controlled_authority::replicated_protocol::{ArtifactRole, ClosedRecord};
+use crate::controlled_authority::replicated_protocol::ClosedRecord;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,22 +23,17 @@ struct StateDescriptor {
     retained_history_root: Option<RetainedRoot>,
 }
 fn descriptor(material: &ClosedRecord) -> Result<Option<RetainedRoot>, FormalError> {
-    let hash = material
-        .roots
-        .get(&ArtifactRole::Snapshot)
-        .ok_or_else(|| invalid("retention missing Snapshot role"))?;
-    let object = material
-        .objects
-        .iter()
-        .find(|object| &object.content_hash == hash)
-        .ok_or_else(|| invalid("retention Snapshot closure bytes missing"))?;
-    if blake3::hash(&object.bytes).to_hex().as_str() != hash {
-        return Err(invalid("retention Snapshot role checksum"));
-    }
+    let bytes = material
+        .snapshot_bytes()
+        .map_err(|e| invalid(e.to_string()))?;
+    descriptor_from_bytes(&bytes)
+}
+
+fn descriptor_from_bytes(bytes: &[u8]) -> Result<Option<RetainedRoot>, FormalError> {
     // Abstract protocol fixtures predate the actual World snapshot contract.
     // Once a root exists, malformed/missing successor state is rejected below.
-    let root = if object.bytes.first().is_some_and(|byte| byte >> 5 == 5) {
-        serde_cbor::from_slice::<SnapshotDescriptor>(&object.bytes)
+    let root = if bytes.first().is_some_and(|byte| byte >> 5 == 5) {
+        serde_cbor::from_slice::<SnapshotDescriptor>(bytes)
             .map_err(|error| invalid(format!("retention snapshot descriptor: {error}")))?
             .state
             .retained_history_root
@@ -72,16 +67,9 @@ pub(super) fn verify_retained_transition(
     let after = descriptor(material)?;
     if after.is_some() {
         let snapshot_bytes = |material: &ClosedRecord| -> Result<Vec<u8>, FormalError> {
-            let hash = material
-                .roots
-                .get(&ArtifactRole::Snapshot)
-                .ok_or_else(|| invalid("Tick Snapshot role missing"))?;
             material
-                .objects
-                .iter()
-                .find(|o| &o.content_hash == hash)
-                .map(|o| o.bytes.clone())
-                .ok_or_else(|| invalid("Tick Snapshot bytes missing"))
+                .snapshot_bytes()
+                .map_err(|e| invalid(e.to_string()))
         };
         let prior_bytes = before_material.map(snapshot_bytes).transpose()?;
         tick_material::verify_tick_prefix_material(
@@ -93,6 +81,43 @@ pub(super) fn verify_retained_transition(
         )
         .map_err(invalid)?;
     }
+    verify_retained_roots(initial, before, after, delta, reader)
+}
+
+/// Only the caller's exact, already verified candidate/Frozen byte pair may
+/// enter this request-local path. No reader or persistence cache is introduced.
+pub(super) fn verify_retained_transition_from_bytes(
+    initial: bool,
+    after_bytes: &[u8],
+    before_bytes: Option<&[u8]>,
+    delta: Option<&BusinessIndexDeltaV1>,
+    reader: &impl BusinessIndexNodeReader,
+) -> Result<(), FormalError> {
+    let before = before_bytes
+        .map(descriptor_from_bytes)
+        .transpose()?
+        .flatten();
+    let after = descriptor_from_bytes(after_bytes)?;
+    if after.is_some() {
+        tick_material::verify_tick_prefix_material(
+            before_bytes,
+            after_bytes,
+            after.as_ref().map(|root| &root.index_root),
+            delta,
+            reader,
+        )
+        .map_err(invalid)?;
+    }
+    verify_retained_roots(initial, before, after, delta, reader)
+}
+
+fn verify_retained_roots(
+    initial: bool,
+    before: Option<RetainedRoot>,
+    after: Option<RetainedRoot>,
+    delta: Option<&BusinessIndexDeltaV1>,
+    reader: &impl BusinessIndexNodeReader,
+) -> Result<(), FormalError> {
     let empty = BusinessIndexRootV1::empty().map_err(invalid)?;
     if initial && after.as_ref().is_some_and(|root| root.index_root != empty) {
         return Err(invalid("fresh initial retained index must be empty"));
