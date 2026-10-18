@@ -1,11 +1,17 @@
 name: Storage Acceptance
-run-name: Storage acceptance / ${{ github.ref_name }} / ${{ inputs.capacity_scale }} heights
+run-name: Storage acceptance / ${{ github.ref_name }} / namespace ${{ inputs.capacity_scale }} / full-node ${{ inputs.full_node_scale }}
 
 on:
   workflow_dispatch:
     inputs:
       capacity_scale:
         description: 'Additional actual World capacity run (10 is always verified)'
+        type: choice
+        required: true
+        default: '10'
+        options: ['10', '1000', '10000']
+      full_node_scale:
+        description: 'Additional real full-node maintenance run (10 is always verified; resource exhaustion fails)'
         type: choice
         required: true
         default: '10'
@@ -95,6 +101,8 @@ jobs:
           - {label: storage-recovery, group: storage-recovery, network: none, scale: '10'}
           - {label: lifecycle-cli, group: lifecycle-cli, network: none, scale: '10'}
           - {label: capacity-10, group: capacity, network: none, scale: '10'}
+          - {label: full-node-10, group: full-node, network: none, scale: '10'}
+          - {label: attempt-release, group: attempt-release, network: none, scale: '10'}
           - {label: disk-full, group: disk, network: none, scale: '10'}
           - {label: network-delay, group: network, network: delay, scale: '10'}
           - {label: network-loss, group: network, network: loss, scale: '10'}
@@ -184,9 +192,24 @@ jobs:
             scale: ${{ inputs.capacity_scale }}
     steps: *acceptance-consumer
 
+  full-node-long:
+    name: Full node maintenance / ${{ inputs.full_node_scale }} commits
+    if: inputs.full_node_scale != '10'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      matrix:
+        include:
+          - label: full-node-${{ inputs.full_node_scale }}
+            group: full-node
+            network: none
+            scale: ${{ inputs.full_node_scale }}
+    steps: *acceptance-consumer
+
   summary:
     if: always()
-    needs: [build, verify, capacity-long]
+    needs: [build, verify, capacity-long, full-node-long]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -205,14 +228,16 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           SCALE: ${{ inputs.capacity_scale }}
+          FULL_NODE_SCALE: ${{ inputs.full_node_scale }}
         run: |
           mkdir -p output
           printf '%s\n' "$NEEDS_JSON" > output/needs.json
           args=()
-          for label in units runtime-protocol world-history healthy-set storage-recovery lifecycle-cli capacity-10 disk-full network-delay network-loss; do
+          for label in units runtime-protocol world-history healthy-set storage-recovery lifecycle-cli capacity-10 full-node-10 attempt-release disk-full network-delay network-loss; do
             args+=(--expected "$label")
           done
           if [[ "$SCALE" != 10 ]]; then args+=(--expected "capacity-$SCALE"); fi
+          if [[ "$FULL_NODE_SCALE" != 10 ]]; then args+=(--expected "full-node-$FULL_NODE_SCALE"); fi
           python3 scripts/ci-storage-acceptance.py summarize --results-dir output/collected "${args[@]}" --needs-json output/needs.json --output output/summary.json
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

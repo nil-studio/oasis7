@@ -43,6 +43,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "formal_live_protected_attempt_release_tests.rs"]
+mod attempt_release_tests;
 #[path = "formal_live_protected_availability_tests.rs"]
 mod availability_tests;
 #[path = "../../../../oasis7/tests/common/mod.rs"]
@@ -56,6 +58,8 @@ mod effect_tests;
 #[path = "formal_live_first_agent_test_effect.rs"]
 mod first_agent_test_effect;
 use crate::formal_read_fixtures as fixtures;
+#[path = "formal_live_protected_full_node_storage_tests.rs"]
+mod full_node_storage_tests;
 #[path = "formal_live_protected_healthy_fault_process_tests.rs"]
 mod healthy_fault_tests;
 #[path = "formal_live_healthy_operation_process_tests.rs"]
@@ -165,6 +169,13 @@ impl ScenarioDeadline {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FixtureCase {
+    Standard,
+    FullNodeStorage,
+    AttemptRelease,
+}
+
 fn run_protected_runtime_case(
     genesis_mode: bool,
     crash_phase: Option<&str>,
@@ -186,17 +197,26 @@ fn run_protected_runtime_case_with_deadline(
         None,
         false,
         scenario_deadline,
+        FixtureCase::Standard,
     )
 }
 
 fn run_protected_runtime_effect_case(
     scenario: &effect_tests::EffectScenario,
 ) -> Result<(), String> {
-    run_protected_runtime_fixture(true, None, false, Some(scenario), false, None)
+    run_protected_runtime_fixture(
+        true,
+        None,
+        false,
+        Some(scenario),
+        false,
+        None,
+        FixtureCase::Standard,
+    )
 }
 
 fn run_protected_runtime_availability_case() -> Result<(), String> {
-    run_protected_runtime_fixture(false, None, false, None, true, None)
+    run_protected_runtime_fixture(false, None, false, None, true, None, FixtureCase::Standard)
 }
 
 fn run_protected_runtime_fixture(
@@ -206,6 +226,7 @@ fn run_protected_runtime_fixture(
     effect_scenario: Option<&effect_tests::EffectScenario>,
     unavailable_replica: bool,
     scenario_deadline: Option<ScenarioDeadline>,
+    fixture_case: FixtureCase,
 ) -> Result<(), String> {
     let endpoint_binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN")
         .ok_or("set OASIS7_FORMAL_ENDPOINT_TEST_BIN to oasis7_durability_endpoint")?;
@@ -706,6 +727,19 @@ fn run_protected_runtime_fixture(
     }
     let mut runtime = runtime.ok_or("non-shipping fixture runtime missing")?;
     let initial_view = initial_view.ok_or("non-shipping fixture initial view missing")?;
+    if fixture_case == FixtureCase::AttemptRelease {
+        return attempt_release_tests::exercise(attempt_release_tests::Case {
+            runtime,
+            runtime_config: runtime_config_path,
+            writer_directory: writer_dir,
+            root,
+            primary_child,
+            replica_child,
+            owner_config: owner_client_config(),
+            identity: world_identity.clone(),
+            original: owner_request.clone(),
+        });
+    }
     if unavailable_replica {
         return availability_tests::exercise(availability_tests::AvailabilityCase {
             runtime,
@@ -811,6 +845,25 @@ fn run_protected_runtime_fixture(
     };
     if let Some(commit) = &first_result_commit {
         assert_admin_commit_did_not_emit_wasm(&writer_dir, commit)?;
+    }
+    if fixture_case == FixtureCase::FullNodeStorage {
+        return full_node_storage_tests::exercise(full_node_storage_tests::Case {
+            runtime,
+            runtime_config: runtime_config_path,
+            root,
+            endpoint_binary,
+            primary_config,
+            replica_config,
+            primary_child,
+            replica_child,
+            primary_address,
+            replica_address,
+            owner_config: owner_client_config(),
+            identity: world_identity.clone(),
+            owner_key: owner_key.clone(),
+            original: owner_request.clone(),
+            original_commit: first_result_commit.ok_or("fixture needs original owner result")?,
+        });
     }
     if long_history {
         return long_history_tests::exercise_long_history(

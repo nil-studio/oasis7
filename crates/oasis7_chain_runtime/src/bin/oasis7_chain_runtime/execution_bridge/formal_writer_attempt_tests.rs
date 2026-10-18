@@ -126,8 +126,51 @@ fn published_attempt_reclamation_retries_independent_readback_and_partial_unlink
     let unique = attempt.join("unique-recovery-evidence");
     std::fs::write(&unique, b"unknown external delivery receipt").unwrap();
     replica.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().release_failures = 1;
     let mut reopened = open().unwrap();
+    assert_eq!(summary().phase, "ReleasePending");
+    let hidden_publication = root.join("hidden-publication.cbor");
+    std::fs::rename(&publication_path, &hidden_publication).unwrap();
+    assert!(reopened.advance_storage_maintenance_result().is_err());
+    assert_eq!(summary().phase, "ReleasePending");
+    std::fs::rename(&hidden_publication, &publication_path).unwrap();
+    assert!(
+        super::super::super::formal_attempt_lifecycle::release_pending(
+            &attempt,
+            &exact.candidate,
+            &"00".repeat(32),
+        )
+        .is_err(),
+        "a changed publication cannot authorize release"
+    );
+    assert!(
+        super::super::super::formal_attempt_lifecycle::mark(
+            &attempt,
+            &digest,
+            super::super::super::formal_attempt_lifecycle::Phase::RecoveryPinned,
+            "release unavailable",
+        )
+        .is_err(),
+        "release debt cannot fall back to verification"
+    );
+    let verified_p = primary.0.lock().unwrap().closure_verifications;
+    let verified_r = replica.0.lock().unwrap().closure_verifications;
+    assert!(primary.0.lock().unwrap().release_calls > 0);
+    // Only writer restarts: endpoints survive. Released jobs must never be
+    // recreated merely to release the other endpoint's remaining pin.
+    drop(reopened);
+    primary.0.lock().unwrap().closure_readback = false;
+    replica.0.lock().unwrap().closure_readback = false;
+    let mut reopened = open().unwrap();
+    for _ in 0..16 {
+        if summary().phase == "Reclaimed" {
+            break;
+        }
+        reopened.advance_storage_maintenance();
+    }
     assert_eq!(summary().phase, "Reclaimed");
+    assert_eq!(primary.0.lock().unwrap().closure_verifications, verified_p);
+    assert_eq!(replica.0.lock().unwrap().closure_verifications, verified_r);
     for id in &outputs {
         assert!(
             !attempt

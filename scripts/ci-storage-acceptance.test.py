@@ -135,6 +135,7 @@ class Contracts(unittest.TestCase):
             (root / 'summary.json').write_text(json.dumps(self.report()))
             needs = {name: {'result': 'success'} for name in ('build', 'verify')}
             needs['capacity-long'] = {'result': 'skipped'}
+            needs['full-node-long'] = {'result': 'skipped'}
             self.assertTrue(acceptance.summarize(root, ['units'], needs)['passed'])
             needs['capacity-long']['result'] = 'success'
             with self.assertRaises(ValueError):
@@ -162,6 +163,64 @@ class Contracts(unittest.TestCase):
                 manifest['scope'] = 'formal'
                 with self.assertRaises(ValueError):
                     acceptance.pack(bundle, archive)
+
+    def test_attempt_release_requires_exact_nonempty_ignored_inventory(self):
+        manifest = self.manifest()
+        with self.assertRaises(ValueError):
+            acceptance.select(manifest, 'attempt-release')
+        name = 'fixture::formal_attempt_release_crash_and_transport_failure_recover_live_remote_pins'
+        manifest['binaries']['runtime-tests']['ignored_tests'].append(name)
+        self.assertEqual(acceptance.select(manifest, 'attempt-release'), [dict(binary='runtime-tests', name=name, ignored=True)])
+        manifest['binaries']['runtime-tests']['ignored_tests'].append(name)
+        with self.assertRaises(ValueError):
+            acceptance.select(manifest, 'attempt-release')
+
+    def test_full_node_inventory_and_partial_reports_fail_closed(self):
+        manifest = self.manifest()
+        with self.assertRaises(ValueError):
+            acceptance.select(manifest, 'full-node')
+        name = 'fixture::formal_full_node_storage_maintenance_preserves_history'
+        manifest['binaries']['runtime-tests']['ignored_tests'].append(name)
+        self.assertEqual(acceptance.select(manifest, 'full-node'), [dict(binary='runtime-tests', name=name, ignored=True)])
+        report = dict(status='passed', executed_commits=1000,
+                      fixed_head_unchanged=True, logical_history_unchanged=True,
+                      typed_history_unchanged=True, original_result_unchanged=True,
+                      original_effect_unchanged=True, continuation_completed=True,
+                      fixed_head='a'*64, authority_digest='b'*64, cold_history_evicted=True,
+                      published_history_unchanged=True, accounting_quiescent=True,
+                      fixed_head_position=1002, original_commit_position=2,
+                      growth_before_maintenance_allocated_bytes=100,
+                      maintenance_net_allocated_change_bytes=-10,
+                      cold_restore_net_allocated_change_bytes=0)
+        for field in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
+            report[field] = dict(complete=True, total=dict(complete=True, allocated_bytes=100))
+        report['published_before'] = dict(complete=True, files=1002, bytes=64000, digest='d'*64,
+            original_position=2, original_digest='e'*64, fixed_head_position=1002, fixed_head_digest='f'*64)
+        report['published_after_maintenance'] = copy.deepcopy(report['published_before'])
+        report['published_after_cold_restore'] = copy.deepcopy(report['published_before'])
+        report['logical_before'] = {role: dict(retention_records_including_duplicate_digests=1, digest='a'*64)
+                                    for role in ('primary', 'replica')}
+        report['logical_after'] = copy.deepcopy(report['logical_before'])
+        report['typed_history_before'] = dict(records=1000, digest='c'*64)
+        report['typed_history_after'] = copy.deepcopy(report['typed_history_before'])
+        self.assertTrue(acceptance.full_node_passed(report, 1000))
+        self.assertFalse(acceptance.full_node_passed(report, 10000))
+        for field in ('fixed_head_unchanged', 'logical_history_unchanged',
+                      'typed_history_unchanged', 'original_result_unchanged',
+                      'original_effect_unchanged', 'continuation_completed', 'published_history_unchanged', 'accounting_quiescent'):
+            changed = copy.deepcopy(report)
+            changed[field] = False
+            self.assertFalse(acceptance.full_node_passed(changed, 1000))
+        for field in ('before', 'after_maintenance', 'after_cold_restore'):
+            changed = copy.deepcopy(report)
+            changed[field]['complete'] = False
+            self.assertFalse(acceptance.full_node_passed(changed, 1000))
+        for field in ('published_before', 'published_after_maintenance', 'published_after_cold_restore'):
+            changed = copy.deepcopy(report)
+            changed[field]['digest'] = 'x'*64
+            self.assertFalse(acceptance.full_node_passed(changed, 1000))
+        report['status'] = 'partial'
+        self.assertFalse(acceptance.full_node_passed(report, 1000))
 
     def test_summary_rejects_partial_nonzero_timeout_cancelled_or_unclean(self):
         for change in ({'exit_code': 1}, {'timeout': True}, {'cancelled': True},

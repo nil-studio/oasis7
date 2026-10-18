@@ -325,6 +325,13 @@ pub struct NodeExecutionCheckpointInstallContext {
 }
 
 pub trait NodeExecutionHook: Send {
+    /// Advance one storage maintenance page without producing a business tick.
+    /// NodeRuntime exposes this only after its worker has completely stopped.
+    /// Completion requires a full scan with no pending work or errors.
+    fn advance_stopped_storage_maintenance(&mut self) -> Result<bool, String> {
+        Err("execution hook does not support stopped storage maintenance".into())
+    }
+
     fn on_commit(
         &mut self,
         context: NodeExecutionCommitContext,

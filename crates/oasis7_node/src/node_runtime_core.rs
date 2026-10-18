@@ -287,6 +287,19 @@ impl NodeRuntime {
         self
     }
 
+    /// Drive the existing hook's bounded maintenance without resuming execution.
+    pub fn advance_stopped_storage_maintenance(&mut self) -> Result<bool, String> {
+        if self.running.load(Ordering::SeqCst) || self.worker.is_some() {
+            return Err("stopped storage maintenance requires a fully stopped Node".into());
+        }
+        self.execution_hook
+            .as_ref()
+            .ok_or("stopped storage maintenance requires an execution hook")?
+            .lock()
+            .map_err(|_| "execution hook lock poisoned during stopped storage maintenance")?
+            .advance_stopped_storage_maintenance()
+    }
+
     /// Seed an explicit local execution boundary before consensus starts.
     /// This is reserved for a caller that has persisted and independently
     /// validated the corresponding runtime world; ordinary nodes remain at

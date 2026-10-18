@@ -4,13 +4,18 @@ use std::time::Duration;
 pub struct FormalEndpointServer {
     endpoint: FileFormalEndpoint,
     timeout: Duration,
+    last_rpc: std::time::Instant,
 }
 impl FormalEndpointServer {
     pub fn new(endpoint: FileFormalEndpoint, timeout: Duration) -> Result<Self, FormalError> {
         if timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(invalid("formal RPC timeout in (0,60s]"));
         }
-        Ok(Self { endpoint, timeout })
+        Ok(Self {
+            endpoint,
+            timeout,
+            last_rpc: std::time::Instant::now(),
+        })
     }
     #[cfg(test)]
     pub(crate) fn publish_qualified_for_test(
@@ -19,12 +24,50 @@ impl FormalEndpointServer {
     ) -> Result<FormalHeadRefV1, FormalError> {
         self.endpoint.publish_qualified(proof)
     }
+    #[cfg(test)]
+    pub(crate) fn maintenance_for_test(&mut self, now: std::time::Instant) {
+        self.run_maintenance(now);
+    }
+    #[cfg(test)]
+    pub(crate) fn short_maintenance_quiet_for_test(&mut self) {
+        self.endpoint.short_maintenance_quiet_for_test();
+    }
+    fn run_maintenance(&mut self, now: std::time::Instant) {
+        if now.saturating_duration_since(self.last_rpc) < Duration::from_millis(100) {
+            return;
+        }
+        if let Err(error) = self.endpoint.maintenance_tick(now) {
+            eprintln!("formal_endpoint_storage_maintenance error={error:?}");
+        }
+    }
     pub fn serve_one(&mut self, listener: &TcpListener) -> Result<(), FormalError> {
         wire::address(listener.local_addr().map_err(wire::io)?)?;
-        let (mut stream, peer) = listener.accept().map_err(wire::io)?;
+        listener.set_nonblocking(true).map_err(wire::io)?;
+        let (mut stream, peer) = loop {
+            match listener.accept() {
+                Ok(connection) => break connection,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    self.run_maintenance(std::time::Instant::now());
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => return Err(wire::io(error)),
+            }
+        };
+        // Accepted sockets retain their original per-RPC deadline configuration.
+        let result = self.serve_stream(&mut stream, peer);
+        // Never insert synchronous copy/fsync work between back-to-back RPCs.
+        // A later idle accept poll observes the debt under the quiet gate.
+        self.last_rpc = std::time::Instant::now();
+        result
+    }
+    fn serve_stream(
+        &mut self,
+        stream: &mut std::net::TcpStream,
+        peer: std::net::SocketAddr,
+    ) -> Result<(), FormalError> {
         wire::address(peer)?;
-        wire::configure(&stream, self.timeout)?;
-        let request: Request = wire::read(&mut stream)?;
+        wire::configure(stream, self.timeout)?;
+        let request: Request = wire::read(stream)?;
         let body = &request.body;
         hash_hex(&body.challenge)?;
         hash_hex(&body.minimum.record_id)?;
@@ -86,7 +129,7 @@ impl FormalEndpointServer {
                 )?
             }
         };
-        wire::write(&mut stream, &response)
+        wire::write(stream, &response)
     }
     fn execute(&mut self, command: Command) -> Result<Value, FormalError> {
         match command {

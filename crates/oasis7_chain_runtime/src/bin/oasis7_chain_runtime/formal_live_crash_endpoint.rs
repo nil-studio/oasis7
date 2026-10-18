@@ -16,6 +16,31 @@ impl CrashBoundaryFormalEndpoint {
     }
 }
 impl FormalDurabilityEndpoint for CrashBoundaryFormalEndpoint {
+    fn release_published_closure(&mut self, digest: &str) -> Result<(), FormalError> {
+        use crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary as boundary;
+        let phase = std::env::var("OASIS7_FORMAL_TEST_CRASH_PHASE").unwrap_or_default();
+        if self.role == EndpointRole::Replica
+            && matches!(
+                phase.as_str(),
+                "release_replica_temporarily_unavailable" | "release_replica_reply_lost"
+            )
+            && boundary::release_target_matches(digest).map_err(FormalError::Invalid)?
+        {
+            if phase == "release_replica_reply_lost" {
+                // The actual RPC reaches R and releases its kernel pin. Discard
+                // its successful response, leaving the writer with an Io error.
+                self.inner.release_published_closure(digest)?;
+            }
+            boundary::release_transport_failure(digest, &phase).map_err(FormalError::Invalid)?;
+            return Err(FormalError::Io(if phase == "release_replica_reply_lost" {
+                "test discarded successful replica release response; remote remains alive".into()
+            } else {
+                "test transport unavailable before replica release; remote remains alive".into()
+            }));
+        }
+        self.inner.release_published_closure(digest)
+    }
+
     fn stage_native_environment(
         &mut self,
         descriptor: &native_environment::NativeExecutionEnvironmentV1,
@@ -39,6 +64,7 @@ impl FormalDurabilityEndpoint for CrashBoundaryFormalEndpoint {
         oasis7_distfs::controlled_authority::formal::coordinator::FormalPublishedClosureReceiptV1,
         FormalError,
     > {
+        crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::forbid_release_reverification(digest).map_err(FormalError::Invalid)?;
         self.inner.verify_published_closure(request, digest)
     }
     fn install_recovery_frozen(

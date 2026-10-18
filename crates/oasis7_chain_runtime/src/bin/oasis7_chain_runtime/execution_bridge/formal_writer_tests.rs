@@ -14,6 +14,9 @@ struct Memory {
     lose_decide: bool,
     closure_readback: bool,
     closure_pending_pages: usize,
+    release_failures: usize,
+    release_calls: usize,
+    closure_verifications: usize,
 }
 #[derive(Clone)]
 struct Endpoint(Arc<Mutex<Memory>>);
@@ -61,6 +64,7 @@ impl FormalDurabilityEndpoint for Endpoint {
         FormalError,
     > {
         let mut memory = self.0.lock().unwrap();
+        memory.closure_verifications += 1;
         if memory.closure_pending_pages > 0 {
             memory.closure_pending_pages -= 1;
             return Err(FormalError::Conflict(
@@ -87,6 +91,15 @@ impl FormalDurabilityEndpoint for Endpoint {
             logical_objects: candidate.material.objects.len() as u64,
             logical_bytes: candidate.material.objects.iter().map(|o| o.bytes.len() as u64).sum(),
         })
+    }
+    fn release_published_closure(&mut self, _digest: &str) -> Result<(), FormalError> {
+        let mut memory = self.0.lock().unwrap();
+        memory.release_calls += 1;
+        if memory.release_failures > 0 {
+            memory.release_failures -= 1;
+            return Err(FormalError::Conflict("fixture release unavailable".into()));
+        }
+        Ok(())
     }
     fn head(&mut self) -> Result<FormalHeadRefV1, FormalError> {
         Ok(self.0.lock().unwrap().parent.head())
@@ -308,6 +321,9 @@ fn endpoint(
         lose_decide,
         closure_readback: false,
         closure_pending_pages: 0,
+        release_failures: 0,
+        release_calls: 0,
+        closure_verifications: 0,
     })))
 }
 fn continuation(world: &World) -> NodeLocalExecutionContinuation {

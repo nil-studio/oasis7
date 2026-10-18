@@ -14,6 +14,7 @@ pub(super) enum Phase {
     QualifiedVerified,
     PublishedClosureVerified,
     Reclaimable,
+    ReleasePending,
     Reclaimed,
     Unknown,
     RecoveryPinned,
@@ -181,7 +182,9 @@ pub(super) fn pending_position(path: &Path) -> Result<Option<u64>, String> {
 }
 pub(super) fn mark(path: &Path, digest: &str, phase: Phase, reason: &str) -> Result<(), String> {
     let mut attempt = load(path)?;
-    if attempt.candidate_digest.as_deref() != Some(digest) || attempt.phase == Phase::Reclaimed {
+    if attempt.candidate_digest.as_deref() != Some(digest)
+        || matches!(attempt.phase, Phase::ReleasePending | Phase::Reclaimed)
+    {
         return Err("attempt mark exact candidate identity/phase".into());
     }
     if attempt.phase == phase
@@ -300,7 +303,7 @@ pub(super) fn reclaim(
             return Ok(false);
         }
     }
-    attempt.phase = Phase::Reclaimed;
+    attempt.phase = Phase::ReleasePending;
     attempt.protected_obligations = vec![
         "published exact original and independently readable P/R closure".into(),
         "pending ack/outbox identities remain in pending.cbor and published material".into(),
@@ -308,6 +311,48 @@ pub(super) fn reclaim(
     ];
     save(path, &attempt)?;
     Ok(true)
+}
+
+/// A release retry must bind the original publication without recreating a
+/// closure job on an endpoint which already acknowledged release.
+pub(super) fn release_pending(
+    path: &Path,
+    candidate: &FormalCandidateMaterialV1,
+    publication_digest: &str,
+) -> Result<bool, String> {
+    let attempt = load(path)?;
+    bind(&attempt, candidate)?;
+    if attempt.candidate_digest.as_deref() != Some(candidate_digest(candidate)?.as_str()) {
+        return Err("attempt release exact candidate identity".into());
+    }
+    if attempt.phase != Phase::ReleasePending {
+        return Ok(false);
+    }
+    if attempt.publication_digest.as_deref() != Some(publication_digest)
+        || attempt.independent_closure_digests.len() != 2
+        || attempt.independent_closure_digests[0] != attempt.independent_closure_digests[1]
+        || attempt.independent_closure_digests.iter().any(|digest| {
+            digest.len() != 64
+                || !digest
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
+    {
+        return Err("attempt release publication/closure identity".into());
+    }
+    Ok(true)
+}
+pub(super) fn finish_release(
+    path: &Path,
+    candidate: &FormalCandidateMaterialV1,
+    publication_digest: &str,
+) -> Result<(), String> {
+    if !release_pending(path, candidate, publication_digest)? {
+        return Err("attempt release phase".into());
+    }
+    let mut attempt = load(path)?;
+    attempt.phase = Phase::Reclaimed;
+    save(path, &attempt)
 }
 
 #[cfg(test)]

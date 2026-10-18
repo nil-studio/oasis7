@@ -95,10 +95,14 @@ fn flush_frame_directories(root: &Path) -> Result<(), FormalError> {
 }
 #[cfg(test)]
 thread_local! { static FRAME_BATCH_BARRIERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+thread_local! { pub(super) static FULL_RECOVERY_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 /// Caller holds the stable root's exclusive kernel fence and endpoint lease.
 /// A durable selector binds a complete immutable recipe; finish all members,
 /// including members not present in a retry's smaller object input set.
 pub(super) fn recover(root: &Path) -> Result<(), FormalError> {
+    #[cfg(test)]
+    FULL_RECOVERY_PASSES.with(|count| count.set(count.get() + 1));
     #[cfg(unix)]
     let mut verified = std::collections::BTreeSet::new();
     for entry in fs::read_dir(root.join(SELECTORS)).map_err(io)? {

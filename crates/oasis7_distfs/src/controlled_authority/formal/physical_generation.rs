@@ -3,6 +3,8 @@ use super::*;
 use std::collections::BTreeSet;
 #[path = "physical_generation_catalog.rs"]
 mod catalog;
+#[path = "physical_overlay_gc.rs"]
+mod overlay;
 #[path = "physical_generation_retire.rs"]
 mod retirement;
 #[path = "physical_generation_transaction.rs"]
@@ -13,7 +15,6 @@ const GENERATIONS: &str = ".generations-v1";
 const CURRENT: &str = ".generation-current-v1";
 const BUILD: &str = ".generation-build-v1.cbor";
 const MANIFEST: &str = ".manifest-v3.cbor";
-const BATCH: usize = 8 * 1024 * 1024;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -37,6 +38,8 @@ struct Build {
     old_checked: Option<String>,
     old_verified: bool,
     catalog_retired: Vec<catalog::Retired>,
+    #[serde(default)]
+    overlay: Option<overlay::State>,
 }
 #[derive(Debug, Serialize)]
 pub struct FormalGenerationProgress {
@@ -248,9 +251,67 @@ fn progress(root: &Path, state: &Build) -> Result<FormalGenerationProgress, Form
         total_objects: catalog::count(&state.objects)?,
     })
 }
+#[path = "physical_generation_budget.rs"]
+mod page_budget;
+pub(crate) use page_budget::GenerationBudget;
 /// Each call authenticates <=1024 registry records and copies <=1024 objects /
 /// 8 MiB (one larger bounded object). No fixed total-world object or byte cap.
+#[derive(Default)]
+pub(crate) struct GenerationSession {
+    recovered: Option<(String, PathBuf, u64, u64)>,
+    overlay: overlay::Session,
+}
+impl GenerationSession {
+    pub(crate) fn reset(&mut self) {
+        self.recovered = None;
+        self.overlay = overlay::Session::default();
+    }
+    pub(crate) fn prepare(&mut self, directory: &Path, nonce: &str) -> Result<(), FormalError> {
+        let metadata = fs::symlink_metadata(directory).map_err(io)?;
+        #[cfg(unix)]
+        let identity = (
+            nonce.to_owned(),
+            directory.to_path_buf(),
+            metadata.dev(),
+            metadata.ino(),
+        );
+        #[cfg(not(unix))]
+        let identity = (nonce.to_owned(), directory.to_path_buf(), 0, metadata.len());
+        if self.recovered.as_ref() == Some(&identity) {
+            super::validate_initialized(directory)?;
+        } else {
+            initialize(directory)?;
+            self.recovered = Some(identity);
+        }
+        Ok(())
+    }
+}
+#[cfg(test)]
 pub(crate) fn advance(root: &Path) -> Result<FormalGenerationProgress, FormalError> {
+    advance_with_session(root, &mut GenerationSession::default())
+}
+pub(crate) fn advance_with_session(
+    root: &Path,
+    session: &mut GenerationSession,
+) -> Result<FormalGenerationProgress, FormalError> {
+    advance_with_budget(root, session, GenerationBudget::explicit())
+}
+pub(crate) fn advance_with_budget(
+    root: &Path,
+    session: &mut GenerationSession,
+    budget: GenerationBudget,
+) -> Result<FormalGenerationProgress, FormalError> {
+    let result = advance_inner(root, session, budget);
+    if result.is_err() || result.as_ref().is_ok_and(|progress| !progress.building) {
+        session.reset();
+    }
+    result
+}
+fn advance_inner(
+    root: &Path,
+    session: &mut GenerationSession,
+    budget: GenerationBudget,
+) -> Result<FormalGenerationProgress, FormalError> {
     if !enabled(root)? || pin(root, false)?.is_none() {
         return Err(invalid(
             "generation requires fresh-world physical capability and fixed fence",
@@ -280,13 +341,14 @@ pub(crate) fn advance(root: &Path) -> Result<FormalGenerationProgress, FormalErr
             old_checked: None,
             old_verified: false,
             catalog_retired: Vec::new(),
+            overlay: None,
         };
         save(root, &state)?;
         state
     };
     if let Some(selected) = current(root)? {
         if state.sealed.as_ref() == Some(&selected) {
-            return retire(root, &mut state, &selected);
+            return retire(root, &mut state, &selected, session, budget);
         }
         if Some(selected) != state.previous {
             return Err(invalid("generation selector changed outside transaction"));
@@ -299,37 +361,43 @@ pub(crate) fn advance(root: &Path) -> Result<FormalGenerationProgress, FormalErr
     }
     let dir = building(root, &state);
     directory(&dir)?;
-    initialize(&dir)?;
+    session.prepare(&dir, &state.nonce)?;
     if !state.catalog_retired.is_empty() {
-        catalog::prune(
+        catalog::prune_with_limit(
             &dir,
             [&state.objects, &state.completed],
             &mut state.catalog_retired,
+            budget.objects,
         )?;
         save(root, &state)?;
         return progress(root, &state);
     }
     if state.sealed.is_none() {
-        let (ids, next, complete) = roots::page(root, &state.cursor, 1024)?;
+        let (ids, next, complete) = roots::page(root, &state.cursor, budget.objects)?;
         catalog::merge_retired(
             &mut state.catalog_retired,
             catalog::add(&dir, &mut state.objects, &ids)?,
         );
         state.cursor = next;
-        let pending = catalog::pending(&dir, &state.objects, &state.completed, 1024)?;
+        let pending = catalog::pending(&dir, &state.objects, &state.completed, budget.objects)?;
         let mut batch = Vec::new();
         let mut size = 0usize;
         for id in pending {
+            let length = super::super::business_pack::logical_length(&root.join(&id), &id)?
+                .ok_or_else(|| invalid("generation source missing"))?;
+            if !batch.is_empty() && (size as u64).saturating_add(length) > budget.bytes as u64 {
+                break;
+            }
             let bytes = super::super::business_pack::read_object(&root.join(&id), &id)?
                 .ok_or_else(|| invalid("generation source missing"))?;
-            if !batch.is_empty() && size.saturating_add(bytes.len()) > BATCH {
+            if !batch.is_empty() && size.saturating_add(bytes.len()) > budget.bytes {
                 break;
             }
             size = size
                 .checked_add(bytes.len())
                 .ok_or_else(|| invalid("generation byte overflow"))?;
             batch.push((id, bytes));
-            if size >= BATCH {
+            if size >= budget.bytes || budget.expired() {
                 break;
             }
         }
@@ -374,7 +442,7 @@ pub(crate) fn advance(root: &Path) -> Result<FormalGenerationProgress, FormalErr
             return progress(root, &state);
         }
         let _fence = pin(root, true)?;
-        let (late, next, complete) = roots::page(root, &state.cursor, 1024)?;
+        let (late, next, complete) = roots::page(root, &state.cursor, budget.objects)?;
         if !late.is_empty() || !complete {
             catalog::merge_retired(
                 &mut state.catalog_retired,
@@ -404,12 +472,12 @@ pub(crate) fn advance(root: &Path) -> Result<FormalGenerationProgress, FormalErr
         atomic(root, &root.join(CURRENT), selected.as_bytes())?;
         publication::fault(5)?;
         drop(_fence);
-        return retire(root, &mut state, &selected);
+        return retire(root, &mut state, &selected, session, budget);
     }
     // A crash after sealing but before selector publication resumes the exact
     // same generation; accepted overlay writes are captured before selection.
     let _fence = pin(root, true)?;
-    let (_, _, complete) = roots::page(root, &state.cursor, 1024)?;
+    let (_, _, complete) = roots::page(root, &state.cursor, budget.objects)?;
     if !complete || roots::count(root)? != state.cursor.count {
         drop(_fence);
         transaction::unseal(root, &mut state)?;
@@ -422,7 +490,7 @@ pub(crate) fn advance(root: &Path) -> Result<FormalGenerationProgress, FormalErr
     manifest(root, &selected)?;
     atomic(root, &root.join(CURRENT), selected.as_bytes())?;
     drop(_fence);
-    retire(root, &mut state, &selected)
+    retire(root, &mut state, &selected, session, budget)
 }
 #[cfg(test)]
 #[path = "physical_generation_tests.rs"]

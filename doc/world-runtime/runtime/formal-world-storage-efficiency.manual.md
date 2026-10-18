@@ -32,7 +32,7 @@
 
 ```bash
 gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
-  -f capacity_scale=10 -f repeat_faults=1
+  -f capacity_scale=10 -f full_node_scale=10 -f repeat_faults=1
 ```
 
 | 默认组 | 自动化覆盖与判定 |
@@ -40,10 +40,12 @@ gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
 | units | CAS、正式协议、DistFS、Runtime、World Service 的普通测试及链运行时存储相关测试；覆盖原字节、压缩/range、损坏、迁移/物理代、reader pin/GC、完整 delta、Merkle v2、冷历史与 native 闭包的实际测试清单 |
 | runtime-protocol / world-history / healthy-set / storage-recovery / lifecycle-cli | 复用正式进程分片，包括 Node/P/R、丢回复、SIGKILL、原请求续做、冷恢复、70 请求历史与边界重开、full sync、授权/epoch/副本集转换；分片覆盖从现行清单计算，不复制容易漂移的过滤名单 |
 | capacity-10 | 实际 World/profile2 的 10 高度对象语料；两目录分别重建与全量精确读回，输出 raw/优化 allocated、完整/range 热读分布和语料增长点 |
+| attempt-release | 两个真实端点持续存活，仅中断 writer；在释放前、仅 P 已释放、R 已释放但 writer 未记录结果及 R 传输不可用四个窗口检查真实 pin、待释放状态、幂等恢复和原请求效果。传输不可用由测试 client 拒发 R 请求，结果丢失由真实释放返回后中断 writer 模拟，不等同 kernel 网络断开 |
+| full-node-10 | 正式 writer 的 10 次 owner 提交，计入 native 环境与完整目录；固定 head，分别测维护前、维护后、冷恢复后占用，验证逐端逻辑清单、完整 typed history、原结果及继续工作 |
 | disk-full | 在独立私有 64MiB tmpfs 中写至真实 ENOSPC，调用生产物理发布 API，核对旧对象/selector/inode 不变；释放空间后重开、重试并精确读回，最后卸载该专属文件系统 |
 | network-delay / network-loss | 对固定的真实 RPC/原请求恢复子集施加 loopback netem；delay 为 2ms±1ms，loss 档另含 0.2% 丢包、0.1% 重复与 1% 乱序。要求实际流量，loss 档还要求观察到 drop；保存 kernel/参数/计数并清除本 job 的专属 qdisc |
 
-`repeat_faults=1/2/3` 只改变每档网络故障子集的重复次数；每个结果均保留，失败后不自动重试覆盖。`capacity_scale=1000/10000` 在默认组外增加该真实高度长跑；默认 10 不意味着已覆盖更大规模。为兼容 Ubuntu 24.04 的 iproute2，网络模型不设置新版工具的 PRNG seed；固定的是故障参数，重复运行不保证同一包序列，须保留实际 kernel/计数及原始失败；loopback 注入不是生产网络性能基准，参见 [netem 手册](https://man7.org/linux/man-pages/man8/tc-netem.8.html)。
+`repeat_faults=1/2/3` 只改变每档网络故障子集的重复次数；每个结果均保留，失败后不自动重试覆盖。`capacity_scale=1000/10000` 在默认组外增加该真实高度长跑；默认 10 不意味着已覆盖更大规模。`full_node_scale=1000/10000` 独立增加正式 writer 完整目录长跑，与对象命名空间的 capacity 长跑分开选择和报告。为兼容 Ubuntu 24.04 的 iproute2，网络模型不设置新版工具的 PRNG seed；固定的是故障参数，重复运行不保证同一包序列，须保留实际 kernel/计数及原始失败；loopback 注入不是生产网络性能基准，参见 [netem 手册](https://man7.org/linux/man-pages/man8/tc-netem.8.html)。
 
 固定预算：矩阵最多并行 3 组；普通消费者最长 150 分钟；可选容量 job 最长 360 分钟，内部执行预算 18,000 秒、外层 case 截止 19,000 秒。容量源语料每域逻辑上限 4GiB，shadow 每步默认 64MiB，保留产品 1GiB 单步硬限制；磁盘可用空间下限 3GiB。fixture、原始表示、优化表示和元数据的实际占用可能先触达磁盘预算。1k/10k 不保证在 hosted runner 的 6 小时内完成，预算耗尽必须保留 partial 进度并使本次失败，不能把较小高度结果改为目标规模通过。
 
@@ -51,7 +53,7 @@ gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
 
 消费者保留实际 selected inventory、artifact manifest、逐 case 原始日志、JSONL 判定、容量 report/progress、资源采样与故障计数；结果 artifact 保留 14 天，构建包保留 2 天。资源报告区分采样的进程集合 RSS 与精确峰值；容量原生工件归档、设备写入/写放大和生产提交延迟未测时继续明确为空。汇总要求所有预期 label、完整 case 数、原返回码和 cleanup 都成功；缺失、取消、超时、零测试、缺报告、未知 job 状态或未清除故障不能通过。可选长跑未选择时单独标 not_run，不影响已选择组的真实结果。
 
-**证明边界**：这套 CI 是同机故障模型及对象命名空间验收；disk-full 是真实 tmpfs 空间耗尽，不是物理块设备故障。现有单元错误注入不冒充真实块设备 ENOSPC/fsync 故障演练；未加入真实跨版本 shipping 升级/回退组合、独立 Agent 自主试玩、硬件掉电或真实双独立故障域。S6、完整设备 I/O、目标规模与其他尚无完整入口的条款分别保持未验证，不能由整个 workflow 绿色代签。
+**证明边界**：这套 CI 是同机故障模型、对象命名空间及正式 writer 完整目录维护验收；disk-full 是真实 tmpfs 空间耗尽，不是物理块设备故障。现有单元错误注入不冒充真实块设备 ENOSPC/fsync 故障演练；未加入真实跨版本 shipping 升级/回退组合、独立 Agent 自主试玩、硬件掉电或真实双独立故障域。S6、完整设备 I/O、目标规模与其他尚无完整入口的条款分别保持未验证，不能由整个 workflow 绿色代签。
 
 <a id="v-lws-history"></a>
 ## 2. V-LWS-HISTORY：全历史、冷热与检查点覆盖
@@ -95,15 +97,19 @@ env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --example formal_storag
   /absolute/source-endpoint /absolute/new-shadow-directory --optimized --resume
 ```
 
-每次调用仅推进有界 copy 或 verify 步骤；退出码 0 且 `complete:false` 表示本页成功，**不表示整个 shadow 已完成**。保存 JSON 的 phase、processed_records、total_records，直到 `complete:true` 并取得最终 report；独立 verify 结束前不报全对象读回成功。原始 v1 pack 对照可用同一命令去掉 `--optimized`，两种表示使用不同目标。源 checkpoint、registry、generation、目录身份或 codec 参数变化会拒绝续原操作，不能删源或改游标绕过；私有 catalog 及 `.shadow-only` 在中断期间保留。
+可追加 `--until-complete`，在同一进程内持有目标独占 lease 连续推进；默认 builder 和容量循环也复用 `FormalStorageShadowSession`。单页命令每次开启新 owner，必须完整恢复元数据；仅同一 live session 的后续页省去重复全 selector 恢复。错误、重开或 owner 变化仍重新恢复，不能在磁盘保存可信的“已恢复”标志。
+
+每次单页调用仅推进有界 copy 或 verify 步骤；退出码 0 且 `complete:false` 表示本页成功，**不表示整个 shadow 已完成**。保存 JSON 的 phase、processed_records、total_records，直到 `complete:true` 并取得最终 report；独立 verify 结束前不报全对象读回成功。原始 v1 pack 对照可用同一命令去掉 `--optimized`，两种表示使用不同目标。源 checkpoint、registry、generation、目录身份或 codec 参数变化会拒绝续原操作，不能删源或改游标绕过；私有 catalog 及 `.shadow-only` 在中断期间保留。
 
 ### 正式物理代与 attempt 维护
 
 受控端点持有原实例/provider 后，维护调用 `FileFormalEndpoint::advance_physical_generation()`，每次只推进一批，直到 `building:false`。记录每页 selected、copied_objects、total_objects 和前后物理盘点；中断后使用同一正式端点及实例重开续原事务。读 pin、未完成独立闭包核对或未知 selector 会阻止相应退休，不能替换稳定 guard inode、强删 BUILD 或手工切 CURRENT。仅复制 shadow 到 serving 路径不构成这种事务。
 
+默认正式服务在响应后记录业务活动，连续空闲至少 100ms 时每秒最多推进自动页：16 条／64KiB，逐完整对象检查 10ms 软时窗，保留原单个最多 64MiB 的例外。达到 max(1,024, 上轮完成时保留记录数/4) 的增长债务可触发；首次小集与尾部要求数据静默 30 秒，尾部还要求上轮完成后 300 秒。已有 BUILD 优先续做，失败写入残余也会触发；静止且无债务时不循环重写。记录页耗时及 RPC 行为，软时窗不能替代不可抢占 fsync/原对象的真实成本或原 RPC 截止时间。
+
 `collect_physical_orphans()` 是另一个带 typed-mark 预算的受控入口；超预算只保留，不声称已经清空 orphan。正式 generation 保留全部已登记逻辑对象，分页移除旧代及不再被 overlay 引用的帧；不把历史阶段状态视作垃圾。已知 publication staging 需在完整预检及同一 retire fence 内清理，未知项停止整个相应 sweep。
 
-attempt 回收由真实 Published envelope、P/R 分别读取的完整原闭包及精确替代清单共同决定。Node 空闲轮询和业务完成只推进有界维护页，pending/unknown 不改变业务已提交结果，也不能删除原输出。端点重启后丢弃失去内核 pin 的读回进度，重新验证；完成删除后才释放 P/R 维护 pin。容量报告须列出仍未释放的 attempt 和独有材料。
+attempt 回收由真实 Published envelope、P/R 分别读取的完整原闭包及精确替代清单共同决定。Node 空闲轮询和业务完成只推进有界维护页，pending/unknown 不改变业务已提交结果，也不能删除原输出。端点重启后丢弃失去内核 pin 的读回进度，重新验证；完成删除后先持久化 ReleasePending，再幂等释放 P/R 维护 pin；只有两端确认后才持久化 Reclaimed。writer 单独重启必须继续释放，不能跳过待释放状态或重新建立已释放端的 job。容量报告须列出仍未释放的 attempt 和独有材料。
 
 ### 新世界的原 native 环境
 
@@ -231,6 +237,17 @@ JSON 分域报告 file_paths、unique_files、directories、apparent_bytes、uni
 **证据**：逐域原始计数/去重口径、负载/配置、采样时间、前后分布、残余 pins 和配套完整性结果。未测量时不报节省比例，旧 2500 heights 本地预算不外推正式总盘。
 
 <a id="v-lws-merkle"></a>
+
+### 正式 writer 完整目录维护净占用
+
+容量验收用同一正式 writer、世界、原历史和副本数，在停止 Node 新工作后固定原 head。先盘点维护前目录，再保持 P/R 存活逐页完成 writer attempt 维护，停止端点后推进有预算的物理代维护，分别盘点维护后和冷恢复后目录。计入 P/R、writer、native 环境、attempt、旧代及维护残余；共享安装与编译缓存明确排除。此比较标记为 `same_formal_directory_maintenance_net_occupancy`，不能称作旧 raw writer 与新版 writer 的比较。
+
+每端逻辑清单按页重新验证原 hash，保留重复 digest 的保留记录，比较各端维护前后流式摘要；不要求 P/R 私有材料相等。完整 typed history、原 Published、Snapshot、原业务结果和继续工作均须验证。冷恢复盘点必须在启动新工作前完成，不能把冷启动清理归因于物理代维护。这里的冷恢复指重新开启进程及其逻辑缓存，不清空 OS cache；耗时不能冒充冷设备读取性能。
+
+校准为 10 次正式提交，长跑明确选择 1,000 或 10,000 次；任何预算耗尽都保存 partial 并失败，不能降档冒充完成。目录盘点设置显式条目预算并按 device/inode 去重，耗尽、缺根或读取错误均为不完整证据；磁盘空闲下限为 3GiB，长跑使用 CI 的 6 小时外层与内部截止预算。
+
+attempt 故障验收须保持两个远程端点存活，仅中断 writer，分别覆盖 ReleasePending 持久化后、仅 P 已释放、R 已释放但回复丢失和单端暂时失败。恢复必须从原 publication 幂等释放，不能重新创建已释放的 closure job；双方确认后才持久化 Reclaimed。错误身份不能释放，独有证据及原历史保持完整。
+
 ## 10. V-LWS-MERKLE：v1 历史与 v2 新构造分验
 
 **输入**：v1 原始 delta/canonical bytes/原 verifier，以及独立版本 gate 后才可能存在的 v2 producer/consumer；覆盖同批覆盖节点、多个 key、共享父节点、大/小叶子和跨 pack。
