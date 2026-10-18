@@ -873,7 +873,11 @@ fn run_protected_runtime_fixture(
             (first_view, first_cut)
         };
 
-    runtime.stop(Duration::from_secs(10))?;
+    stop_owned_protected_runtime(
+        &mut runtime,
+        Duration::from_secs(120),
+        "protected_process_before_reopen",
+    )?;
     let stopped_cut = runtime.published.current()?;
     let stopped_snapshot = stopped_cut.world.snapshot();
     drop(runtime);
@@ -931,7 +935,11 @@ fn run_protected_runtime_fixture(
             return Err("lookup after restart changed the original result CommitRef".into());
         }
     }
-    restarted.stop(Duration::from_secs(10))?;
+    stop_owned_protected_runtime(
+        &mut restarted,
+        Duration::from_secs(120),
+        "protected_process_restarted",
+    )?;
     drop((primary_oracle, replica_oracle, coordinator));
     Ok(())
 }

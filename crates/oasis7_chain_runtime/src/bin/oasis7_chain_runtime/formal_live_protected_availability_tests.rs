@@ -146,7 +146,11 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     // Reopen from the same writer directory only after the endpoint is back;
     // Recovery keeps the exact original operation, whether pending work was
     // durable or only volatile; it must not synthesize a replacement identity.
-    case.runtime.stop(Duration::from_secs(10))?;
+    stop_owned_protected_runtime(
+        &mut case.runtime,
+        Duration::from_secs(120),
+        "C06_before_reopen",
+    )?;
     drop(case.runtime);
     let mut reopened = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
     reopened.start()?;
@@ -244,7 +248,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         return Err("C06 retry duplicated or changed the canonical Game task effect".into());
     }
 
-    reopened.stop(Duration::from_secs(10))?;
+    stop_owned_protected_runtime(&mut reopened, Duration::from_secs(120), "C06_reopened")?;
     Ok(())
 }
 

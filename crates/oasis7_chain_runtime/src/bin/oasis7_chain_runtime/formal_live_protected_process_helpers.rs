@@ -1,6 +1,53 @@
 //! Shared assertions and requests for actual protected process scenarios.
 use super::*;
 
+/// Poll only the documented pending outcome on the same owned runtime. One
+/// absolute budget covers every slice; terminal errors are never retried.
+pub(super) fn stop_owned_protected_runtime(
+    runtime: &mut FormalLiveRuntime,
+    budget: Duration,
+    context: &str,
+) -> Result<(), String> {
+    let started = Instant::now();
+    let deadline = started + budget;
+    eprintln!(
+        "formal_protected_stop context={context} event=begin elapsed_ms={} budget_ms={} position={} pending_open={}",
+        started.elapsed().as_millis(),
+        budget.as_millis(),
+        runtime.published.position()?,
+        runtime.durable_set_arm.pending_open()?
+    );
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(format!(
+                "{context} graceful stop still pending after {}ms; elapsed_ms={} position={}",
+                budget.as_millis(),
+                started.elapsed().as_millis(),
+                runtime.published.position()?
+            ));
+        }
+        match runtime.stop(remaining.min(Duration::from_secs(10))) {
+            Ok(()) => {
+                eprintln!(
+                    "formal_protected_stop context={context} event=end elapsed_ms={} position={}",
+                    started.elapsed().as_millis(),
+                    runtime.published.position()?
+                );
+                return Ok(());
+            }
+            Err(error) if error == "formal Node stop is still pending; runtime remains owned" => {
+                eprintln!(
+                    "formal_protected_stop context={context} event=pending elapsed_ms={} position={}",
+                    started.elapsed().as_millis(),
+                    runtime.published.position()?
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 pub(super) fn assert_live_descends_from_view(
     runtime: &FormalLiveRuntime,
     current: &crate::formal_live_service::PublishedReadCut,
