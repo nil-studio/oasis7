@@ -81,7 +81,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 2026-10-12 目标设计收敛：[原候选恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 固定执行前完整材料与原请求重放；[正式权威 v1](../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 和 [epoch 接管](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 明确激活、普通证明消费者及旧写者隔离顺序。下一步按这些主责合同实现与验证；现有工程证明、离线 verifier 和本地双目录仍不足以完成正式开放。
 
-存储实现边界核对（2026-10-18）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。
+存储实现边界核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选补双端 pin 释放恢复、有预算的默认物理维护与分页收敛，并测同一正式 writer 完整目录维护前后的净占用；短样本仍净增长，不能将对象表示收益当作完整节点节省，最终验收及长跑结果以该 PR 为准。
 
 ### 2. 真实首产物、阻塞恢复与回访
 
