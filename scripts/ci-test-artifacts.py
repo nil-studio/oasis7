@@ -108,7 +108,7 @@ def build_variants(scope):
         return variants
     if scope == 'ordinary':
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests')]
-    if scope == 'formal':
+    if scope in ('formal', 'storage'):
         # Keep the bin harness: the runtime has no library target. Ordinary
         # integration tests, viewer executables and snapshot variants run elsewhere.
         # The CI-only marker reproduces shared dependency features from all
@@ -116,7 +116,11 @@ def build_variants(scope):
         features = ['test_tier_required', 'ci_formal_required_features']
         core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
-        return [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
+        result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
+        if scope == 'storage':
+            result.append(('storage-libs', ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol',
+                '-p', 'oasis7_runtime', '-p', 'oasis7_world_service', '--lib', '--no-run'], []))
+        return result
     raise ValueError('unknown build scope: ' + scope)
 
 
@@ -155,7 +159,7 @@ def build(bundle, scope='all'):
                 target = artifact['target']
                 test = artifact['profile']['test']
                 name = target['name']
-                logical = variant
+                logical = ('storage-lib-' + name) if variant == 'storage-libs' else variant
                 if variant in ('required', 'formal-required'):
                     if not test:
                         logical = 'required-executable-' + name
@@ -443,7 +447,7 @@ def main():
     parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-budget'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
-    parser.add_argument('--scope', choices=['all', 'formal', 'ordinary'], default='all')
+    parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
     parser.add_argument('--suite', default='ordinary')
     parser.add_argument('--shard', choices=SHARDS)
     parser.add_argument('--split-formal', action='store_true')
