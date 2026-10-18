@@ -265,6 +265,7 @@ fn later_private_mark_hides_saved_derived_records_without_deleting_them() {
     };
     let mut nav = core.daily_work().unwrap().navigation;
     nav.selected = Some(reference.clone());
+    nav.recent_work = Some(vec![reference.clone()]);
     nav.draft = "derived body".into();
     nav.retain_draft = true;
     save(&mut core, DailyWorkAction::Navigate { navigation: nav });
@@ -330,9 +331,11 @@ fn decision_replacement_keeps_original_and_minor_history_without_revival() {
         .save_decision(draft(Some(original.id.clone()), "Spelling correction"))
         .unwrap();
     assert_eq!(minor.confirmed_at, original.confirmed_at);
-    assert_eq!(
-        core.decision_history(&original.id).unwrap()[0].content,
-        "Original"
+    assert!(
+        core.decision_history(&original.id)
+            .unwrap()
+            .iter()
+            .any(|d| d.content == "Original")
     );
     let replacement = core
         .replace_decision(draft(None, "New policy"), original.id.clone())
@@ -364,4 +367,33 @@ fn decision_replacement_keeps_original_and_minor_history_without_revival() {
             .state,
         "superseded"
     );
+}
+
+#[test]
+fn old_app_removal_keeps_complete_recoverable_decision_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repo");
+    project(&root);
+    let db = temp.path().join("db");
+    let mut core = CommandCenter::open(&db).unwrap();
+    let p = core.open_project(&root).unwrap().project.unwrap();
+    let original = core
+        .save_decision(draft(None, "Original exact decision"))
+        .unwrap();
+    save(&mut core, DailyWorkAction::AcceptLegacy {});
+    let old = rusqlite::Connection::open(&db).unwrap();
+    old.execute(
+        "UPDATE personal SET value='[]' WHERE key=?1",
+        [format!("{}:decisions", p.id)],
+    )
+    .unwrap();
+    drop(core);
+    let core = CommandCenter::open(&db).unwrap();
+    assert!(core.daily_work().unwrap().legacy_changed);
+    assert!(core.snapshot().decisions.is_empty());
+    let history = core.decision_history("").unwrap();
+    assert!(history.iter().any(|d| d.id == original.id
+        && d.content == original.content
+        && d.reason == original.reason
+        && d.confirmed_at == original.confirmed_at));
 }

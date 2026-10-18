@@ -1,5 +1,5 @@
 // Generated from Rust DTOs by cargo run -p oasis7-command-center-core --example export_types
-export type WorkNavigation = { selected: WorkRef | null, filter: string, expanded: boolean, scrollTop: number, returnView: string, draft: string, draftPurpose: string, draftScope: string, detailScrollTop: number, retainDraft: boolean, startIntentId: string | null, lastReadAt: string | null, pinned: Array<WorkRef>, };
+export type WorkNavigation = { selected: WorkRef | null, filter: string, expanded: boolean, scrollTop: number, returnView: string, draft: string, draftPurpose: string, draftScope: string, detailScrollTop: number, retainDraft: boolean, startIntentId: string | null, lastReadAt: string | null, pinned: Array<WorkRef>, recentWork?: Array<WorkRef>, };
 export type WorkRelation = { id: string, work: WorkRef, sectionId: string, sourceRevision: string, confirmedAt: string, removedAt: string | null, previous: Array<string>, };
 export type SyncEvidence = { state: string, source: string | null, revision: string | null, scope: string, conclusion: string, coversFullScope: boolean, remaining: Array<string>, checkedAt: string, decisionDigest: string, };
 export type DecisionFollowthrough = { decisionId: string, formal: SyncEvidence | null, implementation: SyncEvidence | null, history: Array<SyncEvidence>, following: boolean, };

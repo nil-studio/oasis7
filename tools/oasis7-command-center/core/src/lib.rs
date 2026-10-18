@@ -401,10 +401,14 @@ impl CommandCenter {
         Ok(())
     }
     pub fn decision_history(&self, id: &str) -> Result<Vec<DecisionRecord>> {
-        if !self.current.decisions.iter().any(|d| d.id == id) {
-            return Err(Error::Invalid("决定不在当前范围".into()));
+        if id.len() > 512 {
+            return Err(Error::Invalid("决定身份过长".into()));
         }
-        let prefix = format!("{}:{}:", self.personal_key("decision"), id);
+        let prefix = if id.is_empty() {
+            format!("{}:", self.personal_key("decision"))
+        } else {
+            format!("{}:{}:", self.personal_key("decision"), id)
+        };
         let mut stmt = self.db.prepare(
             "SELECT value FROM history WHERE substr(key,1,length(?1))=?1 ORDER BY key LIMIT 1000",
         )?;
@@ -541,6 +545,17 @@ impl CommandCenter {
                 previous,
             )?;
         }
+        save(
+            &tx,
+            "history",
+            &format!(
+                "{}:{}:{}",
+                self.personal_key("decision"),
+                record.id,
+                index::digest(&serde_json::to_vec(&record)?)
+            ),
+            &record,
+        )?;
         daily_work::record_owned_legacy_edit(self, &tx, &decisions)?;
         save(&tx, "personal", &self.personal_key("decisions"), &decisions)?;
         if let Some(previous_id) = previous_id {

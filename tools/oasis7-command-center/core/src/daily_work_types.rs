@@ -22,6 +22,9 @@ pub struct WorkNavigation {
     pub start_intent_id: Option<String>,
     pub last_read_at: Option<String>,
     pub pinned: Vec<WorkRef>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub recent_work: Option<Vec<WorkRef>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

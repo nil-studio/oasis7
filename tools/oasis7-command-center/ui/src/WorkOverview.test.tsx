@@ -100,3 +100,9 @@ it('restores persisted navigation when a startup source refresh supersedes the f
  const [source,setSource]=createSignal(0);render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={source()} onExecution={()=>{}}/>);
  await waitFor(()=>expect(first).toBeTypeOf('function'));setSource(1);await screen.findByRole('region',{name:'工作详情'});expect(screen.getByLabelText('筛选工作')).toHaveValue('工具');expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');first(state());await Promise.resolve();expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');expect(runtimeBridge.startWork).not.toHaveBeenCalled();
 });
+it('keeps recent explicit navigation ahead of source order without inventing activity',async()=>{
+ const value=projection();value.items.push({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:'2'},purpose:{...value.items[0].purpose,value:'第二项工作'}});vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'第二项工作'}));await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({action:expect.objectContaining({navigation:expect.objectContaining({recentWork:[value.items[1].reference]})})})));
+ fireEvent.click(screen.getByRole('button',{name:'返回工作列表'}));const rows=within(screen.getByRole('region',{name:'已有工作'})).getAllByRole('button').filter(b=>b.hasAttribute('data-work-ref'));expect(rows.map(b=>b.textContent)).toEqual(['第二项工作','修复本地工具']);
+});

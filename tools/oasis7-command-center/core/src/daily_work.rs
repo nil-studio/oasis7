@@ -43,6 +43,19 @@ fn read_family<T: serde::de::DeserializeOwned>(
     Ok(value.value)
 }
 fn persist(core: &CommandCenter, db: &rusqlite::Connection, state: &DailyWorkState) -> Result<()> {
+    for decision in &core.current.decisions {
+        save(
+            db,
+            "history",
+            &format!(
+                "{}:{}:{}",
+                core.personal_key("decision"),
+                decision.id,
+                index::digest(&serde_json::to_vec(decision)?)
+            ),
+            decision,
+        )?;
+    }
     let mut header = state.clone();
     header.relations.clear();
     header.external.clear();
@@ -185,6 +198,15 @@ impl CommandCenter {
             }
         }
         state.navigation.pinned = retained;
+        if let Some(recent) = state.navigation.recent_work.take() {
+            let mut public = vec![];
+            for work in recent {
+                if !self.private_work(&work)? {
+                    public.push(work);
+                }
+            }
+            state.navigation.recent_work = Some(public);
+        }
         state.relations = state
             .relations
             .into_iter()
@@ -388,6 +410,7 @@ impl CommandCenter {
             DailyWorkAction::Navigate { navigation } => {
                 references.extend(navigation.selected.iter());
                 references.extend(&navigation.pinned);
+                references.extend(navigation.recent_work.iter().flatten());
             }
             DailyWorkAction::Relate { work, .. } => references.push(work),
             DailyWorkAction::Attention { item } => references.push(&item.work),
@@ -422,6 +445,10 @@ impl CommandCenter {
                     || navigation.draft_scope.len() > 4096
                     || navigation.filter.len() > 4096
                     || navigation.pinned.len() > 100
+                    || navigation
+                        .recent_work
+                        .as_ref()
+                        .is_some_and(|r| r.len() > 20)
                     || !navigation.detail_scroll_top.is_finite()
                     || !(0.0..=1e9).contains(&navigation.detail_scroll_top)
                     || !navigation.scroll_top.is_finite()
@@ -432,6 +459,10 @@ impl CommandCenter {
                         .selected
                         .as_ref()
                         .is_some_and(|w| !valid_scoped_work(w, &state))
+                    || navigation
+                        .recent_work
+                        .as_ref()
+                        .is_some_and(|r| r.iter().any(|w| !valid_scoped_work(w, &state)))
                     || navigation
                         .pinned
                         .iter()

@@ -24,6 +24,7 @@ pub struct Host {
     slots: Arc<Semaphore>,
     github_slots: Arc<Semaphore>,
     local_slots: Arc<Semaphore>,
+    projection_slots: Arc<Semaphore>,
     pub(crate) project: Arc<Mutex<Option<Project>>>,
 }
 
@@ -57,6 +58,7 @@ impl Host {
             slots: Arc::new(Semaphore::new(64)),
             github_slots: Arc::new(Semaphore::new(1)),
             local_slots: Arc::new(Semaphore::new(1)),
+            projection_slots: Arc::new(Semaphore::new(2)),
             project: Arc::new(Mutex::new(None)),
         })
     }
@@ -135,6 +137,11 @@ pub async fn add_worktree_reference(
     path: String,
     expected_revision: u64,
 ) -> Result<oasis7_command_center_core::daily_work::DailyWorkState, String> {
+    let _permit = host
+        .local_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "本地来源正在读取，工作树引用未保存；请待本次完成后重试".to_string())?;
     let input = path.clone();
     let expected = host
         .run(move |app| {
@@ -600,6 +607,11 @@ pub async fn query_work_projection(
     host: State<'_, Host>,
     runtime: State<'_, crate::runtime_commands::RuntimeHost>,
 ) -> Result<oasis7_command_center_core::work_projection::WorkProjection, String> {
+    let _permit = host
+        .projection_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "工作投影读取繁忙；保留最近结果，请稍后重读".to_string())?;
     let (base, references) = host
         .run(|app| {
             Ok((
@@ -741,8 +753,21 @@ pub async fn query_work_projection(
                 projection.sources.extend(extra.sources);
             }
         }
-        let personal = app.core.public_daily_work().map_err(error)?;
-        for external in &personal.external {
+        let personal = app.core.public_daily_work();
+        if personal.is_err() {
+            projection
+                .sources
+                .push(oasis7_command_center_core::work_projection::WorkSource {
+                    kind: "personal".into(),
+                    state: "error".into(),
+                    coverage:
+                        "个人记录未能按当前版本安全组合；来源事实独立保留，未推断没有关系或决定"
+                            .into(),
+                    verified_at: None,
+                    error: Some("请在个人记录入口核对版本或存储错误；未覆盖原记录".into()),
+                });
+        }
+        for external in personal.as_ref().ok().into_iter().flat_map(|p| &p.external) {
             if projection
                 .items
                 .iter()
@@ -778,7 +803,7 @@ pub async fn query_work_projection(
                     runs: vec![],
                 });
         }
-        projection.personal_revision = Some(personal.revision);
+        projection.personal_revision = personal.as_ref().ok().map(|p| p.revision);
         // The revision binds this exact published source window and personal record version.
         let mut facts = serde_json::to_value((
             &projection.project_id,
@@ -787,7 +812,7 @@ pub async fn query_work_projection(
             &snapshot.sections,
             &projection.sources,
             &projection.items,
-            personal.revision,
+            projection.personal_revision,
         ))
         .map_err(|e| e.to_string())?;
         fn without_read_time(value: &mut serde_json::Value) {
@@ -908,6 +933,17 @@ pub async fn refresh_work_checks(
 #[cfg(test)]
 mod concurrency_tests {
     use super::*;
+    #[test]
+    fn saturated_short_requests_reject_without_entering_application_lock() {
+        tauri::async_runtime::block_on(async {
+            let temp = tempfile::tempdir().unwrap();
+            let host = Host::open(temp.path().join("db")).unwrap();
+            let permit = host.slots.clone().acquire_many_owned(64).await.unwrap();
+            assert!(host.run(|_| Ok(())).await.unwrap_err().contains("稍后重试"));
+            drop(permit);
+            assert!(host.run(|_| Ok(())).await.is_ok());
+        });
+    }
     #[test]
     fn slow_local_source_does_not_lock_personal_writes_and_cancel_rejects_publication() {
         tauri::async_runtime::block_on(async {
