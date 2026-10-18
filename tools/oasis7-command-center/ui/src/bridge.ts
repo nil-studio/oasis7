@@ -9,6 +9,11 @@ function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T
 }
 // Explicit finite commands: no arbitrary method, shell, SQL or filesystem proxy.
 export const bridge = {
+  cancelSourceReads: () => call<void>('cancel_source_reads'),
+  addWorktreeReference: (path: string, expectedRevision: number) => call<import('./generated/core').DailyWorkState>('add_worktree_reference', {path,expectedRevision}),
+  readGithubWindow: (page: number|null, number: number|null, ghPath: string|null) => call<GitHubSnapshot>('read_github_window', {page,number,ghPath}),
+  dailyWork: () => call<import('./generated/core').DailyWorkState>('query_daily_work'),
+  saveDailyWork: (request: import('./generated/core').DailyWorkRequest) => call<import('./generated/core').DailyWorkState>('save_daily_work', {request}),
   refreshWorkChecks: (number: string, ghPath: string | null) => call<GitHubSnapshot>('refresh_work_checks', {number,ghPath}),
   workProjection: () => call<import('./generated/core').WorkProjection>('query_work_projection'),
   documentDirectory: (query: DocumentDirectoryQuery) => call<DocumentDirectoryPage>('query_document_directory', { query }),
@@ -23,6 +28,8 @@ export const bridge = {
   chooseProject: () => call<Snapshot | null>('choose_project'),
   refresh: () => call<Snapshot>('refresh_source'),
   search: (query: string) => call<DocumentSection[]>('search_rules', { query, limit: 100 }),
+  decisionHistory: (id:string) => call<DecisionRecord[]>('query_decision_history',{id}),
+  replaceDecision: (draft:DecisionDraft,previousId:string) => call<DecisionRecord>('replace_decision',{draft,previousId}),
   saveDecision: (draft: DecisionDraft) => call<DecisionRecord>('save_decision_draft', { draft }),
   savePreferences: (preferences: Preferences) => call<void>('save_preference', { preferences }),
   recordReading: (s: DocumentSection) => call<void>('read_source', { sectionId: s.id, revision: s.revision, line: s.line }),
@@ -34,6 +41,9 @@ export const bridge = {
   associateWork: (workUrl: string, goalSectionIds: string[]) => call<WorkAssociation>('associate_work', { workUrl, goalSectionIds }),
 };
 export const runtimeBridge = {
+  publicSnapshot: () => call<RuntimeSnapshot>('get_public_runtime'),
+  startWork: (intentId: string, config: SessionConfig, input: string) => call<RuntimeSnapshot>('start_work', {intentId,config,input}),
+  startWorkRecords: () => call<import('./generated/core').StartWorkRecord[]>('query_start_work_records'),
   snapshot: () => call<RuntimeSnapshot>('get_runtime'),
   reconcile: (operationId: string) => call<RuntimeSnapshot>('reconcile_runtime_operation', { operationId }),
   enabled: (enabled: boolean) => call<RuntimeSnapshot>('set_runtime_enabled', { enabled }),
@@ -109,6 +119,7 @@ export const contextBridge = {
   },
 };
 export const toolsBridge = {
+  importSignContext: (input: string) => call<unknown>('import_sign_context', {input}),
   signer: () => call<ToolObservation>('tool_signer_observe'),
   jobs: () => call<ToolJob[]>('tool_jobs'),
   cli: () => call<import('./generated/core').CliInstallation | null>('tool_cli_observe'),

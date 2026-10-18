@@ -59,6 +59,21 @@ fn exit_ready(status: &QuitStatus) -> bool {
 }
 
 impl RuntimeHost {
+    pub(crate) async fn try_read<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut Runtime) -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
+        let runtime = self.runtime.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut guard = runtime
+                .try_lock()
+                .map_err(|_| "运行控制正在处理，普通投影保留其他来源并稍后回读".to_string())?;
+            let runtime = guard.as_mut().ok_or("运行来源不可用".to_string())?;
+            work(runtime)
+        })
+        .await
+        .map_err(|_| "运行只读查询未完成".to_string())?
+    }
     #[cfg(test)]
     pub fn open(path: PathBuf) -> oasis7_command_center_core::Result<Self> {
         Self::open_with_jobs(
@@ -95,7 +110,7 @@ impl RuntimeHost {
         })
     }
 
-    async fn run<T: Send + 'static>(
+    pub(crate) async fn run<T: Send + 'static>(
         &self,
         work: impl FnOnce(&mut Runtime) -> Result<T, String> + Send + 'static,
     ) -> Result<T, String> {
@@ -320,6 +335,60 @@ pub async fn create_runtime_session(
         .await;
     invalidate(&handle);
     result
+}
+
+#[tauri::command]
+pub async fn start_work(
+    host: State<'_, Host>,
+    runtime: State<'_, RuntimeHost>,
+    handle: tauri::AppHandle,
+    intent_id: String,
+    config: SessionConfig,
+    input: String,
+) -> Result<RuntimeSnapshot, String> {
+    let jobs = runtime.jobs.clone();
+    let result = runtime
+        .project_work(&host, move |r, p| {
+            jobs.with_open(|| r.start_work(p, &intent_id, config, &input))
+        })
+        .await;
+    invalidate(&handle);
+    result
+}
+
+#[tauri::command]
+pub async fn query_start_work_records(
+    host: State<'_, Host>,
+    runtime: State<'_, RuntimeHost>,
+) -> Result<Vec<oasis7_command_center_core::codex::StartWorkRecord>, String> {
+    let project = host
+        .project
+        .lock()
+        .map_err(|_| "项目身份不可用".to_string())?
+        .clone()
+        .ok_or("请先选择项目")?;
+    runtime
+        .try_read(move |r| {
+            r.public_start_work_records(&project)
+                .map_err(|e| e.to_string())
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn get_public_runtime(
+    host: State<'_, Host>,
+    runtime: State<'_, RuntimeHost>,
+) -> Result<RuntimeSnapshot, String> {
+    let project = host
+        .project
+        .lock()
+        .map_err(|_| "项目身份不可用".to_string())?
+        .clone()
+        .ok_or("请先验证项目".to_string())?;
+    runtime
+        .try_read(move |r| r.public_snapshot(&project).map_err(|e| e.to_string()))
+        .await
 }
 
 #[tauri::command]

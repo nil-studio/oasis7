@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-li
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createSignal } from 'solid-js';
 import DocumentInventory from './DocumentInventory';
+const renderInventory: typeof render = ((...args: Parameters<typeof render>) => { const result=render(...args);fireEvent.click(screen.getByRole('button',{name:'文件清单'}));return result; }) as typeof render;
 import type { Snapshot, DocumentSection } from './types';
 import type { DocumentInventoryPage, IndexedDocument } from './generated/core';
 const api = vi.hoisted(() => ({ documentInventory: vi.fn(), documentDirectory: vi.fn(), documentSemanticTree: vi.fn(), loadDocumentTreeReading:vi.fn(),saveDocumentTreeReading:vi.fn(),loadDocumentTreeLastView:vi.fn(),resetDocumentTreeReading:vi.fn() }));
@@ -26,7 +27,7 @@ afterEach(cleanup);
 it('shows per-file omissions and opens only chapters from the matching file revision', async () => {
   api.documentInventory.mockResolvedValue(page([file(), file('doc/empty.md', {bytes:0}), file('doc/deleted.md', {state:'deleted',reason:'deleted',revision:null,bytes:null})]));
   const showSource = vi.fn();
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={showSource} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={showSource} />);
   await screen.findByRole('button', {name:'设计文档'});
   fireEvent.click(screen.getByRole('button', {name:'设计文档'}));
   fireEvent.click(screen.getByRole('button', {name:'设计章节 · 第 1 行'}));
@@ -39,7 +40,7 @@ it('shows per-file omissions and opens only chapters from the matching file revi
 });
 it('binds paging to applied filters and snapshot, and preserves IME composition', async () => {
   api.documentInventory.mockResolvedValueOnce(page()).mockResolvedValue(page([file()], {nextCursor:'next'}));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   await screen.findByRole('button', {name:'设计文档'});
   const input = screen.getByRole('textbox', {name:'筛选文档文件'});
   fireEvent.input(input, {target:{value:'设计'}});
@@ -61,7 +62,7 @@ it('rejects late responses after a project switch and after a same-project refre
   let late!: (value: DocumentInventoryPage) => void;
   api.documentInventory.mockImplementationOnce(() => new Promise(resolve => {late = resolve;})).mockResolvedValue(page([file('doc/new.md')]));
   const [state, setState] = createSignal(snapshot());
-  render(() => <DocumentInventory snapshot={state()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={state()} showSource={vi.fn()} />);
   setState(snapshot('other', '2'));
   await screen.findByRole('button', {name:'doc/new.md'});
   late(page([file('doc/old.md')]));
@@ -77,7 +78,7 @@ it('rejects late responses after a project switch and after a same-project refre
 });
 it('distinguishes cache failure from empty results and keeps stale coverage visible', async () => {
   api.documentInventory.mockRejectedValueOnce(new Error('清单缺失')).mockResolvedValue(page([], {stale:true,error:'源读取失败',totalMatches:0}));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   await screen.findByRole('alert');
   expect(screen.queryByText(/当前筛选没有匹配文件/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name:'重新查询首页'}));
@@ -88,7 +89,7 @@ it('distinguishes cache failure from empty results and keeps stale coverage visi
 it('preserves filters, page and file selection when only personal snapshot data changes', async () => {
   api.documentInventory.mockResolvedValue(page([file()], {nextCursor:'next'}));
   const [state, setState] = createSignal(snapshot());
-  render(() => <DocumentInventory snapshot={state()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={state()} showSource={vi.fn()} />);
   await screen.findByRole('button', {name:'设计文档'});
   const input = screen.getByRole('textbox', {name:'筛选文档文件'});
   fireEvent.input(input, {target:{value:'设计'}});
@@ -108,7 +109,7 @@ it('preserves filters, page and file selection when only personal snapshot data 
 
 it('distinguishes legacy pairing coverage, explicit absence and unresolved targets', async () => {
   api.documentInventory.mockResolvedValue(page([file(), file('doc/none.md', {pairings:{targets:[],issue:null}}), file('doc/paired.md', {pairings:{targets:[{declarationLine:8,destination:'design.md#section',target:'doc/design.md#section',resolution:'fragment_unchecked',targetKind:null,targetSection:null,targetRevision:null}],issue:'incomplete'}})]));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', {name:'设计文档'}));
   expect(screen.getByText('旧清单尚未解析配对，请刷新本地事实。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name:'doc/none.md'}));
@@ -124,7 +125,7 @@ it('opens only the exact resolved pairing chapter and preserves its origin acros
   api.documentInventory.mockResolvedValue(page([file('doc/prd.md', {pairings:{targets:[edge],issue:null}})], {nextCursor:'next'}));
   const [state, setState] = createSignal({...snapshot(),sections:[section,target]});
   const showSource = vi.fn();
-  render(() => <DocumentInventory snapshot={state()} showSource={showSource} />);
+  renderInventory(() => <DocumentInventory snapshot={state()} showSource={showSource} />);
   fireEvent.click(await screen.findByRole('button', {name:'doc/prd.md'}));
   const open = screen.getByRole('button', {name:'打开配对章节：配对章节'});
   fireEvent.click(open);
@@ -143,7 +144,7 @@ it('keeps ambiguous, missing and legacy pairings informational without fallback 
     {...base,resolution:'ambiguous'}, {...base,resolution:'missing_fragment'},
     {...base,resolution:'unread'}, {...base,resolution:'resolved',targetRevision:null},
   ],issue:null}})]));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', {name:'doc/prd.md'}));
   expect(screen.getByText(/目标锚点重复，无法唯一定位/)).toBeInTheDocument();
   expect(screen.getByText(/目标文件中未找到章节锚点/)).toBeInTheDocument();
@@ -156,7 +157,7 @@ it('shows explicit design upstream requirements separately from design reference
   const edge = {declarationLine:7,destination:'prd.md#REQ-1',target:'doc/prd.md#REQ-1',resolution:'resolved',targetKind:'prd',targetSection:target.id,targetRevision:target.revision};
   api.documentInventory.mockResolvedValue(page([file('doc/topic.design.md',{upstream:{targets:[edge,{...edge,destination:'parent.design.md',target:'doc/parent.design.md',targetKind:'design',resolution:'unread',targetSection:null,targetRevision:null}],issue:null}})]));
   const showSource = vi.fn();
-  render(() => <DocumentInventory snapshot={{...snapshot(),sections:[section,target]}} showSource={showSource} />);
+  renderInventory(() => <DocumentInventory snapshot={{...snapshot(),sections:[section,target]}} showSource={showSource} />);
   fireEvent.click(await screen.findByRole('button',{name:'doc/topic.design.md'}));
   expect(screen.getByRole('region',{name:'显式上游声明'})).toBeInTheDocument();
   expect(screen.getByText('目标类型：需求文档')).toBeInTheDocument();
@@ -169,7 +170,7 @@ it('shows explicit design upstream requirements separately from design reference
 
 it('distinguishes legacy upstream coverage from an empty parsed design header', async () => {
   api.documentInventory.mockResolvedValue(page([file('doc/legacy.design.md'),file('doc/none.design.md',{upstream:{targets:[],issue:null}}),file('doc/partial.design.md',{upstream:{targets:[],issue:'pairing declaration has no explicit Markdown link'}})]));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button',{name:'doc/legacy.design.md'}));
   expect(screen.getByText('旧清单尚未解析上游，请刷新本地事实。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'doc/none.design.md'}));
@@ -181,7 +182,7 @@ it('distinguishes legacy upstream coverage from an empty parsed design header', 
 it('shows declared ID collisions without merging files and submits ID search unchanged', async () => {
   const identity = { raw:'`DUP-123`', declaredId:'DUP-123', declarationLine:3, issue:null, duplicateFiles:1, duplicatePaths:['doc/other.md'] };
   api.documentInventory.mockResolvedValue(page([file(undefined, {identity}), file('doc/other.md', {identity:{...identity,duplicatePaths:['doc/design.md']}})]));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   await screen.findByRole('button', {name:'设计文档'});
   expect(screen.getByRole('button', {name:'doc/other.md'})).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name:'设计文档'}));
@@ -194,7 +195,7 @@ it('shows declared ID collisions without merging files and submits ID search unc
 it('distinguishes unparsed, absent, invalid and unread document identities', async () => {
   const empty = {raw:null,declaredId:null,declarationLine:null,issue:null,duplicateFiles:0,duplicatePaths:[]};
   api.documentInventory.mockResolvedValue(page([file(),file('doc/absent.md',{identity:empty}),file('doc/invalid.md',{identity:{...empty,raw:'bad id',declarationLine:2,issue:'invalid document ID declaration'}}),file('doc/unread.md',{state:'skipped'})]));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   await screen.findByRole('button', {name:'设计文档'});
   fireEvent.click(screen.getByRole('button', {name:'设计文档'}));
   expect(screen.getByText('旧清单尚未解析文档 ID，请刷新本地事实。')).toBeInTheDocument();
@@ -212,7 +213,7 @@ it('keeps allocation rows and sides distinct and navigates only exact candidate 
   api.documentInventory.mockResolvedValue(page([file(undefined,{allocations})]));
   const showSource = vi.fn();
   const data = snapshot(); data.sections.push(upstream);
-  const result = render(() => <DocumentInventory snapshot={data} showSource={showSource} />);
+  const result = renderInventory(() => <DocumentInventory snapshot={data} showSource={showSource} />);
   await screen.findByRole('button',{name:'设计文档'});
   fireEvent.click(screen.getByRole('button',{name:'设计文档'}));
   expect(screen.getByRole('region',{name:'承接表第 8 行'})).toBeInTheDocument();
@@ -228,7 +229,7 @@ it('keeps allocation rows and sides distinct and navigates only exact candidate 
 });
 it('distinguishes unparsed absent and incomplete allocation tables', async () => {
   api.documentInventory.mockResolvedValue(page([file(),file('doc/none.design.md',{allocations:{issue:null,rows:[]}}),file('doc/limited.design.md',{allocations:{issue:'allocation row limit 32 exceeded',rows:[]}})]));
-  render(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
+  renderInventory(() => <DocumentInventory snapshot={snapshot()} showSource={vi.fn()} />);
   await screen.findByRole('button',{name:'设计文档'});
   fireEvent.click(screen.getByRole('button',{name:'设计文档'}));
   expect(screen.getByText('旧清单尚未解析承接表，请刷新本地事实。')).toBeInTheDocument();
@@ -243,7 +244,7 @@ it('reuses file details when selecting a directory leaf', async () => {
   api.documentInventory.mockResolvedValue(page());
   const selected = file();
   api.documentDirectory.mockResolvedValue({schemaVersion:1,projectId:'project',snapshotId:'snapshot',baselineOid:'head',generatedAt:'1',parentPath:'',candidates:1,read:1,omitted:0,stale:false,error:null,eligibleFiles:1,matchingFiles:1,hiddenHistoryFiles:0,lifecycleFilter:'current',kindFilter:'all',pairingFilter:'all',totalChildren:1,entries:[{path:selected.path,name:'design.md',kind:'design',matchingFiles:1,depthLimited:false,historicalReferenceFiles:0,historicalReferencePaths:[],file:selected}],nextCursor:null});
-  const showSource=vi.fn();render(()=><DocumentInventory snapshot={snapshot()} showSource={showSource}/>);
+  const showSource=vi.fn();renderInventory(()=><DocumentInventory snapshot={snapshot()} showSource={showSource}/>);
   fireEvent.click(screen.getByRole('button',{name:'文档目录'}));
   fireEvent.click(await screen.findByRole('button',{name:'设计文档 · doc/design.md'}));
   fireEvent.click(screen.getByRole('button',{name:'设计章节 · 第 1 行'}));
@@ -255,7 +256,7 @@ it('does not let a late file-list response clear the selected directory leaf', a
   api.documentInventory.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
   const selected=file();
   api.documentDirectory.mockResolvedValue({schemaVersion:1,projectId:'project',snapshotId:'snapshot',baselineOid:'head',generatedAt:'1',parentPath:'',candidates:1,read:1,omitted:0,stale:false,error:null,eligibleFiles:1,matchingFiles:1,hiddenHistoryFiles:0,lifecycleFilter:'current',kindFilter:'all',pairingFilter:'all',totalChildren:1,entries:[{path:selected.path,name:'design.md',kind:'design',matchingFiles:1,depthLimited:false,historicalReferenceFiles:0,historicalReferencePaths:[],file:selected}],nextCursor:null});
-  render(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);
+  renderInventory(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);
   fireEvent.click(screen.getByRole('button',{name:'文档目录'}));
   fireEvent.click(await screen.findByRole('button',{name:'设计文档 · doc/design.md'}));
   await screen.findByRole('button',{name:'设计章节 · 第 1 行'});
@@ -269,7 +270,7 @@ it('switches both semantic trees and reuses same-revision details despite a late
   const selected=file();
   const tree={schemaVersion:1,projectId:'project',snapshotId:'snapshot',baselineOid:'head',generatedAt:'1',view:'product',parentOccurrence:'',parentRoute:[],routeNotice:null,breadcrumbs:[],candidates:1,read:1,omitted:0,stale:false,error:null,eligibleFiles:1,matchingFiles:1,hiddenHistoryFiles:0,lifecycleFilter:'current',kindFilter:'all',pairingFilter:'all',totalChildren:1,entries:[{occurrenceId:'module',stableRoute:[{path:selected.path,sourcePath:null,destination:null,group:null,duplicateIndex:0,duplicateCount:1}],label:'模块设计',path:selected.path,kind:'design',matchingFiles:1,historicalReferenceFiles:0,historicalReferencePaths:[],boundary:null,cycle:false,depthLimited:false,sourcePath:null,sourceLine:null,relationship:null,file:selected,hasChildren:false}],nextCursor:null,issues:[]};
   api.documentSemanticTree.mockResolvedValue(tree);
-  const showSource=vi.fn();render(()=><DocumentInventory snapshot={snapshot()} showSource={showSource}/>);
+  const showSource=vi.fn();renderInventory(()=><DocumentInventory snapshot={snapshot()} showSource={showSource}/>);
   fireEvent.click(screen.getByRole('button',{name:'产品树'}));
   fireEvent.click(await screen.findByRole('button',{name:'查看文档：模块设计'}));
   fireEvent.click(screen.getByRole('button',{name:'设计章节 · 第 1 行'}));
@@ -284,7 +285,7 @@ it('switches both semantic trees and reuses same-revision details despite a late
 
 it('focuses selected file context and restores its originating button when closing details', async () => {
   api.documentInventory.mockResolvedValue(page());
-  render(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);
+  renderInventory(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);
   const origin=await screen.findByRole('button',{name:'设计文档'});fireEvent.click(origin);
   await waitFor(()=>expect(screen.getByRole('region',{name:'文件读取详情'})).toHaveFocus());
   fireEvent.click(screen.getByRole('button',{name:'收起文件详情'}));
@@ -295,7 +296,7 @@ it('labels product pairings separately and opens the same-snapshot product desig
   const design={...section,id:'product-design',path:'doc/product/module/design.md',title:'产品设计章节',revision:'product-rev'};
   const product=file('doc/product/module/topic.prd.md',{title:'产品专题',kind:'prd',pairings:{targets:[{declarationLine:12,destination:'design.md#产品设计',target:'doc/product/module/design.md#产品设计',resolution:'resolved',targetSection:design.id,targetRevision:design.revision,targetKind:'design'}],issue:null}});
   api.documentInventory.mockResolvedValue(page([product]));
-  const showSource=vi.fn();render(()=><DocumentInventory snapshot={{...snapshot(),sections:[design]}} showSource={showSource}/>);
+  const showSource=vi.fn();renderInventory(()=><DocumentInventory snapshot={{...snapshot(),sections:[design]}} showSource={showSource}/>);
   fireEvent.click(await screen.findByRole('button',{name:'产品专题'}));
   expect(screen.getByRole('region',{name:'显式配对产品设计'})).toBeInTheDocument();
   expect(screen.queryByRole('region',{name:'显式配对系统设计'})).not.toBeInTheDocument();
@@ -305,7 +306,7 @@ it('labels product pairings separately and opens the same-snapshot product desig
 
 it('restores a bounded last tree view after restart without overtaking an explicit browsing choice',async()=>{
   let finish!:(value:unknown)=>void;api.documentInventory.mockResolvedValue(page());api.loadDocumentTreeLastView.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
-  render(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'文档目录'}));finish({status:'ready',view:'professional',notice:null});await Promise.resolve();expect(screen.getByRole('button',{name:'文档目录'})).toHaveAttribute('aria-pressed','true');expect(screen.getByRole('button',{name:'专业系统树'})).toHaveAttribute('aria-pressed','false');
+  renderInventory(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);fireEvent.click(screen.getByRole('button',{name:'文档目录'}));finish({status:'ready',view:'professional',notice:null});await Promise.resolve();expect(screen.getByRole('button',{name:'文档目录'})).toHaveAttribute('aria-pressed','true');expect(screen.getByRole('button',{name:'专业系统树'})).toHaveAttribute('aria-pressed','false');
 });
 it('opens the stored product tree on restart when no newer browsing intent exists',async()=>{
   api.documentInventory.mockResolvedValue(page());api.loadDocumentTreeLastView.mockResolvedValue({status:'ready',view:'product',notice:null});

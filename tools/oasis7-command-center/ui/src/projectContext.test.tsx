@@ -23,8 +23,6 @@ it('isolates unsaved inputs by project and restores them on return without savin
   });
   render(() => <App />);
   await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
-  fireEvent.input(screen.getByLabelText('关联工作 PR 地址'),{target:{value:'https://github.com/eng-cc/oasis7/pull/1'}});
-  fireEvent.click(screen.getByLabelText('A目标'));
   fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
   fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'A 的决定'}});
   fireEvent.input(screen.getByLabelText('理由'),{target:{value:'A 的理由'}});
@@ -35,11 +33,7 @@ it('isolates unsaved inputs by project and restores them on return without savin
   expect(screen.getByLabelText('决定内容')).toHaveValue('');
   fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'B 的决定'}});
   fireEvent.click(screen.getByRole('button',{name:/方向与进度/}));
-  expect(screen.getByLabelText('关联工作 PR 地址')).toHaveValue('');
-  expect(screen.getByLabelText('B目标')).not.toBeChecked();
   await open('A');
-  expect(screen.getByLabelText('关联工作 PR 地址')).toHaveValue('https://github.com/eng-cc/oasis7/pull/1');
-  expect(screen.getByLabelText('A目标')).toBeChecked();
   fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
   expect(screen.getByLabelText('决定内容')).toHaveValue('A 的决定');
   expect(screen.getByLabelText('理由')).toHaveValue('A 的理由');
@@ -85,32 +79,8 @@ it('preserves the current project inputs when opening fails or the picker is can
   expect(screen.getByLabelText('决定内容')).toHaveValue('尚未保存');
 });
 
-it('keeps a search-only selected goal visible and removable after returning to the project', async () => {
-  const goal = {...snapshot('A').sections[0],id:'doc/product/design.md#clause',title:'容量合同'};
-  let omitGoal = false;
-  let current = {...snapshot('A'),sections:[goal]};
-  mock.invoke.mockImplementation(async (command: string, args?: {path?: string}) => {
-    if (command === 'open_project') current = args!.path === '/A' ? {...snapshot('A'),sections:omitGoal ? [] : [goal]} : snapshot('B');
-    if (command === 'query_view' || command === 'open_project') return current;
-    if (command === 'search_rules') return [goal];
-    return github;
-  });
-  render(() => <App />);
-  await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
-  fireEvent.input(screen.getByLabelText('搜索规范、标题、路径或条款 ID'),{target:{value:'容量'}});
-  fireEvent.click(screen.getByRole('button',{name:'搜索'}));
-  await waitFor(() => expect(screen.getByLabelText('容量合同')).toBeInTheDocument());
-  fireEvent.click(screen.getByLabelText('容量合同'));
-  fireEvent.input(screen.getByLabelText('关联工作 PR 地址'),{target:{value:'https://github.com/eng-cc/oasis7/pull/1'}});
-  await open('B');
-  await open('A');
-  expect(screen.getByLabelText('容量合同')).toBeChecked();
-  await open('B');
-  omitGoal = true;
-  await open('A');
-  const unresolved = screen.getByLabelText('原章节未读取或已变化 · doc/product/design.md#clause');
-  expect(unresolved).toBeChecked();
-  expect(screen.getByRole('button',{name:'保存已确认关联'})).toBeDisabled();
-  fireEvent.click(unresolved);
-  expect(screen.getByRole('button',{name:'保存已确认关联'})).toBeDisabled();
-}, 15000);
+it('keeps an unsent search query per project and never turns navigation into a relationship write',async()=>{
+ let current=snapshot('A');mock.invoke.mockImplementation(async(command:string,args?:{path?:string})=>{if(command==='open_project')current=snapshot(args!.path!.slice(1));if(['query_view','open_project'].includes(command))return current;return github;});
+ render(()=><App/>);await waitFor(()=>expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
+ fireEvent.input(screen.getByLabelText('搜索规范、标题、路径或条款 ID'),{target:{value:'A 未提交查询'}});await open('B');expect(screen.getByLabelText('搜索规范、标题、路径或条款 ID')).toHaveValue('');await open('A');expect(screen.getByLabelText('搜索规范、标题、路径或条款 ID')).toHaveValue('A 未提交查询');expect(mock.invoke.mock.calls.some(([command])=>command==='save_daily_work'||command==='associate_work')).toBe(false);
+});

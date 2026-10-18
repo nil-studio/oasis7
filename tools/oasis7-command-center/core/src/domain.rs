@@ -74,6 +74,9 @@ pub struct DecisionDraft {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct DecisionRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub supersedes: Option<String>,
     pub id: String,
     pub content: String,
     pub reason: String,

@@ -166,3 +166,66 @@ fn unsupported_ci_cache_metadata_cannot_relabel_associated_sha_as_tested() {
     assert!(restored.pulls[0].checks.is_empty());
     assert!(restored.pulls[0].checks_source.is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn explicit_page_and_known_identity_keep_events_and_rest_budget() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let program = tmp.path().join("gh");
+    let calls = tmp.path().join("calls");
+    std::fs::write(&program,format!(r##"#!/bin/sh
+printf '%s\n' "$*" >> '{}'
+case "$6" in
+'repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=100&page=2') echo '[{{"number":42,"title":"without Issue","html_url":"https://github.com/o/r/pull/42","state":"closed","head":{{"sha":"abc"}},"merged_at":"2026-10-17T00:00:00Z","updated_at":"2026-10-18T00:00:00Z"}}]' ;;
+'repos/o/r/pulls/77') echo '{{"number":77,"title":"known","html_url":"https://github.com/o/r/pull/77","state":"open","head":{{"sha":"def"}},"merged_at":null}}' ;;
+*) exit 2;;
+esac
+"##,calls.display())).unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut client = GitHubClient::new();
+    client.current.repository = Some("o/r".into());
+    let page = client.append_page(tmp.path(), program.to_str(), 2).unwrap();
+    assert_eq!(
+        page.pulls[0]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .merged_at
+            .as_deref(),
+        Some("2026-10-17T00:00:00Z")
+    );
+    assert!(page.coverage.contains("第 2 页"));
+    let known = client
+        .read_known_pull(tmp.path(), program.to_str(), 77)
+        .unwrap();
+    assert_eq!(known.pulls.len(), 2);
+    assert!(
+        known.pulls[1]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .merged_at
+            .is_none()
+    );
+    assert!(
+        client
+            .append_page(tmp.path(), program.to_str(), 11)
+            .is_err()
+    );
+    assert!(
+        client
+            .read_known_pull(tmp.path(), program.to_str(), 0)
+            .is_err()
+    );
+    let calls = std::fs::read_to_string(calls).unwrap();
+    assert_eq!(calls.lines().count(), 2);
+    assert!(!calls.contains("graphql"));
+    std::fs::remove_file(program).unwrap();
+    assert!(
+        client
+            .append_page(tmp.path(), Some("/missing/gh"), 3)
+            .is_err()
+    );
+    assert_eq!(client.snapshot().pulls.len(), 2);
+}
