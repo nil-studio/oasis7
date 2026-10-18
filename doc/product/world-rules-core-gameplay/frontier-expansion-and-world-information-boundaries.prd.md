@@ -125,7 +125,7 @@ Trace ID: O7-REQ-3013b8cf-e3db-4506-a30a-db34e25ed636
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
+- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
 - 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
 - 剩余范围：探索、物流、charter的相邻frontier组合准入、跳跃/私有副本拒绝与同一世界接入的专属producer与Viewer/Agent消费者仍未核清。产品§5.3明确地图、邻接、物流与侦察能力何时进入可验证实现尚未决定；此policy/candidate边界不证明代码必然不存在。
 
@@ -145,7 +145,7 @@ Trace ID: O7-REQ-066843dd-9e40-4148-8933-d369d16b55a2
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
+- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
 - 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
 - 剩余范围：pioneer priority的地点/用途/里程碑/期限、受让资格、撤销到期、关联倒手去重及单次归属消费的专属producer与Viewer/Agent消费者仍未核清。产品§5.3明确地图、邻接、物流与侦察能力何时进入可验证实现尚未决定；此policy/candidate边界不证明代码必然不存在。
 
@@ -165,7 +165,7 @@ Trace ID: O7-REQ-23640893-de22-4940-9b25-ed08c9ab0f7e
 - 系统设计状态：未核实
 - 实现状态：未核实
 - 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_simulator/src/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
+- 实现与验证依据：已排除通用Move/物流/claim/社交数据作为frontier专属交付证明。 [生产dispatcher把战争/危机、经济合同、工业及物流分别路由；没有把这些普通动作自动解释为专属frontier/认可/赛季合同。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L379-L478) [fragment refill是补充资源报价，不是frontier探索/charter准入或pioneer priority。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/kernel/fragment_refill_quote.rs#L1-L60) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
 - 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
 - 剩余范围：frontier公共事实/最低安全披露/授权live inventory和route的分类、来源/freshness/不确定性及失权恢复的专属producer与Viewer/Agent消费者仍未核清。产品§5.3明确地图、邻接、物流与侦察能力何时进入可验证实现尚未决定；此policy/candidate边界不证明代码必然不存在。
 
