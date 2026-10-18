@@ -1,6 +1,6 @@
 use super::super::coordinator::FormalDurabilityEndpoint;
 use super::*;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 #[path = "client_attestation.rs"]
@@ -138,10 +138,7 @@ impl RemoteFormalEndpoint {
             .operation_deadline
             .unwrap_or_else(|| Instant::now() + self.timeout);
         let mut stream =
-            TcpStream::connect_timeout(&self.address, self.remaining_timeout(deadline)?)
-                .map_err(wire::io)?;
-        wire::configure(&stream, self.remaining_timeout(deadline)?)?;
-        wire::write_before_deadline(&mut stream, &request, deadline)?;
+            wire::connect_and_write_before_deadline(&self.address, &request, deadline)?;
         let response: Response = wire::read_before_deadline(&mut stream, deadline)?;
         verify(
             RESPONSE_DOMAIN,

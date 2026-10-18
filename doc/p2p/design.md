@@ -217,6 +217,12 @@ All signed Describe, IntentResponse, ReadView and Changes responses bind optiona
 
 Focused fixtures use real local FileEndpoints, actual NodeRuntime decisions and signed WorldService requests, with endpoint-file unavailability and restart recovery; two local directories do not prove independent hardware. Verification command: `cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime --no-default-features --features node-libp2p,wasmtime,test_tier_required controlled_live`.
 
+#### des-p2p-formal-rpc-frame-preparation
+
+现有 formal TCP 客户端须在建立连接前完成原签名请求的 CBOR 帧编码及既有 64 MiB 大小检查，避免本地编码空窗消耗端点已经开始等待首字节的 socket read 期限。此顺序不改变请求、签名域、挑战、minimum、帧字节或响应验证。每次调用仍在原位置确定一次 effective absolute deadline；编码后先核对剩余时间，再连接、写入已编码帧和读取响应，所有步骤消费同一 deadline，不在编码或连接后重新给满预算。编码失败、超限或编码期间到期须在零连接、零发送下失败；已有调用方提供的跨 RPC absolute deadline 继续覆盖其准备工作，不能通过局部帧准备续期。同步编码本身不声称可抢占，返回后到期仍必须拒绝连接。
+
+端点 socket read timeout、客户端配置期限与测试等待期限保持原值；不能把端点首读等待误称为完整帧的 absolute deadline。未知结果仍查询原请求，不自动重试或推进信任锚。验证须覆盖受控慢编码时连接数为零、编码后过期/失败/超限零连接、原帧往返及现有慢分片 absolute deadline；小 loopback 模型只证明该排序契约，不追认历史 CI 超时或 RPC EOF 的根因。
+
 ### des-p2p-original-candidate-recovery-v1
 
 本节选择“同原请求、同原决定输入的确定性 candidate 重建”，作为正式受控权威的目标协议。
