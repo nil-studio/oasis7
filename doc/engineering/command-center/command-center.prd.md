@@ -105,7 +105,7 @@
 
 2026-10-17 的设计核对保留在 Git 历史。2026-10-18 实现候选为 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6`；本轮 macOS 26.5 arm64 原生 App、Rust/UI 回归、来源窗口、受控协议样本与耗时见[验证记录](daily-work-verification.manual.md)。三项真实 PR 仅证明各自合入事实；两个同分支历史与输入请求明确使用受控回放，不冒充模型或外部 App 的实际执行。
 
-本轮补齐日常工作实现；真实 IME 候选尚未验证，用户于 2026-10-18 表示暂时无法验证，因此 [Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 保留开放，不宣称完整 AC-CC-010/整体验收通过。Apple 签名/管理员集成仍暂停；不扩大部署、公证、额外模型或其他环境的结论。基础历史来源仍见 [PR #4533](https://github.com/nil-studio/oasis7/pull/4533#issuecomment-6162418199)。
+本轮补齐日常工作实现；用户于 2026-10-18 人工确认“IME我试了可以”，补齐 [Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 最后一项适用交互验收。该确认及构建范围见验证记录，VoiceOver 按用户要求不在范围内；本 Issue 的日常工作闭环验收完成。Apple 签名/管理员集成仍暂停；不扩大部署、公证、额外模型或其他环境的结论。基础历史来源仍见 [PR #4533](https://github.com/nil-studio/oasis7/pull/4533#issuecomment-6162418199)。
 
 <a id="REQ-CC-001"></a>
 
@@ -128,7 +128,7 @@ Trace ID: O7-REQ-6e70287f-a156-4544-997d-5c1752e5efde
 - 实现状态：已实现待验证
 - 实现与验证依据：显式同仓工作树阅读引用保留原执行身份，项目设置折叠，工作/筛选/普通草稿恢复。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
 - 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
-- 剩余范围：真实 IME尚待补齐；跨平台和全部来源规模没有扩大保证。
+- 剩余范围：真实 IME 已获用户人工确认；跨平台和全部来源规模没有扩大保证。
 
 <a id="REQ-CC-002"></a>
 
@@ -211,7 +211,7 @@ Trace ID: O7-REQ-eb004bfb-41c7-4e8f-aa5b-1f52cec6cf08
 - 实现状态：已实现待验证
 - 实现与验证依据：两条同步轨道、具体版本证据、部分范围/剩余项、决定替代与原确认时间/完整历史、旧版回退冲突保护。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
 - 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
-- 剩余范围：用户需明确核实适用范围；自动化不判断实现语义，IME待补。
+- 剩余范围：用户需明确核实适用范围；自动化不判断实现语义；IME 已获用户人工确认。
 
 <a id="REQ-CC-005"></a>
 
@@ -372,7 +372,7 @@ Trace ID: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245
 - 实现状态：已实现待验证
 - 实现与验证依据：四区和统一详情、可读正文、局部状态、键盘焦点及原生窄窗口/长身份已核对。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
 - 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
-- 剩余范围：真实 IME 候选暂无法验证；保持 #4848 开放，首次加载单独记录。
+- 剩余范围：真实 IME 已获用户人工确认；首次加载单独记录，不扩大性能保证。
 
 <a id="REQ-CC-011"></a>
 
@@ -442,7 +442,7 @@ Trace ID: O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6
 - 实现状态：已实现待验证
 - 实现与验证依据：首页四区、合计最多三项重点、事件比较基线、局部冲突、原 PR 直达及原生三任务路径。 见[源码、原生与回放证据](daily-work-verification.manual.md)。
 - 核对日期与基线：2026-10-18；[本轮固定源码与验收边界](daily-work-verification.manual.md)。
-- 剩余范围：原生 IME 仍待补；不以本轮局部数据推导总体进度或启动性能保证。
+- 剩余范围：原生 IME 已获用户人工确认；不以本轮局部数据推导总体进度或启动性能保证。
 
 <a id="REQ-CC-014"></a>
 
