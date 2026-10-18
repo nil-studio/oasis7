@@ -17,6 +17,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
+STOP_DIAGNOSTIC_CASE = 'formal_live_runtime::tests::protected_process_tests::protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin'
 
 
 def output(command):
@@ -437,10 +438,34 @@ def execute(bundle, suite, results, shard=None):
         raise RuntimeError(f'{shard or suite} failed; see {results}')
 
 
+def diagnose_stop(bundle, results):
+    """One registered case, diagnostic evidence only; ordinary CI selection is unchanged."""
+    from ci_process_runner import run
+    manifest, env = load(bundle)
+    expected = dict(binary='runtime-tests', name=STOP_DIAGNOSTIC_CASE, ignored=True)
+    entries = [entry for entry in manifest['suites']['runtime-protocol']
+               if entry.get('name') == STOP_DIAGNOSTIC_CASE]
+    if entries != [expected]:
+        raise ValueError('exact registered stop diagnostic case is missing or duplicated')
+    binary = manifest['binaries']['runtime-tests']
+    if binary['ignored_tests'].count(STOP_DIAGNOSTIC_CASE) != 1:
+        raise ValueError('exact stop diagnostic must be present once in ignored inventory')
+    if results.exists():
+        raise FileExistsError('diagnostic result already exists; no retry')
+    cwd = ROOT / binary['cwd']
+    test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd), OASIS7_FORMAL_EXECUTION_TIMING='1')
+    command = [str(bundle / binary['path']), '--exact', STOP_DIAGNOSTIC_CASE,
+               '--ignored', '--test-threads=1', '--nocapture']
+    result = run(command, cwd, test_env, 'stop-diagnostic', STOP_DIAGNOSTIC_CASE,
+                 results, expected_count=1, timeout_seconds=120)
+    if not result['passed']:
+        raise RuntimeError('stop diagnostic failed; preserve its original failure')
+
+
 def main():
     global ROOT, CONFIG
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-budget'])
+    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-budget', 'diagnose-stop'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--scope', choices=['all', 'formal', 'ordinary'], default='all')
@@ -476,6 +501,8 @@ def main():
                 pack(args.bundle.resolve(), args.output / (shard + '.tar.gz'), shard=shard)
         else:
             pack(args.bundle.resolve(), args.output, None if args.shard else args.suite, args.shard)
+    elif args.action == 'diagnose-stop':
+        diagnose_stop(args.bundle.resolve(), args.results or ROOT / 'output/stop-diagnostic/results.jsonl')
     else:
         execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl', args.shard)
 

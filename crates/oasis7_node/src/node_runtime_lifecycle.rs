@@ -101,6 +101,22 @@ impl NodeRuntime {
     }
 
     pub fn stop(&mut self) -> Result<(), NodeError> {
+        self.stop_with_phase_observer_inner(|_| {})
+    }
+
+    /// Test diagnostics only; the observer must be nonblocking and nonpanicking.
+    #[cfg(feature = "test-hooks")]
+    pub fn stop_with_phase_observer(
+        &mut self,
+        observer: impl FnMut(&'static str),
+    ) -> Result<(), NodeError> {
+        self.stop_with_phase_observer_inner(observer)
+    }
+
+    fn stop_with_phase_observer_inner(
+        &mut self,
+        mut observer: impl FnMut(&'static str),
+    ) -> Result<(), NodeError> {
         if !self.running.load(Ordering::SeqCst) {
             return Err(NodeError::NotRunning {
                 node_id: self.config.node_id.clone(),
@@ -111,6 +127,7 @@ impl NodeRuntime {
         if let Some(stop_tx) = self.stop_tx.take() {
             let _ = stop_tx.send(());
         }
+        observer("main_worker_join_begin");
         let join_result = if let Some(worker) = self.worker.take() {
             worker.join().map_err(|_| NodeError::ThreadJoinFailed {
                 node_id: self.config.node_id.clone(),
@@ -118,7 +135,10 @@ impl NodeRuntime {
         } else {
             Ok(())
         };
+        observer("main_worker_join_end");
+        observer("observer_shutdown_begin");
         self.shutdown_consensus_progress_observer();
+        observer("observer_shutdown_end");
         // Release sockets and flags even when the main worker panicked.
         self.gossip_endpoint = None;
         let pending_bytes = self

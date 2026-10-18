@@ -26,7 +26,7 @@ fn pending_stop_retains_the_same_owner_until_an_in_flight_node_tick_finishes() {
     use oasis7_node::{NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc::{self, RecvTimeoutError},
+        mpsc,
     };
 
     struct BlockingTick {
@@ -76,8 +76,9 @@ fn pending_stop_retains_the_same_owner_until_an_in_flight_node_tick_finishes() {
     let state = FormalLiveState::default();
     state.node_running.store(true, Ordering::Release);
     state.stopping.store(true, Ordering::Release);
-    let pending = PendingNodeStop::spawn(node.clone(), state.clone()).unwrap();
-    let worker_id = pending.worker.thread().id();
+    let mut pending =
+        Some(PendingNodeStop::spawn(node.clone(), state.clone(), "unit_pending").unwrap());
+    let worker_id = pending.as_ref().unwrap().worker.thread().id();
     let stop_started_deadline = std::time::Instant::now() + Duration::from_secs(2);
     loop {
         match node.try_lock() {
@@ -93,26 +94,57 @@ fn pending_stop_retains_the_same_owner_until_an_in_flight_node_tick_finishes() {
     }
     for _ in 0..2 {
         assert_eq!(
-            pending.result.recv_timeout(Duration::from_millis(10)),
-            Err(RecvTimeoutError::Timeout),
+            PendingNodeStop::wait(&mut pending, Duration::from_millis(10)).unwrap(),
+            None,
             "stop must not report completion while real execution is blocked"
         );
-        assert_eq!(pending.worker.thread().id(), worker_id);
-        assert!(!pending.worker.is_finished());
+        assert_eq!(pending.as_ref().unwrap().worker.thread().id(), worker_id);
+        assert!(!pending.as_ref().unwrap().worker.is_finished());
         assert!(state.node_running.load(Ordering::Acquire));
+        assert!(state.stopping.load(Ordering::Acquire));
     }
     release_send.send(()).unwrap();
     assert_eq!(
-        pending.result.recv_timeout(Duration::from_secs(5)).unwrap(),
-        Ok(())
+        PendingNodeStop::wait(&mut pending, Duration::from_secs(5)).unwrap(),
+        Some(Ok(()))
     );
-    assert_eq!(pending.worker.join().unwrap(), Ok(()));
+    assert!(
+        pending.is_none(),
+        "completion consumes the same joined worker"
+    );
     assert!(!state.node_running.load(Ordering::Acquire));
     assert!(!node.lock().unwrap().snapshot().running);
     assert_eq!(
         calls.load(Ordering::SeqCst),
         1,
         "stop must not abandon or repeat the in-flight Tick"
+    );
+}
+
+#[test]
+fn pending_stop_preserves_real_worker_error_instead_of_reporting_completion() {
+    use std::sync::{Arc, Mutex};
+    let config = local_single_authority_node_config("stop-error", "stop-world").unwrap();
+    let node = Arc::new(Mutex::new(NodeRuntime::new(config)));
+    let poison = node.clone();
+    assert!(
+        std::thread::spawn(move || {
+            let _guard = poison.lock().unwrap();
+            panic!("controlled runtime owner poison");
+        })
+        .join()
+        .is_err()
+    );
+    let state = FormalLiveState::default();
+    let mut pending = Some(PendingNodeStop::spawn(node, state.clone(), "unit_error").unwrap());
+    assert_eq!(
+        PendingNodeStop::wait(&mut pending, Duration::from_secs(5)).unwrap(),
+        Some(Err("formal Node runtime lock poisoned".into()))
+    );
+    assert!(pending.is_none());
+    assert_eq!(
+        state.last_error.lock().unwrap().as_deref(),
+        Some("formal Node runtime lock poisoned")
     );
 }
 

@@ -76,6 +76,8 @@ pub(crate) struct FormalLiveRuntime {
         Arc<super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1>,
     server: Option<FormalHttpServer>,
     stop_worker: Option<PendingNodeStop>,
+    #[cfg(test)]
+    stop_diagnostic_label: &'static str,
     effect_delivery: Option<super::formal_live_effect_delivery::FormalEffectDeliveryRuntime>,
     started: bool,
 }
@@ -83,23 +85,106 @@ pub(crate) struct FormalLiveRuntime {
 struct PendingNodeStop {
     result: std::sync::mpsc::Receiver<Result<(), String>>,
     worker: std::thread::JoinHandle<Result<(), String>>,
+    #[cfg(test)]
+    timing: Option<stop_timing::StopTiming>,
 }
 
+#[cfg(test)]
+#[path = "formal_live_stop_timing.rs"]
+mod stop_timing;
+
 impl PendingNodeStop {
+    /// A pending wait retains the original receiver and worker. Completion
+    /// consumes and joins that same worker; this never starts or retries stop.
+    fn wait(
+        pending: &mut Option<Self>,
+        timeout: Duration,
+    ) -> Result<Option<Result<(), String>>, String> {
+        let owner = pending.as_ref().ok_or("formal Node stop worker missing")?;
+        match owner.result.recv_timeout(timeout) {
+            Ok(result) => {
+                #[cfg(test)]
+                if let Some(timing) = &owner.timing {
+                    timing.record(if result.is_ok() {
+                        "wait_completed"
+                    } else {
+                        "wait_error"
+                    });
+                }
+                let owner = pending.take().expect("stop worker exists");
+                let worker_result = owner
+                    .worker
+                    .join()
+                    .map_err(|_| "formal Node stop worker panicked".to_owned())?;
+                if worker_result != result {
+                    return Err("formal Node stop channel/worker result mismatch".into());
+                }
+                Ok(Some(result))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                #[cfg(test)]
+                if let Some(timing) = &owner.timing {
+                    timing.record("wait_pending");
+                }
+                Ok(None)
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                #[cfg(test)]
+                if let Some(timing) = &owner.timing {
+                    timing.record("wait_disconnected");
+                }
+                if let Some(owner) = pending.take() {
+                    let _ = owner.worker.join();
+                }
+                Err("formal Node stop result channel closed".into())
+            }
+        }
+    }
+
     fn spawn(
         runtime: Arc<Mutex<NodeRuntime>>,
         state: FormalLiveState,
+        _label: &'static str,
     ) -> Result<Self, std::io::Error> {
+        #[cfg(test)]
+        let timing = stop_timing::StopTiming::new(_label);
+        #[cfg(test)]
+        let worker_timing = timing.clone();
+        #[cfg(test)]
+        if let Some(timing) = &timing {
+            timing.record("operation_begin");
+        }
         let (send, receive) = std::sync::mpsc::sync_channel(1);
         let worker = std::thread::Builder::new()
             .name("oasis7-formal-stop".into())
             .spawn(move || {
+                #[cfg(test)]
+                if let Some(timing) = &worker_timing {
+                    timing.record("mutex_wait_begin");
+                }
                 let result = match runtime.lock() {
-                    Ok(mut runtime) => runtime
-                        .stop()
-                        .map_err(|error| format!("formal NodeRuntime stop: {error:?}")),
+                    Ok(mut runtime) => {
+                        #[cfg(test)]
+                        let result = if let Some(timing) = &worker_timing {
+                            timing.record("mutex_wait_end");
+                            runtime.stop_with_phase_observer(|phase| timing.record(phase))
+                        } else {
+                            runtime.stop()
+                        };
+                        #[cfg(not(test))]
+                        let result = runtime.stop();
+                        result.map_err(|error| format!("formal NodeRuntime stop: {error:?}"))
+                    }
                     Err(_) => Err("formal Node runtime lock poisoned".into()),
                 };
+                #[cfg(test)]
+                if let Some(timing) = &worker_timing {
+                    timing.record(if result.is_ok() {
+                        "worker_completed"
+                    } else {
+                        "worker_error"
+                    });
+                }
                 if result.is_ok() {
                     state
                         .node_running
@@ -113,6 +198,8 @@ impl PendingNodeStop {
         Ok(Self {
             result: receive,
             worker,
+            #[cfg(test)]
+            timing,
         })
     }
 }
@@ -404,6 +491,8 @@ impl FormalLiveRuntime {
             durable_set_arm,
             server: None,
             stop_worker: None,
+            #[cfg(test)]
+            stop_diagnostic_label: "unlabelled",
             effect_delivery,
             started: false,
         })
@@ -645,8 +734,12 @@ impl FormalLiveRuntime {
                 .store(true, std::sync::atomic::Ordering::Release);
         }
         if self.started && self.stop_worker.is_none() {
+            #[cfg(test)]
+            let label = self.stop_diagnostic_label;
+            #[cfg(not(test))]
+            let label = "unlabelled";
             self.stop_worker = Some(
-                match PendingNodeStop::spawn(Arc::clone(&self.runtime), self.state.clone()) {
+                match PendingNodeStop::spawn(Arc::clone(&self.runtime), self.state.clone(), label) {
                     Ok(pending) => pending,
                     Err(error) => {
                         self.state
@@ -660,20 +753,12 @@ impl FormalLiveRuntime {
                 },
             );
         }
-        if let Some(pending) = self.stop_worker.as_ref() {
-            match pending
-                .result
-                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-            {
-                Ok(result) => {
-                    let pending = self.stop_worker.take().expect("stop worker exists");
-                    let worker_result = pending
-                        .worker
-                        .join()
-                        .map_err(|_| "formal Node stop worker panicked".to_owned())?;
-                    if worker_result != result {
-                        return Err("formal Node stop channel/worker result mismatch".into());
-                    }
+        if self.stop_worker.is_some() {
+            match PendingNodeStop::wait(
+                &mut self.stop_worker,
+                deadline.saturating_duration_since(std::time::Instant::now()),
+            )? {
+                Some(result) => {
                     if let Err(error) = result {
                         if let Ok(runtime) = self.runtime.lock()
                             && runtime.snapshot().running
@@ -696,17 +781,11 @@ impl FormalLiveRuntime {
                         return Err(error);
                     }
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                None => {
                     self.state
                         .stopping
                         .store(true, std::sync::atomic::Ordering::Release);
                     return Err("formal Node stop is still pending; runtime remains owned".into());
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Some(pending) = self.stop_worker.take() {
-                        let _ = pending.worker.join();
-                    }
-                    return Err("formal Node stop result channel closed".into());
                 }
             }
         }

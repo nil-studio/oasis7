@@ -28,6 +28,59 @@ plan = module('ci-formal-plan')
 from ci_process_runner import run, owned_processes
 
 
+class StopDiagnostic(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.manifest = dict(suites={'runtime-protocol': [dict(binary='runtime-tests',
+            name=artifacts.STOP_DIAGNOSTIC_CASE, ignored=True)]}, binaries={'runtime-tests':
+            dict(path='bin/runtime-tests', cwd='crates/oasis7_chain_runtime',
+                 ignored_tests=[artifacts.STOP_DIAGNOSTIC_CASE])})
+
+    def test_exact_case_uses_existing_runner_once_with_original_failure_boundary(self):
+        with patch.object(artifacts, 'load', return_value=(self.manifest, {'BOUND_ENV': 'kept'})), \
+                patch('ci_process_runner.run', return_value={'passed': True}) as runner:
+            artifacts.diagnose_stop(self.root, self.root / 'result.jsonl')
+        runner.assert_called_once()
+        args, kwargs = runner.call_args
+        self.assertEqual(args[0], [str(self.root / 'bin/runtime-tests'), '--exact',
+            artifacts.STOP_DIAGNOSTIC_CASE, '--ignored', '--test-threads=1', '--nocapture'])
+        self.assertEqual(args[2]['OASIS7_FORMAL_EXECUTION_TIMING'], '1')
+        self.assertEqual(args[2]['BOUND_ENV'], 'kept')
+        self.assertEqual(kwargs, dict(expected_count=1, timeout_seconds=120))
+
+    def test_missing_duplicate_or_nonignored_case_never_runs(self):
+        for change in ('missing', 'duplicate', 'not-ignored'):
+            manifest = copy.deepcopy(self.manifest)
+            if change == 'missing':
+                manifest['suites']['runtime-protocol'] = []
+            elif change == 'duplicate':
+                manifest['suites']['runtime-protocol'] *= 2
+            else:
+                manifest['binaries']['runtime-tests']['ignored_tests'] = []
+            with self.subTest(change=change), patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                    patch('ci_process_runner.run') as runner:
+                with self.assertRaises(ValueError):
+                    artifacts.diagnose_stop(self.root, self.root / 'result.jsonl')
+                runner.assert_not_called()
+
+    def test_existing_result_is_not_retried(self):
+        result = self.root / 'result.jsonl'
+        result.write_text('previous result')
+        with patch.object(artifacts, 'load', return_value=(self.manifest, {})), patch('ci_process_runner.run') as runner:
+            with self.assertRaises(FileExistsError):
+                artifacts.diagnose_stop(self.root, result)
+            runner.assert_not_called()
+
+    def test_case_failure_is_preserved(self):
+        with patch.object(artifacts, 'load', return_value=(self.manifest, {})), \
+                patch('ci_process_runner.run', return_value={'passed': False}) as runner:
+            with self.assertRaises(RuntimeError):
+                artifacts.diagnose_stop(self.root, self.root / 'result.jsonl')
+            runner.assert_called_once()
+
+
 class Transition(unittest.TestCase):
     def test_old_baseline_can_only_widen(self):
         self.assertTrue(plan.selected(dict(scope='full', groups=['baseline']), ['baseline']))

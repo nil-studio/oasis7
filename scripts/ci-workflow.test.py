@@ -65,6 +65,21 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def test_stop_diagnostic_is_manual_readonly_and_separate_from_required(self):
+        diagnostic = JOBS['formal-stop-diagnostic']
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'formal_stop_diagnostic'", diagnostic)
+        self.assertIn('persist-credentials: false', diagnostic)
+        self.assertIn('save-if: false', diagnostic)
+        self.assertIn('timeout-minutes: 75', diagnostic)
+        self.assertIn('timeout-minutes: 45', diagnostic)
+        self.assertIn('diagnose-stop --bundle', diagnostic)
+        self.assertIn('if: always()', diagnostic)
+        self.assertIn('path: output/stop-diagnostic', diagnostic)
+        self.assertNotIn('security-events:', diagnostic)
+        self.assertNotIn('codeql', diagnostic.lower())
+        self.assertNotIn('formal-stop-diagnostic', JOBS['required-gate'])
+        self.assertNotIn('formal-stop-diagnostic', JOBS['formal-process'])
+
     def test_manual_and_scheduled_selection_stays_explicit_full(self):
         self.assertIn("if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'",
                       JOBS['select'])

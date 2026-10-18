@@ -873,6 +873,7 @@ fn run_protected_runtime_fixture(
             (first_view, first_cut)
         };
 
+    runtime.stop_diagnostic_label = "first_stop";
     runtime.stop(Duration::from_secs(10))?;
     let stopped_cut = runtime.published.current()?;
     let stopped_snapshot = stopped_cut.world.snapshot();
@@ -931,6 +932,7 @@ fn run_protected_runtime_fixture(
             return Err("lookup after restart changed the original result CommitRef".into());
         }
     }
+    restarted.stop_diagnostic_label = "restarted_stop";
     restarted.stop(Duration::from_secs(10))?;
     drop((primary_oracle, replica_oracle, coordinator));
     Ok(())
