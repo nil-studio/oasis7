@@ -44,7 +44,7 @@ impl<'de> Deserialize<'de> for WorldKernel {
             config: state.config,
             next_event_id: state.next_event_id,
             next_action_id: state.next_action_id,
-            pending_actions: state.pending_actions.into(),
+            pending_actions: state.pending_actions,
             journal: native_events,
             model: state.model,
             chunk_runtime: state.chunk_runtime,

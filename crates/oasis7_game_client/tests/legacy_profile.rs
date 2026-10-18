@@ -146,9 +146,9 @@ fn published_lease_and_continuation_pure_helpers_preserve_defaults_and_reject_in
         json!({"schema_version":"wake-condition.v1","kind":"at_or_after_tick","logical_tick":20}),
     )
     .unwrap();
-    WakeConditionValidator::validate(&[condition.clone()]).unwrap();
+    WakeConditionValidator::validate(std::slice::from_ref(&condition)).unwrap();
     assert_eq!(
-        WakeConditionValidator::next_wake_tick_at(&[condition.clone()], 25).unwrap(),
+        WakeConditionValidator::next_wake_tick_at(std::slice::from_ref(&condition), 25).unwrap(),
         Some(25)
     );
     let mut invalid = condition;
