@@ -1,5 +1,6 @@
 pub mod codex;
 pub mod context;
+pub mod daily_work;
 pub mod document_directory;
 mod document_directory_pairings;
 mod document_directory_references;
@@ -40,6 +41,70 @@ pub fn now() -> String {
 pub struct CommandCenter {
     db: Connection,
     current: Snapshot,
+    runtime_privacy: Option<Connection>,
+}
+pub struct LocalRead {
+    result: Result<(Project, index::IndexCandidate)>,
+}
+impl CommandCenter {
+    pub fn use_runtime_privacy_database(&mut self, path: &Path) -> Result<()> {
+        let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.query_row("SELECT COUNT(*) FROM cc_runtime_private_inputs", [], |r| {
+            r.get::<_, i64>(0)
+        })?;
+        self.runtime_privacy = Some(db);
+        Ok(())
+    }
+    pub fn check_local_path(&self, path: &Path) -> Result<()> {
+        context::check_project(&self.db, path)
+    }
+    pub fn collect_local(path: &Path) -> LocalRead {
+        LocalRead {
+            result: index::project(path)
+                .and_then(|p| index::read_with_inventory(&p).map(|candidate| (p, candidate))),
+        }
+    }
+    pub fn publish_local(&mut self, candidate: LocalRead, opening: bool) -> Result<Snapshot> {
+        let before = self.current.clone();
+        let result = (|| {
+            if opening {
+                let (project, _) = candidate
+                    .result
+                    .as_ref()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                context::register_project(&self.db, Path::new(&project.path))?;
+                if self
+                    .current
+                    .project
+                    .as_ref()
+                    .is_some_and(|old| old.id != project.id)
+                {
+                    self.current.sections.clear();
+                    self.current.sources.retain(|source| source.kind != "local");
+                    self.current.git = GitSnapshot::default();
+                }
+                self.current.project = Some(project.clone());
+                self.load_personal()?;
+                self.current.preferences.project_path = Some(project.path.clone());
+            }
+            let current = self
+                .current
+                .project
+                .as_ref()
+                .ok_or_else(|| Error::Invalid("select a project first".into()))?;
+            context::check_project(&self.db, Path::new(&current.path))?;
+            if let Ok((p, _)) = &candidate.result
+                && (p.id != current.id || p.path != current.path)
+            {
+                return Err(Error::Invalid("local candidate identity changed".into()));
+            }
+            self.publish_local_result(candidate.result)
+        })();
+        if result.is_err() {
+            self.current = before;
+        }
+        result
+    }
 }
 impl CommandCenter {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -57,7 +122,11 @@ impl CommandCenter {
             git: GitSnapshot::default(),
             sources: vec![disconnected("github"), disconnected("codex")],
         };
-        let mut this = Self { db, current };
+        let mut this = Self {
+            db,
+            current,
+            runtime_privacy: None,
+        };
         if let Some(snapshot) = load::<Snapshot>(&this.db, "cache", "snapshot")? {
             this.current = snapshot;
         }
@@ -92,6 +161,9 @@ impl CommandCenter {
         self.current.reading_positions =
             load(&self.db, "personal", &self.personal_key("reading"))?.unwrap_or_default();
         Ok(())
+    }
+    pub fn reload_personal(&mut self) -> Result<()> {
+        self.load_personal()
     }
     pub fn current_project(&self) -> Option<Project> {
         self.current.project.clone()
@@ -172,7 +244,6 @@ impl CommandCenter {
             .clone()
             .ok_or_else(|| Error::Invalid("select a project first".into()))?;
         context::check_project(&self.db, Path::new(&old.path))?;
-        let attempt = now();
         let result = index::project(Path::new(&old.path)).and_then(|p| {
             if p.id != old.id {
                 return Err(Error::Invalid(
@@ -182,6 +253,13 @@ impl CommandCenter {
             context::register_project(&self.db, Path::new(&p.path))?;
             index::read_with_inventory(&p).map(|candidate| (p, candidate))
         });
+        self.publish_local_result(result)
+    }
+    fn publish_local_result(
+        &mut self,
+        result: Result<(Project, index::IndexCandidate)>,
+    ) -> Result<Snapshot> {
+        let attempt = now();
         let previous = self
             .current
             .sources
@@ -322,7 +400,41 @@ impl CommandCenter {
         self.current.preferences = preferences;
         Ok(())
     }
+    pub fn decision_history(&self, id: &str) -> Result<Vec<DecisionRecord>> {
+        if !self.current.decisions.iter().any(|d| d.id == id) {
+            return Err(Error::Invalid("决定不在当前范围".into()));
+        }
+        let prefix = format!("{}:{}:", self.personal_key("decision"), id);
+        let mut stmt = self.db.prepare(
+            "SELECT value FROM history WHERE substr(key,1,length(?1))=?1 ORDER BY key LIMIT 1000",
+        )?;
+        let rows = stmt.query_map([prefix], |r| r.get::<_, String>(0))?;
+        rows.map(|r| Ok(serde_json::from_str(&r?)?)).collect()
+    }
     pub fn save_decision(&mut self, draft: DecisionDraft) -> Result<DecisionRecord> {
+        self.save_decision_revision(draft, None)
+    }
+    pub fn replace_decision(
+        &mut self,
+        mut draft: DecisionDraft,
+        previous_id: String,
+    ) -> Result<DecisionRecord> {
+        draft.id = None;
+        draft.confirmed = true;
+        self.save_decision_revision(draft, Some(previous_id))
+    }
+    fn save_decision_revision(
+        &mut self,
+        draft: DecisionDraft,
+        previous_id: Option<String>,
+    ) -> Result<DecisionRecord> {
+        let stored: Vec<DecisionRecord> =
+            load(&self.db, "personal", &self.personal_key("decisions"))?.unwrap_or_default();
+        if serde_json::to_vec(&stored)? != serde_json::to_vec(&self.current.decisions)? {
+            return Err(Error::Invalid(
+                "决定已被其他窗口或旧版修改；未覆盖，请先重新读取".into(),
+            ));
+        }
         if self.current.project.is_none() {
             return Err(Error::Invalid("select a project first".into()));
         }
@@ -341,7 +453,12 @@ impl CommandCenter {
             ));
         }
         if let Some(id) = &draft.id {
-            if !self.current.decisions.iter().any(|d| &d.id == id) {
+            if !self
+                .current
+                .decisions
+                .iter()
+                .any(|d| &d.id == id && d.state != "superseded")
+            {
                 return Err(Error::Invalid(
                     "decision does not belong to current project".into(),
                 ));
@@ -370,6 +487,13 @@ impl CommandCenter {
             )
         });
         let record = DecisionRecord {
+            supersedes: previous_id.clone().or_else(|| {
+                self.current
+                    .decisions
+                    .iter()
+                    .find(|d| d.id == id)
+                    .and_then(|d| d.supersedes.clone())
+            }),
             id: id.clone(),
             content: draft.content,
             reason: draft.reason,
@@ -381,19 +505,58 @@ impl CommandCenter {
                 "draft"
             }
             .into(),
-            confirmed_at: draft.confirmed.then(now),
+            confirmed_at: self
+                .current
+                .decisions
+                .iter()
+                .find(|d| d.id == id)
+                .and_then(|d| d.confirmed_at.clone())
+                .or_else(|| draft.confirmed.then(now)),
             formal_update: "notVerified".into(),
             implementation_sync: "notVerified".into(),
         };
         let mut decisions = self.current.decisions.clone();
         decisions.retain(|d| d.id != record.id);
         decisions.push(record.clone());
-        save(
-            &self.db,
-            "personal",
-            &self.personal_key("decisions"),
-            &decisions,
-        )?;
+        if let Some(previous_id) = &previous_id {
+            let previous = decisions
+                .iter_mut()
+                .find(|d| {
+                    &d.id == previous_id && d.confirmed_at.is_some() && d.state != "superseded"
+                })
+                .ok_or_else(|| Error::Invalid("被替代决定不存在或未确认".into()))?;
+            previous.state = "superseded".into();
+        }
+        let tx = self.db.unchecked_transaction()?;
+        if let Some(previous) = self.current.decisions.iter().find(|d| d.id == record.id) {
+            save(
+                &tx,
+                "history",
+                &format!(
+                    "{}:{}:{}",
+                    self.personal_key("decision"),
+                    previous.id,
+                    index::digest(&serde_json::to_vec(previous)?)
+                ),
+                previous,
+            )?;
+        }
+        daily_work::record_owned_legacy_edit(self, &tx, &decisions)?;
+        save(&tx, "personal", &self.personal_key("decisions"), &decisions)?;
+        if let Some(previous_id) = previous_id {
+            save(
+                &tx,
+                "history",
+                &format!(
+                    "{}:{}:{}",
+                    self.personal_key("decision_successor_v1"),
+                    previous_id,
+                    record.id
+                ),
+                &record.id,
+            )?;
+        }
+        tx.commit()?;
         self.current.decisions = decisions;
         Ok(record)
     }

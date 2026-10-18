@@ -31,7 +31,7 @@ export default function DocumentInventory(props: {
   showSource: (section: DocumentSection, origin?: HTMLElement, restore?: {scrollTop:number;passive:boolean}) => void;
   sourcePosition?:TreeSourcePosition|null;
 }) {
-  const [view, setView] = createSignal('files');
+  const [view, setView] = createSignal('product');
   const [treeActivated,setTreeActivated] = createSignal(false);
   const [lastViewNotice,setLastViewNotice] = createSignal('');
   const [localSource,setLocalSource] = createSignal<TreeSourcePosition|null>(null);
@@ -163,7 +163,8 @@ export default function DocumentInventory(props: {
       </Show>
       <Show when={selected()}>{file => <section class="inventory-detail" aria-label="文件读取详情" ref={detail} tabindex="-1"><div class="actions"><button onClick={closeFile}>返回文档树与列表</button></div><h4>{file().path}</h4>
         <p>{states[file().state] ?? file().state} · {file().reason ? reasons[file().reason!] ?? file().reason : `${file().bytes ?? 0} 字节`}</p>
-        <Show when={file().revision}><p class="muted small">内容摘要 {file().revision}</p></Show>
+        <For each={chapters()}>{section => <p><button onClick={e => openSection(section, e.currentTarget)}>{section.title} · 第 {section.line} 行</button></p>}</For>
+        <details><summary>文件身份与解析诊断</summary><Show when={file().revision}><p class="muted small">内容摘要 {file().revision}</p></Show>
         <Show when={file().lifecycle}><p class="muted small">生命周期原声明：{file().lifecycle?.rawStatus ?? file().lifecycle?.status ?? '未声明'} · 类别 {categories[file().lifecycle?.category ?? 'unknown'] ?? '未分类'}<Show when={file().lifecycle?.issue}> · {file().lifecycle?.issue}</Show></p></Show>
         <Show when={file().state === 'read'}>
           <section aria-label="文档身份声明"><h5>文档身份声明</h5>
@@ -174,12 +175,11 @@ export default function DocumentInventory(props: {
               <Show when={identity().duplicateFiles}><p role="status">重复文档 ID：相同 ID 另有 {identity().duplicateFiles} 个已读文件；文件仍分别保留。</p><p class="muted small">路径样本 {identity().duplicatePaths.length} / {identity().duplicateFiles}（最多 20 条）</p><ul><For each={identity().duplicatePaths}>{path => <li>{path}</li>}</For></ul></Show>
             </>}</Show>
           </section>
-          <DocumentNavigation navigation={file().navigation} sections={props.snapshot.sections} showSource={openSection} />
+        </Show></details><Show when={file().state === 'read'}><DocumentNavigation navigation={file().navigation} sections={props.snapshot.sections} showSource={openSection} />
           <DocumentRelations relations={file().pairings} mode={file().path.startsWith('doc/product/') ? 'product_pairing' : 'pairing'} sections={props.snapshot.sections} showSource={openSection} />
           <Show when={file().kind === 'design'}><DocumentRelations relations={file().upstream} mode="upstream" sections={props.snapshot.sections} showSource={openSection} /><DocumentAllocations allocations={file().allocations} sections={props.snapshot.sections} showSource={openSection} /></Show>
         </Show>
         <Show when={file().state === 'read' && !chapters().length}><p>已读取，文件没有可展示的章节。</p></Show>
-        <For each={chapters()}>{section => <p><button onClick={e => openSection(section, e.currentTarget)}>{section.title} · 第 {section.line} 行</button></p>}</For>
         <button onClick={closeFile}>收起文件详情</button>
       </section>}</Show>
     </div>

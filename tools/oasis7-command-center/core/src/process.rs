@@ -7,6 +7,13 @@ use std::{
 };
 /// Fixed argument arrays only; bounded streams are drained concurrently to avoid pipe deadlocks.
 pub fn run(program: &str, args: &[&str], cwd: &Path) -> Result<Vec<u8>> {
+    run_for(program, args, cwd, Duration::from_secs(10))
+}
+pub fn run_for(program: &str, args: &[&str], cwd: &Path, budget: Duration) -> Result<Vec<u8>> {
+    let budget = budget.min(Duration::from_secs(10));
+    if budget.is_zero() {
+        return Err(Error::Invalid("source deadline exhausted".into()));
+    }
     let mut command = Command::new(program);
     command
         .args(args)
@@ -53,7 +60,7 @@ pub fn run(program: &str, args: &[&str], cwd: &Path) -> Result<Vec<u8>> {
         if let Some(status) = child.try_wait()? {
             break status;
         }
-        if start.elapsed() > Duration::from_secs(10) {
+        if start.elapsed() > budget {
             let _ = child.kill();
             let _ = child.wait();
             return Err(Error::Invalid("source timeout".into()));
@@ -61,15 +68,27 @@ pub fn run(program: &str, args: &[&str], cwd: &Path) -> Result<Vec<u8>> {
         std::thread::sleep(Duration::from_millis(10));
     };
     let bytes = out
-        .recv_timeout(Duration::from_secs(10).saturating_sub(start.elapsed()))
+        .recv_timeout(budget.saturating_sub(start.elapsed()))
         .map_err(|_| Error::Invalid("source reader timeout".into()))??;
     let errors = err
-        .recv_timeout(Duration::from_secs(10).saturating_sub(start.elapsed()))
+        .recv_timeout(budget.saturating_sub(start.elapsed()))
         .map_err(|_| Error::Invalid("source reader timeout".into()))??;
     if !status.success() {
-        return Err(Error::Invalid(
-            String::from_utf8_lossy(&errors).chars().take(500).collect(),
-        ));
+        let mut message: String = String::from_utf8_lossy(&errors).chars().take(500).collect();
+        // Only a bounded numeric HTTP retry header may leave stdout on failure.
+        if bytes.starts_with(b"HTTP/") {
+            let headers = String::from_utf8_lossy(&bytes);
+            if let Some(seconds) = headers.split("\r\n\r\n").next().and_then(|h| {
+                h.lines().find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
+                        .and_then(|(_, v)| v.trim().parse::<u32>().ok())
+                })
+            }) {
+                message.push_str(&format!(" retry-after-seconds:{seconds}"));
+            }
+        }
+        return Err(Error::Invalid(message));
     }
     if bytes.len() >= 8 * 1024 * 1024 {
         return Err(Error::Invalid("source output exceeded limit".into()));

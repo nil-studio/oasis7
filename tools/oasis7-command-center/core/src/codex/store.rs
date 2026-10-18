@@ -1,6 +1,145 @@
 use super::dto::*;
 use crate::{Error, Result};
 use rusqlite::{Connection, params};
+impl Store {
+    pub fn reserve_start_intent(&self, scope: &str, record: &super::StartWorkRecord) -> Result<()> {
+        self.db
+            .execute(
+                "INSERT INTO personal(key,value) VALUES (?1,?2)",
+                params![
+                    format!("start_intent_v1:{scope}:{}", record.intent_id),
+                    serde_json::to_string(record)?
+                ],
+            )
+            .map_err(|_| {
+                Error::Invalid("该发起意图已记录或无法持久保存；请核对原操作，不重发".into())
+            })?;
+        Ok(())
+    }
+    pub fn save_start_intent(&self, scope: &str, record: &super::StartWorkRecord) -> Result<()> {
+        crate::save(
+            &self.db,
+            "personal",
+            &format!("start_intent_v1:{scope}:{}", record.intent_id),
+            record,
+        )
+    }
+    pub fn start_intents(&self, scope: &str) -> Result<Vec<super::StartWorkRecord>> {
+        let mut records = self.all_start_intents(scope)?;
+        // Keep unresolved originals visible even when the historical UI window fills.
+        records.sort_by_key(|record| super::start_work::settled_intent(&record.state));
+        records.truncate(1000);
+        Ok(records)
+    }
+    pub fn all_start_intents(&self, scope: &str) -> Result<Vec<super::StartWorkRecord>> {
+        let prefix = format!("start_intent_v1:{scope}:");
+        let mut statement = self
+            .db
+            .prepare("SELECT value FROM personal WHERE substr(key,1,?1)=?2 ORDER BY key")?;
+        // Admission must inspect every durable intent, never a UI-sized window.
+        let records = statement
+            .query_map(params![prefix.len(), prefix], |r| r.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        // The ordinary operation snapshot is also a recent window. Recovery must
+        // use the durable ledger, including settled children older than that window.
+        let mut operation_query = self
+            .db
+            .prepare("SELECT value,state FROM cc_runtime_operations WHERE scope=?1")?;
+        let operations = operation_query
+            .query_map([scope], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .map(|row| {
+                let (raw, state) = row?;
+                let mut operation: RuntimeOperation = serde_json::from_str(&raw)?;
+                operation.state = state;
+                Ok(operation)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        records
+            .into_iter()
+            .map(|raw| {
+                let mut record: super::StartWorkRecord = serde_json::from_str(&raw)?;
+                if record.schema_version != 1
+                    || format!("{}:{}", record.project_id, record.environment) != scope
+                {
+                    return Err(Error::Invalid(
+                        "发起意图来自不支持版本或范围；保留原记录，不重放".into(),
+                    ));
+                }
+                let previous = record.state.clone();
+                if !super::start_work::settled_intent(&record.state) {
+                    // Only original operation receipts can release admission. A reservation
+                    // with no child identities is deliberately left unknown.
+                    let linked: Vec<_> = record
+                        .operation_ids
+                        .iter()
+                        .filter_map(|id| operations.iter().find(|op| &op.id == id))
+                        .collect();
+                    if !linked.is_empty()
+                        && linked.len() == record.operation_ids.len()
+                        && let Some(creation) = linked.iter().find(|op| op.method == "thread/start")
+                    {
+                        if creation.state == "failed" && linked.len() == 1 {
+                            record.state = "inputRejected".into();
+                        } else if creation.state == "confirmed"
+                            && let Some(thread) = &creation.thread_id
+                            && record.thread_id.as_ref().is_none_or(|id| id == thread)
+                        {
+                            record.thread_id = Some(thread.clone());
+                            let turns: Vec<_> = operations
+                                .iter()
+                                .filter(|op| {
+                                    op.method == "turn/start"
+                                        && op.instance_id == creation.instance_id
+                                        && op.thread_id.as_ref() == Some(thread)
+                                })
+                                .collect();
+                            let resolved = |op: &&RuntimeOperation| {
+                                ["confirmed", "acknowledged", "failed", "sourceResolved"]
+                                    .contains(&op.state.as_str())
+                            };
+                            if !turns.is_empty()
+                                && linked.iter().all(resolved)
+                                && turns.iter().all(resolved)
+                            {
+                                record.state =
+                                    if turns.iter().any(|op| op.state == "sourceResolved") {
+                                        "sourceResolved"
+                                    } else if turns.iter().any(|op| {
+                                        ["confirmed", "acknowledged"].contains(&op.state.as_str())
+                                    }) {
+                                        "inputAcknowledged"
+                                    } else {
+                                        "inputRejected"
+                                    }
+                                    .into();
+                                for turn in turns {
+                                    if !record.operation_ids.contains(&turn.id) {
+                                        record.operation_ids.push(turn.id.clone());
+                                    }
+                                }
+                            } else if turns.is_empty()
+                                && record.state == "threadCreatedInputNotSent"
+                                && linked.len() == 1
+                            {
+                                record.state = "inputNotSentConfirmed".into();
+                            }
+                        }
+                    }
+                    if ["pending", "inputPending"].contains(&record.state.as_str()) {
+                        record.state = "unknown".into();
+                    }
+                    if record.state != previous {
+                        record.updated_at = crate::now();
+                        self.save_start_intent(scope, &record)?;
+                    }
+                }
+                Ok(record)
+            })
+            .collect()
+    }
+}
 pub(crate) fn migrate(db: &Connection) -> Result<()> {
     let version: u32 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if version > 2 {

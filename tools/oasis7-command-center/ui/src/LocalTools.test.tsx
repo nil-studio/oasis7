@@ -1,13 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LocalTools from './LocalTools';
-const api=vi.hoisted(()=>({info:vi.fn(),bindings:vi.fn(),list:vi.fn(),get:vi.fn(),save:vi.fn(),signer:vi.fn(),jobs:vi.fn(),cli:vi.fn(),installCli:vi.fn(),chooseFile:vi.fn(),prepare:vi.fn(),reconcilePrepare:vi.fn(),recoverPrepare:vi.fn(),submit:vi.fn(),inspect:vi.fn(),snapshot:vi.fn()}));
+const api=vi.hoisted(()=>({info:vi.fn(),bindings:vi.fn(),list:vi.fn(),get:vi.fn(),save:vi.fn(),signer:vi.fn(),jobs:vi.fn(),cli:vi.fn(),installCli:vi.fn(),chooseFile:vi.fn(),prepare:vi.fn(),reconcilePrepare:vi.fn(),recoverPrepare:vi.fn(),submit:vi.fn(),inspect:vi.fn(),snapshot:vi.fn(),importSignContext:vi.fn()}));
 vi.mock('./bridge',async importOriginal=>({...await importOriginal<typeof import('./bridge')>(),connected:()=>true,observedTime:(v:string)=>v,contextBridge:api,toolsBridge:api}));
 const binding={id:'bound',bindingVersion:1,root:'/private/context',storeId:'store',projectId:'oasis7',registeredProjectId:'project',name:'private',directoryIdentity:'identity'};
 const metadata={schema_version:'oasis7.context_entry.v1',project_id:'oasis7',id:'machine',kind:'machine',title:'<img src=x onerror=alert(1)>',environment:'local',owner:'human',tags:['preserved'],state:'active',updated_at:'2026-10-12T00:00:00Z',updated_by:'human',verification:null,credential_refs:[{id:'vault',provider:'native',locator:'opaque',usage:'secret reference'}],links:[]};
 const raw=`---\n${JSON.stringify(metadata)}\n---\n<script>evil()</script>`;
 beforeEach(()=>{api.bindings.mockResolvedValue([binding]);api.signer.mockResolvedValue({state:'not_installed'});api.jobs.mockResolvedValue([]);api.list.mockResolvedValue({entries:[{id:'machine',title:metadata.title,kind:'machine',environment:'local',verification_state:'unverified',summary:'<script>evil()</script>'}],warnings:[]});api.get.mockResolvedValue({id:'machine',revision:'sha256:original',rawText:raw,metadataJson:JSON.stringify(metadata),verificationState:'unverified'});api.save.mockRejectedValue(new Error('REVISION_CONFLICT'));});
-afterEach(()=>{cleanup();vi.clearAllMocks();});
+afterEach(()=>{cleanup();vi.useRealTimers();vi.clearAllMocks();});
 async function openEntry(){render(()=> <LocalTools/>);await waitFor(()=>expect(screen.getByRole('option',{name:/private ·/})).toBeInTheDocument());await waitFor(()=>expect(screen.getByRole('button',{name:'检查本机事实'})).not.toBeDisabled());fireEvent.change(screen.getByLabelText('资料库'),{target:{value:'bound'}});await waitFor(()=>expect(screen.getByRole('button',{name:metadata.title})).toBeInTheDocument());await waitFor(()=>expect(screen.getByRole('button',{name:'搜索资料'})).not.toBeDisabled());fireEvent.click(screen.getByRole('button',{name:metadata.title}));await waitFor(()=>expect(screen.getByLabelText('资料正文')).toHaveValue('<script>evil()</script>'));}
 describe('private library rendering and conflict handling',()=>{
   it('renders malicious titles and bodies as inert text',async()=>{await openEntry();expect(document.querySelector('img')).toBeNull();expect(document.querySelector('script')).toBeNull();expect(screen.getByLabelText('资料名称')).toHaveValue(metadata.title);});
@@ -61,7 +61,7 @@ describe('private library rendering and conflict handling',()=>{
     fireEvent.input(screen.getByLabelText('资料正文'),{target:{value:'draft pinned to original binding'}});
     api.installCli.mockResolvedValue({path:'/tools/context'});
     api.bindings.mockResolvedValue([{...binding,bindingVersion:2}]);
-    fireEvent.click(screen.getByRole('button',{name:'从本 App 启用资料 CLI'}));
+    fireEvent.click(screen.getByRole('button',{name:'终端 CLI'}));fireEvent.click(screen.getByRole('button',{name:'从本 App 启用资料 CLI'}));fireEvent.click(screen.getByRole('button',{name:'资料'}));
     await waitFor(()=>expect(refreshButton).not.toBeDisabled());
     expect(screen.getByLabelText('资料库')).toHaveValue('bound');
     expect(screen.getByLabelText('资料正文')).toHaveValue('draft pinned to original binding');
@@ -85,6 +85,7 @@ describe('private library rendering and conflict handling',()=>{
 async function fillSigning(context='{}'){
   api.signer.mockResolvedValue({state:'available'});api.chooseFile.mockResolvedValue('/selected/source');
   render(()=> <LocalTools/>);
+  fireEvent.click(screen.getByRole('button',{name:'签名'}));
   await waitFor(()=>expect(screen.getByRole('button',{name:'选择待签名文件'})).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button',{name:'选择待签名文件'}));
   await waitFor(()=>expect(screen.getByRole('button',{name:'检查本机事实'})).not.toBeDisabled());
@@ -148,7 +149,7 @@ describe('prepare effect boundary',()=>{
 describe('restore without a source library',()=>{
   it('offers encrypted recovery and submits no binding on a fresh machine',async()=>{
     api.bindings.mockResolvedValue([]);api.snapshot.mockResolvedValue({storeId:'restored-store'});
-    render(()=> <LocalTools project={{id:'project',path:'/repo',gitCommonDir:'/repo/.git',branch:'main',head:'head',environment:'local'}}/>);
+    render(()=> <LocalTools project={{id:'project',path:'/repo',gitCommonDir:'/repo/.git',branch:'main',head:'head',environment:'local'}}/>);fireEvent.click(screen.getByRole('button',{name:'备份与恢复'}));
     await waitFor(()=>expect(screen.getByRole('button',{name:'检查本机事实'})).not.toBeDisabled());
     fireEvent.input(screen.getByLabelText('快照口令'),{target:{value:'fresh-secret'}});
     fireEvent.input(screen.getByLabelText('恢复新目录名称'),{target:{value:'restored-library'}});
@@ -224,6 +225,7 @@ describe('prepared request recovery after restart', () => {
     api.inspect.mockResolvedValueOnce({ command: 'inspect', status: 'reserved', error_code: null });
     api.submit.mockResolvedValueOnce({ status: 'submitted' });
     render(() => <LocalTools/>);
+    fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
     const recover = await screen.findByRole('button', { name: '恢复此固定签名请求' });
     await waitFor(() => expect(recover).toBeEnabled());
     expect(api.recoverPrepare).not.toHaveBeenCalled();
@@ -253,6 +255,7 @@ describe('prepared request recovery after restart', () => {
     api.jobs.mockResolvedValue([durable('unknown')]);
     api.recoverPrepare.mockRejectedValueOnce(new Error('Legacy original input unavailable; inspect manually'));
     render(() => <LocalTools/>);
+    fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
     const recover = await screen.findByRole('button', { name: '恢复此固定签名请求' });
     await waitFor(() => expect(recover).toBeEnabled());
     fireEvent.input(screen.getByLabelText('签名 Job ID'), { target: { value: 'manual-job' } });
@@ -268,9 +271,64 @@ describe('prepared request recovery after restart', () => {
     await fillSigning();
     fireEvent.click(screen.getByRole('button', { name: '准备固定请求' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '提交此请求' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button',{name:'操作核对'}));
     fireEvent.click(screen.getByRole('button', { name: '恢复此固定签名请求' }));
     await screen.findByText('当前已有另一固定请求，请先核对原 Job；不能覆盖。');
     expect(screen.getByLabelText('签名 Job ID')).toHaveValue('original-job');
     expect(api.recoverPrepare).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('explicit encrypted export scope and short-lived secrets',()=>{
+  async function backup(){await openEntry();fireEvent.click(screen.getByRole('button',{name:'备份与恢复'}));}
+  it.each(['entry','library'])('freezes the chosen %s scope while the selected entry changes and uses only the export secret',async scope=>{
+    api.snapshot.mockResolvedValue({status:'exported'});
+    await backup();
+    fireEvent.input(screen.getByLabelText('快照口令'),{target:{value:'restore-only-secret'}});
+    fireEvent.click(screen.getByRole('button',{name:scope==='entry'?'固定导出当前条目':'固定导出整库'}));
+    // Selecting another source item must not mutate an already approved export target.
+    fireEvent.click(screen.getByRole('button',{name:'资料'}));
+    api.list.mockResolvedValueOnce({entries:[{id:'other',title:'Another entry',kind:'machine',environment:'local',verification_state:'unverified',summary:''}],warnings:[]});
+    fireEvent.click(screen.getByRole('button',{name:'搜索资料'}));
+    const other=await screen.findByRole('button',{name:'Another entry'});
+    await waitFor(()=>expect(other).toBeEnabled());
+    api.get.mockResolvedValueOnce({id:'other',revision:'sha256:other',rawText:raw,metadataJson:JSON.stringify({...metadata,id:'other'}),verificationState:'unverified'});
+    fireEvent.click(other);
+    await waitFor(()=>expect(api.get).toHaveBeenCalledWith(binding,'other'));
+    fireEvent.click(screen.getByRole('button',{name:'备份与恢复'}));
+    expect(screen.getByText(scope==='entry'?/已固定范围：当前条目 machine/:/已固定范围：整库 private/)).toBeInTheDocument();
+    fireEvent.input(screen.getByLabelText('快照口令'),{target:{value:'restore-only-secret'}});
+    fireEvent.input(screen.getByLabelText('导出口令'),{target:{value:'export-only-secret'}});
+    await waitFor(()=>expect(screen.getByRole('button',{name:'导出加密快照'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('button',{name:'导出加密快照'}));
+    await waitFor(()=>expect(api.snapshot).toHaveBeenCalledWith('export',binding,'export-only-secret','',scope==='entry'?['machine']:[]));
+    expect(screen.getByLabelText('导出口令')).toHaveValue('');
+    expect(screen.getByLabelText('快照口令')).toHaveValue('restore-only-secret');
+  });
+  it('clears the secret and chosen scope on cancel and does not export',async()=>{
+    await backup();fireEvent.click(screen.getByRole('button',{name:'固定导出当前条目'}));
+    fireEvent.input(screen.getByLabelText('导出口令'),{target:{value:'cancel-me'}});
+    fireEvent.click(screen.getByRole('button',{name:'取消导出，清除秘密'}));
+    expect(screen.getByLabelText('导出口令')).toHaveValue('');
+    expect(screen.getByText(/已固定范围：尚未选择/)).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'导出加密快照'})).toBeDisabled();expect(api.snapshot).not.toHaveBeenCalled();
+  });
+  it('expires the export secret after one minute while retaining the visible scope',async()=>{
+    await backup();fireEvent.click(screen.getByRole('button',{name:'固定导出当前条目'}));vi.useFakeTimers();
+    fireEvent.input(screen.getByLabelText('导出口令'),{target:{value:'expire-me'}});
+    vi.advanceTimersByTime(59999);expect(screen.getByLabelText('导出口令')).toHaveValue('expire-me');
+    vi.advanceTimersByTime(1);expect(screen.getByLabelText('导出口令')).toHaveValue('');
+    expect(screen.getByText(/已固定范围：当前条目 machine/)).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'导出加密快照'})).toBeDisabled();expect(api.snapshot).not.toHaveBeenCalled();
+  });
+  it('previews only the strict imported context and invalidates the preview after manual editing',async()=>{
+    const imported={deployment_id:'existing-deployment',network_id:'existing-network',task_uid:'existing-task',source_head_oid:'a'.repeat(40),protocol_context:{authority_id:'authority',rollback_ticket:'ticket',receipt_id:'receipt',nonce:'nonce'}};
+    api.importSignContext.mockResolvedValueOnce(imported);await fillSigning(JSON.stringify(imported));
+    fireEvent.click(screen.getByRole('button',{name:'导入并严格校验既有 SignContext'}));
+    await waitFor(()=>expect(screen.getByText('完整已导入上下文预览')).toBeInTheDocument());
+    expect(api.importSignContext).toHaveBeenCalledWith(JSON.stringify(imported));expect(api.prepare).not.toHaveBeenCalled();
+    fireEvent.input(screen.getByLabelText('完整签名上下文'),{target:{value:'{}'}});
+    expect(screen.queryByText('完整已导入上下文预览')).not.toBeInTheDocument();
   });
 });

@@ -4,7 +4,7 @@ import { acceptsEnter, connected, errorMessage, observedTime, runtimeBridge, sub
 import { canContinue, canInterrupt, canStart, canSteer, capabilityLabel, fitsUtf8, isRuntimeSnapshot, ownsCurrent, requestKey, runtimeLabel, sessionKey, targetOf, unresolved, unresolvedFor, visibleOperations } from './runtimeState';
 import type { Project, QuitStatus, RequestAnswer, RuntimeRequest, RuntimeSession, RuntimeSnapshot } from './types';
 
-type RuntimeApi = typeof runtimeBridge;
+type RuntimeApi = Omit<typeof runtimeBridge, 'startWork'|'startWorkRecords'|'publicSnapshot'>;
 type Run = (action: () => Promise<RuntimeSnapshot>, management?: boolean) => Promise<void>;
 type Props = { project?: Project; view: string; onState?: (state: string) => void; api?: RuntimeApi; subscribe?: typeof subscribeRuntime };
 

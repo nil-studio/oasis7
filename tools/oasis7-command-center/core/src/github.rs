@@ -34,6 +34,18 @@ pub struct PullRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub checks_source: Option<PullChecksSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub metadata: Option<PullMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PullMetadata {
+    pub observed_at: String,
+    pub merged_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -70,6 +82,101 @@ impl Default for GitHubClient {
 }
 
 impl GitHubClient {
+    pub fn append_page(
+        &mut self,
+        root: &Path,
+        explicit: Option<&str>,
+        page: u32,
+    ) -> Result<GitHubSnapshot> {
+        if !(2..=10).contains(&page) {
+            return Err(Error::Invalid(
+                "PR 继续读取每次一页，总窗口最多十页；请按已知身份补读".into(),
+            ));
+        }
+        let repo = self
+            .current
+            .repository
+            .clone()
+            .ok_or_else(|| Error::Invalid("请先读取仓库身份".into()))?;
+        let path = program(explicit)?;
+        let raw = api(
+            &path,
+            &format!(
+                "repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100&page={page}"
+            ),
+            root,
+        )?;
+        let mut pulls = decode_pulls(&raw)?;
+        for pull in &mut pulls {
+            if let Some(old) = self
+                .current
+                .pulls
+                .iter()
+                .find(|p| p.id == pull.id && p.head_oid == pull.head_oid)
+            {
+                pull.checks.clone_from(&old.checks);
+                pull.checks_source.clone_from(&old.checks_source);
+            }
+        }
+        let count = pulls.len();
+        for pull in pulls {
+            self.current.pulls.retain(|old| old.id != pull.id);
+            self.current.pulls.push(pull);
+        }
+        self.current.coverage = format!(
+            "REST 已显式读取至第 {page} 页（各页为独立时刻）；本页 {count}/100，保留 {} 个不同 PR；{}。CI 及评审仍按各自覆盖。",
+            self.current.pulls.len(),
+            if count == 100 {
+                "可能仍有后续页"
+            } else {
+                "本页未满，列表可在读取中变化"
+            }
+        );
+        self.current.state = "partial".into();
+        self.current.error = None;
+        Ok(self.snapshot())
+    }
+    pub fn read_known_pull(
+        &mut self,
+        root: &Path,
+        explicit: Option<&str>,
+        number: u64,
+    ) -> Result<GitHubSnapshot> {
+        if number == 0 {
+            return Err(Error::Invalid("PR 编号无效".into()));
+        }
+        let repo = self
+            .current
+            .repository
+            .clone()
+            .ok_or_else(|| Error::Invalid("请先读取仓库身份".into()))?;
+        let raw = api(
+            &program(explicit)?,
+            &format!("repos/{repo}/pulls/{number}"),
+            root,
+        )?;
+        let mut pulls = decode_pulls(&serde_json::json!([raw]))?;
+        let mut pull = pulls.remove(0);
+        if pull.id != number.to_string()
+            || pull.url != format!("https://github.com/{repo}/pull/{number}")
+        {
+            return Err(Error::Invalid("PR 补读来源身份不匹配".into()));
+        }
+        if let Some(old) = self
+            .current
+            .pulls
+            .iter()
+            .find(|p| p.id == pull.id && p.head_oid == pull.head_oid)
+        {
+            pull.checks.clone_from(&old.checks);
+            pull.checks_source.clone_from(&old.checks_source);
+        }
+        self.current.pulls.retain(|p| p.id != pull.id);
+        self.current.pulls.push(pull);
+        self.current.state = "partial".into();
+        self.current.error = None;
+        Ok(self.snapshot())
+    }
     pub fn new() -> Self {
         Self {
             current: GitHubSnapshot {
@@ -158,8 +265,15 @@ pub fn public_error(error: &Error) -> String {
         || message.contains("rate_limit")
         || message.contains("http 429")
     {
-        "GitHub REST 读取触及限额；未自动重试或回退 GraphQL。请稍后显式刷新，保留最近成功事实。"
-            .into()
+        let retry = message
+            .split("retry-after-seconds:")
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+            .and_then(|s| s.parse::<u32>().ok());
+        match retry {
+            Some(seconds)=>format!("GitHub REST 读取触及限额；来源要求至少等待 {seconds} 秒，下次可重读 Unix 时间 {}。未自动重试或回退 GraphQL，保留最近成功事实。", crate::now().parse::<u64>().unwrap_or_default()+u64::from(seconds)),
+            None=>"GitHub REST 读取触及限额；来源未提供可用重读时间。未自动重试或回退 GraphQL，请稍后显式刷新，保留最近成功事实。".into()
+        }
     } else {
         "GitHub REST 读取失败；请检查 gh 路径、登录、仓库权限或网络。保留最近成功读取的事实。"
             .into()
@@ -181,7 +295,15 @@ fn program(explicit: Option<&str>) -> Result<String> {
         .ok_or_else(|| Error::Invalid("gh is not installed; select its absolute path".into()))
 }
 fn api(program: &str, endpoint: &str, root: &Path) -> Result<Value> {
-    Ok(serde_json::from_slice(&process::run(
+    api_before(program, endpoint, root, std::time::Instant::now())
+}
+fn api_before(
+    program: &str,
+    endpoint: &str,
+    root: &Path,
+    start: std::time::Instant,
+) -> Result<Value> {
+    let bytes = process::run_for(
         program,
         &[
             "api",
@@ -190,9 +312,22 @@ fn api(program: &str, endpoint: &str, root: &Path) -> Result<Value> {
             "--method",
             "GET",
             endpoint,
+            "--include",
         ],
         root,
-    )?)?)
+        std::time::Duration::from_secs(30).saturating_sub(start.elapsed()),
+    )?;
+    // gh --include carries HTTP metadata; fixture/older wrappers may return JSON only.
+    let body = if bytes.starts_with(b"HTTP/") {
+        bytes
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|i| &bytes[i + 4..])
+            .ok_or_else(|| Error::Invalid("HTTP headers incomplete".into()))?
+    } else {
+        &bytes
+    };
+    Ok(serde_json::from_slice(body)?)
 }
 fn valid_repository(repository: &str) -> bool {
     let parts: Vec<_> = repository.split('/').collect();
@@ -222,25 +357,27 @@ fn origin_repository(origin: &str) -> Result<String> {
     Ok(repository.into())
 }
 fn read(root: &Path, explicit: Option<&str>) -> Result<GitHubSnapshot> {
+    let deadline = std::time::Instant::now();
     let path = program(explicit)?;
     let origin = process::run("git", &["remote", "get-url", "origin"], root)?;
     let selected = origin_repository(&String::from_utf8_lossy(&origin))?;
-    let repo = api(&path, &format!("repos/{selected}"), root)?;
+    let repo = api_before(&path, &format!("repos/{selected}"), root, deadline)?;
     let repository = field(&repo, "full_name")?;
     if !valid_repository(&repository)
         || repo["html_url"].as_str() != Some(format!("https://github.com/{repository}").as_str())
     {
         return Err(Error::Invalid("invalid REST repository identity".into()));
     }
-    let account = api(&path, "user", root)?["login"]
+    let account = api_before(&path, "user", root, deadline)?["login"]
         .as_str()
         .map(str::to_owned);
-    let raw = api(
+    let raw = api_before(
         &path,
         &format!(
             "repos/{repository}/pulls?state=all&sort=updated&direction=desc&per_page=100&page=1"
         ),
         root,
+        deadline,
     )?;
     let pulls = decode_pulls(&raw)?;
     Ok(GitHubSnapshot {
@@ -370,6 +507,17 @@ pub fn decode_pulls(raw: &Value) -> Result<Vec<PullRequest>> {
                 review_decision: None,
                 checks: Vec::new(),
                 checks_source: None,
+                metadata: Some(PullMetadata {
+                    observed_at: crate::now(),
+                    merged_at: pr["merged_at"].as_str().map(str::to_owned),
+                    updated_at: pr["updated_at"].as_str().map(str::to_owned),
+                    body: pr["body"]
+                        .as_str()
+                        .unwrap_or("")
+                        .chars()
+                        .take(32768)
+                        .collect(),
+                }),
             })
         })
         .collect()

@@ -16,16 +16,30 @@ struct Application {
     github: GitHubClient,
     validated: bool,
     github_generation: u64,
+    local_generation: u64,
 }
 
 pub struct Host {
     application: Arc<Mutex<Application>>,
     slots: Arc<Semaphore>,
     github_slots: Arc<Semaphore>,
+    local_slots: Arc<Semaphore>,
     pub(crate) project: Arc<Mutex<Option<Project>>>,
 }
 
 impl Host {
+    pub fn open_with_runtime_privacy(
+        path: PathBuf,
+        runtime_path: PathBuf,
+    ) -> oasis7_command_center_core::Result<Self> {
+        let host = Self::open(path)?;
+        host.application
+            .lock()
+            .map_err(|_| oasis7_command_center_core::Error::Invalid("应用锁不可用".into()))?
+            .core
+            .use_runtime_privacy_database(&runtime_path)?;
+        Ok(host)
+    }
     pub fn open(path: PathBuf) -> oasis7_command_center_core::Result<Self> {
         let core = CommandCenter::open(path)?;
         let github = core
@@ -38,9 +52,11 @@ impl Host {
                 github,
                 validated: false,
                 github_generation: 0,
+                local_generation: 0,
             })),
-            slots: Arc::new(Semaphore::new(4)),
+            slots: Arc::new(Semaphore::new(64)),
             github_slots: Arc::new(Semaphore::new(1)),
+            local_slots: Arc::new(Semaphore::new(1)),
             project: Arc::new(Mutex::new(None)),
         })
     }
@@ -81,39 +97,151 @@ fn error(error: oasis7_command_center_core::Error) -> String {
 }
 
 #[tauri::command]
-pub async fn open_project(host: State<'_, Host>, path: String) -> Result<Snapshot, String> {
-    let identity = host.project.clone();
-    host.run(move |app| {
-        *identity.lock().map_err(|_| "项目身份不可用".to_string())? = None;
-        let previous = app.core.snapshot().project.map(|p| (p.id, p.path));
-        let result = app.core.open_project(path).map_err(error);
-        if result.is_ok() {
-            app.validated = true;
-        }
-        let current = app.core.snapshot().project.map(|p| (p.id, p.path));
-        if previous != current {
-            app.github_generation += 1;
-            app.github.reset();
-            if let Some(snapshot) = app.core.load_github_cache().map_err(error)? {
-                app.github = GitHubClient::restore(snapshot);
-            }
-        }
-        result
+pub async fn import_sign_context(input: String) -> Result<serde_json::Value, String> {
+    oasis7_command_center_core::tools::import_sign_context(&input).map_err(error)
+}
+#[tauri::command]
+pub async fn cancel_source_reads(host: State<'_, Host>) -> Result<(), String> {
+    host.run(|app| {
+        app.local_generation += 1;
+        app.github_generation += 1;
+        Ok(())
     })
     .await
 }
 
 #[tauri::command]
-pub async fn query_view(host: State<'_, Host>) -> Result<Snapshot, String> {
-    host.run(|app| {
-        // Restored paths are revalidated on a worker before the first projection.
-        // Source failures are retained by Core; actual storage failures propagate.
-        if !app.validated {
-            if app.core.snapshot().project.is_some() {
-                app.core.refresh().map_err(error)?;
-            }
-            app.validated = true;
+pub async fn query_daily_work(
+    host: State<'_, Host>,
+) -> Result<oasis7_command_center_core::daily_work::DailyWorkState, String> {
+    host.run(|app| app.core.public_daily_work().map_err(error))
+        .await
+}
+#[tauri::command]
+pub async fn save_daily_work(
+    host: State<'_, Host>,
+    request: oasis7_command_center_core::daily_work::DailyWorkRequest,
+) -> Result<oasis7_command_center_core::daily_work::DailyWorkState, String> {
+    host.run(move |app| {
+        app.core.save_daily_work(request).map_err(error)?;
+        app.core.public_daily_work().map_err(error)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn add_worktree_reference(
+    host: State<'_, Host>,
+    path: String,
+    expected_revision: u64,
+) -> Result<oasis7_command_center_core::daily_work::DailyWorkState, String> {
+    let input = path.clone();
+    let expected = host
+        .run(move |app| {
+            app.core
+                .check_local_path(std::path::Path::new(&input))
+                .map_err(error)?;
+            app.core
+                .current_project()
+                .map(|p| p.id)
+                .ok_or("请先选择项目".into())
+        })
+        .await?;
+    let reference = tauri::async_runtime::spawn_blocking(move || {
+        CommandCenter::inspect_worktree(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|_| "工作树身份读取未完成".to_string())?
+    .map_err(error)?;
+    host.run(move |app| {
+        if app.core.current_project().map(|p| p.id).as_ref() != Some(&expected) {
+            return Err("项目已切换，未保存引用".into());
         }
+        app.core
+            .remember_worktree(reference, expected_revision)
+            .map_err(error)?;
+        app.core.public_daily_work().map_err(error)
+    })
+    .await
+}
+
+async fn local_read(host: &Host, path: String, opening: bool) -> Result<Snapshot, String> {
+    local_read_with(host, path, opening, CommandCenter::collect_local).await
+}
+async fn local_read_with(
+    host: &Host,
+    path: String,
+    opening: bool,
+    collect: impl FnOnce(&std::path::Path) -> oasis7_command_center_core::LocalRead + Send + 'static,
+) -> Result<Snapshot, String> {
+    let _permit =
+        host.local_slots.clone().try_acquire_owned().map_err(|_| {
+            "本地来源正在读取，交互与个人保存仍可使用；请待本次完成后重读".to_string()
+        })?;
+    let input = path.clone();
+    let (expected, generation) = host
+        .run(move |app| {
+            app.core
+                .check_local_path(std::path::Path::new(&input))
+                .map_err(error)?;
+            app.local_generation += 1;
+            Ok((
+                app.core
+                    .current_project()
+                    .map(|p| (p.id, p.path, p.environment)),
+                app.local_generation,
+            ))
+        })
+        .await?;
+    let candidate =
+        tauri::async_runtime::spawn_blocking(move || collect(std::path::Path::new(&path)))
+            .await
+            .map_err(|_| "本地扫描未完成，旧结果保留".to_string())?;
+    host.run(move |app| {
+        if app.local_generation != generation
+            || app
+                .core
+                .current_project()
+                .map(|p| (p.id, p.path, p.environment))
+                != expected
+        {
+            return Err("本地来源候选已被新范围取代，未发布".into());
+        }
+        let previous = app.core.current_project().map(|p| (p.id, p.path));
+        let snapshot = app.core.publish_local(candidate, opening).map_err(error)?;
+        app.validated = true;
+        if previous
+            != snapshot
+                .project
+                .as_ref()
+                .map(|p| (p.id.clone(), p.path.clone()))
+        {
+            app.github_generation += 1;
+            app.github.reset();
+            if let Some(cache) = app.core.load_github_cache().map_err(error)? {
+                app.github = GitHubClient::restore(cache);
+            }
+        }
+        Ok(snapshot)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn open_project(host: State<'_, Host>, path: String) -> Result<Snapshot, String> {
+    local_read(&host, path, true).await
+}
+#[tauri::command]
+pub async fn query_view(host: State<'_, Host>) -> Result<Snapshot, String> {
+    let (validated, path) = host
+        .run(|app| Ok((app.validated, app.core.current_project().map(|p| p.path))))
+        .await?;
+    if !validated {
+        if let Some(path) = path {
+            return local_read(&host, path, false).await;
+        }
+    }
+    host.run(|app| {
+        app.core.reload_personal().map_err(error)?;
         Ok(app.core.snapshot())
     })
     .await
@@ -138,6 +266,24 @@ pub async fn save_decision_draft(
     draft: DecisionDraft,
 ) -> Result<DecisionRecord, String> {
     host.run(move |app| app.core.save_decision(draft).map_err(error))
+        .await
+}
+
+#[tauri::command]
+pub async fn replace_decision(
+    host: State<'_, Host>,
+    draft: DecisionDraft,
+    previous_id: String,
+) -> Result<DecisionRecord, String> {
+    host.run(move |app| app.core.replace_decision(draft, previous_id).map_err(error))
+        .await
+}
+#[tauri::command]
+pub async fn query_decision_history(
+    host: State<'_, Host>,
+    id: String,
+) -> Result<Vec<DecisionRecord>, String> {
+    host.run(move |app| app.core.decision_history(&id).map_err(error))
         .await
 }
 
@@ -167,13 +313,28 @@ pub async fn read_source(
 
 #[tauri::command]
 pub async fn refresh_source(host: State<'_, Host>) -> Result<Snapshot, String> {
-    host.run(|app| app.core.refresh().map_err(error)).await
+    let path = host
+        .run(|app| {
+            app.core
+                .current_project()
+                .map(|p| p.path)
+                .ok_or("请先选择项目".into())
+        })
+        .await?;
+    local_read(&host, path, false).await
 }
 
 #[tauri::command]
 pub async fn rebuild_cache(host: State<'_, Host>) -> Result<Snapshot, String> {
-    host.run(|app| app.core.rebuild_cache().map_err(error))
-        .await
+    let path = host
+        .run(|app| {
+            app.core
+                .current_project()
+                .map(|p| p.path)
+                .ok_or("请先选择项目".into())
+        })
+        .await?;
+    local_read(&host, path, false).await
 }
 
 #[tauri::command]
@@ -221,38 +382,82 @@ pub async fn refresh_github(
 }
 
 #[tauri::command]
+pub async fn read_github_window(
+    host: State<'_, Host>,
+    gh_path: Option<String>,
+    page: Option<u32>,
+    number: Option<u64>,
+) -> Result<GitHubSnapshot, String> {
+    if page.is_some() == number.is_some() {
+        return Err("请选择一次明确分页或一个已知 PR".into());
+    }
+    let _permit = host
+        .github_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| "GitHub 正在读取，请稍后继续".to_string())?;
+    let (project, generation, previous) = host
+        .run(|app| {
+            let p = app.core.current_project().ok_or("请先选择项目")?;
+            app.github_generation += 1;
+            Ok((p, app.github_generation, app.github.snapshot()))
+        })
+        .await?;
+    let root = project.path.clone();
+    let candidate = tauri::async_runtime::spawn_blocking(move || {
+        let mut client = GitHubClient::restore(previous);
+        if let Some(page) = page {
+            client.append_page(std::path::Path::new(&root), gh_path.as_deref(), page)
+        } else {
+            client.read_known_pull(
+                std::path::Path::new(&root),
+                gh_path.as_deref(),
+                number.unwrap(),
+            )
+        }
+    })
+    .await
+    .map_err(|_| "GitHub 后台读取未完成".to_string())?
+    .map_err(|e| oasis7_command_center_core::github::public_error(&e))?;
+    host.run(move |app| {
+        let current = app.core.current_project().ok_or("项目已切换")?;
+        if generation != app.github_generation
+            || current.id != project.id
+            || current.path != project.path
+            || current.environment != project.environment
+        {
+            return Err("读取已被原范围变化取代，未覆盖当前列表".into());
+        }
+        app.core.save_github_cache(&candidate).map_err(error)?;
+        app.github = GitHubClient::from_observation(candidate.clone());
+        Ok(candidate)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn choose_project(
     host: State<'_, Host>,
     handle: tauri::AppHandle,
 ) -> Result<Option<Snapshot>, String> {
-    let identity = host.project.clone();
-    host.run(move |app| {
-        let Some(folder) = handle
+    let folder = tauri::async_runtime::spawn_blocking(move || {
+        handle
             .dialog()
             .file()
             .set_title("选择 Oasis7 Git 工作树")
             .blocking_pick_folder()
-        else {
-            return Ok(None);
-        };
-        let path = folder.into_path().map_err(|e| e.to_string())?;
-        *identity.lock().map_err(|_| "项目身份不可用".to_string())? = None;
-        let previous = app.core.snapshot().project.map(|p| (p.id, p.path));
-        let result = app.core.open_project(path).map_err(error);
-        if result.is_ok() {
-            app.validated = true;
-        }
-        let current = app.core.snapshot().project.map(|p| (p.id, p.path));
-        if previous != current {
-            app.github_generation += 1;
-            app.github.reset();
-            if let Some(snapshot) = app.core.load_github_cache().map_err(error)? {
-                app.github = GitHubClient::restore(snapshot);
-            }
-        }
-        result.map(Some)
     })
     .await
+    .map_err(|_| "项目选择器未完成".to_string())?;
+    let Some(folder) = folder else {
+        return Ok(None);
+    };
+    let path = folder
+        .into_path()
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .into_owned();
+    local_read(&host, path, true).await.map(Some)
 }
 
 #[tauri::command]
@@ -397,10 +602,119 @@ pub async fn query_work_projection(
     host: State<'_, Host>,
     runtime: State<'_, crate::runtime_commands::RuntimeHost>,
 ) -> Result<oasis7_command_center_core::work_projection::WorkProjection, String> {
+    let (base, references) = host
+        .run(|app| {
+            Ok((
+                app.core.snapshot(),
+                app.core
+                    .daily_work()
+                    .map(|s| s.worktrees)
+                    .unwrap_or_default(),
+            ))
+        })
+        .await?;
+    let expected = base
+        .project
+        .as_ref()
+        .map(|p| (p.id.clone(), p.path.clone(), p.environment.clone()));
+    let current = base.project.clone().ok_or("请先选择项目")?;
     let observed = runtime
-        .project_work(&host, |runtime, project| runtime.public_snapshot(project))
+        .try_read(move |runtime| runtime.public_snapshot(&current).map_err(|e| e.to_string()))
         .await;
+    let mut additional = Vec::new();
+    for reference in references {
+        if base
+            .project
+            .as_ref()
+            .is_some_and(|p| p.id == reference.project_id)
+        {
+            continue;
+        }
+        let path = reference.path.clone();
+        let candidate = tauri::async_runtime::spawn_blocking(move || {
+            CommandCenter::inspect_worktree(std::path::Path::new(&path))
+        })
+        .await;
+        let allowed = match candidate {
+            Ok(Ok(project))
+                if project.id == reference.project_id
+                    && base
+                        .project
+                        .as_ref()
+                        .is_some_and(|p| p.git_common_dir == project.git_common_dir) =>
+            {
+                Some(project)
+            }
+            _ => None,
+        };
+        if let Some(project) = allowed {
+            let check = project.clone();
+            let allowed = host
+                .run(move |app| {
+                    app.core
+                        .check_local_path(std::path::Path::new(&check.path))
+                        .map_err(error)
+                })
+                .await
+                .is_ok();
+            if allowed {
+                let target = project.clone();
+                if let Ok(source) = runtime
+                    .try_read(move |r| r.public_snapshot(&target).map_err(|e| e.to_string()))
+                    .await
+                {
+                    let mut snapshot = base.clone();
+                    snapshot.project = Some(project);
+                    snapshot.sections.clear();
+                    snapshot.associations.clear();
+                    snapshot.decisions.clear();
+                    if let Ok(mut extra) = oasis7_command_center_core::work_projection::project_work(
+                        &snapshot,
+                        &GitHubClient::new().snapshot(),
+                        Some(&source),
+                        &oasis7_command_center_core::now(),
+                    ) {
+                        extra.sources.retain(|s| s.kind == "codex");
+                        for s in &mut extra.sources {
+                            s.coverage = format!("显式工作树 {} · {}", reference.path, s.coverage);
+                        }
+                        additional.push(extra);
+                    }
+                    continue;
+                }
+            }
+        }
+        additional.push(
+            oasis7_command_center_core::work_projection::WorkProjection {
+                view_revision: None,
+                personal_revision: None,
+                schema_version: 1,
+                project_id: reference.project_id,
+                environment: reference.environment,
+                read_at: oasis7_command_center_core::now(),
+                items: vec![],
+                sources: vec![oasis7_command_center_core::work_projection::WorkSource {
+                    kind: "codex".into(),
+                    state: "error".into(),
+                    coverage: format!(
+                        "显式工作树 {} 未能核实，原身份保留；不能推断没有会话",
+                        reference.path
+                    ),
+                    verified_at: Some(reference.verified_at),
+                    error: Some("工作树不可读、身份变化或运行来源未接入".into()),
+                }],
+            },
+        );
+    }
     host.run(move |app| {
+        if app
+            .core
+            .current_project()
+            .map(|p| (p.id, p.path, p.environment))
+            != expected
+        {
+            return Err("工作范围已变化，未发布旧投影".into());
+        }
         let snapshot = app.core.snapshot();
         let mut projection = oasis7_command_center_core::work_projection::project_work(
             &snapshot,
@@ -415,6 +729,91 @@ pub async fn query_work_projection(
             source.error =
                 Some("会话来源读取失败；其他工作来源仍可使用，不能据此推断没有会话。".into());
         }
+        let permitted = app
+            .core
+            .daily_work()
+            .map(|s| s.worktrees)
+            .unwrap_or_default();
+        for extra in additional {
+            if permitted
+                .iter()
+                .any(|r| r.project_id == extra.project_id && r.environment == extra.environment)
+            {
+                projection.items.extend(extra.items);
+                projection.sources.extend(extra.sources);
+            }
+        }
+        let personal = app.core.public_daily_work().map_err(error)?;
+        for external in &personal.external {
+            if projection
+                .items
+                .iter()
+                .any(|w| w.reference == external.work)
+            {
+                continue;
+            }
+            let evidence = oasis7_command_center_core::work_projection::SourceFact {
+                source: external.work.clone(),
+                revision: None,
+                verified_at: None,
+                event_at: None,
+                read_at: projection.read_at.clone(),
+                coverage: "用户明确保存的普通原工具定位；源会话、消息和结果均未读取".into(),
+            };
+            projection
+                .items
+                .push(oasis7_command_center_core::work_projection::WorkItem {
+                    reference: external.work.clone(),
+                    purpose: oasis7_command_center_core::work_projection::FactCell {
+                        value: external.title.clone(),
+                        evidence: evidence.clone(),
+                    },
+                    result: oasis7_command_center_core::work_projection::FactCell {
+                        value: "原工具结果未知 · 只有定位记录".into(),
+                        evidence,
+                    },
+                    remaining: "复制原定位，在原工具处理并核实；客户端没有外部控制权".into(),
+                    source_url: None,
+                    goals: vec![],
+                    checks: vec![],
+                    checks_source: None,
+                    runs: vec![],
+                });
+        }
+        projection.personal_revision = Some(personal.revision);
+        // The revision binds this exact published source window and personal record version.
+        let mut facts = serde_json::to_value((
+            &projection.project_id,
+            &projection.environment,
+            &snapshot.git,
+            &snapshot.sections,
+            &projection.sources,
+            &projection.items,
+            personal.revision,
+        ))
+        .map_err(|e| e.to_string())?;
+        fn without_read_time(value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::Object(fields) => {
+                    fields.remove("readAt");
+                    for item in fields.values_mut() {
+                        without_read_time(item);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    for item in items {
+                        without_read_time(item);
+                    }
+                }
+                _ => {}
+            }
+        }
+        without_read_time(&mut facts);
+        use sha2::{Digest, Sha256};
+        projection.view_revision = Some(format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&facts).map_err(|e| e.to_string())?)
+        ));
         Ok(projection)
     })
     .await
@@ -506,4 +905,60 @@ pub async fn refresh_work_checks(
         Ok(snapshot)
     })
     .await
+}
+
+#[cfg(test)]
+mod concurrency_tests {
+    use super::*;
+    #[test]
+    fn slow_local_source_does_not_lock_personal_writes_and_cancel_rejects_publication() {
+        tauri::async_runtime::block_on(async {
+            let temp = tempfile::tempdir().unwrap();
+            let host = Arc::new(Host::open(temp.path().join("db")).unwrap());
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let reader = host.clone();
+            let path = temp.path().to_string_lossy().to_string();
+            let task = tokio::spawn(async move {
+                local_read_with(&reader, path, true, move |path| {
+                    let _ = started_tx.send(());
+                    release_rx.recv().unwrap();
+                    CommandCenter::collect_local(path)
+                })
+                .await
+            });
+            started_rx.await.unwrap();
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                host.run(|app| {
+                    let mut prefs = app.core.snapshot().preferences;
+                    prefs.view = "rules".into();
+                    app.core.save_preferences(prefs).map_err(error)?;
+                    app.local_generation += 1;
+                    Ok(())
+                }),
+            )
+            .await;
+            assert!(result.is_ok_and(|r| r.is_ok()));
+            assert!(
+                local_read_with(
+                    &host,
+                    temp.path().to_string_lossy().into(),
+                    true,
+                    CommandCenter::collect_local
+                )
+                .await
+                .unwrap_err()
+                .contains("正在读取")
+            );
+            release_tx.send(()).unwrap();
+            assert!(task.await.unwrap().unwrap_err().contains("未发布"));
+            assert_eq!(
+                host.run(|app| Ok(app.core.snapshot().preferences.view))
+                    .await
+                    .unwrap(),
+                "rules"
+            );
+        });
+    }
 }
