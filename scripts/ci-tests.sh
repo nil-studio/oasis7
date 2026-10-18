@@ -391,6 +391,8 @@ run_workflow_governance_baseline_contract_tests() {
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
   run python3 ./scripts/ci-formal-process.test.py
+  run python3 ./scripts/ci-storage-acceptance.test.py
+  run python3 ./scripts/ci-storage-network.test.py
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-workflow.test.py
   run python3 ./scripts/ci-support-profiles.test.py
