@@ -100,7 +100,8 @@ pub(super) fn object(
         )?;
         sync(&target.join(SELECTORS))?;
         publication::fault(2)?;
-        link(&selected, &target.join(id), META_LIMIT as u64, None)?;
+        // The selector alone is the canonical physical locator. A second
+        // optional root alias adds no readable content or recovery authority.
     } else {
         // The original raw/legacy pack inode and its complete index stay intact;
         // importing one member does not retain other members as logical roots.
@@ -118,7 +119,9 @@ pub(super) fn object(
     {
         return Err(invalid("generation imported independent original readback"));
     }
-    roots::retain(target, &[id.to_owned()])
+    // Top-level retention captures history; this private generation is indexed
+    // by its authenticated manifest catalog, not a duplicate retention log.
+    Ok(())
 }
 #[cfg(test)]
 #[path = "physical_generation_import_tests.rs"]

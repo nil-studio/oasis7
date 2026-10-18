@@ -83,7 +83,7 @@ fn importing_original_frames_preserves_sharing_destroyed_by_hash_order_rebatch()
     }
 }
 #[test]
-fn reopened_subset_import_repairs_only_captured_recipe_member() {
+fn reopened_subset_import_keeps_only_captured_recipe_member_without_extra_alias() {
     let source = Fixture::new();
     let mut objects = vec![
         logical_object(vec![1; 100000]),
@@ -129,14 +129,14 @@ fn reopened_subset_import_repairs_only_captured_recipe_member() {
     assert!(super::super::super::initialize_generation(&target).is_err());
     fs::remove_file(target.join(&kept.0)).unwrap();
     super::super::super::initialize_generation(&target).unwrap();
-    assert!(target.join(&kept.0).exists());
+    assert!(!target.join(&kept.0).exists());
     assert!(!target.join(&omitted.0).exists());
     assert!(!target.join(SELECTORS).join(&omitted.0).exists());
     assert_eq!(roots::count(&target).unwrap(), 0);
     let selected = finish(&source.0);
     let target = source.0.join(GENERATIONS).join(selected);
     assert!(!target.join(SELECTORS).join(&omitted.0).exists());
-    assert_eq!(roots::count(&target).unwrap(), 1);
+    assert_eq!(roots::count(&target).unwrap(), 0);
     assert_eq!(
         read_object(&target.join(&kept.0), &kept.0, true).unwrap(),
         Some(kept.1.clone())
@@ -214,6 +214,49 @@ fn legacy_shared_pack_import_retains_original_inode_layout() {
         assert_eq!(
             super::super::super::super::business_pack::read_object_durable(&target.join(&id), &id)
                 .unwrap(),
+            Some(bytes)
+        );
+    }
+}
+#[test]
+fn selector_only_generation_reopens_and_rebuilds_from_top_level_retention() {
+    let source = Fixture::new();
+    let first = logical_object(vec![11; 100000]);
+    assert!(persist(&source.0, std::slice::from_ref(&first)).unwrap());
+    roots::retain(&source.0, std::slice::from_ref(&first.0)).unwrap();
+    let first_selected = finish(&source.0);
+    let first_target = source.0.join(GENERATIONS).join(&first_selected);
+    assert!(first_target.join(SELECTORS).join(&first.0).exists());
+    assert!(!first_target.join(&first.0).exists());
+    assert_eq!(roots::count(&first_target).unwrap(), 0);
+    super::super::super::initialize_generation(&first_target).unwrap();
+    assert!(!first_target.join(&first.0).exists());
+    let second = logical_object(vec![12; 100000]);
+    assert!(persist(&source.0, std::slice::from_ref(&second)).unwrap());
+    roots::retain(&source.0, std::slice::from_ref(&second.0)).unwrap();
+    let mut session = GenerationSession::default();
+    assert!(
+        advance_with_session(&source.0, &mut session)
+            .unwrap()
+            .building
+    );
+    drop(session);
+    let second_selected = finish(&source.0);
+    assert_ne!(second_selected, first_selected);
+    assert!(!first_target.exists());
+    let second_target = source.0.join(GENERATIONS).join(second_selected);
+    super::super::super::initialize_generation(&second_target).unwrap();
+    assert_eq!(roots::count(&second_target).unwrap(), 0);
+    assert_eq!(roots::count(&source.0).unwrap(), 2);
+    for (id, bytes) in [first, second] {
+        assert!(!second_target.join(&id).exists());
+        assert!(second_target.join(SELECTORS).join(&id).exists());
+        assert_eq!(
+            super::super::super::super::business_pack::read_object_durable(
+                &source.0.join(&id),
+                &id
+            )
+            .unwrap(),
             Some(bytes)
         );
     }

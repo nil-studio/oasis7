@@ -99,7 +99,7 @@ thread_local! { static FRAME_BATCH_BARRIERS: std::cell::Cell<usize> = const { st
 thread_local! { pub(super) static FULL_RECOVERY_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 /// Caller holds the stable root's exclusive kernel fence and endpoint lease.
 /// Generation imports may capture only a subset of a source shared recipe.
-/// Only actual selector IDs are repaired; recipe membership never promotes an
+/// Only actual selector IDs are checked; recipe membership never promotes an
 /// uncaptured ID into aliases, retention, or the authenticated generation catalog.
 pub(super) fn recover_members(root: &Path) -> Result<(), FormalError> {
     #[cfg(test)]
@@ -124,10 +124,11 @@ pub(super) fn recover_members(root: &Path) -> Result<(), FormalError> {
         for frame in &recipe.frames {
             sync(&root.join(FRAMES).join(&frame.stored))?;
         }
-        match fs::hard_link(&selected, &path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let alias = fs::symlink_metadata(&path).map_err(io)?;
+        // Root aliases are optional for physical objects. Do not manufacture
+        // one per selector during generation recovery. If present, the alias
+        // must still identify exactly this recipe, never a logical raw payload.
+        match fs::symlink_metadata(&path) {
+            Ok(alias) => {
                 paths::metadata(&alias, false)?;
                 #[cfg(unix)]
                 let original = fs::symlink_metadata(&selected).map_err(io)?;
@@ -140,6 +141,7 @@ pub(super) fn recover_members(root: &Path) -> Result<(), FormalError> {
                     return Err(invalid("generation recovery alias bytes differ"));
                 }
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(io(error)),
         }
         sync(&selected)?;
