@@ -1,13 +1,16 @@
 //! Borrow-scoped socket registration: no polling interval is added to RPC latency.
+#[cfg(any(unix, windows))]
 use polling::{Event, Events, Poller};
 use std::{io, net::TcpListener, time::Instant};
 
+#[cfg(any(unix, windows))]
 pub(super) struct ListenerReadiness<'a> {
     listener: &'a TcpListener,
     poller: Poller,
     events: Events,
     registered: bool,
 }
+#[cfg(any(unix, windows))]
 impl<'a> ListenerReadiness<'a> {
     pub(super) fn new(listener: &'a TcpListener) -> io::Result<Self> {
         let poller = Poller::new()?;
@@ -44,6 +47,7 @@ impl<'a> ListenerReadiness<'a> {
         Ok(())
     }
 }
+#[cfg(any(unix, windows))]
 impl Drop for ListenerReadiness<'_> {
     fn drop(&mut self) {
         if self.registered
@@ -55,6 +59,33 @@ impl Drop for ListenerReadiness<'_> {
         }
     }
 }
-#[cfg(test)]
+// Protocol types remain available on targets without native socket readiness.
+// Such targets must reject the server operation rather than poll or fake success.
+#[cfg(not(any(unix, windows)))]
+pub(super) struct ListenerReadiness<'a> {
+    _listener: std::marker::PhantomData<&'a TcpListener>,
+}
+#[cfg(not(any(unix, windows)))]
+impl<'a> ListenerReadiness<'a> {
+    pub(super) fn new(_listener: &'a TcpListener) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "formal endpoint socket readiness requires Unix or Windows",
+        ))
+    }
+    pub(super) fn wait_until(&mut self, _deadline: Instant) -> io::Result<bool> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "formal endpoint socket readiness requires Unix or Windows",
+        ))
+    }
+    pub(super) fn close(self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "formal endpoint socket readiness requires Unix or Windows",
+        ))
+    }
+}
+#[cfg(all(test, any(unix, windows)))]
 #[path = "readiness_tests.rs"]
 mod tests;
