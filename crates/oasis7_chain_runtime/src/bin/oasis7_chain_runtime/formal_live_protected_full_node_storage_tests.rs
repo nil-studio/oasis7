@@ -98,7 +98,7 @@ impl Budget {
                 self.requested
             ));
         }
-        if completed % 100 == 0 {
+        if completed.is_multiple_of(100) {
             self.emit(serde_json::json!({"status":"running","stage":stage,"completed":completed,"requested_commits":self.requested,"elapsed_ms":self.started.elapsed().as_millis()}))?;
         }
         Ok(())
