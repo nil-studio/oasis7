@@ -1,32 +1,13 @@
 //! Main execution aliases of the unique client contract schema.
+pub use oasis7_client_api::legacy_world_service::{
+    AuthenticatedLookup, CanonicalIntentResultV1, SchedulerIntentV1, SchedulerOperationV1,
+    WorldServicePayloadV1,
+};
 pub use oasis7_client_api::world_service_wire::{
     AgentSignerDelegationChangeV1, CHANGES_PATH, CognitionCausalProposalV1, CognitionIntentV1,
     DESCRIBE_PATH, FeedbackAckIntentV1, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
     SignedServiceResponse, VIEW_PATH,
 };
-pub type SchedulerOperationV1 = oasis7_client_api::world_service_wire::SchedulerOperationV1<
-    oasis7_agent_api::ContinuousAgentRequestContextV1,
-    crate::CognitionLeaseRequestV1,
-    crate::CognitionContinuationProposalV1,
-    crate::ContinuationStatusV1,
-    crate::CognitionContinuationResumeRequestV1,
-    crate::CognitionWakeDispositionV1,
-    crate::CognitionContextDigestsV1,
->;
-pub type SchedulerIntentV1 =
-    oasis7_client_api::world_service_wire::SchedulerIntentV1<SchedulerOperationV1>;
-pub type WorldServicePayloadV1 = oasis7_client_api::world_service_wire::WorldServicePayloadV1<
-    oasis7_proto::viewer::AgentChatRequest,
-    SchedulerIntentV1,
->;
-pub type AuthenticatedLookup = oasis7_client_api::world_service_wire::AuthenticatedLookup<
-    oasis7_proto::viewer::AgentChatRequest,
-    SchedulerIntentV1,
->;
-pub type CanonicalIntentResultV1 = oasis7_client_api::world_service_wire::CanonicalIntentResultV1<
-    oasis7_proto::viewer::AgentChatRequest,
-    SchedulerIntentV1,
->;
 
 use serde::{Deserialize, Serialize};
 pub const MEMBERSHIP_PATH: &str = "/v1/world/governance-membership";
@@ -102,8 +83,8 @@ mod feedback_ack_codec_tests {
 #[cfg(test)]
 mod task_profile_wire_tests {
     use super::*;
-    use oasis7_client_api::world_service::{sign_read_request, signing_bytes};
     use oasis7_agent_api::game::{DecimalU64, GAME_TASK_CREATE_DOMAIN, GameTaskCreateV1};
+    use oasis7_client_api::world_service::{sign_read_request, signing_bytes};
 
     #[test]
     fn execution_and_native_task_profiles_preserve_signed_json_and_canonical_cbor() {
@@ -139,8 +120,7 @@ mod task_profile_wire_tests {
             genesis_digest: "genesis".into(),
         };
         assert_eq!(
-            crate::service_admission::derive_correlation(world.clone(), &execution)
-                .unwrap(),
+            crate::service_admission::derive_correlation(world.clone(), &execution).unwrap(),
             oasis7_client_api::world_service_correlation::derive_correlation(world, &native)
                 .unwrap()
         );

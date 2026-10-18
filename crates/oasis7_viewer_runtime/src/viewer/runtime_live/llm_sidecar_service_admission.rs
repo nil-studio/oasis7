@@ -17,7 +17,9 @@ impl RuntimeLlmSidecar {
     /// A canonical rejection of an exact Reserve is pre-effect. Retire only
     /// this prepared turn; never repair its signature or reuse its correlation.
     fn retire_rejected_reserve(&mut self, response: &IntentResponse<Value>) -> Result<(), String> {
-        use crate::world_service::wire::{SchedulerOperationV1, WorldServicePayloadV1};
+        use oasis7_client_api::legacy_world_service::{
+            SchedulerOperationV1, WorldServicePayloadV1,
+        };
         let admission = self
             .hosted_admission
             .clone()
@@ -198,7 +200,9 @@ impl RuntimeLlmSidecar {
         session: &str,
         canonical_session: &str,
     ) -> Result<(), String> {
-        use crate::world_service::wire::{SchedulerOperationV1, WorldServicePayloadV1};
+        use oasis7_client_api::legacy_world_service::{
+            SchedulerOperationV1, WorldServicePayloadV1,
+        };
         let context = &self
             .hosted_admission
             .as_ref()
@@ -485,7 +489,7 @@ impl RuntimeLlmSidecar {
         let (phase, operation) = if admission.stage == "reserve" {
             (
                 "reserve".into(),
-                crate::world_service::wire::SchedulerOperationV1::ReserveLease(
+                oasis7_client_api::legacy_world_service::SchedulerOperationV1::ReserveLease(
                     async_support::provider_cognition_lease_request(
                         world,
                         &admission.context,
@@ -496,7 +500,7 @@ impl RuntimeLlmSidecar {
         } else if admission.stage == "prefix" {
             (
                 format!("prefix:{}", request.transport_attempt),
-                crate::world_service::wire::SchedulerOperationV1::ProviderPrefix {
+                oasis7_client_api::legacy_world_service::SchedulerOperationV1::ProviderPrefix {
                     request: crate::runtime_host::feedback::request_context_to_api(request),
                     context_digest: async_support::runtime_provider_context_digest(request),
                 },

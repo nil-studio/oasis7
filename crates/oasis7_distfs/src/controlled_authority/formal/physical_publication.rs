@@ -258,7 +258,7 @@ pub(super) fn sync_recipe_once(
         None
     };
     #[cfg(test)]
-    RECIPE_SYNCS.with(|count| count.set(count.get() + 1));
+    record_recipe_sync();
     sync(&selected)?;
     for frame in &recipe.frames {
         sync(&root.join(FRAMES).join(&frame.stored))?;
@@ -295,38 +295,12 @@ pub(super) fn fail_at(stage: u8) {
     FAILURE.with(|failure| failure.set(stage));
 }
 
-/// One publication guard invocation owns this private ephemeral scratch space.
-/// It contains only fsync deduplication identities, never bytes or durable proof.
-/// A crash may leave a system temporary directory; a later operation never reuses it.
-pub(super) fn with_readback_markers<T>(
-    run: impl FnOnce(&Path) -> Result<T, FormalError>,
-) -> Result<T, FormalError> {
-    let parent = std::env::temp_dir().canonicalize().map_err(io)?;
-    if !fs::symlink_metadata(&parent).map_err(io)?.is_dir() {
-        return Err(invalid("physical readback temporary parent"));
-    }
-    let path = parent.join(format!(
-        "oasis7-physical-readback-{}",
-        super::super::fencing::fresh_challenge().map_err(io)?
-    ));
-    let mut builder = fs::DirBuilder::new();
-    #[cfg(unix)]
-    builder.mode(0o700);
-    builder.create(&path).map_err(io)?;
-    struct Owned(PathBuf);
-    impl Drop for Owned {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let owned = Owned(path);
-    let result = run(&owned.0);
-    // Drop only the fresh directory this invocation successfully created.
-    drop(owned);
-    result
-}
 #[cfg(test)]
 thread_local! {static RECIPE_SYNCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };}
+#[cfg(test)]
+pub(super) fn record_recipe_sync() {
+    RECIPE_SYNCS.with(|count| count.set(count.get() + 1));
+}
 #[cfg(test)]
 pub(super) fn reset_recipe_syncs() {
     RECIPE_SYNCS.with(|count| count.set(0));

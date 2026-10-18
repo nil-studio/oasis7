@@ -6,6 +6,8 @@
 - 当前任务状态与变更过程：对应 GitHub task issue / Project 与 Git history
 - 对应文件级索引: `doc/world-runtime/prd.index.md`
 
+Legacy Scheduler 的纯合同由 `oasis7_agent_api::{legacy_economy, legacy_scheduler}` 与 `oasis7_client_api::legacy_world_service` 唯一发布，Runtime 的历史路径通过 re-export 使用同一声明。共享 quote/request、continuation proposal/resume/status、wake disposition/context 只表达输入和关联；Runtime 继续独占完整 lease/accounting、durable continuation/wake 状态机、admission、receipt/outbox 和恢复。客户端纯签名、digest、correlation 与 canonical result 关联校验不替代当前 World、权限、余额或状态校验。#4879 延续 #4853 的拆分，消息默认值、字段顺序和 canonical signing 输入保持原样。
+
 ## 实现边界与共享值所有权
 
 `oasis7_runtime` 拥有完整 World、权威状态、准入、事务、cognition、持久化与恢复；`oasis7_world_service` 拥有受权服务用例、已提交投影、结果与发布，依赖 Runtime 与合同层。`oasis7` 保留宿主组装及现有消费者需要的兼容门面。Runtime 与 Simulator 是并列的执行实现，不通过对方拥有共享领域值。资源库存和元素预算属于 `oasis7_agent_api::world_resource`，机器人规格和视觉实体属于 `world_entity`，chunk 坐标与纯几何派生属于 `world_geometry`；Runtime 专属 Agent/body 状态归 `oasis7_runtime::agent_state`。旧 `models` 和 Simulator 类型路径仅作为现有消费者的兼容导出。

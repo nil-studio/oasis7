@@ -4,7 +4,7 @@ use crate::runtime::{Action, World, WorldState};
 use crate::simulator::WorldKernel;
 use oasis7_simulator::WorldEventKind;
 
-fn runtime_fixture() -> World {
+pub(super) fn runtime_fixture() -> World {
     let mut world = crate::runtime_host::world::new_with_state(WorldState::default());
     world.submit_action(Action::RegisterAgent {
         agent_id: "archive-agent".into(),
@@ -165,7 +165,10 @@ fn host_archive_extensions_survive_pending_actions_and_pre_action_hooks() {
     let hook_called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let observed = hook_called.clone();
     kernel.add_pre_action_rule_hook(move |id, _, view: &WorldKernel| {
-        assert_eq!(view.journal()[0].runtime_event, original_runtime);
+        assert_eq!(
+            view.journal().get(0).unwrap().runtime_event.cloned(),
+            original_runtime
+        );
         observed.store(true, std::sync::atomic::Ordering::SeqCst);
         oasis7_simulator::KernelRuleDecision::allow(id)
     });
@@ -183,7 +186,7 @@ fn host_archive_extensions_survive_pending_actions_and_pre_action_hooks() {
         kernel.journal().len(),
         kernel.kernel_journal_snapshot().events.len()
     );
-    assert!(kernel.journal()[0].runtime_event.is_some());
+    assert!(kernel.journal().get(0).unwrap().runtime_event.is_some());
     assert!(kernel.journal().last().unwrap().runtime_event.is_none());
     let encoded = serde_json::to_vec(&kernel).unwrap();
     let restored: WorldKernel = serde_json::from_slice(&encoded).unwrap();

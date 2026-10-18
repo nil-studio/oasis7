@@ -223,6 +223,10 @@ Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；O7-REQ-a27895ed-2ca4-4
 | Runtime lease/任务/回执/世界作业 | 留在权威端，不按 Harness 文件名搬走 | 迁移前后执行、权限与历史恢复相同 |
 | 旧 Provider/runner 与 WASM/测试消费者 | 按实际独立消费者保留窄兼容 | 未迁移消费者有去向，已迁移 Agent 无双写，历史读取仍可用 |
 
+#4879 延续 #4853 的合同收口：`oasis7_agent_api::legacy_economy` 唯一定义 immutable quote/request 及其 digest，`legacy_scheduler` 定义 wake 条件、proposal/resume/status/disposition/context 及纯编码/校验；`oasis7_client_api::legacy_world_service` 发布完整具体消息与 correlation/result 关联校验，Chat 继续复用 proto。完整 lease、余额和结算、durable wake/continuation 状态机、admission、receipt/outbox 与历史恢复仍由 Runtime 拥有，共享值不赋予世界写权限。
+
+`oasis7_game_client::legacy_profile::LegacyClientProfile` 默认使用保留原始签名/commitment 输入的 `WorldReadProjectionV1`，独立客户端无需 Runtime/World Service/Simulator。服务端 `ServiceClientProfile` 只将同一个客户端 profile 的投影参数绑定为旧完整 projection，保留现有宿主消费者；等这些 World 投影消费者迁完后才能删除该别名。Viewer/Provider 的 lease request → ReserveLease → durable signed checkpoint → Submit/Lookup 链路继续复用原签名 payload、nonce 与操作身份。continuation admission、transition、budget、resume 和 terminal/replan handoff 继续使用旧 profile；native task profile 的 unsupported legacy 解码拒绝保持不变。合同独立发布不是新执行能力、全量默认切换或旧 adapter 全部退役。
+
 每项能力映射至少说明原调用点、公开合同、目标路径、观察/权限范围、验证与保留/退役理由；可变台账在实现 Issue/PR，长期文档只保留支持边界。纯 DTO 共享、仅跑 mock、仅移文件或仅通过首样例都不满足全量收口。
 
 没有与全部保留能力对应的证据，不把新路径设为全量默认。新旧 profile 可以显式共存，但同一 Agent 不允许两个写入者；不能在运行失败后偷偷转旧通道。外部标准 HTTP 首期目标及两个真实 Runtime 的独立验收继续有效，Rust SDK 的成功不把公共 API 降级成 CLI-only 产品。

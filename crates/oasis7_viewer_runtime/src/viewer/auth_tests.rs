@@ -12,7 +12,6 @@ fn test_signer_with_seed(seed: u8) -> (String, String) {
     )
 }
 
-
 #[test]
 fn hosted_session_register_grant_is_bound_and_single_use_across_ledger_reload() {
     let (issuer_public_key, issuer_private_key) = test_signer_with_seed(51);

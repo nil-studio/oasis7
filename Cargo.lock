@@ -6401,8 +6401,10 @@ dependencies = [
  "hex",
  "oasis7_wasm_abi",
  "serde",
+ "serde_cbor",
  "serde_json",
  "sha2 0.11.0",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -6624,6 +6626,7 @@ dependencies = [
  "oasis7_client_api",
  "oasis7_client_storage",
  "oasis7_formal_protocol",
+ "oasis7_proto",
  "oasis7_wasm_abi",
  "reqwest 0.13.5",
  "serde",

@@ -250,5 +250,6 @@ pub use oasis7_simulator::{KernelEvent, KernelJournal, KernelSnapshot};
 
 mod kernel_host;
 pub use archive::WorldEvent;
+pub use kernel_host::{WorldEventRef, WorldJournalView};
 pub use kernel_host::{WorldKernel, initialize_kernel};
 pub use oasis7_simulator::WorldKernel as NativeKernel;

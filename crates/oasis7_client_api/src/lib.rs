@@ -66,3 +66,7 @@ pub mod chain_pos_defaults;
 pub mod rollback_audit_evidence;
 
 pub mod gameplay_actions;
+
+pub mod legacy_world_service;
+
+pub mod legacy_task_results;
