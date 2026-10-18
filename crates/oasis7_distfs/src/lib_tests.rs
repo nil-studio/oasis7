@@ -1,4 +1,5 @@
 use super::*;
+use oasis7_proto::distributed_storage::SegmentConfig;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,

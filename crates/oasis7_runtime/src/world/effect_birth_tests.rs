@@ -2,9 +2,9 @@
 use super::*;
 use crate::{CapabilityGrant, EffectOrigin, ReceiptSigner, RuntimeCommittedTickContext};
 use crate::formal_read_fixtures as fixtures;
-use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader;
-use oasis7_distfs::controlled_authority::formal::*;
-use oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole;
+use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader;
+use oasis7_formal_protocol::controlled_authority::formal::*;
+use oasis7_formal_protocol::controlled_authority::replicated_protocol::ArtifactRole;
 use std::{collections::BTreeMap, sync::Arc};
 struct Empty;
 impl BusinessIndexNodeReader for Empty {

@@ -34,7 +34,7 @@
 
 Owner：viewer_engineer；消费者为 demo CLI、离线 Viewer server 与运行手册。本文解决开发者获取可重复回放输入的问题，不承接正式玩家 live、原生客户端或发布验收。原第 5 节是历史演进顺序，不表示当前实现完成状态。
 
-当前代码入口为 `crates/oasis7/src/viewer/demo.rs::generate_viewer_demo`：初始化场景、计划动作、执行队列、调用 `save_to_dir`，再返回 actions/events 摘要。CLI 由 `crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_demo.rs` 消费；参数缺值、未知场景及生成错误以非零退出反馈。源码存在不是端到端运行通过证据。
+当前代码入口为 `crates/oasis7_viewer_runtime/src/viewer/demo.rs::generate_viewer_demo`：初始化场景、计划动作、执行队列、调用 `save_to_dir`，再返回 actions/events 摘要。CLI 由 `crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_demo.rs` 消费；参数缺值、未知场景及生成错误以非零退出反馈。源码存在不是端到端运行通过证据。
 
 ### 2.1 需求承接与分配表
 
@@ -62,8 +62,18 @@ Owner：viewer_engineer；消费者为 demo CLI、离线 Viewer server 与运行
 
 | 上游 requirement | 本设计条款 | 独立 obligation 与适用条件 | 验证方法 / source / scenario / candidate | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [Demo 输入与输出](viewer-minimal-system.prd.md#in-scope) | [生成流程](viewer-minimal-system.design.md#demo-flow) | 支持的有Agent演示场景按确定性策略生成可加载的快照/journal；拒绝事件不冒充移动成功 | [测试手册](../../../testing-manual.md)；执行 `cargo test -p oasis7 plan_demo_actions`，再生成默认场景并由 server 读取同目录文件；L1 动作计划及本地离线加载；记录实际 source、scenario、输出目录与 server/UI 构建；使用 Cargo canonical wrapper 约定 | 实际PR/验证记录：planner测试命令/退出码、scenario与生成文件摘要、事件数、server加载日志；声称UI打开时附真实界面证据 | planner单测仅覆盖多地点/单地点分支；不证明空Agent场景事件保证、跨文件原子提交、live或UI发布 |
+| [Demo 输入与输出](viewer-minimal-system.prd.md#in-scope) | [生成流程](viewer-minimal-system.design.md#demo-flow) | 支持的有Agent演示场景按确定性策略生成可加载的快照/journal；拒绝事件不冒充移动成功 | [测试手册](../../../testing-manual.md)；执行 `cargo test -p oasis7_viewer_runtime plan_demo_actions`，再生成默认场景并由 server 读取同目录文件；L1 动作计划及本地离线加载；记录实际 source、scenario、输出目录与 server/UI 构建；使用 Cargo canonical wrapper 约定 | 实际PR/验证记录：planner测试命令/退出码、scenario与生成文件摘要、事件数、server加载日志；声称UI打开时附真实界面证据 | planner单测仅覆盖多地点/单地点分支；不证明空Agent场景事件保证、跨文件原子提交、live或UI发布 |
 
 ## 12. 决策、风险与未决范围
 
 保持确定性小样例，而不是引入复杂脚本语言。资源不足可能产生拒绝事件；空 Agent 场景不能套用“至少一个事件”保证。当前文档规范化不重跑 demo、Rust 或 UI，历史 task evidence 保持原验证候选与范围，不由本表升级为已验收。
+
+## 应用与宿主边界
+
+`oasis7_viewer_runtime::viewer` 拥有 Viewer 应用状态、会话与控制、投影、网络监听及恢复编排，直接消费 `oasis7` 的无界面宿主。核心不依赖或重导出 Viewer 应用；仓库消费者使用实际 owner 的 Rust 路径，不保留 `oasis7::viewer` 兼容回边。
+
+核心 `runtime_host` 维护通用世界 bootstrap、Gameplay 请求到 Runtime Action 的组装、进程目录锁与持久 replay ledger、Runtime receipt 回读和 Harness 权威适配。完整 `WorldSnapshot`、事件及 Runtime/Player/Chain 组合归档仍由核心 Simulator 宿主持有。Viewer 的协议响应在应用边界组合该归档；客户端只消费自身所需合同和明确的解析模型。
+
+纯请求与签名验证由既有 Proto/Client API 拥有；纯验签不检查磁盘 replay ledger，Viewer 宿主适配在验签后继续执行 nonce 未使用检查。Harness 与 Game Client 不获取 Runtime World，也不承接受信 receipt 验证。Chain 宿主直接查询 World 的 canonical agent context，不经 Viewer 转发。
+
+验证边界包括：核心无 Viewer 依赖、Runtime/World Service 的生产闭包无 DistFS、协议签名字节和归档兼容回归、迁移后 Viewer 测试的实际执行及默认/无默认 feature 检查。修改 Viewer 普通实现只使应用及实际应用消费者失效；编译耗时须按真实源码变化测量，不能从 no-op check 推断提速比例。此迁移不改变游戏行为与正式 Skill/API，因此不以新增模型试玩代替合同和恢复回归。

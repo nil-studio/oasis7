@@ -355,8 +355,9 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
     let public = sign_read_request("owner", (), &private)
         .unwrap()
         .subject_public_key;
-    let mut gameplay = oasis7::viewer::GameplayActionRequest {
-        action_id: oasis7::viewer::ACTION_SCHEDULE_SMELTER_IRON_INGOT.into(),
+    let mut gameplay = oasis7_viewer_runtime::viewer::GameplayActionRequest {
+        action_id: oasis7::runtime_host::gameplay_actions::ACTION_SCHEDULE_SMELTER_IRON_INGOT
+            .into(),
         target_agent_id: "builder-a".into(),
         actor_agent_id: None,
         player_id: "browser-player".into(),
@@ -364,7 +365,10 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
         auth: None,
     };
     gameplay.auth = Some(
-        oasis7::viewer::sign_gameplay_action_auth_proof(&gameplay, 7, &public, &private).unwrap(),
+        oasis7_viewer_runtime::viewer::sign_gameplay_action_auth_proof(
+            &gameplay, 7, &public, &private,
+        )
+        .unwrap(),
     );
     let identity = WorldIdentity {
         world_id: "w1".into(),

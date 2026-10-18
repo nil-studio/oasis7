@@ -163,9 +163,9 @@ impl Protocol {
 
     fn request_snapshot(&mut self) -> oasis7::simulator::WorldSnapshot {
         self.send(serde_json::json!({"type":"request_snapshot"}));
-        let response: oasis7::viewer::ViewerResponse =
+        let response: oasis7_viewer_runtime::viewer::ViewerResponse =
             serde_json::from_value(self.receive("snapshot")).expect("valid Viewer response");
-        let oasis7::viewer::ViewerResponse::Snapshot { snapshot } = response else {
+        let oasis7_viewer_runtime::viewer::ViewerResponse::Snapshot { snapshot } = response else {
             panic!("expected the requested snapshot")
         };
         snapshot
@@ -283,7 +283,9 @@ fn real_tcp_shipped_viewer_lost_ack_preserves_original_lookup() {
 }
 
 fn verify_signed_collect_data(lost_ack: bool) {
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let fixture = Fixture::with_options(true, false);
     fixture
         .controlled_submit_commit
@@ -299,7 +301,7 @@ fn verify_signed_collect_data(lost_ack: bool) {
     let public = sign_read_request("owner", (), &fixture.owner)
         .unwrap()
         .subject_public_key;
-    let mut registration = oasis7::viewer::AuthoritativeSessionRegisterRequest {
+    let mut registration = oasis7_viewer_runtime::viewer::AuthoritativeSessionRegisterRequest {
         player_id: "owner-a".into(),
         public_key: Some(public.clone()),
         registration_grant: None,
@@ -308,7 +310,7 @@ fn verify_signed_collect_data(lost_ack: bool) {
         force_rebind: false,
     };
     registration.auth = Some(
-        oasis7::viewer::sign_session_register_auth_proof(
+        oasis7_viewer_runtime::viewer::sign_session_register_auth_proof(
             &registration,
             54,
             &public,
@@ -437,7 +439,7 @@ fn verify_collect_data_feedback_isolation(process: &mut ViewerProcess, owner: &m
     let initial: oasis7::simulator::WorldSnapshot =
         serde_json::from_value(observer.subscribe()).expect("valid anonymous WorldSnapshot");
     assert_snapshot_feedback_absent(initial, "fresh anonymous connection");
-    let request = oasis7::viewer::AuthoritativeReconnectSyncRequest {
+    let request = oasis7_viewer_runtime::viewer::AuthoritativeReconnectSyncRequest {
         player_id: "owner-a".into(),
         session_pubkey: None,
         last_known_log_cursor: None,
@@ -446,13 +448,15 @@ fn verify_collect_data_feedback_isolation(process: &mut ViewerProcess, owner: &m
     observer.send(serde_json::json!({"type":"authoritative_recovery","command":{"mode":"reconnect_sync","request":request}}));
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let response: oasis7::viewer::ViewerResponse =
+        let response: oasis7_viewer_runtime::viewer::ViewerResponse =
             serde_json::from_value(observer.receive("authoritative_recovery_ack"))
                 .expect("valid reconnect response");
-        let oasis7::viewer::ViewerResponse::AuthoritativeRecoveryAck { ack } = response else {
+        let oasis7_viewer_runtime::viewer::ViewerResponse::AuthoritativeRecoveryAck { ack } =
+            response
+        else {
             panic!("expected reconnect acknowledgement")
         };
-        if ack.status == oasis7::viewer::AuthoritativeRecoveryStatus::CatchUpReady
+        if ack.status == oasis7_viewer_runtime::viewer::AuthoritativeRecoveryStatus::CatchUpReady
             && ack.player_id.as_deref() == Some("owner-a")
         {
             assert!(ack.session_pubkey.is_none());

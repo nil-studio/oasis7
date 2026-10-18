@@ -1,6 +1,6 @@
 //! Pure memory gate probes use a genuinely persisted native checkpoint and actual signed Lookup receipt.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
 fn response_artifact_digest_for_other_lineage(pending: &serde_json::Value) -> String {
     let signed = &pending["payload"]["payload"];

@@ -124,7 +124,7 @@ operation_digest = h_v1(
 )
 ```
 
-  `h_v1` 使用仓库已有 domain-separated canonical-CBOR `[domain,payload]` 与 BLAKE3-256；字段顺序、UTF-8 bytes、trim/empty normalization 以及 unchanged/clear/set 的类型区分都固定。auth nonce/signature 与 grant transport timestamps 不进入 digest，`request_id` 作为 logical-operation key 也不进入 digest。当前签名 consumer 见 `crates/oasis7/src/viewer/auth.rs:124-148,834-872`，浏览器构造入口见 `crates/oasis7_viewer/software_safe_src/legacy_core.js:1649-1692`。
+  `h_v1` 使用仓库已有 domain-separated canonical-CBOR `[domain,payload]` 与 BLAKE3-256；字段顺序、UTF-8 bytes、trim/empty normalization 以及 unchanged/clear/set 的类型区分都固定。auth nonce/signature 与 grant transport timestamps 不进入 digest，`request_id` 作为 logical-operation key 也不进入 digest。当前签名 consumer 见 `crates/oasis7_client_api/src/viewer_auth.rs:124-148,834-872`，浏览器构造入口见 `crates/oasis7_viewer/software_safe_src/legacy_core.js:1649-1692`。
 
 <a id="prompt-control-result-status"></a>
 ### PromptControl result status

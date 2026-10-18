@@ -5,16 +5,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::SigningKey;
 use oasis7::simulator::WorldSnapshot;
-use oasis7::viewer::{
-    AgentChatRequest, AuthoritativeReconnectSyncRequest, AuthoritativeRecoveryCommand,
-    AuthoritativeSessionRegisterRequest, AuthoritativeSessionRevokeRequest,
-    AuthoritativeSessionRotateRequest, GameplayActionRequest, LiveControl,
-    PromptControlApplyRequest, PromptControlAuthIntent, PromptControlCommand,
-    PromptControlRollbackRequest, VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse,
-    ViewerStream, sign_agent_chat_auth_proof, sign_gameplay_action_auth_proof,
-    sign_prompt_control_apply_auth_proof, sign_prompt_control_rollback_auth_proof,
-    sign_session_register_auth_proof,
-};
+use oasis7_client_api::{viewer_auth::*, viewer_protocol::*};
+type ViewerResponse = oasis7_proto::viewer::ViewerResponse<
+    WorldSnapshot,
+    oasis7::simulator::WorldEvent,
+    oasis7::simulator::AgentDecisionTrace,
+    oasis7::simulator::RunnerMetrics,
+    oasis7_simulator::WorldTime,
+>;
+
 use oasis7_simulator::WorldEventKind;
 use serde_json::{Value, json};
 

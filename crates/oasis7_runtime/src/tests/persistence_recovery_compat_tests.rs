@@ -1,5 +1,5 @@
 use super::*;
-use oasis7_distfs::assemble_snapshot;
+use oasis7_cas::assemble_snapshot;
 
 const ISSUE160_SAMPLE_WORLD_ENV: &str = "OASIS7_VERIFY_ISSUE160_SAMPLE_WORLD";
 

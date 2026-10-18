@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::viewer::VIEWER_FORMAL_RELEASE_DEFAULT_WORLD_ID;
+use oasis7_client_api::bootstrap::FORMAL_RELEASE_DEFAULT_WORLD_ID as VIEWER_FORMAL_RELEASE_DEFAULT_WORLD_ID;
 use tracing::Level;
 
 fn encode_query_value(value: &str) -> String {
@@ -170,8 +170,8 @@ pub(super) fn spawn_child_process(
     let mut child = Command::new(bin)
         .args(args)
         .env(
-            oasis7::observability::TRACE_SESSION_ID_ENV,
-            oasis7::observability::resolve_trace_session_id("oasis7_web_launcher"),
+            oasis7_observability::TRACE_SESSION_ID_ENV,
+            oasis7_observability::resolve_trace_session_id("oasis7_web_launcher"),
         )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -221,7 +221,7 @@ pub(super) fn stop_child_process(child: &mut Child) -> Result<(), String> {
     }
 
     if let Err(err) = send_interrupt_signal(child) {
-        oasis7::observability::emit_stderr_or_event(
+        oasis7_observability::emit_stderr_or_event(
             Level::WARN,
             format!("warning: failed to request graceful process stop: {err}").as_str(),
             "web launcher graceful child stop request failed",

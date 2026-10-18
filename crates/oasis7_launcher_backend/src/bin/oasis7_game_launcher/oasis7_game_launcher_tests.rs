@@ -23,12 +23,11 @@ use super::{
     resolve_viewer_static_dir_with_override, viewer_deployment_mode_from_options,
     viewer_dev_dist_candidates,
 };
-use oasis7::simulator::ProviderExecutionMode;
-use oasis7::simulator::WorldSnapshot;
-use oasis7::viewer::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
+use oasis7_agent_api::ProviderExecutionMode;
+use oasis7_client_api::viewer_protocol::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
 use oasis7_launcher_config::DEFAULT_CHAIN_REPLICATION_BOOTSTRAP_PEERS;
 use oasis7_proto::storage_profile::StorageProfile;
-use oasis7_simulator::{WorldConfig, WorldModel};
+use oasis7_simulator::WorldModel;
 
 #[path = "provider_lineage_tests.rs"]
 mod provider_lineage_tests;
@@ -129,7 +128,7 @@ fn parse_options_defaults() {
             .map(|peer| (*peer).to_string())
             .collect::<Vec<_>>()
     );
-    let pos_defaults = oasis7::chain_pos_defaults::defaults();
+    let pos_defaults = oasis7_client_api::chain_pos_defaults::defaults();
     assert_eq!(
         options.chain_pos_slot_duration_ms,
         pos_defaults.slot_duration_ms
@@ -1146,7 +1145,7 @@ fn query_runtime_bound_players_reads_snapshot_bindings() {
                 max_version: VIEWER_PROTOCOL_VERSION,
                 capabilities: Vec::new(),
                 world_id: "test-world".to_string(),
-                control_profile: oasis7::viewer::ViewerControlProfile::Playback,
+                control_profile: oasis7_client_api::viewer_protocol::ViewerControlProfile::Playback,
                 authority_epoch: None,
             },
         )
@@ -1169,23 +1168,7 @@ fn query_runtime_bound_players_reads_snapshot_bindings() {
         model
             .agent_player_bindings
             .insert("agent-2".to_string(), "player-b".to_string());
-        let snapshot = WorldSnapshot {
-            version: 1,
-            chunk_generation_schema_version: 1,
-            time: 0,
-            config: WorldConfig::default(),
-            model,
-            runtime_snapshot: None,
-            player_gameplay: None,
-            chain_resource_manifest: Default::default(),
-            latest_chain_resource_delta: Default::default(),
-            chunk_runtime: Default::default(),
-            intel_ttl_ticks: 0,
-            next_event_id: 0,
-            next_action_id: 0,
-            pending_actions: Vec::new(),
-            journal_len: 0,
-        };
+        let snapshot = serde_json::json!({"model": model});
         serde_json::to_writer(&mut writer, &ViewerResponse::Snapshot { snapshot })
             .expect("write snapshot");
         writer.write_all(b"\n").expect("write newline");

@@ -52,7 +52,7 @@
   - `crates/oasis7_consensus/src/node_consensus_action.rs`
   - `crates/oasis7_node/src/gossip_udp.rs`
   - `crates/oasis7_node/src/lib.rs`
-  - `crates/oasis7/src/viewer/live/consensus_bridge.rs`
+  - `crates/oasis7_viewer_runtime/src/viewer/live/consensus_bridge.rs`
     - 新增玩家身份字段与校验链路。
   - 覆盖以上变更的 required-tier 测试。
 - Out of scope

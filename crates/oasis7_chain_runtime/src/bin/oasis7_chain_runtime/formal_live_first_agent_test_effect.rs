@@ -7,17 +7,18 @@ pub(super) fn first_agent_effect(
     let WorldServicePayloadV1::GameplayJson(bytes) = &request.signed_payload else {
         return Err("first-agent fixture needs actual GameplayJson execution".into());
     };
-    let action: oasis7::viewer::GameplayActionRequest =
+    let action: oasis7_viewer_runtime::viewer::GameplayActionRequest =
         serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    let verified = oasis7::viewer::verify_gameplay_action_auth_proof(
+    let verified = oasis7_viewer_runtime::viewer::verify_gameplay_action_auth_proof(
         &action,
         action
             .auth
             .as_ref()
             .ok_or("first-agent signature missing")?,
     )?;
-    if action.action_id != oasis7::viewer::ACTION_CLAIM_FIRST_AGENT
-        || action.target_agent_id != oasis7::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID
+    if action.action_id != oasis7::runtime_host::gameplay_actions::ACTION_CLAIM_FIRST_AGENT
+        || action.target_agent_id
+            != oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID
         || verified.player_id != "owner"
         || Some(&verified.public_key) != action.public_key.as_ref()
         || world.state().agents.len() != 1
@@ -30,7 +31,7 @@ pub(super) fn first_agent_effect(
         .get(&action.target_agent_id)
         .ok_or("original first agent absent")?;
     let oasis7_runtime::Action::RegisterAgent { agent_id, pos } =
-        oasis7::viewer::build_runtime_action_from_gameplay_request(&action)
+        oasis7_viewer_runtime::viewer::build_runtime_action_from_gameplay_request(&action)
             .map_err(|e| e.message)?
     else {
         return Err("first-agent request did not produce RegisterAgent".into());

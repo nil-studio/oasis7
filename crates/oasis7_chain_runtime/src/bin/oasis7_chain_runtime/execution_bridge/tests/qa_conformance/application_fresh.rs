@@ -4,7 +4,7 @@ use oasis7::simulator::{
     ContinuousAgentRequestContextV1, ContinuousAgentTurnContextV1, DecisionProvider,
     ProviderLoopbackAdapter,
 };
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
 #[test]
 fn real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider() {

@@ -136,7 +136,7 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
   - 调用 `run_full_required_superset`、`rust_baseline` 及下列 full 测试；函数名不代表当前已覆盖 `required` 的每个子检查。
   - 当前仍缺 `oasis7` / consensus / distfs / node / net / net-libp2p 的组级 Clippy 和 `viewer-auth-browser-security-smoke.mjs`；workspace-support 的 Clippy 仍会执行。`full-standard` 同样存在这些缺口，`full` 另加 `formal_process`。
   - `required` 全量包含于 full 是 [CI 分层设计](doc/testing/ci/ci-tiered-execution.design.md) 的目标，尚不能凭本入口通过宣称实现；应按变更范围执行实际选中的 required 组。
-  - `cargo test -p oasis7 --tests --features test_tier_full,wasmtime,viewer_live_integration`
+  - `cargo test -p oasis7 -p oasis7_viewer_runtime --tests --features test_tier_full,wasmtime,viewer_live_integration`
   - `cargo test -p oasis7_node --lib`
   - `cargo test -p oasis7_net --lib`
   - `cargo test -p oasis7_net --features libp2p --lib`
@@ -397,8 +397,8 @@ env -u RUSTC_WRAPPER cargo fmt --all -- --check
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required runtime::tests:: -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required simulator::tests:: -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required viewer::live::tests:: -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required viewer::web_bridge::tests:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --features test_tier_required viewer::live::tests:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --features test_tier_required web_bridge::tests:: -- --nocapture
 ```
 - 电价/市场机制定向回归（required/full）：
 ```bash
@@ -1514,7 +1514,7 @@ Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；[准确专业接受关
 <a id="uws-v-local-spawn"></a>
 ### UWS-V-LOCAL-SPAWN：本地默认初始化
 
-对固定 candidate 执行 `cargo test -p oasis7 --lib bootstrap_formal_release_runtime_world_uses_seeded_fragment_bootstrap_agent`，先确认 discovery 命中该具名测试。沿 [support.rs](crates/oasis7/src/viewer/runtime_live/support.rs) 原 fixture 核本地默认 Agent 坐标与 [gameplay_actions.rs](crates/oasis7/src/viewer/gameplay_actions.rs) 所取 seed-model 坐标，保存版本、有效配置、模型坐标、命令和原输出。该断言不验证正式 Agent location_id、链 provenance、claim 完整流程或玩家可读性；对应范围继续待验证，本次未运行。
+对固定 candidate 执行 `cargo test -p oasis7_viewer_runtime --lib bootstrap_formal_release_runtime_world_uses_seeded_fragment_bootstrap_agent`，先确认 discovery 命中该具名测试。沿 [support.rs](crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) 原 fixture 核本地默认 Agent 坐标与 [gameplay_actions.rs](crates/oasis7/src/runtime_host/gameplay_actions.rs) 所取 seed-model 坐标，保存版本、有效配置、模型坐标、命令和原输出。该断言不验证正式 Agent location_id、链 provenance、claim 完整流程或玩家可读性；对应范围继续待验证，本次未运行。
 
 该具名旧 fixture 仅是正例。负例计划尚待实现：在隔离测试构造中使运行时 Agent 坐标不同于同一 seed-model Agent 坐标，或保持 seed 不变而改有效场景配置后仍错误复用旧坐标；按本地接线原 oracle，该比较必须报告不一致而不能通过。负例用于验证比较/接线，不新增生产 fallback 或正式 claim 模型。无 frag/边界降级沿出生专题原验证，不由本 fixture 代签。保存受控差异、两组坐标和预期/实际 verdict；目前没有声称该负例测试已存在。
 

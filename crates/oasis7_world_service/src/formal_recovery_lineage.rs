@@ -1,7 +1,7 @@
 //! Recovery cut derivation from the unchanged externally provisioned origin.
 //! A page cursor or the target checkpoint digest is never a new trust pin.
 use super::formal_read::{FormalReadHistoryPageV1, FormalReadVerifier};
-use oasis7_distfs::controlled_authority::formal::{
+use oasis7_formal_protocol::controlled_authority::formal::{
     FormalReadCheckpointV1, InitialActivationTrustV1, VerifiedFormalReadAnchorV1,
 };
 

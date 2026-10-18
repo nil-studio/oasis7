@@ -7,7 +7,7 @@ use crate::{
     projection::WorldServiceProjection,
 };
 use oasis7_client_api::world_service::*;
-use oasis7_distfs::controlled_authority::formal::{
+use oasis7_formal_protocol::controlled_authority::formal::{
     InitialActivationTrustV1, VerifiedFormalReadAnchorV1,
 };
 pub(crate) fn response(

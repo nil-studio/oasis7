@@ -872,7 +872,7 @@ fixture、canonical bytes/digest/key、provider invocation count 与 feedback pa
 - `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib cognition_budget`：wire 必填/未知字段、
   model/tool zero、repair/transport retry、计数与 exhaustion 无新效果；同时检查预算任一上限
   改变会改变 request digest，原 request key 重绑预算产生 collision。
-- `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib runtime_live_host_goal`：host 默认目标、
+- `env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --lib runtime_live_host_goal`：host 默认目标、
   profile override、revision/text digest 变化、NFC/trim 与超限拒绝。
 - `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_live_harness`：共同 actor
   消费 host goal、receipt-gated memory、失败不冒充成功等待与 continuation 终态隔离。

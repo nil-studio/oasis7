@@ -1,6 +1,6 @@
 //! Real provider Wait twice must exhaust the existing canonical successor, not reset its budget.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
 #[test]
 fn real_tcp_hosted_final_wait_budget_consumes_once_without_new_model_or_lease() {

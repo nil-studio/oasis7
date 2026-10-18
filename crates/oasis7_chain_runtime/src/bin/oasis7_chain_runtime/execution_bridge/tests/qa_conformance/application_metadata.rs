@@ -1,6 +1,6 @@
 //! Real Info/Health fault gates test a second hosted Viewer before each gate releases.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 #[test]
 fn real_tcp_hosted_slow_provider_metadata_preserves_second_viewer_snapshot() {
@@ -10,7 +10,7 @@ fn stream(
     shared: &Arc<Mutex<ViewerRuntimeLiveServer>>,
 ) -> (
     TcpStream,
-    thread::JoinHandle<Result<(), oasis7::viewer::ViewerRuntimeLiveServerError>>,
+    thread::JoinHandle<Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError>>,
 ) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();

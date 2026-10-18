@@ -126,7 +126,7 @@ class BuildAndBundles(unittest.TestCase):
         formal = artifacts.build_variants('formal')
         ordinary = artifacts.build_variants('ordinary')
         self.assertEqual({v[0] for v in formal}, {'formal-required', 'runtime', 'endpoint', 'distfs-tests'})
-        self.assertEqual({v[0] for v in ordinary}, {'viewer', 'required', 'snapshot-tests'})
+        self.assertEqual({v[0] for v in ordinary}, {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'})
         args = next(args for name, args, _ in formal if name == 'formal-required')
         self.assertIn('--bins', args)
         self.assertIn('--lib', args)
@@ -136,8 +136,10 @@ class BuildAndBundles(unittest.TestCase):
         for variant, command, features in [*ordinary, *formal[1:], *artifacts.build_variants('all')]:
             self.assertNotIn('ci_formal_required_features', features, variant)
             self.assertFalse(any('ci_formal_required_features' in arg for arg in command), variant)
-        snapshot = next(args for name, args, _ in ordinary if name == 'snapshot-tests')
-        self.assertNotIn('--features', snapshot)
+        for owner, package in [('snapshot-tests', 'oasis7'), ('viewer-snapshot-tests', 'oasis7_viewer_runtime')]:
+            snapshot = next(args for name, args, _ in ordinary if name == owner)
+            self.assertEqual(snapshot, ['test', '-p', package, '--lib', '--no-run'])
+            self.assertEqual(next(features for name, _, features in ordinary if name == owner), [])
         required = next(args for name, args, _ in ordinary if name == 'required')
         required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
         self.assertCountEqual(required_packages, [
@@ -148,12 +150,106 @@ class BuildAndBundles(unittest.TestCase):
             'oasis7_wasm_materializer', 'oasis7_game_client', 'oasis7_cas', 'oasis7_formal_protocol',
         ])
         self.assertIn('--tests', required)
+        shell = (HERE / 'ci-tests.sh').read_text()
+        self.assertIn('run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::;', shell)
+        self.assertIn('run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields;', shell)
+
+    def test_formal_alias_requires_owning_package_and_exact_target_kind(self):
+        classify = artifacts.artifact_logical_name
+        for variant in ('required', 'formal-required'):
+            with self.subTest(variant=variant):
+                self.assertEqual(classify(variant, 'oasis7_chain_runtime',
+                    dict(name='oasis7_chain_runtime', kind=['bin']), True), 'runtime-tests')
+                self.assertEqual(classify(variant, 'oasis7',
+                    dict(name='oasis7', kind=['lib']), True), 'oasis7-lib-tests')
+                for package, kind, name in [('oasis7_chain_runtime', 'lib', 'oasis7_chain_runtime'),
+                                            ('other_package', 'bin', 'oasis7_chain_runtime'),
+                                            ('oasis7', 'bin', 'oasis7')]:
+                    logical = classify(variant, package, dict(name=name, kind=[kind]), True)
+                    self.assertNotIn(logical, ('runtime-tests', 'oasis7-lib-tests'))
+                    self.assertIn(package + '-' + kind + '-', logical)
+                self.assertTrue(classify(variant, 'oasis7_chain_runtime',
+                    dict(name='oasis7_chain_runtime', kind=['bin']), False).startswith('required-executable-'))
+
+    def test_chain_library_and_binary_harnesses_keep_distinct_suite_owners(self):
+        # Cargo emits both executable harnesses with target.name == package name.
+        # Exercise the producer JSON path without compiling a Cargo workspace.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            package = root / 'crates/oasis7_chain_runtime'
+            package.mkdir(parents=True)
+            manifest_path = package / 'Cargo.toml'
+            manifest_path.write_text('[package]\nname = "oasis7_chain_runtime"\n')
+            messages = []
+            for kind in ('lib', 'bin'):
+                executable = root / ('chain-' + kind)
+                executable.write_bytes(kind.encode())
+                messages.append(dict(reason='compiler-artifact', manifest_path=str(manifest_path),
+                    package_id='path+file://' + str(package) + '#0.1.0', fresh=False,
+                    target=dict(name='oasis7_chain_runtime', kind=[kind]),
+                    profile=dict(test=True), features=[], executable=str(executable)))
+            class CargoOutput:
+                def __enter__(self):
+                    self.stdout = iter(json.dumps(message) + '\n' for message in messages)
+                    return self
+                def __exit__(self, *args):
+                    pass
+                def wait(self):
+                    return 0
+            config_path = root / 'suites.json'
+            config = dict(suites={'runtime-protocol': [dict(binary='runtime-tests', name='formal_case', ignored=True)]},
+                          legacy_ignored_filters={'runtime-tests': ['formal_case']},
+                          environment_formal_batches={}, shell_tests={})
+            config_path.write_text(json.dumps(config))
+            def inventory(path, ignored=False, env=None):
+                if path.name == 'runtime-tests':
+                    return ['formal_case']
+                return [] if ignored else ['config::contract']
+            for variant, scope in [('required', 'ordinary'), ('formal-required', 'formal')]:
+                with self.subTest(variant=variant):
+                    bundle = root / variant
+                    with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config_path), \
+                         patch.object(artifacts, 'build_variants', return_value=[(variant, ['test'], [])]), \
+                         patch.object(artifacts.subprocess, 'Popen', return_value=CargoOutput()), \
+                         patch.object(artifacts, 'inventory', side_effect=inventory), \
+                         patch.object(artifacts, 'output', return_value='host: fixture'), \
+                         patch.object(artifacts.sys, 'platform', 'fixture'):
+                        artifacts.build(bundle, scope)
+                    built = json.loads((bundle / 'manifest.json').read_text())
+                    binaries = built['binaries']
+                    library = next(name for name, binary in binaries.items() if binary.get('target_kind') == ['lib'])
+                    self.assertNotEqual(library, 'runtime-tests')
+                    self.assertEqual(binaries['runtime-tests']['target_kind'], ['bin'])
+                    self.assertEqual(binaries[library]['package'], 'oasis7_chain_runtime')
+                    self.assertEqual(binaries[library]['ordinary'], scope == 'ordinary')
+                    if scope == 'formal':
+                        entries = artifacts.selected_entries(built, config, suite='runtime-protocol')
+                        self.assertEqual([entry['binary'] for entry in entries], ['runtime-tests'])
+                        continue
+                    for owner, pattern in artifacts.DEFAULT_SNAPSHOT_REGRESSIONS:
+                        binaries[owner] = dict(path=owner, cwd='.', test=True, ordinary=False,
+                            tests=[pattern + ('one' if pattern.endswith('::') else '')], ignored_tests=[])
+                    self.assertIn(library, artifacts.dependency_closure(built, config, suite='ordinary'))
+                    with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'load', return_value=(built, {})), \
+                         patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')) as run_test:
+                        artifacts.execute(bundle, 'ordinary', root / 'results.jsonl')
+                    library_runs = [call for call in run_test.call_args_list
+                                    if call.args[0][0] == str(bundle / binaries[library]['path'])]
+                    self.assertEqual(len(library_runs), 1)
+                    self.assertEqual(library_runs[0].kwargs['expected_count'], 1)
+            messages.append(messages[-1])
+            with patch.object(artifacts, 'ROOT', root), \
+                 patch.object(artifacts, 'build_variants', return_value=[('required', ['test'], [])]), \
+                 patch.object(artifacts.subprocess, 'Popen', return_value=CargoOutput()), \
+                 patch.object(artifacts.sys, 'platform', 'fixture'):
+                with self.assertRaisesRegex(ValueError, 'duplicate executable: runtime-tests'):
+                    artifacts.build(root / 'duplicate', 'ordinary')
 
     def test_closure_contains_child_executables_but_not_other_suites(self):
         config = {'binary_dependencies': {'runtime-tests': ['runtime', 'endpoint'],
                                            'distfs-tests': ['endpoint']}, 'script_dependencies': {}}
         binaries = {name: {'test': name.endswith('tests')} for name in
-                    ('runtime-tests', 'runtime', 'endpoint', 'distfs-tests', 'viewer', 'snapshot-tests')}
+                    ('runtime-tests', 'runtime', 'endpoint', 'distfs-tests', 'viewer', 'snapshot-tests', 'viewer-snapshot-tests')}
         manifest = {'binaries': binaries, 'suites': {'storage-recovery': [
             {'binary': 'distfs-tests', 'name': 'storage', 'ignored': True}]}}
         self.assertEqual(artifacts.dependency_closure(manifest, config, suite='storage-recovery'),
@@ -169,7 +265,7 @@ class BuildAndBundles(unittest.TestCase):
             (bundle / 'bin').mkdir(parents=True)
             (bundle / 'lib').mkdir()
             binaries = {}
-            for name in ('viewer', 'snapshot-tests', 'required-test-lib-example', 'endpoint'):
+            for name in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests', 'required-test-lib-example', 'endpoint'):
                 path = bundle / 'bin' / name
                 path.write_bytes(b'fixture executable\n' * 2000)
                 path.chmod(0o755)
@@ -191,6 +287,12 @@ class BuildAndBundles(unittest.TestCase):
                 manifest = json.load(archive.extractfile('manifest.json'))
                 self.assertEqual(manifest['selection'], {'suite': 'ordinary'})
                 self.assertNotIn('endpoint', manifest['included_binaries'])
+                self.assertTrue({'snapshot-tests', 'viewer-snapshot-tests'} <= set(manifest['included_binaries']))
+            for owner in ('snapshot-tests', 'viewer-snapshot-tests'):
+                incomplete = dict(binaries)
+                del incomplete[owner]
+                with self.assertRaisesRegex(ValueError, 'missing default-feature snapshot harness: ' + owner):
+                    artifacts.dependency_closure(dict(binaries=incomplete), {}, suite='ordinary')
 
     def test_cache_budget_is_a_skip_decision_not_a_test_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -478,7 +580,8 @@ class Process(unittest.TestCase):
             # the empty batch, while retaining both snapshot combinations.
             for logical, rust_source in {
                 'empty-tests': '',
-                'snapshot-tests': '#[cfg(test)] mod snapshot_progress { #[test] fn one() {} } #[test] fn snapshot_player_gameplay_execution_state_backfills_from_legacy_fields() {}',
+                'viewer-snapshot-tests': '#[cfg(test)] mod snapshot_progress { #[test] fn one() {} }',
+                'snapshot-tests': '#[test] fn snapshot_player_gameplay_execution_state_backfills_from_legacy_fields() {}',
             }.items():
                 source.write_text(rust_source)
                 destination = bundle / logical
@@ -500,6 +603,9 @@ class Process(unittest.TestCase):
                     artifacts.execute(bundle, 'ordinary', root / 'results.jsonl')
                     self.assertTrue(all('--test-threads=1' not in call.args[0] for call in child_runner.call_args_list))
                     self.assertTrue(all('--nocapture' not in call.args[0] for call in child_runner.call_args_list))
+                    commands = [call.args[0] for call in child_runner.call_args_list]
+                    self.assertIn([str(bundle / 'viewer-snapshot-tests'), 'snapshot_progress::'], commands)
+                    self.assertIn([str(bundle / 'snapshot-tests'), 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'], commands)
                 results = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines()]
                 self.assertEqual(len(results), 3)
                 self.assertTrue(all(result['passed'] for result in results))

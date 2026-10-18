@@ -50,10 +50,10 @@ use oasis7_agent_harness::{
 };
 use oasis7_simulator::WorldTime;
 
-pub(crate) struct CommittedFeedbackMemoryInput<'a> {
-    pub(crate) agent: &'a str,
-    pub(crate) feedback: FeedbackEnvelopeV1,
-    pub(crate) receipt: &'a RuntimeReceiptLineageV1,
+pub struct CommittedFeedbackMemoryInput<'a> {
+    pub agent: &'a str,
+    pub feedback: FeedbackEnvelopeV1,
+    pub receipt: &'a RuntimeReceiptLineageV1,
 }
 
 #[path = "agent_harness_adapter.rs"]
@@ -65,7 +65,7 @@ pub use self::feedback::{RuntimeReceiptReadbackHandleV1, RuntimeReceiptReadbackV
 use self::feedback::{validate_feedback, validate_runtime_receipt_lineage};
 #[path = "async_agent_runner_receipt_memory.rs"]
 mod receipt_memory;
-pub(crate) use receipt_memory::project_receipt_memory;
+pub use receipt_memory::project_receipt_memory;
 #[path = "async_agent_runner_outcome.rs"]
 mod outcome;
 use self::outcome::{

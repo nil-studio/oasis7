@@ -305,7 +305,6 @@ impl AsyncAgentRunner {
         self.harness.feedback_recovery_blocked(agent, session)
     }
 
-    #[cfg(test)]
     pub(crate) fn agent_feedback_recovery_blocked(&self, agent: &str) -> bool {
         self.harness.agent_feedback_recovery_blocked(agent)
     }

@@ -1,6 +1,6 @@
 //! Real process loss after canonical Act, before settlement/finalization, with app-private state.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 
 const MEMORY: &str = "native canonical memory survives application process loss";
@@ -70,7 +70,7 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
             | "memory-reject-ack-signer"
     ) {
         match created {
-            Err(oasis7::viewer::ViewerRuntimeLiveServerError::Init(reason))
+            Err(oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError::Init(reason))
                 if mode == "memory-reject-ack-signature" =>
             {
                 assert!(
@@ -78,21 +78,23 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
                     "specific actual signature refusal required, got {reason}"
                 )
             }
-            Err(oasis7::viewer::ViewerRuntimeLiveServerError::Init(reason))
+            Err(oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError::Init(reason))
                 if mode == "memory-reject-ack-signer" =>
             {
                 assert_eq!(reason, "feedback ACK checkpoint signer/authority mismatch")
             }
-            Err(oasis7::viewer::ViewerRuntimeLiveServerError::Init(reason)) => assert_eq!(
-                reason,
-                if mode == "memory-reject-response" {
-                    "pending cognition response artifact invalid: response_digest_mismatch: provider response digest does not match its content"
-                } else if mode.starts_with("memory-reject-ack-") {
-                    "durable private feedback acceptance binding mismatch"
-                } else {
-                    "pending cognition response or memory artifact mismatch"
-                }
-            ),
+            Err(oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError::Init(reason)) => {
+                assert_eq!(
+                    reason,
+                    if mode == "memory-reject-response" {
+                        "pending cognition response artifact invalid: response_digest_mismatch: provider response digest does not match its content"
+                    } else if mode.starts_with("memory-reject-ack-") {
+                        "durable private feedback acceptance binding mismatch"
+                    } else {
+                        "pending cognition response or memory artifact mismatch"
+                    }
+                )
+            }
             Err(other) => panic!("unexpected original artifact restore rejection: {other:?}"),
             Ok(_) => {
                 panic!("tampered original artifact must be rejected during constructor restore")

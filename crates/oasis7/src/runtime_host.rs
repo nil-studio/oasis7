@@ -93,4 +93,21 @@ mod agent_chat_projection_tests;
 #[cfg(test)]
 mod game_task_projection_tests;
 
-pub(crate) mod provider_context;
+pub mod provider_context;
+
+pub mod bootstrap;
+pub mod gameplay_actions;
+pub mod harness_authority;
+
+pub mod feedback;
+
+pub mod auth_storage;
+
+/// Composite native host archive extensions.
+pub mod archive {
+    pub use crate::simulator::persist::*;
+}
+
+pub mod memory;
+pub mod projection;
+pub mod runner;

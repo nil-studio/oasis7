@@ -835,7 +835,7 @@ fn run_protected_runtime_fixture(
             .world
             .state()
             .agents
-            .contains_key(oasis7::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+            .contains_key(oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
         {
             return Err("canonical genesis gameplay action did not create the first agent".into());
         }
@@ -971,23 +971,21 @@ fn run_protected_runtime_fixture(
     if result_after_restart != original_result {
         return Err("restart changed the original canonical request result".into());
     }
-    let game_task_after = if genesis_mode {
-        if !reopened_cut
-            .world
-            .state()
-            .agents
-            .contains_key(oasis7::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
-        {
-            return Err("genesis gameplay effect missing after restart".into());
-        }
-        None
-    } else {
-        Some(
-            game_task::current_control(&reopened_cut.world, "agent")
-                .map_err(|error| error.to_string())?
-                .ok_or("canonical game task effect missing after restart")?,
-        )
-    };
+    let game_task_after =
+        if genesis_mode {
+            if !reopened_cut.world.state().agents.contains_key(
+                oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID,
+            ) {
+                return Err("genesis gameplay effect missing after restart".into());
+            }
+            None
+        } else {
+            Some(
+                game_task::current_control(&reopened_cut.world, "agent")
+                    .map_err(|error| error.to_string())?
+                    .ok_or("canonical game task effect missing after restart")?,
+            )
+        };
     if game_task_after != game_task_before {
         return Err("restart replayed the canonical effect or Wasmtime action observer".into());
     }

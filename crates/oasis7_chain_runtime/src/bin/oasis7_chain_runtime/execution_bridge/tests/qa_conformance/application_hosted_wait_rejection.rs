@@ -1,6 +1,6 @@
 //! Actual original signed Wait Admit rejection after a real canonical clock commit.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::path::Path;
 pub(super) const STORE: &str = "hosted-wait-private-lineage.json";
 #[test]

@@ -1,6 +1,6 @@
 //! Genuine signed Unknown before publication must reconcile only the original Act.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
 #[test]
 fn real_tcp_hosted_act_unpublished_original_replays_exactly_once_canonically() {

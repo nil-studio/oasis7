@@ -72,12 +72,14 @@ fn build_viewer_live_command_derives_trusted_registration_issuer_key() {
     let command = build_oasis7_viewer_live_command(Path::new("/bin/echo"), &options, false, false);
     let private_key_env = command
         .get_envs()
-        .find(|(name, _)| *name == oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
+        .find(|(name, _)| {
+            *name == oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV
+        })
         .map(|(_, value)| value.map(|value| value.to_os_string()));
     let trusted_public_key = command
         .get_envs()
         .find_map(|(name, value)| {
-            (name == oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV)
+            (name == oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV)
                 .then(|| value.map(|value| value.to_string_lossy().into_owned()))
                 .flatten()
         })

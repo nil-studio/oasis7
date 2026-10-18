@@ -8,13 +8,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, DecisionRequest,
-    DecisionResponse, Digest32, FeedbackEnvelope, FeedbackEnvelopeV1, ProviderAgentChatRequest,
-    ProviderAgentChatResponse, ProviderDecision, ProviderDiagnostics, ProviderErrorEnvelope,
-    ProviderHealth, ProviderInfo, ProviderTokenUsage, ProviderTraceEnvelope,
-    ProviderTranscriptEntry, cognition_response_digest, h_v1, provider_agent_chat_log_key,
+use oasis7_agent_api::{
+    ContinuousAgentRequestContextV1, DecisionRequest, Digest32, FeedbackEnvelopeV1,
+    ProviderAgentChatRequest, ProviderAgentChatResponse, ProviderDiagnostics,
+    ProviderErrorEnvelope, ProviderTokenUsage, ProviderTraceEnvelope, ProviderTranscriptEntry,
+    cognition_response_digest, h_v1, provider_agent_chat_log_key,
 };
+use oasis7_client_api::{ProviderHealth, ProviderInfo};
+type DecisionResponse =
+    oasis7_agent_api::DecisionResponse<oasis7_simulator::Action, oasis7_simulator::AgentQuery>;
+type ProviderDecision =
+    oasis7_agent_api::ProviderDecision<oasis7_simulator::Action, oasis7_simulator::AgentQuery>;
+type ContinuousAgentResponseContextV1 = oasis7_agent_api::ContinuousAgentResponseContextV1<
+    oasis7_simulator::Action,
+    oasis7_simulator::AgentQuery,
+>;
+type FeedbackEnvelope = oasis7_agent_api::FeedbackEnvelope<oasis7_simulator::WorldEvent>;
+
 use oasis7_observability::{emit_stderr_or_event, init_tracing, resolve_trace_session_id};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -230,10 +240,10 @@ impl ProviderState {
                 "simple_interact".to_string(),
             ],
             chain_resource_manifest_schema_version: Some(
-                oasis7::runtime::CHAIN_RESOURCE_MANIFEST_SCHEMA_V1.to_string(),
+                oasis7_agent_api::world_resource::CHAIN_RESOURCE_MANIFEST_SCHEMA_V1.to_string(),
             ),
             chain_resource_delta_schema_version: Some(
-                oasis7::runtime::CHAIN_RESOURCE_DELTA_SCHEMA_V1.to_string(),
+                oasis7_agent_api::world_resource::CHAIN_RESOURCE_DELTA_SCHEMA_V1.to_string(),
             ),
         }
     }

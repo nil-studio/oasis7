@@ -1,8 +1,8 @@
 use super::*;
-use oasis7::capability_invocation_context::CapabilityInvocationContext;
-use oasis7::simulator::{
+use oasis7_agent_api::CapabilityInvocationContext;
+use oasis7_agent_api::{
     COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
-    DecisionResponse, cognition_legacy_response_digest,
+    cognition_legacy_response_digest,
 };
 use oasis7_wasm_abi::CapabilityCatalogSnapshot;
 
@@ -565,9 +565,8 @@ fn continuous_context(
     base_decision_request.capability_invocation_context = Some(invocation.clone());
     let mut context = ContinuousAgentRequestContextV1 {
         base_decision_request,
-        context_discriminator: oasis7::simulator::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR
-            .to_string(),
-        context_version: oasis7::simulator::CONTINUOUS_AGENT_CONTEXT_VERSION,
+        context_discriminator: oasis7_agent_api::CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR.to_string(),
+        context_version: oasis7_agent_api::CONTINUOUS_AGENT_CONTEXT_VERSION,
         protocol_version: "continuous-agent-v1".to_string(),
         agent_session_id: agent_session_id.to_string(),
         agent_turn_id: "turn-bridge".to_string(),
@@ -587,11 +586,11 @@ fn continuous_context(
             runtime_manifest_hash: Digest32::from(format!("blake3:{}", "c".repeat(64))),
         },
         observation_digest: Digest32::from(format!("blake3:{}", "d".repeat(64))),
-        capability_catalog_digest: oasis7::simulator::h_v1(
+        capability_catalog_digest: oasis7_agent_api::h_v1(
             COGNITION_CAPABILITY_CATALOG_DOMAIN,
             &catalog,
         ),
-        capability_invocation_context_digest: oasis7::simulator::h_v1(
+        capability_invocation_context_digest: oasis7_agent_api::h_v1(
             COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
             &invocation,
         ),
@@ -599,7 +598,7 @@ fn continuous_context(
         goal_snapshot_digest: Digest32::from(format!("blake3:{}", "2".repeat(64))),
         continuation_digest: Digest32::from(format!("blake3:{}", "3".repeat(64))),
         adapter_protocol_version: "loopback-http-v1".to_string(),
-        budget_contract: oasis7::simulator::BudgetContractV1 {
+        budget_contract: oasis7_agent_api::BudgetContractV1 {
             max_latency_ms: 7_000,
             max_repair_attempts: 1,
             max_model_calls: 4,

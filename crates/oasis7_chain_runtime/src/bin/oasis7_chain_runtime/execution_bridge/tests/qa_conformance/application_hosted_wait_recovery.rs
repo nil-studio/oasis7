@@ -1,6 +1,6 @@
 //! Real process death after canonical Resume, before the minimum-view response.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::Write;
 
 const STORE: &str = "hosted-wait-private-lineage.json";

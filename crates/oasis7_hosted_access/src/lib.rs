@@ -531,3 +531,6 @@ mod tests {
         assert!(web_launcher_public_endpoints().contains(&"/api/public/hosted-account/test-login"));
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod auth_storage;
