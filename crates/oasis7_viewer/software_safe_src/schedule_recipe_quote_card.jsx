@@ -1,9 +1,9 @@
 import { createSignal } from "solid-js";
 
 function display(value) { return value == null || value === "" ? "—" : String(value); }
-function riskCopy(value, locale, tr) { return ({ normal: tr(locale, "电力风险正常", "Normal power risk"), critical: tr(locale, "临界电力风险", "Critical power risk"), shutdown: tr(locale, "停机风险", "Shutdown risk") })[String(value || "")] || tr(locale, "电力风险待确认", "Power risk pending"); }
-function warningRisk(value) { return ["critical", "shutdown"].includes(String(value || "")); }
-function preStepCopy(value, locale, tr) { return ({ schedule_now: tr(locale, "可安排生产", "Schedule production now"), restore_power: tr(locale, "先恢复电力，再安排生产", "Restore power before scheduling production") })[String(value || "")] || tr(locale, "重新请求预估后再决定", "Request a fresh quote before deciding"); }
+function riskCopy(value, locale, tr) { return ({ low: tr(locale, "低电力风险", "Low power risk"), elevated: tr(locale, "电力风险升高", "Elevated power risk"), normal: tr(locale, "电力风险正常", "Normal power risk"), critical: tr(locale, "临界电力风险", "Critical power risk"), shutdown: tr(locale, "停机风险", "Shutdown risk") })[String(value || "")] || tr(locale, "电力风险待确认", "Power risk pending"); }
+function warningRisk(value) { return ["elevated", "critical", "shutdown"].includes(String(value || "")); }
+function preStepCopy(value, locale, tr) { return ({ schedule_now: tr(locale, "可安排生产", "Schedule production now"), restore_power_before_scheduling: tr(locale, "先恢复电力，再安排生产", "Restore power before scheduling production"), restore_power: tr(locale, "先恢复电力，再安排生产", "Restore power before scheduling production") })[String(value || "")] || tr(locale, "重新请求预估后再决定", "Request a fresh quote before deciding"); }
 function shortageCopy(quote, locale, tr) { const delay = Number(quote.local_shortage_delay_ticks || 0); return delay > 0 ? tr(locale, `本地短缺：${delay} 步（${display(quote.shortage_reason)}）`, `Local shortage: ${delay} ticks (${display(quote.shortage_reason)})`) : tr(locale, "本地短缺：无", "Local shortage: none"); }
 function Metric(props) { return <div class="metric"><div class="metric__label">{props.label}</div><div class="metric__value">{props.value}</div></div>; }
 

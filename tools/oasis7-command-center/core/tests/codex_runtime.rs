@@ -670,3 +670,258 @@ fn failed_private_registration_prevents_any_turn_start_frame() {
             .contains("turn/start")
     );
 }
+
+#[test]
+fn composed_start_preserves_child_operations_and_hides_intents_after_thread_becomes_private() {
+    let f = Fixture::new();
+    let mut runtime = f.runtime();
+    let config = SessionConfig {
+        purpose: "explicit work".into(),
+        scope: "fixture only".into(),
+        model: None,
+        basis_revision: f.project.head.clone(),
+    };
+    runtime
+        .start_work(&f.project, "intent-original", config.clone(), "complete")
+        .unwrap();
+    tick();
+    let records = runtime.start_work_records(&f.project).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].state, "inputAcknowledged");
+    assert_eq!(records[0].operation_ids.len(), 2);
+    let thread = records[0].thread_id.clone().unwrap();
+    assert!(
+        runtime
+            .start_work(&f.project, "intent-original", config, "complete")
+            .is_err()
+    );
+    runtime
+        .start_private_turn(
+            &f.project,
+            &thread,
+            "request",
+            vec![PrivateInputRef {
+                binding_id: "b".into(),
+                binding_version: 1,
+                entry_id: "private".into(),
+                revision: "r".into(),
+                scope: "whole_entry".into(),
+            }],
+        )
+        .unwrap();
+    tick();
+    assert!(
+        runtime
+            .public_snapshot(&f.project)
+            .unwrap()
+            .requests
+            .is_empty()
+    );
+    assert!(
+        runtime
+            .public_start_work_records(&f.project)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(runtime.start_work_records(&f.project).unwrap().len(), 1);
+}
+#[test]
+fn unknown_composed_start_never_replays_under_a_new_id_or_after_restart() {
+    for lose_creation in [false, true] {
+        let f = Fixture::new();
+        if lose_creation {
+            let code = std::fs::read_to_string(&f.binary).unwrap().replacen(
+                "  reply(m,thread(t))",
+                "  continue",
+                1,
+            );
+            std::fs::write(&f.binary, code).unwrap();
+        }
+        let mut runtime = f.runtime();
+        let config = SessionConfig {
+            purpose: "explicit work".into(),
+            scope: "fixture only".into(),
+            model: None,
+            basis_revision: f.project.head.clone(),
+        };
+        runtime
+            .start_work(&f.project, "intent-lost", config.clone(), "lost")
+            .unwrap();
+        assert_eq!(
+            runtime.start_work_records(&f.project).unwrap()[0].state,
+            "unknown"
+        );
+        assert!(
+            runtime
+                .start_work(&f.project, "new-id", config.clone(), "lost")
+                .is_err()
+        );
+        drop(runtime);
+        let mut restored = Runtime::open(&f.db).unwrap();
+        assert_eq!(
+            restored.start_work_records(&f.project).unwrap()[0].state,
+            "unknown"
+        );
+        assert!(
+            restored
+                .start_work(&f.project, "another-id", config, "lost")
+                .is_err()
+        );
+        let trace = std::fs::read_to_string(&f.trace).unwrap();
+        assert_eq!(trace.matches("thread/start").count(), 1);
+        assert_eq!(
+            trace.matches("turn/start").count(),
+            usize::from(!lose_creation)
+        );
+    }
+}
+
+#[test]
+fn composed_intent_recovery_uses_original_ledger_and_never_replays_it() {
+    let f = Fixture::new();
+    let mut runtime = f.runtime();
+    let config = SessionConfig {
+        purpose: "explicit work".into(),
+        scope: "fixture only".into(),
+        model: None,
+        basis_revision: f.project.head.clone(),
+    };
+    runtime
+        .start_work(&f.project, "intent-original", config.clone(), "complete")
+        .unwrap();
+    tick();
+    let record = runtime.start_work_records(&f.project).unwrap().remove(0);
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    let key = format!("start_intent_v1:{}:local:intent-original", f.project.id);
+    let mut value = serde_json::to_value(&record).unwrap();
+    value["state"] = serde_json::json!("unknown");
+    db.execute(
+        "UPDATE personal SET value=?1 WHERE key=?2",
+        rusqlite::params![value.to_string(), key],
+    )
+    .unwrap();
+    // Settled children can be older than the ordinary 200-operation snapshot.
+    for i in 0..201 {
+        let op = serde_json::json!({"id":format!("later-{i}"),"instanceId":"unrelated","threadId":"other","turnId":null,"method":"turn/start","state":"confirmed","fingerprint":"fixture","createdAt":"now","error":null});
+        db.execute("INSERT INTO cc_runtime_operations(id,scope,target,state,value) VALUES(?1,?2,'other','confirmed',?3)",rusqlite::params![format!("later-{i}"),format!("{}:local",f.project.id),op.to_string()]).unwrap();
+    }
+    assert_eq!(
+        runtime.start_work_records(&f.project).unwrap()[0].state,
+        "inputAcknowledged"
+    );
+    assert!(
+        runtime
+            .start_work(&f.project, "intent-original", config.clone(), "complete")
+            .is_err()
+    );
+    runtime
+        .start_work(&f.project, "genuinely-new", config, "complete")
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&f.trace)
+            .unwrap()
+            .matches("thread/start")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn unresolved_intents_beyond_display_window_still_block_new_effects() {
+    let f = Fixture::new();
+    let mut runtime = f.runtime();
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    for i in 0..=1000 {
+        let id = if i == 1000 {
+            "z-unresolved".to_owned()
+        } else {
+            format!("a-{i:04}")
+        };
+        let record = serde_json::json!({"schemaVersion":1,"intentId":id,"projectId":f.project.id,"environment":"local","basisRevision":f.project.head,"fingerprint":"fixture","state":if i==1000{"unknown"}else{"inputAcknowledged"},"threadId":null,"operationIds":[],"updatedAt":"now"});
+        db.execute(
+            "INSERT INTO personal(key,value) VALUES(?1,?2)",
+            rusqlite::params![
+                format!("start_intent_v1:{}:local:{id}", f.project.id),
+                record.to_string()
+            ],
+        )
+        .unwrap();
+    }
+    let config = SessionConfig {
+        purpose: "explicit work".into(),
+        scope: "fixture only".into(),
+        model: None,
+        basis_revision: f.project.head.clone(),
+    };
+    assert!(
+        runtime
+            .start_work(&f.project, "new-intent", config, "complete")
+            .is_err()
+    );
+    assert!(
+        !std::fs::read_to_string(&f.trace)
+            .unwrap()
+            .contains("thread/start")
+    );
+}
+
+#[test]
+fn source_audited_intent_releases_new_work_without_claiming_input_acknowledged() {
+    let f = Fixture::new();
+    let mut runtime = f.runtime();
+    let config = SessionConfig {
+        purpose: "explicit work".into(),
+        scope: "fixture only".into(),
+        model: None,
+        basis_revision: f.project.head.clone(),
+    };
+    runtime
+        .start_work(&f.project, "original-audited", config.clone(), "complete")
+        .unwrap();
+    tick();
+    let record = runtime.start_work_records(&f.project).unwrap().remove(0);
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    let mut value = serde_json::to_value(&record).unwrap();
+    value["state"] = serde_json::json!("unknown");
+    db.execute(
+        "UPDATE personal SET value=?1 WHERE key=?2",
+        rusqlite::params![
+            value.to_string(),
+            format!("start_intent_v1:{}:local:original-audited", f.project.id)
+        ],
+    )
+    .unwrap();
+    let turn = runtime
+        .snapshot(&f.project)
+        .unwrap()
+        .operations
+        .into_iter()
+        .find(|op| record.operation_ids.contains(&op.id) && op.method == "turn/start")
+        .unwrap();
+    let mut audited = serde_json::to_value(&turn).unwrap();
+    audited["state"] = serde_json::json!("sourceResolved");
+    db.execute(
+        "UPDATE cc_runtime_operations SET state='sourceResolved',value=?1 WHERE id=?2",
+        rusqlite::params![audited.to_string(), turn.id],
+    )
+    .unwrap();
+    assert_eq!(
+        runtime.start_work_records(&f.project).unwrap()[0].state,
+        "sourceResolved"
+    );
+    assert!(
+        runtime
+            .start_work(&f.project, "original-audited", config.clone(), "complete")
+            .is_err()
+    );
+    runtime
+        .start_work(&f.project, "separate-new", config, "complete")
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&f.trace)
+            .unwrap()
+            .matches("thread/start")
+            .count(),
+        2
+    );
+}

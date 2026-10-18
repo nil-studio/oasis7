@@ -27,7 +27,7 @@ function fakeApi(initial: RuntimeSnapshot) {
     background:vi.fn(async () => ({safe:false,active:1,unknown:0,pendingRequests:0,waiting:false,reason:'留在后台'})),
     waitExit:vi.fn(async () => ({safe:false,active:1,unknown:0,pendingRequests:0,waiting:true,reason:'等待实际工作结束'})),
     stopExit:vi.fn(async () => ({safe:false,active:1,unknown:1,pendingRequests:0,waiting:true,reason:'中断已接受，停止结果仍未知'})),
-  } satisfies typeof runtimeBridge;
+  } satisfies Omit<typeof runtimeBridge, 'startWork'|'startWorkRecords'|'publicSnapshot'>;
   return {api, setSnapshot:(next:RuntimeSnapshot) => { current = next; }};
 }
 const subscribe = vi.fn(async () => () => {});

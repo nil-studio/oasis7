@@ -1,17 +1,30 @@
 use oasis7_command_center_core::codex::*;
 use oasis7_command_center_core::context::*;
+use oasis7_command_center_core::daily_work::*;
 use oasis7_command_center_core::document_directory::*;
 use oasis7_command_center_core::document_inventory::*;
 use oasis7_command_center_core::document_semantic_tree::*;
 use oasis7_command_center_core::document_tree_reading::*;
 use oasis7_command_center_core::domain::*;
-use oasis7_command_center_core::github::{Check, GitHubSnapshot, PullChecksSource, PullRequest};
+use oasis7_command_center_core::github::{
+    Check, GitHubSnapshot, PullChecksSource, PullMetadata, PullRequest,
+};
 use oasis7_command_center_core::tools::jobs::ToolJob;
 use oasis7_command_center_core::tools::*;
 use oasis7_command_center_core::work_projection::*;
 use ts_rs::TS;
 fn main() {
     let declarations = [
+        WorkNavigation::decl(),
+        WorkRelation::decl(),
+        SyncEvidence::decl(),
+        DecisionFollowthrough::decl(),
+        WorkAttention::decl(),
+        ExternalWork::decl(),
+        WorktreeReference::decl(),
+        DailyWorkState::decl(),
+        DailyWorkAction::decl(),
+        DailyWorkRequest::decl(),
         WorkRef::decl(),
         SourceFact::decl(),
         FactCell::decl(),
@@ -75,6 +88,7 @@ fn main() {
         Snapshot::decl(),
         GitHubSnapshot::decl(),
         PullRequest::decl(),
+        PullMetadata::decl(),
         Check::decl(),
         PullChecksSource::decl(),
         RuntimeTarget::decl(),
@@ -86,6 +100,7 @@ fn main() {
         RuntimeSnapshot::decl(),
         QuitStatus::decl(),
         SessionConfig::decl(),
+        StartWorkRecord::decl(),
     ];
     let result = format!(
         "// Generated from Rust DTOs by cargo run -p oasis7-command-center-core --example export_types\n{}\n",
