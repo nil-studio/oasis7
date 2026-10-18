@@ -4,29 +4,7 @@ pub use oasis7_client_api::world_service_wire::{
     DESCRIBE_PATH, FeedbackAckIntentV1, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
     SignedServiceResponse, VIEW_PATH,
 };
-pub type SchedulerOperationV1 = oasis7_client_api::world_service_wire::SchedulerOperationV1<
-    oasis7_agent_api::ContinuousAgentRequestContextV1,
-    crate::CognitionLeaseRequestV1,
-    crate::CognitionContinuationProposalV1,
-    crate::ContinuationStatusV1,
-    crate::CognitionContinuationResumeRequestV1,
-    crate::CognitionWakeDispositionV1,
-    crate::CognitionContextDigestsV1,
->;
-pub type SchedulerIntentV1 =
-    oasis7_client_api::world_service_wire::SchedulerIntentV1<SchedulerOperationV1>;
-pub type WorldServicePayloadV1 = oasis7_client_api::world_service_wire::WorldServicePayloadV1<
-    oasis7_proto::viewer::AgentChatRequest,
-    SchedulerIntentV1,
->;
-pub type AuthenticatedLookup = oasis7_client_api::world_service_wire::AuthenticatedLookup<
-    oasis7_proto::viewer::AgentChatRequest,
-    SchedulerIntentV1,
->;
-pub type CanonicalIntentResultV1 = oasis7_client_api::world_service_wire::CanonicalIntentResultV1<
-    oasis7_proto::viewer::AgentChatRequest,
-    SchedulerIntentV1,
->;
+pub use oasis7_client_api::legacy_world_service::{SchedulerOperationV1, SchedulerIntentV1, WorldServicePayloadV1, AuthenticatedLookup, CanonicalIntentResultV1};
 
 use serde::{Deserialize, Serialize};
 pub const MEMBERSHIP_PATH: &str = "/v1/world/governance-membership";

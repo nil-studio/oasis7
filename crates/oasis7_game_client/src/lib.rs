@@ -462,3 +462,5 @@ mod world_service_test_profile;
 pub mod read_projection;
 
 pub mod task_original_view;
+
+pub mod legacy_profile;

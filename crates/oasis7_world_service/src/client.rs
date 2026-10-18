@@ -7,33 +7,9 @@ pub use oasis7_game_client::world_service_client::{
 };
 pub use oasis7_game_client::{WorldServiceClientError, WorldServiceQueryState};
 use serde_json::Value;
-#[derive(Debug, Clone)]
-pub struct ServiceClientProfile;
-impl oasis7_game_client::world_service_client::ClientWorldProfile for ServiceClientProfile {
-    type Projection = crate::projection::WorldServiceProjection;
-    type Chat = oasis7_proto::viewer::AgentChatRequest;
-    type Scheduler = crate::wire::SchedulerIntentV1;
-    fn derive_correlation(
-        world: WorldIdentity,
-        payload: &WorldServicePayloadV1,
-    ) -> Result<RequestCorrelation, String> {
-        crate::derive_correlation(world, payload)
-    }
-    fn validate_canonical_result(key: &str, value: &Value) -> Result<(), String> {
-        crate::correlation::validate_result(key, value)
-    }
-    fn validate_captured_task_context(
-        context: &oasis7_client_api::world_service::task_context::CapturedTaskContextV1<
-            Self::Chat,
-            Self::Scheduler,
-        >,
-        original: &SignedReadRequest<
-            oasis7_client_api::world_service::task_context::TaskContextGetV1,
-        >,
-    ) -> Result<(), String> {
-        context.validate_against(original)
-    }
-}
+/// Compatibility projection adapter. Contract, correlation and validation are
+/// owned by API/Game Client; server projection is retained for local World callers.
+pub type ServiceClientProfile = oasis7_game_client::legacy_profile::LegacyClientProfile<crate::projection::WorldServiceProjection>;
 pub type RemoteWorldServiceClient =
     oasis7_game_client::world_service_client::RemoteWorldServiceClient<ServiceClientProfile>;
 pub trait WorldServicePort {

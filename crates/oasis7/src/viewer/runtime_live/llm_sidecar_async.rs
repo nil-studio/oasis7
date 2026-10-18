@@ -67,7 +67,7 @@ pub(in crate::viewer::runtime_live) fn provider_cognition_lease_request(
     world: &RuntimeWorld,
     context: &cognition_context::ProviderContextState,
     canonical_service: bool,
-) -> Result<crate::runtime::CognitionLeaseRequestV1, String> {
+) -> Result<oasis7_agent_api::legacy_economy::CognitionLeaseRequestV1, String> {
     let request = &context.request_context;
     let runtime_binding = if canonical_service {
         request.runtime_binding.clone()
@@ -85,7 +85,7 @@ pub(in crate::viewer::runtime_live) fn provider_cognition_lease_request(
         payer_support::runtime_authorized_provider_payer_id(world, request)?
     };
     let invocation_key = request.provider_invocation_key().to_string();
-    let quote = crate::runtime::CognitionLeaseQuoteV1::new(
+    let quote = oasis7_agent_api::legacy_economy::CognitionLeaseQuoteV1::new(
         format!("cognition-quote:{invocation_key}"),
         COGNITION_LEASE_RESOURCE,
         1,
@@ -99,7 +99,7 @@ pub(in crate::viewer::runtime_live) fn provider_cognition_lease_request(
         request.capability_invocation_context_digest.to_string(),
         runtime_binding.base_world_hash.to_string(),
     );
-    Ok(crate::runtime::CognitionLeaseRequestV1::new(
+    Ok(oasis7_agent_api::legacy_economy::CognitionLeaseRequestV1::new(
         invocation_key,
         payer_id,
         request.agent_subject.clone(),
