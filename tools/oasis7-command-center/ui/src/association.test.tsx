@@ -22,7 +22,7 @@ it('keeps a saved missing goal identity unresolved instead of linking the replac
     throw new Error('source not connected');
   });
   render(()=><App/>);fireEvent.click(await screen.findByRole('button',{name:'原工作'}));
-  expect(screen.getByText(/原章节未读取或已变化 · doc\/core\/prd.md#heading-old/)).not.toHaveTextContent('新目标与原章节无关');expect(mock.invoke.mock.calls.some(([command])=>command==='read_source')).toBe(false);
+  fireEvent.click(screen.getByRole('tab',{name:'依据'}));expect(screen.getByText(/原章节未读取或已变化 · doc\/core\/prd.md#heading-old/)).not.toHaveTextContent('新目标与原章节无关');expect(mock.invoke.mock.calls.some(([command])=>command==='read_source')).toBe(false);
 });
 
 

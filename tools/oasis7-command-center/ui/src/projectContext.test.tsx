@@ -21,7 +21,7 @@ it('isolates unsaved inputs by project and restores them on return without savin
     if (['query_view','open_project','refresh_source'].includes(command)) return current;
     return github;
   });
-  render(() => <App />);
+  render(() => <App />);fireEvent.click(screen.getByRole('button',{name:'项目与来源'}));
   await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
   fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
   fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'A 的决定'}});
@@ -49,7 +49,7 @@ it('rejects search results returned after another project opens', async () => {
     if (command === 'search_rules') return new Promise<Snapshot['sections']>(resolve => {resolveSearch = resolve;});
     return github;
   });
-  render(() => <App />);
+  render(() => <App />);fireEvent.click(screen.getByRole('button',{name:'项目与来源'}));
   await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
   fireEvent.input(screen.getByLabelText('搜索规范、标题、路径或条款 ID'),{target:{value:'旧查询'}});
   fireEvent.click(screen.getByRole('button',{name:'搜索'}));
@@ -67,7 +67,7 @@ it('preserves the current project inputs when opening fails or the picker is can
     if (command === 'choose_project') return null;
     return github;
   });
-  render(() => <App />);
+  render(() => <App />);fireEvent.click(screen.getByRole('button',{name:'项目与来源'}));
   await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
   fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
   fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'尚未保存'}});
@@ -81,6 +81,6 @@ it('preserves the current project inputs when opening fails or the picker is can
 
 it('keeps an unsent search query per project and never turns navigation into a relationship write',async()=>{
  let current=snapshot('A');mock.invoke.mockImplementation(async(command:string,args?:{path?:string})=>{if(command==='open_project')current=snapshot(args!.path!.slice(1));if(['query_view','open_project'].includes(command))return current;return github;});
- render(()=><App/>);await waitFor(()=>expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
+ render(()=><App/>);fireEvent.click(screen.getByRole('button',{name:'项目与来源'}));await waitFor(()=>expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
  fireEvent.input(screen.getByLabelText('搜索规范、标题、路径或条款 ID'),{target:{value:'A 未提交查询'}});await open('B');expect(screen.getByLabelText('搜索规范、标题、路径或条款 ID')).toHaveValue('');await open('A');expect(screen.getByLabelText('搜索规范、标题、路径或条款 ID')).toHaveValue('A 未提交查询');expect(mock.invoke.mock.calls.some(([command])=>command==='save_daily_work'||command==='associate_work')).toBe(false);
 });
