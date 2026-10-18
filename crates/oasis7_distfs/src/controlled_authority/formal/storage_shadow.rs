@@ -11,6 +11,15 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
+// Explicit unlock bounds ownership to this step even if a concurrent fork
+// temporarily retains the same open file description before exec.
+struct SourceLease(File);
+impl Drop for SourceLease {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 const MAX_OBJECTS: usize = 65_536;
 const MAX_LOGICAL_BYTES: u64 = 1024 * 1024 * 1024;
 const BATCH_BYTES: usize = 8 * 1024 * 1024;
@@ -160,6 +169,7 @@ fn build_with_limit(
     lease
         .try_lock()
         .map_err(|_| FormalError::Conflict("formal endpoint locked".into()))?;
+    let lease = SourceLease(lease);
     let parent = destination
         .parent()
         .filter(|path| !path.as_os_str().is_empty())

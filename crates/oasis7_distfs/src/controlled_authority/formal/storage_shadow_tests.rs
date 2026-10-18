@@ -284,3 +284,35 @@ fn shadow_resumes_bounded_steps_and_rejects_source_changes() {
             .exists()
     );
 }
+
+#[test]
+fn shadow_source_lease_releases_even_while_a_duplicate_descriptor_survives() {
+    let fixture = Fixture::new();
+    let path = fixture.source.join(".formal-endpoint.lock");
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    file.try_lock().unwrap();
+    let lease = SourceLease(file);
+    // A concurrent process spawn can inherit the same open file description
+    // between fork and exec. A duplicate models that lifetime deterministically.
+    let inherited = lease.0.try_clone().unwrap();
+    let next = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    assert!(
+        next.try_lock().is_err(),
+        "active source lease must stay exclusive"
+    );
+    drop(lease);
+    let acquired = next.try_lock();
+    drop(inherited);
+    assert!(
+        acquired.is_ok(),
+        "finished shadow step must release its source lease: {acquired:?}"
+    );
+}

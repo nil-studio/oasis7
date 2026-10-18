@@ -267,6 +267,7 @@ pub fn advance_formal_storage_shadow(
     lease
         .try_lock()
         .map_err(|_| invalid("resumable shadow source busy"))?;
+    let _lease = SourceLease(lease);
     let parent = destination
         .parent()
         .ok_or_else(|| invalid("resumable shadow destination parent"))?;
