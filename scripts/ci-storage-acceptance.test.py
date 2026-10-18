@@ -8,6 +8,7 @@ import tempfile
 import tarfile
 import argparse
 import os
+import re
 import sys
 from unittest.mock import patch
 import unittest
@@ -34,6 +35,22 @@ class Contracts(unittest.TestCase):
                     producer_run_id='1', producer_attempt='1', passed=True,
                     expected_cases=1, selected_inventory=[{'binary': 'test'}], results=[dict(
                         passed=True, exit_code=0, cleanup_result='clean', timeout=False, cancelled=False, count_ok=True, leaked_processes=False)])
+
+    def test_only_capacity_long_overrides_logical_budget(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        global_env = workflow.split('\nenv:\n', 1)[1].split('\njobs:\n', 1)[0]
+        variable = 'OASIS7_STORAGE_MAX_LOGICAL_BYTES'
+        self.assertIn(f"  {variable}: '4294967296'", global_env)
+        jobs = dict(re.findall(
+            r'^  ([a-z][a-z0-9-]*):\n(.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)',
+            workflow.split('\njobs:\n', 1)[1], re.MULTILINE | re.DOTALL))
+        self.assertIn(f"    env:\n      {variable}: '17179869184'", jobs['capacity-long'])
+        self.assertIn("if: inputs.capacity_scale != '10'", jobs['capacity-long'])
+        for name, body in jobs.items():
+            if name != 'capacity-long':
+                self.assertNotIn(variable, body, name)
+        self.assertIn('timeout-minutes: 360', jobs['capacity-long'])
+        self.assertIn('steps: *acceptance-consumer', jobs['capacity-long'])
 
     def test_storage_scope_adds_libraries_without_changing_formal(self):
         formal = acceptance.artifacts.build_variants('formal')

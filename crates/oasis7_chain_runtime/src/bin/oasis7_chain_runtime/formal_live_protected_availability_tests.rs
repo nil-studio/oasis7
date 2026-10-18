@@ -68,6 +68,41 @@ fn availability_recovery_queues_original_before_releasing_published_cut() {
     worker.join().unwrap();
 }
 
+#[test]
+fn availability_remote_verification_outlives_only_a_released_publication_pause() {
+    use crate::formal_live_service::test_control::{BoundaryControl, Point};
+    use std::sync::mpsc;
+    let control = BoundaryControl::new();
+    let prior_deadline = Instant::now() + Duration::from_secs(2);
+    control
+        .arm(Point::Published, Some(4), None, prior_deadline)
+        .unwrap();
+    let shared = control.shared();
+    let (send, completed) = mpsc::channel();
+    let worker = thread::spawn(move || send.send(shared.published(4)).unwrap());
+    assert_eq!(control.wait(prior_deadline).unwrap().position, 4);
+    control.release().unwrap();
+    completed
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    worker.join().unwrap();
+    // Model proof verification exceeding the old pause's entire lifetime.
+    // The worker already returned Ok, so that expired lease cannot poison it.
+    thread::sleep(
+        prior_deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
+    );
+    let fresh_deadline = Instant::now() + Duration::from_secs(2);
+    control
+        .arm(Point::Published, None, None, fresh_deadline)
+        .unwrap();
+    let shared = control.shared();
+    let worker = thread::spawn(move || shared.published(5));
+    assert_eq!(control.wait(fresh_deadline).unwrap().position, 5);
+    control.release().unwrap();
+    worker.join().unwrap().unwrap();
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) enum AdmissionCase {
     QueuedBehindEmptyFrozen,
@@ -111,6 +146,13 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     use crate::formal_live_service::test_control::Point;
     let control = case.runtime.published.control_boundaries()?;
     let boundary_deadline = Instant::now() + Duration::from_secs(20);
+    // Arrival/admission retains its original 20s observation budget. One new
+    // pre-failure proof stage may use the existing configured HTTP deadline
+    // (30s in this fixture), so the held candidate has an explicit finite
+    // 20s+HTTP hold budget. Neither RPC nor boundary-arrival timeout increases.
+    let boundary_hold_deadline = boundary_deadline
+        .checked_add(case.public_client_config.timeout)
+        .ok_or("C06 pre-failure proof hold deadline overflow")?;
     let (point, exact_action) = match case.admission {
         AdmissionCase::QueuedBehindEmptyFrozen => (Point::BeforeResume, None),
         AdmissionCase::OriginalCandidateSaved => (
@@ -118,7 +160,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             Some(correlation::encode_consensus_intent(&case.owner_request)?),
         ),
     };
-    control.arm(point, None, exact_action, boundary_deadline)?;
+    control.arm(point, None, exact_action, boundary_hold_deadline)?;
     if matches!(case.admission, AdmissionCase::OriginalCandidateSaved) {
         assert_volatile_admission(
             owner_client
@@ -146,15 +188,39 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         )),
         _ => return Err("C06 controlled admission boundary had different input".into()),
     };
-    case.replica_child.kill_sigkill_and_wait()?;
-
-    // Select the baseline from the runtime's opaque, atomically published
-    // anchor after the kill. The public CommitRef below is only a selector:
-    // the external HTTP client still verifies its exact signed proof from the
-    // configured C0 trust. This avoids assuming an earlier initial view is
-    // still the current cut after background ticks.
+    // The fixed-read client must actually verify this exact cut while both
+    // endpoints are available. A public CommitRef from the opaque runtime is
+    // only a selector and cannot populate its verified-head cache. CandidateSaved
+    // may have a newer empty predecessor than the fixture's initial HTTP view.
     let baseline = case.runtime.published.current()?;
     let (old_commit, expected_projection) = commit_ref_for_opaque_cut(&baseline, &case.world)?;
+    let verified_baseline = public_client
+        .read_view(ReadWorldViewRequest {
+            observation_nonce: None,
+            formal_anchor: None,
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            world: case.world.clone(),
+            scope_id: "public".into(),
+            min_commit: None,
+            fixed_commit: None,
+            deadline_unix_ms: None,
+        })
+        .map_err(|error| format!("C06 verify exact baseline before replica loss: {error}"))?;
+    if verified_baseline.version().commit != old_commit
+        || verified_baseline
+            .formal_commit()
+            .map(|commit| commit.head())
+            != Some(baseline.anchor.head().head())
+        || serde_cbor::to_vec(verified_baseline.projection()).map_err(|e| e.to_string())?
+            != expected_projection
+    {
+        return Err("C06 pre-failure proof differs from exact controlled baseline".into());
+    }
+    case.replica_child.kill_sigkill_and_wait()?;
+    let after_kill = case.runtime.published.current()?;
+    if after_kill.anchor.head().head() != baseline.anchor.head().head() {
+        return Err("C06 baseline changed across replica loss".into());
+    }
 
     let admission = owner_client
         .submit(case.owner_request.clone())
@@ -272,9 +338,8 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary::reset_execution_attempts(block_hash);
     }
     let mut reopened = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
-    // Hold the first naturally produced recovery publication before the Node
-    // can freeze another empty continuation. HTTP lookup/re-admission below
-    // must observe this exact cut, rather than race an unrelated background Tick.
+    // Observe the first natural recovery publication through a finite barrier.
+    // Release it before remote proofs; later admissions acquire fresh barriers.
     let recovery_control = reopened.published.control_boundaries()?;
     let recovery_position = reopened
         .published
@@ -299,6 +364,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     if recovery_boundary.position != recovery_position || recovery_position < target_position {
         return Err("C06 recovery did not publish the exact successor boundary".into());
     }
+    recovery_control.release()?;
 
     // Volatile admission is not durable pending state and may disappear on
     // reopen. Query the original first; a successor tick alone proves neither
@@ -341,7 +407,18 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             return Err("C06 unfrozen volatile envelope unexpectedly survived as a result".into());
         }
         eprintln!("C06 recovery lookup=exact_cut_without_result replay=same_signed_original");
-        let replay_position = recovery_position
+        // Signed lookup can involve remote history. It runs without holding a
+        // finite test pause. Quiesce the next naturally produced publication
+        // only after that proof has completed, including an in-flight Tick.
+        // This adds a bounded 20s synchronization stage before the original
+        // 20s action stage; the overall phase can therefore take longer.
+        let barrier_deadline = Instant::now() + Duration::from_secs(20);
+        recovery_control.arm(Point::Published, None, None, barrier_deadline)?;
+        let barrier = recovery_control
+            .wait(barrier_deadline)
+            .map_err(|error| format!("C06 original replay admission barrier: {error}"))?;
+        let replay_position = barrier
+            .position
             .checked_add(1)
             .ok_or("C06 replay boundary position overflow")?;
         let replay_deadline = Instant::now() + Duration::from_secs(20);
@@ -371,6 +448,7 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         {
             return Err("C06 exact replay publication lacks its original successful result".into());
         }
+        recovery_control.release()?;
     } else if recovered_commit.is_none() {
         return Err("C06 durable original did not recover automatically".into());
     }
@@ -415,10 +493,18 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     // Repeating the same signed envelope must resolve to the same immutable
     // result and task, even after endpoint/runtime reopen.
     let duplicate_control = recovery_control;
+    // All remote proof and typed readback above ran without a paused worker.
+    // Hold a fresh natural publication only for queueing and atomic rearming.
+    // As for replay, this is a separate bounded 20s synchronization stage
+    // before the original 20s action stage.
+    let barrier_deadline = Instant::now() + Duration::from_secs(20);
+    duplicate_control.arm(Point::Published, None, None, barrier_deadline)?;
+    let barrier = duplicate_control
+        .wait(barrier_deadline)
+        .map_err(|error| format!("C06 duplicate admission barrier: {error}"))?;
     let duplicate_deadline = Instant::now() + Duration::from_secs(20);
-    let next_position = reopened
-        .published
-        .position()?
+    let next_position = barrier
+        .position
         .checked_add(1)
         .ok_or("C06 duplicate position overflow")?;
     let duplicate = owner_client
@@ -436,10 +522,11 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     if observed.position != next_position || observed.action_count != 1 {
         return Err("C06 duplicate envelope was not qualified in a successor continuation".into());
     }
+    let after_retry = reopened.published.current()?;
+    duplicate_control.release()?;
     if lookup_original_commit(&owner_client, &case.owner_request)? != committed {
         return Err("C06 retry changed the original CommitRef".into());
     }
-    let after_retry = reopened.published.current()?;
     if game_task::current_control(&after_retry.world, "agent")
         .map_err(|error| error.to_string())?
         .as_ref()
@@ -448,7 +535,6 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         return Err("C06 retry duplicated or changed the canonical Game task effect".into());
     }
 
-    duplicate_control.release()?;
     stop_owned_protected_runtime(&mut reopened, Duration::from_secs(120), "C06_reopened")?;
     Ok(())
 }

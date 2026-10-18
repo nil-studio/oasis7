@@ -183,6 +183,8 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      OASIS7_STORAGE_MAX_LOGICAL_BYTES: '17179869184'
     strategy:
       matrix:
         include:
