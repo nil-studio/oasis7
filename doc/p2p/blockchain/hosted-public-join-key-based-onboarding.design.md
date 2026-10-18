@@ -867,7 +867,7 @@ P0 放量必须同时满足全部 P0 AC、NFR 安全不变量、真实支持矩�
 | `crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_account_identity.rs` | 现有 | legacy email façade 仅在 v2 未开启且满足 §13.4 时保留；v2 使用 §11.2 的 EmailAdapter / AccountSession 路由，拒绝旧登录和 player-session 发行/续期/释放入口 |
 | `.../hosted_account_store_backend.rs` | 现有 | 分离旧格式 reader / v2 store adapter；不再 login touch 解冻；事务先于内存可见 |
 | `.../hosted_player_session.rs` | 现有 | 账号 session 与控制 lease 关联，重排接管顺序，旧 release 绑定 epoch |
-| `crates/oasis7/src/viewer/runtime_live/session_policy.rs` | 现有 | 保留单控制 key/epoch；增加身份上下文版本和短期新鲜度校验 |
+| `crates/oasis7_viewer_runtime/src/viewer/runtime_live/session_policy.rs` | 现有 | 保留单控制 key/epoch；增加身份上下文版本和短期新鲜度校验 |
 | `crates/oasis7_viewer/software_safe_src/viewer_hosted_auth_state_module.js` | 现有 | 新 cookie 登录态、旧私钥/敏感恢复材料清理、正交状态投影 |
 | `.../viewer_hosted_login_state_module.js`、`.../viewer_hosted_login_registration_bridge.js` | 输入中已核对的既有模块 | 注册/登录/准入分别反馈，不让旧 promise 或重试换号 |
 | `hosted_identity/{model,service,webauthn,email,policy,recovery,store,session,audit}.rs` | 建议新增模块组 | 模块化封装；是否提取为库模块由编译边界决定，不新建独立部署服务 |

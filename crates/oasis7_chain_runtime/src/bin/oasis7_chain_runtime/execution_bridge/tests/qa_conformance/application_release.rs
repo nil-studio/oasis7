@@ -5,7 +5,7 @@ fn real_tcp_application_release_lost_ack_reconciles_original_checkpoint() {
     super::run_isolated_application(false, false, true, false, false, false);
 }
 pub(super) fn verify_release(public: &RemoteWorldServiceClient) {
-    use oasis7::viewer::{
+    use oasis7_viewer_runtime::viewer::{
         ViewerLiveDecisionMode, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
     };
     let mut connection = public.config().clone();

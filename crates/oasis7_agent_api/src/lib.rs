@@ -23,7 +23,7 @@ pub use cognition::{
 pub use provider::{
     ActionCatalogEntry, CapabilityInvocationContext, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
     DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION, DecisionRequest, DecisionRequestContractError,
-    DecisionResponse, MemoryWriteIntent, ObservationEnvelope, ProviderDecision,
+    DecisionResponse, FeedbackEnvelope, MemoryWriteIntent, ObservationEnvelope, ProviderDecision,
     ProviderDiagnostics, ProviderErrorEnvelope, ProviderExecutionMode, ProviderInteractionTarget,
     ProviderMissionContext, ProviderModuleCommand, ProviderNavigationNode, ProviderNearbyEntity,
     ProviderObservation, ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage,
@@ -53,3 +53,20 @@ pub mod node_contribution;
 pub mod world_industry;
 
 pub mod module_visual;
+
+mod provider_chat;
+pub use provider_chat::{
+    ProviderAgentChatRequest, ProviderAgentChatResponse, provider_agent_chat_log_key,
+};
+
+mod response_identity;
+pub use cognition::{CONTINUOUS_AGENT_CONTEXT_DISCRIMINATOR, CONTINUOUS_AGENT_CONTEXT_VERSION};
+pub use response_identity::{
+    COGNITION_LEGACY_RESPONSE_DIGEST_DOMAIN, COGNITION_RESPONSE_DIGEST_DOMAIN,
+    CognitionResponseDigestDisposition, classify_cognition_response_digest,
+    cognition_legacy_response_digest, cognition_response_digest,
+};
+
+pub use cognition::{
+    COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
+};

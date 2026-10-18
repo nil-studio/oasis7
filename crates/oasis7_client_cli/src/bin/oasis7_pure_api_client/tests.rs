@@ -89,10 +89,16 @@ fn session_registration_signs_binding_without_force_or_secret_output() {
     .expect("signed registration");
     assert!(!request.force_rebind);
     let proof = request.auth.as_ref().expect("proof");
-    oasis7::viewer::verify_session_register_auth_proof(&request, proof).expect("valid binding");
+    oasis7_client_api::viewer_auth::verify_session_register_auth_proof_signature(&request, proof)
+        .expect("valid binding");
     let mut changed = request.clone();
     changed.requested_agent_id = Some("other-agent".to_string());
-    assert!(oasis7::viewer::verify_session_register_auth_proof(&changed, proof).is_err());
+    assert!(
+        oasis7_client_api::viewer_auth::verify_session_register_auth_proof_signature(
+            &changed, proof
+        )
+        .is_err()
+    );
     let serialized = serde_json::to_string(&request).expect("serialize");
     assert!(!serialized.contains(&private));
 }
@@ -108,7 +114,7 @@ fn session_registration_hosted_identity_still_requires_grant() {
     )
     .expect("signed registration");
     assert!(
-        oasis7::viewer::verify_session_register_auth_proof(
+        oasis7_client_api::viewer_auth::verify_session_register_auth_proof_signature(
             &request,
             request.auth.as_ref().expect("proof"),
         )
@@ -259,7 +265,7 @@ fn build_signed_gameplay_action_request_attaches_auth() {
 #[test]
 fn terminal_agent_chat_waits_past_ack_for_reply_or_error() {
     let ack = ViewerResponse::AgentChatAck {
-        ack: oasis7::viewer::AgentChatAck {
+        ack: oasis7_proto::viewer::AgentChatAck {
             auth_nonce: None,
             agent_id: "agent-0".to_string(),
             accepted_at_tick: 7,
@@ -293,7 +299,7 @@ fn terminal_agent_chat_waits_past_ack_for_reply_or_error() {
     assert!(terminal_agent_chat(&spoke));
 
     let error = ViewerResponse::AgentChatError {
-        error: oasis7::viewer::AgentChatError {
+        error: oasis7_proto::viewer::AgentChatError {
             code: "provider_unreachable".to_string(),
             message: "provider failed".to_string(),
             agent_id: Some("agent-0".to_string()),
@@ -323,7 +329,7 @@ fn collect_until_reports_timeout_when_peer_stays_open() {
             max_version: VIEWER_PROTOCOL_VERSION,
             capabilities: Vec::new(),
             world_id: "test-world".to_string(),
-            control_profile: oasis7::viewer::ViewerControlProfile::Live,
+            control_profile: oasis7_proto::viewer::ViewerControlProfile::Live,
             authority_epoch: None,
         };
         writeln!(
@@ -367,8 +373,8 @@ fn collect_until_reports_timeout_when_peer_stays_open() {
 
 #[test]
 fn pure_api_negotiates_canonical_chat_with_shipped_viewer() {
-    use oasis7::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
     use oasis7::world_service::{WorldIdentity, client::WorldServiceClientConfig};
+    use oasis7_viewer_runtime::viewer::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
     use std::sync::{Arc, Mutex};
     let private = fixed_private_key_hex(73);
     let mut config = ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal);

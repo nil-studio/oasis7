@@ -186,7 +186,7 @@ fn invalid_v2_flags_fail_closed_before_legacy_startup() {
 #[ignore = "only invoked by isolated config regression parent"]
 fn identity_v2_invalid_flag_probe() {
     assert!(
-        oasis7::viewer::hosted_identity_v2_enabled(),
+        oasis7_client_api::viewer_auth::hosted_identity_v2_enabled(),
         "standalone runtime must retain fail-closed v2 authorization for invalid configuration"
     );
     let error = IdentityConfig::from_env()

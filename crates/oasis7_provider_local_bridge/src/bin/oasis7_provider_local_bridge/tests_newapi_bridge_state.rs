@@ -23,7 +23,7 @@ fn resolve_newapi_bridge_route_label_requires_active_binding() {
     .expect("write bridge state");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        std::env::set_var(
             "OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH",
             state_path.as_os_str(),
         );
@@ -32,7 +32,7 @@ fn resolve_newapi_bridge_route_label_requires_active_binding() {
     assert_eq!(state.resolve_newapi_bridge_route_label("user-1"), None);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
     }
     let _ = fs::remove_file(state_path);
 }
@@ -66,7 +66,7 @@ fn resolve_newapi_bridge_route_label_accepts_active_binding_with_token_key() {
     .expect("write bridge state");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        std::env::set_var(
             "OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH",
             state_path.as_os_str(),
         );
@@ -82,7 +82,7 @@ fn resolve_newapi_bridge_route_label_accepts_active_binding_with_token_key() {
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
     }
     let _ = fs::remove_file(state_path);
 }
@@ -96,7 +96,7 @@ fn cached_newapi_bridge_state_reuses_arc_for_unchanged_file() {
     fs::write(state_path.as_path(), br#"{"bindings":[]}"#).expect("write bridge state");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        std::env::set_var(
             "OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH",
             state_path.as_os_str(),
         );
@@ -111,7 +111,7 @@ fn cached_newapi_bridge_state_reuses_arc_for_unchanged_file() {
 
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
     }
     let _ = fs::remove_file(state_path);
 }
@@ -127,7 +127,7 @@ fn cached_newapi_bridge_state_reloads_replaced_content_with_same_mtime() {
         .expect("write initial bridge state");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        std::env::set_var(
             "OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH",
             state_path.as_os_str(),
         );
@@ -162,7 +162,7 @@ fn cached_newapi_bridge_state_reloads_replaced_content_with_same_mtime() {
 
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
     }
     let _ = fs::remove_file(state_path);
 }

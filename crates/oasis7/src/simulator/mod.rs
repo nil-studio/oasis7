@@ -57,9 +57,9 @@ pub use agent_intent_summary::{
     AgentIntentSummaryV1, canonical_agent_intent_summary,
 };
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use async_agent_runner::CommittedFeedbackMemoryInput;
+pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use async_agent_runner::project_receipt_memory;
+pub use async_agent_runner::project_receipt_memory;
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)] // Retained for the B3 Harness adapter boundary.
 pub(crate) use async_agent_runner::validated_cognition_lease_consumption_view;
@@ -97,13 +97,14 @@ pub use continuous_agent_harness::{
 pub use decision_provider::{
     ActionCatalogEntry, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
     DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION, DecisionProvider, DecisionProviderError,
-    DecisionRequest, DecisionRequestContractError, DecisionResponse, FeedbackEnvelope,
-    GoldenDecisionFixture, MemoryWriteIntent, MockDecisionProvider, MockDecisionProviderState,
-    ObservationEnvelope, ProviderBackedAgentBehavior, ProviderCapabilityContext, ProviderDecision,
-    ProviderDiagnostics, ProviderErrorEnvelope, ProviderExecutionMode, ProviderInteractionTarget,
-    ProviderMissionContext, ProviderModuleCommand, ProviderNavigationNode, ProviderNearbyEntity,
-    ProviderObservation, ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage,
-    ProviderTraceEnvelope, ProviderTranscriptEntry, golden_decision_provider_fixtures,
+    DecisionRequest, DecisionRequestContractError, DecisionResponse, DecisionResponseExplanation,
+    FeedbackEnvelope, GoldenDecisionFixture, MemoryWriteIntent, MockDecisionProvider,
+    MockDecisionProviderState, ObservationEnvelope, ProviderBackedAgentBehavior,
+    ProviderCapabilityContext, ProviderDecision, ProviderDiagnostics, ProviderErrorEnvelope,
+    ProviderExecutionMode, ProviderInteractionTarget, ProviderMissionContext,
+    ProviderModuleCommand, ProviderNavigationNode, ProviderNearbyEntity, ProviderObservation,
+    ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage, ProviderTraceEnvelope,
+    ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
 pub use oasis7_simulator::ChunkRuntimeConfig;
 pub use oasis7_simulator::generate_fragments;
@@ -120,20 +121,14 @@ pub use oasis7_simulator::{
     FragmentCompoundKind, FragmentPhysicalProfile, GridPosCm, MIN_BLOCK_EDGE_CM, infer_element_ppm,
     mass_grams_from_volume_density, synthesize_fragment_budget, synthesize_fragment_profile,
 };
-pub(crate) fn default_schedule_recipe_readiness(
-    recipe_id: &str,
-    batches: i64,
-) -> Option<oasis7_simulator::RecipeResourceCost> {
-    oasis7_simulator::WorldKernel::new().recipe_resource_cost(recipe_id, batches)
-}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use llm_agent::{
     LlmAgentBehavior, LlmAgentBuildError, LlmAgentConfig, LlmClientError,
     OpenAiChatCompletionClient,
 };
-#[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) use llm_agent::{
+#[cfg(all(any(test, feature = "test_tier_required"), not(target_arch = "wasm32")))]
+pub use llm_agent::{
     LlmCompletionClient, LlmCompletionRequest, LlmCompletionResult, LlmCompletionTurn,
     LlmPromptProfile,
 };

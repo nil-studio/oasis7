@@ -3,11 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::time::Instant;
 
-use oasis7_wasm_abi::{CapabilityCatalogSnapshot, ModuleCommandCatalogEntry};
-use serde::{Deserialize, Serialize};
+use oasis7_wasm_abi::ModuleCommandCatalogEntry;
 use serde_json::Value;
-
-use crate::capability_invocation_context::CapabilityInvocationContext;
 
 use super::cognition_response_identity::{
     CognitionResponseDigestDisposition, classify_cognition_response_digest,
@@ -19,7 +16,7 @@ use super::continuous_agent_harness::{
     ContinuousAgentTurnContextV1, FeedbackEnvelopeV1,
 };
 use super::{
-    Action, ActionId, ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery,
+    Action, ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace, AgentQuery,
     AgentQueryResult, Observation, WorldEvent, WorldTime,
 };
 
@@ -47,6 +44,7 @@ use self::decision_provider_observation::{
     provider_observation_from_runtime_observation,
     provider_observation_from_runtime_observation_with_goal,
 };
+pub use decision_provider_trace::DecisionResponseExplanation;
 
 const DEFAULT_PROVIDER_TIMEOUT_BUDGET_MS: u64 = 3_000;
 const MAX_RECENT_EVENT_SUMMARIES: usize = 8;
@@ -56,80 +54,10 @@ pub use decision_provider_support::{
     golden_decision_provider_fixtures,
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DecisionRequest {
-    pub observation: ObservationEnvelope,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_config_ref: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_profile: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fixture_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replay_id: Option<String>,
-    /// Subject-bound capability discovery produced by the trusted runtime.
-    /// Providers may use this to build a tool schema, but cannot extend or
-    /// mutate it.  The host revalidates the returned response against the
-    /// same snapshot before execution.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capability_catalog: Option<CapabilityCatalogSnapshot>,
-    /// Host-bound invocation identity.  This is transport context, not a
-    /// bearer grant; response identity and nonce must match it exactly.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capability_invocation_context: Option<CapabilityInvocationContext>,
-    pub timeout_budget_ms: u64,
-}
+pub use oasis7_agent_api::DecisionRequest;
+pub type DecisionResponse = oasis7_agent_api::DecisionResponse<Action, AgentQuery>;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DecisionResponse {
-    pub decision: ProviderDecision,
-    /// Optional typed module command carried by providers that use the
-    /// response extension field. It remains separate from core `decision` so
-    /// legacy providers can continue returning ordinary actions unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub module_command: Option<ProviderModuleCommand>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_error: Option<ProviderErrorEnvelope>,
-    #[serde(default)]
-    pub diagnostics: ProviderDiagnostics,
-    #[serde(default)]
-    pub trace_payload: ProviderTraceEnvelope,
-    #[serde(default)]
-    pub memory_write_intents: Vec<MemoryWriteIntent>,
-}
-
-impl DecisionResponse {
-    pub fn wait(provider_id: impl Into<String>) -> Self {
-        let provider_id = provider_id.into();
-        Self {
-            decision: ProviderDecision::Wait,
-            module_command: None,
-            provider_error: None,
-            diagnostics: ProviderDiagnostics {
-                provider_id: Some(provider_id.clone()),
-                ..ProviderDiagnostics::default()
-            },
-            trace_payload: ProviderTraceEnvelope {
-                provider_id: Some(provider_id),
-                output_summary: Some("decision=wait".to_string()),
-                ..ProviderTraceEnvelope::default()
-            },
-            memory_write_intents: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FeedbackEnvelope {
-    pub action_id: ActionId,
-    pub success: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reject_reason: Option<String>,
-    #[serde(default)]
-    pub emitted_events: Vec<WorldEvent>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub world_delta_summary: Option<String>,
-}
+pub type FeedbackEnvelope = oasis7_agent_api::FeedbackEnvelope<WorldEvent>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecisionProviderError {

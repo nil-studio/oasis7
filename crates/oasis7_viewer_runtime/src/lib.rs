@@ -1,12 +1,13 @@
-//! Viewer TCP, WebSocket and read-only HTTP service hosting.
-//!
-//! Runtime state and authorization contracts remain owned by `oasis7`; this
-//! crate owns network listeners and transport adapters.
-
+//! Viewer application, sessions, recovery orchestration and network transports.
+pub use oasis7::GeoPos;
+pub use oasis7::{geometry, models, simulator};
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7::{observability, runtime, runtime_host, world_service};
 #[cfg(not(target_arch = "wasm32"))]
 mod game_read_api;
 #[cfg(not(target_arch = "wasm32"))]
 mod server;
+pub mod viewer;
 #[cfg(not(target_arch = "wasm32"))]
 mod web_bridge;
 
@@ -14,3 +15,6 @@ mod web_bridge;
 pub use server::{ViewerServer, ViewerServerConfig, ViewerServerError};
 #[cfg(not(target_arch = "wasm32"))]
 pub use web_bridge::{ViewerWebBridge, ViewerWebBridgeConfig, ViewerWebBridgeError};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use oasis7::{chain_resource_schema, consensus_action_payload, governance_audit_report};

@@ -1,6 +1,6 @@
 //! Actual ordinary cadence and non-reading consumer boundaries; no provider factory injection.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 
 #[test]
@@ -34,7 +34,8 @@ pub(super) struct Session {
     created: Instant,
     connection: u16,
     accepted_probe: TcpStream,
-    worker: thread::JoinHandle<Result<(), oasis7::viewer::ViewerRuntimeLiveServerError>>,
+    worker:
+        thread::JoinHandle<Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError>>,
 }
 impl Session {
     pub(super) fn start(shared: &Arc<Mutex<ViewerRuntimeLiveServer>>, small: bool) -> Self {
@@ -175,7 +176,9 @@ impl Session {
             .unwrap();
         self.snapshot(Duration::from_secs(3))
     }
-    pub(super) fn close(self) -> Result<(), oasis7::viewer::ViewerRuntimeLiveServerError> {
+    pub(super) fn close(
+        self,
+    ) -> Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError> {
         self.reader
             .get_ref()
             .shutdown(std::net::Shutdown::Both)

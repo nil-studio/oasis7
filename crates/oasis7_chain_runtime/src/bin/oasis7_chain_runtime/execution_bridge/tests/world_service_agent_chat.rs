@@ -124,7 +124,7 @@ fn owner_chat(
     nonce: u64,
     replaces: Option<String>,
 ) -> WorldServicePayloadV1 {
-    let mut chat = oasis7::viewer::AgentChatRequest {
+    let mut chat = oasis7_viewer_runtime::viewer::AgentChatRequest {
         agent_id: "agent-a".into(),
         message: format!("private canonical goal {nonce}"),
         player_id: Some("owner-a".into()),
@@ -141,8 +141,10 @@ fn owner_chat(
             agent_identity_generation: 1,
         }),
     };
-    chat.auth =
-        Some(oasis7::viewer::sign_agent_chat_auth_proof(&chat, nonce, public, owner).unwrap());
+    chat.auth = Some(
+        oasis7_viewer_runtime::viewer::sign_agent_chat_auth_proof(&chat, nonce, public, owner)
+            .unwrap(),
+    );
     WorldServicePayloadV1::AgentChat(chat)
 }
 #[test]
@@ -273,7 +275,10 @@ fn canonical_chat_same_block_nonce_fence_and_duplicate_preserve_first_goal() {
         unreachable!()
     };
     chat.intent_seq = Some(101);
-    chat.auth = Some(oasis7::viewer::sign_agent_chat_auth_proof(chat, 1, &public, &owner).unwrap());
+    chat.auth = Some(
+        oasis7_viewer_runtime::viewer::sign_agent_chat_auth_proof(chat, 1, &public, &owner)
+            .unwrap(),
+    );
     let low = request(&identity, low);
     let actions: Vec<_> = [first.clone(), low.clone(), first.clone()]
         .iter()
@@ -371,7 +376,7 @@ fn canonical_owner_goal_http_view_excludes_public_and_registered_delegate() {
             ),
         ),
     );
-    oasis7::viewer::ViewerRuntimeLiveServer::canonical_agent_service_context(
+    oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer::canonical_agent_service_context(
         &driver.execution_world,
         "agent-a",
     )

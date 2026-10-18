@@ -53,3 +53,16 @@ pub mod world_service_feedback;
 pub mod world_service_read;
 
 pub mod world_read_observation;
+
+pub mod viewer_auth;
+pub mod viewer_protocol;
+
+pub mod development_node_config;
+
+pub mod network_tier_manifest;
+
+pub mod chain_pos_defaults;
+
+pub mod rollback_audit_evidence;
+
+pub mod gameplay_actions;

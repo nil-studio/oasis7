@@ -5,10 +5,10 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_observability = { path = "../oasis7_observability" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_launcher_config = { version = "0.1.0", path = "../oasis7_launcher_config" }
-oasis7 = { path = "../oasis7", default-features = false }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
@@ -54,13 +54,9 @@ windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [features]
-default = ["wasmtime", "node-libp2p"]
-node-libp2p = ["oasis7/node-libp2p"]
-wasmtime = ["oasis7/wasmtime"]
-viewer_live_integration = ["oasis7/viewer_live_integration"]
-test_tier_required = ["oasis7/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
+default = []
+test_tier_required = []
+test_tier_full = ["test_tier_required"]
 
 [dev-dependencies]
-oasis7 = { path = "../oasis7", default-features = false, features = ["test_tier_required"] }
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }

@@ -71,13 +71,15 @@ fn build_viewer_live_command_with_service_mode(
         command.env_remove("OASIS7_HOSTED_IDENTITY_SESSION_KEY");
         command.env_remove("OASIS7_HOSTED_IDENTITY_EMAIL_KEY");
         command.env_remove("OASIS7_HOSTED_LOGIN_SMTP_PASSWORD");
-        if oasis7::viewer::hosted_identity_v2_enabled() {
+        if oasis7_client_api::viewer_auth::hosted_identity_v2_enabled() {
             if let Ok(private) = std::env::var("OASIS7_HOSTED_AUTHORIZATION_ISSUER_PRIVATE_KEY")
                 && let Ok(public) =
-                    oasis7::viewer::derive_hosted_registration_issuer_public_key(&private)
+                    oasis7_client_api::viewer_auth::derive_hosted_registration_issuer_public_key(
+                        &private,
+                    )
             {
                 command.env(
-                    oasis7::viewer::HOSTED_AUTHORIZATION_ISSUER_PUBLIC_KEY_ENV,
+                    oasis7_client_api::viewer_auth::HOSTED_AUTHORIZATION_ISSUER_PUBLIC_KEY_ENV,
                     public,
                 );
             }
@@ -91,16 +93,17 @@ fn build_viewer_live_command_with_service_mode(
                 );
             }
         }
-        command.env_remove(oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV);
-        if let Ok(issuer_private_key) =
-            std::env::var(oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
-            && let Ok(issuer_public_key) =
-                oasis7::viewer::derive_hosted_registration_issuer_public_key(
-                    issuer_private_key.as_str(),
-                )
+        command
+            .env_remove(oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV);
+        if let Ok(issuer_private_key) = std::env::var(
+            oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV,
+        ) && let Ok(issuer_public_key) =
+            oasis7_client_api::viewer_auth::derive_hosted_registration_issuer_public_key(
+                issuer_private_key.as_str(),
+            )
         {
             command.env(
-                oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
+                oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
                 issuer_public_key,
             );
         }
@@ -115,7 +118,7 @@ fn build_viewer_live_command_with_service_mode(
     }
     if options.with_llm {
         command.arg("--llm");
-        if oasis7::viewer::runtime_agent_chat_echo_enabled_from_env() {
+        if oasis7_client_api::viewer_protocol::runtime_agent_chat_echo_enabled_from_env() {
             command.arg("--agent-chat-echo");
         }
         apply_viewer_live_env_overrides(

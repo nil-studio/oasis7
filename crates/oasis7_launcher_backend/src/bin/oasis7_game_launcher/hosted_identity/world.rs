@@ -10,7 +10,7 @@ use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit, Payload},
 };
-use oasis7::viewer::{HostedAuthContextV2, issue_hosted_authorization_grant};
+use oasis7_client_api::viewer_auth::{HostedAuthContextV2, issue_hosted_authorization_grant};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 #[path = "world_runtime.rs"]

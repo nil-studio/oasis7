@@ -5,13 +5,13 @@ use oasis7_agent_api::RuntimeBindingV1;
 use oasis7_wasm_abi::{CapabilityCatalogSnapshot, CapabilityPresenter, CapabilitySubject};
 
 #[derive(Clone, Debug)]
-pub(crate) struct ProviderCapabilityContext {
-    pub(crate) catalog: CapabilityCatalogSnapshot,
-    pub(crate) invocation: CapabilityInvocationContext,
-    pub(crate) session_id: String,
+pub struct ProviderCapabilityContext {
+    pub catalog: CapabilityCatalogSnapshot,
+    pub invocation: CapabilityInvocationContext,
+    pub session_id: String,
 }
 
-pub(crate) fn provider_capability_context(
+pub fn provider_capability_context(
     world: &World,
     runtime_binding: &RuntimeBindingV1,
     agent_id: &str,

@@ -20,7 +20,7 @@ use crate::{
         retained_leaf,
     },
 };
-use oasis7_distfs::controlled_authority::formal::business_index::{
+use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BUSINESS_INDEX_MAX_LEAF_BYTES, BUSINESS_INDEX_MAX_UPDATES, BusinessIndexDeltaV1,
     BusinessIndexLeafV1, BusinessIndexNodeReader,
 };
@@ -128,7 +128,7 @@ impl World {
         }
 
         let empty = FormalRetainedHistoryRootV1::from_index_root(
-            oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexRootV1::empty()?,
+            oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexRootV1::empty()?,
         )?;
         if let Some(existing) = &self.state.retained_history_root {
             existing.validate()?;

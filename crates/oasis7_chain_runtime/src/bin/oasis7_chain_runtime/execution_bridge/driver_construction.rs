@@ -33,12 +33,12 @@ impl NodeRuntimeExecutionDriver {
         storage_root: std::path::PathBuf,
         storage_profile: &StorageProfileConfig,
     ) -> Result<Self, String> {
-        Self::new_with_storage_profile_and_local_bootstrap(
+        Self::new_with_config_and_local_bootstrap(
             state_path,
             world_dir,
             records_dir,
             storage_root,
-            storage_profile,
+            oasis7_chain_runtime::execution_config::ExecutionDriverConfig::from(storage_profile),
             None,
         )
     }

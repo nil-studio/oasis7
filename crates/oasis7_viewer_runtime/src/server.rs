@@ -7,18 +7,18 @@ use std::thread;
 
 use tracing::Level;
 
+use crate::viewer::{
+    AgentChatError, AuthoritativeChallengeError, AuthoritativeRecoveryError, ControlCompletionAck,
+    ControlCompletionStatus, PlaybackControl, PromptControlError, VIEWER_PROTOCOL_VERSION,
+    ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse, ViewerStream,
+    viewer_event_kind_matches,
+};
 use oasis7::observability::emit_stderr_or_event;
 #[cfg(test)]
 use oasis7::simulator::RuntimePerfHealth;
 use oasis7::simulator::unsupported_runtime_perf_snapshot;
 use oasis7::simulator::{
     RunnerMetrics, RuntimePerfSnapshot, WorldEvent, WorldJournal, WorldSnapshot,
-};
-use oasis7::viewer::{
-    AgentChatError, AuthoritativeChallengeError, AuthoritativeRecoveryError, ControlCompletionAck,
-    ControlCompletionStatus, PlaybackControl, PromptControlError, VIEWER_PROTOCOL_VERSION,
-    ViewerControlProfile, ViewerEventKind, ViewerRequest, ViewerResponse, ViewerStream,
-    viewer_event_kind_matches,
 };
 use oasis7_simulator::{PersistError, WorldTime};
 
@@ -250,7 +250,7 @@ impl<'a> ViewerSession<'a> {
                 }
             }
             ViewerRequest::RequestWorldView { query } => {
-                let view = oasis7::viewer::build_playback_world_view(
+                let view = crate::viewer::build_playback_world_view(
                     snapshot, world_id, 0, "public", query,
                 );
                 send_response(writer, &ViewerResponse::WorldView { view })?;
@@ -259,16 +259,16 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::WorldFeed {
-                        feed: oasis7::viewer::WorldFeedEnvelope {
-                            schema_version: oasis7::viewer::WORLD_FEED_SCHEMA_VERSION.to_string(),
+                        feed: crate::viewer::WorldFeedEnvelope {
+                            schema_version: crate::viewer::WORLD_FEED_SCHEMA_VERSION.to_string(),
                             world_id: world_id.to_string(),
                             reorg_epoch: 0,
                             cursor: String::new(),
                             events: Vec::new(),
-                            status: oasis7::viewer::WorldFeedStatus::Unavailable,
+                            status: crate::viewer::WorldFeedStatus::Unavailable,
                             gap_reason: None,
                             unavailable_reason: Some(
-                                oasis7::viewer::WorldFeedUnavailableReason::SourceUnavailable,
+                                crate::viewer::WorldFeedUnavailableReason::SourceUnavailable,
                             ),
                             snapshot_reload_required: false,
                         },
@@ -325,7 +325,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "gameplay_action is only available in runtime live mode"
                                 .to_string(),
@@ -339,7 +339,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "collect_data is only available in runtime live mode"
                                 .to_string(),
@@ -353,7 +353,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_refine_compound is only available in runtime live mode"
                                 .to_string(),
@@ -367,7 +367,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_schedule_recipe is only available in runtime live mode"
                                 .to_string(),
@@ -381,7 +381,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message:
                                 "quote_validate_product is only available in runtime live mode"
@@ -396,7 +396,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_power_survival is only available in runtime live mode"
                                 .to_string(),
@@ -410,7 +410,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_power_sale is only available in runtime live mode"
                                 .to_string(),
@@ -424,7 +424,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message:
                                 "quote_declare_social_edge is only available in runtime live mode"
@@ -439,7 +439,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message:
                                 "quote_publish_social_fact is only available in runtime live mode"
@@ -454,7 +454,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message:
                                 "quote_adjudicate_social_fact is only available in runtime live mode"
@@ -469,7 +469,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message:
                                 "quote_revoke_social_fact is only available in runtime live mode"
@@ -484,7 +484,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_social_contact is only available in runtime live mode"
                                 .to_string(),
@@ -498,7 +498,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_declare_war is only available in runtime live mode"
                                 .to_string(),
@@ -512,7 +512,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "quote_governance_vote is only available in runtime live mode"
                                 .to_string(),
@@ -526,7 +526,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "preview_fragment_replenishment is only available in runtime live mode"
                                 .to_string(),
@@ -540,7 +540,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message: "market cost preview is only available in runtime live mode"
                                 .to_string(),
@@ -554,7 +554,7 @@ impl<'a> ViewerSession<'a> {
                 send_response(
                     writer,
                     &ViewerResponse::GameplayActionError {
-                        error: oasis7::viewer::GameplayActionError {
+                        error: crate::viewer::GameplayActionError {
                             code: "unsupported_in_offline_server".to_string(),
                             message:
                                 "quote_transfer_material is only available in runtime live mode"
@@ -816,7 +816,7 @@ mod tests {
     fn read_control_completion_ack(
         peer: &TcpStream,
         timeout: Duration,
-    ) -> Option<oasis7::viewer::ControlCompletionAck> {
+    ) -> Option<crate::viewer::ControlCompletionAck> {
         let stream = peer.try_clone().expect("clone test peer");
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
@@ -843,11 +843,11 @@ mod tests {
             if trimmed.is_empty() {
                 continue;
             }
-            let Ok(response) = serde_json::from_str::<oasis7::viewer::ViewerResponse>(trimmed)
+            let Ok(response) = serde_json::from_str::<crate::viewer::ViewerResponse>(trimmed)
             else {
                 continue;
             };
-            if let oasis7::viewer::ViewerResponse::ControlCompletionAck { ack } = response {
+            if let crate::viewer::ViewerResponse::ControlCompletionAck { ack } = response {
                 return Some(ack);
             }
         }
@@ -915,7 +915,7 @@ mod tests {
         session
             .handle_request(
                 ViewerRequest::QuoteMarketDecision {
-                    request: oasis7::viewer::MarketQuoteDecisionRequest {
+                    request: crate::viewer::MarketQuoteDecisionRequest {
                         consume: vec![],
                         player_id: "player".to_string(),
                         public_key: None,
@@ -932,10 +932,10 @@ mod tests {
         BufReader::new(peer)
             .read_line(&mut line)
             .expect("read response");
-        let response: oasis7::viewer::ViewerResponse =
+        let response: crate::viewer::ViewerResponse =
             serde_json::from_str(line.trim()).expect("decode response");
         assert!(
-            matches!(response, oasis7::viewer::ViewerResponse::GameplayActionError { error } if error.code == "unsupported_in_offline_server" && error.action_id.as_deref() == Some("quote_market_decision"))
+            matches!(response, crate::viewer::ViewerResponse::GameplayActionError { error } if error.code == "unsupported_in_offline_server" && error.action_id.as_deref() == Some("quote_market_decision"))
         );
     }
 }

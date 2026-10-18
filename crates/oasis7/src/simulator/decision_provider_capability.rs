@@ -1,14 +1,8 @@
-use std::error::Error;
-use std::fmt;
-
 use oasis7_wasm_abi::{AgentCommandResponse, CapabilityCatalogSnapshot};
 
 use crate::capability_invocation_context::CapabilityInvocationContext;
 
-use super::{
-    DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION, DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION,
-    DecisionProviderError, DecisionRequest,
-};
+use super::DecisionProviderError;
 
 /// The immutable transport context attached to one provider decision turn.
 /// The host creates this value and the provider can only echo it in an
@@ -86,86 +80,4 @@ impl ProviderCapabilityContext {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecisionRequestContractError {
-    pub code: String,
-    pub message: String,
-}
-
-impl DecisionRequestContractError {
-    pub(super) fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-        }
-    }
-}
-
-impl fmt::Display for DecisionRequestContractError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
-    }
-}
-
-impl Error for DecisionRequestContractError {}
-
-impl DecisionRequest {
-    pub fn validate_contract(&self) -> Result<(), DecisionRequestContractError> {
-        if self.observation.observation_schema_version
-            != DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION
-        {
-            return Err(DecisionRequestContractError::new(
-                "unsupported_schema_version",
-                format!(
-                    "unsupported observation_schema_version `{}`; expected {}",
-                    self.observation.observation_schema_version,
-                    DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION
-                ),
-            ));
-        }
-        if self.observation.action_schema_version != DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION {
-            return Err(DecisionRequestContractError::new(
-                "unsupported_schema_version",
-                format!(
-                    "unsupported action_schema_version `{}`; expected {}",
-                    self.observation.action_schema_version, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION
-                ),
-            ));
-        }
-        if self.capability_catalog.is_some() != self.capability_invocation_context.is_some() {
-            return Err(DecisionRequestContractError::new(
-                "incomplete_capability_context",
-                "capability_catalog and capability_invocation_context must be supplied together",
-            ));
-        }
-        if let Some(catalog) = self.capability_catalog.as_ref() {
-            let invocation = self
-                .capability_invocation_context
-                .as_ref()
-                .expect("capability context pair checked above");
-            ProviderCapabilityContext {
-                catalog: catalog.clone(),
-                invocation: invocation.clone(),
-            }
-            .validate()
-            .map_err(|error| DecisionRequestContractError::new(error.code, error.message))?;
-        }
-        if matches!(
-            self.observation.mode,
-            oasis7_agent_api::ProviderExecutionMode::PlayerParity
-        ) && (!self
-            .observation
-            .observation
-            .local_navigation_graph
-            .is_empty()
-            || !self.observation.observation.hazard_summary.is_empty()
-            || !self.observation.observation.interaction_targets.is_empty())
-        {
-            return Err(DecisionRequestContractError::new(
-                "mode_observation_mismatch",
-                "player_parity observation cannot include headless-only navigation, hazard, or interaction target helpers",
-            ));
-        }
-        Ok(())
-    }
-}
+pub use oasis7_agent_api::DecisionRequestContractError;

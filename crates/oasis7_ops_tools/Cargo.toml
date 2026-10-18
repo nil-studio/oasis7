@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
@@ -22,7 +23,6 @@ sha2 = "0.11"
 default = ["wasmtime", "node-libp2p"]
 node-libp2p = ["oasis7/node-libp2p"]
 wasmtime = ["oasis7/wasmtime"]
-viewer_live_integration = ["oasis7/viewer_live_integration"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 

@@ -138,7 +138,7 @@ struct ProviderAgentUsage {
 }
 
 pub(super) fn estimated_current_location_id(
-    observation: &oasis7::simulator::ProviderObservation,
+    observation: &oasis7_agent_api::ProviderObservation,
 ) -> Option<&str> {
     if observation.self_state.location_ref.trim().is_empty() {
         None
@@ -148,7 +148,7 @@ pub(super) fn estimated_current_location_id(
 }
 
 pub(super) fn nearest_reachable_non_current_location_id(
-    observation: &oasis7::simulator::ProviderObservation,
+    observation: &oasis7_agent_api::ProviderObservation,
 ) -> Option<String> {
     let current_location_id = estimated_current_location_id(observation);
     if !observation.local_navigation_graph.is_empty() {

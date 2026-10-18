@@ -2,7 +2,7 @@
 fn launcher_environment_mutators_are_child_scoped() {
     assert_eq!(
         oasis7_hosted_access::hosted_test_env::ISSUER,
-        oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV
+        oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV
     );
     // Inspect source only: executing the old writers to demonstrate a race
     // would itself violate the process-environment safety precondition.
@@ -50,7 +50,7 @@ fn launcher_environment_mutators_are_child_scoped() {
     ];
     // Fragments avoid matching the guard's own source literals. Whitespace
     // is ignored so splitting a qualified call across lines cannot hide it.
-    let prefixes = ["std::env", "env", "oasis7::env_mut"];
+    let prefixes = ["std::env", "env", "oasis7_client_storage::env_mut"];
     let writers = ["set_var", "remove_var"];
     let mut violations = std::collections::BTreeSet::new();
     for (path, source) in sources {

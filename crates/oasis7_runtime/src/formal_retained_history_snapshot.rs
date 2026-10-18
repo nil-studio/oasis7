@@ -1,5 +1,5 @@
 use super::*;
-use oasis7_distfs::controlled_authority::formal::VerifiedFormalReadAnchorV1;
+use oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalReadAnchorV1;
 const MAX_ANCHORED_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
 /// A parent root is trusted only after the exact snapshot bytes are checked
 /// against an independently verified, v2-profile formal anchor. The private
@@ -7,7 +7,7 @@ const MAX_ANCHORED_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct VerifiedFormalRetainedHistoryParentV1 {
     root: FormalRetainedHistoryRootV1,
-    effect_world: Option<oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1>,
+    effect_world: Option<oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1>,
     after_snapshot_root: String,
     logical_tick: Option<u64>,
     tick_consensus_archived_count: u64,
@@ -55,7 +55,7 @@ impl VerifiedFormalRetainedHistoryParentV1 {
     }
     pub(crate) fn effect_world(
         &self,
-    ) -> Option<&oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1> {
+    ) -> Option<&oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1> {
         self.effect_world.as_ref()
     }
     pub(crate) fn logical_tick(&self) -> Option<u64> {

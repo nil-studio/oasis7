@@ -1,11 +1,11 @@
 //! Native provider actor installation followed only by the real hosted serving loop.
 use super::*;
-use oasis7::viewer::{
+use oasis7::world_service::client::WorldServiceAgentSignerConfig;
+use oasis7_simulator::WorldScenario;
+use oasis7_viewer_runtime::viewer::{
     ControlCompletionStatus, ViewerLiveDecisionMode, ViewerResponse, ViewerRuntimeLiveServer,
     ViewerRuntimeLiveServerConfig,
 };
-use oasis7::world_service::client::WorldServiceAgentSignerConfig;
-use oasis7_simulator::WorldScenario;
 use std::io::{BufRead, BufReader, Write};
 
 #[test]

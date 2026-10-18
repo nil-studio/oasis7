@@ -218,11 +218,9 @@ fn snapshot(
     let active_goal = store
         .get_prepared(&public.request)
         .map_err(|_| PrivateError::Recovery)?;
-    let provider_authority =
-        oasis7::viewer::ViewerRuntimeLiveServer::canonical_agent_service_context(
-            &pinned.world,
-            &fence.agent_id,
-        )?;
+    let provider_authority = pinned
+        .world
+        .canonical_agent_service_context(&fence.agent_id)?;
     let actor = pinned
         .world
         .state()
@@ -266,10 +264,9 @@ fn check_record_live(
     if pinned.world.state().time > record.valid_until_tick.0 {
         return Err(record_live_conflict(point, RecordLiveConflict::Expired));
     }
-    let current = oasis7::viewer::ViewerRuntimeLiveServer::canonical_agent_service_context(
-        &pinned.world,
-        &record.identity.fence.agent_id,
-    )?;
+    let current = pinned
+        .world
+        .canonical_agent_service_context(&record.identity.fence.agent_id)?;
     if current.capability_authorization_root
         != record
             .snapshot
@@ -362,11 +359,9 @@ fn load_captured(
                 .world
                 .current_cognition_base_binding()
                 .map_err(|_| PrivateError::Unavailable)?,
-            provider_authority:
-                oasis7::viewer::ViewerRuntimeLiveServer::canonical_agent_service_context(
-                    &pinned.world,
-                    &proof.request.context.fence.agent_id,
-                )?,
+            provider_authority: pinned
+                .world
+                .canonical_agent_service_context(&proof.request.context.fence.agent_id)?,
             actor_observation: serde_json::to_value(
                 pinned
                     .world
@@ -676,9 +671,7 @@ mod diagnostic_tests {
             let Some(authority) = stage(
                 height,
                 "actual_provider_authority",
-                oasis7::viewer::ViewerRuntimeLiveServer::canonical_agent_service_context(
-                    &pin.world, "agent-a",
-                ),
+                pin.world.canonical_agent_service_context("agent-a"),
             ) else {
                 continue;
             };

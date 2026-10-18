@@ -1,5 +1,5 @@
 use super::*;
-use oasis7_distfs::controlled_authority::formal::business_index::{
+use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BusinessIndexDeltaV1, BusinessIndexLeafKindV1, BusinessIndexLeafV1, BusinessIndexNodeReader,
 };
 use std::collections::BTreeMap;

@@ -1,7 +1,5 @@
 use super::*;
-#[cfg(test)]
-use oasis7::simulator::WorldSnapshot;
-use oasis7::viewer::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
+use oasis7_client_api::viewer_protocol::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -258,7 +256,6 @@ fn sleep_until_next_probe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7_simulator::{WorldConfig, WorldModel};
     use std::io::{BufRead, BufReader, BufWriter, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
@@ -317,7 +314,7 @@ mod tests {
                     max_version: VIEWER_PROTOCOL_VERSION,
                     capabilities: Vec::new(),
                     world_id: "test-world".to_string(),
-                    control_profile: oasis7::viewer::ViewerControlProfile::Live,
+                    control_profile: oasis7_client_api::viewer_protocol::ViewerControlProfile::Live,
                     authority_epoch: None,
                 },
             );
@@ -370,7 +367,7 @@ mod tests {
                     max_version: VIEWER_PROTOCOL_VERSION,
                     capabilities: Vec::new(),
                     world_id: "test-world".to_string(),
-                    control_profile: oasis7::viewer::ViewerControlProfile::Live,
+                    control_profile: oasis7_client_api::viewer_protocol::ViewerControlProfile::Live,
                     authority_epoch: None,
                 },
             );
@@ -425,7 +422,8 @@ mod tests {
                         max_version: VIEWER_PROTOCOL_VERSION,
                         capabilities: Vec::new(),
                         world_id: "test-world".to_string(),
-                        control_profile: oasis7::viewer::ViewerControlProfile::Live,
+                        control_profile:
+                            oasis7_client_api::viewer_protocol::ViewerControlProfile::Live,
                         authority_epoch: None,
                     },
                 );
@@ -494,29 +492,12 @@ mod tests {
         writer.flush().expect("flush response");
     }
 
-    fn world_snapshot<const N: usize>(players: [&str; N]) -> WorldSnapshot {
-        let mut model = WorldModel::default();
-        for (index, player_id) in players.iter().enumerate() {
-            model
-                .agent_player_bindings
-                .insert(format!("agent-{index}"), (*player_id).to_string());
-        }
-        WorldSnapshot {
-            version: 1,
-            chunk_generation_schema_version: 1,
-            time: 0,
-            config: WorldConfig::default(),
-            model,
-            runtime_snapshot: None,
-            player_gameplay: None,
-            chain_resource_manifest: Default::default(),
-            latest_chain_resource_delta: Default::default(),
-            chunk_runtime: Default::default(),
-            intel_ttl_ticks: 0,
-            next_event_id: 0,
-            next_action_id: 0,
-            pending_actions: Vec::new(),
-            journal_len: 0,
-        }
+    fn world_snapshot<const N: usize>(players: [&str; N]) -> serde_json::Value {
+        let bindings: BTreeMap<_, _> = players
+            .iter()
+            .enumerate()
+            .map(|(index, player)| (format!("agent-{index}"), *player))
+            .collect();
+        serde_json::json!({"model": {"agent_player_bindings": bindings}})
     }
 }

@@ -1,6 +1,6 @@
 //! Real capture atomic-rename failure followed by whole-process death and recreation.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 const STORE: &str = "hosted-wait-private-lineage.json";

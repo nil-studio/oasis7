@@ -3,7 +3,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use oasis7::viewer::ExclusiveDirectoryProcessLock;
+use oasis7::runtime_host::auth_storage::ExclusiveDirectoryProcessLock;
 use oasis7_runtime::{
     GovernanceFinalitySignerRegistry, GovernanceMainTokenControllerRegistry,
     GovernanceThresholdSignerPolicy, MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,

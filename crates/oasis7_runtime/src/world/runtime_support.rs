@@ -1,4 +1,4 @@
-use oasis7_distfs::controlled_authority::formal::business_index::{
+use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BusinessIndexNodeReader, BusinessIndexRootV1,
 };
 use std::sync::Arc;

@@ -42,7 +42,7 @@
 | 对象 | 固定基线事实及定位 | 目标与差距 |
 | --- | --- | --- |
 | Harness | [`oasis7_agent_harness`](../../../crates/oasis7_agent_harness/src/lib.rs) 已导出 actor、TurnEngine、记忆/continuation 与 ModelProvider；[`Cargo.toml`](../../../crates/oasis7_agent_harness/Cargo.toml) 不依赖主应用 | 保留算法，把仍在应用内的模型/prompt/策略接线移为客户端实现；crate 存在不等于路径统一 |
-| 内置接线 | [`agent_harness_adapter`](../../../crates/oasis7/src/simulator/agent_harness_adapter.rs)、[`llm_agent`](../../../crates/oasis7/src/simulator/llm_agent.rs)、[`llm_sidecar`](../../../crates/oasis7/src/viewer/runtime_live/llm_sidecar.rs) 仍使用 simulator/runtime 类型 | 按权威拆分，客户端只消费合法投影；不能整体搬走 World 权威或以 shadow kernel 补观察 |
+| 内置接线 | [`agent_harness_adapter`](../../../crates/oasis7/src/simulator/agent_harness_adapter.rs)、[`llm_agent`](../../../crates/oasis7/src/simulator/llm_agent.rs)、[`llm_sidecar`](.) 仍使用 simulator/runtime 类型 | 按权威拆分，客户端只消费合法投影；不能整体搬走 World 权威或以 shadow kernel 补观察 |
 | 普通客户端 | [`client.rs`](https://github.com/eng-cc/oasis7/blob/d6f6ff3d10f0f2990bf17a111d55c7b36ebf0a5d/crates/oasis7/src/bin/oasis7_game_client/client.rs)、[`client_build.rs`](https://github.com/eng-cc/oasis7/blob/d6f6ff3d10f0f2990bf17a111d55c7b36ebf0a5d/crates/oasis7/src/bin/oasis7_game_client/client_build.rs) 已实现签名、报价和原操作恢复，但 import 主 crate 的 runtime/world_service/private_goal_store | 抽轻量客户端与必要公共合同，CLI 变薄；仅换目录而保留反向依赖不算完成 |
 | 外部能力 | [`oasis7-play`](../../../skills/oasis7-play/SKILL.md) 是 prepared-world 普通签名客户端 profile，覆盖移动、转运、内置建厂/配方和原结果查询 | 不等于完整 Game HTTP 写目录、冷进入、通用模块或两个真实 Runtime 全首局已交付 |
 | 权威接缝 | [`RuntimeAuthority`](../../../crates/oasis7_agent_harness/src/authority.rs) 要求宿主验证 lease/receipt/continuation；[`共享 API`](../../../crates/oasis7_agent_api/src/lib.rs) 只承载提案和投影 | 以受信客户端适配供给已验证读模型，不能让客户端自签世界最终性或创建执行许可 |
@@ -57,6 +57,10 @@
 `oasis7_client_storage` 承载私有目录、私钥文件、加密记录、操作状态和本地模型调用预算持久化；不依赖 HTTP transport 或世界执行。共享客户端与世界服务直接消费该存储库，`oasis7_game_client` 保留旧公开路径的重导出。文件格式、权限校验、锁、原子写入和预算语义保持不变；本地预算与操作记录不授予世界权限。
 
 World Service 客户端 port、远程 transport、verified view 和客户端 proof 消费由 `oasis7_game_client` 拥有；服务端受权投影、结果发布和私有目标存储由 `oasis7_world_service` 拥有，World 权威状态与恢复由 `oasis7_runtime` 拥有。Game Client 与 Harness 的 normal/build 依赖不包含主应用、Runtime、Simulator 或 Service。Game Client 的协议/cache 单测使用独立协议夹具，真实 World 集成测试位于 Service，不通过后端 dev 依赖重新拉入执行实现。
+
+Provider loopback 消息由 `oasis7_agent_api` 统一声明：`DecisionRequest`、泛型 `DecisionResponse`、chat 请求/响应、连续上下文和语义 response digest 使用同一线协议。`oasis7` 只提供具体 Action/Query 类型别名和 Runtime 适配；`FeedbackEnvelope<E>` 中事件投影以及 action result 到 feedback 的转换仍由宿主负责。digest V2 继续排除 diagnostics/trace，旧 V1 保持显式拒绝分类，不改变重试身份或反馈权威校验。
+
+`oasis7_provider_local_bridge` 直接消费 Agent API、Client API 与 Simulator 的动作/事件数据类型，不依赖核心宿主，默认 features 为空；不转发 Wasmtime、libp2p 或 Viewer 宿主 features。Provider tools 的 demo 实际创建 World/WorldKernel、执行 runtime gameplay bridge 并读取世界结果，因此保留宿主依赖和对应默认 features；不能将运行世界的 demo 与纯 HTTP bridge 的依赖要求混同。
 
 独立读取的 `WorldReadProjectionV1` 保存原投影语义值作为规范签名及 commitment 的输入，并另行解析窄的 `WorldReadObservationV1`；不在客户端构造完整可执行 World。HTTP 只恢复既有公开 factory-build/material-transit action map 的数字 key，不转换数字形态的 Agent 或 governance 字符串 ID。这里保持规范 CBOR 签名与规范 JSON 投影承诺，不承诺任意普通 CBOR map 字段顺序。`DeviceClient::capabilities` 经既有原始 `/view` 读取使用该 DTO，同时执行原任务投影的 owner、task fence、feedback lineage、world/scope 和信任 pin 校验。普通 DTO 不能构造 verified view 或回读凭据；收到、pending、committed 及未知结果后按原 operation identity 查询的边界保持不变。
 

@@ -22,7 +22,7 @@ fn harness_projections(
         })
         .collect())
 }
-pub(crate) fn restore_preverified(
+pub fn restore_preverified(
     history: &WorldServiceFeedbackHistory,
     agent: &str,
     runner: &mut AsyncAgentRunner,
@@ -31,7 +31,7 @@ pub(crate) fn restore_preverified(
         .restore_preverified_scoped_feedback_history(&harness_projections(history, agent)?)
         .map_err(|e| e.to_string())
 }
-pub(crate) fn check_fresh_session(
+pub fn check_fresh_session(
     history: &WorldServiceFeedbackHistory,
     agent: &str,
     session: &str,

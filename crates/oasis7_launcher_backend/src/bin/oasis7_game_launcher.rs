@@ -1,9 +1,9 @@
-use oasis7::chain_pos_defaults;
-use oasis7::observability::{
+use oasis7_agent_api::ProviderExecutionMode;
+use oasis7_client_api::chain_pos_defaults;
+use oasis7_launcher_config::default_chain_replication_bootstrap_peers_vec;
+use oasis7_observability::{
     TRACE_SESSION_ID_ENV, emit_stderr_or_event, init_tracing, resolve_trace_session_id,
 };
-use oasis7::simulator::ProviderExecutionMode;
-use oasis7_launcher_config::default_chain_replication_bootstrap_peers_vec;
 use oasis7_proto::storage_profile::StorageProfile;
 use oasis7_runtime::MajorWorldEventVisibilityPermission;
 use oasis7_simulator::WorldScenario;
@@ -62,7 +62,8 @@ use cli::{
 use hosted_access::{DEFAULT_DEPLOYMENT_MODE, DeploymentMode};
 use hosted_account_identity::HostedAccountIdentityBroker;
 use hosted_player_session::HostedPlayerSessionIssuer;
-use oasis7::viewer::{ChainLinkPolicy, VIEWER_FORMAL_RELEASE_DEFAULT_WORLD_ID};
+use oasis7_client_api::bootstrap::FORMAL_RELEASE_DEFAULT_WORLD_ID as VIEWER_FORMAL_RELEASE_DEFAULT_WORLD_ID;
+use oasis7_client_api::viewer_protocol::ChainLinkPolicy;
 use runtime_paths::{
     resolve_oasis7_chain_runtime_binary, resolve_oasis7_viewer_live_binary,
     resolve_viewer_static_dir,
@@ -345,10 +346,12 @@ fn run_launcher(options: &CliOptions, trace_session_id: &str) -> Result<(), Stri
     }
     if viewer_deployment_mode_from_options(options) == DeploymentMode::HostedPublicJoin {
         let issuer_private_key =
-            env::var(oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
+            env::var(oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
                 .map_err(|_| "hosted registration issuer private key is required".to_string())?;
-        oasis7::viewer::derive_hosted_registration_issuer_public_key(issuer_private_key.as_str())?;
-        oasis7::viewer::preflight_hosted_registration_replay_ledger()
+        oasis7_client_api::viewer_auth::derive_hosted_registration_issuer_public_key(
+            issuer_private_key.as_str(),
+        )?;
+        oasis7_hosted_access::auth_storage::preflight_hosted_registration_replay_ledger()
             .map_err(|err| format!("hosted registration replay ledger preflight failed: {err}"))?;
     }
 

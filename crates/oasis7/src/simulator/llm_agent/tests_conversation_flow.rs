@@ -1,3 +1,4 @@
+fn provider_env_lock() -> &'static std::sync::Mutex<()> { static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()); &LOCK }
 use super::*;
 use crate::geometry::GeoPos;
 use crate::simulator::{LlmChatRole, WorldEvent};
@@ -59,7 +60,7 @@ impl Drop for EnvVarGuard {
 }
 
 fn llm_env_lock() -> &'static std::sync::Mutex<()> {
-    crate::viewer::canonical_runtime_provider_env_lock()
+    provider_env_lock()
 }
 
 fn completion_turn_from_value(value: serde_json::Value) -> LlmCompletionTurn {

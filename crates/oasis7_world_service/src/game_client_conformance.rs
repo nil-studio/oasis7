@@ -2,7 +2,7 @@ use crate::authority;
 use crate::projection::WorldServiceProjection;
 use oasis7_client_api::formal_projection::{ProjectionAudienceV1, ProjectionCommitmentsV1};
 use oasis7_client_api::world_service::*;
-use oasis7_distfs::controlled_authority::formal::*;
+use oasis7_formal_protocol::controlled_authority::formal::*;
 use oasis7_game_client::formal_read::*;
 type FormalReadVerifier =
     oasis7_game_client::formal_read::FormalReadVerifier<WorldServiceProjection>;
@@ -154,7 +154,9 @@ fn configured_checkpoint_cannot_be_replaced_by_another_higher_pinned_anchor() {
 #[test]
 fn typed_qualified_successor_allows_bound_governance_and_permission_evolution() {
     use crate::formal_projection::projection_leaf;
-    use oasis7_distfs::controlled_authority::replicated_protocol::{ArtifactRole, EndpointRole};
+    use oasis7_formal_protocol::controlled_authority::replicated_protocol::{
+        ArtifactRole, EndpointRole,
+    };
     let (world, trust, anchor, _) = actual_world_initial_fixture();
     let mut verifier = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
     let (mut request, initial) = response(

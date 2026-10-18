@@ -7,11 +7,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
-use oasis7::viewer::{
-    CollectDataCommand, GameplayActionRequest, build_runtime_action_from_gameplay_request,
-    verify_collect_data_auth_proof, verify_gameplay_action_auth_proof,
+use oasis7::runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request;
+use oasis7_client_api::viewer_auth::{
+    VerifiedPlayerAuth, verify_collect_data_auth_proof, verify_gameplay_action_auth_proof,
 };
 use oasis7_node::NodeRuntime;
+use oasis7_proto::viewer::{CollectDataCommand, GameplayActionRequest};
 use serde::{Deserialize, Serialize};
 
 const GAMEPLAY_SUBMIT_PATH: &str = "/v1/chain/gameplay/submit";
@@ -56,7 +57,7 @@ impl GameplayNonceLedger {
 
 struct AuthorizedGameplaySubmit {
     action: oasis7_runtime::Action,
-    legacy_auth: Option<oasis7::viewer::VerifiedPlayerAuth>,
+    legacy_auth: Option<VerifiedPlayerAuth>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -384,7 +385,7 @@ fn write_gameplay_submit_json_response(
 
 fn record_legacy_gameplay_nonce(
     execution_world_dir: &Path,
-    auth: &oasis7::viewer::VerifiedPlayerAuth,
+    auth: &VerifiedPlayerAuth,
 ) -> Result<(), LegacyNonceError> {
     let _guard = GAMEPLAY_NONCE_LEDGER_LOCK
         .get_or_init(|| Mutex::new(()))
