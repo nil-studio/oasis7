@@ -256,7 +256,31 @@ jobs:
           echo "value=${version}" >> "${GITHUB_OUTPUT}"
       - name: Build launcher bundle
         shell: bash
+        env:
+          # Bound concurrent Thin LTO builds on hosted native runners.
+          CARGO_BUILD_JOBS: "2"
         run: |
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            python3 -u - <<'PY' &
+          import datetime
+          import os
+          from pathlib import Path
+          import subprocess
+          import time
+
+          while True:
+              print("native build resources", datetime.datetime.now(datetime.timezone.utc).isoformat())
+              subprocess.run(["free", "-m"], check=False)
+              subprocess.run(["df", "-h", os.environ["GITHUB_WORKSPACE"]], check=False)
+              for metric in ("memory.current", "memory.max", "memory.events"):
+                  path = Path("/sys/fs/cgroup") / metric
+                  if path.is_file():
+                      print(metric, path.read_text().strip())
+              time.sleep(60)
+          PY
+            resource_monitor=$!
+            trap 'kill "${resource_monitor}" 2>/dev/null || true; wait "${resource_monitor}" 2>/dev/null || true' EXIT
+          fi
           ./scripts/release-prepare-bundle.sh \
             --platform "${{ matrix.platform }}" \
             --target-triple "${{ matrix.target_triple }}" \
