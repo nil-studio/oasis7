@@ -20,6 +20,10 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 SHARDS = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
+DEFAULT_SNAPSHOT_REGRESSIONS = (
+    ('viewer-snapshot-tests', 'snapshot_progress::'),
+    ('snapshot-tests', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields'),
+)
 
 
 def output(command):
@@ -106,11 +110,12 @@ def build_variants(scope):
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
         ('snapshot-tests', ['test', '-p', 'oasis7', '--lib', '--no-run'], []),
+        ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
         return variants
     if scope == 'ordinary':
-        return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests')]
+        return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage'):
         # Keep both core libraries and the exact Chain binary harness. Chain
         # configuration library tests belong to the ordinary required variant;
@@ -275,9 +280,10 @@ def dependency_closure(manifest, config, suite=None, shard=None):
     if suite == 'ordinary':
         required = {name for name, binary in binaries.items()
                     if (binary.get('ordinary') and set(binary['tests']) - set(binary['ignored_tests']))
-                    or name in ('viewer', 'snapshot-tests') or name.startswith('required-executable-')}
-        if 'snapshot-tests' not in required:
-            raise ValueError('missing default-feature snapshot harness')
+                    or name in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests') or name.startswith('required-executable-')}
+        for owner, _ in DEFAULT_SNAPSHOT_REGRESSIONS:
+            if owner not in required:
+                raise ValueError('missing default-feature snapshot harness: ' + owner)
         return required
     required = set()
     for entry in selected_entries(manifest, config, suite, shard):
@@ -763,12 +769,14 @@ def execute(bundle, suite, results, shard=None):
     manifest, env = load(bundle, suite if not shard else None, shard)
     if suite == 'ordinary' and not shard:
         entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items() if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
-        binary = manifest['binaries']['snapshot-tests']
-        for pattern in ['snapshot_progress::', 'snapshot_player_gameplay_execution_state_backfills_from_legacy_fields']:
+        for owner, pattern in DEFAULT_SNAPSHOT_REGRESSIONS:
+            if owner not in manifest['binaries']:
+                raise ValueError('missing default-feature snapshot harness: ' + owner)
+            binary = manifest['binaries'][owner]
             names = [name for name in binary['tests'] if pattern in name and name not in binary['ignored_tests']]
             if not names:
                 raise ValueError('missing snapshot regression: ' + pattern)
-            entries.append(dict(binary='snapshot-tests', filter=pattern, count=len(names)))
+            entries.append(dict(binary=owner, filter=pattern, count=len(names)))
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
