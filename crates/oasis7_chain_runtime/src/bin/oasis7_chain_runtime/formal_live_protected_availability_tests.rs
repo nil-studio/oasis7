@@ -59,15 +59,14 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     let baseline = case.runtime.published.current()?;
     let (old_commit, expected_projection) = commit_ref_for_opaque_cut(&baseline, &case.world)?;
 
-    let admitted = match owner_client.submit(case.owner_request.clone()) {
+    match owner_client.submit(case.owner_request.clone()) {
         Ok(admission) => {
             assert_volatile_admission(admission, &case.owner_request.correlation)?;
-            true
         }
         Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
             status: 503,
             message,
-        }) if message == "formal runtime is not ready" => false,
+        }) if message == "formal runtime is not ready" => (),
         Err(error) => return Err(format!("C06 ordinary owner submit: {error}")),
     };
 
@@ -142,8 +141,8 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         ));
     }
     // Reopen from the same writer directory only after the endpoint is back;
-    // startup must reconcile the exact original request rather than synthesize
-    // a replacement request or duplicate its effect.
+    // Recovery keeps the exact original operation, whether pending work was
+    // durable or only volatile; it must not synthesize a replacement identity.
     case.runtime.stop(Duration::from_secs(10))?;
     drop(case.runtime);
     let mut reopened = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
@@ -154,30 +153,50 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
         .ok_or("C06 CommitRef position overflow")?;
     wait_for_published_position(&reopened, target_position)?;
 
-    if !admitted {
-        let next = reopened
-            .published
-            .current()?
-            .anchor
-            .head()
-            .record()
-            .position
-            .checked_add(1)
-            .ok_or("C06 recovery position overflow")?;
-        let admission = owner_client
-            .submit(case.owner_request.clone())
-            .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
-        assert_volatile_admission(admission, &case.owner_request.correlation)?;
-        wait_for_published_position(&reopened, next)?;
-    }
+    // Volatile admission is not durable pending state and may disappear on
+    // reopen. Query the original first; a successor tick alone proves neither
+    // the request's inclusion nor its successful canonical result.
+    let recovered_commit = match owner_client.lookup_formal_original(case.owner_request.clone()) {
+        Ok(response) => {
+            if response.correlation != case.owner_request.correlation
+                || response.formal_profile.as_ref()
+                    != Some(&oasis7_client_api::world_service::FormalReadProfileV1::controlled())
+                || response.execution_evidence_scope.is_some()
+            {
+                return Err("C06 recovery lookup changed the original request profile".into());
+            }
+            match response.outcome {
+                oasis7_client_api::world_service::IntentOutcome::Committed { commit, .. } => {
+                    eprintln!("C06 recovery lookup=committed replay=false");
+                    Some(*commit)
+                }
+                outcome => return Err(format!("C06 unexpected recovery lookup: {outcome:?}")),
+            }
+        }
+        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            status: 503,
+            message,
+        }) if message == "HistoryUnavailable: no result at the exact qualified lookup cut" => {
+            eprintln!("C06 recovery lookup=exact_cut_without_result replay=same_signed_original");
+            // This controlled fixture uses a known idempotent GameTaskCreate
+            // envelope (also checked below). Only this exact no-result response
+            // permits replaying that same signed original; other failures stop.
+            let admission = owner_client
+                .submit(case.owner_request.clone())
+                .map_err(|error| format!("C06 same original submit after recovery: {error}"))?;
+            assert_volatile_admission(admission, &case.owner_request.correlation)?;
+            None
+        }
+        Err(error) => return Err(format!("C06 original lookup after recovery: {error}")),
+    };
+    let (cut, result) = wait_for_canonical_request_result(&reopened, &case.owner_request)?;
     let committed = lookup_original_commit(&owner_client, &case.owner_request)?;
+    if recovered_commit.is_some_and(|original| original != committed) {
+        return Err("C06 recovery changed the already committed original result".into());
+    }
     if committed.position <= old_commit.position {
         return Err("C06 recovered request lacks a successor CommitRef".into());
     }
-    let cut = reopened.published.current()?;
-    let key = correlation::key_digest(&case.owner_request.correlation.key)
-        .map_err(|error| error.to_string())?;
-    let result = retained_result_from_hot_or_cold(&cut.world, &key)?;
     if result.request != case.owner_request || result.rejected.is_some() {
         return Err("C06 recovery did not preserve the exact original successful request".into());
     }
