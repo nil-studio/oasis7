@@ -1,0 +1,223 @@
+name: Storage Acceptance
+run-name: Storage acceptance / ${{ github.ref_name }} / ${{ inputs.capacity_scale }} heights
+
+on:
+  workflow_dispatch:
+    inputs:
+      capacity_scale:
+        description: 'Additional actual World capacity run (10 is always verified)'
+        type: choice
+        required: true
+        default: '10'
+        options: ['10', '1000', '10000']
+      repeat_faults:
+        description: 'Repetitions of each case under each network fault profile'
+        type: choice
+        required: true
+        default: '1'
+        options: ['1', '2', '3']
+
+permissions:
+  contents: read
+
+cache-mode: read
+
+concurrency:
+  group: storage-acceptance-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  RUST_TOOLCHAIN: 1.96.0
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: '1'
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+  SOURCE_SHA: ${{ github.sha }}
+  OASIS7_STORAGE_MAX_LOGICAL_BYTES: '4294967296'
+  OASIS7_STORAGE_STEP_BYTES: '67108864'
+  OASIS7_STORAGE_PROGRESS_INTERVAL: '100'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install pinned build tools
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: false
+          shared-key: storage-acceptance-v1
+      - name: Build and inventory exact native acceptance executables
+        run: |
+          python3 scripts/ci-storage-acceptance.py build --bundle "$RUNNER_TEMP/storage-tests"
+          python3 scripts/ci-storage-acceptance.py pack --bundle "$RUNNER_TEMP/storage-tests" --output "$RUNNER_TEMP/storage-tests.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storage-tests-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/storage-tests.tar.gz
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
+
+  verify:
+    name: Verify / ${{ matrix.label }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - {label: units, group: units, network: none, scale: '10'}
+          - {label: runtime-protocol, group: runtime-protocol, network: none, scale: '10'}
+          - {label: world-history, group: world-history, network: none, scale: '10'}
+          - {label: healthy-set, group: healthy-set, network: none, scale: '10'}
+          - {label: storage-recovery, group: storage-recovery, network: none, scale: '10'}
+          - {label: lifecycle-cli, group: lifecycle-cli, network: none, scale: '10'}
+          - {label: capacity-10, group: capacity, network: none, scale: '10'}
+          - {label: disk-full, group: disk, network: none, scale: '10'}
+          - {label: network-delay, group: network, network: delay, scale: '10'}
+          - {label: network-loss, group: network, network: loss, scale: '10'}
+    steps: &acceptance-consumer
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install consumer libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iproute2 libwayland-client0 libxkbcommon0 libxi6 libxcursor1 libxrandr2 libxinerama1 libasound2t64 libudev1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: storage-tests-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Unpack executables preserving modes
+        run: |
+          mkdir "$RUNNER_TEMP/storage-tests"
+          tar -C "$RUNNER_TEMP/storage-tests" -xzf "$RUNNER_TEMP/storage-tests.tar.gz"
+      - name: Install owned loopback fault model
+        if: matrix.network != 'none'
+        env:
+          PROFILE: ${{ matrix.network }}
+        run: python3 scripts/ci-storage-network.py setup --profile "$PROFILE" --report output/network/network-setup.json
+      - name: Mount isolated small filesystem for actual ENOSPC
+        if: matrix.group == 'disk'
+        run: |
+          mkdir "$RUNNER_TEMP/storage-enospc"
+          mkdir -p output/disk
+          sudo mount -t tmpfs -o "size=64m,mode=0700,uid=$(id -u),gid=$(id -g)" oasis7-storage-acceptance "$RUNNER_TEMP/storage-enospc"
+          findmnt --json --target "$RUNNER_TEMP/storage-enospc" > output/disk/mount.json
+      - name: Run acceptance with exact inventory and process cleanup
+        env:
+          GROUP: ${{ matrix.group }}
+          LABEL: ${{ matrix.label }}
+          NETWORK: ${{ matrix.network }}
+          FAULT_REPEATS: ${{ inputs.repeat_faults }}
+          SCALE: ${{ matrix.scale }}
+          OASIS7_STORAGE_ENOSPC_ROOT: ${{ runner.temp }}/storage-enospc
+        run: |
+          repeats=1
+          if [[ "$NETWORK" != none ]]; then repeats="$FAULT_REPEATS"; fi
+          python3 scripts/ci-storage-acceptance.py run --bundle "$RUNNER_TEMP/storage-tests" --group "$GROUP" --label "$LABEL" --results-dir output/storage --capacity-scale "$SCALE" --repeat-faults "$repeats"
+      - name: Check actual fault traffic
+        if: always() && matrix.network != 'none'
+        env:
+          PROFILE: ${{ matrix.network }}
+        run: python3 scripts/ci-storage-network.py check --profile "$PROFILE" --report output/network/network-observed.json
+      - name: Remove only the owned fault discipline
+        if: always() && matrix.network != 'none'
+        env:
+          PROFILE: ${{ matrix.network }}
+        run: python3 scripts/ci-storage-network.py cleanup --profile "$PROFILE" --report output/network/network-cleanup.json
+      - name: Unmount isolated ENOSPC filesystem
+        if: always() && matrix.group == 'disk'
+        run: |
+          if mountpoint -q "$RUNNER_TEMP/storage-enospc"; then
+            test "$(findmnt -n -o SOURCE --target "$RUNNER_TEMP/storage-enospc")" = oasis7-storage-acceptance
+            sudo umount "$RUNNER_TEMP/storage-enospc"
+          fi
+          ! mountpoint -q "$RUNNER_TEMP/storage-enospc"
+      - name: Preserve results including failures and partial runs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storage-result-${{ matrix.label }}-${{ github.run_attempt }}
+          path: output
+          retention-days: 14
+          if-no-files-found: error
+
+  capacity-long:
+    name: Capacity / ${{ inputs.capacity_scale }} heights
+    if: inputs.capacity_scale != '10'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      matrix:
+        include:
+          - label: capacity-${{ inputs.capacity_scale }}
+            group: capacity
+            network: none
+            scale: ${{ inputs.capacity_scale }}
+    steps: *acceptance-consumer
+
+  summary:
+    if: always()
+    needs: [build, verify, capacity-long]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: storage-result-*-${{ github.run_attempt }}
+          path: output/collected
+      - name: Require every planned job and exact result inventory
+        if: always()
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          SCALE: ${{ inputs.capacity_scale }}
+        run: |
+          mkdir -p output
+          printf '%s\n' "$NEEDS_JSON" > output/needs.json
+          args=()
+          for label in units runtime-protocol world-history healthy-set storage-recovery lifecycle-cli capacity-10 disk-full network-delay network-loss; do
+            args+=(--expected "$label")
+          done
+          if [[ "$SCALE" != 10 ]]; then args+=(--expected "capacity-$SCALE"); fi
+          python3 scripts/ci-storage-acceptance.py summarize --results-dir output/collected "${args[@]}" --needs-json output/needs.json --output output/summary.json
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storage-acceptance-summary-${{ github.run_attempt }}
+          path: output
+          retention-days: 14
+          if-no-files-found: error
