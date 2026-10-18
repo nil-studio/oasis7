@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/engineering/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "6eab4e4095c150dc28b412145d43494d7ca4d725a2a9df1441a9e61d2fb82f38",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "manual",
+    "path": "doc/engineering/command-center/daily-work-verification.manual.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "engineering-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "repository_health_engineer",
+    "structural_owner": "repository_health_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}
