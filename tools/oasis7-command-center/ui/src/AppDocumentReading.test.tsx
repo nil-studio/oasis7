@@ -36,3 +36,25 @@ it('keeps the existing explicit saved-version restore path when no tree view own
   const old=data([]);old.readingPositions=[{sectionId:section.id,revision:'older',line:1}];api.snapshot.mockResolvedValue(old);api.loadDocumentTreeLastView.mockResolvedValue({status:'missing',view:null,notice:null});api.readVersion.mockResolvedValue({...section,revision:'older'});
   render(()=><App/>);await screen.findByLabelText('来源章节原文');expect(api.readVersion).toHaveBeenCalledWith(section.id,'older');
 });
+
+
+it('returns to the original external entry after following a body link to an unlisted chapter',async()=>{
+  const first={...section,content:'[打开后继正文](../../../other.md#next)'};
+  const next={...section,id:'other.md#next',path:'other.md',title:'仅正文可到达的章节',content:'后继正文内容'};
+  api.snapshot.mockResolvedValue(data([first,next]));
+  api.loadDocumentTreeLastView.mockResolvedValue({status:'missing',view:null,notice:null});
+  api.loadDocumentTreeReading.mockResolvedValue({status:'missing',state:null,notice:null,resolvedSectionId:null});
+  render(()=><App/>);
+  const entry=await screen.findByRole('button',{name:'恢复章节',exact:true});
+  entry.focus();fireEvent.click(entry);
+  const link=await screen.findByRole('button',{name:'打开后继正文'});
+  await waitFor(()=>expect(screen.getByLabelText('来源章节原文')).toHaveTextContent('打开后继正文'));
+  link.focus();fireEvent.click(link);
+  await waitFor(()=>expect(screen.getByLabelText('来源章节原文')).toHaveTextContent('后继正文内容'));
+  expect(link).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'仅正文可到达的章节',exact:true})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'关闭详情'}));
+  await waitFor(()=>expect(entry).toHaveFocus());
+  expect(screen.queryByLabelText('来源章节原文')).not.toBeInTheDocument();
+  expect(api.recordReading.mock.calls.map(call=>call[0].id)).toEqual([first.id,next.id]);
+});

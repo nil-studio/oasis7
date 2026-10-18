@@ -104,9 +104,14 @@ export default function App() {
     } catch (error) { if (generation === searchGeneration) setMessage(errorMessage(error)); }
   }
   function showSource(section: DocumentSection, origin?: HTMLElement, restore?:{scrollTop:number;passive:boolean}) {
-    ++sourceIntent;sourceOriginId=section.id;
-    if (origin) sourceOrigin = origin;
-    else if (document.activeElement instanceof HTMLElement && !sourceDetail?.contains(document.activeElement)) sourceOrigin = document.activeElement;
+    ++sourceIntent;
+    // Following a link within the detail keeps the entry point outside this replaceable DOM.
+    const fromDetail = !!selected() && sourceDetail?.contains(origin ?? document.activeElement);
+    if (!fromDetail) {
+      sourceOriginId=section.id;
+      if (origin) sourceOrigin = origin;
+      else if (document.activeElement instanceof HTMLElement) sourceOrigin = document.activeElement;
+    }
     sourceScrollIntent=false;setSelected(section);setSourcePosition({section,scrollTop:restore?.scrollTop??0,userInitiated:!restore?.passive});
     queueMicrotask(() => { if(selected()!==section)return;if(sourceContent){void sourceContent.clientHeight;sourceContent.scrollTop=restore?.scrollTop??0;programmaticSourceScroll=sourceContent.scrollTop;}if(!restore?.passive){sourceDetail?.focus({preventScroll:true});sourceDetail?.scrollIntoView?.({block:'start'});} });
     if(!restore?.passive)void bridge.recordReading(section).catch(error => setMessage(`阅读位置未保存：${errorMessage(error)}`));
