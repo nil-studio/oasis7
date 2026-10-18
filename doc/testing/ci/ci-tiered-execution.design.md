@@ -253,6 +253,10 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 只执行已登记的 endpoint stop/restart 精确用例一次，并打开已有阶段计时标记。
 该诊断入口不替代 required suite、不改变普通选择或汇总策略；即使通过也只证明该次诊断范围。
 两处 stop 等待仍为 10 秒，单用例外部 watchdog 为 120 秒；构建与整个 job 使用独立有限预算。
+`formal_stop_consumer_diagnostic` 使用独立的只读 producer job 构建并发布原 runtime-protocol 闭包，
+在另一 fresh consumer job 校验同 run/source/tested 身份和 binary hash 后仅运行该精确用例；
+producer/build/consumer 上限分别为 75/45/15 分钟，不在 consumer 编译或运行其他 shard。
+两种诊断均不自动重试；fresh consumer 的一次通过不解释历史失败原因。
 固定提交、toolchain、可执行文件哈希、构建耗时、用例 stdout、终态及 cleanup 结果作为 artifact 保留，
 不上传私有 fixture/world，不赋予写入权限、生产凭据或 CodeQL/SARIF 能力。
 

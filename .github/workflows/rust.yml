@@ -14,7 +14,7 @@ on:
         required: true
         default: full
         type: choice
-        options: [full, newapi_bridge_package, formal_stop_diagnostic]
+        options: [full, newapi_bridge_package, formal_stop_diagnostic, formal_stop_consumer_diagnostic]
       newapi_bridge_build_profile:
         description: "Cargo package profile"
         required: true
@@ -102,6 +102,122 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: formal-stop-diagnostic-${{ github.sha }}-${{ github.run_attempt }}
+          path: output/stop-diagnostic
+          retention-days: 14
+          if-no-files-found: warn
+
+  formal-stop-consumer-build:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'formal_stop_consumer_diagnostic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Record the fixed diagnostic source before environment preparation
+        run: |
+          mkdir -p output/stop-diagnostic
+          git rev-parse HEAD HEAD^{tree} > output/stop-diagnostic/source.txt
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git status --porcelain > output/stop-diagnostic/source-status.txt
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install the existing formal toolchains and native libraries
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: false
+          shared-key: ci-full-regression-trusted-v2
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+      - name: Record exact Linux source and toolchain identity
+        run: |
+          rustc -vV > output/stop-diagnostic/rustc.txt
+          cargo --version > output/stop-diagnostic/cargo.txt
+          uname -a > output/stop-diagnostic/kernel.txt
+      - name: Build only existing formal process dependencies
+        timeout-minutes: 45
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=30s 2640s python3 scripts/ci-test-artifacts.py build --scope formal --bundle "$RUNNER_TEMP/stop-tests" 2>&1 | tee output/stop-diagnostic/build.log
+          cp "$RUNNER_TEMP/stop-tests/manifest.json" output/stop-diagnostic/manifest.json
+      - name: Pack the existing runtime protocol consumption closure
+        run: |
+          python3 scripts/ci-test-artifacts.py pack --bundle "$RUNNER_TEMP/stop-tests" --shard runtime-protocol --output "$RUNNER_TEMP/runtime-protocol.tar.gz"
+          sha256sum "$RUNNER_TEMP/runtime-protocol.tar.gz" > output/stop-diagnostic/archive-sha256.txt
+      - name: Publish the hash-bound native consumption closure
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-stop-native-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runtime-protocol.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+      - name: Preserve producer evidence including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-stop-producer-${{ github.sha }}-${{ github.run_attempt }}
+          path: output/stop-diagnostic
+          retention-days: 14
+          if-no-files-found: warn
+
+  formal-stop-consumer-diagnostic:
+    needs: formal-stop-consumer-build
+    if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'formal_stop_consumer_diagnostic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Record consumer source and environment
+        run: |
+          mkdir -p output/stop-diagnostic
+          git rev-parse HEAD HEAD^{tree} > output/stop-diagnostic/source.txt
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git status --porcelain > output/stop-diagnostic/source-status.txt
+          uname -a > output/stop-diagnostic/kernel.txt
+      - name: Install native libraries without building on the consumer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: formal-stop-native-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}
+      - name: Unpack and record the exact consumption closure
+        run: |
+          sha256sum "$RUNNER_TEMP/runtime-protocol.tar.gz" > output/stop-diagnostic/archive-sha256.txt
+          mkdir -p "$RUNNER_TEMP/stop-tests"
+          tar -C "$RUNNER_TEMP/stop-tests" -xzf "$RUNNER_TEMP/runtime-protocol.tar.gz"
+          cp "$RUNNER_TEMP/stop-tests/manifest.json" output/stop-diagnostic/manifest.json
+      - name: Observe the single original stop case on a fresh consumer VM
+        timeout-minutes: 5
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          python3 scripts/ci-test-artifacts.py diagnose-stop --bundle "$RUNNER_TEMP/stop-tests" --results output/stop-diagnostic/results.jsonl 2>&1 | tee output/stop-diagnostic/case.log
+      - name: Preserve fresh consumer evidence including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-stop-consumer-${{ github.sha }}-${{ github.run_attempt }}
           path: output/stop-diagnostic
           retention-days: 14
           if-no-files-found: warn

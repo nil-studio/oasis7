@@ -65,6 +65,31 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def test_stop_consumer_diagnostic_uses_a_separate_hash_bound_artifact_job(self):
+        producer = JOBS['formal-stop-consumer-build']
+        consumer = JOBS['formal-stop-consumer-diagnostic']
+        for job in (producer, consumer):
+            self.assertIn("inputs.run_mode == 'formal_stop_consumer_diagnostic'", job)
+            self.assertIn("github.event_name == 'workflow_dispatch'", job)
+            self.assertIn('persist-credentials: false', job)
+            self.assertIn('if: always()', job)
+            self.assertNotIn('security-events:', job)
+        self.assertIn('save-if: false', producer)
+        self.assertIn('timeout-minutes: 45', producer)
+        self.assertIn('pack --bundle "$RUNNER_TEMP/stop-tests" --shard runtime-protocol', producer)
+        self.assertNotIn('diagnose-stop --bundle', producer)
+        self.assertIn('needs: formal-stop-consumer-build', consumer)
+        self.assertIn('timeout-minutes: 15', consumer)
+        self.assertIn('actions/download-artifact@', consumer)
+        self.assertIn('formal-stop-native-${{ github.sha }}-${{ github.run_attempt }}', producer)
+        self.assertIn('formal-stop-native-${{ github.sha }}-${{ github.run_attempt }}', consumer)
+        self.assertIn('sha256sum "$RUNNER_TEMP/runtime-protocol.tar.gz"', consumer)
+        self.assertIn('diagnose-stop --bundle', consumer)
+        self.assertNotIn('cargo ', consumer)
+        self.assertNotIn('rustup ', consumer)
+        self.assertNotIn('formal-stop-consumer', JOBS['required-gate'])
+        self.assertNotIn('formal-stop-consumer', JOBS['formal-process'])
+
     def test_stop_diagnostic_is_manual_readonly_and_separate_from_required(self):
         diagnostic = JOBS['formal-stop-diagnostic']
         self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'formal_stop_diagnostic'", diagnostic)
