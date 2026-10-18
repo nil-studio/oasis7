@@ -11,7 +11,7 @@
 
 ## 版本、环境和结论
 
-实现源码候选 `4d22f3bcbea24e6dcb622bf7d34c6b2de5d06234`。原生任务发现并修复了长目标挤占首页及启动恢复竞态；完整交互复测使用 `ebec894d85392c52e2fc82ca9111f075abbc9171`，随后候选补齐近期打开排序、旧版决定完整归档、来源限流和个人错误隔离。后续最终打包与 CI 的确切 head 由实施 PR 的构建回执记录，不能把较早工件说成最终工件。
+实现源码候选 `ecc7f5db13faf101057d5df8570a379509f45b3f`。原生任务发现并修复了长目标挤占首页及启动恢复竞态；完整交互复测使用 `ebec894d85392c52e2fc82ca9111f075abbc9171`，随后候选补齐近期打开排序、旧版决定完整归档、来源限流和个人错误隔离，并修正仅复制外部定位的主动作及只比较两份主责摘要（不把验证记录的引用当新冲突）。后续最终打包与 CI 的确切 head 由实施 PR 的构建回执记录，不能把较早工件说成最终工件。
 
 环境为 macOS 26.5（25F71）、arm64；保留 Tauri/Rust/Solid 架构。常规窗口约 1280×830 logical，窄窗口实测约 728×627。验收 App 使用独立 `com.oasis7.command-center.acceptance4848` 数据目录，不修改原 App 数据库。源码阅读项目是实际 oasis7 工作树，tracked Markdown 索引约 610 文件、9529 章节；这些数量属于本次窗口，不是全仓或未来容量保证。
 
@@ -66,7 +66,7 @@ npm --prefix tools/oasis7-command-center/ui run build
 python3 tools/oasis7-command-center/scripts/test_package_context_cli.py
 ```
 
-本轮本地 Rust workspace 212 项、UI 141 项通过；包含原有隔离/兼容回归，不把数量当实际用户验收。重点入口为 [daily_work](../../../tools/oasis7-command-center/core/tests/daily_work.rs)、[协议故障/恢复](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)、[工作投影](../../../tools/oasis7-command-center/core/tests/work_projection.rs)、[REST 窗口](../../../tools/oasis7-command-center/core/src/github_tests.rs)、[宿主慢源与饱和](../../../tools/oasis7-command-center/src-tauri/src/commands.rs)、[UI 恢复](../../../tools/oasis7-command-center/ui/src/WorkOverview.test.tsx)、[部分同步义务](../../../tools/oasis7-command-center/ui/src/DecisionFollowthroughPanel.test.tsx)、[工具秘密/范围](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)和[严格 SignContext](../../../tools/oasis7-command-center/core/tests/sign_context_import.rs)。
+本轮本地 Rust workspace 212 项、UI 143 项通过；包含原有隔离/兼容回归，不把数量当实际用户验收。重点入口为 [daily_work](../../../tools/oasis7-command-center/core/tests/daily_work.rs)、[协议故障/恢复](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)、[工作投影](../../../tools/oasis7-command-center/core/tests/work_projection.rs)、[REST 窗口](../../../tools/oasis7-command-center/core/src/github_tests.rs)、[宿主慢源与饱和](../../../tools/oasis7-command-center/src-tauri/src/commands.rs)、[UI 恢复](../../../tools/oasis7-command-center/ui/src/WorkOverview.test.tsx)、[部分同步义务](../../../tools/oasis7-command-center/ui/src/DecisionFollowthroughPanel.test.tsx)、[工具秘密/范围](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)和[严格 SignContext](../../../tools/oasis7-command-center/core/tests/sign_context_import.rs)。
 
 独立安全/兼容评审发现并修复了双 DB 私有标记查询、未决意图窗口截断/永久锁定、决定 CAS 事务外窗口、ready 状态不匹配；最终实现候选复审未见阻断。实际 CI、合入及最终构建 head 由实施 PR 记录；本文件不代替这些事实。
 

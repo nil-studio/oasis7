@@ -5,7 +5,7 @@
 - owner_role：`runtime_engineer`；产品归 `producer_system_designer`，Codex 接入归 `agent_engineer`
 - module：`engineering`
 - 上游：[指挥客户端产品设计](command-center.prd.md)、[PRD-ENGINEERING-034](../prd.md#PRD-ENGINEERING-034)
-- 当前实现审读基线：`main@0ec10379419b0aaedb9d16157b81c92f4e6e3495`；初始设计基线 `7039bc376882ab8f84f88ca014f6d7ce642539a8`，既有方案 `56a33562436ffa4b65a66d05e61f26a849b16728`
+- 当前实现审读基线：`ecc7f5db13faf101057d5df8570a379509f45b3f`；2026-10-17 历史核对 `main@0ec10379419b0aaedb9d16157b81c92f4e6e3495`；初始设计基线 `7039bc376882ab8f84f88ca014f6d7ce642539a8`，既有方案 `56a33562436ffa4b65a66d05e61f26a849b16728`
 - last_reviewed_at：2026-10-18
 - 初始设计与评审来源：[PR #4518](https://github.com/eng-cc/oasis7/pull/4518)
 
@@ -623,7 +623,7 @@ Codex 连接记录实际验证版本与 schema；未启用时执行视图仍可�
 
 ### 11.0.4 日常工作闭环的实现差距
 
-2026-10-17 的基础切片核对保留在 Git 历史。2026-10-18 实现候选为 `4d22f3bcbea24e6dcb622bf7d34c6b2de5d06234`；[验证记录](daily-work-verification.manual.md)区分实际 REST、原生 UI、受控协议回放和未验证项。实现 PR 的实际状态拥有 CI/合入事实，不能由本表推断。
+2026-10-17 的基础切片核对保留在 Git 历史。2026-10-18 实现候选为 `ecc7f5db13faf101057d5df8570a379509f45b3f`；[验证记录](daily-work-verification.manual.md)区分实际 REST、原生 UI、受控协议回放和未验证项。实现 PR 的实际状态拥有 CI/合入事实，不能由本表推断。
 
 | 目标 | 当前候选实现 | 验证与剩余边界 |
 | --- | --- | --- |

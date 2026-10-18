@@ -165,7 +165,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ### 日常工作闭环实现候选（2026-10-18）
 
-[Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 的四区、共享工作详情、关联修复、决定同步/历史、外部定位、一次明确发起、主题阅读与任务工具增量已在候选 `4d22f3bcbea24e6dcb622bf7d34c6b2de5d06234` 实现。本轮本地 Rust 212 项、UI 141 项通过；macOS 原生已核对三项实际 PR、处理/回看、完整重开、窄窗口及受控协议请求一次回复。详细来源、版本、耗时及证明限制见[验证记录](daily-work-verification.manual.md)。
+[Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 的四区、共享工作详情、关联修复、决定同步/历史、外部定位、一次明确发起、主题阅读与任务工具增量已在候选 `ecc7f5db13faf101057d5df8570a379509f45b3f` 实现。本轮本地 Rust 212 项、UI 143 项通过；macOS 原生已核对三项实际 PR、处理/回看、完整重开、窄窗口及受控协议请求一次回复。详细来源、版本、耗时及证明限制见[验证记录](daily-work-verification.manual.md)。
 
 真实 IME 候选及 VoiceOver 当前未验证，用户表示暂无法验证；因此 Issue 保留开放，基础产品不宣称全部验收通过。实施 PR 的实际 CI/合入状态拥有交付结论；本段不刷新其他主线、节点或部署事实，也不扩大模型、Apple 签名及管理员授权。
 
