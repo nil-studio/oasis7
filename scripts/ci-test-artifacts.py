@@ -7,12 +7,15 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
@@ -133,16 +136,24 @@ def validate_profile(logical, binary):
             raise ValueError('expected optimized release endpoint artifact')
 
 
-def build(bundle, scope='all'):
+def build(bundle, scope='all', cache_state_path=None):
     bundle.mkdir(parents=True, exist_ok=False)
     (bundle / 'bin').mkdir()
     (bundle / 'lib').mkdir()
     env = dict(os.environ)
     env.pop('RUSTC_WRAPPER', None)
+    cache_state = None
+    if cache_state_path:
+        try:
+            cache_state = cache_begin(ROOT)
+        except (OSError, ValueError) as error:
+            cache_state = dict(schema_version=CACHE_SCHEMA, checkout=str(ROOT),
+                               target=str((ROOT / 'target').resolve()), complete=False, error=str(error))
     binaries, timings = {}, []
     variants = build_variants(scope)
     for variant, args, features in variants:
         started = time.monotonic()
+        local_units = local_fresh = 0
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
         print('+ ' + ' '.join(command), flush=True)
         with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
@@ -153,6 +164,15 @@ def build(bundle, scope='all'):
                     continue
                 if artifact.get('reason') == 'compiler-message':
                     print(artifact['message'].get('rendered', ''), end='', flush=True)
+                if cache_state is not None and not cache_state.get('error'):
+                    try:
+                        cache_record(cache_state, artifact)
+                    except (OSError, ValueError, KeyError, TypeError) as error:
+                        cache_state['error'] = str(error)
+                if (artifact.get('reason') == 'compiler-artifact'
+                        and Path(artifact['manifest_path']).is_relative_to(ROOT)):
+                    local_units += 1
+                    local_fresh += bool(artifact['fresh'])
                 executable = artifact.get('executable')
                 if artifact.get('reason') != 'compiler-artifact' or not executable:
                     continue
@@ -188,7 +208,8 @@ def build(bundle, scope='all'):
                             binaries[logical]['libraries'].append('lib/' + library.name)
             if process.wait() != 0:
                 raise RuntimeError(f'build failed: {variant}')
-        timings.append(dict(variant=variant, elapsed_seconds=round(time.monotonic() - started, 3)))
+        timings.append(dict(variant=variant, elapsed_seconds=round(time.monotonic() - started, 3),
+                            local_units=local_units, local_fresh=local_fresh, local_rebuilt=local_units - local_fresh))
         print('native_build=' + json.dumps(timings[-1]), flush=True)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -213,6 +234,17 @@ def build(bundle, scope='all'):
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if cache_state is not None:
+        try:
+            if not cache_state.get('error'):
+                cache_finish(cache_state)
+        except (OSError, ValueError) as error:
+            cache_state['error'] = str(error)
+        try:
+            cache_state_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_state_path.write_text(json.dumps(cache_state, sort_keys=True) + '\n')
+        except OSError as error:
+            print('formal_workspace_cache=' + json.dumps(dict(save=False, reason=str(error))), flush=True)
 
 
 def selected_entries(manifest, config, suite=None, shard=None):
@@ -316,6 +348,337 @@ def cache_budget(target, maximum=8 * 1024 ** 3):
     # or delete Cargo fingerprints to force it under the limit.
     size = sum(path.stat().st_size for path in target.rglob('*') if path.is_file()) if target.is_dir() else 0
     return dict(raw_bytes=size, max_bytes=maximum, save=0 < size <= maximum)
+
+
+CACHE_SCHEMA = 2
+
+
+def _cache_path(root, name):
+    path = Path(name)
+    if (not isinstance(name, str) or not name or name == '.' or path.is_absolute()
+            or path.as_posix() != name or '..' in path.parts or '\\' in name):
+        raise ValueError('invalid cache path')
+    current = root
+    for part in path.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError('cache paths must not contain symlinks')
+    return current
+
+
+def _cache_walk(root, excluded=()):
+    files, directories = {}, {}
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError('cache tree must be an existing directory, not a symlink')
+    def inaccessible(error):
+        raise error
+    for directory, names, entries in os.walk(root, followlinks=False, onerror=inaccessible):
+        relative = Path(directory).relative_to(root)
+        if relative == Path('.'):
+            names[:] = [name for name in names if name not in excluded]
+            entries = [name for name in entries if name not in excluded]
+        for name in sorted(names + entries):
+            path = Path(directory) / name
+            info = path.lstat()
+            key = path.relative_to(root).as_posix()
+            if stat.S_ISREG(info.st_mode):
+                files[key] = info
+            elif stat.S_ISDIR(info.st_mode):
+                directories[key] = info
+            else:
+                raise ValueError('cache tree contains a symlink or non-regular input: ' + key)
+    return files, directories
+
+
+def _cache_file(path, info=None):
+    info = info or path.stat()
+    return dict(bytes=info.st_size, mode=stat.S_IMODE(info.st_mode),
+                mtime_ns=info.st_mtime_ns, sha256=digest(path))
+
+
+def _cache_inputs(root):
+    # Include ignored/untracked build inputs too. Never traverse Git internals
+    # or the separately managed Cargo target (which may be a prepared symlink).
+    files, _ = _cache_walk(root, excluded=('.git', 'target'))
+    return {name: _cache_file(root / name, info) for name, info in files.items()}
+
+
+def cache_begin(root):
+    root = root.resolve()
+    return dict(schema_version=CACHE_SCHEMA, checkout=str(root),
+                target=str((root / 'target').resolve()), inputs=_cache_inputs(root),
+                packages={}, files=[], directories=[], complete=False)
+
+
+def _cache_relative(state, path):
+    path = Path(path)
+    target = Path(state['target'])
+    alias = Path(state['checkout']) / 'target'
+    if path.is_relative_to(alias):
+        path = target / path.relative_to(alias)
+    name = path.relative_to(target).as_posix()
+    _cache_path(target, name)
+    return name
+
+
+def cache_record(state, message):
+    """Select concrete Cargo units, including both build-script unit hashes."""
+    reason = message.get('reason')
+    target_root = Path(state['target'])
+    if reason == 'compiler-artifact':
+        manifest = Path(message['manifest_path'])
+        root = Path(state['checkout'])
+        if not manifest.is_relative_to(root):
+            return
+        manifest = _cache_path(root, manifest.relative_to(root).as_posix())
+        package = tomllib.loads(manifest.read_text())['package']['name']
+        state['packages'][message['package_id']] = package
+        filenames = [_cache_relative(state, name) for name in message['filenames']]
+        if not filenames:
+            raise ValueError('local Cargo artifact has no files')
+        target_name = message['target']['name'].replace('-', '_')
+        if 'custom-build' in message['target']['kind']:
+            directory = Path(filenames[0]).parent
+            if directory.parent.name != 'build':
+                raise ValueError('unsupported build-script layout')
+            unit_hash = directory.name.rsplit('-', 1)[-1]
+            profile = directory.parent.parent
+            state['directories'].append(directory.as_posix())
+        else:
+            hashed = []
+            pattern = re.compile(r'(?:lib)?' + re.escape(target_name) + r'-([0-9a-f]{16})(?:\.|$)')
+            for name in filenames:
+                path = Path(name)
+                match = pattern.fullmatch(path.name) or pattern.match(path.name)
+                if path.parent.name == 'deps' and match:
+                    hashed.append((path.parent.parent, match.group(1)))
+            if not hashed:
+                # Cargo reports only the public path for a normal binary. Its
+                # concrete deps output is a hard link, not a guessed crate hash.
+                public = target_root / filenames[0]
+                profile = Path(filenames[0]).parent
+                for candidate in (target_root / profile / 'deps').glob(target_name + '-*'):
+                    match = pattern.fullmatch(candidate.name)
+                    if match and candidate.is_file() and os.path.samefile(public, candidate):
+                        hashed.append((profile, match.group(1)))
+            if len(set(hashed)) != 1:
+                raise ValueError('cannot identify a unique local Cargo output unit')
+            profile, unit_hash = hashed[0]
+            for candidate in (target_root / profile / 'deps').iterdir():
+                if any(candidate.name == prefix or candidate.name.startswith(prefix + '.')
+                       for prefix in (target_name + '-' + unit_hash, 'lib' + target_name + '-' + unit_hash)):
+                    state['files'].append(_cache_relative(state, candidate))
+            for name in filenames:
+                path = target_root / name
+                if path.parent.name != 'deps' and path.with_suffix('.d').is_file():
+                    state['files'].append(_cache_relative(state, path.with_suffix('.d')))
+        if not re.fullmatch(r'[0-9a-f]{16}', unit_hash):
+            raise ValueError('unsupported Cargo unit hash')
+        state['files'].extend(filenames)
+        state['directories'].append((profile / '.fingerprint' / (package + '-' + unit_hash)).as_posix())
+    elif reason == 'build-script-executed' and message['package_id'] in state['packages']:
+        directory = Path(_cache_relative(state, message['out_dir'])).parent
+        package = state['packages'][message['package_id']]
+        if directory.parent.name != 'build' or not re.fullmatch(re.escape(package) + r'-[0-9a-f]{16}', directory.name):
+            raise ValueError('unsupported build-script output layout')
+        state['directories'] += [directory.as_posix(),
+                                 (directory.parent.parent / '.fingerprint' / directory.name).as_posix()]
+
+
+def cache_finish(state):
+    if _cache_inputs(Path(state['checkout'])) != state['inputs']:
+        raise ValueError('source inputs changed during the build')
+    state['files'] = sorted(set(state['files']))
+    state['directories'] = sorted(set(state['directories']))
+    state['complete'] = True
+
+
+def _cache_sizes(files):
+    seen, unique, categories = set(), 0, {}
+    for name, info in files.items():
+        inode = (info.st_dev, info.st_ino)
+        if inode not in seen:
+            unique += info.st_size
+            seen.add(inode)
+        parts = Path(name).parts
+        category = '/'.join(parts[:2]) if len(parts) > 2 else parts[0] + '/public'
+        if len(parts) > 2 and parts[1] == 'deps':
+            category += '/' + (Path(name).suffix.lstrip('.') or 'executable')
+        categories[category] = categories.get(category, 0) + info.st_size
+    return dict(raw_bytes=sum(info.st_size for info in files.values()), unique_bytes=unique,
+                bytes_by_category=dict(sorted(categories.items())))
+
+
+def _cache_copy(source, destination, files, directories):
+    """Copy complete units, preserving internal hard links and exact timestamps."""
+    written, inodes = [], {}
+    try:
+        for name in directories:
+            _cache_path(destination, name).mkdir(parents=True, exist_ok=True)
+        for name, metadata in files.items():
+            original, copied = _cache_path(source, name), _cache_path(destination, name)
+            copied.parent.mkdir(parents=True, exist_ok=True)
+            info = original.stat()
+            inode = (info.st_dev, info.st_ino)
+            written.append(copied)
+            copied.unlink(missing_ok=True)
+            if inode in inodes:
+                os.link(inodes[inode], copied)
+            else:
+                shutil.copy2(original, copied)
+                inodes[inode] = copied
+            copied.chmod(metadata['mode'])
+            os.utime(copied, ns=(metadata['mtime_ns'], metadata['mtime_ns']))
+        for name in sorted(directories, key=lambda value: len(Path(value).parts), reverse=True):
+            copied, metadata = _cache_path(destination, name), directories[name]
+            copied.chmod(metadata['mode'])
+            os.utime(copied, ns=(metadata['mtime_ns'], metadata['mtime_ns']))
+    except OSError:
+        # Any partial unit loses its restored fingerprint as well. A disposable
+        # cache cannot leave a partially restored unit looking fresh to Cargo.
+        try:
+            for copied in written:
+                copied.unlink(missing_ok=True)
+        except OSError as error:
+            raise RuntimeError('cannot discard a partial Cargo cache restore') from error
+        raise
+
+
+def _cache_location(cache, root, target):
+    if cache.is_symlink():
+        raise ValueError('cache staging directory is a symlink')
+    cache = cache.resolve()
+    if any(cache.is_relative_to(path) or path.is_relative_to(cache) for path in (root, target)):
+        raise ValueError('cache staging must be outside checkout and target')
+    return cache
+
+
+def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
+    started = time.monotonic()
+    report = dict(save=False, max_bytes=maximum, measure_only=measure_only)
+    try:
+        root, target = Path(state['checkout']), Path(state['target'])
+        cache = _cache_location(cache, root, target)
+        all_files, _ = _cache_walk(target)
+        target_sizes = _cache_sizes(all_files)
+        report.update({'target_' + key: value for key, value in target_sizes.items()})
+        if state['schema_version'] != CACHE_SCHEMA or not state.get('complete'):
+            raise ValueError(state.get('error', 'incomplete Cargo cache state'))
+        if not measure_only and _cache_inputs(root) != state['inputs']:
+            raise ValueError('source inputs changed since the build')
+        selected = set(state['files'])
+        directories = {}
+        for name in state['directories']:
+            path = _cache_path(target, name)
+            if not path.is_dir():
+                raise ValueError('missing Cargo unit directory: ' + name)
+            files, children = _cache_walk(path)
+            selected.update((Path(name) / child).as_posix() for child in files)
+            for child, info in {name: path.stat(), **{
+                    (Path(name) / child).as_posix(): info for child, info in children.items()}}.items():
+                directories[child] = dict(mode=stat.S_IMODE(info.st_mode), mtime_ns=info.st_mtime_ns)
+        sizes = _cache_sizes({name: all_files[name] for name in sorted(selected)})
+        report.update(sizes, local_packages=len(state['packages']), cargo_unit_directories=len(state['directories']),
+                      file_count=len(selected), eligible=0 < sizes['raw_bytes'] <= maximum)
+        if measure_only:
+            # Readers report the real selection without hashing/copying payload,
+            # changing source timestamps, or preparing an unwritable cache.
+            return report
+        if not report['eligible']:
+            report['reason'] = 'workspace selection exceeds budget or is empty'
+            return report
+        files = {name: _cache_file(_cache_path(target, name), all_files[name]) for name in sorted(selected)}
+        if max(item['mtime_ns'] for item in [*files.values(), *directories.values(), *state['inputs'].values()]) >= time.time_ns():
+            raise ValueError('future cache timestamp')
+        if cache.exists():
+            shutil.rmtree(cache)
+        cache.mkdir(parents=True)
+        _cache_copy(target, cache / 'target', files, directories)
+        if _cache_inputs(root) != state['inputs']:
+            raise ValueError('source inputs changed while staging')
+        manifest = dict(schema_version=CACHE_SCHEMA, checkout=str(root), target=str(target),
+                        inputs=state['inputs'], files=files, directories=directories)
+        (cache / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
+        report['save'] = True
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        report['reason'] = str(error)
+    finally:
+        report['elapsed_seconds'] = round(time.monotonic() - started, 3)
+    return report
+
+
+def cache_restore(root, cache, maximum=8 * 1024 ** 3):
+    started = time.monotonic()
+    report = dict(restored=False)
+    written = False
+    try:
+        root = root.resolve()
+        target = (root / 'target').resolve()
+        cache = _cache_location(cache, root, target)
+        manifest = json.loads(_cache_path(cache, 'manifest.json').read_text())
+        if (manifest['schema_version'] != CACHE_SCHEMA or manifest['checkout'] != str(root)
+                or manifest['target'] != str(target)):
+            raise ValueError('cache checkout, target or schema mismatch')
+        files, directories, inputs = manifest['files'], manifest['directories'], manifest['inputs']
+        if not all(isinstance(value, dict) and value for value in (files, directories, inputs)):
+            raise ValueError('cache manifest requires complete file, directory and source maps')
+        actual, _ = _cache_walk(cache)
+        if set(actual) != {'manifest.json', *('target/' + name for name in files)}:
+            raise ValueError('cache payload is incomplete or has extra files')
+        current = _cache_inputs(root)
+        if set(current) != set(inputs):
+            raise ValueError('source input paths were added, removed or renamed')
+        now = time.time_ns()
+        for metadata in [*files.values(), *directories.values(), *inputs.values()]:
+            if (not isinstance(metadata, dict) or type(metadata['mtime_ns']) is not int or not 0 < metadata['mtime_ns'] < now
+                    or type(metadata['mode']) is not int or metadata['mode'] & ~0o777):
+                raise ValueError('invalid cache timestamp or mode')
+        for metadata in [*files.values(), *inputs.values()]:
+            if (type(metadata['bytes']) is not int or metadata['bytes'] < 0
+                    or not isinstance(metadata['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', metadata['sha256'])):
+                raise ValueError('invalid cache file length or checksum')
+        if not 0 < sum(item['bytes'] for item in files.values()) <= maximum:
+            raise ValueError('cache payload exceeds budget or is empty')
+        for name, metadata in files.items():
+            path = _cache_path(cache / 'target', name)
+            info = path.stat()
+            if (info.st_size != metadata['bytes'] or stat.S_IMODE(info.st_mode) != metadata['mode']
+                    or digest(path) != metadata['sha256']):
+                raise ValueError('cache payload checksum, size or mode mismatch: ' + name)
+            destination = _cache_path(target, name)
+            if destination.exists() and (not destination.is_file() or digest(destination) != metadata['sha256']):
+                raise ValueError('cache overlaps a different existing Cargo output: ' + name)
+        for name, metadata in directories.items():
+            path = _cache_path(cache / 'target', name)
+            if not path.is_dir() or stat.S_IMODE(path.stat().st_mode) != metadata['mode']:
+                raise ValueError('missing cache unit directory or directory mode mismatch')
+            destination = _cache_path(target, name)
+            if destination.exists():
+                existing, _ = _cache_walk(destination)
+                if any((Path(name) / child).as_posix() not in files for child in existing):
+                    raise ValueError('cache overlaps an incomplete existing Cargo unit')
+        _cache_copy(cache / 'target', target, files, directories)
+        written = True
+        changed = 0
+        # Validation rejects future metadata; this stamp is strictly newer than
+        # every restored Cargo freshness reference, including build-script runs.
+        stamp = time.time_ns()
+        for name, metadata in inputs.items():
+            same = all(current[name][key] == metadata[key] for key in ('bytes', 'mode', 'sha256'))
+            changed += not same
+            path = _cache_path(root, name)
+            value = metadata['mtime_ns'] if same else stamp
+            os.utime(path, ns=(value, value))
+        report.update(restored=True, changed_inputs=changed, matched_inputs=len(inputs) - changed,
+                      raw_bytes=sum(item['bytes'] for item in files.values()))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if written:
+            for name in files:
+                _cache_path(target, name).unlink(missing_ok=True)
+        report['reason'] = str(error)
+    finally:
+        report['elapsed_seconds'] = round(time.monotonic() - started, 3)
+    return report
 
 
 def load(bundle, suite=None, shard=None):
@@ -444,7 +807,7 @@ def execute(bundle, suite, results, shard=None):
 def main():
     global ROOT, CONFIG
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-budget'])
+    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
@@ -454,24 +817,45 @@ def main():
     parser.add_argument('--output', type=Path)
     parser.add_argument('--github-output', type=Path)
     parser.add_argument('--max-bytes', type=int, default=8 * 1024 ** 3)
+    parser.add_argument('--cache', type=Path)
+    parser.add_argument('--cache-state', type=Path)
+    parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
-    if args.action == 'cache-budget':
-        report = cache_budget(ROOT / 'target', args.max_bytes)
+    if args.measure_only and args.action != 'cache-stage':
+        parser.error('--measure-only requires cache-stage')
+    if args.action in ('cache-budget', 'cache-stage', 'cache-restore'):
+        if args.action == 'cache-budget':
+            report = cache_budget(ROOT / 'target', args.max_bytes)
+        else:
+            if not args.cache:
+                parser.error('cache-stage and cache-restore require --cache')
+            if args.action == 'cache-restore':
+                report = cache_restore(ROOT, args.cache, args.max_bytes)
+            else:
+                if not args.cache_state:
+                    parser.error('cache-stage requires --cache-state')
+                try:
+                    state = json.loads(args.cache_state.read_text())
+                    if state['checkout'] != str(ROOT) or state['target'] != str((ROOT / 'target').resolve()):
+                        raise ValueError('cache build state belongs to a different checkout or target')
+                    report = cache_stage(state, args.cache, args.max_bytes, args.measure_only)
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    report = dict(save=False, reason=str(error))
         print('formal_workspace_cache=' + json.dumps(report))
         if args.github_output:
             with args.github_output.open('a') as stream:
-                stream.write('save=' + str(report['save']).lower() + '\n')
+                stream.write('save=' + str(report.get('save', False)).lower() + '\n')
         if os.environ.get('GITHUB_STEP_SUMMARY'):
             with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:
-                stream.write(f"\nFormal workspace cache: {report['raw_bytes']} bytes; limit {report['max_bytes']}; eligible to save: {report['save']}.\n")
+                stream.write('\n### Formal workspace cache: ' + args.action + '\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
         return
     if not args.bundle:
         parser.error('--bundle is required for build, run and pack')
     if args.action == 'build':
-        build(args.bundle.resolve(), args.scope)
+        build(args.bundle.resolve(), args.scope, args.cache_state)
     elif args.action == 'pack':
         if not args.output:
             parser.error('pack requires --output')

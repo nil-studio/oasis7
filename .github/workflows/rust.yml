@@ -288,18 +288,19 @@ jobs:
         id: formal-workspace-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: target
-          key: formal-workspace-v1-ubuntu24-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ env.OASIS7_WASM_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}-${{ github.sha }}
+          path: ${{ runner.temp }}/formal-workspace-cache
+          key: formal-workspace-v2-ubuntu24-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ env.OASIS7_WASM_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}-${{ github.sha }}
           restore-keys: |
-            formal-workspace-v1-ubuntu24-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ env.OASIS7_WASM_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}-
+            formal-workspace-v2-ubuntu24-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ env.OASIS7_WASM_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}-
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        if: steps.formal-workspace-cache.outputs.cache-matched-key == ''
         with:
           save-if: false
           shared-key: ci-full-regression-trusted-v2
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: true
+      - name: Validate and restore formal workspace units
+        run: python3 scripts/ci-test-artifacts.py cache-restore --cache "$RUNNER_TEMP/formal-workspace-cache"
       - name: Install native libraries
         run: |
           sudo apt-get update
@@ -308,7 +309,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python3 scripts/ci-test-artifacts.py build --scope formal --bundle "$RUNNER_TEMP/formal-tests"
+          python3 scripts/ci-test-artifacts.py build --scope formal --bundle "$RUNNER_TEMP/formal-tests" --cache-state "$RUNNER_TEMP/formal-cache-state.json"
           python3 scripts/ci-test-artifacts.py pack --bundle "$RUNNER_TEMP/formal-tests" --split-formal --output "$RUNNER_TEMP/formal-archives"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -350,9 +351,16 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Check disposable workspace cache budget
+      - name: Measure formal workspace cache footprint
+        run: python3 scripts/ci-test-artifacts.py cache-stage --measure-only --max-bytes 8589934592 --cache "$RUNNER_TEMP/formal-workspace-cache" --cache-state "$RUNNER_TEMP/formal-cache-state.json"
+      - name: Stage bounded formal workspace units
         id: cache-budget
-        run: python3 scripts/ci-test-artifacts.py cache-budget --max-bytes 8589934592 --github-output "$GITHUB_OUTPUT"
+        if: >-
+          success() && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'schedule' ||
+           (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
+          steps.formal-workspace-cache.outputs.cache-hit != 'true'
+        run: python3 scripts/ci-test-artifacts.py cache-stage --max-bytes 8589934592 --cache "$RUNNER_TEMP/formal-workspace-cache" --cache-state "$RUNNER_TEMP/formal-cache-state.json" --github-output "$GITHUB_OUTPUT"
       - name: Save bounded trusted formal workspace cache
         if: >-
           success() && github.ref == 'refs/heads/main' &&
@@ -362,7 +370,7 @@ jobs:
           steps.formal-workspace-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: target
+          path: ${{ runner.temp }}/formal-workspace-cache
           key: ${{ steps.formal-workspace-cache.outputs.cache-primary-key }}
 
   formal-test-build-trusted:

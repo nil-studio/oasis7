@@ -1063,6 +1063,15 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             || self.persist(),
         )?;
         timing.mark("candidate_saved");
+        #[cfg(test)]
+        crate::formal_live_service::test_control::candidate_saved(
+            candidate.candidate.record.position,
+            candidate
+                .candidate
+                .record
+                .record_id()
+                .map_err(|error| error.to_string())?,
+        )?;
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("candidate_saved")?;
         if let Some(environment) =

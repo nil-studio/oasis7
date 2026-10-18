@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -197,6 +198,219 @@ class BuildAndBundles(unittest.TestCase):
             (target / 'artifact').write_bytes(b'x' * 101)
             self.assertFalse(artifacts.cache_budget(target, 100)['save'])
             self.assertTrue(artifacts.cache_budget(target, 101)['save'])
+
+
+class WorkspaceCache(unittest.TestCase):
+    """Real Cargo units, including both build-script units and a dependency cache."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.base = Path(self.temporary.name)
+        self.root = self.base / 'checkout'
+        self.cache = self.base / 'workspace-cache'
+        self.dependencies = self.base / 'dependency-cache'
+        dependency = self.base / 'dependency'
+        (dependency / 'src').mkdir(parents=True)
+        (dependency / 'Cargo.toml').write_text('[package]\nname="cache_external"\nversion="0.1.0"\nedition="2021"\n')
+        (dependency / 'src/lib.rs').write_text('pub fn value() -> &\'static str { "outside" }')
+        self.sources = {
+            'Cargo.toml': '[workspace]\nmembers=["support", "app"]\nresolver="2"\n[profile.dev]\ndebug=0\nincremental=false\n',
+            '.gitignore': 'app/input.txt\n',
+            'support/Cargo.toml': '[package]\nname="cache_support"\nversion="0.1.0"\nedition="2021"\n',
+            'support/src/lib.rs': 'pub fn value() -> &\'static str { "alpha" }',
+            'app/Cargo.toml': '[package]\nname="cache_app"\nversion="0.1.0"\nedition="2021"\n[dependencies]\ncache_support={path="../support"}\ncache_external={path="../../dependency"}\n',
+            'app/src/main.rs': 'include!(concat!(env!("OUT_DIR"), "/generated.rs"));\nfn main() { println!("{}:{}:{}:{}", cache_support::value(), cache_external::value(), GENERATED, include_str!("../input.txt").trim()); }',
+            # This file is deliberately not tracked, and .gitignore excludes it.
+            'app/input.txt': 'one\n',
+            'app/build.rs': 'use std::os::unix::fs::PermissionsExt; fn main() { let v=std::fs::read_to_string("input.txt").unwrap(); let mode=std::fs::metadata("input.txt").unwrap().permissions().mode(); let v=format!("{}{}", v.trim(), if mode & 0o111 != 0 { ":executable" } else { "" }); let out=std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()); std::fs::write(out.join("generated.rs"), format!("const GENERATED: &str = {:?};", v)).unwrap(); println!("cargo:rerun-if-changed=input.txt"); println!("cargo:rerun-if-env-changed=CACHE_FIXTURE_ENV"); }',
+        }
+        self.checkout()
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.root,
+                       check=True, capture_output=True)
+        self.sources['Cargo.lock'] = (self.root / 'Cargo.lock').read_text()
+
+    def checkout(self):
+        if self.root.exists():
+            shutil.rmtree(self.root)
+        for name, content in self.sources.items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        if self.dependencies.exists():
+            shutil.copytree(self.dependencies, self.root / 'target', copy_function=shutil.copy2)
+
+    def cargo(self, state=None, success=True, extra_env=None):
+        env = dict(os.environ, CARGO_INCREMENTAL='0', CACHE_FIXTURE_ENV='original')
+        env.pop('RUSTC_WRAPPER', None)
+        env.update(extra_env or {})
+        messages = []
+        with tempfile.TemporaryFile(mode='w+') as errors:
+            with subprocess.Popen(['cargo', 'build', '--workspace', '--offline', '--locked',
+                                   '--message-format=json'], cwd=self.root, env=env,
+                                  stdout=subprocess.PIPE, stderr=errors, text=True) as process:
+                for line in process.stdout:
+                    if line.startswith('{'):
+                        message = json.loads(line)
+                        messages.append(message)
+                        if state is not None:
+                            artifacts.cache_record(state, message)
+                process.wait()
+            errors.seek(0)
+            self.assertEqual(process.returncode == 0, success, errors.read())
+        if state is not None:
+            artifacts.cache_finish(state)
+        units = [m for m in messages if m.get('reason') == 'compiler-artifact']
+        if success:
+            value = subprocess.check_output([str(self.root / 'target/debug/cache_app')], text=True).strip()
+        else:
+            value = None
+        return units, value
+
+    def seed(self):
+        state = artifacts.cache_begin(self.root)
+        units, value = self.cargo(state)
+        self.assertEqual(value, 'alpha:outside:one:one')
+        self.assertTrue(all(not u['fresh'] for u in units))
+        report = artifacts.cache_stage(state, self.cache)
+        self.assertTrue(report['save'], report)
+        self.assertGreater(report['target_raw_bytes'], report['raw_bytes'])
+        # Restore only the external dependency, like the existing dependency
+        # cache. No local-package outputs survive without the workspace overlay.
+        for subdirectory in ('deps', '.fingerprint'):
+            source = self.root / 'target/debug' / subdirectory
+            for path in source.iterdir():
+                if not path.name.startswith(('cache_external-', 'libcache_external-')):
+                    continue
+                destination = self.dependencies / 'debug' / subdirectory / path.name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if path.is_dir():
+                    shutil.copytree(path, destination, copy_function=shutil.copy2)
+                else:
+                    shutil.copy2(path, destination)
+        # An ordinary archive can round file mtimes to seconds. The manifest
+        # must restore exact Cargo timestamps instead of trusting tar headers.
+        archive_path = self.base / 'cache.tar'
+        with tarfile.open(archive_path, 'w', format=tarfile.USTAR_FORMAT) as archive:
+            archive.add(self.cache, arcname='cache')
+        shutil.rmtree(self.cache)
+        with tarfile.open(archive_path) as archive:
+            archive.extractall(self.base / 'restored', filter='data')
+        shutil.move(self.base / 'restored/cache', self.cache)
+        return state
+
+    def test_real_overlay_is_fresh_and_changed_inputs_rebuild(self):
+        self.seed()
+        self.checkout()
+        restored = artifacts.cache_restore(self.root, self.cache)
+        self.assertTrue(restored['restored'], restored)
+        units, value = self.cargo()
+        self.assertTrue(all(u['fresh'] for u in units), units)
+        self.assertEqual(value, 'alpha:outside:one:one')
+        manifest = json.loads((self.cache / 'manifest.json').read_text())
+        cases = [
+            ('support/src/lib.rs', self.sources['support/src/lib.rs'].replace('alpha', 'bravo'), None,
+             'bravo:outside:one:one'),
+            ('app/input.txt', 'two\n', None, 'alpha:outside:two:two'),
+            ('app/input.txt', 'one\n', 0o755, 'alpha:outside:one:executable:one'),
+        ]
+        for name, text, mode, expected in cases:
+            with self.subTest(input=name, mode=mode):
+                self.checkout()
+                path = self.root / name
+                path.write_text(text)
+                if mode is not None:
+                    path.chmod(mode)
+                old_mtime = manifest['inputs'][name]['mtime_ns']
+                os.utime(path, ns=(old_mtime, old_mtime))
+                restored = artifacts.cache_restore(self.root, self.cache)
+                self.assertTrue(restored['restored'], restored)
+                self.assertEqual(restored['changed_inputs'], 1)
+                units, value = self.cargo()
+                self.assertTrue(any(not u['fresh'] and u['target']['name'] == 'cache_app' for u in units), units)
+                self.assertEqual(value, expected)
+        self.checkout()
+        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
+        units, _ = self.cargo(extra_env={'CACHE_FIXTURE_ENV': 'changed'})
+        self.assertTrue(any(not u['fresh'] and u['target']['name'] == 'cache_app' for u in units), units)
+
+    def test_new_deleted_and_unsafe_cache_inputs_are_misses(self):
+        # Also retain Cargo's default package-directory observation when a
+        # build script does not narrow its inputs with rerun-if directives.
+        self.sources['app/build.rs'] = self.sources['app/build.rs'].replace(
+            'println!("cargo:rerun-if-changed=input.txt"); println!("cargo:rerun-if-env-changed=CACHE_FIXTURE_ENV");', '')
+        (self.root / 'app/build.rs').write_text(self.sources['app/build.rs'])
+        self.seed()
+        for change in ('new', 'deleted', 'source-symlink'):
+            with self.subTest(change=change):
+                self.checkout()
+                path = self.root / 'app/input.txt'
+                if change == 'new':
+                    (self.root / 'app/new.txt').write_text('new ignored input')
+                else:
+                    path.unlink()
+                    if change == 'source-symlink':
+                        path.symlink_to(self.base / 'dependency/src/lib.rs')
+                report = artifacts.cache_restore(self.root, self.cache)
+                self.assertFalse(report['restored'], report)
+                self.assertFalse((self.root / 'target/debug/cache_app').exists())
+
+                if change != 'source-symlink':
+                    units, _ = self.cargo(success=change != 'deleted')
+                    self.assertTrue(any(not u['fresh'] for u in units))
+        original = json.loads((self.cache / 'manifest.json').read_text())
+        for damage in ('digest', 'missing', 'payload-symlink', 'traversal', 'future', 'checkout'):
+            with self.subTest(damage=damage):
+                self.checkout()
+                broken = self.base / ('broken-' + damage)
+                shutil.copytree(self.cache, broken, copy_function=shutil.copy2)
+                manifest = copy.deepcopy(original)
+                name = next(iter(manifest['files']))
+                path = broken / 'target' / name
+                if damage == 'digest':
+                    path.write_bytes(b'broken')
+                elif damage == 'missing':
+                    path.unlink()
+                elif damage == 'payload-symlink':
+                    path.unlink()
+                    path.symlink_to(self.base / 'dependency/src/lib.rs')
+                elif damage == 'traversal':
+                    manifest['files']['../escape'] = manifest['files'].pop(name)
+                elif damage == 'future':
+                    manifest['files'][name]['mtime_ns'] = 2 ** 63 - 1
+                else:
+                    manifest['checkout'] = str(self.base / 'different-checkout')
+                (broken / 'manifest.json').write_text(json.dumps(manifest))
+                report = artifacts.cache_restore(self.root, broken)
+                self.assertFalse(report['restored'], report)
+                self.assertFalse((self.root / 'target/debug/cache_app').exists())
+
+    def test_budget_and_source_changes_do_not_publish_partial_units(self):
+        state = artifacts.cache_begin(self.root)
+        self.cargo(state)
+        before = artifacts._cache_inputs(self.root)
+        with patch.object(artifacts, 'digest', side_effect=AssertionError('measurement must not hash files')):
+            measurement = artifacts.cache_stage(state, self.cache, measure_only=True)
+        self.assertTrue(measurement['eligible'], measurement)
+        self.assertFalse(measurement['save'])
+        self.assertGreater(measurement['file_count'], 0)
+        self.assertGreater(measurement['target_raw_bytes'], measurement['raw_bytes'])
+        self.assertGreater(measurement['unique_bytes'], 0)
+        self.assertTrue(measurement['bytes_by_category'])
+        self.assertFalse(self.cache.exists())
+        self.assertEqual(before, artifacts._cache_inputs(self.root))
+        report = artifacts.cache_stage(state, self.cache, maximum=1)
+        self.assertFalse(report['save'], report)
+        self.assertGreater(report['raw_bytes'], 1)
+        self.assertFalse((self.cache / 'manifest.json').exists())
+        (self.root / 'app/input.txt').write_text('changed during build\n')
+        with self.assertRaisesRegex(ValueError, 'source inputs changed'):
+            artifacts.cache_finish(state)
+        report = artifacts.cache_stage(state, self.cache)
+        self.assertFalse(report['save'], report)
+        self.assertFalse((self.cache / 'manifest.json').exists())
 
 
 class Process(unittest.TestCase):
