@@ -33,17 +33,17 @@ def main():
     parser.add_argument("--web", type=Path)
     args = parser.parse_args()
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    identity = {"schema": 1, "source": sha, "profile": "packaging", "platform": "linux-x64", "binaries": list(BINS)}
+    identity = {"schema": 1, "source": sha, "profile": "ecs", "platform": "linux-x64", "binaries": list(BINS)}
     # Never merge a new package with stale output from another source.
     args.out.mkdir(parents=True, exist_ok=False)
     if args.mode == "native":
         env = dict(os.environ)
         env.pop("RUSTC_WRAPPER", None)
-        subprocess.run(["cargo", "build", "--locked", "--profile", "packaging",
+        subprocess.run(["cargo", "build", "--locked", "--timings", "--profile", "ecs",
                         "-p", "oasis7_chain_runtime", "-p", "oasis7_launcher_backend",
                         "-p", "oasis7_viewer_runtime", *[arg for name in BINS for arg in ("--bin", name)]],
                        cwd=ROOT, env=env, check=True)
-        target = Path(env.get("CARGO_TARGET_DIR", ROOT / "target")) / "packaging"
+        target = Path(env.get("CARGO_TARGET_DIR", ROOT / "target")) / "ecs"
         files = {}
         for name in BINS:
             source = target / name
@@ -70,7 +70,7 @@ def main():
             if path.is_symlink() or not (path.is_file() or path.is_dir()):
                 raise ValueError("unsupported Web payload file")
         shutil.copytree(args.web, args.out / "web-dist")
-        (args.out / "BUILDINFO").write_text(f"source={sha}\nprofile=packaging\nplatform=linux-x64\nkind=ecs-server\n")
+        (args.out / "BUILDINFO").write_text(f"source={sha}\nprofile=ecs\nplatform=linux-x64\nkind=ecs-server\n")
         (args.out / "manifest.json").write_text(json.dumps(identity, indent=2) + "\n")
         files = sorted(path for path in args.out.rglob("*") if path.is_file())
         (args.out / "SHA256SUMS").write_text("".join(f"{digest(path)}  {path.relative_to(args.out).as_posix()}\n" for path in files))

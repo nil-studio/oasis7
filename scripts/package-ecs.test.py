@@ -20,7 +20,7 @@ class PackageTests(unittest.TestCase):
     def test_build_assembly_and_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            target = root / "target/packaging"
+            target = root / "target/ecs"
             target.mkdir(parents=True)
             for name in ecs.BINS:
                 (target / name).write_bytes(b"ELF fixture")
@@ -37,7 +37,10 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "--bin"], list(ecs.BINS))
                 self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-p"], ["oasis7_chain_runtime", "oasis7_launcher_backend", "oasis7_viewer_runtime"])
                 self.assertNotIn("RUSTC_WRAPPER", cargo.call_args.kwargs["env"])
+                self.assertEqual(command[command.index("--profile") + 1], "ecs")
+                self.assertIn("--timings", command)
             original = (stage / "native.json").read_text()
+            self.assertEqual(json.loads(original)["profile"], "ecs")
 
             def assemble(output):
                 with patch.object(subprocess, "check_output", return_value="a" * 40), patch.object(sys, "argv", ["ecs", "assemble", "--native", str(stage), "--web", str(web), "--out", str(output)]), patch.object(subprocess, "run", side_effect=AssertionError("assembly must not compile")):
@@ -46,6 +49,7 @@ class PackageTests(unittest.TestCase):
             out = root / "bundle"
             assemble(out)
             self.assertEqual(set(path.name for path in (out / "bin").iterdir()), set(ecs.BINS))
+            self.assertIn("profile=ecs\n", (out / "BUILDINFO").read_text())
             self.assertTrue((out / "web-dist/viewer-optional-payload/payload.wasm").is_file())
             for line in (out / "SHA256SUMS").read_text().splitlines():
                 sha, path = line.split("  ", 1)
