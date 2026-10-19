@@ -8,7 +8,8 @@ describe('explicit unavailable-source boundary', () => {
   it('does not invent project facts or completion for browser preview', () => {
     render(() => <App />);
     expect(screen.getByText(/浏览器预览未接入桌面 IPC/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '打开项目' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '选择项目文件夹' })).toBeDisabled();
+    expect(screen.queryByRole('button', {name:'取消读取'})).not.toBeInTheDocument();
     expect(screen.getByLabelText('文字与界面大小')).toHaveValue('1');
     expect(document.body.textContent).not.toMatch(/完成率\s*\d+%/);
     fireEvent.click(screen.getByRole('button', {name: /待我处理/}));
