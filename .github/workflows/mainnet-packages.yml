@@ -238,7 +238,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Install viewer web dependencies
@@ -404,7 +404,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Install viewer web dependencies
