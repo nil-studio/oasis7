@@ -466,9 +466,12 @@ pub(super) fn handle_http_connection(
             let (body, payload_headers) = if let Some(payload) = public_payload {
                 payload
             } else {
-                (fs::read(&path).map_err(|err| {
-                    format!("failed to read static asset `{}`: {err}", path.display())
-                })?, String::new())
+                (
+                    fs::read(&path).map_err(|err| {
+                        format!("failed to read static asset `{}`: {err}", path.display())
+                    })?,
+                    String::new(),
+                )
             };
             let viewer_auth_bootstrap = resolve_viewer_auth_bootstrap_for_embedded_server(
                 deployment_mode,
