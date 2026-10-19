@@ -600,6 +600,16 @@ impl ViewerRuntimeLiveServer {
                 local.feedback.clone()
             });
         let feedback = local.or(private);
+        session.last_world_service_snapshot_source = self
+            .config
+            .world_service
+            .as_ref()
+            .and_then(|config| config.read_authority().ok())
+            .map(|reader| reader.cache_partition_key().to_owned());
+        session.last_world_service_snapshot = self
+            .verified_world_view
+            .as_ref()
+            .map(|view| (view.version().clone(), view.continuation().clone()));
         self.compat_snapshot_with_feedback(session.current_player_id.as_deref(), feedback.as_ref())
     }
 }

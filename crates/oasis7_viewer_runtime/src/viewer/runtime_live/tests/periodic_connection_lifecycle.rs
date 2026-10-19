@@ -1,5 +1,6 @@
 use super::*;
 use crate::viewer::runtime_live::periodic_connection_diagnostic::{ConnectionTrace, TraceSink};
+use crate::viewer::runtime_live::periodic_service_io::SessionPoll;
 use crate::world_service::{
     authority, client::WorldServiceClientConfig, projection::WorldServiceProjection,
 };
@@ -684,4 +685,134 @@ fn verified_fixture_assertion(
         crate::world_service::verified_view::ReadEvidencePolicy::Ordinary,
     )
     .unwrap()
+}
+
+#[test]
+fn periodic_snapshot_reaches_every_primed_session_after_another_connection_advances() {
+    let fixture = LiveFixture::new(false);
+    let mut first = RuntimeLiveSession::new();
+    let mut second = RuntimeLiveSession::new();
+    for session in [&mut first, &mut second] {
+        session.chain_runtime_authoritatively_primed = true;
+        session.initial_snapshot_sent = true;
+        session.subscribed.insert(ViewerStream::Snapshot);
+        fixture
+            .shared
+            .lock()
+            .unwrap()
+            .compat_snapshot_for_session(session);
+    }
+    let expected_time = {
+        let mut server = fixture.shared.lock().unwrap();
+        server
+            .world
+            .step()
+            .expect("advance the independently observed world");
+        let identity = server
+            .verified_world_view
+            .as_ref()
+            .unwrap()
+            .version()
+            .commit
+            .world
+            .clone();
+        let mut projection = WorldServiceProjection::from_world(&server.world, None).unwrap();
+        projection.runtime_binding = None;
+        let time = server.world.state().time;
+        server.verified_world_view = Some(verified_fixture_assertion(
+            fixture_view_response(projection, fixture_commit(&identity, 3), time),
+            &fixture_view_request(identity),
+        ));
+        server.last_chain_committed_height = 3;
+        time
+    };
+    // The shared verified view already advanced through another connection.
+    // Each subscriber must catch up without issuing or winning another read.
+    for session in [&mut first, &mut second] {
+        let mut poll = SessionPoll::default();
+        poll.defer(Duration::from_secs(30));
+        let mut output = Vec::new();
+        poll.poll(&fixture.shared, session, &mut output).unwrap();
+        let snapshots: Vec<_> = serde_json::Deserializer::from_slice(&output)
+            .into_iter::<ViewerResponse>()
+            .filter_map(|response| match response.unwrap() {
+                ViewerResponse::Snapshot { snapshot } => Some(snapshot.time),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            snapshots,
+            vec![expected_time],
+            "each session receives the verified advance"
+        );
+        output.clear();
+        poll.poll(&fixture.shared, session, &mut output).unwrap();
+        assert!(
+            output.is_empty(),
+            "unchanged cache must not flood snapshots"
+        );
+    }
+    let mut changed_source = RuntimeLiveSession::new();
+    changed_source.chain_runtime_authoritatively_primed = true;
+    changed_source.initial_snapshot_sent = true;
+    changed_source.subscribed.insert(ViewerStream::Snapshot);
+    {
+        let mut server = fixture.shared.lock().unwrap();
+        server.compat_snapshot_for_session(&mut changed_source);
+        server
+            .config
+            .world_service
+            .as_mut()
+            .unwrap()
+            .scope_id
+            .push_str("-changed");
+    }
+    // Even an outdated cursor cannot turn the old session's prime into
+    // permission to reuse a view under a different configured reader.
+    changed_source.last_world_service_snapshot = None;
+    let mut poll = SessionPoll::default();
+    poll.defer(Duration::from_secs(30));
+    let mut output = Vec::new();
+    poll.poll(&fixture.shared, &mut changed_source, &mut output)
+        .unwrap();
+    assert!(
+        output.is_empty(),
+        "changed read source requires a fresh session snapshot"
+    );
+    fixture
+        .shared
+        .lock()
+        .unwrap()
+        .config
+        .world_service
+        .as_mut()
+        .unwrap()
+        .scope_id = "public".into();
+    for (primed, subscribed, initial) in [
+        (false, true, true),
+        (true, false, true),
+        (true, true, false),
+    ] {
+        let mut session = RuntimeLiveSession::new();
+        fixture
+            .shared
+            .lock()
+            .unwrap()
+            .compat_snapshot_for_session(&mut session);
+        session.last_world_service_snapshot = None;
+        session.chain_runtime_authoritatively_primed = primed;
+        session.initial_snapshot_sent = initial;
+        if subscribed {
+            session.subscribed.insert(ViewerStream::Snapshot);
+        }
+        let mut poll = SessionPoll::default();
+        poll.defer(Duration::from_secs(30));
+        let mut output = Vec::new();
+        poll.poll(&fixture.shared, &mut session, &mut output)
+            .unwrap();
+        assert!(
+            output.is_empty(),
+            "catchup cannot substitute initial authorization or subscription"
+        );
+    }
 }
