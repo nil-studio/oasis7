@@ -69,7 +69,11 @@ fn hosted_passkey_virtual_authenticator_fixture() {
         model_client: None,
     };
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../oasis7_viewer/software_safe_src");
-    for name in ["viewer_auth_crypto.js", "software_safe_constants.js"] {
+    for name in [
+        "viewer_auth_crypto.js",
+        "software_safe_constants.js",
+        "viewer_imported_key.js",
+    ] {
         std::fs::copy(source.join(name), root.join(name)).unwrap();
     }
     std::fs::copy(
@@ -82,7 +86,16 @@ fn hosted_passkey_virtual_authenticator_fixture() {
         root.join("viewer_account_email_recovery.js"),
     )
     .unwrap();
-    std::fs::write(root.join("index.html"),"<!doctype html><meta charset=utf-8><div id=account></div><script type=module>import {mountPasskeyAccount} from '/viewer_passkey_account_module.js';mountPasskeyAccount(document.querySelector('#account'));</script>").unwrap();
+    let viewer_html = std::fs::read_to_string(source.join("../viewer.html")).unwrap();
+    let style = viewer_html
+        .split_once("<style>")
+        .unwrap()
+        .1
+        .split_once("</style>")
+        .unwrap()
+        .0;
+    std::fs::write(root.join("fixture.css"), style).unwrap();
+    std::fs::write(root.join("index.html"),"<!doctype html><meta charset=utf-8><link rel=stylesheet href=/fixture.css><main style=\"padding:16px;max-width:640px;margin:auto\"><div id=account class=stack></div></main><script type=module>import {mountPasskeyAccount} from '/viewer_passkey_account_module.js';mountPasskeyAccount(document.querySelector('#account'));</script>").unwrap();
     let issuer = Arc::new(Mutex::new(
         HostedPlayerSessionIssuer::with_ledger_path(
             root.join(format!("{}.sessions.json", std::process::id())),

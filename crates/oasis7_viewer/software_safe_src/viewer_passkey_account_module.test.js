@@ -75,12 +75,12 @@ describe("Passkey browser account boundary", () => {
     await surface.refresh();
     expect(root.childNodes).toHaveLength(0);
   });
-  it("recognizes server passkey credentials for backup registration and email gating", async () => {
+  it.each(["passkey", "native_key"])("recognizes %s credentials for backup registration and email gating", async (type) => {
     const root = document.createElement("section");
     const client = {
       capabilities: async () => ({ email: { available: true } }),
       session: async () => ({ account: { display_name: "Player" } }),
-      credentials: async () => ({ credentials: [{ id: "passkey-1", label: "This device", state: "active", type: "passkey" }] }),
+      credentials: async () => ({ credentials: [{ id: "passkey-1", label: "This device", state: "active", type }] }),
       sessions: async () => ({ sessions: [] }),
       addCredential: vi.fn(),
       upgradeEmailOptions: vi.fn(),

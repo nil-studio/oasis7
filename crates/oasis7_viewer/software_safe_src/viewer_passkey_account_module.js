@@ -1,4 +1,5 @@
 import { renderAccountEmailRecovery } from "./viewer_account_email_recovery.js";
+import { renderImportedKey } from "./viewer_imported_key.js";
 const API = "/api/public/hosted-account/v2";
 
 export function decodePasskeyBytes(encoded) {
@@ -40,6 +41,9 @@ export function serializePasskey(credential) {
 export function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch,
   credentials = globalThis.navigator?.credentials } = {}) {
   let csrf = null;
+  let importedSigner = null;
+  let signerGeneration = 0;
+  function clearImportedKey() { importedSigner = null; signerGeneration += 1; pendingActions.clear(); }
   let recoveryOperation = null;
   let recoveryCancelOperation = null;
   const pendingCeremonies = new Map();
@@ -130,10 +134,24 @@ export function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch
     let action = pendingActions.get(key);
     if (!action) { action = await request("/actions", { action_type: actionType, target, ...extra }); pendingActions.set(key, action); }
     if (!action.authorized) {
-      await ceremony(`/actions/${encodeURIComponent(action.action_id)}/reauth`, {}, "get");
+      if (importedSigner) await nativeCeremony(importedSigner, "reauth", action.action_id);
+      else await ceremony(`/actions/${encodeURIComponent(action.action_id)}/reauth`, {}, "get");
       action.authorized = true;
     }
     return action.action_id;
+  }
+  async function nativeCeremony(signer, intent, action_id) {
+    const capability = (await request("/capabilities")).native_key;
+    if (!capability?.available) throw new Error("native_key_unsupported");
+    const key = `native:${intent}:${signer.publicKey}:${action_id || ""}`;
+    let pending = pendingCeremonies.get(key);
+    if (!pending) {
+      const started = await request("/native-key/options", { intent, public_key: signer.publicKey, action_id });
+      const signature = await signer.signChallenge(started, capability, intent);
+      pending = { started, payload: { ceremony_id: started.ceremony_id, operation_id: started.operation_id, signature } };
+      pendingCeremonies.set(key, pending);
+    }
+    return finishCeremony("/native-key", key, pending);
   }
   function forgetAction(actionId) {
     for (const [key, action] of pendingActions) if (action.action_id === actionId) pendingActions.delete(key);
@@ -172,13 +190,14 @@ export function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch
     throw new Error("account_list_limit");
   }
   return {
+    clearImportedKey,
     async capabilities() { const result = await request("/capabilities"); csrf = result.csrf_token; return result; },
     session: () => request("/session"),
     operation: (id) => request(`/operations/${encodeURIComponent(id)}`),
     credentials: () => listAll("/credentials", "credentials"),
     sessions: () => listAll("/sessions", "sessions"),
     register: () => ceremony("/passkeys/registration", { intent: "new_account" }, "create"),
-    login: () => ceremony("/passkeys/authentication", {}, "get"),
+    login: () => { clearImportedKey(); pendingActions.clear(); return ceremony("/passkeys/authentication", {}, "get"); },
     async addCredential() { const actionId = await authorize("bind");
       const result = await ceremony("/passkeys/registration", { intent: "bind", action_id: actionId }, "create");
       forgetAction(actionId); return result; },
@@ -187,7 +206,10 @@ export function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch
         { action_id: actionId, expected_version: credential.version, operation_id: actionId }); forgetAction(actionId); return result; },
     async revokeSession(session) { const actionId = session.current ? undefined : await authorize("revoke_session", session.id);
       const result = await mutation(`/sessions/${encodeURIComponent(session.id)}/revoke`, { action_id: actionId, operation_id: actionId || session.id }); forgetAction(actionId); return result; },
-    logout: () => request("/logout", {}),
+    async loginImportedKey(key) { const generation = signerGeneration; const result = await nativeCeremony(key, "login"); if (generation === signerGeneration) importedSigner = key; return result; },
+    async bindImportedKey(key) { const generation = signerGeneration; const action = await authorize("bind"); const result = await nativeCeremony(key, "bind", action); forgetAction(action); if (generation === signerGeneration) importedSigner = key; return result; },
+    useImportedKey(key) { clearImportedKey(); importedSigner = key; },
+    async logout() { clearImportedKey(); pendingActions.clear(); return request("/logout", {}); },
     joinWorld: (payload) => request("/world/join", payload),
     refreshWorld: (payload) => request("/world/refresh", payload),
     releaseWorld: (payload) => request("/world/release", payload),
@@ -249,10 +271,16 @@ export function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch
 }
 
 const messages = {
+  native_key_invalid: "请输入各 64 位十六进制的 Ed25519 公钥和私钥种子。",
+  native_key_mismatch: "公钥与私钥不匹配，请检查输入。",
+  native_key_unsupported: "当前环境或浏览器不支持导入密钥，请使用通行密钥。",
+  native_challenge_invalid: "登录挑战与当前服务不一致或已过期，请刷新重试。",
+  authentication_failed: "认证失败。请检查密钥是否已绑定且未撤销；未绑定的密钥不会创建账号。",
+  credential_conflict: "这把公钥已登记，无法重复绑定或转移到其他账号。",
   NotAllowedError: "操作已取消或超时。账号不会因此丢失，请重新点击。",
   passkey_unsupported: "当前浏览器无法使用通行密钥，请使用支持的浏览器、外部安全密钥或邮箱入口。",
-  last_credential_protected: "请先添加并验证另一个通行密钥，再移除此凭证。",
-  reauth_required: "请使用已登记的通行密钥确认这次操作。",
+  last_credential_protected: "请用另一把已登记的公钥凭证确认移除，并至少保留一把有效公钥。",
+  reauth_required: "请使用已登记的公钥凭证确认这次操作。",
   state_changed: "账号状态已经变化，请刷新后重新确认。",
   registration_closed: "当前暂不开放新账号；已有账号仍可登录。",
   recovery_not_ready: "恢复保护期尚未结束，或通知仍待确认。请核对申请状态与最早完成时间。",
@@ -326,6 +354,7 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
         }
         await refresh(); if (!disposed && account) onAuthenticated(account);
       }, !capabilities.passkey?.available));
+      if (capabilities.native_key?.available) renderImportedKey(root, { account, busy, client, run, isActive: () => !disposed, onAuthenticated: async () => { await refresh(); if (account) onAuthenticated(account); } });
       renderAccountEmailRecovery(root, { state: emailRecoveryState, account, credentials: credentialList, capabilities, client, run, render });
       return;
     }
@@ -343,7 +372,11 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
       const row = element("div"); row.append(element("span", credential.label || "通行密钥"));
       row.append(button("移除", () => credential.type === "email" ? client.unbindEmail(credential) : client.revokeCredential(credential))); root.append(row);
     }
-    if (credentialList.some((key) => key.state === "active" && key.type === "passkey")) root.append(button("添加备用通行密钥", () => client.addCredential()));
+    if (credentialList.some((key) => key.state === "active" && ["passkey", "native_key"].includes(key.type))) root.append(button("添加备用通行密钥", () => client.addCredential()));
+    if (capabilities.native_key?.available) {
+      renderImportedKey(root, { account, busy, client, run, isActive: () => !disposed });
+      if (credentialList.some(key => key.state === "active" && key.type === "passkey")) root.append(button("改用通行密钥确认安全操作", () => client.clearImportedKey()));
+    }
     renderAccountEmailRecovery(root, { state: emailRecoveryState, account, credentials: credentialList, capabilities, client, run, render });
     root.append(element("h3", "已登录会话"));
     for (const session of sessionList) {
@@ -364,11 +397,11 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
       nextCredentials = keys.credentials || []; nextSessions = sessions.sessions || [];
     }
     if (disposed || revision !== generation) return;
-    if (account && !nextAccount) onSessionInvalidated();
+    if (account && !nextAccount) { client.clearImportedKey?.(); onSessionInvalidated(); }
     capabilities = nextCapabilities; account = nextAccount; credentialList = nextCredentials; sessionList = nextSessions;
     render();
   }
   render();
   refresh().catch(() => { notice = "账号服务暂时不可用，请稍后刷新。"; render(); });
-  return { refresh, dispose() { disposed = true; ++generation; root.replaceChildren(); } };
+  return { refresh, dispose() { client.clearImportedKey?.(); disposed = true; ++generation; root.replaceChildren(); } };
 }

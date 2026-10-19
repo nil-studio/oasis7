@@ -19,6 +19,7 @@ use web_sys::HtmlCanvasElement;
 
 mod bridge_api;
 mod facility_signature;
+mod host_render_input;
 mod host_state;
 mod presentation_clock;
 mod render;
@@ -524,6 +525,20 @@ pub fn build_pixel_world_render_state(raw_input: JsValue) -> JsValue {
                 .unwrap_or_else(|| "render state serialization failed".to_string()),
         )
     })
+}
+
+/// Canonical bounded JSON transport avoids per-property JS/WASM crossings.
+#[wasm_bindgen]
+pub fn build_pixel_world_render_state_json(raw_input: &str) -> JsValue {
+    match host_render_input::derive(raw_input) {
+        Ok(state) => js_value_from_serializable(&state).unwrap_or_else(|_| {
+            render_state_fatal_value(
+                "pixel_world_render_state_serialize_failed",
+                "render output unavailable",
+            )
+        }),
+        Err(error) => render_state_fatal_value("pixel_world_render_state_parse_failed", &error),
+    }
 }
 
 fn fallback_point_for_entity(
