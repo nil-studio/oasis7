@@ -509,6 +509,16 @@
     },
     {
       "match": [
+        "scripts/hosted-passkey-virtual-authenticator-smoke.mjs"
+      ],
+      "groups": [
+        "launcher_web",
+        "viewer_js_required"
+      ],
+      "reason": "hosted_identity_browser_smoke"
+    },
+    {
+      "match": [
         "scripts/worktree-harness*",
         "scripts/launcher-help*"
       ],
