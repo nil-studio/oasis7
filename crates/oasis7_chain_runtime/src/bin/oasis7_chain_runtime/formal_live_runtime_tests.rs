@@ -77,7 +77,7 @@ fn pending_stop_retains_the_same_owner_until_an_in_flight_node_tick_finishes() {
     state.node_running.store(true, Ordering::Release);
     state.stopping.store(true, Ordering::Release);
     let mut pending =
-        Some(PendingNodeStop::spawn(node.clone(), state.clone(), "unit_pending").unwrap());
+        Some(PendingNodeStop::spawn(node.clone(), state.clone(), "unit_pending", None).unwrap());
     let worker_id = pending.as_ref().unwrap().worker.thread().id();
     let stop_started_deadline = std::time::Instant::now() + Duration::from_secs(2);
     loop {
@@ -136,7 +136,8 @@ fn pending_stop_preserves_real_worker_error_instead_of_reporting_completion() {
         .is_err()
     );
     let state = FormalLiveState::default();
-    let mut pending = Some(PendingNodeStop::spawn(node, state.clone(), "unit_error").unwrap());
+    let mut pending =
+        Some(PendingNodeStop::spawn(node, state.clone(), "unit_error", None).unwrap());
     assert_eq!(
         PendingNodeStop::wait(&mut pending, Duration::from_secs(5)).unwrap(),
         Some(Err("formal Node runtime lock poisoned".into()))

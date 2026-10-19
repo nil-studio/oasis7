@@ -257,6 +257,14 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 在另一 fresh consumer job 校验同 run/source/tested 身份和 binary hash 后仅运行该精确用例；
 producer/build/consumer 上限分别为 75/45/15 分钟，不在 consumer 编译或运行其他 shard。
 两种诊断均不自动重试；fresh consumer 的一次通过不解释历史失败原因。
+stop 诊断的同一 owned operation 时钟从 caller stop 入口开始，记录合并的 request-stop 完成/
+admission-wait 开始、admission 获锁、spawn 时剩余 deadline 及 worker 阶段；重试等待沿用该时钟与总计 10 条上限。
+为容纳入口覆盖，不再单列 runtime-mutex 等待开始和 observer 前后标记；
+spawn→mutex-acquired 与 join-end→worker-completed 仅提供对应合并区间，不能拆分归因。
+所有标记仍仅 test binary、精确 flag `1` 生效；remaining 为原 deadline 的只读快照，不刷新预算。
+成功路径为 entry、request-end/admission-begin、admission-end、spawn、mutex-end、join-begin、
+join-end、worker-completed、wait-completed 共 9 条，Pending 后完成最多再加首次 Pending 共 10 条；
+worker error 将 worker/wait 的 completed 换为 error，省略未到达阶段，不打印原 error。
 固定提交、toolchain、可执行文件哈希、构建耗时、用例 stdout、终态及 cleanup 结果作为 artifact 保留，
 不上传私有 fixture/world，不赋予写入权限、生产凭据或 CodeQL/SARIF 能力。
 

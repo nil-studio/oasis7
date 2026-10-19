@@ -145,29 +145,30 @@ impl PendingNodeStop {
         runtime: Arc<Mutex<NodeRuntime>>,
         state: FormalLiveState,
         _label: &'static str,
+        #[cfg(test)] timing: Option<stop_timing::StopTiming>,
     ) -> Result<Self, std::io::Error> {
         #[cfg(test)]
-        let timing = stop_timing::StopTiming::new(_label);
+        let timing = timing.or_else(|| stop_timing::StopTiming::new(_label));
         #[cfg(test)]
         let worker_timing = timing.clone();
         #[cfg(test)]
         if let Some(timing) = &timing {
-            timing.record("operation_begin");
+            timing.record("spawn");
         }
         let (send, receive) = std::sync::mpsc::sync_channel(1);
         let worker = std::thread::Builder::new()
             .name("oasis7-formal-stop".into())
             .spawn(move || {
-                #[cfg(test)]
-                if let Some(timing) = &worker_timing {
-                    timing.record("mutex_wait_begin");
-                }
                 let result = match runtime.lock() {
                     Ok(mut runtime) => {
                         #[cfg(test)]
                         let result = if let Some(timing) = &worker_timing {
                             timing.record("mutex_wait_end");
-                            runtime.stop_with_phase_observer(|phase| timing.record(phase))
+                            runtime.stop_with_phase_observer(|phase| {
+                                if !phase.starts_with("observer_shutdown_") {
+                                    timing.record(phase);
+                                }
+                            })
                         } else {
                             runtime.stop()
                         };
@@ -718,14 +719,36 @@ impl FormalLiveRuntime {
     /// `stopping`; callers can poll status and retry the same stop operation.
     pub(crate) fn stop(&mut self, timeout: Duration) -> Result<(), String> {
         let deadline = std::time::Instant::now() + timeout;
+        #[cfg(test)]
+        let timing = self
+            .stop_worker
+            .as_ref()
+            .and_then(|pending| pending.timing.clone())
+            .or_else(|| {
+                stop_timing::StopTiming::new_at(self.stop_diagnostic_label, deadline - timeout)
+            });
+        #[cfg(test)]
+        let first_observation = self.stop_worker.is_none();
+        #[cfg(test)]
+        if first_observation && let Some(timing) = &timing {
+            timing.record("stop_entry");
+        }
         if let Some(delivery) = &self.effect_delivery {
             delivery.request_stop();
+        }
+        #[cfg(test)]
+        if first_observation && let Some(timing) = &timing {
+            timing.record("request_stop_end_admission_wait_begin");
         }
         {
             let _admission = self
                 .admission_gate
                 .lock()
                 .map_err(|_| "formal Node admission gate poisoned")?;
+            #[cfg(test)]
+            if first_observation && let Some(timing) = &timing {
+                timing.record("admission_wait_end");
+            }
             self.state
                 .ready
                 .store(false, std::sync::atomic::Ordering::Release);
@@ -739,7 +762,18 @@ impl FormalLiveRuntime {
             #[cfg(not(test))]
             let label = "unlabelled";
             self.stop_worker = Some(
-                match PendingNodeStop::spawn(Arc::clone(&self.runtime), self.state.clone(), label) {
+                match PendingNodeStop::spawn(
+                    Arc::clone(&self.runtime),
+                    self.state.clone(),
+                    label,
+                    #[cfg(test)]
+                    {
+                        if let Some(timing) = &timing {
+                            timing.set_remaining(deadline);
+                        }
+                        timing
+                    },
+                ) {
                     Ok(pending) => pending,
                     Err(error) => {
                         self.state
