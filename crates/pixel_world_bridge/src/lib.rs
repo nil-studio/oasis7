@@ -1004,7 +1004,15 @@ fn boot_bevy_app(canvas_selector: String) {
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(500)),
     });
     app.add_systems(Startup, setup_scene);
-    app.add_systems(Update, (sync_external_state, render::render_scene));
+    app.add_systems(
+        Update,
+        (
+            sync_external_state,
+            render::render_scene,
+            render::label_budget::enforce_label_budget,
+        )
+            .chain(),
+    );
     app.run();
 }
 

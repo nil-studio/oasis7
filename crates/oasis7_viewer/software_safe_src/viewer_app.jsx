@@ -2,6 +2,7 @@ import { ModelConnectionPanel } from "./model_connection_panel.jsx";
 import { CanonicalAgentGoal } from "./canonical_agent_goal.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { TargetListWindow, createTargetListProjection } from "./target_list_window.jsx";
 import { render as mount } from "solid-js/web";
 import * as core from "./legacy_core.js";
 import { FirstChatUnlockPreview } from "./first_chat_unlock_preview.jsx";
@@ -2160,8 +2161,7 @@ function WorldStageHero() {
 }
 
 function TargetsPanel() {
-  observeViewerStateRevision();
-  const lists = () => core.modelLists();
+  const { lists, filterKey, scopeKey } = createTargetListProjection(core, observeViewerStateRevision);
   const locale = () => uiLocale();
   const gameplaySummary = () => core.buildGameplaySummary(locale());
   const firstAgentClaimAction = () =>
@@ -2257,28 +2257,28 @@ function TargetsPanel() {
                 : <EntityListPendingState locale={locale()} label={tr(locale(), "行动体", "agents")} />
             }
           >
-            <For each={lists().agents}>
+            <TargetListWindow items={lists().agents} filterKey={filterKey()} scopeKey={scopeKey()} locale={locale()} kind="agent">
               {(agent, index) => {
-                const status = () => describeAgentSessionStatus(agent.id, locale());
-                const displayName = () => agent.name || agent.label || agent.id;
+                const status = () => describeAgentSessionStatus(agent().id, locale());
+                const displayName = () => agent().name || agent().label || agent().id;
                 return (
                   <button
                     class="list-item"
-                    data-testid={index() === 0 ? "viewer-playthrough-select-agent" : `viewer-select-agent-${agent.id}`}
+                    data-testid={index() === 0 ? "viewer-playthrough-select-agent" : `viewer-select-agent-${agent().id}`}
                     data-select-kind="agent"
-                    data-select-id={agent.id}
+                    data-select-id={agent().id}
                     data-agent-session-status={status().kind}
-                    data-selected={isSelectedTarget("agent", agent.id)}
-                    aria-pressed={isSelectedTarget("agent", agent.id) ? "true" : "false"}
-                    onClick={() => core.applySelection({ kind: "agent", id: agent.id })}
+                    data-selected={isSelectedTarget("agent", agent().id)}
+                    aria-pressed={isSelectedTarget("agent", agent().id) ? "true" : "false"}
+                    onClick={() => core.applySelection({ kind: "agent", id: agent().id })}
                   >
                     <div class="list-item__header">
                       <div class="list-item__title">{displayName()}</div>
-                      <Show when={isSelectedTarget("agent", agent.id)}>
+                      <Show when={isSelectedTarget("agent", agent().id)}>
                         <span class="list-item__selected-label">{tr(locale(), "已选中", "Selected")}</span>
                       </Show>
                     </div>
-                    <div class="list-item__meta"><span class="entity-id">{agent.id}</span></div>
+                    <div class="list-item__meta"><span class="entity-id">{agent().id}</span></div>
                     <div class="badge-row">
                       <Badge class={status().badgeClass}>{status().badge}</Badge>
                       <Show when={status().binding.playerId}>
@@ -2286,14 +2286,14 @@ function TargetsPanel() {
                       </Show>
                     </div>
                     <div class="list-item__meta">
-                      {`${tr(locale(), "地点", "location")}=${agent.location_id} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(agent.resources)}`}
+                      {`${tr(locale(), "地点", "location")}=${agent().location_id} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(agent().resources)}`}
                     </div>
-                    <AgentActivitySurface activity={agent.activity} locale={locale()} />
+                    <AgentActivitySurface activity={agent().activity} locale={locale()} />
                     <div class="list-item__meta">{status().detail}</div>
                   </button>
                 );
               }}
-            </For>
+            </TargetListWindow>
           </Show>
         </div>
       </div>
@@ -2308,31 +2308,31 @@ function TargetsPanel() {
                 : <EntityListPendingState locale={locale()} label={tr(locale(), "地点", "locations")} />
             }
           >
-            <For each={lists().locations}>
+            <TargetListWindow items={lists().locations} filterKey={filterKey()} scopeKey={scopeKey()} locale={locale()} kind="location">
               {(location) => (
                 <button
                   class="list-item"
-                  data-testid={`viewer-select-location-${location.id}`}
+                  data-testid={`viewer-select-location-${location().id}`}
                   data-select-kind="location"
-                  data-select-id={location.id}
-                  data-selected={isSelectedTarget("location", location.id)}
-                  aria-pressed={isSelectedTarget("location", location.id) ? "true" : "false"}
-                  onClick={() => core.applySelection({ kind: "location", id: location.id })}
+                  data-select-id={location().id}
+                  data-selected={isSelectedTarget("location", location().id)}
+                  aria-pressed={isSelectedTarget("location", location().id) ? "true" : "false"}
+                  onClick={() => core.applySelection({ kind: "location", id: location().id })}
                 >
                   <div class="list-item__header">
-                    <div class="list-item__title">{location.name || location.id}</div>
-                    <Show when={isSelectedTarget("location", location.id)}>
+                    <div class="list-item__title">{location().name || location().id}</div>
+                    <Show when={isSelectedTarget("location", location().id)}>
                       <span class="list-item__selected-label">{tr(locale(), "已选中", "Selected")}</span>
                     </Show>
                   </div>
                   <div class="list-item__meta">
-                    {`id=${location.id} · ${tr(locale(), "半径", "radius")}=${
-                      core.formatPhysicalDistanceCm(location.profile?.radius_cm, locale()) || "-"
-                    } · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(location.resources)}`}
+                    {`id=${location().id} · ${tr(locale(), "半径", "radius")}=${
+                      core.formatPhysicalDistanceCm(location().profile?.radius_cm, locale()) || "-"
+                    } · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(location().resources)}`}
                   </div>
                 </button>
               )}
-            </For>
+            </TargetListWindow>
           </Show>
         </div>
       </div>

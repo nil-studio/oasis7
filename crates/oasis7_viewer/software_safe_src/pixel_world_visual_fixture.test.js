@@ -1,16 +1,129 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as core from "./legacy_core.js";
-import { installPixelWorldVisualFixtureHook } from "./pixel_world_visual_fixture.js";
+import { installPixelWorldRenderDtoProbe, installPixelWorldVisualFixtureHook } from "./pixel_world_visual_fixture.js";
 
 afterEach(() => {
+  window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__?.dispose();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   window.history.replaceState({}, "", "/viewer.html?test_api=1&connect=0");
   delete window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__;
   delete window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURE_AUTH_ALIGNMENT__;
+  delete window.__OASIS7_PIXEL_WORLD_RENDER_DTO__;
+  core.state.pixelWorldFatal = null;
 });
 
 describe("pixel world visual fixtures", () => {
+  it.each([
+    ["performance_regular", 1000], ["performance_high_load", 10000],
+  ])("publishes %s with complete source input and unrelated history", (name, count) => {
+    window.history.replaceState({}, "", `/viewer.html?test_api=1&connect=0&pixel_world_visual_fixture=${name}`);
+    expect(installPixelWorldVisualFixtureHook()).toBe(name);
+    const snapshot = core.state.snapshot;
+    expect(Object.keys(snapshot.model.agents).length + Object.keys(snapshot.model.locations).length).toBe(count);
+    expect(snapshot.history.unrelated_payload.length).toBe(5 * 1024 * 1024);
+    expect(core.modelLists().agents).toHaveLength(count - 2);
+    expect(core.state.selectedId).toBe("agent-0");
+    expect(snapshot.player_gameplay).toMatchObject({ goal_id: "post_onboarding.recover_capability", blocker_kind: "material_shortage" });
+    expect(window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__.status()).toMatchObject({
+      sourceEntityCount: count, historyBytes: 5 * 1024 * 1024, revision: 0, running: false,
+    });
+  });
+
+  it("provides 2 Hz updates, a bounded 10 Hz burst, final revision and a stop control", () => {
+    window.history.replaceState({}, "", "/viewer.html?test_api=1&connect=0&pixel_world_visual_fixture=performance_regular");
+    installPixelWorldVisualFixtureHook();
+    const control = window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__;
+    // The actual initial snapshot above exercises the existing injection path;
+    // capture subsequent complete snapshots without repeating unrelated core
+    // transport work in fake-timer cadence assertions.
+    const inject = vi.spyOn(core, "injectSnapshot").mockReturnValue({ ok: true });
+    vi.spyOn(core, "requestRender").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const initial = control.status();
+    control.start();
+    vi.advanceTimersByTime(1000);
+    expect(control.status()).toMatchObject({ revision: 2, intervalMs: 500, running: true });
+    control.stop();
+    vi.advanceTimersByTime(1000);
+    expect(control.status().revision).toBe(2);
+    control.burst();
+    vi.advanceTimersByTime(5000);
+    const final = control.status();
+    expect(final).toMatchObject({ revision: 52, running: false, intervalMs: null, time: initial.time + 52 });
+    expect(final.selectedPosition.x_cm).toBe(initial.selectedPosition.x_cm + 52_000);
+    expect(inject).toHaveBeenCalledTimes(52);
+    const snapshot = inject.mock.calls.at(-1)[0];
+    expect(snapshot.performance_fixture.revision).toBe(final.revision);
+    expect(snapshot.model.agents["agent-0"].pos).toEqual(final.selectedPosition);
+    expect(snapshot.history.unrelated_payload).toHaveLength(5 * 1024 * 1024);
+    expect(() => control.start({ hz: 1000 })).toThrow("2 or 10 Hz");
+    window.dispatchEvent(new Event("pagehide"));
+    expect(window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__).toBeUndefined();
+  });
+
+  it("does not install performance controls for live or non-test URLs", () => {
+    for (const query of ["connect=1&test_api=1", "connect=0"]) {
+      window.history.replaceState({}, "", `/viewer.html?${query}&pixel_world_visual_fixture=performance_high_load`);
+      expect(installPixelWorldVisualFixtureHook()).toBeNull();
+      expect(window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__).toBeUndefined();
+    }
+  });
+
+  it("revokes scheduled injection if the explicit offline test scope changes", () => {
+    window.history.replaceState({}, "", "/viewer.html?test_api=1&connect=0&pixel_world_visual_fixture=performance_regular");
+    installPixelWorldVisualFixtureHook();
+    const control = window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__;
+    vi.useFakeTimers();
+    control.start();
+    window.history.replaceState({}, "", "/viewer.html?test_api=1&connect=1");
+    expect(() => control.step()).toThrow("connect=0");
+    expect(control.status()).toMatchObject({ running: false, revision: 0 });
+    expect(() => control.start()).toThrow("connect=0");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("provides DOM controls and bounded renderer diagnostics without exposing source snapshots", () => {
+    vi.useFakeTimers();
+    window.history.replaceState({}, "", "/viewer.html?test_api=1&connect=0&pixel_world_visual_fixture=performance_regular");
+    installPixelWorldVisualFixtureHook();
+    const control = window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__;
+    vi.spyOn(core, "injectSnapshot").mockReturnValue({ ok: true });
+    vi.spyOn(core, "requestRender").mockImplementation(() => {});
+    let cleanupProbe;
+    installPixelWorldRenderDtoProbe("performance_regular", () => ({
+      world_tick: control.status().time,
+      agents: [{ id: "agent-0", pos: control.status().selectedPosition }],
+      locations: [{ id: "loc-0" }],
+      module_visual_entities: [],
+      display_budget: { omitted_markers: 998 },
+    }), (cleanup) => { cleanupProbe = cleanup; });
+    const panel = document.getElementById("pixel-world-performance-fixture-controls");
+    const click = (name) => [...panel.querySelectorAll("button")].find((button) => button.textContent === name).click();
+    const read = () => JSON.parse(panel.querySelector("output").textContent);
+    click("Burst 10 Hz for 5 seconds");
+    vi.advanceTimersByTime(6000);
+    expect(read()).toMatchObject({
+      revision: 50, time: 62, running: false,
+      dto_world_tick: 62, dto_marker_count: 2,
+      dto_selected_position: control.status().selectedPosition,
+      display_budget: { omitted_markers: 998 },
+    });
+    expect(read().dto_bytes).toBeGreaterThan(100);
+    expect(panel.textContent).not.toContain("unrelated_payload");
+    click("Start 2 Hz");
+    vi.advanceTimersByTime(1000);
+    click("Stop updates");
+    expect(read()).toMatchObject({ revision: 52, running: false });
+    core.state.pixelWorldFatal = { code: "capacity", message: "Too much display data" };
+    vi.advanceTimersByTime(1000);
+    expect(read().fatal).toEqual(core.state.pixelWorldFatal);
+    window.dispatchEvent(new Event("pagehide"));
+    cleanupProbe();
+    expect(document.getElementById("pixel-world-performance-fixture-controls")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("installs the deterministic hotspot tooltip fixture only when live websocket connection is disabled", () => {
     window.history.replaceState({}, "", "/viewer.html?test_api=1&connect=0&pixel_world_visual_fixture=hotspot_tooltip");
 
