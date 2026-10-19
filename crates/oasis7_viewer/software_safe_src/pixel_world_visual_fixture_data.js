@@ -1,4 +1,38 @@
 // Test-only snapshot fixtures for reproducible Pixel World visual evidence.
+export function pixelWorldPerformanceVisualFixture(sourceEntityCount = 1000) {
+  if (![1000, 10000].includes(sourceEntityCount)) {
+    throw new Error("Performance fixture requires 1000 or 10000 source entities");
+  }
+  const snapshot = pixelWorldSelectedBlockerVisualFixture();
+  const publicKey = snapshot.model.agent_player_public_key_bindings["agent-0"];
+  const agentCount = sourceEntityCount - Object.keys(snapshot.model.locations).length;
+  for (let index = 0; index < agentCount; index += 1) {
+    const id = `agent-${index}`;
+    if (!snapshot.model.agents[id]) {
+      // Stable, spatially distributed input. The first two agents and the
+      // selected-blocker gameplay envelope retain their original semantics.
+      snapshot.model.agents[id] = {
+        id,
+        name: `Performance Agent ${index}`,
+        location_id: index % 2 ? "loc-1" : "loc-0",
+        pos: {
+          x_cm: 400_000 + (index % 100) * 90_000,
+          y_cm: 400_000 + Math.floor(index / 100) * 40_000,
+          z_cm: 0,
+        },
+        resources: {},
+      };
+    }
+    snapshot.model.agent_player_bindings[id] = "player-one";
+    snapshot.model.agent_player_public_key_bindings[id] = publicKey;
+  }
+  // This deliberately unrelated branch is larger than the complete render
+  // DTO budget. It must never be traversed by the renderer projection.
+  snapshot.history = { unrelated_payload: "h".repeat(5 * 1024 * 1024) };
+  snapshot.performance_fixture = { source_entity_count: sourceEntityCount, revision: 0 };
+  return snapshot;
+}
+
 export function pixelWorldRoutesAndEventsVisualFixture() {
   const snapshot = pixelWorldSelectedBlockerVisualFixture();
   const relation = { kind: 'agent_assignment', status: 'active', source_class: 'runtime_projection', freshness: 'current' };

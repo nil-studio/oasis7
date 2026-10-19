@@ -395,6 +395,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-storage-network.test.py
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-workflow.test.py
+  run python3 ./scripts/ci-cache-maintenance.test.py
   run python3 ./scripts/ci-support-profiles.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
@@ -425,6 +426,7 @@ run_packaging_artifact_contract_tests() {
   run bash ./scripts/native-packaging-contract.test.sh
   run bash ./scripts/packaging-artifact-size-contract.test.sh
   run bash ./scripts/package-workflow-cache-reuse-contract.test.sh
+  run python3 ./scripts/package-ecs.test.py
   run bash ./scripts/copy-viewer-web-dist.test.sh
 }
 

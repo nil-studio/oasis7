@@ -5,7 +5,7 @@ import type { Snapshot,DocumentSection } from './types';
 const api=vi.hoisted(()=>({snapshot:vi.fn(),github:vi.fn(),documentInventory:vi.fn(),documentSemanticTree:vi.fn(),loadDocumentTreeLastView:vi.fn(),loadDocumentTreeReading:vi.fn(),saveDocumentTreeReading:vi.fn(),recordReading:vi.fn(),readVersion:vi.fn()}));
 vi.mock('./bridge',()=>({bridge:api,connected:()=>true,errorMessage:String,observedTime:()=>'',statusLabel:String,acceptsEnter:()=>false}));
 vi.mock('./WorkOverview',()=>({default:()=>null}));
-vi.mock('./RuntimePanel',()=>({default:()=>null}));vi.mock('./LocalTools',()=>({default:()=>null}));
+vi.mock('./LocalTools',()=>({default:()=>null}));
 const section:DocumentSection={id:'explicit',path:'doc/product/module/prd.md',title:'恢复章节',revision:'rev',committedRevision:'head',dirty:false,content:Array.from({length:80},(_,i)=>`原文第 ${i+1} 行`).join('\n'),line:1,factKind:'sourceFact',lifecycle:null};
 const route=[{path:section.path,sourcePath:'doc/product/README.md',destination:section.path,group:null,duplicateIndex:0,duplicateCount:1}];
 const data=(sections=[section]):Snapshot=>({project:{id:'project',path:'/repo',head:'head',branch:'main',gitCommonDir:'/repo/.git',environment:'local'},sources:[{kind:'local',generation:'1',state:'ready',lastAttempt:'1',lastSuccess:'1',sourceRevision:'head',coverage:'',error:null}],sections,decisions:[],preferences:{projectPath:'/repo',query:'',view:'rules'},associations:[],readingPositions:[],git:{status:'',worktrees:''}});

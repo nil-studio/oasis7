@@ -1,3 +1,6 @@
+import { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
+export { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
+import { projectPixelWorldRenderInput } from "./pixel_world_render_input.js";
 import { createPixelWorldSpatialController } from "./pixel_world_spatial_controller.js";
 import { PixelWorldSpatialExplorer } from "./pixel_world_spatial_explorer.jsx";
 import { createPixelWorldScopeGuard } from "./pixel_world_scope.js";
@@ -51,23 +54,6 @@ function PixelWorldHostHotspotLayer(props) {
       onHotspotHoverIntent={props.onHotspotHoverIntent}
       onHotspotTrigger={props.onHotspotTrigger} onHotspotRestoreFocus={props.onHotspotRestoreFocus} />
   )}</Index>;
-}
-export function buildPixelWorldRenderInput(locale = core.state.uiLocale) {
-  const worldScaleSurface = core.buildWorldScaleSurface(locale);
-  return {
-    locale,
-    snapshot: core.state.snapshot,
-    lists: core.modelLists(),
-    gameplay: core.buildGameplaySummary(locale),
-    selected: core.clone(core.state.selectedObject),
-    selectedKind: core.state.selectedKind,
-    selectedId: core.state.selectedId,
-    recentEvents: core.clone(core.state.recentEvents),
-    presentation: {
-      world_bounds_label: worldScaleSurface.physicalTruth.worldBoundsLabel,
-      marker_truth_note: worldScaleSurface.presentationScale.markerTruthNote,
-    },
-  };
 }
 export function PixelWorldCanvasRenderer(props) {
   let canvasRef;
@@ -861,14 +847,21 @@ export function PixelWorldHost(props) {
   const renderInput = createMemo(() => {
     worldRevision();
     const spatialState = worldViewState();
-    return {...buildPixelWorldRenderInput(locale()),
+    const currentLocale = locale();
+    const currentSelection = spatial.selection();
+    const currentNavigation = navigation();
+    try { return untrack(() => projectPixelWorldRenderInput({...buildPixelWorldRenderInput(currentLocale),
       ...(spatialState.view ? {worldView:spatialState.view,worldViewStale:spatialState.stale} : {}),
-      ...(spatial.selection() ? {selectedKind:spatial.selection().kind,selectedId:spatial.selection().id} : {}),
-      navigation:navigation()};
+      ...(currentSelection ? {selectedKind:currentSelection.kind,selectedId:currentSelection.id} : {}),
+      navigation:currentNavigation}));
+    } catch (error) {
+      return {fatal:{code:"pixel_world_display_capacity",message:String(error?.message || error)}};
+    }
   });
   const scopeGuard = createPixelWorldScopeGuard(core.state);
   const [retainedSurface, setRetainedSurface] = createSignal(null);
   const [rustRenderState, setRustRenderState] = createSignal(null);
+  const [resourceStage, setResourceStage] = createSignal("descriptor");
   const renderState = () => rustRenderState();
   const visualState = () => pixelWorldVisualState(renderState());
   const [rendererStatus, setRendererStatus, rendererFatal, setRendererFatal, runtimeSource, setRuntimeSource] = createPixelWorldRendererRouteSignals(rendererRoute, createSignal);
@@ -920,6 +913,7 @@ export function PixelWorldHost(props) {
     setMaximized: setPersistentMaximized,
   });
   const adapter = createMemo(() => createPixelWorldHostAdapter({
+    onResourceStage: setResourceStage,
     onSelectEntity(selection) {
       const applied = spatial.select(selection);
       if (applied?.kind === "module_visual") {
@@ -987,6 +981,18 @@ export function PixelWorldHost(props) {
   let rendererAttemptGeneration = 0;
   let rendererUpdatePending = false;
   const rendererAttemptIsCurrent = (canvas, generation) => generation === rendererAttemptGeneration && mountedCanvas === canvas;
+  let rendererUpdateFrame = null;
+  function scheduleRendererUpdate() {
+    if (rendererUpdateFrame !== null) return;
+    const generation = rendererAttemptGeneration;
+    rendererUpdateFrame = requestAnimationFrame(() => {
+      rendererUpdateFrame = null;
+      if (!hostActive || generation !== rendererAttemptGeneration || scopeGuard.check().blocked) return;
+      setWorldRevision(revision => revision + 1);
+      if (rendererStatus() === "ready") applyRendererUpdate();
+      else rendererUpdatePending = true;
+    });
+  }
   function applyRendererUpdate() {
     if (rendererStatus() === "unavailable") {
       return;
@@ -1089,6 +1095,8 @@ export function PixelWorldHost(props) {
     if (scopeGuard.check().blocked) { scopeReadPending = null; core.requestRender(); return; }
     const canvas = mountedCanvas?.isConnected ? mountedCanvas : null;
     mountedCanvas = canvas;
+    if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
+    rendererUpdateFrame = null;
     const generation = ++rendererAttemptGeneration;
     setRendererFatal(null);
     setRendererStatus("booting");
@@ -1140,12 +1148,7 @@ export function PixelWorldHost(props) {
       spatial.refresh(core.state.snapshot);
       // An absent hint remains conservatively dirty, including mutable state.
       if (invalidation?.pixelWorldChanged === false) return;
-      setWorldRevision((revision) => revision + 1);
-      if (rendererStatus() === "ready") {
-        applyRendererUpdate();
-      } else {
-        rendererUpdatePending = true;
-      }
+      scheduleRendererUpdate();
     });
     onCleanup(unsubscribeRenderHook);
     if (pixelWorldTestApiEnabled()) {
@@ -1160,6 +1163,8 @@ export function PixelWorldHost(props) {
     document.body.classList.remove("pixel-world-focus-active");
     document.body.classList.remove("pixel-world-focus-maximized");
     hostActive = false;
+    if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
+    rendererUpdateFrame = null;
     rendererAttemptGeneration += 1;
     removeContextListener();
     adapter().unmount();
@@ -1173,7 +1178,7 @@ export function PixelWorldHost(props) {
   });
   createEffect(() => {
     worldViewState(); navigation(); spatial.selection();
-    untrack(() => { if (mountedCanvas && rendererStatus() === "ready") applyRendererUpdate(); });
+    untrack(() => { if (mountedCanvas && rendererStatus() === "ready") scheduleRendererUpdate(); });
   });
   return (
     <div
@@ -1184,6 +1189,16 @@ export function PixelWorldHost(props) {
       data-visual-fixture={visualFixtureName || ""}
       data-focus-comparable={shouldShowFocusCinematic(renderState()) ? "false" : "true"}
     >
+      <Show when={rendererStatus() !== "ready" && rendererStatus() !== "unavailable"}>
+        <div role="status" aria-live="polite" data-world-resource-stage={resourceStage()}>
+          {{descriptor:tr(locale(),"正在查找世界画面资源…","Finding world graphics…"),
+            download:tr(locale(),"正在下载世界画面资源…","Downloading world graphics…"),
+            verify:tr(locale(),"正在核对画面资源完整性…","Verifying world graphics…"),
+            compile:tr(locale(),"正在准备世界画面…","Preparing world graphics…"),
+            prepare:tr(locale(),"正在准备世界画面…","Preparing world graphics…"),
+            ready:tr(locale(),"正在连接世界画面…","Attaching world graphics…")}[resourceStage()] || tr(locale(),"正在准备世界画面…","Preparing world graphics…")}
+        </div>
+      </Show>
       <Show when={!focusMode() || !maximized()}>
         <div class="pixel-world-host__summary">
           <div class="pixel-world-host__summary-copy">
@@ -1271,7 +1286,9 @@ export function PixelWorldHost(props) {
             if (mountedCanvas === canvas) return;
             mountedCanvas = canvas;
             attachContextListener(canvas);
-            const generation = ++rendererAttemptGeneration;
+            if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
+    rendererUpdateFrame = null;
+    const generation = ++rendererAttemptGeneration;
             if (untrack(rendererStatus) !== "ready") {
               void setReadyMode(canvas, generation);
             }

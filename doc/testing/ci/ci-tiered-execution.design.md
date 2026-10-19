@@ -1,5 +1,7 @@
 # CI 分级执行
 
+Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编译，各用独立 runner。原生编译仍只有一个互斥的可信/只读入口；安装包组装等待 Web 成功、且两个原生入口恰有一个成功另一个 skipped，失败、取消或未知状态不能进入组装。原生中间归档只从同一 run 下载，组装前核对 source SHA、platform、target、profile、ops 范围及每个固定二进制的 SHA-256/权限，缺失、symlink 或篡改拒绝；组装不再调用 Cargo。最终 SOURCEPLAN/BUILDINFO、入口验证和校验和合同不变。并行收益以实际 hosted 耗时为准，原生 runner 的 Cargo 并发固定为 1，避免多个重型 Thin LTO 构建同时占满内存；这不影响 Web/native 跨 runner 并行。
+
 - 状态：active
 - 专业 owner：`repository_health_engineer`；CI 控制、来源与缓存边界由独立评审者审读
 - 通用规则：[开发流程规范](../../engineering/workflow/source-of-truth.md)
@@ -111,6 +113,7 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | full 包含适用 required；真实消费者、wrapper 结果和扫描证据可核对 | [执行清单与结果](#ci-real-coverage-design) | CI driver、构建 wrapper、QA；CodeQL 保持独立主责 | 不把 fake 工具、旧运行或文档当成实际执行 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | 完整 TOML 集合、真实日期、范围棘轮和逐项有界续验 | [例外检查](#ci-advisory-baseline-design) | repository_health_engineer 与安全/兼容审读 | 不修改当前有效期、批准列表或依赖范围 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | 普通/重型分离、一次构建、五分片及失败汇总 | [进程调度](#ci-formal-process-design) | CI 构建与原生进程运行器 | 产品 N/A；理由：CI 专业调度优化；范围：普通检查与真实进程验收，不改变玩家行为。 |
+| Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；[共享产物中的缓存容量](ci-tiered-execution.prd.md#ci-formal-process) | 单份 raw 准备预算与远端压缩总量分离，可信写后按族回收 | [容量治理](#ci-cache-budget-design) | 正式 producer、缓存管理 helper 与 CI 维护者 | 产品 N/A；理由：已有共享产物要求的缓存资源约束；范围：可重建缓存，不改变必要测试、发布身份或持久世界。 |
 
 ## 3. 依赖准备的基线与目标
 
@@ -146,13 +149,45 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 安装器来自已核验的计划 source；key 中的版本、平台、架构和安装器内容指纹共同描述本次工具输入。升级脚本或 pin 会产生正常冷启动。缓存路径、归档格式及 cache action 的兼容实现也必须一致；仅对齐 key 字符串不充分。GitHub 的 cache version 包含路径与压缩方式，tag 间不能直接读取彼此缓存，可恢复默认分支范围内的缓存，见 [GitHub 缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)。
 
-现有 main `full-regression` 的 schedule/manual-full 是共享归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。其他 Release/Rust 缓存的 key、保存策略和权限保持其现有合同。不得增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
+现有 main `full-regression` 的 schedule/manual-full 是共享归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
 
-Testnet Web 的 Rust 缓存只读取 Release Web 的 `release-packages-web-wasm-trusted-v2` 身份，不创建无人写入的独立 key。Linux 原生包按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2` 身份；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业，其他分支、tag、旧 SHA 或 workflow/source 不同版本均选择 read-only 作业。两条路径复用相同步骤且互斥，不重复编译；实际 checkout 再次匹配 main event 且 Linux 作业成功后才保存，非 Linux 的保存策略不变。此处仅调整缓存生产路径，不改变源码准入、包验证和 required checks。
+Release 的 runtime core、support、sync、soak 保留各自的 writer 和 target 缓存；Mainnet 对应四个只读 gate 分别使用同名 Release gate 的缓存身份。Mainnet Web 读取 Release Web 身份；非 Linux 原生打包只在 OS、target 和 profile 匹配时读取对应 Release 原生包缓存，不能把不兼容构建映射到同一族。Testnet / Storage / Compile 的独立现有边界不由这些映射扩展。
+
+生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。NewAPI 两个打包入口只在各自 job 范围对齐 Cargo profile、网络重试及 registry 协议等 key 输入，避免修改全局环境而使无关大型 CI 缓存换代。
+
+registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档，没有关闭 registry 而保留 target 的选项；因此保留 Release 各 gate 的目标缓存，不用整个 full-regression 归档替换每个较小消费者。新增或合并缓存族时须分别验证 registry 共用范围和 target 的兼容集合，缺少产物仍由原构建补齐。存储节省、下载成本与关键路径分别报告，不因接线调整增加 writer 或扩大权限。
+
+Testnet / Mainnet Web 的 Rust 缓存只读取 Release Web 的 `release-packages-web-wasm-trusted-v2` 身份，不创建无人写入的独立 key。Linux 原生包按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2` 身份；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业，其他分支、tag、旧 SHA 或 workflow/source 不同版本均选择 read-only 作业。两条路径复用相同步骤且互斥，不重复编译；实际 checkout 再次匹配 main event 且 Linux 作业成功后才保存，非 Linux 的保存策略不变。此处仅调整缓存生产路径，不改变源码准入、包验证和 required checks。
 
 缓存是可回收的加速数据，没有发布状态、事务或持久化权威。main 尚未保存该身份、缓存被回收或 reader 不可达时，正确的冷下载仍可完成工具准备。恢复服务异常须保留实际 action 结果；若 action 允许继续且归档不存在，安装器仍执行同一校验冷路径，不用忽略必要安装失败来维持 job 绿色。
 
 跨 tag 复用的验证必须关联一个可确认的 main 保存记录及两个不同 tag 的实际 reader，记录 run/job、event/ref、请求和实际匹配 key、平台与 cache version 兼容条件、恢复及摘要验证结果。仅同 tag rerun 只能证明同 tag 恢复；未取得上述记录时保留“配置已接通、真实跨 tag 恢复待观察”。沿用自然发生且已授权的 main/full 与 Release 执行积累数据，不为本项新建发布事件或 required check。
+
+<a id="ci-cache-budget-design"></a>
+### 5.1 正式缓存的远端容量治理
+
+Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)中的[正式缓存容量与保留](ci-tiered-execution.prd.md#ci-formal-cache-budget)。
+
+单份 8 GiB 上限只约束准备上传的 workspace 文件原始逻辑字节。[缓存维护 helper](../../../scripts/ci-cache-maintenance.py) 使用 GitHub cache API 的 `size_in_bytes`，按缓存 ID 校验唯一性，以缓存族和 ref 汇总条目数与压缩字节；相同 key 的不同 cache version 或 ref 仍是独立条目。兼容组由去除 source SHA 的完整 key 前缀与 cache version 共同确定，用于代数及恢复点判断。GitHub 的默认仓库额度与驱逐规则见[官方缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)，它不替代本仓库对受管族的预算，也不保证旧缓存能保留到下一次复用。
+
+正式 workspace 受管范围是 `refs/heads/main` 上符合 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 完整格式的条目，族预算覆盖所有兼容指纹与 source SHA。其他命名和 ref 不因具有相近前缀而纳入删除。source SHA 继续进入不可变精确 key；兼容前缀保持平台、工具链、Cargo 输入、features/profile 与构建脚本边界，不为减少条目改成可覆盖的固定 key 或扩大恢复范围。helper 的受管策略集中维护族级压缩字节预算、每个兼容组的保留代数及 API 总预算，运行摘要展开实际值；调用方显式提供当前 key，不能传入任意前缀扩大清理范围。
+
+清理在可信 main producer 的必要构建、产物上传及缓存保存步骤成功后进入独立维护 job。该入口使用固定 concurrency 组、`cancel-in-progress: false` 与 `cache-mode: none`，不恢复或执行缓存 payload。先通过 REST 查询当前 `GITHUB_RUN_ID` 并核对仓库、source 与可信运行身份，以该 run 的 `created_at` 作为并发保护起点；不能使用客户端时间或当前缓存落盘时间。
+
+保存 action 的 outcome 只决定是否进入核验，精确 key 在同 ref 的完整库存中须对应唯一、合法且非零字节的条目，才视为保存已确认。预留竞争可能只产生 warning；若并发 writer 已保存同一精确条目且 API 核验通过，可以维护。保存未确认、当前 key 缺失、同 key 跨 version 多条或 API 结果不完整时跳过删除。
+
+保护集包括当前精确条目、同兼容组中创建时间早于当前条目的最新一个完整恢复点、零字节条目，以及 `created_at` 或 `last_accessed_at` 不早于当前 workflow run 的 `created_at` 的全部受管条目。这样较旧 SHA 的慢构建不能删除清点中可见的较新 SHA 已提前保存的结果，已观察到的运行期间访问和未完成上传也会进入保护集。
+
+先保留保护集并计入各兼容组代数及族总字节，再把其余条目按 `last_accessed_at`、`created_at`、缓存 ID 降序排列。逐项保留尚未达到所属兼容组代数上限、且能容纳于剩余族预算的条目；其余条目才进入删除计划。旧兼容组没有额外的“最新条目优先”或永久保留名额。保护集是代数和字节预算的例外：超额时报告实际超额，不能扩大删除范围；因此这些数值是回收目标，不是任何并发条件下的硬上限。
+
+先完整读取分页并核对缓存 ID、key、version、ref、字节及时间字段，再生成删除计划；执行前再次完整清点并按最新库存重算保护集和计划。只有两次计划都选中、且 ID、key、ref、version、创建时间和字节数保持相同的条目才能删除，第二次计划只能缩小首次删除集合。当前精确条目的不可变身份变化使整轮跳过。后页失败、重复或冲突数据、分页未结束、字段不合法均不得把部分结果用于删除。未知命名、其他族与其他 ref 只统计，不删除。
+
+删除按准确 cache ID 从创建时间较旧的条目开始，保留计划、实际结果与未执行部分；404 视为该条目已不存在，其他删除错误停止本轮回收并报告。清理和查询使用有限的请求与总时长预算，不进行无限重试；API 故障不使必要构建失败，也不能把原构建失败改成成功。维护入口仅在可信 producer 成功路径取得最小的 Actions 删除权限，PR 与其他只读消费者不继承。
+
+清理后的容量须由再次查询得到；无法回读时仅报告已确认删除的条目和未知剩余量。两次清点不构成事务锁或缓存租约，之后的访问和平台驱逐仍可能发生；消费者继续依赖正确冷路径恢复。存储报告与本地 raw/去重体积、下载传输量、实际 Cargo fresh/重编数分列，不从命中次数反推省下的存储或运行时间。旧的未受管缓存仍由平台驱逐或单独核实后处理，本策略不承诺全仓即刻低于默认额度。
+
+<a id="ci-cache-budget-validation"></a>
+[容量治理回归](../../../scripts/ci-cache-maintenance.test.py)使用多页 API fixture 验证族/ref/version 归属、两类预算、旧 SHA 迟于新 SHA 完成时按 run 起点保护、近期访问与零字节保护、两次计划交集和身份变化、未知项保留、后页失败零删除、部分删除失败及重复执行；[workflow 接线回归](../../../scripts/ci-workflow.test.py)核对保存前不能清理、保存未确认不能清理、候选没有删除权限、固定维护并发及治理错误不覆盖必要 CI 结果。[发布缓存回归](../../../scripts/package-workflow-cache-reuse-contract.test.sh)核对实际工具链/环境 hash 输入与 writer/reader 成对关系，禁止仅验证 key 文本相同。真实 hosted 保存、删除后库存与冷热构建收益仍分别在实际 PR/运行记录中验收。
 
 <a id="ci-install-apt-design"></a>
 ## 6. apt 的有界安装评估
@@ -246,6 +281,7 @@ TOML 中单引号字符串、引号表名和同行元素均以解析后语义为
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | [执行清单与结果](#ci-real-coverage-design) | 漏项/错误传播、真实 WASM 消费者、wrapper 退出及 Windows 锁边界 | [测试手册](../../../testing-manual.md)；实际 CI driver、构建/wrapper 回归和原生平台运行 | source、计划清单、命令与真实结果 | fake 工具和计划存在不代签执行；CodeQL 启用另验 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | [例外检查](#ci-advisory-baseline-design) | 完整 ignore、元数据对应、日历/期限与 direct manifest 漂移 | [基线回归](../../../scripts/check-rustsec-ignore-baseline.test.sh)及真实依赖查询 | 正反例、当前依赖路径与逐条例外处理 | 文档不续期；fixture 不证明实际依赖已移除 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | [进程调度](#ci-formal-process-design) | 独立分片、精确清单、同源产物、旧基线扩大、错误与超时传播 | [分片核验](../../../testing-manual.md#ci-formal-process-validation) | 当前 PR 的真实 runner、测试与评审结果 | fixture 不代签完整产物消费；未完成 hosted 验证保持未证明 |
+| [共享产物中的缓存容量](ci-tiered-execution.prd.md#ci-formal-process) | [容量治理](#ci-cache-budget-design) | 保存确认后回收、族/ref/version 与压缩预算、分页及并发/访问保护、失败不影响必要 CI | [容量治理回归](../../../scripts/ci-cache-maintenance.test.py) | 当前 PR 的回归输出、准确 source、hosted 保存/回收和库存记录 | 本地 fixture 不证明实际释放空间或缓存收益 |
 
 ## 12. 决策与残余风险
 
@@ -284,7 +320,7 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 新 checkout 的源码时间戳会使相同内容的 workspace 产物失效。producer 因此记录构建前后完整源码文件清单，包含未跟踪和 ignored 的普通文件，排除 .git 与实际 Cargo target；只有始末路径、内容、权限和时间戳均一致才允许保存。恢复时逐路径核对实际长度、权限和 SHA-256，内容相同才还原旧 mtime；内容或权限改变的文件设置严格晚于缓存 Cargo 参考的时间戳，交由 Cargo 正常重编。新增、删除、重命名输入、symlink、越界路径、不完整或未来时间戳的缓存均保守视为 miss，不回退目录时间戳以隐藏 build.rs 的目录观察。缺失缓存仍完成冷构建，缓存不是产物身份或测试通过的依据。
 
-key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、正式构建脚本和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读，可信 main producer 才可保存。8 GiB 上限约束所选 workspace 文件的原始逻辑字节；所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。只有允许写入且未精确命中的 producer 才校验并准备缓存，超限正常跳过 save。复用收益必须包含依赖与 workspace 两次恢复、源码验证、保存成本和 Cargo 实际 fresh/重编数量，不能仅凭 cache action 命中宣称免编译。
+key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、正式构建脚本和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读，可信 main producer 才可保存。8 GiB 上限约束所选 workspace 文件的原始逻辑字节；所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。只有允许写入且未精确命中的 producer 才校验并准备缓存，超限正常跳过 save。远端代数与实际压缩总字节按[容量治理](#ci-cache-budget-design)独立约束，不能把单份 staging 预算当成仓库总量保护。复用收益必须包含依赖与 workspace 两次恢复、源码验证、保存与清理成本和 Cargo 实际 fresh/重编数量，不能仅凭 cache action 命中宣称免编译。
 
 运行时优化遵循[单次 open 预热复用](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#formal-open-prewarm-reuse)和[健康 Replica 归档安装](../../p2p/design.md#formal-replica-staging-content-reuse)。新请求等待只读取精确请求的 hot result，使用轻量发布切面观察避免每 25ms 克隆完整 World；历史原请求仍保留认证冷查断言。正常成功路径达到目标 publication 后可先停止同一 runtime owner，再做不依赖活服务的材料统计与历史断言，减少测试自身继续产生的空 Tick。生产 Node 的 in-flight stop/join 语义不变，专门的 pending/in-flight 停止场景继续覆盖。阶段诊断记录 open/prewarm/restore、70/40 次操作、冷查及 stop 的单调耗时；不改变原请求绝对期限、签名、fsync 或原验收断言。
 

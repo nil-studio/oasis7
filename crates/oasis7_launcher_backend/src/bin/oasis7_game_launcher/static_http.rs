@@ -25,6 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[path = "static_http_public_payload.rs"]
+mod public_payload;
+
 const MAX_HTTP_REQUEST_BYTES: usize = 64 * 1024;
 const HOSTED_TEST_LOGIN_ENABLED_ENV: &str = "OASIS7_HOSTED_TEST_LOGIN_ENABLED";
 #[cfg(test)]
@@ -459,9 +462,17 @@ pub(super) fn handle_http_connection(
 
     match resolved {
         Some(path) => {
-            let body = fs::read(&path).map_err(|err| {
-                format!("failed to read static asset `{}`: {err}", path.display())
-            })?;
+            let public_payload = public_payload::response(root_dir, &path, request)?;
+            let (body, payload_headers) = if let Some(payload) = public_payload {
+                payload
+            } else {
+                (
+                    fs::read(&path).map_err(|err| {
+                        format!("failed to read static asset `{}`: {err}", path.display())
+                    })?,
+                    String::new(),
+                )
+            };
             let viewer_auth_bootstrap = resolve_viewer_auth_bootstrap_for_embedded_server(
                 deployment_mode,
                 default_viewer_player_id,
@@ -479,7 +490,7 @@ pub(super) fn handle_http_connection(
             } else {
                 body
             };
-            let security_headers = if path.extension() == Some(OsStr::new("html"))
+            let mut security_headers = if path.extension() == Some(OsStr::new("html"))
                 && runtime_config
                     .identity
                     .lock()
@@ -493,6 +504,11 @@ pub(super) fn handle_http_connection(
             } else {
                 String::new()
             };
+            if !payload_headers.is_empty() {
+                security_headers.push_str(&payload_headers);
+            } else if !security_headers.contains("Cache-Control:") {
+                security_headers.push_str("Cache-Control: no-cache\r\n");
+            }
             write_http_response_with_headers(
                 &mut stream,
                 200,

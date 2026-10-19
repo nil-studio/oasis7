@@ -1,3 +1,5 @@
+import { verifyPixelWorldProjection } from "./verify-pixel-world-projection.mjs";
+import { isolateBindgenModule } from "./pixel-world-bindgen-factory.mjs";
 import { spawn } from "node:child_process";
 import { access, copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
@@ -164,12 +166,16 @@ async function buildPixelWorldRuntimeVariant({ featureName, backendDirName }) {
   await runChecked(wasmBindgenCommand, [
     "--target",
     "web",
+    ...(!visualTest ? ["--remove-name-section", "--remove-producers-section"] : []),
     "--out-dir",
     outputDir,
     "--out-name",
     "pixel_world_bridge_bindgen",
     pixelWorldCompiledWasmPath,
   ]);
+  const bindingsPath = resolve(outputDir, "pixel_world_bridge_bindgen.js");
+  const bindings = await readFile(bindingsPath, "utf8");
+  await writeFile(bindingsPath, isolateBindgenModule(bindings), "utf8");
 }
 
 await access(canonicalHtmlPath);
@@ -199,6 +205,11 @@ await buildPixelWorldRuntimeVariant({
   featureName: "webgl2_runtime",
   backendDirName: "webgl2",
 });
+const projectionReports = await verifyPixelWorldProjection({
+  bindingsPath: resolve(pixelWorldRuntimeDir, "webgl2", "pixel_world_bridge_bindgen.js"),
+  wasmPath: resolve(pixelWorldRuntimeDir, "webgl2", "pixel_world_bridge_bindgen_bg.wasm"),
+});
+console.log(`pixel world projection ABI verified: ${JSON.stringify(projectionReports)}`);
 await rm(tempOutDir, { recursive: true, force: true });
 
 console.log(`software_safe build finalized: ${finalCanonicalBundlePath}`);

@@ -11,3 +11,11 @@ export class PixelWorldBridge {
 export function build_pixel_world_render_state() {
   throw new Error("build_pixel_world_render_state bindgen stub is unavailable in software_safe_src");
 }
+
+export function build_pixel_world_render_state_json() {
+  throw new Error("build_pixel_world_render_state_json bindgen stub is unavailable in software_safe_src");
+}
+
+export function createPixelWorldModule() {
+  return { default: initPixelWorldBridgeModule, PixelWorldBridge, build_pixel_world_render_state_json };
+}

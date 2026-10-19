@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-runtime/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "3462beb1f50245b5c0cb17ec4c67b7632dd4020f9639a7904b1e27a5b6421fe7",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "design",
+    "path": "doc/world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-runtime-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

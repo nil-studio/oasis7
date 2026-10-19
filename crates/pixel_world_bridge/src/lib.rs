@@ -19,6 +19,7 @@ use web_sys::HtmlCanvasElement;
 
 mod bridge_api;
 mod facility_signature;
+mod host_render_input;
 mod host_state;
 mod presentation_clock;
 mod render;
@@ -526,6 +527,20 @@ pub fn build_pixel_world_render_state(raw_input: JsValue) -> JsValue {
     })
 }
 
+/// Canonical bounded JSON transport avoids per-property JS/WASM crossings.
+#[wasm_bindgen]
+pub fn build_pixel_world_render_state_json(raw_input: &str) -> JsValue {
+    match host_render_input::derive(raw_input) {
+        Ok(state) => js_value_from_serializable(&state).unwrap_or_else(|_| {
+            render_state_fatal_value(
+                "pixel_world_render_state_serialize_failed",
+                "render output unavailable",
+            )
+        }),
+        Err(error) => render_state_fatal_value("pixel_world_render_state_parse_failed", &error),
+    }
+}
+
 fn fallback_point_for_entity(
     id: &str,
     width: f64,
@@ -989,7 +1004,15 @@ fn boot_bevy_app(canvas_selector: String) {
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(500)),
     });
     app.add_systems(Startup, setup_scene);
-    app.add_systems(Update, (sync_external_state, render::render_scene));
+    app.add_systems(
+        Update,
+        (
+            sync_external_state,
+            render::render_scene,
+            render::label_budget::enforce_label_budget,
+        )
+            .chain(),
+    );
     app.run();
 }
 

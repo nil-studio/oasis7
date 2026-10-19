@@ -72,9 +72,10 @@ Trace ID: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251
 - 系统设计状态：已覆盖
 - 系统设计依据：[显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection)。
 - 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
-- 实现状态：未核实
-- 实现与验证依据：2026-10-19；源码核对基线 `ebaefe593fc81806d01e10aa8bfe09bd127fe7e6` 的 Host 完整 snapshot 输入及 WASM 通用反序列化路径；本次只交付目标设计，尚无本要求完整实现与同候选性能验收记录。
-- 剩余范围：投影、调度、兼容回归及真实浏览器预算验证均待实施；不升级现有模式就绪结论。
+- 实现状态：部分实现
+- 实现与验证依据：2026-10-19；在设计合入基线 `fb15585d8811ef5c7ea010139f25908812289213` 上实现有界显示白名单、普通 JSON/版本化 Rust 输入、同帧最新更新及相同显示派生复用；Host 回归覆盖 telemetry/tick、实体删除、可见性失效及回执处理。真实 Chrome 在 1440×1000、390×844 稀疏只读样例中显示 WebGL 画布并完成选择；具体候选及局部测量见 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)，不代签完整预算。
+- 后续实现范围：稳定身份排序与关键语义优先裁剪已补齐，输入与输出均会缩减可选标记并保留源计数；可见标签总数 100、每项 128 个 Unicode 标量；Targets 分页限制同时挂载的行数，完整授权搜索、计数与选择仍可达。
+- 剩余范围：常规/高负载及受控更新场景的完整同候选性能验收；必需语义无法容纳时明确 unavailable，不升级现有模式就绪结论。
 
 <a id="ac-entry-performance-001"></a>
 ### AC-ENTRY-PERFORMANCE-001：持续响应与事实一致性
@@ -93,9 +94,10 @@ Trace ID: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae
 - 系统设计状态：已覆盖
 - 系统设计依据：[资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery)。
 - 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
-- 实现状态：未核实
-- 实现与验证依据：2026-10-19；上述固定源码基线中的 loader 仍有 `no-store` 下载与整文件校验；本次只交付设计，缓存/压缩目标没有完整同候选部署验收记录。
-- 剩余范围：发布资源寻址、压缩与缓存配置、加载阶段表达、失败重试及实部署验证待实施；不得将设计预算当作当前网站性能承诺。
+- 实现状态：部分实现
+- 实现与验证依据：2026-10-19；上述设计合入基线上实现精简 WASM feature/发布符号、SHA-256 寻址和 gzip artifact、服务器编码协商与 immutable 公共资源缓存；稳定 JS/CSS 保持 revalidation，HTML 保留原运行时注入。Loader 每次验证解码 bytes，仅损坏缓存自动重取一次，并提供资源阶段和失败后重新尝试。打包与 HTTP/loader 回归验证内容、编码及失败边界，具体候选及体积见 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)。
+- 后续实现范围：每 attempt 的 manifest/payload/reload 下载和读 body 共享 30 秒预算，hash/compile/init 共享独立 10 秒预算，重试使用独立实例并拒绝过期结果；同步初始化超时只能在返回后检测，不能据此承诺阻塞期间界面仍及时响应。
+- 剩余范围：真实部署的冷暖缓存/版本切换/离线与受控网络验收；不得将本地体积或设计预算当作当前网站性能承诺。
 
 <a id="ac-entry-performance-002"></a>
 ### AC-ENTRY-PERFORMANCE-002：冷暖加载与安全恢复

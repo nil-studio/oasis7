@@ -1,7 +1,6 @@
 import type { DocumentInventoryQuery, DocumentInventoryPage, DocumentDirectoryQuery, DocumentDirectoryPage, DocumentSemanticTreeQuery, DocumentSemanticTreePage, DocumentTreeReadingKey, DocumentTreeReadingSaveRequest, DocumentTreeReadingLoadResult, DocumentTreeReadingScope, DocumentTreeLastView } from './generated/core';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { DecisionDraft, DecisionRecord, DocumentSection, GitHubSnapshot, Preferences, Snapshot, WorkAssociation, RuntimeSnapshot, RuntimeTarget, RequestAnswer, QuitStatus, SessionConfig } from './types';
-import { listen } from '@tauri-apps/api/event';
+import type { DecisionDraft, DecisionRecord, DocumentSection, GitHubSnapshot, Preferences, Snapshot, WorkAssociation } from './types';
 export const connected = () => isTauri();
 function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!connected()) return Promise.reject(new Error('浏览器预览未接入桌面核心。请从 App 打开真实项目。'));
@@ -40,36 +39,6 @@ export const bridge = {
   readVersion: (sectionId: string, revision: string) => call<DocumentSection | null>('read_version', { sectionId, revision }),
   associateWork: (workUrl: string, goalSectionIds: string[]) => call<WorkAssociation>('associate_work', { workUrl, goalSectionIds }),
 };
-export const runtimeBridge = {
-  publicSnapshot: () => call<RuntimeSnapshot>('get_public_runtime'),
-  startWork: (intentId: string, config: SessionConfig, input: string) => call<RuntimeSnapshot>('start_work', {intentId,config,input}),
-  startWorkRecords: () => call<import('./generated/core').StartWorkRecord[]>('query_start_work_records'),
-  snapshot: () => call<RuntimeSnapshot>('get_runtime'),
-  reconcile: (operationId: string) => call<RuntimeSnapshot>('reconcile_runtime_operation', { operationId }),
-  enabled: (enabled: boolean) => call<RuntimeSnapshot>('set_runtime_enabled', { enabled }),
-  connect: (binaryPath: string | null) => call<RuntimeSnapshot>('connect_runtime', { binaryPath }),
-  create: (config: SessionConfig) => call<RuntimeSnapshot>('create_runtime_session', { config }),
-  continue: (threadId: string) => call<RuntimeSnapshot>('continue_runtime_session', { threadId }),
-  start: (threadId: string, input: string) => call<RuntimeSnapshot>('start_runtime_turn', { threadId, input }),
-  steer: (target: RuntimeTarget, input: string) => call<RuntimeSnapshot>('steer_runtime_turn', { target, input }),
-  interrupt: (target: RuntimeTarget) => call<RuntimeSnapshot>('interrupt_runtime_turn', { target }),
-  answer: (reply: RequestAnswer) => call<RuntimeSnapshot>('answer_runtime_request', { reply }),
-  exitStatus: () => call<QuitStatus>('get_exit_status'),
-  waitExit: () => call<QuitStatus>('request_exit_wait'),
-  stopExit: () => call<QuitStatus>('request_exit_stop'),
-  background: () => call<QuitStatus>('cancel_exit_wait'),
-};
-export async function subscribeRuntime(invalidate: () => void, exitRequired: () => void): Promise<() => void> {
-  if (!connected()) return () => {};
-  const handlers = await Promise.allSettled([
-    listen('command-center:runtime-invalidated', invalidate),
-    listen('command-center:exit-required', exitRequired),
-  ]);
-  const stops = handlers.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
-  const failed = handlers.find(result => result.status === 'rejected');
-  if (failed?.status === 'rejected') { stops.forEach(stop => stop()); throw failed.reason; }
-  return () => stops.forEach(unlisten => unlisten());
-}
 export function errorMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') return error.message;
   return String(error);

@@ -33,3 +33,41 @@ describe("pixel world host adapter lifecycle", () => {
     expect(held.bridge.unmount).toHaveBeenCalledTimes(2);
   });
 });
+
+it("does not derive or submit identical display input again, but keeps current tick readout", async () => {
+  const held = runtime(); mock.load = async () => held;
+  held.deriveRenderState.mockImplementation(() => ({ agents: [{id:"A"}], world_tick: 1, commercial_surface: { world_read: {tick:1} } }));
+  const adapter = createPixelWorldHostAdapter({});
+  const input = {schema_version:1,snapshot:{time:1,model:{}},lists:{agents:[{id:"A"}],locations:[]}};
+  await adapter.mount({}, input);
+  adapter.update(structuredClone(input));
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  expect(held.bridge.update).not.toHaveBeenCalled();
+  input.snapshot.time = 2;
+  expect(adapter.update(input).renderState.world_tick).toBe(2);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  input.lists.agents = [];
+  adapter.update(input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(2);
+  adapter.unmount();
+  await adapter.mount({}, input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(3);
+});
+
+it("refreshes authorized source counts without converting unchanged clipped geometry", async () => {
+  const held = runtime(); mock.load = async () => held;
+  held.deriveRenderState.mockImplementation(() => ({agents:[{id:"A"}],commercial_surface:{world_read:{agents:1000}}}));
+  const adapter = createPixelWorldHostAdapter({});
+  const input = {schema_version:1,snapshot:{time:1,model:{}},lists:{agents:[{id:"A"}],locations:[]},display_budget:{source_counts:{agents:1000},omitted_markers:999}};
+  await adapter.mount({},input);
+  input.display_budget = {source_counts:{agents:1001},omitted_markers:1000};
+  const next = adapter.update(input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  expect(next.renderState.commercial_surface.world_read.agents).toBe(1001);
+  expect(next.renderState.display_budget.omitted_markers).toBe(1000);
+  input.display_budget = {source_counts:{agents:1},omitted_markers:0};
+  const reduced = adapter.update(input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  expect(reduced.renderState.commercial_surface.world_read.agents).toBe(1);
+  expect(reduced.renderState.display_budget.omitted_markers).toBe(0);
+});

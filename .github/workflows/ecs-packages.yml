@@ -1,0 +1,125 @@
+name: ECS Server Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+cache-mode: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_TOOLCHAIN: 1.96.0
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - run: npm ci --prefix crates/oasis7_viewer
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
+          rustup default "$RUST_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: false
+          shared-key: release-packages-web-wasm-trusted-v2
+      - name: Build Viewer Web only
+        run: |
+          ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/optional-payload
+          ./scripts/copy-viewer-web-dist.sh --dist-dir output/web-dist --optional-payload-dir output/optional-payload
+          ./scripts/package-viewer-web-delivery.sh --web-dist output/web-dist --optional-payload-dir output/optional-payload --out-file output/web.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-web-stage
+          path: output/web.tar.gz
+          if-no-files-found: error
+
+  native:
+    if: github.ref != 'refs/heads/main' || github.workflow_sha != github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps: &native-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install Rust and system libraries
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: oasis7-ecs-native-linux-packaging-v1
+          save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-on-failure: false
+      - name: Compile three ECS binaries
+        env:
+          CARGO_BUILD_JOBS: '1'
+        run: python3 scripts/package-ecs.py native --out output/native
+      - run: tar -C output/native -czf output/native.tar.gz .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-native-stage
+          path: output/native.tar.gz
+          if-no-files-found: error
+
+  native-trusted:
+    if: github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
+    cache-mode: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps: *native-steps
+
+  package:
+    needs: [web, native, native-trusted]
+    if: >-
+      !cancelled() && needs.web.result == 'success' &&
+      ((needs.native.result == 'success' && needs.native-trusted.result == 'skipped') ||
+       (needs.native.result == 'skipped' && needs.native-trusted.result == 'success'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ecs-native-stage
+          path: output
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ecs-web-stage
+          path: output
+      - name: Assemble versioned ECS bundle
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          mkdir -p output/native output/web
+          tar -xzf output/native.tar.gz -C output/native
+          tar -xzf output/web.tar.gz -C output/web
+          python3 scripts/package-ecs.py assemble --native output/native --web output/web --out output/ecs
+          asset="oasis7-ecs-linux-x64-${RUN_NUMBER}-${SOURCE_SHA:0:12}.tar.gz"
+          tar -C output/ecs -czf "output/$asset" .
+          (cd output && sha256sum "$asset" > "$asset.sha256")
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oasis7-ecs-linux-x64
+          path: |
+            output/oasis7-ecs-linux-x64-*.tar.gz
+            output/oasis7-ecs-linux-x64-*.tar.gz.sha256
+          if-no-files-found: error

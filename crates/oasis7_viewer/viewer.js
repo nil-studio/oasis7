@@ -1336,8 +1336,8 @@ function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch
 }
 //#endregion
 //#region software_safe_src/model_connection_panel.jsx
-var _tmpl$$39 = /*#__PURE__*/ template(`<p role=alert>`);
-var _tmpl$2$36 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
+var _tmpl$$40 = /*#__PURE__*/ template(`<p role=alert>`);
+var _tmpl$2$37 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
 var _tmpl$3$29 = /*#__PURE__*/ template(`<form class=model-connection-panel__form><label><select required><option value></option></select></label><label><input type=password name=model-inference-key autocomplete=off maxlength=4096 required></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
 var _tmpl$4$26 = /*#__PURE__*/ template(`<label><select>`);
 var _tmpl$5$25 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
@@ -1564,7 +1564,7 @@ function ModelConnectionPanel(props) {
 				return error();
 			},
 			get children() {
-				var _el$5 = _tmpl$$39();
+				var _el$5 = _tmpl$$40();
 				insert(_el$5, error);
 				return _el$5;
 			}
@@ -1586,7 +1586,7 @@ function ModelConnectionPanel(props) {
 			get children() {
 				return [
 					(() => {
-						var _el$6 = _tmpl$2$36(), _el$7 = _el$6.firstChild, _el$8 = _el$7.firstChild, _el$9 = _el$7.nextSibling, _el$0 = _el$9.firstChild, _el$10 = _el$0.nextSibling;
+						var _el$6 = _tmpl$2$37(), _el$7 = _el$6.firstChild, _el$8 = _el$7.firstChild, _el$9 = _el$7.nextSibling, _el$0 = _el$9.firstChild, _el$10 = _el$0.nextSibling;
 						_el$10.nextSibling;
 						var _el$11 = _el$9.nextSibling, _el$12 = _el$11.nextSibling, _el$13 = _el$12.nextSibling, _el$14 = _el$13.firstChild, _el$16 = _el$14.nextSibling;
 						_el$16.nextSibling;
@@ -2053,8 +2053,8 @@ function buildPromptControlSigningPayload(mode, request, auth) {
 //#endregion
 //#region software_safe_src/viewer_canonical_owner_read_module.js
 var DOMAIN = "/v1/world/view";
-var hex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-var canonicalHex = (value) => hex(cborCanonicalEncode(value));
+var hex$1 = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+var canonicalHex = (value) => hex$1(cborCanonicalEncode(value));
 function validCommit(commit) {
 	return Number.isSafeInteger(commit?.position) && commit.position >= 0 && [
 		commit?.execution_block_hash,
@@ -2150,7 +2150,7 @@ function createCanonicalOwnerReadModule({ state, sendJson, signAuthPayload, rend
 				DOMAIN,
 				request
 			]);
-			if (hex(signingBytes) !== context.signing_bytes_hex) throw new Error("canonical owner read signing bytes mismatch");
+			if (hex$1(signingBytes) !== context.signing_bytes_hex) throw new Error("canonical owner read signing bytes mismatch");
 			const signature = await signAuthPayload(signingBytes, state.auth);
 			if (pending !== active || !current(active.id)) throw new Error("canonical owner read identity changed during signing");
 			if (!/^awviewauth:v1:[0-9a-f]{128}$/.test(signature)) throw new Error("canonical owner read signature invalid");
@@ -2254,8 +2254,8 @@ function canonicalAckMatches(ack, request) {
 }
 //#endregion
 //#region software_safe_src/canonical_agent_goal.jsx
-var _tmpl$$38 = /*#__PURE__*/ template(`<p data-canonical-agent-goal-pending role=status>`);
-var _tmpl$2$35 = /*#__PURE__*/ template(`<p data-canonical-agent-goal>: `);
+var _tmpl$$39 = /*#__PURE__*/ template(`<p data-canonical-agent-goal-pending role=status>`);
+var _tmpl$2$36 = /*#__PURE__*/ template(`<p data-canonical-agent-goal>: `);
 function CanonicalAgentGoal(props) {
 	const goal = () => authenticatedCanonicalGoal(props.state, props.agentId);
 	const pending = () => props.state.lastChatFeedback?.agentId === props.agentId && props.state.lastChatFeedback?.stage === "pending" && props.state.lastChatFeedback?.canonicalRequest;
@@ -2265,7 +2265,7 @@ function CanonicalAgentGoal(props) {
 			return goal();
 		},
 		children: (current) => (() => {
-			var _el$2 = _tmpl$2$35(), _el$3 = _el$2.firstChild;
+			var _el$2 = _tmpl$2$36(), _el$3 = _el$2.firstChild;
 			insert(_el$2, () => zh() ? "当前目标" : "Current goal", _el$3);
 			insert(_el$2, () => current().message, null);
 			return _el$2;
@@ -2275,7 +2275,7 @@ function CanonicalAgentGoal(props) {
 			return pending();
 		},
 		get children() {
-			var _el$ = _tmpl$$38();
+			var _el$ = _tmpl$$39();
 			insert(_el$, () => zh() ? "目标已提交，等待世界确认。" : "Goal submitted; waiting for world confirmation.");
 			return _el$;
 		}
@@ -2283,8 +2283,8 @@ function CanonicalAgentGoal(props) {
 }
 //#endregion
 //#region software_safe_src/industrial_starter_outcome_card.jsx
-var _tmpl$$37 = /*#__PURE__*/ template(`<section class=panel-section><h3></h3><p> · revision </p><p>`);
-var _tmpl$2$34 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$$38 = /*#__PURE__*/ template(`<section class=panel-section><h3></h3><p> · revision </p><p>`);
+var _tmpl$2$35 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$3$28 = /*#__PURE__*/ template(`<p><strong>: `);
 var _tmpl$4$25 = /*#__PURE__*/ template(`<p>: `);
 var _tmpl$5$24 = /*#__PURE__*/ template(`<p>: <!> · job <!> · tick `);
@@ -2296,7 +2296,7 @@ function IndustrialStarterOutcomeCard(props) {
 			return props.profile;
 		},
 		get children() {
-			var _el$ = _tmpl$$37(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.firstChild, _el$5 = _el$3.nextSibling;
+			var _el$ = _tmpl$$38(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.firstChild, _el$5 = _el$3.nextSibling;
 			insert(_el$2, () => tr("首条工业线成果", "Starter industrial outcome"));
 			insert(_el$3, () => props.profile.profileId, _el$4);
 			insert(_el$3, () => props.profile.profileRevision, null);
@@ -2306,7 +2306,7 @@ function IndustrialStarterOutcomeCard(props) {
 				},
 				get fallback() {
 					return (() => {
-						var _el$6 = _tmpl$2$34();
+						var _el$6 = _tmpl$2$35();
 						insert(_el$6, () => tr("首产物数量与配方用电尚未发布。", "First settled output quantity and recipe power have not been published."));
 						return _el$6;
 					})();
@@ -2346,7 +2346,7 @@ function IndustrialStarterOutcomeCard(props) {
 						return _el$18;
 					})(),
 					(() => {
-						var _el$20 = _tmpl$2$34();
+						var _el$20 = _tmpl$2$35();
 						insert(_el$20, () => tr("首产物里程碑已记录（production_only）。稳定运行与交付仍需分别验证。", "First output milestone recorded (production_only). Stability and delivery require separate verification."));
 						return _el$20;
 					})()
@@ -2361,6 +2361,123 @@ function IndustrialStarterOutcomeCard(props) {
 		}
 	});
 }
+//#endregion
+//#region software_safe_src/target_list_window.jsx
+var _tmpl$$37 = /*#__PURE__*/ template(`<button type=button>`);
+var _tmpl$2$34 = /*#__PURE__*/ template(`<div class=toolbar><span role=status aria-live=polite>: <!>–<!> / `);
+var PAGE_SIZE = 50;
+function targetListScopeKey(state) {
+	const auth = state.auth;
+	return JSON.stringify([
+		auth.playerId,
+		auth.publicKey,
+		auth.boundAgentId,
+		auth.source,
+		auth.registrationStatus,
+		auth.runtimeStatus,
+		state.worldFeed?.worldId
+	]);
+}
+function createTargetListProjection(core, observeRevision) {
+	return {
+		lists: createMemo(() => {
+			observeRevision();
+			return core.modelLists();
+		}),
+		filterKey: () => {
+			observeRevision();
+			return core.getSelectedSearch();
+		},
+		scopeKey: () => {
+			observeRevision();
+			return targetListScopeKey(core.state);
+		}
+	};
+}
+function TargetListWindow(props) {
+	const zh = () => String(props.locale || "").startsWith("zh");
+	const noun = () => props.kind === "location" ? zh() ? "地点" : "locations" : zh() ? "行动体" : "agents";
+	const items = createMemo(() => props.items || []);
+	const resetKey = createMemo(() => JSON.stringify([props.filterKey || "", props.scopeKey || ""]));
+	const [requested, setRequested] = createSignal({
+		key: resetKey(),
+		page: 0
+	});
+	const lastPage = createMemo(() => Math.max(0, Math.ceil(items().length / PAGE_SIZE) - 1));
+	const page = createMemo(() => requested().key === resetKey() ? Math.min(requested().page, lastPage()) : 0);
+	createEffect(() => {
+		const key = resetKey();
+		const current = page();
+		if (requested().key !== key || requested().page !== current) setRequested({
+			key,
+			page: current
+		});
+	});
+	const entities = createMemo(() => new Map(items().slice(page() * PAGE_SIZE, (page() + 1) * PAGE_SIZE).map((entry) => [entry.id, entry])));
+	const keys = createMemo(() => [...entities().keys()]);
+	const changePage = (next) => setRequested({
+		key: resetKey(),
+		page: Math.max(0, Math.min(next, lastPage()))
+	});
+	return [(() => {
+		var _el$ = _tmpl$2$34(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$6 = _el$3.nextSibling, _el$7 = _el$6.nextSibling.nextSibling;
+		_el$7.nextSibling;
+		insert(_el$2, () => zh() ? "获准匹配目标" : "Authorized matches", _el$3);
+		insert(_el$2, (() => {
+			var _c$ = memo(() => !!items().length);
+			return () => _c$() ? page() * PAGE_SIZE + 1 : 0;
+		})(), _el$6);
+		insert(_el$2, () => Math.min((page() + 1) * PAGE_SIZE, items().length), _el$7);
+		insert(_el$2, () => items().length, null);
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return items().length > PAGE_SIZE;
+			},
+			get children() {
+				return [(() => {
+					var _el$8 = _tmpl$$37();
+					_el$8.$$click = () => changePage(page() - 1);
+					insert(_el$8, () => zh() ? "上一页" : "Previous");
+					createRenderEffect((_p$) => {
+						var _v$ = page() === 0, _v$2 = zh() ? `上一页${noun()}` : `Previous ${noun()} page`;
+						_v$ !== _p$.e && (_el$8.disabled = _p$.e = _v$);
+						_v$2 !== _p$.t && setAttribute(_el$8, "aria-label", _p$.t = _v$2);
+						return _p$;
+					}, {
+						e: void 0,
+						t: void 0
+					});
+					return _el$8;
+				})(), (() => {
+					var _el$9 = _tmpl$$37();
+					_el$9.$$click = () => changePage(page() + 1);
+					insert(_el$9, () => zh() ? "下一页" : "Next");
+					createRenderEffect((_p$) => {
+						var _v$3 = page() >= lastPage(), _v$4 = zh() ? `下一页${noun()}` : `Next ${noun()} page`;
+						_v$3 !== _p$.e && (_el$9.disabled = _p$.e = _v$3);
+						_v$4 !== _p$.t && setAttribute(_el$9, "aria-label", _p$.t = _v$4);
+						return _p$;
+					}, {
+						e: void 0,
+						t: void 0
+					});
+					return _el$9;
+				})()];
+			}
+		}), null);
+		createRenderEffect(() => setAttribute(_el$, "aria-label", zh() ? `${noun()}分页` : `${noun()} pagination`));
+		return _el$;
+	})(), createComponent(For, {
+		get each() {
+			return keys();
+		},
+		children: (key, index) => {
+			const entry = createMemo((previous) => entities().get(key) || previous);
+			return props.children(entry, () => page() * PAGE_SIZE + index());
+		}
+	})];
+}
+delegateEvents(["click"]);
 //#endregion
 //#region node_modules/solid-js/store/dist/store.js
 var $RAW = Symbol("store-raw");
@@ -3237,7 +3354,7 @@ function renderAccountEmailRecovery(root, { state, account, credentials, capabil
 	}
 	if (!account && capabilities.email?.available) button("使用邮箱登录", () => mode("login_address"));
 	if (account && capabilities.email?.available) button("绑定或替换恢复邮箱", () => mode("binding_address"));
-	if (account && !credentials.some((key) => key.state === "active" && key.type === "passkey")) button("验证邮箱并添加首个通行密钥", async () => {
+	if (account && !credentials.some((key) => key.state === "active" && ["passkey", "native_key"].includes(key.type))) button("验证邮箱并添加首个通行密钥", async () => {
 		state.otp = await client.upgradeEmailOptions();
 		mode("upgrade_code");
 	});
@@ -3340,6 +3457,155 @@ function renderAccountEmailRecovery(root, { state, account, credentials, capabil
 	});
 }
 //#endregion
+//#region software_safe_src/viewer_imported_key.js
+var encoder = new TextEncoder();
+var prefix = Uint8Array.from([
+	48,
+	46,
+	2,
+	1,
+	0,
+	48,
+	5,
+	6,
+	3,
+	43,
+	101,
+	112,
+	4,
+	34,
+	4,
+	32
+]);
+function hex(value) {
+	if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) throw new Error("native_key_invalid");
+	return Uint8Array.from(value.match(/../g), (byte) => parseInt(byte, 16));
+}
+function decode(value) {
+	if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("native_challenge_invalid");
+	return Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+}
+function encode(value) {
+	return btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function nativeSigningBytes(options) {
+	const chunks = [encoder.encode("oasis7.identity.native.v1\0"), Uint8Array.of(1)];
+	for (const value of [
+		options.identity_service_id,
+		options.environment_id,
+		options.audience,
+		options.purpose,
+		options.account_context,
+		options.operation_id
+	]) {
+		if (typeof value !== "string" || value.length > 4096) throw new Error("native_challenge_invalid");
+		const bytes = encoder.encode(value);
+		const size = /* @__PURE__ */ new Uint8Array(4);
+		new DataView(size.buffer).setUint32(0, bytes.length);
+		chunks.push(size, bytes);
+	}
+	const nonce = decode(options.nonce);
+	if (nonce.length !== 32) throw new Error("native_challenge_invalid");
+	chunks.push(hex(options.public_key), nonce);
+	for (const value of [options.issued_at, options.expires_at]) {
+		if (!Number.isSafeInteger(value) || value < 0) throw new Error("native_challenge_invalid");
+		const bytes = /* @__PURE__ */ new Uint8Array(8);
+		new DataView(bytes.buffer).setBigUint64(0, BigInt(value));
+		chunks.push(bytes);
+	}
+	const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return bytes;
+}
+async function importAccountKey(publicHex, privateHex, crypto = globalThis.crypto) {
+	const publicBytes = hex(publicHex.trim());
+	const seed = hex(privateHex.trim());
+	privateHex = "";
+	if (!crypto?.subtle) throw new Error("native_key_unsupported");
+	const pkcs8 = new Uint8Array(prefix.length + seed.length);
+	pkcs8.set(prefix);
+	pkcs8.set(seed, prefix.length);
+	let key;
+	try {
+		key = await crypto.subtle.importKey("pkcs8", pkcs8, "Ed25519", false, ["sign"]);
+	} catch {
+		throw new Error("native_key_unsupported");
+	} finally {
+		seed.fill(0);
+		pkcs8.fill(0);
+	}
+	const verify = await crypto.subtle.importKey("raw", publicBytes, "Ed25519", false, ["verify"]);
+	const proof = crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(32));
+	if (!await crypto.subtle.verify("Ed25519", verify, await crypto.subtle.sign("Ed25519", key, proof), proof)) throw new Error("native_key_mismatch");
+	return Object.freeze({
+		publicKey: publicHex.trim().toLowerCase(),
+		async signChallenge(started, capability, intent, origin = globalThis.location.origin) {
+			const o = started.options;
+			if (!o || o.identity_service_id !== capability.identity_service_id || o.environment_id !== capability.environment_id || o.audience !== origin || o.purpose !== intent || o.public_key !== this.publicKey || o.operation_id !== started.ceremony_id || started.operation_id !== started.ceremony_id || !/^[A-Za-z0-9_-]{43}$/.test(started.ceremony_id) || (intent === "login" ? o.account_context !== "" : !o.account_context) || o.expires_at !== started.expires_at || o.expires_at <= Date.now() || o.issued_at > Date.now() + 5e3 || o.expires_at - o.issued_at !== 12e4) throw new Error("native_challenge_invalid");
+			const bytes = nativeSigningBytes(o);
+			if (encode(bytes) !== o.signed_bytes) throw new Error("native_challenge_invalid");
+			return encode(await crypto.subtle.sign("Ed25519", key, bytes));
+		}
+	});
+}
+function renderImportedKey(root, { account, busy, client, run, onAuthenticated, isActive = () => true }) {
+	const section = document.createElement("fieldset");
+	section.disabled = busy;
+	section.className = "stack";
+	const legend = document.createElement("legend");
+	legend.textContent = account ? "导入账号密钥" : "导入密钥登录";
+	section.append(legend);
+	const hint = document.createElement("p");
+	hint.textContent = "仅支持已绑定的 Ed25519 账号密钥。私钥仅用于本页内存签名，退出或关闭页面后需重新导入。请勿输入钱包或节点私钥；此方式不具备通行密钥的抗钓鱼保护。";
+	section.append(hint);
+	function input(label, type) {
+		const row = document.createElement("label");
+		row.textContent = label;
+		row.className = "stack";
+		const node = document.createElement("input");
+		node.type = type;
+		node.autocomplete = "off";
+		node.spellcheck = false;
+		node.maxLength = 64;
+		node.placeholder = "64 位十六进制";
+		row.append(node);
+		section.append(row);
+		return node;
+	}
+	const pub = input("公钥", "text");
+	const secret = input("私钥种子", "password");
+	function action(label, operation) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.textContent = label;
+		button.addEventListener("click", () => {
+			const publicHex = pub.value;
+			let privateHex = secret.value;
+			secret.value = "";
+			pub.value = "";
+			const signer = importAccountKey(publicHex, privateHex);
+			privateHex = "";
+			run(async () => {
+				const key = await signer;
+				if (isActive()) await operation(key);
+			});
+		});
+		section.append(button);
+	}
+	if (account) {
+		action("绑定这把密钥到当前账号", (key) => client.bindImportedKey(key));
+		action("加载已绑定密钥用于安全确认", (key) => client.useImportedKey(key));
+	} else action("使用导入密钥登录", async (key) => {
+		await client.loginImportedKey(key);
+		await onAuthenticated();
+	});
+	root.append(section);
+}
+//#endregion
 //#region software_safe_src/viewer_passkey_account_module.js
 var API = "/api/public/hosted-account/v2";
 function decodePasskeyBytes(encoded) {
@@ -3379,6 +3645,13 @@ function serializePasskey(credential) {
 }
 function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, credentials = globalThis.navigator?.credentials } = {}) {
 	let csrf = null;
+	let importedSigner = null;
+	let signerGeneration = 0;
+	function clearImportedKey() {
+		importedSigner = null;
+		signerGeneration += 1;
+		pendingActions.clear();
+	}
 	let recoveryOperation = null;
 	let recoveryCancelOperation = null;
 	const pendingCeremonies = /* @__PURE__ */ new Map();
@@ -3534,10 +3807,35 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 			pendingActions.set(key, action);
 		}
 		if (!action.authorized) {
-			await ceremony(`/actions/${encodeURIComponent(action.action_id)}/reauth`, {}, "get");
+			if (importedSigner) await nativeCeremony(importedSigner, "reauth", action.action_id);
+			else await ceremony(`/actions/${encodeURIComponent(action.action_id)}/reauth`, {}, "get");
 			action.authorized = true;
 		}
 		return action.action_id;
+	}
+	async function nativeCeremony(signer, intent, action_id) {
+		const capability = (await request("/capabilities")).native_key;
+		if (!capability?.available) throw new Error("native_key_unsupported");
+		const key = `native:${intent}:${signer.publicKey}:${action_id || ""}`;
+		let pending = pendingCeremonies.get(key);
+		if (!pending) {
+			const started = await request("/native-key/options", {
+				intent,
+				public_key: signer.publicKey,
+				action_id
+			});
+			const signature = await signer.signChallenge(started, capability, intent);
+			pending = {
+				started,
+				payload: {
+					ceremony_id: started.ceremony_id,
+					operation_id: started.operation_id,
+					signature
+				}
+			};
+			pendingCeremonies.set(key, pending);
+		}
+		return finishCeremony("/native-key", key, pending);
 	}
 	function forgetAction(actionId) {
 		for (const [key, action] of pendingActions) if (action.action_id === actionId) pendingActions.delete(key);
@@ -3589,6 +3887,7 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 		throw new Error("account_list_limit");
 	}
 	return {
+		clearImportedKey,
 		async capabilities() {
 			const result = await request("/capabilities");
 			csrf = result.csrf_token;
@@ -3599,7 +3898,11 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 		credentials: () => listAll("/credentials", "credentials"),
 		sessions: () => listAll("/sessions", "sessions"),
 		register: () => ceremony("/passkeys/registration", { intent: "new_account" }, "create"),
-		login: () => ceremony("/passkeys/authentication", {}, "get"),
+		login: () => {
+			clearImportedKey();
+			pendingActions.clear();
+			return ceremony("/passkeys/authentication", {}, "get");
+		},
 		async addCredential() {
 			const actionId = await authorize("bind");
 			const result = await ceremony("/passkeys/registration", {
@@ -3628,7 +3931,29 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 			forgetAction(actionId);
 			return result;
 		},
-		logout: () => request("/logout", {}),
+		async loginImportedKey(key) {
+			const generation = signerGeneration;
+			const result = await nativeCeremony(key, "login");
+			if (generation === signerGeneration) importedSigner = key;
+			return result;
+		},
+		async bindImportedKey(key) {
+			const generation = signerGeneration;
+			const action = await authorize("bind");
+			const result = await nativeCeremony(key, "bind", action);
+			forgetAction(action);
+			if (generation === signerGeneration) importedSigner = key;
+			return result;
+		},
+		useImportedKey(key) {
+			clearImportedKey();
+			importedSigner = key;
+		},
+		async logout() {
+			clearImportedKey();
+			pendingActions.clear();
+			return request("/logout", {});
+		},
 		joinWorld: (payload) => request("/world/join", payload),
 		refreshWorld: (payload) => request("/world/refresh", payload),
 		releaseWorld: (payload) => request("/world/release", payload),
@@ -3751,10 +4076,16 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 	};
 }
 var messages = {
+	native_key_invalid: "请输入各 64 位十六进制的 Ed25519 公钥和私钥种子。",
+	native_key_mismatch: "公钥与私钥不匹配，请检查输入。",
+	native_key_unsupported: "当前环境或浏览器不支持导入密钥，请使用通行密钥。",
+	native_challenge_invalid: "登录挑战与当前服务不一致或已过期，请刷新重试。",
+	authentication_failed: "认证失败。请检查密钥是否已绑定且未撤销；未绑定的密钥不会创建账号。",
+	credential_conflict: "这把公钥已登记，无法重复绑定或转移到其他账号。",
 	NotAllowedError: "操作已取消或超时。账号不会因此丢失，请重新点击。",
 	passkey_unsupported: "当前浏览器无法使用通行密钥，请使用支持的浏览器、外部安全密钥或邮箱入口。",
-	last_credential_protected: "请先添加并验证另一个通行密钥，再移除此凭证。",
-	reauth_required: "请使用已登记的通行密钥确认这次操作。",
+	last_credential_protected: "请用另一把已登记的公钥凭证确认移除，并至少保留一把有效公钥。",
+	reauth_required: "请使用已登记的公钥凭证确认这次操作。",
 	state_changed: "账号状态已经变化，请刷新后重新确认。",
 	registration_closed: "当前暂不开放新账号；已有账号仍可登录。",
 	recovery_not_ready: "恢复保护期尚未结束，或通知仍待确认。请核对申请状态与最早完成时间。",
@@ -3846,6 +4177,17 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 				await refresh();
 				if (!disposed && account) onAuthenticated(account);
 			}, !capabilities.passkey?.available));
+			if (capabilities.native_key?.available) renderImportedKey(root, {
+				account,
+				busy,
+				client,
+				run,
+				isActive: () => !disposed,
+				onAuthenticated: async () => {
+					await refresh();
+					if (account) onAuthenticated(account);
+				}
+			});
 			renderAccountEmailRecovery(root, {
 				state: emailRecoveryState,
 				account,
@@ -3879,7 +4221,17 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			row.append(button("移除", () => credential.type === "email" ? client.unbindEmail(credential) : client.revokeCredential(credential)));
 			root.append(row);
 		}
-		if (credentialList.some((key) => key.state === "active" && key.type === "passkey")) root.append(button("添加备用通行密钥", () => client.addCredential()));
+		if (credentialList.some((key) => key.state === "active" && ["passkey", "native_key"].includes(key.type))) root.append(button("添加备用通行密钥", () => client.addCredential()));
+		if (capabilities.native_key?.available) {
+			renderImportedKey(root, {
+				account,
+				busy,
+				client,
+				run,
+				isActive: () => !disposed
+			});
+			if (credentialList.some((key) => key.state === "active" && key.type === "passkey")) root.append(button("改用通行密钥确认安全操作", () => client.clearImportedKey()));
+		}
 		renderAccountEmailRecovery(root, {
 			state: emailRecoveryState,
 			account,
@@ -3923,7 +4275,10 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			nextSessions = sessions.sessions || [];
 		}
 		if (disposed || revision !== generation) return;
-		if (account && !nextAccount) onSessionInvalidated();
+		if (account && !nextAccount) {
+			client.clearImportedKey?.();
+			onSessionInvalidated();
+		}
 		capabilities = nextCapabilities;
 		account = nextAccount;
 		credentialList = nextCredentials;
@@ -3938,6 +4293,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	return {
 		refresh,
 		dispose() {
+			client.clearImportedKey?.();
 			disposed = true;
 			++generation;
 			root.replaceChildren();
@@ -13579,6 +13935,309 @@ function FirstChatUnlockPreview(props) {
 	})();
 }
 //#endregion
+//#region software_safe_src/pixel_world_host_input.js
+function buildPixelWorldRenderInput(locale = state.uiLocale) {
+	const worldScaleSurface = buildWorldScaleSurface(locale);
+	return {
+		locale,
+		snapshot: state.snapshot,
+		lists: buildViewerEntityLists({
+			entityCollections,
+			isAgentVisibleToCurrentSession
+		}),
+		gameplay: buildGameplaySummary(locale),
+		selected: state.selectedObject,
+		selectedKind: state.selectedKind,
+		selectedId: state.selectedId,
+		presentation: {
+			world_bounds_label: worldScaleSurface.physicalTruth.worldBoundsLabel,
+			marker_truth_note: worldScaleSurface.presentationScale.markerTruthNote
+		}
+	};
+}
+//#endregion
+//#region software_safe_src/pixel_world_display_budget.js
+var raw$2 = (value) => value?.[$RAW] || value;
+var MAX_SOURCE = 1e4;
+var fail = () => {
+	throw Error("pixel world display capacity exceeded");
+};
+var key = (kind, id) => `${kind}:${id}`;
+var compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+function budgetPixelWorldDisplay(input, limit = 500) {
+	input = raw$2(input) || {};
+	const view = raw$2(input.worldView);
+	const model = raw$2(raw$2(input.snapshot)?.model) || {};
+	const candidates = /* @__PURE__ */ new Map();
+	const counts = {
+		agents: 0,
+		locations: 0,
+		modules: 0,
+		aggregates: 0,
+		events: 0
+	};
+	function add(kind, id, get, group) {
+		if (candidates.size >= MAX_SOURCE) fail();
+		id = String(id ?? "");
+		const identity = key(kind, id);
+		if (candidates.has(identity)) fail();
+		candidates.set(identity, {
+			kind,
+			id,
+			key: identity,
+			get,
+			group
+		});
+		counts[group]++;
+	}
+	function list(values, kind, group, idField = "id") {
+		values = raw$2(values) || [];
+		if (!Array.isArray(values) || values.length > MAX_SOURCE) fail();
+		for (const item of values) {
+			const value = raw$2(item);
+			add(kind, value?.[idField], () => value, group);
+		}
+	}
+	if (view) {
+		const entities = raw$2(view.entities) || [];
+		if (!Array.isArray(entities) || entities.length > MAX_SOURCE) fail();
+		for (const item of entities) {
+			const value = raw$2(item), kind = value?.kind;
+			if (kind === "agent" || kind === "location" || kind === "factory") add(kind, value.entity_id, () => value, kind === "agent" ? "agents" : kind === "location" ? "locations" : "modules");
+		}
+		list(view.aggregates, "aggregate", "aggregates", "aggregate_id");
+		list(view.events, "event", "events", "event_id");
+	} else {
+		list(input.lists?.agents, "agent", "agents");
+		list(input.lists?.locations, "location", "locations");
+		const modules = raw$2(model.module_visual_entities) || {};
+		const ids = Object.keys(modules);
+		if (ids.length > MAX_SOURCE) fail();
+		for (const id of ids) add("module_visual", id, () => raw$2(modules[id]), "modules");
+	}
+	const required = /* @__PURE__ */ new Set();
+	const gameplay = raw$2(input.gameplay) || {};
+	const wanted = [
+		key(input.selectedKind, input.selectedId),
+		key(input.navigation?.target?.kind, input.navigation?.target?.id),
+		...[
+			gameplay.recommendedAction?.targetAgentId,
+			gameplay.receiptTargetAgentId,
+			gameplay.recentFeedback?.agentId,
+			raw$2(raw$2(input.snapshot)?.player_gameplay)?.primary_intent?.agent_id
+		].filter(Boolean).map((id) => key("agent", id))
+	];
+	function closure(item, result = /* @__PURE__ */ new Set()) {
+		if (!item || result.has(item.key)) return result;
+		result.add(item.key);
+		const value = item.get();
+		const record = view && (item.kind === "agent" || item.kind === "location" || item.kind === "factory") ? raw$2(value.render_record) : value;
+		const location = record?.location_id || raw$2(record?.anchor)?.data?.location_id;
+		const agent = raw$2(record?.anchor)?.data?.agent_id;
+		if (location) closure(candidates.get(key("location", location)), result);
+		if (agent) closure(candidates.get(key("agent", agent)), result);
+		return result;
+	}
+	for (const id of wanted) for (const dependent of closure(candidates.get(id))) required.add(dependent);
+	if (required.size > limit) fail();
+	const retained = new Set(required);
+	const ordered = [...candidates.values()].sort((a, b) => compare(a.key, b.key));
+	for (const item of ordered) {
+		const needed = [...closure(item)].filter((id) => !retained.has(id));
+		if (retained.size + needed.length <= limit) for (const id of needed) retained.add(id);
+	}
+	const selected = ordered.filter((item) => retained.has(item.key));
+	return {
+		selected,
+		retained,
+		metadata: {
+			source_counts: counts,
+			projected_markers: selected.length,
+			omitted_markers: candidates.size - selected.length,
+			required_entities: [...required].sort(),
+			reason: candidates.size > selected.length ? "marker_budget" : null
+		}
+	};
+}
+var MAX_ITEMS = 500;
+var MAX_NODES = 16384;
+var raw$1 = (value) => value?.[$RAW] || value;
+var capacity = () => {
+	throw new Error("pixel world display capacity exceeded");
+};
+var fields = (names) => Object.fromEntries(names.split(" ").map((key) => [key, true]));
+var position = fields("x_cm y_cm z_cm");
+var relation = fields("kind status source_class freshness label");
+var entity = {
+	...fields("id name label kind location_id"),
+	pos: position,
+	resources: true,
+	power: fields("state"),
+	relation,
+	assignment: relation,
+	profile: fields("radius_cm"),
+	fragment_profile: { blocks: { blocks: true } }
+};
+var moduleVisual = {
+	...fields("entity_id module_id kind label"),
+	anchor: true
+};
+var gameplay = {
+	...fields("acceptedIntentDetail acceptedIntentId acceptedIntentScope acceptedIntentSummary acceptedIntentTarget blockerDetail blockerKind blockerLabel executionCauseDetail executionCauseKind executionState executionStateLabel executionSummary goalKind goalTitle lastWorldChange narrativeBlockerDetail narrativeNextStep nextStepHint objective progressDetail progressPercent receiptTargetAgentId"),
+	availableActions: true,
+	recentFeedback: true,
+	recommendedAction: true,
+	microDepotFacilities: true,
+	micro_depot_facilities: true
+};
+function projectOnce(input, markerLimit) {
+	let nodes = 0;
+	function copy(value, schema = true, depth = 0) {
+		value = raw$1(value);
+		if (++nodes > MAX_NODES) throw new RangeError("pixel world projection budget exceeded");
+		if (depth > 16) capacity();
+		if (value === void 0) return void 0;
+		if (value === null || typeof value === "boolean") return value;
+		if (typeof value === "number") {
+			if (!Number.isFinite(value)) capacity();
+			return value;
+		}
+		if (typeof value === "string") {
+			if (value.length > 8192) capacity();
+			return value;
+		}
+		if (Array.isArray(value)) {
+			if (value.length > MAX_ITEMS) capacity();
+			return value.map((item) => copy(item, schema, depth + 1));
+		}
+		if (typeof value !== "object") capacity();
+		const result = {};
+		const keys = schema === true ? Object.keys(value) : Object.keys(schema);
+		if (keys.length > MAX_ITEMS) capacity();
+		for (const key of keys) {
+			if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+			let sourceItem = value[key];
+			if ((key === "name" || key === "label") && typeof sourceItem === "string") {
+				let bounded = "", scalars = 0;
+				for (const scalar of sourceItem) {
+					if (scalars++ === 128) break;
+					bounded += scalar;
+				}
+				sourceItem = bounded;
+			}
+			const item = copy(sourceItem, schema === true ? true : schema[key], depth + 1);
+			if (item !== void 0) result[key] = item;
+		}
+		return result;
+	}
+	const source = raw$1(input) || {};
+	const snapshot = raw$1(source.snapshot) || {};
+	const model = raw$1(snapshot.model) || {};
+	const facilities = raw$1(source.gameplay)?.microDepotFacilities || raw$1(source.gameplay)?.micro_depot_facilities || [];
+	const reserve = Array.isArray(raw$1(facilities)) ? raw$1(facilities).length : 0;
+	const budget = budgetPixelWorldDisplay(source, Math.max(0, markerLimit - reserve));
+	const pick = (group) => budget.selected.filter((item) => item.group === group);
+	const lists = {
+		agents: [],
+		locations: []
+	};
+	if (!source.worldView) {
+		lists.agents = pick("agents").map((item) => copy(item.get(), entity));
+		lists.locations = pick("locations").map((item) => copy(item.get(), entity));
+	}
+	const moduleVisuals = source.worldView ? {} : Object.fromEntries(pick("modules").map((item) => [item.id, copy(item.get(), moduleVisual)]));
+	const provenance = fields("geometry_source freshness valid_at_source_cut");
+	const identity = fields("world_id reorg_epoch event_seq");
+	const relationEndpoint = fields("kind id");
+	const relations = raw$1(source.worldView?.relations) || [];
+	if (!Array.isArray(relations) || relations.length > 1e4) capacity();
+	const worldView = source.worldView ? {
+		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch")),
+		...source.worldView.world_bounds && { world_bounds: copy(source.worldView.world_bounds, fields("width_cm depth_cm height_cm")) },
+		entities: budget.selected.filter((item) => [
+			"agents",
+			"locations",
+			"modules"
+		].includes(item.group)).map((item) => copy(item.get(), {
+			...fields("entity_id kind"),
+			render_record: entity,
+			provenance
+		})),
+		aggregates: pick("aggregates").map((item) => copy(item.get(), {
+			...fields("aggregate_id label member_count"),
+			position,
+			bounds: fields("min_x_cm max_x_cm min_y_cm max_y_cm min_z_cm max_z_cm"),
+			provenance
+		})),
+		events: pick("events").map((item) => copy(item.get(), {
+			...fields("event_id source_class source_cut freshness label"),
+			identity,
+			feed_ref: identity,
+			position
+		})),
+		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, MAX_ITEMS), {
+			...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),
+			from: relationEndpoint,
+			to: relationEndpoint
+		})
+	} : null;
+	const social = raw$1(model.social_edges) || {};
+	const socialKeys = Object.keys(social).sort();
+	if (socialKeys.length > 1e4) capacity();
+	const visibleOwner = (owner) => {
+		owner = raw$1(owner);
+		const kind = owner?.type === "Agent" ? "agent" : owner?.type === "Location" ? "location" : null;
+		const id = kind === "agent" ? raw$1(owner?.data)?.agent_id : raw$1(owner?.data)?.location_id;
+		return kind && budget.retained.has(`${kind}:${id}`);
+	};
+	const owner = {
+		...fields("type"),
+		data: fields("agent_id location_id")
+	};
+	const socialEdges = {};
+	for (const id of socialKeys) {
+		const edge = raw$1(social[id]);
+		if (!visibleOwner(edge?.from) || !visibleOwner(edge?.to)) continue;
+		if (Object.keys(socialEdges).length >= MAX_ITEMS) break;
+		socialEdges[id] = copy(edge, {
+			...fields("edge_id lifecycle expires_at_tick relation_kind schema_id weight_bps"),
+			from: owner,
+			to: owner
+		});
+	}
+	const dto = {
+		schema_version: 1,
+		...copy(source, fields("locale selectedKind selectedId worldViewStale")),
+		snapshot: {
+			...copy(snapshot, fields("time")),
+			...snapshot.config && { config: copy(snapshot.config, { space: fields("width_cm depth_cm height_cm") }) },
+			model: {
+				...!source.worldView && model.module_visual_entities && { module_visual_entities: moduleVisuals },
+				...model.social_edges && { social_edges: socialEdges }
+			},
+			...snapshot.player_gameplay && { player_gameplay: copy(snapshot.player_gameplay, { primary_intent: fields("schema_version source_class freshness control_state status intent_id agent_id world_id reorg_epoch logical_time event_seq updated_at") }) }
+		},
+		lists,
+		display_budget: budget.metadata,
+		gameplay: copy(source.gameplay || {}, gameplay),
+		...source.selected && { selected: copy(source.selected, entity) },
+		...source.presentation && { presentation: copy(source.presentation, fields("world_bounds_label marker_truth_note")) },
+		...worldView && { worldView },
+		...source.navigation && { navigation: copy(source.navigation) }
+	};
+	if (dto.lists.agents.length + dto.lists.locations.length > MAX_ITEMS) capacity();
+	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > 262144) throw new RangeError("pixel world projection budget exceeded");
+	return dto;
+}
+function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
+	for (let limit = markerLimit; limit >= 1; limit = Math.floor(limit * .75)) try {
+		return projectOnce(input, limit);
+	} catch (error) {
+		if (!(error instanceof RangeError) || error.message !== "pixel world projection budget exceeded") throw error;
+	}
+	capacity();
+}
+//#endregion
 //#region software_safe_src/pixel_world_spatial_controller.js
 var refKey = (ref) => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
@@ -14661,7 +15320,7 @@ function snapshotTick(snapshot) {
 	const tick = Number(snapshot.time);
 	return Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : null;
 }
-function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal }) {
+function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage }) {
 	let bridge = null;
 	let generation = 0;
 	const detached = () => ({
@@ -14673,23 +15332,57 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal })
 	let runtimeSource = "detached";
 	let runtimeModuleUrl = null;
 	let deriveRenderState = null;
+	let lastSignature = null, lastReady = null;
+	function displaySignature(input) {
+		if (input?.schema_version !== 1 || input.fatal) return null;
+		const timeSensitive = Object.keys(input.snapshot?.model?.social_edges || {}).length > 0;
+		return JSON.stringify({
+			...input,
+			display_budget: void 0,
+			snapshot: {
+				...input.snapshot,
+				time: timeSensitive ? input.snapshot?.time : void 0
+			}
+		});
+	}
+	function remember(input, result) {
+		const signature = displaySignature(input);
+		if (signature !== null && result.status === "ready" && !result.fatal && result.renderState) {
+			lastSignature = signature;
+			lastReady = result;
+		} else {
+			lastSignature = null;
+			lastReady = null;
+		}
+		return result;
+	}
 	function withWorldTickReadout(renderState, renderInput) {
 		if (!renderState || !renderInput) return renderState;
 		const worldTick = snapshotTick(renderInput.snapshot);
-		if (worldTick === null) return renderState;
+		if (worldTick === null && !renderInput.display_budget) return renderState;
+		const hadClipping = renderInput.display_budget?.omitted_markers > 0 || renderState.display_budget?.omitted_markers > 0;
 		return {
 			...renderState,
-			world_tick: renderState.world_tick ?? worldTick,
+			...renderInput.display_budget ? { display_budget: {
+				...renderState.display_budget,
+				...renderInput.display_budget
+			} } : {},
+			...worldTick !== null ? { world_tick: worldTick } : {},
 			commercial_surface: renderState.commercial_surface ? {
 				...renderState.commercial_surface,
 				world_read: {
 					...renderState.commercial_surface.world_read || {},
-					tick: renderState.commercial_surface.world_read?.tick ?? worldTick
+					...worldTick !== null ? { tick: worldTick } : {},
+					...hadClipping && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? { agents: renderInput.display_budget.source_counts.agents } : {}
 				}
 			} : renderState.commercial_surface
 		};
 	}
 	function deriveRenderStateOrUnavailable(renderInput) {
+		if (renderInput?.fatal) return {
+			renderState: null,
+			fatal: renderInput.fatal
+		};
 		if (!deriveRenderState || !renderInput) return {
 			renderState: null,
 			fatal: {
@@ -14725,6 +15418,8 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal })
 	return {
 		async mount(canvas, renderInput) {
 			const attempt = ++generation;
+			lastSignature = null;
+			lastReady = null;
 			bridge?.unmount();
 			bridge = null;
 			deriveRenderState = null;
@@ -14732,6 +15427,10 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal })
 			const runtime = await createPixelWorldRuntimeBridge({
 				onEvent(event) {
 					if (!isCurrent()) return;
+					if (event?.type === "resource_stage") {
+						onResourceStage?.(event.stage);
+						return;
+					}
 					if (event?.type === "canvas_ready") return;
 					if (event?.type === "select_entity") {
 						onSelectEntity?.(event.selection);
@@ -14778,14 +15477,14 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal })
 					runtime.bridge.unmount();
 					return detached();
 				}
-				return {
+				return remember(renderInput, {
 					status: result?.status || "ready",
 					selection: mountedRenderState.selection,
 					fatal: result?.fatal || null,
 					renderState: mountedRenderState,
 					runtimeSource,
 					runtimeModuleUrl
-				};
+				});
 			} catch (error) {
 				if (!isCurrent()) {
 					runtime.bridge.unmount();
@@ -14807,6 +15506,12 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal })
 			}
 		},
 		update(renderInput) {
+			if (lastReady && displaySignature(renderInput) === lastSignature) return {
+				...lastReady,
+				renderState: withWorldTickReadout(lastReady.renderState, renderInput)
+			};
+			lastSignature = null;
+			lastReady = null;
 			const derived = deriveRenderStateOrUnavailable(renderInput);
 			if (!derived.renderState) {
 				const result = bridge?.update(null) || {
@@ -14824,16 +15529,18 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal })
 			}
 			const nextRenderState = derived.renderState;
 			const result = bridge?.update(nextRenderState) || { status: "detached" };
-			return {
+			return remember(renderInput, {
 				status: result?.status || "ready",
 				selection: nextRenderState.selection,
 				fatal: result?.fatal || null,
 				renderState: nextRenderState,
 				runtimeSource,
 				runtimeModuleUrl
-			};
+			});
 		},
 		unmount() {
+			lastSignature = null;
+			lastReady = null;
 			generation += 1;
 			const result = bridge?.unmount() || { status: "detached" };
 			bridge = null;
@@ -16898,19 +17605,20 @@ var _tmpl$30$1 = /*#__PURE__*/ template(`<div id=viewer-command-console class="p
 var _tmpl$31$1 = /*#__PURE__*/ template(`<div class=feedback-detail>`);
 var _tmpl$32$1 = /*#__PURE__*/ template(`<div class=feedback-card><div class=badge-row><span></span></div><div class=feedback-summary>`);
 var _tmpl$33$1 = /*#__PURE__*/ template(`<div><div class=event-card__title><span></span></div><div class=event-card__meta></div><div class=feedback-summary>`);
-var _tmpl$34$1 = /*#__PURE__*/ template(`<div class=pixel-world-host__summary><div class=pixel-world-host__summary-copy><div class=pixel-world-host__headline></div><div class=feedback-detail>`);
-var _tmpl$35$1 = /*#__PURE__*/ template(`<details class=pixel-world-exploration-disclosure><summary>`);
-var _tmpl$36$1 = /*#__PURE__*/ template(`<div class="empty pixel-world-render-unavailable"data-viewer-overlay=renderer-unavailable>`);
-var _tmpl$37$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-receipt>`);
-var _tmpl$38$1 = /*#__PURE__*/ template(`<details id=viewer-focus-command-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--command"><summary></summary><div class=pixel-world-focus-drawer__body>`);
-var _tmpl$39$1 = /*#__PURE__*/ template(`<div class=feedback-detail data-renderer-fatal>`);
-var _tmpl$40$1 = /*#__PURE__*/ template(`<details class="diagnostic pixel-world-render-diagnostics"><summary></summary><div class="pixel-world-host__toolbar badge-row"><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><button type=button></button><button type=button></button><div class=feedback-detail>`);
-var _tmpl$41$1 = /*#__PURE__*/ template(`<details id=viewer-focus-diagnostics-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--diagnostics"><summary></summary><div class=pixel-world-focus-drawer__body><div class=badge-row><span class=badge></span><span class=badge></span><span class=badge></span></div><div class="toolbar toolbar--spaced"><button type=button>`);
-var _tmpl$42$1 = /*#__PURE__*/ template(`<div class="stack flow-top"><pre class=json>`);
-var _tmpl$43$1 = /*#__PURE__*/ template(`<div data-viewer-overlay=world-hud><div class=pixel-world-focus-entry data-viewer-overlay=cinematic-entry><div id=pixel-world-focus-entry-hint class=pixel-world-focus-entry__hint></div><button type=button class=pixel-world-focus-entry__button aria-pressed=false></button></div><details class=diagnostic><summary>`);
-var _tmpl$44$1 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$45$1 = /*#__PURE__*/ template(`<div>`);
-var _tmpl$46$1 = /*#__PURE__*/ template(`<button type=button class=pixel-world-render-unavailable__retry>`);
+var _tmpl$34$1 = /*#__PURE__*/ template(`<div role=status aria-live=polite>`);
+var _tmpl$35$1 = /*#__PURE__*/ template(`<div class=pixel-world-host__summary><div class=pixel-world-host__summary-copy><div class=pixel-world-host__headline></div><div class=feedback-detail>`);
+var _tmpl$36$1 = /*#__PURE__*/ template(`<details class=pixel-world-exploration-disclosure><summary>`);
+var _tmpl$37$1 = /*#__PURE__*/ template(`<div class="empty pixel-world-render-unavailable"data-viewer-overlay=renderer-unavailable>`);
+var _tmpl$38$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-receipt>`);
+var _tmpl$39$1 = /*#__PURE__*/ template(`<details id=viewer-focus-command-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--command"><summary></summary><div class=pixel-world-focus-drawer__body>`);
+var _tmpl$40$1 = /*#__PURE__*/ template(`<div class=feedback-detail data-renderer-fatal>`);
+var _tmpl$41$1 = /*#__PURE__*/ template(`<details class="diagnostic pixel-world-render-diagnostics"><summary></summary><div class="pixel-world-host__toolbar badge-row"><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><button type=button></button><button type=button></button><div class=feedback-detail>`);
+var _tmpl$42$1 = /*#__PURE__*/ template(`<details id=viewer-focus-diagnostics-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--diagnostics"><summary></summary><div class=pixel-world-focus-drawer__body><div class=badge-row><span class=badge></span><span class=badge></span><span class=badge></span></div><div class="toolbar toolbar--spaced"><button type=button>`);
+var _tmpl$43$1 = /*#__PURE__*/ template(`<div class="stack flow-top"><pre class=json>`);
+var _tmpl$44$1 = /*#__PURE__*/ template(`<div data-viewer-overlay=world-hud><div class=pixel-world-focus-entry data-viewer-overlay=cinematic-entry><div id=pixel-world-focus-entry-hint class=pixel-world-focus-entry__hint></div><button type=button class=pixel-world-focus-entry__button aria-pressed=false></button></div><details class=diagnostic><summary>`);
+var _tmpl$45$1 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$46$1 = /*#__PURE__*/ template(`<div>`);
+var _tmpl$47$1 = /*#__PURE__*/ template(`<button type=button class=pixel-world-render-unavailable__retry>`);
 function tr$1(locale, zh, en) {
 	return isLocaleZh(locale) ? zh : en;
 }
@@ -16974,23 +17682,6 @@ function PixelWorldHostHotspotLayer(props) {
 			}
 		})
 	});
-}
-function buildPixelWorldRenderInput(locale = state.uiLocale) {
-	const worldScaleSurface = buildWorldScaleSurface(locale);
-	return {
-		locale,
-		snapshot: state.snapshot,
-		lists: modelLists(),
-		gameplay: buildGameplaySummary(locale),
-		selected: clone(state.selectedObject),
-		selectedKind: state.selectedKind,
-		selectedId: state.selectedId,
-		recentEvents: clone(state.recentEvents),
-		presentation: {
-			world_bounds_label: worldScaleSurface.physicalTruth.worldBoundsLabel,
-			marker_truth_note: worldScaleSurface.presentationScale.markerTruthNote
-		}
-	};
 }
 function PixelWorldCanvasRenderer(props) {
 	let canvasRef;
@@ -18043,22 +18734,33 @@ function PixelWorldHost(props) {
 	const renderInput = createMemo(() => {
 		worldRevision();
 		const spatialState = worldViewState();
-		return {
-			...buildPixelWorldRenderInput(locale()),
-			...spatialState.view ? {
-				worldView: spatialState.view,
-				worldViewStale: spatialState.stale
-			} : {},
-			...spatial.selection() ? {
-				selectedKind: spatial.selection().kind,
-				selectedId: spatial.selection().id
-			} : {},
-			navigation: navigation()
-		};
+		const currentLocale = locale();
+		const currentSelection = spatial.selection();
+		const currentNavigation = navigation();
+		try {
+			return untrack(() => projectPixelWorldRenderInput({
+				...buildPixelWorldRenderInput(currentLocale),
+				...spatialState.view ? {
+					worldView: spatialState.view,
+					worldViewStale: spatialState.stale
+				} : {},
+				...currentSelection ? {
+					selectedKind: currentSelection.kind,
+					selectedId: currentSelection.id
+				} : {},
+				navigation: currentNavigation
+			}));
+		} catch (error) {
+			return { fatal: {
+				code: "pixel_world_display_capacity",
+				message: String(error?.message || error)
+			} };
+		}
 	});
 	const scopeGuard = createPixelWorldScopeGuard(state);
 	const [retainedSurface, setRetainedSurface] = createSignal(null);
 	const [rustRenderState, setRustRenderState] = createSignal(null);
+	const [resourceStage, setResourceStage] = createSignal("descriptor");
 	const renderState = () => rustRenderState();
 	const visualState = () => pixelWorldVisualState(renderState());
 	const [rendererStatus, setRendererStatus, rendererFatal, setRendererFatal, runtimeSource, setRuntimeSource] = createPixelWorldRendererRouteSignals(rendererRoute, createSignal);
@@ -18107,6 +18809,7 @@ function PixelWorldHost(props) {
 		setMaximized: setPersistentMaximized
 	});
 	const adapter = createMemo(() => createPixelWorldHostAdapter({
+		onResourceStage: setResourceStage,
 		onSelectEntity(selection) {
 			if (spatial.select(selection)?.kind === "module_visual") focusViewerPanel("viewer-details-panel");
 		},
@@ -18191,6 +18894,18 @@ function PixelWorldHost(props) {
 	let rendererAttemptGeneration = 0;
 	let rendererUpdatePending = false;
 	const rendererAttemptIsCurrent = (canvas, generation) => generation === rendererAttemptGeneration && mountedCanvas === canvas;
+	let rendererUpdateFrame = null;
+	function scheduleRendererUpdate() {
+		if (rendererUpdateFrame !== null) return;
+		const generation = rendererAttemptGeneration;
+		rendererUpdateFrame = requestAnimationFrame(() => {
+			rendererUpdateFrame = null;
+			if (!hostActive || generation !== rendererAttemptGeneration || scopeGuard.check().blocked) return;
+			setWorldRevision((revision) => revision + 1);
+			if (rendererStatus() === "ready") applyRendererUpdate();
+			else rendererUpdatePending = true;
+		});
+	}
 	function applyRendererUpdate() {
 		if (rendererStatus() === "unavailable") return;
 		const generation = rendererAttemptGeneration;
@@ -18285,6 +19000,8 @@ function PixelWorldHost(props) {
 		}
 		const canvas = mountedCanvas?.isConnected ? mountedCanvas : null;
 		mountedCanvas = canvas;
+		if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
+		rendererUpdateFrame = null;
 		const generation = ++rendererAttemptGeneration;
 		setRendererFatal(null);
 		setRendererStatus("booting");
@@ -18337,9 +19054,7 @@ function PixelWorldHost(props) {
 			}
 			spatial.refresh(state.snapshot);
 			if (invalidation?.pixelWorldChanged === false) return;
-			setWorldRevision((revision) => revision + 1);
-			if (rendererStatus() === "ready") applyRendererUpdate();
-			else rendererUpdatePending = true;
+			scheduleRendererUpdate();
 		});
 		onCleanup(unsubscribeRenderHook);
 		if (pixelWorldTestApiEnabled()) onCleanup(installPixelWorldHotspotPointerProbe({
@@ -18360,6 +19075,8 @@ function PixelWorldHost(props) {
 		document.body.classList.remove("pixel-world-focus-active");
 		document.body.classList.remove("pixel-world-focus-maximized");
 		hostActive = false;
+		if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
+		rendererUpdateFrame = null;
 		rendererAttemptGeneration += 1;
 		removeContextListener();
 		adapter().unmount();
@@ -18376,42 +19093,60 @@ function PixelWorldHost(props) {
 		navigation();
 		spatial.selection();
 		untrack(() => {
-			if (mountedCanvas && rendererStatus() === "ready") applyRendererUpdate();
+			if (mountedCanvas && rendererStatus() === "ready") scheduleRendererUpdate();
 		});
 	});
 	return (() => {
-		var _el$160 = _tmpl$43$1(), _el$167 = _el$160.firstChild, _el$168 = _el$167.firstChild, _el$169 = _el$168.nextSibling, _el$206 = _el$167.nextSibling, _el$207 = _el$206.firstChild;
+		var _el$160 = _tmpl$44$1(), _el$168 = _el$160.firstChild, _el$169 = _el$168.firstChild, _el$170 = _el$169.nextSibling, _el$207 = _el$168.nextSibling, _el$208 = _el$207.firstChild;
 		setAttribute(_el$160, "data-visual-fixture", visualFixtureName || "");
+		insert(_el$160, createComponent(Show, {
+			get when() {
+				return memo(() => rendererStatus() !== "ready")() && rendererStatus() !== "unavailable";
+			},
+			get children() {
+				var _el$161 = _tmpl$34$1();
+				insert(_el$161, () => ({
+					descriptor: tr$1(locale(), "正在查找世界画面资源…", "Finding world graphics…"),
+					download: tr$1(locale(), "正在下载世界画面资源…", "Downloading world graphics…"),
+					verify: tr$1(locale(), "正在核对画面资源完整性…", "Verifying world graphics…"),
+					compile: tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"),
+					prepare: tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"),
+					ready: tr$1(locale(), "正在连接世界画面…", "Attaching world graphics…")
+				})[resourceStage()] || tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"));
+				createRenderEffect(() => setAttribute(_el$161, "data-world-resource-stage", resourceStage()));
+				return _el$161;
+			}
+		}), _el$168);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return !focusMode() || !maximized();
 			},
 			get children() {
-				var _el$161 = _tmpl$34$1(), _el$163 = _el$161.firstChild.firstChild, _el$164 = _el$163.nextSibling;
-				insert(_el$163, () => tr$1(locale(), "世界指挥棋盘", "World Command Board"));
-				insert(_el$164, () => renderState()?.commercial_surface?.objective?.detail || tr$1(locale(), "等待 Rust bridge 生成世界显示状态。", "Waiting for the Rust bridge to derive the world display state."));
-				return _el$161;
+				var _el$162 = _tmpl$35$1(), _el$164 = _el$162.firstChild.firstChild, _el$165 = _el$164.nextSibling;
+				insert(_el$164, () => tr$1(locale(), "世界指挥棋盘", "World Command Board"));
+				insert(_el$165, () => renderState()?.commercial_surface?.objective?.detail || tr$1(locale(), "等待 Rust bridge 生成世界显示状态。", "Waiting for the Rust bridge to derive the world display state."));
+				return _el$162;
 			}
-		}), _el$167);
+		}), _el$168);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return spatialSupported();
 			},
 			get children() {
-				var _el$165 = _tmpl$35$1(), _el$166 = _el$165.firstChild;
-				insert(_el$166, () => tr$1(locale(), "探索世界", "Explore world"));
-				insert(_el$165, createComponent(PixelWorldSpatialExplorer, {
+				var _el$166 = _tmpl$36$1(), _el$167 = _el$166.firstChild;
+				insert(_el$167, () => tr$1(locale(), "探索世界", "Explore world"));
+				insert(_el$166, createComponent(PixelWorldSpatialExplorer, {
 					controller: spatial,
 					get locale() {
 						return locale();
 					}
 				}), null);
-				return _el$165;
+				return _el$166;
 			}
-		}), _el$167);
-		insert(_el$168, () => tr$1(locale(), "拖动、缩放并检查世界", "Pan, zoom, and inspect the world"));
-		addEventListener(_el$169, "click", focusController.enterFocusMode, true);
-		insert(_el$169, (() => {
+		}), _el$168);
+		insert(_el$169, () => tr$1(locale(), "拖动、缩放并检查世界", "Pan, zoom, and inspect the world"));
+		addEventListener(_el$170, "click", focusController.enterFocusMode, true);
+		insert(_el$170, (() => {
 			var _c$7 = memo(() => rendererStatus() === "unavailable");
 			return () => _c$7() ? tr$1(locale(), "电影视图（当前不可用）", "Cinematic View (unavailable)") : tr$1(locale(), "电影视图", "Cinematic View");
 		})());
@@ -18464,7 +19199,7 @@ function PixelWorldHost(props) {
 					})
 				];
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return renderState();
@@ -18476,7 +19211,7 @@ function PixelWorldHost(props) {
 					focusMode
 				});
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return memo(() => rendererStatus() !== "fallback")() && rendererStatus() !== "unavailable";
@@ -18500,32 +19235,34 @@ function PixelWorldHost(props) {
 						if (mountedCanvas === canvas) return;
 						mountedCanvas = canvas;
 						attachContextListener(canvas);
+						if (rendererUpdateFrame !== null) cancelAnimationFrame(rendererUpdateFrame);
+						rendererUpdateFrame = null;
 						const generation = ++rendererAttemptGeneration;
 						if (untrack(rendererStatus) !== "ready") setReadyMode(canvas, generation);
 					}
 				});
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return !renderState();
 			},
 			get children() {
-				var _el$170 = _tmpl$36$1();
-				insert(_el$170, createComponent(Show, {
+				var _el$171 = _tmpl$37$1();
+				insert(_el$171, createComponent(Show, {
 					get when() {
 						return retainedSurface();
 					},
 					children: (surface) => [
 						(() => {
-							var _el$210 = _tmpl$44$1();
-							insert(_el$210, () => surface().objective?.title);
-							return _el$210;
+							var _el$211 = _tmpl$45$1();
+							insert(_el$211, () => surface().objective?.title);
+							return _el$211;
 						})(),
 						(() => {
-							var _el$211 = _tmpl$44$1();
-							insert(_el$211, () => surface().objective?.detail);
-							return _el$211;
+							var _el$212 = _tmpl$45$1();
+							insert(_el$212, () => surface().objective?.detail);
+							return _el$212;
 						})(),
 						createComponent(PixelWorldActionReceipt, {
 							locale,
@@ -18533,191 +19270,191 @@ function PixelWorldHost(props) {
 						})
 					]
 				}), null);
-				insert(_el$170, (() => {
+				insert(_el$171, (() => {
 					var _c$8 = memo(() => rendererStatus() === "unavailable");
 					return () => _c$8() ? [(() => {
-						var _el$212 = _tmpl$45$1();
-						insert(_el$212, (() => {
+						var _el$213 = _tmpl$46$1();
+						insert(_el$213, (() => {
 							var _c$9 = memo(() => rendererFatal()?.code === "pixel_world_scope_changed");
 							return () => _c$9() ? tr$1(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : tr$1(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser");
 						})());
-						return _el$212;
-					})(), (() => {
-						var _el$213 = _tmpl$46$1();
-						_el$213.$$click = requestReadyMode;
-						insert(_el$213, () => tr$1(locale(), "重试 Renderer", "Retry Renderer"));
 						return _el$213;
+					})(), (() => {
+						var _el$214 = _tmpl$47$1();
+						_el$214.$$click = requestReadyMode;
+						insert(_el$214, () => tr$1(locale(), "重试 Renderer", "Retry Renderer"));
+						return _el$214;
 					})()] : tr$1(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.");
 				})(), null);
 				createRenderEffect((_p$) => {
 					var _v$34 = rendererStatus() === "unavailable" ? PIXEL_WORLD_RENDERER_UNAVAILABLE_MESSAGE_ID : void 0, _v$35 = rendererStatus();
-					_v$34 !== _p$.e && setAttribute(_el$170, "id", _p$.e = _v$34);
-					_v$35 !== _p$.t && setAttribute(_el$170, "data-renderer-state", _p$.t = _v$35);
+					_v$34 !== _p$.e && setAttribute(_el$171, "id", _p$.e = _v$34);
+					_v$35 !== _p$.t && setAttribute(_el$171, "data-renderer-state", _p$.t = _v$35);
 					return _p$;
 				}, {
 					e: void 0,
 					t: void 0
 				});
-				return _el$170;
+				return _el$171;
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return memo(() => !!focusMode())() && renderState()?.commercial_surface;
 			},
 			get children() {
-				var _el$171 = _tmpl$37$1();
-				insert(_el$171, createComponent(PixelWorldActionReceipt, {
+				var _el$172 = _tmpl$38$1();
+				insert(_el$172, createComponent(PixelWorldActionReceipt, {
 					"class": "pixel-world-action-receipt--focus-compact",
 					locale,
 					surface: () => renderState().commercial_surface
 				}));
-				return _el$171;
+				return _el$172;
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return focusMode();
 			},
 			get children() {
-				var _el$172 = _tmpl$38$1(), _el$173 = _el$172.firstChild, _el$174 = _el$173.nextSibling;
-				_el$172.addEventListener("toggle", (event) => {
+				var _el$173 = _tmpl$39$1(), _el$174 = _el$173.firstChild, _el$175 = _el$174.nextSibling;
+				_el$173.addEventListener("toggle", (event) => {
 					if (event.currentTarget.open) setPersistentCommandDrawerOpen(true);
 					else focusController.closeCommandDrawer({ returnFocus: true });
 				});
-				insert(_el$173, () => tr$1(locale(), "命令与目标", "Command and Target"));
-				insert(_el$174, createComponent(PixelWorldFocusCommandSurface, { locale }));
-				createRenderEffect(() => _el$172.open = commandDrawerOpen());
-				return _el$172;
+				insert(_el$174, () => tr$1(locale(), "命令与目标", "Command and Target"));
+				insert(_el$175, createComponent(PixelWorldFocusCommandSurface, { locale }));
+				createRenderEffect(() => _el$173.open = commandDrawerOpen());
+				return _el$173;
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return !focusMode() || !maximized();
 			},
 			get children() {
-				var _el$175 = _tmpl$40$1(), _el$176 = _el$175.firstChild, _el$177 = _el$176.nextSibling, _el$178 = _el$177.firstChild, _el$179 = _el$178.nextSibling, _el$180 = _el$179.nextSibling, _el$182 = _el$180.nextSibling, _el$183 = _el$182.nextSibling, _el$184 = _el$183.nextSibling, _el$185 = _el$184.nextSibling, _el$186 = _el$185.nextSibling, _el$187 = _el$186.nextSibling, _el$191 = _el$187.nextSibling, _el$192 = _el$191.nextSibling, _el$193 = _el$192.nextSibling;
-				insert(_el$176, () => tr$1(locale(), "Renderer 诊断", "Renderer Diagnostics"));
-				insert(_el$178, () => `locations=${visualState().locations.length}`);
-				insert(_el$179, () => `fragments=${visualState().fragmentTerrain.length}`);
-				insert(_el$180, () => `agents=${visualState().agents.length}`);
-				insert(_el$177, createComponent(Show, {
+				var _el$176 = _tmpl$41$1(), _el$177 = _el$176.firstChild, _el$178 = _el$177.nextSibling, _el$179 = _el$178.firstChild, _el$180 = _el$179.nextSibling, _el$181 = _el$180.nextSibling, _el$183 = _el$181.nextSibling, _el$184 = _el$183.nextSibling, _el$185 = _el$184.nextSibling, _el$186 = _el$185.nextSibling, _el$187 = _el$186.nextSibling, _el$188 = _el$187.nextSibling, _el$192 = _el$188.nextSibling, _el$193 = _el$192.nextSibling, _el$194 = _el$193.nextSibling;
+				insert(_el$177, () => tr$1(locale(), "Renderer 诊断", "Renderer Diagnostics"));
+				insert(_el$179, () => `locations=${visualState().locations.length}`);
+				insert(_el$180, () => `fragments=${visualState().fragmentTerrain.length}`);
+				insert(_el$181, () => `agents=${visualState().agents.length}`);
+				insert(_el$178, createComponent(Show, {
 					get when() {
 						return memo(() => renderState()?.world_tick !== null)() && renderState()?.world_tick !== void 0;
 					},
 					get children() {
-						var _el$181 = _tmpl$11$2();
-						insert(_el$181, () => `tick=${renderState()?.world_tick}`);
-						createRenderEffect(() => setAttribute(_el$181, "data-world-tick", String(renderState()?.world_tick)));
-						return _el$181;
+						var _el$182 = _tmpl$11$2();
+						insert(_el$182, () => `tick=${renderState()?.world_tick}`);
+						createRenderEffect(() => setAttribute(_el$182, "data-world-tick", String(renderState()?.world_tick)));
+						return _el$182;
 					}
-				}), _el$182);
-				insert(_el$182, () => `links=${visualState().links.length}`);
-				insert(_el$183, () => `hotspots=${arrayField(renderState(), "visual_hotspots", "visualHotspots").length}`);
-				insert(_el$184, () => `derived_positions=${visualState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
-				insert(_el$185, () => visualState().worldBounds ? "world_bounds=ready" : "world_bounds=missing");
-				insert(_el$186, () => `renderer=${rendererStatus()}`);
-				insert(_el$187, () => `runtime=${runtimeSource()}`);
-				insert(_el$177, createComponent(Show, {
-					get when() {
-						return cameraState();
-					},
-					get children() {
-						var _el$188 = _tmpl$25$1();
-						insert(_el$188, () => `zoom=${cameraState().zoom.toFixed(2)}`);
-						return _el$188;
-					}
-				}), _el$191);
-				insert(_el$177, createComponent(Show, {
+				}), _el$183);
+				insert(_el$183, () => `links=${visualState().links.length}`);
+				insert(_el$184, () => `hotspots=${arrayField(renderState(), "visual_hotspots", "visualHotspots").length}`);
+				insert(_el$185, () => `derived_positions=${visualState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
+				insert(_el$186, () => visualState().worldBounds ? "world_bounds=ready" : "world_bounds=missing");
+				insert(_el$187, () => `renderer=${rendererStatus()}`);
+				insert(_el$188, () => `runtime=${runtimeSource()}`);
+				insert(_el$178, createComponent(Show, {
 					get when() {
 						return cameraState();
 					},
 					get children() {
 						var _el$189 = _tmpl$25$1();
-						insert(_el$189, () => `pan=${cameraState().pan_x_px},${cameraState().pan_y_px}`);
+						insert(_el$189, () => `zoom=${cameraState().zoom.toFixed(2)}`);
 						return _el$189;
 					}
-				}), _el$191);
-				insert(_el$177, createComponent(Show, {
+				}), _el$192);
+				insert(_el$178, createComponent(Show, {
+					get when() {
+						return cameraState();
+					},
+					get children() {
+						var _el$190 = _tmpl$25$1();
+						insert(_el$190, () => `pan=${cameraState().pan_x_px},${cameraState().pan_y_px}`);
+						return _el$190;
+					}
+				}), _el$192);
+				insert(_el$178, createComponent(Show, {
 					get when() {
 						return hoverSelection();
 					},
 					get children() {
-						var _el$190 = _tmpl$25$1();
-						insert(_el$190, () => `hover=${hoverSelection().kind}/${hoverSelection().id}`);
-						return _el$190;
+						var _el$191 = _tmpl$25$1();
+						insert(_el$191, () => `hover=${hoverSelection().kind}/${hoverSelection().id}`);
+						return _el$191;
 					}
-				}), _el$191);
-				_el$191.$$click = requestReadyMode;
-				insert(_el$191, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
-				_el$192.$$click = simulateFatal;
-				insert(_el$192, () => tr$1(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal"));
-				insert(_el$193, () => tr$1(locale(), "当前世界舞台只依赖 wasm/Rust bridge、嵌入式 canvas、轻量拖拽缩放和事件回传。", "The world stage depends only on the wasm/Rust bridge, embedded canvas, light pan-zoom interaction, and event callbacks."));
-				insert(_el$177, createComponent(Show, {
+				}), _el$192);
+				_el$192.$$click = requestReadyMode;
+				insert(_el$192, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
+				_el$193.$$click = simulateFatal;
+				insert(_el$193, () => tr$1(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal"));
+				insert(_el$194, () => tr$1(locale(), "当前世界舞台只依赖 wasm/Rust bridge、嵌入式 canvas、轻量拖拽缩放和事件回传。", "The world stage depends only on the wasm/Rust bridge, embedded canvas, light pan-zoom interaction, and event callbacks."));
+				insert(_el$178, createComponent(Show, {
 					get when() {
 						return memo(() => rendererStatus() === "unavailable")() && rendererFatal();
 					},
 					get children() {
-						var _el$194 = _tmpl$39$1();
-						insert(_el$194, () => `${rendererFatal().code}: ${rendererFatal().message}`);
-						return _el$194;
+						var _el$195 = _tmpl$40$1();
+						insert(_el$195, () => `${rendererFatal().code}: ${rendererFatal().message}`);
+						return _el$195;
 					}
 				}), null);
-				createRenderEffect(() => setAttribute(_el$175, "data-renderer-state", rendererStatus()));
-				return _el$175;
+				createRenderEffect(() => setAttribute(_el$176, "data-renderer-state", rendererStatus()));
+				return _el$176;
 			}
-		}), _el$206);
+		}), _el$207);
 		insert(_el$160, createComponent(Show, {
 			get when() {
 				return memo(() => !!focusMode())() && renderState();
 			},
 			get children() {
-				var _el$195 = _tmpl$41$1(), _el$196 = _el$195.firstChild, _el$198 = _el$196.nextSibling.firstChild, _el$200 = _el$198.firstChild, _el$201 = _el$200.nextSibling, _el$202 = _el$201.nextSibling, _el$205 = _el$198.nextSibling.firstChild;
-				_el$195.addEventListener("toggle", (event) => {
+				var _el$196 = _tmpl$42$1(), _el$197 = _el$196.firstChild, _el$199 = _el$197.nextSibling.firstChild, _el$201 = _el$199.firstChild, _el$202 = _el$201.nextSibling, _el$203 = _el$202.nextSibling, _el$206 = _el$199.nextSibling.firstChild;
+				_el$196.addEventListener("toggle", (event) => {
 					if (event.currentTarget.open) setPersistentDiagnosticsDrawerOpen(true);
 					else focusController.closeDiagnosticsDrawer({ returnFocus: true });
 				});
-				insert(_el$196, () => tr$1(locale(), "电影视图诊断", "Cinematic Diagnostics"));
-				insert(_el$198, createComponent(Show, {
+				insert(_el$197, () => tr$1(locale(), "电影视图诊断", "Cinematic Diagnostics"));
+				insert(_el$199, createComponent(Show, {
 					get when() {
 						return memo(() => renderState().world_tick !== null)() && renderState().world_tick !== void 0;
 					},
 					get children() {
-						var _el$199 = _tmpl$11$2();
-						insert(_el$199, () => `tick=${renderState().world_tick}`);
-						createRenderEffect(() => setAttribute(_el$199, "data-world-tick", String(renderState().world_tick)));
-						return _el$199;
+						var _el$200 = _tmpl$11$2();
+						insert(_el$200, () => `tick=${renderState().world_tick}`);
+						createRenderEffect(() => setAttribute(_el$200, "data-world-tick", String(renderState().world_tick)));
+						return _el$200;
 					}
-				}), _el$200);
-				insert(_el$200, () => `renderer=${rendererStatus()}`);
-				insert(_el$201, () => `runtime=${runtimeSource()}`);
-				insert(_el$202, () => `derived_positions=${renderState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
-				insert(_el$198, createComponent(Show, {
+				}), _el$201);
+				insert(_el$201, () => `renderer=${rendererStatus()}`);
+				insert(_el$202, () => `runtime=${runtimeSource()}`);
+				insert(_el$203, () => `derived_positions=${renderState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
+				insert(_el$199, createComponent(Show, {
 					get when() {
 						return rendererFatal();
 					},
 					get children() {
-						var _el$203 = _tmpl$15$1();
-						insert(_el$203, () => rendererFatal().code);
-						return _el$203;
+						var _el$204 = _tmpl$15$1();
+						insert(_el$204, () => rendererFatal().code);
+						return _el$204;
 					}
 				}), null);
-				_el$205.$$click = requestReadyMode;
-				insert(_el$205, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
-				createRenderEffect(() => _el$195.open = diagnosticsDrawerOpen());
-				return _el$195;
+				_el$206.$$click = requestReadyMode;
+				insert(_el$206, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
+				createRenderEffect(() => _el$196.open = diagnosticsDrawerOpen());
+				return _el$196;
 			}
-		}), _el$206);
-		_el$206.addEventListener("toggle", (event) => setRenderDtoOpen(event.currentTarget.open));
-		insert(_el$207, () => tr$1(locale(), "展开 Render DTO", "Expand Render DTO"));
-		insert(_el$206, createComponent(Show, {
+		}), _el$207);
+		_el$207.addEventListener("toggle", (event) => setRenderDtoOpen(event.currentTarget.open));
+		insert(_el$208, () => tr$1(locale(), "展开 Render DTO", "Expand Render DTO"));
+		insert(_el$207, createComponent(Show, {
 			get when() {
 				return renderDtoOpen();
 			},
 			get children() {
-				var _el$208 = _tmpl$42$1(), _el$209 = _el$208.firstChild;
-				insert(_el$209, () => JSON.stringify(renderState(), null, 2));
-				return _el$208;
+				var _el$209 = _tmpl$43$1(), _el$210 = _el$209.firstChild;
+				insert(_el$210, () => JSON.stringify(renderState(), null, 2));
+				return _el$209;
 			}
 		}), null);
 		createRenderEffect((_p$) => {
@@ -18726,9 +19463,9 @@ function PixelWorldHost(props) {
 			_v$37 !== _p$.t && setAttribute(_el$160, "data-world-focus", _p$.t = _v$37);
 			_v$38 !== _p$.a && setAttribute(_el$160, "data-world-focus-maximized", _p$.a = _v$38);
 			_v$39 !== _p$.o && setAttribute(_el$160, "data-focus-comparable", _p$.o = _v$39);
-			_v$40 !== _p$.i && (_el$167.hidden = _p$.i = _v$40);
-			_v$41 !== _p$.n && (_el$169.disabled = _p$.n = _v$41);
-			_v$42 !== _p$.s && setAttribute(_el$169, "aria-describedby", _p$.s = _v$42);
+			_v$40 !== _p$.i && (_el$168.hidden = _p$.i = _v$40);
+			_v$41 !== _p$.n && (_el$170.disabled = _p$.n = _v$41);
+			_v$42 !== _p$.s && setAttribute(_el$170, "aria-describedby", _p$.s = _v$42);
 			return _p$;
 		}, {
 			e: void 0,
@@ -21525,17 +22262,24 @@ function display$1(value) {
 }
 function riskCopy(value, locale, tr) {
 	return {
+		low: tr(locale, "低电力风险", "Low power risk"),
+		elevated: tr(locale, "电力风险升高", "Elevated power risk"),
 		normal: tr(locale, "电力风险正常", "Normal power risk"),
 		critical: tr(locale, "临界电力风险", "Critical power risk"),
 		shutdown: tr(locale, "停机风险", "Shutdown risk")
 	}[String(value || "")] || tr(locale, "电力风险待确认", "Power risk pending");
 }
 function warningRisk(value) {
-	return ["critical", "shutdown"].includes(String(value || ""));
+	return [
+		"elevated",
+		"critical",
+		"shutdown"
+	].includes(String(value || ""));
 }
 function preStepCopy(value, locale, tr) {
 	return {
 		schedule_now: tr(locale, "可安排生产", "Schedule production now"),
+		restore_power_before_scheduling: tr(locale, "先恢复电力，再安排生产", "Restore power before scheduling production"),
 		restore_power: tr(locale, "先恢复电力，再安排生产", "Restore power before scheduling production")
 	}[String(value || "")] || tr(locale, "重新请求预估后再决定", "Request a fresh quote before deciding");
 }
@@ -26864,8 +27608,7 @@ function WorldStageHero() {
 	})();
 }
 function TargetsPanel() {
-	observeViewerStateRevision();
-	const lists = () => modelLists();
+	const { lists, filterKey, scopeKey } = createTargetListProjection(legacy_core_exports, observeViewerStateRevision);
 	const locale = () => uiLocale();
 	const gameplaySummary = () => buildGameplaySummary(locale());
 	const firstAgentClaimAction = () => (gameplaySummary()?.availableActions || []).find((action) => action.actionId === "claim_first_agent");
@@ -26985,23 +27728,33 @@ function TargetsPanel() {
 				});
 			},
 			get children() {
-				return createComponent(For, {
-					get each() {
+				return createComponent(TargetListWindow, {
+					get items() {
 						return lists().agents;
 					},
+					get filterKey() {
+						return filterKey();
+					},
+					get scopeKey() {
+						return scopeKey();
+					},
+					get locale() {
+						return locale();
+					},
+					kind: "agent",
 					children: (agent, index) => {
-						const status = () => describeAgentSessionStatus(agent.id, locale());
-						const displayName = () => agent.name || agent.label || agent.id;
+						const status = () => describeAgentSessionStatus(agent().id, locale());
+						const displayName = () => agent().name || agent().label || agent().id;
 						return (() => {
 							var _el$208 = _tmpl$45(), _el$209 = _el$208.firstChild, _el$210 = _el$209.firstChild, _el$212 = _el$209.nextSibling, _el$213 = _el$212.firstChild, _el$214 = _el$212.nextSibling, _el$215 = _el$214.nextSibling, _el$216 = _el$215.nextSibling;
 							_el$208.$$click = () => applySelection({
 								kind: "agent",
-								id: agent.id
+								id: agent().id
 							});
 							insert(_el$210, displayName);
 							insert(_el$209, createComponent(Show, {
 								get when() {
-									return isSelectedTarget("agent", agent.id);
+									return isSelectedTarget("agent", agent().id);
 								},
 								get children() {
 									var _el$211 = _tmpl$44();
@@ -27009,7 +27762,7 @@ function TargetsPanel() {
 									return _el$211;
 								}
 							}), null);
-							insert(_el$213, () => agent.id);
+							insert(_el$213, () => agent().id);
 							insert(_el$214, createComponent(Badge, {
 								get ["class"]() {
 									return status().badgeClass;
@@ -27028,10 +27781,10 @@ function TargetsPanel() {
 									} });
 								}
 							}), null);
-							insert(_el$215, () => `${tr(locale(), "地点", "location")}=${agent.location_id} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(agent.resources)}`);
+							insert(_el$215, () => `${tr(locale(), "地点", "location")}=${agent().location_id} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(agent().resources)}`);
 							insert(_el$208, createComponent(AgentActivitySurface, {
 								get activity() {
-									return agent.activity;
+									return agent().activity;
 								},
 								get locale() {
 									return locale();
@@ -27039,7 +27792,7 @@ function TargetsPanel() {
 							}), _el$216);
 							insert(_el$216, () => status().detail);
 							createRenderEffect((_p$) => {
-								var _v$48 = index() === 0 ? "viewer-playthrough-select-agent" : `viewer-select-agent-${agent.id}`, _v$49 = agent.id, _v$50 = status().kind, _v$51 = isSelectedTarget("agent", agent.id), _v$52 = isSelectedTarget("agent", agent.id) ? "true" : "false";
+								var _v$48 = index() === 0 ? "viewer-playthrough-select-agent" : `viewer-select-agent-${agent().id}`, _v$49 = agent().id, _v$50 = status().kind, _v$51 = isSelectedTarget("agent", agent().id), _v$52 = isSelectedTarget("agent", agent().id) ? "true" : "false";
 								_v$48 !== _p$.e && setAttribute(_el$208, "data-testid", _p$.e = _v$48);
 								_v$49 !== _p$.t && setAttribute(_el$208, "data-select-id", _p$.t = _v$49);
 								_v$50 !== _p$.a && setAttribute(_el$208, "data-agent-session-status", _p$.a = _v$50);
@@ -27077,20 +27830,30 @@ function TargetsPanel() {
 				});
 			},
 			get children() {
-				return createComponent(For, {
-					get each() {
+				return createComponent(TargetListWindow, {
+					get items() {
 						return lists().locations;
 					},
+					get filterKey() {
+						return filterKey();
+					},
+					get scopeKey() {
+						return scopeKey();
+					},
+					get locale() {
+						return locale();
+					},
+					kind: "location",
 					children: (location) => (() => {
 						var _el$217 = _tmpl$46(), _el$218 = _el$217.firstChild, _el$219 = _el$218.firstChild, _el$221 = _el$218.nextSibling;
 						_el$217.$$click = () => applySelection({
 							kind: "location",
-							id: location.id
+							id: location().id
 						});
-						insert(_el$219, () => location.name || location.id);
+						insert(_el$219, () => location().name || location().id);
 						insert(_el$218, createComponent(Show, {
 							get when() {
-								return isSelectedTarget("location", location.id);
+								return isSelectedTarget("location", location().id);
 							},
 							get children() {
 								var _el$220 = _tmpl$44();
@@ -27098,9 +27861,9 @@ function TargetsPanel() {
 								return _el$220;
 							}
 						}), null);
-						insert(_el$221, () => `id=${location.id} · ${tr(locale(), "半径", "radius")}=${formatPhysicalDistanceCm(location.profile?.radius_cm, locale()) || "-"} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(location.resources)}`);
+						insert(_el$221, () => `id=${location().id} · ${tr(locale(), "半径", "radius")}=${formatPhysicalDistanceCm(location().profile?.radius_cm, locale()) || "-"} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(location().resources)}`);
 						createRenderEffect((_p$) => {
-							var _v$53 = `viewer-select-location-${location.id}`, _v$54 = location.id, _v$55 = isSelectedTarget("location", location.id), _v$56 = isSelectedTarget("location", location.id) ? "true" : "false";
+							var _v$53 = `viewer-select-location-${location().id}`, _v$54 = location().id, _v$55 = isSelectedTarget("location", location().id), _v$56 = isSelectedTarget("location", location().id) ? "true" : "false";
 							_v$53 !== _p$.e && setAttribute(_el$217, "data-testid", _p$.e = _v$53);
 							_v$54 !== _p$.t && setAttribute(_el$217, "data-select-id", _p$.t = _v$54);
 							_v$55 !== _p$.a && setAttribute(_el$217, "data-selected", _p$.a = _v$55);

@@ -43,7 +43,7 @@ pub(crate) struct PixelWorldMicroDepotZeroStockCrossVisual {
 /// can update and remove the readout without changing hit regions.
 #[derive(Component)]
 pub(crate) struct PixelWorldMicroDepotThroughputTextVisual {
-    id: String,
+    pub(super) id: String,
 }
 
 /// Opaque passive backing for the compact throughput readout. Keeping this
@@ -51,7 +51,7 @@ pub(crate) struct PixelWorldMicroDepotThroughputTextVisual {
 /// narrow canvases without adding an interaction surface.
 #[derive(Component)]
 pub(crate) struct PixelWorldMicroDepotThroughputBackingVisual {
-    id: String,
+    pub(super) id: String,
 }
 
 /// One segment of the passive world-scale service-range outline. It deliberately

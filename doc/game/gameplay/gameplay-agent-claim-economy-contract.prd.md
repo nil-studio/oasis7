@@ -213,6 +213,54 @@ Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264, O7-REQ-94ed85c5-c05d-43
 - 上位承诺：[`Agent 所有权与持续经营`](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001)；规则权威为本专题 2.3 节。
 - 验收：[AC-AGC-CHAT-003](#ac-agc-chat-003)；系统承接：[显示与兼容边界](gameplay-agent-claim-economy-contract.design.md#des-claim-chat-004)、[service 权威输入后继合同](gameplay-agent-claim-economy-contract.design.md#des-claim-chat-005)。
 
+<a id="agent-manufacturing-v1"></a>
+### 2.4 额外 Agent 工业制造首版专业政策
+
+Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004) 及 [AC-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-004)。系统实现输入见[额外 Agent 工业制造设计](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-001)。
+
+本节是本次设计选择的 `agent-manufacturing-v1` 目标政策及默认参数，供实施与独立评审；不是当前已运行配方、平衡测量值或此前已批准的运营参数。首版只覆盖同一权威世界内、当前主体依法定世界规则已有操作/支出权限的装配设施。现有 runtime 仅允许工厂 builder 启动生产；本设计不把组织成员身份或受益人身份当作 builder 权限的替代。第三方撮合、制造服务价、跨账号代扣、远程成品物流和 AOS-005 经济转让不在首版。
+
+#### 2.4.1 配方、成本与时间的唯一默认值
+
+首版新增的配方身份为 `recipe.assembler.agent_mk1`、政策 revision `1`，产出是一份不可自由转让的待交付制造记录，最终匹配一次新 Agent 交付；它不是 `logistics_drone`、通用材料 `agent`、注册凭证或可以重复兑付的道具。下表里的既有材料名称与设施来自[标准配方目录](../../../crates/oasis7_agent_api/src/world_quote/recipe_catalog.rs)和[工厂目录](../../../crates/oasis7_agent_api/src/world_quote/factory_catalog.rs)；新增配方/参数尚未进入这些源码。
+
+| 政策项 | 首版默认值与计算 | 成本或边界 |
+| --- | --- | --- |
+| 每单数量、型号 | 一个标准 Agent，`quantity=1`；采用固定版本的现有标准 body 模板，不开放自选属性/模块 | 不批量铸造，不生成新 starter OC、初始库存、声誉或治理资格；初始可支配资源为零，后续充能按普通资源转移执行 |
+| 材料投入 | `alloy_plate × 8`、`motor_mk1 × 4`、`control_chip × 4`、`sensor_pack × 2`、`module_rack × 1` | 必须已合法到达该工厂 input ledger 并有匹配来源；不从世界公共材料或无关账号兜底，不把更早的物流费用/损失退回 |
+| 制造电力 | `Electricity × 48`，由当前有权操作该设施的 builder 承担 | 确认时预留，生产开始一次消耗；设施维护仍按既有维护规则承担并在报价独立提示 |
+| 制造费用 | 本首版不另收 OC 制造服务费；材料和电力仍全额投入 | 模拟器里的通用 hardware 扣费不得隐式叠加到这一正式 runtime 配方；新增收费必须作为新政策明确报价 |
+| 认领费用 | 沿用本专题现有 `activation + bond + 首期 upkeep`，只允许 liquid 资金 | 制造和认领费用独立，确认时预留认领款，交付才结算/锁押金；未交付不产生新 upkeep |
+| 设施与槽位 | `factory.assembler.mk1`；每单一个 recipe slot，每设施最多一个制造中或尚未生产的制造订单 | 普通 recipe 与制造共用容量，扣除制造后至少保留一个普通 recipe slot；被旧任务占满时无预留等待，不超卖 |
+| 制造时间 | 累计 `12` 个有合法生产条件的 canonical world ticks；完成后在该工厂权威位置交付 | 停产/失权期间不累计生产进度，恢复重算预计完成时间但不延长硬截止；世界暂停不推进窗口，不换算成固定现实分钟 |
+| 报价有效期 | `5` ticks，提交要求 `now < quoted_at + 5` 且相关事实仍匹配 | 过期、价格/配方/权限/物料/设施的相关版本漂移时重新报价；无关世界事件不使报价自动失效 |
+| 确认后启动期限 | `10` ticks，最晚启动要求 `now < confirmed_at + 10` | 无合法启动条件则一次取消结算并解除预留；不续租占坑 |
+| 生产完成后的待交付窗口 | `24` ticks，交付要求 `now < produced_at + 24` | 到期仍无法交付则一次报废；待交付占一个专用成品保管位，每设施最多一个，保管位未释放前不接新制造单 |
+| 生产故障恢复窗口 | 生产后受阻起 `24` ticks；不得晚于 `started_at + 12 + 24` | 可恢复时继续原单，不能刷新期限；永久不可恢复或到期则一次报废，防无限占产能 |
+| 取消/报废 | 开工前全部预留原路释放；开工后制造投入不退、不额外产回收材料，未结算认领款全额解冻 | 不自动转卖、转给其他受益人或重新领取启动支持；技术错误未提交时不视为物料已损失 |
+
+预留是资产仍属于原持有者但暂不可支出；消耗是不可逆生产投入；交付结算才按现有经济合同分配激活费、锁定押金和首期维护。三个金额必须分别显示。quote 还须说明预留后的剩余可用资金/电力及其对既有维护义务的影响，不能因制造订单冻结或免除主 Agent/设施已存在的应付义务。若工厂维护另有周期费用，应展示费率/责任主体和已知风险，不能把这类持续费用伪装成本单固定总价。
+
+#### 2.4.2 额外槽位、并发与计价
+
+制造资格按同一受益主体的**去重可控制 Agent 集合**计算：当前主绑定 Agent 与其经济 claim targets 的并集，再加未终结制造预留。主 Agent 即使只是注册绑定，也计入制造的已有经营规模；这不为主 Agent 新增经济 claim、扣费或维护责任。首版继续使用既有声誉档位 `cap=1/2/3`；制造必须保留主 Agent，且新增后不得超 cap。无主绑定或无法证明组织的取得主体时返回资格 blocker，不能创建替代主身份。
+
+制造报价的 `slot_index = 已有去重 Agent 数 + 未终结制造预留数 + 1`，至少为 `2`。使用既有逐项向上取整规则时，slot-2 为激活费 `150`、押金 `300`、首期/每期 upkeep `38`，确认需预留 `488` liquid OC；slot-3 分别为 `200/400/50`，预留 `650`。这些金额由[现有 claim 计价函数](../../../crates/oasis7_runtime/src/agent_claims.rs)派生，不另调现有基础费率；制造适配器必须将本节有效经营规模交给它，不能直接沿用只统计经济 claim 的旧调用。受限 starter bucket 与自动补足恒为零。
+
+冻结的槽位和价格不会因为另一份 claim 释放而降价、重开 slot-1 支持或自动换受益人。交付时以当前集合和原预留再检查 cap；声誉降档、控制关系丢失或禁止取得时进入有期限的待交付，而非越限创建。启用本政策后，制造确认、普通 ClaimAgent 及所有新增取得入口必须使用同一个“主绑定 Agent ∪ 经济 claim targets ∪ 在途制造目标”的去重容量守卫，以本次取得后的集合核对 cap；制造交付将预留替换为真实 Agent，不释放一个可被重复认领占用的名额。对集合内同一既有目标建立经济 claim 不重复计人数，但仍需其原有资格和经济规则。普通 claim 的既有计价与历史义务不在此迁移；新容量守卫必须独立存在，不能只修报价函数或在预留期起效。
+
+典型反例是主 Agent 只注册、`cap=2`，制造第二个完成后，旧 claim 计数只有一。如果普通 ClaimAgent 仍允许再取第三个，即使制造单本身没有超额也属于旁路。启用时发现历史已超新口径的主体，只阻止所有会进一步扩大集合的新增取得，不能追溯收费或自动回收旧 Agent；首次注册/返回合同保持原有语义。
+
+#### 2.4.3 交付与失败的玩法判定
+
+- 首版按 `terminal-admission` 完成：订单确认、生产开始、生产完成均不产生 Agent 控制权。完整交付同时消耗唯一待交付记录、创建唯一 Agent 身份及制造来源、结算认领费用、安装排他 claim 和非主绑定的合法控制关系。新 Agent 不需要重领 starter 支持：原主体可明确选择它查看获准 owner 信息、下达受现有规则约束的直接意图，后续自治/委托仍须显式授权。位置固定为原工厂权威点，不能依据 UI 坐标瞬移交付。
+- 委托操作权限、设施权限、资金权限和受益人的取得资格分别校验。撤销某个操作者的授权不改变订单受益人/退款来源；合法主体可以重新认证后继续同单，不能将旧授权作为新交付许可。已交付结果保留原身份与 provenance，不因旧响应重试或重新报价再交付。
+- 首版正常开工即一次消耗全部材料与制造电力，不做分段材料投入。生产失败与待交付过期只退尚未结算的认领预留；如需保全仍有价值的半成品，必须在未来新的 salvage 政策中定义，不能临时全额返料。玩家确认前须看见这一最坏损失。
+- 生产受阻只能恢复同一配方、工厂、来源和受益人的订单；切配方、换厂家或换受益人需要新订单并先结清原单，原生产进度、费用和交付资格不能搬成免费新订单。
+- 取得后沿用认领维护、grace、release/reclaim 及 Agent 自治/委托合同；订单不预设目标、不复制主 Agent 授权，不扩大世界权力。claim 正式释放/回收后旧控制来源失效，后续合法新 claim 才能取得新的控制关系，旧 grant 和未决执行不继承；原制造订单、身份、成本和责任保留。原根 owner 来源撤销或变更不把额外 Agent 自动给新主体，同一合法主体恢复后须重新认证；技术适配由[原子控制来源合同](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-004)承接，不通过额外主绑定或递归 owner 链实现。公共 quota 可以拒绝不合格订单，不能直接创建 Agent、补材料或免除产能。
+
+专业验收按系统设计的 [11.1 验证映射](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-validation)及其[制造系统验收手册](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md)独立观察正常交付、各阶段失败、双请求与跨请求唯一性、权限变更、旧数据恢复、资金/物料守恒及可读下一步。当前只有本节目标政策，手册是未来计划，尚无新制造运行、平衡或玩家理解证据。数值假设的 owner 为 `gameplay_designer` / `producer_system_designer`；真实工业投入、等待体验或损失反馈证明扩张过易/不可达时，另修政策 revision 并只作用于重新报价/新单，不能回写旧单成本。
+
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本专题不新增 AI 模型能力，仅涉及 gameplay 规则、账本 bucket 与状态机）。
 - Evaluation Strategy: 不适用。

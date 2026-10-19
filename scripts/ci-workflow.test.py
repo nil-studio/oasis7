@@ -275,6 +275,35 @@ class Workflow(unittest.TestCase):
             self.assertIn(f"needs.{name}.result == 'success'", matrix)
             self.assertIn(f"needs.{name}.result == 'skipped'", matrix)
 
+    def test_formal_cache_retention_runs_only_after_the_trusted_save(self):
+        writer = JOBS['formal-test-build-trusted']
+        maintenance = JOBS.get('formal-cache-maintenance', '')
+        self.assertIn('needs: formal-test-build-trusted', maintenance)
+        self.assertIn("needs.formal-test-build-trusted.result == 'success'", maintenance)
+        self.assertIn("needs.formal-test-build-trusted.outputs.cache_saved == 'true'", maintenance)
+        for condition in ("github.ref == 'refs/heads/main'", "github.event_name == 'push'",
+                          "github.event_name == 'schedule'", "inputs.run_mode == 'full'"):
+            self.assertIn(condition, maintenance.split('    steps:', 1)[0])
+        self.assertIn('cache-mode: none', maintenance)
+        self.assertIn('actions: write', maintenance)
+        self.assertIn('cancel-in-progress: false', maintenance)
+        self.assertIn('group: formal-cache-maintenance-main', maintenance)
+        self.assertIn('id: formal-cache-save', writer)
+        self.assertIn("steps.formal-cache-save.outcome == 'success'", writer)
+        self.assertIn('cache_key: ${{ steps.formal-workspace-cache.outputs.cache-primary-key }}', writer)
+        self.assertIn('ref: ${{ github.sha }}', maintenance)
+        self.assertIn('CACHE_MAINTENANCE_TOKEN: ${{ github.token }}', maintenance)
+        self.assertIn('ci-cache-maintenance.py --apply --current-key "$CURRENT_CACHE_KEY"', maintenance)
+        self.assertNotIn('Swatinem/rust-cache', maintenance)
+        self.assertNotIn('actions/cache/', maintenance)
+        self.assertNotIn('formal-cache-maintenance', JOBS['required-gate'])
+        self.assertNotIn('formal-cache-maintenance', JOBS['explicit-full-gate'])
+        for name, job in JOBS.items():
+            if name != 'formal-cache-maintenance':
+                self.assertNotIn('actions: write', job, name)
+                self.assertNotIn('CACHE_MAINTENANCE_TOKEN:', job, name)
+        self.assertIn('ci-cache-maintenance.test.py', (ROOT / 'scripts/ci-tests.sh').read_text())
+
     def test_manual_candidate_full_is_read_only_and_not_scheduled(self):
         candidate = JOBS['candidate-full-regression']
         self.assertIn("if: github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'", candidate)

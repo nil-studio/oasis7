@@ -1,5 +1,8 @@
 # 指挥面板架构索引
 
+> 2026-10-19 产品边界收缩：指挥中心读取本地文档/Git、GitHub PR/CI并保存个人问题与决定；Codex 仅保留原会话外部打开或准确定位复制。自管 app-server、发任务/追加/中断、运行请求同步/回复及 Codex 退出协调已退役，旧数据不删除不重放。独立 ToolHost 工具任务退出保护保留。以下既有日期、实施与验收记录保持历史范围，不代表退役能力仍可使用；本轮结果以当前实现 PR 为准。
+
+
 这里集中列出做项目决策时需要记住的架构边界、实现入口和部署核验缺口。它是主责文档与交付事实的派生导航；具体约束、变更理由和验收仍在链接的原文中维护。
 
 - 代码与文档核对基线：`main@598b308a23f3f0189843618d14abb1aa31c0d2de`，摘要核对日期为 2026-10-11。
@@ -10,6 +13,8 @@
 独立 ECS 技术预览的环境准备、构建尝试和部署验收由 [交付任务 #4671](https://github.com/eng-cc/oasis7/issues/4671) 承接。本页保留架构入口；该任务的技术预览不代表正式世界开放或原测试网恢复。
 
 ## 从问题进入
+
+Viewer 性能边界（2026-10-19 局部核对）：[性能合同](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract) 已由 [#4907](https://github.com/nil-studio/oasis7/pull/4907) 合入；[实现 #4909](https://github.com/nil-studio/oasis7/pull/4909) 在 Host 到 WASM 前裁剪显示数据，并对公共 hash WASM 使用压缩与缓存，玩家状态及权限不进入公共缓存。后续补齐稳定显示裁剪、可见标签预算和独立加载实例，完整预算仍分阶段验证，线上配置未核验；改变显示容量/裁剪语义、缓存来源或初始化恢复边界时重新关注本项，不由本索引宣称部署完成。
 
 Cargo 边界局部增量（2026-10-12）：[#4626](https://github.com/eng-cc/oasis7/pull/4626) / `133d70e45b71bd062032a734d68be1e290692b2c` 将 native 生产 cognition 状态转换转接至 Harness，World readback 与 signed-service 校验仍由 Runtime 适配器承担，旧 DTO/checkpoint 兼容保留；不新增 Harness→Oasis 依赖。支持包 profile 隔离尚在分支验证，直接 Oasis wasm32 目标及部署不因本次局部摘要变为已验证。测试入口见[测试手册](../../../../testing-manual.md)。
 
@@ -66,6 +71,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 ### 服务与执行
 
+玩法权威协议局部设计核对（2026-10-19，文档基线 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`）：[Runtime 专题分工](../../../world-runtime/design.md#runtime-gameplay-authority-designs)与[八项协议入口](../../../world-runtime/prd.index.md#gameplay-authority-protocols)把治理分类、charter、工业工作、配方替代、公共 levy、外部性、贡献恢复和安全确认分配给独立 authority。各专题共享世界提交顺序和恢复事实；charter、模型建议、预览或其他专题 receipt 不自动授予新权限或代签世界效果。该增量只补目标系统设计，不改变现有 Runtime/native 制度边界；实现、正式持久性及部署仍按各原合同验证。
+
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |
 | ARCH-04 · 单权威到 BFT | 首次开放采用受控单权威持久世界；BFT 并行研发，后续在同世界 H/H+1 交接激活写权 | 决定首次开放、切换 signer/epoch、扩展权威集合或改变保留承诺 | [当前阶段](../../../product/world-infrastructure/prd.md#world-infrastructure-current-stage)、[权威 profiles](../../../p2p/design.md#des-p2p-authority-profiles) |
@@ -92,6 +99,20 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 正式激活、独立故障域恢复和人工交接的能力边界由对应专业合同持有。[#4363 的旧规划](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)仅作历史来源；该 Issue 已停止独立跟踪，不据此恢复执行义务。
 
+<a id="cc-architecture-world-policy-contracts"></a>
+
+### 制造、保供与组织处置
+
+2026-10-19 局部设计核对：精确政策由 game 专题持有，产品声明玩家承诺，Runtime 消费固定政策版本并拥有业务事实。三项复用现有权威提交与持久化边界，不能由普通材料产出、通用 Crisis 或删除联盟映射推导完成。
+
+| 主题 | 必须保持的边界 | 专业设计入口 |
+| --- | --- | --- |
+| 工业取得 Agent | 原订单的资源、产能、交付身份和 claim 同链；交付提交前不产生可控制的新 Agent，quota 不直接供给 | [制造与原子交付](../../../world-runtime/runtime/agent-industrial-manufacturing.design.md) |
+| 紧急保供 | 授权、冻结批次、累计需求和结算分层；到期退出不迁移旧待决权利，不重复分配或结算同一价值 | [保供授权与结算](../../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md) |
+| 组织连续性 | 基础阶段与申诉请求分离；重叠对象/权利/动作 scope 保持唯一处分权，交接原子终止或收缩旧授权 | [组织处置与交接](../../../world-runtime/runtime/organization-continuity-and-disposition.design.md) |
+
+业务实现、兼容与运行验收仍分别由 [#4850](https://github.com/nil-studio/oasis7/issues/4850)、[#4866](https://github.com/nil-studio/oasis7/issues/4866)、[#4868](https://github.com/nil-studio/oasis7/issues/4868)承接。扩大配方/物资/资产范围、改变政策版本或消费者时重新核对本组合同；当前未核验部署，不前移其他架构条目的基线。
+
 <a id="cc-architecture-agents"></a>
 
 ## 身份与 Agent
@@ -101,7 +122,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |
 | ARCH-08 · 网络与权限 | URL/登录只提供接入；玩家 session、Agent 委托和 operator 权限分开，恢复不能复活旧授权 | 暴露公网 API、接账号/模型端点、改认证或委托、增加远程控制 | [Hosted 进入](../../../product/player-entry-distribution/prd.md#hosted-玩家进入与会话边界)、[会话与授权连续性](../../../product/player-entry-distribution/prd.md#player-session-authorization-continuity)、[headless 鉴权](../../../headless-runtime/design.md#6-鉴权与恢复边界) |
-| ARCH-09 · 两类 Runtime | 游戏侧目标是 OpenClaw/Codex 通过官方游戏 Skill 和受授权游戏 API 持续游玩；开发指挥客户端管理代码开发会话 | 声明 Runtime 支持、管理多 Agent、改预算/停止行为或连接游戏 Viewer 与开发看板 | [游戏角色](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#12-角色与职责)、[首批 Runtime 目标](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#21-首批-runtime-与支持单位)、[开发会话](../command-center.design.md#1101-可选实验执行实现) |
+| ARCH-09 · 两类 Runtime | 游戏侧目标是 OpenClaw/Codex 通过官方游戏 Skill 和受授权游戏 API 持续游玩；开发指挥客户端读取交付事实并打开原开发会话 | 声明 Runtime 支持、管理多 Agent、改预算/停止行为或连接游戏 Viewer 与开发看板 | [游戏角色](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#12-角色与职责)、[首批 Runtime 目标](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#21-首批-runtime-与支持单位)、[开发会话](../command-center.design.md#1101-可选实验执行实现) |
 
 **设计状态：** 接入、委托和角色边界由各自主责合同拥有。外部 Runtime 的首期功能清单是承诺范围，阶段标签不等于实现状态。
 
@@ -110,7 +131,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 **已有实现：**
 
 - ARCH-08：headless ingress 已定义签名 payload、ed25519、单调 nonce 与恢复防重放；它不自动证明任意新 API 的完整授权和恢复行为。
-- ARCH-08 的 [多凭证账号设计](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 使用固定 RP/origin、事务身份存储、HttpOnly 账号 Cookie 和短期签名世界授权；新注册默认关闭，不改变资产或 operator 授权。代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署与环境验收进度见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)，验收方法见 [手册](../../../testing/manual/hosted-passkey-account.manual.md)。
+- ARCH-08 的 [多凭证账号设计](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 使用固定 RP/origin、事务身份存储、HttpOnly 账号 Cookie 和短期签名世界授权；新注册默认关闭，不改变资产或 operator 授权。2026-10-19 核对的[导入协议](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#imported-key-web)沿用同一账号/会话/世界授权边界，服务端仅接收公钥和挑战签名，`import_only` 不代表客户端生成和加密备份已发布；目标部署状态仍以 capabilities 及环境验收为准。代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署与环境验收进度见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)，验收方法见 [手册](../../../testing/manual/hosted-passkey-account.manual.md)。
 - ARCH-08 的新预览世界初始化按 [合同](../../../p2p/design.md#des-p2p-fresh-preview-bootstrap) 固定真实初始材料、CAS/提交证明和节点派生服务 signer，再为 Viewer 配置独立 public-read 身份。操作见 [手册](../../../testing/manual/fresh-world-preview-bootstrap.manual.md)；这些材料不授予 Agent 写权限或正式 activation/finality。
 - ARCH-09：[PR #4562](https://github.com/eng-cc/oasis7/pull/4562)交付 Game API 的发现合同和已实现签名读取；范围仍是显式开启的 loopback bootstrap。
 - [PR #4565](https://github.com/eng-cc/oasis7/pull/4565)增加持久、owner-signed task control；初态 suspended、没有 executor。配对、私有目标、完整 context 和 action admission 不在该切片内。
@@ -141,7 +162,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |
-| ARCH-11 · 客户端自身 | 独立 macOS Tauri 2 + Rust + Solid/TypeScript + SQLite；文档/Git/PR 保留事实所有权，Codex 默认关闭且属可选实验接入 | 改技术栈、引入云端/常驻 supervisor、共享团队状态、公开分发、扩版本或自动执行 | [技术栈](../command-center.design.md#43-具体技术栈)、[基础切片](../command-center.design.md#110-首个基础实现切片)、[实验接入](../command-center.design.md#DES-CC-012)、[操作说明](../../../../tools/oasis7-command-center/README.md#verification) |
+| ARCH-11 · 客户端自身 | 独立 macOS Tauri 2 + Rust + Solid/TypeScript + SQLite；文档/Git/PR 保留事实所有权，Codex 只提供明确外部定位，不接入运行时 | 改技术栈、引入云端/常驻 supervisor、共享团队状态、公开分发、扩版本或自动执行 | [技术栈](../command-center.design.md#43-具体技术栈)、[基础切片](../command-center.design.md#110-首个基础实现切片)、[外部接续边界](../command-center.design.md#DES-CC-012)、[操作说明](../../../../tools/oasis7-command-center/README.md#verification) |
 
 **设计与实现边界（2026-10-18，`main@822f6b49d1a5fb2b866b6c6902ffc8ed024d043b`）：** [PR #4881](https://github.com/nil-studio/oasis7/pull/4881) 已交付有界日常工作投影、关系/决定/个人问题、一次发起与恢复；[PR #4885](https://github.com/nil-studio/oasis7/pull/4885) 收口原 Issue 的适用交互验收。当前[可读工作界面设计](../command-center.design.md#cc-visual-composition)进一步约定布局与视觉变量、工作主入口、按需证据和旧来源界面的退出；发送快照、逐工作草稿和决定版本核对沿原身份与持久化边界细化。这些改造尚待实现及验证，不增加外部控制能力，不改变 Tauri/Rust/Solid 路线。
 

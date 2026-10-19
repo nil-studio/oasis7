@@ -1,5 +1,8 @@
 # oasis7 项目状态与指挥入口
 
+> 2026-10-19 产品边界收缩：指挥中心读取本地文档/Git、GitHub PR/CI并保存个人问题与决定；Codex 仅保留原会话外部打开或准确定位复制。自管 app-server、发任务/追加/中断、运行请求同步/回复及 Codex 退出协调已退役，旧数据不删除不重放。独立 ToolHost 工具任务退出保护保留。以下既有日期、实施与验收记录保持历史范围，不代表退役能力仍可使用；本轮结果以当前实现 PR 为准。
+
+
 本页帮助项目负责人在五分钟内看清长期方向、当前主线、已交付变化和需要关注的边界。
 它是带来源和核验时间的滚动摘要；目标、规范、任务、部署和验收继续由原有主责文档及实际记录承载。
 
@@ -17,6 +20,8 @@
 <a id="cc-status-baseline"></a>
 
 ## 核验基线与覆盖范围
+
+Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
 
@@ -101,7 +106,7 @@ starter 候选、owner 目标持久化等前置已有代码；Web guest 启动/�
 
 ### 4. 受控真人两次会话
 
-Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可选凭证。实现与代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署进度及交付阻断项见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)。协议边界由 [账号设计](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 和 [验收手册](../../testing/manual/hosted-passkey-account.manual.md) 承接；技术预览不代签正式邀请资格。
+Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可选凭证。2026-10-19 核对的[会话内导入合同](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#imported-key-web)允许已绑定 Ed25519 公钥挑战登录，私钥不持久化；受保护客户端生成和加密备份仍未发布，具体部署可用性须读取目标 capabilities。实现与代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署进度及交付阻断项见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)。协议边界由 [账号设计](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 和 [验收手册](../../testing/manual/hosted-passkey-account.manual.md) 承接；技术预览不代签正式邀请资格。
 
 新建独立 DevLocal 世界的身份、创世材料和 WorldService 消费者绑定由 [预览初始化合同](../../p2p/design.md#des-p2p-fresh-preview-bootstrap) 与 [操作手册](../../testing/manual/fresh-world-preview-bootstrap.manual.md) 承接。该入口不恢复旧世界或激活正式 authority profile；部署和验收结果继续在交付任务中维护。
 
@@ -124,6 +129,20 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 完整协作 TaskSnapshot、身份注册/配对及公开 Game HTTP 写入口尚未由这些切片证明；部署暂停继续有效。支持范围与证据入口见 [Game API 专业合同](../../world-simulator/llm/external-agent-game-api.design.md#当前实施候选原生任务执行链)和[协作与私有目标合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#6-接口与数据合同)。本次不刷新全局和环境核验基线。
 
 2026-10-15 局部候选核对：[#4734](https://github.com/eng-cc/oasis7/pull/4734)已合入 `25b4d211a612d783172e6266307c71c62b8c00c0`，完成共享客户端抽离；[工业任务执行器候选](https://github.com/eng-cc/oasis7/tree/50e128cbe369f8f6adca6556ff99784c7f7c93ad)由现有节点组合启动，复用受权客户端并显示运行位置、预算和阻断状态。执行器由 [#4744](https://github.com/eng-cc/oasis7/pull/4744)继续迁移，真实 HTTP 脚本工业链、独立 CLI/SDK 建厂对照与重启恢复已通过，执行器候选尚未合入；真实模型、完整生产能力迁移、性能比较和整体验收仍未完成。执行器不取得世界权威，关闭 Viewer 不代表停用节点进程，也不代表云端托管；2026-10-15 用户明确当前以 Codex 等外部 Agent 接入为主要入口，自有 Agent 入口打磨与真实模型测试留作后续 TODO，本轮未发出付费请求；剩余验证与消费者迁移仍由 [#4726](https://github.com/eng-cc/oasis7/issues/4726)跟踪。本项不刷新其他项目或部署事实。
+
+<a id="cc-status-world-policy-contracts"></a>
+
+### 7. 制造、保供与组织连续性的设计基线
+
+2026-10-19 局部核对，仅覆盖下列三个 Issue 及 `main@e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6` 的相关设计和实现入口。文档补齐首版政策及技术合同，服务于额外 Agent 成长、危机中的有限连续运行和组织权利保护；不改变当前首产物主线或公开阶段。
+
+| 主题 | 产品与系统入口 | 当前边界与后续承接 |
+| --- | --- | --- |
+| 额外 Agent 制造 | [制造规则](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004) · [订单与原子交付](../../world-runtime/runtime/agent-industrial-manufacturing.design.md) | 配方、成本和产能由专业政策持有；订单到新身份/控制权的生产接线及验证仍由 [#4850](https://github.com/nil-studio/oasis7/issues/4850)承接。 |
+| 紧急保供 | [保供规则](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md) · [授权、批次与结算](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md) | 首版触发、优先级、窗口和补偿退出已在设计中明确；业务实现和同候选验收仍由 [#4866](https://github.com/nil-studio/oasis7/issues/4866)承接。 |
+| 组织连续性 | [组织保护规则](../../product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md) · [处置与授权交接](../../world-runtime/runtime/organization-continuity-and-disposition.design.md) | 活动、保护、接替、资产和部分交接政策已在设计中明确；业务实现和同候选验收仍由 [#4868](https://github.com/nil-studio/oasis7/issues/4868)承接。 |
+
+三项均保留原有已实现子范围，文档覆盖不改变实现或验收状态；未取得新的业务运行、部署或真人证据。其他项目与环境的核验时间不变。
 
 <a id="cc-status-changes"></a>
 
@@ -191,8 +210,9 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ### 知悉变化
 
+- **玩法权威协议有了独立设计承接。** 2026-10-19 局部设计核对基于 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6` 及 8 个原 issue；[专题入口](../../world-runtime/prd.index.md#gameplay-authority-protocols)补普通治理、工业工作/配方、charter、替代转换、levy、外部性、贡献恢复和安全确认的逻辑记录、提交与恢复边界。当前增量是系统设计，原实现状态与验收缺口继续有效；费率、资格阈值和上线参数仍由各自主责按专题依赖确定，未取得当日部署或玩法验收证据。
 - **部署暂停已经决定。** 不创建正式世界、生产密钥或启动实际故障域演练；已有授权的代码、验证、评审及正常合入继续。来源：[已有用户限制](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6097891450)、[最新延续](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
-- **游戏 Agent 与开发会话分开看。** Game API 的读取/发现/空任务切片不证明 OpenClaw/Codex 完成游戏自主首局；指挥面板实验 runtime 也不是游戏 Runtime 验收。来源：[外部 Runtime 产品目标](../../product/agents-world-simulation/prd.md#external-runtime-play)、[真实首期完成要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-010)、[#4563](https://github.com/eng-cc/oasis7/pull/4563)。
+- **游戏 Agent 与开发会话分开看。** Game API 的读取/发现/空任务切片不证明 OpenClaw/Codex 完成游戏自主首局；历史指挥面板实验 runtime 也不是游戏 Runtime 验收。来源：[外部 Runtime 产品目标](../../product/agents-world-simulation/prd.md#external-runtime-play)、[真实首期完成要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-010)、[#4563](https://github.com/eng-cc/oasis7/pull/4563)。
 - **架构方案与实际部署分开看。** 当前应持续查阅[架构索引](architecture/README.md)中的主责合同与部署核验入口；设计采纳、代码合入、环境验证和公开发行分别成立。来源：[基础设施事实边界](../../product/world-infrastructure/prd.md#53-事实边界与未决承接)。
 
 下一次维护按[持续更新流程](command-center.manual.md#cc-maintenance-steps)增量核对上述变化与未知项。

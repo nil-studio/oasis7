@@ -362,6 +362,7 @@ jobs:
           steps.formal-workspace-cache.outputs.cache-hit != 'true'
         run: python3 scripts/ci-test-artifacts.py cache-stage --max-bytes 8589934592 --cache "$RUNNER_TEMP/formal-workspace-cache" --cache-state "$RUNNER_TEMP/formal-cache-state.json" --github-output "$GITHUB_OUTPUT"
       - name: Save bounded trusted formal workspace cache
+        id: formal-cache-save
         if: >-
           success() && github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'schedule' ||
@@ -376,6 +377,9 @@ jobs:
   formal-test-build-trusted:
     cache-mode: write
     needs: select
+    outputs:
+      cache_key: ${{ steps.formal-workspace-cache.outputs.cache-primary-key }}
+      cache_saved: ${{ steps.formal-cache-save.outcome == 'success' }}
     if: >-
       needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
       github.ref == 'refs/heads/main' &&
@@ -383,6 +387,34 @@ jobs:
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps: *formal-build-steps
+
+  formal-cache-maintenance:
+    needs: formal-test-build-trusted
+    if: >-
+      needs.formal-test-build-trusted.result == 'success' &&
+      needs.formal-test-build-trusted.outputs.cache_saved == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    cache-mode: none
+    permissions:
+      contents: read
+      actions: write
+    concurrency:
+      group: formal-cache-maintenance-main
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Report cache storage and retain trusted Formal generations
+        env:
+          CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+          CURRENT_CACHE_KEY: ${{ needs.formal-test-build-trusted.outputs.cache_key }}
+        run: python3 scripts/ci-cache-maintenance.py --apply --current-key "$CURRENT_CACHE_KEY"
 
   oasis7-required:
     needs: [select, oasis7-test-build]
@@ -1703,6 +1735,9 @@ jobs:
           esac
 
   newapi-bridge-package:
+    env:
+      CARGO_NET_RETRY: 10
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'
     name: newapi-bridge-linux-x86-64
     runs-on: ubuntu-24.04

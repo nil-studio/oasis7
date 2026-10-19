@@ -1,7 +1,4 @@
-import initPixelWorldBridgeModule, {
-  PixelWorldBridge,
-  build_pixel_world_render_state,
-} from "./pixel_world_bridge_bindgen.js";
+import { createPixelWorldModule } from "./pixel_world_bridge_bindgen.js";
 
 export const PIXEL_WORLD_RUNTIME_SOURCE = "wasm_bindgen_runtime";
 const DRAG_CLICK_SUPPRESSION_THRESHOLD_PX = 4;
@@ -10,6 +7,61 @@ const AMBIENT_FRAME_INTERVAL_MS = 1000 / 12;
 const LOCATION_TEST_READBACK_CONTRACT = "oasis7_location_frame_evidence_v1";
 
 let runtimeInitPromise = null;
+let activeModule = null;
+const DOWNLOAD_BUDGET_MS = 30000;
+const PREPARE_BUDGET_MS = 10000;
+
+function timeoutError(stage) {
+  const error = new Error(`pixel world ${stage} timed out`);
+  error.code = `pixel_world_${stage}_timeout`;
+  return error;
+}
+
+function cumulativeBudget(milliseconds, stage) {
+  let remaining = milliseconds;
+  return async (operation, onTimeout) => {
+    if (remaining <= 0) throw timeoutError(stage);
+    const allowance = remaining;
+    const started = performance.now();
+    let timer;
+    const expired = new Promise((_, reject) => {
+      timer = setTimeout(() => { onTimeout?.(); reject(timeoutError(stage)); }, allowance);
+    });
+    try {
+      const result = await Promise.race([Promise.resolve().then(operation), expired]);
+      // A synchronous wasm start may prevent timer dispatch until it returns.
+      if (performance.now() - started >= allowance) {
+        onTimeout?.();
+        throw timeoutError(stage);
+      }
+      return result;
+    } catch (error) {
+      if (performance.now() - started >= allowance) {
+        onTimeout?.();
+        throw timeoutError(stage);
+      }
+      throw error;
+    } finally {
+      remaining -= performance.now() - started;
+      clearTimeout(timer);
+    }
+  };
+}
+let resourceStage = "descriptor";
+let resourceStageStarted = performance.now();
+const resourceStageDurations = {};
+const resourceStageListeners = new Set();
+function publishResourceStage(stage) {
+  const now = performance.now();
+  if (stage === "descriptor") {
+    for (const key of Object.keys(resourceStageDurations)) delete resourceStageDurations[key];
+  } else {
+    resourceStageDurations[resourceStage] = (resourceStageDurations[resourceStage] || 0) + now - resourceStageStarted;
+  }
+  resourceStageStarted = now;
+  resourceStage = stage;
+  for (const listener of resourceStageListeners) listener(stage);
+}
 
 const PIXEL_WORLD_WASM_PAYLOAD_NAME = "pixel_world_bridge_bindgen_bg.wasm";
 const PIXEL_WORLD_OPTIONAL_PAYLOAD_MANIFEST_NAME = "optional-payloads.json";
@@ -71,7 +123,7 @@ function normalizeOptionalPayloadIntegrity(payload) {
   return { sizeBytes, sha256 };
 }
 
-async function resolvePixelWorldWasmDescriptor({ moduleUrl = import.meta.url } = {}) {
+async function resolvePixelWorldWasmDescriptor({ moduleUrl = import.meta.url, signal } = {}) {
   const fallbackUrl = legacyPixelWorldWasmUrl(moduleUrl);
   // Node/jsdom unit tests and source-tree development do not serve a JSON
   // manifest. Keep the legacy adjacent-WASM path in those environments.
@@ -85,7 +137,7 @@ async function resolvePixelWorldWasmDescriptor({ moduleUrl = import.meta.url } =
   }
   let response;
   try {
-    response = await fetch(manifestUrl, { cache: "no-store" });
+    response = await fetch(manifestUrl, { cache: "no-store", ...(signal ? {signal} : {}) });
   } catch (error) {
     throw optionalPayloadMissingError(error instanceof Error ? error.message : "manifest_fetch_failed");
   }
@@ -105,6 +157,10 @@ async function resolvePixelWorldWasmDescriptor({ moduleUrl = import.meta.url } =
   const payload = manifest?.[PIXEL_WORLD_WASM_PAYLOAD_NAME];
   if (payload?.available !== true || typeof payload.path !== "string" || !payload.path.trim()) {
     throw optionalPayloadMissingError(payload?.reason || "source_missing");
+  }
+
+  if (payload.render_input_schema_version !== undefined && payload.render_input_schema_version !== 1) {
+    throw optionalPayloadIntegrityError("unsupported_render_input_schema");
   }
 
   let url;
@@ -128,45 +184,60 @@ function bytesToHex(bytes) {
   return Array.from(new Uint8Array(bytes), (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function loadPixelWorldWasmInput({ moduleUrl = import.meta.url } = {}) {
-  const descriptor = await resolvePixelWorldWasmDescriptor({ moduleUrl });
-  if (!descriptor.integrity) {
-    return descriptor.url;
-  }
+async function downloadPayload(url, cache, downloadBudget) {
+  const controller = new AbortController();
+  publishResourceStage("download");
+  return downloadBudget(async () => {
+    try {
+      const response = await fetch(url, { cache, signal: controller.signal });
+      if (!response?.ok) throw optionalPayloadFetchError(`http_${response?.status ?? "unknown"}`);
+      return new Uint8Array(await response.arrayBuffer());
+    } catch (error) {
+      if (error?.code) throw error;
+      throw optionalPayloadFetchError(error instanceof Error ? error.message : "network_error");
+    }
+  }, () => controller.abort());
+}
 
-  let response;
-  try {
-    response = await fetch(descriptor.url, { cache: "no-store" });
-  } catch (error) {
-    throw optionalPayloadFetchError(error instanceof Error ? error.message : "network_error");
-  }
-  if (!response?.ok) {
-    throw optionalPayloadFetchError(`http_${response?.status ?? "unknown"}`);
-  }
-
-  let bytes;
-  try {
-    bytes = new Uint8Array(await response.arrayBuffer());
-  } catch (error) {
-    throw optionalPayloadFetchError(error instanceof Error ? error.message : "body_read_failed");
-  }
-  if (bytes.byteLength !== descriptor.integrity.sizeBytes) {
-    throw optionalPayloadIntegrityError("size_mismatch");
-  }
-  if (!globalThis.crypto?.subtle?.digest) {
-    throw optionalPayloadIntegrityError("crypto_unavailable");
-  }
-
+async function verifyPayload(bytes, integrity) {
+  publishResourceStage("verify");
+  if (bytes.byteLength !== integrity.sizeBytes) throw optionalPayloadIntegrityError("size_mismatch");
+  if (!globalThis.crypto?.subtle?.digest) throw optionalPayloadIntegrityError("crypto_unavailable");
   let digest;
-  try {
-    digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  } catch {
-    throw optionalPayloadIntegrityError("digest_failed");
+  try { digest = await globalThis.crypto.subtle.digest("SHA-256", bytes); }
+  catch { throw optionalPayloadIntegrityError("digest_failed"); }
+  if (bytesToHex(digest) !== integrity.sha256) throw optionalPayloadIntegrityError("sha256_mismatch");
+}
+
+async function loadPixelWorldWasmInput({ moduleUrl = import.meta.url, initialize = null } = {}) {
+  publishResourceStage("descriptor");
+  const downloadBudget = cumulativeBudget(DOWNLOAD_BUDGET_MS, "download");
+  const prepareBudget = cumulativeBudget(PREPARE_BUDGET_MS, "prepare");
+  const descriptorController = new AbortController();
+  const descriptor = await downloadBudget(() => resolvePixelWorldWasmDescriptor({ moduleUrl, signal: descriptorController.signal }), () => descriptorController.abort());
+  const hashed = descriptor.integrity && descriptor.url.pathname.endsWith(`/${descriptor.integrity.sha256}.wasm`);
+  let bytes = await downloadPayload(descriptor.url, hashed ? "default" : "no-store", downloadBudget);
+  // Verification, compilation and init share a budget separate from all downloads.
+  // A late non-abortable digest/compile/init never owns the published module.
+  let abandoned = false;
+  const prepare = async () => {
+    if (descriptor.integrity) await verifyPayload(bytes, descriptor.integrity);
+    if (abandoned) throw new Error("abandoned pixel world preparation");
+    if (!initialize) return bytes;
+    publishResourceStage("compile");
+    const compiled = await WebAssembly.compile(bytes);
+    if (abandoned) throw new Error("abandoned pixel world preparation");
+    publishResourceStage("prepare");
+    const result = await initialize(compiled);
+    return result;
+  };
+  try { return await prepareBudget(prepare, () => { abandoned = true; }); }
+  catch (error) {
+    if (!hashed || error?.code !== PIXEL_WORLD_OPTIONAL_PAYLOAD_INTEGRITY_CODE
+        || !/size_mismatch|sha256_mismatch/.test(error.message)) throw error;
+    bytes = await downloadPayload(descriptor.url, "reload", downloadBudget);
+    return prepareBudget(prepare, () => { abandoned = true; });
   }
-  if (bytesToHex(digest) !== descriptor.integrity.sha256) {
-    throw optionalPayloadIntegrityError("sha256_mismatch");
-  }
-  return bytes;
 }
 
 function pixelWorldTestApiEnabled() {
@@ -175,9 +246,17 @@ function pixelWorldTestApiEnabled() {
 
 function ensurePixelWorldBridgeModule() {
   if (!runtimeInitPromise) {
-    runtimeInitPromise = loadPixelWorldWasmInput().then((wasmInput) => (
-      initPixelWorldBridgeModule(wasmInput)
-    ));
+    // The generated factory gives each attempt private wasm-bindgen mutable
+    // state. Abandoned initialization cannot overwrite a later attempt.
+    const candidate = createPixelWorldModule();
+    const attempt = loadPixelWorldWasmInput({ initialize: bytes => candidate.default({ module_or_path: bytes }) })
+      .then(() => {
+        if (runtimeInitPromise !== attempt) return;
+        activeModule = candidate;
+        publishResourceStage("ready");
+      });
+    runtimeInitPromise = attempt;
+    attempt.catch(() => { if (runtimeInitPromise === attempt) { runtimeInitPromise = null; publishResourceStage("unavailable"); } });
   }
   return runtimeInitPromise;
 }
@@ -196,7 +275,11 @@ function toCanvasPoint(canvas, event) {
 }
 
 export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
-  await ensurePixelWorldBridgeModule();
+  const progress = stage => onEvent?.({type:"resource_stage", stage, durations_ms: {...resourceStageDurations}});
+  resourceStageListeners.add(progress);
+  progress(resourceStage);
+  try { await ensurePixelWorldBridgeModule(); }
+  finally { resourceStageListeners.delete(progress); }
 
   let mountedCanvas = null;
   let animationFrameId = null;
@@ -211,7 +294,7 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
   let removeLifecycleListeners = () => {};
   let animationGeneration = 0;
 
-  const runtime = new PixelWorldBridge(
+  const runtime = new activeModule.PixelWorldBridge(
     (event) => {
       if (mountedCanvas && event?.type === "hover_entity") {
         mountedCanvas.style.cursor = event.selection ? "pointer" : "grab";
@@ -461,10 +544,11 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
 }
 
 export function derivePixelWorldRenderState(input) {
-  if (!runtimeInitPromise) {
+  if (!activeModule) {
     throw new Error("pixel world bridge module is not initialized");
   }
-  return build_pixel_world_render_state(input);
+  if (input?.schema_version !== 1) throw new Error("unsupported pixel world render input version");
+  return activeModule.build_pixel_world_render_state_json(JSON.stringify(input));
 }
 
 export {

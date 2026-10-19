@@ -7,6 +7,7 @@ python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -67,11 +68,40 @@ assert "github.workflow_sha == github.sha" in testnet, "writer must bind trusted
 assert "needs.plan.outputs.checkoutSha == github.sha" in testnet, "writer must bind source to main event"
 assert "steps: &testnet-native-steps" in testnet and "steps: *testnet-native-steps" in testnet
 
+# Compilation has no Web dependency; assembly joins both successful producers.
+for lane in ('package-native', 'package-native-trusted'):
+    body = re.search(rf'^  {lane}:\n(.*?)(?=^  [\w-]+:\n|\Z)', testnet, re.M | re.S)[1]
+    assert '      - build-web-dist' not in body
+assembly = testnet.split('  package-installers:\n', 1)[1]
+for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted'):
+    assert '      - ' + dependency + '\n' in assembly
+assert '!cancelled()' in assembly and "needs.build-web-dist.result == 'success'" in assembly
+assert '--native-binaries' in assembly and 'Swatinem/rust-cache@' not in assembly
+installer = assembly.split('      - name: Package native installer\n', 1)[1].split('      - name:', 1)[0]
+assert '--out-dir output/testnet-packages/assets' in installer
+assert '--ops-out-dir' not in installer
+
+assert '--native-only' in testnet and 'testnet-native-stage-${{ matrix.platform }}' in testnet
+
 # Execute the actual lane predicates, including untrusted branch/source revisions.
 def condition(name):
     body = re.search(rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)", testnet, re.M | re.S)[1]
     predicate = re.search(r"^    if: >-\n(.*?)(?=^    \S)", body, re.M | re.S)[1]
     return " ".join(predicate.split())
+
+# The real join must run after one selected native lane, but never on failure,
+# cancellation, unknown results, or both producers selected.
+import itertools
+join = condition('package-installers')
+for web, candidate, trusted in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=3):
+    expression = join.replace('!cancelled()', 'True')
+    values = {'needs.plan.result': 'success', 'needs.build-web-dist.result': web,
+              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted}
+    for key in sorted(values, key=len, reverse=True):
+        expression = expression.replace(key, repr(values[key]))
+    actual = eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}})
+    expected = web == 'success' and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')]
+    assert actual == expected, (web, candidate, trusted)
 
 trusted_condition = condition("package-native-trusted")
 candidate_condition = condition("package-native")
@@ -100,7 +130,6 @@ for ref, event, source, workflow, scope, profile, expected in (
 linux_keys: list[str] = []
 expected_non_linux_keys = {
     "testnet-packages-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2",
-    "mainnet-packages-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2",
     "release-packages-package-native-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2",
 }
 observed_non_linux_keys: set[str] = set()
@@ -174,8 +203,97 @@ assert len(normalized_linux_keys) == 1, (
     "Testnet packaging profile=packaging, Mainnet, and Release Linux caches must share one key"
 )
 assert observed_non_linux_keys == expected_non_linux_keys, (
-    "macOS/Windows package cache identities must remain unchanged"
+    "Mainnet packaging must consume Release's OS/target cache; Testnet stays profile-isolated"
 )
 
-print("ok: Linux package caches share trusted profile-aware identity; non-Linux cache scope is unchanged")
+
+def job_body(workflow: str, name: str) -> str:
+    match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  [\w-]+:\n|\Z)",
+                      workflow.split("\njobs:\n", 1)[1], re.M | re.S)
+    assert match, f"missing workflow job: {name}"
+    return match[1]
+
+
+def values(body: str, indent: int) -> dict[str, str]:
+    return {name: value.strip().strip("\"'") for name, value in
+            re.findall(rf"^{' ' * indent}([\w-]+): ([^\n]+)$", body, re.M)}
+
+
+def declared_env(body: str, indent: int) -> dict[str, str]:
+    match = re.search(rf"^{' ' * indent}env:\n(.*?)(?=^{' ' * indent}\S|\Z)",
+                      body, re.M | re.S)
+    return values(match[1], indent + 2) if match else {}
+
+
+def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
+    """Compare inputs used by the pinned action, including its implicit defaults.
+
+    This establishes configuration compatibility for the same source and runner
+    image. Real ref reachability, installed runner image tools and cache contents
+    still require hosted observations.
+    """
+    body = job_body(workflow, name)
+    matches = list(re.finditer(r"^      - uses: (Swatinem/rust-cache@[^\n]+)\n(.*?)(?=^      - |\Z)",
+                               body, re.M | re.S))
+    if non_linux:
+        matches = [match for match in matches if "if: runner.os != 'Linux'" in match[2]]
+    assert len(matches) == 1, (name, "expected one selected Rust cache")
+    cache = matches[0]
+    inputs = values(cache[2], 10)
+    env = declared_env(workflow.split("\njobs:\n", 1)[0], 0)
+    env.update(declared_env(body.split("    steps:", 1)[0], 4))
+    env.update(declared_env(cache[2], 8))
+    prefixes = {"CARGO", "CC", "CFLAGS", "CXX", "CMAKE", "RUST"}
+    prefixes.update(inputs.get("env-vars", "").split())
+    # rust-cache considers all installed Rust versions, not just the default.
+    # Only setup before this exact cache step can contribute to its identity.
+    toolchains, default = set(), None
+    for command in re.findall(r"^\s+rustup (?:toolchain install|default) [^\n]+$", body[:cache.start()], re.M):
+        expanded = re.sub(r"\$\{(\w+)\}|\$(\w+)",
+                          lambda match: env.get(match[1] or match[2], match[0]), command)
+        args = shlex.split(expanded)
+        if args[1:3] == ["toolchain", "install"]:
+            toolchains.add(args[3])
+        elif args[1] == "default":
+            default = args[2]
+    assert toolchains and default, f"{name}: install a pinned toolchain before restoring cache"
+    return {
+        "action": cache[1], "runner": values(body, 4)["runs-on"],
+        "prefix": inputs.get("prefix-key", "v0-rust"),
+        "shared-key": inputs.get("shared-key"),
+        "environment-hash": inputs.get("add-rust-environment-hash-key", "true"),
+        "environment": {key: value for key, value in env.items()
+                        if value and any(key.startswith(prefix) for prefix in prefixes)},
+        "toolchains": sorted(toolchains), "default-toolchain": default,
+        "workspaces": inputs.get("workspaces", ". -> target"),
+        "cache-targets": inputs.get("cache-targets", "true"),
+        "cache-bin": inputs.get("cache-bin", "true"),
+        "cache-directories": inputs.get("cache-directories", ""),
+        "cache-provider": inputs.get("cache-provider", "github"),
+    }
+
+
+release = workflow_paths[2].read_text()
+mainnet = workflow_paths[1].read_text()
+rust = (root / ".github/workflows/rust.yml").read_text()
+bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
+assert "\ncache-mode: read\n" in mainnet
+for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync",
+             "release_gate_soak", "release_gate_web", "build-web-dist"):
+    expected = cache_identity(release, name)
+    actual = cache_identity(mainnet, name)
+    assert actual == expected, (name, "Mainnet cache identity differs from Release", actual, expected)
+    assert "save-if: false" in job_body(mainnet, name)
+    assert "cache-mode: write" not in job_body(mainnet, name)
+    # Existing shard producers remain separate: merging their keys would let the
+    # first finisher freeze an incomplete set of compiled dependencies.
+    if name.startswith("release_gate_runtime_") or name == "release_gate_soak":
+        assert expected["shared-key"].startswith("release-packages-release-gate-")
+        assert "save-if: false" not in job_body(release, name)
+assert cache_identity(mainnet, "package-native", True) == cache_identity(release, "package-native", True)
+assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "package-linux-x86-64"), \
+    "NewAPI entrypoints must agree on Cargo environment and toolchain/path defaults, not just shared-key"
+
+print("ok: package readers reuse reachable compatible writers without merging shard targets or profile boundaries")
+
 PY

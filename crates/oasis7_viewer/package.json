@@ -7,7 +7,7 @@
     "test:ui": "vitest run",
     "test:ui:watch": "vitest",
     "test:feedback-contract": "node ./scripts/software-safe-feedback-contract.test.mjs",
-    "test:frontend-structure": "node ./scripts/viewer-compat-aliases.test.mjs && node ./scripts/frontend-structure-audit.mjs",
+    "test:frontend-structure": "node ./scripts/pixel-world-bindgen-factory.test.mjs && node ./scripts/viewer-compat-aliases.test.mjs && node ./scripts/frontend-structure-audit.mjs",
     "test:pixel-world:visual": "node ./scripts/pixel-world-hotspot-visual-smoke.mjs",
     "test:pixel-world:location-frame:visual": "node ./scripts/pixel-world-location-frame-visual-smoke.mjs",
     "test:pixel-world:module-visual": "node ./scripts/pixel-world-module-visual-smoke.mjs",
