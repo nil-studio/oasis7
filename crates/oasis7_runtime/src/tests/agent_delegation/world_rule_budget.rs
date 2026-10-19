@@ -438,6 +438,9 @@ fn real_builtin_modules_accept_restricted_essential_recipe() {
     world
         .set_governance_finality_signer_registry(registry)
         .unwrap();
+    // Seal the bootstrap state and registry in a real tick before restoring
+    // the formal chain context; snapshot recovery verifies that exact root.
+    world.step().unwrap();
     let manifest = fixture.chain_resource_manifest();
     let snapshot = world.snapshot_with_chain_resource_context(
         crate::ChainResourceDerivationContext {
@@ -493,7 +496,7 @@ fn manufacturing_workload_uses_existing_factory_maintenance_load_factor() {
         .next()
         .unwrap();
     expiry_snapshot.state.time = order.production_deadline().unwrap() - 1;
-    let mut expired = World::from_snapshot(expiry_snapshot, world.journal().clone()).unwrap();
+    let mut expired = World::new_with_state(expiry_snapshot.state);
     expired.step().unwrap();
     assert_eq!(
         working - expired.state().factories["assembly"].durability_ppm,
@@ -516,7 +519,7 @@ fn manufacturing_workload_uses_existing_factory_maintenance_load_factor() {
         .get_mut("site")
         .unwrap()
         .active = false;
-    world = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    world = World::new_with_state(snapshot.state);
     world.step().unwrap();
     assert_eq!(
         working - world.state().factories["assembly"].durability_ppm,
