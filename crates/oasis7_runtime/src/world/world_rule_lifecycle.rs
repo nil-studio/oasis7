@@ -40,18 +40,16 @@ impl World {
                     registration, ..
                 },
         } = command
-        {
-            if self
+            && self
                 .state
                 .is_manufactured_agent(&registration.beneficiary_id)
-                && self
-                    .current_agent_owner(&registration.beneficiary_id)
-                    .is_none()
-            {
-                return Err(crate::world_rules::invalid(
-                    "minimum_service_beneficiary_current_authority_unavailable",
-                ));
-            }
+            && self
+                .current_agent_owner(&registration.beneficiary_id)
+                .is_none()
+        {
+            return Err(crate::world_rules::invalid(
+                "minimum_service_beneficiary_current_authority_unavailable",
+            ));
         }
         Ok(())
     }

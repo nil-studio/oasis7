@@ -846,3 +846,6 @@ fn inconsistent_terminal_refund_flags_fail_closed_and_legacy_terminal_shape_is_r
 
 #[path = "industrial_world_binding_tests.rs"]
 mod industrial_world_binding_tests;
+
+#[path = "industrial_control_read_tests.rs"]
+mod industrial_control_read_tests;

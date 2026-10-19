@@ -140,6 +140,8 @@ Report the goal revision, chosen action, canonical result and observed effect co
 
 原 operation 回读若为 `HistoryUnavailable`，保留原 request/correlation、run 与持久预算并停止新副作用；交由宿主恢复历史材料，不能把记录头仍存在当作回执可用，也不能换世界或新建操作来代替恢复。
 
+工业制造交付后，从 `industry.world_rule_status.agent_orders[order_id].current_owner` 和 `current_control` 核对当前玩家、主 Agent、控制来源与 generation；只有 `current_control.status=active` 才是当前权威证据。字段为 null 或 blocked 时不可把历史 quote 的 owner 字段当作当前控制。
+
 工业制造先从 `industry.world_rule_status.manufacturing_quotes` 读取当前 quote，再把同一 `quoted_at` 和 `quote_digest` 填入 `ConfirmAgentOrder`。报价只读，不预留；过期或状态漂移应重读，已确认订单继续查询原订单。生产需 12 个合法工作 tick；未开工可取消，开工后按原订单失败/报废合同处置，不能换请求重复交付。
 
 紧急电力仅可消费已登记最低服务义务的受限额度：`schedule-essential --context <id> --factory <factory> --recipe <recipe> --batches <n> --obligation <registered-id>`。它与普通排程共用设施、物料和权限检查；不会把额度加入普通可转移电力。未知权威来源、过期区间或未支持路线应保持 blocker，不能以自报库存或提案文案代替供给事实。

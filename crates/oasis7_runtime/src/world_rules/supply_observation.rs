@@ -38,7 +38,7 @@ impl PreparedWorldRule {
                 ..
             }
         ) || now == 0
-            || now % 60 != 0
+            || !now.is_multiple_of(60)
         {
             return Err(invalid("missing_authority"));
         }
@@ -213,7 +213,7 @@ impl EmergencySupplyStateV1 {
         let Some(window) = now.checked_sub(60) else {
             return Vec::new();
         };
-        if now % 60 != 0 {
+        if !now.is_multiple_of(60) {
             return Vec::new();
         }
         self.minimum_services

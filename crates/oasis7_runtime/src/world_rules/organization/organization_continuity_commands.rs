@@ -1,5 +1,7 @@
 use super::*;
 
+// Keep authenticated event facts and the distinct atomic state authorities explicit.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_continuity_command(
     state: &WorldState,
     rules: &mut WorldRulesStateV1,
@@ -15,40 +17,7 @@ pub(super) fn apply_continuity_command(
     if world_binding.trim().is_empty() {
         return Err(invalid("world_binding_required"));
     }
-    let organization_id = match command {
-        Command::Enable {
-            organization_id, ..
-        }
-        | Command::RecordAvailability {
-            organization_id, ..
-        }
-        | Command::FinalizeAvailabilityUnknown {
-            organization_id, ..
-        }
-        | Command::CloseActivityTick {
-            organization_id, ..
-        }
-        | Command::RegisterActivityContract {
-            organization_id, ..
-        }
-        | Command::OpenDormancyCase {
-            organization_id, ..
-        }
-        | Command::OpenVoluntaryCase {
-            organization_id, ..
-        } => Some(organization_id.as_str()),
-        Command::AdvancePhase { case_id, .. }
-        | Command::PublishNotice { case_id, .. }
-        | Command::SubmitSuccessor { case_id, .. }
-        | Command::CommitHandoff { case_id, .. }
-        | Command::SubmitRemedy { case_id, .. }
-        | Command::ResolveRemedy { case_id, .. }
-        | Command::AdvanceDisposition { case_id, .. }
-        | Command::SettleEstateAsset { case_id, .. } => continuity
-            .cases
-            .get(case_id)
-            .map(|case| case.organization_id.as_str()),
-    };
+    let organization_id = command_organization_id(continuity, command);
     if let Some(registration) =
         organization_id.and_then(|organization_id| continuity.registrations.get(organization_id))
         && (registration.policy_version != ORGANIZATION_CONTINUITY_POLICY_VERSION_V1

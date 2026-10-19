@@ -236,6 +236,8 @@ pub(super) fn require_continuity_governance(
     require_governance(state, actor, proposal_key, &outer)
 }
 
+// Every availability channel and interval is independently bound by the signed preimage.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn validate_availability_certificate(
     state: &WorldState,
     registration: &OrganizationRegistrationV1,
@@ -1093,4 +1095,45 @@ pub(super) fn credit_material(
         .checked_add(amount)
         .ok_or_else(|| invalid("organization_material_overflow"))?;
     Ok(())
+}
+
+/// Resolve the organization addressed by an organization-level or case command.
+pub(super) fn command_organization_id<'a>(
+    continuity: &'a OrganizationContinuityStateV1,
+    command: &'a Command,
+) -> Option<&'a str> {
+    match command {
+        Command::Enable {
+            organization_id, ..
+        }
+        | Command::RecordAvailability {
+            organization_id, ..
+        }
+        | Command::FinalizeAvailabilityUnknown {
+            organization_id, ..
+        }
+        | Command::CloseActivityTick {
+            organization_id, ..
+        }
+        | Command::RegisterActivityContract {
+            organization_id, ..
+        }
+        | Command::OpenDormancyCase {
+            organization_id, ..
+        }
+        | Command::OpenVoluntaryCase {
+            organization_id, ..
+        } => Some(organization_id.as_str()),
+        Command::AdvancePhase { case_id, .. }
+        | Command::PublishNotice { case_id, .. }
+        | Command::SubmitSuccessor { case_id, .. }
+        | Command::CommitHandoff { case_id, .. }
+        | Command::SubmitRemedy { case_id, .. }
+        | Command::ResolveRemedy { case_id, .. }
+        | Command::AdvanceDisposition { case_id, .. }
+        | Command::SettleEstateAsset { case_id, .. } => continuity
+            .cases
+            .get(case_id)
+            .map(|case| case.organization_id.as_str()),
+    }
 }

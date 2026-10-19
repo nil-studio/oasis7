@@ -278,6 +278,10 @@ pub struct OrganizationContinuityCaseV1 {
     pub stage_receipts: Vec<String>,
 }
 
+/// Organization -> member -> (joined tick, optional left tick, authority receipt).
+pub type OrganizationMembershipHistoryV1 =
+    BTreeMap<String, BTreeMap<String, Vec<(u64, Option<u64>, String)>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OrganizationContinuityStateV1 {
     #[serde(default)]
@@ -287,7 +291,7 @@ pub struct OrganizationContinuityStateV1 {
     #[serde(default)]
     pub activity_receipts: BTreeMap<String, BTreeMap<String, OrganizationActivityReceiptV1>>,
     #[serde(default)]
-    pub membership_history: BTreeMap<String, BTreeMap<String, Vec<(u64, Option<u64>, String)>>>,
+    pub membership_history: OrganizationMembershipHistoryV1,
     #[serde(default)]
     pub assets: BTreeMap<String, OrganizationManifestAssetV1>,
     #[serde(default)]

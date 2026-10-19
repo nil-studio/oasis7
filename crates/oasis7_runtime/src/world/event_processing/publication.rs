@@ -73,18 +73,17 @@ impl World {
                 ));
             }
         }
-        if let WorldEventBody::Domain(DomainEvent::RecipeCompleted { job_id, .. }) = &body {
-            if self
+        if let WorldEventBody::Domain(DomainEvent::RecipeCompleted { job_id, .. }) = &body
+            && self
                 .state
                 .pending_recipe_jobs
                 .get(job_id)
                 .and_then(|job| job.emergency_power_world_binding.as_ref())
                 .is_some_and(|binding| self.world_rule_binding().as_ref() != Some(binding))
-            {
-                return Err(crate::world_rules::invalid(
-                    "essential_recipe_world_binding_mismatch",
-                ));
-            }
+        {
+            return Err(crate::world_rules::invalid(
+                "essential_recipe_world_binding_mismatch",
+            ));
         }
         if let WorldEventBody::Domain(event) = &body {
             self.validate_manufactured_identity_acquisition(event)?;
@@ -220,7 +219,7 @@ impl World {
                 | DomainEvent::ProductValidationAttemptStarted { .. })) => Some(PreparedEventStateDelta::IndustryHistory(
                     crate::state::industry_history_transition::PreparedIndustryHistoryEvent::prepare(&self.state, event, self.state.time)?,
                 )),
-            WorldEventBody::Domain(event @ (DomainEvent::AgentClaimed { .. } | DomainEvent::AgentClaimUpkeepSettled { .. })) => Some(PreparedEventStateDelta::AgentClaimEconomic(super::super::agent_claim_economic_publication::PreparedAgentClaimEconomic::prepare(&self.state,event,self.state.time)?)),
+            WorldEventBody::Domain(event @ (DomainEvent::AgentClaimed { .. } | DomainEvent::AgentClaimUpkeepSettled { .. })) => Some(PreparedEventStateDelta::AgentClaimEconomic(Box::new(super::super::agent_claim_economic_publication::PreparedAgentClaimEconomic::prepare(&self.state,event,self.state.time)?))),
             WorldEventBody::Domain(event @ (DomainEvent::AgentClaimReleased { .. } | DomainEvent::AgentClaimReclaimed { .. })) => Some(PreparedEventStateDelta::AgentClaimTerminal(super::super::agent_claim_terminal_publication::PreparedAgentClaimTerminal::prepare(&self.state,event,self.state.time)?)),
             WorldEventBody::Domain(event @ (DomainEvent::EconomicContractOpened { .. } | DomainEvent::EconomicContractAccepted { .. } | DomainEvent::EconomicContractSettled { .. } | DomainEvent::EconomicContractExpired { .. })) => Some(PreparedEventStateDelta::EconomicContract(super::super::economic_contract_publication::PreparedEconomicContractEvent::prepare(&self.state,event,self.state.time)?)),
             WorldEventBody::Domain(event @ (DomainEvent::AllianceFormed { .. } | DomainEvent::AllianceJoined { .. } | DomainEvent::AllianceLeft { .. } | DomainEvent::AllianceDissolved { .. } | DomainEvent::WarDeclared { .. } | DomainEvent::WarConcluded { .. })) => Some(PreparedEventStateDelta::AllianceWar(super::super::alliance_war_publication::PreparedAllianceWarEvent::prepare(&self.state,event,self.state.time)?)),

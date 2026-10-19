@@ -251,6 +251,8 @@ impl OrganizationContinuityStateV1 {
         Ok(changed)
     }
 
+    // Preserve the full event-cursor and catalog commitment at this replay boundary.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_activity_tick(
         &mut self,
         state: &WorldState,
@@ -411,6 +413,8 @@ impl OrganizationContinuityStateV1 {
         Ok(close_hash.to_owned())
     }
 
+    // The authoritative ledger adapter supplies one exact deposit fact tuple.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn accept_material_deposit(
         &mut self,
         organization_id: &str,
@@ -559,14 +563,14 @@ impl OrganizationContinuityStateV1 {
                 .expect("registration checked above")
                 .membership_controller_bindings
                 .insert(member_id.to_owned(), binding);
-        } else if let Some((_, left, _)) = events.last_mut() {
-            if left.is_none() {
-                *left = Some(world_tick);
-                if let Some(registration) = self.registrations.get_mut(organization_id) {
-                    registration
-                        .membership_controller_bindings
-                        .remove(member_id);
-                }
+        } else if let Some((_, left, _)) = events.last_mut()
+            && left.is_none()
+        {
+            *left = Some(world_tick);
+            if let Some(registration) = self.registrations.get_mut(organization_id) {
+                registration
+                    .membership_controller_bindings
+                    .remove(member_id);
             }
         }
         Ok(())
@@ -786,6 +790,8 @@ impl OrganizationContinuityStateV1 {
 }
 
 impl PreparedWorldRule {
+    // Forward the authenticated event context without merging independent authority fields.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn organization_continuity(
         &mut self,
         state: &WorldState,

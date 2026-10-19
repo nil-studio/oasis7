@@ -380,17 +380,15 @@ impl World {
             defender_alliance_id,
             ..
         } = &envelope.action
+            && (self.state.organization_risk_frozen(aggressor_alliance_id)
+                || self.state.organization_risk_frozen(defender_alliance_id))
         {
-            if self.state.organization_risk_frozen(aggressor_alliance_id)
-                || self.state.organization_risk_frozen(defender_alliance_id)
-            {
-                return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec!["organization_dissolution_risk_frozen".into()],
-                    },
-                }));
-            }
+            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                action_id,
+                reason: RejectReason::RuleDenied {
+                    notes: vec!["organization_dissolution_risk_frozen".into()],
+                },
+            }));
         }
         let organization = match &envelope.action {
             Action::DissolveAlliance { alliance_id, .. }
@@ -639,15 +637,15 @@ impl World {
             }
             Action::ClaimAgent { .. } => {
                 let body = self.action_to_event_gameplay(action_id, &envelope.action)?;
-                if let WorldEventBody::Domain(event) = &body {
-                    if let Err(error) = self.validate_manufactured_identity_acquisition(event) {
-                        return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                            action_id,
-                            reason: RejectReason::RuleDenied {
-                                notes: vec![format!("{error:?}")],
-                            },
-                        }));
-                    }
+                if let WorldEventBody::Domain(event) = &body
+                    && let Err(error) = self.validate_manufactured_identity_acquisition(event)
+                {
+                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec![format!("{error:?}")],
+                        },
+                    }));
                 }
                 Ok(body)
             }

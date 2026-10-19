@@ -6,10 +6,8 @@ use oasis7_agent_api::world_action::{
 fn event(actor: &str, request: &str, command: WorldRuleCommandV1) -> DomainEvent {
     let emergency = matches!(&command, WorldRuleCommandV1::EmergencySupply { .. });
     let mut event = super::event(actor, request, command);
-    if emergency {
-        if let DomainEvent::WorldRuleCommitted { world_binding, .. } = &mut event {
-            *world_binding = Some(adapter_tests::supply_test_binding());
-        }
+    if emergency && let DomainEvent::WorldRuleCommitted { world_binding, .. } = &mut event {
+        *world_binding = Some(adapter_tests::supply_test_binding());
     }
     event
 }

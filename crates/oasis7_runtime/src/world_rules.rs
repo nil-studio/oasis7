@@ -344,10 +344,10 @@ impl PreparedWorldRule {
             return industry.serialize_agents(state, output);
         }
         let mut agents = self.agents.clone();
-        if let Some(id) = self.event.agent_id() {
-            if let Some(agent) = agents.get_mut(id) {
-                agent.mailbox.push_back(self.event.clone());
-            }
+        if let Some(id) = self.event.agent_id()
+            && let Some(agent) = agents.get_mut(id)
+        {
+            agent.mailbox.push_back(self.event.clone());
         }
         output.serialize_field(
             "agents",
@@ -605,8 +605,38 @@ impl crate::World {
                 let Some(value) = status["agent_orders"].get_mut(id) else {
                     continue;
                 };
-                let blocker = self
-                    .can_read_agent_industrial_order(order, reader)
+                let readable = self.can_read_agent_industrial_order(order, reader);
+                value["current_owner"] = serde_json::Value::Null;
+                value["current_control"] = if readable {
+                    serde_json::json!({"status":"blocked","reason":"current_authority_unavailable"})
+                } else {
+                    serde_json::Value::Null
+                };
+                if readable
+                    && let (Some(buyer), Some(owner), Some(identity)) = (
+                        self.current_agent_owner(&order.owner_id),
+                        self.current_agent_owner(&order.target_agent_id),
+                        self.current_agent_identity(&order.target_agent_id),
+                    )
+                    && owner.primary_agent_id == buyer.primary_agent_id
+                    && owner.player_id == buyer.player_id
+                    && identity.owner_binding == owner.player_id
+                {
+                    value["current_owner"] = serde_json::json!({
+                        "primary_agent_id":owner.primary_agent_id,
+                        "player_id":owner.player_id,
+                    });
+                    value["current_control"] = serde_json::json!({
+                        "status":"active",
+                        "target_agent_id":order.target_agent_id,
+                        "source_id":owner.source_id,
+                        "source_generation":self.state().agent_claims.get(&order.target_agent_id).and_then(|claim|claim.control_source.as_ref()).map(|source|source.acquisition_sequence),
+                        "claim_owner_id":self.state().agent_claims.get(&order.target_agent_id).map(|claim|&claim.claim_owner_id),
+                        "generation":owner.generation,
+                        "identity_generation":identity.generation,
+                    });
+                }
+                let blocker = readable
                     .then(|| self.industrial_order_blocker(order, self.state().time))
                     .flatten();
                 value["blocker"] = serde_json::json!(blocker);
@@ -646,10 +676,9 @@ pub(crate) fn validate_manufactured_world_scope(
             .agent_orders
             .values()
             .find(|order| order.target_agent_id == agent)
-    }) {
-        if order.quote.world_binding.as_deref() != binding {
-            return Err(invalid("manufactured_actor_world_binding_mismatch"));
-        }
+    }) && order.quote.world_binding.as_deref() != binding
+    {
+        return Err(invalid("manufactured_actor_world_binding_mismatch"));
     }
     Ok(())
 }

@@ -160,23 +160,6 @@ pub fn world_rule_request_key_v1(actor: &str, request: &str) -> String {
     format!("rule:{}", hash.finalize().to_hex())
 }
 
-#[cfg(test)]
-mod request_key_tests {
-    use super::world_rule_request_key_v1;
-
-    #[test]
-    fn business_effect_identity_preserves_v1_receipts_and_component_boundaries() {
-        assert_eq!(
-            world_rule_request_key_v1("agent-a", "effect-preview-only"),
-            "rule:12c04decf162923ca4aff8cb6f02ae53e3121b2b3d857a993336b7cb6125b9e9"
-        );
-        assert_ne!(
-            world_rule_request_key_v1("ab", "c"),
-            world_rule_request_key_v1("a", "bc")
-        );
-    }
-}
-
 impl WorldRuleCommandV1 {
     /// Exact object used by existing native delegation grants; no wildcard scope.
     pub fn authority_scope(&self) -> String {
@@ -240,5 +223,22 @@ impl WorldRuleCommandV1 {
             ),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod request_key_tests {
+    use super::world_rule_request_key_v1;
+
+    #[test]
+    fn business_effect_identity_preserves_v1_receipts_and_component_boundaries() {
+        assert_eq!(
+            world_rule_request_key_v1("agent-a", "effect-preview-only"),
+            "rule:12c04decf162923ca4aff8cb6f02ae53e3121b2b3d857a993336b7cb6125b9e9"
+        );
+        assert_ne!(
+            world_rule_request_key_v1("ab", "c"),
+            world_rule_request_key_v1("a", "bc")
+        );
     }
 }

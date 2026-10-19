@@ -274,27 +274,24 @@ impl PreparedEconomicContractEvent {
                 ));
             }
         };
-        let organization_continuity = if let DomainEvent::EconomicContractSettled {
-            world_binding,
-            ..
-        } = event
-        {
-            if let Some(world_rules) = state.world_rules.as_ref() {
-                let mut continuity = world_rules.organization_continuity.clone();
-                continuity
-                    .record_atomic_exchange_settlement(
-                        state,
-                        &contract,
-                        now,
-                        world_binding.as_deref(),
-                    )?
-                    .then_some(continuity)
+        let organization_continuity =
+            if let DomainEvent::EconomicContractSettled { world_binding, .. } = event {
+                if let Some(world_rules) = state.world_rules.as_ref() {
+                    let mut continuity = world_rules.organization_continuity.clone();
+                    continuity
+                        .record_atomic_exchange_settlement(
+                            state,
+                            &contract,
+                            now,
+                            world_binding.as_deref(),
+                        )?
+                        .then_some(continuity)
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
         Ok(Self {
             event: event.clone(),
             contract_id,
@@ -344,10 +341,10 @@ impl PreparedEconomicContractEvent {
         state
             .material_ledgers
             .insert(MaterialLedgerId::world(), self.materials);
-        if let Some(continuity) = self.organization_continuity {
-            if let Some(world_rules) = state.world_rules.as_mut() {
-                world_rules.organization_continuity = continuity;
-            }
+        if let Some(continuity) = self.organization_continuity
+            && let Some(world_rules) = state.world_rules.as_mut()
+        {
+            world_rules.organization_continuity = continuity;
         }
     }
     pub(crate) fn organization_continuity_projection(

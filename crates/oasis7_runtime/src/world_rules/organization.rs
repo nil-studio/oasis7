@@ -353,8 +353,8 @@ impl PreparedWorldRule {
                 {
                     return Err(invalid("organization_grant_invalid"));
                 }
-                if !matches!(case.phase, P::Active | P::Limited)
-                    && !(case.phase == P::Protected
+                if !(matches!(case.phase, P::Active | P::Limited)
+                    || case.phase == P::Protected
                         && now >= case.protected_at.unwrap_or(now).saturating_add(600))
                 {
                     return Err(invalid("organization_protection_period_pending"));
@@ -386,10 +386,10 @@ impl PreparedWorldRule {
                         return Err(invalid("estate_scope_inapplicable"));
                     }
                 }
-                if let Some(old_id) = replace_grant_id {
-                    if !case.grants.contains_key(old_id) {
-                        return Err(invalid("old_grant_missing"));
-                    }
+                if let Some(old_id) = replace_grant_id
+                    && !case.grants.contains_key(old_id)
+                {
+                    return Err(invalid("old_grant_missing"));
                 }
                 for (id, grant) in &mut case.grants {
                     if grant.expires_at > now && !grant.scopes.is_disjoint(scopes) {

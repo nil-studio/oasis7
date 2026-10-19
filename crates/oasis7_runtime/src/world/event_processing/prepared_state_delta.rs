@@ -79,7 +79,7 @@ pub(in crate::world::event_processing) enum PreparedEventStateDelta {
     ),
     StarterOcClaimed(PreparedStarterOcClaimed),
     AgentClaimLightLifecycle(PreparedAgentClaimLightLifecycle),
-    AgentClaimEconomic(super::super::super::agent_claim_economic_publication::PreparedAgentClaimEconomic),
+    AgentClaimEconomic(Box<super::super::super::agent_claim_economic_publication::PreparedAgentClaimEconomic>),
     AgentClaimTerminal(super::super::super::agent_claim_terminal_publication::PreparedAgentClaimTerminal),
     Body(PreparedBodyAttributesUpdate),
     DomainRouteOnly {
