@@ -135,7 +135,10 @@ fn render_test_app(render_state: RenderState) -> App {
         },
         PrimaryWindow,
     ));
-    app.add_systems(Update, render_scene);
+    app.add_systems(
+        Update,
+        (render_scene, label_budget::enforce_label_budget).chain(),
+    );
     app.update();
     app
 }

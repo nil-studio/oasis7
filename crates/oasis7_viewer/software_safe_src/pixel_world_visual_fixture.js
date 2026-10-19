@@ -5,10 +5,148 @@ import {
   pixelWorldSelectedBlockerVisualFixture,
   pixelWorldModuleVisualEntitiesFixture,
   pixelWorldRoutesAndEventsVisualFixture,
+  pixelWorldPerformanceVisualFixture,
 } from "./pixel_world_visual_fixture_data.js";
 
 const PIXEL_WORLD_VISUAL_FIXTURE_GLOBAL = "__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__";
 const PIXEL_WORLD_VISUAL_FIXTURE_AUTH_ALIGNMENT_GLOBAL = "__OASIS7_PIXEL_WORLD_VISUAL_FIXTURE_AUTH_ALIGNMENT__";
+const PERFORMANCE_CONTROL_GLOBAL = "__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__";
+
+function installPerformanceFixturePanel(control) {
+  const panel = document.createElement("section");
+  panel.id = "pixel-world-performance-fixture-controls";
+  panel.setAttribute("aria-label", "Performance fixture controls");
+  panel.style.cssText = "position:fixed;right:8px;top:8px;z-index:2147483647;width:min(360px,calc(100vw - 16px));max-height:45vh;overflow:auto;padding:8px;background:#111827;color:#f9fafb;border:1px solid #94a3b8;font:12px monospace";
+  const title = document.createElement("strong");
+  title.textContent = "Offline performance fixture";
+  panel.append(title);
+  const actions = document.createElement("div");
+  const output = document.createElement("output");
+  output.setAttribute("aria-label", "Performance fixture diagnostics");
+  output.setAttribute("data-testid", "performance-fixture-diagnostics");
+  output.style.cssText = "display:block;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px";
+  const refresh = () => {
+    let diagnostics;
+    try {
+      const dto = window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.() || null;
+      const agents = dto?.agents || [];
+      diagnostics = {
+        ...control.status(),
+        dto_marker_count: agents.length + (dto?.locations?.length || 0) + (dto?.module_visual_entities?.length || 0),
+        dto_bytes: dto ? new TextEncoder().encode(JSON.stringify(dto)).byteLength : null,
+        display_budget: dto?.display_budget || null,
+        dto_world_tick: dto?.world_tick ?? null,
+        dto_selected_position: agents.find((agent) => agent.id === "agent-0")?.pos || null,
+        fatal: core.state.pixelWorldFatal ? {
+          code: String(core.state.pixelWorldFatal.code || "").slice(0, 128),
+          message: String(core.state.pixelWorldFatal.message || "").slice(0, 512),
+        } : null,
+      };
+    } catch (error) {
+      diagnostics = { ...control.status(), diagnostic_error: String(error?.message || error).slice(0, 512) };
+    }
+    output.textContent = JSON.stringify(diagnostics, null, 2);
+  };
+  for (const [label, action] of [
+    ["Start 2 Hz", () => control.start()],
+    ["Burst 10 Hz for 5 seconds", () => control.burst()],
+    ["Stop updates", () => control.stop()],
+  ]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.style.cssText = "margin:6px 6px 0 0;padding:6px";
+    button.addEventListener("click", () => {
+      try { action(); } catch (error) { output.textContent = String(error?.message || error); return; }
+      refresh();
+    });
+    actions.append(button);
+  }
+  panel.append(actions, output);
+  document.body.append(panel);
+  refresh();
+  const timer = window.setInterval(refresh, 1000);
+  return () => {
+    window.clearInterval(timer);
+    panel.remove();
+  };
+}
+
+function installPerformanceFixtureControl(fixture) {
+  let revision = 0;
+  let timer = null;
+  let remainingUpdates = null;
+  let intervalMs = null;
+  let disposePanel = null;
+  const initialTime = fixture.time;
+  const initialX = fixture.model.agents["agent-0"].pos.x_cm;
+  const status = () => ({
+    running: timer !== null,
+    revision,
+    time: initialTime + revision,
+    sourceEntityCount: fixture.performance_fixture.source_entity_count,
+    historyBytes: fixture.history.unrelated_payload.length,
+    intervalMs,
+    remainingUpdates,
+    selectedPosition: { ...fixture.model.agents["agent-0"].pos },
+  });
+  const stop = () => {
+    if (timer !== null) window.clearInterval(timer);
+    timer = null;
+    remainingUpdates = null;
+    intervalMs = null;
+    return status();
+  };
+  const step = () => {
+    if (!pixelWorldTestApiEnabled() || !liveConnectionDisabledForFixture()) {
+      dispose();
+      throw new Error("Performance controls require test_api=1 and connect=0");
+    }
+    // Deliberately inject complete source snapshots through the existing test
+    // transport. No renderer DTO or action/receipt path is overridden here.
+    revision += 1;
+    fixture.time = initialTime + revision;
+    fixture.performance_fixture.revision = revision;
+    fixture.model.agents["agent-0"].pos.x_cm = initialX + revision * 1000;
+    const playerId = core.state.auth.playerId || "player-one";
+    const publicKey = core.state.auth.publicKey || "abcdef0123456789abcdef0123456789";
+    for (const id of Object.keys(fixture.model.agents)) {
+      fixture.model.agent_player_bindings[id] = playerId;
+      fixture.model.agent_player_public_key_bindings[id] = publicKey;
+    }
+    core.injectSnapshot(fixture, { returnState: false });
+    core.requestRender();
+    return status();
+  };
+  const start = ({ hz = 2, updates = null } = {}) => {
+    if (!pixelWorldTestApiEnabled() || !liveConnectionDisabledForFixture()) {
+      dispose();
+      throw new Error("Performance controls require test_api=1 and connect=0");
+    }
+    if (![2, 10].includes(hz) || (updates !== null && (!Number.isInteger(updates) || updates < 1))) {
+      throw new Error("Use 2 or 10 Hz and a positive integer update count");
+    }
+    stop();
+    intervalMs = 1000 / hz;
+    remainingUpdates = updates;
+    timer = window.setInterval(() => {
+      step();
+      if (remainingUpdates !== null && --remainingUpdates === 0) stop();
+    }, intervalMs);
+    return status();
+  };
+  const dispose = () => {
+    stop();
+    disposePanel?.();
+    disposePanel = null;
+    window.removeEventListener("pagehide", dispose);
+    if (window[PERFORMANCE_CONTROL_GLOBAL] === control) delete window[PERFORMANCE_CONTROL_GLOBAL];
+  };
+  const control = { status, step, start, burst: () => start({ hz: 10, updates: 50 }), stop, dispose };
+  window.addEventListener("pagehide", dispose);
+  window[PERFORMANCE_CONTROL_GLOBAL] = control;
+  disposePanel = installPerformanceFixturePanel(control);
+}
 
 export function pixelWorldTestApiEnabled() {
   if (__OASIS7_VISUAL_TEST__ !== true || typeof window === "undefined" || !window.location) {
@@ -33,6 +171,7 @@ function liveConnectionDisabledForFixture() {
 }
 
 export function installPixelWorldVisualFixtureHook() {
+  if (typeof window !== "undefined") window[PERFORMANCE_CONTROL_GLOBAL]?.dispose?.();
   if (typeof window === "undefined" || !pixelWorldTestApiEnabled() || !liveConnectionDisabledForFixture()) {
     return null;
   }
@@ -44,6 +183,8 @@ export function installPixelWorldVisualFixtureHook() {
     recommended_target: () => core.clone(pixelWorldRecommendedTargetVisualFixture()),
     module_visual_entities: () => core.clone(pixelWorldModuleVisualEntitiesFixture()),
     micro_depot_stock_runway: () => core.clone(pixelWorldMicroDepotStockRunwayVisualFixture()),
+    performance_regular: () => pixelWorldPerformanceVisualFixture(1000),
+    performance_high_load: () => pixelWorldPerformanceVisualFixture(10000),
   }));
   window[PIXEL_WORLD_VISUAL_FIXTURE_GLOBAL] = fixtures;
 
@@ -131,7 +272,7 @@ export function installPixelWorldVisualFixtureHook() {
     const playerId = String(core.state.auth.playerId || "player-one").trim() || "player-one";
     const publicKey = String(core.state.auth.publicKey || "abcdef0123456789abcdef0123456789").trim();
     const model = core.state.snapshot?.model || {};
-    const alignedAgentIds = fixtureName === "routes_and_events"
+    const alignedAgentIds = fixtureName === "routes_and_events" || fixture.performance_fixture
       ? Object.keys(model.agents || {})
       : ["agent-0"];
     model.agent_player_bindings = {
@@ -163,6 +304,7 @@ export function installPixelWorldVisualFixtureHook() {
   };
   window[PIXEL_WORLD_VISUAL_FIXTURE_AUTH_ALIGNMENT_GLOBAL] = alignFixtureAuth;
   alignFixtureAuth();
+  if (fixture.performance_fixture) installPerformanceFixtureControl(fixture);
   return fixtureName;
 }
 

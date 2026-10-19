@@ -423,7 +423,7 @@ Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维�
 ### 显示投影与调度
 
 1. **投影先于跨 WASM 边界**。Host 从同一有效、经会话可见性过滤的 snapshot 构造普通、无 Solid Proxy 的 `RenderInputV1`；仅包含当前显示所需的实体 identity/位置/标签、地形/设施显示字段、选择/相机、目标/阻塞/回执展示字段及 world/scope/revision。明确字段白名单，不直接传 snapshot、modelLists 的原实体、完整 gameplay/history 或 auth 对象。嵌套数组/对象同样投影成普通数据，单独 `unwrap` 或 `JSON.stringify(snapshot)` 不算解决完整树遍历。Rust 改为具体 DTO 解析，不先递归转换完整 `serde_json::Value` 再挑字段；Rust 继续拥有已有渲染派生规则，JS 只裁剪/复制，不补算游戏后果。
-2. **限制数据成本**。输入与输出均有 schema/version、字段类型、数目、文本长度及总字节上限，未知版本明确 unavailable。目标每个方向序列化等价 UTF-8 大小不超过 256 KiB；按实体稳定排序，场景投影最多 500 个普通可见标记，文字标签最多 100 个、每个最多 128 Unicode 标量。当前选择、主目标和主要 blocker 的语义优先，装饰先裁剪；无法容纳必需语义时明确“显示容量不足”，不得悄悄丢掉关键结果。可见细节裁剪不改变 Targets 完整的有权列表、世界尺度与实际实体计数。沿用 fragment LOD/空间查询权威；被裁剪数量与原因可诊断，输入输出都检查预算，不发送截断的非法 JSON。
+2. **限制数据成本**。输入与输出均有 schema/version、字段类型、数目、文本长度及总字节上限，未知版本明确 unavailable。目标每个方向序列化等价 UTF-8 大小不超过 256 KiB；按实体稳定排序，场景投影最多 500 个普通可见标记，文字标签最多 100 个、每个最多 128 Unicode 标量。当前选择、主目标和主要 blocker 的语义优先，装饰先裁剪；无法容纳必需语义时明确“显示容量不足”，不得悄悄丢掉关键结果。可见细节裁剪不改变 Targets 完整的有权列表、世界尺度与实际实体计数。Targets 每类别最多挂载 50 行，以分页展示当前范围与完整授权搜索结果计数；搜索仍覆盖完整授权列表，所有页可达、翻页不改变选择。关键词变化回到首页，删除或权限收缩立即移除失效行并夹紧页码，不保留上一授权范围的行。沿用 fragment LOD/空间查询权威；被裁剪数量与原因可诊断，输入输出都检查预算，不发送截断的非法 JSON。
 3. **按显示 revision 更新**。memo 依赖只读显示投影的确切输入（相关字段 revision、locale、selection、相机/LOD、权限 scope），网络心跳、diagnostics、无关 feed 和 renderer meta 不使全世界重新派生。世界 tick 可经轻量 readout 更新；同一显示内容不因 tick 变化重新转换几何。旧协议没有 revision 时，在接收边界按有关字段计算 revision，禁止每帧深度比较全 snapshot。实体删除、不可见、目标/阻塞和最新动作结果变化必须使正确子投影失效。
 4. **合并展示，保留权威事件**。同一 animation frame 只消费一个最新待显示投影，最多一个派生在途及一个待处理槽；旧待处理投影可覆盖，动作提交、回执、journal/feed 的权威 reducer 仍逐条处理，不能套用 latest-only。显示保留真实 world revision 和 freshness；追赶期间不能显示 LIVE。单次转换超预算时先缩小 DTO 和拆分无关派生；Worker 仅在测量证明仍需隔离纯派生时采用，不把 Bevy/WebGL 或 auth 转移到 Worker 当作本轮前提。
 5. **隔离代次与失效**。每份投影绑定 world、branch/epoch、可见性 scope、session generation、schema 和相关显示 revision。切世界、注销、权限收缩、reorg 或 renderer retry 立即失效旧投影、待处理槽和派生缓存，迟到结果在提交前核对 generation。公开 bytes 缓存不能装玩家状态；旧画面可以表示追赶但不能保留已撤销可见内容。重入从当前授权数据重建显示，不恢复旧 authority。
@@ -466,11 +466,13 @@ Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维�
 
 设计合入 `fb15585d8811ef5c7ea010139f25908812289213` 后，第一阶段实施以下路径：
 
-- `pixel_world_render_input.js` 在 Host 读取白名单并复制普通数据；输入/输出各 256 KiB，上层 schema/version 严格校验，Rust 从 JSON 字符串解析显示 DTO，避免对 Solid Proxy 逐属性反序列化。实体列表最多 500，超限明确 unavailable；启用已有 worldView/LOD 投影时不再复制未被消费的完整源列表。
+- `pixel_world_render_input.js` 在 Host 读取白名单并复制普通数据；输入/输出各 256 KiB，上层 schema/version 严格校验，Rust 从 JSON 字符串解析显示 DTO，避免对 Solid Proxy 逐属性反序列化。授权源实体至多 10,000，按稳定身份排序，优先保留选择、导航、目标/回执及位置依赖，再将普通显示标记裁至 500；节点或字节预算不足时缩减可选标记，必需语义无法容纳才明确 unavailable。Rust 在输出侧再次约束标记和字节数，并记录裁剪原因与源计数；启用已有 worldView/LOD 投影时不再复制未被消费的完整源列表。
+- Bevy 按选择/资源读数、主要目标、主要阻塞、其他热点、身份及装饰的稳定优先顺序约束可见标签总数为 100，每个最多 128 个 Unicode 标量；预算隐藏的标签及其背板可在预算恢复时恢复，生产者已隐藏的内容不被重新显示。
+- Targets 对完整授权搜索结果按类别分页，每页至多挂载 50 行，避免隐藏面板仍为全部源实体生成 DOM；搜索、完整计数与选择权威保留。
 - Host 每帧合并展示请求；adapter 对有界 DTO 的显示内容做签名，相同内容不重新跨 WASM 派生，tick 单独刷新 HUD；有社会关系到期语义时保留时间失效。权限/会话与 renderer 代次继续由既有 scope guard 和 adapter generation 隔离，权威 reducer 不作 latest-only。
 - 精简 Bevy feature 和发布 WASM 的调试节，交付 `viewer-optional-payload/<sha256>.wasm` 及确定性 gzip；manifest size/hash 仍针对解码 bytes。后端仅 hash WASM 使用 immutable；JS/CSS 可协商 gzip 但保持 no-cache，HTML 不预压缩以保留既有安全注入。
-- Loader 使用正常 hash URL 缓存语义，每次核验解码 bytes；损坏缓存只自动 reload 一次。失败 init promise 可显式重试，同 descriptor 初始化保持 single-flight；资源下载/校验/准备/就绪阶段独立于世界同步。hash payload 下载/读 body 有 30 秒中止预算。
+- Loader 使用正常 hash URL 缓存语义，每次核验解码 bytes；损坏缓存只自动 reload 一次。失败 init promise 可显式重试，同 descriptor 初始化保持 single-flight；资源下载/校验/准备/就绪阶段独立于世界同步。每 attempt 的 manifest、payload 及至多一次 reload 共享累计 30 秒下载/读 body 预算；核验、编译和初始化共享另计的累计 10 秒准备预算。每 attempt 使用独立 bindgen 模块实例，过期实例不能发布或污染新实例；浏览器同步 WASM 初始化不可抢占，超时在返回后检测并丢弃，因此不能保证同步阻塞期间及时绘制超时界面。
 
 本阶段的候选、构建体积、局部回归与 headed 观察记录在 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)。稀疏样例只支持局部诊断，不是同世界受控前后对比，也不覆盖常规/高负载预算；初始化与交互仍需独立测量，不能宣称所有转换都在 50 ms 内。
 
-未完成项仍按原阈值保留：稳定排序与关键语义优先裁剪、100 标签/128 标量细分限制、hash/compile/init 独立 10 秒预算及不可中断初始化的实例所有权隔离、完整设备/网络/大世界/突发更新测量。现阶段采用明确容量失败保障有界输入，不代表 10,000 源实体的常规显示验收通过。线上发布保留多版本资源与实际缓存策略仍需部署 owner 验证；本轮实现不改变世界准入或发布就绪声明。
+未完成项仍按原阈值保留：完整设备/网络/大世界/突发更新测量。有界裁剪、标签限制与 attempt 隔离的实现和回归不代替同候选端到端性能验收。线上发布保留多版本资源与实际缓存策略仍需部署 owner 验证；本轮实现不改变世界准入或发布就绪声明。

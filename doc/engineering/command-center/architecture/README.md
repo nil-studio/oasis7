@@ -11,7 +11,7 @@
 
 ## 从问题进入
 
-Viewer 性能边界（2026-10-19 局部核对）：[性能合同](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract) 已由 [#4907](https://github.com/nil-studio/oasis7/pull/4907) 合入；[实现候选 #4909](https://github.com/nil-studio/oasis7/pull/4909) 在 Host 到 WASM 前裁剪显示数据，并对公共 hash WASM 使用压缩与缓存，玩家状态及权限不进入公共缓存。实现与完整预算仍分阶段验证，线上配置未核验；改变显示容量/裁剪语义、缓存来源或初始化恢复边界时重新关注本项，不由本索引宣称部署完成。
+Viewer 性能边界（2026-10-19 局部核对）：[性能合同](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract) 已由 [#4907](https://github.com/nil-studio/oasis7/pull/4907) 合入；[实现 #4909](https://github.com/nil-studio/oasis7/pull/4909) 在 Host 到 WASM 前裁剪显示数据，并对公共 hash WASM 使用压缩与缓存，玩家状态及权限不进入公共缓存。后续补齐稳定显示裁剪、可见标签预算和独立加载实例，完整预算仍分阶段验证，线上配置未核验；改变显示容量/裁剪语义、缓存来源或初始化恢复边界时重新关注本项，不由本索引宣称部署完成。
 
 Cargo 边界局部增量（2026-10-12）：[#4626](https://github.com/eng-cc/oasis7/pull/4626) / `133d70e45b71bd062032a734d68be1e290692b2c` 将 native 生产 cognition 状态转换转接至 Harness，World readback 与 signed-service 校验仍由 Runtime 适配器承担，旧 DTO/checkpoint 兼容保留；不新增 Harness→Oasis 依赖。支持包 profile 隔离尚在分支验证，直接 Oasis wasm32 目标及部署不因本次局部摘要变为已验证。测试入口见[测试手册](../../../../testing-manual.md)。
 

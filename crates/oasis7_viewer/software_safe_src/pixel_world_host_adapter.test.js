@@ -53,3 +53,16 @@ it("does not derive or submit identical display input again, but keeps current t
   await adapter.mount({}, input);
   expect(held.deriveRenderState).toHaveBeenCalledTimes(3);
 });
+
+it("refreshes authorized source counts without converting unchanged clipped geometry", async () => {
+  const held = runtime(); mock.load = async () => held;
+  held.deriveRenderState.mockImplementation(() => ({agents:[{id:"A"}],commercial_surface:{world_read:{agents:1000}}}));
+  const adapter = createPixelWorldHostAdapter({});
+  const input = {schema_version:1,snapshot:{time:1,model:{}},lists:{agents:[{id:"A"}],locations:[]},display_budget:{source_counts:{agents:1000},omitted_markers:999}};
+  await adapter.mount({},input);
+  input.display_budget = {source_counts:{agents:1001},omitted_markers:1000};
+  const next = adapter.update(input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  expect(next.renderState.commercial_surface.world_read.agents).toBe(1001);
+  expect(next.renderState.display_budget.omitted_markers).toBe(1000);
+});

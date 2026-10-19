@@ -1336,8 +1336,8 @@ function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch
 }
 //#endregion
 //#region software_safe_src/model_connection_panel.jsx
-var _tmpl$$39 = /*#__PURE__*/ template(`<p role=alert>`);
-var _tmpl$2$36 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
+var _tmpl$$40 = /*#__PURE__*/ template(`<p role=alert>`);
+var _tmpl$2$37 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
 var _tmpl$3$29 = /*#__PURE__*/ template(`<form class=model-connection-panel__form><label><select required><option value></option></select></label><label><input type=password name=model-inference-key autocomplete=off maxlength=4096 required></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
 var _tmpl$4$26 = /*#__PURE__*/ template(`<label><select>`);
 var _tmpl$5$25 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
@@ -1564,7 +1564,7 @@ function ModelConnectionPanel(props) {
 				return error();
 			},
 			get children() {
-				var _el$5 = _tmpl$$39();
+				var _el$5 = _tmpl$$40();
 				insert(_el$5, error);
 				return _el$5;
 			}
@@ -1586,7 +1586,7 @@ function ModelConnectionPanel(props) {
 			get children() {
 				return [
 					(() => {
-						var _el$6 = _tmpl$2$36(), _el$7 = _el$6.firstChild, _el$8 = _el$7.firstChild, _el$9 = _el$7.nextSibling, _el$0 = _el$9.firstChild, _el$10 = _el$0.nextSibling;
+						var _el$6 = _tmpl$2$37(), _el$7 = _el$6.firstChild, _el$8 = _el$7.firstChild, _el$9 = _el$7.nextSibling, _el$0 = _el$9.firstChild, _el$10 = _el$0.nextSibling;
 						_el$10.nextSibling;
 						var _el$11 = _el$9.nextSibling, _el$12 = _el$11.nextSibling, _el$13 = _el$12.nextSibling, _el$14 = _el$13.firstChild, _el$16 = _el$14.nextSibling;
 						_el$16.nextSibling;
@@ -2254,8 +2254,8 @@ function canonicalAckMatches(ack, request) {
 }
 //#endregion
 //#region software_safe_src/canonical_agent_goal.jsx
-var _tmpl$$38 = /*#__PURE__*/ template(`<p data-canonical-agent-goal-pending role=status>`);
-var _tmpl$2$35 = /*#__PURE__*/ template(`<p data-canonical-agent-goal>: `);
+var _tmpl$$39 = /*#__PURE__*/ template(`<p data-canonical-agent-goal-pending role=status>`);
+var _tmpl$2$36 = /*#__PURE__*/ template(`<p data-canonical-agent-goal>: `);
 function CanonicalAgentGoal(props) {
 	const goal = () => authenticatedCanonicalGoal(props.state, props.agentId);
 	const pending = () => props.state.lastChatFeedback?.agentId === props.agentId && props.state.lastChatFeedback?.stage === "pending" && props.state.lastChatFeedback?.canonicalRequest;
@@ -2265,7 +2265,7 @@ function CanonicalAgentGoal(props) {
 			return goal();
 		},
 		children: (current) => (() => {
-			var _el$2 = _tmpl$2$35(), _el$3 = _el$2.firstChild;
+			var _el$2 = _tmpl$2$36(), _el$3 = _el$2.firstChild;
 			insert(_el$2, () => zh() ? "当前目标" : "Current goal", _el$3);
 			insert(_el$2, () => current().message, null);
 			return _el$2;
@@ -2275,7 +2275,7 @@ function CanonicalAgentGoal(props) {
 			return pending();
 		},
 		get children() {
-			var _el$ = _tmpl$$38();
+			var _el$ = _tmpl$$39();
 			insert(_el$, () => zh() ? "目标已提交，等待世界确认。" : "Goal submitted; waiting for world confirmation.");
 			return _el$;
 		}
@@ -2283,8 +2283,8 @@ function CanonicalAgentGoal(props) {
 }
 //#endregion
 //#region software_safe_src/industrial_starter_outcome_card.jsx
-var _tmpl$$37 = /*#__PURE__*/ template(`<section class=panel-section><h3></h3><p> · revision </p><p>`);
-var _tmpl$2$34 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$$38 = /*#__PURE__*/ template(`<section class=panel-section><h3></h3><p> · revision </p><p>`);
+var _tmpl$2$35 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$3$28 = /*#__PURE__*/ template(`<p><strong>: `);
 var _tmpl$4$25 = /*#__PURE__*/ template(`<p>: `);
 var _tmpl$5$24 = /*#__PURE__*/ template(`<p>: <!> · job <!> · tick `);
@@ -2296,7 +2296,7 @@ function IndustrialStarterOutcomeCard(props) {
 			return props.profile;
 		},
 		get children() {
-			var _el$ = _tmpl$$37(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.firstChild, _el$5 = _el$3.nextSibling;
+			var _el$ = _tmpl$$38(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.firstChild, _el$5 = _el$3.nextSibling;
 			insert(_el$2, () => tr("首条工业线成果", "Starter industrial outcome"));
 			insert(_el$3, () => props.profile.profileId, _el$4);
 			insert(_el$3, () => props.profile.profileRevision, null);
@@ -2306,7 +2306,7 @@ function IndustrialStarterOutcomeCard(props) {
 				},
 				get fallback() {
 					return (() => {
-						var _el$6 = _tmpl$2$34();
+						var _el$6 = _tmpl$2$35();
 						insert(_el$6, () => tr("首产物数量与配方用电尚未发布。", "First settled output quantity and recipe power have not been published."));
 						return _el$6;
 					})();
@@ -2346,7 +2346,7 @@ function IndustrialStarterOutcomeCard(props) {
 						return _el$18;
 					})(),
 					(() => {
-						var _el$20 = _tmpl$2$34();
+						var _el$20 = _tmpl$2$35();
 						insert(_el$20, () => tr("首产物里程碑已记录（production_only）。稳定运行与交付仍需分别验证。", "First output milestone recorded (production_only). Stability and delivery require separate verification."));
 						return _el$20;
 					})()
@@ -2361,6 +2361,95 @@ function IndustrialStarterOutcomeCard(props) {
 		}
 	});
 }
+//#endregion
+//#region software_safe_src/target_list_window.jsx
+var _tmpl$$37 = /*#__PURE__*/ template(`<button type=button>`);
+var _tmpl$2$34 = /*#__PURE__*/ template(`<div class=toolbar><span role=status aria-live=polite>: <!>–<!> / `);
+var PAGE_SIZE = 50;
+function TargetListWindow(props) {
+	const zh = () => String(props.locale || "").startsWith("zh");
+	const noun = () => props.kind === "location" ? zh() ? "地点" : "locations" : zh() ? "行动体" : "agents";
+	const items = createMemo(() => props.items || []);
+	const resetKey = createMemo(() => JSON.stringify([props.filterKey || "", props.scopeKey || ""]));
+	const [requested, setRequested] = createSignal({
+		key: resetKey(),
+		page: 0
+	});
+	const lastPage = createMemo(() => Math.max(0, Math.ceil(items().length / PAGE_SIZE) - 1));
+	const page = createMemo(() => requested().key === resetKey() ? Math.min(requested().page, lastPage()) : 0);
+	createEffect(() => {
+		const key = resetKey();
+		const current = page();
+		if (requested().key !== key || requested().page !== current) setRequested({
+			key,
+			page: current
+		});
+	});
+	const entities = createMemo(() => new Map(items().slice(page() * PAGE_SIZE, (page() + 1) * PAGE_SIZE).map((entry) => [entry.id, entry])));
+	const keys = createMemo(() => [...entities().keys()]);
+	const changePage = (next) => setRequested({
+		key: resetKey(),
+		page: Math.max(0, Math.min(next, lastPage()))
+	});
+	return [(() => {
+		var _el$ = _tmpl$2$34(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$6 = _el$3.nextSibling, _el$7 = _el$6.nextSibling.nextSibling;
+		_el$7.nextSibling;
+		insert(_el$2, () => zh() ? "获准匹配目标" : "Authorized matches", _el$3);
+		insert(_el$2, (() => {
+			var _c$ = memo(() => !!items().length);
+			return () => _c$() ? page() * PAGE_SIZE + 1 : 0;
+		})(), _el$6);
+		insert(_el$2, () => Math.min((page() + 1) * PAGE_SIZE, items().length), _el$7);
+		insert(_el$2, () => items().length, null);
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return items().length > PAGE_SIZE;
+			},
+			get children() {
+				return [(() => {
+					var _el$8 = _tmpl$$37();
+					_el$8.$$click = () => changePage(page() - 1);
+					insert(_el$8, () => zh() ? "上一页" : "Previous");
+					createRenderEffect((_p$) => {
+						var _v$ = page() === 0, _v$2 = zh() ? `上一页${noun()}` : `Previous ${noun()} page`;
+						_v$ !== _p$.e && (_el$8.disabled = _p$.e = _v$);
+						_v$2 !== _p$.t && setAttribute(_el$8, "aria-label", _p$.t = _v$2);
+						return _p$;
+					}, {
+						e: void 0,
+						t: void 0
+					});
+					return _el$8;
+				})(), (() => {
+					var _el$9 = _tmpl$$37();
+					_el$9.$$click = () => changePage(page() + 1);
+					insert(_el$9, () => zh() ? "下一页" : "Next");
+					createRenderEffect((_p$) => {
+						var _v$3 = page() >= lastPage(), _v$4 = zh() ? `下一页${noun()}` : `Next ${noun()} page`;
+						_v$3 !== _p$.e && (_el$9.disabled = _p$.e = _v$3);
+						_v$4 !== _p$.t && setAttribute(_el$9, "aria-label", _p$.t = _v$4);
+						return _p$;
+					}, {
+						e: void 0,
+						t: void 0
+					});
+					return _el$9;
+				})()];
+			}
+		}), null);
+		createRenderEffect(() => setAttribute(_el$, "aria-label", zh() ? `${noun()}分页` : `${noun()} pagination`));
+		return _el$;
+	})(), createComponent(For, {
+		get each() {
+			return keys();
+		},
+		children: (key, index) => {
+			const entry = createMemo((previous) => entities().get(key) || previous);
+			return props.children(entry, () => page() * PAGE_SIZE + index());
+		}
+	})];
+}
+delegateEvents(["click"]);
 //#endregion
 //#region node_modules/solid-js/store/dist/store.js
 var $RAW = Symbol("store-raw");
@@ -13817,6 +13906,131 @@ function FirstChatUnlockPreview(props) {
 		return _el$;
 	})();
 }
+//#endregion
+//#region software_safe_src/pixel_world_host_input.js
+function buildPixelWorldRenderInput(locale = state.uiLocale) {
+	const worldScaleSurface = buildWorldScaleSurface(locale);
+	return {
+		locale,
+		snapshot: state.snapshot,
+		lists: buildViewerEntityLists({
+			entityCollections,
+			isAgentVisibleToCurrentSession
+		}),
+		gameplay: buildGameplaySummary(locale),
+		selected: state.selectedObject,
+		selectedKind: state.selectedKind,
+		selectedId: state.selectedId,
+		presentation: {
+			world_bounds_label: worldScaleSurface.physicalTruth.worldBoundsLabel,
+			marker_truth_note: worldScaleSurface.presentationScale.markerTruthNote
+		}
+	};
+}
+//#endregion
+//#region software_safe_src/pixel_world_display_budget.js
+var raw$2 = (value) => value?.[$RAW] || value;
+var MAX_SOURCE = 1e4;
+var fail = () => {
+	throw Error("pixel world display capacity exceeded");
+};
+var key = (kind, id) => `${kind}:${id}`;
+var compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+function budgetPixelWorldDisplay(input, limit = 500) {
+	input = raw$2(input) || {};
+	const view = raw$2(input.worldView);
+	const model = raw$2(raw$2(input.snapshot)?.model) || {};
+	const candidates = /* @__PURE__ */ new Map();
+	const counts = {
+		agents: 0,
+		locations: 0,
+		modules: 0,
+		aggregates: 0,
+		events: 0
+	};
+	function add(kind, id, get, group) {
+		if (candidates.size >= MAX_SOURCE) fail();
+		id = String(id ?? "");
+		const identity = key(kind, id);
+		if (candidates.has(identity)) fail();
+		candidates.set(identity, {
+			kind,
+			id,
+			key: identity,
+			get,
+			group
+		});
+		counts[group]++;
+	}
+	function list(values, kind, group, idField = "id") {
+		values = raw$2(values) || [];
+		if (!Array.isArray(values) || values.length > MAX_SOURCE) fail();
+		for (const item of values) {
+			const value = raw$2(item);
+			add(kind, value?.[idField], () => value, group);
+		}
+	}
+	if (view) {
+		const entities = raw$2(view.entities) || [];
+		if (!Array.isArray(entities) || entities.length > MAX_SOURCE) fail();
+		for (const item of entities) {
+			const value = raw$2(item), kind = value?.kind;
+			if (kind === "agent" || kind === "location" || kind === "factory") add(kind, value.entity_id, () => value, kind === "agent" ? "agents" : kind === "location" ? "locations" : "modules");
+		}
+		list(view.aggregates, "aggregate", "aggregates", "aggregate_id");
+		list(view.events, "event", "events", "event_id");
+	} else {
+		list(input.lists?.agents, "agent", "agents");
+		list(input.lists?.locations, "location", "locations");
+		const modules = raw$2(model.module_visual_entities) || {};
+		const ids = Object.keys(modules);
+		if (ids.length > MAX_SOURCE) fail();
+		for (const id of ids) add("module_visual", id, () => raw$2(modules[id]), "modules");
+	}
+	const required = /* @__PURE__ */ new Set();
+	const gameplay = raw$2(input.gameplay) || {};
+	const wanted = [
+		key(input.selectedKind, input.selectedId),
+		key(input.navigation?.target?.kind, input.navigation?.target?.id),
+		...[
+			gameplay.recommendedAction?.targetAgentId,
+			gameplay.receiptTargetAgentId,
+			gameplay.recentFeedback?.agentId,
+			raw$2(raw$2(input.snapshot)?.player_gameplay)?.primary_intent?.agent_id
+		].filter(Boolean).map((id) => key("agent", id))
+	];
+	function closure(item, result = /* @__PURE__ */ new Set()) {
+		if (!item || result.has(item.key)) return result;
+		result.add(item.key);
+		const value = item.get();
+		const record = view && (item.kind === "agent" || item.kind === "location" || item.kind === "factory") ? raw$2(value.render_record) : value;
+		const location = record?.location_id || raw$2(record?.anchor)?.data?.location_id;
+		const agent = raw$2(record?.anchor)?.data?.agent_id;
+		if (location) closure(candidates.get(key("location", location)), result);
+		if (agent) closure(candidates.get(key("agent", agent)), result);
+		return result;
+	}
+	for (const id of wanted) for (const dependent of closure(candidates.get(id))) required.add(dependent);
+	if (required.size > limit) fail();
+	const retained = new Set(required);
+	const ordered = [...candidates.values()].sort((a, b) => compare(a.key, b.key));
+	for (const item of ordered) {
+		const needed = [...closure(item)].filter((id) => !retained.has(id));
+		if (retained.size + needed.length <= limit) for (const id of needed) retained.add(id);
+	}
+	const selected = ordered.filter((item) => retained.has(item.key));
+	return {
+		selected,
+		retained,
+		metadata: {
+			source_counts: counts,
+			projected_markers: selected.length,
+			omitted_markers: candidates.size - selected.length,
+			required_entities: [...required].sort(),
+			reason: candidates.size > selected.length ? "marker_budget" : null
+		}
+	};
+}
 var MAX_ITEMS = 500;
 var MAX_NODES = 16384;
 var raw$1 = (value) => value?.[$RAW] || value;
@@ -13848,11 +14062,12 @@ var gameplay = {
 	microDepotFacilities: true,
 	micro_depot_facilities: true
 };
-function projectPixelWorldRenderInput(input) {
+function projectOnce(input, markerLimit) {
 	let nodes = 0;
 	function copy(value, schema = true, depth = 0) {
 		value = raw$1(value);
-		if (++nodes > MAX_NODES || depth > 16) capacity();
+		if (++nodes > MAX_NODES) throw new RangeError("pixel world projection budget exceeded");
+		if (depth > 16) capacity();
 		if (value === void 0) return void 0;
 		if (value === null || typeof value === "boolean") return value;
 		if (typeof value === "number") {
@@ -13873,23 +14088,95 @@ function projectPixelWorldRenderInput(input) {
 		if (keys.length > MAX_ITEMS) capacity();
 		for (const key of keys) {
 			if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-			const item = copy(value[key], schema === true ? true : schema[key], depth + 1);
+			let sourceItem = value[key];
+			if ((key === "name" || key === "label") && typeof sourceItem === "string") {
+				let bounded = "", scalars = 0;
+				for (const scalar of sourceItem) {
+					if (scalars++ === 128) break;
+					bounded += scalar;
+				}
+				sourceItem = bounded;
+			}
+			const item = copy(sourceItem, schema === true ? true : schema[key], depth + 1);
 			if (item !== void 0) result[key] = item;
 		}
 		return result;
 	}
-	function entityList(value) {
-		return copy(value || [], entity);
-	}
-	function moduleVisuals(value) {
-		value = raw$1(value);
-		const keys = Object.keys(value);
-		if (keys.length > MAX_ITEMS) capacity();
-		return Object.fromEntries(keys.map((id) => [id, copy(value[id], moduleVisual)]));
-	}
 	const source = raw$1(input) || {};
 	const snapshot = raw$1(source.snapshot) || {};
 	const model = raw$1(snapshot.model) || {};
+	const facilities = raw$1(source.gameplay)?.microDepotFacilities || raw$1(source.gameplay)?.micro_depot_facilities || [];
+	const reserve = Array.isArray(raw$1(facilities)) ? raw$1(facilities).length : 0;
+	const budget = budgetPixelWorldDisplay(source, Math.max(0, markerLimit - reserve));
+	const pick = (group) => budget.selected.filter((item) => item.group === group);
+	const lists = {
+		agents: [],
+		locations: []
+	};
+	if (!source.worldView) {
+		lists.agents = pick("agents").map((item) => copy(item.get(), entity));
+		lists.locations = pick("locations").map((item) => copy(item.get(), entity));
+	}
+	const moduleVisuals = source.worldView ? {} : Object.fromEntries(pick("modules").map((item) => [item.id, copy(item.get(), moduleVisual)]));
+	const provenance = fields("geometry_source freshness valid_at_source_cut");
+	const identity = fields("world_id reorg_epoch event_seq");
+	const relationEndpoint = fields("kind id");
+	const relations = raw$1(source.worldView?.relations) || [];
+	if (!Array.isArray(relations) || relations.length > 1e4) capacity();
+	const worldView = source.worldView ? {
+		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch")),
+		...source.worldView.world_bounds && { world_bounds: copy(source.worldView.world_bounds, fields("width_cm depth_cm height_cm")) },
+		entities: budget.selected.filter((item) => [
+			"agents",
+			"locations",
+			"modules"
+		].includes(item.group)).map((item) => copy(item.get(), {
+			...fields("entity_id kind"),
+			render_record: entity,
+			provenance
+		})),
+		aggregates: pick("aggregates").map((item) => copy(item.get(), {
+			...fields("aggregate_id label member_count"),
+			position,
+			bounds: fields("min_x_cm max_x_cm min_y_cm max_y_cm min_z_cm max_z_cm"),
+			provenance
+		})),
+		events: pick("events").map((item) => copy(item.get(), {
+			...fields("event_id source_class source_cut freshness label"),
+			identity,
+			feed_ref: identity,
+			position
+		})),
+		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, MAX_ITEMS), {
+			...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),
+			from: relationEndpoint,
+			to: relationEndpoint
+		})
+	} : null;
+	const social = raw$1(model.social_edges) || {};
+	const socialKeys = Object.keys(social).sort();
+	if (socialKeys.length > 1e4) capacity();
+	const visibleOwner = (owner) => {
+		owner = raw$1(owner);
+		const kind = owner?.type === "Agent" ? "agent" : owner?.type === "Location" ? "location" : null;
+		const id = kind === "agent" ? raw$1(owner?.data)?.agent_id : raw$1(owner?.data)?.location_id;
+		return kind && budget.retained.has(`${kind}:${id}`);
+	};
+	const owner = {
+		...fields("type"),
+		data: fields("agent_id location_id")
+	};
+	const socialEdges = {};
+	for (const id of socialKeys) {
+		const edge = raw$1(social[id]);
+		if (!visibleOwner(edge?.from) || !visibleOwner(edge?.to)) continue;
+		if (Object.keys(socialEdges).length >= MAX_ITEMS) break;
+		socialEdges[id] = copy(edge, {
+			...fields("edge_id lifecycle expires_at_tick relation_kind schema_id weight_bps"),
+			from: owner,
+			to: owner
+		});
+	}
 	const dto = {
 		schema_version: 1,
 		...copy(source, fields("locale selectedKind selectedId worldViewStale")),
@@ -13897,27 +14184,30 @@ function projectPixelWorldRenderInput(input) {
 			...copy(snapshot, fields("time")),
 			...snapshot.config && { config: copy(snapshot.config, { space: fields("width_cm depth_cm height_cm") }) },
 			model: {
-				...model.module_visual_entities && { module_visual_entities: moduleVisuals(model.module_visual_entities) },
-				...model.social_edges && { social_edges: copy(model.social_edges) }
+				...!source.worldView && model.module_visual_entities && { module_visual_entities: moduleVisuals },
+				...model.social_edges && { social_edges: socialEdges }
 			},
 			...snapshot.player_gameplay && { player_gameplay: copy(snapshot.player_gameplay, { primary_intent: fields("schema_version source_class freshness control_state status intent_id agent_id world_id reorg_epoch logical_time event_seq updated_at") }) }
 		},
-		lists: source.worldView ? {
-			agents: [],
-			locations: []
-		} : {
-			agents: entityList(source.lists?.agents),
-			locations: entityList(source.lists?.locations)
-		},
+		lists,
+		display_budget: budget.metadata,
 		gameplay: copy(source.gameplay || {}, gameplay),
 		...source.selected && { selected: copy(source.selected, entity) },
 		...source.presentation && { presentation: copy(source.presentation, fields("world_bounds_label marker_truth_note")) },
-		...source.worldView && { worldView: copy(source.worldView) },
+		...worldView && { worldView },
 		...source.navigation && { navigation: copy(source.navigation) }
 	};
 	if (dto.lists.agents.length + dto.lists.locations.length > MAX_ITEMS) capacity();
-	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > 262144) capacity();
+	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > 262144) throw new RangeError("pixel world projection budget exceeded");
 	return dto;
+}
+function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
+	for (let limit = markerLimit; limit >= 1; limit = Math.floor(limit * .75)) try {
+		return projectOnce(input, limit);
+	} catch (error) {
+		if (!(error instanceof RangeError) || error.message !== "pixel world projection budget exceeded") throw error;
+	}
+	capacity();
 }
 //#endregion
 //#region software_safe_src/pixel_world_spatial_controller.js
@@ -15020,6 +15310,7 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 		const timeSensitive = Object.keys(input.snapshot?.model?.social_edges || {}).length > 0;
 		return JSON.stringify({
 			...input,
+			display_budget: void 0,
 			snapshot: {
 				...input.snapshot,
 				time: timeSensitive ? input.snapshot?.time : void 0
@@ -15040,15 +15331,20 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 	function withWorldTickReadout(renderState, renderInput) {
 		if (!renderState || !renderInput) return renderState;
 		const worldTick = snapshotTick(renderInput.snapshot);
-		if (worldTick === null) return renderState;
+		if (worldTick === null && !renderInput.display_budget) return renderState;
 		return {
 			...renderState,
-			world_tick: worldTick,
+			...renderInput.display_budget ? { display_budget: {
+				...renderState.display_budget,
+				...renderInput.display_budget
+			} } : {},
+			...worldTick !== null ? { world_tick: worldTick } : {},
 			commercial_surface: renderState.commercial_surface ? {
 				...renderState.commercial_surface,
 				world_read: {
 					...renderState.commercial_surface.world_read || {},
-					tick: worldTick
+					...worldTick !== null ? { tick: worldTick } : {},
+					...renderInput.display_budget?.omitted_markers > 0 && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? { agents: renderInput.display_budget.source_counts.agents } : {}
 				}
 			} : renderState.commercial_surface
 		};
@@ -17358,22 +17654,6 @@ function PixelWorldHostHotspotLayer(props) {
 		})
 	});
 }
-function buildPixelWorldRenderInput(locale = state.uiLocale) {
-	const worldScaleSurface = buildWorldScaleSurface(locale);
-	return {
-		locale,
-		snapshot: state.snapshot,
-		lists: modelLists(),
-		gameplay: buildGameplaySummary(locale),
-		selected: state.selectedObject,
-		selectedKind: state.selectedKind,
-		selectedId: state.selectedId,
-		presentation: {
-			world_bounds_label: worldScaleSurface.physicalTruth.worldBoundsLabel,
-			marker_truth_note: worldScaleSurface.presentationScale.markerTruthNote
-		}
-	};
-}
 function PixelWorldCanvasRenderer(props) {
 	let canvasRef;
 	const [stageSize, setStageSize] = createSignal({
@@ -18800,6 +19080,7 @@ function PixelWorldHost(props) {
 					descriptor: tr$1(locale(), "正在查找世界画面资源…", "Finding world graphics…"),
 					download: tr$1(locale(), "正在下载世界画面资源…", "Downloading world graphics…"),
 					verify: tr$1(locale(), "正在核对画面资源完整性…", "Verifying world graphics…"),
+					compile: tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"),
 					prepare: tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"),
 					ready: tr$1(locale(), "正在连接世界画面…", "Attaching world graphics…")
 				})[resourceStage()] || tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"));
@@ -27299,7 +27580,27 @@ function WorldStageHero() {
 }
 function TargetsPanel() {
 	observeViewerStateRevision();
-	const lists = () => modelLists();
+	const lists = createMemo(() => {
+		observeViewerStateRevision();
+		return modelLists();
+	});
+	const filterKey = () => {
+		observeViewerStateRevision();
+		return getSelectedSearch();
+	};
+	const scopeKey = () => {
+		observeViewerStateRevision();
+		const auth = state.auth;
+		return JSON.stringify([
+			auth.playerId,
+			auth.publicKey,
+			auth.boundAgentId,
+			auth.source,
+			auth.registrationStatus,
+			auth.runtimeStatus,
+			state.worldFeed?.worldId
+		]);
+	};
 	const locale = () => uiLocale();
 	const gameplaySummary = () => buildGameplaySummary(locale());
 	const firstAgentClaimAction = () => (gameplaySummary()?.availableActions || []).find((action) => action.actionId === "claim_first_agent");
@@ -27419,23 +27720,33 @@ function TargetsPanel() {
 				});
 			},
 			get children() {
-				return createComponent(For, {
-					get each() {
+				return createComponent(TargetListWindow, {
+					get items() {
 						return lists().agents;
 					},
+					get filterKey() {
+						return filterKey();
+					},
+					get scopeKey() {
+						return scopeKey();
+					},
+					get locale() {
+						return locale();
+					},
+					kind: "agent",
 					children: (agent, index) => {
-						const status = () => describeAgentSessionStatus(agent.id, locale());
-						const displayName = () => agent.name || agent.label || agent.id;
+						const status = () => describeAgentSessionStatus(agent().id, locale());
+						const displayName = () => agent().name || agent().label || agent().id;
 						return (() => {
 							var _el$208 = _tmpl$45(), _el$209 = _el$208.firstChild, _el$210 = _el$209.firstChild, _el$212 = _el$209.nextSibling, _el$213 = _el$212.firstChild, _el$214 = _el$212.nextSibling, _el$215 = _el$214.nextSibling, _el$216 = _el$215.nextSibling;
 							_el$208.$$click = () => applySelection({
 								kind: "agent",
-								id: agent.id
+								id: agent().id
 							});
 							insert(_el$210, displayName);
 							insert(_el$209, createComponent(Show, {
 								get when() {
-									return isSelectedTarget("agent", agent.id);
+									return isSelectedTarget("agent", agent().id);
 								},
 								get children() {
 									var _el$211 = _tmpl$44();
@@ -27443,7 +27754,7 @@ function TargetsPanel() {
 									return _el$211;
 								}
 							}), null);
-							insert(_el$213, () => agent.id);
+							insert(_el$213, () => agent().id);
 							insert(_el$214, createComponent(Badge, {
 								get ["class"]() {
 									return status().badgeClass;
@@ -27462,10 +27773,10 @@ function TargetsPanel() {
 									} });
 								}
 							}), null);
-							insert(_el$215, () => `${tr(locale(), "地点", "location")}=${agent.location_id} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(agent.resources)}`);
+							insert(_el$215, () => `${tr(locale(), "地点", "location")}=${agent().location_id} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(agent().resources)}`);
 							insert(_el$208, createComponent(AgentActivitySurface, {
 								get activity() {
-									return agent.activity;
+									return agent().activity;
 								},
 								get locale() {
 									return locale();
@@ -27473,7 +27784,7 @@ function TargetsPanel() {
 							}), _el$216);
 							insert(_el$216, () => status().detail);
 							createRenderEffect((_p$) => {
-								var _v$48 = index() === 0 ? "viewer-playthrough-select-agent" : `viewer-select-agent-${agent.id}`, _v$49 = agent.id, _v$50 = status().kind, _v$51 = isSelectedTarget("agent", agent.id), _v$52 = isSelectedTarget("agent", agent.id) ? "true" : "false";
+								var _v$48 = index() === 0 ? "viewer-playthrough-select-agent" : `viewer-select-agent-${agent().id}`, _v$49 = agent().id, _v$50 = status().kind, _v$51 = isSelectedTarget("agent", agent().id), _v$52 = isSelectedTarget("agent", agent().id) ? "true" : "false";
 								_v$48 !== _p$.e && setAttribute(_el$208, "data-testid", _p$.e = _v$48);
 								_v$49 !== _p$.t && setAttribute(_el$208, "data-select-id", _p$.t = _v$49);
 								_v$50 !== _p$.a && setAttribute(_el$208, "data-agent-session-status", _p$.a = _v$50);
@@ -27511,20 +27822,30 @@ function TargetsPanel() {
 				});
 			},
 			get children() {
-				return createComponent(For, {
-					get each() {
+				return createComponent(TargetListWindow, {
+					get items() {
 						return lists().locations;
 					},
+					get filterKey() {
+						return filterKey();
+					},
+					get scopeKey() {
+						return scopeKey();
+					},
+					get locale() {
+						return locale();
+					},
+					kind: "location",
 					children: (location) => (() => {
 						var _el$217 = _tmpl$46(), _el$218 = _el$217.firstChild, _el$219 = _el$218.firstChild, _el$221 = _el$218.nextSibling;
 						_el$217.$$click = () => applySelection({
 							kind: "location",
-							id: location.id
+							id: location().id
 						});
-						insert(_el$219, () => location.name || location.id);
+						insert(_el$219, () => location().name || location().id);
 						insert(_el$218, createComponent(Show, {
 							get when() {
-								return isSelectedTarget("location", location.id);
+								return isSelectedTarget("location", location().id);
 							},
 							get children() {
 								var _el$220 = _tmpl$44();
@@ -27532,9 +27853,9 @@ function TargetsPanel() {
 								return _el$220;
 							}
 						}), null);
-						insert(_el$221, () => `id=${location.id} · ${tr(locale(), "半径", "radius")}=${formatPhysicalDistanceCm(location.profile?.radius_cm, locale()) || "-"} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(location.resources)}`);
+						insert(_el$221, () => `id=${location().id} · ${tr(locale(), "半径", "radius")}=${formatPhysicalDistanceCm(location().profile?.radius_cm, locale()) || "-"} · ${tr(locale(), "资源", "resources")}=${renderResourceSummary(location().resources)}`);
 						createRenderEffect((_p$) => {
-							var _v$53 = `viewer-select-location-${location.id}`, _v$54 = location.id, _v$55 = isSelectedTarget("location", location.id), _v$56 = isSelectedTarget("location", location.id) ? "true" : "false";
+							var _v$53 = `viewer-select-location-${location().id}`, _v$54 = location().id, _v$55 = isSelectedTarget("location", location().id), _v$56 = isSelectedTarget("location", location().id) ? "true" : "false";
 							_v$53 !== _p$.e && setAttribute(_el$217, "data-testid", _p$.e = _v$53);
 							_v$54 !== _p$.t && setAttribute(_el$217, "data-select-id", _p$.t = _v$54);
 							_v$55 !== _p$.a && setAttribute(_el$217, "data-selected", _p$.a = _v$55);
