@@ -22,7 +22,7 @@ use crate::{
 };
 use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BUSINESS_INDEX_MAX_LEAF_BYTES, BUSINESS_INDEX_MAX_UPDATES, BusinessIndexDeltaV1,
-    BusinessIndexLeafV1, BusinessIndexNodeReader,
+    BusinessIndexLeafV1, BusinessIndexNodeReader, BusinessIndexRootV1,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -560,6 +560,7 @@ impl World {
         });
         let reader =
             super::SharedFormalHistoryReader::new(Arc::new(CandidateBusinessIndexReader {
+                base_root: parent.root().index_root.clone(),
                 base: base_reader.clone(),
                 node_writes,
             }));
@@ -658,11 +659,41 @@ impl BusinessIndexNodeReader for StagedEmptyHistoryReader {
 
 #[derive(Clone)]
 struct CandidateBusinessIndexReader {
+    base_root: BusinessIndexRootV1,
     base: super::SharedFormalHistoryReader,
     node_writes: BTreeMap<String, Vec<u8>>,
 }
 
+// Cache-only probing must never recursively invoke remote prefetch.
+struct CachedCandidatePath<'a>(&'a CandidateBusinessIndexReader);
+impl BusinessIndexNodeReader for CachedCandidatePath<'_> {
+    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.0.read_cached_node(digest)
+    }
+}
 impl BusinessIndexNodeReader for CandidateBusinessIndexReader {
+    fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+        if root.get(key, &CachedCandidatePath(self)).is_ok() {
+            return Ok(());
+        }
+        // V1/V2 share the uncompressed 256-bit tree: every unchanged node
+        // on this key's candidate path is on the same key's parent path.
+        // Changed/new nodes are local writes. Warm only the retained parent;
+        // the proposed root is never sent to a serving endpoint.
+        // This is an optional hint: a missing/replaced old prefix must not
+        // reject an independently readable candidate path. The caller's
+        // original get/prove still checks every needed hash, depth and key.
+        let _ = self.base.prefetch_path(&self.base_root, key);
+        Ok(())
+    }
+
+    fn read_cached_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        match self.node_writes.get(digest) {
+            Some(bytes) => Ok(Some(bytes.clone())),
+            None => self.base.read_cached_node(digest),
+        }
+    }
+
     fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
         match self.node_writes.get(digest) {
             Some(bytes) => Ok(Some(bytes.clone())),

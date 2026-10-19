@@ -78,8 +78,14 @@ pub fn build_formal_storage_shadow_with_options(
     destination: &Path,
     options: &FormalStorageShadowOptions,
 ) -> Result<FormalStorageShadowReport, FormalError> {
+    let mut session = FormalStorageShadowSession::default();
     loop {
-        let progress = super::advance_formal_storage_shadow(source_endpoint, destination, options)?;
+        let progress = super::advance_formal_storage_shadow_with_session(
+            source_endpoint,
+            destination,
+            options,
+            &mut session,
+        )?;
         if let Some(report) = progress.report {
             return Ok(report);
         }

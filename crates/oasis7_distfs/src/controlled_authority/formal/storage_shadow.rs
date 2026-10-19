@@ -140,7 +140,10 @@ pub fn build_formal_storage_shadow(
 mod resume;
 #[path = "storage_shadow_stream.rs"]
 mod stream;
-pub use resume::{FormalStorageShadowProgress, advance_formal_storage_shadow};
+pub use resume::{
+    FormalStorageShadowProgress, FormalStorageShadowSession, advance_formal_storage_shadow,
+    advance_formal_storage_shadow_with_session,
+};
 pub use stream::{FormalStorageShadowOptions, build_formal_storage_shadow_with_options};
 /// Streaming fresh-world codec shadow; source and output remain non-activating.
 pub fn build_formal_storage_shadow_optimized(
@@ -262,3 +265,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "storage_shadow_lease_tests.rs"]
 mod lease_tests;
+
+#[cfg(all(test, unix))]
+#[path = "storage_shadow_session_tests.rs"]
+mod session_tests;

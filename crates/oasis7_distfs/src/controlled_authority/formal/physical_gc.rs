@@ -17,76 +17,6 @@ struct Retirement {
     version: u32,
     frames: Vec<String>,
 }
-/// Called only while the stable exclusive physical fence is held. A selected
-/// generation owns its own frames; the root frames are retained exactly when
-/// an overlay selector references them. This bounded sweep never removes an
-/// alias or assumes the selected generation covers a newly published overlay.
-pub(super) fn retire_overlay_frames(root: &Path) -> Result<bool, FormalError> {
-    let mut marked = BTreeSet::new();
-    let mut checked = BTreeSet::new();
-    let mut logical_bytes = 0u64;
-    for entry in fs::read_dir(root.join(SELECTORS)).map_err(io)? {
-        let entry = entry.map_err(io)?;
-        let id = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| invalid("generation overlay selector UTF8"))?;
-        hash_hex(&id)?;
-        let path = root.join(&id);
-        let (_, recipe) =
-            selector(&path, &id)?.ok_or_else(|| invalid("generation overlay selector missing"))?;
-        // Metadata can be shared by many aliases. Validate every logical alias,
-        // but account and mark the recipe's frames only once.
-        let logical = read_object(&path, &id, true)?
-            .ok_or_else(|| invalid("generation overlay object missing"))?;
-        logical_bytes = logical_bytes
-            .checked_add(logical.len() as u64)
-            .ok_or_else(|| invalid("generation overlay verification overflow"))?;
-        if logical_bytes > 1024 * 1024 * 1024 {
-            return Err(invalid(
-                "generation overlay verification budget; retry after overlay compaction",
-            ));
-        }
-        let identity = blake3::hash(&encode_recipe(&recipe)?).to_hex().to_string();
-        if checked.insert(identity) {
-            marked.extend(recipe.frames.iter().map(|frame| frame.stored.clone()));
-            if marked.len() > MAX_OBJECTS {
-                return Err(invalid("generation overlay frame mark budget"));
-            }
-        }
-    }
-    let mut reclaim = Vec::new();
-    let mut bytes = 0usize;
-    let mut more = false;
-    for entry in fs::read_dir(root.join(FRAMES)).map_err(io)? {
-        let entry = entry.map_err(io)?;
-        let id = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| invalid("generation orphan frame UTF8"))?;
-        hash_hex(&id)?;
-        if marked.contains(&id) {
-            continue;
-        }
-        let data = read(&entry.path(), FRAME)?;
-        if blake3::hash(&data).to_hex().as_str() != id {
-            return Err(invalid("generation orphan frame checksum"));
-        }
-        if reclaim.len() >= 1024 || bytes.saturating_add(data.len()) > 8 * 1024 * 1024 {
-            more = true;
-            break;
-        }
-        bytes += data.len();
-        reclaim.push(id);
-    }
-    // All entries in this batch were checked before the first unlink. A crash
-    // simply leaves a smaller orphan set, and the next call re-marks overlay.
-    for id in reclaim {
-        fs::remove_file(root.join(FRAMES).join(id)).map_err(io)?;
-    }
-    sync(&root.join(FRAMES))?;
-    Ok(!more)
-}
 fn names(root: &Path) -> Result<Vec<String>, FormalError> {
     let mut names = Vec::new();
     for entry in fs::read_dir(root).map_err(io)? {
@@ -223,32 +153,6 @@ pub(crate) fn collect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn generation_overlay_reclaim_is_bounded_and_keeps_shared_live_frames() {
-        let f = super::super::tests::Fixture::new();
-        let object = super::super::tests::object(vec![7; 200000]);
-        persist(&f.0, std::slice::from_ref(&object)).unwrap();
-        for value in 0u32..1025 {
-            let bytes = value.to_le_bytes();
-            let id = blake3::hash(&bytes).to_hex().to_string();
-            create(&f.0.join(FRAMES).join(id), &bytes).unwrap();
-        }
-        let _fence = pin(&f.0, true).unwrap();
-        assert!(!retire_overlay_frames(&f.0).unwrap());
-        assert!(retire_overlay_frames(&f.0).unwrap());
-        assert_eq!(
-            read_object(&f.0.join(&object.0), &object.0, false).unwrap(),
-            Some(object.1)
-        );
-        let (_, recipe) = selector(&f.0.join(&object.0), &object.0).unwrap().unwrap();
-        let live: BTreeSet<_> = recipe
-            .frames
-            .iter()
-            .map(|frame| frame.stored.clone())
-            .collect();
-        let remaining: BTreeSet<_> = names(&f.0.join(FRAMES)).unwrap().into_iter().collect();
-        assert_eq!(remaining, live);
-    }
     #[test]
     fn reader_fences_gc_and_interrupted_retire_does_not_delete_live_frames() {
         let f = super::super::tests::Fixture::new();

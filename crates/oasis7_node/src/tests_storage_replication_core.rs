@@ -653,3 +653,65 @@ fn proposer_tick_keeps_consensus_and_execution_aligned_when_post_apply_commit_pu
     assert_eq!(engine.last_execution_block_hash.as_deref(), Some("exec-block-1"));
     assert_eq!(engine.last_execution_state_root.as_deref(), Some("exec-state-1"));
 }
+
+#[cfg(unix)]
+#[test]
+fn latest_persisted_height_does_not_read_unrelated_historical_payloads() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("latest-height-unrelated-history");
+    let world_id = "world-latest-height-history";
+    let config = signed_replication_config(dir.clone(), 91);
+    let mut runtime = ReplicationRuntime::new(&config, "node-a").expect("runtime");
+    for height in 1..=2 {
+        let decision = PosDecision {
+            height,
+            slot: height,
+            epoch: 0,
+            proposer_id: "node-a".to_string(),
+            status: PosConsensusStatus::Committed,
+            block_hash: format!("block-{height}"),
+            action_root: empty_action_root(),
+            committed_actions: Vec::new(),
+            approved_stake: 100,
+            rejected_stake: 0,
+            required_stake: 67,
+            total_stake: 100,
+        };
+        runtime
+            .build_local_commit_message("node-a", world_id, 1_000, &decision, None, None)
+            .expect("build commit")
+            .expect("commit");
+    }
+    let historical = dir
+        .join("replication_commit_messages")
+        .join("00000000000000000001.json");
+    let permissions = fs::metadata(&historical).expect("metadata").permissions();
+    fs::set_permissions(&historical, fs::Permissions::from_mode(0)).expect("deny old payload read");
+    // Root bypasses Unix file permissions; this fixture requires an unprivileged runner.
+    if fs::read(&historical).is_ok() {
+        fs::set_permissions(&historical, permissions).expect("restore permissions");
+        let _ = fs::remove_dir_all(&dir);
+        return;
+    }
+    let latest = runtime.latest_persisted_commit_height(world_id);
+    fs::set_permissions(&historical, permissions).expect("restore permissions");
+    assert_eq!(
+        latest.expect("latest height must not inspect unrelated payloads"),
+        2
+    );
+    let newest = dir
+        .join("replication_commit_messages")
+        .join("00000000000000000002.json");
+    let permissions = fs::metadata(&newest)
+        .expect("newest metadata")
+        .permissions();
+    fs::set_permissions(&newest, fs::Permissions::from_mode(0)).expect("deny newest read");
+    let inaccessible_head = runtime.latest_persisted_commit_height(world_id);
+    fs::set_permissions(&newest, permissions).expect("restore newest permissions");
+    let _ = fs::remove_dir_all(&dir);
+    assert!(
+        inaccessible_head.is_err(),
+        "the selected head must still be readable and validated"
+    );
+}

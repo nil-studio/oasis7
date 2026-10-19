@@ -37,6 +37,8 @@ struct State {
     target: Option<Target>,
     paused: Option<Observation>,
     cancelled: bool,
+    last_observation: Option<Observation>,
+    last_exact_action: Option<Observation>,
 }
 
 #[derive(Default)]
@@ -83,6 +85,8 @@ impl BoundaryControl {
             return Err("formal test boundary already armed or cancelled".into());
         }
         state.paused = None;
+        state.last_observation = None;
+        state.last_exact_action = None;
         state.target = Some(Target {
             point,
             position,
@@ -102,7 +106,15 @@ impl BoundaryControl {
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if state.cancelled || remaining.is_zero() {
-                return Err("formal test boundary was not observed before deadline".into());
+                return Err(format!(
+                    "formal test boundary was not observed before deadline: target={:?} last_observation={:?} last_exact_action={:?}",
+                    state
+                        .target
+                        .as_ref()
+                        .map(|target| (target.point, target.position)),
+                    state.last_observation,
+                    state.last_exact_action,
+                ));
             }
             if let Some(observation) = &state.paused {
                 return Ok(observation.clone());
@@ -156,23 +168,29 @@ impl BoundaryState {
         let Some(target) = &state.target else {
             return Ok(());
         };
-        if state.cancelled
-            || target.point != observation.point
-            || target
-                .position
-                .is_some_and(|position| position != observation.position)
-            || target.exact_action.as_ref().is_some_and(|expected| {
-                context.is_none_or(|context| {
-                    !context
-                        .committed_actions
-                        .iter()
-                        .any(|action| &action.payload_cbor == expected)
-                })
+        let point_matches = target.point == observation.point;
+        let position_matches = target
+            .position
+            .is_none_or(|position| position == observation.position);
+        let has_exact_action = target.exact_action.is_some();
+        let action_matches = target.exact_action.as_ref().is_none_or(|expected| {
+            context.is_some_and(|context| {
+                context
+                    .committed_actions
+                    .iter()
+                    .any(|action| &action.payload_cbor == expected)
             })
-        {
+        });
+        let deadline = target.deadline;
+        // O(1) test diagnostics retain only the existing small boundary receipt,
+        // never an action payload or a signing/authentication key.
+        state.last_observation = Some(observation.clone());
+        if has_exact_action && action_matches {
+            state.last_exact_action = Some(observation.clone());
+        }
+        if state.cancelled || !point_matches || !position_matches || !action_matches {
             return Ok(());
         }
-        let deadline = target.deadline;
         state.target = None;
         state.paused = Some(observation);
         self.changed.notify_all();
@@ -302,6 +320,39 @@ mod tests {
             .unwrap()
             .unwrap();
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn unmatched_boundary_diagnostics_cannot_satisfy_or_leak_into_rearmed_target() {
+        let control = BoundaryControl::new();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        control
+            .arm(
+                Point::Published,
+                None,
+                Some(b"exact signed action".to_vec()),
+                deadline,
+            )
+            .unwrap();
+        // A publication without this runtime's exact resume input remains
+        // diagnostic evidence only, even though its point and position match.
+        control.shared.published(7).unwrap();
+        {
+            let state = control.shared.state.lock().unwrap();
+            assert_eq!(state.last_observation.as_ref().unwrap().position, 7);
+            assert!(state.last_exact_action.is_none());
+            assert!(state.paused.is_none());
+            assert!(state.target.is_some());
+        }
+        assert!(control.wait(Instant::now()).is_err());
+        control.release().unwrap();
+        control
+            .arm(Point::BeforeResume, Some(8), None, deadline)
+            .unwrap();
+        let state = control.shared.state.lock().unwrap();
+        assert!(state.last_observation.is_none());
+        assert!(state.last_exact_action.is_none());
+        assert!(state.paused.is_none());
     }
 
     #[test]

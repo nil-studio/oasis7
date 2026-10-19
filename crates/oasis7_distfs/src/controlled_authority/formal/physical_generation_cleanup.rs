@@ -118,22 +118,29 @@ fn gather(
     dir: &Path,
     batch: &mut Vec<(PathBuf, bool)>,
     size: &mut u64,
+    budget: GenerationBudget,
 ) -> Result<bool, FormalError> {
     for entry in fs::read_dir(dir).map_err(io)? {
         let entry = entry.map_err(io)?;
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path).map_err(io)?;
         let relative = path.strip_prefix(root).map_err(io)?;
+        if !metadata.is_dir()
+            && !batch.is_empty()
+            && size.saturating_add(metadata.len()) > budget.bytes as u64
+        {
+            return Ok(false);
+        }
         known(&path, relative, &metadata)?;
         if metadata.is_dir() {
-            if !gather(root, &path, batch, size)? {
+            if !gather(root, &path, batch, size, budget)? {
                 return Ok(false);
             }
             if fs::read_dir(&path).map_err(io)?.next().is_none() {
                 batch.push((path, true));
             }
         } else {
-            if !batch.is_empty() && size.saturating_add(metadata.len()) > BATCH as u64 {
+            if !batch.is_empty() && size.saturating_add(metadata.len()) > budget.bytes as u64 {
                 return Ok(false);
             }
             *size = size
@@ -141,13 +148,16 @@ fn gather(
                 .ok_or_else(|| invalid("old generation cleanup bytes overflow"))?;
             batch.push((path, false));
         }
-        if batch.len() >= 1024 || *size >= BATCH as u64 {
+        if batch.len() >= budget.objects || *size >= budget.bytes as u64 || budget.expired() {
             return Ok(false);
         }
     }
     Ok(true)
 }
-pub(super) fn old_generation_batch(root: &Path) -> Result<bool, FormalError> {
+pub(super) fn old_generation_batch(
+    root: &Path,
+    budget: GenerationBudget,
+) -> Result<bool, FormalError> {
     match fs::symlink_metadata(root) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(true),
         Err(e) => return Err(io(e)),
@@ -158,7 +168,7 @@ pub(super) fn old_generation_batch(root: &Path) -> Result<bool, FormalError> {
     }
     let mut batch = Vec::new();
     let mut size = 0u64;
-    gather(root, root, &mut batch, &mut size)?;
+    gather(root, root, &mut batch, &mut size, budget)?;
     // Validate the entire bounded batch before unlinking any of it. A failure
     // leaves the selected target and all as-yet-unretired old entries intact.
     for (path, directory) in batch {
@@ -171,6 +181,9 @@ pub(super) fn old_generation_batch(root: &Path) -> Result<bool, FormalError> {
             path.parent()
                 .ok_or_else(|| invalid("old generation parent"))?,
         )?;
+        if budget.expired() {
+            return Ok(false);
+        }
     }
     if fs::read_dir(root).map_err(io)?.next().is_none() {
         fs::remove_dir(root).map_err(io)?;

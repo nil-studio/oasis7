@@ -16,6 +16,7 @@ pub(super) mod chunk;
 mod published_closure;
 #[path = "endpoint_storage_maintenance.rs"]
 mod storage_maintenance;
+pub use storage_maintenance::{FormalStorageLogicalInventoryPage, FormalStorageLogicalObject};
 #[path = "endpoint_store.rs"]
 mod store;
 pub use chunk::{FORMAL_ARCHIVE_CHUNK_LIMIT, FORMAL_ARCHIVE_OBJECT_LIMIT, FormalArchiveChunkV1};
@@ -91,6 +92,7 @@ pub struct FileFormalEndpoint {
     provider: Arc<dyn fencing::MonotonicEndpointProvider>,
     parent: Option<VerifiedFormalCommitV1>,
     poisoned: bool,
+    physical_maintenance: storage_maintenance::MaintenanceState,
     native_environment_jobs:
         std::collections::BTreeMap<String, super::native_environment::EndpointVerificationJob>,
     published_closure_jobs:
@@ -197,6 +199,7 @@ impl FileFormalEndpoint {
             provider,
             parent,
             poisoned: false,
+            physical_maintenance: storage_maintenance::MaintenanceState::default(),
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             #[cfg(test)]

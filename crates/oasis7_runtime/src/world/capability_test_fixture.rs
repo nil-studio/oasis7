@@ -34,6 +34,11 @@ const MODULE_SCHEMA_HASH: &str = "0000000000000000000000000000000000000000000000
 const MODULE_WASM_HASH: &str = "d794dc476ae52ee4ca78f9ee1662b6f384a5185124db90495f6a64ee579ff4a3";
 const MODULE_WASM_BYTES: &[u8] = b"runtime-provider-capability-fixture-v1";
 
+struct FixtureGrantIssuance {
+    nonce: String,
+    lifetime_ticks: u64,
+}
+
 impl World {
     /// Install a complete, proof-bearing provider capability fixture for an
     /// already-bound in-crate live test World.  Viewer only opts into this
@@ -44,7 +49,52 @@ impl World {
         agent_id: &str,
     ) -> Result<CapabilityInvocationContext, WorldError> {
         let mut staged = self.clone();
-        let invocation = staged.install_test_provider_capability_fixture_inner(agent_id, true)?;
+        let invocation =
+            staged.install_test_provider_capability_fixture_inner(agent_id, true, 100)?;
+        *self = staged;
+        Ok(invocation)
+    }
+
+    /// Install the same signed fixture with a finite logical-tick lifetime for
+    /// bounded scale tests. Existing grants are immutable, never extended in place.
+    #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
+    pub fn install_test_provider_capability_fixture_with_lifetime(
+        &mut self,
+        agent_id: &str,
+        lifetime_ticks: u64,
+    ) -> Result<CapabilityInvocationContext, WorldError> {
+        if !(1..=11_024).contains(&lifetime_ticks) {
+            return Err(fixture_error(
+                "provider fixture lifetime must be 1..=11024 ticks",
+            ));
+        }
+        let required_expiry = self
+            .state
+            .time
+            .checked_add(lifetime_ticks)
+            .ok_or_else(|| fixture_error("provider fixture expiry overflow"))?;
+        let mut staged = self.clone();
+        let invocation = staged.install_test_provider_capability_fixture_inner(
+            agent_id,
+            true,
+            lifetime_ticks,
+        )?;
+        let grant: CapabilityGrantV2 = serde_json::from_value(
+            staged
+                .capability_grants_v2
+                .get(&invocation.grant_id)
+                .cloned()
+                .ok_or_else(|| fixture_error("provider fixture grant missing"))?,
+        )
+        .map_err(|error| fixture_error(error.to_string()))?;
+        if grant
+            .expires_at_tick
+            .is_none_or(|expiry| expiry < required_expiry)
+        {
+            return Err(fixture_error(
+                "existing provider fixture has insufficient lifetime",
+            ));
+        }
         *self = staged;
         Ok(invocation)
     }
@@ -59,7 +109,8 @@ impl World {
         agent_id: &str,
     ) -> Result<CapabilityInvocationContext, WorldError> {
         let mut staged = self.clone();
-        let invocation = staged.install_test_provider_capability_fixture_inner(agent_id, false)?;
+        let invocation =
+            staged.install_test_provider_capability_fixture_inner(agent_id, false, 100)?;
         *self = staged;
         Ok(invocation)
     }
@@ -189,7 +240,10 @@ impl World {
             world_id.as_str(),
             branch_id.as_str(),
             finality_epoch,
-            format!("runtime-test-provider:{agent_id}:additional:{nonce_suffix}"),
+            FixtureGrantIssuance {
+                nonce: format!("runtime-test-provider:{agent_id}:additional:{nonce_suffix}"),
+                lifetime_ticks: 100,
+            },
         )?;
         staged.register_capability_grant_v2(grant.clone())?;
         *self = staged;
@@ -200,6 +254,7 @@ impl World {
         &mut self,
         agent_id: &str,
         seed_cognition_balance: bool,
+        lifetime_ticks: u64,
     ) -> Result<CapabilityInvocationContext, WorldError> {
         self.verify_capability_authorization_root()?;
         let (world_id, branch_id, finality_epoch, finality_block_hash) =
@@ -246,6 +301,7 @@ impl World {
             world_id.as_str(),
             branch_id.as_str(),
             finality_epoch,
+            lifetime_ticks,
         )?;
         self.register_capability_grant_v2(grant)?;
         let presenter = CapabilityPresenter {
@@ -543,6 +599,7 @@ impl World {
         world_id: &str,
         branch_id: &str,
         finality_epoch: u64,
+        lifetime_ticks: u64,
     ) -> Result<CapabilityGrantV2, WorldError> {
         self.fixture_command_grant_with_nonce(
             agent_id,
@@ -550,7 +607,10 @@ impl World {
             world_id,
             branch_id,
             finality_epoch,
-            format!("runtime-test-provider:{agent_id}:{branch_id}:{finality_epoch}"),
+            FixtureGrantIssuance {
+                nonce: format!("runtime-test-provider:{agent_id}:{branch_id}:{finality_epoch}"),
+                lifetime_ticks,
+            },
         )
     }
 
@@ -561,8 +621,12 @@ impl World {
         world_id: &str,
         branch_id: &str,
         finality_epoch: u64,
-        grant_nonce: String,
+        issuance: FixtureGrantIssuance,
     ) -> Result<CapabilityGrantV2, WorldError> {
+        let FixtureGrantIssuance {
+            nonce: grant_nonce,
+            lifetime_ticks,
+        } = issuance;
         let issuer_key = fixture_signing_key(ISSUER_SEED);
         let finalized_receipt_id =
             format!("runtime-test-authority:{world_id}:{branch_id}:{finality_epoch}");
@@ -604,7 +668,12 @@ impl World {
                 policy_class: Some("read-only".to_string()),
             },
             issued_at_tick: self.state.time,
-            expires_at_tick: Some(self.state.time.saturating_add(100)),
+            expires_at_tick: Some(
+                self.state
+                    .time
+                    .checked_add(lifetime_ticks)
+                    .ok_or_else(|| fixture_error("provider fixture expiry overflow"))?,
+            ),
             grant_nonce,
             parent_grant_id: None,
             delegation_depth: 0,
@@ -632,8 +701,7 @@ impl World {
 }
 
 fn fixture_module_artifact_identity() -> ModuleArtifactIdentity {
-    let source_hash =
-        crate::util::sha256_hex(b"runtime-provider-capability-fixture-source-v1");
+    let source_hash = crate::util::sha256_hex(b"runtime-provider-capability-fixture-source-v1");
     let build_manifest_hash =
         crate::util::sha256_hex(b"runtime-provider-capability-fixture-build-v1");
     let payload = ModuleArtifactIdentity::signing_payload_v1(
@@ -670,5 +738,92 @@ fn fixture_signing_key(seed_label: &[u8]) -> SigningKey {
 fn fixture_error(reason: impl Into<String>) -> WorldError {
     WorldError::CapabilityAuthorizationDenied {
         reason: reason.into(),
+    }
+}
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+    fn world() -> World {
+        let mut world = World::new();
+        world.submit_action(crate::Action::RegisterAgent {
+            agent_id: "agent".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        });
+        world.step().unwrap();
+        world
+            .bind_cognition_runtime("fixture-lifetime", "main", 0, None, "pending", 0)
+            .unwrap();
+        world
+    }
+    fn project(world: &World, invocation: &CapabilityInvocationContext) -> bool {
+        world
+            .capability_context_for_agent("agent", invocation.presenter.clone(), "lifetime-test")
+            .is_ok()
+    }
+    #[test]
+    fn bounded_provider_fixture_lifetime_covers_scale_and_still_expires() {
+        let mut default = world();
+        let issued = default.state.time;
+        let invocation = default
+            .install_test_provider_capability_fixture("agent")
+            .unwrap();
+        default.state.time = issued + 100;
+        assert!(project(&default, &invocation));
+        default.state.time += 1;
+        assert!(
+            !project(&default, &invocation),
+            "default100tick grant must still expire"
+        );
+        for requested in [10u64, 1000, 10000] {
+            let mut world = world();
+            let issued = world.state.time;
+            let lifetime = requested.checked_add(1024).unwrap();
+            let invocation = world
+                .install_test_provider_capability_fixture_with_lifetime("agent", lifetime)
+                .unwrap();
+            let encoded = world
+                .capability_grants_v2()
+                .get(&invocation.grant_id)
+                .unwrap();
+            let mut grant: CapabilityGrantV2 = serde_json::from_value(encoded.clone()).unwrap();
+            assert_eq!(grant.expires_at_tick, Some(issued + lifetime));
+            assert!(grant.body_hash_matches().unwrap());
+            // The finite larger expiry still requires a fresh canonical issuer
+            // signature; changing only its field cannot enter the registry.
+            grant.expires_at_tick = Some(issued + lifetime + 1);
+            assert!(world.register_capability_grant_v2(grant).is_err());
+            assert_eq!(world.capability_grants_v2().len(), 1);
+            // Advance only the logical clock here: this tests authorization,
+            // not the real process/commit workload covered by manual CI.
+            world.state.time = issued + requested + 100;
+            assert!(project(&world, &invocation));
+            world.state.time = issued + lifetime;
+            assert!(project(&world, &invocation));
+            world.state.time += 1;
+            assert!(!project(&world, &invocation));
+        }
+    }
+    #[test]
+    fn bounded_provider_fixture_rejects_unbounded_or_cached_short_lifetime() {
+        let mut world = world();
+        for invalid in [0, 11025, u64::MAX] {
+            assert!(
+                world
+                    .install_test_provider_capability_fixture_with_lifetime("agent", invalid)
+                    .is_err()
+            );
+            assert!(world.capability_grants_v2().is_empty());
+        }
+        let original = world
+            .install_test_provider_capability_fixture("agent")
+            .unwrap();
+        assert!(
+            world
+                .install_test_provider_capability_fixture_with_lifetime("agent", 2024)
+                .is_err()
+        );
+        assert_eq!(world.capability_grants_v2().len(), 1);
+        assert!(project(&world, &original));
     }
 }

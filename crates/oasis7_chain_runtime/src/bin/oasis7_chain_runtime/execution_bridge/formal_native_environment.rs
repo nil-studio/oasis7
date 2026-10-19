@@ -3,13 +3,44 @@
 use super::{controlled_capture as capture, formal_package, to_cbor};
 use oasis7_distfs::controlled_authority::{
     formal::{
-        FormalFrozenBodyV1, coordinator::FormalDurabilityEndpoint, frozen_material_digest,
-        verify_frozen_material,
+        FormalFrozenBodyV1, coordinator::FormalDurabilityEndpoint,
+        endpoint::FormalCandidateMaterialV1, frozen_material_digest, verify_frozen_material,
     },
     replicated_protocol::{ArtifactRole, ClosedRecord},
 };
 use oasis7_formal_protocol::native_environment::NativeExecutionEnvironmentV1;
 use std::collections::BTreeMap;
+
+/// Published cleanup must also release native readback jobs which a retained
+/// Qualified retry did not consume through Prepare. The caller retains its
+/// durable ReleasePending obligation until every idempotent acknowledgement.
+pub(crate) fn release_unused_verification<
+    P: FormalDurabilityEndpoint,
+    R: FormalDurabilityEndpoint,
+>(
+    primary: &mut P,
+    replica: &mut R,
+    candidate: &FormalCandidateMaterialV1,
+) -> Result<(), String> {
+    let mut ids = std::collections::BTreeSet::new();
+    for material in std::iter::once(&candidate.material).chain(candidate.frozen_material.iter()) {
+        if let Some(environment) = material
+            .native_environment()
+            .map_err(|error| error.to_string())?
+        {
+            ids.insert(environment.digest()?);
+        }
+    }
+    for id in ids {
+        primary
+            .release_native_environment_verification(&id)
+            .map_err(|error| error.to_string())?;
+        replica
+            .release_native_environment_verification(&id)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
 
 pub(crate) fn descriptor(
     material: &ClosedRecord,
@@ -180,43 +211,67 @@ pub(crate) fn verify_registered<P: FormalDurabilityEndpoint, R: FormalDurability
     native: &NativeExecutionEnvironmentV1,
 ) -> Result<(), String> {
     let descriptor_digest = native.digest()?;
-    let maximum_calls = native
+    let chunks = native
         .components
         .iter()
         .map(|component| component.chunks.len() as u64)
-        .sum::<u64>()
-        + 1;
-    for endpoint in [
+        .sum::<u64>();
+    let mut endpoints = [
         primary as &mut dyn FormalDurabilityEndpoint,
         replica as &mut dyn FormalDurabilityEndpoint,
-    ] {
-        let mut last = None;
-        let mut instance = None;
-        let mut complete = false;
-        for _ in 0..maximum_calls {
-            let progress = endpoint
-                .advance_native_environment_verification(native)
-                .map_err(|error| error.to_string())?;
+    ];
+    verify_progress(&descriptor_digest, chunks, |index| {
+        endpoints[index]
+            .advance_native_environment_verification(native)
+            .map_err(|error| error.to_string())
+    })
+}
+fn verify_progress(
+    descriptor_digest: &str,
+    chunks: u64,
+    mut advance: impl FnMut(
+        usize,
+    ) -> Result<
+        oasis7_distfs::controlled_authority::formal::NativeEnvironmentVerificationProgressV1,
+        String,
+    >,
+) -> Result<(), String> {
+    let mut last = [None, None];
+    let mut instances = [None, None];
+    let mut complete = [false, false];
+    // Interleave P/R. Renew a completed peer's volatile job while the other
+    // advances, so a large but progressing readback cannot age out its pin.
+    // Calls remain bounded by chunks+1 per endpoint, including renewals.
+    for _ in 0..=chunks {
+        for index in 0..2 {
+            let progress = advance(index)?;
             if progress.descriptor_digest != descriptor_digest
-                || instance
+                || instances[index]
                     .as_ref()
                     .is_some_and(|previous| previous != &progress.endpoint_instance)
-                || last.is_some_and(|previous| progress.verified_chunks <= previous)
+                || progress.verified_chunks > chunks
+                || (progress.complete && progress.verified_chunks != chunks)
+                || last[index].is_some_and(|previous| {
+                    if complete[index] {
+                        !progress.complete || progress.verified_chunks != previous
+                    } else {
+                        progress.verified_chunks <= previous
+                    }
+                })
             {
-                return Err(
-                    "native independent verification made no authenticated progress".into(),
-                );
+                return Err("native independent verification made no authenticated progress or lost its live job".into());
             }
-            if progress.complete {
-                complete = true;
-                break;
-            }
-            last = Some(progress.verified_chunks);
-            instance = Some(progress.endpoint_instance);
+            last[index] = Some(progress.verified_chunks);
+            instances[index] = Some(progress.endpoint_instance);
+            complete[index] = progress.complete;
         }
-        if !complete {
-            return Err("Unavailable: native environment verification operation budget".into());
+        if complete == [true, true] {
+            return Ok(());
         }
     }
-    Ok(())
+    Err("Unavailable: native environment verification operation budget".into())
 }
+
+#[cfg(test)]
+#[path = "formal_native_environment_tests.rs"]
+mod tests;

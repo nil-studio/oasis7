@@ -6,8 +6,9 @@ fn logical(root: &Path, value: &(String, Vec<u8>)) -> Vec<u8> {
         .unwrap()
 }
 fn finish(root: &Path) -> FormalGenerationProgress {
-    for _ in 0..20 {
-        let progress = advance(root).unwrap();
+    let mut session = GenerationSession::default();
+    for _ in 0..100 {
+        let progress = advance_with_session(root, &mut session).unwrap();
         if !progress.building {
             return progress;
         }
@@ -78,7 +79,16 @@ fn generation_recovers_sealed_selected_and_interrupted_retirement_without_rewrit
         roots::retain(&fixture.0, std::slice::from_ref(&value.0)).unwrap();
         roots::retain(&fixture.0, std::slice::from_ref(&value.0)).unwrap();
         publication::fail_at(stage);
-        assert!(advance(&fixture.0).is_err());
+        let mut session = GenerationSession::default();
+        let mut interrupted = false;
+        for _ in 0..100 {
+            if advance_with_session(&fixture.0, &mut session).is_err() {
+                interrupted = true;
+                break;
+            }
+        }
+        assert!(interrupted, "fault boundary was never reached");
+        drop(session);
         initialize(&fixture.0).unwrap();
         assert_eq!(logical(&fixture.0, &value), value.1);
         finish(&fixture.0);
@@ -149,17 +159,23 @@ fn reopen_during_multi_page_retirement_does_not_resurrect_root_selectors() {
     )
     .unwrap();
     let mut selected = false;
+    let mut session = GenerationSession::default();
     for _ in 0..100 {
-        let progress = advance(&fixture.0).unwrap();
+        let progress = advance_with_session(&fixture.0, &mut session).unwrap();
         if progress.selected.is_some() && progress.building {
             selected = true;
             break;
         }
     }
     assert!(selected);
+    drop(session);
     initialize(&fixture.0).unwrap();
+    let mut reopened = GenerationSession::default();
     for _ in 0..100 {
-        if !advance(&fixture.0).unwrap().building {
+        if !advance_with_session(&fixture.0, &mut reopened)
+            .unwrap()
+            .building
+        {
             break;
         }
     }
@@ -169,4 +185,142 @@ fn reopen_during_multi_page_retirement_does_not_resurrect_root_selectors() {
     for value in &objects {
         assert_eq!(logical(&fixture.0, value), value.1);
     }
+}
+
+#[test]
+fn endpoint_lifetime_generation_pages_do_not_repeat_full_selector_recovery() {
+    let fixture = Fixture::new();
+    for n in 0..4u8 {
+        let value = object(vec![n + 120; 5 * 1024 * 1024]);
+        fs::write(fixture.0.join(&value.0), &value.1).unwrap();
+        roots::retain(&fixture.0, std::slice::from_ref(&value.0)).unwrap();
+    }
+    publication::FULL_RECOVERY_PASSES.with(|count| count.set(0));
+    let mut session = GenerationSession::default();
+    assert!(
+        advance_with_session(&fixture.0, &mut session)
+            .unwrap()
+            .building
+    );
+    assert!(
+        advance_with_session(&fixture.0, &mut session)
+            .unwrap()
+            .building
+    );
+    assert_eq!(
+        publication::FULL_RECOVERY_PASSES.with(|count| count.get()),
+        1,
+        "one live owner must fully recover its private build only once"
+    );
+}
+
+#[test]
+fn generation_session_reopens_full_recovery_after_restart_or_failed_page() {
+    let fixture = Fixture::new();
+    for n in 0..4u8 {
+        let value = object(vec![n + 140; 5 * 1024 * 1024]);
+        fs::write(fixture.0.join(&value.0), &value.1).unwrap();
+        roots::retain(&fixture.0, std::slice::from_ref(&value.0)).unwrap();
+    }
+    let mut session = GenerationSession::default();
+    publication::FULL_RECOVERY_PASSES.with(|count| count.set(0));
+    publication::fail_at(3);
+    assert!(advance_with_session(&fixture.0, &mut session).is_err());
+    assert_eq!(
+        publication::FULL_RECOVERY_PASSES.with(|count| count.get()),
+        1
+    );
+    assert!(
+        advance_with_session(&fixture.0, &mut session)
+            .unwrap()
+            .building
+    );
+    assert_eq!(
+        publication::FULL_RECOVERY_PASSES.with(|count| count.get()),
+        2
+    );
+    // A reopened owner never inherits the previous process's recovery token.
+    let mut reopened = GenerationSession::default();
+    assert!(
+        advance_with_session(&fixture.0, &mut reopened)
+            .unwrap()
+            .building
+    );
+    assert_eq!(
+        publication::FULL_RECOVERY_PASSES.with(|count| count.get()),
+        3
+    );
+}
+
+#[test]
+fn automatic_generation_page_uses_small_payload_budget_and_explicit_mode_finishes() {
+    let fixture = Fixture::new();
+    let mut expected = Vec::new();
+    for n in 0..4u8 {
+        let value = object(vec![n + 190; 32 * 1024]);
+        fs::write(fixture.0.join(&value.0), &value.1).unwrap();
+        roots::retain(&fixture.0, std::slice::from_ref(&value.0)).unwrap();
+        expected.push(value);
+    }
+    let mut session = GenerationSession::default();
+    let page =
+        advance_with_budget(&fixture.0, &mut session, GenerationBudget::automatic()).unwrap();
+    assert!(page.building);
+    assert!(
+        (1..=2).contains(&page.copied_objects),
+        "automatic page copied more than 64KiB of 32KiB originals"
+    );
+    for _ in 0..100 {
+        if !advance_with_session(&fixture.0, &mut session)
+            .unwrap()
+            .building
+        {
+            for value in &expected {
+                assert_eq!(logical(&fixture.0, value), value.1);
+            }
+            return;
+        }
+    }
+    panic!("explicit pages did not finish automatic session's original work");
+}
+
+#[test]
+fn selected_generation_retires_orphans_with_a_new_live_overlay_under_exclusive_fence() {
+    let fixture = Fixture::new();
+    let first = object(vec![71; 100000]);
+    fs::write(fixture.0.join(&first.0), &first.1).unwrap();
+    roots::retain(&fixture.0, std::slice::from_ref(&first.0)).unwrap();
+    let mut session = GenerationSession::default();
+    let mut selected = None;
+    for _ in 0..100 {
+        let progress = advance_with_session(&fixture.0, &mut session).unwrap();
+        if progress.selected.is_some() && progress.building {
+            selected = progress.selected;
+            break;
+        }
+    }
+    let selected = selected.expect("fixture must reach selected retirement");
+    let late = object(vec![72; 100000]);
+    assert!(persist(&fixture.0, std::slice::from_ref(&late)).unwrap());
+    roots::retain(&fixture.0, std::slice::from_ref(&late.0)).unwrap();
+    let garbage = b"orphan added with late overlay";
+    let garbage_id = blake3::hash(garbage).to_hex().to_string();
+    create(&fixture.0.join(FRAMES).join(&garbage_id), garbage).unwrap();
+    let mut complete = false;
+    for _ in 0..100 {
+        let progress = advance_with_session(&fixture.0, &mut session).unwrap();
+        if !progress.building {
+            assert_eq!(progress.selected.as_deref(), Some(selected.as_str()));
+            complete = true;
+            break;
+        }
+    }
+    assert!(
+        complete,
+        "nonempty overlay GC must finish under its original fence"
+    );
+    assert!(!fixture.0.join(FRAMES).join(garbage_id).exists());
+    assert!(fixture.0.join(SELECTORS).join(&late.0).exists());
+    assert_eq!(logical(&fixture.0, &first), first.1);
+    assert_eq!(logical(&fixture.0, &late), late.1);
 }

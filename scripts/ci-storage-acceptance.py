@@ -22,7 +22,7 @@ artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(artifacts)
 from ci_process_runner import run
 
-GROUPS = ('units', *artifacts.SHARDS, 'capacity', 'network', 'disk')
+GROUPS = ('units', *artifacts.SHARDS, 'capacity', 'full-node', 'attempt-release', 'network', 'disk')
 NETWORK_SUFFIXES = (
     'protected_endpoint_children_replica_unavailable_preserves_exact_read_and_reconciles_original',
     'protected_endpoint_children_effect_lost_reply_sigkill_resolves_original_once',
@@ -68,6 +68,18 @@ def select(manifest, group, scale=10):
         if len(entries) != len(NETWORK_SUFFIXES) or {e['name'].rsplit('::', 1)[-1] for e in entries} != set(NETWORK_SUFFIXES):
             raise ValueError('network fault inventory missing or duplicated')
         return entries
+    if group == 'attempt-release':
+        suffix = 'formal_attempt_release_crash_and_transport_failure_recover_live_remote_pins'
+        names = [name for name in binaries['runtime-tests']['ignored_tests'] if name.endswith('::' + suffix)]
+        if len(names) != 1:
+            raise ValueError('attempt-release fault inventory changed')
+        return [dict(binary='runtime-tests', name=names[0], ignored=True)]
+    if group == 'full-node':
+        suffix = 'formal_full_node_storage_maintenance_preserves_history'
+        names = [name for name in binaries['runtime-tests']['ignored_tests'] if name.endswith('::' + suffix)]
+        if len(names) != 1:
+            raise ValueError('full-node acceptance inventory changed')
+        return [dict(binary='runtime-tests', name=names[0], ignored=True)]
     if group == 'capacity':
         suffix = ('actual_formal_storage_capacity_smoke_10_heights' if scale == 10
                   else 'actual_formal_storage_capacity_1000_or_10000_heights')
@@ -192,11 +204,13 @@ def execute(args):
                    host=host_observation(directory),
                    capacity_scale=args.capacity_scale, repeat_faults=args.repeat_faults,
                    selected_inventory=selected, artifact_manifest=manifest, expected_cases=len(entries) * (args.repeat_faults if args.group == 'network' else 1),
-                   passed=False, results=[], capacity_reports=[])
+                   passed=False, results=[], capacity_reports=[], full_node_reports=[])
     (directory / 'selected-inventory.json').write_text(json.dumps(summary, indent=2) + '\n')
     env['OASIS7_STORAGE_BENCHMARK_HEIGHTS'] = str(args.capacity_scale)
-    if args.group == 'capacity':
+    if args.group in ('capacity', 'full-node'):
         env['OASIS7_STORAGE_PROGRESS_PATH'] = str(directory / 'capacity-progress.jsonl')
+        env['OASIS7_STORAGE_FULL_NODE_COMMITS'] = str(args.capacity_scale)
+        env['OASIS7_STORAGE_FULL_NODE_PROGRESS_PATH'] = str(directory / 'full-node-progress.jsonl')
         env.setdefault('OASIS7_STORAGE_MAX_LOGICAL_BYTES', str(4 * 1024 ** 3))
         env.setdefault('OASIS7_STORAGE_MAX_SECONDS', '18000')
         env.setdefault('OASIS7_STORAGE_PROGRESS_INTERVAL', '100')
@@ -228,8 +242,8 @@ def execute(args):
                     with log.open('w') as stream, contextlib.redirect_stdout(Tee(stream)):
                         result = run(command, cwd, dict(env, CARGO_MANIFEST_DIR=str(cwd)),
                                      args.group, name, directory / 'results.jsonl', expected_count=count,
-                                     timeout_seconds=args.timeout_seconds or (1200 if args.capacity_scale == 10 else 19000)
-                                     if args.group == 'capacity' else args.timeout_seconds or 2400)
+                                     timeout_seconds=args.timeout_seconds or ((7200 if args.group == 'full-node' else 1200) if args.capacity_scale == 10 else 19000)
+                                     if args.group in ('capacity', 'full-node') else args.timeout_seconds or 2400)
                     summary['results'].append(dict(result, log=log.name, repetition=repeat + 1))
                     if args.group == 'capacity':
                         reports = [json.loads(line.split('STORAGE_CAPACITY_REPORT=', 1)[1])
@@ -239,6 +253,12 @@ def execute(args):
                         if reports[0].get('status') != 'passed' or reports[0].get('executed_heights') != args.capacity_scale:
                             raise ValueError('partial or wrong-scale capacity report')
                         summary['capacity_reports'].extend(reports)
+                    if args.group == 'full-node':
+                        reports = [json.loads(line.split('STORAGE_FULL_NODE_REPORT=', 1)[1])
+                                   for line in log.read_text().splitlines() if 'STORAGE_FULL_NODE_REPORT=' in line]
+                        if len(reports) != 1 or not full_node_passed(reports[0], args.capacity_scale):
+                            raise ValueError('missing, partial or wrong-scale full-node report')
+                        summary['full_node_reports'].extend(reports)
                     if result.get('cancelled'):
                         raise ValueError('acceptance cancelled; remaining cases not executed')
                     if result['cleanup_result'] != 'clean':
@@ -254,17 +274,63 @@ def execute(args):
         (directory / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 
 
+def full_node_passed(report, scale):
+    if not isinstance(report, dict):
+        return False
+    logical = report.get('logical_before')
+    typed = report.get('typed_history_before')
+    published = report.get('published_before')
+    return (report.get('status') == 'passed' and report.get('executed_commits') == scale
+            and report.get('fixed_head_unchanged') is True
+            and report.get('logical_history_unchanged') is True
+            and report.get('typed_history_unchanged') is True
+            and report.get('published_history_unchanged') is True
+            and report.get('accounting_quiescent') is True
+            and isinstance(published, dict) and published.get('complete') is True
+            and published == report.get('published_after_maintenance')
+            and published == report.get('published_after_cold_restore')
+            and 0 < published.get('files', 0) <= 65536 and published.get('bytes', 0) > 0
+            and all(len(published.get(name, '')) == 64 for name in ('digest', 'original_digest', 'fixed_head_digest'))
+            and published.get('original_position', 0) > 0
+            and published.get('fixed_head_position', 0) >= published['original_position']
+            and published['fixed_head_position'] == report.get('fixed_head_position')
+            and published['original_position'] == report.get('original_commit_position')
+            and report.get('original_result_unchanged') is True
+            and report.get('original_effect_unchanged') is True
+            and report.get('continuation_completed') is True
+            and (scale == 10 or report.get('cold_history_evicted') is True)
+            and isinstance(report.get('fixed_head'), str) and len(report['fixed_head']) == 64
+            and isinstance(report.get('authority_digest'), str) and len(report['authority_digest']) == 64
+            and isinstance(logical, dict) and set(logical) == {'primary', 'replica'}
+            and logical == report.get('logical_after')
+            and all(isinstance(logical[role], dict)
+                    and logical[role].get('retention_records_including_duplicate_digests', 0) > 0
+                    and len(logical[role].get('digest', '')) == 64 for role in logical)
+            and isinstance(typed, dict) and typed.get('records', 0) > 0
+            and typed == report.get('typed_history_after')
+            and len(typed.get('digest', '')) == 64
+            and all(report.get(name, {}).get('complete') is True
+                    and report[name].get('total', {}).get('complete') is True
+                    and isinstance(report[name]['total'].get('allocated_bytes'), int)
+                    and report[name]['total']['allocated_bytes'] >= 0
+                    for name in ('initial', 'before', 'after_maintenance', 'after_cold_restore'))
+            and all(isinstance(report.get(name), int) for name in (
+                'growth_before_maintenance_allocated_bytes', 'maintenance_net_allocated_change_bytes',
+                'cold_restore_net_allocated_change_bytes')))
+
+
 def summarize(directory, expected, needs=None):
     reports = [json.loads(path.read_text()) for path in directory.rglob('summary.json')]
     labels = [report['label'] for report in reports]
     if len(labels) != len(set(labels)) or set(labels) != set(expected) or len(expected) != len(set(expected)):
         raise ValueError('missing, duplicate or unexpected acceptance result')
     if needs is not None:
-        if set(needs) != {'build', 'verify', 'capacity-long'}:
+        if set(needs) != {'build', 'verify', 'capacity-long', 'full-node-long'}:
             raise ValueError('missing or unexpected acceptance job')
         long_selected = any(label in ('capacity-1000', 'capacity-10000') for label in expected)
         for name, job in needs.items():
-            required = 'skipped' if name == 'capacity-long' and not long_selected else 'success'
+            optional_selected = long_selected if name == 'capacity-long' else any(label in ('full-node-1000', 'full-node-10000') for label in expected)
+            required = 'skipped' if name in ('capacity-long', 'full-node-long') and not optional_selected else 'success'
             if job.get('result') != required:
                 raise ValueError('required acceptance job failed, skipped, cancelled or missing')
     identities = {(report['tested_sha'], report['source_sha'], report['producer_run_id'], report['producer_attempt']) for report in reports}
@@ -277,14 +343,16 @@ def summarize(directory, expected, needs=None):
                 or not report.get('selected_inventory')
                 or (report['group'] == 'capacity' and (len(report.get('capacity_reports', [])) != 1
                     or report['capacity_reports'][0].get('status') != 'passed'
-                    or report['capacity_reports'][0].get('executed_heights') != report.get('capacity_scale')))):
+                    or report['capacity_reports'][0].get('executed_heights') != report.get('capacity_scale')))
+                or (report['group'] == 'full-node' and (len(report.get('full_node_reports', [])) != 1
+                    or not full_node_passed(report['full_node_reports'][0], report.get('capacity_scale'))))):
             raise ValueError('incomplete or failed acceptance result: ' + report['label'])
     return dict(passed=True, identity=list(next(iter(identities))), groups=sorted(labels),
                 observations=[dict(label=report['label'], cases=report['expected_cases'],
                                    elapsed_seconds=round(sum(r.get('elapsed_seconds', 0) for r in report['results']), 3),
                                    memory=report.get('memory'), host=report.get('host'))
                               for report in sorted(reports, key=lambda value: value['label'])],
-                not_run=[label for label in ('capacity-1000', 'capacity-10000') if label not in labels]
+                not_run=[label for label in ('capacity-1000', 'capacity-10000', 'full-node-1000', 'full-node-10000') if label not in labels]
                         + ['real-independent-fault-domains', 'block-device-faults',
                            'cross-version-shipping-upgrade-rollback', 'autonomous-agent-playtest'],
                 limitations=['Single CI runner per job; simulated faults do not certify independent infrastructure fault domains (S6).',

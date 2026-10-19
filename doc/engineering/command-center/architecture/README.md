@@ -84,7 +84,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 - ARCH-06：局部双端持久证明不等于正式 CommitRef，若干原子发布切片不等于整个 World 的根事务；同机双目录不能证明独立故障域。
 - ARCH-07：已有 execution bridge v3、CAS、sidecar、retention/GC/replay 的实现合同；[本地恢复边界](../../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-accept-service-boundary)不证明分布式可得性或完整灾备。
 
-ARCH-07 局部实现核对（2026-10-18）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入[当前存储实现](../../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)，覆盖共享压缩、事务物理代、独立闭包读回与 attempt 回收、完整增量、Merkle v2、任务控制冷链和原生工件。新世界直接创建新物理表示；codec 不改变逻辑身份、独立持久条件或服务权限。已验证版本有局部容量和同机恢复证据；后续按[手动专项入口](../../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)逐场景核对网络模型、资源预算与所选规模，具体运行不外推生产延迟。当前无部署节点，真实双故障域和更大规模未完成验收；其他架构及环境基线不变。
+ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入[当前存储实现](../../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)，覆盖共享压缩、事务物理代、独立闭包读回与 attempt 回收、完整增量、Merkle v2、任务控制冷链和原生工件。新世界直接创建新物理表示；codec 不改变逻辑身份、独立持久条件或服务权限。已验证版本有局部容量和同机恢复证据；后续按[手动专项入口](../../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)逐场景核对网络模型、资源预算与所选规模，具体运行不外推生产延迟。当前无部署节点，真实双故障域和更大规模未完成验收；其他架构及环境基线不变。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选把 attempt 双端释放确认为可恢复阶段，接通有预算的默认物理维护，避免每页重复全 selector 恢复扫描，并保留原有共享布局。候选完整目录盘点包含 native、P/R、attempt、旧代和 checkpoint；短样本不证明净节省，规模与部署验收仍有缺口。
 
 节点生命周期实现（2026-10-17 核对）：[PR #4683](https://github.com/eng-cc/oasis7/pull/4683) 接通原请求持久恢复、健康集合转换与可续做节点生命周期；本机验证范围和平台/部署 TODO 见[实施边界](../../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)。代码已合入（`da890a9125a435969b82f5a14ab3c9143cc0690e`）；具体历史验证范围以实施 PR 与 runbook 为准，当前部署与独立故障域未核验。
 
@@ -143,16 +143,14 @@ ARCH-07 局部实现核对（2026-10-18）：[PR #4870](https://github.com/nil-s
 | --- | --- | --- | --- |
 | ARCH-11 · 客户端自身 | 独立 macOS Tauri 2 + Rust + Solid/TypeScript + SQLite；文档/Git/PR 保留事实所有权，Codex 默认关闭且属可选实验接入 | 改技术栈、引入云端/常驻 supervisor、共享团队状态、公开分发、扩版本或自动执行 | [技术栈](../command-center.design.md#43-具体技术栈)、[基础切片](../command-center.design.md#110-首个基础实现切片)、[实验接入](../command-center.design.md#DES-CC-012)、[操作说明](../../../../tools/oasis7-command-center/README.md#verification) |
 
-**设计状态：** 配对产品/系统设计仍含目标能力，完整产品验收未完成。系统设计 §3 区分当前实现与设计差距，§11 说明验证方法和未覆盖范围；实际交付以对应 PR 和证据为准。
-
-**2026-10-17 设计核对：** 基于 `main@0ec10379419b0aaedb9d16157b81c92f4e6e3495`，[首页投影](../command-center.design.md#DES-CC-013)与[工作详情/关联](../command-center.design.md#DES-CC-014)补齐来源身份、时效和冲突处理、决定同步闭合、一次发起及局部读取失败隔离。仓库总览只聚合获准读取的引用，不改写既有工作树、私有资料或运行控制身份；Tauri/Rust/Solid 路线保持。本机工具和文档树按[任务入口](../local-tools.design.md#DES-CC-TOOLS-005)与[主题阅读](../document-tree.design.md#DES-CC-TREE-004)组织。目标及[实现差距](../command-center.design.md#1104-日常工作闭环的实现差距)尚待落实，未增加部署、原生体验或性能验证事实。
+**设计与实现边界（2026-10-18，`main@822f6b49d1a5fb2b866b6c6902ffc8ed024d043b`）：** [PR #4881](https://github.com/nil-studio/oasis7/pull/4881) 已交付有界日常工作投影、关系/决定/个人问题、一次发起与恢复；[PR #4885](https://github.com/nil-studio/oasis7/pull/4885) 收口原 Issue 的适用交互验收。当前[可读工作界面设计](../command-center.design.md#cc-visual-composition)进一步约定布局与视觉变量、工作主入口、按需证据和旧来源界面的退出；发送快照、逐工作草稿和决定版本核对沿原身份与持久化边界细化。这些改造尚待实现及验证，不增加外部控制能力，不改变 Tauri/Rust/Solid 路线。
 
 **已有实现与验证：**
 
 - [PR #4533](https://github.com/eng-cc/oasis7/pull/4533)：桌面基础、四视图、SQLite、真实 worktree 和有限 GitHub 窗口；记录了 macOS arm64 本地打包与原生交互验证。
 - [PR #4563](https://github.com/eng-cc/oasis7/pull/4563)：固定 Codex CLI 0.137.0 的可选实验执行、原请求身份、未知结果与退出管理；真实握手/receipt 有记录，但没有成功模型输出证明。
 - [PR #4572](https://github.com/eng-cc/oasis7/pull/4572)：读取显式规范后继、保留历史版本和来源理由；记录了原生界面与重启恢复验证。
-- 首页的[来源阅读降级入口](../../../../tools/oasis7-command-center/ui/src/SummarySources.tsx)复用既有文档索引和来源详情，分别提示缺失摘要；不新增后台来源、执行动作或聚合判断。四区首页及完整用户任务仍未验收。
+- 首页的[来源阅读入口](../../../../tools/oasis7-command-center/ui/src/SummarySources.tsx)与已交付四区工作投影并存，原 #4848 的用户任务范围见[验证记录](../daily-work-verification.manual.md)。新布局需把来源全文和诊断放到明确下钻路径；现有原生记录不代签该视觉改造。
 - 生命周期解析将原始声明和文档类别分开，可选派生字段兼容旧阅读版本；详见[专题设计](../document-tree.design.md#DES-CC-TREE-001)。类别不推导实现状态，目录生命周期、类型和显式配对缺口筛选沿已发布清单投影，不改变源声明。
 - 2026-10-15 候选源码核对：[文件清单](../../../../tools/oasis7-command-center/core/src/document_inventory.rs)沿现有有界扫描保留逐文件读取/遗漏记录，使用独立版本化 cache key，与章节/搜索同事务发布；原 Snapshot shape 和数据库 schema 版本不变。有限 DTO 查询核对项目、来源版本/代次、章节摘要及分页筛选，规范视图可查阅缺口。独立树快照/attempt、固定提交及关系投影仍待实施，见[实施范围](../document-tree.design.md#111-验证映射表)；真实宿主与交互验证范围归实现 PR。
 - 个人决定、阅读记录和未决操作与可重建缓存分开；启用连接不代表授权任务，恢复不自动重发未知副作用。

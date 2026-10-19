@@ -241,6 +241,19 @@ pub(crate) fn read_object_durable(path: &Path, id: &str) -> Result<Option<Vec<u8
 #[path = "business_pack_readback.rs"]
 mod readback;
 pub(crate) use readback::{begin_readback_trace, finish_readback_trace, read_object_durable_once};
+/// Metadata-only logical length for a bounded owner inventory page. The caller
+/// still reads and hashes the complete original bytes before returning a record.
+pub(crate) fn logical_length(path: &Path, id: &str) -> Result<Option<u64>, FormalError> {
+    let _pin = super::physical::pin(
+        path.parent().ok_or_else(|| invalid("logical CAS parent"))?,
+        false,
+    )?;
+    let selected = super::physical::selected_path(path, id)?;
+    if let Some((length, _)) = super::physical::read_range(&selected, id, 0, 0)? {
+        return Ok(Some(length));
+    }
+    Ok(open(&selected, id)?.map(|object| object.len))
+}
 pub(crate) fn read_range(
     path: &Path,
     id: &str,

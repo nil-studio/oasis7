@@ -26,6 +26,12 @@ pub struct StorageInventory {
 /// Never follows symlinks. Incomplete measurements retain partial counters and
 /// explicit errors; callers must not interpret them as a capacity baseline.
 pub fn inventory_storage(root: &Path) -> StorageInventory {
+    inventory_storage_with_entry_limit(root, usize::MAX)
+}
+
+/// Bound metadata traversal and queued paths. Exhaustion is an incomplete
+/// inventory, never a complete capacity baseline.
+pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -> StorageInventory {
     let mut result = StorageInventory {
         complete: true,
         allocated_bytes: cfg!(unix).then_some(0),
@@ -37,7 +43,15 @@ pub fn inventory_storage(root: &Path) -> StorageInventory {
         .push("device/inode and allocated bytes unavailable on this platform".into());
     let mut pending = vec![PathBuf::from(root)];
     let mut seen = BTreeSet::new();
-    while let Some(path) = pending.pop() {
+    let mut visited = 0usize;
+    'walk: while let Some(path) = pending.pop() {
+        if visited >= maximum_entries {
+            result.errors.push(format!(
+                "inventory entry budget exhausted: {maximum_entries}"
+            ));
+            break;
+        }
+        visited += 1;
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) => {
@@ -84,8 +98,23 @@ pub fn inventory_storage(root: &Path) -> StorageInventory {
                 Ok(entries) => {
                     for entry in entries {
                         match entry {
-                            Ok(entry) => pending.push(entry.path()),
+                            Ok(entry) => {
+                                if visited.saturating_add(pending.len()) >= maximum_entries {
+                                    result.errors.push(format!(
+                                        "inventory entry budget exhausted: {maximum_entries}"
+                                    ));
+                                    break 'walk;
+                                }
+                                pending.push(entry.path());
+                            }
                             Err(error) => {
+                                if visited.saturating_add(pending.len()) >= maximum_entries {
+                                    result.errors.push(format!(
+                                        "inventory entry budget exhausted: {maximum_entries}"
+                                    ));
+                                    break 'walk;
+                                }
+                                visited += 1;
                                 result.errors.push(format!("{}: {error}", path.display()))
                             }
                         }
@@ -128,6 +157,26 @@ mod tests {
         let result = inventory_storage(&fixture.0.join("missing"));
         assert!(!result.complete);
         assert!(result.errors.iter().any(|error| error.contains("missing")));
+    }
+    #[test]
+    fn bounded_inventory_exhaustion_cannot_be_a_complete_capacity_baseline() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("first"), b"first").unwrap();
+        fs::write(fixture.0.join("second"), b"second").unwrap();
+        let partial = inventory_storage_with_entry_limit(&fixture.0, 2);
+        assert!(!partial.complete);
+        assert!(
+            partial
+                .errors
+                .iter()
+                .any(|error| error.contains("entry budget exhausted"))
+        );
+        assert!(partial.file_paths + partial.directories <= 2);
+        let exact = inventory_storage_with_entry_limit(&fixture.0, 3);
+        assert!(exact.complete, "{:?}", exact.errors);
+        assert_eq!(exact.file_paths, 2);
+        assert_eq!(exact.unique_apparent_bytes, 11);
+        assert!(!inventory_storage_with_entry_limit(&fixture.0, 0).complete);
     }
     #[cfg(unix)]
     #[test]
