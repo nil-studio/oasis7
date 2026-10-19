@@ -614,7 +614,7 @@ impl SessionPoll {
         delivery_result
     }
 
-    fn defer(&mut self, interval: Duration) {
+    pub(super) fn defer(&mut self, interval: Duration) {
         self.retry_at = Some(
             Instant::now() + interval.clamp(Duration::from_millis(250), Duration::from_secs(2)),
         );
@@ -626,6 +626,34 @@ impl SessionPoll {
         session: &mut RuntimeLiveSession,
         writer: &mut dyn Write,
     ) -> Result<(), ViewerRuntimeLiveServerError> {
+        // A different connection may have applied a verified read first.
+        // Catch this subscriber up independently of this mailbox's global
+        // advancement token, using the ordinary session privacy projection.
+        if session.initial_snapshot_sent
+            && session.chain_runtime_authoritatively_primed
+            && session.explicitly_subscribed_to(ViewerStream::Snapshot)
+        {
+            let mut server = lock_shared_server(shared)?;
+            let current = server
+                .verified_world_view
+                .as_ref()
+                .map(|view| (view.version().clone(), view.continuation().clone()));
+            let source = server
+                .config
+                .world_service
+                .as_ref()
+                .and_then(|config| config.read_authority().ok())
+                .map(|reader| reader.cache_partition_key().to_owned());
+            if source.is_some()
+                && source == session.last_world_service_snapshot_source
+                && server.authoritative_recovery_write_fence.is_none()
+                && current.is_some()
+                && current != session.last_world_service_snapshot
+            {
+                let snapshot = server.compat_snapshot_for_session(session);
+                send_response(writer, &ViewerResponse::Snapshot { snapshot })?;
+            }
+        }
         if let Some(receiver) = &self.result {
             match receiver.try_recv() {
                 Ok(mut completion) => {

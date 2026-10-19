@@ -265,6 +265,13 @@ pub(super) struct RuntimeLiveSession {
     pub(super) metrics: RunnerMetrics,
     pub(super) transient_play_failures: u8,
     pub(super) initial_snapshot_sent: bool,
+    // Projection shared by the server is not evidence that this session's
+    // snapshot was assembled from that version.
+    pub(super) last_world_service_snapshot: Option<(
+        oasis7_client_api::world_service::ProjectionVersion,
+        oasis7_client_api::world_service::EventCursor,
+    )>,
+    pub(super) last_world_service_snapshot_source: Option<String>,
     // A chain prime may be reused only by the same session that requested it.
     // The server projection is shared, but the proof that its first snapshot
     // was freshly authorized is not.
@@ -296,6 +303,8 @@ impl RuntimeLiveSession {
             metrics: RunnerMetrics::default(),
             transient_play_failures: 0,
             initial_snapshot_sent: false,
+            last_world_service_snapshot: None,
+            last_world_service_snapshot_source: None,
             chain_runtime_authoritatively_primed: false,
             negotiated_protocol:
                 crate::viewer::protocol::NegotiatedViewerProtocol::v1_without_capabilities(),
