@@ -33,3 +33,23 @@ describe("pixel world host adapter lifecycle", () => {
     expect(held.bridge.unmount).toHaveBeenCalledTimes(2);
   });
 });
+
+it("does not derive or submit identical display input again, but keeps current tick readout", async () => {
+  const held = runtime(); mock.load = async () => held;
+  held.deriveRenderState.mockImplementation(() => ({ agents: [{id:"A"}], world_tick: 1, commercial_surface: { world_read: {tick:1} } }));
+  const adapter = createPixelWorldHostAdapter({});
+  const input = {schema_version:1,snapshot:{time:1,model:{}},lists:{agents:[{id:"A"}],locations:[]}};
+  await adapter.mount({}, input);
+  adapter.update(structuredClone(input));
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  expect(held.bridge.update).not.toHaveBeenCalled();
+  input.snapshot.time = 2;
+  expect(adapter.update(input).renderState.world_tick).toBe(2);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  input.lists.agents = [];
+  adapter.update(input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(2);
+  adapter.unmount();
+  await adapter.mount({}, input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(3);
+});
