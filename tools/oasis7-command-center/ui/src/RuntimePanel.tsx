@@ -6,7 +6,7 @@ import type { Project, QuitStatus, RequestAnswer, RuntimeRequest, RuntimeSession
 
 type RuntimeApi = Omit<typeof runtimeBridge, 'startWork'|'startWorkRecords'|'publicSnapshot'>;
 type Run = (action: () => Promise<RuntimeSnapshot>, management?: boolean) => Promise<void>;
-type Props = { project?: Project; view: string; onState?: (state: string) => void; api?: RuntimeApi; subscribe?: typeof subscribeRuntime };
+type Props = { detailActive?: boolean; project?: Project; view: string; onState?: (state: string) => void; api?: RuntimeApi; subscribe?: typeof subscribeRuntime };
 
 export default function RuntimePanel(props: Props) {
   const api = props.api ?? runtimeBridge;
@@ -125,6 +125,7 @@ export default function RuntimePanel(props: Props) {
   const canCreate = () => !uncertainSend() && !!runtime()?.enabled && runtime()?.state === 'ready' && !runtime()?.exitWaiting && runtime()?.capabilities.includes('createSession') && !runtime()?.operations.some(op => unresolved(op) && op.method === 'thread/start');
 
   return <div class="runtime-workspace" style={{ display: visible() ? undefined : 'none' }}>
+    <details class="panel" hidden={props.detailActive||!['execution','attention'].includes(props.view)} open={props.view==='attention'||!!runtime()?.enabled||!!runtime()?.sessions.length||!!runtime()?.requests.length}><summary>Codex 实验接入与原运行请求</summary>
     <section class="panel" aria-label="Codex 实验执行">
       <div class="panel-title"><h3>Codex 开发执行</h3><span class="tag">可选实验接入 · {runtimeLabel(runtime()?.state ?? 'disabled')}</span></div>
       <div class="panel-body">
@@ -173,7 +174,7 @@ export default function RuntimePanel(props: Props) {
       <Show when={!operationIds().length}><div class="empty">已读取范围暂无操作记录。</div></Show>
     </section>
     <Show when={props.view === 'execution'}><section class="panel"><div class="panel-title"><h3>有界观察日志</h3><button onClick={() => setPaused(!paused())}>{paused() ? '恢复日志阅读' : '暂停日志阅读'}</button></div><div class="panel-body"><p class="muted small">最多显示最近200条摘要，每条最多2000字符；{paused() ? '日志视图已暂停，状态观察与工作继续。' : '状态观察持续。'} {runtime()?.logsTruncated ? '上游/本地窗口存在缺失片段，不能据此恢复完整历史。' : '仅覆盖来源提供的摘要，不代表完整对话。'}</p><pre>{logWindow().join('\n') || '暂无已读取摘要。'}</pre></div></section></Show>
-    <Show when={exitVisible()}><section class="panel runtime-exit" aria-label="退出协调"><div class="panel-title"><h3>完整退出的工作处理</h3><span class="tag">默认留在后台</span></div><div class="panel-body"><p>{exit()?.reason ?? '退出状态尚未核实，不会据此停止工作或宣称可以安全退出。'}</p><div class="metadata"><span>自管活跃 {exit()?.active ?? '未知'}</span><span>状态未知 {exit()?.unknown ?? '未知'}</span><span>待回复 {exit()?.pendingRequests ?? '未知'}</span><span>{exit()?.safe ? '来源已确认可退出' : '未确认可以安全退出'}</span><span>{exit()?.waiting ? '正在等待来源确认后退出' : '未进入等待退出'}</span></div><div class="actions runtime-controls"><button disabled={busy()} onClick={() => void exitAction(() => api.background(), true)}>留在后台 / 取消等待退出</button><button disabled={busy() || !exit()} onClick={() => void exitAction(() => api.waitExit())}>等待结束后退出</button><button disabled={busy() || !exit()} onClick={() => void exitAction(() => api.stopExit())}>明确请求停止后退出</button></div><p class="muted small">中断被接受不等于工作已停止。停止失败或结果未知时保留管理入口；退出不会停止外部运行时拥有的工作。</p></div></section></Show>
+    </details><Show when={exitVisible()}><section class="panel runtime-exit" aria-label="退出协调"><div class="panel-title"><h3>完整退出的工作处理</h3><span class="tag">默认留在后台</span></div><div class="panel-body"><Show when={error()}><div role="alert" class="notice">退出操作未确认：{error()}</div></Show><p>{exit()?.reason ?? '退出状态尚未核实，不会据此停止工作或宣称可以安全退出。'}</p><div class="metadata"><span>自管活跃 {exit()?.active ?? '未知'}</span><span>状态未知 {exit()?.unknown ?? '未知'}</span><span>待回复 {exit()?.pendingRequests ?? '未知'}</span><span>{exit()?.safe ? '来源已确认可退出' : '未确认可以安全退出'}</span><span>{exit()?.waiting ? '正在等待来源确认后退出' : '未进入等待退出'}</span></div><div class="actions runtime-controls"><button disabled={busy()} onClick={() => void exitAction(() => api.background(), true)}>留在后台 / 取消等待退出</button><button disabled={busy() || !exit()} onClick={() => void exitAction(() => api.waitExit())}>等待结束后退出</button><button disabled={busy() || !exit()} onClick={() => void exitAction(() => api.stopExit())}>明确请求停止后退出</button></div><p class="muted small">中断被接受不等于工作已停止。停止失败或结果未知时保留管理入口；退出不会停止外部运行时拥有的工作。</p></div></section></Show>
   </div>;
 }
 

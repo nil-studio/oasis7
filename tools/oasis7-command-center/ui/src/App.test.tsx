@@ -3,13 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { acceptsEnter, bridge, statusLabel } from './bridge';
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false, invoke: vi.fn() }));
-afterEach(cleanup);
+afterEach(()=>{cleanup();localStorage.clear();});
 describe('explicit unavailable-source boundary', () => {
   it('does not invent project facts or completion for browser preview', () => {
     render(() => <App />);
     expect(screen.getByText(/浏览器预览未接入桌面 IPC/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '打开项目' })).toBeDisabled();
-    expect(document.body.textContent).not.toMatch(/\d+%/);
+    expect(screen.getByLabelText('文字与界面大小')).toHaveValue('1');
+    expect(document.body.textContent).not.toMatch(/完成率\s*\d+%/);
     fireEvent.click(screen.getByRole('button', {name: /待我处理/}));
     expect(screen.getByText(/无法核实是否有等待输入的工作/)).toBeInTheDocument();
   });
@@ -35,4 +36,12 @@ describe('Chinese composition and source states', () => {
     fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
     expect(screen.getByLabelText('决定内容')).toHaveValue('保留中文草稿');
   });
+});
+
+it('applies and persists display size without reading sources or sending work',()=>{
+ const read=vi.spyOn(bridge,'snapshot');render(()=><App/>);
+ fireEvent.change(screen.getByLabelText('文字与界面大小'),{target:{value:'2'}});
+ expect(screen.getByLabelText('文字与界面大小')).toHaveValue('2');
+ expect(localStorage.getItem('oasis7.display-scale')).toBe('2');expect(read).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'重置'}));expect(screen.getByLabelText('文字与界面大小')).toHaveValue('1');read.mockRestore();
 });

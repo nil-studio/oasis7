@@ -68,6 +68,18 @@ GitHub access uses REST through fixed `gh api --method GET` calls, with no Graph
 
 Local scans and GitHub read-only subprocess I/O run outside the application mutex in bounded source jobs. Publication rejects a switched project or superseded source generation. Versioned personal records and published source views retain their own scopes; failures preserve the last readable results. Explicit same-repository worktree references can join the reading projection without changing the original execution identity. View switching retains work selection, and saved navigation plus explicitly retained ordinary drafts can restore after restart. The next consistency changes bind each draft to its work, bind decision evidence to the version actually reviewed, and compose current personal relations into every work consumer; they must not silently rebind legacy input or discard unresolved operations.
 
+## Readable work desk
+
+Selecting a work replaces the home or full list with one reading workspace. When the main content area has at least 960 CSS pixels, a 360px adjacent list stays available; narrower windows show the detail with an explicit return action. Overview, basis and history retain the same original work identity. Relationship editing, original-tool location, personal questions and experimental work input open only on request. The history keeps source event time separate from App observation time. Home recent events sort newest first, use seven days before a reading baseline exists, and retain an entry to all matching events in the loaded window.
+
+The default body is 16px with at least 13px supporting text and 40px primary controls. The header offers 100%, 150%, 200% and reset; root-relative type, spacing and controls reflow the work desk using container queries, and the selected size is stored in WebView-local display preferences. A narrow navigation drawer retains named routes. Source settings and complete GitHub source rows remain available through explicit source inspection.
+
+Unsaved detail inputs are isolated by project, environment and original work for the current App session. The existing persisted navigation record can restore the selected work's explicitly retained ordinary draft; it does not provide durable multi-work draft storage. Confirming an experimental start freezes its purpose, scope, input and baseline before the asynchronous navigation save. Navigation or reopening never starts a model.
+
+For development-only visual comparison, run `npm --prefix ui run dev` and open `http://127.0.0.1:1420/preview.html`. That separate Vite entry uses labeled in-memory sample DTOs; it is absent from the normal production build and does not connect to repositories, private data or models. The normal browser entry remains disconnected from desktop IPC. Native verification must still use a real App and actual source reads.
+
+The decision-version compare-and-set, durable per-work draft schema and unified backend relationship projection tracked by [Issue #4890](https://github.com/nil-studio/oasis7/issues/4890) are separate remaining implementation scope; the reading workspace does not establish those guarantees or close the full acceptance issue.
+
 ## Verification
 
 ```sh

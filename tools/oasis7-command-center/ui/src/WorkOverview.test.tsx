@@ -25,7 +25,7 @@ it('presents four home regions with explicit unknown coverage and no eager CI or
  render(()=><WorkOverview snapshot={snapshot()} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);
  for(const name of ['当前重点与下一步','最近成果变化','需要我处理','返回工作'])expect(screen.getByRole('heading',{name})).toBeInTheDocument();
  await screen.findByRole('button',{name:'修复本地工具'});
- expect(screen.getByText(/尚未建立；显示已读取合入事件/)).toBeInTheDocument();
+ expect(screen.getByText(/尚未建立；显示最近七天已读取事件/)).toBeInTheDocument();
  expect(runtimeBridge.snapshot).not.toHaveBeenCalled();expect(runtimeBridge.publicSnapshot).toHaveBeenCalled();
  expect(bridge.refreshWorkChecks).not.toHaveBeenCalled();expect(runtimeBridge.startWork).not.toHaveBeenCalled();
 });
@@ -42,7 +42,7 @@ it('retains readable source facts if personal records or a later source read fai
  vi.mocked(bridge.dailyWork).mockRejectedValue(new Error('future personal version'));
  vi.mocked(bridge.workProjection).mockResolvedValueOnce(projection()).mockRejectedValueOnce(new Error('offline'));
  render(()=><WorkOverview snapshot={snapshot()} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));expect(screen.getByText('目标 A')).toBeInTheDocument();expect(screen.getByText(/原章节未读取或已变化 · b/)).toBeInTheDocument();
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));fireEvent.click(screen.getByRole('tab',{name:'依据'}));expect(screen.getByText('目标 A')).toBeInTheDocument();expect(screen.getByText(/原章节未读取或已变化 · b/)).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'刷新工作列表'}));await screen.findByText(/工作读取失败：offline/);
  expect(screen.getByRole('region',{name:'工作详情'})).toBeInTheDocument();expect(screen.getAllByText(/recent 100 only/).length).toBeGreaterThan(0);
 });
@@ -54,12 +54,12 @@ it('rejects an older project result and does not restore an old selection into a
  await waitFor(()=>expect(finish).toBeTypeOf('function'));setSource(snapshot('other'));await screen.findByRole('button',{name:'修复本地工具'});
  const old=projection();old.items[0].purpose.value='旧项目工作';finish(old);await Promise.resolve();expect(screen.queryByText('旧项目工作')).not.toBeInTheDocument();
 });
-it('limits the default return list to three and retains its explicit expansion',async()=>{
- const value=projection();value.items=Array.from({length:4},(_,i)=>({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:String(i+1)},purpose:{...value.items[0].purpose,value:`工作 ${i}`}}));vi.mocked(bridge.workProjection).mockResolvedValue(value);
+it('pages the work list in bounded groups without losing remaining entries',async()=>{
+ const value=projection();value.items=Array.from({length:21},(_,i)=>({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:String(i+1)},purpose:{...value.items[0].purpose,value:`工作 ${i}`}}));vi.mocked(bridge.workProjection).mockResolvedValue(value);
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
- await screen.findByRole('button',{name:'工作 0'});expect(screen.queryByRole('button',{name:'工作 3'})).not.toBeInTheDocument();
- fireEvent.click(screen.getByRole('button',{name:'显示其余 1 项工作'}));expect(screen.getByRole('button',{name:'工作 3'})).toBeInTheDocument();
- await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({action:expect.objectContaining({kind:'navigate',navigation:expect.objectContaining({expanded:true})})})));
+ await screen.findByRole('button',{name:'工作 0'});expect(screen.queryByRole('button',{name:'工作 20'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'下一页工作'}));expect(screen.getByRole('button',{name:'工作 20'})).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'工作 0'})).not.toBeInTheDocument();
 });
 it('refreshes only selected PR checks and distinguishes empty from unread',async()=>{
  let value=projection();value.items[0].checks=[];vi.mocked(bridge.workProjection).mockImplementation(async()=>value);vi.mocked(bridge.refreshWorkChecks).mockResolvedValue({} as never);
@@ -81,7 +81,7 @@ it('restores a persisted original intent as locked metadata and never sends on r
 it('sends relation repair/removal with the original scope and expected revision',async()=>{
  const record=state();record.revision=7;record.relations=[{id:'relation',work:projection().items[0].reference,sectionId:'a',sourceRevision:'old',confirmedAt:'10',removedAt:null,previous:[]}];vi.mocked(bridge.dailyWork).mockResolvedValue(record);vi.mocked(bridge.saveDailyWork).mockImplementation(async request=>({...record,revision:request.expectedRevision+1}));
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalled());
- const button=screen.getByRole('button',{name:'移除个人关系'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
+ fireEvent.click(screen.getByRole('tab',{name:'依据'}));const button=screen.getByRole('button',{name:'移除个人关系'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
  await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({projectId:'p',environment:'local',expectedRevision:8,action:{kind:'removeRelation',id:'relation'}})));
 });
 it('allows a ready runtime to start exactly once after persisting the preview identity',async()=>{
@@ -89,7 +89,7 @@ it('allows a ready runtime to start exactly once after persisting the preview id
  vi.mocked(runtimeBridge.startWork).mockImplementation(()=>new Promise(()=>{}));
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalled());
- fireEvent.input(screen.getByLabelText('范围'),{target:{value:'only the selected work'}});fireEvent.input(screen.getByLabelText('实际输入'),{target:{value:'explicit ordinary input'}});
+ fireEvent.click(screen.getByRole('button',{name:'发起自管工作（实验）'}));fireEvent.input(screen.getByLabelText('范围'),{target:{value:'only the selected work'}});fireEvent.input(screen.getByLabelText('实际输入'),{target:{value:'explicit ordinary input'}});
  fireEvent.click(screen.getByRole('button',{name:'预览实际发送内容'}));const send=screen.getByRole('button',{name:'明确发起一次工作'});await waitFor(()=>expect(send).toBeEnabled());fireEvent.click(send);fireEvent.click(send);
  await waitFor(()=>expect(runtimeBridge.startWork).toHaveBeenCalledTimes(1));
  const id=vi.mocked(runtimeBridge.startWork).mock.calls[0][0];expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({action:expect.objectContaining({kind:'navigate',navigation:expect.objectContaining({startIntentId:id})})}));expect(send).toBeDisabled();
@@ -98,7 +98,7 @@ it('restores persisted navigation when a startup source refresh supersedes the f
  const record=state();record.navigation={...record.navigation,selected:projection().items[0].reference,filter:'工具',draft:'persistent draft',draftPurpose:'purpose',draftScope:'scope',retainDraft:true};
  let first!:(value:DailyWorkState)=>void;vi.mocked(bridge.dailyWork).mockImplementationOnce(()=>new Promise(resolve=>{first=resolve;})).mockResolvedValue(record);
  const [source,setSource]=createSignal(0);render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={source()} onExecution={()=>{}}/>);
- await waitFor(()=>expect(first).toBeTypeOf('function'));setSource(1);await screen.findByRole('region',{name:'工作详情'});expect(screen.getByLabelText('筛选工作')).toHaveValue('工具');expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');first(state());await Promise.resolve();expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');expect(runtimeBridge.startWork).not.toHaveBeenCalled();
+ await waitFor(()=>expect(first).toBeTypeOf('function'));setSource(1);await screen.findByRole('region',{name:'工作详情'});expect(screen.getByLabelText('筛选工作')).toHaveValue('工具');fireEvent.click(screen.getByRole('button',{name:'发起自管工作（实验）'}));expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');first(state());await Promise.resolve();expect(screen.getByLabelText('实际输入')).toHaveValue('persistent draft');expect(runtimeBridge.startWork).not.toHaveBeenCalled();
 });
 it('keeps recent explicit navigation ahead of source order without inventing activity',async()=>{
  const value=projection();value.items.push({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:'2'},purpose:{...value.items[0].purpose,value:'第二项工作'}});vi.mocked(bridge.workProjection).mockResolvedValue(value);
@@ -112,4 +112,77 @@ it('uses copy-only capability as the external session primary action',async()=>{
 });
 it('only compares canonical status summaries and excludes quoted verification examples',async()=>{
  const source=snapshot();const clause={id:'summary',title:'真实摘要',path:'doc/engineering/command-center/README.md',content:'PR #1 尚未合入',revision:'old'};source.sections=[clause,{...clause,id:'report',title:'验收引用',path:'doc/engineering/command-center/daily-work-verification.manual.md'}] as Snapshot['sections'];render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);expect(await screen.findAllByRole('button',{name:'查看旧摘要及原核验范围'})).toHaveLength(1);
+});
+
+it('replaces the home with a reading workspace and opens editing only on request',async()=>{
+ render(()=><WorkOverview snapshot={snapshot()} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
+ expect(screen.queryByRole('heading',{name:'当前重点与下一步'})).not.toBeInTheDocument();
+ expect(screen.getByRole('tab',{name:'概览'})).toHaveAttribute('aria-selected','true');
+ expect(screen.queryByLabelText('需要我回答的问题')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('tab',{name:'依据'}));
+ expect(screen.getByRole('tab',{name:'依据'})).toHaveAttribute('aria-selected','true');
+ fireEvent.click(screen.getByRole('button',{name:'关联目标或修复关系'}));
+ expect(screen.getByLabelText('查找目标或规范')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'取消操作'}));
+ expect(screen.queryByLabelText('查找目标或规范')).not.toBeInTheDocument();await waitFor(()=>expect(screen.getByRole('button',{name:'关联目标或修复关系'})).toHaveFocus());
+});
+it('isolates unsaved input and locator when switching works and restores the original draft',async()=>{
+ const value=projection();value.items.push({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:'2'},purpose:{...value.items[0].purpose,value:'另一项工作'}});vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
+ fireEvent.click(screen.getByRole('button',{name:'发起自管工作（实验）'}));
+ fireEvent.input(screen.getByLabelText('实际输入'),{target:{value:'only first work'}});
+ fireEvent.click(screen.getByRole('button',{name:'另一项工作'}));
+ fireEvent.click(screen.getByRole('button',{name:'发起自管工作（实验）'}));
+ expect(screen.getByLabelText('实际输入')).toHaveValue('');
+ fireEvent.click(screen.getByRole('button',{name:'修复本地工具'}));
+ fireEvent.click(screen.getByRole('button',{name:'发起自管工作（实验）'}));
+ expect(screen.getByLabelText('实际输入')).toHaveValue('only first work');
+});
+
+it('freezes the confirmed input while navigation is still saving',async()=>{
+ vi.mocked(runtimeBridge.publicSnapshot).mockResolvedValue({projectId:'p',environment:'local',enabled:true,state:'ready',sessions:[],requests:[],operations:[]} as unknown as RuntimeSnapshot);
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
+ await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalledTimes(1));await Promise.resolve();
+ fireEvent.click(screen.getByRole('button',{name:'发起自管工作（实验）'}));
+ fireEvent.input(screen.getByLabelText('范围'),{target:{value:'confirmed scope'}});fireEvent.input(screen.getByLabelText('实际输入'),{target:{value:'confirmed input'}});
+ fireEvent.click(screen.getByRole('button',{name:'预览实际发送内容'}));
+ let finish!:(value:DailyWorkState)=>void;vi.mocked(bridge.saveDailyWork).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ fireEvent.click(screen.getByRole('button',{name:'明确发起一次工作'}));
+ await waitFor(()=>expect(finish).toBeTypeOf('function'));
+ fireEvent.input(screen.getByLabelText('目的'),{target:{value:'later purpose'}});fireEvent.input(screen.getByLabelText('范围'),{target:{value:'later scope'}});fireEvent.input(screen.getByLabelText('实际输入'),{target:{value:'later input'}});
+ finish(state());await waitFor(()=>expect(runtimeBridge.startWork).toHaveBeenCalledWith(expect.any(String),{purpose:'修复本地工具',scope:'confirmed scope',model:null,basisRevision:'head'},'confirmed input'));
+});
+it('sorts recent events before previewing and excludes old and invalid timestamps',async()=>{
+ const value=projection();const now=Date.now();
+ value.items=Array.from({length:6},(_,i)=>{const item=structuredClone(value.items[0]);item.reference={kind:'pullRequest',host:'github.com',repository:'o/r',number:String(i+1)};item.purpose.value='成果 '+i;item.result.evidence.eventAt=i===4?'2020-01-01T00:00:00Z':i===5?'invalid':new Date(now-(4-i)*60000).toISOString();return item;});vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ render(()=><WorkOverview snapshot={snapshot()} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);
+ const heading=screen.getByRole('heading',{name:'最近成果变化'});await screen.findByRole('button',{name:'成果 3'});
+ const region=heading.closest('section')!;expect(within(region).queryByRole('button',{name:'成果 4'})).not.toBeInTheDocument();expect(within(region).queryByRole('button',{name:'成果 5'})).not.toBeInTheDocument();
+ expect(within(region).getAllByRole('button').filter(b=>b.textContent?.startsWith('成果')).slice(0,3).map(b=>b.textContent)).toEqual(['成果 3','成果 2','成果 1']);
+ expect(within(region).getByText('查看其余 1 条已读成果')).toBeInTheDocument();
+});
+
+it('prioritizes requests belonging to the selected work without opening an unrelated PR',async()=>{
+ const value=projection();value.items[0].runs=[{instanceId:'owned-instance',turnId:'turn',state:'waiting',owned:true}];vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ vi.mocked(runtimeBridge.publicSnapshot).mockResolvedValue({projectId:'p',environment:'local',enabled:true,state:'ready',sessions:[],operations:[],requests:[{requestId:'answer',instanceId:'owned-instance',threadId:'thread',turnId:'turn',state:'pending',summary:'请核对这项工作',questions:[],allowedDecisions:[],method:'input'}]} as unknown as RuntimeSnapshot);
+ const onView=vi.fn();render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}} onView={onView}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
+ expect(screen.getByText(/1 项已知待答：请核对这项工作/)).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'处理请求（1）'}));expect(onView).toHaveBeenLastCalledWith('attention');expect(bridge.openSource).not.toHaveBeenCalled();expect(runtimeBridge.startWork).not.toHaveBeenCalled();
+});
+
+it('filters by the readable Chinese result without changing source facts',async()=>{
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByRole('button',{name:'修复本地工具'});fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'已合入'}});
+ expect(screen.getByRole('button',{name:'修复本地工具'})).toBeInTheDocument();
+});
+
+it('restores the detail top independently of the old work list scroll offset',async()=>{
+ const record=state();record.navigation={...record.navigation,selected:projection().items[0].reference,scrollTop:1800,detailScrollTop:0};vi.mocked(bridge.dailyWork).mockResolvedValue(record);
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByRole('region',{name:'工作详情'});await waitFor(()=>expect(window.scrollTo).toHaveBeenCalledWith(0,0));
+ expect(window.scrollTo).not.toHaveBeenCalledWith(0,1800);
 });

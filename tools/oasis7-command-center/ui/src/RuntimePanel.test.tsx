@@ -219,3 +219,20 @@ it.each(['合计输入超限；尚未发送，草稿保留', '资料绑定项目
   fireEvent.click(send);
   await waitFor(()=>expect(api.steer).toHaveBeenCalledTimes(2));
 });
+
+it('keeps exit coordination visible while a unified work detail hides runtime forms',async()=>{
+ const {api}=fakeApi(snapshot());let trigger!:()=>void;
+ render(()=><RuntimePanel project={project} view="direction" detailActive api={api} subscribe={async(_changed,onExit)=>{trigger=onExit;return()=>{};}}/>);
+ await waitFor(()=>expect(trigger).toBeTypeOf('function'));trigger();
+ expect(await screen.findByRole('region',{name:'退出协调'})).toBeVisible();
+ expect(api.stopExit).not.toHaveBeenCalled();expect(api.waitExit).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:'留在后台 / 取消等待退出'})).toBeVisible();
+});
+
+it('shows a failed exit action inside the visible exit coordinator while detail forms are hidden',async()=>{
+ const {api}=fakeApi(snapshot());api.stopExit.mockRejectedValue(new Error('退出回执不可用'));let trigger!:()=>void;
+ render(()=><RuntimePanel project={project} view="direction" detailActive api={api} subscribe={async(_changed,onExit)=>{trigger=onExit;return()=>{};}}/>);
+ await waitFor(()=>expect(trigger).toBeTypeOf('function'));trigger();
+ await waitFor(()=>expect(screen.getByRole('button',{name:'明确请求停止后退出'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'明确请求停止后退出'}));
+ expect(await screen.findByRole('alert')).toHaveTextContent('退出回执不可用');expect(screen.getByRole('alert')).toBeVisible();expect(screen.getByText('未确认可以安全退出')).toBeVisible();
+});
