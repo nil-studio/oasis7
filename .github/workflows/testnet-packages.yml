@@ -401,14 +401,19 @@ jobs:
       - name: Assemble launcher bundle without compiling
         shell: bash
         run: |
-          ./scripts/release-prepare-bundle.sh \
+          ./scripts/build-game-launcher-bundle.sh \
             --platform "${{ matrix.platform }}" \
             --target-triple "${{ matrix.target_triple }}" \
             --native-binaries "$GITHUB_WORKSPACE/output/native-stage" \
             --web-dist output/testnet-packages/web-dist \
             --web-launcher-dist output/testnet-packages/web-launcher-dist \
-            --out-dir output/testnet-packages/assets \
+            --out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
+            --ops-out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools" \
             --profile "${{ inputs.build_profile }}"
+      - name: Archive operator tools
+        shell: bash
+        run: |
+          tar -C output/testnet-packages/assets -czf "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools.tar.gz" "oasis7-${{ matrix.platform }}-ops-tools"
       - name: Validate bundle entrypoints
         shell: bash
         run: |
@@ -471,7 +476,8 @@ jobs:
           ./scripts/package-native-installer.sh \
             --platform "${{ matrix.platform }}" \
             --bundle-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
-            --out-dir output/testnet-packages/assets \
+            --out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
+            --ops-out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools" \
             --asset-name "${{ matrix.asset_name }}" \
             --version "${{ steps.package_version.outputs.value }}"
       - name: Stage Windows governed deployment closure

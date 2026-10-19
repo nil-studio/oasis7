@@ -21,7 +21,6 @@ cp "$ROOT_DIR/scripts/bundle-freshness-lib.sh" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/validate-release-platform-entrypoints.sh" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/service-readback" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/package-native-stage.py" "$FIXTURE_ROOT/scripts/"
-cp "$ROOT_DIR/scripts/release-prepare-bundle.sh" "$FIXTURE_ROOT/scripts/"
 
 cat >"$FIXTURE_ROOT/scripts/cargo-dev.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -101,12 +100,14 @@ tar -C "$TMP_DIR/native" -czf "$TMP_DIR/native.tar.gz" .
 mkdir "$TMP_DIR/restored"
 tar -C "$TMP_DIR/restored" -xzf "$TMP_DIR/native.tar.gz"
 printf '#!/usr/bin/env bash\nexit 77\n' >"$FIXTURE_ROOT/bin/cargo"
-/bin/bash "$FIXTURE_ROOT/scripts/release-prepare-bundle.sh" \
+/bin/bash "$FIXTURE_ROOT/scripts/build-game-launcher-bundle.sh" \
   --profile packaging --platform macos-x64 --target-triple x86_64-apple-darwin \
-  --native-binaries "$TMP_DIR/restored" --out-dir "$TMP_DIR/assembled" \
+  --native-binaries "$TMP_DIR/restored" --out-dir "$TMP_DIR/assembled/oasis7-macos-x64" \
+  --ops-out-dir "$TMP_DIR/assembled/oasis7-macos-x64-ops-tools" \
   --web-dist "$TMP_DIR/web" --web-launcher-dist "$TMP_DIR/web-launcher" \
   >"$TMP_DIR/assemble.log" 2>&1 || { cat "$TMP_DIR/assemble.log"; exit 1; }
-test -s "$TMP_DIR/assembled/oasis7-macos-x64-ops-tools.tar.gz"
+tar -C "$TMP_DIR/assembled" -czf "$TMP_DIR/ops.tar.gz" oasis7-macos-x64-ops-tools
+test -s "$TMP_DIR/ops.tar.gz"
 (cd "$TMP_DIR/assembled/oasis7-macos-x64-ops-tools" && shasum -a 256 -c SHA256SUMS >/dev/null)
 cmp "$TMP_DIR/restored/bin/oasis7_chain_runtime" "$TMP_DIR/assembled/oasis7-macos-x64/bin/oasis7_chain_runtime"
 echo "build-game-launcher-bundle-macos-bash3.test: OK"
