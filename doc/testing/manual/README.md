@@ -10,6 +10,8 @@
 - 想在受治理 deployment truth 下只物化一台已擦除 validator host、保持服务 disabled/inactive 并输出 public receipt：先读 blockchain ops authority [`../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)，再按 [`public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md`](public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md) 执行其 narrow subprocedure。
 - 想用截图加模型视觉评审替代 routine 人工 review：读 [`model-visual-review-sop-2026-05-29.manual.md`](model-visual-review-sop-2026-05-29.manual.md)，并使用 [`../templates/model-visual-review-card-template.md`](../templates/model-visual-review-card-template.md)。
 
+- 想在单台 ECS 上快速更新 Preview、保留现有世界并验证 / 回滚：读 [`single-ecs-preview-deploy.manual.md`](single-ecs-preview-deploy.manual.md)。
+
 ## 文档分工
 
 | 需求 | 权威入口 | 不负责的内容 |

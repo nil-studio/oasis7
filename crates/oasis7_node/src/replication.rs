@@ -956,12 +956,12 @@ impl ReplicationRuntime {
     }
 
     pub(crate) fn latest_persisted_commit_height(&self, world_id: &str) -> Result<u64, NodeError> {
-        let hot_height = build_commit_message_retention_plan(
+        // A head query needs height metadata, not checkpoint-retention planning:
+        // the latter reads and deserializes every historical hot payload.
+        // The selected candidate is still loaded and validated below.
+        let hot_height = commit_retention::latest_hot_commit_message_height_from_root(
             self.config.root_dir.as_path(),
-            self.config.max_hot_commit_messages,
         )?
-        .hot_window
-        .latest_height
         .unwrap_or(0);
         let cold_height = load_commit_message_cold_index_from_root(self.config.root_dir.as_path())?
             .by_height
