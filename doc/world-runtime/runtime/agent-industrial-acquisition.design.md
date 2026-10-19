@@ -48,7 +48,7 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 | 上游要求与验收 | 本设计条款 | 独立 obligation | 验证方法 / layer | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | [REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004) Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | [DES-WR-AOS-004](#des-wr-aos-004) | 投入、产能、等待与同订单单次交付 | [工业回归](../../../crates/oasis7_runtime/src/world_rules/tests/industrial_tests.rs)；`cargo test -p oasis7_runtime --lib world_rules`；typed action / tick / sparse publication / snapshot | 订单、材料、claim 与 root 同候选断言 | 正式玩家接入、跨节点与部署 |
-| [AC-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-004) Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | [DES-WR-AOS-004](#des-wr-aos-004) | 正常、拒绝、等待恢复与 quota 非旁路 | [工业回归](../../../crates/oasis7_runtime/src/world_rules/tests/industrial_tests.rs)加[正式 Skill 自主试玩](../../testing/manual/agent-runtime-self-playtest.manual.md)；分别记录组件和真实运行范围 | 原动作/结果、历史交付身份与恢复对账 | 组件断言不代签模型实玩 |
+| [AC-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-004) Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | [DES-WR-AOS-004](#des-wr-aos-004) | 正常、拒绝、等待恢复与 quota 非旁路 | [工业回归](../../../crates/oasis7_runtime/src/world_rules/tests/industrial_tests.rs)；按正式 Skill 自主试玩手册分别记录组件和真实运行范围 | 原动作/结果、历史交付身份与恢复对账 | 组件断言不代签模型实玩 |
 
 ## 接口、失败与恢复
 

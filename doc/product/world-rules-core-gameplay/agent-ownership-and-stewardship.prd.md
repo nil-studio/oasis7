@@ -170,7 +170,7 @@ Trace ID: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 - 系统设计状态：已覆盖
 - 实现状态：部分实现
 - 系统设计依据：[工业取得合同](../../world-runtime/runtime/agent-industrial-acquisition.design.md#des-wr-aos-004)承接订单、投入、产能、交付身份与 claim 原子性；[间接控制与延续](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010)承接取得后的持续义务。
-- 实现与验证依据：`WorldRule` 工业订单在确认时扣除固定物料并占用单工厂产能，120 tick 后原子创建工业身份与 claim；正式 claim 费用、押金和 upkeep 沿用现有经济合同。`world_rules` 专项回归覆盖提前交付、重复请求、资金不足等待、主 Agent 释放后的资金来源、权威 tick 交付与稀疏投影重放。普通注册不能占用工业身份，新增额外 claim 必须具有工业来源；历史事件保留版本化重放规则。
+- 实现与验证依据：[WorldRule 工业实现](../../../crates/oasis7_runtime/src/world_rules/industrial.rs)和[专项回归](../../../crates/oasis7_runtime/src/world_rules/tests/industrial_tests.rs)覆盖工业订单在确认时扣除固定物料并占用单工厂产能，120 tick 后原子创建工业身份与 claim；正式 claim 费用、押金和 upkeep 沿用现有经济合同。`world_rules` 专项回归覆盖提前交付、重复请求、资金不足等待、主 Agent 释放后的资金来源、权威 tick 交付与稀疏投影重放。普通注册不能占用工业身份，新增额外 claim 必须具有工业来源；历史事件保留版本化重放规则。
 - 核对日期与基线：2026-10-19；当前开发候选，专项测试已运行，正式 Skill/API 试玩及当前 PR CI 结果由该 PR 提供。本段不将本地回归等同于完整产品验收。
 - 剩余范围：继续核对取得后授权、协调及小规模经营路线组合的产品验收；本次初始政策固定为单工厂一单，尚未提供配方升级或批量生产。窄域实现见 [Ref #4850](https://github.com/nil-studio/oasis7/issues/4850)。
 
