@@ -3,7 +3,7 @@ use super::super::{authority, formal_read_fixtures::*};
 use super::*;
 use crate::formal_read_response_fixture::response;
 use oasis7_client_api::world_service::*;
-use oasis7_distfs::controlled_authority::formal::*;
+use oasis7_formal_protocol::controlled_authority::formal::*;
 #[test]
 fn externally_pinned_actual_world_read_is_independent_of_service_assertion() {
     let (world, trust, anchor, _) = actual_world_initial_fixture();

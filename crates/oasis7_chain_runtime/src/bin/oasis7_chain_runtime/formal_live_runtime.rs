@@ -413,6 +413,18 @@ impl FormalLiveRuntime {
         &self.active_authority
     }
 
+    /// Test observation of maintenance on the same stopped writer/endpoint owners.
+    #[cfg(test)]
+    pub(crate) fn advance_storage_maintenance_for_test(&mut self) -> Result<bool, String> {
+        if self.started || self.stop_worker.is_some() {
+            return Err("storage maintenance observation requires completed runtime stop".into());
+        }
+        self.runtime
+            .lock()
+            .map_err(|_| "Node runtime lock poisoned during storage maintenance observation")?
+            .advance_stopped_storage_maintenance()
+    }
+
     /// Arm the exact next healthy durable-set boundary for the currently
     /// running owner. This only persists old-writer-signed intent; it does not
     /// execute a boundary, seal endpoints, or activate a successor authority.

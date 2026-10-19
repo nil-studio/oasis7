@@ -7,7 +7,7 @@ use super::{
     wire::{SignedReadRequest, VIEW_PATH},
 };
 use oasis7_client_api::world_service::*;
-use oasis7_distfs::controlled_authority::formal::*;
+use oasis7_formal_protocol::controlled_authority::formal::*;
 use oasis7_runtime::{World, blake3_hex};
 
 /// Private full-state source; only its authorized projection leaves this API.

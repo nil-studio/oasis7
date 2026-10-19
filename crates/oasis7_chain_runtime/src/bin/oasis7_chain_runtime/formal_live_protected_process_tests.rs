@@ -43,6 +43,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "formal_live_protected_attempt_release_tests.rs"]
+mod attempt_release_tests;
 #[path = "formal_live_protected_availability_tests.rs"]
 mod availability_tests;
 #[path = "../../../../oasis7/tests/common/mod.rs"]
@@ -56,6 +58,8 @@ mod effect_tests;
 #[path = "formal_live_first_agent_test_effect.rs"]
 mod first_agent_test_effect;
 use crate::formal_read_fixtures as fixtures;
+#[path = "formal_live_protected_full_node_storage_tests.rs"]
+mod full_node_storage_tests;
 #[path = "formal_live_protected_healthy_fault_process_tests.rs"]
 mod healthy_fault_tests;
 #[path = "formal_live_healthy_operation_process_tests.rs"]
@@ -165,6 +169,13 @@ impl ScenarioDeadline {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FixtureCase {
+    Standard,
+    FullNodeStorage,
+    AttemptRelease,
+}
+
 fn run_protected_runtime_case(
     genesis_mode: bool,
     crash_phase: Option<&str>,
@@ -184,19 +195,38 @@ fn run_protected_runtime_case_with_deadline(
         crash_phase,
         long_history,
         None,
-        false,
+        None,
         scenario_deadline,
+        FixtureCase::Standard,
     )
 }
 
 fn run_protected_runtime_effect_case(
     scenario: &effect_tests::EffectScenario,
 ) -> Result<(), String> {
-    run_protected_runtime_fixture(true, None, false, Some(scenario), false, None)
+    run_protected_runtime_fixture(
+        true,
+        None,
+        false,
+        Some(scenario),
+        None,
+        None,
+        FixtureCase::Standard,
+    )
 }
 
-fn run_protected_runtime_availability_case() -> Result<(), String> {
-    run_protected_runtime_fixture(false, None, false, None, true, None)
+fn run_protected_runtime_availability_case(
+    admission: availability_tests::AdmissionCase,
+) -> Result<(), String> {
+    run_protected_runtime_fixture(
+        false,
+        None,
+        false,
+        None,
+        Some(admission),
+        None,
+        FixtureCase::Standard,
+    )
 }
 
 fn run_protected_runtime_fixture(
@@ -204,8 +234,9 @@ fn run_protected_runtime_fixture(
     crash_phase: Option<&str>,
     long_history: bool,
     effect_scenario: Option<&effect_tests::EffectScenario>,
-    unavailable_replica: bool,
+    unavailable_replica: Option<availability_tests::AdmissionCase>,
     scenario_deadline: Option<ScenarioDeadline>,
+    fixture_case: FixtureCase,
 ) -> Result<(), String> {
     let endpoint_binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN")
         .ok_or("set OASIS7_FORMAL_ENDPOINT_TEST_BIN to oasis7_durability_endpoint")?;
@@ -275,11 +306,15 @@ fn run_protected_runtime_fixture(
         .bind_cognition_runtime(&identity.world_id, "main", 0, None, "pending", 0)
         .map_err(|error| format!("bind existing formal World: {error:?}"))?;
     if !genesis_mode {
-        world
-            .install_test_provider_capability_fixture("agent")
-            .map_err(|error| {
-                format!("install Runtime-owned provider authority fixture: {error:?}")
-            })?;
+        if fixture_case == FixtureCase::FullNodeStorage {
+            world.install_test_provider_capability_fixture_with_lifetime(
+                "agent",
+                full_node_storage_tests::capability_lifetime_ticks()?,
+            )
+        } else {
+            world.install_test_provider_capability_fixture("agent")
+        }
+        .map_err(|error| format!("install Runtime-owned provider authority fixture: {error:?}"))?;
     }
     let snapshot = world.snapshot_with_chain_resource_context(
         oasis7_runtime::ChainResourceDerivationContext {
@@ -389,7 +424,7 @@ fn run_protected_runtime_fixture(
         &initial_trust,
         &certificate,
     )?;
-    if unavailable_replica {
+    if unavailable_replica.is_some() {
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;
@@ -706,8 +741,22 @@ fn run_protected_runtime_fixture(
     }
     let mut runtime = runtime.ok_or("non-shipping fixture runtime missing")?;
     let initial_view = initial_view.ok_or("non-shipping fixture initial view missing")?;
-    if unavailable_replica {
+    if fixture_case == FixtureCase::AttemptRelease {
+        return attempt_release_tests::exercise(attempt_release_tests::Case {
+            runtime,
+            runtime_config: runtime_config_path,
+            writer_directory: writer_dir,
+            root,
+            primary_child,
+            replica_child,
+            owner_config: owner_client_config(),
+            identity: world_identity.clone(),
+            original: owner_request.clone(),
+        });
+    }
+    if let Some(admission) = unavailable_replica {
         return availability_tests::exercise(availability_tests::AvailabilityCase {
+            admission,
             runtime,
             runtime_config: runtime_config_path,
             endpoint_binary,
@@ -790,7 +839,7 @@ fn run_protected_runtime_fixture(
             .world
             .state()
             .agents
-            .contains_key(oasis7::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+            .contains_key(oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
         {
             return Err("canonical genesis gameplay action did not create the first agent".into());
         }
@@ -811,6 +860,25 @@ fn run_protected_runtime_fixture(
     };
     if let Some(commit) = &first_result_commit {
         assert_admin_commit_did_not_emit_wasm(&writer_dir, commit)?;
+    }
+    if fixture_case == FixtureCase::FullNodeStorage {
+        return full_node_storage_tests::exercise(full_node_storage_tests::Case {
+            runtime,
+            runtime_config: runtime_config_path,
+            root,
+            endpoint_binary,
+            primary_config,
+            replica_config,
+            primary_child,
+            replica_child,
+            primary_address,
+            replica_address,
+            owner_config: owner_client_config(),
+            identity: world_identity.clone(),
+            owner_key: owner_key.clone(),
+            original: owner_request.clone(),
+            original_commit: first_result_commit.ok_or("fixture needs original owner result")?,
+        });
     }
     if long_history {
         return long_history_tests::exercise_long_history(
@@ -907,23 +975,21 @@ fn run_protected_runtime_fixture(
     if result_after_restart != original_result {
         return Err("restart changed the original canonical request result".into());
     }
-    let game_task_after = if genesis_mode {
-        if !reopened_cut
-            .world
-            .state()
-            .agents
-            .contains_key(oasis7::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
-        {
-            return Err("genesis gameplay effect missing after restart".into());
-        }
-        None
-    } else {
-        Some(
-            game_task::current_control(&reopened_cut.world, "agent")
-                .map_err(|error| error.to_string())?
-                .ok_or("canonical game task effect missing after restart")?,
-        )
-    };
+    let game_task_after =
+        if genesis_mode {
+            if !reopened_cut.world.state().agents.contains_key(
+                oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID,
+            ) {
+                return Err("genesis gameplay effect missing after restart".into());
+            }
+            None
+        } else {
+            Some(
+                game_task::current_control(&reopened_cut.world, "agent")
+                    .map_err(|error| error.to_string())?
+                    .ok_or("canonical game task effect missing after restart")?,
+            )
+        };
     if game_task_after != game_task_before {
         return Err("restart replayed the canonical effect or Wasmtime action observer".into());
     }

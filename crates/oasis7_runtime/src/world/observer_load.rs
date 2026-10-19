@@ -7,7 +7,7 @@ use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(unix)]
 use cap_std::fs::OpenOptionsExt;
 use cap_std::fs::{Dir, OpenOptions};
-use oasis7_distfs::{BlobStore, HashAlgorithm, decode_local_blob_into};
+use oasis7_cas::{BlobStore, HashAlgorithm, decode_local_blob_into};
 use std::cell::Cell;
 use std::io::{Read, Write};
 
@@ -473,7 +473,7 @@ impl World {
                 .write_all(&bytes)
                 .map_err(|error| ObserverLoadError::from(invalid(&error.to_string())))?;
         }
-        if oasis7_distfs::blake3_hex(&assembled.bytes) != manifest.state_root {
+        if oasis7_cas::blake3_hex(&assembled.bytes) != manifest.state_root {
             return Err(ObserverLoadError::IntegrityFailure(
                 "snapshot state root mismatch".into(),
             ));

@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent_decision::parse_model_decision;
 use crate::letai_direct::{format_auto_topup_retry_failure, is_retryable_letai_error};
-use oasis7::simulator::{
+use oasis7_agent_api::{
     ActionCatalogEntry, DEFAULT_PROVIDER_ACTION_SCHEMA_VERSION,
     DEFAULT_PROVIDER_OBSERVATION_SCHEMA_VERSION, ObservationEnvelope, ProviderExecutionMode,
     ProviderInteractionTarget, ProviderMissionContext, ProviderNavigationNode,
@@ -59,14 +59,14 @@ fn letai_env_guard() -> MutexGuard<'static, ()> {
 
 #[test]
 fn decision_identity_uses_the_shared_v1_domain_hash() {
-    let digest = oasis7::simulator::h_v1("oasis7.cognition.request.v1", b"bridge-fixture");
+    let digest = oasis7_agent_api::h_v1("oasis7.cognition.request.v1", b"bridge-fixture");
     assert_eq!(
         digest,
-        oasis7::simulator::h_v1("oasis7.cognition.request.v1", b"bridge-fixture")
+        oasis7_agent_api::h_v1("oasis7.cognition.request.v1", b"bridge-fixture")
     );
     assert_ne!(
         digest,
-        oasis7::simulator::h_v1("oasis7.cognition.provider-invocation.v1", b"bridge-fixture")
+        oasis7_agent_api::h_v1("oasis7.cognition.provider-invocation.v1", b"bridge-fixture")
     );
 }
 
@@ -313,7 +313,7 @@ fn timeout_seconds_from_budget_uses_local_bridge_floor() {
     let _guard = timeout_env_guard();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_PROVIDER_LOCAL_BRIDGE_MIN_TIMEOUT_MS");
+        std::env::remove_var("OASIS7_PROVIDER_LOCAL_BRIDGE_MIN_TIMEOUT_MS");
     }
     assert_eq!(timeout_seconds_from_budget(3_000), 15);
     assert_eq!(timeout_seconds_from_budget(60_000), 60);
@@ -324,12 +324,12 @@ fn timeout_seconds_from_budget_allows_env_override_floor() {
     let _guard = timeout_env_guard();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_PROVIDER_LOCAL_BRIDGE_MIN_TIMEOUT_MS", "7000");
+        std::env::set_var("OASIS7_PROVIDER_LOCAL_BRIDGE_MIN_TIMEOUT_MS", "7000");
     }
     assert_eq!(timeout_seconds_from_budget(3_000), 7);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_PROVIDER_LOCAL_BRIDGE_MIN_TIMEOUT_MS");
+        std::env::remove_var("OASIS7_PROVIDER_LOCAL_BRIDGE_MIN_TIMEOUT_MS");
     }
 }
 
@@ -573,39 +573,39 @@ fn load_letai_chat_config_accepts_system_prompt_env() {
     let _guard = letai_env_guard();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_API_KEY", "key-123");
+        std::env::set_var("OASIS7_REMOTE_LLM_API_KEY", "key-123");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_MODEL", "model-123");
+        std::env::set_var("OASIS7_REMOTE_LLM_MODEL", "model-123");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_BASE_URL", "https://api.example/v1/");
+        std::env::set_var("OASIS7_REMOTE_LLM_BASE_URL", "https://api.example/v1/");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_SYSTEM_PROMPT", "system rules");
+        std::env::set_var("OASIS7_REMOTE_LLM_SYSTEM_PROMPT", "system rules");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_STREAM", "true");
+        std::env::set_var("OASIS7_REMOTE_LLM_STREAM", "true");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_USER_AGENT", "custom-agent/1.0");
+        std::env::set_var("OASIS7_REMOTE_LLM_USER_AGENT", "custom-agent/1.0");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        std::env::set_var(
             "OASIS7_REMOTE_LLM_EXTRA_HEADERS_JSON",
             r#"{"X-Gateway":"gateway-1","X-Number":7}"#,
         );
@@ -626,31 +626,31 @@ fn load_letai_chat_config_accepts_system_prompt_env() {
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_API_KEY");
+        std::env::remove_var("OASIS7_REMOTE_LLM_API_KEY");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_MODEL");
+        std::env::remove_var("OASIS7_REMOTE_LLM_MODEL");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_BASE_URL");
+        std::env::remove_var("OASIS7_REMOTE_LLM_BASE_URL");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_SYSTEM_PROMPT");
+        std::env::remove_var("OASIS7_REMOTE_LLM_SYSTEM_PROMPT");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_STREAM");
+        std::env::remove_var("OASIS7_REMOTE_LLM_STREAM");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_USER_AGENT");
+        std::env::remove_var("OASIS7_REMOTE_LLM_USER_AGENT");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_EXTRA_HEADERS_JSON");
+        std::env::remove_var("OASIS7_REMOTE_LLM_EXTRA_HEADERS_JSON");
     }
 }
 
@@ -680,15 +680,15 @@ fn load_letai_chat_config_uses_route_json_over_global_env() {
     .expect("write routes");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_ROUTES_PATH", routes_path.as_os_str());
+        std::env::set_var("OASIS7_REMOTE_LLM_ROUTES_PATH", routes_path.as_os_str());
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_API_KEY", "global-key");
+        std::env::set_var("OASIS7_REMOTE_LLM_API_KEY", "global-key");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_MODEL", "global-model");
+        std::env::set_var("OASIS7_REMOTE_LLM_MODEL", "global-model");
     }
     let config = load_letai_chat_config(Some("alice")).expect("config");
     assert_eq!(config.base_url, "https://route.example/v1");
@@ -703,15 +703,15 @@ fn load_letai_chat_config_uses_route_json_over_global_env() {
     assert_eq!(config.retry_delay_ms, 5);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_API_KEY");
+        std::env::remove_var("OASIS7_REMOTE_LLM_API_KEY");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_MODEL");
+        std::env::remove_var("OASIS7_REMOTE_LLM_MODEL");
     }
     let _ = fs::remove_file(routes_path);
 }
@@ -730,13 +730,13 @@ fn load_letai_chat_config_rejects_unknown_route_label() {
     .expect("write routes");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var("OASIS7_REMOTE_LLM_ROUTES_PATH", routes_path.as_os_str());
+        std::env::set_var("OASIS7_REMOTE_LLM_ROUTES_PATH", routes_path.as_os_str());
     }
     let err = load_letai_chat_config(Some("missing")).expect_err("missing route");
     assert!(err.contains("route config `missing` was not found"));
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_ROUTES_PATH");
     }
     let _ = fs::remove_file(routes_path);
 }
@@ -1100,7 +1100,7 @@ fn resolve_newapi_bridge_route_label_rejects_unknown_prefix_and_short_bare_value
     let _guard = newapi_bridge_state_env_guard();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
+        std::env::remove_var("OASIS7_REMOTE_LLM_NEWAPI_BRIDGE_STATE_PATH");
     }
     let state = ProviderState::new(CliOptions::default()).expect("provider state");
     assert_eq!(state.resolve_newapi_bridge_route_label("foo:user-1"), None);

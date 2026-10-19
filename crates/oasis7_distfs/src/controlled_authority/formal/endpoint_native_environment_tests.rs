@@ -133,6 +133,20 @@ fn native_authenticated_rpc_stages_and_verifies_original_chunks() {
         assert!(progress.complete);
         assert_eq!(progress.descriptor_digest, descriptor.digest().unwrap());
         assert_eq!(progress.verified_chunks, 2);
+        let id = descriptor.digest().unwrap();
+        assert!(
+            client
+                .release_native_environment_verification("bad-digest")
+                .is_err()
+        );
+        client.release_native_environment_verification(&id).unwrap();
+        client.release_native_environment_verification(&id).unwrap();
+        let renewed = client
+            .advance_native_environment_verification(&descriptor)
+            .unwrap();
+        assert!(renewed.complete);
+        assert_eq!(renewed.descriptor_digest, id);
+        client.release_native_environment_verification(&id).unwrap();
     }));
     stop.store(true, Ordering::Release);
     let _wake = TcpStream::connect(address);
@@ -218,4 +232,303 @@ fn native_incomplete_readback_pin_allows_registered_append_and_blocks_reclamatio
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn releasing_completed_native_verification_is_idempotent_and_prepare_requires_fresh_readback() {
+    let (descriptor, chunks) = native();
+    let id = descriptor.digest().unwrap();
+    let fixture = Fixture::new_with_native(Some(&descriptor));
+    let mut endpoint = fixture.endpoint(EndpointRole::Primary);
+    endpoint
+        .stage_native_environment(&descriptor, &chunks)
+        .unwrap();
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .unwrap()
+            .complete
+    );
+    let directory = fixture.pdir.join("formal-objects-v1");
+    assert!(crate::controlled_authority::formal::physical::pin(&directory, true).is_err());
+    assert!(
+        endpoint
+            .release_native_environment_verification("invalid-descriptor-digest")
+            .is_err()
+    );
+    assert!(endpoint.native_environment_jobs.contains_key(&id));
+    let unrelated = h(240);
+    assert_ne!(unrelated, id);
+    endpoint
+        .release_native_environment_verification(&unrelated)
+        .unwrap();
+    assert!(
+        endpoint.native_environment_jobs.contains_key(&id),
+        "another digest must not release this descriptor's job"
+    );
+    endpoint
+        .release_native_environment_verification(&id)
+        .unwrap();
+    endpoint
+        .release_native_environment_verification(&id)
+        .unwrap();
+    assert!(endpoint.native_environment_jobs.is_empty());
+    drop(
+        crate::controlled_authority::formal::physical::pin(&directory, true)
+            .unwrap()
+            .unwrap(),
+    );
+    let error = endpoint.prepare(fixture.initial.clone()).unwrap_err();
+    assert!(
+        format!("{error:?}").contains("native environment local durable verification incomplete")
+    );
+    for chunk in &chunks {
+        assert_eq!(
+            super::super::super::business_pack::read_object(
+                &directory.join(&chunk.digest),
+                &chunk.digest
+            )
+            .unwrap()
+            .unwrap(),
+            chunk.bytes
+        );
+    }
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .unwrap()
+            .complete
+    );
+    assert!(endpoint.native_environment_jobs.contains_key(&id));
+    endpoint.prepare(fixture.initial.clone()).unwrap();
+    assert!(
+        endpoint.native_environment_jobs.is_empty(),
+        "Prepare must consume only the new verification job"
+    );
+    for chunk in &chunks {
+        assert_eq!(
+            super::super::super::business_pack::read_object(
+                &directory.join(&chunk.digest),
+                &chunk.digest
+            )
+            .unwrap()
+            .unwrap(),
+            chunk.bytes
+        );
+    }
+}
+#[test]
+fn already_qualified_native_submit_releases_unused_verification_pins_without_changing_original_proof()
+ {
+    let (descriptor, chunks) = native();
+    let fixture = Fixture::new_with_native(Some(&descriptor));
+    let mut coordinator = fixture.coordinator();
+    let (primary, replica) = coordinator.endpoints_mut();
+    for endpoint in [primary, replica] {
+        endpoint
+            .stage_native_environment(&descriptor, &chunks)
+            .unwrap();
+        assert!(
+            endpoint
+                .advance_native_environment_verification(&descriptor)
+                .unwrap()
+                .complete
+        );
+    }
+    let original = coordinator.submit(fixture.initial.clone()).unwrap();
+    let (primary, replica) = coordinator.endpoints_mut();
+    for endpoint in [primary, replica] {
+        assert!(
+            endpoint
+                .advance_native_environment_verification(&descriptor)
+                .unwrap()
+                .complete
+        );
+        assert!(!endpoint.native_environment_jobs.is_empty());
+        let directory = endpoint.store.path.join("formal-objects-v1");
+        assert!(crate::controlled_authority::formal::physical::pin(&directory, true).is_err());
+    }
+    let replayed = coordinator.submit(fixture.initial.clone()).unwrap();
+    assert_eq!(
+        original, replayed,
+        "replay must retain the exact original qualified proof"
+    );
+    let (primary, replica) = coordinator.endpoints_mut();
+    for endpoint in [primary, replica] {
+        assert!(endpoint.native_environment_jobs.is_empty());
+        let directory = endpoint.store.path.join("formal-objects-v1");
+        drop(
+            crate::controlled_authority::formal::physical::pin(&directory, true)
+                .unwrap()
+                .unwrap(),
+        );
+        for chunk in &chunks {
+            assert_eq!(
+                super::super::super::business_pack::read_object(
+                    &directory.join(&chunk.digest),
+                    &chunk.digest
+                )
+                .unwrap()
+                .unwrap(),
+                chunk.bytes
+            );
+        }
+    }
+}
+
+#[test]
+fn native_completed_idle_expiry_precedes_scheduler_early_returns_and_requires_fresh_prepare() {
+    use std::time::{Duration, Instant};
+    let (descriptor, chunks) = native();
+    let id = descriptor.digest().unwrap();
+    let fixture = Fixture::new_with_native(Some(&descriptor));
+    let mut endpoint = fixture.endpoint(EndpointRole::Primary);
+    endpoint
+        .stage_native_environment(&descriptor, &chunks)
+        .unwrap();
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .unwrap()
+            .complete
+    );
+    let now = Instant::now();
+    let directory = fixture.pdir.join("formal-objects-v1");
+    assert_eq!(endpoint.reap_idle_native_environment_verifications(now), 0);
+    assert!(crate::controlled_authority::formal::physical::pin(&directory, true).is_err());
+    // Completed proof renewals are active calls too, while the other endpoint
+    // can still be progressing through its independently registered bytes.
+    endpoint
+        .native_environment_jobs
+        .get_mut(&id)
+        .unwrap()
+        .last_activity = now - Duration::from_secs(299);
+    let before_renewal = Instant::now();
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .unwrap()
+            .complete
+    );
+    assert!(endpoint.native_environment_jobs[&id].last_activity >= before_renewal);
+    endpoint.maintenance_tick(now).unwrap();
+    // Make only this job old; less than 1s passes in the scheduler clock, so
+    // the next page throttle must not prevent O(2) idle-cache reclamation.
+    endpoint
+        .native_environment_jobs
+        .get_mut(&id)
+        .unwrap()
+        .last_activity = now - Duration::from_secs(300);
+    endpoint
+        .maintenance_tick(now + Duration::from_nanos(1))
+        .unwrap();
+    assert!(endpoint.native_environment_jobs.is_empty());
+    drop(
+        crate::controlled_authority::formal::physical::pin(&directory, true)
+            .unwrap()
+            .unwrap(),
+    );
+    let error = endpoint.prepare(fixture.initial.clone()).unwrap_err();
+    assert!(
+        format!("{error:?}").contains("native environment local durable verification incomplete")
+    );
+    for chunk in &chunks {
+        assert_eq!(
+            super::super::super::business_pack::read_object(
+                &directory.join(&chunk.digest),
+                &chunk.digest
+            )
+            .unwrap()
+            .unwrap(),
+            chunk.bytes
+        );
+    }
+    assert!(
+        endpoint
+            .advance_native_environment_verification(&descriptor)
+            .unwrap()
+            .complete
+    );
+    endpoint.prepare(fixture.initial.clone()).unwrap();
+}
+#[test]
+fn native_incomplete_idle_expiry_discards_progress_but_active_advance_renews_its_pin() {
+    use std::time::{Duration, Instant};
+    let (mut descriptor, mut chunks) = native();
+    let bytes = vec![61; MAX_NATIVE_CHUNK_BYTES];
+    let digest = blake3::hash(&bytes).to_hex().to_string();
+    let mut original = blake3::Hasher::new();
+    for _ in 0..17 {
+        original.update(&bytes);
+    }
+    descriptor.components[0].byte_len = 17 * bytes.len() as u64;
+    descriptor.components[0].content_digest = original.finalize().to_hex().to_string();
+    descriptor.components[0].chunks = vec![
+        NativeEnvironmentChunkV1 {
+            digest: digest.clone(),
+            byte_len: bytes.len() as u32
+        };
+        17
+    ];
+    chunks.push(NativeEnvironmentChunkBytesV1 { digest, bytes });
+    let id = descriptor.digest().unwrap();
+    let fixture = Fixture::new_with_native(Some(&descriptor));
+    let mut endpoint = fixture.endpoint(EndpointRole::Primary);
+    endpoint
+        .stage_native_environment(&descriptor, &chunks)
+        .unwrap();
+    let first = endpoint
+        .advance_native_environment_verification(&descriptor)
+        .unwrap();
+    assert!(!first.complete);
+    let now = Instant::now();
+    endpoint
+        .native_environment_jobs
+        .get_mut(&id)
+        .unwrap()
+        .last_activity = now - Duration::from_secs(299);
+    let before_advance = Instant::now();
+    let active = endpoint
+        .advance_native_environment_verification(&descriptor)
+        .unwrap();
+    assert!(!active.complete);
+    assert!(active.verified_chunks > first.verified_chunks);
+    let renewed = endpoint.native_environment_jobs[&id].last_activity;
+    assert!(renewed >= before_advance);
+    assert_eq!(
+        endpoint.reap_idle_native_environment_verifications(renewed + Duration::from_secs(299)),
+        0
+    );
+    let directory = fixture.pdir.join("formal-objects-v1");
+    assert!(crate::controlled_authority::formal::physical::pin(&directory, true).is_err());
+    assert_eq!(
+        endpoint.reap_idle_native_environment_verifications(renewed + Duration::from_secs(300)),
+        1
+    );
+    assert!(endpoint.native_environment_jobs.is_empty());
+    drop(
+        crate::controlled_authority::formal::physical::pin(&directory, true)
+            .unwrap()
+            .unwrap(),
+    );
+    assert!(endpoint.prepare(fixture.initial.clone()).is_err());
+    let restarted = endpoint
+        .advance_native_environment_verification(&descriptor)
+        .unwrap();
+    assert!(!restarted.complete);
+    assert_eq!(
+        restarted.verified_chunks, first.verified_chunks,
+        "expiry must discard the old partial hasher/progress rather than reuse it"
+    );
+    for chunk in &chunks {
+        assert_eq!(
+            super::super::super::business_pack::read_object(
+                &directory.join(&chunk.digest),
+                &chunk.digest
+            )
+            .unwrap()
+            .unwrap(),
+            chunk.bytes
+        );
+    }
 }

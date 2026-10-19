@@ -6,13 +6,60 @@ import subprocess
 import sys
 import tomllib
 import unittest
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DRIVER = (ROOT / 'scripts/ci-tests.sh').read_text()
 FUNCTION = DRIVER.split('run_selected_workspace_support() {', 1)[1].split(
     '\nrun_rustsec_advisory_check()', 1)[0]
+
+
+def production_workspace_closure(package, *, wasm):
+    """Inspect local normal dependencies, including optional production edges.
+
+    Keep this conservative about features: an optional native client in a portable
+    target is still a boundary violation. Dev/build dependencies are not linked
+    into the application's production target.
+    """
+    target_matches = {
+        'cfg(not(target_arch = "wasm32"))': not wasm,
+        'cfg(target_arch = "wasm32")': wasm,
+        'cfg(unix)': not wasm,
+        'cfg(windows)': False,
+    }
+    workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+    pending = [ROOT / 'crates' / package / 'Cargo.toml']
+    seen = set()
+    packages = set()
+    while pending:
+        path = pending.pop().resolve()
+        if path in seen:
+            continue
+        seen.add(path)
+        manifest = tomllib.loads(path.read_text())
+        packages.add(manifest['package']['name'])
+        dependencies = list(manifest.get('dependencies', {}).items())
+        for target, table in manifest.get('target', {}).items():
+            if not table.get('dependencies'):
+                continue
+            # New target expressions need an explicit classification; never
+            # silently skip an unfamiliar condition that could admit a client.
+            if target not in target_matches:
+                raise AssertionError(f'Unclassified production target: {path}: {target}')
+            if target_matches[target]:
+                dependencies.extend(table['dependencies'].items())
+        for name, dependency in dependencies:
+            dependency_root = path.parent
+            if isinstance(dependency, dict) and dependency.get('workspace'):
+                dependency = workspace['dependencies'][name]
+                dependency_root = ROOT
+            if isinstance(dependency, dict):
+                packages.add(dependency.get('package', name))
+                if 'path' in dependency:
+                    pending.append(dependency_root / dependency['path'] / 'Cargo.toml')
+            else:
+                packages.add(name)
+    return packages
 
 
 class Profiles(unittest.TestCase):
@@ -41,9 +88,23 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
 
     def test_application_keeps_native_sdk_out_of_wasm(self):
         manifest = tomllib.loads((ROOT / "crates/oasis7/Cargo.toml").read_text())
+        native = manifest["target"]['cfg(not(target_arch = "wasm32"))']["dependencies"]
+        # The SDK is owned by World Service; the core reaches it only through
+        # native host services, rather than retaining an unused direct edge.
         self.assertNotIn("oasis7_game_client", manifest["dependencies"])
-        native = manifest["target"]["cfg(not(target_arch = \"wasm32\"))"]["dependencies"]
-        self.assertIn("oasis7_game_client", native)
+        self.assertNotIn("oasis7_game_client", native)
+        self.assertIn("oasis7_world_service", native)
+        world_service = tomllib.loads(
+            (ROOT / "crates/oasis7_world_service/Cargo.toml").read_text())
+        self.assertIn("oasis7_game_client", world_service["dependencies"])
+        self.assertIn("oasis7_game_client",
+                      production_workspace_closure('oasis7', wasm=False))
+        for root in ('oasis7', 'oasis7_viewer_runtime'):
+            with self.subTest(root=root):
+                closure = production_workspace_closure(root, wasm=True)
+                for package in ('oasis7_world_service', 'oasis7_game_client',
+                                'oasis7_model_provider'):
+                    self.assertNotIn(package, closure)
 
     def test_game_client_isolated_and_strict(self):
         result = self.invoke(json.dumps(['oasis7_game_client']))
@@ -67,14 +128,19 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         native = manifest['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
         self.assertIn('oasis7_agent_harness', manifest['dependencies'])
         self.assertNotIn('oasis7_agent_harness', native)
-        for package in ('oasis7_game_client', 'oasis7_model_provider'):
-            self.assertNotIn(package, manifest['dependencies'])
-            self.assertIn(package, native)
+        self.assertNotIn('oasis7_model_provider', manifest['dependencies'])
+        self.assertIn('oasis7_model_provider', native)
         harness = tomllib.loads((ROOT / 'crates/oasis7_agent_harness/Cargo.toml').read_text())
         native_harness = harness['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
         for package in ('oasis7_game_client', 'oasis7_client_api'):
             self.assertNotIn(package, harness['dependencies'])
             self.assertIn(package, native_harness)
+        for root in ('oasis7', 'oasis7_agent_harness'):
+            with self.subTest(root=root):
+                closure = production_workspace_closure(root, wasm=True)
+                self.assertIn('oasis7_agent_harness', closure)
+                for package in ('oasis7_game_client', 'oasis7_model_provider'):
+                    self.assertNotIn(package, closure)
 
     def test_invalid_lists_fail_before_execution(self):
         for value in ['[]', '["unknown"]', '["oasis7_agent_api", "oasis7_agent_api"]',

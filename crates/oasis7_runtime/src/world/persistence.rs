@@ -7,7 +7,7 @@ use super::super::{
 };
 use super::World;
 use super::module_tick_runtime::ModuleTickRoutingMetrics;
-use oasis7_distfs::{assemble_journal, assemble_snapshot};
+use oasis7_cas::{assemble_journal, assemble_snapshot};
 use oasis7_proto::distributed::SnapshotManifest;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -676,7 +676,7 @@ impl World {
         snapshot: Snapshot,
         journal: Journal,
         parent: crate::VerifiedFormalRetainedHistoryParentV1,
-        reader:Arc<dyn oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>,
+        reader:Arc<dyn oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>,
     ) -> Result<Self, WorldError> {
         Self::from_snapshot_mode_with_history(snapshot, journal, true, Some((parent, reader)))
     }
@@ -685,7 +685,7 @@ impl World {
         snapshot: Snapshot,
         journal: Journal,
         observer: bool,
-        history:Option<(crate::VerifiedFormalRetainedHistoryParentV1,Arc<dyn oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>)>,
+        history:Option<(crate::VerifiedFormalRetainedHistoryParentV1,Arc<dyn oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>)>,
     ) -> Result<Self, WorldError> {
         if snapshot.tick_consensus_archived_record_count > 0
             && snapshot.tick_consensus_records.is_empty()

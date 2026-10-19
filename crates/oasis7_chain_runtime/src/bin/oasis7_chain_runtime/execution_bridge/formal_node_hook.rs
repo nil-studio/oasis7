@@ -53,6 +53,9 @@ pub(crate) trait FormalNodeWriter: Send {
     }
     /// One bounded storage maintenance page, independent of business commit.
     fn advance_storage_maintenance(&mut self) {}
+    fn advance_storage_maintenance_result(&mut self) -> Result<bool, String> {
+        Err("formal writer does not support observed storage maintenance".into())
+    }
     fn current_head_evidence(&self) -> Result<CurrentHeadEvidence, String>;
     fn pending_continuation(&self) -> Result<Option<NodeLocalExecutionContinuation>, String>;
     fn prepare(&mut self, continuation: &NodeLocalExecutionContinuation) -> Result<(), String>;
@@ -99,6 +102,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
 
     fn advance_storage_maintenance(&mut self) {
         FormalWriter::advance_storage_maintenance(self)
+    }
+
+    fn advance_storage_maintenance_result(&mut self) -> Result<bool, String> {
+        FormalWriter::advance_storage_maintenance_result(self)
     }
 
     fn committed_read_cut(&self) -> Result<(World, VerifiedFormalReadAnchorV1), String> {
@@ -203,6 +210,12 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
 /// The implementation must swap the complete `(World, anchor)` pair atomically.
 pub(crate) trait FormalPublicationSink: Send + Sync {
     fn publish(&self, world: World, anchor: VerifiedFormalReadAnchorV1) -> Result<(), String>;
+    #[cfg(test)]
+    fn test_boundary_control(
+        &self,
+    ) -> Result<Option<Arc<crate::formal_live_service::test_control::BoundaryState>>, String> {
+        Ok(None)
+    }
 }
 
 /// An actual `NodeExecutionHook` backed by dual-durable Frozen/qualified formal
@@ -604,6 +617,10 @@ fn result_for_continuation(
 }
 
 impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
+    fn advance_stopped_storage_maintenance(&mut self) -> Result<bool, String> {
+        self.writer.advance_storage_maintenance_result()
+    }
+
     fn guarded_local_execution(&self) -> bool {
         true
     }
@@ -786,6 +803,15 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         if continuation.context != context {
             return Err("formal pending Node continuation differs from requested commit".into());
         }
+        #[cfg(test)]
+        let _test_resume = self
+            .publication_sink
+            .as_ref()
+            .map(|sink| sink.test_boundary_control())
+            .transpose()?
+            .flatten()
+            .map(|control| control.resume_scope(&continuation.context))
+            .transpose()?;
         let proof_record_id = self.writer.resume_original()?;
         timing.mark("original_resumed");
         let evidence = self.writer.committed_execution()?;

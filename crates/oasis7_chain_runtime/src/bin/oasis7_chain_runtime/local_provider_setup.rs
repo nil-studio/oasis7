@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use oasis7::viewer::viewer_bootstrap_formal_release_runtime_world;
+use oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world as viewer_bootstrap_formal_release_runtime_world;
 use oasis7_runtime::{
     ChainResourceDerivationContext, LOCAL_TEST_PROVIDER_GRANT_RENEWAL_THRESHOLD_TICKS,
     LocalTestProviderAuthorityConfig, LocalTestProviderGrantStatus,

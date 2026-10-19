@@ -17,4 +17,7 @@ oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 
 oasis7_agent_api = { path = "../oasis7_agent_api" }
 zeroize = "1"
+
 oasis7_proto = { path = "../oasis7_proto" }
+sha2 = "0.11"
+serde_cbor = "0.11"

@@ -2,7 +2,7 @@ use super::super::wire::AgentSignerDelegationChangeV1;
 use super::*;
 use ed25519_dalek::SigningKey;
 use oasis7_agent_api::world_action::ResourceKind;
-use oasis7_distfs::controlled_authority::formal::business_index::{
+use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BusinessIndexDeltaV1, BusinessIndexNodeReader, BusinessIndexNodeWriteV1,
 };
 use oasis7_runtime::{ModuleRuntimeChargeEvent, WorldEvent, WorldEventBody};

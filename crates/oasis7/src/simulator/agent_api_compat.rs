@@ -14,7 +14,7 @@ use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, FeedbackEnvelopeV1,
 };
 
-pub(crate) fn request_context_to_api(
+pub fn request_context_to_api(
     context: &ContinuousAgentRequestContextV1,
 ) -> oasis7_agent_api::ContinuousAgentRequestContextV1 {
     oasis7_agent_api::ContinuousAgentRequestContextV1 {
@@ -103,9 +103,7 @@ pub(crate) fn response_context_from_api(
     }
 }
 
-pub(crate) fn feedback_to_api(
-    feedback: &FeedbackEnvelopeV1,
-) -> oasis7_agent_api::FeedbackEnvelopeV1 {
+pub fn feedback_to_api(feedback: &FeedbackEnvelopeV1) -> oasis7_agent_api::FeedbackEnvelopeV1 {
     oasis7_agent_api::FeedbackEnvelopeV1 {
         feedback_id: feedback.feedback_id.clone(),
         feedback_seq: feedback.feedback_seq,

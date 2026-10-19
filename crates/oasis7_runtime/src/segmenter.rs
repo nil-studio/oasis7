@@ -1,6 +1,6 @@
 //! Snapshot/journal segmentation helpers for distributed storage.
 
-use oasis7_distfs as distfs;
+use oasis7_cas as cas;
 use oasis7_proto::distributed::SnapshotManifest;
 
 use super::blob_store::BlobStore;
@@ -16,7 +16,7 @@ pub fn segment_snapshot(
     store: &impl BlobStore,
     config: SegmentConfig,
 ) -> Result<SnapshotManifest, WorldError> {
-    Ok(distfs::segment_snapshot(
+    Ok(cas::segment_snapshot(
         snapshot, world_id, epoch, store, config,
     )?)
 }
@@ -26,7 +26,7 @@ pub fn segment_journal(
     store: &impl BlobStore,
     config: SegmentConfig,
 ) -> Result<Vec<JournalSegmentRef>, WorldError> {
-    Ok(distfs::segment_journal(
+    Ok(cas::segment_journal(
         &journal.events,
         store,
         config,

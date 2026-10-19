@@ -2,7 +2,7 @@
 //! parent. Legacy Worlds never acquire a fabricated world/chain/genesis scope.
 use super::World;
 use crate::{EffectIntent, EffectReceipt, WorldError};
-use oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1;
+use oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1;
 use serde_json::Value;
 
 impl World {

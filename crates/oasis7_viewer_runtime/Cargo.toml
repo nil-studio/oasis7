@@ -11,7 +11,6 @@ oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 serde_ignored = "0.1"
 oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 serde = { version = "1", features = ["derive"] }
-tungstenite = "0.30.0"
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 hex = "0.4"
@@ -19,14 +18,31 @@ oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 serde_json = "1"
 tracing = "0.1"
 
+oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }
+oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
+sha2 = "0.11"
+serde_cbor = "0.11"
+blake3 = "1"
+unicode-normalization = "0.1"
+toml = "0.9.12"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = "0.4"
+tungstenite = "0.30.0"
+oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
+oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
+
 [features]
 default = ["wasmtime", "node-libp2p"]
 node-libp2p = ["oasis7/node-libp2p"]
 wasmtime = ["oasis7/wasmtime"]
-viewer_live_integration = ["oasis7/viewer_live_integration"]
+viewer_live_integration = []
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 
 [dev-dependencies]
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false, features = ["test_tier_required"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+oasis7_runtime = { path = "../oasis7_runtime", default-features = false, features = ["test-support"] }

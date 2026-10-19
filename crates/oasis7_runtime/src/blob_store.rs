@@ -1,3 +1,3 @@
 //! Content-addressed blob storage primitives.
 
-pub use oasis7_distfs::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};
+pub use oasis7_cas::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};

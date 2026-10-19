@@ -1100,7 +1100,7 @@ fn persist_sidecar_generation_retry_cleans_partial_staging_and_orphan_blob() {
         .expect("write partial generation record");
 
     let orphan_bytes = b"sidecar-orphan-after-interrupt";
-    let orphan_hash = oasis7_distfs::blake3_hex(orphan_bytes);
+    let orphan_hash = oasis7_cas::blake3_hex(orphan_bytes);
     let orphan_blob_path = dir.join(format!(".distfs-state/blobs/{orphan_hash}.blob"));
     fs::write(orphan_blob_path.as_path(), orphan_bytes).expect("write orphan blob");
 

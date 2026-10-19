@@ -42,6 +42,9 @@ use std::{
 };
 
 #[cfg(test)]
+#[path = "formal_live_test_control.rs"]
+pub(crate) mod test_control;
+#[cfg(test)]
 #[path = "formal_live_service_tests.rs"]
 mod tests;
 
@@ -91,6 +94,8 @@ pub(crate) struct FullSyncMaterialCacheEntry {
 #[derive(Default)]
 pub(crate) struct PublishedReadState {
     current: Mutex<Option<PublishedReadCut>>,
+    #[cfg(test)]
+    test_control: Mutex<Option<Arc<test_control::BoundaryState>>>,
 }
 impl PublishedReadState {
     pub(crate) fn current(&self) -> Result<PublishedReadCut, String> {
@@ -118,6 +123,26 @@ impl PublishedReadState {
     pub(crate) fn position(&self) -> Result<u64, String> {
         self.observe(|cut| Ok(cut.anchor.head().record().position))
     }
+    #[cfg(test)]
+    pub(crate) fn control_boundaries(&self) -> Result<test_control::BoundaryControl, String> {
+        let control = test_control::BoundaryControl::new();
+        let mut slot = self
+            .test_control
+            .lock()
+            .map_err(|_| "formal test control lock poisoned")?;
+        if slot.is_some() {
+            return Err("formal test runtime already has a boundary controller".into());
+        }
+        *slot = Some(control.shared());
+        Ok(control)
+    }
+    #[cfg(test)]
+    fn test_control_state(&self) -> Result<Option<Arc<test_control::BoundaryState>>, String> {
+        self.test_control
+            .lock()
+            .map(|control| control.clone())
+            .map_err(|_| "formal test control lock poisoned".into())
+    }
     pub(crate) fn publish(
         &self,
         world: World,
@@ -130,13 +155,24 @@ impl PublishedReadState {
             .current
             .lock()
             .map_err(|_| "formal read publication lock poisoned")?;
+        #[cfg(test)]
+        let position = anchor.head().record().position;
         *current = Some(PublishedReadCut { world, anchor });
+        drop(current);
+        #[cfg(test)]
+        if let Some(control) = self.test_control_state()? {
+            control.published(position)?;
+        }
         Ok(())
     }
 }
 impl super::execution_bridge::formal_node_hook::FormalPublicationSink for PublishedReadState {
     fn publish(&self, world: World, anchor: VerifiedFormalReadAnchorV1) -> Result<(), String> {
         PublishedReadState::publish(self, world, anchor)
+    }
+    #[cfg(test)]
+    fn test_boundary_control(&self) -> Result<Option<Arc<test_control::BoundaryState>>, String> {
+        self.test_control_state()
     }
 }
 
@@ -487,7 +523,15 @@ impl FormalLiveService {
                 .tick_count
                 .store(snapshot.tick_count, Ordering::Release);
         }
-        let cut = self.published.current().ok();
+        let cut = self
+            .published
+            .observe(|cut| {
+                Ok((
+                    cut.anchor.head().head().record_id.clone(),
+                    cut.anchor.head().record().position,
+                ))
+            })
+            .ok();
         let state_error = self
             .state
             .last_error
@@ -508,10 +552,7 @@ impl FormalLiveService {
             && node_running
             && cut.is_some()
             && last_error.is_none();
-        let record = cut
-            .as_ref()
-            .map(|cut| cut.anchor.head().head().record_id.clone());
-        let position = cut.as_ref().map(|cut| cut.anchor.head().record().position);
+        let (record, position) = cut.unzip();
         FormalLiveStatusV1 {
             api_version: "oasis7.formal-live-status/v1".into(),
             runtime_profile: "formal_live_v1".into(),

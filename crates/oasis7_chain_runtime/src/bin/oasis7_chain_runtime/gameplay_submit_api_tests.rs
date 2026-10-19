@@ -6,15 +6,15 @@ use ed25519_dalek::SigningKey;
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadBody, decode_consensus_action_payload,
 };
-use oasis7::viewer::{
-    CollectDataCommand, CollectDataRequest, GameplayActionRequest, sign_collect_data_auth_proof,
-    sign_gameplay_action_auth_proof,
-};
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,
 };
 use oasis7_runtime::Action;
+use oasis7_viewer_runtime::viewer::{
+    CollectDataCommand, CollectDataRequest, GameplayActionRequest, sign_collect_data_auth_proof,
+    sign_gameplay_action_auth_proof,
+};
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};

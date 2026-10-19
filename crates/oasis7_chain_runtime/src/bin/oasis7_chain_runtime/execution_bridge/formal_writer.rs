@@ -165,6 +165,10 @@ pub(crate) struct FormalWriter<P: FormalDurabilityEndpoint, R: FormalDurabilityE
     business_reader: Option<super::formal_business_package::SharedBusinessReader>,
     recovery: Option<VerifiedRecovery>,
     attempt_scan: Option<std::fs::ReadDir>,
+    // None may mean not started/reset, rather than a fully exhausted scan.
+    attempt_scan_complete: bool,
+    attempt_scan_blocked: Option<String>,
+    maintenance_session_started: bool,
     attempt_reclaim_current: Option<PathBuf>,
 }
 #[path = "formal_writer_published.rs"]
@@ -553,6 +557,9 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             business_reader: None,
             recovery,
             attempt_scan: None,
+            attempt_scan_complete: false,
+            attempt_scan_blocked: None,
+            maintenance_session_started: false,
             attempt_reclaim_current: None,
         };
         if let Some((candidate, proof)) =
@@ -1063,6 +1070,15 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             || self.persist(),
         )?;
         timing.mark("candidate_saved");
+        #[cfg(test)]
+        crate::formal_live_service::test_control::candidate_saved(
+            candidate.candidate.record.position,
+            candidate
+                .candidate
+                .record
+                .record_id()
+                .map_err(|error| error.to_string())?,
+        )?;
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("candidate_saved")?;
         if let Some(environment) =

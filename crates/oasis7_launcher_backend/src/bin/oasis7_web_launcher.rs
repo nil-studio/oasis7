@@ -1,7 +1,7 @@
-use oasis7::chain_pos_defaults;
-use oasis7::observability::init_tracing;
+use oasis7_client_api::chain_pos_defaults;
 use oasis7_launcher_config::default_chain_replication_bootstrap_peers_csv;
 use oasis7_launcher_ui::launcher_ui_fields_for_web;
+use oasis7_observability::init_tracing;
 use oasis7_proto::storage_profile::StorageProfile;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -625,7 +625,7 @@ impl ChainFeedbackSubmitResponse {
 
 fn main() {
     init_tracing("oasis7_web_launcher");
-    let trace_session_id = oasis7::observability::resolve_trace_session_id("oasis7_web_launcher");
+    let trace_session_id = oasis7_observability::resolve_trace_session_id("oasis7_web_launcher");
     let raw_args: Vec<String> = env::args().skip(1).collect();
     if raw_args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_help();

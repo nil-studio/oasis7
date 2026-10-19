@@ -440,3 +440,19 @@ impl<A, Q> DecisionResponse<A, Q> {
         }
     }
 }
+
+/// Legacy feedback transport. The host owns projection of action results and
+/// world events; consumers select their event representation without importing
+/// a simulator implementation into the wire contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "E: Deserialize<'de>"))]
+pub struct FeedbackEnvelope<E = Value> {
+    pub action_id: u64,
+    pub success: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reject_reason: Option<String>,
+    #[serde(default)]
+    pub emitted_events: Vec<E>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_delta_summary: Option<String>,
+}

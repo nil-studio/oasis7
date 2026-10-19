@@ -428,6 +428,7 @@ fn signed_submit_queues_real_node_action_without_mutating_world_and_lookup_fails
             world: world.clone(),
             anchor: anchor.clone(),
         })),
+        ..PublishedReadState::default()
     });
     let resolver = Arc::new(CurrentOnlyResolver::new(base_world.clone(), anchor.clone()));
     let (service, _, signer) = live_service(

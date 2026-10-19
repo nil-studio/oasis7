@@ -16,9 +16,18 @@ Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆
 
 `./scripts/ci-tests.sh required` 是普通必要测试的本地入口；`full` 保留广覆盖回归，nightly 执行适用 full。真实产品测试、WASM 确定性、共识、持久化、安全、升级恢复和跨平台打包均继续保留，不因流程精简删除。
 
-Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具目录变化选择 baseline 和该组；共享 context、local signer、secure envelope crate 变化也选择该组。Rust workflow 调用可复用的 `command-center.yml`，保留 Core、生成类型、UI、Clippy 和 macOS App 打包，并将调用结果纳入 `required-gate`。专用 workflow 不再独立触发 PR/push，避免重复执行；Cargo manifest、锁文件和 CI 控制变化仍采用保守全量。该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
+Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具目录内的代码、配置、资源和测试变化选择 baseline 和该组；共享 context、local signer、secure envelope crate 变化也选择该组。已核实仅为使用说明的 `tools/oasis7-command-center/README.md` 从该目录规则中排除，保留 baseline 文档治理；排除只作用于这条显式规则，真实嵌入或测试消费者仍可选择相应组，删除和重命名仍检查两端。Rust workflow 调用可复用的 `command-center.yml`，保留 Core、生成类型、UI、Clippy 和 macOS App 打包，并将调用结果纳入 `required-gate`。专用 workflow 不再独立触发 PR/push，避免重复执行；Cargo manifest、锁文件和 CI 控制变化仍采用保守全量。该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
 
 文档 corpus 对象、索引及 evidence inventory 数据更新由始终执行的 baseline 文档治理检查校验一致性；三平台 corpus/evidence 工具回归只在检查器实现、fixture、Git 路径配置、scope 配置或平台 workflow 变化时触发，数据更新不单独触发三平台回归。
+
+<a id="ci-generated-inputs-design"></a>
+### 生成文件与纯文档选择
+
+可信 scope 配置可登记已审读的 `OUT_DIR` 生成文件，逐项绑定 Cargo package、实际 build producer 的仓库路径、producer Git blob 内容的 SHA-256 和固定输出文件名。选择器在每个参与分析的 Git revision 上独立验证 package、manifest 的 build 入口及 producer 摘要，只将完整匹配的 `include_str!` / `include_bytes!` 生成输出计为已解析；不执行候选构建脚本，也不按 `OUT_DIR` 名称统一豁免。
+
+登记适用于已确认输入全部受既有共享构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`，其 producer、manifest、锁文件、工具链及 CI 配置仍按原规则选择保守全量。producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档和 corpus 数据仅保留各自已登记检查。
+
+回归覆盖纯说明文档、corpus 数据的逐路径及组合变化，并同时包含已登记生成输出、producer 在 base/source/tested revision 间漂移、未知动态嵌入、真实文档消费者和共享控制输入。还需用当前主仓依赖图重放文档变更，避免仅有微型仓库 fixture 或代码与 README 混合变更掩盖误选。
 
 <a id="ci-unknown-inputs-design"></a>
 ### 未登记路径的失败链路
@@ -269,7 +278,11 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 表中归属保持为逻辑 suite。物理分片可将 healthy-set 或 runtime-protocol 的完整慢用例放到较轻的分片；执行摘要同时记录逻辑 suite 与物理 shard，并对全集检查恰好一次归属。world-history 的单个 70 次连续操作场景保持完整，不能以切断历史链消除增长成本。上述非 ignored formal 命令未证明与普通环境等价，继续执行；snapshot_progress 与 legacy fields 回填仍使用原 default features。独立 ignored 验收按 `--exact --ignored --test-threads=1 --nocapture` 串行运行，矩阵 `fail-fast: false`、`max-parallel: 5`。world-history job 上限 45 分钟，其他分片初始保护上限 90 分钟；每次子命令绝对上限 40 分钟，均为防挂保护而非性能目标，后续按真实基线调整。
 
-正式 workspace 缓存使用官方 restore/save 的独立步骤，限定正式 target 整体原样保存，不手工拼接 Cargo fingerprint。key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、正式构建脚本和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读；可信 producer 完成构建后测量原始 target，最多 8 GiB，超限正常跳过 save。未恢复 workspace 缓存时可使用既有可信依赖缓存，避免命中后重复下载依赖 target。缓存缺失仍走完整冷构建，损坏不得成为合格产物；节省量包含恢复与保存成本。
+正式 workspace 缓存使用官方 restore/save 的独立步骤。先恢复既有可信依赖缓存，再恢复本次正式构建实际使用的仓库内 path package 编译单位；不重复保存整个第三方依赖 target。构建从 Cargo 的 compiler-artifact 与 build-script-executed 消息确定具体产物 hash，保存对应 deps、完整 .fingerprint、build-script 编译与执行输出目录以及公共可执行文件。内容和纳秒时间戳原样保留，不改写 Cargo fingerprint 来强制命中。缓存目录位于 RUNNER_TEMP，恢复前校验绝对 checkout/target 身份、路径、文件类型、长度、权限和摘要，完整校验通过才叠加到依赖 target。
+
+新 checkout 的源码时间戳会使相同内容的 workspace 产物失效。producer 因此记录构建前后完整源码文件清单，包含未跟踪和 ignored 的普通文件，排除 .git 与实际 Cargo target；只有始末路径、内容、权限和时间戳均一致才允许保存。恢复时逐路径核对实际长度、权限和 SHA-256，内容相同才还原旧 mtime；内容或权限改变的文件设置严格晚于缓存 Cargo 参考的时间戳，交由 Cargo 正常重编。新增、删除、重命名输入、symlink、越界路径、不完整或未来时间戳的缓存均保守视为 miss，不回退目录时间戳以隐藏 build.rs 的目录观察。缺失缓存仍完成冷构建，缓存不是产物身份或测试通过的依据。
+
+key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、正式构建脚本和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读，可信 main producer 才可保存。8 GiB 上限约束所选 workspace 文件的原始逻辑字节；所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。只有允许写入且未精确命中的 producer 才校验并准备缓存，超限正常跳过 save。复用收益必须包含依赖与 workspace 两次恢复、源码验证、保存成本和 Cargo 实际 fresh/重编数量，不能仅凭 cache action 命中宣称免编译。
 
 运行时优化遵循[单次 open 预热复用](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#formal-open-prewarm-reuse)和[健康 Replica 归档安装](../../p2p/design.md#formal-replica-staging-content-reuse)。新请求等待只读取精确请求的 hot result，使用轻量发布切面观察避免每 25ms 克隆完整 World；历史原请求仍保留认证冷查断言。正常成功路径达到目标 publication 后可先停止同一 runtime owner，再做不依赖活服务的材料统计与历史断言，减少测试自身继续产生的空 Tick。生产 Node 的 in-flight stop/join 语义不变，专门的 pending/in-flight 停止场景继续覆盖。阶段诊断记录 open/prewarm/restore、70/40 次操作、冷查及 stop 的单调耗时；不改变原请求绝对期限、签名、fsync 或原验收断言。
 

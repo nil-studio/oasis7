@@ -1,8 +1,8 @@
 use std::fs;
 use std::time::{Duration, Instant};
 
-use crate::release_security_policy_for_storage_profile;
 use oasis7::simulator::WorldKernel;
+use oasis7_chain_runtime::execution_config::ExecutionDriverConfig;
 use oasis7_node::{
     EXECUTION_MISSING_PREDECESSOR_RECORD_SIGNATURE, NodeExecutionBootstrap,
     NodeExecutionCheckpointBlob, NodeExecutionCheckpointBundle,
@@ -55,7 +55,7 @@ use super::{
     ExecutionBridgeRecord, ExecutionBridgeState, ExecutionSimulatorMirrorRecord,
     persist_world_head_proof_for_record,
 };
-use crate::{
+use oasis7_chain_runtime::execution_config::{
     EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER, EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER,
 };
 #[path = "driver_state.rs"]
@@ -70,12 +70,12 @@ mod formal_retention;
 mod formal_tick;
 
 impl NodeRuntimeExecutionDriver {
-    pub(super) fn new_with_storage_profile_and_local_bootstrap(
+    pub(super) fn new_with_config_and_local_bootstrap(
         state_path: std::path::PathBuf,
         world_dir: std::path::PathBuf,
         records_dir: std::path::PathBuf,
         storage_root: std::path::PathBuf,
-        storage_profile: &StorageProfileConfig,
+        config: ExecutionDriverConfig,
         local_execution_bootstrap: Option<NodeExecutionBootstrap>,
     ) -> Result<Self, String> {
         let checkpoint_install_transaction =
@@ -84,8 +84,7 @@ impl NodeRuntimeExecutionDriver {
             )?;
         promote_interrupted_execution_bridge_retention(records_dir.as_path())?;
         let state = load_execution_bridge_state(state_path.as_path())?;
-        let release_security_policy =
-            release_security_policy_for_storage_profile(storage_profile.profile);
+        let release_security_policy = config.release_security_policy;
         remove_partial_execution_world_persistence_files(world_dir.as_path())?;
         let execution_world_bootstrap_required =
             execution_world_persistence_files_missing(world_dir.as_path());
@@ -104,9 +103,9 @@ impl NodeRuntimeExecutionDriver {
             state,
             execution_world,
             execution_sandbox,
-            storage_profile.execution_hot_head_heights,
-            storage_profile.execution_checkpoint_interval,
-            storage_profile.execution_checkpoint_keep as usize,
+            config.hot_window_heights,
+            config.checkpoint_interval_heights,
+            config.checkpoint_keep_latest,
         );
         driver.pending_product_validation_intent = durable_product_validation_intent;
         driver.local_execution_bootstrap = local_execution_bootstrap;

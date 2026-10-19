@@ -3,7 +3,8 @@
 use super::*;
 use oasis7_distfs::{
     controlled_authority::formal::{
-        FormalStorageShadowOptions, advance_formal_storage_shadow,
+        FormalStorageShadowOptions, FormalStorageShadowSession,
+        advance_formal_storage_shadow_with_session,
         business_index::BusinessIndexNodeReader,
         endpoint::{FileFormalArchiveSourceV1, FormalArchiveSourceV1},
     },

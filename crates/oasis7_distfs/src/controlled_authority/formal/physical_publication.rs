@@ -95,10 +95,66 @@ fn flush_frame_directories(root: &Path) -> Result<(), FormalError> {
 }
 #[cfg(test)]
 thread_local! { static FRAME_BATCH_BARRIERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+thread_local! { pub(super) static FULL_RECOVERY_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 /// Caller holds the stable root's exclusive kernel fence and endpoint lease.
+/// Generation imports may capture only a subset of a source shared recipe.
+/// Only actual selector IDs are checked; recipe membership never promotes an
+/// uncaptured ID into aliases, retention, or the authenticated generation catalog.
+pub(super) fn recover_members(root: &Path) -> Result<(), FormalError> {
+    #[cfg(test)]
+    FULL_RECOVERY_PASSES.with(|count| count.set(count.get() + 1));
+    for entry in fs::read_dir(root.join(SELECTORS)).map_err(io)? {
+        let entry = entry.map_err(io)?;
+        let id = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| invalid("generation selector UTF8"))?;
+        hash_hex(&id)?;
+        let selected = root.join(SELECTORS).join(&id);
+        let path = root.join(&id);
+        let (_, recipe) =
+            selector(&path, &id)?.ok_or_else(|| invalid("generation imported selector missing"))?;
+        let (_, bytes) = range(root, &recipe, &id, 0, LIMIT as u32)?;
+        if blake3::hash(&bytes).to_hex().as_str() != id {
+            return Err(invalid("generation recovery original checksum"));
+        }
+        // Missing or unsafe frame paths are rejected even outside this span;
+        // their payloads become authoritative only through captured ID reads.
+        for frame in &recipe.frames {
+            sync(&root.join(FRAMES).join(&frame.stored))?;
+        }
+        // Root aliases are optional for physical objects. Do not manufacture
+        // one per selector during generation recovery. If present, the alias
+        // must still identify exactly this recipe, never a logical raw payload.
+        match fs::symlink_metadata(&path) {
+            Ok(alias) => {
+                paths::metadata(&alias, false)?;
+                #[cfg(unix)]
+                let original = fs::symlink_metadata(&selected).map_err(io)?;
+                #[cfg(unix)]
+                if (alias.dev(), alias.ino()) != (original.dev(), original.ino()) {
+                    return Err(invalid("generation recovery alias identity differs"));
+                }
+                #[cfg(not(unix))]
+                if read(&path, META_LIMIT)? != read(&selected, META_LIMIT)? {
+                    return Err(invalid("generation recovery alias bytes differ"));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io(error)),
+        }
+        sync(&selected)?;
+    }
+    sync(&root.join(FRAMES))?;
+    sync(&root.join(SELECTORS))?;
+    sync(root)
+}
 /// A durable selector binds a complete immutable recipe; finish all members,
 /// including members not present in a retry's smaller object input set.
 pub(super) fn recover(root: &Path) -> Result<(), FormalError> {
+    #[cfg(test)]
+    FULL_RECOVERY_PASSES.with(|count| count.set(count.get() + 1));
     #[cfg(unix)]
     let mut verified = std::collections::BTreeSet::new();
     for entry in fs::read_dir(root.join(SELECTORS)).map_err(io)? {
@@ -258,7 +314,7 @@ pub(super) fn sync_recipe_once(
         None
     };
     #[cfg(test)]
-    RECIPE_SYNCS.with(|count| count.set(count.get() + 1));
+    record_recipe_sync();
     sync(&selected)?;
     for frame in &recipe.frames {
         sync(&root.join(FRAMES).join(&frame.stored))?;
@@ -295,38 +351,12 @@ pub(super) fn fail_at(stage: u8) {
     FAILURE.with(|failure| failure.set(stage));
 }
 
-/// One publication guard invocation owns this private ephemeral scratch space.
-/// It contains only fsync deduplication identities, never bytes or durable proof.
-/// A crash may leave a system temporary directory; a later operation never reuses it.
-pub(super) fn with_readback_markers<T>(
-    run: impl FnOnce(&Path) -> Result<T, FormalError>,
-) -> Result<T, FormalError> {
-    let parent = std::env::temp_dir().canonicalize().map_err(io)?;
-    if !fs::symlink_metadata(&parent).map_err(io)?.is_dir() {
-        return Err(invalid("physical readback temporary parent"));
-    }
-    let path = parent.join(format!(
-        "oasis7-physical-readback-{}",
-        super::super::fencing::fresh_challenge().map_err(io)?
-    ));
-    let mut builder = fs::DirBuilder::new();
-    #[cfg(unix)]
-    builder.mode(0o700);
-    builder.create(&path).map_err(io)?;
-    struct Owned(PathBuf);
-    impl Drop for Owned {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let owned = Owned(path);
-    let result = run(&owned.0);
-    // Drop only the fresh directory this invocation successfully created.
-    drop(owned);
-    result
-}
 #[cfg(test)]
 thread_local! {static RECIPE_SYNCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };}
+#[cfg(test)]
+pub(super) fn record_recipe_sync() {
+    RECIPE_SYNCS.with(|count| count.set(count.get() + 1));
+}
 #[cfg(test)]
 pub(super) fn reset_recipe_syncs() {
     RECIPE_SYNCS.with(|count| count.set(0));

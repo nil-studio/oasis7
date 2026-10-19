@@ -60,7 +60,9 @@ fn copy_cache_tree(from: &Path, to: &Path) {
     }
 }
 fn full_node_restart(stale_cache: bool) {
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let mut fixture = Fixture::with_controlled_commits(true);
     let root = fixture.root.clone();
     let mut config = fixture.client.config().clone();

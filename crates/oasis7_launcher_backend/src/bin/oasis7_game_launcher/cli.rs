@@ -799,7 +799,7 @@ pub(super) fn major_world_event_visibility_as_str(
 }
 
 pub(super) fn print_help() {
-    let pos_defaults = oasis7::chain_pos_defaults::defaults();
+    let pos_defaults = oasis7_client_api::chain_pos_defaults::defaults();
     println!(
         "Usage: oasis7_game_launcher [options]\n\n\
 Start player stack with one command:\n\

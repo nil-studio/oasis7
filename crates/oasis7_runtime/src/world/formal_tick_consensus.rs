@@ -5,7 +5,7 @@ use crate::formal_retained_history::{
     VerifiedFormalRetainedHistoryParentV1, retained_tick_consensus_leaves,
 };
 use crate::{TickConsensusRecord, WorldTime};
-use oasis7_distfs::controlled_authority::formal::business_index::{
+use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BusinessIndexLeafV1, BusinessIndexNodeReader,
 };
 const HOT_FORMAL_TICK_RECORDS: usize = 32;

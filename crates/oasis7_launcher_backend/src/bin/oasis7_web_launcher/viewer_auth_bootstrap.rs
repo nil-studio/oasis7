@@ -146,11 +146,11 @@ mod tests {
             };
             // SAFETY: This test/setup code mutates process environment in a controlled scope.
             unsafe {
-                oasis7::env_mut::remove_var(VIEWER_AUTH_PUBLIC_KEY_ENV);
+                std::env::remove_var(VIEWER_AUTH_PUBLIC_KEY_ENV);
             }
             // SAFETY: This test/setup code mutates process environment in a controlled scope.
             unsafe {
-                oasis7::env_mut::remove_var(VIEWER_AUTH_PRIVATE_KEY_ENV);
+                std::env::remove_var(VIEWER_AUTH_PRIVATE_KEY_ENV);
             }
             restore
         }
@@ -168,13 +168,13 @@ mod tests {
             Some(value) => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::set_var(name, value);
+                    std::env::set_var(name, value);
                 }
             }
             None => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::remove_var(name);
+                    std::env::remove_var(name);
                 }
             }
         }
@@ -217,11 +217,11 @@ mod tests {
         let _restore = ViewerAuthEnvRestore::clear();
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var(VIEWER_AUTH_PUBLIC_KEY_ENV, "env-public");
+            std::env::set_var(VIEWER_AUTH_PUBLIC_KEY_ENV, "env-public");
         }
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var(VIEWER_AUTH_PRIVATE_KEY_ENV, "env-private");
+            std::env::set_var(VIEWER_AUTH_PRIVATE_KEY_ENV, "env-private");
         }
         let auth = resolve_optional_viewer_auth_bootstrap().expect("auth");
         assert_eq!(auth.public_key, "env-public");

@@ -15,7 +15,7 @@ use crate::{
     AgentIntentV2, CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationNonceRecord,
     CapabilityInvocationContext,
 };
-use oasis7_distfs::controlled_authority::formal::business_index::{
+use oasis7_formal_protocol::controlled_authority::formal::business_index::{
     BusinessIndexLeafKindV1, BusinessIndexLeafV1, BusinessIndexNodeReader, BusinessIndexRootV1,
 };
 use serde::{

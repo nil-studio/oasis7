@@ -591,25 +591,25 @@ impl HostedPlayerSessionIssuer {
             Some(public_key) => {
                 let mut nonce = [0_u8; 32];
                 fill_os_random(&mut nonce);
-                let issuer_private_key =
-                    match std::env::var(oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
-                    {
-                        Ok(value) => value,
-                        Err(_) => {
-                            return HostedPlayerSessionIssueResponse {
-                                ok: false,
-                                error_code: Some("registration_issuer_not_configured".to_string()),
-                                error: Some(
-                                    "hosted registration issuer private key is not configured"
-                                        .to_string(),
-                                ),
-                                deployment_mode: deployment_mode.as_str().to_string(),
-                                admission,
-                                grant: None,
-                            };
-                        }
-                    };
-                match oasis7::viewer::issue_hosted_registration_grant(
+                let issuer_private_key = match std::env::var(
+                    oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV,
+                ) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return HostedPlayerSessionIssueResponse {
+                            ok: false,
+                            error_code: Some("registration_issuer_not_configured".to_string()),
+                            error: Some(
+                                "hosted registration issuer private key is not configured"
+                                    .to_string(),
+                            ),
+                            deployment_mode: deployment_mode.as_str().to_string(),
+                            admission,
+                            grant: None,
+                        };
+                    }
+                };
+                match oasis7_client_api::viewer_auth::issue_hosted_registration_grant(
                     player_id.as_str(),
                     public_key,
                     device_session_id.as_str(),
@@ -1022,11 +1022,11 @@ fn build_registration_grant(
     issued_at_unix_ms: u64,
 ) -> Result<String, String> {
     let issuer_private_key =
-        std::env::var(oasis7::viewer::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
+        std::env::var(oasis7_client_api::viewer_auth::HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY_ENV)
             .map_err(|_| "hosted registration issuer private key is not configured".to_string())?;
     let mut nonce = [0_u8; 32];
     fill_os_random(&mut nonce);
-    oasis7::viewer::issue_hosted_registration_grant(
+    oasis7_client_api::viewer_auth::issue_hosted_registration_grant(
         player_id,
         public_key,
         device_session_id,

@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::development_node_config::*;
+use oasis7_client_api::development_node_config::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 static SEQUENCE: AtomicU64 = AtomicU64::new(0);
 fn options() -> CliOptions {
@@ -66,7 +66,7 @@ fn launcher_typed_adapter_emits_local_provider_exact_funding_lane() {
     options.agent_provider_backend = "provider_local_mock".into();
     options.agent_provider_contract = "worldsim_provider_v1".into();
     options.agent_provider_transport = "loopback_http".into();
-    options.agent_execution_lane = oasis7::simulator::ProviderExecutionMode::PlayerParity;
+    options.agent_execution_lane = oasis7_agent_api::ProviderExecutionMode::PlayerParity;
     let args = prepare_oasis7_chain_runtime_args(&options).unwrap();
     assert_eq!(args[1], "local-provider");
     let config = read_config(&args);

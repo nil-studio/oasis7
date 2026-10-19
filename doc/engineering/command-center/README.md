@@ -24,7 +24,7 @@
 
 <a id="cc-status-core-crate-extraction"></a>
 
-核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853) 与 [后续 #4879](https://github.com/nil-studio/oasis7/issues/4879)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865)、原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871)、完整 Runtime / World Service 及客户端证明消费迁移 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 均已合入，#4853 已关闭；#4873 合入提交为 `177eeb11c17ed2f2da3670b31b0f1d57eaf1190f`。后续 #4879 的当前候选已提供完整 legacy Scheduler 具体合同与独立客户端 profile，并将宿主归档改为内核事件借用视图和稀疏 runtime-event 附属数据，不再长期保留旧内核模型。固定本地负载下恢复后的宿主存活请求分配约降 54%；这是特定 dev profile 的分配器测量，不能推断线上 RSS 降幅。实际合入、完整测试与测量范围仍以该任务及其实现 PR 为准。不将结构拆分提升为新游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。
+核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853) 与 [后续 #4879](https://github.com/nil-studio/oasis7/issues/4879)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865)、原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871)、完整 Runtime / World Service 及客户端证明消费迁移 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 均已合入，#4853 已关闭；#4873 合入提交为 `177eeb11c17ed2f2da3670b31b0f1d57eaf1190f`。后续 #4879 已通过 [#4882](https://github.com/nil-studio/oasis7/pull/4882) 合入，提供完整 legacy Scheduler 具体合同与独立客户端 profile，并将宿主归档改为内核事件借用视图和稀疏 runtime-event 附属数据，不再长期保留旧内核模型。固定本地负载下恢复后的宿主存活请求分配约降 54%；这是特定 dev profile 的分配器测量，不能推断线上 RSS 降幅。实际合入、完整测试与测量范围仍以该任务及其实现 PR 为准。不将结构拆分提升为新游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。 当前本地候选继续落实 [Viewer 应用与宿主边界](../../../world-simulator/viewer/viewer-minimal-system.design.md#应用与宿主边界)、Runtime/Service 的 CAS/Formal Protocol 直接消费及客户端合同归位，尚未合入。
 
 局部文档更新（2026-10-12，仅 [#4438](https://github.com/eng-cc/oasis7/issues/4438)）：以 `27db6f894bd106e9a4fee9ee3062cd8fd86e1056` 核对 L4 工具链，补齐[构建/驱动、实际 Hosted 会话及结果合同](../../testing/prd.md#l4-build-driver)与[事实/体验判定边界](../../testing/prd.md#l4-evidence-judgment)，同步旧试玩入口。该 Issue 已以 `not_planned` 关闭，作为历史文档承接来源，不再承担新的 runner/scaffold 修复或验收义务；本次没有新试玩或部署结论，不刷新其他条目的核验时间。
 
@@ -81,7 +81,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 2026-10-12 目标设计收敛：[原候选恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 固定执行前完整材料与原请求重放；[正式权威 v1](../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 和 [epoch 接管](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 明确激活、普通证明消费者及旧写者隔离顺序。下一步按这些主责合同实现与验证；现有工程证明、离线 verifier 和本地双目录仍不足以完成正式开放。
 
-存储实现边界核对（2026-10-18）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。
+存储实现边界核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选补双端 pin 释放恢复、有预算的默认物理维护与分页收敛，并测同一正式 writer 完整目录维护前后的净占用；短样本仍净增长，不能将对象表示收益当作完整节点节省，最终验收及长跑结果以该 PR 为准。
 
 ### 2. 真实首产物、阻塞恢复与回访
 

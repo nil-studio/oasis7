@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::simulator::{ProviderAgentChatRequest, provider_agent_chat_log_key};
+use oasis7_agent_api::{ProviderAgentChatRequest, provider_agent_chat_log_key};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]

@@ -540,7 +540,7 @@ impl fmt::Display for LlmConfigError {
 
 impl Error for LlmConfigError {}
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test_tier_required"))]
 pub use oasis7_model_provider::LlmCompletionResult;
 pub use oasis7_model_provider::{
     LlmClientError, LlmCompletionClient, LlmCompletionRequest, LlmCompletionTurn,

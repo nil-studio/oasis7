@@ -423,9 +423,13 @@ pub(super) fn response_to_trace(
 
 /// Only the dedicated public explanation extension crosses this boundary.
 /// Raw transcript, prompt, tool trace and other upstream fields are excluded.
-impl DecisionResponse {
+pub trait DecisionResponseExplanation {
     /// Public metadata only; callers must keep Runtime effect truth separate.
-    pub fn public_agency_explanation(&self) -> super::super::AgentDecisionExplanationV1 {
+    fn public_agency_explanation(&self) -> super::super::AgentDecisionExplanationV1;
+}
+
+impl DecisionResponseExplanation for DecisionResponse {
+    fn public_agency_explanation(&self) -> super::super::AgentDecisionExplanationV1 {
         public_decision_explanation(self)
     }
 }

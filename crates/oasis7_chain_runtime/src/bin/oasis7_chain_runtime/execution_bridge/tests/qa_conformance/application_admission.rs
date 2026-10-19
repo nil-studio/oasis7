@@ -1,6 +1,6 @@
 //! Fresh service Agent admission requires an explicit application-owned durable store.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
 #[test]
 fn real_tcp_service_agent_missing_store_blocks_fresh_native_admission() {

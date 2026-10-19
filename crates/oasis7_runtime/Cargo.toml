@@ -12,7 +12,7 @@ serde = { version = "1", features = ["derive"] }
 oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_proto = { path = "../oasis7_proto" }
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
-oasis7_distfs = { path = "../oasis7_distfs" }
+oasis7_cas = { path = "../oasis7_cas" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_wasm_materializer = { path = "../oasis7_wasm_materializer" }
 oasis7_wasm_executor = { path = "../oasis7_wasm_executor", default-features = false }

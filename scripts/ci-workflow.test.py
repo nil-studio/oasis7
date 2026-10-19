@@ -249,9 +249,23 @@ class Workflow(unittest.TestCase):
         for job in (reader, writer):
             self.assertIn('actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9', job)
             self.assertIn('actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9', job)
-            self.assertIn('cache-budget --max-bytes 8589934592', job)
+            self.assertIn('cache-stage --max-bytes 8589934592', job)
             self.assertIn("steps.cache-budget.outputs.save == 'true'", job)
-            self.assertIn('formal-workspace-v1-ubuntu24-', job)
+            self.assertIn('formal-workspace-v2-ubuntu24-', job)
+            self.assertIn('path: ${{ runner.temp }}/formal-workspace-cache', job)
+            self.assertIn('cache-restore --cache "$RUNNER_TEMP/formal-workspace-cache"', job)
+            self.assertIn('--cache-state "$RUNNER_TEMP/formal-cache-state.json"', job)
+            self.assertNotIn("if: steps.formal-workspace-cache.outputs.cache-matched-key == ''", job)
+            self.assertLess(job.index('Swatinem/rust-cache@'), job.index('cache-restore --cache'))
+            measurement = job.split('- name: Measure formal workspace cache footprint', 1)[1].split('- name:', 1)[0]
+            self.assertIn('cache-stage --measure-only --max-bytes 8589934592', measurement)
+            self.assertNotIn('if:', measurement)
+            self.assertNotIn('--github-output', measurement)
+            staging = job.split('- name: Stage bounded formal workspace units', 1)[1].split('- name:', 1)[0]
+            for condition in ('refs/heads/main', "github.event_name == 'push'", "github.event_name == 'schedule'",
+                              "github.event_name == 'workflow_dispatch'", "inputs.run_mode == 'full'",
+                              "steps.formal-workspace-cache.outputs.cache-hit != 'true'"):
+                self.assertIn(condition, staging)
             for value in ('runner.arch', 'RUST_TOOLCHAIN', 'OASIS7_WASM_TOOLCHAIN', 'Cargo.lock',
                           '**/Cargo.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'github.sha'):
                 self.assertIn(value, job)
