@@ -177,7 +177,8 @@
       "formal_live_runtime::tests::protected_process_tests::crash_tests::protected_runtime_crash_child",
       "formal_live_runtime::tests::protected_process_tests::oracle_support::handoff_tests::protected_handoff_owner_worker",
       "node_lifecycle::tests::local_node_export_existing_world_fixture",
-      "node_lifecycle::legacy_migration::tests::legacy_export_real_source_fixture"
+      "node_lifecycle::legacy_migration::tests::legacy_export_real_source_fixture",
+      "formal_live_runtime::tests::protected_process_tests::full_node_storage_tests::cold_process::worker::formal_full_node_cold_writer_worker"
     ],
     "distfs-tests": [
       "controlled_authority::formal::endpoint::tests::protected_tests::pack_partial_crash_tests::endpoint_pack_first_link_crash_child",

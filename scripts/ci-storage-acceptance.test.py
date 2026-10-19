@@ -290,8 +290,43 @@ class Contracts(unittest.TestCase):
         report['logical_after'] = copy.deepcopy(report['logical_before'])
         report['typed_history_before'] = dict(records=1000, digest='c'*64)
         report['typed_history_after'] = copy.deepcopy(report['typed_history_before'])
+        report['original_commit_ref'] = dict(position=2, state_root_ref='original')
+        ready = dict(schema=1, nonce='a'*64, parent_pid=11, child_pid=12, stage='ready',
+                     fixed_head=report['fixed_head'], authority=report['authority_digest'],
+                     typed=copy.deepcopy(report['typed_history_before']), result='b'*64,
+                     effect='c'*64, emits=1, original_commit=None, final_position=1002,
+                     continuation_completed=False, ready_node_running=False)
+        report['cold_writer_ready'] = ready
+        done = copy.deepcopy(ready)
+        done.update(stage='done', original_commit=copy.deepcopy(report['original_commit_ref']),
+                    final_position=1004, continuation_completed=True)
+        report['cold_writer_done'] = done
         self.assertTrue(acceptance.full_node_passed(report, 1000))
         self.assertFalse(acceptance.full_node_passed(report, 10000))
+        for missing in ('cold_writer_ready', 'cold_writer_done', 'original_commit_ref'):
+            changed = copy.deepcopy(report)
+            del changed[missing]
+            self.assertFalse(acceptance.full_node_passed(changed, 1000), missing)
+        for field, key, value in (
+                ('cold_writer_ready', 'child_pid', 11),
+                ('cold_writer_ready', 'parent_pid', True),
+                ('cold_writer_ready', 'ready_node_running', True),
+                ('cold_writer_ready', 'continuation_completed', True),
+                ('cold_writer_ready', 'typed', {}),
+                ('cold_writer_done', 'nonce', 'd'*64),
+                ('cold_writer_done', 'child_pid', 13),
+                ('cold_writer_done', 'parent_pid', 13),
+                ('cold_writer_done', 'schema', 0),
+                ('cold_writer_done', 'stage', 'ready'),
+                ('cold_writer_done', 'result', 'd'*64),
+                ('cold_writer_done', 'effect', 'd'*64),
+                ('cold_writer_done', 'emits', 2),
+                ('cold_writer_done', 'original_commit', dict(position=2, state_root_ref='wrong')),
+                ('cold_writer_done', 'final_position', 1002),
+                ('cold_writer_done', 'continuation_completed', False)):
+            changed = copy.deepcopy(report)
+            changed[field][key] = value
+            self.assertFalse(acceptance.full_node_passed(changed, 1000), (field, key))
         for field in ('fixed_head_unchanged', 'logical_history_unchanged',
                       'typed_history_unchanged', 'original_result_unchanged',
                       'original_effect_unchanged', 'continuation_completed', 'published_history_unchanged', 'accounting_quiescent'):
