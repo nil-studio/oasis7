@@ -49,8 +49,9 @@ impl PreparedCorePolicyEvent {
             material_profile: None,
         };
         match event {
-            DomainEvent::AgentRegistered { agent_id, pos } => {
-                if agent_id.starts_with("industrial:") {
+            DomainEvent::AgentRegistered { agent_id, pos, registration_contract_version } => {
+                if *registration_contract_version>1 {return Err(invalid("unsupported_registration_contract"));}
+                if *registration_contract_version == 1 && agent_id.starts_with("industrial:") {
                     return Err(invalid("industrial_identity_requires_delivery"));
                 }
                 let mut cell = AgentCell::new(AgentState::new(agent_id, *pos), now);

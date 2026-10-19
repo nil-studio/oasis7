@@ -1180,6 +1180,7 @@ impl World {
                     DomainEvent::EconomicContractSettled {
                         operator_agent_id: operator_agent_id.clone(),
                         contract_id: contract_id.to_string(),
+                        world_binding: self.world_rule_binding(),
                         success: *success,
                         transfer_amount,
                         tax_amount,

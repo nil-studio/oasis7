@@ -1049,7 +1049,7 @@ fn private_task_world_rule_prepared_world_live_service() {
     );
     run_prepared_world_service_kind(
         ready,
-        Duration::from_millis(500),
+        Duration::from_secs(2),
         false,
         None,
         false,

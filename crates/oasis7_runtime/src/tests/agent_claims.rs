@@ -313,7 +313,11 @@ fn legacy_reputation_tier_scales_second_slot_and_enforces_claim_cap() {
         .expect("cap rejection event");
     match rejection {
         RejectReason::RuleDenied { notes } => {
-            assert!(notes.iter().any(|note| note.contains("cap exceeded")));
+            assert!(
+                notes
+                    .iter()
+                    .any(|note| note.contains("additional_agent_requires_industrial_delivery"))
+            );
         }
         other => panic!("expected rule denied, got {other:?}"),
     }
@@ -614,6 +618,18 @@ fn mixed_slot_1_claim_tracks_bond_provenance_and_refunds_back_to_source_buckets(
 
 #[test]
 fn slot_2_claim_cannot_spend_restricted_balance() {
+    let quote = crate::agent_claims::agent_claim_quote(10, 1).unwrap();
+    assert!(
+        crate::agent_claims::split_agent_claim_upfront_funding(
+            quote.slot_index,
+            0,
+            500,
+            quote.activation_fee_amount,
+            quote.claim_bond_amount,
+            quote.upkeep_per_epoch,
+        )
+        .is_err()
+    );
     let mut world = setup_claim_world_with_balances(200, 500, 10);
 
     world.submit_action(Action::ClaimAgent {
@@ -642,7 +658,7 @@ fn slot_2_claim_cannot_spend_restricted_balance() {
             assert!(
                 notes
                     .iter()
-                    .any(|note| note.contains("restricted/liquid funding unavailable"))
+                    .any(|note| note.contains("additional_agent_requires_industrial_delivery"))
             );
         }
         other => panic!("expected rule denied, got {other:?}"),

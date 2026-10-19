@@ -193,6 +193,7 @@ pub(super) fn event_kind_label(body: &WorldEventBody) -> &'static str {
 
 pub(super) fn action_kind_label(action: &Action) -> &'static str {
     match action {
+        Action::ScheduleEssentialRecipe {..} => "action.economy.schedule_essential_recipe",
         Action::WorldRule { .. } => "action.world_rule",
         Action::WorldServiceIntent { .. } => "action.world_service.intent",
         Action::RegisterAgent { .. } => "action.register_agent",

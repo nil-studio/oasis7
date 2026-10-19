@@ -50,6 +50,7 @@ fn is_legacy_claim_contract_version(version: &u8) -> bool {
 }
 
 mod domain_event;
+mod domain_event_routing;
 
 pub use self::domain_event::{CausedBy, DomainEvent, LogisticsOwnerPayout, RejectReason};
 

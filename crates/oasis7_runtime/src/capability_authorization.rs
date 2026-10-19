@@ -183,6 +183,11 @@ pub struct CapabilityRevocationState {
     /// Live agent id -> owner/generation binding used by capability subjects.
     #[serde(default)]
     pub agent_identities: BTreeMap<String, CapabilityAgentIdentity>,
+    /// Manufactured target -> acquisition sequence at its identity checkpoint.
+    /// The matching identity is stored in `agent_identities`; empty legacy
+    /// state keeps its historical serialized shape.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub manufactured_identity_acquisition_sequences: BTreeMap<String, u64>,
     /// Canonical owner-signed service delegation, retained in snapshots.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub agent_signer_delegations:

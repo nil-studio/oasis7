@@ -110,6 +110,7 @@ fn recipe_started_cost_preflight_reads_legacy_world_materials() {
         .set(ResourceKind::Electricity, 10)
         .unwrap();
     let event = DomainEvent::RecipeStarted {
+            emergency_power_obligation: None,
         committed_recipe_origin: None,
         job_id: 7002,
         requester_agent_id: "actor".into(),

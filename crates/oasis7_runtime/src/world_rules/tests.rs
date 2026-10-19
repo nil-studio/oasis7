@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
-    Action, FactoryProductionState, FactoryState, MainTokenAccountBalance, MainTokenSupplyState,
-    World, WorldStateProjection,
+    Action, FactoryProductionState, FactoryState, MainTokenSupplyState, World, WorldStateProjection,
 };
 use oasis7_agent_api::world_action::{GeoPos, world_rule_proposal_description};
 
@@ -66,6 +65,7 @@ fn event(actor: &str, request: &str, command: WorldRuleCommandV1) -> DomainEvent
         request_id: request.into(),
         command,
         governance_epoch: 0,
+        world_binding: None,
     }
 }
 fn apply(state: &mut WorldState, event: &DomainEvent, now: u64) {
@@ -130,5 +130,14 @@ fn organization_fixture() -> WorldState {
 }
 
 mod industrial_tests;
+mod organization_continuity_tests;
 mod organization_tests;
 mod supply_tests;
+
+pub(super) fn emergency_authorize_fixture() -> (World, Action) {
+    supply_tests::emergency_authorize_fixture()
+}
+#[cfg(feature = "wasmtime")]
+pub(super) fn essential_recipe_fixture() -> (World, Action) {
+    supply_tests::essential_recipe_fixture()
+}

@@ -86,6 +86,14 @@ Trace refs: O7-REQ-6e6d890d-c94d-4b43-9947-bfccf2f066e3；声明：[REQ-WR-OC-00
 
 **活动与通知证据。**`activity_receipt` 必须通过组织归属、执行时授权、事件种类和已确认实际后果校验；组织之外的 `Agent.last_active`、Agent claim idle/grace 和保护维护事件都不消费为组织活动。通知发布记录完整收件范围、内容摘要、可读版本和 `published_at_C`；缺一个必需收件投影或可用救济入口则不启动窗口。未读保留未读事实，不当成同意。新增资产/权利人单独获得完整窗口，旧已通知范围不因重复发布被随意缩短或重置。
 
+组织活动适配器还必须提供按世界 tick 单调推进的完整覆盖水位；只有在可信事件源已完整扫描、并把所有可验证的组织业务后果写入同一提交日志后，才能推进该水位。缺少归属证明或任一来源覆盖未知时，read model 显示 `activity_evidence_unavailable`，自动沉寂立案及沉寂阶段推进保持阻断；不得以空 receipt 集合、成员 `last_active`、生产/库存变动或保供记录推定组织不活跃。首版尚无该完整活动适配器，因此启用后沉寂自动判定不可用，voluntary case 与只读状态仍可用。
+
+**首版 AtomicExchange 活动源合同。**v1 charter 必须显式选择 `registered_atomic_exchange_v1` 活动源策略；该策略的完整 source catalog 是 runtime 持久化、按组织 ID 排序并承诺哈希的已登记 AtomicExchange 合同集合。只有 founder 同时是组织成员和合约 creator、合约另一方不是组织成员且解析出的 player 与 founder 不同，才允许 founder 在现有通过的治理 proposal 下登记该来源。登记时合同必须为已接受且未结算的 `AtomicExchange`；记录合同全部固定条款哈希、世界绑定、登记 tick、creator/counterparty 的 controller root、player、source、generation 及治理 receipt。未知、同控制、已结算、服务类和未登记合同均不属于本版本活动源，也不能被解释成活动或“无业务”的证明。缺失显式 source catalog 时不启用自动沉寂。
+
+`EconomicContractSettled` 的 prepared delta 只在合同仍与登记条款完全一致、双方当前 controller bindings 与来源记录匹配、结算成功且正向转移时，原子追加一条以合同 settlement receipt 为 `source_ref` 的活动事实。失败、过期、同控制者、条款漂移或未经登记的 settlement 不记活动。第一次成功 source registration 的 world tick `C` 是观测起点，cursor 从 `C-1` 起算；Enable 之前的未知时间不累计，也不从 `last_active` 补算。
+
+每个已登记组织在 native 与 builtin 路径处理完 `process_gameplay_cycles`（含该轮全部经济合同 settlement reducer 和 module event routing）后，才提交 runtime-only `CloseActivityTick`。close 绑定当前 `world_binding`、tick、source catalog root、前一 close cursor、最后规范事件 ID/hash 与前一 close hash，只允许 `action_id == 0`、当前 tick、严格连续游标。正常 close 后推进完整覆盖水位；缺 tick、游标倒退/跳跃、hash 或 source catalog 不匹配时，持久化 `activity_evidence_gap`，只推进关闭检查游标而冻结完整覆盖水位，后续 close 可继续记录但不能回填缺口或恢复自动沉寂。没有来源登记、没有有效 close 或 coverage 落后当前 tick 一律显示 `activity_evidence_unavailable` 并阻断自动沉寂。
+
 **触发类型。**`Dormancy` 严格走观察、通知、保护与受限持续。经现有 charter 权限确认的 `VoluntaryDissolution / Reorganization` 可以直接提交有界风险冻结并进入保护，但仍须完整资产公示与债权/争议处理，不能以主动解散绕过第三方权利；战争或其他专业阻塞继续消费原 authority。`Resolved` 保存恢复、重组、解散或事实错误等具体原因；恢复正常经营只关闭本 case，后续独立事实使用新 case sequence。
 
 **请求层与救济。**reclaim 与 appeal 分为独立请求类型，绑定申请人的权利来源、争议范围、原决定/通知 receipt 与证据摘要。注册后先校验资格、证据存在及范围；缺证进入补证状态且不产生处分权。有效受理建立该请求自己的 `stay_scope`，禁止争议范围的不可逆处分和扩权交接，不暂停无关组织、其他范围或安全停止。政策允许的有权无利益冲突裁决者才能支持/部分支持/拒绝；客观事实更正也须有预先有效规则授权。裁决到复查点未完成只显示待决，不能用过期自动通过/拒绝已受理案件。
@@ -135,6 +143,14 @@ Trace refs: O7-REQ-366c9e94-4bd6-41f8-93dd-8d87f163f21a、O7-REQ-6e6d890d-c94d-4
 ### 6.1 身份、字段和状态
 
 共用 `world_id`、原资产/主体/receipt 的稳定身份；新增 `case_id = (organization_id, case_sequence)`，sequence 由权威事务分配且永不复用。外部请求 ID 为非空、最多 128 字节的 UTF-8 不透明值，在 `(world_id, case_id, requester_subject)` 内唯一。版本和 `C` 使用无符号 64 位整数；金额/物料量使用原资源最小单位的 checked 无符号整数，逻辑上限为 128 位；摘要使用当前 runtime 的 canonical commitment 类型，不引入客户端自选 hash 算法。
+
+当前首版 adapter 只启用下列可证明的子集。组织连续性须由 `AllianceState.charter` 中严格解析的 `OrganizationContinuityCharterV1` 启用；schema、继任者/维护者名单、任命 authority、救济裁决者、活动源策略/清单和剩余份额都参与内容 hash。启用还要求 founder 确认及已有通过的治理 proposal；没有有效治理记录、字段不认识或旧 charter 不是该 typed schema 时保持未启用。启用时冻结 founder、全部成员及 charter 指定继任者、维护者、任命 authority、救济裁决者、剩余分配对象的 controller root/player/source/generation。每个特权写入按同一身份解析器重验执行者的冻结绑定；来源缺失或主体已重绑时拒绝，必须经新治理重新启用/授权，Agent ID 相同不转移旧权限。不得从旧 `last_active`、旧联盟标题或固定治理权重推定授权。
+
+可用性证据由既有 `governance_finality_signer_registry` 与 node identity bindings 验证。签名 payload 绑定 world/genesis manifest、组织 registration、charter、覆盖 tick 区间和三项服务可用性；registry 的不同 node 必须有不同解码公钥、正 stake 与 `1..=10000` 的 stake threshold。每个已提交 tick 先处理本 tick 的有效签名证据，再由 runtime-only action `FinalizeAvailabilityUnknown` 封存未覆盖尾段：cursor 前进、暂停原因可读、`C` 不增加。后来的证书只能覆盖 cursor 之后的区间，不能把已封存未知时段改成可用，也不能追溯补算授权期限。成员历史从显式启用 tick 初始化，之后只由权威 Alliance join/leave 事件推进；资格只查询该连续性版本的历史，不导入旧历史。
+
+组织活动覆盖水位与 availability cursor 相互独立。首版只采用上文定义的已登记 AtomicExchange catalog 和 settlement receipt prepared delta；不得以 `RecipeCompleted`、成员库存变动或普通 activity 自报替代。Runtime 在完整 reducer 阶段后提交的 system-only tick close 是推进 coverage 的唯一 producer；close 游标和 hash 持久化并随普通确定性 replay 恢复。catalog 空、source 未登记或发生 coverage gap 都保持自动沉寂阻断；客户端不能提交 coverage 标记。
+
+首版 material estate adapter 只接受现有 `DepositOrganizationEstate` 的 canonical receipt，并以同一次 prepared publication 更新 manifest root、来源材料账与 asset record；held-in-trust 资产始终标记原 contributor。其他业务合同、订单预留、外部服务额度、个人资产、租赁物和未知权属均不能由组织清单推定为空或纳入处分。当前可实际执行的 material effect 仅为把完整 held-in-trust 项返还给记录的 contributor：原 appointment authority 必须处于 `Disposition/CustodyReturn` 且通过当前治理；有效 successor handoff 只能对其明确 scope 中的该类资产，在 `Protected` 或 `Disposition/CustodyReturn`、`C < expires_at_C`、资格仍有效且没有重叠 stay/quarantine 时执行。候选接受时冻结控制 root、player、source 和 generation；换控制来源后旧 grant 立即不可用。已生效重叠 handoff 阻止旧任命者执行，部分救济只撤重叠 scope；未知的合同/清偿/一般维护或处分动作保持拒绝，不从有限 handoff 推导出来。
 
 `OpenContinuityCase` 在尚未分配 case ID 时，以 `(world_id, organization_id, requester_subject, request_id)` 去重，并在同一根提交中保存到新 case ID 的映射；响应丢失只查此映射，不能再次分配 case sequence。
 

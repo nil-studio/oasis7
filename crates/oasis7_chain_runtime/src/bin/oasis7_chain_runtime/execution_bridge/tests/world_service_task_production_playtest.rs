@@ -59,14 +59,31 @@ fn fixture_mode(
     };
     if world_rule {
         let factory = initial.factories.get_mut("production-factory").unwrap();
-        factory.spec.tags = vec!["assembler".into()];
+        factory.spec = oasis7_agent_api::world_quote::builtin_factory_spec(
+            "factory.assembler.mk1",
+            "production-factory",
+        )
+        .unwrap();
+        initial.factory_profiles.insert(
+            "production-factory".into(),
+            oasis7_runtime::FactoryProfileV1 {
+                factory_id: "production-factory".into(),
+                tier: 1,
+                recipe_slots: 2,
+                tags: vec!["assembler".into()],
+            },
+        );
+        factory.site_location_id = Some("production-location".into());
+        factory.site_authority_revision = Some(1);
+        factory.location_anchor_revision = Some(1);
         factory.input_ledger = oasis7_runtime::MaterialLedgerId::agent("agent-a");
         factory.output_ledger = factory.input_ledger.clone();
         initial.material_ledgers.insert(
             factory.input_ledger.clone(),
             [
                 ("alloy_plate".into(), 12),
-                ("control_chip".into(), 2),
+                ("control_chip".into(), 4),
+                ("module_rack".into(), 1),
                 ("motor_mk1".into(), 4),
                 ("sensor_pack".into(), 2),
             ]
@@ -74,17 +91,44 @@ fn fixture_mode(
             .collect(),
         );
     }
+    if world_rule {
+        initial.location_anchors.insert(
+            "production-location".into(),
+            oasis7_runtime::LocationAnchorV1 {
+                location_id: "production-location".into(),
+                active: true,
+                authority_revision: 1,
+                ..Default::default()
+            },
+        );
+        initial.factory_site_authorities.insert(
+            "production-site".into(),
+            oasis7_runtime::FactorySiteAuthorityV1 {
+                site_id: "production-site".into(),
+                location_id: "production-location".into(),
+                owner_agent_id: "agent-a".into(),
+                active: true,
+                chunk_ready: true,
+                authority_revision: 1,
+                ..Default::default()
+            },
+        );
+        initial.agent_location_authorities.insert(
+            "agent-a".into(),
+            oasis7_runtime::AgentLocationAuthorityV1 {
+                agent_id: "agent-a".into(),
+                location_id: "production-location".into(),
+                active: true,
+                authority_revision: 1,
+                ..Default::default()
+            },
+        );
+    }
     let mut world = oasis7::runtime_host::world::new_with_state(initial);
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
-    if world_rule {
-        world.submit_action(Action::RegisterAgent {
-            agent_id: "primary".into(),
-            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
-        });
-    }
     world.step().unwrap();
     if world_rule {
         world.set_agent_reputation_score("agent-a", 25).unwrap();
@@ -101,12 +145,6 @@ fn fixture_mode(
         player_id: "owner-a".into(),
         public_key: Some(public.clone()),
     });
-    if world_rule {
-        world.submit_action(Action::ClaimAgent {
-            claimer_agent_id: "agent-a".into(),
-            target_agent_id: "primary".into(),
-        });
-    }
     world.step().unwrap();
     assert!(world.state().starter_oc_claims.contains_key("agent-a"));
     world
@@ -154,7 +192,7 @@ fn fixture_mode(
                 period_id: "industrial-order-playtest".into(),
                 valid_from_tick: 0,
                 valid_until_tick: 1000,
-                limit_units: 16,
+                limit_units: 64,
                 resource_kind: "electricity".into(),
                 revoked: false,
             })

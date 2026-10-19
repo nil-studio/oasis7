@@ -88,6 +88,7 @@ pub(crate) struct PreparedFactoryLifecycle {
 
 #[derive(Debug)]
 pub(crate) struct PreparedRecipeLifecycle {
+    world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     event: DomainEvent,
     pending: Option<(ActionId, Option<RecipeJobState>)>,
     settled_id: Option<ActionId>,
@@ -104,6 +105,8 @@ pub(crate) struct PreparedRecipeLifecycle {
 }
 
 impl PreparedIndustryEvent {
+    pub(crate) fn world_rules_projection(&self)->Option<&crate::world_rules::WorldRulesStateV1> {match self {Self::RecipeLifecycle(v)=>v.world_rules.as_ref(),_=>None}}
+
     pub(crate) fn prepare_reserved_transit(
         state: &WorldState,
         event: &DomainEvent,
@@ -136,14 +139,10 @@ impl PreparedIndustryEvent {
             _ => None,
         };
         if factory.is_some_and(|id| {
-            state.world_rules.as_ref().is_some_and(|r| {
-                r.agent_orders
-                    .values()
-                    .any(|o| &o.factory_id == id && o.delivered_at.is_none())
-            })
-        }) {
-            return Err(invalid("factory_capacity_reserved_by_agent_order"));
-        }
+            let reserved=crate::world_rules::manufacturing_reserved_slots(state,id) as usize;
+            let jobs=state.pending_recipe_jobs.values().filter(|j|&j.factory_id==id).count();
+            reserved>0 && (matches!(event,DomainEvent::FactoryRecycled{..}) || state.factories.get(id).is_none_or(|f|jobs+reserved>=f.spec.recipe_slots as usize))
+        }) { return Err(invalid("factory_capacity_reserved_by_agent_order")); }
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. } => Ok(Self::LogisticsTopology(

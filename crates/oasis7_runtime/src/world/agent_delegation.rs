@@ -119,7 +119,10 @@ fn action_scope(action: &Action) -> Option<(&'static str, String)> {
         Action::BuildFactoryWithModule { spec, .. } => {
             Some(("BuildFactoryWithModule", spec.factory_id.clone()))
         }
-        Action::ScheduleRecipe { factory_id, .. } => Some(("ScheduleRecipe", factory_id.clone())),
+        Action::ScheduleRecipe { factory_id, .. }
+        | Action::ScheduleEssentialRecipe { factory_id, .. } => {
+            Some(("ScheduleRecipe", factory_id.clone()))
+        }
         // Recognize unsupported delegated module actions so admission cannot bypass
         // the authority boundary; issuance and native quotes remain unavailable.
         Action::ScheduleRecipeWithModule { factory_id, .. } => {
@@ -163,13 +166,11 @@ impl World {
             return Err(denied("organization_source_unsupported"));
         }
         let owner = self
-            .state
-            .starter_oc_claims
-            .get(&grant.agent_id)
+            .current_agent_owner(&grant.agent_id)
             .ok_or_else(|| denied("owner_source_unavailable"))?;
         if owner.player_id != grant.owner_id
             || grant.issuer_id != grant.owner_id
-            || grant.source_id != format!("starter_claim:{}:{}", owner.agent_id, owner.claimed_at)
+            || grant.source_id != owner.source_id
         {
             return Err(denied("owner_source_changed"));
         }
@@ -402,13 +403,31 @@ impl World {
                     request_id: request_id.clone(),
                     command: command.clone(),
                     governance_epoch: self.current_governance_epoch(),
+                    world_binding: self.world_rule_binding(),
                 };
-                crate::world_rules::PreparedWorldRule::prepare(
-                    &self.state,
-                    &event,
-                    self.state.time,
-                )?;
-                0
+                self.prepare_world_rule_event(&event, self.state.time)?;
+                if self
+                    .state
+                    .world_rules
+                    .as_ref()
+                    .is_some_and(|rules| rules.has_exact_request(actor_id, request_id, command))
+                {
+                    0
+                } else {
+                    match command {
+                        oasis7_agent_api::world_action::WorldRuleCommandV1::ConfirmAgentOrder {
+                            ..
+                        } => crate::world_rules::AGENT_MANUFACTURING_POWER,
+                        oasis7_agent_api::world_action::WorldRuleCommandV1::EmergencySupply {
+                            command:
+                                oasis7_agent_api::world_action::EmergencySupplyCommandV1::Authorize {
+                                    quantity,
+                                    ..
+                                },
+                        } => *quantity,
+                        _ => 0,
+                    }
+                }
             }
             Action::MoveAgent { .. } => 0,
             Action::TransferMaterial {
@@ -476,6 +495,13 @@ impl World {
                     return Err(denied("domain_quote_factory_profile_mismatch"));
                 }
                 power.electricity_amount
+            }
+            Action::ScheduleEssentialRecipe {
+                recipe_id, batches, ..
+            } => {
+                crate::builtin_recipe_plan(recipe_id, *batches)
+                    .ok_or_else(|| denied("domain_quote_unsupported"))?
+                    .power_required
             }
             Action::ScheduleRecipe {
                 recipe_id, plan, ..
@@ -757,6 +783,7 @@ impl World {
                 | Action::BuildFactoryWithModule { .. }
                 | Action::TransferMaterial { .. }
                 | Action::ScheduleRecipe { .. }
+                | Action::ScheduleEssentialRecipe { .. }
                 | Action::ScheduleRecipeWithModule { .. }
         );
         let mut authorization = authorization;

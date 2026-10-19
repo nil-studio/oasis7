@@ -161,8 +161,18 @@ impl World {
             return Ok(());
         };
         if matches!(event, DomainEvent::WorldRuleCommitted { .. }) {
-            crate::world_rules::PreparedWorldRule::prepare(&self.state, event, self.state.time)?;
+            self.prepare_world_rule_event(event, self.state.time)?;
             return Ok(());
+        }
+        if let DomainEvent::EconomicContractSettled {
+            world_binding: Some(event_binding),
+            ..
+        } = event
+            && self.world_rule_binding().as_deref() != Some(event_binding.as_str())
+        {
+            return Err(crate::world_rules::invalid(
+                "economic_contract_world_binding_mismatch",
+            ));
         }
         if matches!(
             event,
@@ -410,6 +420,8 @@ impl World {
         let _ = self.process_due_material_transits()?;
         let _ = self.process_world_rule_lifecycle()?;
         let _ = self.process_gameplay_cycles()?;
+        let _ = self.process_organization_activity_tick_close()?;
+        let _ = self.process_organization_continuity_lifecycle()?;
         let _ = self.process_restricted_starter_claim_grant_epochs()?;
         let _ = self.process_agent_claim_epochs()?;
         self.refresh_threat_heatmap();
@@ -758,6 +770,12 @@ impl World {
             self.route_event_to_modules(&event, sandbox)?;
         }
         for event in self.process_gameplay_cycles_with_modules(sandbox)? {
+            self.route_event_to_modules(&event, sandbox)?;
+        }
+        for event in self.process_organization_activity_tick_close()? {
+            self.route_event_to_modules(&event, sandbox)?;
+        }
+        for event in self.process_organization_continuity_lifecycle()? {
             self.route_event_to_modules(&event, sandbox)?;
         }
         for event in self.process_restricted_starter_claim_grant_epochs()? {

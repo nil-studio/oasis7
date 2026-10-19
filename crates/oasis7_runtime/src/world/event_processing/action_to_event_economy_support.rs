@@ -220,34 +220,11 @@ pub(super) fn merge_recipe_consume_with_maintenance_sink(
     consume: &[MaterialStack],
     produce: &[MaterialStack],
 ) -> Vec<MaterialStack> {
-    let mut merged: BTreeMap<String, i64> = BTreeMap::new();
-    for stack in consume {
-        let entry = merged.entry(stack.kind.clone()).or_insert(0);
-        *entry = entry.saturating_add(stack.amount);
-    }
-    for stack in produce {
-        if stack.amount <= 0 {
-            continue;
-        }
-        let Some(profile) = world.product_profile(stack.kind.as_str()) else {
-            continue;
-        };
-        for sink in &profile.maintenance_sink {
-            if sink.amount <= 0 {
-                continue;
-            }
-            let required_amount = sink.amount.saturating_mul(stack.amount);
-            if required_amount <= 0 {
-                continue;
-            }
-            let entry = merged.entry(sink.kind.clone()).or_insert(0);
-            *entry = entry.saturating_add(required_amount);
-        }
-    }
-    merged
-        .into_iter()
-        .map(|(kind, amount)| MaterialStack::new(kind, amount))
-        .collect()
+    crate::state::apply_domain_event_industry_helpers::recipe_consume_with_maintenance(
+        &world.state,
+        consume,
+        produce,
+    )
 }
 
 fn infer_bottleneck_tags(consume: &[MaterialStack]) -> Vec<String> {

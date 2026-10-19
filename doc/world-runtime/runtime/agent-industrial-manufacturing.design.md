@@ -1,6 +1,6 @@
 # 额外 Agent 工业制造、交付与恢复
 
-- 生命周期：`active`；含义为设计合同，未实现/未运行验收。
+- 生命周期：`active`；设计合同与运行时适配边界如下，系统验收独立记录。
 - Owner role：`runtime_engineer`；共同审读：`gameplay_designer`、`agent_engineer`、`qa_engineer`。
 - 适用范围：同一权威世界中额外 Agent 的报价、订单、生产、交付、身份/claim 取得与失败恢复。
 - 静态实现基线：`e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`；核对日期：2026-10-19；未执行 Runtime、模型、交易或玩家验收。
@@ -68,6 +68,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；声明：[REQ-WR-AOS-0
 
 报价绑定 `world/chain/genesis`、authenticated buyer principal、解析后的 claim owner、builder/factory、beneficiary、固定制造配方/body/claim terms、input ledger、工厂位置 authority、取得槽位与相关授权/账本/设施 revisions。它包含专业政策全部成本、来源、时间窗口、最大不可逆损失、交付范围及 scope digest；`quote_id + quote_digest` 定位精确内容。请求只选择受支持身份和策略，不上传自定义材料表或 Agent 初始资源。
 
+实现适配将 `world_id / chain_id / genesis_ref` 规范化摘要保存为报价的 `world_binding`，它参与 quote digest 并随订单冻结。正式 Service 从当前 World 的 chain resource manifest 生成该摘要；所有确认、进度、交付、取消、报废与冻结退款释放都必须同时匹配原报价与当前事件的 world binding。换 manifest 不迁移在制品、预留或退款资格。旧无 binding 记录只在同样无 binding 的本地兼容上下文保持可读/可处理，不能在具有正式 world binding 的宿主中静默补绑定；精确历史请求可回读原 receipt，不能触发新效果。
+
 quote 不写资产预留或创造库存，可以由可信状态产生可验证的有界报价载荷；确认提交须重新解析其内容并验证同一适用事实。以 `now < expires_at` 判断有效，缺失或冲突事实返回重新报价，不能取新值静默补齐。无关世界事件或 tick 前进本身不改变价格/授权 revision，只有窗口超时或相关依赖失配使报价失效。
 
 政策正常更新仅影响新报价，新单确认固定完整条款。已确认订单可按旧经济条款履行，但安全撤销、设施退役、无效模板、当前取得限制始终能阻止后续效果；政策停用必须声明“停止新单，允许旧单履行”或“禁止旧单继续生产/交付”的准确范围，缺失 disposition 时保持 blocked。不得以冻结价格为由冻结权限，也不得在恢复时补收新价差。
@@ -103,7 +105,7 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；声明：[REQ-WR-AOS-0
 
 quote 是独立只读预览，不作为持久 order 状态。提交超时/连接断开是 request outcome unknown，不是新增业务终态，也不触发退款或重新制造。技术 prepare/serialize/publication 失败若无提交，则保持前态，不转成一次经营损失；如果已提交但 ACK 丢失，回读同单恢复事实。
 
-生产进度来自已提交的 `completed_work_ticks` 和 `last_progress_tick`：仅在该 tick 当前权限、同一设施/配方、维护与原 WIP 条件全部合法时增加一次；受阻或世界暂停不增加。`ready_at` 只是按剩余工作量重算的预测，不是完成证据；合法恢复保留已完成工作，不能把无权限期间计作生产。硬截止仍为专业政策定义的首次阻断期限与 `started_at + 12 + 24` 上界的较早者，恢复不刷新；若剩余合法生产时间不足则明确预计无法按期完成。到期事件与恢复/交付同序处理，窗口端点 `now >= deadline` 先判过期，不能在等于截止时恢复后再终结一次。经济冻结/争议禁止支出的退款部分保留原受益人的冻结返还记录，不转给操作者或治理池。
+生产进度来自已提交的 `completed_work_ticks` 和 `last_progress_tick`：仅在该 tick 当前权限、同一设施/配方、维护与原 WIP 条件全部合法时增加一次；受阻或世界暂停不增加。`ready_at` 只是按剩余工作量重算的预测，不是完成证据；合法恢复保留已完成工作，不能把无权限期间计作生产。硬截止仍为专业政策定义的首次阻断期限与 `started_at + 12 + 24` 上界的较早者，恢复不刷新；若剩余合法生产时间不足则明确预计无法按期完成。到期事件与恢复/交付同序处理，窗口端点 `now >= deadline` 先判过期，不能在等于截止时恢复后再终结一次。经济冻结/争议禁止支出的退款部分保留原受益人的冻结返还记录，不转给操作者或治理池。终态与退款是否完成独立记录：`refund_pending=true` 时原来源的未消费材料/电力和未结算认领款仍在订单 escrow，生产槽与取得预留已经释放；`refunded_at` 只有在原 owner/source 恢复且当前允许支出、同世界的原子释放提交后填写。终态 pending 由原单 Advance 复核，源失配期间不把退款放入新主体可支出的原 Agent 余额，重复释放不再次付出。
 
 ## 6. 接口与数据合同
 
@@ -250,3 +252,14 @@ Viewer、pure API 和获准 Agent 对同一 committed projection 保持相同完
 | 功能完整性与证据 | 本文冻结可实施合同及首版政策，实际制造 producer/恢复/读面尚未实现 | #4850 继续承接实现/验证；有界结构通过不能升级 AOS-004 实现状态或公开能力 |
 
 首版无必须临时猜测的配方、费用、产能、等待或损失参数；长期开厂服务、远程运输、定制型号和可回收半成品明确不在本期。对应专业 owner 只有在补齐政策、权限、结算和同候选验证后才能扩大范围，不因本文 active 自动启用。
+
+
+## 运行时适配合同
+
+制造通过 `WorldRule` 的报价、确认、推进、交付、取消和报废命令进入同一 prepared publication。`world_rules/industrial.rs` 保存冻结报价、预留、合法工作进度及唯一目标；自动推进与显式请求共用验证器。报价从真实 assembler、材料账本、地点 authority 和主绑定/claim/在途取得规模解析，不接受调用者提供配方或费用。确认将 liquid 费用转入订单占用，普通消费者只见剩余可用余额；交付消费原冻结费用，同次安装 Agent、claim、地点和来源。单工厂制造占一个槽，普通配方保留另一槽。
+
+制造控制来源由原订单及当前有效 claim 共同证明。`world/industrial_control.rs` 为正式鉴权、委托、任务和 host 提供同源 resolver；来源冻结根 Agent、玩家与取得事件，继续依赖当前根身份权限。主绑定重绑不会自动转移旧制造 Agent，claim 终态立即失权，后继合法 claim 使用新来源与新 generation，不能复活旧 grant。额外 Agent 不取得 starter 支持。历史注册事件使用原版本语义，不能因 ID 恰有 `industrial:` 前缀就被解释成制造；新注册版本保留该命名空间给制造 producer。
+
+稀疏状态投影与完整安装同时包含订单、资金、claim、Agent 和地点，恢复只重放既有业务事件。API 的 `world_rule_status` 提供主体可见的报价、阶段、进度、截止、blocker 和下一步。Viewer、自治执行及跨节点持久世界的实际验收仍按对应手册完成，源码接入不代签运行结果。
+
+每个目标的 v1 取得具有持久 `acquisition_sequence`：取得时检查溢出并递增，claim 终态保留序号，后继取得即使发生于同一 tick 也不能复用旧控制来源。序号、claim、资金和 control source 在同一 prepared 提交中安装及投影。v0 历史事件不创建序号，空序号表省略序列化，保留旧状态根语义。

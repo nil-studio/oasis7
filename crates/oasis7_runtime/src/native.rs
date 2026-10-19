@@ -215,12 +215,12 @@ pub use gameplay::{
     ActiveGameplayModule, GAMEPLAY_BASELINE_KINDS, GameplayKindCoverage, GameplayModeReadiness,
 };
 pub use gameplay_state::{
-    AgentClaimState, AllianceState, CrisisState, CrisisStatus, EconomicContractFulfillmentKind,
-    EconomicContractState, EconomicContractStatus, GOVERNANCE_IDENTITY_DEFAULT_MAX_VOTE_WEIGHT,
-    GameplayPolicyState, GovernanceIdentityProfileState, GovernanceIdentityStatus,
-    GovernanceProposalState, GovernanceProposalStatus, GovernanceVoteBallotState,
-    GovernanceVoteState, GovernanceVoteWeightSnapshotState, MetaProgressState,
-    WarParticipantOutcome, WarState,
+    AgentClaimControlSourceV1, AgentClaimState, AllianceState, CrisisState, CrisisStatus,
+    EconomicContractFulfillmentKind, EconomicContractState, EconomicContractStatus,
+    GOVERNANCE_IDENTITY_DEFAULT_MAX_VOTE_WEIGHT, GameplayPolicyState,
+    GovernanceIdentityProfileState, GovernanceIdentityStatus, GovernanceProposalState,
+    GovernanceProposalStatus, GovernanceVoteBallotState, GovernanceVoteState,
+    GovernanceVoteWeightSnapshotState, MetaProgressState, WarParticipantOutcome, WarState,
 };
 pub use modules::{
     EconomyModuleKind, FactoryBuildDecision, FactoryBuildRequest, FactoryModuleApi,
@@ -433,3 +433,5 @@ pub use world::OwnerControlHostAuthority;
 pub use world::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};
 
 pub mod world_rules;
+
+pub use world::ResolvedAgentOwnerV1;

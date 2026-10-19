@@ -2,6 +2,12 @@ use super::*;
 use oasis7_agent_api::world_action::{OrganizationEstateRightV1, OrganizationEstateScopeV1};
 use std::collections::BTreeSet;
 
+mod organization_continuity;
+pub use organization_continuity::*;
+pub(crate) use organization_continuity::{
+    activity_catalog_root, activity_close_commitment, economic_contract_terms_hash,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OrganizationProtectionPhaseV1 {
@@ -110,6 +116,7 @@ impl PreparedWorldRule {
         key: &str,
         command: &WorldRuleCommandV1,
         now: u64,
+        world_binding: &str,
     ) -> Result<String, WorldError> {
         use OrganizationDispositionPhaseV1 as D;
         use OrganizationProtectionPhaseV1 as P;
@@ -124,7 +131,21 @@ impl PreparedWorldRule {
                     .alliances
                     .get(organization_id)
                     .ok_or_else(|| invalid("organization_missing"))?;
+                if !self
+                    .rules
+                    .organization_continuity
+                    .registrations
+                    .contains_key(organization_id)
+                {
+                    return Err(invalid("organization_continuity_enable_required"));
+                }
+                if self.rules.organization_continuity.registrations[organization_id].world_binding
+                    != world_binding
+                {
+                    return Err(invalid("organization_world_binding_or_policy_changed"));
+                }
                 if !alliance.members.iter().any(|id| id == actor)
+                    || state.organization_risk_frozen(organization_id)
                     || self.rules.organization_cases.values().any(|c| {
                         c.organization_id == *organization_id
                             && (c.phase != P::Resolved || c.disposition == D::Complete)
@@ -157,6 +178,15 @@ impl PreparedWorldRule {
                         effect_receipt: None,
                     },
                 );
+                self.rules.organization_continuity.accept_material_deposit(
+                    organization_id,
+                    key,
+                    key,
+                    actor,
+                    material,
+                    *amount,
+                    *held_in_trust,
+                )?;
                 Ok(key.into())
             }
             WorldRuleCommandV1::OpenOrganizationProtection { organization_id }
@@ -239,10 +269,20 @@ impl PreparedWorldRule {
                     if !matches!(case.phase, P::Active | P::Limited) {
                         return Err(invalid("organization_protection_blocks_disposition"));
                     }
-                    let right=if case.disposition==D::Residual {OrganizationEstateRightV1::FinalizeCase}else{OrganizationEstateRightV1::AdvanceCase};
-                    let scoped=OrganizationEstateScopeV1 {object_id:case.id.clone(),right};
-                    let explicit=case.grants.values().find(|g|g.expires_at>now&&g.scopes.contains(&scoped));
-                    if explicit.map_or(actor!=case.founder_id,|grant|grant.delegate_id!=actor)
+                    let right = if case.disposition == D::Residual {
+                        OrganizationEstateRightV1::FinalizeCase
+                    } else {
+                        OrganizationEstateRightV1::AdvanceCase
+                    };
+                    let scoped = OrganizationEstateScopeV1 {
+                        object_id: case.id.clone(),
+                        right,
+                    };
+                    let explicit = case
+                        .grants
+                        .values()
+                        .find(|g| g.expires_at > now && g.scopes.contains(&scoped));
+                    if explicit.map_or(actor != case.founder_id, |grant| grant.delegate_id != actor)
                         || case
                             .requests
                             .values()

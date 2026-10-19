@@ -23,6 +23,7 @@ use super::economy_data_publication::SparseMapProjection;
 pub(crate) struct PreparedAgentClaimEconomic {
     event: DomainEvent,
     manufactured: Option<(String, AgentCell)>,
+    acquisition_sequence_update: Option<(String, u64)>,
     actor: String,
     claim: AgentClaimState,
     account: MainTokenAccountBalance,
@@ -72,6 +73,7 @@ impl PreparedAgentClaimEconomic {
         let mut account = state.main_token_balances.get(actor).cloned();
         let mut supply = state.main_token_supply.clone();
         let mut treasury = BTreeMap::new();
+        let mut acquisition_sequence_update = None;
         let (claim, last_epoch) = match event {
             DomainEvent::AgentClaimed {
                 acquisition_contract_version,
@@ -120,6 +122,9 @@ impl PreparedAgentClaimEconomic {
                 if *acquisition_contract_version > 1 {
                     return Err(invalid("unsupported_agent_acquisition_contract"));
                 }
+                if *acquisition_contract_version == 1 && state.is_manufactured_agent(actor) {
+                    return Err(invalid("manufactured_actor_cannot_acquire_agent"));
+                }
                 let industrial_origin = manufactured
                     .as_ref()
                     .is_some_and(|(id, _)| id == target_agent_id)
@@ -128,18 +133,59 @@ impl PreparedAgentClaimEconomic {
                             o.target_agent_id == *target_agent_id && o.delivered_at.is_some()
                         })
                     });
-                if *acquisition_contract_version == 1 && owned > 0 && !industrial_origin {
+                if *acquisition_contract_version == 1
+                    && (owned > 0
+                        || state.starter_oc_claims.contains_key(actor) && target_agent_id != actor)
+                    && !industrial_origin
+                {
                     return Err(invalid("additional_agent_requires_industrial_delivery"));
                 }
-                let quote = agent_claim_quote(
-                    state.reputation_scores.get(actor).copied().unwrap_or(0),
-                    owned,
-                )
-                .map_err(|reason| {
-                    invalid(format!(
-                        "agent claim quote mismatch: owner={actor} reason={reason}"
-                    ))
-                })?;
+                if *acquisition_contract_version == 1 && state.starter_oc_claims.contains_key(actor)
+                {
+                    crate::world_rules::manufacturing_capacity_guard(
+                        state,
+                        actor,
+                        Some(target_agent_id),
+                        false,
+                    )?;
+                }
+                if *acquisition_contract_version == 1 {
+                    let previous = state
+                        .agent_claim_acquisition_sequences
+                        .get(target_agent_id)
+                        .copied()
+                        .unwrap_or(0);
+                    let next = previous
+                        .checked_add(1)
+                        .ok_or_else(|| invalid("agent_claim_acquisition_sequence_overflow"))?;
+                    acquisition_sequence_update = Some((target_agent_id.clone(), next));
+                }
+                let quote = if manufactured.is_some() {
+                    state.world_rules.as_ref().and_then(|r|r.agent_orders.values().find(|o| o.target_agent_id==*target_agent_id && o.phase==crate::world_rules::AgentIndustrialPhaseV1::AwaitingDelivery))
+                        .ok_or_else(||invalid("manufacturing_delivery_order_missing"))?.quote.claim_cost.clone()
+                } else {
+                    let scale = if *acquisition_contract_version == 1
+                        && state.starter_oc_claims.contains_key(actor)
+                    {
+                        let mut targets =
+                            crate::world_rules::manufacturing_existing_targets(state, actor)?;
+                        targets.extend(crate::world_rules::manufacturing_reserved_targets(
+                            state, actor,
+                        ));
+                        targets.len()
+                    } else {
+                        owned
+                    };
+                    agent_claim_quote(
+                        state.reputation_scores.get(actor).copied().unwrap_or(0),
+                        scale,
+                    )
+                    .map_err(|reason| {
+                        invalid(format!(
+                            "agent claim quote mismatch: owner={actor} reason={reason}"
+                        ))
+                    })?
+                };
                 if quote.reputation_tier != *reputation_tier
                     || quote.slot_index != *slot_index
                     || quote.activation_fee_amount != *activation_fee_amount
@@ -239,6 +285,37 @@ impl PreparedAgentClaimEconomic {
                 )?;
                 (
                     AgentClaimState {
+                        control_source: if *acquisition_contract_version == 1 && industrial_origin {
+                            let root = state
+                                .starter_oc_claims
+                                .get(actor)
+                                .ok_or_else(|| invalid("manufactured_claim_root_unavailable"))?;
+                            if root.agent_id != *actor
+                                || root.player_id.is_empty()
+                                || root.public_key.as_ref().is_none_or(|key| key.is_empty())
+                            {
+                                return Err(invalid("manufactured_claim_root_invalid"));
+                            }
+                            Some(crate::gameplay_state::AgentClaimControlSourceV1 {
+                                acquisition_sequence: acquisition_sequence_update
+                                    .as_ref()
+                                    .expect("v1 acquisition")
+                                    .1,
+                                root_agent_id: actor.clone(),
+                                player_id: root.player_id.clone(),
+                                root_claimed_at: root.claimed_at,
+                                acquired_event_digest: crate::util::hash_json(&(
+                                    "oasis7.agent-claim.acquisition.v1",
+                                    event,
+                                    acquisition_sequence_update
+                                        .as_ref()
+                                        .expect("v1 acquisition")
+                                        .1,
+                                ))?,
+                            })
+                        } else {
+                            None
+                        },
                         target_agent_id: target_agent_id.clone(),
                         claim_owner_id: actor.clone(),
                         reputation_tier: *reputation_tier,
@@ -359,6 +436,7 @@ impl PreparedAgentClaimEconomic {
         Ok(Self {
             event: event.clone(),
             manufactured,
+            acquisition_sequence_update,
             actor: actor.clone(),
             claim,
             account: account.expect("validated claim funding owns account"),
@@ -380,6 +458,11 @@ impl PreparedAgentClaimEconomic {
     pub(crate) fn install_infallible(self, state: &mut WorldState) {
         if let Some((id, cell)) = self.manufactured {
             state.agents.insert(id, cell);
+        }
+        if let Some((target, sequence)) = self.acquisition_sequence_update {
+            state
+                .agent_claim_acquisition_sequences
+                .insert(target, sequence);
         }
         state.agents.insert(self.actor.clone(), self.agent);
         state.main_token_balances.insert(self.actor, self.account);
@@ -447,6 +530,33 @@ impl PreparedAgentClaimEconomic {
                 deletion: None,
             },
         )
+    }
+    pub(crate) fn has_acquisition_sequence_update(&self) -> bool {
+        self.acquisition_sequence_update.is_some()
+    }
+    pub(crate) fn serialize_acquisition_sequences<S: SerializeStruct>(
+        &self,
+        state: &WorldState,
+        out: &mut S,
+    ) -> Result<(), S::Error> {
+        if let Some((target, sequence)) = &self.acquisition_sequence_update {
+            let updates = BTreeMap::from([(target.clone(), *sequence)]);
+            out.serialize_field(
+                "agent_claim_acquisition_sequences",
+                &SparseMapProjection {
+                    base: &state.agent_claim_acquisition_sequences,
+                    updates: &updates,
+                    deletion: None,
+                },
+            )
+        } else if !state.agent_claim_acquisition_sequences.is_empty() {
+            out.serialize_field(
+                "agent_claim_acquisition_sequences",
+                &state.agent_claim_acquisition_sequences,
+            )
+        } else {
+            Ok(())
+        }
     }
     pub(crate) fn serialize_last_epoch<S: SerializeStruct>(
         &self,

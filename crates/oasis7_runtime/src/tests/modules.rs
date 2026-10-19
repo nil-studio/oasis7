@@ -117,6 +117,7 @@ fn perf_probe_runtime_module_routing_with_many_active_manifests() {
         caused_by: None,
         body: crate::WorldEventBody::Domain(
             crate::DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: "agent-perf".to_string(),
                 pos: pos(0, 0),
             },

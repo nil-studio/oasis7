@@ -94,10 +94,7 @@ impl World {
             return Err("scheduler base binding changed".into());
         }
         let agent = intent.agent_id.as_str();
-        let identity = self
-            .capability_revocation_state
-            .agent_identities
-            .get(agent)
+        let identity = self.current_agent_identity(agent)
             .ok_or("missing Agent identity")?
             .clone();
         // Existing operations run on a clone; publication failure cannot leave

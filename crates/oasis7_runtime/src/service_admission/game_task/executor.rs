@@ -11,10 +11,7 @@ pub fn validate_executor_owner(
 ) -> Result<(), String> {
     verify_executor_control(signed)?;
     let f = &signed.request.fence;
-    let identity = world
-        .capability_revocation_state()
-        .agent_identities
-        .get(&f.agent_id)
+    let identity = world.current_agent_identity(&f.agent_id)
         .ok_or("executor owner identity unavailable")?;
     let runtime = world
         .current_cognition_runtime_binding()

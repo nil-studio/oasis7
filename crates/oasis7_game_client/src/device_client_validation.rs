@@ -79,7 +79,18 @@ pub(super) fn bounded_world_rules(value: Value) -> Value {
         Value::Object(tables) => Value::Object(
             tables
                 .into_iter()
-                .map(|(key, value)| (key, bounded_collection(value)))
+                .map(|(key, value)| {
+                    let nested =
+                        matches!(key.as_str(), "emergency_supply" | "organization_continuity");
+                    (
+                        key,
+                        if nested {
+                            bounded_world_rules(value)
+                        } else {
+                            bounded_collection(value)
+                        },
+                    )
+                })
                 .collect(),
         ),
         _ => Value::Null,

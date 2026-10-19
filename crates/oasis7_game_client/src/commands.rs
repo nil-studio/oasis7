@@ -3,7 +3,7 @@ use crate::operation_store::ClientStateKind;
 use oasis7_client_api::world_service::*;
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path};
-const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
+const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  schedule-essential --context <context-id> --factory <factory-id> --recipe <recipe-id> --batches <positive-u32> --obligation <registered-id>\n  world-rule-key --request <stable-id>\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() || args == ["--help"] {
@@ -29,6 +29,14 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             "--routes",
         ],
         "world-rule" => &["--context", "--request", "--command"],
+        "world-rule-key" => &["--request"],
+        "schedule-essential" => &[
+            "--context",
+            "--factory",
+            "--recipe",
+            "--batches",
+            "--obligation",
+        ],
         "context" => &["--operation"],
         "move" => &["--context", "--to"],
         "outcome" => &["--context", "--reason"],
@@ -83,6 +91,36 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 "prepare_operation_id":operation,
                 "action_correlation_identity":prepared.identity.decision_request_id
             }))
+        }
+        "world-rule-key" => {
+            let request_id = required("--request")?;
+            if request_id.is_empty() || request_id.len() > 128 || request_id.trim() != request_id {
+                return Err(
+                    "world-rule request must contain 1 to 128 bytes without outer whitespace"
+                        .into(),
+                );
+            }
+            print(&json!({
+                "actor_id": client.agent,
+                "request_id": request_id,
+                "effect_ref": oasis7_agent_api::world_action::world_rule_request_key_v1(&client.agent, request_id)
+            }))
+        }
+        "schedule-essential" => {
+            let batches = required("--batches")?
+                .parse::<u32>()
+                .map_err(|_| "invalid batches")?;
+            if batches == 0 {
+                return Err("batches must be positive".into());
+            }
+            let action = oasis7_agent_api::world_action::Action::ScheduleEssentialRecipe {
+                requester_agent_id: client.agent.clone(),
+                factory_id: required("--factory")?.into(),
+                recipe_id: required("--recipe")?.into(),
+                batches,
+                obligation_id: required("--obligation")?.into(),
+            };
+            print(&client.submit_action(required("--context")?, action)?)
         }
         "world-rule" => {
             let command =

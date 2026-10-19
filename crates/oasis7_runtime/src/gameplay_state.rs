@@ -275,8 +275,22 @@ pub struct EconomicContractState {
 }
 
 /// Persisted agent claim ownership and upkeep state.
+/// Immutable claim-time authority for an industrial identity. A root rebind
+/// invalidates this source instead of silently transferring the extra Agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentClaimControlSourceV1 {
+    pub acquisition_sequence: u64,
+    pub root_agent_id: String,
+    pub player_id: String,
+    pub root_claimed_at: WorldTime,
+    pub acquired_event_digest: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentClaimState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_source: Option<AgentClaimControlSourceV1>,
     pub target_agent_id: String,
     pub claim_owner_id: String,
     #[serde(default)]

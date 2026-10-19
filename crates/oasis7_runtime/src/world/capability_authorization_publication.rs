@@ -247,10 +247,10 @@ impl World {
                 Ok(())
             }
             CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { signed } => {
-                crate::service_admission::agent_authority::validate_delegation(
-                    self, signed,
-                )
-                .map_err(|reason| super::capability_authorization::deny(&reason))?;
+                let mut projected = self.clone();
+                projected.capability_revocation_state = capability_revocation_state.clone();
+                crate::service_admission::agent_authority::validate_delegation(&projected, signed)
+                    .map_err(|reason| super::capability_authorization::deny(&reason))?;
                 capability_revocation_state
                     .agent_signer_delegations
                     .insert(signed.request.agent_id.clone(), signed.request.clone());
@@ -306,37 +306,18 @@ impl World {
                 Ok(())
             }
             CapabilityAuthorizationEvent::AgentIdentityInstalled { agent_id, identity } => {
-                super::capability_authorization::validate_agent_identity(agent_id, identity)?;
-                let Some(agent) = self.state.agents.get(agent_id) else {
-                    return Err(super::capability_authorization::deny(
-                        "capability agent identity requires a live agent",
-                    ));
-                };
-                if agent.state.agent_id != agent_id.as_str() {
-                    return Err(super::capability_authorization::deny(
-                        "live agent state id does not match its registry key",
-                    ));
-                }
-                if let Some(existing) = capability_revocation_state.agent_identities.get(agent_id) {
-                    if identity.generation < existing.generation {
-                        return Err(super::capability_authorization::deny(
-                            "capability agent identity generation regressed",
-                        ));
-                    }
-                    if identity.generation == existing.generation && existing != identity {
-                        return Err(super::capability_authorization::deny(
-                            "capability agent identity changed without a new generation",
-                        ));
-                    }
-                }
-                capability_revocation_state
-                    .agent_identities
-                    .insert(agent_id.clone(), identity.clone());
-                Ok(())
+                super::capability_authorization_events::project_agent_identity(
+                    &self.state,
+                    capability_revocation_state,
+                    agent_id,
+                    identity,
+                )
             }
             CapabilityAuthorizationEvent::GrantRegistered { grant } => {
+                let mut projected = self.clone();
+                projected.capability_revocation_state = capability_revocation_state.clone();
                 super::capability_authorization_events::validate_and_project_registered_grant(
-                    self,
+                    &projected,
                     capability_grants_v2,
                     grant,
                     self.state.time,
@@ -408,5 +389,15 @@ impl World {
                 "prepared capability authorization event batch contains an unsupported body",
             )),
         }
+    }
+}
+
+#[cfg(test)]
+impl World {
+    pub(crate) fn append_capability_identity_batch_for_test(
+        &mut self,
+        events: Vec<CapabilityAuthorizationEvent>,
+    ) -> Result<(), WorldError> {
+        self.append_capability_authorization_event_batch(events).map(|_| ())
     }
 }

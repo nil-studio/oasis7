@@ -400,13 +400,18 @@ impl World {
         };
         if organization.is_some_and(|id| {
             self.state.world_rules.as_ref().is_some_and(|r| {
-                r.organization_cases.values().any(|c| {
-                    &c.organization_id == id
-                        && c.phase != crate::world_rules::OrganizationProtectionPhaseV1::Resolved
-                }) || matches!(&envelope.action, Action::DissolveAlliance { .. })
-                    && r.organization_estate
-                        .values()
-                        .any(|d| &d.organization_id == id && !d.disposed)
+                (matches!(&envelope.action, Action::DissolveAlliance { .. })
+                    && r.organization_continuity.registrations.contains_key(id))
+                    || self.state.organization_risk_frozen(id)
+                    || r.organization_cases.values().any(|c| {
+                        &c.organization_id == id
+                            && c.phase
+                                != crate::world_rules::OrganizationProtectionPhaseV1::Resolved
+                    })
+                    || matches!(&envelope.action, Action::DissolveAlliance { .. })
+                        && r.organization_estate
+                            .values()
+                            .any(|d| &d.organization_id == id && !d.disposed)
             })
         }) {
             return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
@@ -423,12 +428,21 @@ impl World {
             _ => None,
         };
         if reserved_factory.is_some_and(|id| {
-            self.state.world_rules.as_ref().is_some_and(|rules| {
-                rules
-                    .agent_orders
-                    .values()
-                    .any(|o| &o.factory_id == id && o.delivered_at.is_none())
-            })
+            let reserved =
+                crate::world_rules::manufacturing_reserved_slots(&self.state, id) as usize;
+            let jobs = self
+                .state
+                .pending_recipe_jobs
+                .values()
+                .filter(|j| &j.factory_id == id)
+                .count();
+            reserved > 0
+                && (matches!(&envelope.action, Action::RecycleFactory { .. })
+                    || self
+                        .state
+                        .factories
+                        .get(id)
+                        .is_none_or(|f| jobs + reserved >= f.spec.recipe_slots as usize))
         }) {
             return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
                 action_id,
@@ -446,7 +460,90 @@ impl World {
                 },
             }));
         }
+        if let Action::ScheduleEssentialRecipe {
+            requester_agent_id,
+            factory_id,
+            recipe_id,
+            batches,
+            obligation_id,
+        } = &envelope.action
+        {
+            let prepare = || -> Result<WorldEventBody, WorldError> {
+                let plan = crate::builtin_recipe_plan(recipe_id, *batches)
+                    .ok_or_else(|| crate::world_rules::invalid("unsupported_essential_recipe"))?;
+                let rules = self
+                    .state
+                    .world_rules
+                    .as_ref()
+                    .ok_or_else(|| crate::world_rules::invalid("resource_blocked"))?;
+                if self.world_rule_binding().is_none()
+                    || self.world_rule_binding() != rules.emergency_supply.world_id
+                {
+                    return Err(crate::world_rules::invalid(
+                        "emergency_supply_world_binding_mismatch",
+                    ));
+                }
+                rules.emergency_supply.prepare_consumption_for_world(
+                    &self.state,
+                    requester_agent_id,
+                    obligation_id,
+                    recipe_id,
+                    self.state.time,
+                    plan.power_required,
+                )?;
+                let mut preview = self.clone();
+                let agent = preview
+                    .state
+                    .agents
+                    .get_mut(requester_agent_id)
+                    .ok_or_else(|| crate::world_rules::invalid("actor_not_found"))?;
+                let available = agent
+                    .state
+                    .resources
+                    .get(oasis7_agent_api::world_action::ResourceKind::Electricity);
+                agent
+                    .state
+                    .resources
+                    .set(
+                        oasis7_agent_api::world_action::ResourceKind::Electricity,
+                        available.max(plan.power_required),
+                    )
+                    .map_err(|_| crate::world_rules::invalid("power_preview_invalid"))?;
+                let mut body = preview.action_to_event(&ActionEnvelope {
+                    id: action_id,
+                    action: Action::ScheduleRecipe {
+                        requester_agent_id: requester_agent_id.clone(),
+                        factory_id: factory_id.clone(),
+                        recipe_id: recipe_id.clone(),
+                        plan,
+                        logistics_route_ids: vec![],
+                        logistics_path_ids: vec![],
+                    },
+                    committed_recipe_origin: envelope.committed_recipe_origin.clone(),
+                })?;
+                if let WorldEventBody::Domain(DomainEvent::RecipeStarted {
+                    emergency_power_obligation,
+                    ..
+                }) = &mut body
+                {
+                    *emergency_power_obligation = Some(obligation_id.clone());
+                }
+                Ok(body)
+            };
+            return Ok(match prepare() {
+                Ok(body) => body,
+                Err(error) => WorldEventBody::Domain(DomainEvent::ActionRejected {
+                    action_id,
+                    reason: RejectReason::RuleDenied {
+                        notes: vec![format!("{error:?}")],
+                    },
+                }),
+            });
+        }
         match &envelope.action {
+            Action::ScheduleEssentialRecipe { .. } => {
+                unreachable!("essential scheduling handled above")
+            }
             Action::WorldRule {
                 actor_id,
                 request_id,
@@ -458,12 +555,15 @@ impl World {
                     request_id: request_id.clone(),
                     command: command.clone(),
                     governance_epoch: self.current_governance_epoch(),
+                    world_binding: self.world_rule_binding(),
                 };
-                match crate::world_rules::PreparedWorldRule::prepare(
-                    &self.state,
-                    &event,
-                    self.state.time,
-                ) {
+                match self
+                    .prepare_world_rule_event(&event, self.state.time)
+                    .and_then(|prepared| {
+                        self.validate_world_rule_current_actor(&event)?;
+                        self.validate_manufactured_identity_acquisition(&event)?;
+                        Ok(prepared)
+                    }) {
                     Ok(_) => Ok(WorldEventBody::Domain(event)),
                     Err(error) => Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
                         action_id,
@@ -537,9 +637,21 @@ impl World {
             | Action::GrantMetaProgress { .. } => {
                 self.action_to_event_gameplay(action_id, &envelope.action)
             }
-            Action::ClaimAgent { .. }
-            | Action::ClaimStarterOc { .. }
-            | Action::ReleaseAgentClaim { .. } => {
+            Action::ClaimAgent { .. } => {
+                let body = self.action_to_event_gameplay(action_id, &envelope.action)?;
+                if let WorldEventBody::Domain(event) = &body {
+                    if let Err(error) = self.validate_manufactured_identity_acquisition(event) {
+                        return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                            action_id,
+                            reason: RejectReason::RuleDenied {
+                                notes: vec![format!("{error:?}")],
+                            },
+                        }));
+                    }
+                }
+                Ok(body)
+            }
+            Action::ClaimStarterOc { .. } | Action::ReleaseAgentClaim { .. } => {
                 self.action_to_event_gameplay(action_id, &envelope.action)
             }
             Action::UpdateGameplayPolicy { .. }
@@ -924,6 +1036,9 @@ impl World {
                         });
                     }
                     prepared.clone().install(self)?;
+                } else if matches!(event, DomainEvent::WorldRuleCommitted { .. }) {
+                    self.prepare_world_rule_event(event, time)?
+                        .install(&mut self.state);
                 } else {
                     self.state.apply_domain_event_at(
                         event,

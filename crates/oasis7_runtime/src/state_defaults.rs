@@ -106,6 +106,7 @@ impl Default for WorldState {
             data_access_permissions: BTreeMap::new(),
             economic_contracts: BTreeMap::new(),
             agent_claims: BTreeMap::new(),
+            agent_claim_acquisition_sequences: BTreeMap::new(),
             starter_oc_claims: BTreeMap::new(),
             authenticated_collect_data_last_nonces: BTreeMap::new(),
             agent_claim_last_processed_epoch: 0,

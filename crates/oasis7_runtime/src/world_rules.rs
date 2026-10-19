@@ -1,12 +1,19 @@
 //! Authoritative v1 world-rule business state and sparse transaction preparation.
 use crate::{AgentCell, DomainEvent, MaterialLedgerId, WorldError, WorldState, WorldTime};
 use oasis7_agent_api::world_action::WorldRuleCommandV1;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod authority;
+pub(crate) use authority::verify_world_rule_authority;
 mod industrial;
 mod organization;
+pub(crate) use organization::{
+    activity_catalog_root, activity_close_commitment, economic_contract_terms_hash,
+};
 mod supply;
+pub use industrial::*;
 pub use organization::*;
 pub use supply::*;
 
@@ -20,7 +27,34 @@ pub struct WorldRulesStateV1 {
     pub supply_batches: BTreeMap<String, SupplyBatchV1>,
     pub supply_lineages: BTreeMap<String, SupplyLineageV1>,
     pub supply_shipments: BTreeMap<u64, SupplyShipmentV1>,
+    #[serde(default)]
+    pub organization_continuity: OrganizationContinuityStateV1,
+    #[serde(default)]
+    pub emergency_supply: EmergencySupplyStateV1,
     pub agent_orders: BTreeMap<String, AgentIndustrialOrderV1>,
+}
+
+pub(crate) struct WorldRulesContinuityProjection<'a> {
+    pub(crate) base: &'a WorldRulesStateV1,
+    pub(crate) organization_continuity: &'a OrganizationContinuityStateV1,
+}
+
+impl Serialize for WorldRulesContinuityProjection<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut output = serializer.serialize_struct("WorldRulesStateV1", 11)?;
+        output.serialize_field("requests", &self.base.requests)?;
+        output.serialize_field("governance_effects", &self.base.governance_effects)?;
+        output.serialize_field("organization_cases", &self.base.organization_cases)?;
+        output.serialize_field("organization_estate", &self.base.organization_estate)?;
+        output.serialize_field("supply_authorizations", &self.base.supply_authorizations)?;
+        output.serialize_field("supply_batches", &self.base.supply_batches)?;
+        output.serialize_field("supply_lineages", &self.base.supply_lineages)?;
+        output.serialize_field("supply_shipments", &self.base.supply_shipments)?;
+        output.serialize_field("organization_continuity", self.organization_continuity)?;
+        output.serialize_field("emergency_supply", &self.base.emergency_supply)?;
+        output.serialize_field("agent_orders", &self.base.agent_orders)?;
+        output.end()
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldRuleReceiptV1 {
@@ -30,24 +64,14 @@ pub struct WorldRuleReceiptV1 {
     pub committed_at: WorldTime,
     pub result_id: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentIndustrialOrderV1 {
-    pub order_id: String,
-    pub owner_id: String,
-    pub factory_id: String,
-    pub target_agent_id: String,
-    pub policy_version: u32,
-    pub inputs: BTreeMap<String, i64>,
-    pub confirmed_at: WorldTime,
-    pub ready_at: WorldTime,
-    pub delivered_at: Option<WorldTime>,
-}
 #[derive(Debug)]
 pub(crate) struct PreparedWorldRule {
     pub(crate) event: DomainEvent,
     pub(crate) rules: WorldRulesStateV1,
     pub(crate) ledgers: BTreeMap<MaterialLedgerId, BTreeMap<String, i64>>,
     pub(crate) agents: BTreeMap<String, AgentCell>,
+    pub(crate) locations: BTreeMap<String, crate::AgentLocationAuthorityV1>,
+    pub(crate) token_accounts: BTreeMap<String, crate::MainTokenAccountBalance>,
     pub(crate) removed_alliance: Option<String>,
     pub(crate) industry: Option<crate::state::industry_transition::PreparedIndustryEvent>,
     pub(crate) claim:
@@ -60,10 +84,12 @@ impl PreparedWorldRule {
         now: WorldTime,
     ) -> Result<Self, WorldError> {
         let DomainEvent::WorldRuleCommitted {
+            action_id,
             actor_id,
             request_id,
             command,
             governance_epoch,
+            world_binding,
             ..
         } = event
         else {
@@ -81,6 +107,8 @@ impl PreparedWorldRule {
             ledgers: BTreeMap::new(),
             agents: BTreeMap::from([(actor_id.clone(), state.agents[actor_id].clone())]),
             removed_alliance: None,
+            token_accounts: BTreeMap::new(),
+            locations: BTreeMap::new(),
             industry: None,
             claim: None,
         };
@@ -89,6 +117,23 @@ impl PreparedWorldRule {
                 return Err(invalid("request_content_conflict"));
             }
             return Ok(next);
+        }
+        validate_manufactured_world_scope(state, actor_id, world_binding.as_deref())?;
+        if serde_json::to_vec(command)?.len() > 65_536 {
+            return Err(invalid("world_rule_command_too_large"));
+        }
+        if matches!(
+            command,
+            WorldRuleCommandV1::OpenOrganizationProtection { .. }
+                | WorldRuleCommandV1::BeginOrganizationDissolution { .. }
+                | WorldRuleCommandV1::AdvanceOrganization { .. }
+                | WorldRuleCommandV1::GrantOrganizationScope { .. }
+                | WorldRuleCommandV1::RevokeOrganizationScope { .. }
+                | WorldRuleCommandV1::RequestOrganizationRecovery { .. }
+                | WorldRuleCommandV1::ResolveOrganizationRecovery { .. }
+                | WorldRuleCommandV1::DisposeOrganizationEstate { .. }
+        ) {
+            return Err(invalid("organization_continuity_upgrade_required"));
         }
         if command
             .governance_proposal()
@@ -105,6 +150,9 @@ impl PreparedWorldRule {
                 command,
                 WorldRuleCommandV1::CloseSupply { .. } | WorldRuleCommandV1::SettleSupply { .. }
             )
+            && !matches!(event,DomainEvent::WorldRuleCommitted {action_id:0,command:WorldRuleCommandV1::EmergencySupply{command:oasis7_agent_api::world_action::EmergencySupplyCommandV1::Observe{..}|oasis7_agent_api::world_action::EmergencySupplyCommandV1::Close{..}},..})
+            && !matches!(event,DomainEvent::WorldRuleCommitted {action_id:0,command:WorldRuleCommandV1::OrganizationContinuity{command:oasis7_agent_api::world_action::OrganizationContinuityCommandV1::FinalizeAvailabilityUnknown{..}|oasis7_agent_api::world_action::OrganizationContinuityCommandV1::OpenDormancyCase{..}|oasis7_agent_api::world_action::OrganizationContinuityCommandV1::PublishNotice{..}|oasis7_agent_api::world_action::OrganizationContinuityCommandV1::AdvancePhase{..}},..})
+            && !matches!(event,DomainEvent::WorldRuleCommitted {action_id:0,command:WorldRuleCommandV1::AdvanceAgentOrder{..}|WorldRuleCommandV1::CancelAgentOrder{..}|WorldRuleCommandV1::DisposeAgentOrder{..},..})
             && !matches!(
                 event,
                 DomainEvent::WorldRuleCommitted {
@@ -113,6 +161,7 @@ impl PreparedWorldRule {
                     ..
                 }
             )
+            && !matches!(event, DomainEvent::WorldRuleCommitted { action_id: 0, command, .. } if command.is_runtime_observation())
             && !matches!(event,DomainEvent::WorldRuleCommitted{action_id:0,command:WorldRuleCommandV1::AdvanceOrganization{case_id,..},..} if next.rules.organization_cases.get(case_id).is_some_and(|c|c.phase==OrganizationProtectionPhaseV1::Notice || c.phase==OrganizationProtectionPhaseV1::Limited && c.grants.values().all(|g|g.expires_at<=now||g.scopes.is_empty())))
         {
             return Err(invalid("actor_blocked"));
@@ -123,9 +172,42 @@ impl PreparedWorldRule {
                 .expect("validated actor")
                 .last_active = now;
         }
+        if command.is_runtime_observation()
+            && !matches!(event, DomainEvent::WorldRuleCommitted { action_id: 0, .. })
+        {
+            return Err(invalid("runtime_observation_is_system_only"));
+        }
         let result_id = match command {
+            WorldRuleCommandV1::MinimumService { command } => next.minimum_service(
+                state,
+                actor_id,
+                &key,
+                command,
+                now,
+                world_binding.as_deref().unwrap_or(""),
+            )?,
+            WorldRuleCommandV1::OrganizationContinuity { command } => next
+                .organization_continuity(
+                    state,
+                    actor_id,
+                    &key,
+                    command,
+                    now,
+                    world_binding.as_deref().unwrap_or(""),
+                    *action_id == 0,
+                )?,
+            WorldRuleCommandV1::EmergencySupply { command } => {
+                if world_binding.is_none() || world_binding != &next.rules.emergency_supply.world_id
+                {
+                    return Err(invalid("emergency_supply_world_binding_mismatch"));
+                }
+                next.emergency_supply(state, actor_id, &key, command, now)?
+            }
             WorldRuleCommandV1::ConfirmAgentOrder { .. }
-            | WorldRuleCommandV1::DeliverAgentOrder { .. } => {
+            | WorldRuleCommandV1::DeliverAgentOrder { .. }
+            | WorldRuleCommandV1::AdvanceAgentOrder { .. }
+            | WorldRuleCommandV1::CancelAgentOrder { .. }
+            | WorldRuleCommandV1::DisposeAgentOrder { .. } => {
                 next.industrial(state, actor_id, &key, command, *governance_epoch, now)?
             }
             WorldRuleCommandV1::AuthorizeSupply { .. }
@@ -137,23 +219,49 @@ impl PreparedWorldRule {
             | WorldRuleCommandV1::CloseSupply { .. } => {
                 next.supply(state, actor_id, &key, command, now)?
             }
-            _ => next.organization(state, actor_id, &key, command, now)?,
+            _ => next.organization(
+                state,
+                actor_id,
+                &key,
+                command,
+                now,
+                world_binding.as_deref().unwrap_or(""),
+            )?,
         };
+        if let WorldRuleCommandV1::DeliverAgentOrder { order_id } = command {
+            let order = &next.rules.agent_orders[order_id];
+            if order.delivered_at == Some(now) {
+                next.locations.insert(
+                    order.target_agent_id.clone(),
+                    crate::AgentLocationAuthorityV1 {
+                        agent_id: order.target_agent_id.clone(),
+                        location_id: order.quote.delivery_location_id.clone(),
+                        active: true,
+                        authority_revision: 1,
+                        effective_at: now,
+                    },
+                );
+            }
+        }
         if let Some(id) = command.governance_proposal() {
             next.rules
                 .governance_effects
                 .insert(id.into(), result_id.clone());
         }
-        next.rules.requests.insert(
-            key,
-            WorldRuleReceiptV1 {
-                request_id: request_id.clone(),
-                actor_id: actor_id.clone(),
-                command: command.clone(),
-                committed_at: now,
-                result_id,
-            },
-        );
+        let runtime_observation = command.is_runtime_observation()
+            && matches!(event, DomainEvent::WorldRuleCommitted { action_id: 0, .. });
+        if !runtime_observation {
+            next.rules.requests.insert(
+                key,
+                WorldRuleReceiptV1 {
+                    request_id: request_id.clone(),
+                    actor_id: actor_id.clone(),
+                    command: command.clone(),
+                    committed_at: now,
+                    result_id,
+                },
+            );
+        }
         Ok(next)
     }
     pub(crate) fn install(self, state: &mut WorldState) {
@@ -164,6 +272,8 @@ impl PreparedWorldRule {
         } else {
             state.agents.extend(self.agents);
         }
+        state.agent_location_authorities.extend(self.locations);
+        state.main_token_balances.extend(self.token_accounts);
         state.material_ledgers.extend(self.ledgers);
         if let Some(id) = self.removed_alliance {
             state.alliances.remove(&id);
@@ -207,13 +317,7 @@ fn validate_id(id: &str) -> Result<(), WorldError> {
     }
 }
 fn request_key(actor: &str, request: &str) -> String {
-    let mut hash = blake3::Hasher::new();
-    hash.update(b"oasis7.world-rule.request.v1");
-    hash.update(&(actor.len() as u64).to_le_bytes());
-    hash.update(actor.as_bytes());
-    hash.update(&(request.len() as u64).to_le_bytes());
-    hash.update(request.as_bytes());
-    format!("rule:{}", hash.finalize().to_hex())
+    oasis7_agent_api::world_action::world_rule_request_key_v1(actor, request)
 }
 
 impl WorldState {
@@ -223,22 +327,7 @@ impl WorldState {
         order: &AgentIndustrialOrderV1,
         now: WorldTime,
     ) -> Option<String> {
-        if order.delivered_at.is_some() {
-            return Some("already_delivered".into());
-        }
-        if now < order.ready_at {
-            return Some(format!("wait_until:{}", order.ready_at));
-        }
-        let Some(factory) = self.factories.get(&order.factory_id) else {
-            return Some("factory_missing".into());
-        };
-        if factory.builder_agent_id != order.owner_id || factory.durability_ppm <= 0 {
-            return Some("repair_or_restore_factory".into());
-        }
-        if let Err(error) = industrial::funding_for_order(self, &order.owner_id) {
-            return Some(format!("fund_or_restore_claim_eligibility:{error:?}"));
-        }
-        None
+        order.blocker(self, now)
     }
 }
 
@@ -331,7 +420,6 @@ fn require_governance(
         .map_err(|_| invalid("invalid_governance_binding"))?;
     if p.proposer_agent_id != actor
         || p.status != crate::GovernanceProposalStatus::Passed
-        || p.total_weight_at_finalize < 3
         || p.description != binding
     {
         return Err(invalid("bound_governance_approval_required"));
@@ -362,7 +450,14 @@ impl PreparedWorldRule {
 impl WorldState {
     pub(crate) fn organization_risk_frozen(&self, id: &str) -> bool {
         self.world_rules.as_ref().is_some_and(|r| {
-            r.organization_cases.values().any(|c| {
+            r.organization_continuity.cases.values().any(|c| {
+                c.organization_id == id
+                    && !matches!(
+                        c.phase,
+                        OrganizationContinuityPhaseV1::Resolved
+                            | OrganizationContinuityPhaseV1::Cancelled
+                    )
+            }) || r.organization_cases.values().any(|c| {
                 c.organization_id == id
                     && c.phase != OrganizationProtectionPhaseV1::Resolved
                     && (c.disposition != OrganizationDispositionPhaseV1::None
@@ -376,25 +471,65 @@ impl WorldState {
     }
     /// Read-only, source-tick-bound explanation; never an executable snapshot.
     pub fn world_rule_status(&self, reader: Option<&str>) -> Option<serde_json::Value> {
-        let rules = self.world_rules.as_ref()?;
-        let orders=rules.agent_orders.iter().take(128).map(|(id,order)|{
-            let blocker=if reader==Some(order.owner_id.as_str()){self.agent_industrial_order_blocker(order,self.time)}else{None};
-            (id.clone(),serde_json::json!({"delivered":order.delivered_at.is_some(),"ready_at":order.ready_at,"blocker":blocker,"next_step":if order.delivered_at.is_some(){"query_delivery_receipt"}else if self.time<order.ready_at{"wait_for_production"}else if blocker.is_some(){"resolve_blocker_then_retry_same_order"}else{"await_authoritative_delivery"}}))
+        self.world_rule_status_with_binding(reader, None)
+    }
+    pub fn world_rule_status_with_binding(
+        &self,
+        reader: Option<&str>,
+        world_binding: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let empty = WorldRulesStateV1::default();
+        let rules = self.world_rules.as_ref().unwrap_or(&empty);
+        let orders=rules.agent_orders.iter().take(128).map(|(id,order)| {
+            let owner=self.can_read_agent_industrial_order(order,reader,world_binding);
+            let blocker=owner.then(||order.blocker(self,self.time)).flatten();
+            let next_step=if order.refund_pending {if blocker.as_deref()==Some("refund_pending_authoritative_release"){"await_authoritative_refund_release"}else{"restore_original_owner_source_for_frozen_refund"}}else if order.is_terminal(){"query_original_receipt"}else if order.phase==AgentIndustrialPhaseV1::AwaitingDelivery {"deliver_or_resolve_blocker_before_deadline"}else{"await_legal_production_or_cancel_before_start"};
+            (id.clone(),serde_json::json!({"phase":order.phase,"refund_pending":order.refund_pending,"refunded_at":order.refunded_at,"completed_work_ticks":order.completed_work_ticks,"ready_at":order.ready_at,"production_deadline":order.production_deadline(),"delivery_deadline":order.produced_at.map(|at|at.saturating_add(24)),"blocker":blocker,"next_step":next_step}))
         }).collect::<BTreeMap<_,_>>();
+        let quotes=reader.into_iter().flat_map(|actor|self.factories.iter().filter(move|(_,f)|f.builder_agent_id==actor).take(128).map(move|(id,_)| {
+            let quote=self.agent_manufacturing_quote_with_binding(actor,id,self.time,world_binding);
+            (id.clone(),match quote {Ok(q)=>serde_json::json!({"quote":q}),Err(e)=>serde_json::json!({"blocker":format!("{e:?}"),"next_step":"restore_quote_prerequisites"})})
+        })).collect::<BTreeMap<_,_>>();
+        let activity_contract_candidates = rules
+            .organization_continuity
+            .activity_contract_candidates(self, reader, world_binding);
+        if self.world_rules.is_none() && quotes.is_empty() {
+            return None;
+        }
         Some(
-            serde_json::json!({"source_tick":self.time,"agent_orders":orders,"agent_order_count":rules.agent_orders.len(),"agent_orders_truncated":rules.agent_orders.len()>128,"supply_next_step":"inspect_original_authorization_batch_and_logistics_receipts","organization_next_step":"inspect_case_phase_request_status_scope_and_revision"}),
+            serde_json::json!({"source_tick":self.time,"agent_orders":orders,"manufacturing_quotes":quotes,"agent_order_count":rules.agent_orders.len(),"agent_orders_truncated":rules.agent_orders.len()>128,"organization_activity_contract_candidates":activity_contract_candidates,"supply_next_step":"inspect_verified_source_and_adapter_availability","organization_next_step":"inspect_explicit_continuity_registration_and_case"}),
         )
     }
 }
 
 impl WorldRulesStateV1 {
+    pub(crate) fn has_exact_request(
+        &self,
+        actor: &str,
+        request: &str,
+        command: &WorldRuleCommandV1,
+    ) -> bool {
+        self.requests
+            .get(&request_key(actor, request))
+            .is_some_and(|receipt| {
+                receipt.actor_id == actor
+                    && receipt.request_id == request
+                    && receipt.command == *command
+            })
+    }
+
     /// Public outcomes retain identity and phase; private demand/request bodies
     /// require the participating actor or the resource provider.
     pub fn for_reader(&self, reader: Option<&str>) -> Self {
         let mut value = self.clone();
         value
+            .agent_orders
+            .retain(|_, o| reader == Some(o.owner_id.as_str()));
+        value
             .requests
             .retain(|_, r| Some(r.actor_id.as_str()) == reader);
+        value.emergency_supply = self.emergency_supply.for_reader(reader);
+        value.organization_continuity = self.organization_continuity.for_reader(reader);
         let mut visible_lineages = std::collections::BTreeSet::new();
         for auth in self.supply_authorizations.values() {
             for beneficiary in &auth.beneficiaries {
@@ -445,4 +580,87 @@ impl WorldRulesStateV1 {
         }
         value
     }
+}
+
+impl crate::World {
+    pub fn world_rule_status(&self, reader: Option<&str>) -> Option<serde_json::Value> {
+        let binding = self.world_rule_binding();
+        let mut status = self
+            .state()
+            .world_rule_status_with_binding(reader, binding.as_deref())?;
+        if reader
+            .and_then(|actor| {
+                self.state()
+                    .resolved_agent_owner(actor)
+                    .map(|owner| (actor, owner))
+            })
+            .is_some_and(|(actor, owner)| {
+                self.industrial_owner_identity_conflicts(actor, &owner.player_id)
+            })
+        {
+            status["manufacturing_quotes"] = serde_json::json!({});
+        }
+        if let Some(rules) = &self.state().world_rules {
+            for (id, order) in &rules.agent_orders {
+                let Some(value) = status["agent_orders"].get_mut(id) else {
+                    continue;
+                };
+                let blocker = self
+                    .can_read_agent_industrial_order(order, reader)
+                    .then(|| self.industrial_order_blocker(order, self.state().time))
+                    .flatten();
+                value["blocker"] = serde_json::json!(blocker);
+                if order.refund_pending {
+                    value["next_step"] = serde_json::json!(if blocker.as_deref()
+                        == Some("refund_pending_authoritative_release")
+                    {
+                        "await_authoritative_refund_release"
+                    } else {
+                        "restore_original_owner_source_for_frozen_refund"
+                    });
+                }
+            }
+        }
+        Some(status)
+    }
+    pub fn can_read_agent_industrial_order(
+        &self,
+        order: &AgentIndustrialOrderV1,
+        reader: Option<&str>,
+    ) -> bool {
+        let binding = self.world_rule_binding();
+        !self.industrial_owner_identity_conflicts(&order.owner_id, &order.quote.owner_player_id)
+            && self
+                .state()
+                .can_read_agent_industrial_order(order, reader, binding.as_deref())
+    }
+}
+
+pub(crate) fn validate_manufactured_world_scope(
+    state: &WorldState,
+    agent: &str,
+    binding: Option<&str>,
+) -> Result<(), WorldError> {
+    if let Some(order) = state.world_rules.as_ref().and_then(|rules| {
+        rules
+            .agent_orders
+            .values()
+            .find(|order| order.target_agent_id == agent)
+    }) {
+        if order.quote.world_binding.as_deref() != binding {
+            return Err(invalid("manufactured_actor_world_binding_mismatch"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn emergency_authorize_fixture() -> (crate::World, oasis7_agent_api::world_action::Action)
+{
+    tests::emergency_authorize_fixture()
+}
+#[cfg(test)]
+#[cfg(feature = "wasmtime")]
+pub(crate) fn essential_recipe_fixture() -> (crate::World, oasis7_agent_api::world_action::Action) {
+    tests::essential_recipe_fixture()
 }

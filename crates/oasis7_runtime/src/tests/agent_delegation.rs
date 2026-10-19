@@ -1006,3 +1006,6 @@ mod signed_owner;
 
 #[path = "agent_delegation/provider_commit_boundary.rs"]
 mod provider_commit_boundary;
+
+#[path = "agent_delegation/world_rule_budget.rs"]
+mod world_rule_budget;

@@ -57,19 +57,14 @@ pub(super) fn lineage(auth: &SupplyAuthorizationV1, beneficiary: &str) -> String
         beneficiary
     )
 }
-fn valid(state: &WorldState, auth: &SupplyAuthorizationV1, now: u64) -> bool {
-    auth.active
-        && now >= auth.starts_at
-        && now < auth.expires_at
-        && auth.beneficiaries.iter().all(|id| {
-            state.agents.contains_key(id) && !state.gameplay_policy.blocked_agents.contains(id)
-        })
-        && state.crises.get(&auth.crisis_id).is_some_and(|c| {
-            c.status == crate::CrisisStatus::Active
-                && now < c.expires_at
-                && c == &auth.crisis_evidence
-        })
+fn valid(_state: &WorldState, _auth: &SupplyAuthorizationV1, _now: u64) -> bool {
+    // The unactivated draft material contract is not an Electricity authority.
+    false
 }
+
+#[path = "supply_policy.rs"]
+mod policy;
+pub use policy::*;
 
 impl PreparedWorldRule {
     pub(super) fn supply(
@@ -81,69 +76,15 @@ impl PreparedWorldRule {
         now: u64,
     ) -> Result<String, WorldError> {
         match command {
-            WorldRuleCommandV1::AuthorizeSupply {
-                proposal_key,
-                crisis_id,
-                material,
-                beneficiaries,
-                budget,
-                expires_at,
-            } => {
-                require_governance(state, actor, proposal_key, command)?;
-                let crisis = state
-                    .crises
-                    .get(crisis_id)
-                    .ok_or_else(|| invalid("crisis_evidence_missing"))?;
-                if crisis.status != crate::CrisisStatus::Active
-                    || crisis.severity < 3
-                    || *expires_at > crisis.expires_at
-                    || *expires_at
-                        <= now
-                            .checked_add(10)
-                            .ok_or_else(|| invalid("time_overflow"))?
-                    || *expires_at > now.saturating_add(600)
-                {
-                    return Err(invalid("crisis_or_authorization_window_invalid"));
+            WorldRuleCommandV1::AuthorizeSupply { material, .. } => {
+                // GAME-018 emergency-supply-policy-v1 only admits Electricity delivered
+                // into a registered minimum-consumption obligation. MaterialTransit
+                // credits transferable material inventory and cannot implement that
+                // contract. Fail before governance consumption or any resource debit.
+                if material != "Electricity" {
+                    return Err(invalid("scope_mismatch"));
                 }
-                if !["iron_ingot", "copper_wire", "alloy_plate", "control_chip"]
-                    .contains(&material.as_str())
-                    || *budget <= 0
-                    || *budget > 1_000_000_000
-                    || beneficiaries.is_empty()
-                    || beneficiaries.len() > 128
-                    || beneficiaries.contains(actor)
-                    || beneficiaries.iter().any(|id| {
-                        !state.agents.contains_key(id)
-                            || state.gameplay_policy.blocked_agents.contains(id)
-                    })
-                {
-                    return Err(invalid("supply_scope_invalid"));
-                }
-                self.debit(
-                    state,
-                    &MaterialLedgerId::agent(actor),
-                    &BTreeMap::from([(material.clone(), *budget)]),
-                )?;
-                self.rules.supply_authorizations.insert(
-                    key.into(),
-                    SupplyAuthorizationV1 {
-                        id: key.into(),
-                        provider_id: actor.into(),
-                        crisis_id: crisis_id.clone(),
-                        crisis_evidence: crisis.clone(),
-                        material: material.clone(),
-                        beneficiaries: beneficiaries.clone(),
-                        policy_version: 1,
-                        starts_at: now,
-                        expires_at: *expires_at,
-                        review_proposal: proposal_key.clone(),
-                        remaining_escrow: *budget,
-                        requests: BTreeMap::new(),
-                        revision: 0,
-                        active: true,
-                    },
-                );
-                Ok(key.into())
+                Err(invalid("unsupported_resource_path"))
             }
             WorldRuleCommandV1::RequestSupply {
                 authorization_id,
@@ -488,3 +429,13 @@ impl SupplyAuthorizationV1 {
         valid(state, self, now)
     }
 }
+
+#[path = "supply_minimum_service.rs"]
+mod minimum_service;
+pub use minimum_service::*;
+
+#[path = "supply_observation.rs"]
+mod observation;
+
+#[path = "supply_read.rs"]
+mod read;

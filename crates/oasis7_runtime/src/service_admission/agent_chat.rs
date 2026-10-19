@@ -21,9 +21,7 @@ pub fn validate_owner(world: &World, request: &AgentChatRequest) -> Result<(), S
         .ok_or("canonical chat proof required")?;
     let verified = verify_agent_chat_auth_proof(request, proof)?;
     let identity = world
-        .capability_revocation_state()
-        .agent_identities
-        .get(&request.agent_id)
+        .current_agent_identity(&request.agent_id)
         .ok_or("canonical Agent identity unavailable")?;
     let extension = request
         .canonical_authority
@@ -146,11 +144,7 @@ pub fn owner_view(
     agent: &str,
 ) -> Result<Option<oasis7_proto::viewer::CanonicalAgentChatViewV1>, String> {
     use oasis7_proto::viewer::*;
-    let Some(identity) = world
-        .capability_revocation_state()
-        .agent_identities
-        .get(agent)
-    else {
+    let Some(identity) = world.current_agent_identity(agent) else {
         return Ok(None);
     };
     let Ok(public_key) = super::agent_authority::owner_public_key(world, agent) else {

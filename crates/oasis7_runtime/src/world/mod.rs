@@ -142,6 +142,8 @@ mod module_release_publication;
 mod module_routing_runtime;
 mod module_runtime;
 mod module_runtime_labels;
+mod organization_activity_lifecycle;
+mod organization_continuity_lifecycle;
 mod module_runtime_metering;
 mod module_runtime_publication;
 mod module_tick_runtime;
@@ -1179,3 +1181,6 @@ mod provider_causal_commit;
 pub use provider_causal_commit::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};
 
 mod world_rule_lifecycle;
+
+mod industrial_control;
+pub use industrial_control::ResolvedAgentOwnerV1;

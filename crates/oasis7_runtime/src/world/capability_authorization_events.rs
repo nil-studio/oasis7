@@ -423,6 +423,7 @@ pub(super) fn validate_authority_record_transition(
 #[path = "capability_agent_identity_events.rs"]
 mod agent_identity;
 use agent_identity::apply_agent_identity;
+pub(super) use agent_identity::project_agent_identity;
 
 fn apply_system_identity(world: &mut World, system_id: &str, epoch: u64) -> Result<(), WorldError> {
     if system_id.trim().is_empty() || epoch > world.state.time {
@@ -939,11 +940,7 @@ pub(super) fn validate_subject_for_manifest(
             if agent.state.agent_id != *agent_id {
                 return Err(deny("live agent state id does not match its registry key"));
             }
-            let Some(identity) = world
-                .capability_revocation_state
-                .agent_identities
-                .get(agent_id)
-            else {
+            let Some(identity) = world.current_agent_identity(agent_id) else {
                 return Err(deny("live agent capability identity is not bound"));
             };
             if identity.owner_binding != *owner_binding || identity.generation != *generation {

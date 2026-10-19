@@ -155,6 +155,7 @@ fn explicit_event_position_stays_historical_and_never_follows_current_entity() {
         caused_by: None,
         body: crate::runtime::WorldEventBody::Domain(
             crate::runtime::DomainEvent::AgentRegistered {
+                registration_contract_version: 0,
                 agent_id: "a".into(),
                 pos: GeoPos::new(12, 34, 56),
             },

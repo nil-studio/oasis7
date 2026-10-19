@@ -5,6 +5,7 @@ fn starter_fixture(mode: bool) -> (World, DomainEvent) {
     world
         .append_event_for_test(
             WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: "alice".into(),
                 pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
             }),
@@ -212,6 +213,7 @@ fn priorities_success_routing_materials_and_action_raw_parity_are_exact() {
             world
                 .append_event_for_test(
                     WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                         agent_id: "bob".into(),
                         pos: oasis7_agent_api::world_action::GeoPos::new(1, 0, 0),
                     }),

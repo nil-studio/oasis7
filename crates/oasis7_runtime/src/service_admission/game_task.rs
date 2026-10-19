@@ -23,7 +23,9 @@ pub fn validate_owner(
     if agent_authority::owner_public_key(world, &request.agent_id)? != signed.subject_public_key {
         return Err("Game task requires canonical owner signature".into());
     }
-    let identity = &world.capability_revocation_state().agent_identities[&request.agent_id];
+    let identity = world
+        .current_agent_identity(&request.agent_id)
+        .ok_or("Agent identity unavailable")?;
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|e| format!("{e:?}"))?;
@@ -53,9 +55,7 @@ pub fn validate_publish_owner(
     let r = &signed.request;
     let owner = agent_authority::owner_public_key(world, &r.agent_id)?;
     let identity = world
-        .capability_revocation_state()
-        .agent_identities
-        .get(&r.agent_id)
+        .current_agent_identity(&r.agent_id)
         .ok_or("goal owner identity unavailable")?;
     let binding = world
         .current_cognition_runtime_binding()
@@ -99,7 +99,12 @@ fn collect<'a>(
         .as_ref()
         .is_some_and(|root| root != &canonical_empty)
     {
-        for agent in world.capability_revocation_state().agent_identities.keys() {
+        for agent in world
+            .state()
+            .agents
+            .keys()
+            .filter(|id| world.current_agent_identity(id).is_some())
+        {
             for (key, result) in super::retained_queries::game_task_results(world, agent)? {
                 if let Some(previous) = retained.get(&key) {
                     if previous != &result {
@@ -268,9 +273,7 @@ fn select_current<'a>(
         return Ok(None);
     }
     let identity = world
-        .capability_revocation_state()
-        .agent_identities
-        .get(agent)
+        .current_agent_identity(agent)
         .ok_or("task current owner identity unavailable")?;
     let binding = world
         .current_cognition_runtime_binding()

@@ -508,6 +508,14 @@ pub enum Action {
         operator_agent_id: String,
         factory_id: String,
     },
+    /// Consume only a registered minimum-service electricity allocation.
+    ScheduleEssentialRecipe {
+        requester_agent_id: String,
+        factory_id: String,
+        recipe_id: String,
+        batches: u32,
+        obligation_id: String,
+    },
     ScheduleRecipe {
         requester_agent_id: String,
         factory_id: String,
@@ -743,6 +751,9 @@ impl Action {
                 requester_agent_id, ..
             }
             | Action::SetLogisticsRouteAvailability {
+                requester_agent_id, ..
+            }
+            | Action::ScheduleEssentialRecipe {
                 requester_agent_id, ..
             }
             | Action::ScheduleRecipe {

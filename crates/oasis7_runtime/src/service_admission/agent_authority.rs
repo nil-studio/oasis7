@@ -6,22 +6,18 @@ use crate::World;
 
 pub fn owner_public_key(world: &World, agent_id: &str) -> Result<String, String> {
     let identity = world
-        .capability_revocation_state()
-        .agent_identities
-        .get(agent_id)
+        .current_agent_identity(agent_id)
         .ok_or("Agent identity unavailable")?;
-    let mut claims =
-        world.state().starter_oc_claims.values().filter(|claim| {
-            claim.agent_id == agent_id && claim.player_id == identity.owner_binding
-        });
-    let claim = claims.next().ok_or("canonical owner claim unavailable")?;
-    if claims.next().is_some() {
-        return Err("ambiguous canonical owner claim".into());
+    let owner = world
+        .state()
+        .resolved_agent_owner(agent_id)
+        .ok_or("canonical owner claim unavailable")?;
+    if owner.player_id != identity.owner_binding {
+        return Err("canonical owner changed".into());
     }
-    claim
+    owner
         .public_key
-        .clone()
-        .ok_or("canonical owner key unavailable".into())
+        .ok_or_else(|| "canonical owner key unavailable".into())
 }
 
 pub fn validate_delegation(
@@ -33,7 +29,9 @@ pub fn validate_delegation(
     if owner_public_key(world, &change.agent_id)? != signed.subject_public_key {
         return Err("delegation requires canonical owner signature".into());
     }
-    let identity = &world.capability_revocation_state().agent_identities[&change.agent_id];
+    let identity = world
+        .current_agent_identity(&change.agent_id)
+        .ok_or("Agent identity unavailable")?;
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|e| format!("{e:?}"))?;
@@ -86,10 +84,8 @@ pub fn validate_cognition_staged(
             &signed.signature_hex,
         )?;
     }
-    if matches!(
-        intent.action,
-        crate::Action::WorldServiceIntent { .. }
-    ) || oasis7_agent_api::world_action::main_token_action_auth_required(&intent.action)
+    if matches!(intent.action, crate::Action::WorldServiceIntent { .. })
+        || oasis7_agent_api::world_action::main_token_action_auth_required(&intent.action)
     {
         return Err(
             "cognition cannot authorize nested service or main-token controller actions".into(),
@@ -166,7 +162,9 @@ pub fn validate_agent_signer(
         .agent_signer_delegations
         .get(agent_id)
         .ok_or("provider signer has no canonical delegation")?;
-    let identity = &world.capability_revocation_state().agent_identities[agent_id];
+    let identity = world
+        .current_agent_identity(agent_id)
+        .ok_or("Agent identity unavailable")?;
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|e| format!("{e:?}"))?;

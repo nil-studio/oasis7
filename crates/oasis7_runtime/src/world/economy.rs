@@ -396,11 +396,18 @@ impl World {
             }));
         }
 
+        let current_world_binding = self.world_rule_binding();
         let mut due_recipes: Vec<_> = self
             .state
             .pending_recipe_jobs
             .values()
-            .filter(|job| job.ready_at <= now)
+            .filter(|job| {
+                job.ready_at <= now
+                    && job
+                        .emergency_power_world_binding
+                        .as_ref()
+                        .is_none_or(|binding| current_world_binding.as_ref() == Some(binding))
+            })
             .cloned()
             .collect();
         due_recipes.sort_by_key(|job| {
@@ -717,6 +724,7 @@ impl World {
                 .or_insert(1);
         }
 
+        self.add_manufacturing_factory_workload(&mut active_jobs_by_factory, now);
         for factory in factories {
             if factory.built_at >= now {
                 continue;

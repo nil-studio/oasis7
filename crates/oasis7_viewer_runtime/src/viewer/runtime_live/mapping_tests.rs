@@ -216,6 +216,7 @@ fn runtime_state_to_simulator_model_projects_runtime_factory_for_canonical_sched
 #[test]
 fn map_runtime_domain_event_agent_registered_uses_runtime_location_id() {
     let event = RuntimeDomainEvent::AgentRegistered {
+        registration_contract_version: 0,
         agent_id: "a1".to_string(),
         pos: GeoPos::new(12, 34, 56),
     };
@@ -276,6 +277,7 @@ fn map_runtime_domain_event_uses_generated_seed_location_ids() {
 
     let registered = map_runtime_domain_event(
         &RuntimeDomainEvent::AgentRegistered {
+            registration_contract_version: 0,
             agent_id: "a1".to_string(),
             pos: from_pos,
         },
@@ -399,6 +401,7 @@ fn map_runtime_domain_event_factory_built_emits_structured_runtime_event() {
 #[test]
 fn map_runtime_domain_event_recipe_started_and_completed_emit_structured_runtime_events() {
     let started = RuntimeDomainEvent::RecipeStarted {
+        emergency_power_obligation: None,
         committed_recipe_origin: None,
         job_id: 21,
         requester_agent_id: "agent.alpha".to_string(),

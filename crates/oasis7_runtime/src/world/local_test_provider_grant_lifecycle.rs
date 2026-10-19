@@ -52,12 +52,9 @@ impl World {
                 "local test authority requires a live agent",
             ));
         }
-        let identity = self
-            .capability_revocation_state
-            .agent_identities
-            .get(config.agent_id.as_str())
+        let identity = self.current_agent_identity(config.agent_id.as_str())
             .ok_or_else(|| local_test_error("local test capability identity is missing"))?;
-        if identity != &authority.identity {
+        if identity != authority.identity {
             return Err(local_test_error(
                 "local test capability identity does not match the authority bundle",
             ));
@@ -132,7 +129,7 @@ impl World {
         validate_local_test_provider_grant(
             self,
             &authority.grant,
-            identity,
+            &identity,
             config,
             &binding,
             &expected_authority,

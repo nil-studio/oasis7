@@ -27,6 +27,16 @@ impl World {
         body: WorldEventBody,
         caused_by: Option<CausedBy>,
     ) -> Result<WorldEventId, WorldError> {
+        if let WorldEventBody::Domain(DomainEvent::EconomicContractSettled {
+            world_binding: Some(event_binding),
+            ..
+        }) = &body
+            && self.world_rule_binding().as_deref() != Some(event_binding.as_str())
+        {
+            return Err(crate::world_rules::invalid(
+                "economic_contract_world_binding_mismatch",
+            ));
+        }
         match &body {
             WorldEventBody::CapabilityAuthorization(
                 CapabilityAuthorizationEvent::AuthorityInstalled { .. },
@@ -44,8 +54,51 @@ impl World {
             }
             _ => {}
         }
+        if matches!(
+            &body,
+            WorldEventBody::Domain(DomainEvent::RecipeStarted {
+                emergency_power_obligation: Some(_),
+                ..
+            })
+        ) {
+            let binding = self.world_rule_binding();
+            let frozen = self
+                .state
+                .world_rules
+                .as_ref()
+                .and_then(|r| r.emergency_supply.world_id.as_ref());
+            if binding.is_none() || binding.as_ref() != frozen {
+                return Err(crate::world_rules::invalid(
+                    "emergency_supply_world_binding_mismatch",
+                ));
+            }
+        }
+        if let WorldEventBody::Domain(DomainEvent::RecipeCompleted { job_id, .. }) = &body {
+            if self
+                .state
+                .pending_recipe_jobs
+                .get(job_id)
+                .and_then(|job| job.emergency_power_world_binding.as_ref())
+                .is_some_and(|binding| self.world_rule_binding().as_ref() != Some(binding))
+            {
+                return Err(crate::world_rules::invalid(
+                    "essential_recipe_world_binding_mismatch",
+                ));
+            }
+        }
+        if let WorldEventBody::Domain(event) = &body {
+            self.validate_manufactured_identity_acquisition(event)?;
+        }
+        if let WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { .. }) = &body {
+            self.validate_world_rule_current_actor(event)?;
+        }
         let state_delta = match &body {
-            WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { .. }) => Some(PreparedEventStateDelta::WorldRule(Box::new(crate::world_rules::PreparedWorldRule::prepare(&self.state,event,self.state.time)?))),
+            WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { world_binding, .. }) => {
+                if world_binding != &self.world_rule_binding() {
+                    return Err(crate::world_rules::invalid("world_rule_binding_mismatch"));
+                }
+                Some(PreparedEventStateDelta::WorldRule(Box::new(self.prepare_world_rule_event(event,self.state.time)?)))
+            },
             WorldEventBody::Domain(
                 event @ (DomainEvent::AgentIntentProposed { .. }
                 | DomainEvent::AgentIntentSubmitted { .. }

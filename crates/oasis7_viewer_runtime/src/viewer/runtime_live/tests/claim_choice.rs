@@ -29,6 +29,7 @@ fn bind_agent_for_snapshot(server: &mut ViewerRuntimeLiveServer, agent_id: &str)
 
 fn claim_state(target_agent_id: &str, claim_owner_id: &str) -> AgentClaimState {
     AgentClaimState {
+        control_source: None,
         target_agent_id: target_agent_id.to_string(),
         claim_owner_id: claim_owner_id.to_string(),
         reputation_tier: 0,
