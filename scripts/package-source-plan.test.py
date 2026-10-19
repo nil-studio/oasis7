@@ -107,7 +107,10 @@ for name in ("mainnet-packages", "testnet-packages", "release-packages"):
     if name != "release-packages":
         assert "cache-mode: read" in workflow
         for cache in re.findall(r"uses: Swatinem/rust-cache@[^\n]+\n(.*?)(?=      - |\Z)", workflow, re.S):
-            assert "save-if: false" in cache
+            if name == "testnet-packages" and "shared-key: oasis7-package-native-" in cache:
+                assert "save-if: ${{ github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}" in cache
+            else:
+                assert "save-if: false" in cache
 release = (repo / ".github/workflows/release-packages.yml").read_text()
 assert 'test "$object" = "$PLANNED_SHA"' in release
 assert "cache-mode: none" in release

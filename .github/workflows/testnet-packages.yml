@@ -40,6 +40,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   RUST_TOOLCHAIN: 1.96.0
+  TRUNK_VERSION: 0.21.14
 
 jobs:
   plan:
@@ -110,6 +111,14 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Verify planned Trunk installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/install-ci-trunk.sh || ! -s scripts/install-ci-trunk.sh || -L scripts/install-ci-trunk.sh ]]; then
+            echo "error: planned package source must include a nonempty regular scripts/install-ci-trunk.sh; select a source ref with verified Trunk installer support" >&2
+            exit 1
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -123,10 +132,22 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: testnet-packages-web-wasm-trusted-v2
+          shared-key: release-packages-web-wasm-trusted-v2
           cache-on-failure: true
-      - name: Install trunk
-        run: cargo install trunk --locked
+      - name: Restore pinned Trunk release archive
+        id: trunk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz
+          key: trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ hashFiles('scripts/install-ci-trunk.sh') }}
+      - name: Install verified pinned Trunk
+        shell: bash
+        run: bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
+      - name: Verify pinned trunk
+        shell: bash
+        run: |
+          set -euo pipefail
+          trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
       - name: Build web dists
         run: |
           mkdir -p output/testnet-packages/web-dist output/testnet-packages/web-launcher-dist output/testnet-packages/viewer-optional-payload
@@ -164,11 +185,15 @@ jobs:
     needs:
       - plan
       - build-web-dist
-    strategy:
+    if: >-
+      github.ref != 'refs/heads/main' || github.event_name != 'workflow_dispatch' ||
+      needs.plan.outputs.checkoutSha != github.sha || github.workflow_sha != github.sha ||
+      inputs.package_scope != 'linux_only' || inputs.build_profile != 'packaging'
+    strategy: &testnet-native-strategy
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    steps:
+    steps: &testnet-native-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -217,7 +242,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         if: runner.os == 'Linux'
         with:
-          save-if: false
+          save-if: ${{ github.job == 'package-native-trusted' && steps.linux-package-cache-write.outputs.save == 'true' }}
           shared-key: oasis7-package-native-${{ runner.os }}-${{ matrix.target_triple }}-${{ inputs.build_profile }}-trusted-v2
           cache-on-failure: false
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -453,3 +478,17 @@ jobs:
             output/testnet-packages/assets/${{ matrix.platform }}-ops-tools-SHA256SUMS
             output/testnet-packages/assets/windows-governed-closure/**
           if-no-files-found: warn
+
+  package-native-trusted:
+    cache-mode: write
+    name: package-trusted-${{ matrix.platform }}
+    needs:
+      - plan
+      - build-web-dist
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' &&
+      needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha &&
+      inputs.package_scope == 'linux_only' && inputs.build_profile == 'packaging'
+    strategy: *testnet-native-strategy
+    runs-on: ${{ matrix.os }}
+    steps: *testnet-native-steps
