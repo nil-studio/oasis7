@@ -150,21 +150,38 @@ def artifact_logical_name(variant, package, target, test):
     return 'required-executable-' + package + '-' + '-'.join(kinds) + '-' + name
 
 
-def validate_profile(logical, binary):
+def build_environment(scope):
+    env = dict(os.environ)
+    env.pop('RUSTC_WRAPPER', None)
+    if scope == 'storage':
+        # Keep test checks while avoiding debug-code cost in multi-hour workloads.
+        # Release endpoint policy is independent and remains unchanged.
+        for profile in ('DEV', 'TEST'):
+            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2'
+            env[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'] = 'true'
+            env[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'] = 'true'
+    return env
+
+
+def validate_profile(logical, binary, scope=None):
     if logical == 'endpoint':
         profile = binary['profile']
         if (binary['target'] != 'oasis7_durability_endpoint' or binary['test']
                 or profile['opt_level'] != '3' or profile['debug_assertions']
                 or Path(binary['original_executable']).parent.name != 'release'):
             raise ValueError('expected optimized release endpoint artifact')
+    elif scope == 'storage':
+        profile = binary.get('profile', {})
+        if (profile.get('opt_level') != '2' or profile.get('debug_assertions') is not True
+                or profile.get('overflow_checks') is not True):
+            raise ValueError('expected optimized storage artifact with assertions and overflow checks')
 
 
 def build(bundle, scope='all', cache_state_path=None):
     bundle.mkdir(parents=True, exist_ok=False)
     (bundle / 'bin').mkdir()
     (bundle / 'lib').mkdir()
-    env = dict(os.environ)
-    env.pop('RUSTC_WRAPPER', None)
+    env = build_environment(scope)
     cache_state = None
     if cache_state_path:
         try:
@@ -217,7 +234,7 @@ def build(bundle, scope='all', cache_state_path=None):
                     original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
                     ordinary=variant == 'required' and test, variant=variant,
                     bytes=destination.stat().st_size, libraries=[])
-                validate_profile(logical, binaries[logical])
+                validate_profile(logical, binaries[logical], scope)
                 if sys.platform == 'linux':
                     linked = subprocess.run(['ldd', str(source)], text=True, capture_output=True)
                     for line in linked.stdout.splitlines():
@@ -704,6 +721,8 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
 
 def load(bundle, suite=None, shard=None):
     manifest = json.loads((bundle / 'manifest.json').read_text())
+    if manifest.get('scope') == 'storage' and manifest.get('schema_version') != 2:
+        raise ValueError('expected schema 2 storage artifact')
     config = json.loads(CONFIG.read_text())
     expected = dict(tested_sha=output(['git', 'rev-parse', 'HEAD']),
                     source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -729,7 +748,7 @@ def load(bundle, suite=None, shard=None):
         if not os.access(path, os.X_OK):
             raise ValueError('missing, invalid or corrupt executable')
         if manifest.get('schema_version') == 2:
-            validate_profile(name, entry)
+            validate_profile(name, entry, manifest.get('scope'))
     # env!(CARGO_BIN_EXE_*) embeds Cargo's original absolute binary path.
     # Restore only recorded executables under this checkout's target directory.
     for entry in selected.values():
