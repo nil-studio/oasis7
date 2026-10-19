@@ -476,8 +476,7 @@ jobs:
           ./scripts/package-native-installer.sh \
             --platform "${{ matrix.platform }}" \
             --bundle-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
-            --out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
-            --ops-out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools" \
+            --out-dir output/testnet-packages/assets \
             --asset-name "${{ matrix.asset_name }}" \
             --version "${{ steps.package_version.outputs.value }}"
       - name: Stage Windows governed deployment closure

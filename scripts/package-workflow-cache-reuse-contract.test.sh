@@ -76,6 +76,10 @@ for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-t
     assert '      - ' + dependency + '\n' in assembly
 assert '!cancelled()' in assembly and "needs.build-web-dist.result == 'success'" in assembly
 assert '--native-binaries' in assembly and 'Swatinem/rust-cache@' not in assembly
+installer = assembly.split('      - name: Package native installer\n', 1)[1].split('      - name:', 1)[0]
+assert '--out-dir output/testnet-packages/assets' in installer
+assert '--ops-out-dir' not in installer
+
 assert '--native-only' in testnet and 'testnet-native-stage-${{ matrix.platform }}' in testnet
 
 # Execute the actual lane predicates, including untrusted branch/source revisions.
