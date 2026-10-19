@@ -128,7 +128,7 @@ export default function App(props: { preview?: boolean } = {}) {
   const decisions = () => snapshot()?.decisions ?? [];
   const pending = () => decisions().filter(d => d.state === 'confirmed' || d.confirmedAt !== null);
   const heading = () => views.find(([key]) => key === view())?.[1] ?? '方向与进度';
-  const description = () => ({ direction: '从当前主责条款理解下一项交付，核实依据与未知范围。', rules: '检索现行条款，保存理由与范围，保留决定的真实状态。', execution: '围绕工作目的查看分支、工作树、PR 与独立检查结果。', attention: '只汇集明确待选择事项；连接缺失不能推导没有运行请求。', tools: '管理当前电脑的资料与本机工具，核对真实结果。' } as Record<string, string>)[view()];
+  const description = () => ({ direction: '从当前主责条款理解下一项交付，核实依据与未知范围。', rules: '检索现行条款，保存理由与范围，保留决定的真实状态。', execution: '围绕工作目的查看分支、工作树、PR 与独立检查结果。', attention: '查看个人记录的问题，以及决定的同步与核实事项。', tools: '管理当前电脑的资料与本机工具，核对真实结果。' } as Record<string, string>)[view()];
   const sectionRows = (items: DocumentSection[]) => <For each={items}>{s => <div class="row">
     <div class="row-content"><button class="row-title" data-source-ref={s.id} onClick={e => showSource(s, e.currentTarget)}>{s.title}</button><div class="metadata"><span>{s.path}:{s.line}</span><span>{s.dirty ? '工作树有修改' : '已提交内容'}</span><span>源事实 · 实现验收未知</span><span>{lifecycleLabel(s)}</span></div></div><span class="tag">原文</span>
   </div>}</For>;

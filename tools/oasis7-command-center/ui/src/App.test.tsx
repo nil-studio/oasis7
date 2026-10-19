@@ -12,7 +12,7 @@ describe('explicit unavailable-source boundary', () => {
     expect(screen.getByLabelText('文字与界面大小')).toHaveValue('1');
     expect(document.body.textContent).not.toMatch(/完成率\s*\d+%/);
     fireEvent.click(screen.getByRole('button', {name: /待我处理/}));
-    expect(screen.queryByText(/无法核实是否有等待输入的工作/)).not.toBeInTheDocument();expect(screen.queryByText('Codex')).not.toBeInTheDocument();
+    expect(screen.queryByText(/无法核实是否有等待输入的工作/)).not.toBeInTheDocument();expect(screen.queryByText('Codex')).not.toBeInTheDocument();expect(document.body.textContent).not.toContain('运行请求');
   });
   it('never forwards commands in browser preview', async () => {
     await expect(bridge.openProject('/tmp/project')).rejects.toThrow('未接入桌面核心');
