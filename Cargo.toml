@@ -69,6 +69,15 @@ strip = "symbols"
 lto = "thin"
 codegen-units = 1
 
+# Cloud updates prioritize build turnaround while retaining optimized runtime code.
+# Keep this separate from the size-focused desktop distribution profile above.
+[profile.ecs]
+inherits = "release"
+opt-level = 3
+strip = "symbols"
+lto = false
+codegen-units = 16
+
 [profile.dev.package.epaint]
 # On wasm32-unknown-unknown, `std::time::Instant` is unavailable.
 # epaint's debug deadlock checks call `parking_lot::try_*_for`, which panics there.
