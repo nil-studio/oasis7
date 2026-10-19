@@ -16,6 +16,7 @@ function projection(id='p'):WorkProjection {
 beforeEach(()=>{
  vi.mocked(bridge.workProjection).mockResolvedValue(projection());vi.mocked(bridge.dailyWork).mockResolvedValue(state());
  vi.mocked(bridge.saveDailyWork).mockImplementation(async request=>({...state(request.projectId),revision:request.expectedRevision+1,...(request.action.kind==='navigate'?{navigation:request.action.navigation}:{})}));
+ vi.mocked(bridge.openSource).mockResolvedValue();
  vi.stubGlobal('scrollTo',vi.fn());
 });
 afterEach(()=>{cleanup();vi.resetAllMocks();vi.unstubAllGlobals();});
