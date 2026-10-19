@@ -443,6 +443,40 @@ fn signed_canonical_world_rule_results_preserve_actual_rejection_and_success() {
             "c".repeat(64),
             "d".repeat(64),
         );
+        let missing_genesis = world.snapshot_with_chain_resource_context(
+            crate::ChainResourceDerivationContext {
+                world_id: &manifest.world_id,
+                chain_id: &manifest.chain_id,
+                genesis_ref: None,
+                created_at_height: manifest.created_at_height,
+                manifest_height: manifest.manifest_height,
+                commit_block_hash: manifest.created_at_block_hash.as_deref(),
+                tick: world.state().time,
+            },
+            "1".repeat(64),
+            "2".repeat(64),
+        );
+        let missing_genesis =
+            World::from_snapshot(missing_genesis, world.journal().clone()).unwrap();
+        let missing_status = missing_genesis.world_rule_status(Some(AGENT_ID)).unwrap();
+        assert!(
+            missing_status["recent_action_results"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            missing_status["recent_action_results_history"]["status"],
+            "unavailable"
+        );
+        assert_eq!(
+            missing_status["recent_action_results_history"]["reason"],
+            "protocol_genesis_binding_unavailable"
+        );
+        assert_eq!(
+            missing_status["recent_action_results_history"]["missing_result"],
+            "unknown"
+        );
         let foreign = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
         assert!(
             foreign

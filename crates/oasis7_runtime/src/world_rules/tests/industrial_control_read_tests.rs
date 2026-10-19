@@ -143,3 +143,51 @@ fn historical_buyer_cannot_read_reacquired_targets_new_controller() {
     assert!(!row.to_string().contains("new-player"));
     assert!(!row.to_string().contains("new-private-controller-key"));
 }
+
+#[test]
+fn manufactured_chat_never_falls_back_to_host_registration_after_claim_loss() {
+    struct RegisteredHost;
+    impl crate::OwnerControlHostAuthority for RegisteredHost {
+        fn validate_registered_owner(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: u64,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    let (mut world, _, target) = delivered_world();
+    let mut state = world.state().clone();
+    state.agent_claims.remove(&target);
+    world = World::new_with_state(state);
+    let key = ed25519_dalek::SigningKey::from_bytes(&[91; 32]);
+    let public = hex::encode(key.verifying_key().to_bytes());
+    let private = hex::encode([91; 32]);
+    let mut chat = oasis7_proto::viewer::AgentChatRequest {
+        agent_id: target,
+        message: "old registration cannot restore manufactured control".into(),
+        player_id: Some("player".into()),
+        public_key: Some(public.clone()),
+        auth: None,
+        intent_tick: Some(world.state().time),
+        intent_seq: Some(12),
+        world_id: Some(world.chain_resource_manifest().world_id.clone()),
+        reorg_epoch: Some(0),
+        authority_scope: Some("player_agent_chat".into()),
+        replaces_intent_id: None,
+        canonical_authority: None,
+    };
+    chat.auth = Some(
+        oasis7_proto::player_auth::sign_agent_chat_auth_proof(&chat, 12, &public, &private)
+            .unwrap(),
+    );
+    let before = serde_json::to_vec(&world).unwrap();
+    let error = world
+        .record_signed_local_agent_chat(&chat, &RegisteredHost)
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("owner_source_unavailable"));
+    assert_eq!(serde_json::to_vec(&world).unwrap(), before);
+}

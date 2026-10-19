@@ -280,10 +280,19 @@ impl World {
             reorg,
         )
         .map_err(denied)?;
-        let owner = self
-            .current_agent_owner(&request.agent_id)
-            .ok_or_else(|| denied("owner_source_unavailable"))?;
-        if owner.player_id != verified.player_id {
+        if self.state.is_manufactured_agent(&request.agent_id) {
+            let owner = self
+                .current_agent_owner(&request.agent_id)
+                .ok_or_else(|| denied("owner_source_unavailable"))?;
+            if owner.player_id != verified.player_id {
+                return Err(denied("agent_control_forbidden"));
+            }
+        } else if self
+            .state
+            .starter_oc_claims
+            .get(&request.agent_id)
+            .is_some_and(|owner| owner.player_id != verified.player_id)
+        {
             return Err(denied("agent_control_forbidden"));
         }
         let intent_seq = request.intent_seq.unwrap_or(verified.nonce);

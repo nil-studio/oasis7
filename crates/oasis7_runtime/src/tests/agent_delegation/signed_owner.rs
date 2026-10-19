@@ -252,3 +252,33 @@ fn signed_local_chat_keeps_none_key_policy_and_rejects_forged_payload() {
             .is_replay()
     );
 }
+
+#[test]
+fn signed_local_chat_preserves_registered_ordinary_agent_without_starter_claim() {
+    let mut world = fixture();
+    let mut state = world.state().clone();
+    state.starter_oc_claims.remove(AGENT_ID);
+    world = World::new_with_state(state);
+    let (public, private) = keys();
+    let mut chat = oasis7_proto::viewer::AgentChatRequest {
+        agent_id: AGENT_ID.into(),
+        message: "registered ordinary agent".into(),
+        player_id: Some("player".into()),
+        public_key: Some(public.clone()),
+        auth: None,
+        intent_tick: Some(world.state().time),
+        intent_seq: Some(12),
+        world_id: Some(WORLD_ID.into()),
+        reorg_epoch: Some(0),
+        authority_scope: Some("player_agent_chat".into()),
+        replaces_intent_id: None,
+        canonical_authority: None,
+    };
+    chat.auth = Some(sign_agent_chat_auth_proof(&chat, 12, &public, &private).unwrap());
+    assert!(
+        !world
+            .record_signed_local_agent_chat(&chat, &registry())
+            .unwrap()
+            .is_replay()
+    );
+}

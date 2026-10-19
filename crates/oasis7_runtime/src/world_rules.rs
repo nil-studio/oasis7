@@ -664,7 +664,15 @@ impl crate::World {
             }
         }
         status["recent_action_results"] = recent_results;
-        status["recent_action_results_history"] = serde_json::json!({"status":"bounded","event_window":2048,"result_limit":16,"missing_result":"unknown"});
+        status["recent_action_results_history"] = if self
+            .chain_resource_manifest()
+            .genesis_ref
+            .is_none()
+        {
+            serde_json::json!({"status":"unavailable","reason":"protocol_genesis_binding_unavailable","missing_result":"unknown"})
+        } else {
+            serde_json::json!({"status":"bounded","event_window":2048,"result_limit":16,"missing_result":"unknown"})
+        };
         Some(status)
     }
     pub fn can_read_agent_industrial_order(
