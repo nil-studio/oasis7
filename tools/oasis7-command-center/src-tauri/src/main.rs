@@ -2,8 +2,8 @@
 
 mod commands;
 mod context_commands;
-mod runtime_commands;
 mod tool_commands;
+mod tool_exit;
 
 use commands::Host;
 use tauri::{
@@ -30,13 +30,9 @@ fn main() {
             )?);
             let tools =
                 tool_commands::ToolHost::open(directory.join("command-center-tools.sqlite"))?;
-            let runtime = runtime_commands::RuntimeHost::open_with_jobs(
-                directory.join("command-center-runtime.sqlite"),
-                tools.jobs.clone(),
-            )?;
             app.manage(tools);
-            app.manage(runtime);
-            app.manage(Host::open_with_runtime_privacy(
+            app.manage(tool_exit::ToolExit::default());
+            app.manage(Host::open_with_legacy_privacy(
                 directory.join("command-center.sqlite"),
                 directory.join("command-center-runtime.sqlite"),
             )?);
@@ -69,9 +65,7 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main(app),
-                    "quit" => app
-                        .state::<runtime_commands::RuntimeHost>()
-                        .request_exit(app.clone()),
+                    "quit" => tool_exit::request_exit(app.clone()),
                     _ => {}
                 })
                 .build(app)?;
@@ -79,9 +73,7 @@ fn main() {
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main(app),
-            "quit" => app
-                .state::<runtime_commands::RuntimeHost>()
-                .request_exit(app.clone()),
+            "quit" => tool_exit::request_exit(app.clone()),
             _ => {}
         })
         .on_window_event(|window, event| {
@@ -119,8 +111,6 @@ fn main() {
             tool_commands::tool_signer_inspect,
             tool_commands::tool_cli_install,
             tool_commands::secret_stage,
-            runtime_commands::preview_private_input,
-            runtime_commands::start_private_runtime_turn,
             commands::open_project,
             commands::query_view,
             commands::cancel_source_reads,
@@ -152,23 +142,6 @@ fn main() {
             commands::choose_project,
             commands::associate_work,
             commands::read_version,
-            runtime_commands::get_runtime,
-            runtime_commands::reconcile_runtime_operation,
-            runtime_commands::set_runtime_enabled,
-            runtime_commands::connect_runtime,
-            runtime_commands::create_runtime_session,
-            runtime_commands::start_work,
-            runtime_commands::query_start_work_records,
-            runtime_commands::get_public_runtime,
-            runtime_commands::continue_runtime_session,
-            runtime_commands::start_runtime_turn,
-            runtime_commands::steer_runtime_turn,
-            runtime_commands::interrupt_runtime_turn,
-            runtime_commands::answer_runtime_request,
-            runtime_commands::get_exit_status,
-            runtime_commands::request_exit_wait,
-            runtime_commands::request_exit_stop,
-            runtime_commands::cancel_exit_wait,
         ])
         .build(tauri::generate_context!())
         .expect("initialize Command Center desktop")
@@ -177,10 +150,9 @@ fn main() {
                 show_main(app);
             }
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                let runtime = app.state::<runtime_commands::RuntimeHost>();
-                if !runtime.exit_is_approved() {
+                if !app.state::<tool_exit::ToolExit>().approved() {
                     api.prevent_exit();
-                    runtime.request_exit(app.clone());
+                    tool_exit::request_exit(app.clone());
                 }
             }
         });

@@ -1,7 +1,6 @@
 //! Read-only projection of source identities. No task table or inferred completion.
 use crate::{
     Error, Result,
-    codex::RuntimeSnapshot,
     domain::*,
     github::{Check, GitHubSnapshot, PullChecksSource},
 };
@@ -53,14 +52,6 @@ pub struct WorkGoal {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkRun {
-    pub instance_id: String,
-    pub turn_id: Option<String>,
-    pub state: String,
-    pub owned: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct WorkItem {
     pub reference: WorkRef,
     pub purpose: FactCell,
@@ -72,7 +63,6 @@ pub struct WorkItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub checks_source: Option<PullChecksSource>,
-    pub runs: Vec<WorkRun>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -103,7 +93,6 @@ pub struct WorkProjection {
 pub fn project_work(
     snapshot: &Snapshot,
     github: &GitHubSnapshot,
-    runtime: Option<&RuntimeSnapshot>,
     read_at: &str,
 ) -> Result<WorkProjection> {
     let project = snapshot
@@ -173,60 +162,6 @@ pub fn project_work(
                 goals,
                 checks: pull.checks.clone(),
                 checks_source: pull.checks_source.clone(),
-                runs: vec![],
-            });
-        }
-    }
-    let runtime =
-        runtime.filter(|r| r.project_id == project.id && r.environment == project.environment);
-    if let Some(runtime) = runtime {
-        // Exclude the whole thread if any binding carries durable private provenance.
-        for session in runtime.sessions.iter().filter(|s| {
-            !runtime
-                .sessions
-                .iter()
-                .any(|other| other.thread_id == s.thread_id && !other.private_sources.is_empty())
-        }) {
-            let reference = WorkRef::Session {
-                namespace: "owned-stdio".into(),
-                project_id: project.id.clone(),
-                environment: project.environment.clone(),
-                thread_id: session.thread_id.clone(),
-            };
-            let run = WorkRun {
-                instance_id: session.instance_id.clone(),
-                turn_id: session.turn_id.clone(),
-                state: session.state.clone(),
-                owned: session.owned,
-            };
-            if let Some(item) = items.iter_mut().find(|item| item.reference == reference) {
-                item.runs.push(run);
-                continue;
-            }
-            let evidence = SourceFact {
-                source: reference.clone(),
-                revision: None,
-                verified_at: None,
-                event_at: None,
-                read_at: read_at.into(),
-                coverage: runtime.coverage.clone(),
-            };
-            items.push(WorkItem {
-                reference,
-                purpose: FactCell {
-                    value: session.purpose.clone(),
-                    evidence: evidence.clone(),
-                },
-                result: FactCell {
-                    value: "会话结果按各运行实例核对".into(),
-                    evidence,
-                },
-                remaining: "会话运行状态不证明交付或目标完成；请在开发执行核对原实例。".into(),
-                source_url: None,
-                goals: vec![],
-                checks: vec![],
-                checks_source: None,
-                runs: vec![run],
             });
         }
     }
@@ -237,32 +172,13 @@ pub fn project_work(
         project_id: project.id.clone(),
         environment: project.environment.clone(),
         read_at: read_at.into(),
-        sources: vec![
-            WorkSource {
-                kind: "github".into(),
-                state: github.state.clone(),
-                coverage: github.coverage.clone(),
-                verified_at: github.observed_at.clone(),
-                error: github.error.clone(),
-            },
-            WorkSource {
-                kind: "codex".into(),
-                state: runtime
-                    .map(|r| r.state.clone())
-                    .unwrap_or_else(|| "unconnected".into()),
-                coverage: runtime
-                    .map(|r| r.coverage.clone())
-                    .unwrap_or_else(|| "运行来源不可用；无法核实是否存在其他工作。".into()),
-                verified_at: None,
-                error: runtime.and_then(|r| {
-                    r.sessions
-                        .iter()
-                        .all(|s| s.private_sources.is_empty())
-                        .then(|| r.error.clone())
-                        .flatten()
-                }),
-            },
-        ],
+        sources: vec![WorkSource {
+            kind: "github".into(),
+            state: github.state.clone(),
+            coverage: github.coverage.clone(),
+            verified_at: github.observed_at.clone(),
+            error: github.error.clone(),
+        }],
         items,
     })
 }

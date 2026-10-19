@@ -36,7 +36,7 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | 本机资料、保存、历史、快照和同包 CLI；产品适用性：N/A；reason=普通开发者本机资料与工具集成，不定义游戏授权、结算或发行能力；scope=本机资料、保存、历史、快照和同包 CLI | [DES-CC-TOOLS-001](#DES-CC-TOOLS-001) | context 领域库、runtime_engineer | 不将落盘当作 Git 远端同步 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | 已有兼容 signer 的普通文件签名；产品适用性：N/A；reason=普通开发者本机资料与工具集成，不定义游戏授权、结算或发行能力；scope=已有兼容 signer 的普通文件签名 | [DES-CC-TOOLS-002](#DES-CC-TOOLS-002) | signer caller、原 worker | 用户暂停特权初装/管理 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | 未知操作、资源占位及冻结退出；产品适用性：N/A；reason=普通开发者本机资料与工具集成，不定义游戏授权、结算或发行能力；scope=未知操作、资源占位及冻结退出 | [DES-CC-TOOLS-003](#DES-CC-TOOLS-003) | ToolJobs、原 context/signing 持久记录 | 不从进程消失推导回滚 |
-| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | 显式私有输入和持久线程属性；产品适用性：N/A；reason=普通开发者本机资料与工具集成，不定义游戏授权、结算或发行能力；scope=显式私有输入和持久线程属性 | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 实验 runtime、agent_engineer | 不保证原 runtime/外部 CLI 全部转存追踪 |
+| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | 私有发送退役及旧标记保留；产品适用性：N/A；reason=普通开发者本机资料与工具集成，不定义游戏授权、结算或发行能力；scope=私有发送退役及旧标记保留 | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 旧数据兼容边界；agent_engineer | 不保证原 runtime/外部 CLI 全部转存追踪 |
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | 从工作进入工具、明确选择操作范围并核对结果；产品适用性：N/A；reason=开发者本机辅助工具体验，不定义游戏或玩家功能；scope=资料、快照、已有 signer 与 CLI 的任务入口 | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | Solid UI、ToolJobs、原 context/signing 接口 | 不扩大已有工具权限，不把打开工具当作工作完成 |
 | Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | 工具表单就地反馈、可访问错误和诊断分层；产品适用性：N/A；reason=开发者桌面交互质量，不定义游戏或玩家功能；scope=本机工具表单与操作结果 | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | Solid UI、原生文件选择与焦点管理 | DOM 测试不替代原生交互验收 |
 
@@ -62,15 +62,13 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 
 快照恢复从原证据核对父目录身份，并通过持有的目录句柄完成写入和发布；替换路径不接收正文。父目录在执行中改名时，结果可能位于改名后的原目录，操作保持未知并拒绝绑定替换位置。
 
-完整退出冻结同一准入机制，并检查所有项目的 Codex 和 ToolJobs；运行中或未知效果阻止安全退出声明。窗口关闭仍留后台。Codex 新动作、单轮中断及原请求回复与冻结使用同一锁协调；等待退出时不发送批准、回答或新的中断操作；明确“停止并退出”由退出协调入口执行，取消退出后保留原请求和未发送草稿。已登记的后台任务继续回读。退出状态检查失败时解除工具冻结；执行数据库不可用时仍可取消等待并使用普通工具，但历史终止保持未知，不声明安全退出。冻结、取消和退出批准在同一执行状态锁下串行核对。口令和正文不作为恢复参数。
+完整退出仍冻结独立 ToolHost 的工具任务准入并核对所有项目的 ToolJobs；运行中或未知工具效果阻止安全退出声明。窗口关闭留后台，取消退出解除工具冻结。Codex 不再参与退出协调，旧 Codex 状态不阻塞退出。工具冻结、取消及批准在同一工具状态锁下核对，口令和正文不作为恢复参数。
 
 <a id="DES-CC-TOOLS-004"></a>
 
 ## 5. 显式私有资料输入
 
-在原自管会话选择资料并预览来源修订与整条或明确行范围。发送时后端重读同一 binding/version/revision，变动要求重新预览。草稿、资料正文及来源说明合成后的 UTF-8 总量不得超过 32768 字节，不截断；界面显示可用草稿预算，后端发送前再次核验。只读资料/修订校验及纯输入超限明确报告无发送效果并保留草稿；执行或 RPC 结果不明继续冻结。发送正文前持久登记线程私有来源；失败不发送。原线程后续普通轮次、恢复、模型派生请求与审批仍保持私有属性。
-
-事件写入及历史读取从独立私有来源表恢复标记，迟到 snapshot 不能清除。普通 runtime 投影只过滤属于私有线程的会话、请求及操作；无线程 ID 的普通管理操作仍保留，未知建会话回执不能误隐藏。专用运行界面保留必要批准详情。既有数据库可能包含由私有输入派生的请求内容；不能直接复制整份 SQLite 并称为普通配置备份。原运行时或外部 CLI 的转存不在本 App 完整追踪范围内。
+2026-10-19 起，向自管 Codex 会话选择/预览/发送私有资料的能力退役。资料库的创建、读取、编辑、历史、加密快照及 CLI 功能保留。旧线程私有标记、派生请求和操作数据不删除、不重放，不迁入普通工作投影或个人问题。不能复制旧执行 SQLite 并称为普通配置备份；外部工具转存仍由用户在原工具管理。
 
 <a id="DES-CC-TOOLS-005"></a>
 
@@ -117,7 +115,7 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 | CLI catalog、create-only、拒绝替换 | tools CLI regressions、打包脚本 | App 资源内实际 binary/info 与用户安装路径 |
 | 文件签名输入和预期公钥验签 | tools 文件边界测试、signer detached tests | 已有专用 signer 的真实 submit/inspect；首次配置受用户暂停 |
 | 幂等、资源占位、冻结和终态 | tools jobs/secrets regressions、native quit tests | App 长操作/退出交互 |
-| 线程私有标记及后续轮次 | privacy unit tests、codex stdio fault replays | 用户显式启用的实验 runtime；本次不启动付费模型任务 |
+| 旧线程私有标记 | 旧库保留与不投影回归 | 不启动连接或模型任务 |
 | 管理员桥和 signer 初装/管理 | 用户明确暂停，未开放 | Apple 签名、系统批准、认证 IPC、gate 和专用空安装 |
 
 普通 CI 不能代替原生系统授权、真实 signer 或 Finder 验收。验证结果、候选版本和未执行项目在实际 PR 记录；不新增通用流程台账。
@@ -128,8 +126,8 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 | --- | --- | --- | --- | --- | --- |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-001](#DES-CC-TOOLS-001) | 独立库、CAS、元数据、快照及 CLI | [context tests](../../../tools/oasis7-command-center/core/tests/context.rs) 数据隔离和条件保存；context snapshot/CLI 回归；真实 App 新建与重开 | 实现 PR source/build/机器和实际结果 | 未执行原生场景不得计通过 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-002](#DES-CC-TOOLS-002) | 同一请求 prepare/submit/inspect 和公钥验签 | [signer 授权反例](../../../crates/oasis7_local_signer/tests/qa_m0_negative.rs) 精确 purpose/context/hash；detached 单元测试验证 envelope；tools 输入反例和已有专用 signer 回读 | 实现 PR request/job 和真实结果 | 无测试安装时不证明 worker 实际提交；管理员用户暂停 |
-| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-003](#DES-CC-TOOLS-003) | 幂等、冻结、未知效果、口令句柄 | [runtime 故障回放](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) 未知/退出；tools jobs 单元测试覆盖事务/冻结/查询可用性；secrets 和 native quit tests | 实现 PR 故障与退出回放 | 强退不保证后台继续 |
-| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 私有标记先于发送及后续轮次/恢复 | [runtime fault tests](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs) 登记失败不发 frame、后续普通轮次和重开过滤；PrivateContextInput UI tests | 实现 PR 原线程/来源和回放结果 | 本次不启动模型任务，不证明模型输出质量 |
+| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-003](#DES-CC-TOOLS-003) | 幂等、冻结、未知效果、口令句柄 | tools jobs 单元测试覆盖事务/冻结/查询可用性；secrets 和 native quit tests | 实现 PR 故障与退出回放 | 强退不保证后台继续 |
+| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 私有发送退役、旧标记保留且不投影 | 旧库保留、不投影与无发送入口回归 | 实现 PR 兼容结果 | 本次不启动模型任务，不证明模型输出质量 |
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 明确导出范围、分离口令、签名不造授权、工具往返和私有隔离 | 扩展 [LocalTools UI tests](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)：切换条目不改为整库、导出不借恢复口令、取消清理、缺 grant/context 拒绝；真实同包 macOS App 从工作进入工具后返回，核对导出/恢复及原操作结果 | 实现 PR source/build、场景、实际结果 | UI fixture 不证明原生文件对话框、实际 signer 或恢复成功；签名仍需已有获准测试安装 |
 | Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 就地反馈、独立错误、键盘返回及未知操作核对 | 扩展 [LocalTools UI tests](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)：字段失败、后台结果、迟到响应、未知冻结与其他工具可用；真实 App 键盘及长表单错误定位 | 实现 PR 原生窗口、操作与卡点 | 源码/DOM 检查不证明实际可访问体验或耗时 |
 
