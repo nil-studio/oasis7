@@ -149,11 +149,11 @@ fn main() {
             if let tauri::RunEvent::Reopen { .. } = event {
                 show_main(app);
             }
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                if !app.state::<tool_exit::ToolExit>().approved() {
-                    api.prevent_exit();
-                    tool_exit::request_exit(app.clone());
-                }
+            if let tauri::RunEvent::ExitRequested { api, .. } = event
+                && !app.state::<tool_exit::ToolExit>().approved()
+            {
+                api.prevent_exit();
+                tool_exit::request_exit(app.clone());
             }
         });
 }
