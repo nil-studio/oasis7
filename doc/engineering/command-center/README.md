@@ -180,7 +180,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 局部核对基线为 `main@822f6b49d1a5fb2b866b6c6902ffc8ed024d043b`（2026-10-18）。[PR #4881](https://github.com/nil-studio/oasis7/pull/4881) 已交付首页四区、共享工作详情、关联修复、决定同步与历史、原工具定位、一次明确发起和有界来源读取；[PR #4885](https://github.com/nil-studio/oasis7/pull/4885) 按用户人工 IME 确认收口 [#4848](https://github.com/nil-studio/oasis7/issues/4848)。原生任务、受控协议及构建范围见[验证记录](daily-work-verification.manual.md)，其结果不代表后续设计已实现。
 
-当前改造目标是降低文字与操作的同时暴露量，使用户从清晰的重点、成果、待答和已有工作进入同一详情。默认信息层级、图形表达、阅读密度和任务验收由[中文与清晰阅读要求](command-center.prd.md#REQ-CC-010)及[首页要求](command-center.prd.md#REQ-CC-013)拥有；[系统设计](command-center.design.md#cc-visual-composition)落实布局、组件和投影边界。发送确认快照、逐工作草稿和决定证据版本分别沿现有执行与持久化合同修复。上述可读性与一致性改造待实现和适用验收，不改写旧版交付结论。
+当前改造目标是降低文字与操作的同时暴露量，使用户从清晰的重点、成果、待答和已有工作进入同一详情。默认信息层级、图形表达、阅读密度和任务验收由[中文与清晰阅读要求](command-center.prd.md#REQ-CC-010)及[首页要求](command-center.prd.md#REQ-CC-013)拥有；[系统设计](command-center.design.md#cc-visual-composition)落实布局、组件和投影边界。现行决定只保存个人内容、理由、范围、正式文档关联及确认/替代历史；统一工作列表承接PR，来源区只管理连接、账号、读取范围与错误。实际功能及未证明范围以[当前系统设计](command-center.design.md#cc-current-implementation)为准，旧版交付结论保留原范围。
 
 本段只刷新客户端主题；VoiceOver 保持用户明确排除，Apple 签名/管理员集成的已有暂停继续有效，未增加模型、部署或其他环境验证事实。
 

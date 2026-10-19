@@ -14,8 +14,6 @@ fn main() {
     let declarations = [
         WorkNavigation::decl(),
         WorkRelation::decl(),
-        SyncEvidence::decl(),
-        DecisionFollowthrough::decl(),
         WorkAttention::decl(),
         ExternalWork::decl(),
         WorktreeReference::decl(),

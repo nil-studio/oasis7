@@ -103,9 +103,10 @@ fn cas_and_future_versions_preserve_original_records_and_legacy_changes_are_expl
             project_id: saved.project_id.clone(),
             environment: saved.environment.clone(),
             expected_revision: saved.revision,
-            action: DailyWorkAction::FollowDecision {
-                decision_id: decision.id,
-                following: false
+            action: DailyWorkAction::Relate {
+                work: work(),
+                section_id: "doc/prd.md#stage".into(),
+                replace_id: None
             }
         })
         .is_err()
@@ -167,51 +168,84 @@ fn relationships_repair_remove_and_cache_rebuild_do_not_revive_old_relations() {
     assert!(core.daily_work().unwrap().relations[0].removed_at.is_some());
 }
 #[test]
-fn sync_evidence_is_per_track_and_changed_sources_keep_historical_verification() {
+fn retired_sync_evidence_is_preserved_opaque_across_refresh_writes_and_reopen() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repo");
     project(&root);
-    let mut core = CommandCenter::open(temp.path().join("host.db")).unwrap();
+    let path = temp.path().join("host.db");
+    let mut core = CommandCenter::open(&path).unwrap();
     let snapshot = core.open_project(&root).unwrap();
-    let section = snapshot.sections[0].clone();
     let decision = core.save_decision(draft(None, "Decision A")).unwrap();
-    save(&mut core, DailyWorkAction::AcceptLegacy {});
-    let evidence = SyncEvidence {
-        state: "verified".into(),
-        source: Some(section.id.clone()),
-        revision: Some(section.revision),
-        scope: "one clause only".into(),
-        conclusion: "read and compared".into(),
-        covers_full_scope: false,
-        remaining: vec!["other obligations remain".into()],
-        checked_at: "forged time".into(),
-        decision_digest: "forged".into(),
-    };
-    let state = save(
-        &mut core,
-        DailyWorkAction::SyncDecision {
-            decision_id: decision.id.clone(),
-            track: "formal".into(),
-            evidence,
-        },
-    );
-    assert_eq!(
-        state.decisions[0].formal.as_ref().unwrap().state,
-        "verified"
-    );
-    assert!(state.decisions[0].implementation.is_none());
+    let saved = save(&mut core, DailyWorkAction::AcceptLegacy {});
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let key = format!("{}:decision_followthrough_v1", saved.project_id);
+    let historical = serde_json::json!({"schemaVersion":1,"revision":saved.revision,"value":[{
+        "decisionId":decision.id,"following":false,
+        "formal":{"state":"verified","source":snapshot.sections[0].id,"revision":snapshot.sections[0].revision,"scope":"old clause","conclusion":"old conclusion","checkedAt":"old-time","decisionDigest":"retired-digest","futureField":"retain"},
+        "implementation":null,"history":[]
+    }],"futureExtension":"must stay byte-identical"}).to_string();
+    db.execute(
+        "INSERT OR REPLACE INTO personal(key,value) VALUES(?1,?2)",
+        rusqlite::params![key, historical],
+    )
+    .unwrap();
     std::fs::write(root.join("doc/prd.md"), "# Stage\n\nChanged requirement\n").unwrap();
     core.refresh().unwrap();
-    let changed = core.daily_work().unwrap();
-    assert_eq!(
-        changed.decisions[0].formal.as_ref().unwrap().state,
-        "needsReview"
+    let public = serde_json::to_value(core.public_daily_work().unwrap()).unwrap();
+    assert!(
+        public.get("decisions").is_none(),
+        "retired sync evidence is not a public projection"
     );
-    assert_eq!(changed.decisions[0].history[0].state, "verified");
+    let mut navigation = core.daily_work().unwrap().navigation;
+    navigation.filter = "ordinary read preference".into();
+    save(&mut core, DailyWorkAction::Navigate { navigation });
+    let mut old_record = serde_json::to_value(&decision).unwrap();
+    old_record["formalUpdate"] = serde_json::json!("legacy-formal-state");
+    old_record["implementationSync"] = serde_json::json!("legacy-implementation-state");
+    db.execute(
+        "UPDATE personal SET value=?1 WHERE key=?2",
+        rusqlite::params![
+            serde_json::json!([old_record]).to_string(),
+            format!("{}:decisions", saved.project_id)
+        ],
+    )
+    .unwrap();
+    core.reload_personal().unwrap();
     let edited = core
-        .save_decision(draft(Some(decision.id), "Decision with minor correction"))
+        .save_decision(draft(Some(decision.id.clone()), "Small correction"))
         .unwrap();
-    assert_eq!(edited.confirmed_at, decision.confirmed_at);
+    assert_eq!(edited.formal_update, "legacy-formal-state");
+    assert_eq!(edited.implementation_sync, "legacy-implementation-state");
+    core.rebuild_cache().unwrap();
+    drop(core);
+    let mut reopened = CommandCenter::open(&path).unwrap();
+    reopened.open_project(&root).unwrap();
+    assert_eq!(
+        reopened.daily_work().unwrap().navigation.filter,
+        "ordinary read preference"
+    );
+    let retained: String = db
+        .query_row("SELECT value FROM personal WHERE key=?1", [&key], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(retained, historical);
+    assert!(
+        reopened
+            .decision_history(&decision.id)
+            .unwrap()
+            .iter()
+            .any(|record| record.content == "Decision A")
+    );
+}
+#[test]
+fn retired_sync_and_follow_commands_are_rejected() {
+    for action in [
+        serde_json::json!({"kind":"syncDecision","decisionId":"old","track":"formal","evidence":{"state":"verified","source":"old-source","revision":"old-revision","scope":"old scope","conclusion":"old conclusion","checkedAt":"old-time","decisionDigest":"old-digest"}}),
+        serde_json::json!({"kind":"followDecision","decisionId":"old","following":false}),
+    ] {
+        assert!(serde_json::from_value::<DailyWorkAction>(action).is_err());
+    }
 }
 #[test]
 fn foreign_clones_and_closed_questions_cannot_cross_scope_or_reopen() {

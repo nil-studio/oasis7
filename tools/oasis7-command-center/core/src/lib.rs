@@ -518,8 +518,21 @@ impl CommandCenter {
                 .find(|d| d.id == id)
                 .and_then(|d| d.confirmed_at.clone())
                 .or_else(|| draft.confirmed.then(now)),
-            formal_update: "notVerified".into(),
-            implementation_sync: "notVerified".into(),
+            // Retired synchronization markers are historical data, not active status.
+            formal_update: self
+                .current
+                .decisions
+                .iter()
+                .find(|d| d.id == id)
+                .map(|d| d.formal_update.clone())
+                .unwrap_or_else(|| "notVerified".into()),
+            implementation_sync: self
+                .current
+                .decisions
+                .iter()
+                .find(|d| d.id == id)
+                .map(|d| d.implementation_sync.clone())
+                .unwrap_or_else(|| "notVerified".into()),
         };
         let mut decisions = self.current.decisions.clone();
         decisions.retain(|d| d.id != record.id);
