@@ -699,7 +699,7 @@ pub async fn query_work_projection(
                         value: "原工具结果未知 · 只有定位记录".into(),
                         evidence,
                     },
-                    remaining: "复制原定位，在原工具处理并核实；客户端没有外部控制权".into(),
+                    remaining: "在原工具继续并核实结果；此处只保留导航定位".into(),
                     source_url: None,
                     goals: vec![],
                     checks: vec![],

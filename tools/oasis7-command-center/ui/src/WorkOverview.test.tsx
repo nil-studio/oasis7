@@ -142,5 +142,5 @@ it('opens only an explicit Codex thread link while keeping arbitrary locators co
  vi.mocked(bridge.workProjection).mockResolvedValue(value);vi.mocked(bridge.dailyWork).mockResolvedValue(record);
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'原Codex工作'}));fireEvent.click(screen.getByRole('button',{name:'在 Codex 中打开原会话'}));
- expect(bridge.openSource).toHaveBeenCalledWith(url);
+ expect(bridge.openSource).toHaveBeenCalledWith(url);await screen.findByText('已请求在 Codex 中打开原会话；执行与回答请在原工具完成。');expect(screen.queryByText('PR 与 CI')).not.toBeInTheDocument();
 });
