@@ -310,8 +310,8 @@ impl ToolJobs {
             .query_map([], row)?
             .collect::<std::result::Result<Vec<_>, _>>()?)
     }
-    /// Runtime admission shares the freeze gate, without holding the job database
-    /// lock during network calls. Queries and operation receipts stay available.
+    /// Secret staging shares the exit freeze gate without holding the job database
+    /// lock. Queries and operation receipts stay available.
     pub fn with_open<T>(&self, work: impl FnOnce() -> Result<T>) -> Result<T> {
         let frozen = self
             .admission

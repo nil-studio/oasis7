@@ -29,16 +29,18 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn open_with_runtime_privacy(
+    pub fn open_with_legacy_privacy(
         path: PathBuf,
         runtime_path: PathBuf,
     ) -> oasis7_command_center_core::Result<Self> {
         let host = Self::open(path)?;
-        host.application
-            .lock()
-            .map_err(|_| oasis7_command_center_core::Error::Invalid("应用锁不可用".into()))?
-            .core
-            .use_runtime_privacy_database(&runtime_path)?;
+        if runtime_path.exists() {
+            host.application
+                .lock()
+                .map_err(|_| oasis7_command_center_core::Error::Invalid("应用锁不可用".into()))?
+                .core
+                .use_runtime_privacy_database(&runtime_path)?;
+        }
         Ok(host)
     }
     pub fn open(path: PathBuf) -> oasis7_command_center_core::Result<Self> {
@@ -81,8 +83,7 @@ impl Host {
                 .lock()
                 .map_err(|_| "应用状态不可用".to_string())?;
             let result = work(&mut application);
-            // Keep a fast Rust-owned identity mirror for runtime operations. It
-            // never requires the indexing/database mutex on the protocol reader.
+            // Keep the current validated project identity for tool operations.
             if application.validated {
                 *project.lock().map_err(|_| "项目身份不可用".to_string())? =
                     application.core.current_project();
@@ -494,10 +495,31 @@ pub async fn get_github_snapshot(host: State<'_, Host>) -> Result<GitHubSnapshot
     host.run(|app| Ok(app.github.snapshot())).await
 }
 
+/// Identity-only app navigation; no input, parameters, or execution controls.
+fn validate_codex_target(target: &str) -> Result<String, String> {
+    let id = target
+        .strip_prefix("codex://threads/")
+        .ok_or("Codex 会话定位无效")?;
+    let valid = id.len() == 36
+        && id.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        });
+    if !valid {
+        return Err("仅支持 codex://threads/<UUID> 原会话定位".into());
+    }
+    Ok(target.into())
+}
+
 #[tauri::command]
 pub async fn open_source_target(host: State<'_, Host>, target: String) -> Result<(), String> {
     host.run(move |app| {
-        let destination = if target.starts_with("https:") {
+        let destination = if target.starts_with("codex:") {
+            validate_codex_target(&target)?
+        } else if target.starts_with("https:") {
             let url = url::Url::parse(&target).map_err(|_| "来源链接无效".to_string())?;
             if url.scheme() != "https"
                 || url.host_str() != Some("github.com")
@@ -605,117 +627,20 @@ pub async fn load_document_tree_last_view(
 #[tauri::command]
 pub async fn query_work_projection(
     host: State<'_, Host>,
-    runtime: State<'_, crate::runtime_commands::RuntimeHost>,
 ) -> Result<oasis7_command_center_core::work_projection::WorkProjection, String> {
     let _permit = host
         .projection_slots
         .clone()
         .try_acquire_owned()
         .map_err(|_| "工作投影读取繁忙；保留最近结果，请稍后重读".to_string())?;
-    let (base, references) = host
+    let expected = host
         .run(|app| {
-            Ok((
-                app.core.snapshot(),
-                app.core
-                    .daily_work()
-                    .map(|s| s.worktrees)
-                    .unwrap_or_default(),
-            ))
+            Ok(app
+                .core
+                .current_project()
+                .map(|p| (p.id, p.path, p.environment)))
         })
         .await?;
-    let expected = base
-        .project
-        .as_ref()
-        .map(|p| (p.id.clone(), p.path.clone(), p.environment.clone()));
-    let current = base.project.clone().ok_or("请先选择项目")?;
-    let observed = runtime
-        .try_read(move |runtime| runtime.public_snapshot(&current).map_err(|e| e.to_string()))
-        .await;
-    let mut additional = Vec::new();
-    for reference in references {
-        if base
-            .project
-            .as_ref()
-            .is_some_and(|p| p.id == reference.project_id)
-        {
-            continue;
-        }
-        let path = reference.path.clone();
-        let candidate = tauri::async_runtime::spawn_blocking(move || {
-            CommandCenter::inspect_worktree(std::path::Path::new(&path))
-        })
-        .await;
-        let allowed = match candidate {
-            Ok(Ok(project))
-                if project.id == reference.project_id
-                    && base
-                        .project
-                        .as_ref()
-                        .is_some_and(|p| p.git_common_dir == project.git_common_dir) =>
-            {
-                Some(project)
-            }
-            _ => None,
-        };
-        if let Some(project) = allowed {
-            let check = project.clone();
-            let allowed = host
-                .run(move |app| {
-                    app.core
-                        .check_local_path(std::path::Path::new(&check.path))
-                        .map_err(error)
-                })
-                .await
-                .is_ok();
-            if allowed {
-                let target = project.clone();
-                if let Ok(source) = runtime
-                    .try_read(move |r| r.public_snapshot(&target).map_err(|e| e.to_string()))
-                    .await
-                {
-                    let mut snapshot = base.clone();
-                    snapshot.project = Some(project);
-                    snapshot.sections.clear();
-                    snapshot.associations.clear();
-                    snapshot.decisions.clear();
-                    if let Ok(mut extra) = oasis7_command_center_core::work_projection::project_work(
-                        &snapshot,
-                        &GitHubClient::new().snapshot(),
-                        Some(&source),
-                        &oasis7_command_center_core::now(),
-                    ) {
-                        extra.sources.retain(|s| s.kind == "codex");
-                        for s in &mut extra.sources {
-                            s.coverage = format!("显式工作树 {} · {}", reference.path, s.coverage);
-                        }
-                        additional.push(extra);
-                    }
-                    continue;
-                }
-            }
-        }
-        additional.push(
-            oasis7_command_center_core::work_projection::WorkProjection {
-                view_revision: None,
-                personal_revision: None,
-                schema_version: 1,
-                project_id: reference.project_id,
-                environment: reference.environment,
-                read_at: oasis7_command_center_core::now(),
-                items: vec![],
-                sources: vec![oasis7_command_center_core::work_projection::WorkSource {
-                    kind: "codex".into(),
-                    state: "error".into(),
-                    coverage: format!(
-                        "显式工作树 {} 未能核实，原身份保留；不能推断没有会话",
-                        reference.path
-                    ),
-                    verified_at: Some(reference.verified_at),
-                    error: Some("工作树不可读、身份变化或运行来源未接入".into()),
-                }],
-            },
-        );
-    }
     host.run(move |app| {
         if app
             .core
@@ -729,30 +654,9 @@ pub async fn query_work_projection(
         let mut projection = oasis7_command_center_core::work_projection::project_work(
             &snapshot,
             &app.github.snapshot(),
-            observed.as_ref().ok(),
             &oasis7_command_center_core::now(),
         )
         .map_err(error)?;
-        if observed.is_err() {
-            let source = &mut projection.sources[1];
-            source.state = "error".into();
-            source.error =
-                Some("会话来源读取失败；其他工作来源仍可使用，不能据此推断没有会话。".into());
-        }
-        let permitted = app
-            .core
-            .daily_work()
-            .map(|s| s.worktrees)
-            .unwrap_or_default();
-        for extra in additional {
-            if permitted
-                .iter()
-                .any(|r| r.project_id == extra.project_id && r.environment == extra.environment)
-            {
-                projection.items.extend(extra.items);
-                projection.sources.extend(extra.sources);
-            }
-        }
         let personal = app.core.public_daily_work();
         if personal.is_err() {
             projection
@@ -795,12 +699,11 @@ pub async fn query_work_projection(
                         value: "原工具结果未知 · 只有定位记录".into(),
                         evidence,
                     },
-                    remaining: "复制原定位，在原工具处理并核实；客户端没有外部控制权".into(),
+                    remaining: "在原工具继续并核实结果；此处只保留导航定位".into(),
                     source_url: None,
                     goals: vec![],
                     checks: vec![],
                     checks_source: None,
-                    runs: vec![],
                 });
         }
         projection.personal_revision = personal.as_ref().ok().map(|p| p.revision);
@@ -994,5 +897,35 @@ mod concurrency_tests {
                 "rules"
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod external_codex_tests {
+    use super::validate_codex_target;
+    #[test]
+    fn startup_preserves_retired_database_and_does_not_create_a_new_runtime() {
+        let temp = tempfile::tempdir().unwrap();
+        let main = temp.path().join("main.sqlite");
+        let legacy = temp.path().join("command-center-runtime.sqlite");
+        drop(super::Host::open_with_legacy_privacy(main.clone(), legacy.clone()).unwrap());
+        assert!(!legacy.exists());
+    }
+    #[test]
+    fn opens_only_identity_navigation_without_parameters() {
+        let target = "codex://threads/019ea241-685c-79b3-a0b0-97ac2aa9f7e2";
+        assert_eq!(validate_codex_target(target).unwrap(), target);
+        for suffix in ["?prompt=run", "#fragment", "/turn", "%2f", "?"] {
+            assert!(validate_codex_target(&format!("{target}{suffix}")).is_err());
+        }
+        for invalid in [
+            "codex://user@threads/019ea241-685c-79b3-a0b0-97ac2aa9f7e2",
+            "codex://threads:80/019ea241-685c-79b3-a0b0-97ac2aa9f7e2",
+            "Codex://threads/019ea241-685c-79b3-a0b0-97ac2aa9f7e2",
+            "codex://threads/../run",
+            "codex://threads/not-a-thread",
+        ] {
+            assert!(validate_codex_target(invalid).is_err());
+        }
     }
 }

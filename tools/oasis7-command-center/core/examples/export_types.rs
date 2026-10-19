@@ -1,4 +1,3 @@
-use oasis7_command_center_core::codex::*;
 use oasis7_command_center_core::context::*;
 use oasis7_command_center_core::daily_work::*;
 use oasis7_command_center_core::document_directory::*;
@@ -29,7 +28,6 @@ fn main() {
         SourceFact::decl(),
         FactCell::decl(),
         WorkGoal::decl(),
-        WorkRun::decl(),
         WorkItem::decl(),
         WorkSource::decl(),
         WorkProjection::decl(),
@@ -48,8 +46,6 @@ fn main() {
         FilePrepareError::decl(),
         ToolJob::decl(),
         oasis7_command_center_core::tools::cli::CliInstallation::decl(),
-        PrivateInputRef::decl(),
-        PrivateInputPreview::decl(),
         Project::decl(),
         SourceStatus::decl(),
         DocumentLifecycle::decl(),
@@ -91,16 +87,6 @@ fn main() {
         PullMetadata::decl(),
         Check::decl(),
         PullChecksSource::decl(),
-        RuntimeTarget::decl(),
-        RuntimeSession::decl(),
-        RuntimeOperation::decl(),
-        RuntimeQuestion::decl(),
-        RuntimeRequest::decl(),
-        RequestAnswer::decl(),
-        RuntimeSnapshot::decl(),
-        QuitStatus::decl(),
-        SessionConfig::decl(),
-        StartWorkRecord::decl(),
     ];
     let result = format!(
         "// Generated from Rust DTOs by cargo run -p oasis7-command-center-core --example export_types\n{}\n",
