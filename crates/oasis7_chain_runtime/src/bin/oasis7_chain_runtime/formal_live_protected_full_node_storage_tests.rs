@@ -9,6 +9,8 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
 };
+#[path = "formal_live_protected_full_node_cold_process.rs"]
+mod cold_process;
 #[path = "formal_live_protected_full_node_storage_io.rs"]
 mod io;
 
@@ -160,8 +162,22 @@ impl Drop for Budget {
     }
 }
 fn submit_change(case: &Case, runtime: &FormalLiveRuntime, ordinal: u64) -> Result<(), String> {
-    let owner =
-        RemoteWorldServiceClient::new(case.owner_config.clone()).map_err(|e| e.to_string())?;
+    submit_change_owned(
+        &case.owner_config,
+        &case.identity,
+        &case.owner_key,
+        runtime,
+        ordinal,
+    )
+}
+fn submit_change_owned(
+    owner_config: &WorldServiceClientConfig,
+    world_identity: &WorldIdentity,
+    owner_key: &SigningKey,
+    runtime: &FormalLiveRuntime,
+    ordinal: u64,
+) -> Result<(), String> {
+    let owner = RemoteWorldServiceClient::new(owner_config.clone()).map_err(|e| e.to_string())?;
     let current = runtime.published.current()?;
     let binding = current
         .world
@@ -199,13 +215,13 @@ fn submit_change(case: &Case, runtime: &FormalLiveRuntime, ordinal: u64) -> Resu
         sign_read_request(
             "delegation",
             change.clone(),
-            &hex::encode(case.owner_key.to_bytes()),
+            &hex::encode(owner_key.to_bytes()),
         )
         .map_err(|e| e.to_string())?,
     );
     let request = SubmitIntentRequest {
         contract_version: WORLD_SERVICE_CONTRACT_VERSION,
-        correlation: correlation::derive_correlation(case.identity.clone(), &payload)
+        correlation: correlation::derive_correlation(world_identity.clone(), &payload)
             .map_err(|e| e.to_string())?,
         deadline_unix_ms: None,
         signed_payload: payload,
@@ -445,19 +461,30 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     }
     case.replica_child = replica;
     let cold_started = Instant::now();
-    let mut reopened = FormalLiveRuntime::open_with_native_history(&runtime_config)?;
-    let current = reopened.published.current()?;
-    if io::digest(&current.anchor.head().head())? != fixed_head
-        || io::digest(current.anchor.authority().definition())? != authority
-    {
-        return Err("maintenance/cold restore changed fixed head or authority".into());
-    }
-    let typed_after = io::typed_history(&current.world, &mut budget)?;
-    if typed_before != typed_after {
-        return Err("maintenance/cold restore changed typed history/snapshot/journal".into());
-    }
-    drop(current);
-    // No live endpoint maintenance may race complete-directory accounting.
+    let mut cold = cold_process::Session::spawn(
+        cold_process::Input::new(
+            &runtime_config,
+            &case.owner_config,
+            &case.identity,
+            &case.owner_key,
+            &case.original,
+            &case.original_commit,
+            requested,
+            &fixed_head,
+            fixed_head_position,
+            &authority,
+            typed_before.clone(),
+            io::digest(&original_result)?,
+            io::digest(&original_effect)?,
+            original_emits,
+            &budget,
+        )?,
+        budget.started + budget.maximum,
+    )?;
+    let ready = cold.ready(budget.started + budget.maximum)?;
+    let typed_after = ready.typed.clone();
+    // The new writer process has opened and read the fixed cut, but its Node
+    // remains stopped until this quiescent accounting and P/R restart finish.
     case.primary_child.kill_sigkill_and_wait()?;
     case.replica_child.kill_sigkill_and_wait()?;
     io::settle_endpoint(&case.primary_config)?;
@@ -485,38 +512,8 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
         return Err("post-measure replica restart changed address".into());
     }
     case.replica_child = replica;
-    reopened.start()?;
-    let owner =
-        RemoteWorldServiceClient::new(case.owner_config.clone()).map_err(|e| e.to_string())?;
-    if lookup_original_commit(&owner, &case.original)? != case.original_commit {
-        return Err("cold original CommitRef changed".into());
-    }
-    let after = retry_original_at_exact_publication(&case.original, &reopened, &owner, &budget)?;
-    if lookup_original_commit(&owner, &case.original)? != case.original_commit
-        || retained_result_from_hot_or_cold(&after.world, &original_key)? != original_result
-        || game_task::current_control(&after.world, "agent").map_err(|e| e.to_string())?
-            != original_effect
-        || wasm_emit_count(&after.world) != original_emits
-    {
-        return Err("cold original retry changed result or effect".into());
-    }
-    drop(after);
-    // Restore the runtime field solely to reuse the identical owner-signed request helper.
-    case.runtime = reopened;
-    submit_change(&case, &case.runtime, requested)?;
-    stop_owned_protected_runtime(
-        &mut case.runtime,
-        Duration::from_secs(120),
-        "full_node_final_stop",
-    )?;
-    let final_cut = case.runtime.published.current()?;
-    if retained_result_from_hot_or_cold(&final_cut.world, &original_key)? != original_result
-        || game_task::current_control(&final_cut.world, "agent").map_err(|e| e.to_string())?
-            != original_effect
-        || wasm_emit_count(&final_cut.world) != original_emits
-    {
-        return Err("continuation changed original unique effect/result".into());
-    }
+    cold.resume()?;
+    let cold_done = cold.finish(budget.started + budget.maximum)?;
     let growth_before_maintenance = io::allocated_change(&initial, &before)?;
     let maintenance_net_change = io::allocated_change(&before, &after_maintenance)?;
     let cold_restore_net_change = io::allocated_change(&after_maintenance, &after_cold_restore)?;
@@ -526,6 +523,9 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
             "schema_version": 1, "status": "passed", "executed_commits": requested,
             "fixed_head": fixed_head, "fixed_head_position": fixed_head_position,
             "original_commit_position": case.original_commit.position,
+            "original_commit_ref": case.original_commit,
+            "cold_writer_ready": ready, "cold_writer_done": cold_done,
+            "cold_writer_evidence_scope": "fresh current_exe OS process; bounded private IPC/spool outside measured fixture; no parent World/Arc/process cache transfer; OS cache retained",
             "fixed_head_ref": fixed_head_ref, "authority_digest": authority,
             "scope": "same actual formal writer directories before/after maintenance; process-cold restart without OS-cache flush; external installed binaries/build caches excluded; no raw-mode comparison or S6 evidence",
         }),

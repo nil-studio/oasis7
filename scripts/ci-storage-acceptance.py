@@ -274,13 +274,44 @@ def execute(args):
         (directory / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
 
 
+def fresh_writer_passed(report):
+    ready, done = (report.get(name) for name in ('cold_writer_ready', 'cold_writer_done'))
+    if not all(isinstance(value, dict) for value in (ready, done)):
+        return False
+    def digest(value):
+        return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
+    for receipt, stage in ((ready, 'ready'), (done, 'done')):
+        if not (type(receipt.get('schema')) is int and receipt['schema'] == 1
+                and receipt.get('stage') == stage and digest(receipt.get('nonce'))
+                and all(type(receipt.get(key)) is int and 0 < receipt[key] <= 4294967295
+                        for key in ('parent_pid', 'child_pid'))
+                and receipt['parent_pid'] != receipt['child_pid']
+                and receipt.get('fixed_head') == report.get('fixed_head')
+                and receipt.get('authority') == report.get('authority_digest')
+                and receipt.get('typed') == report.get('typed_history_before')
+                and digest(receipt.get('result')) and digest(receipt.get('effect'))
+                and type(receipt.get('emits')) is int and receipt['emits'] >= 0
+                and receipt.get('ready_node_running') is False):
+            return False
+    original = report.get('original_commit_ref')
+    position = report.get('fixed_head_position')
+    return (all(ready[key] == done[key] for key in
+                ('nonce', 'parent_pid', 'child_pid', 'result', 'effect', 'emits'))
+            and type(position) is int and ready.get('final_position') == position
+            and ready.get('continuation_completed') is False and ready.get('original_commit') is None
+            and type(done.get('final_position')) is int and done['final_position'] > position
+            and done.get('continuation_completed') is True
+            and isinstance(original, dict) and original.get('position') == report.get('original_commit_position')
+            and done.get('original_commit') == original)
+
+
 def full_node_passed(report, scale):
     if not isinstance(report, dict):
         return False
     logical = report.get('logical_before')
     typed = report.get('typed_history_before')
     published = report.get('published_before')
-    return (report.get('status') == 'passed' and report.get('executed_commits') == scale
+    return (fresh_writer_passed(report) and report.get('status') == 'passed' and report.get('executed_commits') == scale
             and report.get('fixed_head_unchanged') is True
             and report.get('logical_history_unchanged') is True
             and report.get('typed_history_unchanged') is True

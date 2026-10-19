@@ -17,6 +17,10 @@ pub(super) struct InstallProvider {
     old: Option<Arc<dyn MonotonicEndpointProvider>>,
     state: Arc<Mutex<Option<Installed>>>,
     lease: Arc<AtomicBool>,
+    activation_fault: std::sync::atomic::AtomicUsize,
+    query_fault: AtomicBool,
+    pub(super) activation_calls: std::sync::atomic::AtomicUsize,
+    pub(super) query_calls: std::sync::atomic::AtomicUsize,
 }
 impl InstallProvider {
     pub(super) fn new(
@@ -32,7 +36,18 @@ impl InstallProvider {
             old,
             state: Arc::new(Mutex::new(None)),
             lease: Arc::new(AtomicBool::new(false)),
+            activation_fault: std::sync::atomic::AtomicUsize::new(0),
+            query_fault: AtomicBool::new(false),
+            activation_calls: std::sync::atomic::AtomicUsize::new(0),
+            query_calls: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+    pub(super) fn fail_activation_once(&self, after_commit: bool) {
+        self.activation_fault
+            .store(if after_commit { 2 } else { 1 }, Ordering::SeqCst);
+    }
+    pub(super) fn fail_query_once(&self) {
+        self.query_fault.store(true, Ordering::SeqCst);
     }
     fn guard(
         &self,
@@ -220,6 +235,10 @@ impl MonotonicEndpointProvider for InstallProvider {
         instance: &EndpointInstanceBindingV1,
         sealed: &VerifiedSealedDurableSetTransitionV1,
     ) -> Result<Box<dyn MonotonicEndpointGuard>, FencingError> {
+        self.query_calls.fetch_add(1, Ordering::SeqCst);
+        if self.query_fault.swap(false, Ordering::SeqCst) {
+            return Err(FencingError::Rollback);
+        }
         let guard = self.guard(instance)?;
         if guard.durable_set_state().unwrap().transition_digest != sealed.transition().digest() {
             return Err(FencingError::FencingUnproven);
@@ -233,6 +252,13 @@ impl MonotonicEndpointProvider for InstallProvider {
         activation: &VerifiedDurableSetActivationV1,
         request: DurableSetNativeActivationRequestV1,
     ) -> Result<Box<dyn MonotonicEndpointGuard>, FencingError> {
+        self.activation_calls.fetch_add(1, Ordering::SeqCst);
+        let fault = self.activation_fault.swap(0, Ordering::SeqCst);
+        if fault == 1 {
+            return Err(FencingError::Io(
+                "injected before provider activation".into(),
+            ));
+        }
         let checked = verify_durable_set_activation(
             sealed.transition(),
             [
@@ -281,7 +307,16 @@ impl MonotonicEndpointProvider for InstallProvider {
             current.state.activation_digest = Some(activation.activation_digest().into());
         }
         drop(state);
-        self.guard(instance)
+        let guard = self.guard(instance)?;
+        if fault == 2 {
+            // The provider committed, but the owner never received its lease or
+            // active checkpoint. Recovery must independently query the provider.
+            drop(guard);
+            return Err(FencingError::Io(
+                "injected lost active provider reply".into(),
+            ));
+        }
+        Ok(guard)
     }
 }
 struct InstallGuard {

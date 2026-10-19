@@ -4,7 +4,7 @@ use crate::controlled_authority::formal::crypto::invalid;
 use ed25519_dalek::Signer;
 use std::{
     io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{SocketAddr, TcpStream},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -12,6 +12,10 @@ use std::{
     thread,
     time::Duration,
 };
+
+#[path = "endpoint_rpc_read_test_server.rs"]
+mod owned_server;
+use owned_server::{OwnedRpcServer, RPC_TIMEOUT};
 
 struct CountingProvider {
     inner: Arc<dyn fencing::MonotonicEndpointProvider>,
@@ -70,7 +74,14 @@ fn signed_rpc(
         body,
     };
     let bytes = serde_cbor::to_vec(&request).map_err(|error| invalid(error.to_string()))?;
-    let mut stream = TcpStream::connect(address).map_err(|error| invalid(error.to_string()))?;
+    let mut stream = TcpStream::connect_timeout(&address, RPC_TIMEOUT)
+        .map_err(|error| invalid(error.to_string()))?;
+    stream
+        .set_read_timeout(Some(RPC_TIMEOUT))
+        .map_err(|error| invalid(error.to_string()))?;
+    stream
+        .set_write_timeout(Some(RPC_TIMEOUT))
+        .map_err(|error| invalid(error.to_string()))?;
     stream
         .write_all(&(bytes.len() as u32).to_be_bytes())
         .and_then(|_| stream.write_all(&bytes))
@@ -144,9 +155,18 @@ fn signed_rpc(
 
 #[test]
 fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
-    let fixture = Fixture::new();
-    let primary_oracle = Oracle::start(&fixture, EndpointRole::Primary);
-    let replica_oracle = Oracle::start(&fixture, EndpointRole::Replica);
+    if crate::test_process::run_isolated(
+        concat!(
+            module_path!(),
+            "::signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads"
+        ),
+        Duration::from_secs(180),
+    ) {
+        return;
+    }
+    let fixture = Arc::new(Fixture::new());
+    let primary_oracle = Arc::new(Oracle::start(&fixture, EndpointRole::Primary));
+    let replica_oracle = Arc::new(Oracle::start(&fixture, EndpointRole::Replica));
     let open = |role, oracle: &Oracle| {
         FileFormalEndpoint::open_protected(
             if role == EndpointRole::Primary {
@@ -245,27 +265,16 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     let object_bytes = endpoint.store.raw_object(&object_id).unwrap().unwrap();
     assert_eq!(blake3::hash(&object_bytes).to_hex().as_str(), object_id);
 
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let stop = Arc::new(AtomicBool::new(false));
-    let server_stop = Arc::clone(&stop);
-    let server_errors = Arc::new(Mutex::new(Vec::new()));
-    let captured_errors = Arc::clone(&server_errors);
-    let server = thread::spawn(move || {
-        let mut server = super::super::super::super::transport::FormalEndpointServer::new(
-            endpoint,
-            Duration::from_secs(3),
-        )
-        .unwrap();
-        while !server_stop.load(Ordering::Acquire) {
-            if let Err(error) = server.serve_one(&listener) {
-                if server_stop.load(Ordering::Acquire) {
-                    break;
-                }
-                captured_errors.lock().unwrap().push(error);
-            }
-        }
-    });
+    let mut server = OwnedRpcServer::start(
+        endpoint,
+        (
+            primary_oracle.clone(),
+            replica_oracle.clone(),
+            fixture.clone(),
+        ),
+    )
+    .unwrap();
+    let address = server.address;
 
     let mut client = super::super::super::super::transport::RemoteFormalEndpoint::new(
         address,
@@ -276,24 +285,32 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
         first_commit.head(),
     )
     .unwrap();
-    assert_eq!(client.head().unwrap(), second_commit.head());
+    assert_eq!(
+        server.call("head", || client.head()).unwrap(),
+        second_commit.head()
+    );
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
     let chunk_len = object_bytes.len().min(32);
-    let chunk = client
-        .archive_chunk(&object_id, 0, chunk_len as u32)
+    let chunk = server
+        .call("archive_chunk", || {
+            client.archive_chunk(&object_id, 0, chunk_len as u32)
+        })
         .unwrap()
         .unwrap();
     assert_eq!(chunk.bytes, object_bytes[..chunk_len]);
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
-    let response = signed_rpc(
-        address,
-        &fixture.authority,
-        first_commit.head(),
-        super::super::super::super::transport::Command::ArchiveObject(object_id.clone()),
-    )
-    .unwrap();
+    let response = server
+        .call("signed_archive_object", || {
+            signed_rpc(
+                address,
+                &fixture.authority,
+                first_commit.head(),
+                super::super::super::super::transport::Command::ArchiveObject(object_id.clone()),
+            )
+        })
+        .unwrap();
     assert_eq!(response.body.minimum, first_commit.head());
     assert_eq!(response.body.head, second_commit.head());
     assert_eq!(response.body.ancestry.len(), 1);
@@ -304,8 +321,10 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     ));
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
-    let path = client
-        .business_index_path(&business_root, &business_key)
+    let path = server
+        .call("business_index_path", || {
+            client.business_index_path(&business_root, &business_key)
+        })
         .unwrap();
     assert_eq!(path.nodes.len(), 257);
     assert_eq!(
@@ -321,7 +340,11 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
         "one guarded signed RPC for the whole cold path"
     );
     let absent = h(8);
-    let absence = client.business_index_path(&business_root, &absent).unwrap();
+    let absence = server
+        .call("business_index_absent", || {
+            client.business_index_path(&business_root, &absent)
+        })
+        .unwrap();
     assert!(absence.verify(&business_root, &absent).unwrap().is_none());
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
@@ -339,32 +362,84 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
         wrong_minimum,
     )
     .unwrap();
-    assert!(forked_client.head().is_err());
+    assert!(
+        server
+            .call("wrong_minimum_head", || forked_client.head())
+            .is_err()
+    );
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
-    assert_eq!(client.head().unwrap(), second_commit.head());
+    assert_eq!(
+        server.call("head", || client.head()).unwrap(),
+        second_commit.head()
+    );
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
     assert!(
-        server_errors
+        server
+            .diagnostics
+            .errors
             .lock()
             .unwrap()
             .iter()
             .any(|error| matches!(error, FormalError::Rollback(_)))
     );
 
-    let checkpoint = client.checkpoint().unwrap();
-    client.seal_epoch(h(245), 2, checkpoint).unwrap();
+    let checkpoint = server.call("checkpoint", || client.checkpoint()).unwrap();
+    server
+        .call("seal_epoch", || client.seal_epoch(h(245), 2, checkpoint))
+        .unwrap();
     acquisitions.store(0, Ordering::SeqCst);
-    assert_eq!(client.head().unwrap(), second_commit.head());
+    assert_eq!(
+        server.call("head", || client.head()).unwrap(),
+        second_commit.head()
+    );
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
-    let sealed_path = client
-        .business_index_path(&business_root, &business_key)
+    let sealed_path = server
+        .call("sealed_business_index_path", || {
+            client.business_index_path(&business_root, &business_key)
+        })
         .unwrap();
     assert_eq!(sealed_path, path);
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
-    stop.store(true, Ordering::Release);
-    let _ = TcpStream::connect(address);
-    server.join().unwrap();
+    server.finish().unwrap();
     drop(primary_oracle);
     drop(replica_oracle);
+}
+
+#[test]
+fn signed_read_rpc_fixture_joins_server_when_client_panics() {
+    if crate::test_process::run_isolated(
+        concat!(
+            module_path!(),
+            "::signed_read_rpc_fixture_joins_server_when_client_panics"
+        ),
+        Duration::from_secs(180),
+    ) {
+        return;
+    }
+    let fixture = Arc::new(Fixture::new());
+    let endpoint = fixture.endpoint(EndpointRole::Primary);
+    let diagnostics = Arc::new(Mutex::new(None));
+    let observed = diagnostics.clone();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let owned = OwnedRpcServer::start(endpoint, fixture.clone()).unwrap();
+        *observed.lock().unwrap() = Some(owned.diagnostics.clone());
+        // Exercise a real connection with an incomplete frame, then unwind at
+        // the client. Its socket closes before the owned server guard drops.
+        let mut partial_client = TcpStream::connect_timeout(&owned.address, RPC_TIMEOUT).unwrap();
+        partial_client.set_write_timeout(Some(RPC_TIMEOUT)).unwrap();
+        partial_client.write_all(&[0]).unwrap();
+        panic!("injected client assertion failure");
+    }));
+    assert!(outcome.is_err());
+    let diagnostics = diagnostics.lock().unwrap().take().unwrap();
+    assert!(
+        diagnostics.joined.load(Ordering::Acquire),
+        "{}",
+        diagnostics.report()
+    );
+    // The server's actual endpoint lock is released, not just a stop flag. The
+    // same owned storage can reopen immediately while the fixture still lives.
+    drop(fixture.endpoint(EndpointRole::Primary));
+    assert!(fixture.pdir.exists());
 }

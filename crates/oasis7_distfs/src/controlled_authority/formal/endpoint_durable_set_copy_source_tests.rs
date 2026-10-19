@@ -2,6 +2,7 @@
 //! local readback. The fixture source never grants authority or supplies a memo.
 use super::*;
 use std::sync::Mutex;
+use std::time::Duration;
 
 struct CountedSource {
     source: FileFormalArchiveSourceV1,
@@ -190,4 +191,153 @@ fn healthy_copy_source_rechecks_new_manifest_and_stale_source_on_each_walk() {
     .unwrap();
     assert!(copy(&native).is_err());
     assert_eq!(source.reads(&index), before + 1);
+}
+
+#[test]
+fn healthy_copy_concurrent_walk_preserves_paused_run_and_exact_inventory() {
+    use std::sync::mpsc;
+    struct PausedSource {
+        source: FileFormalArchiveSourceV1,
+        target: PathBuf,
+        paused_once: std::sync::atomic::AtomicBool,
+        paused: mpsc::SyncSender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl FormalArchiveSourceV1 for PausedSource {
+        fn read_object(&self, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
+            // A History visit can perform additional index-source reads before
+            // publishing its first marker. Observe actual completed walk work,
+            // rather than guessing which source-read ordinal is a safe pause.
+            let mut has_marker = false;
+            if !self.paused_once.load(std::sync::atomic::Ordering::SeqCst) {
+                for run in fs::read_dir(self.target.join(".formal-durable-set-staging"))
+                    .map_err(|error| FormalError::Io(error.to_string()))?
+                {
+                    let run = run.map_err(|error| FormalError::Io(error.to_string()))?;
+                    if !run.file_name().to_string_lossy().starts_with("run-") {
+                        continue;
+                    }
+                    for marker in fs::read_dir(run.path())
+                        .map_err(|error| FormalError::Io(error.to_string()))?
+                    {
+                        let marker = marker.map_err(|error| FormalError::Io(error.to_string()))?;
+                        let name = marker.file_name();
+                        let name = name.to_string_lossy();
+                        if ["edge-", "object-", "entry-"]
+                            .iter()
+                            .any(|prefix| name.starts_with(*prefix))
+                        {
+                            has_marker = true;
+                            break;
+                        }
+                    }
+                    if has_marker {
+                        break;
+                    }
+                }
+            }
+            if has_marker
+                && !self
+                    .paused_once
+                    .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                self.paused
+                    .send(())
+                    .map_err(|error| FormalError::Io(error.to_string()))?;
+                self.resume
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(15))
+                    .map_err(|error| FormalError::Io(error.to_string()))?;
+            }
+            self.source.read_object(id)
+        }
+    }
+    let fixture = Fixture::new();
+    let mut coordinator = fixture.coordinator();
+    coordinator.submit(fixture.initial.clone()).unwrap();
+    let primary = coordinator.endpoints_mut().0;
+    let checkpoint = primary.checkpoint().unwrap();
+    primary.seal_epoch(&h(210), 2, &checkpoint).unwrap();
+    let native = Store::read_native_checkpoint(&fixture.pdir).unwrap();
+    let target = target(&fixture);
+    let source = FileFormalArchiveSourceV1::new(fixture.pdir.clone()).unwrap();
+    let copied = super::super::store::durable_set::copy_authenticated_closure(
+        &target,
+        &native,
+        &public(5),
+        &source,
+        1,
+        64 * 1024 * 1024,
+        true,
+    )
+    .unwrap();
+    let (paused_tx, paused_rx) = mpsc::sync_channel(1);
+    let (resume_tx, resume_rx) = mpsc::sync_channel(1);
+    let paused = PausedSource {
+        source,
+        target: target.clone(),
+        paused_once: std::sync::atomic::AtomicBool::new(false),
+        paused: paused_tx,
+        resume: Mutex::new(resume_rx),
+    };
+    let first_target = target.clone();
+    let first_native = native.clone();
+    let first = std::thread::spawn(move || {
+        super::super::store::durable_set::copy_authenticated_closure(
+            &first_target,
+            &first_native,
+            &public(5),
+            &paused,
+            1,
+            64 * 1024 * 1024,
+            true,
+        )
+    });
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let staging = target.join(".formal-durable-set-staging");
+        let runs = || {
+            fs::read_dir(&staging)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| {
+                    path.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with("run-")
+                })
+                .collect::<Vec<_>>()
+        };
+        let paths = runs();
+        assert_eq!(paths.len(), 1);
+        let live_run = &paths[0];
+        assert!(
+            fs::read_dir(live_run).unwrap().count() > 1,
+            "pause after actual walk markers were written"
+        );
+        let local = FileFormalArchiveSourceV1::new(target.clone()).unwrap();
+        let second = super::super::store::durable_set::copy_authenticated_closure(
+            &target,
+            &native,
+            &public(5),
+            &local,
+            1,
+            64 * 1024 * 1024,
+            false,
+        )
+        .unwrap();
+        assert_eq!(second, copied);
+        assert!(
+            live_run.exists(),
+            "another complete walk must never reclaim a live run"
+        );
+        assert_eq!(runs(), paths);
+    }));
+    let _ = resume_tx.send(());
+    let first = first.join().unwrap();
+    if let Err(error) = outcome {
+        std::panic::resume_unwind(error);
+    }
+    assert_eq!(first.unwrap(), copied);
 }

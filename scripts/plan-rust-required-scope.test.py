@@ -119,6 +119,13 @@ class Selection(unittest.TestCase):
                 self.assertTrue(groups.issubset(plan['groups']))
                 self.base = self.git('rev-parse', 'HEAD')
 
+    def test_hosted_passkey_browser_smoke_has_launcher_and_viewer_owners(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('scripts/hosted-passkey-virtual-authenticator-smoke.mjs', '// changed browser smoke')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertTrue({'launcher_web', 'viewer_js_required'}.issubset(plan['groups']))
+
     def test_rustsec_baseline_inputs_are_registered(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         for path in ('deny.toml', 'scripts/rustsec-ignore-direct-dependency-baseline.json',

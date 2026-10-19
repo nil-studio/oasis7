@@ -60,6 +60,68 @@ class Contracts(unittest.TestCase):
         self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
         self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
 
+    def test_storage_build_optimizes_native_tests_without_disabling_checks(self):
+        with patch.dict(os.environ, {'RUSTC_WRAPPER': 'untrusted-wrapper',
+                                   'CARGO_PROFILE_TEST_DEBUG_ASSERTIONS': 'false'}):
+            ordinary = acceptance.artifacts.build_environment('formal')
+            storage = acceptance.artifacts.build_environment('storage')
+        self.assertNotIn('RUSTC_WRAPPER', storage)
+        self.assertEqual(ordinary['CARGO_PROFILE_TEST_DEBUG_ASSERTIONS'], 'false')
+        for profile in ('DEV', 'TEST'):
+            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], '2')
+            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'], 'true')
+            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'], 'true')
+        self.assertEqual(storage.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'),
+                         ordinary.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'))
+
+    def test_storage_artifact_profile_is_verified_at_consumption(self):
+        binary = dict(profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
+        acceptance.artifacts.validate_profile('runtime-tests', binary, 'storage')
+        for key, value in [('opt_level', '0'), ('debug_assertions', False), ('overflow_checks', False)]:
+            changed = copy.deepcopy(binary)
+            changed['profile'][key] = value
+            with self.assertRaises(ValueError):
+                acceptance.artifacts.validate_profile('runtime-tests', changed, 'storage')
+        # Ordinary formal consumers retain their existing profile contract.
+        acceptance.artifacts.validate_profile('runtime-tests', dict(profile={}), 'formal')
+
+    def test_storage_consumer_rejects_unoptimized_manifest(self):
+        artifacts = acceptance.artifacts
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'runtime'
+            binary.write_text('#!/bin/sh\nexit 0\n')
+            binary.chmod(0o755)
+            config = root / 'suites.json'
+            config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
+                                             environment_formal_batches={}, shell_tests={})))
+            entry = dict(path='runtime', sha256=artifacts.digest(binary),
+                         original_executable=str(binary), test=False,
+                         profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
+            manifest = dict(schema_version=2, scope='storage', tested_sha='tested', source_sha='source',
+                            producer_run_id='run', checkout=str(root),
+                            config_sha256=artifacts.digest(config),
+                            rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'),
+                            runner_image=os.environ.get('ImageOS', sys.platform),
+                            binaries={'runtime': entry}, suites={}, libraries={})
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'output', return_value='tested'), \
+                 patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='run'):
+                (root / 'manifest.json').write_text(json.dumps(manifest))
+                artifacts.load(root)
+                entry['profile']['opt_level'] = '0'
+                (root / 'manifest.json').write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(ValueError, 'optimized storage artifact'):
+                    artifacts.load(root)
+                for schema in (None, 1, 99):
+                    if schema is None:
+                        manifest.pop('schema_version', None)
+                    else:
+                        manifest['schema_version'] = schema
+                    (root / 'manifest.json').write_text(json.dumps(manifest))
+                    with self.assertRaisesRegex(ValueError, 'schema 2 storage artifact'):
+                        artifacts.load(root)
+
     def test_storage_scope_adds_libraries_without_changing_formal(self):
         formal = acceptance.artifacts.build_variants('formal')
         storage = acceptance.artifacts.build_variants('storage')
@@ -228,8 +290,43 @@ class Contracts(unittest.TestCase):
         report['logical_after'] = copy.deepcopy(report['logical_before'])
         report['typed_history_before'] = dict(records=1000, digest='c'*64)
         report['typed_history_after'] = copy.deepcopy(report['typed_history_before'])
+        report['original_commit_ref'] = dict(position=2, state_root_ref='original')
+        ready = dict(schema=1, nonce='a'*64, parent_pid=11, child_pid=12, stage='ready',
+                     fixed_head=report['fixed_head'], authority=report['authority_digest'],
+                     typed=copy.deepcopy(report['typed_history_before']), result='b'*64,
+                     effect='c'*64, emits=1, original_commit=None, final_position=1002,
+                     continuation_completed=False, ready_node_running=False)
+        report['cold_writer_ready'] = ready
+        done = copy.deepcopy(ready)
+        done.update(stage='done', original_commit=copy.deepcopy(report['original_commit_ref']),
+                    final_position=1004, continuation_completed=True)
+        report['cold_writer_done'] = done
         self.assertTrue(acceptance.full_node_passed(report, 1000))
         self.assertFalse(acceptance.full_node_passed(report, 10000))
+        for missing in ('cold_writer_ready', 'cold_writer_done', 'original_commit_ref'):
+            changed = copy.deepcopy(report)
+            del changed[missing]
+            self.assertFalse(acceptance.full_node_passed(changed, 1000), missing)
+        for field, key, value in (
+                ('cold_writer_ready', 'child_pid', 11),
+                ('cold_writer_ready', 'parent_pid', True),
+                ('cold_writer_ready', 'ready_node_running', True),
+                ('cold_writer_ready', 'continuation_completed', True),
+                ('cold_writer_ready', 'typed', {}),
+                ('cold_writer_done', 'nonce', 'd'*64),
+                ('cold_writer_done', 'child_pid', 13),
+                ('cold_writer_done', 'parent_pid', 13),
+                ('cold_writer_done', 'schema', 0),
+                ('cold_writer_done', 'stage', 'ready'),
+                ('cold_writer_done', 'result', 'd'*64),
+                ('cold_writer_done', 'effect', 'd'*64),
+                ('cold_writer_done', 'emits', 2),
+                ('cold_writer_done', 'original_commit', dict(position=2, state_root_ref='wrong')),
+                ('cold_writer_done', 'final_position', 1002),
+                ('cold_writer_done', 'continuation_completed', False)):
+            changed = copy.deepcopy(report)
+            changed[field][key] = value
+            self.assertFalse(acceptance.full_node_passed(changed, 1000), (field, key))
         for field in ('fixed_head_unchanged', 'logical_history_unchanged',
                       'typed_history_unchanged', 'original_result_unchanged',
                       'original_effect_unchanged', 'continuation_completed', 'published_history_unchanged', 'accounting_quiescent'):

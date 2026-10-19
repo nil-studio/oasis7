@@ -30,6 +30,8 @@
 
 仓库 Actions 的 **Storage Acceptance**（[workflow](../../../.github/workflows/storage-acceptance.yml)）只有 `workflow_dispatch` 入口，不改变普通 PR 的 required checks、生产权限或部署。选择待测分支后固定该次 `github.sha`；producer 构建一次 native executables，消费者核对同 run 的 source、二进制 hash、实际测试清单与依赖闭包。无生产凭据，不接入现有世界。
 
+存储专项 producer 的 native dev/test 产物固定 `opt-level=2`，同时保留 `debug-assertions=true` 与 `overflow-checks=true`；endpoint 继续使用既有 release/opt-level=3 合同。producer 与 consumer 均核对 Cargo 实际报告的 profile，普通 formal/PR 构建不改变。构建优化不放宽测试工作负载、逻辑/磁盘/时间预算或完整报告要求；不同构建 profile 的测量分别记录，不能直接拼成优化前后性能收益。
+
 ```bash
 gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
   -f capacity_scale=10 -f full_node_scale=10 -f repeat_faults=1
@@ -242,7 +244,7 @@ JSON 分域报告 file_paths、unique_files、directories、apparent_bytes、uni
 
 容量验收用同一正式 writer、世界、原历史和副本数，在停止 Node 新工作后固定原 head。先盘点维护前目录，再保持 P/R 存活逐页完成 writer attempt 维护，停止端点后推进有预算的物理代维护，分别盘点维护后和冷恢复后目录。计入 P/R、writer、native 环境、attempt、旧代及维护残余；共享安装与编译缓存明确排除。此比较标记为 `same_formal_directory_maintenance_net_occupancy`，不能称作旧 raw writer 与新版 writer 的比较。
 
-每端逻辑清单按页重新验证原 hash，保留重复 digest 的保留记录，比较各端维护前后流式摘要；不要求 P/R 私有材料相等。完整 typed history、原 Published、Snapshot、原业务结果和继续工作均须验证。冷恢复盘点必须在启动新工作前完成，不能把冷启动清理归因于物理代维护。这里的冷恢复指重新开启进程及其逻辑缓存，不清空 OS cache；耗时不能冒充冷设备读取性能。
+每端逻辑清单按页重新验证原 hash，保留重复 digest 的保留记录，比较各端维护前后流式摘要；不要求 P/R 私有材料相等。完整 typed history、原 Published、Snapshot、原业务结果和继续工作均须验证。冷恢复盘点必须在启动新工作前完成，不能把冷启动清理归因于物理代维护。这里的 writer 冷恢复由父验收进程启动同测试二进制的全新 OS 子进程执行，核对 child PID 与 parent PID 不同；子进程只读取持久 runtime 配置与有界原请求/摘要输入，不接收 World、Arc 或父进程缓存。子进程在 Node 未启动时实际读回固定 head、authority 和完整 typed history，发布绑定 nonce/PID 的 ready 收据并等待；父进程完成停止/回收 P/R 后的冷目录盘点、重启 P/R，才允许子进程提交原请求及继续新工作，并核对其独立完成收据。父进程沿原整场景绝对截止监管 ready、完成与退出，失败时 kill+wait；worker 输出留在有界独立 spool，辅助 worker 不作为另一个验收 pass。这个边界清空 writer 进程及其逻辑缓存，不清空 OS cache；耗时不能冒充冷设备读取性能。 CI 的 full-node 消费者必须同时校验 ready/done 两份收据的 schema、nonce、实际且不同的父子 PID、固定 head/authority/typed 摘要、原结果/效果/完整 CommitRef 和续跑位置；缺少收据的旧同进程报告不得通过。
 
 冷恢复后的原请求重投先以最多 120 秒等待自然 Published 同步点，再在独立最多 120 秒动作阶段提交同一签名原请求，要求紧邻下一发布包含该精确动作且仅一个动作；在释放边界前捕获该 cut，远程证明在释放后验证原 CommitRef 与效果不变。两个阶段合计最多 240 秒并均受原整场景绝对截止约束，HTTP 提交计入动作阶段；这是 full-node 既有每意图 120 秒预算及新增同步等待，不是产品时延 SLO，不提高业务 RPC 或整场景预算，也不改变初始规模工作负载的 120 秒发布截止。
 
