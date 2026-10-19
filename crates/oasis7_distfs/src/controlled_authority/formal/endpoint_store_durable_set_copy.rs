@@ -9,6 +9,8 @@ use crate::controlled_authority::formal::business_index::{
 #[path = "endpoint_store_durable_set_copy_memo.rs"]
 mod copy_memo;
 use copy_memo::CopyReadMemo;
+#[path = "endpoint_store_durable_set_run_lease.rs"]
+mod run_lease;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct DurableSetClosureInventoryV1 {
     pub source_checkpoint_digest: String,
@@ -307,54 +309,10 @@ pub(crate) fn copy_authenticated_closure(
     let objects = target.join("formal-objects-v1");
     directory(&objects)?;
     FileFormalArchiveSourceV1::new(target.to_path_buf())?;
-    let staging = target.join(".formal-durable-set-staging");
-    directory(&staging)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = fs::symlink_metadata(&staging).map_err(io)?;
-        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
-            return Err(invalid("healthy copy staging private owner/mode"));
-        }
-    }
-    // Caller holds the exclusive endpoint lock. Only dedicated verification
-    // runs are removed; digest CAS links and signed metadata are never deleted.
-    for entry in fs::read_dir(&staging).map_err(io)? {
-        let entry = entry.map_err(io)?;
-        let name = entry.file_name();
-        let name = name
-            .to_str()
-            .ok_or_else(|| invalid("healthy copy staging name"))?;
-        let Some(id) = name.strip_prefix("run-") else {
-            return Err(invalid("healthy copy foreign staging entry"));
-        };
-        hash_hex(id)?;
-        if !fs::symlink_metadata(entry.path()).map_err(io)?.is_dir() {
-            return Err(invalid("healthy copy staging symlink/non-directory"));
-        }
-        fs::remove_dir_all(entry.path()).map_err(io)?;
-    }
-    sync(&staging)?;
-    let visits = staging.join(format!(
-        "run-{}",
-        fencing::fresh_challenge().map_err(fencing_error)?
-    ));
-    // No reuse on name collision, including a stale directory or symlink.
-    let mut builder = fs::DirBuilder::new();
-    #[cfg(unix)]
-    builder.mode(0o700);
-    builder.create(&visits).map_err(io)?;
-    struct Cleanup(PathBuf, bool);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let started = self.1.then(std::time::Instant::now);
-            let _ = fs::remove_dir_all(&self.0);
-            if self.1 {
-                eprintln!("healthy-native-cleanup cleanup_us={}", elapsed_us(started));
-            }
-        }
-    }
-    let _cleanup = Cleanup(visits.clone(), trace.enabled);
+    // Provider work can outlive its caller's native owner after an RPC timeout.
+    // Only the run's own lease (not that owner lock) proves scratch liveness.
+    let run = run_lease::RunLease::start(target, trace.enabled)?;
+    let visits = &run.path;
     let mut work = vec![
         Visit::Index(
             body.index
@@ -446,7 +404,7 @@ pub(crate) fn copy_authenticated_closure(
                 crate::controlled_authority::formal::business_pack::read_object_durable_once(
                     &objects.join(visit.id()),
                     visit.id(),
-                    &visits,
+                    visits,
                 )?
                 .ok_or_else(|| invalid("healthy independent local readback missing object"))?;
             if let Visit::Raw(_, expected) = &visit

@@ -83,7 +83,15 @@ pub(super) fn lock(path: &Path) -> Result<File, ProtocolError> {
     if !file.metadata().map_err(io)?.is_file() {
         return Err(invalid("lock is not regular file"));
     }
-    file.try_lock().map_err(|_| ProtocolError::Locked)?;
+    file.try_lock().map_err(|_error| {
+        #[cfg(test)]
+        eprintln!(
+            "replicated endpoint lock failed pid={} path={} error={_error:?}",
+            std::process::id(),
+            path.display()
+        );
+        ProtocolError::Locked
+    })?;
     Ok(file)
 }
 pub(super) fn read_legacy(path: &Path) -> Result<Option<Vec<u8>>, ProtocolError> {
