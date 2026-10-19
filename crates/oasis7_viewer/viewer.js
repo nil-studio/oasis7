@@ -2366,6 +2366,34 @@ function IndustrialStarterOutcomeCard(props) {
 var _tmpl$$37 = /*#__PURE__*/ template(`<button type=button>`);
 var _tmpl$2$34 = /*#__PURE__*/ template(`<div class=toolbar><span role=status aria-live=polite>: <!>–<!> / `);
 var PAGE_SIZE = 50;
+function targetListScopeKey(state) {
+	const auth = state.auth;
+	return JSON.stringify([
+		auth.playerId,
+		auth.publicKey,
+		auth.boundAgentId,
+		auth.source,
+		auth.registrationStatus,
+		auth.runtimeStatus,
+		state.worldFeed?.worldId
+	]);
+}
+function createTargetListProjection(core, observeRevision) {
+	return {
+		lists: createMemo(() => {
+			observeRevision();
+			return core.modelLists();
+		}),
+		filterKey: () => {
+			observeRevision();
+			return core.getSelectedSearch();
+		},
+		scopeKey: () => {
+			observeRevision();
+			return targetListScopeKey(core.state);
+		}
+	};
+}
 function TargetListWindow(props) {
 	const zh = () => String(props.locale || "").startsWith("zh");
 	const noun = () => props.kind === "location" ? zh() ? "地点" : "locations" : zh() ? "行动体" : "agents";
@@ -27579,28 +27607,7 @@ function WorldStageHero() {
 	})();
 }
 function TargetsPanel() {
-	observeViewerStateRevision();
-	const lists = createMemo(() => {
-		observeViewerStateRevision();
-		return modelLists();
-	});
-	const filterKey = () => {
-		observeViewerStateRevision();
-		return getSelectedSearch();
-	};
-	const scopeKey = () => {
-		observeViewerStateRevision();
-		const auth = state.auth;
-		return JSON.stringify([
-			auth.playerId,
-			auth.publicKey,
-			auth.boundAgentId,
-			auth.source,
-			auth.registrationStatus,
-			auth.runtimeStatus,
-			state.worldFeed?.worldId
-		]);
-	};
+	const { lists, filterKey, scopeKey } = createTargetListProjection(legacy_core_exports, observeViewerStateRevision);
 	const locale = () => uiLocale();
 	const gameplaySummary = () => buildGameplaySummary(locale());
 	const firstAgentClaimAction = () => (gameplaySummary()?.availableActions || []).find((action) => action.actionId === "claim_first_agent");

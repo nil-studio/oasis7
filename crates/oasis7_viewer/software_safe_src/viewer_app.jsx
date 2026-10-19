@@ -1,8 +1,8 @@
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
 import { CanonicalAgentGoal } from "./canonical_agent_goal.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { TargetListWindow } from "./target_list_window.jsx";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { TargetListWindow, createTargetListProjection } from "./target_list_window.jsx";
 import { render as mount } from "solid-js/web";
 import * as core from "./legacy_core.js";
 import { FirstChatUnlockPreview } from "./first_chat_unlock_preview.jsx";
@@ -2161,15 +2161,7 @@ function WorldStageHero() {
 }
 
 function TargetsPanel() {
-  observeViewerStateRevision();
-  const lists = createMemo(() => { observeViewerStateRevision(); return core.modelLists(); });
-  const filterKey = () => { observeViewerStateRevision(); return core.getSelectedSearch(); };
-  const scopeKey = () => {
-    observeViewerStateRevision();
-    const auth = core.state.auth;
-    return JSON.stringify([auth.playerId, auth.publicKey, auth.boundAgentId, auth.source,
-      auth.registrationStatus, auth.runtimeStatus, core.state.worldFeed?.worldId]);
-  };
+  const { lists, filterKey, scopeKey } = createTargetListProjection(core, observeViewerStateRevision);
   const locale = () => uiLocale();
   const gameplaySummary = () => core.buildGameplaySummary(locale());
   const firstAgentClaimAction = () =>

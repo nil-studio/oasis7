@@ -2,6 +2,20 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 const PAGE_SIZE = 50;
 
+function targetListScopeKey(state) {
+  const auth = state.auth;
+  return JSON.stringify([auth.playerId, auth.publicKey, auth.boundAgentId, auth.source,
+    auth.registrationStatus, auth.runtimeStatus, state.worldFeed?.worldId]);
+}
+
+export function createTargetListProjection(core, observeRevision) {
+  return {
+    lists: createMemo(() => { observeRevision(); return core.modelLists(); }),
+    filterKey: () => { observeRevision(); return core.getSelectedSearch(); },
+    scopeKey: () => { observeRevision(); return targetListScopeKey(core.state); },
+  };
+}
+
 // Window only the DOM. Authorization and search operate on the complete list
 // upstream, and changing pages never changes the current world selection.
 export function TargetListWindow(props) {
