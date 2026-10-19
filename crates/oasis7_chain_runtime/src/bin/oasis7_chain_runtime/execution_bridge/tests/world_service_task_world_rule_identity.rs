@@ -12,21 +12,18 @@ pub(crate) fn pin_world_rule_resource_identity(
         manifest.genesis_ref.as_deref(),
         Some(identity.genesis_digest.as_str())
     );
-    driver.resource_identity = Some(crate::execution_bridge::driver::ExecutionResourceIdentity {
-        chain_id: manifest.chain_id.clone(),
-        genesis_ref: identity.genesis_digest.clone(),
-    });
+    driver.resource_identity = Some(
+        super::super::super::super::super::driver::ExecutionResourceIdentity {
+            chain_id: manifest.chain_id.clone(),
+            genesis_ref: identity.genesis_digest.clone(),
+        },
+    );
 }
 
 fn assert_cas_scope(dir: &std::path::Path, height: u64, identity: &WorldIdentity) {
-    use oasis7_runtime::BlobStore;
-    let record = crate::execution_bridge::checkpoint::load_execution_bridge_record(
-        &crate::execution_bridge::checkpoint::execution_bridge_record_path(
-            &dir.join("records"),
-            height,
-        ),
-    )
-    .unwrap();
+    let record =
+        load_execution_bridge_record(&execution_bridge_record_path(&dir.join("records"), height))
+            .unwrap();
     let store = oasis7_runtime::LocalCasStore::new(dir.join("store"));
     let bytes = store
         .get_verified(record.snapshot_ref.as_deref().unwrap())
@@ -49,13 +46,14 @@ fn world_rule_resource_scope_survives_commit_cas_and_restart() {
     commit(&mut driver, 3, create.clone());
     assert_cas_scope(&dir, 3, &identity);
     drop(driver);
-    let bootstrap = crate::execution_bridge::local_bootstrap::derive_service_execution_bootstrap(
-        &dir.join("world"),
-        &dir.join("records"),
-        &dir.join("store"),
-        "w1",
-    )
-    .unwrap();
+    let bootstrap =
+        super::super::super::super::super::local_bootstrap::derive_service_execution_bootstrap(
+            &dir.join("world"),
+            &dir.join("records"),
+            &dir.join("store"),
+            "w1",
+        )
+        .unwrap();
     let mut restarted = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
         dir.join("state.json"),
         dir.join("world"),
