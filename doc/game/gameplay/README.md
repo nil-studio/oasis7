@@ -20,6 +20,9 @@
 - 想确认 1cm 物理世界、动作粒度和表现夸张边界：先读 `../../product/world-rules-core-gameplay/prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的玩法合同
 - 想确认访问模式、limited preview 或 release readiness：先读 `../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前 preview 执行状态由 Git、PR 与实际 CI 记录 确认。已关闭 Round 1 的发布、渠道 fallback、信号与关闭证据从 Git history 和 GitHub issue `eng-cc/oasis7#48` 追溯
 - 想确认 agent claim token cost、claim bond、upkeep、reclaim、restricted grant、starter OC 或 first chat gate：先读 `gameplay-agent-claim-economy-contract.prd.md`，再按需读 `gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md`
+- 想确认额外 Agent 的制造配方、报价、产能与失败成本：读 [Agent claim 经济合同](gameplay-agent-claim-economy-contract.prd.md)的制造政策，再读 [Runtime 制造设计](../../world-runtime/runtime/agent-industrial-manufacturing.design.md)。
+- 想确认紧急保供触发、资格优先级、批次窗口、补偿与退出：读 [保供首版政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)，产品承诺仍由 [ES 专题](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md)拥有。
+- 想确认组织有效活动、通知保护期限、接替资格、资产处置与部分交接：读 [组织连续性首版政策](gameplay-organization-continuity-policy.prd.md)，再读 [Runtime 处置设计](../../world-runtime/runtime/organization-continuity-and-disposition.design.md)。
 - 想精确找某份 gameplay 专题文档，而不是按问题阅读：回到 `../prd.index.md`
 
 ## 入口分工
@@ -30,7 +33,8 @@
 - `gameplay-mature-world-progression-contract.prd.md` 拥有 `PRD-GAME-015` 的 lane、恢复、专业化、checkpoint 与 anti-grind 详细合同，并在 [generic mature-world recognition/opportunity leaf](./gameplay-mature-world-progression-contract.prd.md#prd-game-015-recognition-opportunity) 中承接 `REQ-WR-MW-004` / `MW-11` 的专业玩法语义；不新增 PRD-ID 或 authority，产品承诺仍由 mature-world 产品分册拥有。
 - `gameplay-regional-charter-tenure-funding-contract.prd.md` 拥有 `PRD-GAME-017` 的区域 charter 提案/审查、双资格、退化恢复、tenure 长期规划、服务费/公共 levy 玩家动作与验收；产品 `GR-004` 至 `GR-008` 仍由 `governed-regional-capabilities-and-extensions.prd.md` 拥有，runtime/P2P/QA 保留各自执行与验证 authority。
 - `gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md` 拥有 `PRD-GAME-019` 的普通治理主体聚合、资格/委托、公开审计、重复主体纠错/申诉、事项快照、OC 外部转让与单向非治理额度桥玩家动作和验收；其中 GCB-005 的事项快照与额度桥由 AC-GAME-019-04/05 承接，产品 `GCB-004/005` 仍由 `governed-common-decisions-and-constitutional-boundaries.prd.md` 拥有，runtime/P2P/QA 保留各自执行与验证 authority。
-- `gameplay-industrial-creation-and-cross-region-market-contract.prd.md` 拥有 `PRD-GAME-018` 的工业创建、许可/开放、OC/世界资格隔离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同；当前消费 active `GR-009..011`、`SC31-009/AC-SC31-010/011` 与 `ES-004` 产品 authority，其中工业/世界资格隔离仅保留 GR-011 边界；常态/危机保供不在本合同重新定义。
+- `gameplay-industrial-creation-and-cross-region-market-contract.prd.md` 拥有 `PRD-GAME-018` 的工业创建、许可/开放、OC/世界资格隔离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同；工业/世界资格隔离保持 GR-011 边界。其 [保供政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)集中持有 ES-001 至 ES-004 的首版规则值，产品要求仍由 ES 专题声明，Runtime 拥有执行与恢复合同。
+- [组织连续性政策](gameplay-organization-continuity-policy.prd.md)集中持有 OC-001 至 OC-003 的活动、保护、接替和处置规则；组织权利连续性由产品专题声明，外部代币 OC 的治理资格仍由 GAME-019 专题拥有。
 - GitHub Project task status 与 issue evidence comments 是 retention、preview、经济规则和放行门禁的执行状态入口。
 - `../prd.index.md` 是完整文件级索引，适合已知主题后按文件名查找。
 

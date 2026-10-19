@@ -6,7 +6,7 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-10-12
+- Last reviewed：2026-10-19
 - 专业域权威：[`Agent claim 经济合同`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
 本文承载玩家取得、维持和结束 Agent 控制权，以及 Agent 资产、团队扩张和经济连续性的长期产品承诺。它补充首局与持续游玩、间接控制和成熟世界成长分册，但不冻结经济数值、状态字段、身份实现、界面结构、运营操作、测试步骤或当前放行结论。
@@ -80,6 +80,19 @@ Agent 的取得、维护、容量、转让条件与关联经济权利属于世�
 - 额外 Agent 是可持有、可调度且可转让的长期经营资产；玩家或组织取得额外 Agent 的常态路径是向世界内工业能力下单制造，订单消耗显著资源、占用适用产能并经历可读交付时间。
 - Agent 的供给主要受工业、物流、设施与交付约束，而不是由普通治理 quota 直接发放或扩张；适用资格与安全边界仍可限制订单，但不能把治理影响力伪装成无成本 Agent 供给。
 - 受规则约束的控制、经济、经营角色和关联资产权益可以随转让条件发生变化；转让生效后的自治范围、旧授权失效和新目标取得由[智能体专题](../agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#agent-delegation-boundary)消费并继续定义，不能由经济转让本身推导出额外世界权力。
+
+<a id="agent-manufacturing-policy"></a>
+#### 2.4.1 额外 Agent 的首版制造政策与玩家选择
+
+玩家已有一个可经营的主 Agent，只有在扩大经营确实值得付出材料、等待和长期维护成本时才制造额外 Agent。下面是本次设计提出的首版实施政策，尚未实现或经过数值平衡/玩家验收；它不是历史运营政策或此前 owner 批准的记录。精确配方、数值和计价只在[制造首版专业政策](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-manufacturing-v1)维护，本产品分册拥有其玩家含义。
+
+- **范围与配方**：首版只提供一种标准 Agent，每张订单制造一个，通过已有装配工厂和既有工业材料链完成。玩家或组织须有可核验的设施操作、材料支出和取得 Agent 的权限。首版从自营设施起步；第三方公开撮合、跨账号代扣和远程成品运输不在首版支持范围，不能借制造订单推导其权限。组织名义本身不授权成员资产。
+- **成本**：制造投入和经济认领费用分别披露。材料与制造电力是生产投入；取得控制权还需原有的非零激活费、押金和首期维护费。首个注册主 Agent 即使没有经济 claim，制造的仍是额外 Agent，按额外槽位计价且不得使用首个认领受限余额、自动启动补足或再领首聊支持。首版不新增制造服务费，也不因此减免物料、电力或既有设施维护。
+- **产能**：制造与普通工业共享真实设施，制造最多占一个允许的生产槽，并为普通工业保留至少一个槽。已有订单计入取得容量；不能同时下多单或改走普通认领绕过上限。单主 Agent 可以继续原有采集、生产和成长路线，制造不成为首局或基础经营的强制前置。
+- **正常决策**：报价先展示所需材料及去向、一次性费用/可退押金、持续维护、产能占用、交付位置、预计世界时间和最长等待窗口。玩家可以先补料、等待空闲产能、维持单主 Agent，或明确确认这一单。报价和推荐无世界效果；确认才预留资源与容量，生产开始才消耗制造投入，权威交付才创建 Agent 并取得控制权。
+- **取得后的控制**：原主 Agent 保持经营锚点；交付后的额外 Agent 有可验证的独立控制来源，原主体无需重新领取启动支持即可明确选择它查看获准信息和提交直接意图。自治和委托仍须按既有规则显式建立；claim 释放/回收或当前 owner 来源失效后，旧控制不能靠制造历史、旧授权或重连继续，原成本和责任仍保留。
+- **等待与退出**：确认后尚未生产可在期限内取消并原路解除全部预留；开始生产后不能通过取消取回已经消耗的材料/电力。生产完成但资格、授权或交付条件不满足时显示“待交付”，在固定窗口内允许补条件、恢复或按已确认的报废政策结束；不收未交付 Agent 的维护费，也不把半成品显示为可操作 Agent。首版报废没有材料返还或转卖收益，这项损失必须在确认前展示。
+- **失败与连续性**：每次状态变化显示主因、已消耗/仍占用/可返还部分和下一次可决策点。技术提交失败保留最后权威状态；结果未知先查询原订单。权限变化不转移受益人、不删历史、不产生部分交付，失败重试也不能再次扣款、制造或发放。完成的 Agent 在同一世界保留制造来源，维护与既有授权/协调边界从真实交付起继续生效。
 
 ### 2.5 可验证的控制权与恢复要求
 
@@ -163,30 +176,41 @@ Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465；声明：[REQ-WR-AOS-0
 - 则：每个额外 Agent 的取得与持续经营约束均可被追踪；团队扩张不静默扩大自治/责任范围、世界权力或自动产能，且玩家仍能选择小规模独立路线。Agent 专题的自治、委托与责任结果由其自身 authority 消费并验证，不由本条重复立法。
 
 <a id="req-wr-aos-004"></a>
-### REQ-WR-AOS-004：工业制造供给必须承担资源、产能与交付约束
+### REQ-WR-AOS-004：额外 Agent 常态供给必须通过工业订单表达
 
 Trace ID: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-010](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010)。已承接：经本条对应 AC 承接的工业供给授权边界或转让资格与历史连续性。
-- 实现与验证依据：已补齐当前基线 Runtime 生产源码清单并沿[穷尽领域事件分派](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/state.rs#L1008-L1140)、[模块输出](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/module_runtime.rs#L156-L217)及[模块/回执消费边界](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing.rs#L801-L884)闭合允许的状态写入。[ScheduleRecipe 资格/槽位](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L435-L481)检查 requester、工厂 owner 和 recipe_slots，[工业资源与交付时点](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L750-L793)形成材料、电力与 ready_at；[工业完成输出物料](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L439-L503)只产出 material ledger 并保存工业 receipt，未产生新 Agent。[既有 Agent 的 ClaimAgent](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing/action_to_event_gameplay.rs#L144-L263)要求目标 Agent 预先存在，再经[claim publication 路由](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing/publication.rs#L155-L170)和[claim 原子状态安装](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/agent_claim_economic_publication.rs#L337-L350)落地费用、押金、upkeep 与 claim；[当前持有 claim 读模型](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/viewer/runtime_live/claim_snapshot.rs#L198-L255)消费当前持有与维护状态。上述链分别证明通用工业和既有 Agent 认领子范围，不证明额外 Agent 的工业制造交付；本轮仅静态核对，未运行验收。 [Agent身份构造](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/state/core_policy_transition.rs#L45-L56)仅承接 AgentRegistered，而[工业完成状态](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L439-L503)产出物料并更新既有执行者；当前权威 Runtime 未实现工业订单制造/交付额外 Agent 的合同。 前轮 `3c0a31a6` 已读取 claim quote、upkeep/grace/reclaim 与测试定义；对应业务 CI job 为 skipped 的既有限界保留，本轮无新增运行结果。
-- 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `6463975178f3d32ef6d8e19e14f0b24f1c7f9471`，引用源码逐文件 Git blob 校验。本轮只读核对，未运行测试、Runtime、模型或产品验收；已有测试正文不视为同候选运行结果。
-- 剩余范围：待实现额外 Agent 的正式工业订单、资源/产能/交付身份与创建/控制权取得的同一权威链，并补齐 quota 非旁路、取得后维护/授权/协调持续义务、早期单主 Agent 与小规模路线组合验收。现有材料配方、RegisterAgent 和既有目标 ClaimAgent 不构成制造合同；snapshot/replay 恢复不是新制造 producer。 后续窄域开发安排见 [Ref #4850](https://github.com/nil-studio/oasis7/issues/4850)，仅追踪工业订单制造交付；本状态审查不关闭该任务。
+- 系统设计依据：[制造报价与承诺](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-001)、[资源/产能预留](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-002)、[生产与失败处置](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-003)、[交付原子身份与 claim](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-004)、[唯一性与权限变化](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-005)、[恢复兼容](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-006)、[跨入口读面及单主 Agent 路线](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-007)。这些条款承接本条首版的准确义务，专业政策的数值假设仍待实施后的平衡/玩家验证；不由已覆盖推断已实现。
+- 实现与验证依据：固定基线下，[现有十一配方](../../../crates/oasis7_agent_api/src/world_quote/recipe_catalog.rs)及[工业完成准备器](../../../crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs)只产材料/receipt；[Agent 身份准备器](../../../crates/oasis7_runtime/src/state/core_policy_transition.rs)承接 AgentRegistered，[claim 原子准备器](../../../crates/oasis7_runtime/src/world/agent_claim_economic_publication.rs)要求目标已存在，[穷尽 publication 路由](../../../crates/oasis7_runtime/src/world/event_processing/publication.rs)没有制造订单/Agent 交付差量。已核对通用工业与既有 claim 两条正面生产链，不能由其存在、RegisterAgent 加 ClaimAgent 的组合或 snapshot 恢复声称制造已实现。当前只静态审读源码；历史 claim/工业测试仅承接原子范围。
+- 核对日期与基线：2026-10-19；静态源码 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`，本次产品/系统设计修订；未运行新制造测试、Runtime、正式交易、模型或真人验收。
+- 剩余范围：实现正式订单与 policy resolver、覆盖全部冲突入口的资源/取得容量预留守卫、合法生产进度、一次交付的身份/claim/控制来源/费用原子发布、正式 Service 与 host 的制造 owner 来源鉴权、释放/新认领后的来源失效与更新、持久恢复及适用 Viewer/API/Agent 读面；按[未来验证矩阵](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-validation)补齐独立证据。首版之外的第三方撮合、远程交付、定制与经济转让未纳入设计覆盖。[#4850](https://github.com/nil-studio/oasis7/issues/4850)继续跟踪实现与验收，设计补齐不关闭该任务。
 
-- 要求：额外 Agent 的常态取得路径应通过世界内工业订单表达，并让玩家或组织理解资源投入、适用产能占用和可读交付时间；普通治理 quota 不得直接发放 Agent 或替代工业供给约束，取得后的维护、授权与协调义务仍持续。
-- 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)
+- 适用范围：已有一个主 Agent 的玩家或可核验经营主体，按[首版制造政策](#agent-manufacturing-policy)申请额外 Agent；首次注册或返回不经此路径。
+- 要求：正式工业订单必须在确认前给出配方、制造投入、非零认领承诺、产能、时间和损失政策；确认/开工/完成/交付各自保留真实效果边界。当前资源与取得容量的全部适用守卫通过后才能预留，唯一权威交付才能创建额外身份并取得控制权；重复、跨请求、等待、失权和恢复不允许部分或重复供给。取得后维护、授权与协调义务持续，普通治理 quota 不直接发放或替代工业约束，单主 Agent/小规模独立路线继续有效。
+- 专业权威：[`制造首版经济政策`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-manufacturing-v1)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)
 - 验收：[AC-WR-AOS-004](#ac-wr-aos-004)
 
 <a id="ac-wr-aos-004"></a>
 ### AC-WR-AOS-004：工业供给不以治理 quota 或无成本路径替代
 
-Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；声明：[REQ-WR-AOS-004](#req-wr-aos-004)；适用范围沿用本 AC 原覆盖条件。
+Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；声明：[REQ-WR-AOS-004](#req-wr-aos-004)。
 
 - 覆盖要求：REQ-WR-AOS-004
-- 给定：玩家或组织为额外 Agent 提交一个世界内工业订单。
-- 当：订单进入确认、生产、交付或失败/等待处置之一。
-- 则：组合证据能读出资源、产能和交付约束，并证明交付后的维护、授权和协调义务仍在；普通治理 quota 不直接产生 Agent、不绕过工业供给，早期一个主 Agent 的经营锚点与小规模独立路线保持有效。Agent 专题的授权与责任结果只作为消费条件，不把工业订单变成新的委托权威。
+- 给定：玩家或组织已有合法主 Agent、可用工业和取得资格，比较一张首版世界内工业订单。
+- 当：报价、确认、生产、交付、取消、失权、失败/等待或重试恢复发生。
+- 则：下列结果分别可观察，只有全部适用义务获得同候选证据才可判定通过；Agent 专题的授权与责任结果只作为消费条件，不把工业订单变成新的委托权威。
+- 验收源：[制造系统验收手册](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md)的 MFG-V01 至 MFG-V07；场景尚未执行，不是实现或运行证据。
+
+| 验收情境 | 必须观察的结果 |
+| --- | --- |
+| 比较与单主 Agent 路线 | 确认前能分别读懂配方/制造投入、认领费/押金/维护、产能、交付位置/时间、最大损失和等待/不扩张选项；查看报价不预留或扣费，既有普通工业仍可继续 |
+| 确认与容量竞争 | 缺任一必要投入/权限/产能/取得名额不产生部分预留；与普通生产、资金转移、其他认领及保供/组织处置竞争时不重复承诺同一资源；主 Agent 只注册、cap=2 且第二个制造完成后，普通 claim 第三个也必须被拒绝 |
+| 完整生产与交付 | 消耗与进度可追溯；只有一次完整交付才创建唯一 Agent、来源、claim 与当前合法控制事实，并从真实交付起承担维护；目标没有 starter 记录时原合法主体仍可通过正式鉴权入口查看/指令，其他主体拒绝；生产完成/界面受理不被展示为交付 |
+| 取消、等待与损失 | 开工前原路解冻，开工后不退已消耗投入；失权停产不累计合法生产进度，待交付有确定窗口/下一步；报废只结清未结部分，不自动转卖、返料或更换受益人 |
+| 重复与恢复 | 同单换请求、重复 quote/lot、断线丢响应、权限变化和持久恢复只返回或继续原结果，不重复扣款、发 Agent、开启 slot-1 资助或创建控制旁路；释放/回收后旧 owner/source/grant 不复活，合法新认领与同主体身份恢复使用当前来源，主绑定和历史义务不被改写 |
+| 持续义务与跨入口含义 | 主绑定与经济 claim 分开；取得后的维护/授权/协调保持，quota 不能直接生成供给。Viewer/API/Agent 只对实际支持范围表达同义阶段、未知和下一步，未实现入口如实不可用 |
 
 <a id="req-wr-aos-005"></a>
 ### REQ-WR-AOS-005：经济转让必须重评资格并保留连续性
