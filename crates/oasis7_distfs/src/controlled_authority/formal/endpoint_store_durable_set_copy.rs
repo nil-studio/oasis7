@@ -404,7 +404,7 @@ pub(crate) fn copy_authenticated_closure(
                 crate::controlled_authority::formal::business_pack::read_object_durable_once(
                     &objects.join(visit.id()),
                     visit.id(),
-                    &visits,
+                    visits,
                 )?
                 .ok_or_else(|| invalid("healthy independent local readback missing object"))?;
             if let Visit::Raw(_, expected) = &visit
