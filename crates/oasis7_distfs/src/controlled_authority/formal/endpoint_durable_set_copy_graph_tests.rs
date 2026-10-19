@@ -153,11 +153,11 @@ fn healthy_copy_walker_rejects_preexisting_writable_staging() {
         64 * 1024 * 1024,
         false,
     );
+    let error = result.unwrap_err();
     assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("staging private owner/mode")
+        matches!(error, FormalError::Invalid(ref reason)
+            if reason == "healthy copy scratch private owner/mode"),
+        "{error}"
     );
     assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
     fs::set_permissions(&staging, fs::Permissions::from_mode(0o700)).unwrap();
