@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-runtime/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "b5df542881641b3688e4265e3ea26842a738b3abc62c87304ec54d869baec75a",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "design",
+    "path": "doc/world-runtime/runtime/industrial-externality-and-mitigation.design.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-runtime-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

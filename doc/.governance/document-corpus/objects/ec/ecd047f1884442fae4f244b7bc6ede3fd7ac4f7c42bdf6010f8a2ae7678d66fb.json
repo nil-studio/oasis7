@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-runtime/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "3b3ccd1030ae7816b5aef717511a509b6950c0d56124c6fbcb61c3632f839b46",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "design",
+    "path": "doc/world-runtime/runtime/public-levy-authorization-and-settlement.design.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-runtime-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

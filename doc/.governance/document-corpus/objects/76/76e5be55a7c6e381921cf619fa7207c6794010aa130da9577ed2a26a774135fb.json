@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-runtime/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "bb3bd0704377200f2298529ef64a69ad086c1a5d0ea027f082e91635700e0afc",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "design",
+    "path": "doc/world-runtime/runtime/recipe-substitution-decision-and-conversion.design.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-runtime-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}
