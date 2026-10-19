@@ -74,21 +74,6 @@ fn fixture_mode(
             .collect(),
         );
     }
-    if world_rule {
-        initial.main_token_supply = oasis7_runtime::MainTokenSupplyState {
-            total_supply: 100_000,
-            circulating_supply: 100_000,
-            ..Default::default()
-        };
-        initial.main_token_balances.insert(
-            "agent-a".into(),
-            oasis7_runtime::MainTokenAccountBalance {
-                account_id: "agent-a".into(),
-                liquid_balance: 20_000,
-                ..Default::default()
-            },
-        );
-    }
     let mut world = oasis7::runtime_host::world::new_with_state(initial);
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
