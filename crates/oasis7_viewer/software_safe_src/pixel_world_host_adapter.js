@@ -18,7 +18,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
     if (input?.schema_version !== 1 || input.fatal) return null;
     // Social-edge expiry depends on logical time; other geometry does not.
     const timeSensitive = Object.keys(input.snapshot?.model?.social_edges || {}).length > 0;
-    return JSON.stringify({...input, snapshot:{...input.snapshot,
+    return JSON.stringify({...input, display_budget:undefined, snapshot:{...input.snapshot,
       time:timeSensitive ? input.snapshot?.time : undefined}});
   }
   function remember(input, result) {
@@ -33,18 +33,21 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
       return renderState;
     }
     const worldTick = snapshotTick(renderInput.snapshot);
-    if (worldTick === null) {
+    if (worldTick === null && !renderInput.display_budget) {
       return renderState;
     }
+    const hadClipping = renderInput.display_budget?.omitted_markers > 0 || renderState.display_budget?.omitted_markers > 0;
     return {
       ...renderState,
-      world_tick: worldTick,
+      ...(renderInput.display_budget ? {display_budget:{...renderState.display_budget,...renderInput.display_budget}} : {}),
+      ...(worldTick !== null ? {world_tick:worldTick} : {}),
       commercial_surface: renderState.commercial_surface
         ? {
           ...renderState.commercial_surface,
           world_read: {
             ...(renderState.commercial_surface.world_read || {}),
-            tick: worldTick,
+            ...(worldTick !== null ? {tick:worldTick} : {}),
+            ...(hadClipping && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? {agents:renderInput.display_budget.source_counts.agents} : {}),
           },
         }
         : renderState.commercial_surface,

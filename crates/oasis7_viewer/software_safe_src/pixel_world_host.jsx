@@ -1,3 +1,5 @@
+import { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
+export { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 import { projectPixelWorldRenderInput } from "./pixel_world_render_input.js";
 import { createPixelWorldSpatialController } from "./pixel_world_spatial_controller.js";
 import { PixelWorldSpatialExplorer } from "./pixel_world_spatial_explorer.jsx";
@@ -52,22 +54,6 @@ function PixelWorldHostHotspotLayer(props) {
       onHotspotHoverIntent={props.onHotspotHoverIntent}
       onHotspotTrigger={props.onHotspotTrigger} onHotspotRestoreFocus={props.onHotspotRestoreFocus} />
   )}</Index>;
-}
-export function buildPixelWorldRenderInput(locale = core.state.uiLocale) {
-  const worldScaleSurface = core.buildWorldScaleSurface(locale);
-  return {
-    locale,
-    snapshot: core.state.snapshot,
-    lists: core.modelLists(),
-    gameplay: core.buildGameplaySummary(locale),
-    selected: core.state.selectedObject,
-    selectedKind: core.state.selectedKind,
-    selectedId: core.state.selectedId,
-    presentation: {
-      world_bounds_label: worldScaleSurface.physicalTruth.worldBoundsLabel,
-      marker_truth_note: worldScaleSurface.presentationScale.markerTruthNote,
-    },
-  };
 }
 export function PixelWorldCanvasRenderer(props) {
   let canvasRef;
@@ -1208,6 +1194,7 @@ export function PixelWorldHost(props) {
           {{descriptor:tr(locale(),"正在查找世界画面资源…","Finding world graphics…"),
             download:tr(locale(),"正在下载世界画面资源…","Downloading world graphics…"),
             verify:tr(locale(),"正在核对画面资源完整性…","Verifying world graphics…"),
+            compile:tr(locale(),"正在准备世界画面…","Preparing world graphics…"),
             prepare:tr(locale(),"正在准备世界画面…","Preparing world graphics…"),
             ready:tr(locale(),"正在连接世界画面…","Attaching world graphics…")}[resourceStage()] || tr(locale(),"正在准备世界画面…","Preparing world graphics…")}
         </div>
