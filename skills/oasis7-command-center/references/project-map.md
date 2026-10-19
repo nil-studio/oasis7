@@ -22,7 +22,7 @@
 | 智能体与世界模拟 | `doc/product/agents-world-simulation/prd.md` | 游戏 Agent、外部 Runtime 与玩家交互；不代表开发会话 |
 | 玩家接入与发行 | `doc/product/player-entry-distribution/prd.md` | 发现、安装、访问及发行组合；公开阶段仍核对根 README |
 | 环境与运维 | `doc/engineering/governance/environment-lanes-and-inventory-2026-05-29.md`；`doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md` | 清单带自身日期；未采样环境不宣称部署就绪 |
-| 实际工作与交付 | Git、PR、CI、review；按需 Issue/Project | 只有 PR 的工作也能展示；保留实际测试版本和未覆盖范围 |
+| 实际工作与交付 | Git、PR；检查与评审从原 GitHub 页面核实，Issue/Project 按需 | 只有 PR 的工作也能展示；原页面保留各项验证的实际范围 |
 | 验证方法 | `testing-manual.md`；`doc/testing/prd.md` | 按改动选择测试，普通 CI 为默认；不把完整游戏栈当看板前置 |
 
 从产品和专业入口继续沿显式引用下钻。规范效力按条款范围、主责身份和明确后继确定；`active` 是文档身份，不能推导能力已验收。发现冲突写清来源和影响，不先要求整理全仓后才能使用看板。
@@ -31,13 +31,13 @@
 
 | 入口 | 用途 | 核对方法 |
 | --- | --- | --- |
-| [tools/oasis7-command-center](../../../tools/oasis7-command-center/README.md) | 独立桌面客户端、来源索引、四视图与可选开发会话接入 | 先读实际 README、依赖和验证记录；完整边界见[系统设计 §11](../../../doc/engineering/command-center/command-center.design.md#11-验证设计与可追溯性) |
+| [tools/oasis7-command-center](../../../tools/oasis7-command-center/README.md) | 独立桌面客户端、来源索引、四视图与原工具外部定位 | 先读实际 README、依赖和验证记录；完整边界见[系统设计 §11](../../../doc/engineering/command-center/command-center.design.md#11-验证设计与可追溯性) |
 | `site/index.html`、`site/en/index.html` | 公共静态站点 | 从 `doc/site/design.md` 查公开内容与构建边界；不自动放入私有开发状态 |
 | `crates/oasis7_viewer/` | 玩家 Viewer 与游戏交互 | 只有修改 Viewer 才使用其依赖和专项验证，不把它作为开发任务状态源 |
 
 独立客户端的目标技术栈、进程和恢复合同在正式 PRD/design 中维护。早期设计快照中“尚无程序”的描述不能覆盖后续实现节与真实 PR；同样，代码目录存在不能证明签名分发、完整系统体验或全部模型任务已通过。
 
-Viewer 的 Director、Agent Activity、Intent 和 Launcher 的 `gui-agent` 面向游戏世界。游戏外部 Runtime 产品从 `doc/product/agents-world-simulation/external-agent-runtime-play.prd.md` 进入；开发 Codex 会话按[接入方法](codex-integration.md)识别，不能混用身份、能力或验收结果。
+Viewer 的 Director、Agent Activity、Intent 和 Launcher 的 `gui-agent` 面向游戏世界。游戏外部 Runtime 产品从 `doc/product/agents-world-simulation/external-agent-runtime-play.prd.md` 进入；开发 Codex 会话按[外部接续方法](external-handoff.md)识别，不能混用身份、能力或验收结果。
 
 ## 迁移与旧材料
 

@@ -1,6 +1,6 @@
 # 日常工作闭环验证与剩余验收
 
-> 2026-10-19 产品边界收缩：指挥中心读取本地文档/Git、GitHub PR/CI并保存个人问题与决定；Codex 仅保留原会话外部打开或准确定位复制。自管 app-server、发任务/追加/中断、运行请求同步/回复及 Codex 退出协调已退役，旧数据不删除不重放。独立 ToolHost 工具任务退出保护保留。以下既有日期、实施与验收记录保持历史范围，不代表退役能力仍可使用；本轮结果以当前实现 PR 为准。
+> 本文保留原构建、日期和场景的历史验收记录，不代表当前客户端功能。现行范围与验收以[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)为准。
 
 
 - 文档 ID：`MANUAL-ENGINEERING-COMMAND-CENTER-DAILY-WORK-VERIFICATION`
