@@ -415,9 +415,9 @@ unavailable 不可合并，当前 Recent Events/Feedback 名称保持不变。Fu
 <a id="viewer-performance-contract"></a>
 ## Viewer 性能优化合同（目标设计）
 
-Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维护真实 HTTP 交付配置。本节只设计浏览器性能，不修改世界协议、权限或游戏规则；尚未实施，不把上一轮站点诊断或源码存在当作当前候选验收。线上单次 CPU/下载样本只支持定位假设，不定义普适硬件能力。
+Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维护真实 HTTP 交付配置。本节只设计浏览器性能，不修改世界协议、权限或游戏规则；已开始分阶段实施，不把上一轮站点诊断或源码存在当作当前候选验收。线上单次 CPU/下载样本只支持定位假设，不定义普适硬件能力。
 
-性能要求在本文 §2.1 分配，§11.1 对应验证；下述条款是待实施合同。
+性能要求在本文 §2.1 分配，§11.1 对应验证；下述条款是完整目标合同；当前实现范围与剩余项见本节末尾。
 
 <a id="viewer-render-projection"></a>
 ### 显示投影与调度
@@ -460,4 +460,17 @@ Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维�
 
 验证责任与证明边界见 §11.1 的两条性能要求映射。
 
-实施按两条可独立验证的切片推进：先有界 DTO、具体 Rust 解析与 revision 调度，再做资源体积、hash URL、HTTP 配置和 loader 缓存恢复；每条保留正确性与真实性回归。上线前用同候选重新测两条路径，若未达预算继续定位，不降低阈值掩盖瓶颈；部署和实现需后续授权，本次不新增 CI 控制、发布 claim 或后端修复范围。
+实施按两条可独立验证的切片推进：先有界 DTO、具体 Rust 解析与 revision 调度，再做资源体积、hash URL、HTTP 配置和 loader 缓存恢复；每条保留正确性与真实性回归。上线前用同候选重新测两条路径，若未达预算继续定位，不降低阈值掩盖瓶颈；线上部署需后续授权，本次实现不新增 CI 控制、发布 claim 或无关后端修复范围。
+
+### 2026-10-19 实施范围与验收边界
+
+设计合入 `fb15585d8811ef5c7ea010139f25908812289213` 后，第一阶段实施以下路径：
+
+- `pixel_world_render_input.js` 在 Host 读取白名单并复制普通数据；输入/输出各 256 KiB，上层 schema/version 严格校验，Rust 从 JSON 字符串解析显示 DTO，避免对 Solid Proxy 逐属性反序列化。实体列表最多 500，超限明确 unavailable；启用已有 worldView/LOD 投影时不再复制未被消费的完整源列表。
+- Host 每帧合并展示请求；adapter 对有界 DTO 的显示内容做签名，相同内容不重新跨 WASM 派生，tick 单独刷新 HUD；有社会关系到期语义时保留时间失效。权限/会话与 renderer 代次继续由既有 scope guard 和 adapter generation 隔离，权威 reducer 不作 latest-only。
+- 精简 Bevy feature 和发布 WASM 的调试节，交付 `viewer-optional-payload/<sha256>.wasm` 及确定性 gzip；manifest size/hash 仍针对解码 bytes。后端仅 hash WASM 使用 immutable；JS/CSS 可协商 gzip 但保持 no-cache，HTML 不预压缩以保留既有安全注入。
+- Loader 使用正常 hash URL 缓存语义，每次核验解码 bytes；损坏缓存只自动 reload 一次。失败 init promise 可显式重试，同 descriptor 初始化保持 single-flight；资源下载/校验/准备/就绪阶段独立于世界同步。hash payload 下载/读 body 有 30 秒中止预算。
+
+局部证据包括 Host/loader/DTO 回归、Rust 显示派生和静态 HTTP 回归、打包解压/manifest 一致性；生产构建解码 35,019,856 bytes、gzip 7,664,037 bytes。真实 Chrome 的桌面与窄屏稀疏只读样例均显示 WebGL 画布、实体选择与真实 OFFLINE 状态；85,812 ms 窄屏观察中脚本 1,714 ms、INP 78 ms，不是同世界受控前后对比，也不覆盖常规/高负载预算。浏览器仍观察到初始化/交互长帧，不能宣称所有转换都在 50 ms 内。
+
+未完成项仍按原阈值保留：稳定排序与关键语义优先裁剪、100 标签/128 标量细分限制、hash/compile/init 独立 10 秒预算及不可中断初始化的实例所有权隔离、完整设备/网络/大世界/突发更新测量。现阶段采用明确容量失败保障有界输入，不代表 10,000 源实体的常规显示验收通过。线上发布保留多版本资源与实际缓存策略仍需部署 owner 验证；本轮实现不改变世界准入或发布就绪声明。

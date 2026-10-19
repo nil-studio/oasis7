@@ -193,7 +193,10 @@ expected = {
     for path in web_dist.rglob("*")
     if path.is_file() and not any(part.startswith("._") for part in path.relative_to(web_dist).parts)
 }
-expected.add("viewer-optional-payload/pixel_world_bridge_bindgen_bg.wasm")
+expected.update(name + ".gz" for name in list(expected) if name.endswith((".js", ".css")))
+payload_hash = hashlib.sha256(b"\0asm\n").hexdigest()
+expected.add(f"viewer-optional-payload/{payload_hash}.wasm")
+expected.add(f"viewer-optional-payload/{payload_hash}.wasm.gz")
 with tarfile.open(first_path, "r:gz") as archive:
     members = archive.getmembers()
     names = [member.name for member in members]
@@ -224,12 +227,15 @@ payload = manifest["pixel_world_bridge_bindgen_bg.wasm"]
 resolved = (Path(sys.argv[1]).parent / payload["path"]).resolve()
 content = resolved.read_bytes()
 assert payload["available"] is True, payload
-assert payload["path"] == "viewer-optional-payload/pixel_world_bridge_bindgen_bg.wasm"
+assert payload["path"] == f"viewer-optional-payload/{hashlib.sha256(content).hexdigest()}.wasm"
+import gzip
+assert gzip.decompress(Path(str(resolved) + ".gz").read_bytes()) == content
+assert payload["encodings"]["gzip"]["size_bytes"] == Path(str(resolved) + ".gz").stat().st_size
 assert payload["sha256"] == hashlib.sha256(content).hexdigest(), payload
 assert payload["size_bytes"] == len(content), payload
 assert payload["delivery"] == "separate_artifact", payload
 assert payload["provenance"] == "viewer-web-build", payload
-assert resolved == (Path(sys.argv[2]) / "viewer-optional-payload/pixel_world_bridge_bindgen_bg.wasm").resolve()
+assert resolved == (Path(sys.argv[2]) / payload["path"]).resolve()
 assert resolved.is_file(), resolved
 assert not (Path(sys.argv[2]) / "pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm").exists()
 PY

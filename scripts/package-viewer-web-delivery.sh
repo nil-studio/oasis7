@@ -146,13 +146,10 @@ def copy_regular_tree(source: Path, destination: Path) -> None:
 
 
 copy_regular_tree(web_dist, stage_dir)
-payload_target = stage_dir / "viewer-optional-payload" / payload_path.name
-payload_target.parent.mkdir(parents=True, exist_ok=True)
-with payload_path.open("rb") as source_file, payload_target.open("wb") as target_file:
-    shutil.copyfileobj(source_file, target_file)
-os.chmod(payload_target, 0o644)
+
 PY
 python3 - "$stage_dir/optional-payloads.json" "$OPTIONAL_PAYLOAD_NAME" "$PAYLOAD" <<'PY'
+import gzip
 import hashlib
 import json
 import sys
@@ -163,14 +160,28 @@ payload_name = sys.argv[2]
 payload_path = Path(sys.argv[3])
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 content = payload_path.read_bytes()
+digest = hashlib.sha256(content).hexdigest()
+public_path = f"viewer-optional-payload/{digest}.wasm"
+published = manifest_path.parent / public_path
+published.parent.mkdir(parents=True, exist_ok=True)
+published.write_bytes(content)
+compressed = gzip.compress(content, compresslevel=9, mtime=0)
+Path(str(published) + ".gz").write_bytes(compressed)
 manifest[payload_name] = {
     "available": True,
-    "path": f"viewer-optional-payload/{payload_name}",
-    "sha256": hashlib.sha256(content).hexdigest(),
+    "path": public_path,
+    "sha256": digest,
     "size_bytes": len(content),
     "delivery": "separate_artifact",
     "provenance": "viewer-web-build",
+    "encodings": {"gzip": {"path": public_path + ".gz", "size_bytes": len(compressed)}},
+    "render_input_schema_version": 1,
 }
+# Only static code/styles are precompressed. HTML can contain injected session
+# bootstrap data and must always go through its existing response pipeline.
+for asset in manifest_path.parent.rglob("*"):
+    if asset.is_file() and asset.suffix in {".js", ".css"}:
+        Path(str(asset) + ".gz").write_bytes(gzip.compress(asset.read_bytes(), compresslevel=9, mtime=0))
 manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 rm -f "$OUT_FILE"

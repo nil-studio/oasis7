@@ -111,14 +111,19 @@ function sampleSnapshot() {
 
 function renderStateFor(input) {
   const snapshot = input.snapshot || {};
-  const model = snapshot.model || {};
-  const gameplay = snapshot.player_gameplay || {};
-  const locations = Object.values(model.locations || {}).map((location) => ({
+  const snake = value => Object.fromEntries(Object.entries(value || {}).map(([key, item]) => [key.replace(/[A-Z]/g, char => `_${char.toLowerCase()}`), item]));
+  const gameplay = snake(input.gameplay);
+  gameplay.intent_target = gameplay.accepted_intent_target;
+  gameplay.intent_summary = gameplay.accepted_intent_summary;
+  gameplay.stage_status = gameplay.execution_state;
+  gameplay.available_actions = (gameplay.available_actions || []).map(snake);
+  gameplay.recent_feedback = gameplay.recent_feedback ? snake(gameplay.recent_feedback) : null;
+  const locations = (input.lists?.locations || []).map((location) => ({
     id: location.id,
     label: location.name || location.label || location.id,
     pos: location.pos || { x_cm: 0, y_cm: 0, z_cm: 0 },
   }));
-  const agents = Object.values(model.agents || {}).map((agent, index) => ({
+  const agents = (input.lists?.agents || []).map((agent, index) => ({
     id: agent.id,
     name: agent.name,
     label: agent.name || agent.label || agent.id,

@@ -102,10 +102,17 @@ function locationPos(location) {
 }
 function buildTestRustRenderState(input) {
   const snapshot = input.snapshot || {};
-  const model = snapshot.model || {};
-  const gameplay = snapshot.player_gameplay || {};
-  const locations = Object.values(model.locations || {});
-  const agents = Object.values(model.agents || {});
+  const snake = value => Object.fromEntries(Object.entries(value || {}).map(([key, item]) => [key.replace(/[A-Z]/g, char => `_${char.toLowerCase()}`), item]));
+  const gameplay = snake(input.gameplay);
+  gameplay.intent_target = gameplay.accepted_intent_target;
+  gameplay.intent_summary = gameplay.accepted_intent_summary;
+  gameplay.stage_status = gameplay.execution_state;
+  gameplay.causality_kind = gameplay.execution_cause_kind;
+  gameplay.available_actions = (gameplay.available_actions || []).map(snake);
+  gameplay.recent_feedback = gameplay.recent_feedback ? snake(gameplay.recent_feedback) : null;
+  const locations = input.lists?.locations || [];
+  const agents = input.lists?.agents || [];
+  const model = { locations: Object.fromEntries(locations.map(item => [item.id, item])) };
   const fragments = locations.flatMap((location) => {
     const base = locationPos(location);
     return (location.fragment_profile?.blocks?.blocks || []).map((block, index) => ({
