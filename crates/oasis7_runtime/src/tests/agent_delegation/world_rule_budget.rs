@@ -236,7 +236,7 @@ fn manufacturing_quote_survives_next_tick_depreciation_but_not_unhealthy_factory
     }
 }
 
-#[cfg(feature = "wasmtime")]
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 #[test]
 fn real_builtin_modules_accept_manufacturing_world_rule_and_keep_next_tick_quote_valid() {
     let mut world = World::new_with_state(industrial_fixture());
@@ -421,7 +421,7 @@ fn emergency_authorization_native_budget_tracks_exact_validated_donation_once() 
     }
 }
 
-#[cfg(feature = "wasmtime")]
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 #[test]
 fn real_builtin_modules_accept_restricted_essential_recipe() {
     let (fixture, action) = crate::world_rules::essential_recipe_fixture();
@@ -526,3 +526,6 @@ fn manufacturing_workload_uses_existing_factory_maintenance_load_factor() {
         1000
     );
 }
+
+#[path = "world_rule_results.rs"]
+mod world_rule_results;

@@ -200,6 +200,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；声明：[REQ-WR-AOS-0
 
 Viewer、pure API 和获准 Agent 对同一 committed projection 保持相同完成语义；未支持或裁剪的消费者明确 unavailable/incomplete，不能把 missing 当零成本、无责任、空订单或成功。语言转换不改费用和损失。当前主体切换、quote 过期、订单更新或断线后清除旧的可执行结论；查询/显示不确认、不启动、不续期、不解冻。
 
+正式 industry 读面提供 `recent_action_results`：最多返回 16 条当前主体、owner generation、公钥及协议 world_id/genesis 仍匹配的真实签名 WorldRule 请求。只在最近 2048 条 journal 事件中，通过真实 cognition receipt registry、commit/action digest、原签名 TaskProviderPrefix 的 fence/signer/context 与实际业务事件的 action id/caused_by 反链，报告 `committed` 或 `rejected`、原始拒绝原因和事件位置；找不到业务事件时明确 `unknown`，缺失可信 prefix、receipt 或 action digest 时不展示不可验证的结果，并用读面 history 的 missing_result=unknown 表明缺少结果不等于成功。拒绝只报告该协议 world_id/genesis 内的历史事实，不授予当前 chain 的执行权；业务成功还必须匹配当前 world binding 和原命令。历史窗口外不能推断成功。cognition 的 committed 仍仅表示候选动作提交，不能代替业务成功；quote 到期拒绝后重新读取报价并以新业务 request id 提交，不放宽原 TTL，也不为失败制造成功 receipt。切换 owner、身份 generation 或世界后不展示旧私有结果。
+
 ## 9. 质量与容量
 
 | 场景 | 环境、规模与资源 | 预期响应 | 指标/阈值来源 | 验证入口 | 当前范围 |

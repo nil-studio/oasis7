@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 mod authority;
 pub(crate) use authority::verify_world_rule_authority;
+mod action_results;
 mod industrial;
 mod organization;
 #[cfg(test)]
@@ -585,9 +586,20 @@ impl WorldRulesStateV1 {
 impl crate::World {
     pub fn world_rule_status(&self, reader: Option<&str>) -> Option<serde_json::Value> {
         let binding = self.world_rule_binding();
-        let mut status = self
+        let recent_results = self.recent_world_rule_action_results(reader);
+        let mut status = match self
             .state()
-            .world_rule_status_with_binding(reader, binding.as_deref())?;
+            .world_rule_status_with_binding(reader, binding.as_deref())
+        {
+            Some(status) => status,
+            None if reader
+                .and_then(|actor| self.current_agent_identity(actor))
+                .is_some() =>
+            {
+                serde_json::json!({})
+            }
+            None => return None,
+        };
         if reader
             .and_then(|actor| {
                 self.state()
@@ -651,6 +663,8 @@ impl crate::World {
                 }
             }
         }
+        status["recent_action_results"] = recent_results;
+        status["recent_action_results_history"] = serde_json::json!({"status":"bounded","event_window":2048,"result_limit":16,"missing_result":"unknown"});
         Some(status)
     }
     pub fn can_read_agent_industrial_order(
@@ -689,7 +703,7 @@ pub(crate) fn emergency_authorize_fixture() -> (crate::World, oasis7_agent_api::
     tests::emergency_authorize_fixture()
 }
 #[cfg(test)]
-#[cfg(feature = "wasmtime")]
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 pub(crate) fn essential_recipe_fixture() -> (crate::World, oasis7_agent_api::world_action::Action) {
     tests::essential_recipe_fixture()
 }

@@ -704,7 +704,7 @@ pub(super) fn authorized_preparation_fixture() -> (World, Action) {
         },
     )
 }
-#[cfg(feature = "wasmtime")]
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 pub(super) fn essential_preparation_fixture() -> (World, Action) {
     let (mut state, authorization) = observed_authorization_fixture(840);
     apply(

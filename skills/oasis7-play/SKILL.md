@@ -145,3 +145,5 @@ Report the goal revision, chosen action, canonical result and observed effect co
 工业制造先从 `industry.world_rule_status.manufacturing_quotes` 读取当前 quote，再把同一 `quoted_at` 和 `quote_digest` 填入 `ConfirmAgentOrder`。报价只读，不预留；过期或状态漂移应重读，已确认订单继续查询原订单。生产需 12 个合法工作 tick；未开工可取消，开工后按原订单失败/报废合同处置，不能换请求重复交付。
 
 紧急电力仅可消费已登记最低服务义务的受限额度：`schedule-essential --context <id> --factory <factory> --recipe <recipe> --batches <n> --obligation <registered-id>`。它与普通排程共用设施、物料和权限检查；不会把额度加入普通可转移电力。未知权威来源、过期区间或未支持路线应保持 blocker，不能以自报库存或提案文案代替供给事实。
+
+制造动作的 cognition `committed` 仅表示候选动作已提交；在 industry 的 `world_rule_status.recent_action_results` 按 action id / business request id 核对实际业务结果。`rejected` 读取原始 reason 和 next_step；报价过期应重新读 quote，并用新业务 request id 提交。`unknown` 或不在近期窗口内时先读当前订单和资源，不把缺少结果当成功，也不盲目重复提交。

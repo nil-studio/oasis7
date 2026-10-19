@@ -457,7 +457,7 @@ mod adapter_tests;
 pub(super) fn emergency_authorize_fixture() -> (World, Action) {
     adapter_tests::authorized_preparation_fixture()
 }
-#[cfg(feature = "wasmtime")]
+#[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
 pub(super) fn essential_recipe_fixture() -> (World, Action) {
     adapter_tests::essential_preparation_fixture()
 }
