@@ -5,9 +5,7 @@ use oasis7_command_center_core::document_inventory::*;
 use oasis7_command_center_core::document_semantic_tree::*;
 use oasis7_command_center_core::document_tree_reading::*;
 use oasis7_command_center_core::domain::*;
-use oasis7_command_center_core::github::{
-    Check, GitHubSnapshot, PullChecksSource, PullMetadata, PullRequest,
-};
+use oasis7_command_center_core::github::{GitHubSnapshot, PullMetadata, PullRequest};
 use oasis7_command_center_core::tools::jobs::ToolJob;
 use oasis7_command_center_core::tools::*;
 use oasis7_command_center_core::work_projection::*;
@@ -85,8 +83,6 @@ fn main() {
         GitHubSnapshot::decl(),
         PullRequest::decl(),
         PullMetadata::decl(),
-        Check::decl(),
-        PullChecksSource::decl(),
     ];
     let result = format!(
         "// Generated from Rust DTOs by cargo run -p oasis7-command-center-core --example export_types\n{}\n",

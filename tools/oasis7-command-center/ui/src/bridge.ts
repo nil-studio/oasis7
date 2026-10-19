@@ -13,7 +13,6 @@ export const bridge = {
   readGithubWindow: (page: number|null, number: number|null, ghPath: string|null) => call<GitHubSnapshot>('read_github_window', {page,number,ghPath}),
   dailyWork: () => call<import('./generated/core').DailyWorkState>('query_daily_work'),
   saveDailyWork: (request: import('./generated/core').DailyWorkRequest) => call<import('./generated/core').DailyWorkState>('save_daily_work', {request}),
-  refreshWorkChecks: (number: string, ghPath: string | null) => call<GitHubSnapshot>('refresh_work_checks', {number,ghPath}),
   workProjection: () => call<import('./generated/core').WorkProjection>('query_work_projection'),
   documentDirectory: (query: DocumentDirectoryQuery) => call<DocumentDirectoryPage>('query_document_directory', { query }),
   documentSemanticTree: (query: DocumentSemanticTreeQuery) => call<DocumentSemanticTreePage>('query_document_semantic_tree', { query }),

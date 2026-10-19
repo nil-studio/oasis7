@@ -1,9 +1,5 @@
 //! Read-only projection of source identities. No task table or inferred completion.
-use crate::{
-    Error, Result,
-    domain::*,
-    github::{Check, GitHubSnapshot, PullChecksSource},
-};
+use crate::{Error, Result, domain::*, github::GitHubSnapshot};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -59,10 +55,6 @@ pub struct WorkItem {
     pub remaining: String,
     pub source_url: Option<String>,
     pub goals: Vec<WorkGoal>,
-    pub checks: Vec<Check>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub checks_source: Option<PullChecksSource>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -157,11 +149,9 @@ pub fn project_work(
                     value: format!("PR {}", pull.state),
                     evidence,
                 },
-                remaining: "部署、目标验收及实现语义尚未核实；检查结果仅覆盖各自测试对象。".into(),
+                remaining: "部署、目标验收及实现语义尚未核实；请在原 PR 核对交付详情。".into(),
                 source_url: Some(pull.url.clone()),
                 goals,
-                checks: pull.checks.clone(),
-                checks_source: pull.checks_source.clone(),
             });
         }
     }

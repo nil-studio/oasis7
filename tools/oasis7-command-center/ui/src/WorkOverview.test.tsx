@@ -5,13 +5,13 @@ import WorkOverview from './WorkOverview';
 import { bridge } from './bridge';
 import type { Snapshot } from './types';
 import type { DailyWorkState, WorkProjection } from './generated/core';
-vi.mock('./bridge', async () => ({...await vi.importActual('./bridge'), bridge: {workProjection:vi.fn(),dailyWork:vi.fn(),saveDailyWork:vi.fn(),openSource:vi.fn(),refreshWorkChecks:vi.fn()}}));
+vi.mock('./bridge', async () => ({...await vi.importActual('./bridge'), bridge: {workProjection:vi.fn(),dailyWork:vi.fn(),saveDailyWork:vi.fn(),openSource:vi.fn()}}));
 const snapshot=(id='p')=>({project:{id,path:'/repo',head:'head',environment:'local'},sections:[],decisions:[],associations:[]}) as unknown as Snapshot;
 const state=(id='p'):DailyWorkState=>({schemaVersion:1,projectId:id,environment:'local',revision:0,navigation:{selected:null,filter:'',expanded:false,scrollTop:0,detailScrollTop:0,returnView:'direction',draft:'',draftPurpose:'',draftScope:'',retainDraft:false,startIntentId:null,lastReadAt:null,pinned:[]},relations:[],decisions:[],attention:[],external:[],worktrees:[],legacyDigest:'legacy',legacyChanged:false});
 function projection(id='p'):WorkProjection {
  const reference={kind:'pullRequest',host:'github.com',repository:'o/r',number:'1'} as const;
  const evidence={source:reference,revision:'head',verifiedAt:'20',eventAt:null,readAt:'30',coverage:'recent 100 only'};
- return {schemaVersion:1,projectId:id,environment:'local',readAt:'30',sources:[{kind:'github',state:'partial',coverage:'recent 100 only',verifiedAt:'20',error:null}],items:[{reference,purpose:{value:'修复本地工具',evidence},result:{value:'PR MERGED',evidence},remaining:'目标验收尚未核实',sourceUrl:'https://github.com/o/r/pull/1',goals:[{sectionId:'a',title:'目标 A',revision:'r',confirmedAt:'10'},{sectionId:'b',title:null,revision:null,confirmedAt:'10'}],checks:[{name:'test',state:'SUCCESS',testedOid:null,url:null}]}]};
+ return {schemaVersion:1,projectId:id,environment:'local',readAt:'30',sources:[{kind:'github',state:'partial',coverage:'recent 100 only',verifiedAt:'20',error:null}],items:[{reference,purpose:{value:'修复本地工具',evidence},result:{value:'PR MERGED',evidence},remaining:'目标验收尚未核实',sourceUrl:'https://github.com/o/r/pull/1',goals:[{sectionId:'a',title:'目标 A',revision:'r',confirmedAt:'10'},{sectionId:'b',title:null,revision:null,confirmedAt:'10'}]}]};
 }
 beforeEach(()=>{
  vi.mocked(bridge.workProjection).mockResolvedValue(projection());vi.mocked(bridge.dailyWork).mockResolvedValue(state());
@@ -25,7 +25,7 @@ it('keeps the empty personal-attention panel out of the home and reads no execut
  for(const name of ['当前重点与下一步','最近成果变化','返回工作'])expect(screen.getByRole('heading',{name})).toBeInTheDocument();
  await screen.findByRole('button',{name:'修复本地工具'});
  expect(screen.getByText(/尚未建立；显示最近七天已读取事件/)).toBeInTheDocument();
- expect(bridge.refreshWorkChecks).not.toHaveBeenCalled();expect(screen.queryByRole('heading',{name:'需要我处理'})).not.toBeInTheDocument();
+ expect(screen.queryByRole('heading',{name:'需要我处理'})).not.toBeInTheDocument();
 });
 it('keeps one source detail across views and returns to its original view and current row',async()=>{
  const [view,setView]=createSignal('direction');
@@ -59,17 +59,10 @@ it('pages the work list in bounded groups without losing remaining entries',asyn
  fireEvent.click(screen.getByRole('button',{name:'下一页工作'}));expect(screen.getByRole('button',{name:'工作 20'})).toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'工作 0'})).not.toBeInTheDocument();
 });
-it('refreshes only selected PR checks and distinguishes empty from unread',async()=>{
- let value=projection();value.items[0].checks=[];vi.mocked(bridge.workProjection).mockImplementation(async()=>value);vi.mocked(bridge.refreshWorkChecks).mockResolvedValue({} as never);
+it('keeps original PR navigation without local check controls',async()=>{
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
- expect(screen.getByText(/该 PR 的 CI 尚未单独读取/)).toBeInTheDocument();expect(bridge.refreshWorkChecks).not.toHaveBeenCalled();
- value=structuredClone(value);value.items[0].checksSource={schemaVersion:1,state:'empty',observedAt:'40',coverage:'two REST pages',error:null};
- await waitFor(()=>expect(screen.getByRole('button',{name:'只读刷新该 PR 的 CI'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'只读刷新该 PR 的 CI'}));await screen.findByText(/已读取的 CI 页面为空/);expect(bridge.refreshWorkChecks).toHaveBeenCalledWith('1',null);
-});
-it('never labels a GitHub associated SHA as the workflow checkout',async()=>{
- const value=projection();value.items[0].checks[0].sourceOid='associated';vi.mocked(bridge.workProjection).mockResolvedValue(value);
- render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
- expect(screen.getByText(/实际测试版本 未知/)).toBeInTheDocument();expect(screen.getByText(/GitHub 关联提交 associated/)).toBeInTheDocument();expect(screen.getByText(/不代表实际 checkout 对象/)).toBeInTheDocument();
+ expect(screen.queryByText(/CI|实际测试版本|GitHub 关联提交/)).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'打开原 PR'}));expect(bridge.openSource).toHaveBeenCalledWith('https://github.com/o/r/pull/1');
 });
 it('sends relation repair/removal with the original scope and expected revision',async()=>{
  const record=state();record.revision=7;record.relations=[{id:'relation',work:projection().items[0].reference,sectionId:'a',sourceRevision:'old',confirmedAt:'10',removedAt:null,previous:[]}];vi.mocked(bridge.dailyWork).mockResolvedValue(record);vi.mocked(bridge.saveDailyWork).mockImplementation(async request=>({...record,revision:request.expectedRevision+1}));
@@ -142,5 +135,5 @@ it('opens only an explicit Codex thread link while keeping arbitrary locators co
  vi.mocked(bridge.workProjection).mockResolvedValue(value);vi.mocked(bridge.dailyWork).mockResolvedValue(record);
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'原Codex工作'}));fireEvent.click(screen.getByRole('button',{name:'在 Codex 中打开原会话'}));
- expect(bridge.openSource).toHaveBeenCalledWith(url);await screen.findByText('已请求在 Codex 中打开原会话；执行与回答请在原工具完成。');expect(screen.queryByText('PR 与 CI')).not.toBeInTheDocument();
+ expect(bridge.openSource).toHaveBeenCalledWith(url);await screen.findByText('已请求在 Codex 中打开原会话；执行与回答请在原工具完成。');
 });

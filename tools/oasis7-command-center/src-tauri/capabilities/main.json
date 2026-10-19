@@ -15,7 +15,6 @@
     "allow-query-daily-work",
     "allow-save-daily-work",
     "allow-query-work-projection",
-    "allow-refresh-work-checks",
     "allow-search-rules",
     "allow-query-document-inventory",
     "allow-query-document-directory",

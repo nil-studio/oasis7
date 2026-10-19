@@ -18,7 +18,7 @@ fn github() -> GitHubSnapshot {
 })).unwrap()
 }
 #[test]
-fn pr_without_issue_preserves_two_goals_and_unknown_test_and_event_times() {
+fn pr_without_issue_preserves_two_goals_and_event_times_without_ci() {
     let projection = project_work(&snapshot(), &github(), "30").unwrap();
     let item = &projection.items[0];
     assert!(matches!(item.reference, WorkRef::PullRequest { .. }));
@@ -26,9 +26,11 @@ fn pr_without_issue_preserves_two_goals_and_unknown_test_and_event_times() {
     assert!(item.goals.iter().all(|g| g.title.is_none()));
     assert_eq!(item.result.value, "PR MERGED");
     assert!(item.remaining.contains("尚未核实"));
-    assert!(item.checks[0].tested_oid.is_none());
     assert_eq!(item.result.evidence.verified_at.as_deref(), Some("20"));
     assert!(item.result.evidence.event_at.is_none());
+    let public = serde_json::to_value(&projection).unwrap();
+    assert!(public["items"][0].get("checks").is_none());
+    assert!(public["items"][0].get("checksSource").is_none());
     let later = project_work(&snapshot(), &github(), "40").unwrap();
     assert_eq!(
         later.items[0].result.evidence.verified_at,

@@ -18,7 +18,7 @@ it('keeps a saved missing goal identity unresolved instead of linking the replac
   const evidence={source:reference,revision:'head',verifiedAt:'1',eventAt:null,readAt:'2',coverage:'bounded'};
   mock.invoke.mockImplementation(async(command:string)=>{
     if(command==='query_view')return snapshot;
-    if(command==='query_work_projection')return {schemaVersion:1,projectId:'project',environment:'local',readAt:'2',sources:[],items:[{reference,purpose:{value:'原工作',evidence},result:{value:'PR OPEN',evidence},remaining:'未知',sourceUrl:'https://github.com/eng-cc/oasis7/pull/1',goals:[{sectionId:'doc/core/prd.md#heading-old',title:null,revision:null,confirmedAt:'123'}],checks:[],runs:[]}]};
+    if(command==='query_work_projection')return {schemaVersion:1,projectId:'project',environment:'local',readAt:'2',sources:[],items:[{reference,purpose:{value:'原工作',evidence},result:{value:'PR OPEN',evidence},remaining:'未知',sourceUrl:'https://github.com/eng-cc/oasis7/pull/1',goals:[{sectionId:'doc/core/prd.md#heading-old',title:null,revision:null,confirmedAt:'123'}],runs:[]}]};
     throw new Error('source not connected');
   });
   render(()=><App/>);fireEvent.click(await screen.findByRole('button',{name:'原工作'}));
