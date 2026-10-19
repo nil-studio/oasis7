@@ -30,6 +30,8 @@
 
 仓库 Actions 的 **Storage Acceptance**（[workflow](../../../.github/workflows/storage-acceptance.yml)）只有 `workflow_dispatch` 入口，不改变普通 PR 的 required checks、生产权限或部署。选择待测分支后固定该次 `github.sha`；producer 构建一次 native executables，消费者核对同 run 的 source、二进制 hash、实际测试清单与依赖闭包。无生产凭据，不接入现有世界。
 
+存储专项 producer 的 native dev/test 产物固定 `opt-level=2`，同时保留 `debug-assertions=true` 与 `overflow-checks=true`；endpoint 继续使用既有 release/opt-level=3 合同。producer 与 consumer 均核对 Cargo 实际报告的 profile，普通 formal/PR 构建不改变。构建优化不放宽测试工作负载、逻辑/磁盘/时间预算或完整报告要求；不同构建 profile 的测量分别记录，不能直接拼成优化前后性能收益。
+
 ```bash
 gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
   -f capacity_scale=10 -f full_node_scale=10 -f repeat_faults=1
