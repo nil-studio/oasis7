@@ -112,7 +112,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 **已有实现：**
 
 - ARCH-08：headless ingress 已定义签名 payload、ed25519、单调 nonce 与恢复防重放；它不自动证明任意新 API 的完整授权和恢复行为。
-- ARCH-08 的 [多凭证账号设计](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 使用固定 RP/origin、事务身份存储、HttpOnly 账号 Cookie 和短期签名世界授权；新注册默认关闭，不改变资产或 operator 授权。代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署与环境验收进度见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)，验收方法见 [手册](../../../testing/manual/hosted-passkey-account.manual.md)。
+- ARCH-08 的 [多凭证账号设计](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 使用固定 RP/origin、事务身份存储、HttpOnly 账号 Cookie 和短期签名世界授权；新注册默认关闭，不改变资产或 operator 授权。2026-10-19 核对的[导入协议](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#imported-key-web)沿用同一账号/会话/世界授权边界，服务端仅接收公钥和挑战签名，`import_only` 不代表客户端生成和加密备份已发布；目标部署状态仍以 capabilities 及环境验收为准。代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署与环境验收进度见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)，验收方法见 [手册](../../../testing/manual/hosted-passkey-account.manual.md)。
 - ARCH-08 的新预览世界初始化按 [合同](../../../p2p/design.md#des-p2p-fresh-preview-bootstrap) 固定真实初始材料、CAS/提交证明和节点派生服务 signer，再为 Viewer 配置独立 public-read 身份。操作见 [手册](../../../testing/manual/fresh-world-preview-bootstrap.manual.md)；这些材料不授予 Agent 写权限或正式 activation/finality。
 - ARCH-09：[PR #4562](https://github.com/eng-cc/oasis7/pull/4562)交付 Game API 的发现合同和已实现签名读取；范围仍是显式开启的 loopback bootstrap。
 - [PR #4565](https://github.com/eng-cc/oasis7/pull/4565)增加持久、owner-signed task control；初态 suspended、没有 executor。配对、私有目标、完整 context 和 action admission 不在该切片内。

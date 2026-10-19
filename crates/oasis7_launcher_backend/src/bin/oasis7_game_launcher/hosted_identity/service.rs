@@ -251,8 +251,20 @@ impl IdentityService {
             }
             return r;
         }
+        if let Some(result) = self.native_key_route(
+            method,
+            relative,
+            sid.as_deref(),
+            &owner,
+            &payload,
+            source,
+            header(headers, "origin").unwrap_or(""),
+            now,
+        ) {
+            return token_reply(result);
+        }
         let result:Result<Value,StoreError>=match (method,relative) {
-            ("GET","/capabilities")=>Ok(json!({"api_version":2,"ok":true,"csrf_token":csrf,"registration_enabled":self.config.registration_enabled,"passkey":{"available":true},"email":{"available":self.email.available()},"email_recovery":{"available":self.email.recovery_available()},"native_key":{"available":false}})),
+            ("GET","/capabilities")=>Ok(json!({"api_version":2,"ok":true,"csrf_token":csrf,"registration_enabled":self.config.registration_enabled,"passkey":{"available":true},"email":{"available":self.email.available()},"email_recovery":{"available":self.email.recovery_available()},"native_key":{"available":true,"mode":"import_only","algorithm":"Ed25519","identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id}})),
             ("GET","/session")=>self.session(sid.as_deref(),now).map(|(a,s)|json!({"api_version":2,"ok":true,"csrf_token":csrf,"account":{"account_id":a.account_id,"display_name":a.display_name},"authentication":{"state":"authenticated","method":s.auth_method},"world":{"state":"not_requested"}})),
             ("POST","/passkeys/registration/options")=>self.registration_options(&owner,sid.as_deref(),&payload,source,now),
             ("POST","/passkeys/authentication/options")=>self.authentication_options(&owner,&payload,source,now),
@@ -761,9 +773,7 @@ pub(super) fn active_keys(
         .all::<CredentialRecord>("credential", Some(account))?
         .into_iter()
         .map(|(_, v)| v.value)
-        .filter(|v| {
-            v.state == "active" && matches!(v.public_material, CredentialMaterial::WebAuthn { .. })
-        })
+        .filter(|v| v.state == "active" && v.public_material.is_public_key())
         .collect())
 }
 pub(super) fn check_ceremony(c: &CeremonyRecord, owner: &str, now: u64) -> Result<(), StoreError> {
@@ -808,7 +818,7 @@ pub(super) fn authorized_action(
         .value;
     if proof.state != "active"
         || proof.account_id != a.account_id
-        || !(matches!(proof.public_material, CredentialMaterial::WebAuthn { .. })
+        || !(proof.public_material.is_public_key()
             || (!a.has_ever_public_key
                 && kind != "freeze"
                 && matches!(proof.public_material, CredentialMaterial::Email { .. })))
@@ -835,10 +845,10 @@ pub(super) fn create_session(
         origin_credential_version: c.version,
         issued_security_epoch: a.security_epoch,
         identity_instance_epoch: config.rp.identity_instance_epoch,
-        auth_method: if matches!(c.public_material, CredentialMaterial::WebAuthn { .. }) {
-            "webauthn"
-        } else {
-            "email"
+        auth_method: match c.public_material {
+            CredentialMaterial::WebAuthn { .. } => "webauthn",
+            CredentialMaterial::NativeKey { .. } => "native_key",
+            CredentialMaterial::Email { .. } => "email",
         }
         .into(),
         auth_time: now,

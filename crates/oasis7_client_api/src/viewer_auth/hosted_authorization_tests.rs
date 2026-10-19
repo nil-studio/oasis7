@@ -195,3 +195,24 @@ fn v2_registration_rejects_legacy_and_cross_scope_without_changing_parent_enviro
         String::from_utf8_lossy(&output.stdout)
     );
 }
+
+#[test]
+fn native_key_authorization_is_limited_to_player_session_capabilities() {
+    let mut context = context();
+    context.auth_method = "native_key".into();
+    let private = hex::encode([7; 32]);
+    let public = derive_hosted_registration_issuer_public_key(&private).unwrap();
+    let grant = issue_hosted_authorization_grant(&context, &private).unwrap();
+    assert_eq!(
+        verify_grant_signature(&grant, &public, 2000)
+            .unwrap()
+            .auth_method,
+        "native_key"
+    );
+    context.capabilities = vec!["player_session_release".into()];
+    assert!(issue_hosted_authorization_grant(&context, &private).is_ok());
+    for capability in ["operator", "asset_transfer", "strong_auth"] {
+        context.capabilities = vec![capability.into()];
+        assert!(issue_hosted_authorization_grant(&context, &private).is_err());
+    }
+}

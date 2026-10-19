@@ -2053,8 +2053,8 @@ function buildPromptControlSigningPayload(mode, request, auth) {
 //#endregion
 //#region software_safe_src/viewer_canonical_owner_read_module.js
 var DOMAIN = "/v1/world/view";
-var hex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-var canonicalHex = (value) => hex(cborCanonicalEncode(value));
+var hex$1 = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+var canonicalHex = (value) => hex$1(cborCanonicalEncode(value));
 function validCommit(commit) {
 	return Number.isSafeInteger(commit?.position) && commit.position >= 0 && [
 		commit?.execution_block_hash,
@@ -2150,7 +2150,7 @@ function createCanonicalOwnerReadModule({ state, sendJson, signAuthPayload, rend
 				DOMAIN,
 				request
 			]);
-			if (hex(signingBytes) !== context.signing_bytes_hex) throw new Error("canonical owner read signing bytes mismatch");
+			if (hex$1(signingBytes) !== context.signing_bytes_hex) throw new Error("canonical owner read signing bytes mismatch");
 			const signature = await signAuthPayload(signingBytes, state.auth);
 			if (pending !== active || !current(active.id)) throw new Error("canonical owner read identity changed during signing");
 			if (!/^awviewauth:v1:[0-9a-f]{128}$/.test(signature)) throw new Error("canonical owner read signature invalid");
@@ -3237,7 +3237,7 @@ function renderAccountEmailRecovery(root, { state, account, credentials, capabil
 	}
 	if (!account && capabilities.email?.available) button("使用邮箱登录", () => mode("login_address"));
 	if (account && capabilities.email?.available) button("绑定或替换恢复邮箱", () => mode("binding_address"));
-	if (account && !credentials.some((key) => key.state === "active" && key.type === "passkey")) button("验证邮箱并添加首个通行密钥", async () => {
+	if (account && !credentials.some((key) => key.state === "active" && ["passkey", "native_key"].includes(key.type))) button("验证邮箱并添加首个通行密钥", async () => {
 		state.otp = await client.upgradeEmailOptions();
 		mode("upgrade_code");
 	});
@@ -3340,6 +3340,155 @@ function renderAccountEmailRecovery(root, { state, account, credentials, capabil
 	});
 }
 //#endregion
+//#region software_safe_src/viewer_imported_key.js
+var encoder = new TextEncoder();
+var prefix = Uint8Array.from([
+	48,
+	46,
+	2,
+	1,
+	0,
+	48,
+	5,
+	6,
+	3,
+	43,
+	101,
+	112,
+	4,
+	34,
+	4,
+	32
+]);
+function hex(value) {
+	if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) throw new Error("native_key_invalid");
+	return Uint8Array.from(value.match(/../g), (byte) => parseInt(byte, 16));
+}
+function decode(value) {
+	if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error("native_challenge_invalid");
+	return Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+}
+function encode(value) {
+	return btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function nativeSigningBytes(options) {
+	const chunks = [encoder.encode("oasis7.identity.native.v1\0"), Uint8Array.of(1)];
+	for (const value of [
+		options.identity_service_id,
+		options.environment_id,
+		options.audience,
+		options.purpose,
+		options.account_context,
+		options.operation_id
+	]) {
+		if (typeof value !== "string" || value.length > 4096) throw new Error("native_challenge_invalid");
+		const bytes = encoder.encode(value);
+		const size = /* @__PURE__ */ new Uint8Array(4);
+		new DataView(size.buffer).setUint32(0, bytes.length);
+		chunks.push(size, bytes);
+	}
+	const nonce = decode(options.nonce);
+	if (nonce.length !== 32) throw new Error("native_challenge_invalid");
+	chunks.push(hex(options.public_key), nonce);
+	for (const value of [options.issued_at, options.expires_at]) {
+		if (!Number.isSafeInteger(value) || value < 0) throw new Error("native_challenge_invalid");
+		const bytes = /* @__PURE__ */ new Uint8Array(8);
+		new DataView(bytes.buffer).setBigUint64(0, BigInt(value));
+		chunks.push(bytes);
+	}
+	const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return bytes;
+}
+async function importAccountKey(publicHex, privateHex, crypto = globalThis.crypto) {
+	const publicBytes = hex(publicHex.trim());
+	const seed = hex(privateHex.trim());
+	privateHex = "";
+	if (!crypto?.subtle) throw new Error("native_key_unsupported");
+	const pkcs8 = new Uint8Array(prefix.length + seed.length);
+	pkcs8.set(prefix);
+	pkcs8.set(seed, prefix.length);
+	let key;
+	try {
+		key = await crypto.subtle.importKey("pkcs8", pkcs8, "Ed25519", false, ["sign"]);
+	} catch {
+		throw new Error("native_key_unsupported");
+	} finally {
+		seed.fill(0);
+		pkcs8.fill(0);
+	}
+	const verify = await crypto.subtle.importKey("raw", publicBytes, "Ed25519", false, ["verify"]);
+	const proof = crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(32));
+	if (!await crypto.subtle.verify("Ed25519", verify, await crypto.subtle.sign("Ed25519", key, proof), proof)) throw new Error("native_key_mismatch");
+	return Object.freeze({
+		publicKey: publicHex.trim().toLowerCase(),
+		async signChallenge(started, capability, intent, origin = globalThis.location.origin) {
+			const o = started.options;
+			if (!o || o.identity_service_id !== capability.identity_service_id || o.environment_id !== capability.environment_id || o.audience !== origin || o.purpose !== intent || o.public_key !== this.publicKey || o.operation_id !== started.ceremony_id || started.operation_id !== started.ceremony_id || !/^[A-Za-z0-9_-]{43}$/.test(started.ceremony_id) || (intent === "login" ? o.account_context !== "" : !o.account_context) || o.expires_at !== started.expires_at || o.expires_at <= Date.now() || o.issued_at > Date.now() + 5e3 || o.expires_at - o.issued_at !== 12e4) throw new Error("native_challenge_invalid");
+			const bytes = nativeSigningBytes(o);
+			if (encode(bytes) !== o.signed_bytes) throw new Error("native_challenge_invalid");
+			return encode(await crypto.subtle.sign("Ed25519", key, bytes));
+		}
+	});
+}
+function renderImportedKey(root, { account, busy, client, run, onAuthenticated, isActive = () => true }) {
+	const section = document.createElement("fieldset");
+	section.disabled = busy;
+	section.className = "stack";
+	const legend = document.createElement("legend");
+	legend.textContent = account ? "导入账号密钥" : "导入密钥登录";
+	section.append(legend);
+	const hint = document.createElement("p");
+	hint.textContent = "仅支持已绑定的 Ed25519 账号密钥。私钥仅用于本页内存签名，退出或关闭页面后需重新导入。请勿输入钱包或节点私钥；此方式不具备通行密钥的抗钓鱼保护。";
+	section.append(hint);
+	function input(label, type) {
+		const row = document.createElement("label");
+		row.textContent = label;
+		row.className = "stack";
+		const node = document.createElement("input");
+		node.type = type;
+		node.autocomplete = "off";
+		node.spellcheck = false;
+		node.maxLength = 64;
+		node.placeholder = "64 位十六进制";
+		row.append(node);
+		section.append(row);
+		return node;
+	}
+	const pub = input("公钥", "text");
+	const secret = input("私钥种子", "password");
+	function action(label, operation) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.textContent = label;
+		button.addEventListener("click", () => {
+			const publicHex = pub.value;
+			let privateHex = secret.value;
+			secret.value = "";
+			pub.value = "";
+			const signer = importAccountKey(publicHex, privateHex);
+			privateHex = "";
+			run(async () => {
+				const key = await signer;
+				if (isActive()) await operation(key);
+			});
+		});
+		section.append(button);
+	}
+	if (account) {
+		action("绑定这把密钥到当前账号", (key) => client.bindImportedKey(key));
+		action("加载已绑定密钥用于安全确认", (key) => client.useImportedKey(key));
+	} else action("使用导入密钥登录", async (key) => {
+		await client.loginImportedKey(key);
+		await onAuthenticated();
+	});
+	root.append(section);
+}
+//#endregion
 //#region software_safe_src/viewer_passkey_account_module.js
 var API = "/api/public/hosted-account/v2";
 function decodePasskeyBytes(encoded) {
@@ -3379,6 +3528,13 @@ function serializePasskey(credential) {
 }
 function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, credentials = globalThis.navigator?.credentials } = {}) {
 	let csrf = null;
+	let importedSigner = null;
+	let signerGeneration = 0;
+	function clearImportedKey() {
+		importedSigner = null;
+		signerGeneration += 1;
+		pendingActions.clear();
+	}
 	let recoveryOperation = null;
 	let recoveryCancelOperation = null;
 	const pendingCeremonies = /* @__PURE__ */ new Map();
@@ -3534,10 +3690,35 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 			pendingActions.set(key, action);
 		}
 		if (!action.authorized) {
-			await ceremony(`/actions/${encodeURIComponent(action.action_id)}/reauth`, {}, "get");
+			if (importedSigner) await nativeCeremony(importedSigner, "reauth", action.action_id);
+			else await ceremony(`/actions/${encodeURIComponent(action.action_id)}/reauth`, {}, "get");
 			action.authorized = true;
 		}
 		return action.action_id;
+	}
+	async function nativeCeremony(signer, intent, action_id) {
+		const capability = (await request("/capabilities")).native_key;
+		if (!capability?.available) throw new Error("native_key_unsupported");
+		const key = `native:${intent}:${signer.publicKey}:${action_id || ""}`;
+		let pending = pendingCeremonies.get(key);
+		if (!pending) {
+			const started = await request("/native-key/options", {
+				intent,
+				public_key: signer.publicKey,
+				action_id
+			});
+			const signature = await signer.signChallenge(started, capability, intent);
+			pending = {
+				started,
+				payload: {
+					ceremony_id: started.ceremony_id,
+					operation_id: started.operation_id,
+					signature
+				}
+			};
+			pendingCeremonies.set(key, pending);
+		}
+		return finishCeremony("/native-key", key, pending);
 	}
 	function forgetAction(actionId) {
 		for (const [key, action] of pendingActions) if (action.action_id === actionId) pendingActions.delete(key);
@@ -3589,6 +3770,7 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 		throw new Error("account_list_limit");
 	}
 	return {
+		clearImportedKey,
 		async capabilities() {
 			const result = await request("/capabilities");
 			csrf = result.csrf_token;
@@ -3599,7 +3781,11 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 		credentials: () => listAll("/credentials", "credentials"),
 		sessions: () => listAll("/sessions", "sessions"),
 		register: () => ceremony("/passkeys/registration", { intent: "new_account" }, "create"),
-		login: () => ceremony("/passkeys/authentication", {}, "get"),
+		login: () => {
+			clearImportedKey();
+			pendingActions.clear();
+			return ceremony("/passkeys/authentication", {}, "get");
+		},
 		async addCredential() {
 			const actionId = await authorize("bind");
 			const result = await ceremony("/passkeys/registration", {
@@ -3628,7 +3814,29 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 			forgetAction(actionId);
 			return result;
 		},
-		logout: () => request("/logout", {}),
+		async loginImportedKey(key) {
+			const generation = signerGeneration;
+			const result = await nativeCeremony(key, "login");
+			if (generation === signerGeneration) importedSigner = key;
+			return result;
+		},
+		async bindImportedKey(key) {
+			const generation = signerGeneration;
+			const action = await authorize("bind");
+			const result = await nativeCeremony(key, "bind", action);
+			forgetAction(action);
+			if (generation === signerGeneration) importedSigner = key;
+			return result;
+		},
+		useImportedKey(key) {
+			clearImportedKey();
+			importedSigner = key;
+		},
+		async logout() {
+			clearImportedKey();
+			pendingActions.clear();
+			return request("/logout", {});
+		},
 		joinWorld: (payload) => request("/world/join", payload),
 		refreshWorld: (payload) => request("/world/refresh", payload),
 		releaseWorld: (payload) => request("/world/release", payload),
@@ -3751,10 +3959,16 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 	};
 }
 var messages = {
+	native_key_invalid: "请输入各 64 位十六进制的 Ed25519 公钥和私钥种子。",
+	native_key_mismatch: "公钥与私钥不匹配，请检查输入。",
+	native_key_unsupported: "当前环境或浏览器不支持导入密钥，请使用通行密钥。",
+	native_challenge_invalid: "登录挑战与当前服务不一致或已过期，请刷新重试。",
+	authentication_failed: "认证失败。请检查密钥是否已绑定且未撤销；未绑定的密钥不会创建账号。",
+	credential_conflict: "这把公钥已登记，无法重复绑定或转移到其他账号。",
 	NotAllowedError: "操作已取消或超时。账号不会因此丢失，请重新点击。",
 	passkey_unsupported: "当前浏览器无法使用通行密钥，请使用支持的浏览器、外部安全密钥或邮箱入口。",
-	last_credential_protected: "请先添加并验证另一个通行密钥，再移除此凭证。",
-	reauth_required: "请使用已登记的通行密钥确认这次操作。",
+	last_credential_protected: "请用另一把已登记的公钥凭证确认移除，并至少保留一把有效公钥。",
+	reauth_required: "请使用已登记的公钥凭证确认这次操作。",
 	state_changed: "账号状态已经变化，请刷新后重新确认。",
 	registration_closed: "当前暂不开放新账号；已有账号仍可登录。",
 	recovery_not_ready: "恢复保护期尚未结束，或通知仍待确认。请核对申请状态与最早完成时间。",
@@ -3846,6 +4060,17 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 				await refresh();
 				if (!disposed && account) onAuthenticated(account);
 			}, !capabilities.passkey?.available));
+			if (capabilities.native_key?.available) renderImportedKey(root, {
+				account,
+				busy,
+				client,
+				run,
+				isActive: () => !disposed,
+				onAuthenticated: async () => {
+					await refresh();
+					if (account) onAuthenticated(account);
+				}
+			});
 			renderAccountEmailRecovery(root, {
 				state: emailRecoveryState,
 				account,
@@ -3879,7 +4104,17 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			row.append(button("移除", () => credential.type === "email" ? client.unbindEmail(credential) : client.revokeCredential(credential)));
 			root.append(row);
 		}
-		if (credentialList.some((key) => key.state === "active" && key.type === "passkey")) root.append(button("添加备用通行密钥", () => client.addCredential()));
+		if (credentialList.some((key) => key.state === "active" && ["passkey", "native_key"].includes(key.type))) root.append(button("添加备用通行密钥", () => client.addCredential()));
+		if (capabilities.native_key?.available) {
+			renderImportedKey(root, {
+				account,
+				busy,
+				client,
+				run,
+				isActive: () => !disposed
+			});
+			if (credentialList.some((key) => key.state === "active" && key.type === "passkey")) root.append(button("改用通行密钥确认安全操作", () => client.clearImportedKey()));
+		}
 		renderAccountEmailRecovery(root, {
 			state: emailRecoveryState,
 			account,
@@ -3923,7 +4158,10 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			nextSessions = sessions.sessions || [];
 		}
 		if (disposed || revision !== generation) return;
-		if (account && !nextAccount) onSessionInvalidated();
+		if (account && !nextAccount) {
+			client.clearImportedKey?.();
+			onSessionInvalidated();
+		}
 		capabilities = nextCapabilities;
 		account = nextAccount;
 		credentialList = nextCredentials;
@@ -3938,6 +4176,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	return {
 		refresh,
 		dispose() {
+			client.clearImportedKey?.();
 			disposed = true;
 			++generation;
 			root.replaceChildren();

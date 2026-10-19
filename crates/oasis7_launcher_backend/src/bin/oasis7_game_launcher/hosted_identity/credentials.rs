@@ -27,7 +27,7 @@ impl IdentityService {
         self.store.transaction(|tx|if path=="/credentials"{
             let mut records=tx.all::<CredentialRecord>("credential",Some(&a.account_id))?.into_iter().map(|(_,v)|v.value).filter(|c|c.credential_record_id.as_str()>cursor).collect::<Vec<_>>();
             records.sort_by(|a,b|a.credential_record_id.cmp(&b.credential_record_id));let more=records.len()>100;records.truncate(100);let next=if more{records.last().map(|c|c.credential_record_id.clone())}else{None};
-            Ok(json!({"api_version":2,"ok":true,"next_cursor":next,"credentials":records.into_iter().map(|c|json!({"id":c.credential_record_id,"label":c.label,"state":c.state,"version":c.version,"type":if matches!(c.public_material,CredentialMaterial::WebAuthn{..}){"passkey"}else{"email"}})).collect::<Vec<_>>()}))
+            Ok(json!({"api_version":2,"ok":true,"next_cursor":next,"credentials":records.into_iter().map(|c|json!({"id":c.credential_record_id,"label":c.label,"state":c.state,"version":c.version,"type":c.public_material.credential_type()})).collect::<Vec<_>>()}))
         }else{
             let mut records=tx.all::<AccountSession>("session",Some(&a.account_id))?.into_iter().map(|(_,v)|v.value).filter(|c|c.session_id.as_str()>cursor).collect::<Vec<_>>();
             records.sort_by(|a,b|a.session_id.cmp(&b.session_id));let more=records.len()>100;records.truncate(100);let next=if more{records.last().map(|s|s.session_id.clone())}else{None};
@@ -206,7 +206,7 @@ impl IdentityService {
                 {
                     return Err(reject("state_changed"));
                 }
-                if !matches!(c.value.public_material, CredentialMaterial::WebAuthn { .. })
+                if !c.value.public_material.is_public_key()
                     || active_keys(tx, &a.account_id)?.len() <= 1
                 {
                     return Err(reject("last_credential_protected"));

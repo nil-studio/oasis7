@@ -729,6 +729,20 @@ signed_bytes = domain_separator
 字符串使用 UTF-8，长度为固定 u32 大端且有上限，时间为 u64 大端；协议实现必须有跨语言 golden vectors，禁止临时拼接 JSON 字符串导致不同序列化签不同语义。`purpose` 严格列举 register/login/bind/reauth/recovery_candidate，不接受 wildcard。
 
 服务器验证签名、公钥类型、服务域、环境、用途、目标、期限和原子 nonce 消费，再接入相同身份事务。原生持有证明不自带 WebAuthn 的浏览器来源保护，也不证明终端已做硬件用户验证；客户端必须验证 TLS/目标服务并展示操作，不把该方式标成与 Passkey 完全相同的抗钓鱼等级。
+<a id="imported-key-web"></a>
+
+### 15.2.1 网页会话内导入
+
+Trace refs: O7-REQ-45c9a6e2-d624-4a57-bced-b96b6aa78f69，承接 [Flow-KEYAUTH-008](hosted-public-join-key-based-onboarding.prd.md#imported-key-login)。
+
+`native_key.available` 表示有限 `import_only` 能力；不代表受保护客户端生成或加密备份已发布。仅接受 Ed25519、32 字节公钥和种子；Web Crypto 导入 non-extractable 签名对象，原始输入不进缓存、storage、网络或日志。浏览器先验证公私钥配对。页面关闭/退出释放对象，服务端只存 `NativeKey { public_key }`。
+
+`POST /native-key/options` 与 `/native-key/complete` 支持 `login`、`bind`、`reauth`，不支持新建账号。签名字节沿用 §15.2 格式：域分隔符为 UTF-8 `oasis7.identity.native.v1\0`，version 为单字节 1；audience 是经 Origin 白名单验证的精确来源；account_context 是绑定/重新认证账号 ID，登录为空；operation_id 是 ceremony_id，nonce 为独立随机 32 字节。全部字符串以 u32 大端长度编码；时间为毫秒 u64 大端。客户端按 capabilities 中的 namespace、当前 location.origin、用途、公钥、操作 ID 和期限重建并对比字节后才签名，不接受任意服务器字符串签名。
+
+挑战持久化保存 owner、namespace、RP version、用途、公钥、action 和签名字节；120 秒、最多 5 次失败。完成时重新检查 owner、namespace、RP version、账号/凭证/action 有效性与一次消费。绑定须现有敏感 `bind` action；reauth 只授权同账号同 session 的 pending action。登录/绑定共用来源及全局挑战配额。绑定唯一 lookup、凭证、账号 policy_version、action 消费、审计和 receipt 同事务；重试同 operation 返回已提交结果，不重新发行 session。登录复用 cookie/session/world 权限边界；`HostedAuthContextV2.auth_method=native_key` 仍仅允许原有 player_session/release 能力，不能升级到资产或 operator 权限。恢复完成时撤销全部旧公钥类型；原生凭证不能冒充 WebAuthn 恢复候选。
+
+部署先升级所有世界授权 verifier 以识别 `native_key`（仍只接受玩家会话能力），再升级身份服务和 Viewer 开放入口；旧 verifier 会安全拒绝该 auth_method。首次绑定后身份库存有新的 credential union 分支，旧身份 binary 不具备读取兼容性，不能原地降级或删除新凭证来回退。回退版本必须继续识别并服务已绑定导入凭证，备份/迁移仍按现有存储合同执行。
+
 ### 15.3 项目登录身份备份格式
 采用项目专属 `oasis7-login-identity-backup` v1。备份不包含 node key、wallet seed 或资产 signer。推荐 Argon2id 派生加密 key、XChaCha20-Poly1305 做带附加数据的认证加密；两者能力分别参考 RFC 与 libsodium 官方文档。[W9][W10]
 
@@ -740,7 +754,7 @@ signed_bytes = domain_separator
 
 导入成功只表示恢复同一私钥，仍须在线挑战确认该 credential 未被撤销。备份被复制后，同一 key 的所有副本共享撤销状态；不能承诺“只撤销被盗的那个文件”。遗失口令且无其他凭据时不提供不可实现的解密找回。
 
-P1 发布前必须提供密码学测试向量、篡改/截断/参数膨胀测试、错误服务测试、真实安全存储验证、导出告知和撤销演练。P0 仅保留接口边界，不开放未完成的 native 入口。
+P1 发布前必须提供密码学测试向量、篡改/截断/参数膨胀测试、错误服务测试、真实安全存储验证、导出告知和撤销演练。受保护客户端生成及加密备份仍未开放；§15.2.1 的会话内导入独立于该能力。
 
 <a id="operations"></a>
 ## 16. 限流、可观测性、性能和运行故障
@@ -852,7 +866,7 @@ Tablestore adapter 应复用连接并提供异步 IO；SQLite 使用有界线程
 
 两存储后端分别进行 5 次/秒的性能验收、提交响应丢失故障注入、关闭 SMTP、暂停注册、重启、恢复旧快照的安全演练。多实例 Tablestore 验证全局计数与一次消费；SQLite 不以多机副本测试冒充共享存储。
 ### 17.5 证明范围与完成定义
-P0 放量必须同时满足全部 P0 AC、NFR 安全不变量、真实支持矩阵、旧账号迁移、关闭注册仍可登录及恢复演练。P1 的 AC-14 尚未实现不阻断 P0，但 native key 开关必须保持关闭。
+P0 放量必须同时满足全部 P0 AC、NFR 安全不变量、真实支持矩阵、旧账号迁移、关闭注册仍可登录及恢复演练。P1 的 AC-14 尚未实现不阻断 P0，受保护客户端生成及加密备份必须保持关闭；`import_only` 仅按 §15.2.1 开放会话内导入。
 
 测试报告须绑定候选提交、构建、模式 `viewer`、hosted deployment、存储后端、RP/环境、浏览器/认证器版本和证据窗口。文档链接、单元测试通过、虚拟认证器成功都不能证明生产 custody、多节点最终性或真人持续回访成立。
 

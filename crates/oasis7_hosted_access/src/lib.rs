@@ -305,6 +305,8 @@ pub fn web_launcher_public_endpoints() -> &'static [&'static str] {
         "/api/public/hosted-account/v2/passkeys/registration/complete",
         "/api/public/hosted-account/v2/passkeys/authentication/options",
         "/api/public/hosted-account/v2/passkeys/authentication/complete",
+        "/api/public/hosted-account/v2/native-key/options",
+        "/api/public/hosted-account/v2/native-key/complete",
         "/api/public/hosted-account/v2/logout",
         "/api/public/hosted-account/v2/credentials",
         "/api/public/hosted-account/v2/sessions",
