@@ -293,6 +293,15 @@ mod read_failure_tests;
 #[test]
 #[cfg(unix)]
 fn every_persist_phase_and_logical_stage_returns_unknown_then_resumes_original() {
+    if crate::test_process::run_isolated(
+        concat!(
+            module_path!(),
+            "::every_persist_phase_and_logical_stage_returns_unknown_then_resumes_original"
+        ),
+        std::time::Duration::from_secs(180),
+    ) {
+        return;
+    }
     for endpoint in [EndpointRole::Primary, EndpointRole::Replica] {
         for writes in 1..=5 {
             for phase in PHASES {

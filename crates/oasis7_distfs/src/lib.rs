@@ -30,3 +30,6 @@ pub use replication::*;
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod test_process;
