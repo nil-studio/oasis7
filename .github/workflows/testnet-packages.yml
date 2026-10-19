@@ -259,8 +259,8 @@ jobs:
       - name: Compile native binaries
         shell: bash
         env:
-          # Bound concurrent Thin LTO builds on hosted native runners.
-          CARGO_BUILD_JOBS: "2"
+          # Serialize native Cargo builds after repeated memory/swap exhaustion.
+          CARGO_BUILD_JOBS: "1"
         run: |
           if [[ "${RUNNER_OS}" == "Linux" ]]; then
             python3 -u - <<'PY' &
