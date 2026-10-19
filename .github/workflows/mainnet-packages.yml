@@ -98,7 +98,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: mainnet-packages-release-gate-runtime-core-trusted-v2
+          shared-key: release-packages-release-gate-runtime-core-trusted-v2
           cache-on-failure: true
       - name: Run runtime core release gate
         run: |
@@ -148,7 +148,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: mainnet-packages-release-gate-runtime-support-trusted-v2
+          shared-key: release-packages-release-gate-runtime-support-trusted-v2
           cache-on-failure: true
       - name: Run runtime support release gate
         run: |
@@ -199,7 +199,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: mainnet-packages-release-gate-runtime-sync-trusted-v2
+          shared-key: release-packages-release-gate-runtime-sync-trusted-v2
           cache-on-failure: true
       - name: Install canonical builtin wasm toolchain
         run: |
@@ -269,7 +269,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: mainnet-packages-web-wasm-trusted-v2
+          shared-key: release-packages-web-wasm-trusted-v2
           cache-on-failure: true
       - name: Run web strict release gate
         run: |
@@ -329,7 +329,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: mainnet-packages-release-gate-soak-trusted-v2
+          shared-key: release-packages-release-gate-soak-trusted-v2
           cache-on-failure: true
       - name: Prewarm soak runtime binary
         run: env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_chain_runtime
@@ -417,7 +417,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           save-if: false
-          shared-key: mainnet-packages-web-wasm-trusted-v2
+          shared-key: release-packages-web-wasm-trusted-v2
           cache-on-failure: true
       - name: Install trunk
         run: cargo install trunk --locked
@@ -518,7 +518,7 @@ jobs:
         if: runner.os != 'Linux'
         with:
           save-if: false
-          shared-key: mainnet-packages-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2
+          shared-key: release-packages-package-native-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2
           cache-on-failure: true
       - name: Download web dist artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
