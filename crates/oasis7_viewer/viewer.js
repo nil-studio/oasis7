@@ -15360,6 +15360,7 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 		if (!renderState || !renderInput) return renderState;
 		const worldTick = snapshotTick(renderInput.snapshot);
 		if (worldTick === null && !renderInput.display_budget) return renderState;
+		const hadClipping = renderInput.display_budget?.omitted_markers > 0 || renderState.display_budget?.omitted_markers > 0;
 		return {
 			...renderState,
 			...renderInput.display_budget ? { display_budget: {
@@ -15372,7 +15373,7 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 				world_read: {
 					...renderState.commercial_surface.world_read || {},
 					...worldTick !== null ? { tick: worldTick } : {},
-					...renderInput.display_budget?.omitted_markers > 0 && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? { agents: renderInput.display_budget.source_counts.agents } : {}
+					...hadClipping && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? { agents: renderInput.display_budget.source_counts.agents } : {}
 				}
 			} : renderState.commercial_surface
 		};

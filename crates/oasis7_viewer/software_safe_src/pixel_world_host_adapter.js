@@ -36,6 +36,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
     if (worldTick === null && !renderInput.display_budget) {
       return renderState;
     }
+    const hadClipping = renderInput.display_budget?.omitted_markers > 0 || renderState.display_budget?.omitted_markers > 0;
     return {
       ...renderState,
       ...(renderInput.display_budget ? {display_budget:{...renderState.display_budget,...renderInput.display_budget}} : {}),
@@ -46,7 +47,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
           world_read: {
             ...(renderState.commercial_surface.world_read || {}),
             ...(worldTick !== null ? {tick:worldTick} : {}),
-            ...(renderInput.display_budget?.omitted_markers > 0 && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? {agents:renderInput.display_budget.source_counts.agents} : {}),
+            ...(hadClipping && Number.isSafeInteger(renderInput.display_budget?.source_counts?.agents) ? {agents:renderInput.display_budget.source_counts.agents} : {}),
           },
         }
         : renderState.commercial_surface,

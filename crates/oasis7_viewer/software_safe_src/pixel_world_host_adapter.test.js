@@ -65,4 +65,9 @@ it("refreshes authorized source counts without converting unchanged clipped geom
   expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
   expect(next.renderState.commercial_surface.world_read.agents).toBe(1001);
   expect(next.renderState.display_budget.omitted_markers).toBe(1000);
+  input.display_budget = {source_counts:{agents:1},omitted_markers:0};
+  const reduced = adapter.update(input);
+  expect(held.deriveRenderState).toHaveBeenCalledTimes(1);
+  expect(reduced.renderState.commercial_surface.world_read.agents).toBe(1);
+  expect(reduced.renderState.display_budget.omitted_markers).toBe(0);
 });
