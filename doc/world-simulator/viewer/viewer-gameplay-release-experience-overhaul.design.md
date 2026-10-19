@@ -442,6 +442,8 @@ Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维�
 <a id="viewer-performance-verification"></a>
 ### 预算、验证与实施顺序
 
+承接 [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)（Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251）与 [REQ-ENTRY-PERFORMANCE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)（Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae），分别验证运行响应和资源准备。
+
 以下是后续实现验收目标，不是当前已达到的指标。复用 `viewer-performance-probe.mjs`、`performance_metrics`、Host/loader 回归和测试手册 S6，补齐缺失测量，不新增全仓通用门禁或付费模型测试。
 
 | 测量范围 | 目标与明确口径 | 条件 / 不能代签 |
