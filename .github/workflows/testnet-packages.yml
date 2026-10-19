@@ -181,10 +181,9 @@ jobs:
           if-no-files-found: error
 
   package-native:
-    name: package-${{ matrix.platform }}
+    name: compile-${{ matrix.platform }}
     needs:
       - plan
-      - build-web-dist
     if: >-
       github.ref != 'refs/heads/main' || github.event_name != 'workflow_dispatch' ||
       needs.plan.outputs.checkoutSha != github.sha || github.workflow_sha != github.sha ||
@@ -203,6 +202,12 @@ jobs:
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Verify parallel native stage support
+        shell: bash
+        run: |
+          test -f scripts/package-native-stage.py
+          test -s scripts/package-native-stage.py
+          test ! -L scripts/package-native-stage.py
       - name: Compute Linux package cache save eligibility
         id: linux-package-cache-write
         if: runner.os == 'Linux'
@@ -251,11 +256,125 @@ jobs:
           save-if: false
           shared-key: testnet-packages-${{ runner.os }}-${{ matrix.target_triple }}-trusted-v2
           cache-on-failure: true
+      - name: Compile native binaries
+        shell: bash
+        env:
+          # Serialize native Cargo builds after repeated memory/swap exhaustion.
+          CARGO_BUILD_JOBS: "1"
+        run: |
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            python3 -u - <<'PY' &
+          import datetime
+          import os
+          from pathlib import Path
+          import subprocess
+          import time
+
+          while True:
+              print("native build resources", datetime.datetime.now(datetime.timezone.utc).isoformat())
+              subprocess.run(["free", "-m"], check=False)
+              subprocess.run(["df", "-h", os.environ["GITHUB_WORKSPACE"]], check=False)
+              for metric in ("memory.current", "memory.max", "memory.events"):
+                  path = Path("/sys/fs/cgroup") / metric
+                  if path.is_file():
+                      print(metric, path.read_text().strip())
+              time.sleep(60)
+          PY
+            resource_monitor=$!
+            trap 'kill "${resource_monitor}" 2>/dev/null || true; wait "${resource_monitor}" 2>/dev/null || true' EXIT
+          fi
+          ./scripts/build-game-launcher-bundle.sh \
+            --platform "${{ matrix.platform }}" \
+            --target-triple "${{ matrix.target_triple }}" \
+            --native-only \
+            --out-dir output/native-stage \
+            --ops-out-dir output/native-stage/ops \
+            --profile "${{ inputs.build_profile }}"
+      - name: Archive native stage
+        shell: bash
+        run: tar -C output/native-stage -czf output/native-stage.tar.gz .
+      - name: Upload native stage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testnet-native-stage-${{ matrix.platform }}
+          path: output/native-stage.tar.gz
+          if-no-files-found: error
+
+  package-native-trusted:
+    cache-mode: write
+    name: compile-trusted-${{ matrix.platform }}
+    needs:
+      - plan
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' &&
+      needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha &&
+      inputs.package_scope == 'linux_only' && inputs.build_profile == 'packaging'
+    strategy: *testnet-native-strategy
+    runs-on: ${{ matrix.os }}
+    steps: *testnet-native-steps
+
+  package-installers:
+    name: package-${{ matrix.platform }}
+    needs:
+      - plan
+      - build-web-dist
+      - package-native
+      - package-native-trusted
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.build-web-dist.result == 'success' &&
+      ((needs.package-native.result == 'success' && needs.package-native-trusted.result == 'skipped') ||
+       (needs.package-native.result == 'skipped' && needs.package-native-trusted.result == 'success'))
+    strategy: *testnet-native-strategy
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.checkoutSha }}
+          persist-credentials: false
+      - name: Verify planned source HEAD
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
+          rustup default "${RUST_TOOLCHAIN}"
+          if [[ "${{ matrix.target_triple }}" != "native" ]]; then
+            rustup target add "${{ matrix.target_triple }}" --toolchain "${RUST_TOOLCHAIN}"
+          fi
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libwayland-dev \
+            wayland-protocols \
+            libxkbcommon-dev \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libasound2-dev \
+            libudev-dev
       - name: Download web dist artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: testnet-web-dists
           path: output/testnet-packages
+      - name: Download native stage from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: testnet-native-stage-${{ matrix.platform }}
+          path: output/native-artifact
+      - name: Extract native stage
+        shell: bash
+        run: |
+          mkdir -p output/native-stage
+          tar -C output/native-stage -xzf output/native-artifact/native-stage.tar.gz
       - name: Ensure Windows packaging dependencies
         if: runner.os == 'Windows'
         shell: pwsh
@@ -279,40 +398,22 @@ jobs:
           short_sha="$(git rev-parse --short=12 HEAD)"
           version="0.0.0+testnet.${GITHUB_RUN_NUMBER}.${short_sha}"
           echo "value=${version}" >> "${GITHUB_OUTPUT}"
-      - name: Build launcher bundle
+      - name: Assemble launcher bundle without compiling
         shell: bash
-        env:
-          # Bound concurrent Thin LTO builds on hosted native runners.
-          CARGO_BUILD_JOBS: "2"
         run: |
-          if [[ "${RUNNER_OS}" == "Linux" ]]; then
-            python3 -u - <<'PY' &
-          import datetime
-          import os
-          from pathlib import Path
-          import subprocess
-          import time
-
-          while True:
-              print("native build resources", datetime.datetime.now(datetime.timezone.utc).isoformat())
-              subprocess.run(["free", "-m"], check=False)
-              subprocess.run(["df", "-h", os.environ["GITHUB_WORKSPACE"]], check=False)
-              for metric in ("memory.current", "memory.max", "memory.events"):
-                  path = Path("/sys/fs/cgroup") / metric
-                  if path.is_file():
-                      print(metric, path.read_text().strip())
-              time.sleep(60)
-          PY
-            resource_monitor=$!
-            trap 'kill "${resource_monitor}" 2>/dev/null || true; wait "${resource_monitor}" 2>/dev/null || true' EXIT
-          fi
-          ./scripts/release-prepare-bundle.sh \
+          ./scripts/build-game-launcher-bundle.sh \
             --platform "${{ matrix.platform }}" \
             --target-triple "${{ matrix.target_triple }}" \
+            --native-binaries "$GITHUB_WORKSPACE/output/native-stage" \
             --web-dist output/testnet-packages/web-dist \
             --web-launcher-dist output/testnet-packages/web-launcher-dist \
-            --out-dir output/testnet-packages/assets \
+            --out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
+            --ops-out-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools" \
             --profile "${{ inputs.build_profile }}"
+      - name: Archive operator tools
+        shell: bash
+        run: |
+          tar -C output/testnet-packages/assets -czf "output/testnet-packages/assets/oasis7-${{ matrix.platform }}-ops-tools.tar.gz" "oasis7-${{ matrix.platform }}-ops-tools"
       - name: Validate bundle entrypoints
         shell: bash
         run: |
@@ -478,17 +579,3 @@ jobs:
             output/testnet-packages/assets/${{ matrix.platform }}-ops-tools-SHA256SUMS
             output/testnet-packages/assets/windows-governed-closure/**
           if-no-files-found: warn
-
-  package-native-trusted:
-    cache-mode: write
-    name: package-trusted-${{ matrix.platform }}
-    needs:
-      - plan
-      - build-web-dist
-    if: >-
-      github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' &&
-      needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha &&
-      inputs.package_scope == 'linux_only' && inputs.build_profile == 'packaging'
-    strategy: *testnet-native-strategy
-    runs-on: ${{ matrix.os }}
-    steps: *testnet-native-steps
