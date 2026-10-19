@@ -11,6 +11,8 @@
 
 ## 从问题进入
 
+Viewer 性能边界（2026-10-19 局部核对）：[性能合同](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract) 已由 [#4907](https://github.com/nil-studio/oasis7/pull/4907) 合入；[实现候选 #4909](https://github.com/nil-studio/oasis7/pull/4909) 在 Host 到 WASM 前裁剪显示数据，并对公共 hash WASM 使用压缩与缓存，玩家状态及权限不进入公共缓存。实现与完整预算仍分阶段验证，线上配置未核验；改变显示容量/裁剪语义、缓存来源或初始化恢复边界时重新关注本项，不由本索引宣称部署完成。
+
 Cargo 边界局部增量（2026-10-12）：[#4626](https://github.com/eng-cc/oasis7/pull/4626) / `133d70e45b71bd062032a734d68be1e290692b2c` 将 native 生产 cognition 状态转换转接至 Harness，World readback 与 signed-service 校验仍由 Runtime 适配器承担，旧 DTO/checkpoint 兼容保留；不新增 Harness→Oasis 依赖。支持包 profile 隔离尚在分支验证，直接 Oasis wasm32 目标及部署不因本次局部摘要变为已验证。测试入口见[测试手册](../../../../testing-manual.md)。
 
 核心执行边界局部核对（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853)）：目标所有权由 [Runtime 设计](../../../world-runtime/design.md#实现边界与共享值所有权)、[Simulator 设计](../../../world-simulator/design.md)和 [Game Client 边界](../../../world-simulator/llm/agent-game-client-boundary.design.md)承载。Simulator 与权威 Runtime 并列，Service 依赖 Runtime 与合同层；共享值和 wire 合同归 API / Proto，客户端证明消费与操作恢复归 Game Client，旧组合归档和进程组装留宿主。Simulator、Runtime / Service 及客户端迁移均已合入；[后续 #4879](https://github.com/nil-studio/oasis7/issues/4879) 已通过 [#4882](https://github.com/nil-studio/oasis7/pull/4882) 合入，完整 legacy Scheduler 具体合同与纯验证归 API / Game Client；宿主通过借用内核事件及稀疏 runtime-event 附属数据组合旧归档，只保留扩展及原切面证据归属，不保留旧模型。`journal()` 的 Rust 读取接口改为借用 view，历史编码保持；实际交付与验证范围见[项目状态](../README.md#cc-status-core-crate-extraction)。这不增加进程或 transport，也不将 Runtime 的 WASM 值模型视为完整执行支持。 当前本地候选继续落实 [Viewer 应用与宿主边界](../../../world-simulator/viewer/viewer-minimal-system.design.md#应用与宿主边界)、Runtime/Service 的 CAS/Formal Protocol 直接消费及客户端合同归位，尚未合入。

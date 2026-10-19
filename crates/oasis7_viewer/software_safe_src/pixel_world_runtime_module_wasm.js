@@ -113,6 +113,10 @@ async function resolvePixelWorldWasmDescriptor({ moduleUrl = import.meta.url } =
     throw optionalPayloadMissingError(payload?.reason || "source_missing");
   }
 
+  if (payload.render_input_schema_version !== undefined && payload.render_input_schema_version !== 1) {
+    throw optionalPayloadIntegrityError("unsupported_render_input_schema");
+  }
+
   let url;
   try {
     url = new URL(payload.path, configuredOptionalPayloadBaseUrl(manifestUrl));

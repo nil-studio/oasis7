@@ -318,6 +318,16 @@ describe("pixel world wasm runtime bridge", () => {
     } finally { globalThis.fetch = previousFetch; crypto.restore(); }
   });
 
+  it("rejects an incompatible descriptor before fetching or initializing its payload", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({status:200,ok:true,json:async()=>integrityManifest({render_input_schema_version:2})}));
+    try {
+      const {loadPixelWorldWasmInputForTest} = await import("./pixel_world_runtime_module_wasm.js");
+      await expect(loadPixelWorldWasmInputForTest({moduleUrl:"https://example.test/pixel-world-bridge/webgl2/pixel_world_bridge.js"})).rejects.toThrow(/unsupported_render_input_schema/);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    } finally { globalThis.fetch = previousFetch; }
+  });
+
   it("rejects an available manifest that omits integrity metadata", async () => {
     const originalFetch = globalThis.fetch;
     const cryptoHarness = installIntegrityCrypto();

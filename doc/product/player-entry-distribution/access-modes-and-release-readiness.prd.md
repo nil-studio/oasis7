@@ -73,7 +73,7 @@ Trace ID: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251
 - 系统设计依据：[显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection)。
 - 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
 - 实现状态：部分实现
-- 实现与验证依据：2026-10-19；在设计合入基线 `fb15585d8811ef5c7ea010139f25908812289213` 上实现有界显示白名单、普通 JSON/版本化 Rust 输入、同帧最新更新及相同显示派生复用；Host 回归覆盖 telemetry/tick、实体删除、可见性失效及回执处理。真实 Chrome 在 1440×1000、390×844 稀疏只读样例中显示 WebGL 画布并完成选择；85.8 秒窄屏样例脚本约 1.71 秒、INP 78 ms，仅作为局部观察。
+- 实现与验证依据：2026-10-19；在设计合入基线 `fb15585d8811ef5c7ea010139f25908812289213` 上实现有界显示白名单、普通 JSON/版本化 Rust 输入、同帧最新更新及相同显示派生复用；Host 回归覆盖 telemetry/tick、实体删除、可见性失效及回执处理。真实 Chrome 在 1440×1000、390×844 稀疏只读样例中显示 WebGL 画布并完成选择；具体候选及局部测量见 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)，不代签完整预算。
 - 剩余范围：稳定排序与关键语义优先裁剪、100 标签细分预算、常规/高负载及受控更新场景的完整同候选性能验收；目前超过输入容量会明确 unavailable，不将稀疏样例或单次测量当成全负载通过，不升级现有模式就绪结论。
 
 <a id="ac-entry-performance-001"></a>
@@ -94,7 +94,7 @@ Trace ID: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae
 - 系统设计依据：[资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery)。
 - 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
 - 实现状态：部分实现
-- 实现与验证依据：2026-10-19；上述设计合入基线上实现精简 WASM feature/发布符号、SHA-256 寻址和 gzip artifact、服务器编码协商与 immutable 公共资源缓存；稳定 JS/CSS 保持 revalidation，HTML 保留原运行时注入。Loader 每次验证解码 bytes，仅损坏缓存自动重取一次，并提供资源阶段和失败后重新尝试。生产构建 WASM 解码 35,019,856 bytes、gzip 7,664,037 bytes；打包与 HTTP/loader 回归验证内容、编码及失败边界。
+- 实现与验证依据：2026-10-19；上述设计合入基线上实现精简 WASM feature/发布符号、SHA-256 寻址和 gzip artifact、服务器编码协商与 immutable 公共资源缓存；稳定 JS/CSS 保持 revalidation，HTML 保留原运行时注入。Loader 每次验证解码 bytes，仅损坏缓存自动重取一次，并提供资源阶段和失败后重新尝试。打包与 HTTP/loader 回归验证内容、编码及失败边界，具体候选及体积见 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)。
 - 剩余范围：hash/compile/init 的独立 10 秒预算和不可中断初始化的实例隔离、真实部署的冷暖缓存/版本切换/离线与受控网络验收。当前 30 秒下载预算只覆盖 manifest 指向的 hash payload；不得将本地体积或设计预算当作当前网站性能承诺。
 
 <a id="ac-entry-performance-002"></a>
