@@ -3,10 +3,10 @@ use oasis7_agent_api::world_action::{OrganizationEstateRightV1, OrganizationEsta
 use std::collections::BTreeSet;
 
 mod organization_continuity;
+#[cfg(test)]
+pub(crate) use organization_continuity::economic_contract_terms_hash;
 pub use organization_continuity::*;
-pub(crate) use organization_continuity::{
-    activity_catalog_root, activity_close_commitment, economic_contract_terms_hash,
-};
+pub(crate) use organization_continuity::{activity_catalog_root, activity_close_commitment};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

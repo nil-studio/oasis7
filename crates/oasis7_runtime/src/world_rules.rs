@@ -9,9 +9,9 @@ mod authority;
 pub(crate) use authority::verify_world_rule_authority;
 mod industrial;
 mod organization;
-pub(crate) use organization::{
-    activity_catalog_root, activity_close_commitment, economic_contract_terms_hash,
-};
+#[cfg(test)]
+pub(crate) use organization::economic_contract_terms_hash;
+pub(crate) use organization::{activity_catalog_root, activity_close_commitment};
 mod supply;
 pub use industrial::*;
 pub use organization::*;

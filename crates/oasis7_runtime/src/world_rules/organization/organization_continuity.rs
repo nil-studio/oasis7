@@ -25,10 +25,8 @@ mod types;
 pub use types::*;
 #[path = "organization_continuity_helpers.rs"]
 mod helpers;
-pub(crate) use helpers::activity_catalog_root;
-#[cfg(test)]
-pub(crate) use helpers::economic_contract_terms_hash;
 use helpers::*;
+pub(crate) use helpers::{activity_catalog_root, economic_contract_terms_hash};
 
 fn accounted_through(
     continuity: &OrganizationContinuityStateV1,

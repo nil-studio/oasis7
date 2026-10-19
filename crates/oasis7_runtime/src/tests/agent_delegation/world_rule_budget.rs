@@ -424,11 +424,35 @@ fn emergency_authorization_native_budget_tracks_exact_validated_donation_once() 
 #[cfg(feature = "wasmtime")]
 #[test]
 fn real_builtin_modules_accept_restricted_essential_recipe() {
-    let (mut world, action) = crate::world_rules::essential_recipe_fixture();
+    let (fixture, action) = crate::world_rules::essential_recipe_fixture();
+    // Install the canonical module package before configuring the trusted
+    // finality set, as at genesis. Local bootstrap certificates cannot replace
+    // that set after it has been configured.
+    let mut state = fixture.state().clone();
+    let registry = state.governance_finality_signer_registry.take().unwrap();
+    let mut world = World::new_with_state(state);
     world.install_m1_agent_default_modules("bootstrap").unwrap();
     world
         .install_m5_gameplay_bootstrap_modules("bootstrap")
         .unwrap();
+    world
+        .set_governance_finality_signer_registry(registry)
+        .unwrap();
+    let manifest = fixture.chain_resource_manifest();
+    let snapshot = world.snapshot_with_chain_resource_context(
+        crate::ChainResourceDerivationContext {
+            world_id: &manifest.world_id,
+            chain_id: &manifest.chain_id,
+            genesis_ref: manifest.genesis_ref.as_deref(),
+            created_at_height: manifest.created_at_height,
+            manifest_height: manifest.manifest_height,
+            commit_block_hash: manifest.created_at_block_hash.as_deref(),
+            tick: world.state().time,
+        },
+        "a".repeat(64),
+        "b".repeat(64),
+    );
+    let mut world = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
     let action_id = world.submit_action(action);
     let mut sandbox =
         oasis7_wasm_executor::WasmExecutor::new(crate::tests::test_wasm_executor_config()).unwrap();
