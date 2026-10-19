@@ -157,17 +157,13 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 该候选不执行特权安装、custody 管理或生产变更，原有游戏、部署及其他 PR 的核验时点保持不变。
 来源：[候选 PR 与验证范围](https://github.com/eng-cc/oasis7/pull/4624)、[暂停范围与验收边界](local-tools.design.md)。
 
-### 指挥客户端产品收敛（2026-10-17，设计目标）
+### 指挥客户端：日常闭环与可读性改造
 
-以 `main@0ec10379419b0aaedb9d16157b81c92f4e6e3495` 核对产品、系统设计与实现入口。目标仍是“首页看清重点—统一工作详情—接续原工具或自管执行—回看结果”；[产品需求](command-center.prd.md#REQ-CC-013)补齐首页字段、动作和异常状态，[关联需求](command-center.prd.md#REQ-CC-014)约定复用、修复与跨视图接续，[待处理需求](command-center.prd.md#REQ-CC-006)区分真实输入、已决定事项与同步缺口。[系统设计](command-center.design.md)承接工作投影、来源时效、持久化兼容及并发读取；工具和文档阅读分别沿[任务入口](local-tools.design.md#DES-CC-TOOLS-005)与[主题阅读](document-tree.design.md#DES-CC-TREE-004)调整。
+局部核对基线为 `main@822f6b49d1a5fb2b866b6c6902ffc8ed024d043b`（2026-10-18）。[PR #4881](https://github.com/nil-studio/oasis7/pull/4881) 已交付首页四区、共享工作详情、关联修复、决定同步与历史、原工具定位、一次明确发起和有界来源读取；[PR #4885](https://github.com/nil-studio/oasis7/pull/4885) 按用户人工 IME 确认收口 [#4848](https://github.com/nil-studio/oasis7/issues/4848)。原生任务、受控协议及构建范围见[验证记录](daily-work-verification.manual.md)，其结果不代表后续设计已实现。
 
-已有原文视图、手工关联和实验 runtime 是实现基础；首页现有[来源阅读降级入口](../../../tools/oasis7-command-center/ui/src/SummarySources.tsx)仍不能替代四区投影、统一工作详情及[完整用户任务](command-center.prd.md#cc-product-acceptance)。具体范围见[差距表](command-center.design.md#1104-日常工作闭环的实现差距)。以上是设计目标与源码观察，不表示功能实现、PR 合入、桌面或性能验收，不刷新其他目标、PR 与环境事实。Apple 签名/管理员集成的已有暂停继续有效。
+当前改造目标是降低文字与操作的同时暴露量，使用户从清晰的重点、成果、待答和已有工作进入同一详情。默认信息层级、图形表达、阅读密度和任务验收由[中文与清晰阅读要求](command-center.prd.md#REQ-CC-010)及[首页要求](command-center.prd.md#REQ-CC-013)拥有；[系统设计](command-center.design.md#cc-visual-composition)落实布局、组件和投影边界。发送确认快照、逐工作草稿和决定证据版本分别沿现有执行与持久化合同修复。上述可读性与一致性改造待实现和适用验收，不改写旧版交付结论。
 
-### 日常工作闭环实现候选（2026-10-18）
-
-[Issue #4848](https://github.com/nil-studio/oasis7/issues/4848) 的四区、共享工作详情、关联修复、决定同步/历史、外部定位、一次明确发起、主题阅读与任务工具增量已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现。本轮本地 Rust 212 项、UI 160 项通过；macOS 原生已核对三项实际 PR、处理/回看、完整重开、窄窗口及受控协议请求一次回复。详细来源、版本、耗时及证明限制见[验证记录](daily-work-verification.manual.md)。
-
-用户于 2026-10-18 人工确认“IME我试了可以”，补齐本 Issue 最后一项适用交互验收；VoiceOver 按用户要求移出范围，日常工作闭环验收完成。实施 PR 的实际 CI/合入状态拥有交付结论；本段不刷新其他主线、节点或部署事实，也不扩大模型、Apple 签名及管理员授权。
+本段只刷新客户端主题；VoiceOver 保持用户明确排除，Apple 签名/管理员集成的已有暂停继续有效，未增加模型、部署或其他环境验证事实。
 
 ### 文档全局树设计（2026-10-13，文档范围）
 
