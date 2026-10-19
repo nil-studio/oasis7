@@ -4,6 +4,7 @@ mod credentials;
 mod email;
 pub mod model;
 mod model_session;
+mod native_key;
 mod recovery;
 mod service;
 #[cfg(test)]
