@@ -61,6 +61,54 @@ pub(crate) fn reclaim(root: &Path, paths: &[PathBuf]) -> Result<(), FormalError>
     }
     Ok(())
 }
+/// Generation retirement tail: all files in this bounded page are proven
+/// unselected private temporaries before any is unlinked. No logical alias or
+/// frame path is removed here; the caller holds the exclusive physical fence.
+pub(super) fn retire_batch(
+    root: &Path,
+    objects: usize,
+    byte_limit: usize,
+    expired: impl Fn() -> bool,
+) -> Result<bool, FormalError> {
+    let staging = root.join(STAGING);
+    if !staging.try_exists().map_err(io)? {
+        return Ok(true);
+    }
+    paths::directory(&staging)?;
+    let mut page = Vec::new();
+    let mut bytes = 0u64;
+    let mut complete = true;
+    for entry in fs::read_dir(&staging).map_err(io)? {
+        if page.len() == objects {
+            complete = false;
+            break;
+        }
+        let path = entry.map_err(io)?.path();
+        let size = validate(root, &path)?;
+        if page.len() == objects
+            || (!page.is_empty() && bytes.saturating_add(size) > byte_limit as u64)
+        {
+            complete = false;
+            break;
+        }
+        bytes += size;
+        page.push(path);
+    }
+    // Validate the complete chosen page before its first unlink, then allow
+    // the soft deadline to leave a suffix for the next bounded pass.
+    for path in &page {
+        validate(root, path)?;
+    }
+    for path in page {
+        fs::remove_file(path).map_err(io)?;
+        if expired() {
+            complete = false;
+            break;
+        }
+    }
+    sync(&staging)?;
+    Ok(complete)
+}
 #[cfg(test)]
 mod tests {
     use super::super::tests::Fixture;

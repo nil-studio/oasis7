@@ -120,7 +120,10 @@ fn run_child(case: &str) {
         reader.read_line(&mut line).unwrap();
         let hello: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(hello["type"], "hello");
-        assert_eq!(hello["version"], oasis7::viewer::VIEWER_PROTOCOL_VERSION);
+        assert_eq!(
+            hello["version"],
+            oasis7_client_api::viewer_protocol::VIEWER_PROTOCOL_VERSION
+        );
         writeln!(
             stream,
             "{}",

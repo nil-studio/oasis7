@@ -6,11 +6,11 @@ use std::thread;
 
 use oasis7::observability::init_tracing;
 use oasis7::runtime::MajorWorldEventVisibilityPermission;
-use oasis7::viewer::{
+use oasis7_simulator::WorldScenario;
+use oasis7_viewer_runtime::viewer::{
     ChainLinkPolicy, ProviderBackedBootstrapAuthorityV1, ViewerLiveDecisionMode,
     ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
 };
-use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::{ViewerWebBridge, ViewerWebBridgeConfig};
 use tracing::{error, info, warn};
 #[path = "oasis7_viewer_live/world_service_bootstrap.rs"]
@@ -76,7 +76,8 @@ impl Default for CliOptions {
             chain_link_policy: ChainLinkPolicy::Enforcing,
             auto_play: true,
             allow_debug_scenario: false,
-            agent_chat_echo: oasis7::viewer::runtime_agent_chat_echo_enabled_from_env(),
+            agent_chat_echo:
+                oasis7_viewer_runtime::viewer::runtime_agent_chat_echo_enabled_from_env(),
             major_world_event_visibility: MajorWorldEventVisibilityPermission::Unknown,
             generated_world_dir: None,
             provider_lineage_store: None,

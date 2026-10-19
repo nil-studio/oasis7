@@ -99,7 +99,7 @@ struct Fixture {
     automatic_commit_gate: Arc<AtomicBool>,
     abort_automatic_commit: Arc<AtomicBool>,
     preserve_root: bool,
-    writer_lock: oasis7::viewer::ExclusiveDirectoryProcessLock,
+    writer_lock: oasis7_viewer_runtime::viewer::ExclusiveDirectoryProcessLock,
     root: std::path::PathBuf,
     node: Arc<Mutex<NodeRuntime>>,
     halt: Arc<AtomicBool>,
@@ -877,7 +877,9 @@ fn real_tcp_rejects_forged_delegation_and_cursor() {
 
 #[test]
 fn real_tcp_lost_response_signed_gameplay_and_driver_restart() {
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let fixture = Fixture::new();
     let public = sign_read_request("owner", (), &fixture.owner)
         .unwrap()

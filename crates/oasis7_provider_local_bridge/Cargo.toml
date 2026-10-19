@@ -6,7 +6,8 @@ license = "MIT"
 
 [dependencies]
 oasis7_simulator = { path = "../oasis7_simulator" }
-oasis7 = { path = "../oasis7", default-features = false }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_observability = { path = "../oasis7_observability" }
 oasis7_letai_credit_adapter = { path = "../oasis7_letai_credit_adapter" }
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
@@ -18,9 +19,6 @@ hex = "0.4"
 tracing = "0.1"
 
 [features]
-default = ["wasmtime", "node-libp2p"]
-wasmtime = ["oasis7/wasmtime"]
-node-libp2p = ["oasis7/node-libp2p"]
-test_tier_required = ["oasis7/test_tier_required"]
-test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
-viewer_live_integration = ["oasis7/viewer_live_integration"]
+default = []
+test_tier_required = []
+test_tier_full = ["test_tier_required"]

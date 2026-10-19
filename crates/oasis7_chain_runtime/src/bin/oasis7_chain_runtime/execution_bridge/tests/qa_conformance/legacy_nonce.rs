@@ -4,7 +4,9 @@ use super::*;
 pub(super) fn legacy_seed(
     commit: bool,
 ) -> (Fixture, SubmitIntentRequest<WorldServicePayloadV1>, String) {
-    use oasis7::viewer::{CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof};
+    use oasis7_viewer_runtime::viewer::{
+        CollectDataCommand, CollectDataRequest, sign_collect_data_auth_proof,
+    };
     let fixture = Fixture::with_controlled_commits(true);
     let public = sign_read_request("owner", (), &fixture.owner)
         .unwrap()

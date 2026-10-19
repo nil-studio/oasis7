@@ -430,7 +430,10 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
             .env("PRE2_WORLD_COHERENCE_TRACE", "1");
     }
     if admission_mode == "slow-consumer" {
-        command.env("RUST_LOG", "oasis7::viewer::stream_stage=debug");
+        command.env(
+            "RUST_LOG",
+            "oasis7_viewer_runtime::viewer::stream_stage=debug",
+        );
     }
     if resume_crash || admit_crash || capture_crash || wait_rejected || resume_rejected {
         fs::write(

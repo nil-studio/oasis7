@@ -42,7 +42,7 @@ fn fixture_with_formal_history(formal: bool) -> (World, String) {
         world = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
         world.initialize_empty_formal_history().unwrap();
         struct EmptyHistoryNodes;
-        impl oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader
+        impl oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader
             for EmptyHistoryNodes
         {
             fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
@@ -812,7 +812,7 @@ mod executor_tests;
 
 #[derive(Clone, Default)]
 struct TaskHistoryNodes(std::sync::Arc<std::sync::Mutex<BTreeMap<String, Vec<u8>>>>);
-impl oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader
+impl oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader
     for TaskHistoryNodes
 {
     fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {

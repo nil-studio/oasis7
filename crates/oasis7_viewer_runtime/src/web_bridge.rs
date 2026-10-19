@@ -315,7 +315,7 @@ fn drain_upstream_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::viewer::{
+    use crate::viewer::{
         VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse, ViewerRuntimeLiveServer,
         ViewerRuntimeLiveServerConfig, ViewerStream,
     };
@@ -616,7 +616,7 @@ mod tests {
                 version,
                 ..
             } => {
-                assert_eq!(control_profile, oasis7::viewer::ViewerControlProfile::Live);
+                assert_eq!(control_profile, crate::viewer::ViewerControlProfile::Live);
                 assert_eq!(version, VIEWER_PROTOCOL_VERSION);
             }
             other => panic!("expected live hello ack through bridge, got {other:?}"),

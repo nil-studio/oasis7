@@ -222,7 +222,7 @@ Trace refs: O7-REQ-9a16e402-a0e7-45eb-8122-4741155843c2；唯一工程声明与�
 <a id="local-spawn-adoption-design"></a>
 ### 10.2 本地 formal-release 默认初始化
 
-[已有 #547](https://github.com/nil-studio/oasis7/pull/547)接收本地 Simulator seed/fragment spawn，chain-authoritative resource 保留后续范围。[gameplay_actions.rs](../../../crates/oasis7/src/viewer/gameplay_actions.rs)的默认 seed、bootstrap `(0,0,0)` 与 build_world_model 接线，以及[support.rs](../../../crates/oasis7/src/viewer/runtime_live/support.rs)的本地 starter Agent，属于已采用子范围。frag 优先与上方 standoff 的唯一身份沿[原出生要求](unified-world-seed-fragment-runtime.prd.md#uws-local-spawn-adoption)，不重复声明。
+[已有 #547](https://github.com/nil-studio/oasis7/pull/547)接收本地 Simulator seed/fragment spawn，chain-authoritative resource 保留后续范围。[gameplay_actions.rs](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs)的默认 seed、bootstrap `(0,0,0)` 与 build_world_model 接线，以及[support.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs)的本地 starter Agent，属于已采用子范围。frag 优先与上方 standoff 的唯一身份沿[原出生要求](unified-world-seed-fragment-runtime.prd.md#uws-local-spawn-adoption)，不重复声明。
 
 support 仍有固定 material/electricity/Data 与 factory bootstrap；grant 不变为自然资源。当前取模型 Agent 坐标不证明正式 claim 的 location_id、nearby resource、commit provenance 与 fail-closed 已绑定。坐标零不等于“世界中心”的产品定义，不能把本地常量升级成所有正式 profile 的 starter 默认选择。
 

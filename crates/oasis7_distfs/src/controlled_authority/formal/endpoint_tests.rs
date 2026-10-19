@@ -1084,3 +1084,6 @@ fn native_verification_pin_is_consumed_and_missing_chunks_require_fresh_readback
 
 #[path = "endpoint_native_environment_tests.rs"]
 mod native_tests;
+
+#[path = "endpoint_storage_maintenance_tests.rs"]
+mod storage_maintenance_tests;

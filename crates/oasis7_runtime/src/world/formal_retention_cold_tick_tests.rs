@@ -4,7 +4,7 @@ use super::*;
 use crate::formal_retained_history::{
     FormalRetainedHistoryIndexViewV1, FormalRetainedHistoryRootV1, retained_tick_journal_leaf,
 };
-use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexDeltaV1;
+use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexDeltaV1;
 
 fn cold_tick_world(include_locator: bool) -> (World, SharedMemoryNodes) {
     let mut world = World::new();

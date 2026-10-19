@@ -19,6 +19,13 @@ fn replace_journal(material: &mut ClosedRecord, bytes: Vec<u8>) {
 #[test]
 #[ignore = "long native durability acceptance; run by formal-live-local-tests.sh in required CI"]
 fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_once() {
+    let started = std::time::Instant::now();
+    let mut freeze_us = 0u128;
+    let mut delta_us = 0u128;
+    let mut material_us = 0u128;
+    let mut submit_us = 0u128;
+    let mut verify_us = 0u128;
+    let mut reopen_us = 0u128;
     let (fixture, initial_envelope) = super::business_tests::fixture();
     let mut coordinator = fixture.coordinator();
     let initial = coordinator.submit(fixture.initial.clone()).unwrap();
@@ -30,8 +37,11 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
     let mut first_original = None;
     let mut reopen_count = 0usize;
     for request in 130..200u8 {
+        let phase = std::time::Instant::now();
         let (input, material) = fixture.frozen(&parent, request);
         let executable = coordinator.freeze(input, material).unwrap();
+        freeze_us += phase.elapsed().as_micros();
+        let phase = std::time::Instant::now();
         let mut candidate = fixture.candidate(&executable);
         // Distinct, hash-closed bytes actually travel to and persist in both
         // endpoints. No one frame exceeds the established material bounds.
@@ -56,9 +66,13 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
                 .unwrap(),
         ];
         updates.sort_by(|a, b| a.key_digest.cmp(&b.key_digest));
+        material_us += phase.elapsed().as_micros();
+        let phase = std::time::Instant::now();
         let delta =
             BusinessIndexDeltaV1::build(index, updates, &coordinator.endpoints_mut().0.store)
                 .unwrap();
+        delta_us += phase.elapsed().as_micros();
+        let phase = std::time::Instant::now();
         index = delta.new.clone();
         let envelope = super::business_tests::envelope(delta);
         super::business_tests::replace_result(&mut candidate.material, envelope.encode().unwrap());
@@ -72,7 +86,11 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
         let bytes = serde_cbor::to_vec(&candidate.material).unwrap().len();
         assert!(bytes < 64 * 1024 * 1024);
         cumulative_record_bytes = cumulative_record_bytes.checked_add(bytes).unwrap();
+        material_us += phase.elapsed().as_micros();
+        let phase = std::time::Instant::now();
         let proof = coordinator.submit(candidate.clone()).unwrap();
+        submit_us += phase.elapsed().as_micros();
+        let phase = std::time::Instant::now();
         parent = verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap();
         if first_original.is_none() {
             first_original = Some((candidate, proof.clone()));
@@ -82,9 +100,11 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
         assert!(primary.store.body.pending.is_none() && replica.store.body.pending.is_none());
         assert!(serde_cbor::to_vec(&primary.store.body).unwrap().len() < 16 * 1024);
         assert!(serde_cbor::to_vec(&replica.store.body).unwrap().len() < 16 * 1024);
+        verify_us += phase.elapsed().as_micros();
         // Prune all writer-side per-record temporaries and reopen the genuine
         // bounded checkpoints repeatedly while immutable evidence stays in CAS.
         if (request - 129) % 17 == 0 {
+            let phase = std::time::Instant::now();
             drop(coordinator);
             coordinator = FormalCoordinator::new(
                 fixture.endpoint(EndpointRole::Primary),
@@ -97,6 +117,14 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
             .unwrap();
             reopen_count += 1;
             assert_eq!(coordinator.endpoints_mut().0.head().unwrap(), parent.head());
+            reopen_us += phase.elapsed().as_micros();
+        }
+        if (request - 129) % 10 == 0 {
+            eprintln!(
+                "C10 native timing: requests={} freeze_us={freeze_us} delta_us={delta_us} material_us={material_us} submit_us={submit_us} verify_us={verify_us} reopen_us={reopen_us} total_us={}",
+                request - 129,
+                started.elapsed().as_micros()
+            );
         }
     }
     assert_eq!(parent.head().position, 71);
@@ -104,6 +132,7 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
     assert!(cumulative_record_bytes > 16 * 1024 * 1024);
     assert!(reopen_count >= 4);
     let (original, original_proof) = first_original.unwrap();
+    let phase = std::time::Instant::now();
     drop(coordinator);
     let mut primary = fixture.endpoint(EndpointRole::Primary);
     let mut replica = fixture.endpoint(EndpointRole::Replica);
@@ -156,5 +185,10 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
     eprintln!(
         "C10 native evidence: QualifiedRecords=71 cumulativeRecordBytes={cumulative_record_bytes} reopens={} originalPosition=2 currentPosition=71",
         reopen_count + 1
+    );
+    eprintln!(
+        "C10 native timing: requests=70 freeze_us={freeze_us} delta_us={delta_us} material_us={material_us} submit_us={submit_us} verify_us={verify_us} reopen_us={reopen_us} original_us={} total_us={}",
+        phase.elapsed().as_micros(),
+        started.elapsed().as_micros()
     );
 }

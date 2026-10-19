@@ -128,6 +128,12 @@ pub(super) fn enabled(directory: &Path) -> Result<bool, FormalError> {
     }
 }
 pub(super) fn initialize(directory: &Path) -> Result<(), FormalError> {
+    initialize_inner(directory, false)
+}
+pub(super) fn initialize_generation(directory: &Path) -> Result<(), FormalError> {
+    initialize_inner(directory, true)
+}
+fn initialize_inner(directory: &Path, generation: bool) -> Result<(), FormalError> {
     directory_setup(directory)?;
     let existing = enabled(directory)?;
     for name in [GUARD, PUBLICATION_GUARD] {
@@ -155,7 +161,26 @@ pub(super) fn initialize(directory: &Path) -> Result<(), FormalError> {
     if existing {
         roots::count(directory)?;
     }
-    publication::recover(directory)?;
+    if generation {
+        publication::recover_members(directory)?;
+    } else {
+        publication::recover(directory)?;
+    }
+    Ok(())
+}
+/// Validate fixed structure for a build already fully recovered by this live
+/// owner. This token never replaces per-object checksum or publication checks.
+fn validate_initialized(root: &Path) -> Result<(), FormalError> {
+    if !enabled(root)? {
+        return Err(invalid("physical session capability missing"));
+    }
+    paths::directory(&root.join(SELECTORS))?;
+    paths::directory(&root.join(FRAMES))?;
+    if !read(&root.join(GUARD), 1)?.is_empty() {
+        return Err(invalid("physical session guard payload"));
+    }
+    let _writer = publication_guard(root)?;
+    roots::count(root)?;
     Ok(())
 }
 /// Kernel leases use open file descriptions, not PID/mtime/TTL. A crashed
@@ -262,7 +287,13 @@ fn selector(
         recipe::decode_recipe_cached(&read(&selected, META_LIMIT)?)?,
     )))
 }
+#[cfg(test)]
+thread_local! {
+    static FRAME_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 fn decode_frame(root: &Path, frame: &Frame) -> Result<Vec<u8>, FormalError> {
+    #[cfg(test)]
+    FRAME_DECODES.with(|count| count.set(count.get() + 1));
     let stored = read(&root.join(FRAMES).join(&frame.stored), FRAME)?;
     if blake3::hash(&stored).to_hex().as_str() != frame.stored {
         return Err(invalid("physical stored checksum"));
@@ -387,25 +418,19 @@ pub(crate) fn persist_guarded(
         ));
     }
     publication::recover_objects(root, objects)?;
-    let objects = publication::with_readback_markers(|markers| {
-        objects
-            .iter()
-            .filter_map(
-                |(id, bytes)| match read_object_durable_once(&root.join(id), id, markers) {
-                    Ok(Some(previous)) if previous == *bytes => None,
-                    Ok(Some(_)) => Some(Err(invalid(
-                        "physical existing immutable logical value changed",
-                    ))),
-                    Ok(None) => Some(Ok((id.clone(), bytes.clone()))),
-                    Err(error) => Some(Err(error)),
-                },
-            )
-            .collect::<Result<Vec<_>, FormalError>>()
+    let mut needed = Vec::new();
+    batch::read_each_durable(root, objects, |id, bytes, previous| {
+        match previous {
+            Some(previous) if previous == bytes => {}
+            Some(_) => return Err(invalid("physical existing immutable logical value changed")),
+            None => needed.push((id.to_owned(), bytes.to_vec())),
+        }
+        Ok(())
     })?;
-    if objects.is_empty() {
+    if needed.is_empty() {
         return Ok(true);
     }
-    let objects = objects.as_slice();
+    let objects = needed.as_slice();
     let mut payload = Vec::new();
     let mut spans = Vec::new();
     let mut previous = None;
@@ -497,11 +522,9 @@ pub(crate) fn persist_guarded(
     }
     sync(&root.join(SELECTORS))?;
     sync(root)?;
-    publication::with_readback_markers(|markers| {
-        for (id, bytes) in objects {
-            if read_object_durable_once(&root.join(id), id, markers)?.as_deref() != Some(bytes) {
-                return Err(invalid("physical publication readback"));
-            }
+    batch::read_each_durable(root, objects, |_, bytes, current| {
+        if current.as_deref() != Some(bytes) {
+            return Err(invalid("physical publication readback"));
         }
         Ok(())
     })?;
@@ -532,10 +555,10 @@ use recipe::{decode_recipe, encode_recipe};
 #[path = "physical_generation.rs"]
 mod generation;
 pub use generation::FormalGenerationProgress;
-pub(super) use generation::{
-    advance as advance_generation, ids as logical_ids, selected_path,
-    visit_ids as visit_logical_ids,
+pub(crate) use generation::{
+    GenerationBudget, GenerationSession, advance_with_budget, advance_with_session,
 };
+pub(super) use generation::{ids as logical_ids, selected_path, visit_ids as visit_logical_ids};
 
 #[path = "physical_span.rs"]
 mod span;
@@ -551,3 +574,12 @@ pub(super) use staging::{preflight as staging_preflight, reclaim as reclaim_stag
 #[cfg(all(test, target_os = "linux"))]
 #[path = "physical_enospc_tests.rs"]
 mod enospc_tests;
+
+#[cfg(test)]
+pub(super) fn publication_recovery_count_reset() {
+    publication::FULL_RECOVERY_PASSES.with(|count| count.set(0));
+}
+#[cfg(test)]
+pub(super) fn publication_recovery_count() -> u64 {
+    publication::FULL_RECOVERY_PASSES.with(|count| count.get())
+}

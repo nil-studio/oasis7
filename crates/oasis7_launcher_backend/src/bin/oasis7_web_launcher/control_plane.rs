@@ -1,6 +1,6 @@
 use super::runtime_paths::viewer_dev_dist_candidates;
 use super::*;
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_proto::storage_profile::StorageProfile;
 use std::io::{BufRead, BufReader, Read};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};

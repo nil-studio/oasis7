@@ -7,7 +7,7 @@
 )]
 use ed25519_dalek::{Signer, SigningKey};
 use crate::{World, blake3_hex};
-use oasis7_distfs::controlled_authority::{
+use oasis7_formal_protocol::controlled_authority::{
     fencing::EndpointInstanceBindingV1,
     formal::*,
     replicated_protocol::{ArtifactRole, EndpointRole},

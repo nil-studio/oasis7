@@ -26,6 +26,43 @@ pub(super) fn object(bytes: Vec<u8>) -> (String, Vec<u8>) {
     (blake3::hash(&bytes).to_hex().to_string(), bytes)
 }
 #[test]
+#[cfg(unix)]
+fn physical_publication_readback_decodes_each_shared_frame_once() {
+    let fixture = Fixture::new();
+    let mut objects = (0..256)
+        .map(|index| object(format!("{index:05}{}", "shared-node".repeat(100)).into_bytes()))
+        .collect::<Vec<_>>();
+    objects.sort_by(|left, right| left.0.cmp(&right.0));
+    FRAME_DECODES.with(|count| count.set(0));
+    assert!(persist(&fixture.0, &objects).unwrap());
+    let (_, recipe) = selector(&fixture.0.join(&objects[0].0), &objects[0].0)
+        .unwrap()
+        .unwrap();
+    assert!(recipe.frames.len() < objects.len());
+    FRAME_DECODES.with(|count| {
+        assert_eq!(
+            count.get(),
+            recipe.frames.len(),
+            "publication must independently decode shared frames once, then hash each logical object"
+        );
+    });
+    FRAME_DECODES.with(|count| count.set(0));
+    assert!(persist(&fixture.0, &objects).unwrap());
+    FRAME_DECODES.with(|count| {
+        assert_eq!(
+            count.get(),
+            recipe.frames.len(),
+            "an existing batch also reads fresh once"
+        );
+    });
+    for (id, bytes) in &objects {
+        assert_eq!(
+            read_object(&fixture.0.join(id), id, true).unwrap().as_ref(),
+            Some(bytes)
+        );
+    }
+}
+#[test]
 fn exact_bytes_and_cross_frame_range_survive_restart() {
     let f = Fixture::new();
     let o = object((0..200000).map(|n| (n % 251) as u8).collect());

@@ -2,7 +2,7 @@ use super::hosted_access::DeploymentMode;
 use super::hosted_player_session::{
     HostedPlayerSessionAdmissionSnapshot, HostedPlayerSessionIssuer,
 };
-use oasis7::viewer::DirectorCapabilityGrant;
+use oasis7_client_api::viewer_protocol::DirectorCapabilityGrant;
 use serde::Serialize;
 
 /// Dedicated capability status endpoint. A real issuer is intentionally not wired until the

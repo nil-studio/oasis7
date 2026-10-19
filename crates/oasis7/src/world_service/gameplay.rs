@@ -7,7 +7,7 @@ pub fn authenticated_action(world: &World, bytes: &[u8]) -> Result<Action, Strin
     oasis7_world_service::gameplay::authenticated_action(
         world,
         bytes,
-        crate::viewer::build_runtime_action_from_gameplay_request,
+        crate::runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request,
     )
 }
 pub fn authenticated_action_with_origin(
@@ -17,6 +17,6 @@ pub fn authenticated_action_with_origin(
     oasis7_world_service::gameplay::authenticated_action_with_origin(
         world,
         bytes,
-        crate::viewer::build_runtime_action_from_gameplay_request,
+        crate::runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request,
     )
 }

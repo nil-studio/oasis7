@@ -1,10 +1,9 @@
+use super::ContinuousAgentResponseContextV1;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use oasis7::simulator::{
-    ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, FeedbackEnvelopeV1,
-};
+use oasis7_agent_api::{ContinuousAgentRequestContextV1, FeedbackEnvelopeV1};
 use serde::{Deserialize, Serialize};
 
 use super::{

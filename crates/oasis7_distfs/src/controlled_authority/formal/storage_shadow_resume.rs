@@ -238,12 +238,129 @@ fn cleanup_step(progress: &Path) -> Result<bool, FormalError> {
     Ok(true)
 }
 
-/// Each subsequent call reacquires the source lease and rejects identity drift.
-/// No accepted source object, authority, checkpoint or selector is changed.
+/// One live offline builder owns its destination across all pages. No recovery
+/// token authorizes bytes or survives opening a new session/process.
+#[derive(Default)]
+pub struct FormalStorageShadowSession {
+    destination: Option<ShadowDestinationOwner>,
+    recovered: super::super::physical::GenerationSession,
+}
+struct ShadowDestinationOwner {
+    path: PathBuf,
+    directory: (u64, u64),
+    progress_directory: (u64, u64),
+    lock: (u64, u64),
+    lease: SourceLease,
+}
+fn inode_identity(metadata: &fs::Metadata) -> Result<(u64, u64), FormalError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok((metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        Err(invalid("shadow destination identity requires Unix"))
+    }
+}
+fn owned_directory_identity(path: &Path) -> Result<(u64, u64), FormalError> {
+    let metadata = fs::symlink_metadata(path).map_err(io)?;
+    super::super::physical::paths::metadata(&metadata, true)?;
+    inode_identity(&metadata)
+}
+fn owner_lock_identity(metadata: &fs::Metadata) -> Result<(u64, u64), FormalError> {
+    super::super::physical::paths::metadata(metadata, false)?;
+    if metadata.len() != 0 {
+        return Err(invalid("shadow destination owner lock payload"));
+    }
+    inode_identity(metadata)
+}
+impl FormalStorageShadowSession {
+    fn reset(&mut self) {
+        self.recovered.reset();
+        self.destination = None;
+    }
+    fn claim(&mut self, destination: &Path) -> Result<(), FormalError> {
+        let directory = owned_directory_identity(destination)?;
+        let progress_directory = owned_directory_identity(&destination.join(PROGRESS))?;
+        let identity = destination.canonicalize().map_err(io)?;
+        let path = destination.join(PROGRESS).join(".owner-lock-v1");
+        if let Some(owner) = &self.destination {
+            // A same-named path is not the directory or lock this owner acquired.
+            // Replaced storage must be opened by a fresh session, never written
+            // under a lease belonging to an unlinked/renamed inode.
+            if owner.path != identity
+                || owner.directory != directory
+                || owner.progress_directory != progress_directory
+                || owner.lock != owner_lock_identity(&fs::symlink_metadata(&path).map_err(io)?)?
+                || owner.lock != owner_lock_identity(&owner.lease.0.metadata().map_err(io)?)?
+            {
+                return Err(invalid(
+                    "shadow destination directory/owner lock identity changed",
+                ));
+            }
+            return Ok(());
+        }
+        let mut options = OpenOptions::new();
+        options.create(true).truncate(false).read(true).write(true);
+        #[cfg(unix)]
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        let file = options.open(&path).map_err(io)?;
+        let lock = owner_lock_identity(&file.metadata().map_err(io)?)?;
+        let lease = SourceLease::acquire(file, invalid("shadow destination busy"))?;
+        if directory != owned_directory_identity(destination)?
+            || progress_directory != owned_directory_identity(&destination.join(PROGRESS))?
+            || lock != owner_lock_identity(&fs::symlink_metadata(&path).map_err(io)?)?
+        {
+            return Err(invalid(
+                "shadow destination identity changed during owner acquisition",
+            ));
+        }
+        sync_directory(&destination.join(PROGRESS))?;
+        self.destination = Some(ShadowDestinationOwner {
+            path: identity,
+            directory,
+            progress_directory,
+            lock,
+            lease,
+        });
+        Ok(())
+    }
+}
+/// Stateless compatibility entry. Each call fully recovers the destination;
+/// repeated same-process callers should retain a live session instead.
 pub fn advance_formal_storage_shadow(
     source_endpoint: &Path,
     destination: &Path,
     options: &FormalStorageShadowOptions,
+) -> Result<FormalStorageShadowProgress, FormalError> {
+    advance_formal_storage_shadow_with_session(
+        source_endpoint,
+        destination,
+        options,
+        &mut FormalStorageShadowSession::default(),
+    )
+}
+/// Reacquire the source lease and check its frozen identity on every page.
+/// The destination owner lease stays held until completion, error or Drop.
+pub fn advance_formal_storage_shadow_with_session(
+    source_endpoint: &Path,
+    destination: &Path,
+    options: &FormalStorageShadowOptions,
+    session: &mut FormalStorageShadowSession,
+) -> Result<FormalStorageShadowProgress, FormalError> {
+    let result = advance_with_session_inner(source_endpoint, destination, options, session);
+    if result.is_err() || result.as_ref().is_ok_and(|page| page.complete) {
+        session.reset();
+    }
+    result
+}
+fn advance_with_session_inner(
+    source_endpoint: &Path,
+    destination: &Path,
+    options: &FormalStorageShadowOptions,
+    session: &mut FormalStorageShadowSession,
 ) -> Result<FormalStorageShadowProgress, FormalError> {
     if !cfg!(unix)
         || options.max_logical_bytes == 0
@@ -279,11 +396,17 @@ pub fn advance_formal_storage_shadow(
     if resolved.starts_with(&source_endpoint) {
         return Err(invalid("resumable shadow target inside source"));
     }
+    // A live owner must still name its original directory before any target
+    // creation. A vanished path must not become an implicitly new operation.
+    if session.destination.is_some() {
+        session.claim(destination)?;
+    }
     let identity = fingerprint(&source_endpoint)?;
     let progress = destination.join(PROGRESS);
     let mut state = if fs::symlink_metadata(destination).is_ok() {
         regular_directory(destination)?;
         regular_directory(&progress)?;
+        session.claim(destination)?;
         if !fs::symlink_metadata(destination.join(SHADOW_MARKER))
             .map_err(io)?
             .is_file()
@@ -333,6 +456,7 @@ pub fn advance_formal_storage_shadow(
         builder.mode(0o700);
         builder.create(&progress).map_err(io)?;
         sync_directory(destination)?;
+        session.claim(destination)?;
         let state = State {
             version: 2,
             source: source_endpoint.clone(),
@@ -427,7 +551,10 @@ pub fn advance_formal_storage_shadow(
         save(&progress, &state)?;
     }
     if options.optimized {
-        super::super::physical::initialize(destination)?;
+        session.recovered.prepare(
+            destination,
+            &format!("shadow:{}:{}", state.fingerprint, state.optimized),
+        )?;
     }
     let end = state
         .end

@@ -89,7 +89,7 @@ fn collect<'a>(
 ) -> Result<Vec<CanonicalIntentResultV1>, String> {
     let mut retained = super::retained_queries::hot_results(world)?;
     let canonical_empty = crate::FormalRetainedHistoryRootV1::from_index_root(
-        oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexRootV1::empty()?,
+        oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexRootV1::empty()?,
     )?;
     // Exact canonical empty commitment proves there are no cold task results.
     // Nonempty or malformed descriptors still require authenticated CAS access.

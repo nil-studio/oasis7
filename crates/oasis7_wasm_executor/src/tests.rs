@@ -32,6 +32,35 @@ fn deterministic_replay_requires_finite_budgets_and_preserves_mode_on_clone() {
 #[test]
 #[cfg(all(feature = "wasmtime", target_os = "linux"))]
 fn deterministic_replay_keeps_derived_heap_out_of_native_backing_file_inventory() {
+    const CHILD: &str = "OASIS7_DETERMINISTIC_MAPPING_TEST_CHILD";
+    const RECEIPT: &str = "OASIS7_DETERMINISTIC_MAPPING_CHECK_PASSED";
+    // /proc/self/maps belongs to the whole process. Other parallel tests use
+    // legacy COW engines and may create deleted memfd mappings legitimately.
+    // Keep this inventory assertion strict, but observe only this test process.
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::deterministic_replay_keeps_derived_heap_out_of_native_backing_file_inventory",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated deterministic mapping test failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .any(|line| line == RECEIPT),
+            "isolated deterministic mapping test did not execute its assertion"
+        );
+        return;
+    }
     let before = std::fs::read_to_string("/proc/self/maps").unwrap();
     let executor = WasmExecutor::new_for_deterministic_replay(Default::default()).unwrap();
     let module = wasmtime::Module::new(
@@ -72,6 +101,7 @@ fn deterministic_replay_keeps_derived_heap_out_of_native_backing_file_inventory(
             assert!(!mapping.ends_with(" (deleted)"), "{mapping}");
         }
     }
+    eprintln!("{RECEIPT}");
 }
 
 #[test]

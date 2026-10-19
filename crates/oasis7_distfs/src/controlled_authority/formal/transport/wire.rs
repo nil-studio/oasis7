@@ -39,6 +39,9 @@ pub(crate) enum Command {
         Vec<super::super::NativeEnvironmentChunkBytesV1>,
     ),
     VerifyNativeEnvironment(Box<super::super::native_environment::NativeExecutionEnvironmentV1>),
+    ReleaseNativeEnvironmentVerification {
+        descriptor_digest: String,
+    },
     Head,
     Query(String),
     Freeze(Box<SignedFormalFrozenV1>, Box<ClosedRecord>),

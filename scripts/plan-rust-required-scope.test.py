@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import contextlib
+import hashlib
 import io
 import sys
 from unittest.mock import patch
@@ -16,6 +17,18 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('selector', HERE / 'plan-rust-required-scope.py')
 selector = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(selector)
+
+PR4889_DOC_PATHS = (
+    'doc/engineering/command-center/README.md',
+    'doc/engineering/command-center/architecture/README.md',
+    'doc/engineering/command-center/command-center.prd.md',
+    'doc/engineering/command-center/command-center.design.md',
+    'tools/oasis7-command-center/README.md',
+    'doc/.governance/document-corpus/objects/6f/6fd2250a1448d193b624ebdd961f4460b39a0d006bb30ef14d5cb6345a203049.json',
+    'doc/.governance/document-corpus/objects/c1/c148881578bf66447a9b6256b32cee7cea9b032d6c58f7ecece08285796b074f.json',
+    'doc/.governance/document-corpus/objects/d2/d2970f104b5996a9da0e9ac9c3b6494bfe0ffb20419f0d60f9c77bb97ee5d772.json',
+    'doc/.governance/document-corpus/objects/fd/fd8aef2ec18a5cd959fe1a23c9ae1a1d6dd95c63b6de435b6eb1472a5717b1ec.json',
+)
 
 
 class Selection(unittest.TestCase):
@@ -58,6 +71,38 @@ class Selection(unittest.TestCase):
 
     def plan(self, head=None):
         return selector.select(self.config, self.base, head or self.commit())
+
+    def native_generated_fixture(self, register=True):
+        # Retain the real producer and its three OUT_DIR consumers. A workspace
+        # without these sources failed to reproduce the docs-only over-selection.
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        package = 'oasis7_chain_runtime'
+        directory = 'crates/' + package
+        producer = directory + '/build.rs'
+        consumer = directory + '/src/bin/oasis7_chain_runtime/native_environment_capture.rs'
+        self.write(directory + '/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        self.write(directory + '/src/lib.rs', '')
+        for path in (producer, consumer):
+            self.write(path, (HERE.parent / path).read_text())
+        self.write('Cargo.lock', '# existing workspace lock\n')
+        self.base = self.commit()
+        declaration = {
+            'package': package,
+            'producer': producer,
+            'producer_sha256': hashlib.sha256(selector.git('show', f'{self.base}:{producer}')).hexdigest(),
+            'outputs': ['native-build-metadata.txt', 'native-toolchain.txt', 'native-Cargo.lock'],
+        }
+        if register:
+            self.config['generated_inputs'] = [declaration]
+        return producer, consumer, declaration
+
+    def assert_unresolved_document(self, label):
+        self.write('doc/readme.md', label)
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(set(plan['groups']), set(self.config['groups']))
+        self.assertIn('unresolved embedded consumer input: doc/readme.md', plan['reasons'])
+        self.base = self.git('rev-parse', 'HEAD')
 
     def test_chain_extraction_existing_script_inputs_are_registered(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
@@ -215,6 +260,198 @@ class Selection(unittest.TestCase):
                 self.assertIn('command_center', self.plan()['groups'])
                 Path(path).unlink()
                 self.commit()
+
+    def test_command_center_readme_only_keeps_baseline(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'tools/oasis7-command-center/README.md'
+        self.write(path, 'existing tool documentation')
+        self.base = self.commit()
+        self.write(path, 'updated tool documentation')
+
+        plan = self.plan()
+
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_command_center_pr4889_docs_with_native_generated_inputs_keep_baseline(self):
+        # Use the production registry, not a fixture-created exemption. Both the
+        # declaration and the narrow README rule must be present for this to pass.
+        self.native_generated_fixture(register=False)
+
+        def document(path, revision):
+            if path.endswith('.json'):
+                return json.dumps({'record': {'content_sha256': hashlib.sha256(revision.encode()).hexdigest()}})
+            return 'command center documentation: ' + revision
+
+        for path in PR4889_DOC_PATHS:
+            self.write(path, document(path, 'before'))
+        self.base = self.commit()
+        for index, path in enumerate(PR4889_DOC_PATHS):
+            self.write(path, document(path, f'one path {index}'))
+            head = self.commit()
+            with self.subTest(path=path):
+                plan = self.plan(head)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['groups'], ['baseline'])
+            self.base = head
+        for path in PR4889_DOC_PATHS:
+            self.write(path, document(path, 'all nine paths'))
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_unknown_generated_output_expressions_keep_full_fallback(self):
+        _, consumer, _ = self.native_generated_fixture()
+        expressions = {
+            'unknown environment': 'concat!(env!("UNKNOWN_DIR"), "/native-toolchain.txt")',
+            'unregistered output': 'concat!(env!("OUT_DIR"), "/new-output.txt")',
+            'computed output': 'concat!(env!("OUT_DIR"), env!("OUTPUT_NAME"))',
+            'parent escape': 'concat!(env!("OUT_DIR"), "/../native-toolchain.txt")',
+            'nested output': 'concat!(env!("OUT_DIR"), "/nested/native-toolchain.txt")',
+        }
+        for label, expression in expressions.items():
+            with self.subTest(expression=label):
+                self.write(consumer, f'const X: &[u8] = include_bytes!({expression});\n')
+                self.base = self.commit()
+                self.assert_unresolved_document(label)
+
+    def test_generated_input_binding_requires_actual_enabled_producer(self):
+        producer, _, declaration = self.native_generated_fixture()
+        manifest = 'crates/oasis7_chain_runtime/Cargo.toml'
+        original_manifest = Path(manifest).read_text()
+        alternate = 'crates/oasis7_chain_runtime/alternate-build.rs'
+        self.write(alternate, Path(producer).read_text())
+        cases = (
+            ('wrong digest', dict(declaration, producer_sha256='0' * 64), ''),
+            ('wrong owner', dict(declaration, package='core'), ''),
+            ('inactive producer', dict(declaration, producer=alternate), ''),
+            ('disabled build', declaration, 'build = false\n'),
+            ('redirected build', declaration, 'build = "alternate-build.rs"\n'),
+        )
+        for label, entry, build in cases:
+            with self.subTest(binding=label):
+                self.config['generated_inputs'] = [entry]
+                self.write(manifest, original_manifest + build + '# ' + label + '\n')
+                self.base = self.commit()
+                self.assert_unresolved_document(label)
+
+    def test_generated_producer_drift_is_checked_at_each_git_ref(self):
+        producer, _, declaration = self.native_generated_fixture()
+        original = self.base
+        self.write(producer, Path(producer).read_text() + '\n// producer changed\n')
+        changed = self.commit()
+        self.assertEqual(self.plan(changed)['scope'], 'full')
+        self.base = changed
+        self.assert_unresolved_document('docs after producer changed')
+
+        current = dict(declaration, producer_sha256=hashlib.sha256(
+            selector.git('show', f'{changed}:{producer}')).hexdigest())
+        for ref, entry, unresolved in (
+                (original, declaration, set()),
+                (changed, declaration, {'oasis7_chain_runtime'}),
+                (original, current, {'oasis7_chain_runtime'}),
+                (changed, current, set())):
+            with self.subTest(ref=ref, digest=entry['producer_sha256']):
+                graph = selector.cargo_graph(ref, [entry])
+                self.assertEqual(graph[2].get('__unresolved_embed__', set()), unresolved)
+
+    def test_generated_cross_package_reader_requires_every_owner_binding(self):
+        producer, _, declaration = self.native_generated_fixture()
+        self.write('crates/core/src/lib.rs',
+                   '#[path = "../../oasis7_chain_runtime/src/bin/oasis7_chain_runtime/'
+                   'native_environment_capture.rs"] mod captured;\n')
+        self.base = self.commit()
+        self.assert_unresolved_document('only the physical source owner has a producer')
+        graph = selector.cargo_graph(self.base, self.config['generated_inputs'])
+        self.assertEqual(graph[2]['__unresolved_embed__'], {'core'})
+
+        # The importing crate has its own OUT_DIR. Register its actual producer
+        # separately before the same source becomes resolved for both readers.
+        importing_producer = 'crates/core/build.rs'
+        self.write(importing_producer, Path(producer).read_text())
+        self.config['generated_inputs'].append(dict(
+            declaration, package='core', producer=importing_producer))
+        self.base = self.commit()
+        self.write('doc/readme.md', 'each reader now has its own registered producer')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_generated_output_registration_rejects_non_leaf_names(self):
+        _, _, declaration = self.native_generated_fixture()
+        self.write('doc/readme.md', 'document change with invalid registration')
+        head = self.commit()
+        for outputs in ([], [''], ['.'], ['..'], ['nested/output.txt'],
+                        ['nested\\output.txt'], ['output.txt', 'output.txt']):
+            with self.subTest(outputs=outputs):
+                self.config['generated_inputs'] = [dict(declaration, outputs=outputs)]
+                with self.assertRaises(ValueError):
+                    self.plan(head)
+
+    def test_generated_producer_must_be_a_regular_git_blob(self):
+        producer, _, declaration = self.native_generated_fixture()
+        target = 'saved-producer.rs'
+        self.write('crates/oasis7_chain_runtime/' + target, Path(producer).read_text())
+        self.base = self.commit()
+        link_blob = subprocess.check_output(
+            ['git', 'hash-object', '-w', '--stdin'], input=target.encode()).decode().strip()
+        # Even a digest that matches the symlink's Git bytes must not qualify it.
+        self.config['generated_inputs'] = [dict(
+            declaration, producer_sha256=hashlib.sha256(target.encode()).hexdigest())]
+        for kind in ('symlink', 'missing'):
+            with self.subTest(producer=kind):
+                if kind == 'symlink':
+                    self.git('update-index', '--cacheinfo', '120000', link_blob, producer)
+                else:
+                    self.git('update-index', '--force-remove', '--', producer)
+                self.git('commit', '-qm', 'fixture producer ' + kind)
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write('doc/readme.md', kind + ' producer must stay unresolved')
+                # Preserve the synthetic index mode without requiring filesystem
+                # symlink privileges on Windows or restaging the regular file.
+                self.git('add', '--', 'doc/readme.md')
+                self.git('commit', '-qm', 'fixture document change')
+                plan = self.plan(self.git('rev-parse', 'HEAD'))
+                self.assertEqual(plan['scope'], 'full')
+                self.assertIn('unresolved embedded consumer input: doc/readme.md', plan['reasons'])
+
+    def test_rule_exclusion_keeps_real_embedded_readers_and_other_rules(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        path = 'tools/oasis7-command-center/README.md'
+        self.write(path, 'embedded tool documentation')
+        self.write('crates/core/src/lib.rs',
+                   'const README: &str = include_str!("../../../' + path + '");\n')
+        self.base = self.commit()
+        self.write(path, 'updated embedded tool documentation')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required', 'node'})
+
+        self.base = self.git('rev-parse', 'HEAD')
+        self.config['rules'].append({'match': [path], 'groups': ['workflow_governance'],
+                                     'reason': 'independent documentation contract'})
+        self.write(path, 'another updated embedded tool document')
+        self.assertEqual(set(self.plan()['groups']),
+                         {'baseline', 'rust_baseline', 'oasis7_required', 'node', 'workflow_governance'})
+
+    def test_known_generated_inputs_keep_control_and_unknown_input_gates(self):
+        producer, _, _ = self.native_generated_fixture()
+        controls = ('Cargo.lock', producer, 'rust-toolchain.toml', '.cargo/config.toml',
+                    'scripts/ci-required-scope.json')
+        for path in controls:
+            with self.subTest(control=path):
+                previous = Path(path).read_text() if Path(path).exists() else ''
+                self.write(path, previous + '\n# control changed\n')
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'full')
+                self.assertIn('shared build or CI control changed: ' + path, plan['reasons'])
+                self.base = self.git('rev-parse', 'HEAD')
+        self.write('unregistered.file', 'unregistered input despite full fallback')
+        self.config['rules'].append({'match': ['unregistered.file'], 'exclude': ['unregistered.file'],
+                                     'groups': ['command_center'], 'reason': 'excluded rule is not ownership'})
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unregistered.file'):
+            self.plan()
 
     def test_hosted_local_mock_production_guard_is_owned_before_introduction(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
@@ -637,7 +874,7 @@ class Selection(unittest.TestCase):
         Path('crates/oasis7_agent_harness/src/lib.rs').unlink()
         head = self.commit()
 
-        def graph_for(ref):
+        def graph_for(ref, generated_inputs=()):
             return ((old_manifests, old_reverse, {}) if ref == base
                     else (new_manifests, new_reverse, {}))
 

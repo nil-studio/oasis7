@@ -194,16 +194,17 @@ pub(super) fn request_for_first_agent(
     world: &WorldIdentity,
 ) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
     let public_key = hex::encode(owner.verifying_key().to_bytes());
-    let mut action = oasis7::viewer::GameplayActionRequest {
-        action_id: oasis7::viewer::ACTION_CLAIM_FIRST_AGENT.into(),
-        target_agent_id: oasis7::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID.into(),
+    let mut action = oasis7_viewer_runtime::viewer::GameplayActionRequest {
+        action_id: oasis7::runtime_host::gameplay_actions::ACTION_CLAIM_FIRST_AGENT.into(),
+        target_agent_id: oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID
+            .into(),
         actor_agent_id: None,
         player_id: "owner".into(),
         public_key: Some(public_key.clone()),
         auth: None,
     };
     action.auth = Some(
-        oasis7::viewer::sign_gameplay_action_auth_proof(
+        oasis7_viewer_runtime::viewer::sign_gameplay_action_auth_proof(
             &action,
             1,
             &public_key,

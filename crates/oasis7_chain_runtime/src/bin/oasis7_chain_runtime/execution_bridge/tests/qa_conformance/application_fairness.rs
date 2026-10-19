@@ -1,12 +1,14 @@
 //! Held real service I/O must not block an already primed Viewer or replace pending identity.
 use super::*;
-use oasis7::viewer::ViewerRuntimeLiveServer;
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 struct Session {
     reader: BufReader<TcpStream>,
     accepted_probe: TcpStream,
     normal_send_buffer: Option<i32>,
-    worker: Option<thread::JoinHandle<Result<(), oasis7::viewer::ViewerRuntimeLiveServerError>>>,
+    worker: Option<
+        thread::JoinHandle<Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError>>,
+    >,
 }
 impl Session {
     fn start(shared: &Arc<Mutex<ViewerRuntimeLiveServer>>, small_buffers: bool) -> Self {

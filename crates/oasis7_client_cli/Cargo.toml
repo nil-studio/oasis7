@@ -20,7 +20,7 @@ serde_json = "1"
 default = []
 node-libp2p = ["oasis7/node-libp2p"]
 wasmtime = ["oasis7/wasmtime"]
-viewer_live_integration = ["oasis7/viewer_live_integration"]
+viewer_live_integration = ["oasis7_viewer_runtime/viewer_live_integration"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 
@@ -28,4 +28,5 @@ test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 libc = "0.2"
 
 [dev-dependencies]
+oasis7_viewer_runtime = { path = "../oasis7_viewer_runtime", default-features = false, features = ["test_tier_required"] }
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false, features = ["test_tier_required", "wasmtime", "node-libp2p"] }

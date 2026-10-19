@@ -249,6 +249,11 @@ Linux 捕获固定 loaded-image 和 mapped backing-file FD，前后核对文件�
 
 原环境合同覆盖绑定时的 loaded-file 闭包；恢复及候选封装再次核对当前映像，新增动态依赖或原环境不同会拒绝继续。它不归档内核内存或声称支持未声明的未来 native plugin。旧 native 环境的原 bytes 可经认证 archive 和 durable-set copy 取回；不能自动改用部署机当前二进制、库或摘要解释原结果。当前协议没有隐式 native 环境升级，连续执行保持原环境 root。
 
+原生环境逐页验证 job 的 read pin 只保护本次验证消费，不是历史保留根。正常 Prepare 消费并释放该 job；恢复重放若两端已为同一原候选 Qualified，可能直接返回原证明而不再进入 Prepare，协调者须在返回前按原 candidate material 与 Frozen material 中的精确 descriptor digest，分别请求 P/R 释放未消费的验证 job。释放经原 writer RPC 权限与端点 guard 核对；合法 digest 的重复释放幂等，不删除 descriptor/chunk、不改变原 CommitRef 或合格证明。任一端释放失败须保留可重试结果，不能假定其 pin 已解除；释放后的新 Prepare 仍须重新取得本地原字节验证，不把过去的完整验证缓存作为授权。无此能力的适配器明确失败，不以空实现冒充已释放。
+
+为覆盖 writer 在 native 验证结束、尚未持久化 Frozen/attempt 前崩溃的弃置窗口，端点最多两个 native verification job 另有 300 秒**无活动缓存期限**：仅用当前进程的单调 `Instant`，每次 advance 开始及结束续期；默认维护入口先于 generation/debt/quiet 判断执行 O(2) 淘汰，且每个 RPC 响应后也独立执行，持续服务不会饿死回收。advance 与 Prepare 消费前同样拒用已过期 job。过期时整体丢弃未完成或已完成 job 和 read pin，后续必须从原 chunks 重新验证；不保留可复用的旧 receipt/完成标志，不删除 chunks，不对历史、Frozen、未决请求或持久化恢复根施加 TTL。合法调用暂停超过期限会失去这份临时验证进度，不能把该结果解释为原业务失败；P/R 验证须交错推进并在等待另一端时续期已完成端，单次原 RPC deadline 不改变。
+Published attempt 的 ReleasePending 收尾也须按同一精确身份重试原生验证 job 的释放，再释放 closure pin；只有 P/R 全部确认后才写入 Reclaimed，覆盖释放回包丢失后由原生恢复直接回到已发布 head、未重新调用 submit 的路径。
+
 ### 6.6 Merkle v1 与 v2
 
 现行 v1 的 verify 会调用 build，再以 rebuilt == 原 delta 比较全部字段和 node_writes。因此旧 delta 内暂时中间根所用节点也是原编码的一部分；不能在物理整理中修改它们或直接过滤后覆写旧 envelope。v1 首先只做精确字节压缩、共享默认路径表示和 pack 重排。
@@ -306,7 +311,9 @@ reader 必须先原子获得固定 generation/根的 pin 再读，结束、取�
 
 pin 注册表及其恢复信息必须跨重启可核对；进程号重复使用或连接断开不能独自证明旧读者失效。取消或回收失效读者的 pin 时，先撤销其继续获取旧 generation 的能力并确认无人持有依赖；未能完成核对则保留。资源允许且根/pin 已稳定满足条件后，维护调度应重试并最终收敛可回收表示，持续 blocked 必须暴露具体保护理由。
 
-attempt 目标生命周期为 Active → AwaitingDecision → QualifiedVerified → PublishedClosureVerified → Reclaimable → Reclaimed；任一步可能转 Unknown/RecoveryPinned。其幂等身份绑定原 world、authority、Frozen reservation、position、candidate hash 和执行 attempt ID。QualifiedVerified 仅证明原协议的 qualified 边界，不能代替 writer published envelope 的持久化、读回或后续 acknowledgement。
+attempt 目标生命周期为 Active → AwaitingDecision → QualifiedVerified → PublishedClosureVerified → Reclaimable → ReleasePending → Reclaimed；验证和本地回收阶段可能转 Unknown/RecoveryPinned。其幂等身份绑定原 world、authority、Frozen reservation、position、candidate hash 和执行 attempt ID。QualifiedVerified 仅证明原协议的 qualified 边界，不能代替 writer published envelope 的持久化、读回或后续 acknowledgement。
+
+重复输出删除并同步后，必须先持久化 ReleasePending，记录原 published envelope digest、两域独立闭包验证摘要及精确 candidate 身份，再发送闭包作业的 pin 释放请求。只有 P/R 均确认幂等释放后才持久化可被扫描跳过的 Reclaimed。writer 单独崩溃、某端释放失败、释放已生效但回复丢失或终态写入失败时，恢复扫描仍须在没有新业务的情况下继续原释放义务；不重启远端、不依赖 job 容量淘汰或 TTL。ReleasePending 的错误保留该阶段，不改回需要重新建立闭包作业的普通验证阶段；恢复先核对原 publication 和身份，再重放同一 candidate 的释放，不能为已释放端重新获取 pin。缺失或不匹配的原证明使该项 blocked，并保留原材料。
 
 进入 PublishedClosureVerified 前，必须确认精确原 published envelope 已持久，并通过不依赖 attempt 路径的目标 reader 完整 typed 遍历其原 bytes、全部引用与必要故障域材料；不能从仍存在的 attempt 目录回退取数来证明目的层完整。pending ack、outbox 交付和恢复义务分别核定，并把未结束义务的原件/身份/恢复依赖登记为独立保护根。只有待删清单不承载这些义务、目的闭包可独立恢复且对应 reader/rollback/迁移 pins 已解除，才解开该清单的 attempt pin。
 
@@ -385,6 +392,17 @@ Trace refs: O7-REQ-cb320711-af0a-44f3-98d4-bc7e8c1d0916；承接 [REQ-LWS-009](.
 | 单域故障与冷恢复 | 实际独立故障域、原 authority/历史版本、冷缓存 | 另一合格副本恢复；无旧 writer 重新服务 | 完整性、恢复成本及服务 gate | [V-LWS-DURABILITY](formal-world-storage-efficiency.manual.md#v-lws-durability) | 未运行目标 |
 | 超预算与截断 | 大对象/解压炸弹/损坏/取消/磁盘不足 | 明确退化，保留原请求与源闭包，不静默删历史 | 错误分类、原数据/权限不变、可续传 | [V-LWS-BUDGET](formal-world-storage-efficiency.manual.md#v-lws-budget) | 未运行目标 |
 
+
+### 9.3 正式 writer 完整目录维护净占用
+
+容量验收用同一正式 writer、世界、原历史和副本数，在停止 Node 新工作后固定原 head。先盘点维护前目录，再保持 P/R 存活逐页完成 writer attempt 维护，停止端点后推进有预算的物理代维护，分别盘点维护后和冷恢复后目录。计入 P/R、writer、native 环境、attempt、旧代及维护残余；共享安装与编译缓存明确排除。此比较标记为 `same_formal_directory_maintenance_net_occupancy`，不能称作旧 raw writer 与新版 writer 的比较。
+
+每端逻辑清单按页重新验证原 hash，保留重复 digest 的保留记录，比较各端维护前后流式摘要；不要求 P/R 私有材料相等。完整 typed history、原 Published、Snapshot、原业务结果和继续工作均须验证。冷恢复盘点必须在启动新工作前完成，不能把冷启动清理归因于物理代维护。这里的冷恢复指重新开启进程及其逻辑缓存，不清空 OS cache；耗时不能冒充冷设备读取性能。
+
+校准为 10 次正式提交，长跑明确选择 1,000 或 10,000 次；任何预算耗尽都保存 partial 并失败，不能降档冒充完成。目录盘点设置显式条目预算并按 device/inode 去重，耗尽、缺根或读取错误均为不完整证据；磁盘空闲下限为 3GiB，长跑使用 CI 的 6 小时外层与内部截止预算。
+
+attempt 故障验收须保持两个远程端点存活，仅中断 writer，分别覆盖 ReleasePending 持久化后、仅 P 已释放、R 已释放但回复丢失和单端暂时失败。恢复必须从原 publication 幂等释放，不能重新创建已释放的 closure job；双方确认后才持久化 Reclaimed。错误身份不能释放，独有证据及原历史保持完整。
+
 ## 10. 兼容、迁移与回滚
 
 <a id="des-lws-006"></a>
@@ -423,11 +441,23 @@ S2 另有 `build_formal_storage_shadow` 和 `formal_storage_shadow` example：�
 
 正式 endpoint 的 `advance_physical_generation` 使用独立带 checksum 的 build/selection/retire 状态和分片 catalog；单次复制、退休最多 1,024 对象/8 MiB（单个较大有界对象除外）。切换前在稳定根 fence 内补查 overlay，新选中代损坏不得回落到旧 overlay。旧代及根 orphan frames 分页回收；仍被新 overlay 引用的共享帧保留。catalog v3 采用按内容 hash 认证的层级目录：manifest 只保存固定大小的根引用及计数，每个内部节点最多 16 个子引用，每个叶最多 4,096 个有序 IDs；叶满时按下一个 hash nibble 分裂，深度只受原 64 位十六进制对象 hash 的自然边界限制，不以固定分片总数限制历史。lookup、分页及验证沿原 hash 路径进行，不把完整目录装入 manifest 或内存。每轮提交新目录根后，以可恢复清单分批回收不再被当前 objects/completed 根引用的旧目录节点；仍被任一根引用的节点必须保留，不能用索引版本堆积换取表面 payload 节省。同步 typed orphan GC 另有独立 mark 预算，预算不足只保留，分批 generation 不继承其整轮 1 GiB/262,144 对象限制。
 
+generation 导入已存在表示时，先通过实际 selected source locator 重新读取并验证每个原逻辑对象，再保持原 recipe、frame 编码及 legacy pack 布局；不可把 hash 排序后重拼批次的重压缩视为天然收益。不可变文件可在同一受控文件系统内按原表示用 hardlink 迁入新代，frame 仍按原 stored hash 去重，selector/alias 仍保持原一致性和耐久发布顺序。候选逐对象独立读回及完整 catalog 覆盖后才允许切换；损坏、错配或不完整表示阻止切换和源删除。逻辑页预算与单对象边界不变，文件名、inode 及目录元数据不能代替原内容验证。一个小对象可共用原有最大 64MiB recipe 或 80MiB legacy pack；导入对其额外 frame 路径做有界类型、owner、尺寸检查和 hardlink，不为未捕获成员扩大内容权威，也不把元数据步声称为硬 10ms 截止。generation 专用重开恢复只核对实际存在的 selector ID、其原 span/hash 及 alias 一致性，不制造可缺省的 root alias，不展开 recipe 其余成员或增加其 retention/catalog；子代已有经认证的 manifest catalog，不重复记录捕获 ID 到子代 retention，后续捕获仍从顶层原保留记录取得；普通 endpoint 的完整发布批次恢复保持不变。此路径避免改变批边界破坏已有共享，但新增 catalog、保留目录和其他元数据仍须计入容量实测，不能据此宣称每次维护净占用必然不增。
+
+默认正式 endpoint 的单 owner 服务循环在 RPC 响应完成后记录业务活动，连接队列为空时以可读事件等待最多 50ms，新连接到达立即唤醒，不用固定睡眠给串行 RPC 增加排队下限；连续空闲至少 100ms 时才调度物理 generation 页，每秒最多一步；busy/pin 阻塞时退让，维护错误单独暴露，不改写已发送的业务响应或授予 serving 资格。已有 build/retire 工作优先续做。无 build 时，首次及后续新增保留记录达到 max(1,024, 上轮完成时保留记录数/4) 可触发批量重建，不要求数据静默 30 秒；较小首批或小尾部要求数据静默 30 秒，后者还要求距上轮完成至少 300 秒。失败物理写入产生的 staging/orphan 也属于待维护工作，不能仅按成功提交计数忽略；无新对象、残余或未完成事务时保持静止，不循环重写同一历史。自动路径复用 generation 已有的旧代和 root orphan 分页清理；全量 typed `collect_physical_orphans` 保留为显式有预算入口，不伪称它已是逐 RPC 的有界步骤。
+
+自动维护页采用 16 条记录／64KiB 原字节预算，每个完整对象后检查 10ms 软时窗；显式维护接口仍沿用 1,024 条／8MiB。两者保留原单对象最多 64MiB 的例外；fsync、单个对象及首次恢复不可抢占，软时窗不构成硬时延 SLO。不能通过放宽原 RPC 超时掩盖维护抢占。
+
+root overlay 的 frame mark/sweep 也必须分批，私有 job 绑定当前代、保留根与源目录变化，capture、原对象校验、frame mark、sweep 和工作目录清理均保留有界游标。完整 mark seal 后才允许删除未被引用的 frame；源新增或变化立即停止删除并重新标记，重启不得直接信任已验证布尔。未知类型、路径、源缺失或损坏时保留原材料并报告受阻，不能用永久跳过大 overlay 代替最终收敛。
+
+跨页恢复状态只属于本次 endpoint open 的 GenerationSession，并绑定原 build nonce 和目录身份。首次接触、进程重启、build 身份变化或任一步错误后仍执行完整恢复；正常连续分页不重复全 selector 恢复扫描，只核对受原 owner、publication 和 retire fence 保护的结构与经认证游标，并继续原逐对象 publication 恢复、原字节/hash 验证及最终完整覆盖。session 不持有 payload 正确性结论，不跨 open 保存“已恢复”布尔，也不以 inode/mtime 缓存替代内容校验。首次/重开恢复的元数据成本须单独记录，不能混入每页复制预算或声称所有启动工作都已常数化。
+
 attempt 回收要求原 Published envelope 与 P/R 分别完成的独立 typed 闭包读回。每个闭包作业在活跃内核 pin 内分页，重启失去 pin 后重新读回；未完成或 unknown 保留 attempt。稀疏树遍历页保留最多 256 节点/8 MiB 的工作上限，并在完整校验一个节点后按 1 秒软工作时窗让出；软时窗不替代原 RPC 截止时间，也不允许部分校验节点进入 receipt。业务提交与 Node 空闲轮询仅推进有界维护步骤；源中独有的 world/外部结果/未决义务不能因已经 Qualified 而删除。完整实现是否达到退出门槛仍按下表和 §11 的实际 source/environment 证据判断。
 
 同一共享 recipe 的多个小对象允许通过一次明确的有界批量读取验证：单批最多 1,024 个请求对象、8 MiB 返回原字节，超过该字节界的单对象沿原 64 MiB 上限独立读取。批内持有原物理根 pin，重新读取并校验每个涉及 recipe 的当前完整内容及每个涉及 frame；同一分组内的 frame 只需解码一次，各逻辑对象仍分别验证完整原 hash。按 recipe 分组后逐组释放元数据，仅保留一个最多 64 KiB 的解码 frame 暂存，返回字节仍受 8 MiB 批界限制。各 alias 都通过受控路径及 O_NOFOLLOW 新打开并校验 owner、类型和写权限；仅允许在本批仍持有 anchor FD 时，以 dev/ino 证明 alias 指向该同一物理文件，不能据此证明内容正确。每组仍须从 anchor FD 本次完整读取并校验 recipe，逐项确认请求对象的成员关系、长度及覆盖。最多同时持有 16 个 anchor FD，达到上限先验证并释放当前分组再继续，不无界持有文件。函数返回即丢弃批内复用状态；下一批即便遇到相同 inode 也重新完整读取和校验，不以 inode/mtime 复用内容，不跨调用保留 frame 原字节，也不复用其他端点的结果。全局解析缓存仍受原固定预算约束。耐久读取在同一批内对共享不可变表示同步一次；不得为已有对象先做一遍普通全读、再重复全读只为同步。批量错误仍阻止相应持久化成功或删除源副本，不将部分验证结果视为完整 receipt。
 
 上述 16 个 FD 指保留到分组完成的 anchor，另允许一个临时 probe FD 校验新 alias 身份；probe 不计入保留组，不能累计。frame 解码复用只覆盖当前 recipe 分组；不同 recipe 或已释放后重新遇到的分组仍重新读验，不能为全调用去重引入无界 frame 缓存。
+
+物理 publication 对既有对象的耐久检查，以及新 frame、recipe、selector 全部发布并完成原目录同步后的独立读回，均使用上述有界批读。每个阶段分别从当前文件重新读取证据，发布前的输入 bytes、Prepare 校验或上一批读回结果不能替代发布后的读回；每个逻辑对象仍需与本次请求的长度、原 hash 和完整原 bytes 一致，发布后缺失或任何批次校验失败都阻止 publication 返回成功。批界按请求数量和返回字节共同切分，大于 8 MiB 的单对象保留原独立读取上限，不通过增大 frame 缓存或减少真实历史材料绕过预算。
 
 尚未启用物理 codec 的受控 CAS 根仍需保持原 pack 的耐久去重：同一有界批内可按上述当前 FD 身份对共享原 pack 分组，本批重新检查固定 pack header 和各请求的二分索引、span 与声明长度，逐对象读取并验证原 hash，分组结束对 anchor 文件同步一次。不能因新增 codec 批量分支移除原有按 inode 的批内同步去重，退化为共享 pack 的每个成员各自 fsync。该路径同样受 1,024 请求/8 MiB 输出、16 anchor 加一个 probe 的限制，不物化完整 pack，不跨调用缓存内容，也不通过更改根的 codec 启用状态或测试材料来声称优化收益。
 
