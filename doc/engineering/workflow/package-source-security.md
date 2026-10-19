@@ -60,3 +60,11 @@ Binary/version rollback does not roll back world history. Preserve the product d
 | Successful retention | Cleanup only after success; protected current/previous, zero count and cleanup failure remain distinguishable | Recovery of already deleted artifacts or permission to touch non-release data |
 
 Signing and notarization remain the separately triggered broad-distribution requirement. Until the applicable evidence and product decision exist, preserve technical-preview/restricted-use wording; artifact checksums or these documentation changes cannot turn an unsigned build into a broadly released product. No signing, credentials or platform administration is part of this design change.
+
+## ECS 服务端目录包
+
+`ecs-packages.yml` 的手动入口只打包所选 workflow ref 对应的 `github.sha`，无第二个可变源码 ref；三个 job checkout 同一 SHA。Web 与原生独立并行，同 run 的 artifact 在汇合 job 组装，组装不执行 Cargo。原生仅选择 chain runtime、game launcher、viewer live 三个 bin / 对应 package，不包含桌面 client、独立 web launcher、安装器和 ops 工具。Viewer Web 使用既有 split delivery 构建器，把可选 payload 一并放入可发布目录。
+
+默认优化 `packaging` profile，Linux x64。原生 stage 记录 source/profile/platform、固定 binary 集合、字节 SHA256 和执行权限；组装匹配实际 checkout 身份并校验后输出 `bin/`、`web-dist/`、BUILDINFO、manifest 和完整 SHA256SUMS，归档另有外部校验和。不得把这个目录包称为已安装 `.deb` 或绕过既有安装器的校验入口；它通过单机手册的独立版本目录部署，仍需保持世界、私有配置及回滚版本。
+
+候选 ref 的工作流和原生 job 仅只读缓存。仅 main 且 workflow SHA 等于 source/event SHA 的原生 job 有缓存写权限，保存到独立 ECS 命名空间；失败不写缓存。Web 仅恢复既有可信缓存。汇合要求 Web 成功且恰好一个原生 lane 成功、另一个预期跳过；失败、取消或缺失不能生成最终包。入口只有内容读取和 artifact 上传，不含部署凭据、自动发布或自动安装。操作方法见[单机 ECS 手册](../../testing/manual/single-ecs-preview-deploy.manual.md)。
