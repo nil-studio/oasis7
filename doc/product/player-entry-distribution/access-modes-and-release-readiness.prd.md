@@ -70,7 +70,7 @@ Trace ID: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251
 - 要求：在声明的设备与世界负载内，观察世界、切换目标、移动视角、打开命令及输入草稿必须保持可响应。只变化的显示内容触发相应刷新，背景动画、无关诊断和相同世界数据不得使玩家持续等待。减少展示成本不得丢失受权限约束的实体删除、目标/阻塞、动作结果或最近权威进度；过载时可减少装饰与可见细节，并明确显示正在追赶或数据不可用，不能把旧画面表示成实时结果。
 - 验收：[AC-ENTRY-PERFORMANCE-001](#ac-entry-performance-001)
 - 系统设计状态：已覆盖
-- 系统设计依据：[显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection)、[性能验证](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-verification)。
+- 系统设计依据：[显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection)。
 - 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-19；源码核对基线 `ebaefe593fc81806d01e10aa8bfe09bd127fe7e6` 的 Host 完整 snapshot 输入及 WASM 通用反序列化路径；本次只交付目标设计，尚无本要求完整实现与同候选性能验收记录。
@@ -91,7 +91,7 @@ Trace ID: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae
 - 要求：玩家先看到可理解的入口、资源准备阶段及恢复下一步；世界图形未就绪时不得伪装为可玩。相同版本再次进入应复用可用且与当前发布绑定的已验证公共图形资源，不应无理由重复传输大文件。慢网、离线、资源缺失或完整性失败时，已有安全入口、诊断和退出仍可操作；重试只恢复资源准备，不重新提交游戏动作或改变会话权限。
 - 验收：[AC-ENTRY-PERFORMANCE-002](#ac-entry-performance-002)
 - 系统设计状态：已覆盖
-- 系统设计依据：[资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery)、[性能验证](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-verification)。
+- 系统设计依据：[资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery)。
 - 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-19；上述固定源码基线中的 loader 仍有 `no-store` 下载与整文件校验；本次只交付设计，缓存/压缩目标没有完整同候选部署验收记录。
