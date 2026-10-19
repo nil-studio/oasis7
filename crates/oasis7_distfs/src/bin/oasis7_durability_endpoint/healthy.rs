@@ -150,129 +150,114 @@ pub(super) fn run(
         )
         .map_err(|e| e.to_string())?,
     );
-    // A retained dual-install certificate may authorize an activation attempt,
-    // but only a fresh protected query establishes that the provider activated.
-    if let Some((activation, receipts)) =
-        DurableSetCandidateV1::retained_activation_with_receipts(data_dir, &verified.sealed)
+    let (mut server, active) =
+        if DurableSetCandidateV1::has_staged_manifest(data_dir, &verified.sealed)
             .map_err(|e| e.to_string())?
-    {
-        match FileFormalEndpoint::open_durable_set_active(
-            data_dir,
-            verified.sealed.clone(),
-            &activation,
-            role,
-            provider.clone(),
-            bootstrap.operation_byte_budget,
-        ) {
-            Ok(endpoint) => {
-                let listener =
-                    TcpListener::bind(bootstrap.management_listen).map_err(|e| e.to_string())?;
-                let server = DurableSetCandidateServerV1::from_activated(
-                    verified.sealed.clone(),
-                    role,
-                    timeout,
-                    &activation,
-                    receipts[0].clone(),
-                    receipts[1].clone(),
-                )
-                .map_err(|e| e.to_string())?;
-                retain_management(server, listener)?;
-                return serve_ready(endpoint, listen, timeout);
-            }
-            Err(formal::FormalError::FencingUnproven) => {}
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    let candidate = if DurableSetCandidateV1::has_staged_manifest(data_dir, &verified.sealed)
-        .map_err(|e| e.to_string())?
-    {
-        DurableSetCandidateV1::reopen(
-            data_dir,
-            verified.sealed.clone(),
-            role,
-            provider.clone(),
-            bootstrap.operation_byte_budget,
-        )
-    } else if role == EndpointRole::Primary {
-        if bootstrap.source_address.is_some()
-            || bootstrap.source_role.is_some()
-            || bootstrap.archive_read_grant.is_some()
         {
-            return Err("healthy primary rebind uses its own exact old sealed storage".into());
-        }
-        FileFormalEndpoint::open_protected(
-            data_dir,
-            FormalEndpointAuthorizationV1 {
-                authority: verified.old.clone(),
-                original: verified.old.clone(),
-                recovery: None,
-                parent: Some(verified.boundary.clone()),
-            },
-            role,
-            provider,
-            None,
-        )
-        .and_then(|old| {
-            old.into_durable_set_primary_candidate(
+            DurableSetCandidateServerV1::reopen(
+                data_dir,
                 verified.sealed.clone(),
+                role,
+                timeout,
+                provider.clone(),
                 bootstrap.operation_byte_budget,
             )
-        })
-    } else {
-        let source_role = bootstrap
-            .source_role
-            .ok_or("healthy replica requires independent TCP source role")?;
-        let address = bootstrap
-            .source_address
-            .ok_or("healthy replica requires TCP archive source")?;
-        let grant = bootstrap
-            .archive_read_grant
-            .ok_or("healthy replica requires writer-signed scoped archive grant")?;
-        if grant.body.transition_digest != verified.sealed.transition().digest()
-            || grant.body.sealed_cut != verified.boundary.head()
-            || grant.body.next_epoch_floor != successor.epoch
-        {
-            return Err("healthy archive grant exact transition/cut/successor floor".into());
-        }
-        let target = successor
-            .replica
-            .instance
-            .digest()
+            .map_err(|e| e.to_string())?
+        } else {
+            let candidate = if role == EndpointRole::Primary {
+                if bootstrap.source_address.is_some()
+                    || bootstrap.source_role.is_some()
+                    || bootstrap.archive_read_grant.is_some()
+                {
+                    return Err(
+                        "healthy primary rebind uses its own exact old sealed storage".into(),
+                    );
+                }
+                FileFormalEndpoint::open_protected(
+                    data_dir,
+                    FormalEndpointAuthorizationV1 {
+                        authority: verified.old.clone(),
+                        original: verified.old.clone(),
+                        recovery: None,
+                        parent: Some(verified.boundary.clone()),
+                    },
+                    role,
+                    provider.clone(),
+                    None,
+                )
+                .and_then(|old| {
+                    old.into_durable_set_primary_candidate(
+                        verified.sealed.clone(),
+                        bootstrap.operation_byte_budget,
+                    )
+                })
+            } else {
+                let source_role = bootstrap
+                    .source_role
+                    .ok_or("healthy replica requires independent TCP source role")?;
+                let address = bootstrap
+                    .source_address
+                    .ok_or("healthy replica requires TCP archive source")?;
+                let grant = bootstrap
+                    .archive_read_grant
+                    .ok_or("healthy replica requires writer-signed scoped archive grant")?;
+                if grant.body.transition_digest != verified.sealed.transition().digest()
+                    || grant.body.sealed_cut != verified.boundary.head()
+                    || grant.body.next_epoch_floor != successor.epoch
+                {
+                    return Err("healthy archive grant exact transition/cut/successor floor".into());
+                }
+                let target = successor
+                    .replica
+                    .instance
+                    .digest()
+                    .map_err(|e| e.to_string())?;
+                let mut remote = RemoteFormalEndpoint::new_archive_reader(
+                    address,
+                    timeout,
+                    verified.old.clone(),
+                    source_role,
+                    authentication,
+                    grant,
+                    &target,
+                )
+                .map_err(|e| e.to_string())?;
+                let manifest_started = std::time::Instant::now();
+                let manifest: SignedFormalArchiveTransferV1 =
+                    remote.archive_manifest().map_err(|e| e.to_string())?;
+                report_bootstrap_timing("archive_manifest", manifest_started);
+                DurableSetCandidateV1::stage_replica(
+                    data_dir,
+                    verified.sealed.clone(),
+                    manifest,
+                    remote.into_archive_source(),
+                    provider.clone(),
+                    bootstrap.operation_byte_budget,
+                )
+            }
             .map_err(|e| e.to_string())?;
-        let mut remote = RemoteFormalEndpoint::new_archive_reader(
-            address,
-            timeout,
-            verified.old.clone(),
-            source_role,
-            authentication,
-            grant,
-            &target,
-        )
-        .map_err(|e| e.to_string())?;
-        let manifest_started = std::time::Instant::now();
-        let manifest: SignedFormalArchiveTransferV1 =
-            remote.archive_manifest().map_err(|e| e.to_string())?;
-        report_bootstrap_timing("archive_manifest", manifest_started);
-        DurableSetCandidateV1::stage_replica(
-            data_dir,
-            verified.sealed.clone(),
-            manifest,
-            remote.into_archive_source(),
-            provider,
-            bootstrap.operation_byte_budget,
-        )
-    }
-    .map_err(|e| e.to_string())?;
+            let server =
+                DurableSetCandidateServerV1::new(candidate, verified.sealed.clone(), role, timeout)
+                    .map_err(|e| e.to_string())?;
+            (server, None)
+        };
     let management = TcpListener::bind(bootstrap.management_listen).map_err(|e| e.to_string())?;
-    let mut server = DurableSetCandidateServerV1::new(candidate, verified.sealed, role, timeout)
-        .map_err(|e| e.to_string())?;
+    if let Some(endpoint) = active {
+        retain_management(server, management)?;
+        return serve_ready(endpoint, listen, timeout);
+    }
     report_bootstrap_timing("management_ready", preparation_started);
     println!(
         "formal_endpoint_awaiting_management={}",
         management.local_addr().map_err(|e| e.to_string())?
     );
     loop {
-        match server.serve_one(&management) {
+        match server.serve_one_recovering(
+            &management,
+            data_dir,
+            provider.clone(),
+            bootstrap.operation_byte_budget,
+        ) {
             Ok(Some(endpoint)) => {
                 retain_management(server, management)?;
                 return serve_ready(endpoint, listen, timeout);

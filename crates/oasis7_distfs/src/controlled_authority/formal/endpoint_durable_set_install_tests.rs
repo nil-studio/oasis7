@@ -6,6 +6,15 @@ mod install_provider;
 use install_provider::InstallProvider;
 #[test]
 fn native_healthy_install_awaiting_reopen_dual_activate_and_first_normal() {
+    exercise_native_install(false);
+}
+#[path = "endpoint_durable_set_recovery_tests.rs"]
+mod recovery;
+#[test]
+fn native_healthy_management_recovers_uncertain_activation_before_and_after_provider_commit() {
+    exercise_native_install(true);
+}
+fn exercise_native_install(recover_uncertain_activation: bool) {
     let fixture = Fixture::new();
     let po = Oracle::start(&fixture, EndpointRole::Primary);
     let ro = Oracle::start(&fixture, EndpointRole::Replica);
@@ -241,7 +250,18 @@ fn native_healthy_install_awaiting_reopen_dual_activate_and_first_normal() {
         [&pi, &ri],
     )
     .unwrap();
-    let p = verify_candidate_management_rpc(pc, sealed.clone(), pi.clone(), ri.clone());
+    let p = if recover_uncertain_activation {
+        recovery::verify_management_recovery(
+            pc,
+            &fixture.pdir,
+            pp.clone(),
+            sealed.clone(),
+            pi.clone(),
+            ri.clone(),
+        )
+    } else {
+        verify_candidate_management_rpc(pc, sealed.clone(), pi.clone(), ri.clone())
+    };
     let r = rc.activate(&activation, pi.clone(), ri.clone()).unwrap();
     assert_eq!(p.parent.as_ref().unwrap().head(), boundary.head());
     verify_remote_activated_boundary(p, &fixture, &activation, false);
