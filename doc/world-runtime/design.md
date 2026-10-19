@@ -39,6 +39,15 @@ Launcher bootstrap address parsing is shared by desktop and backend launchers in
 4. 对应 GitHub task issue（仅在需要当前任务状态、阻断或验收过程时）
 5. 下钻 `governance/`、`module/`、`runtime/`、`wasm/`、`testing/` 等专题目录
 
+<a id="runtime-gameplay-authority-designs"></a>
+### 玩法权威协议的专题分工
+
+具体数据与协议由[八个专题](prd.index.md#gameplay-authority-protocols)分别拥有。普通治理分类与独立宪制闸门提供合法事项和授权来源；charter 消费该来源并维护区域审查、资格和退化状态；levy 另有用途、预算与收费授权，charter 有效不自动赋予收费权。工业工作图持有 root/revision、资源占用与存量工作；配方生命周期、替代转换和外部性处置消费这些身份，并保留各自独立的状态与效果记录。贡献型恢复项目拥有自身作用域和里程碑，不能由工业完成或普通 Crisis 状态代签。安全 canonical 替代要求独立的玩家确认，不能借普通治理、chat 签名或模型建议扩大授权。
+
+各专题中的逻辑记录是目标执行合同，接入既有 Runtime / governed module 与 typed transaction 边界；本次设计不新增通用 native 制度动作或第二套世界写服务。纯 API、Viewer、Harness 均消费同一权威状态与结果。一次请求登记、决策通过或预览不证明世界效果；已提交结果、授权消费、资源账本与去重记录应能联合恢复。共识排序与正式持久性仍由[提交与恢复合同](#runtime-authority-commit-recovery-target)拥有，专题 receipt 不自行产生 finality。
+
+所有生效守卫只消费同一已排序输入及可核验的政策、证据版本和世界时间。外部资料获取属于提交前准备，必须先绑定内容摘要及有权来源；不得以各节点即时 HTTP 结果、客户端时钟或模型重新生成的判定决定同一历史操作的效果。相同 canonical 输入的重放必须一致；不同合法提交顺序可以产生不同结果，仍须满足权限、守恒和单次消费不变量。
+
 ## 3. 目标设计结构
 
 - **分布式基础层（`doc/p2p/` authority）**：governance registry、validator set、Tendermint/CometBFT-style BFT finality、P2P、DistFS、checkpoint/source selection 与 state sync。它按合法激活 authority profile 决定何时 action batch 的正式提交证明及持久条件成立；首次开放目标为受控单权威，BFT 为后续经验证激活的 profile。
@@ -941,7 +950,7 @@ Runtime 仅从验证后的 ActiveAuthority 和同记录 proof 构造正式 Commi
 <a id="runtime-industrial-design"></a>
 ### 工业因果、容量与背压
 代表性流水线的 immutable root/revision/parent/child/stage/edge/batch 与目的地身份在每个首个不可逆 sink 前从 fresh authority 校验；错误/缺失不扣 input、不建立非法 hold/child。accepted 是 intent admission，reservation 必须另经 domain capacity/资源条件，在同事务中绑定有界独占 hold；每条中间 edge/destination buffer 满载，只保留未消费 input、接收仍有容量的已结算 output 或原子拒绝/延期新的承诺。runtime 不选择无限缓存、丢弃、瞬移、隐式改道或伪造 terminal。
-同一 release/arrival event+hold 的 release 与 fresh-snapshot recheck 各一次；重复 arrival/retry 读原 disposition；后续不同 event 只重审仍有效的 unmet residual。input join、output branch 和 production-versus-delivery settlement 按 M4/domain contract；因果改变才建立 parent-linked revision/child root，checkpoint/retry 不新建 root。hold/consumption/receipt/remaining 必须持久并进入 replay/root 比较，不能只在 UI/log。§工业矩阵当前尚无通用 root/join/window/bundle identity，具体字段/算法未获批准；现有 path reservations 和 job replay 是 partial 子能力。domain owner 拥有容量、lease/window、W reset；runtime 执行原子处置，消费者显示 earliest blocker、held/consumed/unmet/residual 与 recheck。
+同一 release/arrival event+hold 的 release 与 fresh-snapshot recheck 各一次；重复 arrival/retry 读原 disposition；后续不同 event 只重审仍有效的 unmet residual。input join、output branch 和 production-versus-delivery settlement 按 M4/domain contract；因果改变才建立 parent-linked revision/child root，checkpoint/retry 不新建 root。hold/consumption/receipt/remaining 必须持久并进入 replay/root 比较，不能只在 UI/log。[工业工作图与配方生命周期设计](runtime/industrial-work-graph-and-recipe-lifecycle.design.md)承接 root/join/window/bundle、存量工作和独立配方状态的目标逻辑模型与验证；当前实现中的 path reservations 和 job replay 仍只是 partial 子能力，设计不代签整个工业矩阵。domain owner 拥有容量、lease/window、W reset；runtime 执行原子处置，消费者显示 earliest blocker、held/consumed/unmet/residual 与 recheck。
 
 #### 首产物提交来源 schema 边界
 
