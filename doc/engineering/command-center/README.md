@@ -191,6 +191,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ### 知悉变化
 
+- **玩法权威协议有了独立设计承接。** 2026-10-19 局部设计核对基于 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6` 及 8 个原 issue；[专题入口](../../world-runtime/prd.index.md#gameplay-authority-protocols)补普通治理、工业工作/配方、charter、替代转换、levy、外部性、贡献恢复和安全确认的逻辑记录、提交与恢复边界。当前增量是系统设计，原实现状态与验收缺口继续有效；费率、资格阈值和上线参数仍由各自主责按专题依赖确定，未取得当日部署或玩法验收证据。
 - **部署暂停已经决定。** 不创建正式世界、生产密钥或启动实际故障域演练；已有授权的代码、验证、评审及正常合入继续。来源：[已有用户限制](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6097891450)、[最新延续](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
 - **游戏 Agent 与开发会话分开看。** Game API 的读取/发现/空任务切片不证明 OpenClaw/Codex 完成游戏自主首局；指挥面板实验 runtime 也不是游戏 Runtime 验收。来源：[外部 Runtime 产品目标](../../product/agents-world-simulation/prd.md#external-runtime-play)、[真实首期完成要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-010)、[#4563](https://github.com/eng-cc/oasis7/pull/4563)。
 - **架构方案与实际部署分开看。** 当前应持续查阅[架构索引](architecture/README.md)中的主责合同与部署核验入口；设计采纳、代码合入、环境验证和公开发行分别成立。来源：[基础设施事实边界](../../product/world-infrastructure/prd.md#53-事实边界与未决承接)。

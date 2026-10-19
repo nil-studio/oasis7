@@ -18,6 +18,7 @@
 - 想确认链 PoS 的时间锚、slot/tick 相位、控制面参数、missed accounting 与恢复边界：`doc/world-runtime/runtime/chain-pos-control-plane.prd.md`
 - 想先看线上模块发布合法性与 binary-only 边界：`doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md`
 - 想进入治理事件、审计导出或收据安全专题：`doc/world-runtime/governance/README.md`
+- 想确认治理、charter、工业工作、替代、levy、外部性、恢复项目或安全确认的权威协议：从[玩法权威协议设计](prd.index.md#gameplay-authority-protocols)按问题进入；各专题定义目标合同，实现与实际验收仍单独核对。
 
 - 想确认组织解散、不活跃保护、reclaim/申诉与授权交接的技术边界：[组织连续性与处置设计](runtime/organization-continuity-and-disposition.design.md)。
 

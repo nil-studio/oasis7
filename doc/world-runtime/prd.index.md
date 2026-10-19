@@ -48,6 +48,22 @@
 - `doc/world-runtime/module/player-published-entities.prd.md`：玩家发布实体与模块发布链路衔接入口。
 - `doc/world-runtime/governance/zero-trust-governance-receipt-hardening-2026-02-26.prd.md`：治理收据安全 hardening 主入口。
 
+<a id="gameplay-authority-protocols"></a>
+## 玩法权威协议设计
+
+以下专题分别承接现有产品要求，定义可实施的逻辑记录、状态转换、授权、提交与恢复。它们共同消费同一世界的确定性执行和持久提交合同；设计覆盖不代表新能力已经实现或开放。跨专题关系见[执行层分工](design.md#runtime-gameplay-authority-designs)，每份专题保留自己的需求和验证映射。
+
+| 问题 | 系统设计 | 主要边界 |
+| --- | --- | --- |
+| 普通事项能否治理、宪制变更何时生效 | [治理分类与独立宪制闸门](runtime/governance-classification-and-constitutional-execution.design.md) | 事项分类、授权来源、独立审查与实际生效分别记录 |
+| 多阶段工业工作如何连续、配方变化如何处置 | [工业工作图与配方生命周期](runtime/industrial-work-graph-and-recipe-lifecycle.design.md) | 工作图与配方各自管理状态，按原身份处理六类存量工作 |
+| 区域如何成立、取得资格、退化与恢复 | [区域 charter 权威与恢复](runtime/regional-charter-authority-and-recovery.design.md) | 分层审查、双资格、受限权限及资产义务连续性 |
+| 配方替代选择与实际转换如何结算 | [替代决策与 linked conversion](runtime/recipe-substitution-decision-and-conversion.design.md) | 决策不产生经济效果；转换与因果账本单次提交 |
+| 公共 levy 如何取得授权、收费及退出 | [公共 levy 授权与结算](runtime/public-levy-authorization-and-settlement.design.md) | 独立预算账本、到期与单次结算，不混同普通服务费 |
+| 工业外部性影响谁、由谁处置 | [工业外部性与处置](runtime/industrial-externality-and-mitigation.design.md) | 显式 profile、作用域与处置授权，生产和处置分别确认 |
+| 恢复项目如何把贡献转成实际结果 | [有界恢复项目与贡献结算](runtime/bounded-recovery-projects-and-contribution-settlement.design.md) | 项目资格、里程碑与世界效果可对账，不混同存储恢复 |
+| 不受支持的请求如何安全选择替代 | [安全 canonical 替代确认](runtime/safe-canonical-alternative-confirmation.design.md) | 原请求、候选、独立确认、授权消费与唯一结果完整关联 |
+
 ## governance 子域阅读边界
 - `doc/world-runtime/governance/README.md` 是治理子域的唯一首读入口：它把当前模块规格、执行台账、按需设计分册与已完成专题追溯分开，避免根 README / 文件索引重复平铺。
 - `audit-export.md` 和 `governance-events.md` 仍分别有 runtime API/test 与模块入口引用；本轮 caller scan 未发现可证明替代它们的现行文档，故保留并降为按需阅读面，而不是删除审计资料。
