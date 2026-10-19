@@ -1,5 +1,8 @@
 # 日常工作闭环验证与剩余验收
 
+> 2026-10-19 产品边界收缩：指挥中心读取本地文档/Git、GitHub PR/CI并保存个人问题与决定；Codex 仅保留原会话外部打开或准确定位复制。自管 app-server、发任务/追加/中断、运行请求同步/回复及 Codex 退出协调已退役，旧数据不删除不重放。独立 ToolHost 工具任务退出保护保留。以下既有日期、实施与验收记录保持历史范围，不代表退役能力仍可使用；本轮结果以当前实现 PR 为准。
+
+
 - 文档 ID：`MANUAL-ENGINEERING-COMMAND-CENTER-DAILY-WORK-VERIFICATION`
 - 状态：`active`
 - owner_role：`qa_engineer`
@@ -67,7 +70,7 @@ npm --prefix tools/oasis7-command-center/ui run build
 python3 tools/oasis7-command-center/scripts/test_package_context_cli.py
 ```
 
-本轮本地 Rust workspace 212 项、UI 160 项通过；包含原有隔离/兼容回归，不把数量当实际用户验收。重点入口为 [daily_work](../../../tools/oasis7-command-center/core/tests/daily_work.rs)、[协议故障/恢复](../../../tools/oasis7-command-center/core/tests/codex_runtime.rs)、[工作投影](../../../tools/oasis7-command-center/core/tests/work_projection.rs)、[REST 窗口](../../../tools/oasis7-command-center/core/src/github_tests.rs)、[宿主慢源与饱和](../../../tools/oasis7-command-center/src-tauri/src/commands.rs)、[UI 恢复](../../../tools/oasis7-command-center/ui/src/WorkOverview.test.tsx)、[部分同步义务](../../../tools/oasis7-command-center/ui/src/DecisionFollowthroughPanel.test.tsx)、[工具秘密/范围](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)和[严格 SignContext](../../../tools/oasis7-command-center/core/tests/sign_context_import.rs)。
+本轮本地 Rust workspace 212 项、UI 160 项通过；包含原有隔离/兼容回归，不把数量当实际用户验收。重点入口为 [daily_work](../../../tools/oasis7-command-center/core/tests/daily_work.rs)、[协议故障/恢复](https://github.com/nil-studio/oasis7/blob/822f6b49d1a5fb2b866b6c6902ffc8ed024d043b/tools/oasis7-command-center/core/tests/codex_runtime.rs)、[工作投影](../../../tools/oasis7-command-center/core/tests/work_projection.rs)、[REST 窗口](../../../tools/oasis7-command-center/core/src/github_tests.rs)、[宿主慢源与饱和](../../../tools/oasis7-command-center/src-tauri/src/commands.rs)、[UI 恢复](../../../tools/oasis7-command-center/ui/src/WorkOverview.test.tsx)、[部分同步义务](../../../tools/oasis7-command-center/ui/src/DecisionFollowthroughPanel.test.tsx)、[工具秘密/范围](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)和[严格 SignContext](../../../tools/oasis7-command-center/core/tests/sign_context_import.rs)。
 
 独立安全/兼容评审发现并修复了双 DB 私有标记查询、未决意图窗口截断/永久锁定、决定 CAS 事务外窗口、ready 状态不匹配；最终实现候选复审未见阻断。实际 CI、合入及最终构建 head 由实施 PR 记录；本文件不代替这些事实。
 

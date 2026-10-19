@@ -148,7 +148,7 @@ fn signer_job_case_aliases_preserve_existing_running_and_unknown_reservations() 
     );
 }
 #[test]
-fn runtime_admission_does_not_block_job_queries_or_receipts() {
+fn secret_admission_does_not_block_job_queries_or_receipts() {
     let jobs = std::sync::Arc::new(ToolJobs::open(":memory:").unwrap());
     jobs.admit("save", "hash", "store", "save").unwrap();
     let (started_tx, started_rx) = std::sync::mpsc::channel();
