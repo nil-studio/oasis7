@@ -65,6 +65,7 @@ describe("pixel world host", () => {
       "agent-builder": { id: "agent-builder", name: "Shared Name", location_id: "loc-0", resources: {} },
       "agent-factory": { id: "agent-factory", name: "Shared Name", location_id: "loc-0", resources: {} },
     };
+    snapshot.model.agent_player_bindings = {"agent-builder":"player-one", "agent-factory":"player-one"};
     snapshot.player_gameplay.intent_target = "agent-builder";
     useTestRustRenderState();
     await renderPixelWorldHost(snapshot);
@@ -133,7 +134,7 @@ describe("pixel world host", () => {
       kind: "relay",
       label: "Relay Seven",
     }));
-    expect(document.querySelector(".pixel-world-canvas__selection")).toHaveTextContent("Relay Seven");
+    await waitFor(() => expect(document.querySelector(".pixel-world-canvas__selection")).toHaveTextContent("Relay Seven"));
     expect(core.state.selectedObject.anchor).toEqual(snapshot.model.module_visual_entities["module-relay"].anchor);
     expect(window.location.hash).toBe("#viewer-details-panel");
     expect(document.activeElement).toBe(detailsPanel);
@@ -305,6 +306,7 @@ describe("pixel world host", () => {
       `loc-${index}`,
       { id: `loc-${index}`, name: index % 2 ? "Shared Long Location Name" : "共享长名称地点", pos: { x_cm: 100_000 + index * 80_000, y_cm: 100_000 + index * 80_000, z_cm: 0 }, resources: {} },
     ]));
+    snapshot.model.agent_player_bindings = Object.fromEntries(Object.keys(snapshot.model.agents).map(id => [id,"player-one"]));
     snapshot.player_gameplay.intent_target = "agent-0";
     useTestRustRenderState();
     const { core } = await renderPixelWorldHost(snapshot, "?test_api=1&connect=0&locale=en");
@@ -1314,10 +1316,13 @@ describe("pixel world host", () => {
 
   it("provides a test-only selected blocker visual fixture for comparable focus screenshots", async () => {
     useTestRustRenderState();
-    await renderPixelWorldHost(
+    const { core } = await renderPixelWorldHost(
       emptyWorldSnapshot(),
       "?test_api=1&connect=0&locale=en&pixel_world_visual_fixture=selected_blocker",
     );
+    core.state.snapshot.model.agent_player_bindings["agent-1"] = "player-one";
+    core.requestRender();
+    await waitFor(() => expect(document.querySelector("[data-pixel-world-agent-marker=\"true\"][data-agent-id=\"agent-1\"]")).not.toBeNull());
 
     await waitFor(() => {
       expect(screen.getByText("Recover sustainable capability")).toBeInTheDocument();
@@ -1357,6 +1362,9 @@ describe("pixel world host", () => {
       emptyWorldSnapshot(),
       "?test_api=1&connect=0&locale=en&pixel_world_visual_fixture=selected_blocker",
     );
+    core.state.snapshot.model.agent_player_bindings["agent-1"] = "player-one";
+    core.requestRender();
+    await waitFor(() => expect(document.querySelector("[data-pixel-world-agent-marker=\"true\"][data-agent-id=\"agent-1\"]")).not.toBeNull());
 
     await waitFor(() => {
       expect(document.querySelector("[data-pixel-world-agent-marker='true'][data-agent-id='agent-0']")).not.toBeNull();

@@ -1,6 +1,6 @@
 import initPixelWorldBridgeModule, {
   PixelWorldBridge,
-  build_pixel_world_render_state,
+  build_pixel_world_render_state_json,
 } from "./pixel_world_bridge_bindgen.js";
 
 export const PIXEL_WORLD_RUNTIME_SOURCE = "wasm_bindgen_runtime";
@@ -10,6 +10,12 @@ const AMBIENT_FRAME_INTERVAL_MS = 1000 / 12;
 const LOCATION_TEST_READBACK_CONTRACT = "oasis7_location_frame_evidence_v1";
 
 let runtimeInitPromise = null;
+let resourceStage = "descriptor";
+const resourceStageListeners = new Set();
+function publishResourceStage(stage) {
+  resourceStage = stage;
+  for (const listener of resourceStageListeners) listener(stage);
+}
 
 const PIXEL_WORLD_WASM_PAYLOAD_NAME = "pixel_world_bridge_bindgen_bg.wasm";
 const PIXEL_WORLD_OPTIONAL_PAYLOAD_MANIFEST_NAME = "optional-payloads.json";
@@ -107,6 +113,10 @@ async function resolvePixelWorldWasmDescriptor({ moduleUrl = import.meta.url } =
     throw optionalPayloadMissingError(payload?.reason || "source_missing");
   }
 
+  if (payload.render_input_schema_version !== undefined && payload.render_input_schema_version !== 1) {
+    throw optionalPayloadIntegrityError("unsupported_render_input_schema");
+  }
+
   let url;
   try {
     url = new URL(payload.path, configuredOptionalPayloadBaseUrl(manifestUrl));
@@ -128,45 +138,44 @@ function bytesToHex(bytes) {
   return Array.from(new Uint8Array(bytes), (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function loadPixelWorldWasmInput({ moduleUrl = import.meta.url } = {}) {
-  const descriptor = await resolvePixelWorldWasmDescriptor({ moduleUrl });
-  if (!descriptor.integrity) {
-    return descriptor.url;
-  }
-
-  let response;
-  try {
-    response = await fetch(descriptor.url, { cache: "no-store" });
-  } catch (error) {
-    throw optionalPayloadFetchError(error instanceof Error ? error.message : "network_error");
-  }
-  if (!response?.ok) {
-    throw optionalPayloadFetchError(`http_${response?.status ?? "unknown"}`);
-  }
-
+async function readVerifiedPixelWorldPayload(descriptor, cache) {
+  // Legacy stable URLs retain no-store. Only immutable content-addressed bytes
+  // can be reused across page loads, and every reuse is still verified.
+  const controller = cache === "no-store" ? null : new AbortController();
+  const timeout = controller ? setTimeout(() => controller.abort(), 30000) : null;
   let bytes;
+  publishResourceStage("download");
   try {
+    const response = await fetch(descriptor.url, {cache, ...(controller ? {signal:controller.signal} : {})});
+    if (!response?.ok) throw optionalPayloadFetchError(`http_${response?.status ?? "unknown"}`);
     bytes = new Uint8Array(await response.arrayBuffer());
   } catch (error) {
-    throw optionalPayloadFetchError(error instanceof Error ? error.message : "body_read_failed");
-  }
-  if (bytes.byteLength !== descriptor.integrity.sizeBytes) {
-    throw optionalPayloadIntegrityError("size_mismatch");
-  }
-  if (!globalThis.crypto?.subtle?.digest) {
-    throw optionalPayloadIntegrityError("crypto_unavailable");
-  }
-
+    if (error?.code) throw error;
+    throw optionalPayloadFetchError(error instanceof Error ? error.message : "network_error");
+  } finally { if (timeout !== null) clearTimeout(timeout); }
+  publishResourceStage("verify");
+  if (bytes.byteLength !== descriptor.integrity.sizeBytes) throw optionalPayloadIntegrityError("size_mismatch");
+  if (!globalThis.crypto?.subtle?.digest) throw optionalPayloadIntegrityError("crypto_unavailable");
   let digest;
-  try {
-    digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  } catch {
-    throw optionalPayloadIntegrityError("digest_failed");
-  }
-  if (bytesToHex(digest) !== descriptor.integrity.sha256) {
-    throw optionalPayloadIntegrityError("sha256_mismatch");
-  }
+  try { digest = await globalThis.crypto.subtle.digest("SHA-256", bytes); }
+  catch { throw optionalPayloadIntegrityError("digest_failed"); }
+  if (bytesToHex(digest) !== descriptor.integrity.sha256) throw optionalPayloadIntegrityError("sha256_mismatch");
   return bytes;
+}
+
+async function loadPixelWorldWasmInput({ moduleUrl = import.meta.url } = {}) {
+  publishResourceStage("descriptor");
+  const descriptor = await resolvePixelWorldWasmDescriptor({moduleUrl});
+  if (!descriptor.integrity) return descriptor.url;
+  const hashed = descriptor.url.pathname.endsWith(`/${descriptor.integrity.sha256}.wasm`);
+  try { return await readVerifiedPixelWorldPayload(descriptor, hashed ? "default" : "no-store"); }
+  catch (error) {
+    if (!hashed || error?.code !== PIXEL_WORLD_OPTIONAL_PAYLOAD_INTEGRITY_CODE
+        || !/size_mismatch|sha256_mismatch/.test(error.message)) throw error;
+    // One fresh fetch repairs a corrupt cached entry; never silently change the
+    // descriptor, accept old bytes or spin in an automatic retry loop.
+    return readVerifiedPixelWorldPayload(descriptor, "reload");
+  }
 }
 
 function pixelWorldTestApiEnabled() {
@@ -175,9 +184,12 @@ function pixelWorldTestApiEnabled() {
 
 function ensurePixelWorldBridgeModule() {
   if (!runtimeInitPromise) {
-    runtimeInitPromise = loadPixelWorldWasmInput().then((wasmInput) => (
-      initPixelWorldBridgeModule(wasmInput)
-    ));
+    const attempt = loadPixelWorldWasmInput().then(wasmInput => {
+      publishResourceStage("prepare");
+      return initPixelWorldBridgeModule({module_or_path:wasmInput});
+    }).then(() => publishResourceStage("ready"));
+    runtimeInitPromise = attempt;
+    attempt.catch(() => { if (runtimeInitPromise === attempt) { runtimeInitPromise = null; publishResourceStage("unavailable"); } });
   }
   return runtimeInitPromise;
 }
@@ -196,7 +208,11 @@ function toCanvasPoint(canvas, event) {
 }
 
 export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
-  await ensurePixelWorldBridgeModule();
+  const progress = stage => onEvent?.({type:"resource_stage", stage});
+  resourceStageListeners.add(progress);
+  progress(resourceStage);
+  try { await ensurePixelWorldBridgeModule(); }
+  finally { resourceStageListeners.delete(progress); }
 
   let mountedCanvas = null;
   let animationFrameId = null;
@@ -464,7 +480,8 @@ export function derivePixelWorldRenderState(input) {
   if (!runtimeInitPromise) {
     throw new Error("pixel world bridge module is not initialized");
   }
-  return build_pixel_world_render_state(input);
+  if (input?.schema_version !== 1) throw new Error("unsupported pixel world render input version");
+  return build_pixel_world_render_state_json(JSON.stringify(input));
 }
 
 export {
