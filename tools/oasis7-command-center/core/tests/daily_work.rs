@@ -285,7 +285,7 @@ fn later_private_mark_hides_saved_derived_records_without_deleting_them() {
         },
     );
     let runtime_db = temp.path().join("runtime.db");
-    let _runtime = oasis7_command_center_core::codex::Runtime::open(&runtime_db).unwrap();
+    rusqlite::Connection::open(&runtime_db).unwrap().execute_batch("CREATE TABLE cc_runtime_private_inputs(scope TEXT NOT NULL, thread TEXT NOT NULL, reference TEXT NOT NULL, PRIMARY KEY(scope,thread,reference));").unwrap();
     core.use_runtime_privacy_database(&runtime_db).unwrap();
     let database = rusqlite::Connection::open(&runtime_db).unwrap();
     database

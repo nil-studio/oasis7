@@ -19,7 +19,7 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 | 查看、刷新、汇报进度 | 读取事实，更新已有派生视图或给出简报；不创建任务、发评论、改业务状态 |
 | 持续维护项目状态或架构索引 | 按[持续更新流程](../../doc/engineering/command-center/command-center.manual.md)更新受影响文档；在已有授权内走普通分支/PR，不把只读查看变成远端写入 |
 | 记录、修改一项决策 | 在已有授权范围内更新对应主责文档，再刷新索引与关联 |
-| 启动、继续、追加指令、停止开发任务 | 核对明确目标与实际可用适配器，在已有授权内执行并回读结果 |
+| 从看板接续开发工作 | 打开原 PR/工作树或明确外部会话定位；实际任务在原工具执行 |
 | 只要设计方案或 Skill | 交付要求的文档或 Skill，不顺带实施应用 |
 
 已有授权持续有效。只问影响具体决定的缺失信息，先完成独立可做的工作。查看状态不意味着授权启动 Codex、外部模型任务、合入或部署。
@@ -38,7 +38,7 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 1. 对照正式 PRD 的相关 `REQ-CC`/`AC-CC` 确定本次用户结果，按[客户端实施方法](references/desktop-client.md)查找当前实现与适用入口；不要把目标设计描述成已完成软件。
 2. 按正式系统设计采用已选技术基线和代码边界，核对当前依赖与用户约束。需要改变行为或架构时更新主责文档，不在 Skill 内保留第二套决定。
 3. 先贯通真实来源、派生数据和页面，再逐步接入所需能力。演示数据只进入标明的演示入口；未接入区域按正式 PRD 显示范围。
-4. 按[视图刷新方法](references/view-model.md)核对目标、规范及交付关系；需要会话连接或执行动作时读取[Codex 接入方法](references/codex-integration.md)。刷新不启动模型任务。
+4. 按[视图刷新方法](references/view-model.md)核对目标、规范及交付关系；需要原会话定位时读取[Codex 外部接续方法](references/codex-integration.md)。刷新不启动模型任务。
 5. 复用适合的组件和已有工具方法。UI 设计 Skill 适合且可用时按需采用；不要为看板改造世界运行时、公共 `site/` 或玩家 Viewer。
 
 实施、调试、验证和评审按需使用 `.agents/skills/README.md`，不串固定角色链。一个清楚目的尽量在一个 PR 原子完成；只读查询不创建分支、Issue 或远程记录。
@@ -68,4 +68,4 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 - [项目入口地图](references/project-map.md)：定位当前主责来源、迁移关系和已有方法。
 - [客户端实施方法](references/desktop-client.md)：把已确认设计转为实际客户端改动。
 - [视图刷新方法](references/view-model.md)：采集、关联、回顾决定及生成简报。
-- [Codex 接入方法](references/codex-integration.md)：核实安装版本与能力，连接开发会话并执行明确动作。
+- [Codex 外部接续方法](references/codex-integration.md)：保存准确定位，打开原会话或复制入口；不连接或控制运行时。

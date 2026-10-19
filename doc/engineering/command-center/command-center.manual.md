@@ -1,5 +1,8 @@
 # 指挥面板持续更新流程
 
+> 2026-10-19 产品边界收缩：指挥中心读取本地文档/Git、GitHub PR/CI并保存个人问题与决定；Codex 仅保留原会话外部打开或准确定位复制。自管 app-server、发任务/追加/中断、运行请求同步/回复及 Codex 退出协调已退役，旧数据不删除不重放。独立 ToolHost 工具任务退出保护保留。以下既有日期、实施与验收记录保持历史范围，不代表退役能力仍可使用；本轮结果以当前实现 PR 为准。
+
+
 - 文档 ID：`MANUAL-ENGINEERING-COMMAND-CENTER`
 - 状态：`active`
 - owner_role：`producer_system_designer`

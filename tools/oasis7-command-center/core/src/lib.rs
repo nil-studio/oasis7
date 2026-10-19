@@ -1,4 +1,3 @@
-pub mod codex;
 pub mod context;
 pub mod daily_work;
 pub mod document_directory;
@@ -10,6 +9,7 @@ pub mod document_tree_reading;
 pub mod domain;
 pub mod github;
 mod index;
+mod legacy_privacy;
 pub mod process;
 pub mod tools;
 pub mod work_projection;
@@ -109,7 +109,7 @@ impl CommandCenter {
 impl CommandCenter {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let db = Connection::open(path)?;
-        codex::migrate(&db)?;
+        legacy_privacy::migrate(&db)?;
         context::migrate(&db)?;
         let preferences = load(&db, "personal", "preferences")?.unwrap_or_default();
         let current = Snapshot {
@@ -120,7 +120,7 @@ impl CommandCenter {
             preferences,
             reading_positions: Vec::new(),
             git: GitSnapshot::default(),
-            sources: vec![disconnected("github"), disconnected("codex")],
+            sources: vec![disconnected("github")],
         };
         let mut this = Self {
             db,
@@ -129,6 +129,7 @@ impl CommandCenter {
         };
         if let Some(snapshot) = load::<Snapshot>(&this.db, "cache", "snapshot")? {
             this.current = snapshot;
+            this.current.sources.retain(|source| source.kind != "codex");
         }
         this.load_personal()?;
         this.filter_private_cache()?;
