@@ -26,7 +26,7 @@ it('isolates unsaved inputs by project and restores them on return without savin
   fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
   fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'A 的决定'}});
   fireEvent.input(screen.getByLabelText('理由'),{target:{value:'A 的理由'}});
-  fireEvent.click(screen.getByRole('button',{name:'刷新本地事实'}));
+  fireEvent.click(screen.getByRole('button',{name:'刷新本地文档与 Git'}));
   await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
   expect(screen.getByLabelText('决定内容')).toHaveValue('A 的决定');
   await open('B');
@@ -74,7 +74,7 @@ it('preserves the current project inputs when opening fails or the picker is can
   await open('B');
   expect(screen.getByText('路径不可读取')).toBeInTheDocument();
   expect(screen.getByLabelText('决定内容')).toHaveValue('尚未保存');
-  fireEvent.click(screen.getByRole('button',{name:'选择文件夹'}));
+  fireEvent.click(screen.getByRole('button',{name:'选择项目文件夹'}));
   await waitFor(() => expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
   expect(screen.getByLabelText('决定内容')).toHaveValue('尚未保存');
 });
@@ -83,4 +83,26 @@ it('keeps an unsent search query per project and never turns navigation into a r
  let current=snapshot('A');mock.invoke.mockImplementation(async(command:string,args?:{path?:string})=>{if(command==='open_project')current=snapshot(args!.path!.slice(1));if(['query_view','open_project'].includes(command))return current;return github;});
  render(()=><App/>);fireEvent.click(screen.getByRole('button',{name:'项目与来源'}));await waitFor(()=>expect(screen.getByRole('button',{name:'打开项目'})).toBeEnabled());
  fireEvent.input(screen.getByLabelText('搜索规范、标题、路径或条款 ID'),{target:{value:'A 未提交查询'}});await open('B');expect(screen.getByLabelText('搜索规范、标题、路径或条款 ID')).toHaveValue('');await open('A');expect(screen.getByLabelText('搜索规范、标题、路径或条款 ID')).toHaveValue('A 未提交查询');expect(mock.invoke.mock.calls.some(([command])=>command==='save_daily_work'||command==='associate_work')).toBe(false);
+});
+
+it('offers the native folder picker first and opens the chosen project without a typed path',async()=>{
+ const empty={...snapshot('A'),project:null,preferences:{projectPath:null,view:'direction',query:''},sections:[]};
+ let finish!:(value:Snapshot|null)=>void;
+ mock.invoke.mockImplementation(async(command:string)=>{
+   if(command==='query_view')return empty;
+   if(command==='choose_project')return new Promise<Snapshot|null>(resolve=>{finish=resolve;});
+   return github;
+ });
+ render(()=><App/>);
+ const choose=screen.getByRole('button',{name:'选择项目文件夹'});
+ await waitFor(()=>expect(choose).toBeEnabled());
+ expect(choose).toHaveClass('primary');
+ expect(screen.queryByRole('button',{name:'刷新本地文档与 Git'})).not.toBeInTheDocument();
+ fireEvent.click(choose);
+ expect(screen.getByRole('button',{name:'正在读取…'})).toBeDisabled();
+ expect(screen.getByRole('button',{name:'取消读取'})).toBeEnabled();
+ finish(snapshot('Picked'));
+ await waitFor(()=>expect(screen.getByLabelText('本地仓库绝对路径')).toHaveValue('/Picked'));
+ expect(screen.queryByRole('button',{name:'选择项目文件夹'})).not.toBeInTheDocument();
+ expect(mock.invoke.mock.calls.some(([command])=>command==='open_project'||command==='refresh_github')).toBe(false);
 });

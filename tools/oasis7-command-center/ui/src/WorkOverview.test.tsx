@@ -137,3 +137,34 @@ it('opens only an explicit Codex thread link while keeping arbitrary locators co
  fireEvent.click(await screen.findByRole('button',{name:'原Codex工作'}));fireEvent.click(screen.getByRole('button',{name:'在 Codex 中打开原会话'}));
  expect(bridge.openSource).toHaveBeenCalledWith(url);await screen.findByText('已请求在 Codex 中打开原会话；执行与回答请在原工具完成。');
 });
+
+it('connects GitHub from the home goal instead of navigating to an unread empty list',async()=>{
+ const empty=projection();empty.items=[];empty.sources[0].state='unconnected';vi.mocked(bridge.workProjection).mockResolvedValue(empty);
+ const source=snapshot();source.sections=[{id:'goal',path:'doc/core/prd.md',title:'当前阶段交付目标与全局 P0',content:'实现明确目标'}] as Snapshot['sections'];
+ const connect=vi.fn(),execution=vi.fn();render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={0} onExecution={execution} onConnectGithub={connect}/>);
+ await screen.findByText('GitHub 尚未连接，已有 PR 工作还没有读取。');
+ const focus=screen.getByRole('heading',{name:'当前重点与下一步'}).closest('section')!;
+ fireEvent.click(within(focus).getByRole('button',{name:'连接 GitHub，读取工作'}));expect(connect).toHaveBeenCalledTimes(1);expect(execution).not.toHaveBeenCalled();
+});
+it('distinguishes source loading, failed reads and a successful empty window',async()=>{
+ const empty=projection();empty.items=[];empty.sources[0].state='empty';vi.mocked(bridge.workProjection).mockResolvedValue(empty);
+ const [busy,setBusy]=createSignal(true);const connect=vi.fn();render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} sourceBusy={busy()} onExecution={()=>{}} onConnectGithub={connect}/>);
+ await screen.findByText('正在读取工作来源；尚不能判断是否为空。');expect(screen.getByRole('button',{name:'重新读取 GitHub 工作'})).toBeDisabled();
+ setBusy(false);await screen.findByText('当前 GitHub 已读取范围没有工作；其他页面及来源仍未知。');
+ const failed=structuredClone(empty);failed.sources[0].state='error';failed.sources[0].error='登录失效';vi.mocked(bridge.workProjection).mockResolvedValue(failed);
+ fireEvent.click(screen.getByRole('button',{name:'刷新工作列表'}));await screen.findByText('工作来源读取失败；不能据此认定没有工作。');expect(screen.getByText('登录失效')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'重试读取 GitHub 工作'}));expect(connect).toHaveBeenCalledTimes(1);
+});
+it('keeps known work visible after a refresh fails and offers retry',async()=>{
+ vi.mocked(bridge.workProjection).mockResolvedValueOnce(projection()).mockRejectedValueOnce(new Error('offline'));
+ const connect=vi.fn();render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}} onConnectGithub={connect}/>);
+ await screen.findByRole('button',{name:'修复本地工具'});fireEvent.click(screen.getByRole('button',{name:'刷新工作列表'}));await screen.findByText(/工作读取失败：offline/);
+ expect(screen.getByRole('button',{name:'修复本地工具'})).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'重试读取 GitHub 工作'}));expect(connect).toHaveBeenCalledTimes(1);
+});
+it('clears a zero-match filter and places secondary setup after the work list',async()=>{
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ const work=await screen.findByRole('button',{name:'修复本地工具'});expect(screen.queryByText(/^下一步：/)).not.toBeInTheDocument();
+ const setup=screen.getByText('接续仅有原工具定位的外部会话');expect(work.compareDocumentPosition(setup)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'没有匹配'}});expect(screen.queryByRole('button',{name:'修复本地工具'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'清空筛选'}));expect(screen.getByLabelText('筛选工作')).toHaveValue('');expect(screen.getByRole('button',{name:'修复本地工具'})).toBeInTheDocument();
+});
