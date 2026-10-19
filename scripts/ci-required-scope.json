@@ -115,6 +115,18 @@
     ],
     "command_center": []
   },
+  "generated_inputs": [
+    {
+      "package": "oasis7_chain_runtime",
+      "producer": "crates/oasis7_chain_runtime/build.rs",
+      "producer_sha256": "3b1b763f29d475bc8381cd3217751b4ea8ad1b40532b07dc9b1903fa5573d48a",
+      "outputs": [
+        "native-build-metadata.txt",
+        "native-toolchain.txt",
+        "native-Cargo.lock"
+      ]
+    }
+  ],
   "package_groups": {
     "scenario_test_runner": ["oasis7_required"],
     "oasis7_runtime": ["oasis7_required", "launcher_web"],
@@ -592,6 +604,9 @@
         "scripts/cargo-dev.sh",
         "scripts/cargo-cache.py",
         "scripts/find-python-with-module.sh"
+      ],
+      "exclude": [
+        "tools/oasis7-command-center/README.md"
       ],
       "groups": [
         "command_center"
