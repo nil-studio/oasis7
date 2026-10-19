@@ -762,3 +762,6 @@ mod bounded_tick_tests;
 
 #[path = "formal_execution_tick_tests.rs"]
 mod successor_tick_tests;
+
+#[path = "formal_retention_overlay_prefetch_tests.rs"]
+mod overlay_prefetch_tests;

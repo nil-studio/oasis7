@@ -49,7 +49,8 @@ pub use durable_set_bootstrap::*;
 mod storage_shadow;
 pub use storage_shadow::{
     FormalStorageShadowOptions, FormalStorageShadowProgress, FormalStorageShadowReport,
-    advance_formal_storage_shadow, build_formal_storage_shadow,
+    FormalStorageShadowSession, advance_formal_storage_shadow,
+    advance_formal_storage_shadow_with_session, build_formal_storage_shadow,
     build_formal_storage_shadow_optimized, build_formal_storage_shadow_with_options,
 };
 

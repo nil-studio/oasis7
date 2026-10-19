@@ -4,6 +4,81 @@
 use std::{fs::OpenOptions, io::Write, os::unix::fs::OpenOptionsExt, path::PathBuf};
 
 static ACTIVE_CRASH_BLOCK: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// Recovery child rejects even a transient recreation of this exact released job.
+pub(crate) fn forbid_release_reverification(digest: &str) -> Result<(), String> {
+    let Ok(expected) = std::env::var("OASIS7_FORMAL_TEST_FORBID_REVERIFY_DIGEST") else {
+        return Ok(());
+    };
+    if expected != digest {
+        return Ok(());
+    }
+    let marker = PathBuf::from(
+        std::env::var_os("OASIS7_FORMAL_TEST_FORBID_REVERIFY_MARKER")
+            .ok_or("reverify observation path missing")?,
+    );
+    super::durable_transaction::write_private_file_durable(&marker, digest.as_bytes())?;
+    Err("test forbids recreating the exact ReleasePending closure verification job".into())
+}
+pub(crate) fn release_target_matches(digest: &str) -> Result<bool, String> {
+    let Some(marker) = std::env::var_os("OASIS7_FORMAL_TEST_CRASH_MARKER") else {
+        return Ok(false);
+    };
+    let target = PathBuf::from(marker).with_extension("release-target.cbor");
+    if !target.exists() {
+        return Ok(false);
+    }
+    let bytes = crate::controlled_history_cli::read_bounded(&target, 1024)?;
+    let (_, expected): (u64, String) = serde_cbor::from_slice(&bytes).map_err(|e| e.to_string())?;
+    Ok(expected == digest)
+}
+pub(crate) fn release_transport_failure(digest: &str, phase: &str) -> Result<(), String> {
+    let marker = PathBuf::from(
+        std::env::var_os("OASIS7_FORMAL_TEST_RELEASE_FAILURE_MARKER")
+            .ok_or("release failure observation path missing")?,
+    );
+    if !marker.exists() {
+        let bytes = serde_cbor::to_vec(&(digest, phase)).map_err(|e| e.to_string())?;
+        super::durable_transaction::write_private_file_durable(&marker, &bytes)?;
+    }
+    Ok(())
+}
+pub(crate) fn attempt_release_boundary(
+    phase: &str,
+    candidate: &oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+) -> Result<(), String> {
+    let selected = std::env::var("OASIS7_FORMAL_TEST_CRASH_PHASE").unwrap_or_default();
+    if !selected.starts_with("release_") {
+        return Ok(());
+    }
+    let material = candidate
+        .frozen_material
+        .as_ref()
+        .ok_or("release boundary Frozen material")?;
+    let manifest: super::formal_package::FormalExecutionManifestV1 =
+        super::controlled_capture::decode_role(material,
+            oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole::ExecutionManifest)?;
+    select_original_input(&manifest.continuation)?;
+    if ACTIVE_CRASH_BLOCK
+        .lock()
+        .map_err(|_| "release target lock poisoned")?
+        .is_none()
+    {
+        return Ok(());
+    }
+    let marker = PathBuf::from(
+        std::env::var_os("OASIS7_FORMAL_TEST_CRASH_MARKER").ok_or("release marker path")?,
+    );
+    let target = marker.with_extension("release-target.cbor");
+    let digest = super::formal_attempt_lifecycle::candidate_digest(candidate)?;
+    let bytes = serde_cbor::to_vec(&(candidate.candidate.record.position, digest))
+        .map_err(|e| e.to_string())?;
+    if !target.exists() {
+        super::durable_transaction::write_private_file_durable(&target, &bytes)?;
+    } else if std::fs::read(&target).map_err(|e| e.to_string())? != bytes {
+        return Err("release target changed".into());
+    }
+    stop_after(phase)
+}
 /// Only complete original input from this actual committed continuation can
 /// select a crash block. Empty heartbeat work never satisfies this predicate.
 pub(crate) fn select_original_input(

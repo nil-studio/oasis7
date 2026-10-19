@@ -4,6 +4,23 @@ use super::super::native_environment::{
 use super::*;
 use crate::controlled_authority::replicated_protocol::ClosedRecord;
 impl FileFormalEndpoint {
+    /// Expire only volatile verification evidence, never retained chunks/history.
+    /// The job map has at most two entries; this path performs no storage I/O.
+    pub(crate) fn reap_idle_native_environment_verifications(
+        &mut self,
+        now: std::time::Instant,
+    ) -> usize {
+        let before = self.native_environment_jobs.len();
+        self.native_environment_jobs.retain(|_, entry| {
+            now.saturating_duration_since(entry.last_activity) < std::time::Duration::from_secs(300)
+        });
+        let removed = before - self.native_environment_jobs.len();
+        if removed != 0 {
+            eprintln!("formal_endpoint_native_verification_idle_expired jobs={removed}");
+        }
+        removed
+    }
+
     pub fn stage_native_environment(
         &mut self,
         descriptor: &NativeExecutionEnvironmentV1,
@@ -54,6 +71,7 @@ impl FileFormalEndpoint {
         descriptor: &NativeExecutionEnvironmentV1,
     ) -> Result<NativeEnvironmentVerificationProgressV1, FormalError> {
         let _guard = self.guard()?;
+        self.reap_idle_native_environment_verifications(std::time::Instant::now());
         let id = descriptor.digest().map_err(invalid)?;
         if !self.native_environment_jobs.contains_key(&id) {
             if self.native_environment_jobs.len() >= 2 {
@@ -69,6 +87,7 @@ impl FileFormalEndpoint {
                 EndpointVerificationJob {
                     job: VerificationJob::new(descriptor.clone()),
                     _pin: pin,
+                    last_activity: std::time::Instant::now(),
                 },
             );
         }
@@ -77,11 +96,16 @@ impl FileFormalEndpoint {
             .native_environment_jobs
             .get_mut(&id)
             .ok_or_else(|| invalid("native verification job"))?;
-        let job = &mut job.job;
-        job.advance(|hash| {
+        job.last_activity = std::time::Instant::now();
+        let result = job.job.advance(|hash| {
             super::super::business_pack::read_object_durable(&directory.join(hash), hash)?
                 .ok_or_else(|| invalid("native local durable chunk missing"))
-        })?;
+        });
+        // Measure idleness from the end of the call, including an unsuccessful
+        // bounded read, rather than counting its own active I/O as idle time.
+        job.last_activity = std::time::Instant::now();
+        result?;
+        let job = &job.job;
         Ok(NativeEnvironmentVerificationProgressV1 {
             complete: job.complete(),
             verified_chunks: job
@@ -96,10 +120,23 @@ impl FileFormalEndpoint {
             endpoint_instance: self.instance().clone(),
         })
     }
+    /// Idempotently release ephemeral verification evidence. Original descriptor
+    /// and chunk bytes remain retained; a later Prepare must verify them afresh.
+    pub fn release_native_environment_verification(
+        &mut self,
+        descriptor_digest: &str,
+    ) -> Result<(), FormalError> {
+        let _guard = self.guard()?;
+        hash_hex(descriptor_digest)?;
+        self.native_environment_jobs.remove(descriptor_digest);
+        Ok(())
+    }
+
     pub(super) fn take_native_environment(
         &mut self,
         material: &ClosedRecord,
     ) -> Result<Option<EndpointVerificationJob>, FormalError> {
+        self.reap_idle_native_environment_verifications(std::time::Instant::now());
         if let Some(descriptor) = material
             .native_environment()
             .map_err(|e| invalid(e.to_string()))?

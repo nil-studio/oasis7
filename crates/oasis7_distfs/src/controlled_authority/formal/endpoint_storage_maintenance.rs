@@ -30,6 +30,31 @@ impl FileFormalEndpoint {
         // and verifies each original object, including every old phase, rather
         // than repeatedly materializing an ever-growing typed mark set here.
         // It never reclaims logical objects or external dependencies.
-        super::super::physical::advance_generation(&root)
+        super::super::physical::advance_with_session(
+            &root,
+            &mut self.physical_maintenance.generation,
+        )
+    }
+}
+
+#[path = "endpoint_storage_scheduler.rs"]
+mod scheduler;
+pub(super) use scheduler::MaintenanceState;
+
+#[path = "endpoint_storage_inventory.rs"]
+mod inventory;
+pub use inventory::{FormalStorageLogicalInventoryPage, FormalStorageLogicalObject};
+
+impl FileFormalEndpoint {
+    pub(super) fn advance_automatic_physical_generation(
+        &mut self,
+    ) -> Result<super::super::physical::FormalGenerationProgress, FormalError> {
+        let _authority_guard = self.guard()?;
+        let root = self.store.path.join("formal-objects-v1");
+        super::super::physical::advance_with_budget(
+            &root,
+            &mut self.physical_maintenance.generation,
+            super::super::physical::GenerationBudget::automatic(),
+        )
     }
 }

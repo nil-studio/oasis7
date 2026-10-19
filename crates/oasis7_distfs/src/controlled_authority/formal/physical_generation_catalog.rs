@@ -566,13 +566,22 @@ pub(super) fn validate_retired(values: &[Retired]) -> Result<(), FormalError> {
     }
     Ok(())
 }
+#[cfg(test)]
 pub(super) fn prune(
     dir: &Path,
     roots: [&Catalogs; 2],
     pending: &mut Vec<Retired>,
 ) -> Result<(), FormalError> {
+    prune_with_limit(dir, roots, pending, 1024)
+}
+pub(super) fn prune_with_limit(
+    dir: &Path,
+    roots: [&Catalogs; 2],
+    pending: &mut Vec<Retired>,
+    limit: usize,
+) -> Result<(), FormalError> {
     validate_retired(pending)?;
-    let count = pending.len().min(1024);
+    let count = pending.len().min(limit);
     for value in pending.iter().take(count) {
         let mut live = false;
         for root in roots {

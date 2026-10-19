@@ -197,9 +197,10 @@ impl Corpus {
             eprintln!("STORAGE_CAPACITY_PHASE=shadow_start domain={index}");
             let options=FormalStorageShadowOptions { optimized:true, max_logical_bytes:progress.step_bytes };
             let mut previous_phase=String::new();
+            let mut session=FormalStorageShadowSession::default();
             let shadow=loop {
                 progress.check_time();
-                let progress=advance_formal_storage_shadow(&domain.root,&domain.optimized.join("formal-objects-v1"),&options).unwrap();
+                let progress=advance_formal_storage_shadow_with_session(&domain.root,&domain.optimized.join("formal-objects-v1"),&options,&mut session).unwrap();
                 if progress.phase != previous_phase {
                     eprintln!("STORAGE_CAPACITY_PHASE=shadow_{} domain={index} processed={} total={}",progress.phase,progress.processed_records,progress.total_records);
                     previous_phase=progress.phase.clone();

@@ -352,6 +352,22 @@ impl FormalDurabilityEndpoint for RemoteFormalEndpoint {
         }
     }
 
+    fn release_native_environment_verification(
+        &mut self,
+        descriptor_digest: &str,
+    ) -> Result<(), FormalError> {
+        hash_hex(descriptor_digest)?;
+        match self
+            .call(Command::ReleaseNativeEnvironmentVerification {
+                descriptor_digest: descriptor_digest.into(),
+            })?
+            .0
+        {
+            Value::Complete => Ok(()),
+            _ => Err(invalid("native verification release response type")),
+        }
+    }
+
     fn release_published_closure(&mut self, candidate_digest: &str) -> Result<(), FormalError> {
         match self
             .call(Command::ReleasePublishedClosure {

@@ -6,7 +6,33 @@ enum AttemptReclaimProgress {
     Yield,
 }
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R> {
+    pub(crate) fn advance_storage_maintenance_result(&mut self) -> Result<bool, String> {
+        if !self.maintenance_session_started {
+            // Preserve a live paged job, but restart discovery for this stopped
+            // session. Completing that inherited job cannot establish EOF for
+            // the discarded iterator: older ReleasePending debt may remain.
+            self.attempt_scan = None;
+            self.attempt_scan_complete = false;
+            self.attempt_scan_blocked = None;
+            self.maintenance_session_started = true;
+        }
+        if self.attempt_scan.is_none() && self.attempt_reclaim_current.is_none() {
+            self.attempt_scan_blocked = None;
+        }
+        self.advance_storage_maintenance_inner();
+        if let Some(error) = &self.attempt_scan_blocked {
+            return Err(error.clone());
+        }
+        Ok(self.attempt_scan_complete
+            && self.attempt_scan.is_none()
+            && self.attempt_reclaim_current.is_none())
+    }
     pub(crate) fn advance_storage_maintenance(&mut self) {
+        // A live polling step ends the previous stopped observation session.
+        self.maintenance_session_started = false;
+        self.advance_storage_maintenance_inner();
+    }
+    fn advance_storage_maintenance_inner(&mut self) {
         let position = self.anchor.head().record().position;
         let timing = super::super::formal_execution_timing::FormalExecutionTiming::begin(
             "maintenance",
@@ -20,8 +46,24 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 candidate,
                 proof,
             }),
-            Ok(None) => {}
-            Err(error) => eprintln!("formal-attempt maintenance blocked reason={error}"),
+            Ok(None) => {
+                if !matches!(
+                    self.anchor.head().record().kind,
+                    FormalRecordKindV1::InitialActivation
+                ) {
+                    self.attempt_scan_blocked = Some(
+                        "current publication missing; maintenance cannot prove convergence".into(),
+                    );
+                } else if self.attempt_scan.is_none() && self.attempt_reclaim_current.is_none() {
+                    // Initial activation has no execution attempt to reclaim.
+                    // Higher, still-unqualified attempts remain protected.
+                    self.attempt_scan_complete = true;
+                }
+            }
+            Err(error) => {
+                self.attempt_scan_blocked = Some(error.clone());
+                eprintln!("formal-attempt maintenance blocked reason={error}");
+            }
         }
     }
     /// Retention failure does not change the already qualified result. The exact
@@ -38,10 +80,15 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             return;
         }
         if self.attempt_scan.is_none() {
+            self.attempt_scan_complete = false;
             match std::fs::read_dir(self.root.join("attempts")) {
                 Ok(scan) => self.attempt_scan = Some(scan),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    self.attempt_scan_complete = true;
+                    return;
+                }
                 Err(e) => {
+                    self.attempt_scan_blocked = Some(e.to_string());
                     eprintln!("formal-attempt inventory blocked reason={e}");
                     return;
                 }
@@ -50,11 +97,13 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         for _ in 0..16 {
             let Some(next) = self.attempt_scan.as_mut().and_then(Iterator::next) else {
                 self.attempt_scan = None;
+                self.attempt_scan_complete = true;
                 break;
             };
             let path = match next {
                 Ok(entry) => entry.path(),
                 Err(e) => {
+                    self.attempt_scan_blocked = Some(e.to_string());
                     eprintln!("formal-attempt inventory blocked reason={e}");
                     break;
                 }
@@ -72,6 +121,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             }
             Ok(_) => return false,
             Err(error) => {
+                self.attempt_scan_blocked = Some(error.clone());
                 eprintln!("formal-attempt inventory blocked reason={error}");
                 return false;
             }
@@ -85,8 +135,13 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                     candidate,
                     proof,
                 }),
-                Ok(None) => return false,
+                Ok(None) => {
+                    self.attempt_scan_blocked =
+                        Some("attempt original publication unavailable".into());
+                    return false;
+                }
                 Err(error) => {
+                    self.attempt_scan_blocked = Some(error.clone());
                     eprintln!(
                         "formal-attempt publication blocked position={position} reason={error}"
                     );
@@ -114,9 +169,16 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             Some(&expected.candidate.candidate.record.request_digest),
             || self.try_reclaim_published_attempts(expected, attempt_path),
         ) {
-            Ok(progress) => return matches!(progress, AttemptReclaimProgress::Pending),
+            Ok(progress) => {
+                if matches!(progress, AttemptReclaimProgress::Yield) {
+                    self.attempt_scan_blocked =
+                        Some("attempt closure capacity; retry required".into());
+                }
+                return matches!(progress, AttemptReclaimProgress::Pending);
+            }
             Err(error) => error,
         };
+        self.attempt_scan_blocked = Some(error.clone());
         if let Ok(digest) =
             super::super::formal_attempt_lifecycle::candidate_digest(&expected.candidate)
         {
@@ -189,6 +251,46 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             .map_err(|e| e.to_string())?;
         let digest = super::super::formal_attempt_lifecycle::candidate_digest(&actual.candidate)?;
         let request = &actual.candidate.candidate.record.request_digest;
+        let publication_digest = blake3::hash(&bytes).to_hex().to_string();
+        if super::super::formal_attempt_lifecycle::release_pending(
+            attempt_path,
+            &actual.candidate,
+            &publication_digest,
+        )? {
+            let (primary, replica) = self.coordinator.endpoints_mut();
+            super::super::formal_native_environment::release_unused_verification(
+                primary,
+                replica,
+                &actual.candidate,
+            )?;
+            #[cfg(all(test, unix))]
+            super::super::formal_crash_test_boundary::attempt_release_boundary(
+                "release_before_primary",
+                &actual.candidate,
+            )?;
+            primary
+                .release_published_closure(&digest)
+                .map_err(|e| e.to_string())?;
+            #[cfg(all(test, unix))]
+            super::super::formal_crash_test_boundary::attempt_release_boundary(
+                "release_after_primary",
+                &actual.candidate,
+            )?;
+            replica
+                .release_published_closure(&digest)
+                .map_err(|e| e.to_string())?;
+            #[cfg(all(test, unix))]
+            super::super::formal_crash_test_boundary::attempt_release_boundary(
+                "release_replica_reply_lost",
+                &actual.candidate,
+            )?;
+            super::super::formal_attempt_lifecycle::finish_release(
+                attempt_path,
+                &actual.candidate,
+                &publication_digest,
+            )?;
+            return Ok(AttemptReclaimProgress::Complete);
+        }
         super::super::formal_attempt_lifecycle::mark(
             attempt_path,
             &digest,
@@ -245,16 +347,41 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         if !complete {
             return Ok(AttemptReclaimProgress::Pending);
         }
+        super::super::formal_native_environment::release_unused_verification(
+            primary,
+            replica,
+            &actual.candidate,
+        )?;
+        #[cfg(all(test, unix))]
+        super::super::formal_crash_test_boundary::attempt_release_boundary(
+            "release_before_primary",
+            &actual.candidate,
+        )?;
         timing
             .step("primary_release_closure", Some(&digest), || {
                 primary.release_published_closure(&digest)
             })
             .map_err(|e| e.to_string())?;
+        #[cfg(all(test, unix))]
+        super::super::formal_crash_test_boundary::attempt_release_boundary(
+            "release_after_primary",
+            &actual.candidate,
+        )?;
         timing
             .step("replica_release_closure", Some(&digest), || {
                 replica.release_published_closure(&digest)
             })
             .map_err(|e| e.to_string())?;
+        #[cfg(all(test, unix))]
+        super::super::formal_crash_test_boundary::attempt_release_boundary(
+            "release_replica_reply_lost",
+            &actual.candidate,
+        )?;
+        super::super::formal_attempt_lifecycle::finish_release(
+            attempt_path,
+            &actual.candidate,
+            &publication_digest,
+        )?;
         Ok(AttemptReclaimProgress::Complete)
     }
 }

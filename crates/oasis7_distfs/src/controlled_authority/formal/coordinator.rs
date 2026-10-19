@@ -17,6 +17,17 @@ pub trait FormalDurabilityEndpoint: Send {
         Err(invalid("native environment verification unavailable"))
     }
 
+    /// Release only this descriptor's ephemeral verification job/read pin.
+    /// Unsupported adapters must not pretend a native verification pin was freed.
+    fn release_native_environment_verification(
+        &mut self,
+        _descriptor_digest: &str,
+    ) -> Result<(), FormalError> {
+        Err(invalid(
+            "native environment verification release unavailable",
+        ))
+    }
+
     /// Release only maintenance read pins; this never changes authority,
     /// qualification, or the logical retention set.
     fn release_published_closure(&mut self, _candidate_digest: &str) -> Result<(), FormalError> {
@@ -91,6 +102,13 @@ impl FormalDurabilityEndpoint for FileFormalEndpoint {
         descriptor: &native_environment::NativeExecutionEnvironmentV1,
     ) -> Result<NativeEnvironmentVerificationProgressV1, FormalError> {
         FileFormalEndpoint::advance_native_environment_verification(self, descriptor)
+    }
+
+    fn release_native_environment_verification(
+        &mut self,
+        descriptor_digest: &str,
+    ) -> Result<(), FormalError> {
+        FileFormalEndpoint::release_native_environment_verification(self, descriptor_digest)
     }
 
     fn release_published_closure(&mut self, candidate_digest: &str) -> Result<(), FormalError> {
@@ -428,6 +446,32 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalCoordinator
         }
         if qualified_count == 2 {
             let proof = qualified.expect("two matching qualified results");
+            // Recovery may freshly verify native bytes before discovering the
+            // retained Qualified result. No Prepare will consume those pins.
+            // Release both material identities before reporting a completed
+            // retry; a failed acknowledgement leaves the original retryable.
+            let mut environments = std::collections::BTreeSet::new();
+            for material in
+                std::iter::once(&candidate.material).chain(candidate.frozen_material.iter())
+            {
+                if let Some(environment) = material.native_environment().map_err(|error| {
+                    FormalCoordinatorErrorV1::Rejected(invalid(error.to_string()))
+                })? {
+                    environments.insert(
+                        environment
+                            .digest()
+                            .map_err(|error| FormalCoordinatorErrorV1::Rejected(invalid(error)))?,
+                    );
+                }
+            }
+            for environment in environments {
+                self.primary
+                    .release_native_environment_verification(&environment)
+                    .map_err(|cause| self.unknown(&request, cause))?;
+                self.replica
+                    .release_native_environment_verification(&environment)
+                    .map_err(|cause| self.unknown(&request, cause))?;
+            }
             // Retrying a known result may restore the current session parent,
             // but an older permanent-index result must never move it backwards.
             let next = self.parent.as_ref().map_or(

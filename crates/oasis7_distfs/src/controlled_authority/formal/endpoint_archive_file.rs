@@ -150,8 +150,12 @@ mod tests {
         let source = FileFormalArchiveSourceV1::new(root.clone()).unwrap();
         assert_eq!(source.logical_ids().unwrap(), vec![id.clone()]);
         let mut selected = false;
+        let mut session = physical::GenerationSession::default();
         for _ in 0..32 {
-            if !physical::advance_generation(&objects).unwrap().building {
+            if !physical::advance_with_session(&objects, &mut session)
+                .unwrap()
+                .building
+            {
                 selected = true;
                 break;
             }

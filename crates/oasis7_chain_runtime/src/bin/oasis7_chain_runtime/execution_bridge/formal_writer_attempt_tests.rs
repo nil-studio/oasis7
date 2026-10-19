@@ -126,8 +126,51 @@ fn published_attempt_reclamation_retries_independent_readback_and_partial_unlink
     let unique = attempt.join("unique-recovery-evidence");
     std::fs::write(&unique, b"unknown external delivery receipt").unwrap();
     replica.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().release_failures = 1;
     let mut reopened = open().unwrap();
+    assert_eq!(summary().phase, "ReleasePending");
+    let hidden_publication = root.join("hidden-publication.cbor");
+    std::fs::rename(&publication_path, &hidden_publication).unwrap();
+    assert!(reopened.advance_storage_maintenance_result().is_err());
+    assert_eq!(summary().phase, "ReleasePending");
+    std::fs::rename(&hidden_publication, &publication_path).unwrap();
+    assert!(
+        super::super::super::formal_attempt_lifecycle::release_pending(
+            &attempt,
+            &exact.candidate,
+            &"00".repeat(32),
+        )
+        .is_err(),
+        "a changed publication cannot authorize release"
+    );
+    assert!(
+        super::super::super::formal_attempt_lifecycle::mark(
+            &attempt,
+            &digest,
+            super::super::super::formal_attempt_lifecycle::Phase::RecoveryPinned,
+            "release unavailable",
+        )
+        .is_err(),
+        "release debt cannot fall back to verification"
+    );
+    let verified_p = primary.0.lock().unwrap().closure_verifications;
+    let verified_r = replica.0.lock().unwrap().closure_verifications;
+    assert!(primary.0.lock().unwrap().release_calls > 0);
+    // Only writer restarts: endpoints survive. Released jobs must never be
+    // recreated merely to release the other endpoint's remaining pin.
+    drop(reopened);
+    primary.0.lock().unwrap().closure_readback = false;
+    replica.0.lock().unwrap().closure_readback = false;
+    let mut reopened = open().unwrap();
+    for _ in 0..16 {
+        if summary().phase == "Reclaimed" {
+            break;
+        }
+        reopened.advance_storage_maintenance();
+    }
     assert_eq!(summary().phase, "Reclaimed");
+    assert_eq!(primary.0.lock().unwrap().closure_verifications, verified_p);
+    assert_eq!(replica.0.lock().unwrap().closure_verifications, verified_r);
     for id in &outputs {
         assert!(
             !attempt
@@ -236,6 +279,110 @@ fn pending_attempt_finishes_while_new_attempt_directories_keep_arriving() {
         original.phase, "Reclaimed",
         "new arrivals cannot dilute a live original job"
     );
+    drop(writer);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn stopped_maintenance_scans_release_debt_after_inherited_live_job_finishes() {
+    let policy = ReleaseSecurityPolicy::default();
+    let (world, _, anchor, _) = fixtures::actual_world_initial_fixture_with_execution_policy(
+        formal_package::execution_policy_material(&policy)
+            .unwrap()
+            .2,
+    );
+    let primary = endpoint(&anchor, EndpointRole::Primary, false);
+    let replica = endpoint(&anchor, EndpointRole::Replica, false);
+    let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+        "oasis7-attempt-stopped-scan-{}",
+        std::process::id(),
+    ));
+    assert!(!root.exists());
+    let mut writer = FormalWriter::open(
+        root.clone(),
+        fixtures::key(4),
+        policy,
+        world.clone(),
+        anchor,
+        primary.clone(),
+        replica.clone(),
+    )
+    .unwrap();
+    assert!(
+        writer.advance_storage_maintenance_result().unwrap(),
+        "initial activation without a publication has no eligible reclaim work"
+    );
+    writer.prepare(&continuation(&world)).unwrap();
+    writer.resume_original().unwrap();
+    let attempts = root.join("attempts");
+    let current = std::fs::read_dir(&attempts)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let manifest_name = "attempt-lifecycle-v1.cbor";
+    let phase = |path: &Path| -> String {
+        let value: serde_json::Value =
+            serde_cbor::from_slice(&std::fs::read(path.join(manifest_name)).unwrap()).unwrap();
+        value["phase"].as_str().unwrap().into()
+    };
+    // Model a second independently named attempt of the exact same original,
+    // interrupted after its duplicate blobs were removed. Its durable manifest
+    // still binds the original candidate; missing duplicate files are resumable.
+    let debt = attempts.join("prior-release-debt");
+    for path in [&debt, &debt.join("storage"), &debt.join("storage/blobs")] {
+        super::super::super::controlled_live::private_directory(path).unwrap();
+    }
+    let mut manifest: serde_cbor::Value =
+        serde_cbor::from_slice(&std::fs::read(current.join(manifest_name)).unwrap()).unwrap();
+    let serde_cbor::Value::Map(ref mut fields) = manifest else {
+        panic!("attempt map")
+    };
+    fields.insert(
+        serde_cbor::Value::Text("attempt_id".into()),
+        serde_cbor::Value::Text("prior-release-debt".into()),
+    );
+    durable_transaction::write_private_file_durable(
+        &debt.join(manifest_name),
+        &serde_cbor::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    primary.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().release_failures = 1;
+    writer.attempt_reclaim_current = Some(debt.clone());
+    writer.advance_storage_maintenance();
+    assert_eq!(phase(&debt), "ReleasePending");
+
+    // Pin the scheduler to a genuine unfinished modeled closure job without
+    // relying on filesystem enumeration order. A stopped drain discards the
+    // live iterator but must preserve this job's progress and then scan again.
+    primary.0.lock().unwrap().closure_pending_pages = 1;
+    writer.attempt_scan = Some(std::fs::read_dir(&attempts).unwrap());
+    writer.attempt_reclaim_current = Some(current.clone());
+    writer.maintenance_session_started = false;
+    assert!(!writer.advance_storage_maintenance_result().unwrap());
+    assert!(
+        !writer.advance_storage_maintenance_result().unwrap(),
+        "finishing one inherited job is not a complete stopped-session scan"
+    );
+    assert_eq!(phase(&current), "Reclaimed");
+    assert_eq!(phase(&debt), "ReleasePending");
+    let mut complete = false;
+    for arrival in 0..32 {
+        // New unmanaged evidence cannot reset or dilute the existing scan.
+        super::super::super::controlled_live::private_directory(
+            &attempts.join(format!("new-evidence-{arrival}")),
+        )
+        .unwrap();
+        if writer.advance_storage_maintenance_result().unwrap() {
+            complete = true;
+            break;
+        }
+    }
+    assert!(complete, "stopped maintenance must observe directory EOF");
+    assert_eq!(phase(&debt), "Reclaimed");
     drop(writer);
     std::fs::remove_dir_all(root).unwrap();
 }

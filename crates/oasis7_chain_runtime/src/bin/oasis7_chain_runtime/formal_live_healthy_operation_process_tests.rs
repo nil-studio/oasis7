@@ -4,6 +4,8 @@
 mod fixed_lookup;
 #[path = "formal_live_healthy_operation_process_tests/raw_seed.rs"]
 mod raw_seed;
+#[path = "formal_live_healthy_operation_stop.rs"]
+mod stopping;
 use super::durable_set_tests::{HealthySetCase, ManagedEndpointChild, stop_healthy_runtime};
 use super::*;
 use crate::{formal_live_runtime, node_lifecycle::local_io as io};
@@ -1020,14 +1022,11 @@ pub(super) fn exercise_with_fault(
     if second_cancelled["state"] != "cancelled" {
         return Err("second-epoch admission cannot be cancelled before arm".into());
     }
-    let stopped = formal_live_runtime::stop_operation_owner(
+    stopping::stop_exact_successor_owner(
         &case.runtime_config_path,
         &successor,
-        Duration::from_secs(10),
+        case.scenario_deadline,
     )?;
-    if stopped.state != "stopped" {
-        return Err("test cleanup did not stop exact successor owner".into());
-    }
     case.scenario_deadline
         .report_stage("shipping CLI operation and original result verified")?;
     drop((new_primary, new_replica, successor_oracle));

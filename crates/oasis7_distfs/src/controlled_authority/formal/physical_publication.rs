@@ -95,10 +95,66 @@ fn flush_frame_directories(root: &Path) -> Result<(), FormalError> {
 }
 #[cfg(test)]
 thread_local! { static FRAME_BATCH_BARRIERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+thread_local! { pub(super) static FULL_RECOVERY_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 /// Caller holds the stable root's exclusive kernel fence and endpoint lease.
+/// Generation imports may capture only a subset of a source shared recipe.
+/// Only actual selector IDs are checked; recipe membership never promotes an
+/// uncaptured ID into aliases, retention, or the authenticated generation catalog.
+pub(super) fn recover_members(root: &Path) -> Result<(), FormalError> {
+    #[cfg(test)]
+    FULL_RECOVERY_PASSES.with(|count| count.set(count.get() + 1));
+    for entry in fs::read_dir(root.join(SELECTORS)).map_err(io)? {
+        let entry = entry.map_err(io)?;
+        let id = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| invalid("generation selector UTF8"))?;
+        hash_hex(&id)?;
+        let selected = root.join(SELECTORS).join(&id);
+        let path = root.join(&id);
+        let (_, recipe) =
+            selector(&path, &id)?.ok_or_else(|| invalid("generation imported selector missing"))?;
+        let (_, bytes) = range(root, &recipe, &id, 0, LIMIT as u32)?;
+        if blake3::hash(&bytes).to_hex().as_str() != id {
+            return Err(invalid("generation recovery original checksum"));
+        }
+        // Missing or unsafe frame paths are rejected even outside this span;
+        // their payloads become authoritative only through captured ID reads.
+        for frame in &recipe.frames {
+            sync(&root.join(FRAMES).join(&frame.stored))?;
+        }
+        // Root aliases are optional for physical objects. Do not manufacture
+        // one per selector during generation recovery. If present, the alias
+        // must still identify exactly this recipe, never a logical raw payload.
+        match fs::symlink_metadata(&path) {
+            Ok(alias) => {
+                paths::metadata(&alias, false)?;
+                #[cfg(unix)]
+                let original = fs::symlink_metadata(&selected).map_err(io)?;
+                #[cfg(unix)]
+                if (alias.dev(), alias.ino()) != (original.dev(), original.ino()) {
+                    return Err(invalid("generation recovery alias identity differs"));
+                }
+                #[cfg(not(unix))]
+                if read(&path, META_LIMIT)? != read(&selected, META_LIMIT)? {
+                    return Err(invalid("generation recovery alias bytes differ"));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io(error)),
+        }
+        sync(&selected)?;
+    }
+    sync(&root.join(FRAMES))?;
+    sync(&root.join(SELECTORS))?;
+    sync(root)
+}
 /// A durable selector binds a complete immutable recipe; finish all members,
 /// including members not present in a retry's smaller object input set.
 pub(super) fn recover(root: &Path) -> Result<(), FormalError> {
+    #[cfg(test)]
+    FULL_RECOVERY_PASSES.with(|count| count.set(count.get() + 1));
     #[cfg(unix)]
     let mut verified = std::collections::BTreeSet::new();
     for entry in fs::read_dir(root.join(SELECTORS)).map_err(io)? {
