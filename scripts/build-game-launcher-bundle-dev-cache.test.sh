@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/repo/scripts" "$TMP/repo/crates/oasis7_proto/src" "$TMP/cache/debug" "$TMP/web" "$TMP/launcher"
-cp "$ROOT/scripts/"{build-game-launcher-bundle.sh,bundle-freshness-lib.sh,validate-release-platform-entrypoints.sh} "$TMP/repo/scripts/"
+cp "$ROOT/scripts/"{build-game-launcher-bundle.sh,bundle-freshness-lib.sh,validate-release-platform-entrypoints.sh,package-native-stage.py} "$TMP/repo/scripts/"
 printf 'pub const VIEWER_PROTOCOL_VERSION: u32 = 1;\n' >"$TMP/repo/crates/oasis7_proto/src/viewer.rs"
 printf '<!doctype html><script type="module" src="./viewer.js"></script>\n' >"$TMP/web/index.html"
 printf 'export const viewer = true;\n' >"$TMP/web/viewer.js"
@@ -33,4 +33,22 @@ TEST_CACHE="$TMP/cache" TEST_CALLS="$TMP/calls" bash "$TMP/repo/scripts/build-ga
 test -x "$TMP/output/bin/oasis7_client_launcher"
 grep -Fq 'build --target x86_64-unknown-linux-gnu' "$TMP/calls"
 if grep -Eq 'world_repair|registry_import|registry_audit' "$TMP/calls"; then exit 1; fi
+# Native compilation can finish without Web inputs. Assembly must consume the exact
+# stage without invoking Cargo, and must reject changed bytes/build tuples.
+git -C "$TMP/repo" init -q
+git -C "$TMP/repo" add scripts crates
+git -C "$TMP/repo" -c user.name=fixture -c user.email=fixture@example.invalid commit -qm fixture
+TEST_CACHE="$TMP/cache" TEST_CALLS="$TMP/calls" bash "$TMP/repo/scripts/build-game-launcher-bundle.sh" \
+  --profile dev --platform linux-x64 --target-triple x86_64-unknown-linux-gnu \
+  --out-dir "$TMP/native" --native-only >"$TMP/log" 2>&1 || { cat "$TMP/log" >&2; exit 1; }
+test -f "$TMP/native/native-build.json"
+test ! -f "$TMP/native/web/index.html"
+cp "$TMP/calls" "$TMP/calls-before"
+TEST_CACHE="$TMP/cache" TEST_CALLS="$TMP/calls" bash "$TMP/repo/scripts/build-game-launcher-bundle.sh" \
+  --profile dev --platform linux-x64 --target-triple x86_64-unknown-linux-gnu \
+  --native-binaries "$TMP/native" --out-dir "$TMP/assembled" \
+  --web-dist "$TMP/web" --web-launcher-dist "$TMP/launcher" >"$TMP/log" 2>&1 || { cat "$TMP/log" >&2; exit 1; }
+cmp "$TMP/calls-before" "$TMP/calls"
+cmp "$TMP/native/bin/oasis7_viewer_live" "$TMP/assembled/bin/oasis7_viewer_live"
+python3 "$ROOT/scripts/package-native-stage.test.py"
 echo 'build-game-launcher-bundle-dev-cache.test: OK'

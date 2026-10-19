@@ -1,5 +1,8 @@
 # 指挥面板架构索引
 
+> 2026-10-19 产品边界收缩：指挥中心读取本地文档/Git、GitHub PR/CI并保存个人问题与决定；Codex 仅保留原会话外部打开或准确定位复制。自管 app-server、发任务/追加/中断、运行请求同步/回复及 Codex 退出协调已退役，旧数据不删除不重放。独立 ToolHost 工具任务退出保护保留。以下既有日期、实施与验收记录保持历史范围，不代表退役能力仍可使用；本轮结果以当前实现 PR 为准。
+
+
 这里集中列出做项目决策时需要记住的架构边界、实现入口和部署核验缺口。它是主责文档与交付事实的派生导航；具体约束、变更理由和验收仍在链接的原文中维护。
 
 - 代码与文档核对基线：`main@598b308a23f3f0189843618d14abb1aa31c0d2de`，摘要核对日期为 2026-10-11。
@@ -105,7 +108,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |
 | ARCH-08 · 网络与权限 | URL/登录只提供接入；玩家 session、Agent 委托和 operator 权限分开，恢复不能复活旧授权 | 暴露公网 API、接账号/模型端点、改认证或委托、增加远程控制 | [Hosted 进入](../../../product/player-entry-distribution/prd.md#hosted-玩家进入与会话边界)、[会话与授权连续性](../../../product/player-entry-distribution/prd.md#player-session-authorization-continuity)、[headless 鉴权](../../../headless-runtime/design.md#6-鉴权与恢复边界) |
-| ARCH-09 · 两类 Runtime | 游戏侧目标是 OpenClaw/Codex 通过官方游戏 Skill 和受授权游戏 API 持续游玩；开发指挥客户端管理代码开发会话 | 声明 Runtime 支持、管理多 Agent、改预算/停止行为或连接游戏 Viewer 与开发看板 | [游戏角色](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#12-角色与职责)、[首批 Runtime 目标](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#21-首批-runtime-与支持单位)、[开发会话](../command-center.design.md#1101-可选实验执行实现) |
+| ARCH-09 · 两类 Runtime | 游戏侧目标是 OpenClaw/Codex 通过官方游戏 Skill 和受授权游戏 API 持续游玩；开发指挥客户端读取交付事实并打开原开发会话 | 声明 Runtime 支持、管理多 Agent、改预算/停止行为或连接游戏 Viewer 与开发看板 | [游戏角色](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#12-角色与职责)、[首批 Runtime 目标](../../../product/agents-world-simulation/external-agent-runtime-play.prd.md#21-首批-runtime-与支持单位)、[开发会话](../command-center.design.md#1101-可选实验执行实现) |
 
 **设计状态：** 接入、委托和角色边界由各自主责合同拥有。外部 Runtime 的首期功能清单是承诺范围，阶段标签不等于实现状态。
 
@@ -145,7 +148,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |
-| ARCH-11 · 客户端自身 | 独立 macOS Tauri 2 + Rust + Solid/TypeScript + SQLite；文档/Git/PR 保留事实所有权，Codex 默认关闭且属可选实验接入 | 改技术栈、引入云端/常驻 supervisor、共享团队状态、公开分发、扩版本或自动执行 | [技术栈](../command-center.design.md#43-具体技术栈)、[基础切片](../command-center.design.md#110-首个基础实现切片)、[实验接入](../command-center.design.md#DES-CC-012)、[操作说明](../../../../tools/oasis7-command-center/README.md#verification) |
+| ARCH-11 · 客户端自身 | 独立 macOS Tauri 2 + Rust + Solid/TypeScript + SQLite；文档/Git/PR 保留事实所有权，Codex 只提供明确外部定位，不接入运行时 | 改技术栈、引入云端/常驻 supervisor、共享团队状态、公开分发、扩版本或自动执行 | [技术栈](../command-center.design.md#43-具体技术栈)、[基础切片](../command-center.design.md#110-首个基础实现切片)、[外部接续边界](../command-center.design.md#DES-CC-012)、[操作说明](../../../../tools/oasis7-command-center/README.md#verification) |
 
 **设计与实现边界（2026-10-18，`main@822f6b49d1a5fb2b866b6c6902ffc8ed024d043b`）：** [PR #4881](https://github.com/nil-studio/oasis7/pull/4881) 已交付有界日常工作投影、关系/决定/个人问题、一次发起与恢复；[PR #4885](https://github.com/nil-studio/oasis7/pull/4885) 收口原 Issue 的适用交互验收。当前[可读工作界面设计](../command-center.design.md#cc-visual-composition)进一步约定布局与视觉变量、工作主入口、按需证据和旧来源界面的退出；发送快照、逐工作草稿和决定版本核对沿原身份与持久化边界细化。这些改造尚待实现及验证，不增加外部控制能力，不改变 Tauri/Rust/Solid 路线。
 

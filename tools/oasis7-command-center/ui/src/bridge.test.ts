@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: mock.invoke }));
-import { bridge, runtimeBridge } from './bridge';
+import { bridge } from './bridge';
 beforeEach(() => mock.invoke.mockReset());
 it('binds decisions and historical reads to finite camelCase IPC commands', async () => {
   mock.invoke.mockResolvedValue(undefined);
@@ -13,20 +13,9 @@ it('binds decisions and historical reads to finite camelCase IPC commands', asyn
   await bridge.associateWork('https://github.com/eng-cc/oasis7/pull/1',['goal-a','goal-b']);
   expect(mock.invoke).toHaveBeenLastCalledWith('associate_work', {workUrl:'https://github.com/eng-cc/oasis7/pull/1',goalSectionIds:['goal-a','goal-b']});
 });
-it('binds execution and replies to finite original runtime targets without a protocol proxy', async () => {
-  mock.invoke.mockResolvedValue(undefined);
-  const target = {instanceId:'instance-1',threadId:'thread-1',turnId:'turn-1'};
-  await runtimeBridge.steer(target,'明确输入');
-  expect(mock.invoke).toHaveBeenLastCalledWith('steer_runtime_turn',{target,input:'明确输入'});
-  const reply = {requestId:'9',target,decision:'decline',answers:{}};
-  await runtimeBridge.answer(reply);
-  expect(mock.invoke).toHaveBeenLastCalledWith('answer_runtime_request',{reply});
-  await runtimeBridge.enabled(false);
-  expect(mock.invoke).toHaveBeenLastCalledWith('set_runtime_enabled',{enabled:false});
-  await runtimeBridge.snapshot();
-  expect(mock.invoke).toHaveBeenLastCalledWith('get_runtime',{});
-  await runtimeBridge.reconcile('original-operation');
-  expect(mock.invoke).toHaveBeenLastCalledWith('reconcile_runtime_operation',{operationId:'original-operation'});
+it('opens a saved original Codex thread through navigation only',async()=>{
+ const target='codex://threads/019ea241-685c-79b3-a0b0-97ac2aa9f7e2';await bridge.openSource(target);
+ expect(mock.invoke).toHaveBeenLastCalledWith('open_source_target',{target});
 });
 it('bounds Chinese search and refreshes without an execution command', async () => {
   mock.invoke.mockResolvedValue([]);
