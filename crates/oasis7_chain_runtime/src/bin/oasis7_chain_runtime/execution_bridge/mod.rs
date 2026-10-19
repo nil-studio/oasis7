@@ -17,7 +17,7 @@ mod formal_business_package;
 pub(crate) mod formal_crash_test_boundary;
 #[cfg(unix)]
 pub(crate) mod formal_durable_set_arm;
-mod formal_execution_timing;
+pub(crate) mod formal_execution_timing;
 #[cfg(unix)]
 mod formal_executor;
 pub(crate) mod formal_initial;

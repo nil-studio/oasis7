@@ -71,13 +71,14 @@ impl StopTiming {
             String::new()
         };
         Some(format!(
-            "formal_stop_timing operation={} label={} stage={} elapsed_ms={} record={}{}",
+            "formal_stop_timing operation={} label={} stage={} elapsed_ms={} record={}{} mono_ns={}",
             self.0.operation,
             self.0.label,
             stage,
             self.0.started.elapsed().as_millis(),
             index + 1,
-            extra
+            extra,
+            super::super::execution_bridge_real_tests::real_execution_bridge::formal_execution_timing::clock_ns()
         ))
     }
     pub(super) fn record(&self, stage: &'static str) {
@@ -155,6 +156,17 @@ mod tests {
         assert!(trace.line("extra").is_none());
         trace.set_remaining(Instant::now() - std::time::Duration::from_millis(1));
         assert_eq!(trace.0.remaining_ms.load(Ordering::Relaxed), 0);
+    }
+    #[test]
+    fn execution_and_stop_share_the_same_process_clock() {
+        let before = super::super::super::execution_bridge_real_tests::real_execution_bridge::formal_execution_timing::clock_ns();
+        let trace = StopTiming::from_flag(Some("1"), "clock").unwrap();
+        let line = std::thread::spawn(move || trace.line("spawn").unwrap())
+            .join()
+            .unwrap();
+        let observed: u128 = line.split("mono_ns=").nth(1).unwrap().parse().unwrap();
+        let after = super::super::super::execution_bridge_real_tests::real_execution_bridge::formal_execution_timing::clock_ns();
+        assert!(before <= observed && observed <= after);
     }
     #[test]
     fn repeated_pending_waits_do_not_reset_or_spend_async_end_budget() {

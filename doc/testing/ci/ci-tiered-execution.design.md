@@ -265,6 +265,10 @@ spawn→mutex-acquired 与 join-end→worker-completed 仅提供对应合并区�
 成功路径为 entry、request-end/admission-begin、admission-end、spawn、mutex-end、join-begin、
 join-end、worker-completed、wait-completed 共 9 条，Pending 后完成最多再加首次 Pending 共 10 条；
 worker error 将 worker/wait 的 completed 换为 error，省略未到达阶段，不打印原 error。
+test binary 的 execution/stop 既有记录可带同一进程单调起点的 `mono_ns`，用于跨操作对照，
+不新增 stop 记录或改变其上限；记录点接近输出，仍受 stderr 与调度扰动，非 CPU/精确锁释放证据。
+Frozen 预约关闭沿既有计时器分别标记 native 环境验证和双端 freeze/replay；
+prepare 获 admission 锁至函数 end 仅提供持锁工作的括界，不把旧未观测区补写为已确认原因。
 固定提交、toolchain、可执行文件哈希、构建耗时、用例 stdout、终态及 cleanup 结果作为 artifact 保留，
 不上传私有 fixture/world，不赋予写入权限、生产凭据或 CodeQL/SARIF 能力。
 

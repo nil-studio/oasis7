@@ -160,6 +160,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     }
 
     pub(super) fn close_pending_reservation(&mut self) -> Result<(), String> {
+        let timing = super::super::formal_execution_timing::FormalExecutionTiming::test_only_begin(
+            "close_reservation",
+            self.anchor.head().record().position,
+        );
         let pending = self
             .pending
             .as_ref()
@@ -174,11 +178,13 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             super::super::formal_native_environment::descriptor(&pending.material)?
         {
             let (primary, replica) = self.coordinator.endpoints_mut();
-            super::super::formal_native_environment::verify_registered(
-                primary,
-                replica,
-                &environment,
-            )?;
+            timing.step("verify_native", None, || {
+                super::super::formal_native_environment::verify_registered(
+                    primary,
+                    replica,
+                    &environment,
+                )
+            })?;
         }
         if pending.original.body.authority_id != active {
             let recovery = self
@@ -204,16 +210,19 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             if certificate.reservation != pending.original {
                 return Err("recovery Frozen original mismatch".into());
             }
-            return self
-                .coordinator
-                .replay_frozen(certificate, pending.material)
-                .map(|_| ())
-                .map_err(|e| e.to_string());
+            return timing.step("replay_frozen", None, || {
+                self.coordinator
+                    .replay_frozen(certificate, pending.material)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            });
         }
-        self.coordinator
-            .freeze(pending.original, pending.material)
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        timing.step("dual_freeze", None, || {
+            self.coordinator
+                .freeze(pending.original, pending.material)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
     }
 
     pub(super) fn candidate_for_resume(&mut self) -> Result<FormalCandidateMaterialV1, String> {
