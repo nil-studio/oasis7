@@ -48,10 +48,11 @@
 - `doc/product/world-rules-core-gameplay/prd.md` 与 `doc/game/gameplay/gameplay-top-level-design.prd.md`：分别承载物理尺度/间接控制的产品承诺，以及玩法侧动作粒度与表现层夸张边界。
 - `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`：访问模式、统一候选门禁与公开 claim 升阶入口。
 - `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`：近期高频经济规则与 token 成本边界主入口。
+- [组织连续性首版政策](gameplay/gameplay-organization-continuity-policy.prd.md)：`draft` 实施输入，明确有效活动、保护期限、接替资格、资产顺序与部分交接；技术合同由 Runtime 组织连续性设计承接，未启用运行时政策。
 - `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.prd.md`：WASM-backed 可编程区域设施、micro_depot quote/receipt、upkeep 与区域专业化边界主入口。
 - `doc/game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md`：`PRD-GAME-017` 区域 charter 提案/审查、双资格、退化恢复、tenure 长期规划、服务费/公共 levy 玩家合同主入口；产品承诺仍由 `governed-regional-capabilities-and-extensions.prd.md` 拥有。
 - `doc/game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md`：`PRD-GAME-019` 普通治理主体聚合、锁定/委托/实际控制人封顶、最小公开审计、重复主体纠错/申诉、事项快照、OC 外部转让与单向非治理额度桥玩家合同；产品承诺仍由 `governed-common-decisions-and-constitutional-boundaries.prd.md` 的 `GCB-004/005` 拥有，其中 `GCB-005` 的事项快照/额度桥由 `AC-GAME-019-04` / `AC-GAME-019-05` 承接。
-- `doc/game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md`：`PRD-GAME-018` 工业提案/模拟/试点/治理准入、创作者许可/开放、OC/世界资格分离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同主入口；当前消费 [`GR-009..011`](../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-009)、[`SC31-009/AC-SC31-010/011`](../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#req-sc31-009)、[`ES-004`](../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md#req-wr-es-004) active 产品 authority；不复制产品正文或执行状态。
+- `doc/game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md`：`PRD-GAME-018` 工业提案/模拟/试点/治理准入、创作者许可/开放、OC/世界资格分离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同主入口；当前消费 [`GR-009..011`](../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-009)、[`SC31-009/AC-SC31-010/011`](../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#req-sc31-009)、[`ES-004`](../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md#req-wr-es-004) active 产品 authority；[紧急保供首版政策](gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)进一步承接 ES-001 至 ES-004 的有界专业规则值，不复制产品正文或执行状态。
 - `doc/game/gameplay/gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md`：restricted grant 发放、撤销、过期与 incident 处理 runbook。
 
 ## 默认阅读面边界
@@ -80,13 +81,14 @@
 | `doc/game/gameplay/gameplay-industrial-raw-material-qualification-substitution-contract.prd.md` | PRD-only；本专题只承载原材料适用性/替代的玩家投影、机会成本、恢复与验收，不新增实现结构 |
 | `doc/game/gameplay/gameplay-industrial-recipe-lifecycle-decision-contract.prd.md` | PRD-only；本专题只承载配方生命周期的玩家投影、旧工作处置与验收，不新增实现结构 |
 | `doc/game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md` | PRD-only；本专题只承载代表性工业链的玩家顺序、取舍、恢复与验收，不新增实现结构 |
-| `doc/game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md` | PRD-only；本专题只承载工业创建、跨区市场与结算的玩家动作、机会成本、失败恢复与验收，不新增实现结构 |
+| `doc/game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md` | 专业规则 PRD；承载工业/市场玩家合同及紧急保供首版政策值；wire、事务与恢复由 [保供系统设计](../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md)承接 |
 | `doc/game/gameplay/gameplay-industrial-starter-completion-contract.prd.md` | PRD-only；本专题只承载首产物完成边界、失败恢复与下一步动力，不新增实现结构 |
 | `doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md` | PRD-only；本专题不新增接口、状态机、回滚或实现算法，后续引入实现结构时再补同名 design |
 | `doc/game/gameplay/gameplay-top-level-design.prd.md` | `doc/game/gameplay/gameplay-top-level-design.design.md` |
 | `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.prd.md` | `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md` |
 | `doc/game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md` | PRD-only；本专题只承载区域制度的玩家动作、机会成本、失败恢复、申诉与验收，不新增实现结构 |
 | `doc/game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md` | PRD-only；本专题只承载普通治理主体、事项权利与 OC 分离的玩家动作、机会成本、失败恢复与验收，不新增实现结构 |
+| [gameplay-organization-continuity-policy.prd.md](gameplay/gameplay-organization-continuity-policy.prd.md) | 专业政策 PRD；执行、事务与恢复由 [组织连续性设计](../world-runtime/runtime/organization-continuity-and-disposition.design.md)承接，不重复建立同名技术权威 |
 
 ## 历史 closure / provenance 入口
 | 历史 closure 专题 | 当前追溯入口 |

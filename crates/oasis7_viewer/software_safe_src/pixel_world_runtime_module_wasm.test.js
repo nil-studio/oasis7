@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeState = vi.hoisted(() => ({
   mountImpl: null,
@@ -109,10 +109,12 @@ vi.mock("./pixel_world_bridge_bindgen.js", () => {
     default: vi.fn(async () => undefined),
     PixelWorldBridge: MockPixelWorldBridge,
     build_pixel_world_render_state_json: vi.fn(),
+    createPixelWorldModule: vi.fn(() => ({ default: vi.fn(async () => undefined), PixelWorldBridge: MockPixelWorldBridge, build_pixel_world_render_state_json: vi.fn() })),
   };
 });
 
 describe("pixel world wasm runtime bridge", () => {
+  beforeEach(() => { vi.spyOn(WebAssembly, "compile").mockResolvedValue({}); vi.stubGlobal("fetch", vi.fn(async () => ({ok:true, arrayBuffer:async () => new ArrayBuffer(0)}))); });
   afterEach(() => {
     runtimeState.mountImpl = null;
     runtimeState.instances.length = 0;
@@ -120,6 +122,8 @@ describe("pixel world wasm runtime bridge", () => {
     globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
     globalThis.matchMedia = originalMatchMedia;
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   function pointerEvent(type, options = {}) {
@@ -293,7 +297,7 @@ describe("pixel world wasm runtime bridge", () => {
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
         new URL("https://example.test/viewer/viewer-optional-payload/pixel_world_bridge_bindgen_bg.wasm"),
-        { cache: "no-store" },
+        { cache: "no-store", signal: expect.any(AbortSignal) },
       );
     } finally {
       globalThis.fetch = originalFetch;
@@ -644,4 +648,107 @@ describe("pixel world wasm runtime bridge", () => {
     expect(runtimeState.instances).toHaveLength(1);
     expect(runtimeState.instances[0].click).toHaveBeenCalledWith(12, 11);
   });
+  it("aborts a stalled response body after the download budget", async () => {
+    vi.useFakeTimers();
+    const { loadPixelWorldWasmInputForTest } = await import("./pixel_world_runtime_module_wasm.js");
+    let signal;
+    globalThis.fetch = vi.fn(async (_url, options) => {
+      signal = options.signal;
+      return {ok:true, arrayBuffer:() => new Promise(() => {})};
+    });
+    const failed = expect(loadPixelWorldWasmInputForTest()).rejects.toMatchObject({code:"pixel_world_download_timeout"});
+    await vi.advanceTimersByTimeAsync(30000);
+    await failed;
+    expect(signal.aborted).toBe(true);
+  });
+
+  it.each([{digestMs:8000, compileMs:3000}, {digestMs:11000, compileMs:0}])("uses one hash/compile/init budget and ignores late work (%j)", async ({digestMs, compileMs}) => {
+    vi.useFakeTimers();
+    const cryptoHarness = installIntegrityCrypto();
+    cryptoHarness.digest.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(digestBufferFromHex(INTEGRITY_PAYLOAD_SHA256)), digestMs)));
+    globalThis.fetch = vi.fn(async url => String(url).endsWith("optional-payloads.json")
+      ? {ok:true, json:async () => integrityManifest()} : {ok:true, arrayBuffer:async () => INTEGRITY_PAYLOAD_BYTES.buffer});
+    const {loadPixelWorldWasmInputForTest} = await import("./pixel_world_runtime_module_wasm.js");
+    WebAssembly.compile.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({}), compileMs)));
+    const initialize = vi.fn();
+    try {
+      const failed = expect(loadPixelWorldWasmInputForTest({moduleUrl:"https://example.test/pixel-world-bridge/webgl2/bridge.js", initialize})).rejects.toMatchObject({code:"pixel_world_prepare_timeout"});
+      await vi.advanceTimersByTimeAsync(10000); await failed;
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(initialize).not.toHaveBeenCalled();
+    } finally { cryptoHarness.restore(); }
+  });
+
+  it("isolates timed-out initialization, retries explicitly and reuses the successful single flight", async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    const bindings = await import("./pixel_world_bridge_bindgen.js");
+    let finishOld;
+    const oldModule = {default:vi.fn(() => new Promise(resolve => {finishOld = resolve;})), PixelWorldBridge:bindings.PixelWorldBridge, build_pixel_world_render_state_json:vi.fn(() => "old")};
+    const currentModule = {default:vi.fn(async () => {}), PixelWorldBridge:bindings.PixelWorldBridge, build_pixel_world_render_state_json:vi.fn(() => "current")};
+    bindings.createPixelWorldModule.mockReturnValueOnce(oldModule).mockReturnValueOnce(currentModule);
+    const {createPixelWorldBridge, derivePixelWorldRenderState} = await import("./pixel_world_runtime_module_wasm.js");
+    const failed = expect(createPixelWorldBridge()).rejects.toMatchObject({code:"pixel_world_prepare_timeout"});
+    await vi.advanceTimersByTimeAsync(10000); await failed;
+    const first = createPixelWorldBridge(), second = createPixelWorldBridge();
+    await Promise.all([first, second]);
+    expect(currentModule.default).toHaveBeenCalledTimes(1);
+    finishOld(); await Promise.resolve(); await Promise.resolve();
+    expect(derivePixelWorldRenderState({schema_version:1})).toBe("current");
+    await createPixelWorldBridge();
+    expect(currentModule.default).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {firstDownloadMs:25000, reloadMs:6000, timesOut:true},
+    {firstDownloadMs:0, reloadMs:15000, timesOut:false},
+  ])("shares download allowance across cache repair without charging it to preparation (%j)", async ({firstDownloadMs, reloadMs, timesOut}) => {
+    vi.useFakeTimers();
+    const cryptoHarness = installIntegrityCrypto();
+    cryptoHarness.digest.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(digestBufferFromHex("00".repeat(32))), 1000)));
+    let downloads = 0;
+    const signals = [];
+    globalThis.fetch = vi.fn(async (url, options) => {
+      if (String(url).endsWith("optional-payloads.json")) return {ok:true, json:async () => integrityManifest({path:`viewer-optional-payload/${INTEGRITY_PAYLOAD_SHA256}.wasm`})};
+      const delay = downloads++ ? reloadMs : firstDownloadMs;
+      signals.push(options.signal);
+      return {ok:true, arrayBuffer:() => new Promise(resolve => setTimeout(() => resolve(INTEGRITY_PAYLOAD_BYTES.buffer), delay))};
+    });
+    const {loadPixelWorldWasmInputForTest} = await import("./pixel_world_runtime_module_wasm.js");
+    const initialize = vi.fn(() => new Promise(resolve => setTimeout(() => resolve("ready"), 2000)));
+    try {
+      const operation = loadPixelWorldWasmInputForTest({moduleUrl:"https://example.test/pixel-world-bridge/webgl2/bridge.js", initialize});
+      const checked = timesOut ? expect(operation).rejects.toMatchObject({code:"pixel_world_download_timeout"}) : expect(operation).resolves.toBe("ready");
+      await vi.advanceTimersByTimeAsync(40000); await checked;
+      expect(downloads).toBe(2);
+      if (timesOut) { expect(signals[1].aborted).toBe(true); expect(initialize).not.toHaveBeenCalled(); }
+      else expect(initialize).toHaveBeenCalledTimes(1);
+    } finally { cryptoHarness.restore(); }
+  });
+
+  it("aborts a stalled manifest body within the shared download budget", async () => {
+    vi.useFakeTimers();
+    let signal;
+    globalThis.fetch = vi.fn(async (_url, options) => {
+      signal = options.signal;
+      return {ok:true, json:() => new Promise(() => {})};
+    });
+    const {loadPixelWorldWasmInputForTest} = await import("./pixel_world_runtime_module_wasm.js");
+    const failed = expect(loadPixelWorldWasmInputForTest({moduleUrl:"https://example.test/pixel-world-bridge/webgl2/bridge.js"})).rejects.toMatchObject({code:"pixel_world_download_timeout"});
+    await vi.advanceTimersByTimeAsync(30000); await failed;
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("rejects synchronous initialization overruns without relying on timer dispatch", async () => {
+    const cryptoHarness = installIntegrityCrypto();
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    globalThis.fetch = vi.fn(async url => String(url).endsWith("optional-payloads.json")
+      ? {ok:true, json:async () => integrityManifest()} : {ok:true, arrayBuffer:async () => INTEGRITY_PAYLOAD_BYTES.buffer});
+    const {loadPixelWorldWasmInputForTest} = await import("./pixel_world_runtime_module_wasm.js");
+    try {
+      await expect(loadPixelWorldWasmInputForTest({moduleUrl:"https://example.test/pixel-world-bridge/webgl2/bridge.js", initialize:() => {elapsed += 11000;}})).rejects.toMatchObject({code:"pixel_world_prepare_timeout"});
+    } finally { cryptoHarness.restore(); }
+  });
+
 });

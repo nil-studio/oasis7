@@ -21,7 +21,7 @@
 
 ## 核验基线与覆盖范围
 
-Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已形成实现候选，尚未合入或部署。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
+Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
 
@@ -129,6 +129,20 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 完整协作 TaskSnapshot、身份注册/配对及公开 Game HTTP 写入口尚未由这些切片证明；部署暂停继续有效。支持范围与证据入口见 [Game API 专业合同](../../world-simulator/llm/external-agent-game-api.design.md#当前实施候选原生任务执行链)和[协作与私有目标合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#6-接口与数据合同)。本次不刷新全局和环境核验基线。
 
 2026-10-15 局部候选核对：[#4734](https://github.com/eng-cc/oasis7/pull/4734)已合入 `25b4d211a612d783172e6266307c71c62b8c00c0`，完成共享客户端抽离；[工业任务执行器候选](https://github.com/eng-cc/oasis7/tree/50e128cbe369f8f6adca6556ff99784c7f7c93ad)由现有节点组合启动，复用受权客户端并显示运行位置、预算和阻断状态。执行器由 [#4744](https://github.com/eng-cc/oasis7/pull/4744)继续迁移，真实 HTTP 脚本工业链、独立 CLI/SDK 建厂对照与重启恢复已通过，执行器候选尚未合入；真实模型、完整生产能力迁移、性能比较和整体验收仍未完成。执行器不取得世界权威，关闭 Viewer 不代表停用节点进程，也不代表云端托管；2026-10-15 用户明确当前以 Codex 等外部 Agent 接入为主要入口，自有 Agent 入口打磨与真实模型测试留作后续 TODO，本轮未发出付费请求；剩余验证与消费者迁移仍由 [#4726](https://github.com/eng-cc/oasis7/issues/4726)跟踪。本项不刷新其他项目或部署事实。
+
+<a id="cc-status-world-policy-contracts"></a>
+
+### 7. 制造、保供与组织连续性的设计基线
+
+2026-10-19 局部核对，仅覆盖下列三个 Issue 及 `main@e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6` 的相关设计和实现入口。文档补齐首版政策及技术合同，服务于额外 Agent 成长、危机中的有限连续运行和组织权利保护；不改变当前首产物主线或公开阶段。
+
+| 主题 | 产品与系统入口 | 当前边界与后续承接 |
+| --- | --- | --- |
+| 额外 Agent 制造 | [制造规则](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004) · [订单与原子交付](../../world-runtime/runtime/agent-industrial-manufacturing.design.md) | 配方、成本和产能由专业政策持有；订单到新身份/控制权的生产接线及验证仍由 [#4850](https://github.com/nil-studio/oasis7/issues/4850)承接。 |
+| 紧急保供 | [保供规则](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md) · [授权、批次与结算](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md) | 首版触发、优先级、窗口和补偿退出已在设计中明确；业务实现和同候选验收仍由 [#4866](https://github.com/nil-studio/oasis7/issues/4866)承接。 |
+| 组织连续性 | [组织保护规则](../../product/world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md) · [处置与授权交接](../../world-runtime/runtime/organization-continuity-and-disposition.design.md) | 活动、保护、接替、资产和部分交接政策已在设计中明确；业务实现和同候选验收仍由 [#4868](https://github.com/nil-studio/oasis7/issues/4868)承接。 |
+
+三项均保留原有已实现子范围，文档覆盖不改变实现或验收状态；未取得新的业务运行、部署或真人证据。其他项目与环境的核验时间不变。
 
 <a id="cc-status-changes"></a>
 

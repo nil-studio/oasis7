@@ -425,6 +425,7 @@ run_packaging_artifact_contract_tests() {
   run bash ./scripts/native-packaging-contract.test.sh
   run bash ./scripts/packaging-artifact-size-contract.test.sh
   run bash ./scripts/package-workflow-cache-reuse-contract.test.sh
+  run python3 ./scripts/package-ecs.test.py
   run bash ./scripts/copy-viewer-web-dist.test.sh
 }
 

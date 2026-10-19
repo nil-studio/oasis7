@@ -1,4 +1,6 @@
 use super::*;
+#[path = "render_label_budget.rs"]
+pub(crate) mod label_budget;
 use bevy::ecs::system::SystemParam;
 use std::collections::{HashMap, HashSet};
 #[path = "render_fragment_visuals.rs"]

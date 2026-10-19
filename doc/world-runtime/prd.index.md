@@ -36,7 +36,9 @@
 当前模块库存与热点二级目录概览以 `./scripts/doc-inventory-report.sh` 输出为准；该报告不保证列出每个子域的精确数量，本索引也不复制数量快照。
 
 ## 活跃补充文档
+- [Agent 工业订单、制造与原子交付设计](runtime/agent-industrial-manufacturing.design.md)：承接额外 Agent 制造政策、订单与产能占用、身份/claim 同次交付及恢复；不代表业务已实现。
 - [紧急保供授权、冻结分配与结算系统设计](runtime/emergency-supply-authorization-and-settlement.design.md)：承接产品保供 REQ/AC 的目标技术合同；不代表当前已实现或发布。
+- [组织连续性与处置系统设计](runtime/organization-continuity-and-disposition.design.md)：承接通知保护、estate 处置、申诉与 scope 原子交接；产品政策和实际实现分别核对。
 - `doc/world-runtime/wasm/wasm-deterministic-build-pipeline.prd.md`：Docker canonical build、receipt、identity 与 release evidence 主入口。
 - `doc/world-runtime/wasm/wasm-observability-timing-metrics.prd.md`：build/executor/router timing、`/v1/chain/status.wasm`、窗口汇总与 module-local observe spec/runner/template 主入口。
 - `doc/world-runtime/wasm/wasm-sdk.prd.md`：默认 no_std、共享 Canonical-CBOR wire、codec 错误与 builtin 兼容主入口。

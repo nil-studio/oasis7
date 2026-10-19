@@ -14,7 +14,7 @@
 
 ## 从问题进入
 
-Viewer 性能边界（2026-10-19 局部核对）：[性能合同](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract) 已由 [#4907](https://github.com/nil-studio/oasis7/pull/4907) 合入；[实现候选 #4909](https://github.com/nil-studio/oasis7/pull/4909) 在 Host 到 WASM 前裁剪显示数据，并对公共 hash WASM 使用压缩与缓存，玩家状态及权限不进入公共缓存。实现与完整预算仍分阶段验证，线上配置未核验；改变显示容量/裁剪语义、缓存来源或初始化恢复边界时重新关注本项，不由本索引宣称部署完成。
+Viewer 性能边界（2026-10-19 局部核对）：[性能合同](../../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract) 已由 [#4907](https://github.com/nil-studio/oasis7/pull/4907) 合入；[实现 #4909](https://github.com/nil-studio/oasis7/pull/4909) 在 Host 到 WASM 前裁剪显示数据，并对公共 hash WASM 使用压缩与缓存，玩家状态及权限不进入公共缓存。后续补齐稳定显示裁剪、可见标签预算和独立加载实例，完整预算仍分阶段验证，线上配置未核验；改变显示容量/裁剪语义、缓存来源或初始化恢复边界时重新关注本项，不由本索引宣称部署完成。
 
 Cargo 边界局部增量（2026-10-12）：[#4626](https://github.com/eng-cc/oasis7/pull/4626) / `133d70e45b71bd062032a734d68be1e290692b2c` 将 native 生产 cognition 状态转换转接至 Harness，World readback 与 signed-service 校验仍由 Runtime 适配器承担，旧 DTO/checkpoint 兼容保留；不新增 Harness→Oasis 依赖。支持包 profile 隔离尚在分支验证，直接 Oasis wasm32 目标及部署不因本次局部摘要变为已验证。测试入口见[测试手册](../../../../testing-manual.md)。
 
@@ -98,6 +98,20 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 **实际部署核验：** 未验证正式 profile 激活、实际存储同步、故障域隔离、旧写者 fencing、备份可用性或恢复后的写服务。这些结论需要各自候选与环境证据，不能由代码数量汇总为完成率。
 
 正式激活、独立故障域恢复和人工交接的能力边界由对应专业合同持有。[#4363 的旧规划](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)仅作历史来源；该 Issue 已停止独立跟踪，不据此恢复执行义务。
+
+<a id="cc-architecture-world-policy-contracts"></a>
+
+### 制造、保供与组织处置
+
+2026-10-19 局部设计核对：精确政策由 game 专题持有，产品声明玩家承诺，Runtime 消费固定政策版本并拥有业务事实。三项复用现有权威提交与持久化边界，不能由普通材料产出、通用 Crisis 或删除联盟映射推导完成。
+
+| 主题 | 必须保持的边界 | 专业设计入口 |
+| --- | --- | --- |
+| 工业取得 Agent | 原订单的资源、产能、交付身份和 claim 同链；交付提交前不产生可控制的新 Agent，quota 不直接供给 | [制造与原子交付](../../../world-runtime/runtime/agent-industrial-manufacturing.design.md) |
+| 紧急保供 | 授权、冻结批次、累计需求和结算分层；到期退出不迁移旧待决权利，不重复分配或结算同一价值 | [保供授权与结算](../../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md) |
+| 组织连续性 | 基础阶段与申诉请求分离；重叠对象/权利/动作 scope 保持唯一处分权，交接原子终止或收缩旧授权 | [组织处置与交接](../../../world-runtime/runtime/organization-continuity-and-disposition.design.md) |
+
+业务实现、兼容与运行验收仍分别由 [#4850](https://github.com/nil-studio/oasis7/issues/4850)、[#4866](https://github.com/nil-studio/oasis7/issues/4866)、[#4868](https://github.com/nil-studio/oasis7/issues/4868)承接。扩大配方/物资/资产范围、改变政策版本或消费者时重新核对本组合同；当前未核验部署，不前移其他架构条目的基线。
 
 <a id="cc-architecture-agents"></a>
 

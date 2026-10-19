@@ -8,15 +8,19 @@
 
 使用同一完整 commit SHA 的已成功 CI 和 Linux Testnet 包。已有合格包就直接复用；main 后续前进本身不要求重打包、重测或重新追赶。遇到明确相关的安全、协议或存储兼容问题再处理。
 
-需要打包时，在源码仓库执行一次：
+当前单机云端更新优先使用 **ECS Server Package**，在 GitHub Actions 选择源码分支 / tag 后运行，或执行：
 
 ```bash
-gh workflow run testnet-packages.yml --ref main \
-  -f ref_or_sha=<完整commit-SHA> \
-  -f build_profile=packaging -f package_scope=linux_only
+gh workflow run ecs-packages.yml --ref main
 ```
 
-默认使用优化后的 `packaging` 构建；`dev` 仅用于开发调试，不能用其吞吐表现判断 ECS 是否达标。记录生成的 run ID，等该 run 成功后下载它的 Linux artifact。包内 `SOURCEPLAN.json` 的 checkoutSha、BUILDINFO 的 commit 和选定 SHA 必须相同，并校验包提供的 SHA256 清单。workflow 自己的 main SHA 可以与候选源码 SHA 不同，不能据此改写包来源。
+该入口固定本次选定 ref 的完整 SHA，Web 与原生在不同 runner 并行；只编译 `oasis7_chain_runtime`、`oasis7_game_launcher`、`oasis7_viewer_live`，不生成桌面安装器、client launcher、独立 web launcher 或维护工具。原生使用优化的 `packaging` profile；冷构建仍需编译核心运行时依赖。候选分支仅恢复缓存，main 同版本工作流才写入独立原生缓存。
+
+成功后下载 `oasis7-ecs-linux-x64` artifact，里面包含版本化 `.tar.gz` 和外部 `.sha256`。先用 `sha256sum -c <包名>.sha256` 校验归档，再解压到新版本目录并执行 `sha256sum -c SHA256SUMS`。`BUILDINFO` 的 source 必须等于本次 run 的 SHA。包内 `bin/` 是三个服务程序，`web-dist/` 是可直接发布的完整 Viewer Web 根目录（包含可选 WASM），`manifest.json` 记录来源 / profile / 平台。
+
+这是服务端目录包，不是旧 Testnet `.deb` 的替代安装器；旧安装脚本若只接收 `.deb`，不能直接传入此归档。配置三个程序及 Web 根目录路径后沿下文切换。包不含世界、密钥、systemd unit 或自动初始化 / 公网开放操作，始终复用本机现有配置。维护工具单独沿已有兼容版本保留，按需更新。
+
+需要桌面发行包时才使用原 `testnet-packages.yml`。`dev` 仅用于开发调试，不能用其吞吐表现判断 ECS 是否达标。
 
 ## 2. 部署前看四件事
 

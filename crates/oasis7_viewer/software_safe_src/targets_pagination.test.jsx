@@ -1,0 +1,42 @@
+import { fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { afterEach, expect, it, vi } from "vitest";
+import { renderViewerApp } from "./test_support/viewer_app_fixture.jsx";
+import { pixelWorldPerformanceVisualFixture } from "./pixel_world_visual_fixture_data.js";
+
+vi.mock("./pixel_world_host.jsx", () => ({ PixelWorldHost: () => <div data-testid="pixel-world-host" /> }));
+let dispose;
+afterEach(() => { dispose?.(); dispose = null; });
+
+it("bounds actual Targets DOM for 10000 source entities while preserving complete authorized search and selection", async () => {
+  const snapshot = pixelWorldPerformanceVisualFixture(10000);
+  const app = await renderViewerApp(snapshot, { playerId: "player-one" });
+  dispose = app.dispose;
+  const panel = app.container.querySelector("#viewer-targets-panel");
+  const rows = () => panel.querySelectorAll('[data-select-kind="agent"]');
+  expect(rows()).toHaveLength(50);
+  expect(app.core.modelLists().agents).toHaveLength(9998);
+  expect(panel.querySelectorAll('[data-select-kind="location"]')).toHaveLength(2);
+  expect(within(panel).getByTestId("viewer-playthrough-select-agent")).toHaveAttribute("data-select-id", "agent-0");
+  fireEvent.click(within(panel).getByRole("button", { name: "Next agents page" }));
+  expect(rows()).toHaveLength(50);
+  expect(within(panel).queryByTestId("viewer-playthrough-select-agent")).toBeNull();
+  const search = within(panel).getByLabelText("Filter targets");
+  fireEvent.input(search, { target: { value: "agent-9997" } });
+  await waitFor(() => expect(rows()).toHaveLength(1));
+  const last = panel.querySelector('[data-select-id="agent-9997"]');
+  expect(last).toBeInTheDocument();
+  fireEvent.click(last);
+  await waitFor(() => expect(last).toHaveAttribute("aria-pressed", "true"));
+  expect(app.core.state.selectedId).toBe("agent-9997");
+  expect(Object.keys(app.core.state.snapshot.model.agents)).toHaveLength(9998);
+  fireEvent.input(search, { target: { value: "" } });
+  await waitFor(() => expect(rows()).toHaveLength(50));
+  expect(app.core.state.selectedId).toBe("agent-9997");
+  fireEvent.input(search, { target: { value: "agent-9997" } });
+  await waitFor(() => expect(rows()).toHaveLength(1));
+  snapshot.model.agent_player_bindings["agent-9997"] = "other-player";
+  snapshot.model.agent_player_public_key_bindings["agent-9997"] = "other-public-key";
+  app.core.injectSnapshot(snapshot, { returnState: false });
+  await waitFor(() => expect(rows()).toHaveLength(0));
+  expect(panel.querySelector('[data-select-id="agent-9997"]')).toBeNull();
+}, 60000);

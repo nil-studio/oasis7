@@ -2,6 +2,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[path = "host_display_budget.rs"]
+mod budget;
+
 const MAX_BYTES: usize = 256 * 1024;
 
 #[derive(Deserialize, Serialize)]
@@ -14,6 +17,12 @@ struct RenderInputV1 {
     snapshot: DisplaySnapshot,
     lists: DisplayLists,
     gameplay: Value,
+    #[serde(
+        default,
+        rename = "display_budget",
+        skip_serializing_if = "Option::is_none"
+    )]
+    display_budget: Option<Value>,
     #[serde(default)]
     selected: Option<Value>,
     #[serde(default)]
@@ -68,7 +77,8 @@ pub(super) fn derive(raw: &str) -> Result<Value, String> {
         return Err("pixel world display capacity exceeded".into());
     }
     let input = serde_json::to_value(dto).map_err(|error| error.to_string())?;
-    let state = super::host_state::build_render_state(&input);
+    let mut state = super::host_state::build_render_state(&input);
+    budget::fit(&mut state, &input)?;
     let encoded = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
     if encoded.len() > MAX_BYTES {
         return Err("pixel world display output capacity exceeded".into());
@@ -93,6 +103,38 @@ mod tests {
             derive(&input.to_string()).unwrap(),
             super::super::host_state::build_render_state(&input)
         );
+    }
+    #[test]
+    fn output_budget_keeps_selected_actor_and_bounds_rich_labels() {
+        let mut source = input();
+        source["lists"]["agents"] = json!((0..350).map(|i|json!({"id":format!("A{i:04}"),"name":"😀".repeat(128),"pos":{"x_cm":i,"y_cm":0,"z_cm":0}})).collect::<Vec<_>>());
+        source["selectedKind"] = json!("agent");
+        source["selectedId"] = json!("A0349");
+        let state = derive(&source.to_string())
+            .expect("optional markers must shrink before required semantics fail");
+        assert!(
+            state["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|a| a["id"] == "A0349")
+        );
+        assert!(
+            state["display_budget"]["output_omitted_markers"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        assert!(serde_json::to_vec(&state).unwrap().len() <= MAX_BYTES);
+    }
+    #[test]
+    fn accepts_javascript_budget_field_and_preserves_authorized_source_count() {
+        let mut source = input();
+        source["display_budget"] =
+            json!({"source_counts":{"agents":9998},"omitted_markers":9500,"required_entities":[]});
+        let state = derive(&source.to_string()).unwrap();
+        assert_eq!(state["display_budget"]["source_counts"]["agents"], 9998);
+        assert_eq!(state["commercial_surface"]["world_read"]["agents"], 9998);
     }
     #[test]
     fn rejects_unknown_versions_private_model_fields_and_capacity_overflow() {
