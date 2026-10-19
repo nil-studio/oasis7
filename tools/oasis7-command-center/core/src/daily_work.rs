@@ -60,7 +60,6 @@ fn persist(core: &CommandCenter, db: &rusqlite::Connection, state: &DailyWorkSta
     header.relations.clear();
     header.external.clear();
     header.worktrees.clear();
-    header.decisions.clear();
     header.attention.clear();
     save(
         db,
@@ -78,16 +77,8 @@ fn persist(core: &CommandCenter, db: &rusqlite::Connection, state: &DailyWorkSta
             value: (&state.relations, &state.external, &state.worktrees),
         },
     )?;
-    save(
-        db,
-        "personal",
-        &core.personal_key("decision_followthrough_v1"),
-        &Family {
-            schema_version: 1,
-            revision: state.revision,
-            value: &state.decisions,
-        },
-    )?;
+    // decision_followthrough_v1 is retired opaque history. Do not read, rewrite,
+    // normalize its evidence, or advance its old revision during ordinary edits.
     save(
         db,
         "personal",
@@ -99,9 +90,6 @@ fn persist(core: &CommandCenter, db: &rusqlite::Connection, state: &DailyWorkSta
         },
     )?;
     Ok(())
-}
-pub fn decision_digest(value: &crate::domain::DecisionRecord) -> Result<String> {
-    Ok(index::digest(&serde_json::to_vec(value)?))
 }
 pub(crate) fn record_owned_legacy_edit(
     core: &CommandCenter,
@@ -300,7 +288,6 @@ impl CommandCenter {
                 revision: 0,
                 navigation: WorkNavigation::default(),
                 relations: vec![],
-                decisions: vec![],
                 attention: vec![],
                 external: vec![],
                 worktrees: vec![],
@@ -318,7 +305,6 @@ impl CommandCenter {
         if state.revision > 0 {
             (state.relations, state.external, state.worktrees) =
                 read_family(self, "work_relations_v1", state.revision)?;
-            state.decisions = read_family(self, "decision_followthrough_v1", state.revision)?;
             state.attention = read_family(self, "work_attention_v1", state.revision)?;
         }
         if state.revision == 0 {
@@ -361,44 +347,6 @@ impl CommandCenter {
             }
         }
         state.legacy_changed = state.legacy_digest != legacy(self)?;
-        for record in &mut state.decisions {
-            let decision = self
-                .current
-                .decisions
-                .iter()
-                .find(|d| d.id == record.decision_id);
-            for evidence in [&mut record.formal, &mut record.implementation]
-                .into_iter()
-                .flatten()
-            {
-                let changed = decision.is_none_or(|d| {
-                    decision_digest(d).ok().as_ref() != Some(&evidence.decision_digest)
-                });
-                let source_changed = if evidence.state == "verified" {
-                    let local = evidence.source.as_ref().is_some_and(|target| {
-                        self.current.sections.iter().any(|s| {
-                            &s.id == target && evidence.revision.as_ref() == Some(&s.revision)
-                        })
-                    });
-                    let remote = self.load_github_cache()?.is_some_and(|g| {
-                        g.error.is_none()
-                            && evidence.source.as_ref().is_some_and(|target| {
-                                g.pulls.iter().any(|p| {
-                                    &p.url == target
-                                        && evidence.revision.as_ref() == Some(&p.head_oid)
-                                })
-                            })
-                    });
-                    !local && !remote
-                } else {
-                    false
-                };
-                if (changed || source_changed) && evidence.state != "needsReview" {
-                    record.history.push(evidence.clone());
-                    evidence.state = "needsReview".into();
-                }
-            }
-        }
         Ok(state)
     }
     pub fn save_daily_work(&mut self, request: DailyWorkRequest) -> Result<DailyWorkState> {
@@ -435,7 +383,7 @@ impl CommandCenter {
             )
         {
             return Err(invalid(
-                "旧版个人记录有新修改，请先核对并接纳旧记录变化；新关系和证据不会被覆盖",
+                "旧版个人记录有新修改，请先核对并接纳旧记录变化；新关系和个人问题不会被覆盖",
             ));
         }
         match request.action {
@@ -533,119 +481,6 @@ impl CommandCenter {
                     &old.confirmed_at,
                 ))?);
                 old.removed_at = Some(now());
-            }
-            DailyWorkAction::SyncDecision {
-                decision_id,
-                track,
-                mut evidence,
-            } => {
-                let decision = self
-                    .current
-                    .decisions
-                    .iter()
-                    .find(|d| d.id == decision_id && d.confirmed_at.is_some())
-                    .ok_or_else(|| invalid("请先保存明确决定"))?;
-                if !["formal", "implementation"].contains(&track.as_str())
-                    || ![
-                        "unknown",
-                        "notRequired",
-                        "pending",
-                        "evidenceLinked",
-                        "verified",
-                        "needsReview",
-                    ]
-                    .contains(&evidence.state.as_str())
-                    || evidence.scope.trim().is_empty()
-                    || evidence.conclusion.trim().is_empty()
-                {
-                    return Err(invalid("请选择同步轨道、状态并填写适用范围和核实结论"));
-                }
-                if matches!(evidence.state.as_str(), "verified" | "evidenceLinked") {
-                    let target = evidence
-                        .source
-                        .as_deref()
-                        .ok_or_else(|| invalid("核实需要真实来源"))?;
-                    let revision = evidence
-                        .revision
-                        .as_deref()
-                        .filter(|s| !s.is_empty())
-                        .ok_or_else(|| invalid("核实需要具体来源版本"))?;
-                    let local = self
-                        .current
-                        .sections
-                        .iter()
-                        .any(|s| s.id == target && s.revision == revision);
-                    let github = self.load_github_cache()?.is_some_and(|g| {
-                        g.error.is_none()
-                            && g.pulls
-                                .iter()
-                                .any(|p| p.url == target && p.head_oid == revision)
-                    });
-                    if !local && !github {
-                        return Err(invalid(
-                            "该来源版本未读取或已变化；请先回读来源，不能仅凭陈述核实",
-                        ));
-                    }
-                }
-                if evidence.remaining.len() > 100
-                    || evidence
-                        .remaining
-                        .iter()
-                        .any(|s| s.trim().is_empty() || s.len() > 4096)
-                {
-                    return Err(invalid("剩余同步项无效"));
-                }
-                evidence.checked_at = now();
-                evidence.decision_digest = decision_digest(decision)?;
-                let entry = match state
-                    .decisions
-                    .iter()
-                    .position(|d| d.decision_id == decision_id)
-                {
-                    Some(i) => &mut state.decisions[i],
-                    None => {
-                        state.decisions.push(DecisionFollowthrough {
-                            decision_id,
-                            formal: None,
-                            implementation: None,
-                            history: vec![],
-                            following: true,
-                        });
-                        state.decisions.last_mut().unwrap()
-                    }
-                };
-                let slot = if track == "formal" {
-                    &mut entry.formal
-                } else {
-                    &mut entry.implementation
-                };
-                if let Some(previous) = slot.take() {
-                    entry.history.push(previous);
-                }
-                *slot = Some(evidence);
-            }
-            DailyWorkAction::FollowDecision {
-                decision_id,
-                following,
-            } => {
-                if !self.current.decisions.iter().any(|d| d.id == decision_id) {
-                    return Err(invalid("决定不属于当前项目"));
-                }
-                if let Some(entry) = state
-                    .decisions
-                    .iter_mut()
-                    .find(|d| d.decision_id == decision_id)
-                {
-                    entry.following = following;
-                } else {
-                    state.decisions.push(DecisionFollowthrough {
-                        decision_id,
-                        formal: None,
-                        implementation: None,
-                        history: vec![],
-                        following,
-                    });
-                }
             }
             DailyWorkAction::Attention { mut item } => {
                 if !valid_scoped_work(&item.work, &state)

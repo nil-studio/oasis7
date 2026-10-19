@@ -7,7 +7,7 @@ import type { Snapshot } from './types';
 import type { DailyWorkState, WorkProjection } from './generated/core';
 vi.mock('./bridge', async () => ({...await vi.importActual('./bridge'), bridge: {workProjection:vi.fn(),dailyWork:vi.fn(),saveDailyWork:vi.fn(),openSource:vi.fn()}}));
 const snapshot=(id='p')=>({project:{id,path:'/repo',head:'head',environment:'local'},sections:[],decisions:[],associations:[]}) as unknown as Snapshot;
-const state=(id='p'):DailyWorkState=>({schemaVersion:1,projectId:id,environment:'local',revision:0,navigation:{selected:null,filter:'',expanded:false,scrollTop:0,detailScrollTop:0,returnView:'direction',draft:'',draftPurpose:'',draftScope:'',retainDraft:false,startIntentId:null,lastReadAt:null,pinned:[]},relations:[],decisions:[],attention:[],external:[],worktrees:[],legacyDigest:'legacy',legacyChanged:false});
+const state=(id='p'):DailyWorkState=>({schemaVersion:1,projectId:id,environment:'local',revision:0,navigation:{selected:null,filter:'',expanded:false,scrollTop:0,detailScrollTop:0,returnView:'direction',draft:'',draftPurpose:'',draftScope:'',retainDraft:false,startIntentId:null,lastReadAt:null,pinned:[]},relations:[],attention:[],external:[],worktrees:[],legacyDigest:'legacy',legacyChanged:false});
 function projection(id='p'):WorkProjection {
  const reference={kind:'pullRequest',host:'github.com',repository:'o/r',number:'1'} as const;
  const evidence={source:reference,revision:'head',verifiedAt:'20',eventAt:null,readAt:'30',coverage:'recent 100 only'};

@@ -39,30 +39,6 @@ pub struct WorkRelation {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct SyncEvidence {
-    pub state: String,
-    pub source: Option<String>,
-    pub revision: Option<String>,
-    pub scope: String,
-    pub conclusion: String,
-    #[serde(default)]
-    pub covers_full_scope: bool,
-    #[serde(default)]
-    pub remaining: Vec<String>,
-    pub checked_at: String,
-    pub decision_digest: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct DecisionFollowthrough {
-    pub decision_id: String,
-    pub formal: Option<SyncEvidence>,
-    pub implementation: Option<SyncEvidence>,
-    pub history: Vec<SyncEvidence>,
-    pub following: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct WorkAttention {
     pub id: String,
     pub work: WorkRef,
@@ -102,7 +78,6 @@ pub struct DailyWorkState {
     pub revision: u64,
     pub navigation: WorkNavigation,
     pub relations: Vec<WorkRelation>,
-    pub decisions: Vec<DecisionFollowthrough>,
     pub attention: Vec<WorkAttention>,
     pub external: Vec<ExternalWork>,
     pub worktrees: Vec<WorktreeReference>,
@@ -126,15 +101,6 @@ pub enum DailyWorkAction {
     },
     RemoveRelation {
         id: String,
-    },
-    SyncDecision {
-        decision_id: String,
-        track: String,
-        evidence: SyncEvidence,
-    },
-    FollowDecision {
-        decision_id: String,
-        following: bool,
     },
     Attention {
         item: WorkAttention,
