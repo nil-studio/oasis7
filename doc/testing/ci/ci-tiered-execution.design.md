@@ -1,5 +1,7 @@
 # CI 分级执行
 
+Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编译，各用独立 runner。原生编译仍只有一个互斥的可信/只读入口；安装包组装等待 Web 成功、且两个原生入口恰有一个成功另一个 skipped，失败、取消或未知状态不能进入组装。原生中间归档只从同一 run 下载，组装前核对 source SHA、platform、target、profile、ops 范围及每个固定二进制的 SHA-256/权限，缺失、symlink 或篡改拒绝；组装不再调用 Cargo。最终 SOURCEPLAN/BUILDINFO、入口验证和校验和合同不变。并行收益以实际 hosted 耗时为准，原生 runner 的 Cargo 并发固定为 1，避免多个重型 Thin LTO 构建同时占满内存；这不影响 Web/native 跨 runner 并行。
+
 - 状态：active
 - 专业 owner：`repository_health_engineer`；CI 控制、来源与缓存边界由独立评审者审读
 - 通用规则：[开发流程规范](../../engineering/workflow/source-of-truth.md)

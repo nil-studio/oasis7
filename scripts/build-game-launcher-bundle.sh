@@ -11,6 +11,8 @@ TARGET_TRIPLE="native"
 WEB_DIST_SOURCE=""
 WEB_LAUNCHER_DIST_SOURCE=""
 DRY_RUN=0
+NATIVE_ONLY=0
+NATIVE_BINARIES=""
 
 usage() {
   cat <<'USAGE'
@@ -41,6 +43,8 @@ Options:
   --web-launcher-dist <path>
                          use existing prebuilt launcher web dist instead of trunk build
   --dry-run              print commands only; do not execute
+  --native-only          build/stage native binaries without Web assets
+  --native-binaries <path> reuse verified native stage instead of compiling
   -h, --help             show this help
 USAGE
 }
@@ -179,6 +183,15 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --native-only)
+      NATIVE_ONLY=1
+      shift
+      ;;
+    --native-binaries)
+      NATIVE_BINARIES="${2:-}"
+      [[ -n "$NATIVE_BINARIES" ]] || { echo "error: missing native stage" >&2; exit 1; }
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -191,6 +204,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$NATIVE_ONLY" == 1 && -n "$NATIVE_BINARIES" ]]; then
+  echo "error: native-only and native-binaries are mutually exclusive" >&2
+  exit 1
+fi
+if [[ "$NATIVE_ONLY" == 1 && -n "$OPS_OUT_DIR" && "$OPS_OUT_DIR" != "$OUT_DIR/ops" ]]; then
+  echo "error: native-only ops output must be <out-dir>/ops" >&2
+  exit 1
+fi
+
 if [[ -z "$OUT_DIR" ]]; then
   ts="$(date +%Y%m%d-%H%M%S)"
   OUT_DIR="$ROOT_DIR/output/release/game-launcher-$ts"
@@ -200,6 +222,9 @@ if [[ "$OUT_DIR" != /* ]]; then
 fi
 if [[ -n "$OPS_OUT_DIR" && "$OPS_OUT_DIR" != /* ]]; then
   OPS_OUT_DIR="$ROOT_DIR/$OPS_OUT_DIR"
+fi
+if [[ -n "$NATIVE_BINARIES" && "$NATIVE_BINARIES" != /* ]]; then
+  NATIVE_BINARIES="$ROOT_DIR/$NATIVE_BINARIES"
 fi
 if [[ -n "$WEB_DIST_SOURCE" && "$WEB_DIST_SOURCE" != /* ]]; then
   WEB_DIST_SOURCE="$ROOT_DIR/$WEB_DIST_SOURCE"
@@ -302,7 +327,11 @@ if (( ${#CARGO_TARGET_ARGS[@]} > 0 )); then
   BUNDLE_NATIVE_BUILD_ARGS=("${CARGO_TARGET_ARGS[@]}" "${BUNDLE_NATIVE_BUILD_ARGS[@]}")
 fi
 NATIVE_TARGET_DIR="$ROOT_DIR/target"
-if [[ "$PROFILE" == "dev" ]]; then
+if [[ -n "$NATIVE_BINARIES" ]]; then
+  native_ops=0
+  [[ -z "$OPS_OUT_DIR" ]] || native_ops=1
+  run python3 "$ROOT_DIR/scripts/package-native-stage.py" verify "$NATIVE_BINARIES" "$ROOT_DIR" "$PROFILE" "$TARGET_TRIPLE" "$BUNDLE_PLATFORM_ID" "$native_ops"
+elif [[ "$PROFILE" == "dev" ]]; then
   source "$ROOT_DIR/scripts/cargo-dev-lib.sh"
   NATIVE_TARGET_DIR="$(oasis7_cargo_dev_target_dir "$ROOT_DIR")"
   run oasis7_cargo_dev build "${BUNDLE_NATIVE_BUILD_ARGS[@]}"
@@ -322,6 +351,17 @@ GOVERNANCE_REGISTRY_IMPORT_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$GOVERN
 GOVERNANCE_REGISTRY_AUDIT_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$GOVERNANCE_REGISTRY_AUDIT_BIN_NAME"
 CLIENT_LAUNCHER_SRC="$NATIVE_TARGET_DIR/$TARGET_OUTPUT_SUBDIR/$CLIENT_LAUNCHER_BIN_NAME"
 SERVICE_READBACK_SRC="$ROOT_DIR/scripts/service-readback"
+
+if [[ -n "$NATIVE_BINARIES" ]]; then
+  LAUNCHER_SRC="$NATIVE_BINARIES/bin/$LAUNCHER_BIN_NAME"
+  WEB_LAUNCHER_SRC="$NATIVE_BINARIES/bin/$WEB_LAUNCHER_BIN_NAME"
+  LIVE_SRC="$NATIVE_BINARIES/bin/$LIVE_BIN_NAME"
+  CHAIN_SRC="$NATIVE_BINARIES/bin/$CHAIN_BIN_NAME"
+  CLIENT_LAUNCHER_SRC="$NATIVE_BINARIES/bin/$CLIENT_LAUNCHER_BIN_NAME"
+  WORLD_REPAIR_REBUILD_SRC="$NATIVE_BINARIES/ops/bin/$WORLD_REPAIR_REBUILD_BIN_NAME"
+  GOVERNANCE_REGISTRY_IMPORT_SRC="$NATIVE_BINARIES/ops/bin/$GOVERNANCE_REGISTRY_IMPORT_BIN_NAME"
+  GOVERNANCE_REGISTRY_AUDIT_SRC="$NATIVE_BINARIES/ops/bin/$GOVERNANCE_REGISTRY_AUDIT_BIN_NAME"
+fi
 
 if [[ "$DRY_RUN" != "1" ]]; then
   [[ -f "$LAUNCHER_SRC" ]] || { echo "error: launcher binary not found: $LAUNCHER_SRC" >&2; exit 1; }
@@ -346,6 +386,13 @@ if [[ -n "$OPS_OUT_DIR" ]]; then
   replace_file "$GOVERNANCE_REGISTRY_IMPORT_SRC" "$OPS_BIN_DIR/$GOVERNANCE_REGISTRY_IMPORT_BIN_NAME"
   replace_file "$GOVERNANCE_REGISTRY_AUDIT_SRC" "$OPS_BIN_DIR/$GOVERNANCE_REGISTRY_AUDIT_BIN_NAME"
   replace_file "$SERVICE_READBACK_SRC" "$OPS_BIN_DIR/service-readback"
+fi
+
+if [[ "$NATIVE_ONLY" == 1 ]]; then
+  native_ops=0
+  [[ -z "$OPS_OUT_DIR" ]] || native_ops=1
+  run python3 "$ROOT_DIR/scripts/package-native-stage.py" write "$OUT_DIR" "$ROOT_DIR" "$PROFILE" "$TARGET_TRIPLE" "$BUNDLE_PLATFORM_ID" "$native_ops"
+  exit 0
 fi
 
 # 2) Prepare viewer web dist (viewer canonical static bundle, with software_safe compat alias).
