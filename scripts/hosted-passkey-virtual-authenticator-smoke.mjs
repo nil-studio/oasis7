@@ -11,7 +11,7 @@ const { chromium } = require("playwright");
 const url = process.argv[process.argv.indexOf("--url") + 1];
 if (!url || !url.startsWith("https://")) throw new Error("Usage: node scripts/hosted-passkey-virtual-authenticator-smoke.mjs --url https://localhost:8449/");
 const moduleUrl = new URL("/viewer_passkey_account_module.js", url).toString();
-const browser = await chromium.launch({ channel: "chrome", headless: true });
+const browser = await chromium.launch({ channel: "chrome", headless: !process.argv.includes("--headed") });
 try {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await context.newPage();
@@ -41,6 +41,7 @@ try {
       create: async (options) => { await window.smokeBeforeCreate(); return navigator.credentials.create(options); },
       get: (options) => navigator.credentials.get(options),
     }, fetch: async (url, options) => {
+      if (window.nativeTest && options.body?.includes(window.nativeTest.seed)) throw new Error("private seed entered network payload");
       if (url.endsWith("/passkeys/registration/complete")) window.smokeRegisterReplay = { url, body: options.body };
       return fetch(url, options);
     } });
@@ -134,6 +135,54 @@ try {
   assert.equal(csrfFailure, 403);
   session = await page.evaluate(() => window.smokeClient.session());
   assert.equal(session.account.account_id, accountId);
+  // Use the actual browser Web Crypto and HTTP identity authority for imported keys.
+  await page.evaluate(async () => {
+    const { importAccountKey } = await import("/viewer_imported_key.js");
+    const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
+    const hex = bytes => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
+    const pkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
+    window.nativeTest = { publicKey:hex(await crypto.subtle.exportKey("raw", pair.publicKey)), seed:hex(pkcs8.slice(-32)) };
+    window.nativeTest.signer = await importAccountKey(window.nativeTest.publicKey, window.nativeTest.seed);
+  });
+  result = await action("bind-imported-key", () => window.smokeClient.bindImportedKey(window.nativeTest.signer));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const bound = await page.evaluate(() => window.smokeClient.credentials());
+  assert.equal(bound.credentials.filter(c => c.type === "native_key" && c.state === "active").length, 1);
+  result = await action("logout-before-import", () => window.smokeClient.logout());
+  assert.equal(result.ok, true);
+  await page.evaluate(async () => {
+    const { mountPasskeyAccount } = await import("/viewer_passkey_account_module.js");
+    window.nativeSurface = mountPasskeyAccount(document.querySelector("#account"), {client:window.smokeClient});
+  });
+  await page.getByRole("button", {name:"使用导入密钥登录", exact:true}).waitFor();
+  const screenshotDir = process.env.OASIS7_NATIVE_SMOKE_OUTPUT;
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({width, height:900});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "account UI must fit viewport");
+    if (screenshotDir) await page.screenshot({path:join(screenshotDir, `import-login-${width}.png`), fullPage:true});
+  }
+  await page.evaluate(() => {
+    const inputs = document.querySelectorAll("#account fieldset input");
+    inputs[0].value = window.nativeTest.publicKey; inputs[1].value = window.nativeTest.seed;
+    window.nativePasswordField = inputs[1];
+  });
+  await page.getByRole("button", {name:"使用导入密钥登录", exact:true}).click();
+  await page.getByRole("heading", {name:"账号与安全", exact:true}).waitFor();
+  assert.equal(await page.evaluate(() => window.nativePasswordField.value), "");
+  session = await page.evaluate(() => window.smokeClient.session());
+  assert.equal(session.account.account_id, accountId);
+  assert.equal(session.authentication.method, "native_key");
+  assert.equal(await page.evaluate(() => Object.values({...localStorage, ...sessionStorage}).some(value => String(value).includes(window.nativeTest.seed))), false);
+  const imported = bound.credentials.find(c => c.type === "native_key");
+  await page.evaluate(c => {window.nativeRevoke = c;}, imported);
+  await page.evaluate(() => window.smokeClient.clearImportedKey());
+  result = await action("revoke-imported-key", () => window.smokeClient.revokeCredential(window.nativeRevoke));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  result = await action("revoked-imported-session", () => window.smokeClient.session());
+  assert.equal(result.ok, false);
+  result = await action("revoked-imported-login", () => window.smokeClient.loginImportedKey(window.nativeTest.signer));
+  assert.equal(result.ok, false);
+  await page.evaluate(() => {window.nativeSurface.dispose(); delete window.nativeTest;});
   result = await action("logout", () => window.smokeClient.logout());
   assert.equal(result.ok, true);
   result = await action("session-after-logout", () => window.smokeClient.session());
@@ -141,6 +190,6 @@ try {
   assert.equal(result.status, 401);
   console.log(JSON.stringify({ ok: true, evidence: "chromium_virtual_authenticator", resident_required: true,
     user_verification_required: true, registration: "passed", discoverable_login_after_cookie_reset: "passed",
-    stable_account: "passed", registration_replay_no_cookie: "passed", second_credential: "passed", credential_revocation: "passed", revoked_credential_signature_rejected: "passed", csrf: "passed", logout: "passed",
+    stable_account: "passed", registration_replay_no_cookie: "passed", second_credential: "passed", credential_revocation: "passed", revoked_credential_signature_rejected: "passed", csrf: "passed", imported_key_bind_login_revoke: "passed", imported_key_responsive_ui: "passed", logout: "passed",
     real_device_support: "not_tested" }));
 } finally { await browser.close(); }

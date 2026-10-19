@@ -13,7 +13,7 @@ export function renderAccountEmailRecovery(root, { state, account, credentials, 
   function mode(value) { state.mode = value; state.code = ""; render(); }
   if (!account && capabilities.email?.available) button("使用邮箱登录", () => mode("login_address"));
   if (account && capabilities.email?.available) button("绑定或替换恢复邮箱", () => mode("binding_address"));
-  if (account && !credentials.some((key) => key.state === "active" && key.type === "passkey")) {
+  if (account && !credentials.some((key) => key.state === "active" && ["passkey", "native_key"].includes(key.type))) {
     button("验证邮箱并添加首个通行密钥", async () => { state.otp = await client.upgradeEmailOptions(); mode("upgrade_code"); });
   }
   if (capabilities.email_recovery?.available) {

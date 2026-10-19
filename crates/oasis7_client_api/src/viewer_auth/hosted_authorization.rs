@@ -100,7 +100,10 @@ impl HostedAuthContextV2 {
         if self.world_session_epoch == 0
             || (self.capabilities != ["player_session"]
                 && self.capabilities != ["player_session_release"])
-            || !matches!(self.auth_method.as_str(), "webauthn" | "email")
+            || !matches!(
+                self.auth_method.as_str(),
+                "webauthn" | "email" | "native_key"
+            )
             || self.auth_time > self.checked_at
         {
             return Err("hosted_authorization_invalid: unsupported authority".into());
