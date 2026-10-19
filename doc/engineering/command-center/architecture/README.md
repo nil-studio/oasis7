@@ -97,6 +97,20 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 正式激活、独立故障域恢复和人工交接的能力边界由对应专业合同持有。[#4363 的旧规划](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)仅作历史来源；该 Issue 已停止独立跟踪，不据此恢复执行义务。
 
+<a id="cc-architecture-world-policy-contracts"></a>
+
+### 制造、保供与组织处置
+
+2026-10-19 局部设计核对：精确政策由 game 专题持有，产品声明玩家承诺，Runtime 消费固定政策版本并拥有业务事实。三项复用现有权威提交与持久化边界，不能由普通材料产出、通用 Crisis 或删除联盟映射推导完成。
+
+| 主题 | 必须保持的边界 | 专业设计入口 |
+| --- | --- | --- |
+| 工业取得 Agent | 原订单的资源、产能、交付身份和 claim 同链；交付提交前不产生可控制的新 Agent，quota 不直接供给 | [制造与原子交付](../../../world-runtime/runtime/agent-industrial-manufacturing.design.md) |
+| 紧急保供 | 授权、冻结批次、累计需求和结算分层；到期退出不迁移旧待决权利，不重复分配或结算同一价值 | [保供授权与结算](../../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md) |
+| 组织连续性 | 基础阶段与申诉请求分离；重叠对象/权利/动作 scope 保持唯一处分权，交接原子终止或收缩旧授权 | [组织处置与交接](../../../world-runtime/runtime/organization-continuity-and-disposition.design.md) |
+
+业务实现、兼容与运行验收仍分别由 [#4850](https://github.com/nil-studio/oasis7/issues/4850)、[#4866](https://github.com/nil-studio/oasis7/issues/4866)、[#4868](https://github.com/nil-studio/oasis7/issues/4868)承接。扩大配方/物资/资产范围、改变政策版本或消费者时重新核对本组合同；当前未核验部署，不前移其他架构条目的基线。
+
 <a id="cc-architecture-agents"></a>
 
 ## 身份与 Agent
