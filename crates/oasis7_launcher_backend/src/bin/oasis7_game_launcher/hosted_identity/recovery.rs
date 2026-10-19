@@ -633,7 +633,7 @@ impl IdentityService {
                     ))?
                     .ok_or(StoreError::Corrupt)?
                     .value;
-                if !matches!(proof.public_material, CredentialMaterial::WebAuthn { .. }) {
+                if !proof.public_material.is_public_key() {
                     return Err(reject("reauth_required"));
                 }
                 r.value.approved_by = if decision == "approve" {

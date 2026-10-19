@@ -47,6 +47,9 @@ pub struct PlayerBinding {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CredentialMaterial {
+    NativeKey {
+        public_key: [u8; 32],
+    },
     WebAuthn {
         rp_id: String,
         credential_id: Vec<u8>,
@@ -173,4 +176,17 @@ pub struct QuotaRecord {
     pub bucket: String,
     pub window_start: u64,
     pub count: u64,
+}
+
+impl CredentialMaterial {
+    pub fn is_public_key(&self) -> bool {
+        matches!(self, Self::WebAuthn { .. } | Self::NativeKey { .. })
+    }
+    pub fn credential_type(&self) -> &'static str {
+        match self {
+            Self::WebAuthn { .. } => "passkey",
+            Self::NativeKey { .. } => "native_key",
+            Self::Email { .. } => "email",
+        }
+    }
 }

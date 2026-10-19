@@ -18,6 +18,8 @@
 
 ## 核验基线与覆盖范围
 
+Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已形成实现候选，尚未合入或部署。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
+
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
 
 局部增量（2026-10-12，仅 Cargo 拆分）：[#4626](https://github.com/eng-cc/oasis7/pull/4626) 已合入 `133d70e45b71bd062032a734d68be1e290692b2c`，统一生产 cognition memory/continuation 核心并保留 Runtime authority；对应 main Rust [38212520926](https://github.com/eng-cc/oasis7/actions/runs/38212520926) 已成功。本分支正在补支持包 profile 选测隔离，尚未合入或完成 V0。用户确认提速收益已验证；实际自主试玩明确不在此次 Cargo V0 验收范围，不据此宣称实玩通过。该增量不刷新下面其他项目/部署事实的核验时间。
@@ -101,7 +103,7 @@ starter 候选、owner 目标持久化等前置已有代码；Web guest 启动/�
 
 ### 4. 受控真人两次会话
 
-Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可选凭证。实现与代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署进度及交付阻断项见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)。协议边界由 [账号设计](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 和 [验收手册](../../testing/manual/hosted-passkey-account.manual.md) 承接；技术预览不代签正式邀请资格。
+Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可选凭证。2026-10-19 核对的[会话内导入合同](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#imported-key-web)允许已绑定 Ed25519 公钥挑战登录，私钥不持久化；受保护客户端生成和加密备份仍未发布，具体部署可用性须读取目标 capabilities。实现与代码验证见 [#4669](https://github.com/eng-cc/oasis7/pull/4669)，部署进度及交付阻断项见 [#4671](https://github.com/eng-cc/oasis7/issues/4671)。协议边界由 [账号设计](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md) 和 [验收手册](../../testing/manual/hosted-passkey-account.manual.md) 承接；技术预览不代签正式邀请资格。
 
 新建独立 DevLocal 世界的身份、创世材料和 WorldService 消费者绑定由 [预览初始化合同](../../p2p/design.md#des-p2p-fresh-preview-bootstrap) 与 [操作手册](../../testing/manual/fresh-world-preview-bootstrap.manual.md) 承接。该入口不恢复旧世界或激活正式 authority profile；部署和验收结果继续在交付任务中维护。
 

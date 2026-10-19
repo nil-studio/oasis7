@@ -56,6 +56,7 @@ describe("pixel world host production refresh", () => {
     const { core } = await renderPixelWorldHost(sampleSnapshot(), "?connect=0&locale=en", "en", {injectionSearch:"?test_api=1&connect=0&locale=en"});
     await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe("ready"));
     runtimeMock.deriveRenderState.mockImplementation(() => {throw new Error("derivation interrupted");});
+    core.state.snapshot.model.locations["loc-0"].pos.x_cm += 1;
     core.requestRender();
     await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe("unavailable"));
     expect(document.querySelector(".pixel-world-action-receipt")).toBeInTheDocument();

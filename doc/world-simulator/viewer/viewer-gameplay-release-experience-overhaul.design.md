@@ -21,7 +21,7 @@
 
 ### 2.1 需求承接与分配表
 
-本表限定首局方案、分支指引和吸引力样例的兼容修改；既有 shell、渲染、权限及发布条款保持其原有适用范围。
+本表承接首局方案、分支指引、吸引力样例以及 Viewer 性能要求；未触及的 shell、权限及发布条款保持其原有适用范围。
 
 | 上游 requirement / acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
@@ -30,6 +30,8 @@
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | 查看、查询、提交及成果表达同一对象和实际方案。 | [当前方案交互](#starter-plan-interaction) | gameplay/M4 参数与报价；Runtime 因果；Viewer/QA 入口验证。 | 不重建 Shell/Inspector，不由 UI 补算成本。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | 报价失效、迟到响应和未知结果保留原请求语义，不重复提交或误归因。 | [当前方案交互](#starter-plan-interaction) | M4/Runtime identity 与重验；Viewer/QA 时序验证。 | 不新增恢复权限，不以退出界面取消已提交动作。 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | 首产物成果连接真实后继目标与自然离场，重入保留既有成果和未决义务。 | [当前方案交互](#starter-plan-interaction) | gameplay 后继条件；Runtime 结算；Viewer/QA 续玩验证。 | 不把候选当建成，不扩张 Agent 授权或生成离线收益。 |
+| [REQ-ENTRY-PERFORMANCE-001 / AC](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)；Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251 | 世界刷新时可交互，过载可解释且不丢事实 | [显示投影与调度](#viewer-render-projection) | Viewer Host / bridge / QA；Runtime 继续提供权威快照 | 不承诺任意世界规模或低端设备，不改变动作执行 |
+| [REQ-ENTRY-PERFORMANCE-002 / AC](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)；Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae | 有界等待，同版本复用，损坏/版本切换安全恢复 | [资源交付与恢复](#viewer-payload-delivery) | Web build / loader / HTTP deployment / QA | 不解决账号、provider 或后端故障，不开放离线可玩 |
 
 ## 3. 当前实现与目标边界
 - 当前 `main` 的 Player 是 fullscreen、world-first 单舞台：世界棋盘为首屏主体，
@@ -405,5 +407,70 @@ unavailable 不可合并，当前 Recent Events/Feedback 名称保持不变。Fu
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | [当前方案交互](#starter-plan-interaction) | 查看/查询/提交分开，同参数与实际成果可读；承接 AC-FIRST-INDUSTRIAL-001。 | 待执行：按 [测试手册](../../../testing-manual.md) 选择当前 candidate 的适用 S6 场景，沿 §8.1/8.4 的 quote→submit→receipt 真实消费者核对对象、参数、成本和反馈；覆盖桌面/窄屏、IME、键盘、文字放大与非打断播报。 | PR 中的实际参数、权威结果与 headed captures；记录缺失前置。 | 单元/组件测试不代签 GUI；图形正确不证明真人理解、主体感或留存。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | [当前方案交互](#starter-plan-interaction) | 失效/迟到结果不污染当前方案，原请求未知与已结算范围分开；承接 AC-FIRST-INDUSTRIAL-003。 | 待执行：按 [测试手册](../../../testing-manual.md) 在当前 candidate 的适用 S6 场景执行 §8.2 的参数/对象改变、报价在途失效、旧响应迟到、权限失效及未知结果恢复；核对实际提交、焦点和原请求身份，缺恢复入口记录 blocked。 | PR 中的消息时序、原请求与领域结果、无重复效果证据及 headed captures。 | reducer 或固定脚本不代签真实消费者、GUI 或自主试玩。 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | [当前方案交互](#starter-plan-interaction) | 单一成果回执、可见后继目标和自然离场分别成立；承接 AC-FIRST-INDUSTRIAL-004。 | 待执行：按 [测试手册](../../../testing-manual.md) 在当前 candidate 的适用 S6 场景验证 §8.2/8.3 的成果到达、后继不可执行、自然离场和重入；检查旧成果不误归给新意图、不重复播报、不复活失效授权；无提示续玩观察单独记录。 | PR 中的成果/后继条件、离场与重入状态、headed captures 和提示介入记录。 | 图形与恢复正确不证明 Agent 主体感或真人留存，未覆盖窗口保持未验证。 |
+| [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)；Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251 | [显示投影与调度](#viewer-render-projection) | 按[预算](#viewer-performance-verification)验收响应/事实一致性。 | 按[测试手册 S6](../../../testing-manual.md)执行 Host/DTO/Rust 具体解析的正负回归：代理不外泄、未知字段不遍历、同 revision 不转换、每项有效变化必刷新、输出上限、旧代次丢弃、逐条 receipt 不丢；真实浏览器场景各 3×60 秒，p95 按每次完整操作采样，报告样本数与最差一次，不能平均掩盖失败 | 实施 PR：source/build/scene、基线与优化后 trace、分段耗时/转换次数/输入输出大小/正确性及失败 | mock 不代签 WASM/实际 GPU；本设计交付不执行游戏自主试玩，不改变 Skill 或行动行为 |
+| [REQ-ENTRY-PERFORMANCE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)；Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae | [资源交付与恢复](#viewer-payload-delivery) | 按[预算](#viewer-performance-verification)验收公共资源加载/复用及失败恢复。 | 按[测试手册 S6](../../../testing-manual.md)执行 loader 故障回归与真实 HTTP：br/gzip/identity 的解码 hash 相同，响应头/encoded bytes 正确；冷启动 10 次/热启动 20 次均逐次满足预算；切版本/回滚/损坏/超时/离线/淘汰/并发 Retry/迟到 init 正确恢复，记录阶段时长和 body transfer | 实施 PR：相同发布的 manifest/hash/headers、network waterfall、缓存来源、阶段状态与实际退出码；实际部署验证以原 runbook 继续 | 本地服务器、curl 压缩、LCP 或 shell 出现单独不能证明 renderer ready；热性能不证明冷性能，资源就绪不证明可玩 |
 
 本节定义实现与验收边界；具体候选、执行过的测试和未覆盖入口记录在对应 PR。代码或样例回归成功不能升级为真实自主试玩、图形交互或发行验收通过。
+
+<a id="viewer-performance-contract"></a>
+## Viewer 性能优化合同（目标设计）
+
+Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维护真实 HTTP 交付配置。本节只设计浏览器性能，不修改世界协议、权限或游戏规则；已开始分阶段实施，不把上一轮站点诊断或源码存在当作当前候选验收。线上单次 CPU/下载样本只支持定位假设，不定义普适硬件能力。
+
+性能要求在本文 §2.1 分配，§11.1 对应验证；下述条款是完整目标合同；当前实现范围与剩余项见本节末尾。
+
+<a id="viewer-render-projection"></a>
+### 显示投影与调度
+
+1. **投影先于跨 WASM 边界**。Host 从同一有效、经会话可见性过滤的 snapshot 构造普通、无 Solid Proxy 的 `RenderInputV1`；仅包含当前显示所需的实体 identity/位置/标签、地形/设施显示字段、选择/相机、目标/阻塞/回执展示字段及 world/scope/revision。明确字段白名单，不直接传 snapshot、modelLists 的原实体、完整 gameplay/history 或 auth 对象。嵌套数组/对象同样投影成普通数据，单独 `unwrap` 或 `JSON.stringify(snapshot)` 不算解决完整树遍历。Rust 改为具体 DTO 解析，不先递归转换完整 `serde_json::Value` 再挑字段；Rust 继续拥有已有渲染派生规则，JS 只裁剪/复制，不补算游戏后果。
+2. **限制数据成本**。输入与输出均有 schema/version、字段类型、数目、文本长度及总字节上限，未知版本明确 unavailable。目标每个方向序列化等价 UTF-8 大小不超过 256 KiB；按实体稳定排序，场景投影最多 500 个普通可见标记，文字标签最多 100 个、每个最多 128 Unicode 标量。当前选择、主目标和主要 blocker 的语义优先，装饰先裁剪；无法容纳必需语义时明确“显示容量不足”，不得悄悄丢掉关键结果。可见细节裁剪不改变 Targets 完整的有权列表、世界尺度与实际实体计数。沿用 fragment LOD/空间查询权威；被裁剪数量与原因可诊断，输入输出都检查预算，不发送截断的非法 JSON。
+3. **按显示 revision 更新**。memo 依赖只读显示投影的确切输入（相关字段 revision、locale、selection、相机/LOD、权限 scope），网络心跳、diagnostics、无关 feed 和 renderer meta 不使全世界重新派生。世界 tick 可经轻量 readout 更新；同一显示内容不因 tick 变化重新转换几何。旧协议没有 revision 时，在接收边界按有关字段计算 revision，禁止每帧深度比较全 snapshot。实体删除、不可见、目标/阻塞和最新动作结果变化必须使正确子投影失效。
+4. **合并展示，保留权威事件**。同一 animation frame 只消费一个最新待显示投影，最多一个派生在途及一个待处理槽；旧待处理投影可覆盖，动作提交、回执、journal/feed 的权威 reducer 仍逐条处理，不能套用 latest-only。显示保留真实 world revision 和 freshness；追赶期间不能显示 LIVE。单次转换超预算时先缩小 DTO 和拆分无关派生；Worker 仅在测量证明仍需隔离纯派生时采用，不把 Bevy/WebGL 或 auth 转移到 Worker 当作本轮前提。
+5. **隔离代次与失效**。每份投影绑定 world、branch/epoch、可见性 scope、session generation、schema 和相关显示 revision。切世界、注销、权限收缩、reorg 或 renderer retry 立即失效旧投影、待处理槽和派生缓存，迟到结果在提交前核对 generation。公开 bytes 缓存不能装玩家状态；旧画面可以表示追赶但不能保留已撤销可见内容。重入从当前授权数据重建显示，不恢复旧 authority。
+6. **动画与真实更新分开**。维持现有 ambient 约 12 Hz 上限、不可见暂停和减少动效策略；相机交互按帧更新必要投影，hover 仅更新相关命中/提示层，不重送世界。渲染发回 camera/meta 事件仅在值变化时更新 Host，避免 effect→WASM→meta→effect 自激。输入、焦点、命令草稿和失败恢复不等待环境动画完成；降级装饰不切换第二套事实源或伪装 renderer ready。
+
+<a id="viewer-payload-delivery"></a>
+### 公共图形资源交付与恢复
+
+- **构建 owner**：沿用 [Web Build Truth](viewer-web-build-truth.design.md) 的 canonical bundle、optional manifest 与 separate artifact；先用 optimized WASM 构建、剔除调试/无用 feature 及经回归验证的体积优化，不用开发构建代表性能。manifest 的 size/hash 始终指解压后的 canonical bytes，压缩变体可另列 encoded size；发布前自动核对三者。未生成资源仍按 optional unavailable，不把空文件或 fallback 标成成功。
+- **发布 owner**：每份 WASM 使用含完整内容 SHA-256 的 URL；同一 URL 的解码 bytes 永不覆盖。HTML 与 manifest 通过 revalidation 或 no-store 获取一致的发布指针，manifest 绑定 bridge/schema/build 标识；旧页面固定其 descriptor，不在加载中途跟随新 manifest 混版。先发布资源及压缩变体，再发布同候选 HTML/JS/manifest；保留仍受支持版本引用的资源。回滚切回完整兼容发布集合，不覆盖 hash URL 或回滚世界。
+- **HTTP owner**：WASM 提供 `application/wasm`、经协商的 Brotli/gzip（`Content-Encoding`、`Vary: Accept-Encoding`）及 identity fallback；hash URL 返回 `Cache-Control: public, max-age=31536000, immutable`。压缩各变体解码内容相同；identity fallback 保持可用但单独报告加载预算。JS/CSS 仅在同样使用内容寻址后采用 immutable，稳定名字不得长缓存造成混版。既有外部 optional base 保留原允许来源/CORS/CSP 边界，不为性能新增第三方 origin 或放宽权限。
+- **Loader owner**：公共 hash URL 使用正常 HTTP 缓存语义，去掉 payload 的无条件 no-store；manifest 仍新鲜核验。冷下载、warm disk/memory cache 和淘汰后重取都对解码 bytes 核对 size/hash，再 init；HTTP 缓存命中和文件名本身不是校验。第一阶段保留完整 bytes 校验后编译，分别测 fetch/read/hash/compile/init，不以未验证流式执行换加载分数。若未来采用流式编译，仍须先证明未验证 module 不实例化、不调用导出，另行评审兼容与完整性边界。
+- **资源状态**：入口 shell 先可操作，再表示资源下载/核对/准备图形/就绪或不可用；下载进度只能用同一编码口径的可测值，未知长度显示不确定进度。资源预算超时提供原因、重试与退出，不触发整页刷新或游戏动作重放。图形 ready 仍独立于身份 ready、world synced、action permitted；资源失败时保留实际受支持的安全入口，不自动宣称另一模式可玩。
+- **恢复状态**：继续遵守[已有 loader Retry](#shell-interaction-recovery)：同 descriptor 在途 single-flight，成功实例复用，失败只清除本 attempt，迟到 attempt 不覆盖新 generation。损坏缓存只允许一次 `cache: reload` 重取当前 hash URL 并重新核对；再失败保持 unavailable，显式 Retry 开启新 attempt，禁止后台无限下载循环或改用旧 hash 逃避失败。每 attempt 下载/读 body 30 秒预算，hash/compile/init 另计 10 秒预算，AbortController/代次丢弃阻止迟到挂载；无法中断的初始化保持独立实例所有权，废弃实例释放，不与新 attempt 共用可变 singleton。重复失败允许玩家稍后重试，不删除账号/会话；离线且缓存有效只恢复公共资源，不代表在线世界就绪。
+
+<a id="viewer-performance-verification"></a>
+### 预算、验证与实施顺序
+
+承接 [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)（Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251）与 [REQ-ENTRY-PERFORMANCE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)（Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae），分别验证运行响应和资源准备。
+
+以下是后续实现验收目标，不是当前已达到的指标。复用 `viewer-performance-probe.mjs`、`performance_metrics`、Host/loader 回归和测试手册 S6，补齐缺失测量，不新增全仓通用门禁或付费模型测试。
+
+| 测量范围 | 目标与明确口径 | 条件 / 不能代签 |
+| --- | --- | --- |
+| 入口与冷资源 | 导航至可操作 shell ≤2 秒；首个 renderer ready ≤30 秒；Brotli 或 gzip 实际传输 WASM ≤10 MiB，解码大小另报 | 冷 HTTP cache，5 Mbps 下行/1 Mbps 上行/80 ms RTT；服务可达、初始只读 snapshot ≤1 MiB；ready 不含账号交互、后端故障或 GPU 不支持，但这些必须给出失败状态 |
+| 同版本重入 | 导航至 renderer ready ≤5 秒；WASM body 网络传输为 0（允许 manifest revalidation） | 同一有效发布、HTTP cache 未淘汰、在线环境；不得将每次重入清缓存或浏览器手动刷新禁缓存与此混测；另测缓存淘汰后的冷路径 |
+| 派生与提交 | JS 投影、跨 WASM 解析/派生/回传、bridge update 的端到端耗时 p95 ≤16 ms；单次不超过 50 ms；相同显示 revision 转换次数为 0 | 常规/高负载分别报告，包含复制与校验成本，不只计 Rust 函数体；初次建场景单列初始化预算 |
+| 连续交互 | 输入/选择/开命令至下一次绘制的事件延迟 p95 ≤200 ms；60 秒窗口主线程 busy 时间占比 ≤20%，大于 50 ms 的 Long Task 累计占比 ≤1% | 真实 headed Chrome 硬件加速，不用软件 renderer/no-op/隐藏标签证明；空闲观察与持续操作分开报告；不把 ambient 12 Hz 当 60 FPS 承诺 |
+| 有界显示与追赶 | DTO 输入输出各 ≤256 KiB、在途 1/待处理 1；有限突发结束后 1 秒内显示最新有效 revision 或明确 unavailable | 以每秒 10 次显示输入突发 5 秒检验，权威动作/回执不丢；持续超载可标明追赶，不伪造固定刷新速率 |
+
+参考设备先固定 Apple M3 级桌面、同一 stable Chrome/硬件加速，记录具体 OS、浏览器、DPR 与 GPU；1440×1000 和 390×844 均测。窄视口只证明布局，不代表移动硬件性能；若发行声明支持真实移动设备，须另固定该设备并满足同一预算，未测不扩大支持范围。网络节流与 CPU 节流分别记录，不能从浏览器 UI 未节流推断外网链路无限带宽。
+
+场景固定为：空/不可用世界；1 Agent、1 location、16 terrain 的稀疏世界；常规 1,000 个可见性允许的源实体/视口 100 标记；高负载 10,000 个源实体/视口至多 500 标记。输入保持既有 schema，另带 5 MiB 非显示历史字段验证不跨 WASM 边界；每秒两次世界输入，穿插相机、hover、命令和目标/阻塞/回执变化。所有场景仍核对权限、删除、尺度、LOD 与事实一致性，不能靠只保留空世界达预算。
+
+验证责任与证明边界见 §11.1 的两条性能要求映射。
+
+实施按两条可独立验证的切片推进：先有界 DTO、具体 Rust 解析与 revision 调度，再做资源体积、hash URL、HTTP 配置和 loader 缓存恢复；每条保留正确性与真实性回归。上线前用同候选重新测两条路径，若未达预算继续定位，不降低阈值掩盖瓶颈；线上部署需后续授权，本次实现不新增 CI 控制、发布 claim 或无关后端修复范围。
+
+### 2026-10-19 实施范围与验收边界
+
+设计合入 `fb15585d8811ef5c7ea010139f25908812289213` 后，第一阶段实施以下路径：
+
+- `pixel_world_render_input.js` 在 Host 读取白名单并复制普通数据；输入/输出各 256 KiB，上层 schema/version 严格校验，Rust 从 JSON 字符串解析显示 DTO，避免对 Solid Proxy 逐属性反序列化。实体列表最多 500，超限明确 unavailable；启用已有 worldView/LOD 投影时不再复制未被消费的完整源列表。
+- Host 每帧合并展示请求；adapter 对有界 DTO 的显示内容做签名，相同内容不重新跨 WASM 派生，tick 单独刷新 HUD；有社会关系到期语义时保留时间失效。权限/会话与 renderer 代次继续由既有 scope guard 和 adapter generation 隔离，权威 reducer 不作 latest-only。
+- 精简 Bevy feature 和发布 WASM 的调试节，交付 `viewer-optional-payload/<sha256>.wasm` 及确定性 gzip；manifest size/hash 仍针对解码 bytes。后端仅 hash WASM 使用 immutable；JS/CSS 可协商 gzip 但保持 no-cache，HTML 不预压缩以保留既有安全注入。
+- Loader 使用正常 hash URL 缓存语义，每次核验解码 bytes；损坏缓存只自动 reload 一次。失败 init promise 可显式重试，同 descriptor 初始化保持 single-flight；资源下载/校验/准备/就绪阶段独立于世界同步。hash payload 下载/读 body 有 30 秒中止预算。
+
+本阶段的候选、构建体积、局部回归与 headed 观察记录在 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)。稀疏样例只支持局部诊断，不是同世界受控前后对比，也不覆盖常规/高负载预算；初始化与交互仍需独立测量，不能宣称所有转换都在 50 ms 内。
+
+未完成项仍按原阈值保留：稳定排序与关键语义优先裁剪、100 标签/128 标量细分限制、hash/compile/init 独立 10 秒预算及不可中断初始化的实例所有权隔离、完整设备/网络/大世界/突发更新测量。现阶段采用明确容量失败保障有界输入，不代表 10,000 源实体的常规显示验收通过。线上发布保留多版本资源与实际缓存策略仍需部署 owner 验证；本轮实现不改变世界准入或发布就绪声明。

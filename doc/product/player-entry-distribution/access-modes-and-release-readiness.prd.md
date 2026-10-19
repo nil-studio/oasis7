@@ -6,7 +6,7 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-09-20
+- Last reviewed：2026-10-19
 - 公开状态权威：[`README.md`](../../../README.md)
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
@@ -57,6 +57,52 @@ UI 私有聚合或 API 客户端自行推导不能成为第二事实源。协议
 - 恢复可以是 reconnect、re-register、re-auth、选择受支持模式、修复配置或稍后重试；不得静默恢复旧权限，也不得把 fallback 包装成原入口成功。
 - 无 LLM、debug、probe 或 observer 路径只能支持对应的受限结论，不能代签 `pure_api` 或 `viewer` 的正式可玩性。
 - 对外说明先纠正当前状态，再给最小解释和正式反馈/升级入口；不得用模糊措辞把技术通路包装成已发布体验。
+
+## 4.1 Viewer 持续响应与资源等待
+
+本节适用于受支持浏览器中的 `viewer`，包括 Hosted 入口；不替代身份、世界准入或权威回执合同。具体设备、网络、场景、指标阈值与采样规则由[系统性能设计](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-contract)维护；未达预算只能报告对应体验缺口，不据此改变公开发行状态。
+
+<a id="req-entry-performance-001"></a>
+### REQ-ENTRY-PERFORMANCE-001：世界更新期间保持玩家操作响应
+
+Trace ID: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251
+
+- 要求：在声明的设备与世界负载内，观察世界、切换目标、移动视角、打开命令及输入草稿必须保持可响应。只变化的显示内容触发相应刷新，背景动画、无关诊断和相同世界数据不得使玩家持续等待。减少展示成本不得丢失受权限约束的实体删除、目标/阻塞、动作结果或最近权威进度；过载时可减少装饰与可见细节，并明确显示正在追赶或数据不可用，不能把旧画面表示成实时结果。
+- 验收：[AC-ENTRY-PERFORMANCE-001](#ac-entry-performance-001)
+- 系统设计状态：已覆盖
+- 系统设计依据：[显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection)。
+- 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
+- 实现状态：部分实现
+- 实现与验证依据：2026-10-19；在设计合入基线 `fb15585d8811ef5c7ea010139f25908812289213` 上实现有界显示白名单、普通 JSON/版本化 Rust 输入、同帧最新更新及相同显示派生复用；Host 回归覆盖 telemetry/tick、实体删除、可见性失效及回执处理。真实 Chrome 在 1440×1000、390×844 稀疏只读样例中显示 WebGL 画布并完成选择；具体候选及局部测量见 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)，不代签完整预算。
+- 剩余范围：稳定排序与关键语义优先裁剪、100 标签细分预算、常规/高负载及受控更新场景的完整同候选性能验收；目前超过输入容量会明确 unavailable，不将稀疏样例或单次测量当成全负载通过，不升级现有模式就绪结论。
+
+<a id="ac-entry-performance-001"></a>
+### AC-ENTRY-PERFORMANCE-001：持续响应与事实一致性
+
+- 对应要求：[REQ-ENTRY-PERFORMANCE-001](#req-entry-performance-001)。
+
+在系统设计的常规与高负载场景、桌面与窄屏中，完成上述交互并达到响应预算；重复相同快照不产生重复全量转换。故障、权限变化及重连后仍正确呈现删除/不可见、结果与数据新鲜度。流畅动画或单张截图不能代签交互响应和事实一致性。
+
+<a id="req-entry-performance-002"></a>
+### REQ-ENTRY-PERFORMANCE-002：首次加载可解释，同版本重入复用已验证资源
+
+Trace ID: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae
+
+- 要求：玩家先看到可理解的入口、资源准备阶段及恢复下一步；世界图形未就绪时不得伪装为可玩。相同版本再次进入应复用可用且与当前发布绑定的已验证公共图形资源，不应无理由重复传输大文件。慢网、离线、资源缺失或完整性失败时，已有安全入口、诊断和退出仍可操作；重试只恢复资源准备，不重新提交游戏动作或改变会话权限。
+- 验收：[AC-ENTRY-PERFORMANCE-002](#ac-entry-performance-002)
+- 系统设计状态：已覆盖
+- 系统设计依据：[资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery)。
+- 核对日期与基线：2026-10-19；`ebaefe593fc81806d01e10aa8bfe09bd127fe7e6`；静态源码核对与本次目标设计，不包含实现或部署验收。
+- 实现状态：部分实现
+- 实现与验证依据：2026-10-19；上述设计合入基线上实现精简 WASM feature/发布符号、SHA-256 寻址和 gzip artifact、服务器编码协商与 immutable 公共资源缓存；稳定 JS/CSS 保持 revalidation，HTML 保留原运行时注入。Loader 每次验证解码 bytes，仅损坏缓存自动重取一次，并提供资源阶段和失败后重新尝试。打包与 HTTP/loader 回归验证内容、编码及失败边界，具体候选及体积见 [实现 PR #4909](https://github.com/nil-studio/oasis7/pull/4909)。
+- 剩余范围：hash/compile/init 的独立 10 秒预算和不可中断初始化的实例隔离、真实部署的冷暖缓存/版本切换/离线与受控网络验收。当前 30 秒下载预算只覆盖 manifest 指向的 hash payload；不得将本地体积或设计预算当作当前网站性能承诺。
+
+<a id="ac-entry-performance-002"></a>
+### AC-ENTRY-PERFORMANCE-002：冷暖加载与安全恢复
+
+- 对应要求：[REQ-ENTRY-PERFORMANCE-002](#req-entry-performance-002)。
+
+冷启动、同版本重入、版本切换、缓存被淘汰、离线及损坏资源分别满足系统预算或显示真实的失败/恢复；版本切换不混用旧资源，校验失败不进入图形就绪。准备、图形就绪、身份就绪、世界同步与可提交动作分别核验；本地资源恢复不代签后端可用或世界结果。
 
 ## 5. 统一候选门禁与公开口径
 
@@ -210,3 +256,5 @@ Trace ID: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270
 | [REQ-ENTRY-CANDIDATE-001](#req-entry-candidate-001) / [AC-ENTRY-CANDIDATE-001](#ac-entry-candidate-001) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)、[`README.md`](../../../README.md) | 同候选 primary mode/入口、runtime/P2P、恢复、长期经济审计、发行资产、QA 与公开 claim 的完整证据窗口；缺证、候选漂移或局部/历史 green 只能保持 blocked/observer/较窄目标性结论，不生成当前 release verdict | `test_tier_full` |
 | [REQ-ENTRY-MODE-001](#req-entry-mode-001) / [AC-ENTRY-MODE-001](#ac-entry-mode-001) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC 分别核对 viewer/pure_api 当前入口及证据，加入 alias/另一模式代签负例；待取得逐入口记录；导航关系不等于通过证据 | `test_tier_required` |
 | [REQ-ENTRY-MODE-002](#req-entry-mode-002) / [AC-ENTRY-MODE-002](#ac-entry-mode-002) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC 注入前置缺失、会话失效及后端不可用，核对 blocked/observer 和恢复下一步；待取得运行/表面记录；导航关系不等于通过证据 | `test_tier_required` |
+| [REQ-ENTRY-PERFORMANCE-001](#req-entry-performance-001) / [AC-ENTRY-PERFORMANCE-001](#ac-entry-performance-001) | `viewer_engineer` / `qa_engineer` | [显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection) | 同候选多负载/多屏交互、数据新鲜度和转换次数；目标设计，运行验收待实施 | `test_tier_required`；真实浏览器 S6 |
+| [REQ-ENTRY-PERFORMANCE-002](#req-entry-performance-002) / [AC-ENTRY-PERFORMANCE-002](#ac-entry-performance-002) | `viewer_engineer` / `qa_engineer` | [资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery) | 冷/热加载、缓存淘汰、版本切换、损坏/离线和实部署压缩；目标设计，运行验收待实施 | `test_tier_required`；真实浏览器 S6 |

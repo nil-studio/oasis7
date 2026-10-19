@@ -6,13 +6,28 @@ function snapshotTick(snapshot) {
   const tick = Number(snapshot.time);
   return Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : null;
 }
-export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal }) {
+export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage }) {
   let bridge = null;
   let generation = 0;
   const detached = () => ({ status: "detached", renderState: null, selection: null, fatal: null });
   let runtimeSource = "detached";
   let runtimeModuleUrl = null;
   let deriveRenderState = null;
+  let lastSignature = null, lastReady = null;
+  function displaySignature(input) {
+    if (input?.schema_version !== 1 || input.fatal) return null;
+    // Social-edge expiry depends on logical time; other geometry does not.
+    const timeSensitive = Object.keys(input.snapshot?.model?.social_edges || {}).length > 0;
+    return JSON.stringify({...input, snapshot:{...input.snapshot,
+      time:timeSensitive ? input.snapshot?.time : undefined}});
+  }
+  function remember(input, result) {
+    const signature = displaySignature(input);
+    if (signature !== null && result.status === "ready" && !result.fatal && result.renderState) {
+      lastSignature = signature; lastReady = result;
+    } else { lastSignature = null; lastReady = null; }
+    return result;
+  }
   function withWorldTickReadout(renderState, renderInput) {
     if (!renderState || !renderInput) {
       return renderState;
@@ -23,19 +38,20 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
     }
     return {
       ...renderState,
-      world_tick: renderState.world_tick ?? worldTick,
+      world_tick: worldTick,
       commercial_surface: renderState.commercial_surface
         ? {
           ...renderState.commercial_surface,
           world_read: {
             ...(renderState.commercial_surface.world_read || {}),
-            tick: renderState.commercial_surface.world_read?.tick ?? worldTick,
+            tick: worldTick,
           },
         }
         : renderState.commercial_surface,
     };
   }
   function deriveRenderStateOrUnavailable(renderInput) {
+    if (renderInput?.fatal) return { renderState: null, fatal: renderInput.fatal };
     if (!deriveRenderState || !renderInput) {
       return {
         renderState: null,
@@ -73,6 +89,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
   return {
     async mount(canvas, renderInput) {
       const attempt = ++generation;
+      lastSignature = null; lastReady = null;
       bridge?.unmount();
       bridge = null;
       deriveRenderState = null;
@@ -80,6 +97,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
       const runtime = await createPixelWorldRuntimeBridge({
         onEvent(event) {
           if (!isCurrent()) return;
+          if (event?.type === "resource_stage") { onResourceStage?.(event.stage); return; }
           if (event?.type === "canvas_ready") {
             return;
           }
@@ -122,7 +140,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
       try {
         const result = await runtime.bridge.mount(canvas, mountedRenderState);
         if (!isCurrent()) { runtime.bridge.unmount(); return detached(); }
-        return { status: result?.status || "ready", selection: mountedRenderState.selection, fatal: result?.fatal || null, renderState: mountedRenderState, runtimeSource, runtimeModuleUrl };
+        return remember(renderInput, { status: result?.status || "ready", selection: mountedRenderState.selection, fatal: result?.fatal || null, renderState: mountedRenderState, runtimeSource, runtimeModuleUrl });
       } catch (error) {
         if (!isCurrent()) { runtime.bridge.unmount(); return detached(); }
         const fatal = { code: "pixel_world_webgl2_unavailable", message: error instanceof Error ? error.message : String(error || "embedded WebGL2 renderer mount failed") };
@@ -131,6 +149,10 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
       }
     },
     update(renderInput) {
+      if (lastReady && displaySignature(renderInput) === lastSignature) {
+        return {...lastReady, renderState:withWorldTickReadout(lastReady.renderState, renderInput)};
+      }
+      lastSignature = null; lastReady = null;
       const derived = deriveRenderStateOrUnavailable(renderInput);
       if (!derived.renderState) {
         const result = bridge?.update(null) || { status: "unavailable", fatal: derived.fatal };
@@ -145,16 +167,17 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
       }
       const nextRenderState = derived.renderState;
       const result = bridge?.update(nextRenderState) || { status: "detached" };
-      return {
+      return remember(renderInput, {
         status: result?.status || "ready",
         selection: nextRenderState.selection,
         fatal: result?.fatal || null,
         renderState: nextRenderState,
         runtimeSource,
         runtimeModuleUrl,
-      };
+      });
     },
     unmount() {
+      lastSignature = null; lastReady = null;
       generation += 1;
       const result = bridge?.unmount() || { status: "detached" };
       bridge = null;

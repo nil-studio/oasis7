@@ -164,6 +164,7 @@ async function buildPixelWorldRuntimeVariant({ featureName, backendDirName }) {
   await runChecked(wasmBindgenCommand, [
     "--target",
     "web",
+    ...(!visualTest ? ["--remove-name-section", "--remove-producers-section"] : []),
     "--out-dir",
     outputDir,
     "--out-name",
