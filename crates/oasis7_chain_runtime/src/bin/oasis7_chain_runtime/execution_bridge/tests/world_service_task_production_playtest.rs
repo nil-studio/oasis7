@@ -21,6 +21,27 @@ pub(super) fn fixture_kind(
     String,
     String,
 ) {
+    fixture_mode(starter_chain, false)
+}
+pub(super) fn world_rule_fixture() -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture_mode(false, true)
+}
+fn fixture_mode(
+    starter_chain: bool,
+    world_rule: bool,
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
     let verified_authority = true;
     let dir = temp_dir("world-service-owner-chat");
     let owner = hex::encode([7u8; 32]);
@@ -31,16 +52,43 @@ pub(super) fn fixture_kind(
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = oasis7::runtime_host::world::new_with_state(if starter_chain {
+    let mut initial = if starter_chain {
         super::starter_chain_playtest::initial_state()
     } else {
         initial_state()
-    });
+    };
+    if world_rule {
+        let factory = initial.factories.get_mut("production-factory").unwrap();
+        factory.spec.tags = vec!["assembler".into()];
+        factory.input_ledger = oasis7_runtime::MaterialLedgerId::agent("agent-a");
+        factory.output_ledger = factory.input_ledger.clone();
+        initial.material_ledgers.insert(
+            factory.input_ledger.clone(),
+            [
+                ("alloy_plate".into(), 12),
+                ("control_chip".into(), 2),
+                ("motor_mk1".into(), 4),
+                ("sensor_pack".into(), 2),
+            ]
+            .into_iter()
+            .collect(),
+        );
+    }
+    let mut world = oasis7::runtime_host::world::new_with_state(initial);
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
+    if world_rule {
+        world.submit_action(Action::RegisterAgent {
+            agent_id: "primary".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        });
+    }
     world.step().unwrap();
+    if world_rule {
+        world.set_agent_reputation_score("agent-a", 25).unwrap();
+    }
     world
         .set_agent_resource_balance(
             "agent-a",
@@ -53,6 +101,12 @@ pub(super) fn fixture_kind(
         player_id: "owner-a".into(),
         public_key: Some(public.clone()),
     });
+    if world_rule {
+        world.submit_action(Action::ClaimAgent {
+            claimer_agent_id: "agent-a".into(),
+            target_agent_id: "primary".into(),
+        });
+    }
     world.step().unwrap();
     assert!(world.state().starter_oc_claims.contains_key("agent-a"));
     world
@@ -82,7 +136,38 @@ pub(super) fn fixture_kind(
     world
         .provision_cognition_for_agent("agent-a", "provision-a", "owner-a", 100)
         .unwrap();
-    if starter_chain {
+    if world_rule {
+        world.set_main_token_supply(oasis7_runtime::MainTokenSupplyState {
+            total_supply: 100_000,
+            circulating_supply: 100_000,
+            ..Default::default()
+        });
+        world
+            .set_main_token_account_balance("agent-a", 20_000, 0)
+            .unwrap();
+        world
+            .install_test_native_delegation_grant(oasis7_runtime::AgentDelegationGrantV1 {
+                grant_id: "industrial-order-budget".into(),
+                source_id: format!(
+                    "starter_claim:agent-a:{}",
+                    world.state().starter_oc_claims["agent-a"].claimed_at
+                ),
+                issuer_id: "owner-a".into(),
+                owner_id: "owner-a".into(),
+                organization_id: None,
+                agent_id: "agent-a".into(),
+                object_id: "production-factory".into(),
+                action_kinds: vec!["WorldRule".into()],
+                revision: 1,
+                period_id: "industrial-order-playtest".into(),
+                valid_from_tick: 0,
+                valid_until_tick: 1000,
+                limit_units: 16,
+                resource_kind: "electricity".into(),
+                revoked: false,
+            })
+            .unwrap();
+    } else if starter_chain {
         super::starter_chain_playtest::authorize(&mut world);
     } else {
         world

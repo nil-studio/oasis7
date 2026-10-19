@@ -2,6 +2,7 @@ use super::*;
 
 pub(in crate::world::event_processing) enum PreparedEventStateDelta {
     NoState(WorldEventBody),
+    WorldRule(Box<crate::world_rules::PreparedWorldRule>),
     ProductValidationDeliveryCursorUpdated {
         event: crate::ProductValidationDeliveryCursor,
         next: crate::ProductValidationDeliveryCursor,
@@ -169,6 +170,9 @@ impl PreparedEventStateDelta {
 
     pub(super) fn matches_body(&self, body: &WorldEventBody) -> bool {
         match self {
+            Self::WorldRule(prepared) => {
+                matches!(body, WorldEventBody::Domain(event) if &prepared.event == event)
+            }
             Self::ModuleMarketplace(prepared) => {
                 matches!(body, WorldEventBody::Domain(event) if prepared.matches_event(event))
             }
@@ -352,6 +356,7 @@ impl PreparedEventStateDelta {
         event: DomainEvent,
     ) -> super::super::super::super::BodyOverlay {
         match self {
+            Self::WorldRule(_) => unreachable!("world rules use a sparse overlay"),
             Self::ModuleMarketplace(_) => unreachable!("marketplace uses a sparse overlay"),
             Self::ModuleRelease(_) => unreachable!("release uses a sparse release overlay"),
             Self::ModuleInstance { .. }
@@ -458,6 +463,7 @@ impl PreparedEventStateDelta {
 
     pub(super) fn install_infallible(self, world: &mut World) {
         match self {
+            Self::WorldRule(prepared) => prepared.install(&mut world.state),
             Self::ModuleMarketplace(prepared) => prepared.install_infallible(&mut world.state),
             Self::ModuleRelease(prepared) => prepared.install_infallible(&mut world.state),
             Self::ModuleInstance { prepared, schedule } => {

@@ -11,6 +11,8 @@ pub use feedback_history::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldServiceProjection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_rule_status: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formal_commit_header:
         Option<oasis7_client_api::world_service::FormalProjectionCommitHeaderV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +81,10 @@ impl WorldServiceProjection {
     pub fn from_world(world: &World, authorized_agent: Option<&str>) -> Result<Self, String> {
         let source = world.state();
         let mut state = WorldState {
+            world_rules: source
+                .world_rules
+                .as_ref()
+                .map(|rules| rules.for_reader(authorized_agent)),
             time: source.time,
             agents: source.agents.clone(),
             resources: source.resources.clone(),
@@ -146,6 +152,7 @@ impl WorldServiceProjection {
         // Generic journals may contain private cognition/prompt artifacts.
         // Authorized committed changes are delivered by the changes route.
         Ok(Self {
+            world_rule_status: world.state().world_rule_status(authorized_agent),
             canonical_agent_owner: authorized_agent
                 .map(|agent| super::agent_chat::owner_view(world, agent))
                 .transpose()?
@@ -248,6 +255,7 @@ impl WorldServiceProjection {
         // Generic journals may contain private cognition/prompt artifacts.
         // Authorized committed changes are delivered by the changes route.
         Ok(Self {
+            world_rule_status: world.state().world_rule_status(authorized_agent),
             canonical_agent_owner: authorized_agent
                 .map(|agent| super::agent_chat::owner_view(world, agent))
                 .transpose()?

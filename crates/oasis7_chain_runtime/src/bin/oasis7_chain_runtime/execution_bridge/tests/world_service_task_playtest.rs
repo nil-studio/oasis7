@@ -428,7 +428,10 @@ fn run_prepared_world_service_kind_with_cognition_503(
     let logistics = matches!(kind, PreparedWorldKind::Logistics);
     let production = matches!(kind, PreparedWorldKind::Production);
     let starter_chain = matches!(kind, PreparedWorldKind::StarterChain);
-    let (dir, mut driver, world, owner, owner_public) = if starter_chain {
+    let world_rule = matches!(kind, PreparedWorldKind::WorldRule);
+    let (dir, mut driver, world, owner, owner_public) = if world_rule {
+        production_playtest::world_rule_fixture()
+    } else if starter_chain {
         production_playtest::fixture_kind(true)
     } else if production {
         production_playtest::fixture()
@@ -444,7 +447,9 @@ fn run_prepared_world_service_kind_with_cognition_503(
         .unwrap();
     let private = dir.canonicalize().unwrap().join("private-goals");
     let store = PrivateGoalStore::open(&private, [7; 32]).unwrap();
-    let content = if starter_chain {
+    let content = if world_rule {
+        GoalContentV1{goal_text:"Acquire one additional Agent through industrial production using the available owned assembler. Verify actual identity delivery and economic control after production; an accepted order alone does not satisfy the goal.".into(),soft_constraints:vec!["Do not duplicate the industrial order or bypass inventory and capacity.".into()]}
+    } else if starter_chain {
         starter_chain_playtest::goal()
     } else if production {
         production_playtest::goal()
@@ -812,6 +817,7 @@ fn run_prepared_world_service_kind_with_cognition_503(
             if !logistics
                 && !production
                 && !starter_chain
+                && !world_rule
                 && position == oasis7_agent_api::world_action::GeoPos::new(200, 0, 0)
                 && control.active_goal_revision == DecimalU64(1)
                 && goal2_submission.is_none()
@@ -863,7 +869,7 @@ fn run_prepared_world_service_kind_with_cognition_503(
             let node_snapshot = node.lock().unwrap().snapshot();
             write_public_json(
                 &root.join("task-playtest-witness.json"),
-                &serde_json::json!({"schema":"oasis7/task-prepared-world-witness/v1","commit":pinned.commit,"task_revision":control.task_revision,"goal_revision":control.active_goal_revision,"executor_epoch":control.executor_epoch,"executor_binding":control.executor_binding,"position":position,"logistics":logistics.then(||logistics_playtest::witness(&pinned.world)),"production":production.then(||production_playtest::witness(&pinned.world)),"starter_chain":starter_chain.then(||starter_chain_playtest::witness(&pinned.world)),"canonical_effect_receipts":effects,"goal2_public_submission":goal2_submission,"node":{"node_id":node_snapshot.node_id,"running":node_snapshot.running,"tick_count":node_snapshot.tick_count,"last_error":node_snapshot.last_error},"scope":"actual immutable canonical pin; setup owner only changes goals; player actions use native submitted intents"}),
+                &serde_json::json!({"schema":"oasis7/task-prepared-world-witness/v1","commit":pinned.commit,"task_revision":control.task_revision,"goal_revision":control.active_goal_revision,"executor_epoch":control.executor_epoch,"executor_binding":control.executor_binding,"position":position,"logistics":logistics.then(||logistics_playtest::witness(&pinned.world)),"world_rules":world_rule.then(||serde_json::json!({"business_state":pinned.world.state().world_rules,"claims":pinned.world.state().agent_claims})),"production":production.then(||production_playtest::witness(&pinned.world)),"starter_chain":starter_chain.then(||starter_chain_playtest::witness(&pinned.world)),"canonical_effect_receipts":effects,"goal2_public_submission":goal2_submission,"node":{"node_id":node_snapshot.node_id,"running":node_snapshot.running,"tick_count":node_snapshot.tick_count,"last_error":node_snapshot.last_error},"scope":"actual immutable canonical pin; setup owner only changes goals; player actions use native submitted intents"}),
             );
             std::thread::sleep(Duration::from_millis(250));
         }
@@ -966,6 +972,7 @@ enum PreparedWorldKind {
     Logistics,
     Production,
     StarterChain,
+    WorldRule,
 }
 impl PreparedWorldKind {
     const fn tag(self) -> &'static str {
@@ -974,6 +981,7 @@ impl PreparedWorldKind {
             Self::Logistics => "logistics",
             Self::Production => "production",
             Self::StarterChain => "starter_chain",
+            Self::WorldRule => "world_rule",
         }
     }
 }
@@ -1032,3 +1040,21 @@ mod budget_conformance;
 
 #[path = "world_service_task_quote_drift.rs"]
 mod quote_drift;
+
+#[test]
+#[ignore = "explicit isolated industrial Agent service; independent player reads shipped Skill"]
+fn private_task_world_rule_prepared_world_live_service() {
+    let ready = std::path::PathBuf::from(
+        std::env::var_os("OASIS7_WORLD_RULE_PLAYTEST_READY").expect("explicit ready path required"),
+    );
+    run_prepared_world_service_kind(
+        ready,
+        Duration::from_millis(500),
+        false,
+        None,
+        false,
+        Duration::from_secs(30),
+        PreparedWorldKind::WorldRule,
+        Duration::ZERO,
+    );
+}

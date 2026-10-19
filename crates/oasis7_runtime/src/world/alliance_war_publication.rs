@@ -29,6 +29,18 @@ impl PreparedAllianceWarEvent {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
+        if let DomainEvent::WarDeclared {
+            aggressor_alliance_id,
+            defender_alliance_id,
+            ..
+        } = event
+        {
+            if state.organization_risk_frozen(aggressor_alliance_id)
+                || state.organization_risk_frozen(defender_alliance_id)
+            {
+                return Err(invalid("organization_risk_frozen"));
+            }
+        }
         let mut agents = BTreeMap::new();
         let mut alliances = BTreeMap::new();
         let mut alliance_deletion = None;

@@ -34,11 +34,8 @@ fn agent_claim_epoch_prepares_one_event_then_observes_prior_claim_debit() {
         .expect("seed claim owner balance");
 
     for target_agent_id in ["bob", "carol"] {
-        world.submit_action(Action::ClaimAgent {
-            claimer_agent_id: "alice".to_string(),
-            target_agent_id: target_agent_id.to_string(),
-        });
-        world.step().expect("claim target agent");
+        world.append_legacy_claim_fixture("alice", target_agent_id);
+        world.step().expect("advance legacy claim fixture");
     }
     let bob_claim = world.agent_claim("bob").expect("bob claim");
     let next_epoch = world.state().time.saturating_add(1);

@@ -17,13 +17,13 @@ use super::logistics::{
     MATERIAL_TRANSFER_MAX_DISTANCE_KM, MATERIAL_TRANSFER_MAX_INFLIGHT,
     material_transit_loss_bps_for_kind, material_transit_priority_for_kind, material_transit_ticks,
 };
-use oasis7_agent_api::world_geometry::space_distance_cm;
 use crate::main_token::{
     MAIN_TOKEN_BPS_DENOMINATOR, MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
     MAIN_TOKEN_TREASURY_BUCKET_NODE_SERVICE_REWARD, main_token_account_id_from_node_public_key,
     validate_main_token_config_bounds,
 };
 use oasis7_agent_api::world_action::ResourceKind;
+use oasis7_agent_api::world_geometry::space_distance_cm;
 use std::collections::BTreeSet;
 
 const GOVERNANCE_MIN_VOTING_WINDOW_TICKS: u64 = 1;
@@ -375,7 +375,104 @@ impl World {
                 },
             }));
         }
+        if let Action::DeclareWar {
+            aggressor_alliance_id,
+            defender_alliance_id,
+            ..
+        } = &envelope.action
+        {
+            if self.state.organization_risk_frozen(aggressor_alliance_id)
+                || self.state.organization_risk_frozen(defender_alliance_id)
+            {
+                return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                    action_id,
+                    reason: RejectReason::RuleDenied {
+                        notes: vec!["organization_dissolution_risk_frozen".into()],
+                    },
+                }));
+            }
+        }
+        let organization = match &envelope.action {
+            Action::DissolveAlliance { alliance_id, .. }
+            | Action::JoinAlliance { alliance_id, .. }
+            | Action::LeaveAlliance { alliance_id, .. } => Some(alliance_id),
+            _ => None,
+        };
+        if organization.is_some_and(|id| {
+            self.state.world_rules.as_ref().is_some_and(|r| {
+                r.organization_cases.values().any(|c| {
+                    &c.organization_id == id
+                        && c.phase != crate::world_rules::OrganizationProtectionPhaseV1::Resolved
+                }) || matches!(&envelope.action, Action::DissolveAlliance { .. })
+                    && r.organization_estate
+                        .values()
+                        .any(|d| &d.organization_id == id && !d.disposed)
+            })
+        }) {
+            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                action_id,
+                reason: RejectReason::RuleDenied {
+                    notes: vec!["organization_estate_requires_case_disposition".into()],
+                },
+            }));
+        }
+        let reserved_factory = match &envelope.action {
+            Action::ScheduleRecipe { factory_id, .. }
+            | Action::ScheduleRecipeWithModule { factory_id, .. }
+            | Action::RecycleFactory { factory_id, .. } => Some(factory_id),
+            _ => None,
+        };
+        if reserved_factory.is_some_and(|id| {
+            self.state.world_rules.as_ref().is_some_and(|rules| {
+                rules
+                    .agent_orders
+                    .values()
+                    .any(|o| &o.factory_id == id && o.delivered_at.is_none())
+            })
+        }) {
+            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                action_id,
+                reason: RejectReason::RuleDenied {
+                    notes: vec!["factory_capacity_reserved_by_agent_order".into()],
+                },
+            }));
+        }
+        if matches!(&envelope.action, Action::RegisterAgent {agent_id,..} if agent_id.starts_with("industrial:"))
+        {
+            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                action_id,
+                reason: RejectReason::RuleDenied {
+                    notes: vec!["industrial_identity_requires_delivery".into()],
+                },
+            }));
+        }
         match &envelope.action {
+            Action::WorldRule {
+                actor_id,
+                request_id,
+                command,
+            } => {
+                let event = DomainEvent::WorldRuleCommitted {
+                    action_id,
+                    actor_id: actor_id.clone(),
+                    request_id: request_id.clone(),
+                    command: command.clone(),
+                    governance_epoch: self.current_governance_epoch(),
+                };
+                match crate::world_rules::PreparedWorldRule::prepare(
+                    &self.state,
+                    &event,
+                    self.state.time,
+                ) {
+                    Ok(_) => Ok(WorldEventBody::Domain(event)),
+                    Err(error) => Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec![format!("{error:?}")],
+                        },
+                    })),
+                }
+            }
             Action::WorldServiceIntent { .. } => Err(WorldError::DistributedValidationFailed {
                 reason: "world-service intent requires canonical driver admission".into(),
             }),

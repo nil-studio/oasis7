@@ -12,7 +12,7 @@
 
 产品已约束危机证据、最小授权包、公平分配、退出与单次世界效果，但需要专业技术合同把治理授权、资源竞争、物流、结算、恢复和玩家读面连接起来。本设计定义目标状态机、逻辑数据关系、提交边界及验证场景，使授权或分配决定不会冒充物资到达或补偿结算。
 
-不新增危机阈值、必需品清单、优先权重、价格或配给公式；不实现新服务、协议或数据库 schema；不改变产品交互设计豁免。没有专业政策与实现证据时，保供能力保持未支持，常态市场继续运行。
+v1 初始政策在本文末尾冻结危机阈值、必需品清单、批次窗口与整数比例分配。它不新增服务或修改常态市场，不改变产品交互设计豁免；不满足完整政策时拒绝保供，常态市场继续运行。
 
 ## 2. 上游约束与相关角色
 
@@ -160,3 +160,17 @@ accepted 仅表示登记；applied 需要权威 effect receipt；persisted 需�
 | 容量、retention 与 wire 兼容尚未定量 | 无吞吐、延迟或上线承诺。runtime_engineer / qa_engineer。 | 实现前确定规模/预算、重放窗口、字段边界和平台矩阵，并验证 §§6–10。 |
 
 本次设计补齐不改变治理权限、共识协议或持久化实现。未来实际改变上述边界时，按[开发流程规范](../../engineering/workflow/source-of-truth.md)安排对应能力的独立评审；设计存在不替代该评审与实际验证。
+
+## v1 初始政策（owner 授权）
+
+仅 severity >= 3 的 Active crisis 及持有绑定完整命令的已通过治理提案（确认权重至少 3）的资源提供者可以提出有界保供授权；证据绑定 crisis id、受益者与材料、资源提供者、当前世界 tick。授权期限最多 600 tick 且不超过 crisis 到期；须留出完整 10 tick 收集窗口，单批最多 128 个请求，必需品仅 iron_ingot、copper_wire、alloy_plate、control_chip，budget/累计需求上限 10^9 单位。复核入口为原授权查询/撤销，适用方式仅提供者自愿预留其 Agent ledger 材料并通过现有物流履行，不授予征收权。普通短缺不能生成 crisis 或资格。
+
+v1 对同材料的冻结未履行需求使用整数按比例分配，余数按规范身份排序逐单位补齐；此排序是明确的 tie 政策，不接受客户端随机。批次冻结记录需求、资格、余额、授权版本、lineage 已履行及预留量；提交重新比对全部依赖，漂移零写拒绝。每个受益者/crisis/material 的 lineage 跨续期累计，新的需求是累计目标而不是可叠加请求。期限半开区间 [start, expires)，关闭后不能加入；相同批次不可修改。
+
+分配只预留库存，allocated 不代表到货。履行必须复用可用、匹配源/目标/材料的物流路线并占用容量、等待 route distance 所需 tick；不能直接瞬移。撤销或到期释放未发运预留，保留在途已确认义务与历史；请求不迁移新授权。每次履行使用剩余预留与累计履行校验，最终 receipt 与材料变更原子。
+
+
+v1 typed schema 为 `WorldRuleCommandV1` 的 Authorize/Request/Freeze/Allocate/Dispatch/Settle/CloseSupply 与 `WorldRulesStateV1` 的 authorization/batch/lineage/shipment；native 与模块 tick 都消费同一生命周期。物流 job ID 来自原动作 ID，不能由调用者选择未来 action ID。已提交物流 receipt 是保供结算前提，shipment 保留原授权；撤销只返还未发运 escrow。`WorldRuleCommitted` 与各业务表共同持久化，缺旧字段是未启用历史，不生成授权。客户端只公开已确认字段，完整业务 request receipt 限当前授权 actor 读取。
+
+
+治理提案只能消费一次，记录 proposal→effect；换 request ID 不增加同一批准的预算。授权保存完整危机证据快照，证据或资格范围漂移使旧授权不可执行并释放未发运预留。Dispatch 与常态物流共享全局在途上限。原始需求、冻结需求、lineage 和 shipment 明细仅向相关受益者或提供者投影，公众仅见授权身份、范围与阶段。

@@ -22,6 +22,7 @@ use super::economy_data_publication::SparseMapProjection;
 #[derive(Debug)]
 pub(crate) struct PreparedAgentClaimEconomic {
     event: DomainEvent,
+    manufactured: Option<(String, AgentCell)>,
     actor: String,
     claim: AgentClaimState,
     account: MainTokenAccountBalance,
@@ -37,6 +38,15 @@ impl PreparedAgentClaimEconomic {
         state: &WorldState,
         event: &DomainEvent,
         now: WorldTime,
+    ) -> Result<Self, WorldError> {
+        Self::prepare_with_manufactured(state, event, now, None)
+    }
+
+    pub(crate) fn prepare_with_manufactured(
+        state: &WorldState,
+        event: &DomainEvent,
+        now: WorldTime,
+        manufactured: Option<(String, AgentCell)>,
     ) -> Result<Self, WorldError> {
         let actor = match event {
             DomainEvent::AgentClaimed {
@@ -64,6 +74,7 @@ impl PreparedAgentClaimEconomic {
         let mut treasury = BTreeMap::new();
         let (claim, last_epoch) = match event {
             DomainEvent::AgentClaimed {
+                acquisition_contract_version,
                 target_agent_id,
                 reputation_tier,
                 slot_index,
@@ -87,7 +98,11 @@ impl PreparedAgentClaimEconomic {
                 forced_reclaim_penalty_bps,
                 ..
             } => {
-                if !state.agents.contains_key(target_agent_id) {
+                if !state.agents.contains_key(target_agent_id)
+                    && manufactured
+                        .as_ref()
+                        .is_none_or(|(id, _)| id != target_agent_id)
+                {
                     return Err(WorldError::AgentNotFound {
                         agent_id: target_agent_id.clone(),
                     });
@@ -102,6 +117,20 @@ impl PreparedAgentClaimEconomic {
                     .values()
                     .filter(|c| c.claim_owner_id == *actor)
                     .count();
+                if *acquisition_contract_version > 1 {
+                    return Err(invalid("unsupported_agent_acquisition_contract"));
+                }
+                let industrial_origin = manufactured
+                    .as_ref()
+                    .is_some_and(|(id, _)| id == target_agent_id)
+                    || state.world_rules.as_ref().is_some_and(|r| {
+                        r.agent_orders.values().any(|o| {
+                            o.target_agent_id == *target_agent_id && o.delivered_at.is_some()
+                        })
+                    });
+                if *acquisition_contract_version == 1 && owned > 0 && !industrial_origin {
+                    return Err(invalid("additional_agent_requires_industrial_delivery"));
+                }
                 let quote = agent_claim_quote(
                     state.reputation_scores.get(actor).copied().unwrap_or(0),
                     owned,
@@ -314,9 +343,22 @@ impl PreparedAgentClaimEconomic {
             }
             _ => unreachable!(),
         };
-        agent.last_active = now;
+        match event {
+            DomainEvent::AgentClaimUpkeepSettled {
+                activity_contract_version: 1,
+                ..
+            } => {}
+            DomainEvent::AgentClaimUpkeepSettled {
+                activity_contract_version,
+                ..
+            } if *activity_contract_version > 1 => {
+                return Err(invalid("unsupported_claim_activity_contract"));
+            }
+            _ => agent.last_active = now,
+        }
         Ok(Self {
             event: event.clone(),
+            manufactured,
             actor: actor.clone(),
             claim,
             account: account.expect("validated claim funding owns account"),
@@ -336,6 +378,9 @@ impl PreparedAgentClaimEconomic {
         &self.event == e
     }
     pub(crate) fn install_infallible(self, state: &mut WorldState) {
+        if let Some((id, cell)) = self.manufactured {
+            state.agents.insert(id, cell);
+        }
         state.agents.insert(self.actor.clone(), self.agent);
         state.main_token_balances.insert(self.actor, self.account);
         state.main_token_supply = self.supply;
@@ -349,6 +394,9 @@ impl PreparedAgentClaimEconomic {
             .material_ledgers
             .insert(MaterialLedgerId::world(), self.materials);
     }
+    pub(crate) fn set_routed_event(&mut self, event: DomainEvent) {
+        self.event = event;
+    }
     pub(crate) fn serialize_agents<S: SerializeStruct>(
         &self,
         state: &WorldState,
@@ -356,7 +404,10 @@ impl PreparedAgentClaimEconomic {
     ) -> Result<(), S::Error> {
         let mut a = self.agent.clone();
         a.mailbox.push_back(self.event.clone());
-        let u = BTreeMap::from([(self.actor.clone(), a)]);
+        let mut u = BTreeMap::from([(self.actor.clone(), a)]);
+        if let Some((id, cell)) = &self.manufactured {
+            u.insert(id.clone(), cell.clone());
+        }
         out.serialize_field(
             "agents",
             &SparseMapProjection {

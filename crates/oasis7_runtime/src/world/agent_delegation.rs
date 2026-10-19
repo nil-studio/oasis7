@@ -104,6 +104,7 @@ fn budget_key(grant: &AgentDelegationGrantV1) -> Result<String, WorldError> {
 
 fn action_scope(action: &Action) -> Option<(&'static str, String)> {
     match action {
+        Action::WorldRule { command, .. } => Some(("WorldRule", command.authority_scope())),
         Action::MoveAgent { agent_id, .. } => Some(("MoveAgent", agent_id.clone())),
         Action::TransferMaterial {
             from_ledger,
@@ -148,8 +149,7 @@ impl World {
 
     fn save_delegation_ledger(&mut self, ledger: &Ledger) -> Result<(), WorldError> {
         if self.cognition.is_null() {
-            self.cognition =
-                crate::cognition_recovery::default_cognition_persistence_projection();
+            self.cognition = crate::cognition_recovery::default_cognition_persistence_projection();
         }
         self.cognition["agent_delegation"] =
             serde_json::to_value(ledger).map_err(WorldError::from)?;
@@ -212,7 +212,11 @@ impl World {
             || grant.action_kinds.iter().any(|kind| {
                 !matches!(
                     kind.as_str(),
-                    "MoveAgent" | "TransferMaterial" | "ScheduleRecipe" | "BuildFactory"
+                    "MoveAgent"
+                        | "TransferMaterial"
+                        | "ScheduleRecipe"
+                        | "BuildFactory"
+                        | "WorldRule"
                 )
             })
         {
@@ -387,6 +391,25 @@ impl World {
 
     fn native_delegation_quote(&self, action: &Action) -> Result<u64, WorldError> {
         let cost = match action {
+            Action::WorldRule {
+                actor_id,
+                request_id,
+                command,
+            } => {
+                let event = DomainEvent::WorldRuleCommitted {
+                    action_id: u64::MAX,
+                    actor_id: actor_id.clone(),
+                    request_id: request_id.clone(),
+                    command: command.clone(),
+                    governance_epoch: self.current_governance_epoch(),
+                };
+                crate::world_rules::PreparedWorldRule::prepare(
+                    &self.state,
+                    &event,
+                    self.state.time,
+                )?;
+                0
+            }
             Action::MoveAgent { .. } => 0,
             Action::TransferMaterial {
                 requester_agent_id,
@@ -428,9 +451,8 @@ impl World {
                 {
                     return Err(denied("domain_quote_construction_power_invalid"));
                 }
-                let canonical =
-                    crate::builtin_factory_spec(&power.factory_kind, &spec.factory_id)
-                        .ok_or_else(|| denied("domain_quote_factory_kind_unsupported"))?;
+                let canonical = crate::builtin_factory_spec(&power.factory_kind, &spec.factory_id)
+                    .ok_or_else(|| denied("domain_quote_factory_kind_unsupported"))?;
                 if &canonical != spec {
                     return Err(denied("domain_quote_factory_spec_mismatch"));
                 }
@@ -458,9 +480,8 @@ impl World {
             Action::ScheduleRecipe {
                 recipe_id, plan, ..
             } => {
-                let canonical =
-                    crate::builtin_recipe_plan(recipe_id, plan.accepted_batches)
-                        .ok_or_else(|| denied("domain_quote_unsupported"))?;
+                let canonical = crate::builtin_recipe_plan(recipe_id, plan.accepted_batches)
+                    .ok_or_else(|| denied("domain_quote_unsupported"))?;
                 if *plan != canonical {
                     return Err(denied("domain_quote_plan_mismatch"));
                 }
@@ -618,8 +639,7 @@ impl World {
                         .iter()
                         .find(|event| event.id == *id)
                         .ok_or_else(|| denied("domain_reference_unavailable"))?;
-                    if event.caused_by != Some(crate::CausedBy::Action(receipt.action_id))
-                    {
+                    if event.caused_by != Some(crate::CausedBy::Action(receipt.action_id)) {
                         return Err(denied("domain_reference_action_mismatch"));
                     }
                     match &event.body {
@@ -694,6 +714,11 @@ impl World {
             }
             if let WorldEventBody::Domain(domain) = &event.body {
                 let relevant = match domain {
+                    DomainEvent::WorldRuleCommitted {
+                        action_id: id,
+                        actor_id,
+                        ..
+                    } => *id == action_id && action.actor_id() == Some(actor_id.as_str()),
                     DomainEvent::AgentMoved { agent_id, .. } => {
                         action.actor_id() == Some(agent_id.as_str())
                     }
@@ -726,7 +751,8 @@ impl World {
         let applied = rejection.is_none() && !actual.is_empty();
         let supported = matches!(
             action,
-            Action::MoveAgent { .. }
+            Action::WorldRule { .. }
+                | Action::MoveAgent { .. }
                 | Action::BuildFactory { .. }
                 | Action::BuildFactoryWithModule { .. }
                 | Action::TransferMaterial { .. }

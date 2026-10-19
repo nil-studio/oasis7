@@ -72,3 +72,16 @@ pub(super) fn bounded_collection(value: Value) -> Value {
         other => json!({"value":other,"truncated":false}),
     }
 }
+
+/// Bound each business table independently; an outer object cap is insufficient.
+pub(super) fn bounded_world_rules(value: Value) -> Value {
+    match value {
+        Value::Object(tables) => Value::Object(
+            tables
+                .into_iter()
+                .map(|(key, value)| (key, bounded_collection(value)))
+                .collect(),
+        ),
+        _ => Value::Null,
+    }
+}

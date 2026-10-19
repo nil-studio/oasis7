@@ -23,6 +23,7 @@ fn candidate(
 }
 fn world(epoch: u64, candidates: Vec<GovernanceValidatorAdmissionRecord>) -> World {
     let state = WorldState {
+        world_rules: None,
         time: epoch * 10,
         governance_finality_signer_registry: Some(GovernanceFinalitySignerRegistry {
             slot_id: "finality".into(),

@@ -223,6 +223,7 @@ impl World {
                 };
                 let current_epoch = self.current_governance_epoch();
                 let event = DomainEvent::AgentClaimed {
+                    acquisition_contract_version: 1,
                     claimer_agent_id: claimer_agent_id.clone(),
                     target_agent_id: target_agent_id.clone(),
                     reputation_tier: quote.reputation_tier,

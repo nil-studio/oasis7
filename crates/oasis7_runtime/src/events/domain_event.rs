@@ -11,6 +11,13 @@ pub struct LogisticsOwnerPayout {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DomainEvent {
+    WorldRuleCommitted {
+        action_id: u64,
+        actor_id: String,
+        request_id: String,
+        command: oasis7_agent_api::world_action::WorldRuleCommandV1,
+        governance_epoch: u64,
+    },
     AgentRegistered {
         agent_id: String,
         pos: GeoPos,
@@ -424,6 +431,8 @@ pub enum DomainEvent {
         source_treasury_bucket_id: Option<String>,
     },
     AgentClaimed {
+        #[serde(default, skip_serializing_if = "is_legacy_claim_contract_version")]
+        acquisition_contract_version: u8,
         claimer_agent_id: String,
         target_agent_id: String,
         reputation_tier: u8,
@@ -460,6 +469,8 @@ pub enum DomainEvent {
         ready_at_epoch: u64,
     },
     AgentClaimUpkeepSettled {
+        #[serde(default, skip_serializing_if = "is_legacy_claim_contract_version")]
+        activity_contract_version: u8,
         claimer_agent_id: String,
         target_agent_id: String,
         settled_at_epoch: u64,
@@ -939,6 +950,7 @@ pub enum DomainEvent {
 impl DomainEvent {
     pub fn agent_id(&self) -> Option<&str> {
         match self {
+            DomainEvent::WorldRuleCommitted { actor_id, .. } => Some(actor_id),
             DomainEvent::AgentRegistered { agent_id, .. } => Some(agent_id.as_str()),
             DomainEvent::AgentMoved { agent_id, .. } => Some(agent_id.as_str()),
             DomainEvent::AgentLocationAuthorityUpdated { authority } => {

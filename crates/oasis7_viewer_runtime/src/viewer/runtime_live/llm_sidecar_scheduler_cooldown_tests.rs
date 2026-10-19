@@ -78,6 +78,7 @@ fn scheduler_query_cooldown_survives_client_recreation_without_submit_replay() {
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     sidecar.provider_service_projection =
         Some(crate::world_service::projection::WorldServiceProjection {
+            world_rule_status: None,
             formal_commit_header: None,
             canonical_agent_owner: None,
             canonical_agent_chat: None,

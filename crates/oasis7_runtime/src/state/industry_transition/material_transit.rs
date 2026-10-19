@@ -22,6 +22,14 @@ impl PreparedMaterialTransit {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
+        Self::prepare_started_with_reservation(state, event, now, false)
+    }
+    pub(crate) fn prepare_started_with_reservation(
+        state: &WorldState,
+        event: &DomainEvent,
+        now: WorldTime,
+        reserved: bool,
+    ) -> Result<Self, WorldError> {
         let DomainEvent::MaterialTransitStarted {
             job_id,
             requester_agent_id,
@@ -111,8 +119,10 @@ impl PreparedMaterialTransit {
                     .unwrap_or_default(),
             );
         }
-        remove_material_balance_for_ledger(&mut ledgers, from_ledger, kind, *amount)
-            .map_err(|reason| invalid(format!("material transit reserve failed: {reason}")))?;
+        if !reserved {
+            remove_material_balance_for_ledger(&mut ledgers, from_ledger, kind, *amount)
+                .map_err(|reason| invalid(format!("material transit reserve failed: {reason}")))?;
+        }
         let materials = ledgers.get(&world_id).cloned().unwrap_or_default();
         Ok(Self {
             event: event.clone(),

@@ -380,9 +380,13 @@ pub(super) fn material_transit_priority_for_kind(
 }
 
 pub(super) fn material_transit_loss_bps_for_kind(world: &World, kind: &str) -> i64 {
+    material_transit_loss_bps_for_state(&world.state, kind)
+}
+pub(crate) fn material_transit_loss_bps_for_state(state: &crate::WorldState, kind: &str) -> i64 {
     let base = MATERIAL_TRANSFER_LOSS_PER_KM_BPS.max(0);
-    let factor = world
-        .material_profile(kind)
+    let factor = state
+        .material_profiles
+        .get(kind)
         .map(|profile| match profile.transport_loss_class {
             MaterialTransportLossClass::Low => 1_i64,
             MaterialTransportLossClass::Medium => 2_i64,
@@ -392,7 +396,7 @@ pub(super) fn material_transit_loss_bps_for_kind(world: &World, kind: &str) -> i
     base.saturating_mul(factor)
 }
 
-pub(super) fn material_transit_ticks(distance_km: i64) -> u64 {
+pub(crate) fn material_transit_ticks(distance_km: i64) -> u64 {
     if distance_km == 0 {
         0
     } else {
@@ -1029,4 +1033,8 @@ impl World {
 
         Ok(emitted)
     }
+}
+
+pub(crate) fn material_transit_has_capacity(state: &crate::WorldState) -> bool {
+    state.pending_material_transits.len() < MATERIAL_TRANSFER_MAX_INFLIGHT
 }

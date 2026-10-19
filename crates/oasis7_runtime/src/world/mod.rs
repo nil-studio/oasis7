@@ -9,13 +9,13 @@ pub(crate) mod agent_claim_terminal_publication;
 mod agent_claims;
 pub(crate) mod agent_delegation;
 mod agent_intent;
-mod source_compiler;
 mod provider_outcome;
+mod source_compiler;
 pub use provider_outcome::AgentIntentReference;
 mod execution_identity;
-pub use execution_identity::WorldExecutionStateIdentity;
 #[cfg(test)]
 pub(crate) use agent_intent::derive_agent_chat_request_digest;
+pub use execution_identity::WorldExecutionStateIdentity;
 pub(crate) mod agent_intent_publication;
 mod agent_intent_terminal;
 pub(crate) mod alliance_war_publication;
@@ -126,7 +126,7 @@ mod prepared_base_head_transaction_regressions;
 pub(crate) mod starter_oc_claim_publication;
 mod war_declaration_quote;
 pub use war_declaration_quote::WarDeclarationQuote;
-mod logistics;
+pub(crate) mod logistics;
 pub use logistics::LogisticsTransferQuote;
 mod market_quote_decision_preview;
 pub use market_quote_decision_preview::{MarketQuoteDecisionPreview, MarketQuoteSupplyDelta};
@@ -222,7 +222,6 @@ use super::signer::ReceiptSigner;
 use super::snapshot::{Journal, SnapshotCatalog};
 use super::state::WorldState;
 use super::types::{ActionId, IntentSeq, ProposalId, WorldEventId, WorldTime};
-use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 #[cfg(all(test, feature = "wasmtime", feature = "test_tier_full"))]
 pub(crate) use bootstrap_economy::m4_bootstrap_module_ids;
 pub use bootstrap_power::M1ScenarioBootstrapConfig;
@@ -232,6 +231,7 @@ pub use module_tick_runtime::{
     ModuleTickRoutingMetricsSnapshot,
 };
 use oasis7_agent_api::world_entity::ModuleVisualEntity;
+use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1176,4 +1176,6 @@ mod owner_control_admission;
 pub use owner_control_admission::OwnerControlHostAuthority;
 
 mod provider_causal_commit;
-pub use provider_causal_commit::{ProviderDecisionEvidenceV1, ProviderCognitionCommitError};
+pub use provider_causal_commit::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};
+
+mod world_rule_lifecycle;

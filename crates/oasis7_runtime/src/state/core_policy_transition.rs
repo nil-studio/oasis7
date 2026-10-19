@@ -50,6 +50,9 @@ impl PreparedCorePolicyEvent {
         };
         match event {
             DomainEvent::AgentRegistered { agent_id, pos } => {
+                if agent_id.starts_with("industrial:") {
+                    return Err(invalid("industrial_identity_requires_delivery"));
+                }
                 let mut cell = AgentCell::new(AgentState::new(agent_id, *pos), now);
                 cell.activity = Some(AgentActivityV1::idle(now));
                 prepared.agent = Some((agent_id.clone(), cell));

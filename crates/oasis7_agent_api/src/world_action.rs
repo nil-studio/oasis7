@@ -24,3 +24,6 @@ pub fn main_token_action_auth_required(action: &Action) -> bool {
             | Action::UpdateRestrictedStarterClaimAdminRegistry { .. }
     )
 }
+
+mod world_rule;
+pub use world_rule::*;

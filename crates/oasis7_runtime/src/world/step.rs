@@ -160,6 +160,10 @@ impl World {
         let WorldEventBody::Domain(event) = body else {
             return Ok(());
         };
+        if matches!(event, DomainEvent::WorldRuleCommitted { .. }) {
+            crate::world_rules::PreparedWorldRule::prepare(&self.state, event, self.state.time)?;
+            return Ok(());
+        }
         if matches!(
             event,
             DomainEvent::ActionAccepted { .. }
@@ -404,6 +408,7 @@ impl World {
         }
         let _ = self.process_due_economy_jobs()?;
         let _ = self.process_due_material_transits()?;
+        let _ = self.process_world_rule_lifecycle()?;
         let _ = self.process_gameplay_cycles()?;
         let _ = self.process_restricted_starter_claim_grant_epochs()?;
         let _ = self.process_agent_claim_epochs()?;
@@ -747,6 +752,9 @@ impl World {
             self.route_event_to_modules(&event, sandbox)?;
         }
         for event in self.process_due_material_transits()? {
+            self.route_event_to_modules(&event, sandbox)?;
+        }
+        for event in self.process_world_rule_lifecycle()? {
             self.route_event_to_modules(&event, sandbox)?;
         }
         for event in self.process_gameplay_cycles_with_modules(sandbox)? {

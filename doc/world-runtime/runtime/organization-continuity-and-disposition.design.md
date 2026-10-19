@@ -158,3 +158,22 @@ game 产生版本化 charter、有效活动、通知/保护期限、资格和处
 | 保留/隐私、容量及迁移版本未冻结 | runtime / QA；不能以已解决触发 GC | 存储合同、容量预算、兼容矩阵确定并完成 OC-VERIFY-004 |
 
 本文不改变当前权限、共识或持久化实现。未来改变这些边界时，按[开发流程规范](../../engineering/workflow/source-of-truth.md)安排对应能力的独立评审；逻辑设计和计划不能代替该评审、实际验证或发行判断。
+
+## v1 初始政策（owner 授权）
+
+有效活动为组织任一当前成员在权威 AgentCell.last_active 更新；连续 600 tick 无活动可通知，通知 120 tick 后进入保护，保护至少 600 tick。治理授权且仍有保全必要才可进入受限持续；授权最长 600 tick，可撤销。接替者须为现存非 blocked Agent，治理确认不赋予成员独立资产的处分权。reclaim/申诉是独立请求，pending 不激活授权；申诉 pending 阻断新的处分，拒绝不解除基础保护。
+
+estate v1 仅接收组织显式委托的材料，每笔委托绑定贡献者和来源，不包含成员余额、Agent 身份和个人合同。解散依序冻结新风险、核清该 estate 的义务/托管/债权、处理持续业务、返还贡献者，剩余按冻结成员等额分配，整数余数按成员 ID 排序。不能识别或无法联合结算的外部义务保持阻塞，不假定不存在。各阶段要求前序 receipt，并使用独立 effect 来源避免换请求重复分配。
+
+授权 scope 是 estate 对象 ID、权利和动作的有界集合（最多 128 项）；部分交接是明确集合差集，新旧授权在同提交内变更。旧请求保持旧授权版本，不自动迁移。已结清的价值使用原始委托/义务身份账本去重，不能因新授权或新请求重新处分。
+
+
+v1 使用 `OrganizationCaseV1`、`OrganizationEstateDepositV1`、`OrganizationGrantV1` 和独立 `OrganizationRecoveryRequestV1`，同属 `WorldRulesStateV1`。既有 Alliance 的成员个人合同/身份不会被 case 删除。v1 estate 仅保存新显式委托的材料，不接纳设施、Agent、个人合同或无法联合结算的外部义务；对应未知类型无执行入口，不能把不存在的适配器当成已支持的处置。Business 阶段核清这一材料容器无持续业务，不能据此宣称其他组织形态的清算已实现。Protected 期间的有限保全可按治理 scope 返还已识别托管；剩余分配仍要求解散前序阶段。
+
+Governance proposal 的 description 绑定完整 typed 命令（自身 proposal_key 除外），通过权重至少 3；普通多数或相邻政策提案不能复用。pending appeal 阻断新处分，交接保留旧 grant 及 revision，归还/分配逐 deposit 保存一次 effect receipt。到期不删历史；native/module tick 禁止过期效果并将失去全部有效授权的 Limited 基础阶段退回 Protected。
+
+
+用户业务动作更新成员活动；系统产生的 case 通知/到期推进不产生用户活动。claim upkeep 的新事件使用 activity_contract_version=1，不刷新 last_active；缺版本的历史 v0 事件保持原重放结果。reclaim/申诉的请求登记 accepted 只更新请求层；经绑定治理裁决 approved 才可改变基础阶段。申诉获准后回到 Protected，不能在保护阶段继续解散；重新产生有限授权仍须满足保护期限与新治理前提。每成员每种请求最多一个 pending，历史结论保留而不占用永久请求配额。
+
+
+Case 阶段推进与最终关闭有独立的 AdvanceCase / FinalizeCase 对象 scope。托管已全部返还后，申诉裁决仍可进入保护；保护期结束后可通过新的绑定治理提案赋予仅结案授权，不要求虚构未处置资产。显式 case scope 接管时原 founder 在同 scope 的默认执行资格暂停；旧 case revision 的待决操作不迁移到接替者。

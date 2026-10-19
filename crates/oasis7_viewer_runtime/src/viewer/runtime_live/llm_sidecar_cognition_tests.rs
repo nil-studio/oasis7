@@ -110,6 +110,7 @@ fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
         "pending_reason": "capacity_available"
     })).unwrap();
     let mut projection = crate::world_service::projection::WorldServiceProjection {
+        world_rule_status: None,
         formal_commit_header: None,
         canonical_agent_owner: None,
         canonical_agent_chat: None,

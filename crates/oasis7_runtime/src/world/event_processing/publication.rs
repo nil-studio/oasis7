@@ -45,6 +45,7 @@ impl World {
             _ => {}
         }
         let state_delta = match &body {
+            WorldEventBody::Domain(event @ DomainEvent::WorldRuleCommitted { .. }) => Some(PreparedEventStateDelta::WorldRule(Box::new(crate::world_rules::PreparedWorldRule::prepare(&self.state,event,self.state.time)?))),
             WorldEventBody::Domain(
                 event @ (DomainEvent::AgentIntentProposed { .. }
                 | DomainEvent::AgentIntentSubmitted { .. }
@@ -308,12 +309,11 @@ impl World {
         agent_id: String,
     ) -> Result<WorldEventId, WorldError> {
         if let WorldEventBody::Domain(event @ DomainEvent::BodyAttributesRejected { .. }) = &body {
-            let prepared =
-                crate::state::core_policy_transition::PreparedCorePolicyEvent::prepare(
-                    &self.state,
-                    event,
-                    self.state.time,
-                )?;
+            let prepared = crate::state::core_policy_transition::PreparedCorePolicyEvent::prepare(
+                &self.state,
+                event,
+                self.state.time,
+            )?;
             return self.append_event_internal(
                 body,
                 caused_by,
@@ -667,6 +667,9 @@ impl World {
             }
             PreparedEventStateDelta::GovernanceMeta(prepared) => {
                 self.state_root_hash_with_governance_meta_overlay(prepared)?
+            }
+            PreparedEventStateDelta::WorldRule(prepared) => {
+                self.state_root_hash_with_world_rule_overlay(prepared)?
             }
             PreparedEventStateDelta::CorePolicy(prepared) => {
                 self.state_root_hash_with_core_policy_overlay(prepared)?

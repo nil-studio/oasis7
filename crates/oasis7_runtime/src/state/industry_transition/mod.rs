@@ -104,6 +104,18 @@ pub(crate) struct PreparedRecipeLifecycle {
 }
 
 impl PreparedIndustryEvent {
+    pub(crate) fn prepare_reserved_transit(
+        state: &WorldState,
+        event: &DomainEvent,
+        routed: &DomainEvent,
+        now: WorldTime,
+    ) -> Result<Self, WorldError> {
+        let mut value =
+            PreparedMaterialTransit::prepare_started_with_reservation(state, event, now, true)?;
+        value.event = routed.clone();
+        Ok(Self::MaterialTransit(Box::new(value)))
+    }
+
     pub(crate) fn has_construction_receipt(&self) -> bool {
         matches!(self, Self::FactoryLifecycle(value) if value.construction_receipt.is_some())
     }
@@ -118,6 +130,20 @@ impl PreparedIndustryEvent {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
+        let factory = match event {
+            DomainEvent::RecipeStarted { factory_id, .. }
+            | DomainEvent::FactoryRecycled { factory_id, .. } => Some(factory_id),
+            _ => None,
+        };
+        if factory.is_some_and(|id| {
+            state.world_rules.as_ref().is_some_and(|r| {
+                r.agent_orders
+                    .values()
+                    .any(|o| &o.factory_id == id && o.delivered_at.is_none())
+            })
+        }) {
+            return Err(invalid("factory_capacity_reserved_by_agent_order"));
+        }
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. } => Ok(Self::LogisticsTopology(

@@ -274,7 +274,7 @@ fn claimed_agent_rejects_second_owner() {
 }
 
 #[test]
-fn reputation_tier_scales_second_slot_and_enforces_claim_cap() {
+fn legacy_reputation_tier_scales_second_slot_and_enforces_claim_cap() {
     let mut world = setup_claim_world(4_000, 10);
     register_agent(&mut world, "dave");
     register_agent(&mut world, "erin");
@@ -286,10 +286,7 @@ fn reputation_tier_scales_second_slot_and_enforces_claim_cap() {
     world.step().expect("claim slot 1");
     let first_claim = world.agent_claim("bob").expect("slot 1 claim").clone();
 
-    world.submit_action(Action::ClaimAgent {
-        claimer_agent_id: "alice".to_string(),
-        target_agent_id: "carol".to_string(),
-    });
+    world.append_legacy_claim_fixture("alice", "carol");
     world.step().expect("claim slot 2");
     let second_claim = world.agent_claim("carol").expect("slot 2 claim").clone();
 

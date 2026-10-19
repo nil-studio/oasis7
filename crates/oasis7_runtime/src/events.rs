@@ -1,7 +1,7 @@
 //! Action and domain event types.
 
-use oasis7_agent_api::world_action::GeoPos;
 use crate::agent_state::{BodyKernelView, BodySlotType};
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_agent_api::world_action::ModuleInstallTarget;
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_wasm_abi::{
@@ -43,6 +43,10 @@ fn default_logistics_route_available() -> bool {
 
 fn default_logistics_capacity_units() -> i64 {
     i64::MAX
+}
+
+fn is_legacy_claim_contract_version(version: &u8) -> bool {
+    *version == 0
 }
 
 mod domain_event;

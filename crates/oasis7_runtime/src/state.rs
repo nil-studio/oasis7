@@ -506,6 +506,8 @@ pub struct ModuleReleaseManifestMappingState {
 /// The mutable state of the world.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct WorldState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     pub time: WorldTime,
     /// Independent authenticated archive index. It is committed by the
     /// enclosing Snapshot's state bytes and is trusted only when those exact
@@ -1014,6 +1016,9 @@ impl WorldState {
         committed_receipt_event_id: Option<WorldEventId>,
     ) -> Result<(), WorldError> {
         match event {
+            DomainEvent::WorldRuleCommitted { .. } => {
+                crate::world_rules::PreparedWorldRule::prepare(self, event, now)?.install(self);
+            }
             DomainEvent::AgentIntentProposed { .. }
             | DomainEvent::AgentIntentSubmitted { .. }
             | DomainEvent::AgentIntentAccepted { .. }
