@@ -633,7 +633,7 @@ run_cargo() {
         self.assertNotIn('ordinary-required-v2', WORKFLOW)
 
     def test_download_caches_follow_actual_worksets(self):
-        node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38' in job}
+        node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
         self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','launcher-web','full-regression','candidate-full-regression'})
         for name in node_jobs:
             self.assertIn('cache: npm',JOBS[name])
