@@ -27,7 +27,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本节承接关联消�
 
 - 先写当前阶段、近期交付和长期目标的关联，再说明目前进展、明确时间窗口内最近做了什么、未完成条件和下一步；每项重要结论保留来源入口。
 - 顶层架构按问题导航，分别解释设计约定、已有实现和实际部署；人工关注区分需要决定、待补事实和知悉变化，已有决定保留来源与理由。
-- 执行信息按 PRD [REQ-CC-005](../../../doc/engineering/command-center/command-center.prd.md#REQ-CC-005)关联工作目的与明确来源，分别解释 PR、外部会话定位和目标状态；CI 在原 PR 的 GitHub 页面核实，不进入 App 检查投影；不读取或推定会话实时运行状态。
+- 执行信息按 PRD [REQ-CC-005](../../../doc/engineering/command-center/command-center.prd.md#REQ-CC-005)关联工作目的与明确来源，分别解释 PR、外部会话定位和目标状态；检查详情在原 PR 的 GitHub 页面核实；外部工具负责执行状态。
 - 按 PRD [REQ-CC-006](../../../doc/engineering/command-center/command-center.prd.md#REQ-CC-006)组织真正需要用户处理的问题，避免把已授权普通工作重新放进审批队列。
 - 如只生成静态简报或页面，标出生成时间及数据覆盖；自动更新需要实际读取或订阅，不把 Skill 安装本身称为实时监控。
 

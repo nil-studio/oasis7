@@ -1,6 +1,6 @@
 ---
 name: oasis7-command-center
-description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板，关联短期与长期目标、当前有效规范及决策、Git/PR 交付事实与原PR入口、Codex 开发会话和待人处理的问题。在用户要求 oasis7 项目总览、指挥面板、持续更新项目状态、目标进度、近期变化、架构与部署索引、规范回顾或通过看板管理开发任务时使用。不把游戏内 Agent/Viewer 当成开发会话，也不作为普通代码修改的默认流程。
+description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板，关联短期与长期目标、当前有效规范及决策、Git/PR 交付事实与原 PR、外部工具定位和待人处理的问题。在用户要求 oasis7 项目总览、指挥面板、持续更新项目状态、目标进度、近期变化、架构与部署索引、规范回顾或通过看板管理开发任务时使用。不把游戏内 Agent/Viewer 当成开发会话，也不作为普通代码修改的默认流程。
 ---
 
 # Oasis7 项目指挥看板
@@ -30,7 +30,7 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 2. 读取当前 `AGENTS.md`、开发流程和根 `README.md`，再用 `rg` 定位相关产品、专业域或测试条款，避免全仓全文加载。
 3. 先读[项目状态](../../doc/engineering/command-center/README.md)的核验范围和[架构索引](../../doc/engineering/command-center/architecture/README.md)，再从 `doc/core/prd.md` 的“当前阶段交付目标与全局 P0”核对近期目标，从产品入口核对长期方向；摘要不是权威，不用历史里程碑替代当前路线图。
 4. 按事项主责和显式后继关系核对规范；不能只按修改时间、审计轮次、文件名或模型记忆排序。遇到冲突说明来源及影响，不阻塞无关工作。
-5. 从 Git、PR、实际 CI 和评审核实工程交付（CI在GitHub查看，不为App恢复检查拉取/展示功能）；按需关联 Issue/Project，不要求只有 PR 的工作补建 Issue。分页不完整、离线或权限不足时保留可用结果并说明范围。
+5. 从 Git、PR、实际 CI 和评审核实工程交付（检查详情在 GitHub 核对）；按需关联 Issue/Project，不要求只有 PR 的工作补建 Issue。分页不完整、离线或权限不足时保留可用结果并说明范围。
 6. 将上传旧稿、历史 `.pm` 与当前规范区分。旧 `world-rule.md`、`agent_world_*` 命名通过当前导航找接收条款；不恢复退役任务账本。游戏世界实体与开发会话分别识别。
 
 ## 构建或修改看板
@@ -38,7 +38,7 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 1. 对照正式 PRD 的相关 `REQ-CC`/`AC-CC` 确定本次用户结果，按[客户端实施方法](references/desktop-client.md)查找当前实现与适用入口；不要把目标设计描述成已完成软件。
 2. 按正式系统设计采用已选技术基线和代码边界，核对当前依赖与用户约束。需要改变行为或架构时更新主责文档，不在 Skill 内保留第二套决定。
 3. 先贯通真实来源、派生数据和页面，再逐步接入所需能力。演示数据只进入标明的演示入口；未接入区域按正式 PRD 显示范围。
-4. 按[视图刷新方法](references/view-model.md)核对目标、规范及交付关系；需要原会话定位时读取[Codex 外部接续方法](references/codex-integration.md)。刷新不启动模型任务。
+4. 按[视图刷新方法](references/view-model.md)核对目标、规范及交付关系；需要原会话定位时读取[Codex 外部接续方法](references/external-handoff.md)。刷新不启动模型任务。
 5. 复用适合的组件和已有工具方法。UI 设计 Skill 适合且可用时按需采用；不要为看板改造世界运行时、公共 `site/` 或玩家 Viewer。
 
 实施、调试、验证和评审按需使用 `.agents/skills/README.md`，不串固定角色链。一个清楚目的尽量在一个 PR 原子完成；只读查询不创建分支、Issue 或远程记录。
@@ -68,4 +68,4 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 - [项目入口地图](references/project-map.md)：定位当前主责来源、迁移关系和已有方法。
 - [客户端实施方法](references/desktop-client.md)：把已确认设计转为实际客户端改动。
 - [视图刷新方法](references/view-model.md)：采集、关联、回顾决定及生成简报。
-- [Codex 外部接续方法](references/codex-integration.md)：保存准确定位，打开原会话或复制入口；不连接或控制运行时。
+- [Codex 外部接续方法](references/external-handoff.md)：保存准确定位，打开原会话或复制入口；不连接或控制运行时。
