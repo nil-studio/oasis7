@@ -37,7 +37,6 @@ fn main() {
         "query_daily_work",
         "save_daily_work",
         "query_work_projection",
-        "refresh_work_checks",
         "search_rules",
         "query_document_inventory",
         "query_document_directory",

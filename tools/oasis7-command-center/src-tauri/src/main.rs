@@ -120,7 +120,6 @@ fn main() {
             commands::query_daily_work,
             commands::save_daily_work,
             commands::query_work_projection,
-            commands::refresh_work_checks,
             commands::search_rules,
             commands::query_document_inventory,
             commands::query_document_directory,

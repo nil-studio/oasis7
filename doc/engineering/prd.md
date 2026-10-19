@@ -142,7 +142,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 
 - 产品范围、四视图、主要失败恢复和验收条件由 [指挥客户端产品设计](command-center/command-center.prd.md) 主责；技术选型、组件、数据和连接合同由 [系统设计](command-center/command-center.design.md) 承接。
 - 该客户端属于 engineering 开发工具，沿用现有文档、Git 与交付来源的事实边界；不扩展游戏产品模块，不新增通用任务登记或开发审批。
-- 2026-10-19 范围收缩为本地文档/Git、GitHub PR/CI、个人问题/决定/关系及外部会话打开/复制；移除自管 app-server、发任务/追加/中断、运行请求同步/回复与 Codex 退出协调，旧数据保留不重放，独立 ToolHost 退出保护保留。新的完整闭环尚待实现和验收，范围与差距见配对系统设计 §11；文档采纳、应用实现、运行验证和发布分别判断。
+- 2026-10-19 范围收缩为本地文档/Git、GitHub PR、个人问题/决定/关系及外部会话打开/复制；CI检查直接在GitHub查看，App不读取或展示检查详情；移除自管 app-server、发任务/追加/中断、运行请求同步/回复与 Codex 退出协调，旧数据保留不重放，独立 ToolHost 退出保护保留。新的完整闭环尚待实现和验收，范围与差距见配对系统设计 §11；文档采纳、应用实现、运行验证和发布分别判断。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 文档治理脚本、CI 测试脚本、静态检查脚本。

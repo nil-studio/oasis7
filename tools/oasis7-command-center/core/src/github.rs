@@ -30,10 +30,6 @@ pub struct PullRequest {
     pub state: String,
     pub head_oid: String,
     pub review_decision: Option<String>,
-    pub checks: Vec<Check>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub checks_source: Option<PullChecksSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub metadata: Option<PullMetadata>,
@@ -46,29 +42,6 @@ pub struct PullMetadata {
     pub merged_at: Option<String>,
     pub updated_at: Option<String>,
     pub body: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct Check {
-    pub name: String,
-    pub state: String,
-    pub tested_oid: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_oid: Option<String>,
-    pub url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct PullChecksSource {
-    #[serde(default)]
-    pub schema_version: u32,
-    pub state: String,
-    pub observed_at: Option<String>,
-    pub coverage: String,
-    pub error: Option<String>,
 }
 
 pub struct GitHubClient {
@@ -106,25 +79,14 @@ impl GitHubClient {
             ),
             root,
         )?;
-        let mut pulls = decode_pulls(&raw)?;
-        for pull in &mut pulls {
-            if let Some(old) = self
-                .current
-                .pulls
-                .iter()
-                .find(|p| p.id == pull.id && p.head_oid == pull.head_oid)
-            {
-                pull.checks.clone_from(&old.checks);
-                pull.checks_source.clone_from(&old.checks_source);
-            }
-        }
+        let pulls = decode_pulls(&raw)?;
         let count = pulls.len();
         for pull in pulls {
             self.current.pulls.retain(|old| old.id != pull.id);
             self.current.pulls.push(pull);
         }
         self.current.coverage = format!(
-            "REST 已显式读取至第 {page} 页（各页为独立时刻）；本页 {count}/100，保留 {} 个不同 PR；{}。CI 及评审仍按各自覆盖。",
+            "REST 已显式读取至第 {page} 页（各页为独立时刻）；本页 {count}/100，保留 {} 个不同 PR；{}。详情及评审请在 GitHub 核对。",
             self.current.pulls.len(),
             if count == 100 {
                 "可能仍有后续页"
@@ -156,20 +118,11 @@ impl GitHubClient {
             root,
         )?;
         let mut pulls = decode_pulls(&serde_json::json!([raw]))?;
-        let mut pull = pulls.remove(0);
+        let pull = pulls.remove(0);
         if pull.id != number.to_string()
             || pull.url != format!("https://github.com/{repo}/pull/{number}")
         {
             return Err(Error::Invalid("PR 补读来源身份不匹配".into()));
-        }
-        if let Some(old) = self
-            .current
-            .pulls
-            .iter()
-            .find(|p| p.id == pull.id && p.head_oid == pull.head_oid)
-        {
-            pull.checks.clone_from(&old.checks);
-            pull.checks_source.clone_from(&old.checks_source);
         }
         self.current.pulls.retain(|p| p.id != pull.id);
         self.current.pulls.push(pull);
@@ -199,16 +152,10 @@ impl GitHubClient {
         self.current.clone()
     }
     pub fn restore(mut snapshot: GitHubSnapshot) -> Self {
-        for pull in &mut snapshot.pulls {
-            if pull
-                .checks_source
-                .as_ref()
-                .is_some_and(|source| source.schema_version != 1)
-            {
-                pull.checks.clear();
-                pull.checks_source = None;
-            }
-        }
+        snapshot.coverage = format!(
+            "缓存 PR 窗口，保留 {} 项最近成功读取结果；非全仓库清单。",
+            snapshot.pulls.len()
+        );
         if snapshot.observed_at.is_some() {
             snapshot.state = "stale".into();
         }
@@ -230,23 +177,6 @@ impl GitHubClient {
             Ok(mut candidate) => {
                 candidate.observed_at = Some(now.clone());
                 candidate.last_attempt = Some(now);
-                if candidate.repository == self.current.repository
-                    && candidate.account == self.current.account
-                {
-                    for pull in &mut candidate.pulls {
-                        if let Some(previous) = self.current.pulls.iter().find(|old| {
-                            old.id == pull.id
-                                && old.head_oid == pull.head_oid
-                                && old
-                                    .checks_source
-                                    .as_ref()
-                                    .is_some_and(|source| source.schema_version == 1)
-                        }) {
-                            pull.checks = previous.checks.clone();
-                            pull.checks_source = previous.checks_source.clone();
-                        }
-                    }
-                }
                 self.current = candidate;
             }
             Err(error) => {
@@ -387,7 +317,7 @@ fn read(root: &Path, explicit: Option<&str>) -> Result<GitHubSnapshot> {
         observed_at: None,
         last_attempt: None,
         coverage: format!(
-            "REST PR 第 1 页，已读取 {} 项，最多 100 项；{}。CI 按单个 PR 显式读取，评审状态未读取。",
+            "REST PR 第 1 页，已读取 {} 项，最多 100 项；{}。详情及评审请在 GitHub 核对。",
             pulls.len(),
             if pulls.len() == 100 {
                 "可能仍有后续页，非全仓库清单"
@@ -398,84 +328,6 @@ fn read(root: &Path, explicit: Option<&str>) -> Result<GitHubSnapshot> {
         error: None,
         pulls,
     })
-}
-
-/// Two bounded REST reads for one explicitly selected, already known PR HEAD.
-pub fn read_pull_checks(
-    root: &Path,
-    explicit: Option<&str>,
-    repository: &str,
-    head: &str,
-) -> Result<(Vec<Check>, String)> {
-    if !valid_repository(repository)
-        || !matches!(head.len(), 40 | 64)
-        || !head.bytes().all(|c| c.is_ascii_hexdigit())
-    {
-        return Err(Error::Invalid("invalid CI source identity".into()));
-    }
-    let path = program(explicit)?;
-    let runs = api(
-        &path,
-        &format!("repos/{repository}/commits/{head}/check-runs?filter=latest&per_page=100&page=1"),
-        root,
-    )?;
-    let statuses = api(
-        &path,
-        &format!("repos/{repository}/commits/{head}/status?per_page=100&page=1"),
-        root,
-    )?;
-    decode_checks(&runs, &statuses, head)
-}
-fn decode_checks(runs: &Value, statuses: &Value, head: &str) -> Result<(Vec<Check>, String)> {
-    let run_list = runs["check_runs"]
-        .as_array()
-        .ok_or_else(|| Error::Invalid("invalid check-runs page".into()))?;
-    let status_list = statuses["statuses"]
-        .as_array()
-        .ok_or_else(|| Error::Invalid("invalid combined status page".into()))?;
-    let mut checks = Vec::new();
-    for check in run_list {
-        let tested = check["head_sha"].as_str();
-        if tested.is_some_and(|sha| sha != head) {
-            return Err(Error::Invalid("check source SHA mismatch".into()));
-        }
-        checks.push(Check {
-            name: field(check, "name")?,
-            state: check["conclusion"]
-                .as_str()
-                .or(check["status"].as_str())
-                .unwrap_or("UNKNOWN")
-                .to_ascii_uppercase(),
-            // REST associates this check/status with a commit; it does not
-            // prove a workflow's checkout SHA or tested merge tree.
-            tested_oid: None,
-            source_oid: tested.map(str::to_owned),
-            url: check["html_url"].as_str().map(str::to_owned),
-        });
-    }
-    let tested = statuses["sha"].as_str();
-    if tested.is_some_and(|sha| sha != head) {
-        return Err(Error::Invalid("status source SHA mismatch".into()));
-    }
-    for status in status_list {
-        checks.push(Check {
-            name: field(status, "context")?,
-            state: field(status, "state")?.to_ascii_uppercase(),
-            // REST associates this check/status with a commit; it does not
-            // prove a workflow's checkout SHA or tested merge tree.
-            tested_oid: None,
-            source_oid: tested.map(str::to_owned),
-            url: status["target_url"].as_str().map(str::to_owned),
-        });
-    }
-    let coverage = format!(
-        "REST check-runs 第 1 页 {}/{} 项；commit statuses 第 1 页 {}/{} 项；每来源最多 100 项，未读后续页及 required 定义；关联提交不证明实际 checkout 的测试对象，不能据此认定全部检查通过。",
-        run_list.len(),
-        runs["total_count"],
-        status_list.len(),
-        statuses["total_count"]
-    );
-    Ok((checks, coverage))
 }
 
 fn field(value: &Value, key: &str) -> Result<String> {
@@ -505,8 +357,6 @@ pub fn decode_pulls(raw: &Value) -> Result<Vec<PullRequest>> {
                 },
                 head_oid: field(&pr["head"], "sha")?,
                 review_decision: None,
-                checks: Vec::new(),
-                checks_source: None,
                 metadata: Some(PullMetadata {
                     observed_at: crate::now(),
                     merged_at: pr["merged_at"].as_str().map(str::to_owned),
