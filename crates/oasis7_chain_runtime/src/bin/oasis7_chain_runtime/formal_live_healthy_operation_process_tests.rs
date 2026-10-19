@@ -622,9 +622,13 @@ pub(super) fn exercise_with_fault(
     let mut old_replica_stopped = false;
     let mut submitted_after_reopen = false;
     let mut successor_writer_lock_fault_injected = false;
-    for _ in 0..24 {
+    // CLI calls advance control-plane stages, not the asynchronous successor
+    // publication clock. Keep waiting for the same operation's actual Qualified
+    // readback within the original scenario deadline, regardless of call speed.
+    loop {
         case.scenario_deadline
-            .report_stage("actual op CLI forward recovery")?;
+            .report_stage("actual op CLI forward recovery")
+            .map_err(|error| format!("{error}; last healthy operation: {record}"))?;
         let stage = record["healthy_durable_set_progress"]["stage"]
             .as_str()
             .unwrap_or("");
@@ -881,6 +885,11 @@ pub(super) fn exercise_with_fault(
             "healthy-cli-operation",
             &record,
         )?;
+        // A bounded CLI call can straddle the deadline; do not accept even a
+        // successful result returned after the original scenario budget.
+        case.scenario_deadline
+            .report_stage("actual op CLI forward recovery result")
+            .map_err(|error| format!("{error}; last healthy operation: {record}"))?;
         if record["state"] == "succeeded" {
             break;
         }
