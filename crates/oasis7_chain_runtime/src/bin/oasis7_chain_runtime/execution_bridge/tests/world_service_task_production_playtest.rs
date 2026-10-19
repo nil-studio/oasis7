@@ -2,7 +2,10 @@
 use super::*;
 #[path = "world_service_task_production_quote_retry.rs"]
 mod quote_retry;
+#[path = "world_service_task_world_rule_identity.rs"]
+mod world_rule_identity;
 use std::path::PathBuf;
+pub(super) use world_rule_identity::pin_world_rule_resource_identity;
 pub(super) fn fixture() -> (
     PathBuf,
     NodeRuntimeExecutionDriver,
@@ -264,7 +267,7 @@ fn fixture_mode(
         &oasis7_runtime::ReleaseSecurityPolicy::default(),
     )
     .unwrap();
-    let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
+    let mut driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
         dir.join("state.json"),
         dir.join("world"),
         dir.join("records"),
@@ -273,6 +276,9 @@ fn fixture_mode(
         baseline,
     )
     .unwrap();
+    if world_rule {
+        pin_world_rule_resource_identity(&mut driver, &identity);
+    }
     (dir, driver, identity, owner, public)
 }
 fn initial_state() -> WorldState {

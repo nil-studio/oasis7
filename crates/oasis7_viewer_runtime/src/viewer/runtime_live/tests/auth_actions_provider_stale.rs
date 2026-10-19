@@ -575,7 +575,7 @@ fn live_stale_parent_correction_rebinds_only_after_real_rejected_terminal() {
     let mut restored = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     restored.configure_provider_lineage_store(path.clone());
     restored.restore_provider_lineage(&server.world).unwrap();
-    server.llm_sidecar = Box::new(restored);
+    *server.llm_sidecar = restored;
     register_runtime_session(
         &mut server,
         "agency-owner",

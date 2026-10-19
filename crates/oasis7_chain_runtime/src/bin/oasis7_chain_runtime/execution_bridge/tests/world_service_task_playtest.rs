@@ -569,7 +569,7 @@ fn run_prepared_world_service_kind_with_cognition_503(
         "w1",
     )
     .unwrap();
-    let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
+    let mut driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
         root.join("state.json"),
         root.join("world"),
         root.join("records"),
@@ -578,6 +578,9 @@ fn run_prepared_world_service_kind_with_cognition_503(
         bootstrap.clone(),
     )
     .unwrap();
+    if world_rule {
+        production_playtest::pin_world_rule_resource_identity(&mut driver, &world);
+    }
     let config = oasis7_node::NodeConfig::new("node-a", "w1", NodeRole::Sequencer)
         .unwrap()
         .with_tick_interval(tick_interval)
