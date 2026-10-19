@@ -67,11 +67,36 @@ assert "github.workflow_sha == github.sha" in testnet, "writer must bind trusted
 assert "needs.plan.outputs.checkoutSha == github.sha" in testnet, "writer must bind source to main event"
 assert "steps: &testnet-native-steps" in testnet and "steps: *testnet-native-steps" in testnet
 
+# Compilation has no Web dependency; assembly joins both successful producers.
+for lane in ('package-native', 'package-native-trusted'):
+    body = re.search(rf'^  {lane}:\n(.*?)(?=^  [\w-]+:\n|\Z)', testnet, re.M | re.S)[1]
+    assert '      - build-web-dist' not in body
+assembly = testnet.split('  package-installers:\n', 1)[1]
+for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted'):
+    assert '      - ' + dependency + '\n' in assembly
+assert '!cancelled()' in assembly and "needs.build-web-dist.result == 'success'" in assembly
+assert '--native-binaries' in assembly and 'Swatinem/rust-cache@' not in assembly
+assert '--native-only' in testnet and 'testnet-native-stage-${{ matrix.platform }}' in testnet
+
 # Execute the actual lane predicates, including untrusted branch/source revisions.
 def condition(name):
     body = re.search(rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)", testnet, re.M | re.S)[1]
     predicate = re.search(r"^    if: >-\n(.*?)(?=^    \S)", body, re.M | re.S)[1]
     return " ".join(predicate.split())
+
+# The real join must run after one selected native lane, but never on failure,
+# cancellation, unknown results, or both producers selected.
+import itertools
+join = condition('package-installers')
+for web, candidate, trusted in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=3):
+    expression = join.replace('!cancelled()', 'True')
+    values = {'needs.plan.result': 'success', 'needs.build-web-dist.result': web,
+              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted}
+    for key in sorted(values, key=len, reverse=True):
+        expression = expression.replace(key, repr(values[key]))
+    actual = eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}})
+    expected = web == 'success' and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')]
+    assert actual == expected, (web, candidate, trusted)
 
 trusted_condition = condition("package-native-trusted")
 candidate_condition = condition("package-native")

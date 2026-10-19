@@ -8,6 +8,7 @@ WEB_DIST=""
 WEB_LAUNCHER_DIST=""
 OUT_DIR=""
 PROFILE="packaging"
+NATIVE_ARGS=()
 
 usage() {
   cat <<'USAGE'
@@ -29,6 +30,7 @@ Options:
                          required: prebuilt launcher web dist directory
   --out-dir <path>       required: output root for prepared bundle directory
   --profile <name>       cargo profile: packaging|dev (default: packaging)
+  --native-binaries <path> reuse verified intermediate native binaries
   -h, --help             show this help
 USAGE
 }
@@ -57,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile)
       PROFILE="${2:-}"
+      shift 2
+      ;;
+    --native-binaries)
+      NATIVE_ARGS=(--native-binaries "${2:-}")
       shift 2
       ;;
     -h|--help)
@@ -131,7 +137,8 @@ mkdir -p "${OUT_DIR}"
   --target-triple "${TARGET_TRIPLE}" \
   --web-dist "${WEB_DIST}" \
   --web-launcher-dist "${WEB_LAUNCHER_DIST}" \
-  --ops-out-dir "${OPS_BUNDLE_DIR}"
+  --ops-out-dir "${OPS_BUNDLE_DIR}" \
+  ${NATIVE_ARGS[@]+"${NATIVE_ARGS[@]}"}
 
 [[ -f "${OPS_BUNDLE_DIR}/.oasis7-ops-tools-manifest.json" ]] || {
   echo "error: ops-tools manifest missing: ${OPS_BUNDLE_DIR}" >&2
