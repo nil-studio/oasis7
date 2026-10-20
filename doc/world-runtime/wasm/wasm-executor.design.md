@@ -45,7 +45,7 @@ Wasmtime 的 Cargo 功能通过[执行器 manifest](../../../crates/oasis7_wasm_
 | 功能选择 | 设计依据与边界 |
 | --- | --- |
 | 保留 `std/runtime/cranelift`、`parallel-compilation`、`wat` | 支持新模块编译、同步执行、并行编译 guest 函数及现有 `Module::new` 文本输入能力。并行编译影响运行时首次加载延迟，不能仅按 Rust 构建时间裁剪。 |
-| 保留 `gc` 及三个 collector、`threads` | Wasmtime 49.0.3 的 `wasm_reference_types`、`wasm_exceptions` 配置 API 依赖 `gc`，`wasm_threads` API 依赖 `threads`。`wasm_gc(false)` 不代表可删除 Cargo `gc`；保留 collector 集合及选择顺序，避免改变现有 reference/function-reference 支持与资源行为。 |
+| 保留 `gc` 及三个 collector、`threads` | Wasmtime 49 的 `wasm_reference_types`、`wasm_exceptions` 配置 API 依赖 `gc`，`wasm_threads` API 依赖 `threads`。`wasm_gc(false)` 不代表可删除 Cargo `gc`；保留 collector 集合及选择顺序，避免改变现有 reference/function-reference 支持与资源行为。 |
 | 保留 `anyhow/backtrace/demangle/addr2line` | 保留错误转换和诊断信息；结构化失败及其文本可能进入 runtime 事件，不能把诊断变化一概视为无共识影响。 |
 | 不启用 component/WIT、`async/debug`、`stack-switching`、`compile-time-builtins` | 当前执行路径没有组件、异步宿主调用、guest 调试或自定义编译期 builtin；保留同步 epoch trap。调整时须检查上游功能依赖，避免其他功能重新启用整个功能族。 |
 | 不启用内置 `cache`、`profiling`、`pooling-allocator`、`coredump/debug-builtins` | 当前使用自建 serialized artifact cache 和默认 on-demand 分配器，没有配置对应宿主能力。内置 `cache` 与 `Module::serialize/deserialize` 是独立功能。 |
@@ -70,7 +70,7 @@ Cargo 功能变化可能改变 engine compatibility key；缓存继续以
 - 修改 capability、sandbox limits 或 cache 格式时，同步更新 ABI 兼容与损坏恢复测试。
 
 <a id="wasmtime-49-coordinated-release"></a>
-### Wasmtime 48.0.3 → 49.0.3 执行兼容与发布边界
+### Wasmtime 49 执行兼容与发布边界
 
 Wasmtime 49 将 bulk operation 的 fuel debit 移到操作成功完成后；同时触发越界与
 fuel 不足的调用，48 与 49 可能分别返回 `OutOfFuel` 与 `Trap`。两者都拒绝调用且不
@@ -79,8 +79,8 @@ fuel 不足的调用，48 与 49 可能分别返回 `OutOfFuel` 与 `Trap`。两
 不能证明两个引擎可共同执行/验证同一候选。当前 tick `executor_version` 是 crate
 package version，不标识或强制校验 Wasmtime 依赖版本。
 
-本次依赖升级必须采用同一 world 的完整执行集合协调切换：所有能够 author 或独立
-execute/validate tick 的进程须在维护边界全部停止，在完整目标 49.0.3 工件回读通过后
+引擎依赖升级必须采用同一 world 的完整执行集合协调切换：所有能够 author 或独立
+execute/validate tick 的进程须在维护边界全部停止，在完整目标 lockfile 精确版本工件回读通过后
 才恢复；不得使用重叠 48/49 执行窗口。具体 inventory、quiescence、readback、恢复与
 回滚 hold 见 [Wasmtime49 维护流程](../../p2p/blockchain/wasmtime-49-coordinated-maintenance.runbook.md#wasmtime-49-maintenance)。
 现有单节点升级、health/preflight 或 checkpoint 一致性检查均不构成自动 fleet engine
@@ -131,6 +131,8 @@ Host 承认 immutable world baseline、active manifest、artifact、schedule 与
 9. Retry same immutable key/hash 返回 pending/decision/receipt；changed body 拒绝。Crash before durable seam no effect 或完整 committed transaction；after durable seam 不重跑 WASM、重扣费或发送新 effect identity。
 
 Failure matrix：decode/identity/trust/gate/precondition/execution/output/usage/prepare 任一失败均不发布新的 state/effects/charges/success receipt；only verified canonical decision 可以结束 pending。任何 post-prepare injected failure 保持 registry/instance/artifact/schedule/resources/event era/journal/receipt 原基线。Publish 是已准备的不可失败安装，不能在半发布后调用 fallible validator；持久恢复须通过 transaction commit marker 区分完整与未提交。
+
+49.0.4 是修复 [组件流类型 panic](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-9pvw-hwfg-92h5) 与 [aarch64 大型 `br_table` 错误跳转](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-mghf-wjfp-p5xm) 的补丁基线。当前 Core WASM 路径未启用 component，但 Cranelift 修复适用于执行器；补丁版本也不能据此推断混合执行确定性。49.0.3 与 49.0.4 的切换继续遵守完整执行集合停机、精确版本回读和禁止旧目标混合加入的维护边界。依赖更新不授予部署或正式世界激活；执行器 feature、fuel/epoch/NaN 配置与缓存兼容校验保持原合同。
 
 ## 6. 接口与数据合同
 唯一字段 authority：[types](wasm-interface.md#sr2-types)、[execution cores/wrappers](wasm-interface.md#sr2-execution-contract)、[metering](wasm-interface.md#sr2-metering-contract)、[migration](wasm-interface.md#sr2-migration-contract)；runtime pending/activation/external authority：[lifecycle](../module/module-lifecycle.md#sr2-pending-contract)。
