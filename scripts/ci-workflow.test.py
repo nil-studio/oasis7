@@ -319,12 +319,13 @@ class Workflow(unittest.TestCase):
         self.assertIn('CI_VERBOSE=1 ./scripts/ci-tests.sh full', candidate)
 
     def test_candidate_full_preserves_full_setup_and_execution(self):
-        # Compare the complete execution body, allowing only identity reporting
-        # and the cache trust boundary to differ from the protected main writer.
+        # Candidate tests preserve the execution body; only the trusted writer
+        # additionally compiles cache variants and saves caches/sentinels.
         writer = JOBS['full-regression'].split('    steps:\n', 1)[1]
         candidate = JOBS['candidate-full-regression'].split('    steps:\n', 1)[1]
         candidate = re.sub(r'      - name: Record exact candidate identity\n.*?(?=      - name: Resolve)', '', candidate, flags=re.S)
         writer = re.sub(r'      - name: Prepare trusted cache sentinel\n.*?(?=      - (?:name: Run full|uses: actions/download-artifact))', '', writer, flags=re.S)
+        writer = re.sub(r'      - name: Complete shared native cache\n.*?(?=      - name:)', '\n', writer, flags=re.S)
         writer = re.sub(r'      - name: Save prepared wasm-bindgen tool cache\n.*?(?=      - name:)', '', writer, flags=re.S)
         candidate = candidate.replace('          save-if: false\n', '')
         candidate = candidate.replace('actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0',
@@ -475,7 +476,7 @@ class Workflow(unittest.TestCase):
 
     def test_required_and_full_tier_runners_share_feature_matched_viewer_artifact(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        names = ('build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer',
+        names = ('run_oasis7_package_tests', 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer',
                  'run_oasis7_required_tier_tests', 'run_oasis7_full_tier_tests')
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
                      for name in names]
@@ -542,7 +543,7 @@ run_cargo() {
     def test_full_tail_keeps_strict_wasmtime_profile_and_fixture_viewer(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
-                     for name in ('build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer')]
+                     for name in ('run_oasis7_package_tests', 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer')]
         full = re.search(r'^    full\|full-standard\) (.*?) ;;$', driver, re.M).group(1)
         with tempfile.TemporaryDirectory() as temporary:
             viewer = Path(temporary) / 'oasis7_viewer_live'
@@ -653,13 +654,39 @@ run_cargo() {
     def test_readers_share_compatible_trusted_writer_identity(self):
         writer = JOBS['full-regression']
         self.assertIn('cache-mode: write', writer)
-        self.assertIn('shared-key: ci-full-regression-trusted-v2', writer)
+        self.assertIn('shared-key: ci-shared-native-trusted-v3', writer)
         self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', writer)
         for name, job in JOBS.items():
             if 'save-if: false' in job and 'Swatinem/rust-cache@' in job:
-                self.assertIn('shared-key: ci-full-regression-trusted-v2', job, name)
+                self.assertIn('shared-key: ci-shared-native-trusted-v3', job, name)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
         self.assertNotIn('ordinary-required-v2', WORKFLOW)
+
+    def test_shared_cache_is_populated_completely_before_successful_save(self):
+        writer = JOBS['full-regression']
+        cache = re.search(r'      - uses: Swatinem/rust-cache@.*?(?=      - name:)', writer, re.S)[0]
+        self.assertIn('cache-on-failure: false', cache)
+        self.assertNotIn('save-if: false', cache)
+        completion = re.search(r'      - name: Complete shared native cache\n.*?(?=      - name:)', writer, re.S)[0]
+        self.assertIn('./scripts/ci-tests.sh cache-native', completion)
+        self.assertNotIn('continue-on-error', completion)
+        self.assertNotIn('if:', completion)
+        self.assertLess(writer.index('./scripts/ci-tests.sh full-standard'), writer.index(completion))
+        for name, job in JOBS.items():
+            if name != 'full-regression' and 'shared-key: ci-shared-native-trusted-v3' in job:
+                self.assertIn('save-if: false', job, name)
+                # The trusted Formal producer writes only its separate curated
+                # workspace snapshot while reading this dependency archive.
+                if name != 'formal-test-build-trusted':
+                    self.assertNotIn('cache-mode: write', job, name)
+
+    def test_shared_cache_normalization_runs_after_install_before_restore(self):
+        for name, job in JOBS.items():
+            if 'shared-key: ci-shared-native-trusted-v3' in job:
+                prepare = job.index('python3 scripts/ci-rust-cache-toolchains.py')
+                self.assertIn('"$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"', job, name)
+                self.assertLess(job.index('rustup default'), prepare, name)
+                self.assertLess(prepare, job.index('uses: Swatinem/rust-cache@'), name)
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
@@ -670,7 +697,7 @@ run_cargo() {
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
         for name,job in JOBS.items():
             if 'Swatinem/rust-cache@' in job and name in {g.replace('_', '-') for g in CONFIG['groups']}:
-                self.assertIn('shared-key: ci-full-regression-trusted-v2',job)
+                self.assertIn('shared-key: ci-shared-native-trusted-v3',job)
                 self.assertIn('add-rust-environment-hash-key: true',job)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',job)
                 self.assertLess(job.index('rustup default'),job.index('uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2'))
