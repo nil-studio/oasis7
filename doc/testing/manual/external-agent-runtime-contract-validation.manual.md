@@ -12,14 +12,30 @@
 
 ## 统一准备与判定
 
-为 API/协作场景创建两个 owner、两个独立 executor、一 Agent 一任务，使用明确的授权额度与可回读 world root；fixture 名称由实现 PR 注册。所有正常与负例均读取实际前后状态和持久回执，禁止仅验证 HTTP 200 或执行器自报。超时、取消和无响应先核对原操作。
+既有 API/协作场景创建两个 owner、两个独立 executor、一 Agent 一任务，使用明确的授权额度与可回读 world root；api-cold-entry 的被测新主体不适用这些预置，改用该场景的无角色/任务/执行 grant 起点，合法身份获取与准入资格可预先获准但产品步骤不能代做。fixture 名称由实现 PR 注册。所有正常与负例均读取实际前后状态和持久回执，禁止仅验证 HTTP 200 或执行器自报。超时、取消和无响应先核对原操作。
 
 对于真实 Runtime，分别运行 OpenClaw 与 Codex。对于图形体验，分别运行正式 Web 和受支持原生桌面包；不得相互代签。首局沿既有 `production_only` 完成边界，不以任务关闭推导稳定生产或发行就绪。
 
 ## 场景清单
 
+<a id="api-cold-entry"></a>
+### 场景 api-cold-entry
+
+- Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；产品 [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)，系统 [bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)与[客户端编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)。
+- 层/环境：普通网络客户端合同/持久故障注入为 `test_tier_required`；每个声明支持的真实 Runtime/profile 的独立冷入场为 `test_tier_full`。仅使用获准隔离世界和有界预算，不操作公开部署或真实账号。
+- 给定：世界已经正常存在；新机器主体没有预置游戏 Agent、task、goal 或执行 grant（合法身份/准入证明不在此禁止之列）。输入仅含可信 Skill/发现入口、获准凭据获取/必要确认通道及预算；记录预置清单，不给 operator 权限、隐藏世界答案或人工代建路径。正常身份准入资格与必要人类核验可以由测试环境合法提供，不能代做待测产品步骤。
+- 正向：记录可信发现→注册/登录→世界准入→正常首次注册/绑定→canonical owner 与必要 starter→task/自选目标→独立 delegation/executor→观察/行动/权威成果→断连和进程重启恢复。每段保存原 operation/receipt、主体/world/Agent/task/goal/fence 关联及实际执行者；必要确认记录 action_required 与实际恢复，不算缺陷或自动略过。
+- 负向：错误/未受信身份服务或世界、重放/错用途/过期 PoP、撤销凭据、未获准入或配额、未知/冲突绑定、他人 Agent、自报 owner、starter 不足/重复领取、owner key 当 delegate、executor 自改目标/自审批、注册关闭及未发布公开能力。均应安全拒绝或明确阻塞，无额外角色、资源、费用或世界效果。
+- 故障：分别在账号提交、角色绑定、starter、task/goal/delegation 提交成功后丢回包并重启；同键同内容回读原结果，同键异内容拒绝，pending/unknown 不自动换 key/nonce 重提。账号成功但世界准入失败恢复原账号；canonical owner 条件未齐不得先启动 executor。并发首次请求只产生同主体/世界的一个合法绑定，不复用其他账号角色；注入受保护原请求 outbox 丢失时只能按支持路径重新认证/回查，无法确认原结果则阻塞，不重新注册或重签。
+- 判定：原世界不重建，各阶段只确认本 authority 的结果，首局成果仍依玩法 receipt；恢复不重复建号、角色、task、grant、领取或世界副作用。查询缺权限/证据时 blocked/unknown，不泄露主体可枚举状态。两 Runtime 分别成案，不能拼接不同候选/主体或用普通客户端代签真实自主入场。
+- 证明边界：prepared-world、预建 task/grant、人工代做角色绑定只证明其后执行范围；现有 private loopback 或 import_only 不能作为公开冷入场成功。缺安全入口时报告 blocked/not_run，禁止临时暴露私有接口以通过。自有/受托共存另执行 [api-auth](#api-auth)。
+
+
+
 <a id="api-auth"></a>
 ### 场景 api-auth
+
+- 共存扩展：Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；按 [AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002)，同一 Runtime 分别控制自己的 A 和玩家 B 委托的 B。先证明两者正常行动，再交换 token/context/goal/grant/receipt 与 owner proof，均须拒绝跨资源使用；B executor 不得选择 owner 角色或调用 owner signer 为自己改目标/审批。仅撤销 B 后拒绝其旧 fence 的新效果，A 与其他独立委托不受影响；账号级撤销按其真实范围另测。目标、私有正文、预算和原 pending 结果分别对账。
 
 - 层/环境：API / auth / contract。
 - 给定：固定 world、owner、Agent、两个配对设备与只读/执行/owner 三类身份。

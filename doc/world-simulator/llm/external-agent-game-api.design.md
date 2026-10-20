@@ -122,6 +122,7 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 | Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b；[AC-EXT-012](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-012) | 普通客户端不依赖旧 Bridge 完成完整协议闭环 | [api-wire](#api-wire) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 鉴权、越权、限流与授权撤销在服务端生效 | [api-auth](#api-auth) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73；[AC-EXT-014](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-014) | 关闭旧 Provider Bridge 后新主路径仍可运行 | [api-cutover](#api-cutover) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 无预置 Agent/task/grant 的合法机器入场、原结果恢复与准入安全 | [api-autonomous-entry](#api-autonomous-entry) | identity / runtime_engineer / agent_engineer / gameplay_designer | 不开放现有私有端点，不把 import_only 或 prepared-world 当冷入场 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -180,11 +181,38 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 
 玩家继续使用现有 hosted account / player session / device proof，控制权取自 Runtime 的实际 Agent 所有权与有效委托；不另发“公开用户 ID 即 bearer”凭证。
 
-外部执行器首次连接采用显式设备配对：生成本地设备公钥，申请一次性 pairing；玩家在可信 Web/桌面会话核对该设备、世界、Agent、有效期与 requested scopes 并批准。配对码只是定位待批申请，不是最终权限。服务验证设备私钥持有证明后，交付短期 opaque access token 与轮换 refresh credential；refresh 权限始终不超过原配对范围。
+执行他人委托的外部执行器首次连接采用显式设备配对：生成本地设备公钥，申请一次性 pairing；玩家在可信 Web/桌面会话核对该设备、世界、Agent、有效期与 requested scopes 并批准。配对码只是定位待批申请，不是最终权限。服务验证设备私钥持有证明后，交付短期 opaque access token 与轮换 refresh credential；refresh 权限始终不超过原配对范围。
 
-默认 executor 只有 `world:observe / capability:read / context:read / action:submit / receipt:read / task:read / task:report / message:write / approval:request`；没有 `goal:write / approval:decide / executor:replace / grant:write`。owner 的任务写入和审批使用独立玩家会话及适用强认证。模型 API key、支付路由、Skill 文本和自报 Agent ID 均不能兑换游戏身份。
+默认 executor 只有 `world:observe / capability:read / context:read / action:submit / receipt:read / task:read / task:report / message:write / approval:request`；没有 `goal:write / approval:decide / executor:replace / grant:write`。owner 的任务写入和审批使用独立 owner 控制会话及适用强认证；人类玩家入口与合法机器主体入口使用同一资源权限检查，后者见下节。模型 API key、支付路由、Skill 文本和自报 Agent ID 均不能兑换游戏身份。
 
 认证与世界授权分层：入口验证 token/device/session，Runtime 再验证 world、Agent、task、当前 executor epoch、goal revision、grant revision 与剩余额度。撤销或替换执行方不依赖 token 自然到期。无权读取返回不泄露对象存在性的错误；先校验权限，再返回版本冲突或最新值。
+
+<a id="api-autonomous-entry"></a>
+### 5.1.1 目标补充：合法机器主体的冷入场 bootstrap
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。本节是待实现组合，不改变上文已实施切片、私有 loopback、`import_only` 或 prepared-world 的现状边界。
+
+**身份与 authority。** 稳定参与主体（账号及其有效凭据）不是世界内 Agent，也不是 executor 实例；三者不是新增经济角色。身份 authority 负责账号/凭据挑战与撤销，admission authority 负责世界准入/配额，现有注册/绑定 authority 负责 canonical 主体到 Agent 关系，世界 Runtime 继续拥有 owner、delegation、task、goal、fence 和 receipt。Game API/SDK 只编排并验证各阶段回执，不建立一份可覆盖它们的 bootstrap 权限账本。
+
+| 阶段 | 目标接口/结果语义 | 生效与失败边界 |
+| --- | --- | --- |
+| 可信发现 | 由受信发行入口发现 API major/schema、身份服务与世界信任绑定、可用注册方式、准入规则、费用/必要确认及入口能力 | 公共 discovery 不需要已有 Agent；不能由未受信响应更换信任根、签任意 challenge 或泄露凭据。capability 未启用则明确 unavailable，不尝试私有路径。 |
+| 注册/登录 | 复用身份服务的 register/login challenge、finish、原 operation 查询；机器 profile 扩展[原生凭据合同](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#native)，使用受保护密钥与 purpose 限定的 PoP | 挑战绑定身份服务、环境/audience、用途、账号上下文（适用时）、公钥、原 operation、nonce 与有效期，原子消费。原生 register 是尚待实施的能力，不把现有 import_only login/bind 当注册。站点反滥用、注册开关/配额、凭据和必要用户核验均保留。 |
+| 世界准入 | 认证后的主体请求目标世界准入，返回有期限和范围的 admission 引用或明确拒绝/待确认 | 账号登录成功不占用或证明世界资格；world/chain/genesis、branch/身份版本与准入依据分别验证。费用未获许可、不满足准入或容量时不能创建可控半成品。 |
+| 自身 Agent | 沿[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)查询/恢复原绑定，合法新主体才执行正常首次注册/绑定 | 同主体/世界并发唯一性、原注册 operation 与 canonical 归属在现有可恢复提交边界确认；不重建世界，不使用全局 starter ID，也不将初始绑定替换为额外经济 ClaimAgent。 |
+| owner 与 starter | 回读当前 identity generation、owner 来源和必要 starter eligibility/receipt；资源帮助与经济 claim 仍走各自主责 | 绑定或 hosted session ACK 不是 canonical owner。当前 owner 依赖的 journaled identity/claim 及 starter 来源必须成立；[窄 eligibility 读权](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-chat-005)不授予私有 goal/grant 权。未知事实保持 unavailable/blocked，正余额不跳过独立 owner 前提。 |
+| task / goal / executor | 有权主体创建或恢复同一 task、发布自身目标，以独立 owner 控制凭据登记真实 delegation 并绑定独立 executor；逐项回读 committed receipt | 自动创建 task 是 UX 编排，不是无 task 执行。owner key 不直接作为 delegate；executor 默认无 goal:write/approval:decide。目标、委托、绑定尚未权威生效前不可执行。 |
+| 游玩与恢复 | 使用既有 context/catalog/action/operation/receipt 和恢复合同 | 首项世界成果由玩法回执确认；未知结果按原 operation 回查，不能靠重新入场、换身份或预置任务规避。 |
+
+**接口和状态最小合同。** discovery 公开实际支持的 entry capabilities 与对应版本化 schema，而不是“注册成功即能玩”的布尔值。bootstrap 编排保存非秘密的阶段、稳定主体引用（认证后）、world binding、Agent/identity generation、原阶段 operation ID/payload digest、权威 receipt 引用及下一步。每项明确 `not_started / pending / confirmed / action_required / blocked / unknown` 的含义；`confirmed` 仅对其所属 authority 成立，不代签后续阶段。错误须区分必要人类确认、准入拒绝/限流、资格缺失、版本不兼容、权限失效与结果未知。注册前 lookup 以原 ceremony/PoP 授权，不允许按可枚举账号或 operation ID 公共查私有状态；不会仅靠已过期 challenge 重新登录或签发会话。
+
+首次发送任何可能提交的阶段请求前，受保护的客户端/owner 控制面 outbox 必须持久保存可恢复的原 canonical 请求正文、原签名证明、nonce、operation ID、payload digest 与底层 correlation；适用于注册、准入、角色绑定、必要 starter、task、goal、delegation 及 executor 绑定。非秘密进度摘要只保存阶段与引用，完整 outbox 原件、签名证明和认证材料不进入模型上下文；目标正文不进入公开元数据或公共审计，但经当前 audience/fence 验证的有效目标仍按 context 合同交付受权 executor；长期私钥不存入该 outbox。按既有客户端安全存储规则保护原件，只有被授权的恢复用途可读。重启后查询或重放原请求，不重签改变内容/nonce，不借一次性证明重新签发会话；原件遗失时仅用受支持的重新认证和权威回查恢复，不能确认原结果则安全阻塞，不重新注册或创建替代角色。
+
+跨身份与世界阶段不假设一个分布式原子事务。注册已完成但准入失败时保留原账号/回执，后续恢复同一主体；注册/绑定/领取/task/goal/grant 各自在自身 authority 里幂等，任何未知阶段先查询原请求，未确认失败不能换 nonce/ID 重新产生效果。同键异内容拒绝；重启、重放和清缓存不恢复已消费资格。发现凭据撤销、world/history 或 owner 变化时停止受影响的新副作用并按当前权限回查，不把旧 receipt 当新授权。
+
+**公开入口的发布边界。** 不能直接对外暴露现有 private-goal/private-task loopback 监听、operator 私钥或管理 API。公开 bootstrap 与后续 goal/context/action 需要已评审的 TLS、可信服务身份、session/PoP、CSRF/Origin（适用客户端）、最小权限、持久限流/配额、资源上限和撤销重验；私有正文仍通过受保护内容通道交付，不进入 public discovery 或世界公开日志。人类 WebAuthn/导入凭据原有校验不因机器 profile 被放宽；注册协议扩展及凭据保护按身份主责单独实施与验收。未满足时仅公布未启用能力并安全阻塞。
+
+验证分层见 [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry)：普通客户端验证状态/幂等/负例，真实 Runtime 验证完整冷入场；prepared-world 只能证明后半段执行，不能替代本节。
 
 <a id="api-context"></a>
 ### 5.2 一次可执行的决策上下文
@@ -296,7 +324,7 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 ## 10. 兼容、迁移与回滚
 
 <a id="api-cutover"></a>
-新路径只使用 Game API revision 1，不接收旧 Provider wire 作为 alias。实施顺序：接通权威读与鉴权 → context/catalog/operation → 协作与 worker → Viewer/native → 两 Runtime 首局。上线前先验证唯一 writer、持久 replay 与权限负例，随后把推荐 Skill 改指向新路径。
+新路径只使用 Game API revision 1，不接收旧 Provider wire 作为 alias。自主入场是增量能力，按 discovery 能力协商启用，不用新的全局游玩 mode 替代旧委托流程。先升级身份/绑定 verifier 和兼容读取，再开放机器注册及公开控制通道；关闭新注册仍须支持既有主体登录、原回执查询和安全停止。凭据、任务和权限历史不可通过降级删除或重新生成。实施顺序：接通权威读与鉴权 → context/catalog/operation → 协作与 worker → Viewer/native → 两 Runtime 首局。上线前先验证唯一 writer、持久 replay 与权限负例，随后把推荐 Skill 改指向新路径。
 
 旧 Bridge 允许直接删除，不强制双写或永久兼容层；删除前列清仍在使用的 builtin、mock、运维与独立消费者并各自处置。撤回新入口是禁止新提交、继续查询既有 operation，不是把旧 bridge 静默接管当前 task；新旧存储不能无检查相互降级。schema 不兼容时旧服务拒绝打开新快照，恢复需采用明确的备份/转换方案，世界已提交历史不回滚。
 
@@ -317,6 +345,7 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 | Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b；[AC-EXT-012](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-012) | [api-wire](#api-wire) | 普通客户端不依赖旧 Bridge 完成完整协议闭环 | [api-wire](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-wire)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-auth](#api-auth) | 鉴权、越权、限流与授权撤销在服务端生效 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73；[AC-EXT-014](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-014) | [api-cutover](#api-cutover) | 关闭旧 Provider Bridge 后新主路径仍可运行 | [api-cutover](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cutover)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | [api-autonomous-entry](#api-autonomous-entry) | 身份/准入/角色/owner/task/executor 各阶段独立确认，未知结果无重复效果 | [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry)；普通客户端与真实 Runtime 分层执行 | 原阶段 operation/receipt、初始预置清单和实际确认停点 | 文档合同与 prepared-world 不证明公开上线或冷入场通过 |
 
 ## 12. 决策、长期风险与未决问题
 

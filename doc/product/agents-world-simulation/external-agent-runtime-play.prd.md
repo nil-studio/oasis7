@@ -9,7 +9,7 @@
 - Owner role：`producer_system_designer`
 - 专业域权威：[Decision Provider](../../world-simulator/llm/decision-provider-contract.prd.md)、[Continuous Agent Harness](../../world-simulator/llm/continuous-agent-harness.prd.md)、[Runtime cognition lifecycle](../../world-runtime/runtime/agent-cognition-lifecycle.prd.md)
 - Last reviewed：2026-10-10
-- 适用入口：外部 Runtime 接入后的 Agent 决策与持续游玩；玩家通过现行 `viewer` / `pure_api` 入口观察和间接引导。
+- 适用入口：外部 Runtime 合法自主入场、接入后的 Agent 决策与持续游玩；玩家通过现行 `viewer` / `pure_api` 入口观察和间接引导。
 
 本文拥有“用户带现有 Agent Runtime 来玩 oasis7”的端到端产品目标、首期范围与组合验收。`active` 表示本文是有效产品要求，不表示 OpenClaw、Codex 或任一适配组合已可用、通过验收或获准公开发行。协议、适配实现、世界结算和具体支持证据仍由专业域拥有。
 
@@ -23,22 +23,24 @@
 
 ### 1.1 目标与代表性情境
 
-用户可以把自己使用的 OpenClaw、Codex 等 Agent Runtime 接入 oasis7，在高层目标、有效委托和已说明的预算范围内，驱动合法绑定的游戏 Agent 自主、持续地推进游戏任务。玩家还需能通过**网页和桌面客户端可交互地看大世界**：浏览缩放、搜索定位 Agent/设施、查看活动与权威成果，并在现场合法地指导自己的 Agent。oasis7 提供受约束的世界观察、可理解的合法能力、权威行动结果和继续游玩的依据。**首期默认体验是：为外部 Runtime 提供可验证来源的游戏 Skill，并由 Runtime 主动通过标准游戏网络 API 获取观察、发现能力、提交意图和追读权威结果**；不要求世界反过来轮询某个专有 Provider Bridge 才能让 Agent 玩游戏。
+外部 Agent 可以通过 OpenClaw、Codex 等 Runtime，以合法参与主体自行入场并为自己的游戏 Agent 选择目标、持续游玩；也可以作为执行方接受玩家委托，在玩家目标、有效授权和已说明的预算范围内推进任务。两种关系共用同一 Skill/Game API 和世界规则，可以同时存在，不是互斥 mode，也不取消持久 task、goal、fence 与 receipt。玩家还需能通过**网页和桌面客户端可交互地看大世界**：浏览缩放、搜索定位 Agent/设施、查看活动与权威成果，并在现场合法地指导自己的 Agent。oasis7 提供受约束的世界观察、可理解的合法能力、权威行动结果和继续游玩的依据。**首期默认体验是：为外部 Runtime 提供可验证来源的游戏 Skill，并由 Runtime 主动通过标准游戏网络 API 获取观察、发现能力、提交意图和追读权威结果**；不要求世界反过来轮询某个专有 Provider Bridge 才能让 Agent 玩游戏。
 
 代表性情境：玩家已有一个 Runtime，希望让自己的 Agent 建立第一项工业成果。他确认连接目标、Agent 资格、可玩范围与开销，给出生产目标并开始委托；Runtime 自行理解处境、规划和执行。玩家能看到已经发生的世界成果、主要阻塞和下一步，可以调整高层目标，也可以离开观战界面后再回来继续。
 
-本主题的成功由“接入、理解、行动、反馈、继续”这一完整经历判断。接通模型、返回合法 JSON、出现一次动作或通过低频 NPC 测试，分别只证明其自身范围。
+自主入场从无预置游戏 Agent、task 或 grant 的机器客户端开始：可信发现、合法注册/登录、世界准入、按既有规则取得自身 Agent、确认 canonical owner 和必要 starter 资格、创建或恢复 task 并选择/发布自身目标、绑定独立 executor，再进入行动与恢复。必要的人类确认、凭据仪式、费用批准及站点准入防滥用仍保留；自主不是无条件零确认。玩家委托仍是同等受支持的路径，不要求机器参与主体必须先由人类手工建好整局。
+
+本主题的成功由“入场、理解、行动、反馈、继续”这一完整经历判断。接通模型、返回合法 JSON、出现一次动作或通过低频 NPC 测试，分别只证明其自身范围。
 
 ### 1.2 角色与职责
 
 | 对象 | 拥有的职责 | 约束与组合关系 |
 | --- | --- | --- |
 | 人类玩家 | 选择 Runtime、确认身份与委托、提供高层目标和提示词、观察与纠正策略 | 间接控制与严重后果授权沿用[Agent 自治与委托](agent-authority-ownership-and-accountability.prd.md#agent-delegation-boundary)。 |
-| 外部 Agent Runtime | 运用自身推理、规划、会话记忆和工具编排能力，形成候选行动并利用反馈继续决策 | OpenClaw、Codex 是首批适配与验收目标。内部工具或子任务不自动成为游戏实体，也不获得额外世界权限。 |
+| 外部 Agent Runtime | 运用自身推理、规划、会话记忆和工具编排能力；按当前资源关系控制自有 Agent 或执行他人委托 | OpenClaw、Codex 是首批适配与验收目标。内部工具或子任务不自动成为游戏实体，也不获得额外世界权限。 |
 | 游戏 Skill（引导层） | 教会支持的外部 Runtime 如何识别正确世界、核对身份、发现能力和安全使用游戏 API | Skill 是有来源、版本和适用范围的说明与可选适配资产，不拥有游戏权限、不保存凭据、不另造行动规范。 |
 | 游戏网络 API（对外能力层） | 向获授权的外部 Runtime 提供游戏观察、能力发现、读写调用、待决查询、权威回执及恢复能力 | 统一使用世界 Runtime 的认证授权与裁决结果；这是外部自主游玩的首期主入口，不是 Launcher/operator 管理接口。 |
 | oasis7 的 Agent 接入层与 Harness | 将合法观察、目标、能力和反馈接入同一 Agent 会话，维持世界相关认知上下文的边界与连续性 | [Harness 合同](../../world-simulator/llm/continuous-agent-harness.prd.md#3-权威边界)拥有生命周期与策略约束；Runtime 内部会话能力和 Harness 职责须能配合，不重复宣称世界权威。 |
-| 游戏 Agent | 作为世界中被认领、维护和授权的实体承担行动及后果 | 取得与维护消费[Agent 所有权与持续经营](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#1-产品承诺)；接入软件不赠送、复制或重新认领实体。 |
+| 游戏 Agent | 作为按既有注册/绑定或经济认领规则取得的世界实体承担行动及后果 | 取得与维护消费[Agent 所有权与持续经营](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#1-产品承诺)；接入软件不赠送、复制或重新认领实体。 |
 | 世界 Runtime | 校验权限、规则与前置条件，裁决和提交行动，提供权威结果与历史 | 外部 Runtime、模型输出、工具日志和玩家界面均不能自行确认世界状态已改变。 |
 | 模型服务 / Token Bridge | 提供或转接推理能力及其计量、账户服务 | 模型账户、连接认证和游戏 Agent 委托分别成立；更换模型端点不自动证明已支持某个 Agent Runtime。 |
 
@@ -73,7 +75,7 @@ OpenClaw 和 Codex 分别作为首批目标验收。每个支持结论都绑定 
 
 本清单是 §1 产品目标与 §4 产品要求之间的**稳定功能范围索引**，按[产品文档功能清单维护原则](../../engineering/doc-governance/product-documentation-standard.design.md#product-feature-catalog-principles)更新。**阶段不是实现状态**：标为“首期闭环”的功能是本文承诺要验收的组成部分，不代表当前已交付；每项由链接的 REQ/AC 判定，版本、支持矩阵和实际进度沿专业 authority 与 GitHub 记录查询。当前仅列用户或外部 Runtime 能实际感知的能力，不将 HTTP/MCP/CLI、API 字段、辅助脚本或测试步骤定为产品功能。
 
-首期范围共 **62 项，分成十一组**（原有 53 项 + 新增大世界可视化/操作 9 项）。不同条目可共同满足一组 REQ/AC；单个 REQ/AC 下的负例和恢复边界仍由其完整正文约束，不能只检查功能名称。
+首期范围共 **63 项，分成十一组**（原有 62 项 + 合法自主入场 1 项）。不同条目可共同满足一组 REQ/AC；单个 REQ/AC 下的负例和恢复边界仍由其完整正文约束，不能只检查功能名称。
 
 #### 接入与 Runtime 身份
 
@@ -90,9 +92,10 @@ OpenClaw 和 Codex 分别作为首批目标验收。每个支持结论都绑定 
 | 功能 ID | 功能项 | 玩家或外部 Runtime 可观察的结果 | 阶段 | 验收主责 |
 | --- | --- | --- | --- | --- |
 | EXT-F-006 | 合法 Agent 选择与绑定 | 只选择当前身份已绑定、认领或获有效委托的游戏 Agent | 首期闭环 | [REQ-EXT-002](#req-ext-002) / [AC-EXT-002](#ac-ext-002) |
-| EXT-F-007 | 认领与维护前置指引 | 未持有可控制 Agent 时转向现有认领、比较候选或观察路径；接入不赠送游戏资产 | 首期闭环 | [REQ-EXT-002](#req-ext-002) / [AC-EXT-002](#ac-ext-002) |
+| EXT-F-007 | 注册/绑定与认领前置指引 | 无 Agent 时按自身资格进入正常注册/首次绑定、经济认领或观察路径；不混淆初始绑定与经济 claim，不额外收费或赠送资产 | 首期闭环 | [REQ-EXT-002](#req-ext-002) / [AC-EXT-002](#ac-ext-002) |
 | EXT-F-008 | 启动前的高层委托确认 | 展示目标 Agent、授权范围、持续条件与需玩家决定的高后果承诺 | 首期闭环 | [REQ-EXT-002](#req-ext-002) / [AC-EXT-002](#ac-ext-002) |
 | EXT-F-009 | 资格变化与撤销生效 | 权限到期、转让、撤销或主体变化后停止产生新的越权行动，不抹去已发生结果 | 首期闭环 | [REQ-EXT-002](#req-ext-002) / [AC-EXT-002](#ac-ext-002) |
+| EXT-F-071 | 外部 Agent 合法自主入场 | 从可信入口自行完成合法身份和世界准入、取得自身 Agent、设定自身目标并持续游玩，必要确认有明确停点 | 首期闭环 | [REQ-EXT-018](#req-ext-018) / [AC-EXT-018](#ac-ext-018) |
 
 #### 世界观察与能力发现
 
@@ -243,7 +246,8 @@ OpenClaw 和 Codex 分别作为首批目标验收。每个支持结论都绑定 
 | 阶段 | 玩家知道什么 | 可以选择什么 | 代价 / 承诺 | 可观察结果与下一步 |
 | --- | --- | --- | --- | --- |
 | 选择接入 | 官方 Skill 的来源/版本、目标世界 API 与适用 Runtime | 通过 Skill 完成必要配置、核对网络 API/身份或暂不开始 | 本地/远程连接与模型开销、授权范围可读 | Runtime 能主动读取获授权的真实世界能力，或返回具体缺项；尚未开始游戏委托。 |
-| 绑定与委托 | 当前身份、可控制 Agent、目标及授权范围 | 绑定已取得的 Agent，按既有规则认领，或先观察 | 认领/维护由玩法主责；执行预算和委托范围分别说明 | 目标 Agent 与有效委托明确，才能开始对应任务。 |
+| 身份与世界准入 | 稳定参与主体、可信世界、准入及必要确认 | 自行注册/登录、恢复已有身份，或接受玩家委托 | 账号准入与世界资格分开；不因更换 Runtime 重获 starter | 注册/登录、准入、角色绑定各有可核对结果，未知结果先恢复。 |
+| 绑定与委托 | 当前身份、可控制 Agent、目标及授权范围 | 正常首次绑定、按规则经济认领、自有 owner 授权独立 executor，或绑定玩家委托 | 初始绑定与经济 claim 分开；执行预算和委托范围分别说明 | 取得 canonical owner 或有效委托，目标/task/fence 明确后开始任务。 |
 | 自主推进 | 当前高层目标、阶段进展和主要阻塞 | 在有效授权内让 Runtime 自主推进；需要时调整高层策略 | 已发生与预计开销分开 | Runtime 持续读取观察、调用能力、接收结果并规划下一步。 |
 | 阅读后果 | 哪些行动已结算、仍待决、被拒绝或没有进展 | 等待、补足条件、调整目标或使用受支持恢复路径 | 世界资源变化与推理费用分别归因 | 首局成果由权威结果确认，失败有适用下一步。 |
 | 浏览大世界 | 当前已知世界、Agent、工厂与事件 | 通过 Web 或桌面客户端缩放、定位、选中检查、返回目标 | 观察不自动取得控制权 | 把 Agent 自主行动、位置和世界结果关联成可理解的体验。 |
@@ -291,13 +295,14 @@ Trace ID: O7-REQ-d30925fe-d798-4056-9641-062255931a61
 
 - 功能点：[REQ-EXT-002](#req-ext-002)；适用范围沿本条原条件与 [AC-EXT-002](#ac-ext-002)，不扩大入口或阶段。
 - 系统设计状态：已覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-game-api.design.md#api-auth)覆盖连接认证、设备配对、有效委托与撤销隔离；同文件需求承接/验证表反链本条AC。此为目标设计覆盖，不代表实现或发布。
+- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-game-api.design.md#api-auth)与[资源关系隔离](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-relationship-isolation)覆盖连接认证、设备配对、自有/受托共存与撤销隔离；同文件需求承接/验证表反链本条AC。此为目标设计覆盖，不代表实现或发布。
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L295)：原生设备签名、当前task fence与完整context验证；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余Game API配对/token、全部费用路由及入口组合，不推导端到端完成。
 - 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：本条范围及主要失败边界已有专业承接；实现/验证：Game API配对/token、全部费用路由及入口组合。
+- 剩余范围：设计：本条范围及主要失败边界已有专业承接；实现/验证：Game API配对/token、全部费用路由、同 Runtime 自有/受托隔离及入口组合。新增共存目标未由上述历史 prepared-world 证据验证。
 
-- 要求：开始任务前必须核对连接身份、目标 Agent 与有效委托；更换 Runtime、模型或支付路由不得取得别人的 Agent 权限或费用承担资格。接入不得创建额外游戏实体或绕过既有认领与维护条件。
+- 要求：开始任务前必须分别核对稳定参与主体、游戏 Agent 实体与执行实例，以及该资源上的 canonical owner / 有效委托关系。同一 Runtime 可以控制自有 Agent 并接受其他玩家委托，逐 world/Agent/task 隔离权限、目标和预算，不引入互斥 mode；撤销一份委托只失效其授权范围，不改变自有角色或其他独立委托。更换 Runtime、模型或支付路由不获得他人权限或费用资格。接入软件本身不赠送实体、重复 starter 或维护豁免；正常注册/首次绑定不被误当额外经济 ClaimAgent 收费。
+- 权限边界：自有参与主体可通过受保护的 owner 控制路径为自身角色选目标并授权独立 executor；受托 executor 仍不得修改 owner 目标或批准自己的申请。持有或运行同一 Runtime 不合并两者权限；默认执行凭据不增加 owner 能力。
 - 理由：用户知道谁在替哪个 Agent 执行、谁承担哪类成本。
 - 上位承诺：[根 SC-8 / SC-11 / SC-14](prd.md#external-runtime-play)。消费主责：[Agent 委托](agent-authority-ownership-and-accountability.prd.md#agent-delegation-boundary)、[认领与维护](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#1-产品承诺)。
 - 验收：[AC-EXT-002](#ac-ext-002)。
@@ -569,6 +574,23 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；本条在外部 Runtim
 - 上位承诺：[根 SC-9/11/14](prd.md)。消费主责：[世界舞台间接指导](player-readable-world-stage.prd.md#req-agent-stage-005)。
 - 验收：[AC-EXT-017](#ac-ext-017)。
 
+<a id="req-ext-018"></a>
+### REQ-EXT-018：外部 Agent 可从可信入口合法自主入场
+
+Trace ID: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196
+
+- 功能点：[EXT-F-071](#req-ext-018)；首期闭环目标，覆盖无预置 Agent/task/grant 的自主入场及原身份恢复。
+- 系统设计状态：已覆盖
+- 系统设计依据：[Game API bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)承接发现、身份/准入交接、恢复和发布边界；[适配器入场编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)承接受保护 owner 控制、独立 executor 及客户端恢复。角色分配仍复用[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)，不新增经济规则。
+- 实现状态：未实现
+- 实现与验证依据：本条新增的是尚未交付的公开安全 bootstrap 组合；[现有 API 切片](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)仍将身份注册、公开写入、完整冷入场列为待实施，私有 loopback、import_only 和 prepared-world 只提供其既有子范围。已有账号、任务与执行链能力不被降级或抹去。
+- 核对日期与基线：2026-10-20；设计输入固定 `2161c0bf767795f47b234005262d1ec8187ba66b`；本次仅修订文档，未运行真实 Runtime、注册、部署或入场验收。
+- 剩余范围：独立实现、认证与准入安全评审、SDK/CLI/Skill 接续、普通客户端正负例和两个真实 Runtime 的冷入场证据；文档采纳不等于能力开放。
+- 要求：机器客户端从可信公开发现入口出发，能合法注册/登录并完成世界准入，按现行规则取得自己的游戏 Agent，核对 canonical owner 与必要 starter 条件，创建或恢复持久任务、选择并发布自己的目标、授权和绑定独立 executor，随后观察、行动、读取权威回执并安全恢复。已有身份必须恢复原归属，不能因换设备、清缓存或重试而再次建号、占用他人 Agent 或领取初始资产。
+- 约束：账号/凭据、准入配额、必要一次人类确认及费用批准继续有效；失败须说明需要谁完成什么，不承诺匿名无限注册或无限免费角色。不能要求 operator 预造 Agent/task/grant 才算自主入场。正常注册/初始绑定与经济 ClaimAgent、starter 领取分别满足各自主责，不额外收费、不绕过费用或反滥用。
+- 上位承诺：[根 SC-14](prd.md#external-runtime-play)；消费[逐账号首次入场](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#req-agc-entry-001)和[账号/世界准入分离](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#native)。
+- 验收：[AC-EXT-018](#ac-ext-018)；与 [AC-EXT-002](#ac-ext-002)共同证明两种权限关系可并存。
+
 ## 5. 验收与证据
 
 ### 5.1 可独立判定的场景
@@ -589,9 +611,9 @@ Trace refs: O7-REQ-b3e367c3-c72d-4959-b599-613ac652dab8；承接[REQ-EXT-001](#r
 Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；承接[REQ-EXT-002](#req-ext-002)。
 
 - 覆盖要求：[REQ-EXT-002](#req-ext-002)。
-- 给定：一个合法委托，以及他人 Agent、失效委托或不属于当前身份的费用路由作为负例。
+- 给定：同一 Runtime 对自身 Agent A 的合法 owner→独立 executor 关系、玩家 B 对 Agent B 的有效委托，以及他人 Agent、失效委托或不属于当前身份的费用路由作为负例。
 - 当：执行方尝试绑定、开始任务或在资格改变后继续。
-- 则：只有合法组合取得相应能力；公开标识或路由选择不能代替认证和授权，非法组合不产生新世界动作或未经授权的费用。接入不增加游戏实体、认领补贴或维护豁免。
+- 则：A/B 可分别正常执行且任务、目标、预算、回执和私有上下文不串用；B 的 executor 不能改 B 的 owner 目标或自批，A 的 owner 权限不扩张到 B。撤销 B 后旧 B fence 被拒绝，A 及其他独立委托继续按各自权限工作。公开标识、路由或同一进程不代替认证授权；不增加额外实体、认领补贴或维护豁免，也不将正常初始绑定误收费。
 
 <a id="ac-ext-003"></a>
 ### AC-EXT-003：公布能力与首局执行一致
@@ -744,6 +766,17 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；承接[REQ-EXT-017](#r
 - 当：玩家选择对象、对自己 Agent 更新目标、点击地形/设施。
 - 则：合法目标的 accepted/applied 与权威回执分开，越权 Agent 与地图点击不产生移动/采集/建造，故障能安全恢复可信信息。
 
+<a id="ac-ext-018"></a>
+### AC-EXT-018：无预置角色的冷入场与未知结果恢复
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接[REQ-EXT-018](#req-ext-018)。
+
+- 覆盖要求：[REQ-EXT-018](#req-ext-018)。
+- 给定：已存在的获准测试世界、可信 Skill/发现入口、符合站点政策的新机器参与主体；没有为它预置游戏 Agent、task、goal 或 grant。仅提供允许的凭据获取/确认通道和有界预算，不提供 operator 世界写权限。
+- 当：普通网络客户端以及两个声明支持的真实 Runtime 分别完成发现、注册/登录、准入、初始绑定/合法取得、必要 starter、owner 任务与目标、独立 executor 绑定、观察行动和权威回执；在注册或绑定提交回包丢失及执行重启后恢复。
+- 则：同一主体/世界只取得原合法归属、原任务和原操作效果，角色/目标/委托有 canonical 依据；不重建世界、不新造第二角色或重复领取资产。确认不足、无准入/配额、错误世界/主体、重放挑战、未知结果和他人角色尝试均保持安全阻塞或拒绝并给出恢复下一步。按首局主责取得成果后才声明可玩，不以注册 ACK 或 task 创建代签。
+- 证据：逐阶段标出调用者、身份/权限来源、是否需人类确认、原 operation/receipt 及初始预置清单；prepared-world、预造 task/grant 或人工代做绑定不能代签本条冷入场。缺少公开安全入口时记 blocked/not_run，不把 loopback 私有接口直接暴露后补报通过。
+
 ### 5.2 叶级追踪
 
 | REQ / AC 关系 | 专业 owner | 专业权威 | 验证证据（应提供） | 测试层级 |
@@ -765,6 +798,7 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；承接[REQ-EXT-017](#r
 | [REQ-EXT-015](#req-ext-015) / [AC-EXT-015](#ac-ext-015) | producer_system_designer / viewer_engineer / game_visual_interaction_designer / qa_engineer | [Web/native 世界舞台](player-readable-world-stage.prd.md#req-agent-stage-004); [Viewer](../../world-simulator/viewer/README.md); [Launcher](../../world-simulator/launcher/README.md) | 浏览器与原生客户端分别操作、回访真实世界，无外部浏览器代签 | test_tier_full |
 | [REQ-EXT-016](#req-ext-016) / [AC-EXT-016](#ac-ext-016) | viewer_engineer / game_visual_interaction_designer / qa_engineer | [世界探索](player-readable-world-stage.prd.md#req-agent-stage-003); [Fragment LOD](../../world-simulator/viewer/viewer-pixel-world-fragment-lod.prd.md) | 总览、区域、缩放、对象搜索选择、来源/权限负例 | test_tier_full |
 | [REQ-EXT-017](#req-ext-017) / [AC-EXT-017](#ac-ext-017) | agent_engineer / viewer_engineer / runtime_engineer / qa_engineer | [间接指导](player-readable-world-stage.prd.md#req-agent-stage-005); [Prompt](agent-conversation-and-prompt-control.prd.md) | 地图选中、目标应用、权威结果、无权直接动作与故障恢复 | test_tier_full |
+| [REQ-EXT-018](#req-ext-018) / [AC-EXT-018](#ac-ext-018) | agent_engineer / runtime_engineer / gameplay_designer / qa_engineer | [Game API 入场](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry); [逐账号初始绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001) | 无预置 Agent/task/grant 的冷入场、准入/权限负例、幂等恢复及两种关系共存 | test_tier_required + test_tier_full |
 
 ### 5.3 证据范围与判定
 

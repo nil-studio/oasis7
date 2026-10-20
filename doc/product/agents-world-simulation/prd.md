@@ -43,7 +43,7 @@ Agent 可以基于世界观测、工业物流、市场、风险与治理约束�
 
 ### 2.1 玩家与可控制 Agent 的承诺边界
 
-玩家对 Agent 的直接策略控制来自当前账号已经绑定或按权威规则认领的 Agent；共享世界中可见的其他 Agent、未绑定 Agent 或默认选中对象不因此成为“我的 Agent”。首个可控制 Agent 也不是免费席位：确认前，玩家必须能理解一次性承诺、持续维护、可维持时间和主要失去控制风险，并在认领、比较候选、等待或先补足资源之间作出可读选择。面向首个认领的受限启动帮助只能降低进入摩擦，不得被表达为免费控制、通用补贴或可转让资产。若持续承诺无法维持或所有权不再成立，体验必须如实说明状态、恢复/释放或重新规划的下一步，而不是静默保留、静默清退或把别人的 Agent 当作玩家可操作对象。详细的认领报价、维护、回收与反滥用专业合同见 [`PRD-GAME-011`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md)，产品层不复制其字段、数值或状态机。
+玩家对 Agent 的直接策略控制来自当前账号已经绑定或按权威规则认领的 Agent；共享世界中可见的其他 Agent、未绑定 Agent 或默认选中对象不因此成为“我的 Agent”。正常注册/首次角色绑定与经济 ClaimAgent 分开：注册/绑定不被额外收取经济 claim 费用，也不表示免费获得额外资产或维护豁免；进入经济认领前，玩家必须能理解一次性承诺、持续维护、可维持时间和主要失去控制风险，并在认领、比较候选、等待或先补足资源之间作出可读选择。面向首个认领的受限启动帮助只能降低进入摩擦，不得被表达为免费控制、通用补贴或可转让资产。若持续承诺无法维持或所有权不再成立，体验必须如实说明状态、恢复/释放或重新规划的下一步，而不是静默保留、静默清退或把别人的 Agent 当作玩家可操作对象。详细的认领报价、维护、回收与反滥用专业合同见 [`PRD-GAME-011`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md)，产品层不复制其字段、数值或状态机。
 
 ### 2.2 跨域闭环
 
@@ -55,6 +55,8 @@ Agent 不得绕过世界规则与基础设施约束；当工业、市场或治�
 ### 2.3 外部 Agent Runtime 的产品目标
 
 玩家可以把已有的 OpenClaw、Codex 等 Agent Runtime 接入 oasis7，在高层目标、有效委托和已说明的预算范围内，驱动合法绑定的游戏 Agent 持续、自主地推进游戏任务。接入需要形成观察、合法能力、行动、权威反馈和下一轮决策的完整经历，允许玩家调整持续目标并在断连/重启后核对原结果继续。
+
+外部 Agent 作为合法参与主体自主入场与接受玩家授权代控可以并存；统一按当前身份、资源归属和权限关系判定，不引入互斥 mode。自主入场的[唯一要求与验收](external-agent-runtime-play.prd.md#req-ext-018)包括从可信入口到自身角色、目标、行动与恢复；保留必要确认、费用批准和准入反滥用，不把 prepared-world 执行证据当成冷入场交付。
 
 本节与 SC-14 的首期范围、用户流程、**官方 Skill 引导 + 可直接调用的标准 Game API** 及叶子验收由[外部 Runtime 产品分册](external-agent-runtime-play.prd.md#external-runtime-canonical-interface)拥有。外部 Runtime 主动读取观察、发现能力、提交并追读权威结果；原 Provider callback/Bridge 仅是可替换的既有实现，不能代签完整产品能力。OpenClaw 与 Codex 是分别取证的首批目标；产品目标不表示当前已经支持或默认启用。`viewer` / `pure_api` 仍是玩家访问模式，`headless_agent` / `player_parity` 是执行 lane；关闭观战界面后的持续执行以 Runtime、连接、预算和独立委托仍有效为条件。认领/维护、工业成果、自治与授权、公开状态继续消费各自主责条款。
 
@@ -449,6 +451,8 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616（[REQ-AGENT-STAGE-001](
 - SC-14：OpenClaw、Codex 各自在声明组合中驱动合法绑定 Agent 完成代表性首局，包括自主多轮决策、合法能力、权威反馈、持续目标应用、无 GUI 运行和恢复；玩家另通过真实 Web 和受支持桌面客户端分别探索同一大世界、定位 Agent、查看权威结果并合法间接指导。玩家与执行方还须能围绕同一任务发布并确认目标、汇报、问答、明确授权及断线后恢复；目标/授权的当前版本不能被旧消息覆盖。API、旧 P0 smoke、模型连通或另一 surface 的证据不代签完整游戏体验。
 
 Trace refs: O7-REQ-b3e367c3-c72d-4959-b599-613ac652dab8（[REQ-EXT-001](external-agent-runtime-play.prd.md#req-ext-001)）; O7-REQ-d30925fe-d798-4056-9641-062255931a61（[REQ-EXT-002](external-agent-runtime-play.prd.md#req-ext-002)）; O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb（[REQ-EXT-003](external-agent-runtime-play.prd.md#req-ext-003)）; O7-REQ-bd792456-4b98-4891-b5e3-e24b1de4f1a1（[REQ-EXT-004](external-agent-runtime-play.prd.md#req-ext-004)）; O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7（[REQ-EXT-005](external-agent-runtime-play.prd.md#req-ext-005)）; O7-REQ-091d6c22-fca5-4284-91dd-2edce9ef440b（[REQ-EXT-006](external-agent-runtime-play.prd.md#req-ext-006)）; O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e（[REQ-EXT-007](external-agent-runtime-play.prd.md#req-ext-007)）; O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330（[REQ-EXT-008](external-agent-runtime-play.prd.md#req-ext-008)）; O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43（[REQ-EXT-009](external-agent-runtime-play.prd.md#req-ext-009)）; O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d（[REQ-EXT-010](external-agent-runtime-play.prd.md#req-ext-010)）; O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c（[REQ-EXT-011](external-agent-runtime-play.prd.md#req-ext-011)）; O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b（[REQ-EXT-012](external-agent-runtime-play.prd.md#req-ext-012)）; O7-REQ-7d6cef7f-9419-49ed-b445-663382383458（[REQ-EXT-013](external-agent-runtime-play.prd.md#req-ext-013)）; O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73（[REQ-EXT-014](external-agent-runtime-play.prd.md#req-ext-014)）; O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a（[REQ-EXT-015](external-agent-runtime-play.prd.md#req-ext-015)）; O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf（[REQ-EXT-016](external-agent-runtime-play.prd.md#req-ext-016)）; O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096（[REQ-EXT-017](external-agent-runtime-play.prd.md#req-ext-017)）; O7-REQ-62007da5-b12a-4b8c-98bb-82ab53a35069（[REQ-COLLAB-001](player-runtime-collaboration.prd.md#req-collab-001)）; O7-REQ-edd52061-73c0-433c-9531-30d86b1db459（[REQ-COLLAB-002](player-runtime-collaboration.prd.md#req-collab-002)）; O7-REQ-b100c55e-5c35-46dc-aaf6-e66c02b323d8（[REQ-COLLAB-003](player-runtime-collaboration.prd.md#req-collab-003)）; O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a（[REQ-COLLAB-004](player-runtime-collaboration.prd.md#req-collab-004)）; O7-REQ-f5341eef-d8f6-42ae-b7b6-751803abd588（[REQ-COLLAB-005](player-runtime-collaboration.prd.md#req-collab-005)）; O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a（[REQ-COLLAB-006](player-runtime-collaboration.prd.md#req-collab-006)）; O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685（[REQ-COLLAB-007](player-runtime-collaboration.prd.md#req-collab-007)）
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196（[REQ-EXT-018](external-agent-runtime-play.prd.md#req-ext-018)）；SC-14 同时接收合法自主冷入场与自有/受托关系共存的组合义务。该新增目标尚未交付，不由下列 prepared-world 或历史静态切片代签，根组合状态保持未核实。
 
 - 功能点：SC-14，本卡成功标准原文与 §5.1 对应行共同限定范围。
 - 系统设计状态：未核实

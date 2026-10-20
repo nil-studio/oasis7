@@ -27,6 +27,7 @@ Agent owner 维护 Runtime 驱动和版本兼容；Runtime owner 验证 task/exe
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | 无 GUI 时独立运行，停止 Runtime 不伪装继续 | [adapter-liveness](#adapter-liveness) | agent_engineer / viewer_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 计量、预算和超时边界诚实且可执行 | [adapter-budget](#adapter-budget) | agent_engineer / qa_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [adapter-skill](#adapter-skill) | agent_engineer / liveops_community | 不单独证明真实模型、客户端或公开发行就绪 |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 机器冷入场、必要确认停点、owner/executor 隔离和原阶段恢复 | [adapter-autonomous-entry](#adapter-autonomous-entry) | identity / agent_engineer / runtime_engineer | 不扩张默认 GameRequest 权限，不表示公开入口已开放 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -63,6 +64,19 @@ Agent owner 维护 Runtime 驱动和版本兼容；Runtime owner 验证 task/exe
 决策循环：读取当前 task snapshot 并验证内联 active_goal 正文、revision/digest 和切点 → 获得匹配该激活版本的 Game API context → 把受权观察、完整目标、Skill 和待处理消息交给实际 Runtime → Runtime 按需查询、提案、汇报或提问 → 回读世界结果 → 在仍有效的许可下继续。worker 不固定“移动三次即完成”之类策略，也不把默认 Wait 替代未取得的模型结果。
 
 Runtime 可以在一次本地推理中调用多个只读工具；等待、阻塞或放弃当前轮次时使用 Game API context outcomes 收口，不能一直占用活动 turn。每次副作用都经 Game API 当前 context/fence/goal/grant 校验。目标变化时允许完成旧本地计算，但旧 context 的新 action 必须被阻断；worker 给出新的上下文后才能重新规划。对硬撤销立即停止新的工具出站，并请求 driver 中断，世界侧 fence 才是最终防线。
+
+<a id="adapter-autonomous-entry"></a>
+### 5.1.1 自主入场编排与 owner 控制隔离
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。这是待实现的客户端扩展，不表明当前 worker/Skill 已支持冷入场。
+
+SDK/CLI/Skill 从[公开 bootstrap 合同](external-agent-game-api.design.md#api-autonomous-entry)发现实际能力，按阶段完成或恢复认证、准入、角色、canonical owner/必要 starter、task/goal、delegation/executor。机械步骤可连续执行，必要的人类确认、凭据仪式和费用批准返回 action_required 并等待；不把没有批准当默认同意，也不要求 operator 先写好 Agent/task/grant。每阶段首次发送前按 API bootstrap 合同将原 canonical 正文/签名证明/nonce/correlation 写入受保护 outbox，非秘密阶段摘要只存引用；响应未知时恢复原阶段，不重建账号或重新领取资源。
+
+owner 控制是独立受保护的控制通道，不加入默认 GameRequest 工具 allowlist。自身参与主体的 owner 操作只在明确覆盖的资源/用途/费用与确认规则内自动化；长期 owner/登录凭据不可进入模型 Prompt、默认 executor 工具、报告或游戏服务。登录身份 key、owner 控制 key、delegate key 的用途与资格分别验证；不把同一进程或自报“自己的角色”当作权限。owner signer 仅接受独立控制面发起且满足既定 owner policy 的窄命令；普通 executor 工具不能选择 owner 角色、调用该 signer 或以模型输出建立 policy。owner signer 必须核对原业务意图、世界/Agent/task、domain、授权范围和当前资格，拒绝任意签名字节或来自游戏内容的提权指令。
+
+executor 仍使用独立短范围凭据和真实 delegation，复用原控制/决策循环。Runtime 同时处理自有和受托资源时，按主体/world/Agent/task 隔离会话、signer、目标、预算、pending 和私有上下文；切换资源必须显式绑定，不能默认继承最近一次 owner 会话。撤销一份委托只停止其对应工具出站；全局凭据撤销则按实际作用域停止。CLI 的发现、注册/登录、入场、恢复、目标和绑定能力只是同一 API 的客户端，不得获得 operator 或直写世界权限。
+
+当前 private loopback、import_only 与 prepared-world 路径保持原支持边界；未公布安全公开能力时客户端报 unsupported/blocked，不自动将私有服务改为公网或改走旧 Bridge。验证沿 [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry)和 [api-auth](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-auth)，真实 driver 组合各自留证。
 
 <a id="adapter-drivers"></a>
 ### 5.2 两个 driver 的具体接入
@@ -171,6 +185,7 @@ worker 运行记录必须先持久保存 invocation_key，再启动 driver；若
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | [adapter-liveness](#adapter-liveness) | 无 GUI 时独立运行，停止 Runtime 不伪装继续 | [adapter-liveness](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-liveness)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [adapter-budget](#adapter-budget) | 计量、预算和超时边界诚实且可执行 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | [adapter-skill](#adapter-skill) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [skill-release](../../testing/manual/external-agent-runtime-contract-validation.manual.md#skill-release)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | [adapter-autonomous-entry](#adapter-autonomous-entry) | 按真实身份/关系编排入场、确认与恢复 | [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry) | 两真实 Runtime 各自的阶段与原回执记录 | 不以预置角色或 mock 代签冷入场 |
 
 ## 12. 决策、长期风险与未决问题
 

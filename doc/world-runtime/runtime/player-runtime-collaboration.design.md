@@ -31,6 +31,7 @@ Runtime owner 负责世界侧 control fence、顺序、授权及恢复；Agent o
 | Trace refs: O7-REQ-f5341eef-d8f6-42ae-b7b6-751803abd588；[AC-COLLAB-005](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-005) | 有效 owner 批准与累积预算在执行时重验 | [collab-approval](#collab-approval) | runtime_engineer / agent_engineer / viewer_engineer | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[AC-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-006) | 重复消息、迟到和历史缺口安全恢复 | [collab-recovery](#collab-recovery) | runtime_engineer / agent_engineer / viewer_engineer | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685；[AC-COLLAB-007](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-007) | 同一任务中证明离开 Viewer、停止、离线改目标、续接、问答、明确授权及世界结果 | [collab-runtime-journey](#collab-runtime-journey) | runtime_engineer / agent_engineer / viewer_engineer | 不证明自然语言策略正确或第三方工具已获授权 |
+| Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | 同 Runtime 自有/受托资源隔离，撤销不扩散 | [collab-relationship-isolation](#collab-relationship-isolation) | runtime_engineer / agent_engineer | 不把同一进程视为 owner 授权，不新增经济角色 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -51,6 +52,17 @@ Runtime owner 负责世界侧 control fence、顺序、授权及恢复；Agent o
 `executor_epoch` 是 Runtime 持久单调 fence，不是客户端时间、token expiry 或内部 session ID。初次绑定、重新接管、替换及 stop 均经 owner 授权并形成新的 control revision；旧 epoch 即使仍持有未过期 token 也不能发起新副作用。不同执行进程可以共享只读历史但不能并行占有一个 Agent；内部多工具不获得独立 fence。
 
 身份服务证明“调用者是谁”；TaskControl 证明“谁现在可以替该 Agent 作出提案”。读取历史仍须按当前 owner/audience 判定，转让后不默认向新执行方披露旧 owner 私有消息。玩家所有权转让/撤销的生效点消费现有专业合同，不重新定义资产权利。
+
+<a id="collab-relationship-isolation"></a>
+### 4.1.1 自有与受托的同协议隔离
+
+Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；承接 [REQ-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-002) / [AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002)。合法自主入场沿 [Game API bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)取得关系，不修改本节的执行权限。
+
+调用者类型或 Runtime 名称不是权限来源。每次 owner/control 操作验证该稳定主体在目标 world/Agent 的当前 canonical owner；每次 executor 读写验证真实 delegation 与完整 task/executor fence。一个 Runtime 同时服务自有 Agent A 与玩家 B 的 Agent B 时，各自的 owner/identity generation、delegation generation、task、goal、executor epoch、grant、预算与私有 audience 必须独立；任何 token、context、签名或 receipt 都不能跨资源复用。无需引入 `self_play / delegated_play` 的全局开关。
+
+自有参与主体可以通过独立受保护 owner 路径创建 task、选择/发布目标及授予独立 executor；服务端仍重验当前 owner、目标版本、明确授权范围和适用确认条件。owner 控制请求须来自独立受保护控制面并满足明确的 owner policy，普通 executor 不能任意选择 owner 角色或访问其 signer。不能因 owner 与 executor 在同一软件里就用 owner key 充当 delegate，也不能给默认 executor 增加 goal 写入或审批能力。对他人角色，executor 只建议/申请，owner 决定继续走原专用控制路径。
+
+撤销按授权实际作用域生效：仅撤销 B 的 delegation/任务执行资格时，拒绝旧 B fence 的新副作用并对账其 pending，不撤销 A 或其他独立委托；账号/凭据全局撤销仍按其真实范围影响全部关联资源。每 Agent 单 active task/decision executor 与现有 canonical writer 规则不变，不能以同 Runtime 多角色为理由绕过。验证使用 [api-auth 共存负例](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-auth)。
 
 ### 4.2 两类数据，不同权威
 
@@ -271,6 +283,7 @@ A1 的完整恢复容量回归由 [collab-snapshot-pages](../../testing/manual/e
 | Trace refs: O7-REQ-f5341eef-d8f6-42ae-b7b6-751803abd588；[AC-COLLAB-005](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-005) | [collab-approval](#collab-approval) | 有效 owner 批准与累积预算在执行时重验 | [collab-approval](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-approval)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[AC-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-006) | [collab-recovery](#collab-recovery) | 重复消息、迟到和历史缺口安全恢复 | [collab-events](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-events)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685；[AC-COLLAB-007](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-007) | [collab-runtime-journey](#collab-runtime-journey) | 同一任务中证明离开 Viewer、停止、离线改目标、续接、问答、明确授权及世界结果 | [collab-session](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-session)；按该场景的候选、环境、故障注入和判据执行 | 每个声明支持的真实 Runtime/profile 独立成案，保留同任务关联链 | 不证明自然语言策略正确或第三方工具已获授权 |
+| Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | [collab-relationship-isolation](#collab-relationship-isolation) | 自有/受托并存、跨资源拒绝和定域撤销 | [api-auth](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-auth) | A/B 当前权限、拒绝和原回执对账 | 不以单角色路径代签多关系隔离 |
 
 <a id="collab-runtime-journey"></a>
 ### 11.2 同任务的真实 Runtime 组合验收

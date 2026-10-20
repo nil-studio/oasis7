@@ -10,6 +10,7 @@
 - 实际子会话引用、是否真的创建独立 subagent、`attached_codex_subagent / supervised_runtime / scripted_probe / main_agent_manual`。
 - `cold_entry / prepared_world`、`autonomous / regression_replay`、`assisted=true/false`、`isolation=enforced / instruction_only / source_visible`，以及为何降级。
 - 获准 world/branch/Agent/task、初始条件和信任来源、目标与范围、有效授权引用；不要保存 secret。
+- AC-EXT-018 另记录入场前 Agent/task/goal/grant 预置清单、各阶段实际执行者与 operation/receipt、稳定主体/角色/executor 关系、必要确认及恢复停点；无对应证据不得把 prepared-world 标成冷入场。共存场景分别记录自有/受托权限来源、隔离与定域撤销结果。
 - 实际表面 `game_api / web / native`、平台/build、选中和未选中的场景、开始/结束/停止原因。
 
 <a id="report-source-scene"></a>
