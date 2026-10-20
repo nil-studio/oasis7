@@ -1,5 +1,5 @@
 import { cborCanonicalEncode, signAuthPayload } from "./viewer_auth_crypto.js";
-import { canonicalAgentChatView } from "./viewer_canonical_owner_read_module.js";
+import { canonicalAgentChatView, currentCanonicalReorgEpoch } from "./viewer_canonical_owner_read_module.js";
 const uuid = () => crypto.randomUUID();
 const equal = (a, b) => { const x = cborCanonicalEncode(a); const y = cborCanonicalEncode(b); return x.length === y.length && x.every((v, i) => v === y[i]); };
 export function createSafeAlternativeModule({ state, sendJson, render, refreshOwner }) {
@@ -22,7 +22,7 @@ export function createSafeAlternativeModule({ state, sendJson, render, refreshOw
       if (original.waypoints.length === 1 && original.arrival_tick == null) throw new Error("A single untimed destination is already supported; provide the actual route or timing constraint");
     }
     const world = state.canonicalOwnerWorldIdentity;
-    if (!view || !world || state.worldFeed?.stale === true || view.world_id !== state.worldFeed?.worldId || view.reorg_epoch !== state.worldFeed?.reorgEpoch || view.player_id !== state.auth.playerId || view.public_key !== state.auth.publicKey || !world || world.world_id !== view.world_id || view.agent_id !== state.auth.boundAgentId) throw new Error("Current owner authority is required");
+    if (!view || !world || state.worldFeed?.stale === true || view.world_id !== state.worldFeed?.worldId || view.reorg_epoch !== currentCanonicalReorgEpoch(state) || view.player_id !== state.auth.playerId || view.public_key !== state.auth.publicKey || !world || world.world_id !== view.world_id || view.agent_id !== state.auth.boundAgentId) throw new Error("Current owner authority is required");
     const request = { api_rev: 1, client_operation_id: uuid(), world_id: world.world_id,
       genesis_digest: world.genesis_digest, branch_id: view.canonical_authority.branch_id,
       reorg_epoch: view.reorg_epoch, agent_id: view.agent_id, owner_binding: view.player_id,
@@ -41,7 +41,7 @@ export function createSafeAlternativeModule({ state, sendJson, render, refreshOw
     if (!original) throw new Error("No original command to recover");
     if (original.subject_public_key !== state.auth.publicKey || original.request.owner_binding !== state.auth.playerId
       || original.request.agent_id !== state.auth.boundAgentId || original.request.world_id !== state.worldFeed?.worldId
-      || original.request.reorg_epoch !== state.worldFeed?.reorgEpoch) throw new Error("Original command belongs to another owner or world authority");
+      || original.request.reorg_epoch !== currentCanonicalReorgEpoch(state)) throw new Error("Original command belongs to another owner or world authority");
     state.safeAlternative.original = original; state.safeAlternative.status = "unknown";
     sendJson({ type: "safe_alternative", request: original, recover: !retry }); render();
   }
@@ -50,7 +50,7 @@ export function createSafeAlternativeModule({ state, sendJson, render, refreshOw
     if (!ui.original || !equal(message.request, ui.original)) return;
     const command = ui.original.request;
     if (command.agent_id !== state.auth.boundAgentId || command.owner_binding !== state.auth.playerId
-      || command.reorg_epoch !== state.worldFeed?.reorgEpoch || command.world_id !== state.worldFeed?.worldId
+      || command.reorg_epoch !== currentCanonicalReorgEpoch(state) || command.world_id !== state.worldFeed?.worldId
       || ui.original.subject_public_key !== state.auth.publicKey) return;
     const owner = state.canonicalAgentOwnerView;
     if (owner && (owner.canonical_authority?.branch_id !== command.branch_id

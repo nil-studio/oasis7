@@ -29,7 +29,7 @@ describe("canonical chat readiness", () => {
       authority_scope: "player_agent_chat", canonical_authority: { branch_id: "b", agent_identity_generation: 2 } };
     const state = { auth: { available: true, registrationStatus: "registered", boundAgentId: "a", playerId: "p", publicKey: "k" },
       viewerProtocol: { negotiated: true, capabilities: ["canonical_agent_chat_v1"] },
-      worldFeed: { status: "ready", worldId: "w", reorgEpoch: 1, stale: false }, canonicalAgentOwnerView: view };
+      worldFeed: { status: "ready", worldId: "w", reorgEpoch: "1", stale: false }, canonicalAgentOwnerView: view };
     const module = createViewerAuthSurfaceModule({ state, getSearchParams: () => new URLSearchParams(),
       localeText: (_l, zh, en) => en || zh, windowRef: { location: { href: "http://localhost/", hostname: "localhost" } } });
     return { state, capability: () => module.buildSemanticCapability("agent_chat") };
