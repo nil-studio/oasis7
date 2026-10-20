@@ -16,6 +16,18 @@
 
 本文是长期产品分册，承载首局微循环、后引导承接与首次持续能力的玩家承诺。它不冻结 UI 字段、tick、数值阈值、任务状态或实现方案。
 
+## 阅读导航：先回答玩家的问题
+
+下表只组织本文阅读，不新增 UI 卡片、数据字段或并行规则。它描述入口应该回答什么，不宣称当前所有入口已经实现或通过验证；当前候选能力与实际证据仍从相应 Task/PR 核对。
+
+| 玩家问题 | 先读什么 | 读完应能分清 |
+| --- | --- | --- |
+| 我正在追求什么？ | [具体决策样本](#first-session-concrete-sample)与 §2.2 目标清晰度 | 首笔铁锭、持续能力、后继候选不是同一个目标；可以暂缓 |
+| 系统是否接受？ | §2 首局微循环与 §2.1.1 状态置信度 | 计划、正式提交、接受、拒绝与结果未知；未知不等于失败重提 |
+| 世界发生了什么？ | [生产与交付边界](#req-first-industrial-004) | 实际付出、所得与归因；生产不代签稳定、交付或需求满足 |
+| 为什么被阻塞？ | [阻塞与恢复](#req-first-industrial-006)与 §2.3 信息仲裁 | 当前主要原因、仍占用/已损失价值，而不是从日志猜测 |
+| 下一步怎样继续？ | [成果承接](#req-first-industrial-008)、§3 阶段承接与 §5 恢复 | 当前合法动作、代价、下一复查条件及自然离场；推荐不是承诺 |
+
 ## 设计适用性与生命周期闭合
 
 - 设计判定：`paired-design`。
@@ -604,3 +616,4 @@ Trace ID: O7-REQ-f6aebb85-7a07-4e0b-a3cf-f23655f293a2
 | [REQ-FIRST-INDUSTRIAL-008](#req-first-industrial-008) / [AC-FIRST-INDUSTRIAL-004](#ac-first-industrial-004) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`gameplay-top-level-design.prd.md`](../../game/gameplay/gameplay-top-level-design.prd.md) | 本专题对应要求、验收与专业 authority 的可导航追踪证据 | `test_tier_required` |
 | [REQ-FIRST-BRANCH-001](#req-first-branch-001) / [AC-FIRST-BRANCH-001](#ac-first-branch-001) | `gameplay_designer` / `viewer_engineer` / `qa_engineer` | [`Viewer 分支投影设计`](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#branch-preview-consistency) | 主指引与各分支的阶段同义、真实动作过滤及本地用途回归；各入口体验证据独立 | `test_tier_required`；适用入口体验 `test_tier_full` |
 | [REQ-FIRST-BRANCH-002](#req-first-branch-002) / [AC-FIRST-BRANCH-002](#ac-first-branch-002) | `gameplay_designer` / `viewer_engineer` / `qa_engineer` | [`Viewer 回退状态设计`](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#branch-preview-consistency) | 同一路线截止前、边界、修复后与完成态的正反例；样例与真实世界证据分开 | `test_tier_required`；真实入口适用时 `test_tier_full` |
+
