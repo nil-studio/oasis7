@@ -13,3 +13,11 @@ it("renders exact scope and result with distinct confirmation/execution controls
  expect(screen.getByText(/Confirm this exact candidate/)).toBeEnabled();
  expect(screen.getByText(/Requested arrival tick:/)).toHaveTextContent("10");
 });
+
+it("explains unavailable module evaluation separately from no safe candidate", () => {
+ const record={request_id:"r",state:"evaluation_unavailable",blocker:"module_evaluation_unavailable",original:{goal:"route",waypoints:[]},candidates:[]};
+ render(() => <SafeAlternativePanel core={{state:{safeAlternative:{record,status:record.state},logicalTime:1},safeAlternative:{command:vi.fn(),recover:vi.fn()}}} />);
+ expect(screen.getByText(/Active world modules may change movement costs/)).toBeInTheDocument();
+ expect(screen.queryByText(/Confirm this exact candidate/)).not.toBeInTheDocument();
+ expect(screen.getByText(/Execute confirmed choice/)).toBeDisabled();
+});

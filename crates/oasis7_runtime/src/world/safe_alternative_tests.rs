@@ -363,3 +363,93 @@ fn no_safe_candidate_competing_selection_and_execution_identity_conflict() {
     assert!(w.apply_authenticated_safe_alternative(&competing).is_err());
     assert_eq!(w.pending_actions_len(), 1);
 }
+
+#[test]
+fn module_evaluation_unavailable_is_durable_and_revokes_old_candidates_without_effects() {
+    fn install_module(w: &mut World, registry: bool) {
+        if registry {
+            w.module_registry
+                .active
+                .insert("changed".into(), "1".into());
+        } else {
+            w.state.module_instances.insert(
+                "changed".into(),
+                crate::state::ModuleInstanceState {
+                    instance_id: "changed".into(),
+                    module_id: "changed".into(),
+                    module_version: "1".into(),
+                    wasm_hash: String::new(),
+                    owner_agent_id: "agent".into(),
+                    install_target: Default::default(),
+                    active: true,
+                    installed_at: w.state.time,
+                },
+            );
+        }
+    }
+    for registry in [true, false] {
+        let (mut w, key) = fixture();
+        install_module(&mut w, registry);
+        let before = w.state().clone();
+        let queued = w.pending_actions_len();
+        let proposed = w
+            .apply_authenticated_safe_alternative(&proposal(&key, "unavailable"))
+            .unwrap();
+        assert_eq!(proposed["state"], "evaluation_unavailable");
+        assert_eq!(proposed["blocker"], "module_evaluation_unavailable");
+        assert!(proposed["candidates"].as_array().unwrap().is_empty());
+        assert_eq!(w.state(), &before);
+        assert_eq!(w.pending_actions_len(), queued);
+        let read = w
+            .apply_authenticated_safe_alternative(&signed(
+                &key,
+                Op::Read {
+                    request_id: "unavailable".into(),
+                },
+            ))
+            .unwrap();
+        assert_eq!(read, proposed);
+        let (mut w, key) = fixture();
+        let old = w
+            .apply_authenticated_safe_alternative(&proposal(&key, "request"))
+            .unwrap();
+        let _confirmed = confirm(&mut w, &key, &old, 0);
+        install_module(&mut w, registry);
+        let before = w.state().clone();
+        let queued = w.pending_actions_len();
+        let reevaluate = signed(
+            &key,
+            Op::Reevaluate {
+                request_id: "request".into(),
+                valid_until_tick: 25,
+            },
+        );
+        let current = w.apply_authenticated_safe_alternative(&reevaluate).unwrap();
+        assert_eq!(current["state"], "evaluation_unavailable");
+        assert_eq!(current["blocker"], "module_evaluation_unavailable");
+        assert_eq!(current["generation"], 2);
+        assert_eq!(current["history"][0]["candidates"], old["candidates"]);
+        assert!(current["candidates"].as_array().unwrap().is_empty());
+        assert!(current["confirmation"].is_null());
+        assert!(current["authorization"].is_null());
+        assert_eq!(w.state(), &before);
+        assert_eq!(w.pending_actions_len(), queued);
+        assert_eq!(
+            w.apply_authenticated_safe_alternative(&reevaluate).unwrap(),
+            current
+        );
+        let candidate = &old["candidates"][0];
+        let stale = signed(
+            &key,
+            Op::Confirm {
+                request_id: "request".into(),
+                generation: 1,
+                candidate_id: candidate["candidate_id"].as_str().unwrap().into(),
+                candidate_digest: candidate["candidate_digest"].as_str().unwrap().into(),
+                confirmation_id: "late".into(),
+                valid_until_tick: 15,
+            },
+        );
+        assert!(w.apply_authenticated_safe_alternative(&stale).is_err());
+    }
+}

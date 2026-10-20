@@ -1,4 +1,4 @@
-import { alternativeStatusLabel, alternativePosition, alternativeScopeLabel, alternativeRiskLabel, alternativeAuthorityLabel, alternativeOutcomeLabel } from "./safe_alternative_display.js";
+import { alternativeStatusLabel, alternativePosition, alternativeScopeLabel, alternativeRiskLabel, alternativeAuthorityLabel, alternativeBlockerLabel, alternativeOutcomeLabel } from "./safe_alternative_display.js";
 import { safeAlternativeStyles } from "./safe_alternative_styles.js";
 import { For, Show, createSignal } from "solid-js";
 export function SafeAlternativePanel(props) {
@@ -32,6 +32,7 @@ export function SafeAlternativePanel(props) {
       <p>Requested waypoints: {(record().original?.waypoints || []).map(alternativePosition).join(" → ")}</p>
       <p>Requested arrival tick: {record().original?.arrival_tick ?? "No timing constraint"}</p>
       <p>State: {alternativeStatusLabel(record().state)}</p>
+      <Show when={record().blocker}><p role="status">{alternativeBlockerLabel(record().blocker)}</p></Show>
       <For each={record().candidates || []}>{candidate => <article>
         <h4>{candidate.goal}</h4><p>Target: {alternativePosition(candidate.to)}</p>
         <p>Scope: {alternativeScopeLabel(candidate.scope)}</p><p>Cost upper bound: {candidate.cost_upper_bound}</p>

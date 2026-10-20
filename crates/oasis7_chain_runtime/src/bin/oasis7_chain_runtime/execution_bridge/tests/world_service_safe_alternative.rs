@@ -103,6 +103,27 @@ fn safe_alternative_canonical_driver_preview_confirmation_execution_and_retry() 
         },
     );
     commit(&mut driver, 5, execution.clone());
+    // Administrative admission binds the action without advancing simulation
+    // time. The next canonical world tick consumes that original binding.
+    assert_eq!(
+        driver.execution_world.state().agents["agent-a"].state.pos,
+        before
+    );
+    assert_eq!(receipt(&driver, &execution)["state"], "execution_bound");
+    driver
+        .on_commit(NodeExecutionCommitContext {
+            world_id: "w1".into(),
+            node_id: "node-a".into(),
+            proposer_id: "node-a".into(),
+            height: 6,
+            slot: 6,
+            epoch: 0,
+            node_block_hash: "node-h6".into(),
+            action_root: compute_consensus_action_root(&[]).unwrap(),
+            committed_actions: vec![],
+            committed_at_unix_ms: 6000,
+        })
+        .unwrap();
     assert_eq!(
         driver.execution_world.state().agents["agent-a"].state.pos,
         GeoPos::new(10, 0, 0)
@@ -116,7 +137,7 @@ fn safe_alternative_canonical_driver_preview_confirmation_execution_and_retry() 
     assert_eq!(completed["authorization"]["state"], "consumed");
     assert_eq!(completed["outcome"]["status"], "applied");
     let action_id = completed["outcome"]["action_id"].as_u64().unwrap();
-    commit(&mut driver, 6, execution);
+    commit(&mut driver, 7, execution);
     assert_eq!(
         driver
             .execution_world

@@ -109,9 +109,8 @@ impl World {
             if *valid_until_tick <= now {
                 return Err("candidate_stale".into());
             }
-            if !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty() {
-                return Err("evaluation_unavailable".into());
-            }
+            let evaluation_unavailable =
+                !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty();
             if let Some(predecessor) = predecessor_request_id {
                 let mut predecessor_command = c.clone();
                 predecessor_command.operation = Op::Read {
@@ -133,6 +132,9 @@ impl World {
                 .ok_or("authority_changed")?;
             let mut candidates = Vec::new();
             for to in &original.waypoints {
+                if evaluation_unavailable {
+                    continue;
+                }
                 if candidates.iter().any(|v: &Value| v["to"] == json!(to)) {
                     continue;
                 }
@@ -155,7 +157,9 @@ impl World {
                 candidate["candidate_digest"] = json!(digest(&candidate));
                 candidates.push(candidate);
             }
-            let state = if candidates.is_empty() {
+            let state = if evaluation_unavailable {
+                "evaluation_unavailable"
+            } else if candidates.is_empty() {
                 "no_safe_alternative"
             } else {
                 "awaiting_confirmation"
@@ -163,7 +167,7 @@ impl World {
             return Ok((
                 key.clone(),
                 json!({"request_id":c.operation.request_id(),"agent_id":c.agent_id,"original":original,"original_digest":original_digest,
-                "command_digests":{c.client_operation_id.clone():command_digest},"propose_signed":signed,"owner_public_key":signed.subject_public_key,"binding":c,"set_id":format!("{key}:generation:1"),"content_digest":digest(&json!(candidates)),"generation":1,"state":state,"valid_from_tick":now,"valid_until_tick":valid_until_tick,
+                "command_digests":{c.client_operation_id.clone():command_digest},"propose_signed":signed,"owner_public_key":signed.subject_public_key,"binding":c,"set_id":format!("{key}:generation:1"),"content_digest":digest(&json!(candidates)),"generation":1,"state":state,"blocker":if evaluation_unavailable {json!("module_evaluation_unavailable")} else {Value::Null},"valid_from_tick":now,"valid_until_tick":valid_until_tick,
                 "initial_position":agent.state.pos,"policy_digest":digest(&json!(self.state.gameplay_policy)),
                 "predecessor_request_id":predecessor_request_id,"original_no_effect":true,"candidates":candidates,"confirmation":null,"authorization":null,"outcome":null}),
             ));
@@ -285,11 +289,8 @@ impl World {
                     .agents
                     .get(&c.agent_id)
                     .ok_or("authority_changed")?;
-                if !self.state.module_instances.is_empty()
-                    || !self.module_registry.active.is_empty()
-                {
-                    return Err("evaluation_unavailable".into());
-                }
+                let evaluation_unavailable = !self.state.module_instances.is_empty()
+                    || !self.module_registry.active.is_empty();
                 r["generation"] = json!(generation);
                 r["valid_until_tick"] = json!(valid_until_tick);
                 r["valid_from_tick"] = json!(now);
@@ -299,6 +300,9 @@ impl World {
                     serde_json::from_value(r["original"].clone()).map_err(|_| "outcome_unknown")?;
                 let mut candidates = Vec::new();
                 for to in original.waypoints {
+                    if evaluation_unavailable {
+                        continue;
+                    }
                     let location = format!("{}:{}:{}", to.x_cm, to.y_cm, to.z_cm);
                     if self
                         .state
@@ -326,7 +330,14 @@ impl World {
                 r["confirmation"] = Value::Null;
                 r["authorization"] = Value::Null;
                 r["outcome"] = Value::Null;
-                r["state"] = json!(if r["candidates"].as_array().unwrap().is_empty() {
+                r["blocker"] = if evaluation_unavailable {
+                    json!("module_evaluation_unavailable")
+                } else {
+                    Value::Null
+                };
+                r["state"] = json!(if evaluation_unavailable {
+                    "evaluation_unavailable"
+                } else if r["candidates"].as_array().unwrap().is_empty() {
                     "no_safe_alternative"
                 } else {
                     "awaiting_confirmation"
