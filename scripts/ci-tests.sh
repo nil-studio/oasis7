@@ -436,6 +436,7 @@ run_packaging_artifact_contract_tests() {
   run bash ./scripts/packaging-artifact-size-contract.test.sh
   run bash ./scripts/package-workflow-cache-reuse-contract.test.sh
   run python3 ./scripts/package-ecs.test.py
+  run python3 ./scripts/package-ecs-resource-monitor.test.py
   run bash ./scripts/copy-viewer-web-dist.test.sh
 }
 
