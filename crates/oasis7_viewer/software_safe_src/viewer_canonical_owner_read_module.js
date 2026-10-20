@@ -52,8 +52,8 @@ export function createCanonicalOwnerReadModule({ state, sendJson, signAuthPayloa
     if (active) { clearTimeout(active.timer); active.reject(new Error(reason)); }
     render();
   }
-  function refresh(agentId = state.auth.boundAgentId) {
-    if (!state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) return Promise.resolve(null);
+  function refresh(agentId = state.auth.boundAgentId, force = false) {
+    if (!force && !state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) return Promise.resolve(null);
     const id = identity(agentId);
     if (!current(id) || !getSocket() || getSocket().readyState !== WebSocket.OPEN) {
       fail("canonical owner read requires the current registered connection");
@@ -112,6 +112,7 @@ export function createCanonicalOwnerReadModule({ state, sendJson, signAuthPayloa
         || (message.version.commit.position === active.signed.request.min_commit.position
           && canonicalHex(message.version.commit) !== canonicalHex(active.signed.request.min_commit))) throw new Error("canonical owner read response mismatch");
       state.canonicalAgentOwnerView = structuredClone(message.view);
+      state.canonicalOwnerWorldIdentity = structuredClone(active.signed.request.world);
       pending = null; clearTimeout(active.timer); active.resolve(state.canonicalAgentOwnerView); render();
     } catch (error) { if (pending === active) fail(String(error)); }
   }

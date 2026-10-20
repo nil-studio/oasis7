@@ -10,3 +10,5 @@ pub use correlation::derive_correlation;
 use oasis7_client_api::world_service::private_goal as private_goal_prepare;
 pub use oasis7_client_api::world_service::*;
 pub use wire::*;
+
+pub mod safe_alternative;

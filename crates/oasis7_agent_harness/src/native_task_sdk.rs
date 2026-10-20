@@ -22,6 +22,24 @@ impl SdkNativeTaskHost {
     pub fn client(&self) -> &Client {
         &self.client
     }
+    /// Explicit owner-side control, intentionally absent from NativeTaskTool.
+    /// Persist the returned original before submitting through client.remote.
+    pub fn prepare_owner_safe_alternative(
+        &self,
+        proof: oasis7_client_api::world_service::SignedReadRequest<
+            oasis7_client_api::safe_alternative::SafeAlternativeCommandV1,
+        >,
+    ) -> Result<
+        oasis7_client_api::world_service::SubmitIntentRequest<
+            oasis7_client_api::world_service_wire::WorldServicePayloadV1,
+        >,
+        String,
+    > {
+        self.client
+            .remote
+            .prepare_safe_alternative(proof)
+            .map_err(|e| e.to_string())
+    }
 }
 fn state(response: &IntentResponse<Value>) -> NativeTaskRecovery {
     match response.outcome {

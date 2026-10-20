@@ -25,6 +25,32 @@ pub fn derive_correlation_with_legacy<
         &WorldServicePayloadProfileV1<C, P, L, CP, ST, R, D, X>,
     ) -> Result<LegacyIdentity, String>,
 ) -> Result<RequestCorrelation, String> {
+    if let WorldServicePayloadV1::SafeAlternative(signed) = payload {
+        signed.request.validate()?;
+        verify_owner_signature_strict(
+            signed.request.signing_domain(),
+            &signed.request,
+            &signed.subject_public_key,
+            &signed.signature_hex,
+        )?;
+        if signed.request.world_id != world.world_id
+            || signed.request.genesis_digest != world.genesis_digest
+        {
+            return Err("safe alternative world identity mismatch".into());
+        }
+        let correlation = RequestCorrelation {
+            key: RequestKey {
+                world,
+                verified_subject: signed.subject_public_key.clone(),
+                operation_domain: signed.request.signing_domain().into(),
+                nonce_scope: format!("agent:{}", signed.request.agent_id),
+                request_id_or_nonce: signed.request.client_operation_id.clone(),
+            },
+            payload_digest: request_digest("intent", payload)?,
+        };
+        correlation.validate().map_err(|e| e.to_string())?;
+        return Ok(correlation);
+    }
     if let WorldServicePayloadV1::GameExecutorControl(signed) = payload {
         signed.request.validate()?;
         if let oasis7_agent_api::game::GameExecutorOperationV1::Bind {
@@ -111,7 +137,8 @@ pub fn derive_correlation_with_legacy<
         return Ok(correlation);
     }
     let (subject, domain, scope, id) = match payload {
-        WorldServicePayloadV1::GameTaskCreate(_)
+        WorldServicePayloadV1::SafeAlternative(_)
+        | WorldServicePayloadV1::GameTaskCreate(_)
         | WorldServicePayloadV1::GameGoalPublish(_)
         | WorldServicePayloadV1::GameExecutorControl(_) => {
             unreachable!("handled above")

@@ -481,3 +481,6 @@ mod task_playtest;
 
 #[path = "world_service_cognition_rejection.rs"]
 mod cognition_rejection_tests;
+
+#[path = "world_service_safe_alternative.rs"]
+mod safe_alternative;

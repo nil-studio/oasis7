@@ -252,7 +252,9 @@ impl World {
                 apply_agent_identity(self, agent_id, identity)?;
             }
             event @ (CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { .. }
-            | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }) => {
+            | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }
+            | CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { .. }
+            | CapabilityAuthorizationEvent::SafeAlternativeOutcomeRecorded { .. }) => {
                 super::world_service::apply_service_authorization_event(self, event)?
             }
             CapabilityAuthorizationEvent::SystemIdentityInstalled { system_id, epoch } => {

@@ -617,3 +617,30 @@ fn runtime_live_snapshot_includes_runtime_snapshot_payload() {
         server.world.snapshot().journal_len
     );
 }
+
+#[test]
+fn safe_alternative_public_event_keeps_identity_without_signed_original() {
+    let event = crate::runtime::WorldEvent {
+        id: 42,
+        time: 8,
+        caused_by: None,
+        body: crate::runtime::WorldEventBody::CapabilityAuthorization(
+            crate::runtime::CapabilityAuthorizationEvent::WorldServiceIntentRecorded {
+                key: "correlation".into(),
+                record: serde_json::json!({"request":{"signed_payload":{"kind":"safe_alternative","payload":{"goal":"PRIVATE_ALTERNATIVE_GOAL","signature_hex":"PRIVATE_SIGNATURE"}}}}),
+            },
+        ),
+    };
+    let mapped = map_runtime_event(&event, &WorldConfig::default(), None);
+    assert_eq!(mapped.id, 42);
+    assert_eq!(mapped.time, 8);
+    assert!(mapped.runtime_event.is_none());
+    let public = serde_json::to_string(&mapped).unwrap();
+    assert!(!public.contains("PRIVATE_ALTERNATIVE_GOAL"));
+    assert!(!public.contains("PRIVATE_SIGNATURE"));
+    assert!(
+        serde_json::to_string(&event)
+            .unwrap()
+            .contains("PRIVATE_ALTERNATIVE_GOAL")
+    );
+}
