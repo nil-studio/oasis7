@@ -16,8 +16,8 @@ function fixture() {
   return {state,fence,commit,context,module,sendJson,signAuthPayload};
 }
 describe("browser-signed canonical owner read",()=>{
-  it("uses original browser signing identity and publishes only the correlated private read",async()=>{
-    const f=fixture();const pending=f.module.refresh("a");
+  it.each([2, "2"])("uses original browser signing identity with feed epoch %s and publishes only the correlated private read",async epoch=>{
+    const f=fixture();f.state.worldFeed.reorgEpoch=epoch;const pending=f.module.refresh("a");
     expect(canonicalAgentChatView(f.state)).toBeNull();
     expect(f.sendJson).toHaveBeenCalledWith({type:"request_canonical_agent_owner_read_context",agent_id:"a"});
     await f.module.handleContext(f.context);
@@ -65,4 +65,12 @@ describe("browser-signed canonical owner read",()=>{
       f.module.handleView(message);await rejected;expect(canonicalAgentChatView(f.state)).toBeNull();
     }
   });
+  it.each([null, "", "1e0", "0x2", -1, "9007199254740993"])("rejects invalid or unsafe feed epoch %s before signing", async epoch => {
+    const f=fixture();f.state.worldFeed.reorgEpoch=epoch;
+    await expect(f.module.refresh("a")).rejects.toThrow();
+    expect(f.signAuthPayload).not.toHaveBeenCalled();
+    f.state.canonicalAgentOwnerView={...f.fence};
+    expect(canonicalAgentChatView(f.state)).toBeNull();
+  });
+
 });

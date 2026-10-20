@@ -13,12 +13,22 @@ function validCommit(commit) {
       .every(value => Number.isSafeInteger(value) && value >= 0);
 }
 
+// World Feed retains u64 values as decimal strings; the signed browser protocol
+// uses JSON numbers. Reject unsupported precision instead of rounding authority.
+export function currentCanonicalReorgEpoch(state) {
+  const raw = state.worldFeed?.reorgEpoch;
+  if ((typeof raw !== "number" && typeof raw !== "string")
+    || (typeof raw === "string" && !/^\d+$/.test(raw))) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
 export function canonicalAgentChatView(state) {
   if (state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) {
     const view = state.canonicalAgentOwnerView;
-    return view && view.player_id === state.auth.playerId && view.public_key === state.auth.publicKey
+    return currentCanonicalReorgEpoch(state) != null && view && view.player_id === state.auth.playerId && view.public_key === state.auth.publicKey
       && view.agent_id === state.auth.boundAgentId && view.world_id === state.worldFeed?.worldId
-      && view.reorg_epoch === state.worldFeed?.reorgEpoch && state.worldFeed?.stale !== true ? view : null;
+      && view.reorg_epoch === currentCanonicalReorgEpoch(state) && state.worldFeed?.stale !== true ? view : null;
   }
   return state.snapshot?.player_gameplay?.canonical_agent_chat || null;
 }
@@ -27,13 +37,13 @@ export function createCanonicalOwnerReadModule({ state, sendJson, signAuthPayloa
   let pending = null;
   function identity(agentId) {
     return { agentId, playerId: state.auth.playerId, publicKey: state.auth.publicKey,
-      worldId: state.worldFeed?.worldId, reorgEpoch: state.worldFeed?.reorgEpoch };
+      worldId: state.worldFeed?.worldId, reorgEpoch: currentCanonicalReorgEpoch(state) };
   }
   function current(id) {
-    return state.auth.available && state.auth.registrationStatus === "registered"
+    return id.reorgEpoch != null && state.auth.available && state.auth.registrationStatus === "registered"
       && state.auth.boundAgentId === id.agentId && state.auth.playerId === id.playerId
       && state.auth.publicKey === id.publicKey && state.worldFeed?.worldId === id.worldId
-      && state.worldFeed?.reorgEpoch === id.reorgEpoch && state.worldFeed?.stale !== true;
+      && currentCanonicalReorgEpoch(state) === id.reorgEpoch && state.worldFeed?.stale !== true;
   }
   function matchesSubject(subject, id) {
     return subject?.agent_id === id.agentId && subject?.player_id === id.playerId

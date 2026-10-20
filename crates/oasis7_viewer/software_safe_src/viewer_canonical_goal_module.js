@@ -1,4 +1,4 @@
-import { canonicalAgentChatView } from "./viewer_canonical_owner_read_module.js";
+import { canonicalAgentChatView, currentCanonicalReorgEpoch } from "./viewer_canonical_owner_read_module.js";
 // Pending transport receipts cannot publish a committed goal or enqueue provider work.
 export function scheduleCanonicalGoalPending({ ack, feedback, state, clone, requestSnapshotSafe,
   sameAgentChatFeedback, failPendingAgentChatAck, sendJson, scheduleAgentChatAckTimeout, getSocket }) {
@@ -18,7 +18,7 @@ export function scheduleCanonicalGoalPending({ ack, feedback, state, clone, requ
     const request = feedback.canonicalRequest;
     const socket = getSocket();
     const canonical = canonicalAgentChatView(state);
-    const authorityChanged = state.worldFeed?.worldId !== request.world_id || state.worldFeed?.reorgEpoch !== request.reorg_epoch
+    const authorityChanged = state.worldFeed?.worldId !== request.world_id || currentCanonicalReorgEpoch(state) !== request.reorg_epoch
       || state.worldFeed?.stale === true || canonical?.canonical_authority?.branch_id !== request.canonical_authority?.branch_id
       || canonical?.canonical_authority?.agent_identity_generation !== request.canonical_authority?.agent_identity_generation;
     if (authorityChanged || request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey
@@ -63,7 +63,7 @@ export function authenticatedCanonicalGoal(state, agentId) {
     || typeof canonical.goal.intent_id !== "string" || !canonical.goal.intent_id
     || canonical.current_intent_id !== canonical.goal.intent_id
     || state.worldFeed?.stale === true || canonical.world_id !== state.worldFeed?.worldId
-    || canonical.reorg_epoch !== state.worldFeed?.reorgEpoch || canonical.agent_id !== agentId || canonical.player_id !== state.auth.playerId
+    || canonical.reorg_epoch !== currentCanonicalReorgEpoch(state) || canonical.agent_id !== agentId || canonical.player_id !== state.auth.playerId
     || canonical.public_key !== state.auth.publicKey) return null;
   return canonical.goal;
 }

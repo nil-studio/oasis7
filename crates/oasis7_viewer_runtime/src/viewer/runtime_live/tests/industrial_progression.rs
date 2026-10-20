@@ -579,6 +579,7 @@ fn runtime_gameplay_snapshot_marks_forced_major_power_dependency_when_no_local_r
         false,
         true,
         None,
+        false,
     );
 
     assert_eq!(
@@ -698,6 +699,7 @@ fn runtime_gameplay_snapshot_does_not_borrow_retired_agent_factory_for_branch_pr
         false,
         true,
         None,
+        false,
     );
     assert_eq!(gameplay.stage_status, PlayerGameplayStageStatus::Active);
     assert_eq!(
