@@ -26,6 +26,16 @@ const SID: &str = "__Host-oasis7_sid";
 const PREAUTH: &str = "__Host-oasis7_pre";
 const DAY: u64 = 86_400_000;
 
+// Keep native challenge status queryable beyond proof expiry. This only controls
+// storage cleanup; check_ceremony still enforces the original 120-second expiry.
+pub(super) fn ceremony_storage_expiry(ceremony: &CeremonyRecord) -> u64 {
+    if ceremony.kind.starts_with("native_") {
+        ceremony.expires_at.saturating_add(600_000)
+    } else {
+        ceremony.expires_at
+    }
+}
+
 impl IdentityReply {
     pub fn ok(body: Value) -> Self {
         Self {
@@ -624,7 +634,7 @@ impl IdentityService {
             if let Some(v)=account_version{tx.replace(&account_key(&account.account_id),v,"account",Some(&account.account_id),None,&account)?;}else{tx.create(&account_key(&account.account_id),"account",Some(&account.account_id),None,&account)?;}
             if let Some(v)=credential_version{tx.replace(&credential_key(&credential.credential_record_id),v,"credential",Some(&account.account_id),None,&credential)?;}else{tx.create(&credential_key(&credential.credential_record_id),"credential",Some(&account.account_id),None,&credential)?;}
             let session_id=if bound_session.is_some(){None}else{Some(create_session(tx,config,&account,&credential,&token,now)?)};
-            c.value.status="consumed".into();c.value.server_state=None;c.value.result_ref=Some(account.account_id.clone());tx.replace(&key,c.row_version,"ceremony",Some(&account.account_id),Some(c.value.expires_at),&c.value)?;
+            c.value.status="consumed".into();c.value.server_state=None;c.value.result_ref=Some(account.account_id.clone());tx.replace(&key,c.row_version,"ceremony",Some(&account.account_id),Some(ceremony_storage_expiry(&c.value)),&c.value)?;
             tx.create(&format!("receipt:{id}"),"receipt",Some(&account.account_id),Some(now+7*DAY),&OperationReceipt{operation_id:id.into(),kind:ceremony.kind.clone(),owner_context_digest:owner.into(),request_digest:response_digest.clone(),state:"committed".into(),result_ids:vec![account.account_id.clone()],committed_at:now})?;
             audit(tx,&account,"credential_authenticated",now)?;
             Ok((json!({"api_version":2,"ok":true,"phase":if registering{"account_registered"}else{"authenticated"},"account":{"account_id":account.account_id,"display_name":account.display_name},"world":{"state":"not_requested"}}),session_id.map(|_|token.clone())))
@@ -651,7 +661,7 @@ impl IdentityService {
                 c.row_version,
                 "ceremony",
                 c.value.target_account_id.as_deref(),
-                Some(c.value.expires_at),
+                Some(ceremony_storage_expiry(&c.value)),
                 &c.value,
             )
         })
@@ -724,7 +734,7 @@ impl IdentityService {
                     c.row_version,
                     "ceremony",
                     c.value.target_account_id.as_deref(),
-                    Some(c.value.expires_at),
+                    Some(ceremony_storage_expiry(&c.value)),
                     &c.value,
                 )?;
             }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { browserPasskeyOptions, serializePasskey, createPasskeyAccountClient, mountPasskeyAccount } from "./viewer_passkey_account_module.js";
+import { accountErrorNotice, browserPasskeyOptions, serializePasskey, createPasskeyAccountClient, mountPasskeyAccount } from "./viewer_passkey_account_module.js";
 
 describe("Passkey browser account boundary", () => {
   it("reconciles a committed self-session revoke after its session stops authenticating", async () => {
@@ -120,7 +120,7 @@ describe("Passkey browser account boundary", () => {
           : { ok: true, operation_id: "C".repeat(43) } };
     });
     const client = createPasskeyAccountClient({ fetch, credentials: { create } });
-    await expect(client.createRecovery()).rejects.toThrow("connection lost");
+    await expect(client.createRecovery()).rejects.toMatchObject({ code: "network_unavailable", endpoint: "/recovery" });
     await client.createRecovery();
     expect(create).toHaveBeenCalledOnce();
     expect(recoveryBodies[0].operation_id).toHaveLength(43);
@@ -206,4 +206,129 @@ describe("Passkey browser account boundary", () => {
       body: { expected_version: 4, operation_id: "server-cancel-operation" } });
     expect(writes.some(({ url }) => url.endsWith("/actions"))).toBe(false);
   });
+});
+
+
+describe("account login failure isolation", () => {
+  const failure = (code) => Object.assign(new Error(code), { code });
+  function fixture(overrides = {}) {
+    return { capabilities: async () => ({ passkey: { available: true } }),
+      session: async () => ({ account: { display_name: "Player" } }),
+      credentials: async () => ({ credentials: [] }), sessions: async () => ({ sessions: [] }),
+      clearImportedKey: vi.fn(), ...overrides };
+  }
+  it.each(["credentials", "sessions"])("keeps a verified session when %s fails and offers retry", async (field) => {
+    const root = document.createElement("section");
+    const client = fixture({ [field]: vi.fn().mockRejectedValue(failure("identity_store_unavailable")) });
+    const surface = mountPasskeyAccount(root, { client });
+    await expect(surface.refresh()).resolves.toBeUndefined();
+    expect(root.textContent).toContain("Player");
+    expect(root.textContent).toContain("重试加载");
+    client[field].mockResolvedValue({ [field]: [{ id: "restored", label: "Restored key", device_label: "Restored device" }] });
+    [...root.querySelectorAll("button")].find(b => b.textContent.includes("重试加载")).click();
+    await vi.waitFor(() => expect(root.textContent).toContain(field === "credentials" ? "Restored key" : "Restored device"));
+    surface.dispose();
+  });
+  it("commits session before slow management lists finish", async () => {
+    let resolve;
+    const lists = new Promise(done => { resolve = done; });
+    const root = document.createElement("section");
+    const surface = mountPasskeyAccount(root, { client: fixture({ credentials: () => lists }) });
+    await vi.waitFor(() => expect(root.textContent).toContain("Player"));
+    resolve({ credentials: [] }); await surface.refresh(); surface.dispose();
+  });
+  it.each(["session", "credentials", "sessions"])("clears authority when %s confirms session revocation", async (field) => {
+    const root = document.createElement("section"); const onSessionInvalidated = vi.fn(); const client = fixture();
+    const surface = mountPasskeyAccount(root, { client, onSessionInvalidated }); await surface.refresh();
+    client[field] = async () => { throw failure("session_revoked"); };
+    await surface.refresh();
+    expect(root.textContent).not.toContain("Player");
+    expect(client.clearImportedKey).toHaveBeenCalled(); expect(onSessionInvalidated).toHaveBeenCalled(); surface.dispose();
+  });
+  it.each(["csrf_failed", "origin_rejected", "rate_limited", "invalid_request", "clock_unhealthy", "ceremony_expired"])("shows safe diagnostic context for %s", async (code) => {
+    const fetch = vi.fn(async (url) => ({ ok: !url.endsWith("/options"), status: 403,
+      json: async () => url.endsWith("/capabilities") ? { csrf_token: "SECRET", passkey: { available: true } }
+        : url.endsWith("/session") ? { account: null }
+          : { error_code: code, diagnostic_id: "diag-123", secret: "DO_NOT_DISPLAY" } }));
+    const root = document.createElement("section"); const client = createPasskeyAccountClient({ fetch, credentials: { get: vi.fn() } });
+    const surface = mountPasskeyAccount(root, { client }); await surface.refresh();
+    [...root.querySelectorAll("button")].find(b => b.textContent === "使用通行密钥登录").click();
+    await vi.waitFor(() => expect(root.textContent).toContain(code));
+    expect(root.textContent).toContain("diag-123"); expect(root.textContent).toContain("/passkeys/authentication/options");
+    expect(root.textContent).not.toContain("DO_NOT_DISPLAY"); expect(root.textContent).not.toContain("SECRET"); surface.dispose();
+  });
+  it.each(["network", "non-json"])("retains endpoint and status for %s failures without raw response text", async (kind) => {
+    const fetch = vi.fn(async () => { if (kind === "network") throw new TypeError("SECRET");
+      return { ok: false, status: 502, json: async () => { throw new Error("SECRET"); } }; });
+    await expect(createPasskeyAccountClient({ fetch }).session()).rejects.toMatchObject({
+      code: kind === "network" ? "network_unavailable" : "account_response_invalid", endpoint: "/session",
+      ...(kind === "network" ? {} : { status: 502 }) });
+  });
+});
+
+describe("native signing interruption", () => {
+  it.each(["cancelled", "expired", "consumed", "lost"])("reconciles %s before creating another challenge", async (outcome) => {
+    let options = 0; let lookups = 0;
+    const fetch = vi.fn(async (url) => {
+      if (url.endsWith("/options")) options++;
+      if (url.includes("/operations/")) lookups++;
+      if (url.endsWith("/cancel") && outcome === "lost") throw new TypeError("lost");
+      return { ok: true, json: async () => url.endsWith("/capabilities") ? { csrf_token: "csrf", native_key: { available: true } }
+        : url.endsWith("/options") ? { ceremony_id: "original", operation_id: "original" }
+          : { phase: outcome === "lost" ? "pending" : outcome } };
+    });
+    const key = { publicKey: "public", signChallenge: vi.fn().mockRejectedValue(new Error("native_challenge_invalid")) };
+    const client = createPasskeyAccountClient({ fetch });
+    if (outcome === "consumed") {
+      await expect(client.loginImportedKey(key)).resolves.toMatchObject({ phase: "operation_committed", next_action: "fresh_authentication" });
+    } else {
+      await expect(client.loginImportedKey(key)).rejects.toMatchObject(outcome === "lost"
+        ? { pending_operation_id: "original", next_action: "check_original_operation" } : { message: "native_challenge_invalid" });
+      await client.loginImportedKey(key).catch(() => {});
+      expect(options).toBe(outcome === "lost" ? 1 : 2);
+      if (outcome === "lost") { expect(lookups).toBeGreaterThan(0); expect(key.signChallenge).toHaveBeenCalledOnce(); }
+    }
+  });
+});
+
+
+describe("authentication callback timing", () => {
+  it("notifies login before a stalled management request and clears revoked action authority", async () => {
+    const root = document.createElement("section"); let account = null; let release;
+    const keys = new Promise(resolve => { release = resolve; });
+    const authenticated = vi.fn(); const invalidated = vi.fn();
+    const client = { capabilities: async () => ({ passkey: { available: true } }),
+      session: async () => ({ account }), credentials: () => keys,
+      sessions: async () => ({ sessions: [] }), clearImportedKey: vi.fn(),
+      login: async () => { account = { display_name: "Player" }; return {}; } };
+    const surface = mountPasskeyAccount(root, { client, onAuthenticated: authenticated, onSessionInvalidated: invalidated, onJoinWorld: vi.fn() });
+    await surface.refresh();
+    [...root.querySelectorAll("button")].find(b => b.textContent === "使用通行密钥登录").click();
+    await vi.waitFor(() => expect(authenticated).toHaveBeenCalledWith(account));
+    await vi.waitFor(() => expect(root.getAttribute("aria-busy")).toBe("false"));
+    expect([...root.querySelectorAll("button")].find(b => b.textContent === "进入世界").disabled).toBe(false);
+    release({ credentials: [] });
+    client.logout = async () => { throw Object.assign(new Error("session_revoked"), { code: "session_revoked" }); };
+    [...root.querySelectorAll("button")].find(b => b.textContent === "退出登录").click();
+    await vi.waitFor(() => expect(invalidated).toHaveBeenCalled());
+    expect(root.textContent).not.toContain("Player"); surface.dispose();
+  });
+});
+
+
+it("explains recovery beyond retention without allocating another unknown challenge", async () => {
+  let options = 0;
+  const fetch = async url => {
+    if (url.endsWith("/capabilities")) return { ok: true, json: async () => ({ native_key: { available: true } }) };
+    if (url.endsWith("/options")) { options++; return { ok: true, json: async () => ({ ceremony_id: "original", operation_id: "original", expires_at: Date.now() - 700_000 }) }; }
+    return { ok: false, status: 401, json: async () => ({ error_code: "authentication_failed" }) };
+  };
+  const client = createPasskeyAccountClient({ fetch });
+  const key = { publicKey: "public", signChallenge: async () => { throw new Error("native_challenge_invalid"); } };
+  await client.loginImportedKey(key).catch(() => {});
+  const error = await client.loginImportedKey(key).catch(error => error);
+  expect(error).toMatchObject({ pending_operation_id: "original", recovery_window_expired: true });
+  expect(options).toBe(1);
+  expect(accountErrorNotice(error)).toContain("请刷新页面，先确认当前会话");
+  expect(accountErrorNotice(error)).toContain("结果仍未确定");
 });
