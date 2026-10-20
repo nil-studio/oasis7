@@ -388,6 +388,26 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
     let unchanged = serde_json::to_value(server.world.snapshot()).unwrap();
     let mut owner = RuntimeLiveSession::new();
     owner.current_player_id = Some("owner".into());
+    server
+        .llm_sidecar
+        .bind_agent_player("owner-agent", "owner", Some(&public), false)
+        .unwrap();
+    let pending = server
+        .compat_snapshot_for_session(&mut owner)
+        .player_gameplay
+        .unwrap();
+    assert_eq!(
+        pending.blocker_kind.as_deref(),
+        Some("agent_owner_sync_pending")
+    );
+    assert!(pending.canonical_agent_chat.is_none());
+    assert_eq!(pending.progress_percent, 0);
+    assert!(
+        !pending
+            .available_actions
+            .iter()
+            .any(|action| action.action_id == "claim_first_agent")
+    );
     let mut output = Vec::new();
     server
         .handle_owner_read_context("owner-agent".into(), &mut owner, &mut output)
@@ -413,6 +433,26 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
         .unwrap();
     worker.join().unwrap();
     assert!(owner.owner_read_view.as_ref().unwrap().goal.is_some());
+    let own_snapshot = server.compat_snapshot_for_session(&mut owner);
+    assert!(
+        own_snapshot
+            .player_gameplay
+            .as_ref()
+            .unwrap()
+            .canonical_agent_chat
+            .is_some(),
+        "authenticated owner read must converge the requesting session snapshot"
+    );
+    assert!(
+        !own_snapshot
+            .player_gameplay
+            .as_ref()
+            .unwrap()
+            .available_actions
+            .iter()
+            .any(|action| action.action_id == "claim_first_agent")
+    );
+
     assert!(
         String::from_utf8(output)
             .unwrap()

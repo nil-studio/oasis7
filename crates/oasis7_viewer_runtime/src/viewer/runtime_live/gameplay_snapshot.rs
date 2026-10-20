@@ -279,6 +279,7 @@ pub(super) fn build_player_gameplay_snapshot(
     supports_agent_chat: bool,
     first_agent_claim_target_available: bool,
     agent_claim: Option<PlayerAgentClaimSnapshot>,
+    player_scoped: bool,
 ) -> PlayerGameplaySnapshot {
     let starter_industrial_feasibility = state.starter_industrial_feasibility();
     let mut available_actions = base_available_actions(
@@ -314,7 +315,8 @@ pub(super) fn build_player_gameplay_snapshot(
                     production.last_completed_at.unwrap_or(0),
                 )
             }),
-        None => primary_factory_for_player_gameplay(state),
+        None if !player_scoped => primary_factory_for_player_gameplay(state),
+        None => None,
     };
     let factory_production_failure_disposition =
         controlled_agent_id.and_then(|requester_agent_id| {
@@ -453,8 +455,17 @@ pub(super) fn build_player_gameplay_snapshot(
     });
     let has_first_session_feedback = recent_feedback
         .is_some_and(|feedback| feedback.delta_logical_time > 0 || feedback.delta_event_seq > 0);
-    let has_confirmed_world_progress = has_first_session_feedback || confirmed_gameplay_progress;
-    let has_material_flow = state.industry_progress.completed_material_transits > 0;
+    let has_confirmed_world_progress = if player_scoped {
+        super::gameplay_snapshot_helpers::has_player_world_effect(
+            state,
+            controlled_agent_id,
+            primary_intent.as_ref(),
+        )
+    } else {
+        has_first_session_feedback || confirmed_gameplay_progress
+    };
+    let has_material_flow =
+        !player_scoped && state.industry_progress.completed_material_transits > 0;
     let has_factory_ready = primary_factory.is_some();
     let has_recipe_running = primary_factory
         .is_some_and(|factory| factory.production.status == FactoryProductionStatus::Running);

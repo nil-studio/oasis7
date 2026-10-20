@@ -177,6 +177,15 @@ impl ViewerRuntimeLiveServer {
         current_player_id: Option<&str>,
         request_feedback: Option<&PlayerGameplayRecentFeedback>,
     ) -> WorldSnapshot {
+        self.compat_snapshot_with_owner_feedback(current_player_id, request_feedback, None)
+    }
+
+    pub(super) fn compat_snapshot_with_owner_feedback(
+        &mut self,
+        current_player_id: Option<&str>,
+        request_feedback: Option<&PlayerGameplayRecentFeedback>,
+        owner_view: Option<&oasis7_proto::viewer::CanonicalAgentChatViewV1>,
+    ) -> WorldSnapshot {
         let mut runtime_snapshot = self.world.snapshot();
         super::snapshot_privacy::omit_private_canonical_chat(&mut runtime_snapshot);
         let runtime_state = &runtime_snapshot.state;
@@ -196,10 +205,12 @@ impl ViewerRuntimeLiveServer {
         let snapshot_player_id = current_player_id
             .map(str::trim)
             .filter(|player_id| !player_id.is_empty());
-        let canonical_chat = self
-            .verified_world_view
-            .as_ref()
-            .and_then(|view| view.projection().canonical_agent_chat.as_ref())
+        let canonical_chat = owner_view
+            .or_else(|| {
+                self.verified_world_view
+                    .as_ref()
+                    .and_then(|view| view.projection().canonical_agent_chat.as_ref())
+            })
             .filter(|chat| {
                 snapshot_player_id == Some(chat.player_id.as_str())
                     && self
@@ -227,8 +238,16 @@ impl ViewerRuntimeLiveServer {
                 .llm_sidecar
                 .agent_player_bindings
                 .contains_key(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID);
+        // A local session binding is only a sync hint. It must never grant canonical
+        // ownership, command authority, or completion progress.
+        let owner_sync_pending = self.chain_link_enabled()
+            && snapshot_bound_agent_id.is_none()
+            && snapshot_player_id
+                .and_then(|player| self.llm_sidecar.bound_agent_for_player(player))
+                .is_some();
         let first_agent_claim_target_available = snapshot_player_id.is_some()
             && snapshot_bound_agent_id.is_none()
+            && !owner_sync_pending
             && !first_agent_claim_target_bound;
         let primary_intent = snapshot_bound_agent_id.and_then(|agent_id| {
             let Some(runtime_agent) = runtime_state.agents.get(agent_id) else {
@@ -384,8 +403,16 @@ impl ViewerRuntimeLiveServer {
             self.llm_sidecar.is_llm_mode() && self.supports_agent_chat(),
             first_agent_claim_target_available,
             primary_agent_claim,
+            snapshot_player_id.is_some(),
         );
         player_gameplay.canonical_agent_chat = canonical_chat.cloned();
+        if owner_sync_pending {
+            player_gameplay.stage_status = crate::simulator::PlayerGameplayStageStatus::Blocked;
+            player_gameplay.blocker_kind = Some("agent_owner_sync_pending".into());
+            player_gameplay.blocker_detail = Some("The bound Agent is waiting for an authenticated ownership read; do not claim another Agent.".into());
+            player_gameplay.next_step_hint = "Wait for Agent sync, or refresh the gameplay snapshot to verify current ownership.".into();
+        }
+
         // Chain-backed reads use the verified private projection; local snapshots
         // use the authenticated player's current economic ownership source.
         if self.chain_link_enabled() {

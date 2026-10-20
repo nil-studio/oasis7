@@ -1741,21 +1741,21 @@ async function buildRefineQuoteAuthProof(request, auth) {
 async function requestRefineQuote(compoundMassG) {
   const compoundMassGNumber = Number(compoundMassG);
   if (!Number.isSafeInteger(compoundMassGNumber) || compoundMassGNumber <= 0) {
-    state.refineQuoteRequest = { status: "error", error: "refine quote requires a positive whole-number compound mass in grams" }; return { ok: false, reason: "refine quote requires a positive whole-number compound mass in grams" };
+    state.refineQuoteRequest = { status: "error", errorCode: "invalid_amount", error: "refine quote requires a positive whole-number compound mass in grams" }; return { ok: false, reason: "refine quote requires a positive whole-number compound mass in grams" };
   }
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    state.refineQuoteRequest = { status: "error", error: "refine quote requires a connected viewer websocket" };
+    state.refineQuoteRequest = { status: "error", errorCode: "connection_unavailable", error: "refine quote requires a connected viewer websocket" };
     return { ok: false, reason: "refine quote requires a connected viewer websocket" };
   }
   try {
     await ensureHostedPlayerAuthAvailable();
     if (!state.auth.available) {
-      state.refineQuoteRequest = { status: "error", error: state.auth.error || "refine quote requires an active player session" };
+      state.refineQuoteRequest = { status: "error", errorCode: "player_session_required", error: state.auth.error || "refine quote requires an active player session" };
       return { ok: false, reason: state.auth.error || "refine quote requires an active player session" };
     }
     const boundAgentId = String(state.auth.boundAgentId || "").trim();
     if (!boundAgentId) {
-      state.refineQuoteRequest = { status: "error", error: "refine quote requires a bound player Agent" };
+      state.refineQuoteRequest = { status: "error", errorCode: "player_agent_binding_required", error: "refine quote requires a bound player Agent" };
       return { ok: false, reason: "refine quote requires a bound player Agent" };
     }
     await ensureRegisteredPlayerSession(boundAgentId);
@@ -1770,7 +1770,7 @@ async function requestRefineQuote(compoundMassG) {
     return { ok: true, request: clone(request) };
   } catch (error) {
     const reason = `refine quote request failed: ${String(error)}`;
-    state.refineQuoteRequest = { status: "error", error: reason };
+    state.refineQuoteRequest = { status: "error", errorCode: "session_sync_failed", error: reason };
     return { ok: false, reason };
   }
 }
@@ -2668,10 +2668,10 @@ function sendAgentChat(agentIdOrPayload, maybeMessage) {
       render();
       await ensureHostedPlayerAuthAvailable();
       assertAgentChatFeedbackActive(feedback);
-      assertSemanticCapability("agent_chat");
       await ensureRegisteredPlayerSession(agentId);
       assertAgentChatFeedbackActive(feedback);
       await canonicalOwnerRead.refresh(agentId);
+      assertSemanticCapability("agent_chat");
       feedback.stage = "signing";
       feedback.effect = "building auth proof";
       render();
@@ -3479,7 +3479,7 @@ function attachSocket(ws) {
     initialSnapshotRetryCount = 0;
     clearHelloAckTimer();
     clearInitialSnapshotRetryTimer();
-    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
+    sendJson({ type: "hello_v2", client: "viewer", version: 2, capabilities: [PROMPT_CONTROL_RESULT_CAPABILITY, "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"] });
     scheduleHelloAckTimeout(ws);
     syncHostedSessionRefreshLoop();
     render();

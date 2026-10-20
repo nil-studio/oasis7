@@ -944,3 +944,16 @@ describe("viewer feedback module", () => {
     expect(continuation.recoveryOptions).toBe("repair: available / rebuild: unavailable");
   });
 });
+
+
+describe("owned Agent claim convergence", () => {
+  it("does not offer a second first-Agent claim while the bound owner projection catches up", () => {
+    const state = { uiLocale: "en", auth: { available: true, registrationStatus: "registered", boundAgentId: "a" },
+      viewerProtocol: { capabilities: ["canonical_agent_chat_v1"] }, snapshot: { model: { agents: {}, locations: {} },
+        player_gameplay: { available_actions: [{ action_id: "claim_first_agent", execute_kind: "claim_first_agent", label: "Claim First Agent" }] } } };
+    const summary = createFeedbackModule(state).buildGameplaySummary();
+    expect(summary.availableActions.some(action => action.actionId === "claim_first_agent")).toBe(false);
+    expect(summary.blockerDetail).toMatch(/sync/i);
+    expect(summary.nextStepHint).not.toMatch(/submit that claim first/i);
+  });
+});

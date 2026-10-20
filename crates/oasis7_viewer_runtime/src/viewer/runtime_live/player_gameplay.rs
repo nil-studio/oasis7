@@ -378,6 +378,17 @@ impl ViewerRuntimeLiveServer {
                 action_id: Some("quote_refine_compound".to_string()),
                 target_agent_id: None,
             })?;
+        if self.chain_link_enabled() {
+            // The verified public resource projection does not include the
+            // Simulator economy parameters or a canonical refine quote contract.
+            // Never combine it with local sidecar/config state as an authority.
+            return Err(GameplayActionError {
+                code: "refine_quote_unavailable".to_string(),
+                message: "this world does not provide an authoritative refine quote".to_string(),
+                action_id: Some("quote_refine_compound".to_string()),
+                target_agent_id: None,
+            });
+        }
         let agent_id = self
             .llm_sidecar
             .bound_agent_for_player(verified.player_id.as_str())

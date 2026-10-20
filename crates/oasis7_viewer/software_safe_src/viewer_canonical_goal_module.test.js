@@ -15,7 +15,7 @@ describe("canonical goal receipts", () => {
     vi.useFakeTimers();
     const request = { agent_id: "agent-1", world_id: "w", reorg_epoch: 1, canonical_authority: { branch_id: "b", agent_identity_generation: 1 }, message: "private owner goal", auth: { player_id: "player-1", public_key: "key-1", nonce: 9, signature: "original" } };
     const feedback = { canonicalRequest: request, canonicalRetryCount: 0 };
-    const state = { auth: { playerId: "player-1", publicKey: "key-1", boundAgentId: "agent-1" }, lastChatFeedback: feedback, worldFeed: { worldId: "w", reorgEpoch: 1 },
+    const state = { auth: { playerId: "player-1", publicKey: "key-1", boundAgentId: "agent-1" }, lastChatFeedback: feedback, worldFeed: { worldId: "w", reorgEpoch: "1" },
       snapshot: { player_gameplay: { canonical_agent_chat: { canonical_authority: request.canonical_authority } } } };
     const sendJson = vi.fn(); const failPendingAgentChatAck = vi.fn();
     const options = { ack: { status: "pending" }, feedback, state, clone: structuredClone,
@@ -36,7 +36,7 @@ describe("canonical goal receipts", () => {
   it("restores only the current owner's authenticated goal and never reads local chat history", () => {
     const goal = { intent_id: "goal-1", status: "accepted", message: "private" };
     const state = { auth: { playerId: "p", publicKey: "k" }, chatHistory: [{ message: "sidecar-only" }],
-      worldFeed: { worldId: "w", reorgEpoch: 1 },
+      worldFeed: { worldId: "w", reorgEpoch: "1" },
       snapshot: { player_gameplay: { canonical_agent_chat: { world_id: "w", reorg_epoch: 1, agent_id: "a", player_id: "p", public_key: "k", current_intent_id: "goal-1", goal } } } };
     expect(authenticatedCanonicalGoal(state, "a")).toBe(goal);
     expect(authenticatedCanonicalGoal(state, "other")).toBeNull();

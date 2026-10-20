@@ -610,7 +610,12 @@ impl ViewerRuntimeLiveServer {
             .verified_world_view
             .as_ref()
             .map(|view| (view.version().clone(), view.continuation().clone()));
-        self.compat_snapshot_with_feedback(session.current_player_id.as_deref(), feedback.as_ref())
+        self.invalidate_owner_read_session(session);
+        self.compat_snapshot_with_owner_feedback(
+            session.current_player_id.as_deref(),
+            feedback.as_ref(),
+            session.owner_read_view.as_ref(),
+        )
     }
 }
 
