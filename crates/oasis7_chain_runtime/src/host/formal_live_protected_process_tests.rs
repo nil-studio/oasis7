@@ -60,6 +60,8 @@ mod first_agent_test_effect;
 use crate::formal_read_fixtures as fixtures;
 #[path = "formal_live_protected_full_node_storage_tests.rs"]
 mod full_node_storage_tests;
+#[path = "formal_live_controlled_stop_tests.rs"]
+mod controlled_stop_tests;
 #[path = "formal_live_protected_healthy_fault_process_tests.rs"]
 mod healthy_fault_tests;
 #[path = "formal_live_healthy_operation_process_tests.rs"]
@@ -121,6 +123,19 @@ const WASM_EXECUTOR_TEST_MODULE: &[u8] = &[
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; oracle is a test simulation"]
 fn protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin() {
     run_on_fixture_stack(false).unwrap();
+}
+
+#[test]
+#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; controlled mechanism, not historical root cause"]
+fn protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner() {
+    std::thread::Builder::new()
+        .name("formal-controlled-stop".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| run_protected_runtime_round_trip(false, Some("controlled_stop_budget")))
+        .unwrap()
+        .join()
+        .unwrap()
+        .unwrap();
 }
 
 #[test]
@@ -626,6 +641,7 @@ fn run_protected_runtime_fixture(
                 | "healthy_operation"
                 | "healthy_fault_writer_lock"
                 | "healthy_fault_old_owner_sigkill"
+                | "controlled_stop_budget"
         )
     {
         return crash_tests::run_crash_recovery(
@@ -656,6 +672,9 @@ fn run_protected_runtime_fixture(
         None
     } else {
         let mut runtime = FormalLiveRuntime::open_with_native_history(&runtime_config_path)?;
+        if crash_phase == Some("controlled_stop_budget") {
+            return controlled_stop_tests::exercise(runtime);
+        }
         runtime.start()?;
         Some(runtime)
     };

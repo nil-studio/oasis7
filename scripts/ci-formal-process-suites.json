@@ -61,6 +61,11 @@
         "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::oracle_support::survivor_tests::protected_endpoint_children_replica_only_frozen_and_prepared_resume_without_original_private_key",
         "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
+        "name": "formal_live_runtime::tests::protected_process_tests::protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner",
+        "ignored": true
       }
     ],
     "world-history": [
@@ -161,6 +166,7 @@
   "legacy_ignored_filters": {
     "runtime-tests": [
       "protected_endpoint_children",
+      "protected_stop_deadline_",
       "formal_protected_healthy_durable_set_",
       "healthy_durable_set_owner_",
       "formal_world_initialization_cli_",

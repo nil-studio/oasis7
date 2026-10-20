@@ -76,6 +76,8 @@ pub(crate) struct FormalLiveRuntime {
         Arc<super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1>,
     server: Option<FormalHttpServer>,
     stop_worker: Option<PendingNodeStop>,
+    #[cfg(test)]
+    stop_entry_signal: Option<std::sync::mpsc::SyncSender<std::time::Instant>>,
     effect_delivery: Option<super::formal_live_effect_delivery::FormalEffectDeliveryRuntime>,
     started: bool,
 }
@@ -404,6 +406,8 @@ impl FormalLiveRuntime {
             durable_set_arm,
             server: None,
             stop_worker: None,
+            #[cfg(test)]
+            stop_entry_signal: None,
             effect_delivery,
             started: false,
         })
@@ -636,25 +640,39 @@ impl FormalLiveRuntime {
         Ok(())
     }
 
-    /// Graceful stop waits at most the supplied interval for the Node and the
-    /// loopback server. A timeout keeps the owner alive and leaves status at
+    /// Graceful stop budgets admission and Node waits by the supplied interval.
+    /// A timeout keeps the owner alive and leaves status at
     /// `stopping`; callers can poll status and retry the same stop operation.
+    /// Admission and worker waits share one deadline; OS scheduling can delay return.
     pub(crate) fn stop(&mut self, timeout: Duration) -> Result<(), String> {
         let deadline = std::time::Instant::now() + timeout;
+        #[cfg(test)]
+        if let Some(signal) = self.stop_entry_signal.take() {
+            let _ = signal.try_send(deadline);
+        }
         if let Some(delivery) = &self.effect_delivery {
             delivery.request_stop();
         }
-        {
-            let _admission = self
-                .admission_gate
-                .lock()
-                .map_err(|_| "formal Node admission gate poisoned")?;
-            self.state
-                .ready
-                .store(false, std::sync::atomic::Ordering::Release);
-            self.state
-                .stopping
-                .store(true, std::sync::atomic::Ordering::Release);
+        // Close ingress before waiting for the already-admitted operation.
+        self.state
+            .ready
+            .store(false, std::sync::atomic::Ordering::Release);
+        self.state
+            .stopping
+            .store(true, std::sync::atomic::Ordering::Release);
+        if self.admission_gate.is_poisoned() {
+            return Err("formal Node admission gate poisoned".into());
+        }
+        // An idle owner still runs delivery/server cleanup, including stop(0).
+        if self.started || self.stop_worker.is_some() {
+            let Some(admission) = quiesce::acquire_for_stop(&self.admission_gate, deadline)? else {
+                return Err("formal Node stop is still pending; runtime remains owned".into());
+            };
+            drop(admission);
+        }
+        // A guard obtained before expiry must never permit a late new worker.
+        if self.started && self.stop_worker.is_none() && std::time::Instant::now() >= deadline {
+            return Err("formal Node stop is still pending; runtime remains owned".into());
         }
         if self.started && self.stop_worker.is_none() {
             self.stop_worker = Some(
