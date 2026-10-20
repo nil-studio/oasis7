@@ -307,3 +307,55 @@ button svg{vertical-align:middle;flex-shrink:0}
 .work-workspace:not(.has-selection) .work-list .work-row .row-content{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
 .compact-pairing.pairing-map{grid-template-columns:minmax(0,1fr) 40px minmax(0,1.4fr);gap:12px;margin:8px 0}.compact-pairing .pairing-origin,.compact-pairing .pairing-target{padding:8px 12px;min-width:0}.compact-pairing .pairing-arrow svg{transform:none}.compact-pairing .pairing-arrow span{font-size:.75rem}.pairing-name{display:flex;gap:8px;align-items:center;overflow-wrap:anywhere;text-align:left;max-width:100%}.pairing-name svg{flex-shrink:0}.compact-pairing .pairing-state{font-size:.8125rem;margin:4px 0}.pairing-identity{font-size:.8125rem;color:#a9b8cd;margin:4px 0}.pairing-identity summary{cursor:pointer;min-height:32px;align-content:center}.pairing-identity p{overflow-wrap:anywhere}
 @media(max-width:900px){.work-workspace:not(.has-selection) .work-list .work-row .row-content{display:block}.compact-pairing.pairing-map{grid-template-columns:minmax(0,1fr) 24px minmax(0,1.2fr);gap:8px}.compact-pairing .pairing-origin,.compact-pairing .pairing-target{padding:8px}.compact-pairing .pairing-arrow span{display:none}}
+
+/* Put the current task ahead of source prose; expanded controls keep their original behavior. */
+.focus-route{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px;margin-bottom:8px}
+.focus-route .focus-stop{gap:8px;grid-template-columns:22px minmax(0,1fr)}
+.focus-route .focus-stop+.focus-stop{border:0;padding:0}
+.focus-route .focus-stop:last-child{grid-column:1/-1;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:8px}
+.focus-route .focus-stop:last-child>div{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.focus-route .focus-stop:last-child .eyebrow{margin:0}
+.focus-route .focus-stop p{margin:2px 0}
+.focus-route .focus-stop .primary{margin:0}
+.home-focus .panel-title,.home-focus .panel-body{padding:12px 16px}
+.home-focus .panel-title .tag{font-size:.75rem}
+.home-focus details>summary{font-size:.8125rem}
+.work-filter-panel>summary{padding:10px 12px;font-size:.8125rem;overflow-wrap:anywhere;cursor:pointer}
+.work-filter-panel>summary svg,.work-verification>summary svg{vertical-align:middle;margin-right:6px;color:#76e0bd}
+.work-workspace:not(.has-selection) .work-filter-panel>summary{display:none}
+.work-verification{margin:12px 0;padding:8px 0;border-bottom:1px solid var(--border);font-size:.875rem}
+.work-verification>summary{cursor:pointer;color:#b0bed0;min-height:32px}
+.work-verification>div{display:grid;gap:8px;padding:8px 0}
+.work-detail .work-next{padding:16px;gap:12px;margin-bottom:12px}
+.work-detail .work-next h3{font-size:1.0625rem}
+.work-detail .work-heading{margin-bottom:16px}
+.work-detail .work-observation{margin-top:16px;padding-top:12px}
+.global-search{width:min(23.75rem,45%)}
+.global-search .search{width:100%}
+.search-toggle{display:none}
+.project-entry .display-settings{margin-bottom:16px;flex-wrap:wrap}
+@container app (max-width:47.5rem){
+ header{min-height:0;padding:8px 12px;gap:12px;justify-content:space-between}
+ header .brand{display:none}
+ header h1{font-size:1rem}
+ .shell>aside{padding:4px 12px}
+ .navigation-toggle{padding:6px 10px;min-height:36px}
+ main{padding:8px 12px}
+ .toolbar{margin-bottom:8px;justify-content:flex-end}
+ .toolbar>div:first-child{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .global-search{width:100%}
+ .search-toggle{display:flex;align-items:center;gap:6px;margin-left:auto;min-height:32px;padding:4px 8px;font-size:.8125rem}
+ .global-search .search:not(.is-open){display:none}
+ .global-search .search.is-open{margin-top:8px}
+ .home-focus .panel-title,.home-focus .panel-body{padding:8px 12px}
+ .home-focus .panel-title h3{font-size:1rem}
+ .home-focus .panel-title .tag{display:none}
+ .focus-route .eyebrow{font-size:.75rem;letter-spacing:0;margin-bottom:2px}
+ .focus-route .row-title{font-size:.875rem}
+ .focus-route .focus-stop p,.focus-route .small{font-size:.75rem}
+ .home-return .panel-title{padding:8px 12px;flex-wrap:wrap;gap:8px}
+ .home-return .panel-title h3{margin-right:auto}
+ .home-return .panel-title button{padding:4px 8px;font-size:.8125rem;min-height:32px}
+ .home-return .work-row{padding:8px 12px}
+ .home-return .work-row .row-title{font-size:.875rem}
+}

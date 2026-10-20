@@ -46,3 +46,14 @@ it('applies and persists display size without reading sources or sending work',(
  expect(localStorage.getItem('oasis7.display-scale')).toBe('2');expect(read).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'重置'}));expect(screen.getByLabelText('文字与界面大小')).toHaveValue('1');read.mockRestore();
 });
+
+it('keeps search text and composition contract when toggling the compact search entry',()=>{
+ render(()=><App/>);
+ const toggle=screen.getByRole('button',{name:'搜索文档'});
+ expect(toggle).toHaveAttribute('aria-expanded','false');fireEvent.click(toggle);
+ expect(toggle).toHaveAttribute('aria-expanded','true');
+ const input=screen.getByLabelText('搜索规范、标题、路径或条款 ID');fireEvent.input(input,{target:{value:'生产'}});
+ fireEvent.click(toggle);expect(toggle).toHaveAttribute('aria-expanded','false');fireEvent.click(toggle);
+ expect(input).toHaveValue('生产');expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toContainElement(input);
+ expect(screen.getByLabelText('文字与界面大小').closest('.project-entry')).not.toBeNull();
+});
