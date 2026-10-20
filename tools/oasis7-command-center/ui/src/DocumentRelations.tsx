@@ -20,6 +20,8 @@ export default function DocumentRelations(props: {
   sections: DocumentSection[];
   showSource: (section: DocumentSection, origin?: HTMLElement) => void;
 }) {
+  const paired = () => props.mode==='pairing'||props.mode==='product_pairing';
+  const targetName = (edge:DocumentPairing) => (edge.target??edge.destination).split('/').pop() || edge.destination;
   const subject = () => ({pairing:'配对',product_pairing:'配对',upstream:'上游',allocation_upstream:'承接上游',allocation_design:'承接设计'}[props.mode]);
   const title = () => ({pairing:'显式配对系统设计',product_pairing:'显式配对产品设计',upstream:'显式上游声明',allocation_upstream:'承接上游条款',allocation_design:'本设计承接条款'}[props.mode]);
   function targetSection(edge: DocumentPairing) {
@@ -34,11 +36,13 @@ export default function DocumentRelations(props: {
     <Show when={props.relations} fallback={<p>旧清单尚未解析{subject()}，请刷新本地事实。</p>}>{relations => <>
       <Show when={relations().issue}><p role="status">{subject()}解析不完整：{pairingIssues[relations().issue!] ?? relations().issue}</p></Show>
       <Show when={!relations().targets.length && !relations().issue}><p>{props.mode === 'pairing' ? '本次范围未发现显式配对系统设计链接。' : props.mode === 'product_pairing' ? '本次范围未发现显式配对产品设计链接。' : props.mode === 'upstream' ? '本次文件头范围未发现显式上游链接。' : '本单元格明确声明无链接。'}</p></Show>
-      <For each={relations().targets}>{edge => <div class="small" classList={{'pairing-map':props.mode==='pairing'||props.mode==='product_pairing'}}>
-        <Show when={props.mode==='pairing'||props.mode==='product_pairing'}><div class="pairing-origin"><FileText size={20} aria-hidden="true"/><strong>{props.sourceTitle??'当前文档'}</strong></div><div class="pairing-arrow"><ArrowRight size={20} aria-hidden="true"/><span>显式配对</span></div></Show><div class="pairing-target">
-        <p>第 {edge.declarationLine} 行 · {edge.target ?? edge.destination} · {resolutions[edge.resolution] ?? edge.resolution}</p>
-        <Show when={props.mode !== 'pairing' && props.mode !== 'product_pairing'}><p class="muted">目标类型：{targetKind(edge)}</p></Show>
-        <Show when={targetSection(edge)}>{target => <button onClick={event => props.showSource(target(), event.currentTarget)}>打开{subject()}章节：{target().title}</button>}</Show>
+      <For each={relations().targets}>{edge => <div class="small" classList={{'pairing-map':paired(),'compact-pairing':paired()}}>
+        <Show when={paired()}><div class="pairing-origin"><FileText size={20} aria-hidden="true"/><strong>{props.sourceTitle??'当前文档'}</strong></div><div class="pairing-arrow"><ArrowRight size={20} aria-hidden="true"/><span>显式配对</span></div></Show><div class="pairing-target">
+        <Show when={paired()} fallback={<><p>第 {edge.declarationLine} 行 · {edge.target ?? edge.destination} · {resolutions[edge.resolution] ?? edge.resolution}</p><p class="muted">目标类型：{targetKind(edge)}</p><Show when={targetSection(edge)}>{target => <button onClick={event => props.showSource(target(), event.currentTarget)}>打开{subject()}章节：{target().title}</button>}</Show></>}>
+          <Show when={targetSection(edge)} fallback={<strong class="pairing-name"><FileText size={18} aria-hidden="true"/>{targetName(edge)}</strong>}>{target => <button class="pairing-name" aria-label={`打开${subject()}章节：${target().title}`} onClick={event=>props.showSource(target(),event.currentTarget)}><FileText size={18} aria-hidden="true"/>{target().title}</button>}</Show>
+          <p class="pairing-state">{resolutions[edge.resolution] ?? edge.resolution}</p>
+          <details class="pairing-identity"><summary>路径与声明</summary><p>第 {edge.declarationLine} 行 · {edge.target ?? edge.destination}</p></details>
+        </Show>
         <Show when={edge.resolution === 'resolved' && !targetSection(edge)}><p class="muted">{edge.targetRevision ? '目标没有可定位的索引章节。' : '旧清单尚无章节定位，请刷新本地事实。'}</p></Show>
       </div></div>}</For>
     </>}</Show>

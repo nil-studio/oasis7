@@ -115,7 +115,8 @@ it('distinguishes legacy pairing coverage, explicit absence and unresolved targe
   fireEvent.click(screen.getByRole('button', {name:'doc/none.md'}));
   expect(screen.getByText('本次范围未发现显式配对系统设计链接。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name:'doc/paired.md'}));
-  expect(screen.getByText(/第 8 行 · doc\/design.md#section · 文件已读取，章节锚点尚未核对/)).toBeInTheDocument();
+  expect(screen.getByText('文件已读取，章节锚点尚未核对')).toBeVisible();
+  expect(screen.getByText(/第 8 行 · doc\/design.md#section/).closest('details')).not.toHaveAttribute('open');
   expect(screen.getByText('配对解析不完整：incomplete')).toBeInTheDocument();
 });
 
@@ -128,6 +129,8 @@ it('opens only the exact resolved pairing chapter and preserves its origin acros
   renderInventory(() => <DocumentInventory snapshot={state()} showSource={showSource} />);
   fireEvent.click(await screen.findByRole('button', {name:'doc/prd.md'}));
   const open = screen.getByRole('button', {name:'打开配对章节：配对章节'});
+  expect(open.textContent).toBe('配对章节');expect(screen.getByText('目标文件已读取')).toBeVisible();
+  expect(screen.getByText(/第 8 行 · doc\/target.md#contract/).closest('details')).not.toHaveAttribute('open');
   fireEvent.click(open);
   expect(showSource).toHaveBeenCalledWith(target, open);
   setState({...state(),decisions:[]});
