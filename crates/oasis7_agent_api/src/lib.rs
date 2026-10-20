@@ -10,6 +10,7 @@
 
 mod cognition;
 pub mod game;
+pub mod identity;
 mod provider;
 mod runtime;
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createPasskeyAccountClient } from "./viewer_passkey_account_module.js";
 import { webcrypto } from "node:crypto";
+import identityVectors from "../../oasis7_agent_api/tests/fixtures/native_identity_v1.json";
 import { importAccountKey, nativeSigningBytes, renderImportedKey } from "./viewer_imported_key.js";
 const seed = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const pub = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
@@ -13,6 +14,12 @@ function challenge() {
   return { ceremony_id:id, operation_id:id, expires_at:options.expires_at, options };
 }
 describe("imported account keys", () => {
+  it("matches shared identity vectors including UTF-8 and reserved registration bytes", () => {
+    for (const vector of identityVectors) {
+      const options = { ...vector, nonce:encode(Buffer.from(vector.nonce_hex, "hex")) };
+      expect(Buffer.from(nativeSigningBytes(options)).toString("hex")).toBe(vector.signed_bytes_hex);
+    }
+  });
   it("matches the backend protocol vector", () => {
     expect(encode(nativeSigningBytes({ ...capability, audience:"https://localhost", purpose:"login", account_context:"", operation_id:"op", public_key:"01".repeat(32), nonce:encode(new Uint8Array(32).fill(2)), issued_at:100, expires_at:120100 }))).toBe("b2FzaXM3LmlkZW50aXR5Lm5hdGl2ZS52MQABAAAAC25hdGl2ZS10ZXN0AAAABHRlc3QAAAARaHR0cHM6Ly9sb2NhbGhvc3QAAAAFbG9naW4AAAAAAAAAAm9wAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgAAAAAAAABkAAAAAAAB1SQ");
   });

@@ -39,26 +39,31 @@ fn message(
     nonce: &[u8],
     now: u64,
     expires: u64,
-) -> Vec<u8> {
-    let mut out = b"oasis7.identity.native.v1\0".to_vec();
-    out.push(1);
-    for value in [
-        config.namespace.identity_service_id.as_str(),
-        config.namespace.environment_id.as_str(),
+) -> Result<Vec<u8>, StoreError> {
+    use oasis7_agent_api::identity::{NativeIdentityChallengeV1, NativeIdentityPurposeV1};
+    let purpose = match purpose {
+        "login" => NativeIdentityPurposeV1::Login,
+        "bind" => NativeIdentityPurposeV1::Bind,
+        "reauth" => NativeIdentityPurposeV1::Reauthenticate,
+        // Registration remains disabled at this legacy imported-key entry.
+        _ => return Err(reject("invalid_request")),
+    };
+    NativeIdentityChallengeV1 {
+        identity_service_id: &config.namespace.identity_service_id,
+        environment_id: &config.namespace.environment_id,
         audience,
         purpose,
-        account,
-        id,
-    ] {
-        out.extend_from_slice(&(value.len() as u32).to_be_bytes());
-        out.extend_from_slice(value.as_bytes());
+        account_context: account,
+        operation_id: id,
+        public_key: key,
+        nonce: nonce.try_into().map_err(|_| StoreError::Corrupt)?,
+        issued_at: now,
+        expires_at: expires,
     }
-    out.extend_from_slice(key);
-    out.extend_from_slice(nonce);
-    out.extend_from_slice(&now.to_be_bytes());
-    out.extend_from_slice(&expires.to_be_bytes());
-    out
+    .signing_bytes()
+    .map_err(|_| reject("invalid_request"))
 }
+
 fn pending_action(
     tx: &super::store::IdentityTransaction<'_>,
     id: &str,
@@ -173,7 +178,7 @@ impl IdentityService {
                 .map_err(|_| StoreError::Corrupt)?,
             now,
             expires,
-        );
+        )?;
         let options = json!({"identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id,"audience":origin,"purpose":purpose,"account_context":account.as_deref().unwrap_or(""),"operation_id":id,"public_key":p["public_key"].as_str().unwrap().to_ascii_lowercase(),"nonce":nonce,"issued_at":now,"expires_at":expires,"signed_bytes":URL_SAFE_NO_PAD.encode(bytes)});
         let ceremony = CeremonyRecord {
             ceremony_id: id.clone(),
