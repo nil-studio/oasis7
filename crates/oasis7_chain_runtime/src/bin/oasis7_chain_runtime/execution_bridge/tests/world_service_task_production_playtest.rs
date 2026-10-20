@@ -168,9 +168,7 @@ fn fixture_mode(
             0,
         )
         .unwrap();
-    world
-        .install_test_provider_capability_fixture_without_cognition_balance("agent-a")
-        .unwrap();
+    world_rule_identity::install_provider_fixture(&mut world, world_rule);
     if verified_authority {
         assert!(world.promote_cognition_runtime_finality().unwrap());
     }
