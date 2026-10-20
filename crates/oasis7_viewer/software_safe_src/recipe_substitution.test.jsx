@@ -40,4 +40,12 @@ describe("canonical substitution read surface", () => {
     expect(screen.getByText(/Actual conversion settled/).textContent).toContain("settlement-1");
     expect(screen.getByText(/Actual conversion settled/).textContent).toContain("Unpublished / 2"); cleanup();
   });
+  it("separates new recipe scheduling power from conversion power", () => {
+    const model = normalizeRecipeSubstitution({ previews: [{status:"available",candidates:[{kind:"new_recipe",authority:{target_recipe:"new-recipe",power_cost:0,terminal_capacity:100},recipe_plan:{consume:[],produce:[],power_required:4}}]}] });
+    render(() => <RecipeSubstitutionPanel model={model} locale="en" />);
+    expect(screen.getByText(/New recipe inputs \/ outputs \/ power/).textContent).toContain("4");
+    expect(screen.getByText("Terminal capacity: 100")).toBeTruthy();
+    expect(screen.queryByText(/Conversion power/)).toBeNull(); cleanup();
+  });
+
 });

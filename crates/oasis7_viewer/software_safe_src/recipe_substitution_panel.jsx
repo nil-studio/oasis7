@@ -20,7 +20,7 @@ export function RecipeSubstitutionPanel(props) {
         <p>{tr("比例 / 取整", "Ratio / rounding")}: {n(candidate.ratioNumerator)} / {n(candidate.ratioDenominator)} · {candidate.rounding === "exact" ? tr("精确", "Exact") : candidate.rounding === "ceil" ? tr("向上取整", "Round up") : missing()}</p>
         <p>{tr("损耗 / 残余", "Loss / residual")}: {n(candidate.loss)} / {n(candidate.residualNumerator)} ÷ {n(candidate.residualDenominator)}</p>
         </Show>
-        <p>{tr("用电 / 终端容量", "Power / terminal capacity")}: {n(candidate.power)} / {n(candidate.terminal)}</p>
+        <Show when={candidate.kind !== "new_recipe"} fallback={<p>{tr("终端容量", "Terminal capacity")}: {n(candidate.terminal)}</p>}><p>{tr("转换用电 / 终端容量", "Conversion power / terminal capacity")}: {n(candidate.power)} / {n(candidate.terminal)}</p></Show>
         <p>{tr("物流 / 缓冲 / 价值依据", "Logistics / buffer / value basis")}: {candidate.logistics || missing()} / {candidate.buffer || missing()} / {candidate.valueClass || missing()}</p>
         <p>{tr("声明估值：已持有 / 已消费 / 预期产出", "Declared value: held / consumed / expected output")}: {n(candidate.valuation?.held)} / {n(candidate.valuation?.consumed)} / {n(candidate.valuation?.expected)} {candidate.valuation?.unit || missing()}</p>
         <p>{tr("已声明风险", "Declared risks")}: {candidate.risks?.join(" · ") || missing()}</p>
