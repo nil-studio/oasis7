@@ -1,5 +1,5 @@
 //! Untrusted public proof cache, never a source of external authority pins.
-use oasis7::world_service::projection::WorldServiceProjection;
+use oasis7_world_projection::WorldServiceProjection;
 use oasis7_client_api::world_service::{FormalReadCursorBundleV1, MAX_FORMAL_CURSOR_BYTES};
 #[cfg(unix)]
 use std::io::Write;

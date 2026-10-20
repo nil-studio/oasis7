@@ -8,7 +8,7 @@ use oasis7_node::{
 };
 use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,
-    Snapshot as RuntimeSnapshot, World as RuntimeWorld, blake3_hex,
+    World as RuntimeWorld, blake3_hex,
 };
 use serde::{Deserialize, Serialize};
 
@@ -641,7 +641,7 @@ pub(super) fn install_checkpoint_bundle(
     let snapshot_bytes_len = snapshot_bytes.len();
     let snapshot_decode_started_at = Instant::now();
     let snapshot =
-        serde_cbor::from_slice::<RuntimeSnapshot>(snapshot_bytes.as_slice()).map_err(|err| {
+        oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes.as_slice()).map_err(|err| {
             format!(
                 "decode execution checkpoint snapshot failed at height {}: {err}",
                 context.height

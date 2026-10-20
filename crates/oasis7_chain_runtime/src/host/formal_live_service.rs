@@ -628,7 +628,7 @@ impl FormalLiveService {
         &self,
         signed: &SignedReadRequest<ReadWorldViewRequest>,
     ) -> Result<
-        ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+        ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
         String,
     > {
         self.read_view_with_publication(signed)
@@ -643,7 +643,7 @@ impl FormalLiveService {
         signed: &SignedReadRequest<ReadWorldViewRequest>,
     ) -> Result<
         (
-            ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+            ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
             FormalReadPublication,
         ),
         String,
@@ -776,7 +776,8 @@ impl FormalLiveService {
                 let live_response = live_service.read(&live_probe, &target, &target_to_live)?;
                 let mut verifier =
                     FormalReadVerifier::new(&self.trust.initial_trust, target_anchor.clone())?;
-                verifier.verify_view(
+                oasis7_world_projection::formal_read::verify_view(
+                    &mut verifier,
                     &live_response,
                     &live_probe.request,
                     &live_probe.subject_public_key,

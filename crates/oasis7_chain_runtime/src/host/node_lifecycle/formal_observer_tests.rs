@@ -71,7 +71,7 @@ fn read_http_request(stream: &mut std::net::TcpStream) -> SignedReadRequest<Read
 fn write_signed_response(
     stream: &mut std::net::TcpStream,
     signed_request: &SignedReadRequest<ReadWorldViewRequest>,
-    payload: ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+    payload: ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
 ) {
     let digest = authority::request_digest("/v1/world/view", signed_request).unwrap();
     let signed_reply =
@@ -248,7 +248,7 @@ fn restart_does_not_reuse_persisted_head_when_formal_history_is_unavailable() {
     let mut stale = status(&instance(1));
     stale.last_verified_commit = Some(commit_ref(
         &anchor,
-        &oasis7::world_service::projection::WorldServiceProjection::from_formal_committed_world(
+        &oasis7::world_service::projection::from_formal_committed_world(
             &world,
             None,
             &public(8),

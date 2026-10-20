@@ -45,7 +45,7 @@ fn validate(
         .get_verified(&boundary.journal_ref)
         .map_err(|error| format!("service setup journal CAS: {error:?}"))?;
     let snapshot: Snapshot =
-        serde_cbor::from_slice(&snapshot_bytes).map_err(|error| error.to_string())?;
+        oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes).map_err(|error| error.to_string())?;
     let journal: Journal =
         serde_cbor::from_slice(&journal_bytes).map_err(|error| error.to_string())?;
     if blake3_hex(&snapshot_bytes) != boundary.execution_state_root

@@ -142,13 +142,13 @@ mod module_release_publication;
 mod module_routing_runtime;
 mod module_runtime;
 mod module_runtime_labels;
-mod organization_activity_lifecycle;
-mod organization_continuity_lifecycle;
 mod module_runtime_metering;
 mod module_runtime_publication;
 mod module_tick_runtime;
 mod observer_identity;
 mod operability_release_gate;
+mod organization_activity_lifecycle;
+mod organization_continuity_lifecycle;
 mod persistence;
 mod prepared_base_head;
 mod provider_backed_bootstrap;
@@ -239,10 +239,6 @@ use serde_json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::{cell::RefCell, path::PathBuf, sync::Arc};
 
-const DEFAULT_MAX_PENDING_ACTIONS: usize = 8_192;
-const DEFAULT_MAX_PENDING_EFFECTS: usize = 8_192;
-const DEFAULT_MAX_INFLIGHT_EFFECTS: usize = 8_192;
-const DEFAULT_MAX_JOURNAL_EVENTS: usize = 65_536;
 pub(super) const BUILTIN_MODULE_SIGNER_NODE_ID: &str = "builtin.module.release.signer";
 pub(super) const BUILTIN_MODULE_SIGNER_PUBLIC_KEY_HEX: &str =
     "4b97aa20b3abd613401d4f5778eab8b6c019bd2ea912d1ce2234868536389ebb";
@@ -260,33 +256,7 @@ fn default_tick_consensus_authority_source() -> String {
     BUILTIN_MODULE_SIGNER_NODE_ID.to_string()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorldRuntimeMemoryLimits {
-    pub max_pending_actions: usize,
-    pub max_pending_effects: usize,
-    pub max_inflight_effects: usize,
-    pub max_journal_events: usize,
-}
-
-impl Default for WorldRuntimeMemoryLimits {
-    fn default() -> Self {
-        Self {
-            max_pending_actions: DEFAULT_MAX_PENDING_ACTIONS,
-            max_pending_effects: DEFAULT_MAX_PENDING_EFFECTS,
-            max_inflight_effects: DEFAULT_MAX_INFLIGHT_EFFECTS,
-            max_journal_events: DEFAULT_MAX_JOURNAL_EVENTS,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorldRuntimeBackpressureStats {
-    pub pending_actions_evicted: u64,
-    pub pending_effects_evicted: u64,
-    pub inflight_effects_evicted: u64,
-    pub inflight_effect_dispatch_blocked: u64,
-    pub journal_events_evicted: u64,
-}
+pub use oasis7_world_state::world::runtime_values::*;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogisticsSlaMetrics {
@@ -1184,8 +1154,6 @@ mod world_rule_lifecycle;
 
 mod industrial_control;
 pub use industrial_control::ResolvedAgentOwnerV1;
-
-pub(crate) use event_processing::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};
 
 mod industrial_completion;
 pub mod safe_alternative;

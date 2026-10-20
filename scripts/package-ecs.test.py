@@ -41,15 +41,15 @@ class PackageTests(unittest.TestCase):
                         shutil.copyfile(ROOT / "scripts/package-ecs-resource-monitor.py", monitor)
                     result = subprocess.run(
                         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
-                        cwd=root, env=dict(os.environ, CARGO_BUILD_JOBS="2"),
+                        cwd=root, env=dict(os.environ, CARGO_BUILD_JOBS="2", RUNNER_TEMP=str(root / "runner-temp")),
                         text=True, capture_output=True, timeout=10,
                     )
                     self.assertEqual(result.returncode, build_status, result.stdout + result.stderr)
-                    self.assertTrue((root / "target/cargo-timings/ecs-time.txt").is_file())
+                    self.assertTrue((root / "runner-temp/ecs-reports/ecs-time.txt").is_file())
                     if monitor_fails:
                         self.assertIn("::warning::ECS resource monitor", result.stdout)
                     else:
-                        report = json.loads((root / "target/cargo-timings/ecs-resources.json").read_text())
+                        report = json.loads((root / "runner-temp/ecs-reports/ecs-resources.json").read_text())
                         self.assertTrue(report["complete"])
 
     def test_build_assembly_and_rejection(self):

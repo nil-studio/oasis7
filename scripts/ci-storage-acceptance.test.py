@@ -127,7 +127,7 @@ class Contracts(unittest.TestCase):
         storage = acceptance.artifacts.build_variants('storage')
         self.assertEqual(storage[:-1], formal)
         self.assertEqual(storage[-1][0], 'storage-libs')
-        for package in ('oasis7_cas', 'oasis7_formal_protocol', 'oasis7_runtime', 'oasis7_world_service'):
+        for package in ('oasis7_cas', 'oasis7_formal_protocol', 'oasis7_runtime', 'oasis7_world_service', 'oasis7_world_state', 'oasis7_world_projection'):
             self.assertIn(package, storage[-1][1])
 
     def test_units_are_nonempty_actual_tests_and_exclude_ignored(self):

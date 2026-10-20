@@ -247,7 +247,7 @@ fn formal_validator_watch_disconnect_proof_cursor_restart_rejects_replay_and_old
     // Saved content is untrusted: repeating/reordering valid frames or changing
     // the final binding cannot seed a fresh client or produce CLI observations.
     let complete: FormalReadCursorBundleV1<
-        oasis7::world_service::projection::WorldServiceProjection,
+        oasis7_world_projection::WorldServiceProjection,
     > = serde_json::from_value(resumed_output[0]["formal_cursor"].clone()).unwrap();
     let mut repeated = saved.clone();
     repeated.frames.push(saved.frames[0].clone());

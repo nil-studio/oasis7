@@ -545,11 +545,11 @@ impl FormalFullSyncSession {
         if blake3::hash(snapshot_bytes).to_hex().as_str() != cut.after_state_root {
             return Err("full-sync Snapshot does not match qualified after_state_root".into());
         }
-        let snapshot: Snapshot = serde_cbor::from_slice(snapshot_bytes)
+        let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes)
             .map_err(|error| format!("full-sync Snapshot decode: {error}"))?;
         let journal: Journal = serde_cbor::from_slice(journal_bytes)
             .map_err(|error| format!("full-sync Journal decode: {error}"))?;
-        if serde_cbor::to_vec(&snapshot).map_err(|error| error.to_string())? != snapshot_bytes
+        if oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|error| error.to_string())? != snapshot_bytes
             || serde_cbor::to_vec(&journal).map_err(|error| error.to_string())? != journal_bytes
         {
             return Err("full-sync Snapshot or Journal is not canonical CBOR".into());
@@ -580,7 +580,7 @@ impl FormalFullSyncSession {
             snapshot, journal, parent, reader,
         )
         .map_err(|error| format!("full-sync cold restore: {error:?}"))?;
-        let restored_bytes = serde_cbor::to_vec(&world.snapshot())
+        let restored_bytes = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
             .map_err(|error| format!("full-sync restored Snapshot encode: {error}"))?;
         if blake3::hash(&restored_bytes).to_hex().as_str() != cut.after_state_root {
             return Err("cold-restored World differs from qualified after_state_root".into());

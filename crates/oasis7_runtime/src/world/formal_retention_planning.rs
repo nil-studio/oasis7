@@ -12,7 +12,8 @@ pub(crate) fn prepare_world_retention_candidate(
     reader: &impl BusinessIndexNodeReader,
 ) -> Result<FormalWorldRetentionPlanV1, String> {
     parent.root().validate()?;
-    let candidate_snapshot = serde_cbor::to_vec(&world.snapshot()).map_err(|e| e.to_string())?;
+    let candidate_snapshot =
+        oasis7_world_state::codec::snapshot_cbor(&world.snapshot()).map_err(|e| e.to_string())?;
     parent.verify_inherited_descriptor(&candidate_snapshot)?;
 
     let mut staged = BTreeMap::<String, RetainedHistoryLeafV1>::new();

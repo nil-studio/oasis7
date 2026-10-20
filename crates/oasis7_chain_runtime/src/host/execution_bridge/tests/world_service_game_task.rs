@@ -71,14 +71,14 @@ fn game_task_driver_dedup_restart_and_owner_projection() {
             .created_operation_id,
         "first"
     );
-    let projection = projection::WorldServiceProjection::from_authenticated_world(
+    let projection = projection::from_authenticated_world(
         &restarted.execution_world,
         Some("agent-a"),
         &public,
     )
     .unwrap();
     assert!(projection.game_task_control.is_some());
-    let delegated = projection::WorldServiceProjection::from_authenticated_world(
+    let delegated = projection::from_authenticated_world(
         &restarted.execution_world,
         Some("agent-a"),
         "different-key",

@@ -1,0 +1,416 @@
+{
+  "events": [
+    {
+      "id": 1,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "CapabilityAuthorization",
+        "payload": {
+          "type": "AgentIdentityInstalled",
+          "data": {
+            "agent_id": "7",
+            "identity": {
+              "owner_binding": "owner",
+              "generation": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "Governance",
+        "payload": {
+          "type": "FinalityEpochSnapshotSet",
+          "data": {
+            "snapshot": {
+              "epoch_id": 0,
+              "threshold_bps": 10000,
+              "min_unique_signers": 2,
+              "validator_set_hash": "fa81725ebf51b8081e4b14758ba77248df59462277b19a3ebd5b365fb809107f",
+              "stake_root": "092ac8af5d941621e9f1bf3234470ed5a03c03e23e6ee216c118e359874cb36d",
+              "threshold": 2,
+              "signer_node_ids": [
+                "governance.local.finality.signer.1",
+                "governance.local.finality.signer.2"
+              ],
+              "validator_stakes": {
+                "governance.local.finality.signer.1": 100,
+                "governance.local.finality.signer.2": 100
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "Governance",
+        "payload": {
+          "type": "Proposed",
+          "data": {
+            "proposal_id": 1,
+            "author": "runtime-test-fixture",
+            "base_manifest_hash": "cd30451bf6b068a2875701c43fb9b46e193ea2668c3da8a36a1bddbbada5e9cf",
+            "manifest": {
+              "version": 2,
+              "content": {
+                "runtime_provider_capability_fixture": true
+              }
+            },
+            "patch": null
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "Governance",
+        "payload": {
+          "type": "ShadowReport",
+          "data": {
+            "proposal_id": 1,
+            "manifest_hash": "b592c47ce08f3444587cc432415e2b16c5e17a61ad51d7c6c17a2b1caf398e72"
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "Governance",
+        "payload": {
+          "type": "Approved",
+          "data": {
+            "proposal_id": 1,
+            "approver": "runtime-test-fixture",
+            "decision": {
+              "decision": "Approve"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "Governance",
+        "payload": {
+          "type": "Queued",
+          "data": {
+            "proposal_id": 1,
+            "manifest_hash": "b592c47ce08f3444587cc432415e2b16c5e17a61ad51d7c6c17a2b1caf398e72",
+            "queued_at_tick": 1,
+            "not_before_tick": 1,
+            "activate_epoch": 0,
+            "timelock_ticks": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "CapabilityAuthorization",
+        "payload": {
+          "type": "AuthorityInstalledWithProof",
+          "data": {
+            "record": {
+              "issuer_id": "governance.local.finality.signer.1",
+              "issuer_kind": "governance",
+              "key_id": "governance-local-finality-key-1",
+              "public_key_hex": "322b12d3206a78a2996d93fc72e8c5fbe61e4546f018f0b26602fb823d1dcc56",
+              "issuer_key_epoch": 1,
+              "governance_epoch": 0,
+              "finalized_receipt_id": "runtime-test-authority:read-world:main:0",
+              "authority_rotation_receipt_id": null,
+              "world_id": "read-world",
+              "branch_id": "main",
+              "finality_epoch": 0,
+              "finality_block_hash": "runtime-test-finality-block:0",
+              "finality_status": "finalized",
+              "revocation_epoch": 0,
+              "revoked_grant_ids": [],
+              "superseded_by": {}
+            },
+            "proof": {
+              "proof_version": 1,
+              "certificate": {
+                "proposal_id": 1,
+                "manifest_hash": "b592c47ce08f3444587cc432415e2b16c5e17a61ad51d7c6c17a2b1caf398e72",
+                "consensus_height": 7,
+                "epoch_id": 0,
+                "validator_set_hash": "fa81725ebf51b8081e4b14758ba77248df59462277b19a3ebd5b365fb809107f",
+                "stake_root": "092ac8af5d941621e9f1bf3234470ed5a03c03e23e6ee216c118e359874cb36d",
+                "threshold_bps": 10000,
+                "min_unique_signers": 2,
+                "threshold": 2,
+                "signatures": {
+                  "governance.local.finality.signer.1": "govsig:ed25519:v1:3b4c60bc2b96b76eb778199965a3b087e8c33df7bca9b5b79603a6c5eae274cc2bcbc22d9bf481dc957059e5c6072c66e4de1993c5428adabda1cea217f13504",
+                  "governance.local.finality.signer.2": "govsig:ed25519:v1:ca1517a958e5eab824c275a6c3bd0e42b9234120ab54fcb92d5746f605a425a13cc73be49cb9bb0547410bc3c5b372a9c737bf45deefd6e5ba986d63c747bc0b"
+                }
+              },
+              "binding": {
+                "authority_record_hash": "a2e8524e52c17777783d4b38d3022a6a96cbcb16b0d6cc486e0a29a38f700b49",
+                "issuer_id": "governance.local.finality.signer.1",
+                "issuer_kind": "governance",
+                "key_id": "governance-local-finality-key-1",
+                "issuer_public_key_hex": "322b12d3206a78a2996d93fc72e8c5fbe61e4546f018f0b26602fb823d1dcc56",
+                "issuer_key_epoch": 1,
+                "governance_epoch": 0,
+                "finalized_receipt_id": "runtime-test-authority:read-world:main:0",
+                "authority_rotation_receipt_id": null,
+                "world_id": "read-world",
+                "branch_id": "main",
+                "finality_epoch": 0,
+                "finality_block_hash": "runtime-test-finality-block:0",
+                "finality_status": "finalized"
+              },
+              "signatures": {
+                "governance.local.finality.signer.1": "capauthsig:ed25519:v1:8ff1356d04f57a02ae130ab603520a6fefb30360d71c4fc5203c400209d307c771450e7d1baa8937554e982ef1c820c23289b8cd0ed407e670ae4227880fe00c",
+                "governance.local.finality.signer.2": "capauthsig:ed25519:v1:23e653821145dc1d8ed9dcda7fb63d3eac22d76310866e02f5960c6789a53322d0ef789c1d048e642e17a69835b4eca1c71076075d6ba1bda3110c96393eab0d"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "ModuleEvent",
+        "payload": {
+          "proposal_id": 0,
+          "type": "RegisterModule",
+          "data": {
+            "module": {
+              "module_id": "module.runtime.provider-fixture",
+              "name": "Runtime provider capability fixture",
+              "version": "1.0.0",
+              "kind": "pure",
+              "role": "agent_internal",
+              "wasm_hash": "d794dc476ae52ee4ca78f9ee1662b6f384a5185124db90495f6a64ee579ff4a3",
+              "interface_version": "wasm-1",
+              "exports": [
+                "call"
+              ],
+              "subscriptions": [],
+              "required_caps": [],
+              "abi_contract": {
+                "cap_slots": {},
+                "policy_hooks": [],
+                "declarations": {
+                  "commands": [
+                    {
+                      "namespace": "provider",
+                      "name": "observe",
+                      "schema_version": 1,
+                      "schema_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                      "max_payload_bytes": 1024
+                    }
+                  ]
+                }
+              },
+              "artifact_identity": {
+                "source_hash": "f85e7305a88f76d70e7cd123de9b011266a87f224e1b7a7694859f1596348d8f",
+                "build_manifest_hash": "3b062c3c0021394a293dc5b6d1510aeeddd4d67e321d349d6d9c2680c832ebae",
+                "signer_node_id": "governance.local.finality.signer.1",
+                "signature_scheme": "ed25519",
+                "artifact_signature": "modsig:ed25519:v1:400a0bf9c4a3f2d459bcaa3813993a7ce645e449ccc386a484132020c82a96c7f7d860034f245ac17ab6759f5307a7103201faf42dcf25dd550b437bcfcc660f"
+              },
+              "limits": {
+                "max_mem_bytes": 65536,
+                "max_gas": 100000,
+                "max_call_rate": 100,
+                "max_output_bytes": 4096,
+                "max_effects": 4,
+                "max_emits": 4
+              }
+            },
+            "registered_by": "runtime-test-fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "ModuleEvent",
+        "payload": {
+          "proposal_id": 0,
+          "type": "ActivateModule",
+          "data": {
+            "module_id": "module.runtime.provider-fixture",
+            "version": "1.0.0",
+            "activated_by": "runtime-test-fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "CapabilityAuthorization",
+        "payload": {
+          "type": "GrantRegistered",
+          "data": {
+            "grant": {
+              "grant_id": "3f3c315ce3066c93b82bed6874e2bb2a8bde3688338ba5375f8cfde7b9cbd373",
+              "grant_version": 2,
+              "subject": {
+                "kind": "agent",
+                "agent_id": "7",
+                "owner_binding": "owner",
+                "generation": 1
+              },
+              "audience": {
+                "world_id": "read-world",
+                "branch_id": "main",
+                "finality_epoch": 0,
+                "target_kind": "world"
+              },
+              "issuer": {
+                "issuer_id": "governance.local.finality.signer.1",
+                "issuer_kind": "governance",
+                "governance_epoch": 0,
+                "finalized_receipt_id": "runtime-test-authority:read-world:main:0",
+                "key_id": "governance-local-finality-key-1",
+                "issuer_key_epoch": 1,
+                "signature": "ed25519:62b3c762748f17f1880cd0c3aa3f2bba73f8ef3824a27bb36a7e23d0d3a598544882a5a7ace344edd5a9906465c4e7f9162e41279e62e253944b499a80b27f0b"
+              },
+              "scope": {
+                "module_id": "module.runtime.provider-fixture",
+                "module_version": "1.0.0",
+                "namespace": "provider",
+                "object_kind": "command",
+                "object_name": "observe",
+                "operation": "execute",
+                "max_payload_bytes": 1024,
+                "policy_class": "read-only"
+              },
+              "issued_at_tick": 1,
+              "expires_at_tick": 101,
+              "grant_nonce": "runtime-test-provider:7:main:0",
+              "delegation_depth": 0,
+              "revocation_epoch": 0,
+              "status": "verified",
+              "canonical_body_hash": "3f3c315ce3066c93b82bed6874e2bb2a8bde3688338ba5375f8cfde7b9cbd373",
+              "issuance_signature": "ed25519:62b3c762748f17f1880cd0c3aa3f2bba73f8ef3824a27bb36a7e23d0d3a598544882a5a7ace344edd5a9906465c4e7f9162e41279e62e253944b499a80b27f0b"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "CapabilityAuthorization",
+        "payload": {
+          "type": "InvocationContextInstalled",
+          "data": {
+            "key": "35143b457bf309cb1772b08951afabdd2da0827ebab947372a38838b24dcb2f4",
+            "context": {
+              "grant_id": "3f3c315ce3066c93b82bed6874e2bb2a8bde3688338ba5375f8cfde7b9cbd373",
+              "subject": {
+                "kind": "agent",
+                "agent_id": "7",
+                "owner_binding": "owner",
+                "generation": 1
+              },
+              "presenter": {
+                "presenter_id": "runtime-test-provider:7",
+                "presenter_kind": "provider",
+                "session_id": "runtime-test-session:7"
+              },
+              "audience": {
+                "world_id": "read-world",
+                "branch_id": "main",
+                "finality_epoch": 0,
+                "target_kind": "world"
+              },
+              "catalog_snapshot_id": "898adce670bcd0e94a13cc64b10874dc83e9cc77a04f9af9a0707f82ce414406",
+              "module_id": "module.runtime.provider-fixture",
+              "module_version": "1.0.0",
+              "response_nonce": "runtime-test-response:7"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "time": 1,
+      "caused_by": null,
+      "body": {
+        "kind": "CapabilityAuthorization",
+        "payload": {
+          "type": "AgentSignerDelegationInstalled",
+          "data": {
+            "signed": {
+              "request": {
+                "world_id": "read-world",
+                "branch_id": "main",
+                "agent_id": "7",
+                "owner_binding": "owner",
+                "agent_identity_generation": 1,
+                "generation": 1,
+                "delegate_public_key": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+                "revoked": false,
+                "nonce": 1
+              },
+              "subject_public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "signature_hex": "2e432cd53c525a825f35746c9377ac9fae26f9c5fa9732675f78c18257983071d9f0419d365253346725ed82a20e3c584163b2c7ae1e342a1891b663170d9c03"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "time": 2,
+      "caused_by": {
+        "type": "Action",
+        "data": 1
+      },
+      "body": {
+        "kind": "Domain",
+        "payload": {
+          "type": "AgentRegistered",
+          "data": {
+            "registration_contract_version": 1,
+            "agent_id": "fixture-extra",
+            "pos": {
+              "x_cm": 3,
+              "y_cm": 5,
+              "z_cm": 7
+            }
+          }
+        }
+      }
+    }
+  ]
+}

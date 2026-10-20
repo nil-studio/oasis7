@@ -128,3 +128,30 @@ fn service_assertion(
         crate::verified_view::ReadEvidencePolicy::Ordinary,
     )
 }
+
+#[test]
+fn extracted_response_matches_pre_split_formal_response_golden_bytes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../oasis7_world_projection/fixtures");
+    let (world, _, anchor, _) = actual_world_initial_fixture();
+    let (_, response) = response(
+        &world,
+        &anchor,
+        FormalReadHistoryV1 {
+            schema_version: 1,
+            steps: vec![],
+        },
+    );
+    assert_eq!(
+        oasis7_world_projection::codec::response_to_json(&response).unwrap(),
+        std::fs::read(root.join("response.json")).unwrap()
+    );
+    assert_eq!(
+        oasis7_world_projection::codec::response_to_cbor(&response).unwrap(),
+        std::fs::read(root.join("response.cbor")).unwrap()
+    );
+    assert_eq!(
+        authority::signing_bytes("view", &response).unwrap(),
+        std::fs::read(root.join("response.signing")).unwrap()
+    );
+}

@@ -246,7 +246,7 @@ pub(super) fn verify_captured_response(
             let request: SignedReadRequest<ReadWorldViewRequest> =
                 serde_json::from_slice(body).unwrap();
             let signed: SignedServiceResponse<
-                ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+                ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
             > = serde_json::from_slice(payload).unwrap();
             oasis7::world_service::authority::verify_service_response(
                 path,

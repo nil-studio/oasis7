@@ -28,7 +28,7 @@ impl HostedResume {
     }
     fn validate_budget_projection(
         &self,
-        view: &crate::world_service::projection::WorldServiceProjection,
+        view: &oasis7_world_projection::WorldServiceProjection,
         terminal: bool,
     ) -> Result<AgentContinuation, String> {
         let request = &self.context.request_context;

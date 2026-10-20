@@ -1,0 +1,4 @@
+Generated from pre-extraction source 6da220a8217807ab53caac80b1a1c00672fbb6f7.
+World fixture: oasis7_world_service projection/read_contract_tests.rs populated_world(), followed by RegisterAgent("fixture-extra", GeoPos(3,5,7)) and world.step().
+Snapshot/Journal include nonempty journal events. JSON compact uses serde_json::to_vec; pretty uses Snapshot/Journal::to_json; CBOR uses serde_cbor::to_vec.
+Parsing these values is not recovery qualification.

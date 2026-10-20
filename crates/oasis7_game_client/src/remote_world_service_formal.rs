@@ -466,13 +466,13 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
         reader: &str,
     ) -> Result<VerifiedWorldView<P>, WorldServiceClientError> {
         let verified = if let Some(verifier) = &self.formal_read {
-            let observation = verifier
-                .lock()
-                .map_err(|_| {
+            let observation = {
+                let mut verifier = verifier.lock().map_err(|_| {
                     WorldServiceClientError::Assurance("formal verifier cache is poisoned".into())
-                })?
-                .verify_view(&response, request, reader)
-                .map_err(WorldServiceClientError::Assurance)?;
+                })?;
+                P::verify_response(&mut verifier, &response, request, reader)
+                    .map_err(WorldServiceClientError::Assurance)?
+            };
             VerifiedWorldView::new_formal_verified(response, request, observation)
         } else {
             VerifiedWorldView::new_with_evidence_policy(response, request, self.evidence_policy)

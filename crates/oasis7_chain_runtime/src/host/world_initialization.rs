@@ -427,7 +427,7 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
             .map_err(|error| format!("formal World snapshot budget: {error:?}"))?;
         World::validate_offline_cbor_budget(&journal_bytes, ObserverReadLimits::default())
             .map_err(|error| format!("formal World journal budget: {error:?}"))?;
-        let snapshot: Snapshot = serde_cbor::from_slice(&snapshot_bytes)
+        let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes)
             .map_err(|error| format!("formal World snapshot CBOR: {error}"))?;
         let journal: Journal = serde_cbor::from_slice(&journal_bytes)
             .map_err(|error| format!("formal World journal CBOR: {error}"))?;

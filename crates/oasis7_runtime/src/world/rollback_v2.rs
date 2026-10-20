@@ -85,7 +85,7 @@ impl World {
                 reason: "resolved replay suffix exceeds signed execution bounds".into(),
             });
         }
-        let checkpoint_hash = blake3::hash(&serde_json::to_vec(&snapshot)?)
+        let checkpoint_hash = blake3::hash(&oasis7_world_state::codec::snapshot_json(&snapshot)?)
             .to_hex()
             .to_string();
         let target_hash = blake3::hash(&serde_json::to_vec(&retained_target)?)

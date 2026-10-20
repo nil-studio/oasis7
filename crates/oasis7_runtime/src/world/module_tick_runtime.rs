@@ -14,39 +14,7 @@ use super::module_runtime_labels::{
 };
 use oasis7_agent_api::world_action::ModuleInstallTarget;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModuleTickRoutingDurationBuckets {
-    pub lt_1ms: u64,
-    pub ms_1_to_5: u64,
-    pub ms_5_to_25: u64,
-    pub ms_25_to_100: u64,
-    pub ge_100ms: u64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModuleTickRoutingMetricsSnapshot {
-    pub schedule_len: usize,
-    pub last_due_count: usize,
-    pub last_invoked_count: usize,
-    pub missing_invocation_count: u64,
-    pub last_missing_invocation_count: usize,
-    pub oldest_overdue_ticks: Option<u64>,
-    pub routing_count: u64,
-    pub last_route_duration_ms: u64,
-    pub max_route_duration_ms: u64,
-    pub cumulative_route_duration_ms: u64,
-    pub duration_buckets: ModuleTickRoutingDurationBuckets,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModuleTickRoutingDeterministicSnapshot {
-    pub last_due_count: usize,
-    pub last_invoked_count: usize,
-    pub missing_invocation_count: u64,
-    pub last_missing_invocation_count: usize,
-    pub oldest_overdue_ticks: Option<u64>,
-    pub routing_count: u64,
-}
+pub use oasis7_world_state::world::runtime_values::*;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ModuleTickRoutingMetrics {

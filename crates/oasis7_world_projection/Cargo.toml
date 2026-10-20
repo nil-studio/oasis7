@@ -1,0 +1,21 @@
+[package]
+name = "oasis7_world_projection"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+oasis7_world_state = { path = "../oasis7_world_state" }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+oasis7_client_api = { path = "../oasis7_client_api" }
+oasis7_proto = { path = "../oasis7_proto" }
+oasis7_game_client = { path = "../oasis7_game_client" }
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_cbor = "0.11"
+
+[features]
+default = []
+test_tier_required = []
+test_tier_full = ["test_tier_required"]

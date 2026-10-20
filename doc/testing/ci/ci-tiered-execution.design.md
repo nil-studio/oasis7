@@ -339,3 +339,11 @@ CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`te
 进程运行器使用单调绝对期限、20 秒存活心跳及独立进程所有权标识。Linux 扫描同 UID 环境标识并核对进程 starttime，清理包括脱离原进程组的自有后代；macOS 本地兼容使用独立进程组。退出码、超时、实际测试数、清理结果分别保存。摘要产物只含测试名和运行元数据；原输出通过 nocapture 进入 job 日志，不打包临时世界目录。
 
 验证方法见[测试手册](../../../testing-manual.md#ci-formal-process-validation)。具体候选、失败、独立评审及 hosted 结果归当前 PR，未完成真实 runner 验证不得宣称产物复用已验收。
+
+### ECS workspace artifact cache
+
+The fixed Linux native `ecs` profile uses a separate `ecs-workspace-v1` family. Reuse the complete Cargo unit/fingerprint and source content/mtime checks in `ci-test-artifacts.py`, without its Formal package list. Identity covers toolchain, target, profile, features, flags, Cargo configuration and manifest/lock/helper inputs. Immutable source keys have a separate compatible restore prefix. Only the current main workflow native writer saves after native success; consumers are read-only and saving does not depend on Web success.
+
+The staging logical-byte limit is 6 GiB, the remote main family compressed-byte budget is 12 GiB, and each compatible identity retains at most two generations. This entry point never deletes caches: unavailable full inventory, exhausted generations, or a conservative projected family size over budget skips saving. New payload logical bytes conservatively estimate the remote increment. This bounded policy can stop new generations until explicit maintenance, rather than claiming automatic rolling eviction.
+
+During source scanning all native staging, state, monitoring and reports live in runner temporary storage. Do not broadly exclude untracked or ignored inputs. Misses, corruption and unavailable cache services fall back to the original full build. Record cache-hit, Cargo unit Fresh/rebuilt, restore/save duration, bytes and final package identity independently. Successful trusted main producer and compatible consumer samples remain required remote evidence, obtained only after actual runs.

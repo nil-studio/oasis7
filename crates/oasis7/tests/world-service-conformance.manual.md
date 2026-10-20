@@ -26,7 +26,7 @@ After the coordinator releases the exclusive Cargo slot, run from the canonical 
 rtk proxy ./crates/oasis7/scripts/world-service-conformance.sh /tmp/pre2-world-service-conformance
 ```
 
-The runner uses `--no-default-features --features node-libp2p,test_tier_required`, matching the current runtime admission bundle, and the existing shared Cargo cache and records HEAD, the working candidate patch, full output, exit status and SHA-256 artifact digests. It requires Darwin `sandbox-exec`; unsupported platforms return 77 with `not_run`. It fails if the expected tests are absent, even when Cargo exits successfully. Read the complete log and inspect failure signatures before reporting a pass.
+The runner uses the Chain/Viewer bundle `--no-default-features --features node-libp2p,test_tier_required`, matching the current runtime admission bundle, and the existing shared Cargo cache and records HEAD, the working candidate patch, full output, exit status and SHA-256 artifact digests. It requires Darwin `sandbox-exec`; unsupported platforms return 77 with `not_run`. It fails if the expected tests are absent, even when Cargo exits successfully. Read the complete log and inspect failure signatures before reporting a pass.
 
 Ordinary Linux required CI also builds the actual `oasis7_viewer_live` executable, resolves its path from Cargo's artifact output, and supplies it to the unchanged complete required test command. The shared application test harness uses Landlock ABI3 or newer on Linux (including file truncation denial) and `sandbox-exec` on Darwin; unavailable isolation fails closed. Linux children independently require `PermissionDenied` when reading and truncating the existing Node identity file. System paths are read/execute only; only the private application directory permits mutation. The emitted sandbox digest describes the platform's actual policy, rather than relabeling the Darwin profile as Linux evidence. This ordinary CI coverage does not replace the separate no-mount B acceptance or establish real multinode C.
 
@@ -67,7 +67,7 @@ D3 configuration checks (not yet executed at this checkpoint):
 
 ```sh
 rtk proxy ./scripts/cargo-dev.sh test -p oasis7_viewer_runtime --bin oasis7_viewer_live --no-default-features --features node-libp2p,test_tier_required world_service_bootstrap -- --nocapture
-rtk proxy ./scripts/cargo-dev.sh test -p oasis7 --lib --no-default-features --features node-libp2p,test_tier_required agent_signer_requires_explicit_complete_valid_delegation_configuration -- --nocapture
+rtk proxy ./scripts/cargo-dev.sh test -p oasis7 --lib --no-default-features --features test_tier_required agent_signer_requires_explicit_complete_valid_delegation_configuration -- --nocapture
 ```
 
 These parser/assembly checks do not replace actual executable no-mount operation through live handlers. The shipped process reads explicit `OASIS7_WORLD_SERVICE_*` connection metadata and a distinct Agent signer/delegation configuration; no private values belong in reports.
@@ -132,7 +132,7 @@ Strict parser2, actual strict HTTP1 and raw privacy/world-identity2 all passed. 
 ### Focused Release, legacy nonce and error-privacy evidence (2026-10-08)
 
 These are bounded current-module results, not an aggregate A/B acceptance run.
-The canonical feature bundle remains `--no-default-features --features node-libp2p,test_tier_required`.
+The core canonical feature bundle is `--no-default-features --features test_tier_required`; Viewer and Chain network hosts additionally enable their own `node-libp2p` feature.
 
 | Requirement | Actual result | Evidence and scope |
 | --- | --- | --- |

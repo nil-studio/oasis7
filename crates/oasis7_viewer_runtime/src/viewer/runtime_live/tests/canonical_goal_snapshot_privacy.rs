@@ -125,14 +125,11 @@ fn canonical_goal_full_observer_public_snapshot_omits_raw_signed_input() {
         ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal))
             .unwrap();
     server.world = observer;
-    let owner_before = projection::WorldServiceProjection::from_authenticated_world(
-        &server.world,
-        Some("owner-agent"),
-        &public,
-    )
-    .unwrap()
-    .canonical_agent_chat
-    .unwrap();
+    let owner_before =
+        projection::from_authenticated_world(&server.world, Some("owner-agent"), &public)
+            .unwrap()
+            .canonical_agent_chat
+            .unwrap();
     let snapshot = server.compat_snapshot(None);
     assert!(
         !serde_json::to_string(&snapshot)
@@ -180,14 +177,11 @@ fn canonical_goal_full_observer_public_snapshot_omits_raw_signed_input() {
         serde_json::to_value(server.world.journal()).unwrap(),
         original_journal
     );
-    let owner_after = projection::WorldServiceProjection::from_authenticated_world(
-        &server.world,
-        Some("owner-agent"),
-        &public,
-    )
-    .unwrap()
-    .canonical_agent_chat
-    .unwrap();
+    let owner_after =
+        projection::from_authenticated_world(&server.world, Some("owner-agent"), &public)
+            .unwrap()
+            .canonical_agent_chat
+            .unwrap();
     assert_eq!(owner_before, owner_after);
     assert_eq!(
         owner_after.goal.unwrap().message,
@@ -274,7 +268,7 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
         fixed_commit: None,
         deadline_unix_ms: None,
     };
-    let mut projection = projection::WorldServiceProjection::from_world(&world, None).unwrap();
+    let mut projection = projection::from_world(&world, None).unwrap();
     projection.runtime_binding = None;
     let response = ReadWorldViewResponse {
         formal_profile: None,
@@ -529,7 +523,7 @@ fn canonical_goal_owner_browser_read_forwards_original_proof_and_isolates_sessio
 
 fn verified_fixture_assertion(
     response: oasis7_client_api::world_service::ReadWorldViewResponse<
-        crate::world_service::projection::WorldServiceProjection,
+        oasis7_world_projection::WorldServiceProjection,
     >,
     request: &oasis7_client_api::world_service::ReadWorldViewRequest,
 ) -> crate::world_service::verified_view::VerifiedWorldView {

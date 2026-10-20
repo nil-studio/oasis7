@@ -55,7 +55,7 @@ impl HostedResume {
     }
     fn validate_projection(
         &self,
-        projection: &crate::world_service::projection::WorldServiceProjection,
+        projection: &oasis7_world_projection::WorldServiceProjection,
         terminal: bool,
     ) -> Result<AgentContinuation, String> {
         let request = &self.context.request_context;

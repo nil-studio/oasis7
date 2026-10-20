@@ -62,7 +62,7 @@ pub mod world {
         snapshot: Snapshot,
         journal: Journal,
         parent: crate::runtime::VerifiedFormalRetainedHistoryParentV1,
-        reader: Arc<dyn oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>,
+        reader: Arc<dyn oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>,
     ) -> Result<World, WorldError> {
         World::from_verified_formal_snapshot(snapshot, journal, parent, reader)
             .map(install_runtime_capabilities)

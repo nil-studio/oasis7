@@ -1,7 +1,6 @@
 use super::*;
 use crate::world_service::{
     client::{WorldServiceAgentSignerConfig, WorldServiceClientConfig},
-    projection::WorldServiceProjection,
     wire::{FeedbackAckIntentV1, SchedulerOperationV1, WorldServicePayloadV1},
 };
 use oasis7_client_api::world_service::WorldIdentity;
@@ -91,7 +90,7 @@ fn configured_sidecar(
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     let binding = cognition.request.request_context.runtime_binding.clone();
     let mut projection =
-        WorldServiceProjection::from_world(&crate::runtime_host::world::new(), None)
+        oasis7::world_service::projection::from_world(&crate::runtime_host::world::new(), None)
             .expect("projection");
     projection.runtime_binding = Some(binding.clone());
     projection.scheduler_wakes = wakes;

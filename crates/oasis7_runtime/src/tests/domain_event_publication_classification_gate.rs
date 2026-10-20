@@ -1,9 +1,10 @@
 #[test]
 fn every_domain_event_has_an_explicit_fail_closed_publication_classification() {
-    let domain_source = include_str!("../events/domain_event.rs");
+    let domain_source = include_str!("../../../oasis7_world_state/src/events/domain_event.rs");
     let publication_source = include_str!("../world/event_processing/publication.rs");
     let delta_source = include_str!("../world/event_processing/prepared_state_delta.rs");
-    let core_source = include_str!("../state/core_policy_transition.rs");
+    let core_source =
+        include_str!("../../../oasis7_world_state/src/state/core_policy_transition.rs");
     let classifier = [publication_source, delta_source, core_source].concat();
 
     let enum_body = domain_source

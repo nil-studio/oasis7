@@ -26,12 +26,8 @@ struct TickEventHashInput<'a> {
     body: &'a WorldEventBody,
 }
 
-#[derive(Serialize)]
-pub(super) struct StateRootProjection<'a, T: ?Sized> {
-    pub(super) state: &'a T,
-    pub(super) manifest_hash: &'a str,
-    pub(super) policy_hash: &'a str,
-}
+pub(super) use oasis7_world_state::codec::StateRootProjection;
+use oasis7_world_state::codec::state_root_hash;
 
 impl World {
     pub fn latest_tick_consensus_record(&self) -> Option<&TickConsensusRecord> {
@@ -821,7 +817,7 @@ impl World {
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
         };
-        hash_json(&projection)
+        state_root_hash(&projection)
     }
 
     pub(super) fn state_root_hash_with_product_validation_delivery_cursor(
@@ -832,7 +828,7 @@ impl World {
         let policy_hash = hash_json(&self.policies)?;
         let state_projection = WorldStateProjection::borrowed(&self.state)
             .with_product_validation_delivery_cursor(cursor);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &state_projection,
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
@@ -852,7 +848,7 @@ impl World {
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
         };
-        hash_json(&projection)
+        state_root_hash(&projection)
     }
 
     pub(super) fn state_root_hash_with_command_and_module_visual_overlay(
@@ -873,7 +869,7 @@ impl World {
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
         };
-        hash_json(&projection)
+        state_root_hash(&projection)
     }
 
     pub(super) fn state_root_hash_with_module_visual_overlay(
@@ -892,7 +888,7 @@ impl World {
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
         };
-        hash_json(&projection)
+        state_root_hash(&projection)
     }
 
     pub(super) fn state_root_hash_with_module_instance_overlay(
@@ -918,7 +914,7 @@ impl World {
                 agents: &agents,
             })
             .with_module_instance_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &state_projection,
             manifest_hash,
             policy_hash: policy_hash.as_str(),
@@ -947,7 +943,7 @@ impl World {
         if let Some(instance) = instance {
             projection = projection.with_module_instance_overlay(instance);
         }
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash,
             policy_hash: &policy_hash,
@@ -969,7 +965,7 @@ impl World {
                 agents: &agents,
             })
             .with_agent_intent_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &policy_hash,
@@ -982,7 +978,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_economy_data_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -995,7 +991,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_economic_contract_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1008,7 +1004,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_alliance_war_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1021,7 +1017,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_governance_meta_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1034,7 +1030,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_power_redemption_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1047,7 +1043,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection = WorldStateProjection::borrowed(&self.state)
             .with_node_points_settlement_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1060,7 +1056,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_main_token_monetary_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1073,7 +1069,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection = WorldStateProjection::borrowed(&self.state)
             .with_main_token_governance_monetary_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1086,7 +1082,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection = WorldStateProjection::borrowed(&self.state)
             .with_main_token_restricted_claim_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1099,7 +1095,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_starter_oc_claim_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1112,7 +1108,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection = WorldStateProjection::borrowed(&self.state)
             .with_agent_claim_light_lifecycle_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1124,7 +1120,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_agent_claim_economic_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1137,7 +1133,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_agent_claim_terminal_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1150,7 +1146,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_industry_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -1172,7 +1168,7 @@ impl World {
                 agents: &agents,
             })
             .with_module_marketplace_overlay(market);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &manifest_hash,
             policy_hash: &policy_hash,

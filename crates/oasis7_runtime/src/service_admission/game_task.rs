@@ -76,7 +76,6 @@ pub fn validate_publish_owner(
     }
     Ok(())
 }
-pub(super) use oasis7_client_api::legacy_task_results::validate_result;
 #[derive(Clone)]
 struct ReducedTask {
     control: GameTaskControlV1,

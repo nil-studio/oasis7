@@ -254,7 +254,7 @@ pub(crate) fn actual_world_initial_fixture_with_execution_policy(
     (world, trust, anchor, proof)
 }
 pub(crate) fn projection(world: &World) -> WorldServiceProjection {
-    WorldServiceProjection::from_formal_committed_world(world, None, "").unwrap()
+    crate::projection::from_formal_committed_world(world, None, "").unwrap()
 }
 /// Actual restored World cuts with test-authority light envelopes. This helper
 /// does not exercise the production executor or certify endpoint key custody.

@@ -125,7 +125,7 @@ fn verify_record_payload(
     if oasis7_runtime::blake3_hex(&snapshot_bytes) != text(record, "execution_state_root")? {
         return Err("legacy record snapshot root mismatch".into());
     }
-    let snapshot = serde_cbor::from_slice(&snapshot_bytes).map_err(|e| e.to_string())?;
+    let snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes).map_err(|e| e.to_string())?;
     let journal = serde_cbor::from_slice(&payload(journal_ref)?).map_err(|e| e.to_string())?;
     let restored =
         oasis7_runtime::World::from_snapshot(snapshot, journal).map_err(|e| format!("{e:?}"))?;
@@ -226,7 +226,7 @@ pub(super) fn closure(
         return Err("legacy chain binding missing".into());
     }
     let snapshot_root =
-        oasis7_runtime::blake3_hex(&serde_cbor::to_vec(&snapshot).map_err(|e| e.to_string())?);
+        oasis7_runtime::blake3_hex(&oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|e| e.to_string())?);
     let state = read_json(&paths["--execution-bridge-state"])?;
     let height = state["last_applied_committed_height"]
         .as_u64()

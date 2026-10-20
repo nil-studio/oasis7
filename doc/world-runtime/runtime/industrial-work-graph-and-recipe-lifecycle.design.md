@@ -34,7 +34,7 @@
 | 对象 | 当前基线 | 目标 | 差距与证据 |
 | --- | --- | --- | --- |
 | 工作身份与扣减 | `RecipeJobState` 保存 job、recipe、输入/产物、账本、路径与 ready_at；普通任务真实扣料 | 持久 root/revision/child、join、窗口及终态 | [当前状态](../../../crates/oasis7_runtime/src/state.rs)仍不是工作图；不能把 `committed_recipe_origin` 当 recipe authority |
-| 原子 apply | recipe 与 transit 有局部 prepared transition 和单次完成检查 | 工作图、库存、容量、receipt 在同一事务提交 | [recipe reducer](../../../crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs)、[transit reducer](../../../crates/oasis7_runtime/src/state/industry_transition/material_transit.rs)是可复用子能力；[统一事务](../design.md#62-unified-executiontransaction-architecture-p0)总体仍 partial |
+| 原子 apply | recipe 与 transit 有局部 prepared transition 和单次完成检查 | 工作图、库存、容量、receipt 在同一事务提交 | [recipe reducer](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs)、[transit reducer](../../../crates/oasis7_world_state/src/state/industry_transition/material_transit.rs)是可复用子能力；[统一事务](../design.md#62-unified-executiontransaction-architecture-p0)总体仍 partial |
 | 配方生命周期 | `RecipeProfileV1` 为 recipe_id、tags、stage_gate、preferred_factory_tags 四字段 | 不可变版本 + 六状态 authority + 存量处置 | [当前 ABI](../../../crates/oasis7_wasm_abi/src/economy.rs)没有六状态；模块 release 与设施 retired 检查不能替代 |
 | 对外读取 | 现有普通 job/receipt 读取 | 授权工作图、held/consumed/unmet、窗口、处置及下一步 | 新 DTO、API/Viewer/Agent parity 与端到端恢复均待实现验证 |
 

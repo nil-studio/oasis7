@@ -19,7 +19,8 @@ pub struct FormalReadPublication {
 impl FormalReadPublication {
     pub fn new(anchor: VerifiedFormalReadAnchorV1, world: World) -> Result<Self, String> {
         let record = anchor.head().record();
-        let snapshot = serde_cbor::to_vec(&world.snapshot()).map_err(|e| e.to_string())?;
+        let snapshot = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
+            .map_err(|e| e.to_string())?;
         let manifest = &world.snapshot().chain_resource_manifest;
         if blake3_hex(&snapshot) != record.after_state_root
             || manifest.world_id != record.world.world_id
@@ -126,7 +127,7 @@ impl FormalReadPublication {
             agent_authority::validate_agent_signer(&self.world, agent, reader, generation)?;
             Some(agent)
         };
-        WorldServiceProjection::from_formal_committed_world(&self.world, agent, reader)
+        crate::projection::from_formal_committed_world(&self.world, agent, reader)
     }
     fn response(
         &self,
@@ -272,12 +273,22 @@ impl FormalCommittedReadService {
                 },
                 &origin.anchor,
             )?;
-            verifier.verify_view(&seed, &seed_request, &signed.subject_public_key)?;
+            crate::formal_read::verify_view(
+                &mut verifier,
+                &seed,
+                &seed_request,
+                &signed.subject_public_key,
+            )?;
         }
         let response =
             self.current
                 .response(request, &signed.subject_public_key, history, &origin.anchor)?;
-        let proved = verifier.verify_view(&response, request, &signed.subject_public_key)?;
+        let proved = crate::formal_read::verify_view(
+            &mut verifier,
+            &response,
+            request,
+            &signed.subject_public_key,
+        )?;
         if proved.commit().head() != self.current.anchor.head().head()
             || verifier.anchor_ref()?.active_authority_id
                 != self

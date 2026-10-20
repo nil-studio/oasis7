@@ -27,6 +27,7 @@ unicode-normalization = "0.1"
 toml = "0.9.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_world_projection = { path = "../oasis7_world_projection" }
 getrandom = "0.4"
 tungstenite = "0.30.0"
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
@@ -34,7 +35,7 @@ oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 
 [features]
 default = ["wasmtime", "node-libp2p"]
-node-libp2p = ["oasis7/node-libp2p"]
+node-libp2p = ["oasis7_node/libp2p"]
 wasmtime = ["oasis7/wasmtime"]
 viewer_live_integration = []
 test_tier_required = ["oasis7/test_tier_required"]

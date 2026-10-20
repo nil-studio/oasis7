@@ -93,8 +93,8 @@ fn assert_codec(projection: &WorldServiceProjection) -> WorldReadProjectionV1 {
 fn typed_legacy_and_independent_read_codecs_preserve_public_owner_delegate_commitments() {
     let world = populated_world();
     for agent in [None, Some("7")] {
-        let old = WorldServiceProjection::legacy_projection_from_world(&world, agent).unwrap();
-        let current = WorldServiceProjection::from_world(&world, agent).unwrap();
+        let old = crate::projection::legacy_projection_from_world(&world, agent).unwrap();
+        let current = crate::projection::from_world(&world, agent).unwrap();
         assert_eq!(
             serde_json::to_vec(&old).unwrap(),
             serde_json::to_vec(&current).unwrap()
@@ -117,7 +117,7 @@ fn typed_legacy_and_independent_read_codecs_preserve_public_owner_delegate_commi
             Some(id) => ProjectionAudienceV1::agent(id, reader.clone()).unwrap(),
         };
         let projection =
-            WorldServiceProjection::from_formal_committed_world(&world, agent, &reader).unwrap();
+            crate::projection::from_formal_committed_world(&world, agent, &reader).unwrap();
         let raw = assert_codec(&projection);
         let leaf = projection_leaf(&audience, &projection).unwrap();
         assert_eq!(leaf, projection_leaf(&audience, &raw).unwrap());
@@ -155,7 +155,7 @@ fn reader_keeps_current_claim_sequence_without_disclosing_terminal_tombstones() 
         .agent_claim_acquisition_sequences
         .insert("terminated-target".into(), 9);
     let world = World::new_with_state(state);
-    let projection = WorldServiceProjection::from_world(&world, Some("7")).unwrap();
+    let projection = crate::projection::from_world(&world, Some("7")).unwrap();
     assert_eq!(
         projection.state.agent_claim_acquisition_sequences.get("7"),
         Some(&3)
@@ -169,8 +169,38 @@ fn reader_keeps_current_claim_sequence_without_disclosing_terminal_tombstones() 
     assert_eq!(
         serde_json::to_value(&projection).unwrap(),
         serde_json::to_value(
-            WorldServiceProjection::legacy_projection_from_world(&world, Some("7")).unwrap()
+            crate::projection::legacy_projection_from_world(&world, Some("7")).unwrap()
         )
         .unwrap()
     );
+}
+
+#[test]
+fn extracted_projection_matches_pre_split_public_owner_delegate_golden_bytes() {
+    let world = populated_world();
+    for (name, scope, reader) in [
+        ("public", None, "".to_string()),
+        ("owner", Some("7"), public(7)),
+        ("delegate", Some("7"), public(8)),
+    ] {
+        let projection =
+            crate::projection::from_formal_committed_world(&world, scope, &reader).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../oasis7_world_projection/fixtures");
+        assert_eq!(
+            oasis7_world_projection::codec::projection_to_json(&projection).unwrap(),
+            std::fs::read(root.join(format!("{name}.json"))).unwrap(),
+            "{name} JSON"
+        );
+        assert_eq!(
+            oasis7_world_projection::codec::projection_to_cbor(&projection).unwrap(),
+            std::fs::read(root.join(format!("{name}.cbor"))).unwrap(),
+            "{name} CBOR"
+        );
+        assert_eq!(
+            authority::signing_bytes("view", &projection).unwrap(),
+            std::fs::read(root.join(format!("{name}.signing"))).unwrap(),
+            "{name} signing"
+        );
+    }
 }

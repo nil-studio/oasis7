@@ -34,7 +34,7 @@
 | 对象 | 固定审读时基线 | 目标 | 差距与证据边界 |
 | --- | --- | --- | --- |
 | 配方 profile | [RecipeProfileV1](../../../crates/oasis7_wasm_abi/src/economy.rs) 描述 recipe、瓶颈、阶段与工厂偏好；没有 profile-declared 替代规则。 | `SubstitutionRuleV1` 明确材料、适用性、数量、全产出影响及 conversion 模式。 | 普通输入表不能推导异料兼容。 |
-| 执行动作 | [工业 Action](../../../crates/oasis7_agent_api/src/world_action/action.rs) 与 [recipe lifecycle reducer](../../../crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs) 提供普通排产及其消费/产出。 | 无效果 decision 和独立转换工作/结算。 | 现有单 job/去重不能证明替代身份或残余防套利。 |
+| 执行动作 | [工业 Action](../../../crates/oasis7_agent_api/src/world_action/action.rs) 与 [recipe lifecycle reducer](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs) 提供普通排产及其消费/产出。 | 无效果 decision 和独立转换工作/结算。 | 现有单 job/去重不能证明替代身份或残余防套利。 |
 | 报价与恢复 | [M4 报价设计](../../world-simulator/m4/industrial-resource-flow-contract.design.md#industrial-quote-calculation-design) 已有领域报价边界。 | 候选→确认→转换→下游消费有完整单案记录。 | 本文补专业执行设计；专用 producer、schema 编码、正式三端和运行验收仍须实现。 |
 
 ## 4. 边界与结构

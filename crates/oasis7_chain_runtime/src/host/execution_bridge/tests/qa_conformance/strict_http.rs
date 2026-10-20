@@ -62,7 +62,7 @@ fn real_tcp_strict_guarantee_fields_defaults_and_opaque_gameplay_bytes() {
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);
     let signed: SignedServiceResponse<
-        ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+        ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
     > = response.json().unwrap();
     oasis7::world_service::authority::verify_service_response(
         "/v1/world/view",

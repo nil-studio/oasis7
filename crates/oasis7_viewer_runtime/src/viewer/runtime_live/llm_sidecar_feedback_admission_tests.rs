@@ -18,7 +18,7 @@ fn actual_world_history(
     sequences: &[u64],
 ) -> (
     RuntimeWorld,
-    crate::world_service::projection::WorldServiceProjection,
+    oasis7_world_projection::WorldServiceProjection,
     String,
 ) {
     let mut world = crate::runtime_host::world::new();
@@ -63,16 +63,13 @@ fn actual_world_history(
         world.claim_runtime_feedback(&feedback.feedback_id).unwrap();
         world.ack_runtime_feedback(&feedback.feedback_id).unwrap();
     }
-    let mut projection = crate::world_service::projection::WorldServiceProjection::from_world(
-        &world,
-        Some("agent-a"),
-    )
-    .unwrap();
+    let mut projection =
+        crate::world_service::projection::from_world(&world, Some("agent-a")).unwrap();
     projection.agent_context = Some(authority);
     (world, projection, session)
 }
 fn registered_sidecar(
-    projection: crate::world_service::projection::WorldServiceProjection,
+    projection: oasis7_world_projection::WorldServiceProjection,
 ) -> (
     RuntimeLlmSidecar,
     std::sync::Arc<std::sync::Mutex<crate::simulator::MockDecisionProviderState>>,

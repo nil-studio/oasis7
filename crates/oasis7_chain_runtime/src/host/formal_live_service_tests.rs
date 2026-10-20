@@ -232,7 +232,7 @@ fn current_and_fixed_reads_are_signed_by_existing_node_key_and_formal_proof_path
     let first_reply = service.handle("POST", VIEW_PATH, &serde_json::to_vec(&first).unwrap());
     assert_eq!(first_reply.status, 200);
     let first_signed: SignedServiceResponse<
-        ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+        ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
     > = serde_json::from_slice(&first_reply.body).unwrap();
     let first_digest = authority::request_digest(VIEW_PATH, &first).unwrap();
     verify_service_response(
@@ -251,7 +251,7 @@ fn current_and_fixed_reads_are_signed_by_existing_node_key_and_formal_proof_path
     let fixed_reply = service.handle("POST", VIEW_PATH, &serde_json::to_vec(&fixed).unwrap());
     assert_eq!(fixed_reply.status, 200);
     let fixed_signed: SignedServiceResponse<
-        ReadWorldViewResponse<oasis7::world_service::projection::WorldServiceProjection>,
+        ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
     > = serde_json::from_slice(&fixed_reply.body).unwrap();
     let digest = authority::request_digest(VIEW_PATH, &fixed).unwrap();
     verify_service_response(
@@ -318,7 +318,7 @@ fn formal_changes_empty_range_is_qualified_and_substituted_stream_is_rejected() 
     let reply = service.handle("POST", CHANGES_PATH, &serde_json::to_vec(&request).unwrap());
     assert_eq!(reply.status, 200);
     let signed: SignedServiceResponse<
-        FormalBusinessChangesPageV1<oasis7::world_service::projection::WorldServiceProjection>,
+        FormalBusinessChangesPageV1<oasis7_world_projection::WorldServiceProjection>,
     > = serde_json::from_slice(&reply.body).unwrap();
     verify_service_response(
         CHANGES_PATH,

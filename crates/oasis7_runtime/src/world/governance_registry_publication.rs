@@ -2,28 +2,7 @@ use super::governance::DEFAULT_GOVERNANCE_VALIDATOR_STAKE;
 use super::*;
 use crate::main_token::main_token_account_id_from_node_public_key;
 use crate::{GovernanceEvent, GovernanceValidatorAdmissionStatus};
-
-#[derive(Debug)]
-pub(crate) struct PreparedGovernanceRegistryEvent {
-    event: GovernanceEvent,
-    pub(crate) controller_registry: Option<GovernanceMainTokenControllerRegistry>,
-    pub(crate) admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
-    pub(crate) identity_bindings: BTreeMap<String, String>,
-    pub(crate) account_bindings: BTreeMap<String, String>,
-}
-
-impl PreparedGovernanceRegistryEvent {
-    pub(super) fn matches_event(&self, event: &GovernanceEvent) -> bool {
-        &self.event == event
-    }
-
-    pub(super) fn install(self, world: &mut World) {
-        world.state.governance_main_token_controller_registry = self.controller_registry;
-        world.state.governance_validator_admissions = self.admissions;
-        world.state.node_identity_bindings = self.identity_bindings;
-        world.state.node_main_token_account_bindings = self.account_bindings;
-    }
-}
+pub use oasis7_world_state::world::governance_registry_publication::*;
 
 impl World {
     pub(super) fn prepare_governance_registry_event(

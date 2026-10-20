@@ -1,7 +1,8 @@
 use super::*;
 use crate::World;
+use oasis7_agent_api::world_action::GeoPos;
 
-pub(crate) fn origin() -> CommittedRecipeOrigin {
+pub fn origin() -> CommittedRecipeOrigin {
     CommittedRecipeOrigin {
         submission: GameplaySubmissionOrigin {
             verified_player_id: "browser-player".into(),

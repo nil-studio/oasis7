@@ -287,14 +287,10 @@ fn game_task_executor_bind_replace_stop_restart_and_metadata_audience() {
     history.validate_task_reader(&fence, &public).unwrap();
     assert!(validate_task_executor(&world, &fence, &fence.owner_public_key).is_err());
     assert!(
-        projection::WorldServiceProjection::from_authenticated_world(
-            &world,
-            Some("agent"),
-            &public
-        )
-        .unwrap()
-        .game_task_control
-        .is_some()
+        projection::from_authenticated_world(&world, Some("agent"), &public)
+            .unwrap()
+            .game_task_control
+            .is_some()
     );
     let replacement = execute(
         &world,
@@ -340,14 +336,10 @@ fn game_task_executor_bind_replace_stop_restart_and_metadata_audience() {
             .is_err()
     );
     assert!(
-        projection::WorldServiceProjection::from_authenticated_world(
-            &world,
-            Some("agent"),
-            &public
-        )
-        .unwrap()
-        .game_task_control
-        .is_none()
+        projection::from_authenticated_world(&world, Some("agent"), &public)
+            .unwrap()
+            .game_task_control
+            .is_none()
     );
     assert!(validate_cognition_fence_staged(&world, "agent", None, &public, 1, []).is_err());
     let restored = World::from_snapshot(checkpoint, world.journal().clone()).unwrap();

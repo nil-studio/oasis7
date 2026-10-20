@@ -20,6 +20,41 @@ use std::collections::BTreeMap;
 pub trait FormalReadProjection:
     serde::Serialize + serde::de::DeserializeOwned + Clone + std::fmt::Debug
 {
+    /// Decode the signed transport envelope using the schema owner's concrete codec.
+    fn decode_signed_view_response(
+        bytes: &[u8],
+    ) -> Result<SignedServiceResponse<ReadWorldViewResponse<Self>>, String> {
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())
+    }
+    /// Preserve the exact compact JSON bound used for out-of-band responses.
+    fn encode_signed_view_response(
+        response: &SignedServiceResponse<ReadWorldViewResponse<Self>>,
+    ) -> Result<Vec<u8>, String> {
+        serde_json::to_vec(response).map_err(|error| error.to_string())
+    }
+    /// Preserve the shared service signature policy while allowing concrete code generation.
+    fn verify_signed_view_response(
+        path: &str,
+        request_digest: &str,
+        response: &SignedServiceResponse<ReadWorldViewResponse<Self>>,
+        trusted_service_public_key: &str,
+    ) -> Result<(), String> {
+        authority::verify_service_response(
+            path,
+            request_digest,
+            response,
+            trusted_service_public_key,
+        )
+    }
+    /// Specialize the shared proof consumer without changing its authority policy.
+    fn verify_response(
+        verifier: &mut FormalReadVerifier<Self>,
+        response: &ReadWorldViewResponse<Self>,
+        request: &ReadWorldViewRequest,
+        reader_public_key: &str,
+    ) -> Result<VerifiedFormalProjectionV1<Self>, String> {
+        verifier.verify_view(response, request, reader_public_key)
+    }
     fn read_metadata(
         &self,
     ) -> Result<oasis7_client_api::world_service_read::WorldServiceProjectionMetadataV1, String>

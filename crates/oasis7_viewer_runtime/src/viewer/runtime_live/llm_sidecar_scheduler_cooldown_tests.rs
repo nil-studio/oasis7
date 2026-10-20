@@ -76,24 +76,23 @@ fn scheduler_query_cooldown_survives_client_recreation_without_submit_replay() {
     request.request_digest = request.request_digest();
     context.turn_context.request_digest = request.request_digest.clone();
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
-    sidecar.provider_service_projection =
-        Some(crate::world_service::projection::WorldServiceProjection {
-            world_rule_status: None,
-            formal_commit_header: None,
-            canonical_agent_owner: None,
-            canonical_agent_chat: None,
-            game_task_control: None,
-            native_delegation_authorizations: Vec::new(),
-            state: crate::runtime_host::world::new().state().clone(),
-            events: vec![],
-            runtime_binding: Some(context.request_context.runtime_binding.clone()),
-            agent_context: None,
-            feedback_history: None,
-            scheduler_wakes: vec![],
-            continuations: vec![],
-            cognition_leases: vec![],
-            continuation_contexts: BTreeMap::new(),
-        });
+    sidecar.provider_service_projection = Some(oasis7_world_projection::WorldServiceProjection {
+        world_rule_status: None,
+        formal_commit_header: None,
+        canonical_agent_owner: None,
+        canonical_agent_chat: None,
+        game_task_control: None,
+        native_delegation_authorizations: Vec::new(),
+        state: crate::runtime_host::world::new().state().clone(),
+        events: vec![],
+        runtime_binding: Some(context.request_context.runtime_binding.clone()),
+        agent_context: None,
+        feedback_history: None,
+        scheduler_wakes: vec![],
+        continuations: vec![],
+        cognition_leases: vec![],
+        continuation_contexts: BTreeMap::new(),
+    });
     sidecar.provider_service_config =
         Some(crate::world_service::client::WorldServiceClientConfig {
             formal_read_trust: None,

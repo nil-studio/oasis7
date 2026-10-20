@@ -16,7 +16,6 @@ pub mod industry_types;
 pub mod models;
 pub mod network_tier_manifest;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod node_points_observation;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod observability;
 #[cfg(not(target_arch = "wasm32"))]

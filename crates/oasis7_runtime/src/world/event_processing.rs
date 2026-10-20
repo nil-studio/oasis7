@@ -367,8 +367,13 @@ impl World {
         envelope: &ActionEnvelope,
     ) -> Result<WorldEventBody, WorldError> {
         let action_id = envelope.id;
-        if let Err(reason)=self.safe_alternative_action_guard(envelope) {
-            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {action_id,reason:RejectReason::RuleDenied {notes:vec![reason]}}));
+        if let Err(reason) = self.safe_alternative_action_guard(envelope) {
+            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                action_id,
+                reason: RejectReason::RuleDenied {
+                    notes: vec![reason],
+                },
+            }));
         }
         if let Err(error) = self.delegation_action_admission(&envelope.action) {
             return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
@@ -1191,5 +1196,3 @@ impl World {
         Ok(Some(receipt_event_id))
     }
 }
-
-pub(crate) use action_to_event_economy::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};
