@@ -99,6 +99,11 @@ pub enum ViewerRequest {
     CanonicalAgentOwnerRead {
         request: serde_json::Value,
     },
+    SafeAlternative {
+        request: serde_json::Value,
+        #[serde(default)]
+        recover: bool,
+    },
     RequestWorldFeed {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
@@ -567,6 +572,10 @@ pub enum ViewerResponse<Snapshot, Event, DecisionTrace, Metrics, Time> {
     },
     WorldView {
         view: serde_json::Value,
+    },
+    SafeAlternativeResult {
+        request: serde_json::Value,
+        result: serde_json::Value,
     },
     CanonicalAgentOwnerReadContext {
         context: serde_json::Value,

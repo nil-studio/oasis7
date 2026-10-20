@@ -477,7 +477,8 @@ impl ViewerLiveSession {
         let mut request_llm_decision = false;
         let mut deferred_control = None;
         match request {
-            ViewerRequest::RequestCanonicalAgentOwnerReadContext { .. }
+            ViewerRequest::SafeAlternative { .. }
+            | ViewerRequest::RequestCanonicalAgentOwnerReadContext { .. }
             | ViewerRequest::CanonicalAgentOwnerRead { .. } => {
                 send_response(writer, &ViewerResponse::Error {message: "canonical owner read requires configured WorldService runtime".into()})?;
             }

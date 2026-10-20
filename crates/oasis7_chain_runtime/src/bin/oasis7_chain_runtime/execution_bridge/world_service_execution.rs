@@ -170,6 +170,9 @@ pub(super) fn apply_intents(
                     },
                 )
             }
+            WorldServicePayloadV1::SafeAlternative(signed) => {
+                candidate.apply_authenticated_safe_alternative(&signed)
+            }
             WorldServicePayloadV1::AgentChat(request) => {
                 let proof = request
                     .auth

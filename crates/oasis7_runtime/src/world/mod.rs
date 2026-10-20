@@ -1184,3 +1184,5 @@ mod world_rule_lifecycle;
 
 mod industrial_control;
 pub use industrial_control::ResolvedAgentOwnerV1;
+
+pub mod safe_alternative;

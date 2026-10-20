@@ -1038,6 +1038,9 @@ fn validate_payload(world: &World, payload: &WorldServicePayloadV1) -> Result<()
         WorldServicePayloadV1::GameplayJson(bytes) => {
             gameplay::authenticated_action(world, bytes).map(|_| ())
         }
+        WorldServicePayloadV1::SafeAlternative(signed) => {
+            oasis7_runtime::service_admission::safe_alternative::validate_owner(world, signed)
+        }
         WorldServicePayloadV1::AgentChat(request) => agent_chat::validate_owner(world, request),
         WorldServicePayloadV1::Cognition(signed) => {
             agent_authority::validate_cognition(world, signed)

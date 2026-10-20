@@ -1,3 +1,4 @@
+import { SafeAlternativePanel } from "./safe_alternative_panel.jsx";
 import { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 export { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 import { projectPixelWorldRenderInput } from "./pixel_world_render_input.js";
@@ -762,6 +763,7 @@ function PixelWorldFocusCommandSurface(props) {
           </div>
           <div class="panel__body stack">
             <div class="field">
+              <SafeAlternativePanel core={core} />
               <label for="agent-chat-message">{tr(locale(), "消息", "Message")}</label>
               <textarea
                 id="agent-chat-message"

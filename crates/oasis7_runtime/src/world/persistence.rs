@@ -853,6 +853,7 @@ impl World {
         } else {
             world.verify_capability_authorization_root()?;
         }
+        world.validate_safe_alternative_history()?;
         world.policies = snapshot.policies;
         world.proposals = snapshot.proposals;
         world.scheduler_cursor = snapshot.scheduler_cursor;

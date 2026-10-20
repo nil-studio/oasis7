@@ -363,3 +363,6 @@ impl WorldServiceTaskClient {
         }
     }
 }
+
+#[path = "safe_alternative_client.rs"]
+mod safe_alternative_client;
