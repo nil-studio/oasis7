@@ -18844,7 +18844,7 @@ function PixelWorldHost(props) {
 				camera: cameraState(),
 				fatal
 			});
-			reportFatalError(fatal.message, "pixel_world_host");
+			if (fatal?.code !== "pixel_world_scope_changed") reportFatalError(fatal.message, "pixel_world_host");
 		}
 	}));
 	let mountedCanvas = null;

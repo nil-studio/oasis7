@@ -951,7 +951,10 @@ export function PixelWorldHost(props) {
         camera: cameraState(),
         fatal,
       });
-      core.reportFatalError(fatal.message, "pixel_world_host");
+      // Scope invalidation clears display data while the transport stays live.
+      if (fatal?.code !== "pixel_world_scope_changed") {
+        core.reportFatalError(fatal.message, "pixel_world_host");
+      }
     },
   }));
   let mountedCanvas = null;
