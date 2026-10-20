@@ -3553,6 +3553,10 @@ async function importAccountKey(publicHex, privateHex, crypto = globalThis.crypt
 	});
 }
 function renderImportedKey(root, { account, busy, client, run, onAuthenticated, isActive = () => true }) {
+	const disclosure = document.createElement("details");
+	const summary = document.createElement("summary");
+	summary.textContent = account ? "管理账号密钥" : "使用已绑定密钥登录";
+	disclosure.append(summary);
 	const section = document.createElement("fieldset");
 	section.disabled = busy;
 	section.className = "stack";
@@ -3590,7 +3594,13 @@ function renderImportedKey(root, { account, busy, client, run, onAuthenticated, 
 			const signer = importAccountKey(publicHex, privateHex);
 			privateHex = "";
 			run(async () => {
-				const key = await signer;
+				let key;
+				try {
+					key = await signer;
+				} catch (error) {
+					error.stage = "本地密钥导入";
+					throw error;
+				}
 				if (isActive()) await operation(key);
 			});
 		});
@@ -3603,7 +3613,8 @@ function renderImportedKey(root, { account, busy, client, run, onAuthenticated, 
 		await client.loginImportedKey(key);
 		await onAuthenticated();
 	});
-	root.append(section);
+	disclosure.append(section);
+	root.append(disclosure);
 }
 //#endregion
 //#region software_safe_src/viewer_passkey_account_module.js
@@ -3663,26 +3674,43 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 			headers["Content-Type"] = "application/json";
 			headers["X-Oasis7-CSRF"] = csrf || "";
 		}
-		const response = await fetchImpl(`${API}${path}`, {
-			method,
-			headers,
-			credentials: "same-origin",
-			cache: "no-store",
-			...body === void 0 ? {} : { body: JSON.stringify(body) }
-		});
+		let response;
+		try {
+			response = await fetchImpl(`${API}${path}`, {
+				method,
+				headers,
+				credentials: "same-origin",
+				cache: "no-store",
+				...body === void 0 ? {} : { body: JSON.stringify(body) }
+			});
+		} catch {
+			throw Object.assign(/* @__PURE__ */ new Error("network_unavailable"), {
+				code: "network_unavailable",
+				endpoint: path
+			});
+		}
 		let result;
 		try {
 			result = await response.json();
 		} catch {
-			const error = /* @__PURE__ */ new Error("account_request_failed");
-			error.status = response.status;
-			throw error;
+			throw Object.assign(/* @__PURE__ */ new Error("account_response_invalid"), {
+				code: "account_response_invalid",
+				status: response.status,
+				endpoint: path
+			});
 		}
+		if (!result || typeof result !== "object" || Array.isArray(result)) throw Object.assign(/* @__PURE__ */ new Error("account_response_invalid"), {
+			code: "account_response_invalid",
+			status: response.status,
+			endpoint: path
+		});
 		if (!response.ok || result.ok === false || result.phase === "operation_pending" || result.error_code === "operation_pending") {
 			const error = new Error(result.error_code || "account_request_failed");
 			error.code = result.error_code || (result.phase === "operation_pending" ? "operation_pending" : void 0);
 			error.payload = result;
 			error.status = response.status;
+			error.endpoint = path;
+			error.diagnostic_id = result.diagnostic_id;
 			throw error;
 		}
 		return result;
@@ -3705,6 +3733,7 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 			if (!credential) throw new Error("passkey_cancelled");
 			pending.response = serializePasskey(credential);
 		} catch (error) {
+			error.stage = "系统通行密钥验证";
 			try {
 				const cancelled = await request(`/ceremonies/${encodeURIComponent(started.ceremony_id)}/cancel`, {});
 				if ([
@@ -3818,22 +3847,105 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 		if (!capability?.available) throw new Error("native_key_unsupported");
 		const key = `native:${intent}:${signer.publicKey}:${action_id || ""}`;
 		let pending = pendingCeremonies.get(key);
+		if (pending && !pending.payload) {
+			try {
+				const status = await request(`/operations/${encodeURIComponent(pending.started.operation_id || pending.started.ceremony_id)}`);
+				if ([
+					"consumed",
+					"committed",
+					"operation_committed"
+				].includes(status.phase || status.state)) {
+					pendingCeremonies.delete(key);
+					return {
+						...status,
+						operation_id: pending.started.operation_id || pending.started.ceremony_id,
+						phase: "operation_committed",
+						next_action: "fresh_authentication"
+					};
+				}
+				if ([
+					"cancelled",
+					"expired",
+					"exhausted"
+				].includes(status.phase || status.state)) {
+					pendingCeremonies.delete(key);
+					pending = null;
+				} else {
+					const result = await cancelUnsigned();
+					if ([
+						"consumed",
+						"committed",
+						"operation_committed"
+					].includes(result.phase || result.state)) return {
+						...result,
+						operation_id: pending.started.operation_id || pending.started.ceremony_id,
+						phase: "operation_committed",
+						next_action: "fresh_authentication"
+					};
+				}
+			} catch (error) {
+				if (!pendingCeremonies.has(key)) throw error;
+				throw unresolved(error);
+			}
+			if (pendingCeremonies.has(key)) throw unresolved(/* @__PURE__ */ new Error("operation_pending"));
+			pending = null;
+		}
+		function unresolved(error) {
+			error.pending_operation_id = pending.started.operation_id || pending.started.ceremony_id;
+			error.next_action = "check_original_operation";
+			error.stage = "核对原登录挑战";
+			error.recovery_window_expired = Number.isSafeInteger(pending.started.expires_at) && Date.now() >= pending.started.expires_at + 6e5;
+			return error;
+		}
+		async function cancelUnsigned() {
+			const result = await request(`/ceremonies/${encodeURIComponent(pending.started.ceremony_id)}/cancel`, {});
+			const phase = result.phase || result.state;
+			if ([
+				"cancelled",
+				"expired",
+				"exhausted",
+				"consumed",
+				"committed",
+				"operation_committed"
+			].includes(phase)) pendingCeremonies.delete(key);
+			return result;
+		}
 		if (!pending) {
 			const started = await request("/native-key/options", {
 				intent,
 				public_key: signer.publicKey,
 				action_id
 			});
-			const signature = await signer.signChallenge(started, capability, intent);
 			pending = {
 				started,
-				payload: {
+				payload: null
+			};
+			pendingCeremonies.set(key, pending);
+			try {
+				const signature = await signer.signChallenge(started, capability, intent);
+				pending.payload = {
 					ceremony_id: started.ceremony_id,
 					operation_id: started.operation_id,
 					signature
-				}
-			};
-			pendingCeremonies.set(key, pending);
+				};
+			} catch (error) {
+				error.stage = "本地密钥签名";
+				try {
+					const result = await cancelUnsigned();
+					if ([
+						"consumed",
+						"committed",
+						"operation_committed"
+					].includes(result.phase || result.state)) return {
+						...result,
+						operation_id: pending.started.operation_id || pending.started.ceremony_id,
+						phase: "operation_committed",
+						next_action: "fresh_authentication"
+					};
+				} catch {}
+				if (pendingCeremonies.has(key)) throw unresolved(error);
+				throw error;
+			}
 		}
 		return finishCeremony("/native-key", key, pending);
 	}
@@ -4076,6 +4188,17 @@ function createPasskeyAccountClient({ fetch: fetchImpl = globalThis.fetch, crede
 	};
 }
 var messages = {
+	csrf_failed: "安全校验已失效，请刷新页面后重试。",
+	origin_rejected: "当前页面来源不被账号服务接受，请从正式入口打开；若仍失败请联系维护者。",
+	rate_limited: "请求过于频繁，请稍候再试。",
+	invalid_request: "请求格式不符合账号服务要求，请检查输入或刷新页面。",
+	clock_unhealthy: "账号服务时钟异常，请稍后重试并联系维护者。",
+	ceremony_expired: "认证挑战已过期，请重新发起认证。",
+	network_unavailable: "无法连接账号服务，请检查网络后重试。",
+	account_response_invalid: "账号服务返回了无法解析的响应，请稍后重试并提供诊断信息。",
+	session_expired: "登录会话已过期，请重新登录。",
+	session_revoked: "登录会话已退出，请重新登录。",
+	account_frozen: "账号已冻结，请使用受支持的恢复或支持入口。",
 	native_key_invalid: "请输入各 64 位十六进制的 Ed25519 公钥和私钥种子。",
 	native_key_mismatch: "公钥与私钥不匹配，请检查输入。",
 	native_key_unsupported: "当前环境或浏览器不支持导入密钥，请使用通行密钥。",
@@ -4094,6 +4217,34 @@ var messages = {
 	recovery_unavailable: "当前环境未开放邮箱恢复，请使用其他已登记的登录方式。",
 	identity_store_unavailable: "账号服务暂时不可用，请稍后重试。"
 };
+function accountErrorNotice(error, stage = "账号请求") {
+	const code = error.code || error.message;
+	const message = messages[code] || messages[error.name] || "操作未完成，请重试或选择其他已登记的登录方式。";
+	const safe = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,96}$/.test(value) ? value : null;
+	const endpoint = typeof error.endpoint === "string" ? {
+		"/capabilities": "能力检查",
+		"/session": "会话确认",
+		"/credentials": "登录方式加载",
+		"/sessions": "会话列表加载",
+		"/native-key/options": "创建密钥挑战",
+		"/native-key/complete": "提交密钥认证",
+		"/passkeys/authentication/options": "创建通行密钥挑战",
+		"/passkeys/authentication/complete": "提交通行密钥认证"
+	}[error.endpoint] : null;
+	const details = [
+		safe(code),
+		Number.isInteger(error.status) ? `HTTP ${error.status}` : null,
+		safe(error.diagnostic_id) ? `诊断编号 ${error.diagnostic_id}` : null
+	].filter(Boolean);
+	const recovery = error.recovery_window_expired ? " 原操作已超出查询保留窗口，结果仍未确定。请刷新页面，先确认当前会话；若未登录，再使用已登记方式重新认证。刷新不会撤销可能已提交的原操作。" : "";
+	return `${error.stage || endpoint || stage}：${message}${endpoint ? `（${error.endpoint}）` : ""}${details.length ? ` [${details.join("；")}]` : ""}${recovery}`;
+}
+var invalidSession = (error) => [
+	"session_expired",
+	"session_revoked",
+	"authentication_failed",
+	"account_frozen"
+].includes(error.code);
 /** No authenticator UI is opened until an explicit button click. No bearer is persisted. */
 function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAuthenticated = () => {}, onJoinWorld, onSessionInvalidated = () => {} } = {}) {
 	let disposed = false;
@@ -4104,12 +4255,15 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	let credentialList = [];
 	let sessionList = [];
 	let notice = "";
+	let managementErrors = {};
+	let credentialsLoaded = false;
 	let takeover = null;
 	let pendingOperation = null;
 	const emailRecoveryState = {};
 	function element(tag, text) {
 		const node = document.createElement(tag);
 		if (text) node.textContent = text;
+		if (tag === "p") node.style.overflowWrap = "anywhere";
 		return node;
 	}
 	function button(text, action, disabled = false) {
@@ -4128,13 +4282,15 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			await action();
 			await refresh();
 		} catch (error) {
+			if (invalidSession(error)) invalidate();
 			if (error.code === "control_elsewhere") {
 				takeover = error.payload;
 				notice = "另一设备仍控制此世界。你可以保留原设备控制，或明确选择在此设备继续。";
 			} else if (error.next_action === "check_original_operation" || error.payload?.next_action === "check_original_operation" || error.code === "operation_pending") {
 				pendingOperation = error.pending_operation_id || error.payload?.operation_id;
 				notice = "原操作结果尚未确定，请核对原操作进度；不要重新创建账号或更换恢复候选。";
-			} else notice = messages[error.code] || messages[error.name] || messages[error.message] || "操作未完成，请重试或选择其他已登记的登录方式。";
+			} else notice = accountErrorNotice(error);
+			if (pendingOperation) notice += ` ${accountErrorNotice(error)}`;
 		} finally {
 			busy = false;
 			render();
@@ -4145,16 +4301,28 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 		root.replaceChildren();
 		root.setAttribute("aria-busy", String(busy));
 		root.append(element("h2", account ? "账号与安全" : "进入 Oasis7"));
-		const status = element("p", notice || (account ? "账号已登录。进入世界后才会申请玩家资格和控制会话。" : "使用设备解锁、PIN 或安全密钥创建账号，无需填写邮箱。"));
+		const status = element("p", notice || (account ? "账号已登录。进入世界后才会申请玩家资格和控制会话。" : "使用通行密钥，通过指纹、面容或设备解锁创建账号，无需填写邮箱。"));
 		status.setAttribute("role", "status");
 		root.append(status);
 		if (pendingOperation) {
 			root.append(element("p", `待核对操作：${pendingOperation}`));
+			root.append(button("重新确认当前登录会话", () => refresh(true)));
 			root.append(button("核对原操作进度", async () => {
 				const result = await client.operation(pendingOperation);
-				if (result.phase === "operation_committed" || result.state === "committed") {
+				if ([
+					"consumed",
+					"committed",
+					"operation_committed"
+				].includes(result.phase || result.state)) {
 					pendingOperation = null;
-					notice = "原操作已完成。若当前没有登录会话，请使用刚登记的通行密钥重新登录。";
+					notice = "原操作已完成。若当前没有登录会话，请使用已登记的登录方式重新登录。";
+				} else if ([
+					"cancelled",
+					"expired",
+					"exhausted"
+				].includes(result.phase || result.state)) {
+					pendingOperation = null;
+					notice = "原操作已结束，可以重新发起认证。";
 				}
 			}));
 		}
@@ -4165,8 +4333,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 					pendingOperation = null;
 					notice = "账号已创建。请使用刚登记的通行密钥重新登录，再申请进入世界。";
 				}
-				await refresh();
-				if (!disposed && account) onAuthenticated(account);
+				await refresh(true);
 			}, !capabilities.registration_enabled || !capabilities.passkey?.available));
 			root.append(button("使用通行密钥登录", async () => {
 				const result = await client.login();
@@ -4174,8 +4341,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 					pendingOperation = null;
 					notice = "原登录操作已完成，但当前浏览器没有登录会话。请重新进行通行密钥认证。";
 				}
-				await refresh();
-				if (!disposed && account) onAuthenticated(account);
+				await refresh(true);
 			}, !capabilities.passkey?.available));
 			if (capabilities.native_key?.available) renderImportedKey(root, {
 				account,
@@ -4183,10 +4349,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 				client,
 				run,
 				isActive: () => !disposed,
-				onAuthenticated: async () => {
-					await refresh();
-					if (account) onAuthenticated(account);
-				}
+				onAuthenticated: () => refresh(true)
 			});
 			renderAccountEmailRecovery(root, {
 				state: emailRecoveryState,
@@ -4213,6 +4376,10 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 				takeover = null;
 			}));
 		}
+		for (const [field, error] of Object.entries(managementErrors)) {
+			root.append(element("p", accountErrorNotice(error, field === "credentials" ? "登录方式加载" : "会话列表加载")));
+			root.append(button(field === "credentials" ? "重试加载登录方式" : "重试加载会话列表", () => loadManagement(generation, [field])));
+		}
 		root.append(element("h3", "登录方式"));
 		root.append(element("p", "一个通行密钥可能同步到多个设备；下方账号会话才表示各次登录。"));
 		for (const credential of credentialList) {
@@ -4232,7 +4399,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			});
 			if (credentialList.some((key) => key.state === "active" && key.type === "passkey")) root.append(button("改用通行密钥确认安全操作", () => client.clearImportedKey()));
 		}
-		renderAccountEmailRecovery(root, {
+		if (credentialsLoaded) renderAccountEmailRecovery(root, {
 			state: emailRecoveryState,
 			account,
 			credentials: credentialList,
@@ -4254,41 +4421,77 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			onSessionInvalidated();
 		}));
 	}
-	async function refresh() {
+	function invalidate() {
+		const hadAccount = account;
+		account = null;
+		credentialList = [];
+		sessionList = [];
+		managementErrors = {};
+		credentialsLoaded = false;
+		client.clearImportedKey?.();
+		if (hadAccount) onSessionInvalidated();
+	}
+	async function loadManagement(revision, fields = ["credentials", "sessions"]) {
+		await Promise.all(fields.map(async (field) => {
+			try {
+				const result = await client[field]();
+				if (disposed || revision !== generation || !account) return;
+				if (field === "credentials") {
+					credentialList = result.credentials || [];
+					credentialsLoaded = true;
+				} else sessionList = result.sessions || [];
+				delete managementErrors[field];
+			} catch (error) {
+				if (disposed || revision !== generation || !account) return;
+				if (invalidSession(error)) {
+					invalidate();
+					notice = accountErrorNotice(error);
+				} else {
+					if (field === "credentials") {
+						credentialList = [];
+						credentialsLoaded = false;
+					} else sessionList = [];
+					managementErrors[field] = error;
+				}
+			}
+			render();
+		}));
+	}
+	async function refresh(notifyAuthenticated = false) {
 		const revision = ++generation;
-		const nextCapabilities = await client.capabilities();
-		let nextAccount = null;
+		const capabilityResult = client.capabilities().then((value) => ({ value }), (error) => ({ error }));
+		let nextAccount;
 		try {
 			nextAccount = (await client.session()).account || null;
 		} catch (error) {
-			if (![
-				"session_expired",
-				"session_revoked",
-				"authentication_failed"
-			].includes(error.code)) throw error;
-		}
-		let nextCredentials = [];
-		let nextSessions = [];
-		if (nextAccount) {
-			const [keys, sessions] = await Promise.all([client.credentials(), client.sessions()]);
-			nextCredentials = keys.credentials || [];
-			nextSessions = sessions.sessions || [];
+			if (!invalidSession(error)) throw error;
+			nextAccount = null;
+			if (!disposed && revision === generation) notice = accountErrorNotice(error, "会话确认");
 		}
 		if (disposed || revision !== generation) return;
-		if (account && !nextAccount) {
-			client.clearImportedKey?.();
-			onSessionInvalidated();
+		if (!nextAccount) invalidate();
+		else {
+			account = nextAccount;
+			credentialList = [];
+			sessionList = [];
+			managementErrors = {};
+			credentialsLoaded = false;
 		}
-		capabilities = nextCapabilities;
-		account = nextAccount;
-		credentialList = nextCredentials;
-		sessionList = nextSessions;
+		render();
+		if (notifyAuthenticated && account) onAuthenticated(account);
+		if (account) loadManagement(revision);
+		const result = await capabilityResult;
+		if (disposed || revision !== generation) return;
+		if (result.value) capabilities = result.value;
+		else notice = accountErrorNotice(result.error, "能力检查");
 		render();
 	}
 	render();
-	refresh().catch(() => {
-		notice = "账号服务暂时不可用，请稍后刷新。";
-		render();
+	refresh().catch((error) => {
+		if (!disposed) {
+			notice = accountErrorNotice(error, "会话确认");
+			render();
+		}
 	});
 	return {
 		refresh,
@@ -24888,7 +25091,7 @@ function PasskeyAccountSurface(props) {
 			if (failure.status === 404) {
 				setLegacy(true);
 				focusReadySurface();
-			} else setError("账号服务暂时不可用，请稍后刷新。");
+			} else setError(accountErrorNotice(failure, "能力检查"));
 		}
 	});
 	onCleanup(() => {
@@ -26425,13 +26628,13 @@ function shouldShowHostedLoginGate() {
 }
 function focusableElements(root) {
 	return [...root.querySelectorAll([
-		"a[href]",
+		"a[href], summary",
 		"button:not([disabled])",
 		"input:not([disabled])",
 		"select:not([disabled])",
 		"textarea:not([disabled])",
 		"[tabindex]:not([tabindex='-1'])"
-	].join(","))].filter((element) => !element.hasAttribute("aria-hidden"));
+	].join(","))].filter((element) => !element.hasAttribute("aria-hidden") && (!element.closest("details:not([open])") || element.tagName === "SUMMARY"));
 }
 function HostedLoginGate() {
 	observeViewerStateRevision();
@@ -26477,13 +26680,15 @@ function HostedLoginGate() {
 			_el$83.$$keydown = trapDialogFocus;
 			var _ref$2 = dialogRef;
 			typeof _ref$2 === "function" ? use(_ref$2, _el$83) : dialogRef = _el$83;
-			insert(_el$87, () => tr(locale(), "标准用户流程", "Standard User Flow"));
+			insert(_el$87, () => tr(locale(), "欢迎来到 Oasis7", "Welcome to Oasis7"));
 			insert(_el$88, () => tr(locale(), "登录后进入游戏", "Sign In to Play"));
 			insert(_el$85, createComponent(Badge, {
 				"class": "badge badge--warn",
-				children: "auth=missing"
+				get children() {
+					return tr(locale(), "尚未登录", "Not signed in");
+				}
 			}), null);
-			insert(_el$89, () => tr(locale(), "当前是托管公开加入模式。先领取玩家会话，再进入聊天、玩法动作和后续授权。", "This is hosted public join. Acquire a player session first, then continue to chat, gameplay actions, and later authorization."));
+			insert(_el$89, () => tr(locale(), "先登录或创建账号，再进入世界，开始聊天与探索。", "Sign in or create an account, then enter the world to chat and explore."));
 			insert(_el$84, createComponent(HostedLoginForm, {
 				get locale() {
 					return locale();

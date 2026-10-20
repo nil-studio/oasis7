@@ -67,6 +67,16 @@ describe("imported account keys", () => {
     client.clearImportedKey(); await client.revokeCredential({id:"native",version:1});
     expect(get).toHaveBeenCalledTimes(1); expect(actions).toBe(2);
   });
+  it("keeps key import secondary and retains safety guidance when expanded", () => {
+    const root = document.createElement("div");
+    renderImportedKey(root, { account: null, busy: false, client: {}, run: vi.fn() });
+    const disclosure = root.querySelector("details");
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.querySelector("summary").textContent).toBe("使用已绑定密钥登录");
+    disclosure.open = true;
+    expect(disclosure.textContent).toContain("请勿输入钱包或节点私钥");
+    expect(disclosure.querySelectorAll("input")).toHaveLength(2);
+  });
   it("clears the password field immediately on submission", async () => {
     const root = document.createElement("div"); let pending;
     renderImportedKey(root, {account:null,busy:false,client:{},run:action => { pending = action().catch(() => {}); },onAuthenticated:() => {}});
