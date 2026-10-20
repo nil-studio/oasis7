@@ -1,3 +1,5 @@
+import { safeAlternativeMarkup, bindSafeAlternativeLegacy } from "./viewer_safe_alternative_legacy.js";
+import { createSafeAlternativeModule } from "./viewer_safe_alternative_module.js";
 import { bindFeedbackScope } from "./viewer_feedback_scope.js";
 import { createScopeSnapshotTransport } from "./pixel_world_scope_snapshot.js";
 import { createWorldViewTransport, worldViewScopeKey } from "./pixel_world_world_view.js";
@@ -434,6 +436,7 @@ function nextAuthNonce() {
 }
 
 const canonicalOwnerRead = createCanonicalOwnerReadModule({ state, sendJson, signAuthPayload, render, getSocket: () => socket });
+const safeAlternative = createSafeAlternativeModule({ state, sendJson, render, refreshOwner: () => canonicalOwnerRead.refresh(undefined, true) });
 const viewerAgentChatAuthModule = createViewerAgentChatAuthModule({ buildAuthEnvelope, nextAuthNonce, signAuthPayload, state });
 
 function resetViewerProtocolForConnection() { canonicalOwnerRead.reset(); viewerPromptControlModule?.resetForConnection(); }
@@ -3433,6 +3436,7 @@ function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket &&
     case "prompt_control_error":
       handlePromptControlError(message.error);
       break;
+    case "safe_alternative_result": safeAlternative.receive(message); break;
     case "canonical_agent_owner_read_context": void canonicalOwnerRead.handleContext(message.context); break;
     case "canonical_agent_owner_view": canonicalOwnerRead.handleView(message); break;
     case "agent_chat_ack":
@@ -3974,7 +3978,7 @@ function renderInteractionPanel() {
         <div class="panel__header"><div class="panel__title">Agent Chat</div></div>
         <div class="panel__body stack">
           <div class="field">
-            <label for="agent-chat-message">Message</label>${canonicalGoalMarkup(state, selectedAgentId(), escapeHtml)}
+            ${safeAlternativeMarkup(state, escapeHtml)}<label for="agent-chat-message">Message</label>${canonicalGoalMarkup(state, selectedAgentId(), escapeHtml)}
             <textarea id="agent-chat-message" rows="4" placeholder="Send a message to the selected agent" ${chatCapability.enabled ? "" : "disabled"}>${escapeHtml(state.chatDraft.message)}</textarea>
           </div>
           <div class="toolbar">
@@ -4132,6 +4136,7 @@ function bindEvents() {
     });
   });
 
+  bindSafeAlternativeLegacy(state, safeAlternative, render);
   const chatMessage = document.getElementById("agent-chat-message");
   if (chatMessage) {
     chatMessage.addEventListener("input", (event) => {
@@ -4195,6 +4200,7 @@ function installTestApi() {
     focus,
     select,
     sendAgentChat,
+    safeAlternative,
     sendPromptControl,
     setPromptOverridesVisible,
     togglePromptOverridesVisible,

@@ -112,6 +112,16 @@ pub enum CapabilityAuthorizationEvent {
             crate::service_admission::AgentSignerDelegationChangeV1,
         >,
     },
+    SafeAlternativeCommandRecorded {
+        signed: crate::service_admission::SignedReadRequest<
+            oasis7_client_api::safe_alternative::SafeAlternativeCommandV1,
+        >,
+    },
+    SafeAlternativeOutcomeRecorded {
+        key: String,
+        action_id: u64,
+        event_id: u64,
+    },
     WorldServiceIntentRecorded {
         key: String,
         record: serde_json::Value,

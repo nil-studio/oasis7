@@ -742,6 +742,19 @@ fn authorize_world_result_reader(
             return Err("formal result private Agent scope mismatch".into());
         }
         let owner = agent_authority::owner_public_key(world, agent_id)?;
+        // Alternative receipts contain the complete private original, candidate
+        // history and owner proofs. Ordinary delegated Agent reads do not grant
+        // access to this owner-control material, nor does replacement ownership.
+        if outcome
+            .correlation
+            .key
+            .operation_domain
+            .starts_with("safe_alternative.")
+            && (reader_public_key != owner
+                || reader_public_key != outcome.correlation.key.verified_subject)
+        {
+            return Err("safe alternative result requires its current original owner".into());
+        }
         let generation = if reader_public_key == owner {
             0
         } else {
@@ -766,6 +779,7 @@ fn authorize_world_result_reader(
 
 fn outcome_agent_id(world: &World, payload: &WorldServicePayloadV1) -> Result<String, String> {
     match payload {
+        WorldServicePayloadV1::SafeAlternative(signed) => Ok(signed.request.agent_id.clone()),
         WorldServicePayloadV1::AgentChat(request) => Ok(request.agent_id.clone()),
         WorldServicePayloadV1::Cognition(request) => Ok(request.request.request.agent_id.clone()),
         WorldServicePayloadV1::FeedbackAck(request) => Ok(request.request.agent_id.clone()),

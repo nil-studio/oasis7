@@ -481,6 +481,7 @@ run_operational_node_contract_tests() {
 }
 
 run_operational_contract_tests() {
+  run python3 ./scripts/oasis7-runtime-finality-baseline.test.py
   run_operational_identity_contract_tests
   run_operational_node_contract_tests
 }

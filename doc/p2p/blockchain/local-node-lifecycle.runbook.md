@@ -1,7 +1,7 @@
 # Local Node Lifecycle Runbook
 
 - 对应项目文档: GitHub Issue / GitHub Project
-- 实现入口: `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/node_lifecycle.rs`
+- 实现入口: `crates/oasis7_chain_runtime/src/host/node_lifecycle.rs`
 - 整体计划与未完成项: [Persistent World Node Lifecycle](persistent-world-node-lifecycle.runbook.md)
 
 审计轮次: 1

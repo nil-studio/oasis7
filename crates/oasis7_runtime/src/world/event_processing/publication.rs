@@ -319,6 +319,8 @@ impl World {
                 | CapabilityAuthorizationEvent::AgentIdentityInstalled { .. }
                 | CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { .. }
                 | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }
+                | CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { .. }
+                | CapabilityAuthorizationEvent::SafeAlternativeOutcomeRecorded { .. }
                 | CapabilityAuthorizationEvent::SystemIdentityInstalled { .. }
                 | CapabilityAuthorizationEvent::InvocationContextInstalled { .. }
                 | CapabilityAuthorizationEvent::BudgetAccountInstalled { .. }

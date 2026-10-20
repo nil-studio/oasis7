@@ -25,7 +25,7 @@ S10 本身不引入 chaos 编排；恢复、故障注入和 state-sync/commit cl
 
 ## 3. 关键接口 / 入口
 - `scripts/s10-five-node-game-soak.sh`
-- `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime.rs`
+- `crates/oasis7_chain_runtime/src/host.rs`
 - S10 `summary.json` / `summary.md` / `timeline.csv` 证据产物
 - GWSC claim boundary: `doc/testing/longrun/game-world-state-sync-commit-closure-2026-06-26.prd.md`
 

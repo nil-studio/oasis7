@@ -79,7 +79,7 @@ class Selection(unittest.TestCase):
         package = 'oasis7_chain_runtime'
         directory = 'crates/' + package
         producer = directory + '/build.rs'
-        consumer = directory + '/src/bin/oasis7_chain_runtime/native_environment_capture.rs'
+        consumer = directory + '/src/host/native_environment_capture.rs'
         self.write(directory + '/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
         self.write(directory + '/src/lib.rs', '')
         for path in (producer, consumer):
@@ -365,7 +365,7 @@ class Selection(unittest.TestCase):
     def test_generated_cross_package_reader_requires_every_owner_binding(self):
         producer, _, declaration = self.native_generated_fixture()
         self.write('crates/core/src/lib.rs',
-                   '#[path = "../../oasis7_chain_runtime/src/bin/oasis7_chain_runtime/'
+                   '#[path = "../../oasis7_chain_runtime/src/host/'
                    'native_environment_capture.rs"] mod captured;\n')
         self.base = self.commit()
         self.assert_unresolved_document('only the physical source owner has a producer')

@@ -233,14 +233,14 @@ Trace refs: O7-REQ-41fc7ce2-9979-43b2-be4f-1c7f8c80e58b；唯一工程声明与�
 
 [分离身份](unified-world-seed-fragment-runtime.prd.md#uws-artifact-separation)由[#1797 采用记录](https://github.com/nil-studio/oasis7/issues/1797#issuecomment-4867727910)及[#1801](https://github.com/nil-studio/oasis7/pull/1801)支持。[build/validate 脚本](../../../scripts/p2p-build-governed-bootstrap-world.sh)保留 audited governed runtime world，将生成场景写入 generated-scenario-world；[generator](../../../crates/oasis7_ops_tools/src/bin/oasis7_generate_world_artifact.rs)保存 scenario/seed/config/public manifest provenance。artifact 生成成功或 sidecar 存在不代替 governed world 激活，也不证明 public genesis 已选择 canonical seed 字段、starter 或自然资源承载。
 
-[world_initialization.rs](../../../crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_initialization.rs)接收 externally prepared world/snapshot/journal/issuer/approval，并不创建 World 或制造身份；这是真实正式激活信任边界，不是业务生成方案的选择记录。
+[world_initialization.rs](../../../crates/oasis7_chain_runtime/src/host/world_initialization.rs)接收 externally prepared world/snapshot/journal/issuer/approval，并不创建 World 或制造身份；这是真实正式激活信任边界，不是业务生成方案的选择记录。
 
 <a id="status-source-design"></a>
 ### 10.4 当前 resource status 的权威来源接收
 
 Trace refs: O7-REQ-88cc07e6-ae98-4ecf-a173-39b235e39fe6；唯一工程声明与范围见下方对应 PRD 身份。
 
-[status 来源身份](unified-world-seed-fragment-runtime.prd.md#uws-status-source)由[#2762](https://github.com/nil-studio/oasis7/issues/2762)与[#2766](https://github.com/nil-studio/oasis7/pull/2766)接收。[status_payload_world_resource.rs](../../../crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/status_payload_world_resource.rs)优先最新 execution record/CAS；其损坏、无效或高度不一致路径拒绝用旧 ready 材料掩盖，合法 genesis/recovery fallback 仍保留。这里接收的是 status 读取决定，不是新 resource execution record schema、正式生成动作或最终性协议选择。
+[status 来源身份](unified-world-seed-fragment-runtime.prd.md#uws-status-source)由[#2762](https://github.com/nil-studio/oasis7/issues/2762)与[#2766](https://github.com/nil-studio/oasis7/pull/2766)接收。[status_payload_world_resource.rs](../../../crates/oasis7_chain_runtime/src/host/status_payload_world_resource.rs)优先最新 execution record/CAS；其损坏、无效或高度不一致路径拒绝用旧 ready 材料掩盖，合法 genesis/recovery fallback 仍保留。这里接收的是 status 读取决定，不是新 resource execution record schema、正式生成动作或最终性协议选择。
 
 原 R6/AC6/AC7 要求的生成、消费、提交、恢复 remaining 与跨消费者 provenance 仍需单独验证。latest manifest/delta 有字段、有 hash 或 status ready，都不能据此宣称自然资源 chain-authoritative 全部落地。
 

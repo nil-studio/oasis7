@@ -69,6 +69,9 @@ impl ViewerRuntimeLiveServer {
         }
         self.invalidate_owner_read_session(session);
         match request {
+            ViewerRequest::SafeAlternative { request, recover } => {
+                self.handle_safe_alternative(request, recover, writer)?;
+            }
             ViewerRequest::RequestCanonicalAgentOwnerReadContext { agent_id } => {
                 self.handle_owner_read_context(agent_id, session, writer)?;
             }

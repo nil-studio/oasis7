@@ -42,7 +42,7 @@ release_web_fixture_build_viewer() {
 
 release_web_fixture_build() {
   local manifest=$1
-  oasis7_cargo_dev test -p oasis7_chain_runtime --bin oasis7_chain_runtime --features test_tier_required --no-run --message-format=json >"$manifest" 2>"$manifest.log" || {
+  oasis7_cargo_dev test -p oasis7_chain_runtime --lib --features test_tier_required --no-run --message-format=json >"$manifest" 2>"$manifest.log" || {
     tail -n 120 "$manifest.log" >&2
     return 1
   }

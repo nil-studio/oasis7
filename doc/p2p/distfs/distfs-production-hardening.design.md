@@ -192,7 +192,7 @@ runtime/P2P负责缺失技术/实现；ops负责环境事实；QA负责计划覆
 ## 验证入口
 
 - `crates/oasis7_cas/src/{lib.rs,store.rs,manifest.rs,challenge_scheduler.rs}`。
-- `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/{cli.rs,distfs_probe_runtime.rs,reward_runtime_worker.rs}`。
+- `crates/oasis7_chain_runtime/src/host/{cli.rs,distfs_probe_runtime.rs,reward_runtime_worker.rs}`。
 - 本地回归：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib`。
 - 涉及节点、真实数据可用性或恢复声明时，使用 `testing-manual.md` S9A 的 state-sync/blob closure、triad、real-env 和 release 分层验证；本设计不把本地测试提升为这些证据。
 

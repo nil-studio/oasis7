@@ -140,7 +140,7 @@ pub(super) mod fencing {
     }
 }
 
-#[path = "../../../../oasis7_distfs/src/controlled_authority/formal/endpoint_test_oracle_frame.rs"]
+#[path = "../../../oasis7_distfs/src/controlled_authority/formal/endpoint_test_oracle_frame.rs"]
 mod oracle_frame;
 use oracle_frame::recv;
 
@@ -153,7 +153,7 @@ fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<
         .map_err(|_| ())
 }
 
-#[path = "../../../../oasis7_distfs/src/controlled_authority/formal/endpoint_test_oracle.rs"]
+#[path = "../../../oasis7_distfs/src/controlled_authority/formal/endpoint_test_oracle.rs"]
 pub(super) mod oracle;
 
 pub(super) struct OracleHandle(oracle::Oracle);

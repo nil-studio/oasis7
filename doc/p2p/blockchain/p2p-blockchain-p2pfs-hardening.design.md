@@ -29,7 +29,7 @@
 
 ## 验证入口
 
-- `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/startup_reconcile.rs`
+- `crates/oasis7_chain_runtime/src/host/startup_reconcile.rs`
 - `crates/oasis7_consensus/src/signature.rs`
 - `crates/oasis7_consensus/src/ed25519_signer_policy.rs`
 - `crates/oasis7_consensus/src/membership_logic.rs`
@@ -84,6 +84,6 @@
 
 ## 精确源码与断言定位
 
-- [startup reconcile](../../../crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/startup_reconcile.rs)：`startup_reconcile_advances_stale_pos_state_from_execution_latest`、`startup_reconcile_skips_legacy_latest_without_node_block_hash`、`startup_reconcile_ignores_foreign_world_latest`。缺失/损坏/不可读状态的完整运行证据仍缺，不能用这三个断言代签。
+- [startup reconcile](../../../crates/oasis7_chain_runtime/src/host/startup_reconcile.rs)：`startup_reconcile_advances_stale_pos_state_from_execution_latest`、`startup_reconcile_skips_legacy_latest_without_node_block_hash`、`startup_reconcile_ignores_foreign_world_latest`。缺失/损坏/不可读状态的完整运行证据仍缺，不能用这三个断言代签。
 - [signature](../../../crates/oasis7_consensus/src/signature.rs)：HMAC/ed25519 action/head roundtrip 与 tampered action；[公钥规范化](../../../crates/oasis7_consensus/src/ed25519_signer_policy.rs) 的重复规范化公钥拒绝；[membership](../../../crates/oasis7_consensus/src/membership_tests.rs) 的 keyring roundtrip、unsigned default restore、unaccepted public key、HMAC-with-required-public-key 拒绝。
 - [replication](../../../crates/oasis7_distfs/src/replication.rs)：`apply_replication_record_hash_mismatch_does_not_mutate_guard`、`apply_replication_record_write_failure_does_not_mutate_guard`、`replay_replication_records_restores_files_in_order`，以及 epoch/sequence/writer 切换断言。fetch 鉴权、网络饱和与真实故障恢复需要各自额外证据，不由这些局部断言证明。

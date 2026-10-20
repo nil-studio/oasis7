@@ -327,3 +327,27 @@ fn purposes_namespace_config_and_binding_uniqueness_are_enforced() {
         "a"
     );
 }
+
+#[test]
+fn expired_native_challenge_remains_queryable_during_recovery_window() {
+    let (mut s, _, key) = fixture();
+    let started = options(&mut s, None, &key, "login", None);
+    let id = started["ceremony_id"].as_str().unwrap();
+    let expires = started["expires_at"].as_u64().unwrap();
+    s.store.cleanup_expired(expires + 1).unwrap();
+    let record = s
+        .store
+        .transaction(|tx| tx.get::<CeremonyRecord>(&format!("ceremony:{id}")))
+        .unwrap();
+    let record = record.expect("expired challenge must remain available for owner status lookup");
+    assert_eq!(record.value.owner_context_digest, "owner");
+    assert!(check_ceremony(&record.value, "owner", expires + 1).is_err());
+    assert!(complete(&mut s, None, &proof(&started, &key), expires + 1).is_err());
+    s.store.cleanup_expired(expires + 600_000).unwrap();
+    assert!(
+        s.store
+            .transaction(|tx| tx.get::<CeremonyRecord>(&format!("ceremony:{id}")))
+            .unwrap()
+            .is_none()
+    );
+}

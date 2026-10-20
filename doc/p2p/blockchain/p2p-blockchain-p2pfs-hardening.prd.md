@@ -23,7 +23,7 @@
 - **缺失状态文件**本身允许默认初始化；没有可用 execution latest 或 latest 不属于当前 world 时，不创建伪造状态。
 - **有效但落后的同 world 状态**可由 `execution_records/latest.json` 向前 reconciliation：最新 execution binding 完整时，committed/network height 与后续高度被原子更新。
 - **损坏、不可读或不可解析的状态文件**为 fail-closed 错误，不能把重启、默认初始化或覆盖写入当作恢复替代。必须先保全证据并按运行手册/运行时恢复流程处理。
-- 上述合同的验证锚点为 `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/startup_reconcile.rs` 及其单元测试；Phase 2 的“损坏文件回退默认启动”表述仅是历史设计意图，已被当前行为取代。
+- 上述合同的验证锚点为 `crates/oasis7_chain_runtime/src/host/startup_reconcile.rs` 及其单元测试；Phase 2 的“损坏文件回退默认启动”表述仅是历史设计意图，已被当前行为取代。
 
 ### Action / Head 签名
 

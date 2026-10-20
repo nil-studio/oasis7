@@ -61,7 +61,9 @@ export function renderImportedKey(root, { account, busy, client, run, onAuthenti
       const publicHex = pub.value; let privateHex = secret.value; secret.value = ""; pub.value = "";
       // Import starts only on the explicit click; do not retain plaintext in render state.
       const signer = importAccountKey(publicHex, privateHex); privateHex = "";
-      run(async () => { const key = await signer; if (isActive()) await operation(key); });
+      run(async () => { let key;
+        try { key = await signer; } catch (error) { error.stage = "本地密钥导入"; throw error; }
+        if (isActive()) await operation(key); });
     }); section.append(button);
   }
   if (account) {

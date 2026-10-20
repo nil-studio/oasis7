@@ -142,7 +142,7 @@ def artifact_logical_name(variant, package, target, test):
         return variant
     if test:
         aliases = {
-            ('oasis7_chain_runtime', ('bin',), 'oasis7_chain_runtime'): 'runtime-tests',
+            ('oasis7_chain_runtime', ('lib',), 'oasis7_chain_runtime'): 'runtime-tests',
             ('oasis7', ('lib',), 'oasis7'): 'oasis7-lib-tests',
         }
         return aliases.get((package, kinds, name),

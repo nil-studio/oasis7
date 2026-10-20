@@ -1,0 +1,9 @@
+const STATUS = { idle:"Ready to compare", awaiting_confirmation:"Awaiting your confirmation", no_safe_alternative:"No safe alternative", evaluation_unavailable:"Evaluation unavailable", confirmed:"Confirmed; ready to execute", execution_bound:"Execution reserved", applied:"Movement applied", rejected:"Request rejected", declined:"Declined or cancelled", expired:"Expired", superseded:"Replaced by a new comparison", unknown:"Result unconfirmed; recover the original command" };
+export const alternativeStatusLabel = value => STATUS[value] || "Check current request state";
+export const alternativePosition = value => value && [value.x_cm,value.y_cm,value.z_cm].every(Number.isFinite) ? `(${value.x_cm}, ${value.y_cm}, ${value.z_cm}) cm` : "Position unavailable";
+export const alternativeScopeLabel = scope => scope && typeof scope.agent_id === "string" ? `Agent ${scope.agent_id}: one direct move from ${alternativePosition(scope.from)} to ${alternativePosition(scope.to)}` : "Scope unavailable";
+export const alternativeRiskLabel = value => value === "position_change" ? "Position changes immediately" : "Review the candidate consequences";
+export const alternativeAuthorityLabel = value => value === "current_agent_owner" ? "Current Agent owner" : "Current authority must be verified";
+export const alternativeOutcomeLabel = outcome => outcome ? `${alternativeStatusLabel(outcome.status)}${outcome.action_id != null ? `; action ${outcome.action_id}` : ""}${outcome.event_id != null ? `; event ${outcome.event_id}` : ""}${outcome.reason ? "; review current restrictions before another attempt" : ""}` : "No execution result yet";
+
+export const alternativeBlockerLabel = value => value === "module_evaluation_unavailable" ? "Active world modules may change movement costs or consequences. A safe comparison is unavailable; nothing has been executed." : value ? "Safe evaluation is unavailable. Read the current state before proceeding." : "";

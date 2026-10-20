@@ -3,7 +3,7 @@ use super::*;
 fn planned_manifest() -> (PathBuf, PathBuf) {
     let (dir, path) = write_test_network_tier_manifest("invalid-runtime-hash");
     let mut source: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../doc/testing/templates/network-tier-persistent-preview-planned.example.json"
+        "../../../../doc/testing/templates/network-tier-persistent-preview-planned.example.json"
     ))
     .unwrap();
     source["runtime_refs"]["genesis_ref"] =

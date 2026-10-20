@@ -672,7 +672,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_
 
 ### S6.5：Chain Runtime Storage Profile / Gate 技术核验
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime node_runtime_execution_driver_uses_storage_profile_checkpoint_interval -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib node_runtime_execution_driver_uses_storage_profile_checkpoint_interval -- --nocapture
 ./scripts/oasis7-runtime-storage-gate.sh --status-json <status.json> --expected-profile release_default --min-checkpoint-count 1 --max-orphan-blob-count 0 --require-no-degraded
 OASIS7_CHAIN_STORAGE_PROFILE=release_default bash -x <bundle>/run-game.sh --help
 OASIS7_CHAIN_STORAGE_PROFILE=soak_forensics bash -x <bundle>/run-web-launcher.sh --help
@@ -1268,8 +1268,11 @@ python3 ./scripts/ci-verify-m1-wasm-summaries.py --module-set m1 --summary-dir <
 ./scripts/oasis7-runtime-finality-baseline.sh --required-samples 1 --full-samples 1 --warmup-samples 0
 ```
 - 基准产物：
-  - 默认输出目录：`.tmp/world_runtime_finality_baseline/<timestamp>/`
+  - 默认输出目录：`.tmp/world_runtime_finality_baseline/<timestamp>-<unique>/`
   - 归档文件：`summary.md`（人读）与 `summary.json`（机器读）
+  - 每个 case 固定 `oasis7_runtime --lib`、required/full feature 和 `tests::governance::…` 完整 identity，以 `--exact --format pretty --color never` 运行。每次 warmup/sample 均校验退出码、唯一目标 `ok` 与非零通过计数；零命中、ignored、错目标或未知输出均失败，失败样本不计入耗时。
+  - 原始 `logs/<case-id>/*.log` 及对应 `*.result.json` 保留逐次退出码、identity、观测计数和校验结果；`summary.json` 的 case 新增 `test_package/test_target/test_features/test_identity/executions`，原有字段与 `cases.tsv` 格式保留。dry-run 仍有 `dry_run=true`/`note=dry_run` 且无执行记录，零样本与 skip-full 明确 skipped。
+  - 脚本回归：`python3 scripts/oasis7-runtime-finality-baseline.test.py`。计时仍覆盖整条 Cargo 命令，不能作为热缓存单证书性能或全节点传播收敛验收。
 - 运行时分诊检索（日志/审计）：
 ```bash
 rg -n "conflicting attestation already exists|attestation threshold not met|attestation receipt evidence mismatch|fault_signature=builtin_release_manifest_" output .tmp
@@ -1530,7 +1533,7 @@ Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；[准确专业接受关
 <a id="uws-v-status"></a>
 ### 11.3 UWS-V-STATUS：当前 status 来源正负例
 
-源码与 [Cargo bin 配置](crates/oasis7_chain_runtime/Cargo.toml)对应：对固定候选使用 `cargo test -p oasis7_chain_runtime --features node-libp2p --bin oasis7_chain_runtime <filter>`，filter 分别为 `status_prefers_latest_execution_record_cas_snapshot_over_stale_execution_world_json`、`status_rejects_tampered_authoritative_execution_record_cas_snapshot`、`status_rejects_invalid_latest_execution_record_over_ready_legacy_json`、`status_rejects_newer_execution_record_with_stale_verified_snapshot_height`；原测试使用临时离线材料。先核 discovery 每个命中具名测试，再保存原输出及使用的 record/CAS/height 关系，0 tests、编译失败或环境阻塞不报通过。另用现有 `status_uses_runtime_execution_snapshot_when_simulator_mirror_is_empty` 检查其真实 fallback fixture，不把一个 fallback 覆盖全部 recovery。范围只为来源读取和拒绝旧 ready，不启动链或证明共识。本次未运行。
+源码与 [Cargo bin 配置](crates/oasis7_chain_runtime/Cargo.toml)对应：对固定候选使用 `cargo test -p oasis7_chain_runtime --features node-libp2p --lib <filter>`，filter 分别为 `status_prefers_latest_execution_record_cas_snapshot_over_stale_execution_world_json`、`status_rejects_tampered_authoritative_execution_record_cas_snapshot`、`status_rejects_invalid_latest_execution_record_over_ready_legacy_json`、`status_rejects_newer_execution_record_with_stale_verified_snapshot_height`；原测试使用临时离线材料。先核 discovery 每个命中具名测试，再保存原输出及使用的 record/CAS/height 关系，0 tests、编译失败或环境阻塞不报通过。另用现有 `status_uses_runtime_execution_snapshot_when_simulator_mirror_is_empty` 检查其真实 fallback fixture，不把一个 fallback 覆盖全部 recovery。范围只为来源读取和拒绝旧 ready，不启动链或证明共识。本次未运行。
 
 <a id="uws-v-consumers"></a>
 ### 11.4 UWS-V-CONSUMERS：正式目标的对账与阻塞记录
