@@ -324,6 +324,20 @@ describe("pixel world host remediation contracts", () => {
     expect(dispatchSpy).not.toHaveBeenCalled();
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
+  it("clears changed authorization scope without marking the live connection offline", async () => {
+    runtimeMock.deriveRenderState = vi.fn(renderStateFor);
+    const { core } = await renderPixelWorldHost(sampleSnapshot(), "?test_api=1&connect=0&locale=en");
+    await waitFor(() => expect(screen.getByText("Recover sustainable capability")).toBeInTheDocument());
+    core.state.connectionStatus = "connected";
+    const fatalSpy = vi.spyOn(core, "reportFatalError");
+    core.state.auth.sessionEpoch = (core.state.auth.sessionEpoch || 0) + 1;
+    core.requestRender();
+    await waitFor(() => expect(screen.getByText("Reconfirming visible scope; previous content cleared.")).toBeInTheDocument());
+    expect(screen.queryByText("Recover sustainable capability")).not.toBeInTheDocument();
+    expect(core.state.connectionStatus).toBe("connected");
+    expect(fatalSpy).not.toHaveBeenCalled();
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+
   it("shows connected world-feed unavailability separately from stale data", async () => {
     runtimeMock.deriveRenderState = vi.fn(renderStateFor);
     const { core } = await renderPixelWorldHost(sampleSnapshot(), "?test_api=1&connect=0&locale=en");
