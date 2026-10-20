@@ -4,9 +4,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +19,39 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "linux" and Path("/usr/bin/time").is_file(), "Linux ECS resource collection")
+    def test_compile_step_preserves_build_status_and_stops_monitor(self):
+        workflow = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
+        step = workflow.split("      - name: Compile three ECS binaries\n", 1)[1].split("      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        # Execute the actual workflow shell with a short build fixture. A failed
+        # observer must neither fail a good build nor hide a failed build.
+        for build_status in (0, 7):
+            for monitor_fails in (False, True):
+                with self.subTest(build_status=build_status, monitor_fails=monitor_fails), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / "scripts").mkdir()
+                    (root / "scripts/package-ecs.py").write_text(
+                        f"import time; time.sleep(0.3); raise SystemExit({build_status})\n"
+                    )
+                    monitor = root / "scripts/package-ecs-resource-monitor.py"
+                    if monitor_fails:
+                        monitor.write_text("raise SystemExit(9)\n")
+                    else:
+                        shutil.copyfile(ROOT / "scripts/package-ecs-resource-monitor.py", monitor)
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                        cwd=root, env=dict(os.environ, CARGO_BUILD_JOBS="2"),
+                        text=True, capture_output=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, build_status, result.stdout + result.stderr)
+                    self.assertTrue((root / "target/cargo-timings/ecs-time.txt").is_file())
+                    if monitor_fails:
+                        self.assertIn("::warning::ECS resource monitor", result.stdout)
+                    else:
+                        report = json.loads((root / "target/cargo-timings/ecs-resources.json").read_text())
+                        self.assertTrue(report["complete"])
+
     def test_build_assembly_and_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

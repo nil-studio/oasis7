@@ -1,7 +1,15 @@
 name: ECS Server Package
+run-name: ECS Server Package (jobs=${{ inputs.native_build_jobs || '2' }}, ${{ github.ref_name }})
 
 on:
   workflow_dispatch:
+    inputs:
+      native_build_jobs:
+        description: Native Cargo jobs (1 for comparison)
+        type: choice
+        required: true
+        default: '2'
+        options: ['1', '2']
 
 permissions:
   contents: read
@@ -82,9 +90,28 @@ jobs:
           save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Compile three ECS binaries
+        shell: bash
         env:
-          CARGO_BUILD_JOBS: '1'
-        run: /usr/bin/time -v python3 scripts/package-ecs.py native --out output/native
+          # Keep this step-local so jobs=1/2 restore the same Rust cache.
+          CARGO_BUILD_JOBS: ${{ inputs.native_build_jobs || '2' }}
+        run: |
+          resource_dir=target/cargo-timings
+          mkdir -p "$resource_dir"
+          printf 'ECS native build: jobs=%s\n' "$CARGO_BUILD_JOBS"
+          python3 scripts/package-ecs-resource-monitor.py --out "$resource_dir/ecs-resources.json" &
+          resource_monitor=$!
+          finish_resources() {
+            build_status=$?
+            trap - EXIT
+            kill -TERM "$resource_monitor" 2>/dev/null || true
+            wait "$resource_monitor" || printf '::warning::ECS resource monitor did not exit successfully\n'
+            cat "$resource_dir/ecs-time.txt" 2>/dev/null || true
+            cat "$resource_dir/ecs-resources.json" 2>/dev/null || true
+            exit "$build_status"
+          }
+          trap finish_resources EXIT
+          /usr/bin/time -v -o "$resource_dir/ecs-time.txt" \
+            python3 scripts/package-ecs.py native --out output/native
       - name: Upload native Cargo timings
         if: always()
         continue-on-error: true

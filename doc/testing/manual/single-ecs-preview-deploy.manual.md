@@ -14,7 +14,9 @@
 gh workflow run ecs-packages.yml --ref main
 ```
 
-该入口固定本次选定 ref 的完整 SHA，Web 与原生在不同 runner 并行；只编译 `oasis7_chain_runtime`、`oasis7_game_launcher`、`oasis7_viewer_live`，不生成桌面安装器、client launcher、独立 web launcher 或维护工具。原生使用 `ecs` profile（release 优化级别 3、关闭跨 crate LTO、codegen-units 16），优先缩短构建时间；Cargo 并发仍为 1。冷构建仍需编译核心运行时依赖，实际耗时以 run 为准；部署前重新核对真实世界推进 / 吞吐，不沿用其他 profile 的性能结论。完整发行包的 `packaging` 配置不变。候选分支仅恢复缓存，main 同版本工作流才写入独立原生缓存。
+该入口固定本次选定 ref 的完整 SHA，Web 与原生在不同 runner 并行；只编译 `oasis7_chain_runtime`、`oasis7_game_launcher`、`oasis7_viewer_live`，不生成桌面安装器、client launcher、独立 web launcher 或维护工具。原生使用 `ecs` profile（release 优化级别 3、关闭跨 crate LTO、codegen-units 16），优先缩短构建时间；Cargo 并发默认 2。冷构建仍需编译核心运行时依赖，实际耗时以 run 为准；部署前重新核对真实世界推进 / 吞吐，不沿用其他 profile 的性能结论。完整发行包的 `packaging` 配置不变。候选分支仅恢复缓存，main 同版本工作流才写入独立原生缓存。
+
+需要验证并发收益或回退单并发时，手动入口的 `native_build_jobs` 可选 `1` / `2`，CLI 追加 `-f native_build_jobs=1`。同一 SHA 分别运行两个值，并核对缓存恢复 key、Cargo fresh / dirty 数量和 runner 条件。`ecs-native-timings` artifact 包含 Cargo timing HTML、`ecs-time.txt`（耗时 / CPU / 最大单进程 RSS）和 `ecs-resources.json`（每秒采样的可用内存、swap、适用的 cgroup 内存 / OOM 计数）。并行总内存压力以可用内存与 cgroup 观测共同判断；缺失字段为未知，cgroup 历史峰值不可当作本次独占峰值。记录失败样本及条件差异，实测结论留在 PR / run。
 
 成功后下载 `oasis7-ecs-linux-x64` artifact，里面包含版本化 `.tar.gz` 和外部 `.sha256`。先用 `sha256sum -c <包名>.sha256` 校验归档，再解压到新版本目录并执行 `sha256sum -c SHA256SUMS`。`BUILDINFO` 的 source 必须等于本次 run 的 SHA。包内 `bin/` 是三个服务程序，`web-dist/` 是可直接发布的完整 Viewer Web 根目录（包含可选 WASM），`manifest.json` 记录来源 / profile / 平台。
 
