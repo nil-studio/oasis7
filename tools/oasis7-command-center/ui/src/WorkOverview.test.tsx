@@ -206,3 +206,17 @@ it('uses the filtered attention empty state while preserving history and read fa
  render(()=><WorkOverview snapshot={snapshot()} view="attention" sourceGeneration={0} onExecution={()=>{}}/>);
  await screen.findByText(/记录读取失败/);expect(screen.queryByText(/当前没有.*个人问题/)).not.toBeInTheDocument();
 });
+
+it('maps explicit goals with missing and changed evidence and respects removed personal overrides',async()=>{
+ const record=state();record.relations=[{id:'removed',work:projection().items[0].reference,sectionId:'b',sourceRevision:'r',confirmedAt:'10',removedAt:'20',previous:[]}];vi.mocked(bridge.dailyWork).mockResolvedValue(record);
+ const source=snapshot();source.sections=[{id:'a',title:'目标 A 当前条款',path:'doc/a.md',revision:'new',content:'current'}] as Snapshot['sections'];const showSource=vi.fn();
+ render(()=><WorkOverview snapshot={source} view="execution" sourceGeneration={0} onExecution={()=>{}} showSource={showSource}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));const graph=within(screen.getByRole('region',{name:'工作关系图'}));
+ expect(graph.getByText('依据版本已变化 · 打开当前原文')).toBeInTheDocument();expect(graph.queryByText('b')).not.toBeInTheDocument();
+ fireEvent.click(graph.getByRole('button',{name:'目标 A 当前条款'}));expect(showSource).toHaveBeenCalledWith(source.sections[0],expect.any(HTMLElement));
+ fireEvent.click(graph.getByRole('button',{name:'查看原 PR #1'}));expect(bridge.openSource).toHaveBeenCalledWith('https://github.com/o/r/pull/1');
+});
+it('keeps unread goal nodes noninteractive without inferring relationships',async()=>{
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));const graph=within(screen.getByRole('region',{name:'工作关系图'}));
+ expect(graph.getAllByText('原文未读取 · 保留原关系')).toHaveLength(2);expect(graph.queryByRole('button',{name:'目标 A'})).not.toBeInTheDocument();
+});

@@ -137,3 +137,10 @@ it('leaves a restored branch collapsed when its child query failed',async()=>{
   api.loadDocumentTreeReading.mockResolvedValue({status:'ready',state:state({expandedRoutes:[route]}),notice:null,resolvedSectionId:null});api.documentSemanticTree.mockResolvedValueOnce(page()).mockRejectedValue(new Error('branch unavailable'));
   render(()=><DocumentSemanticTree snapshot={snapshot()} view="product" selectFile={vi.fn()}/>);await ready();expect(screen.getByRole('treeitem',{name:'模块需求'})).toHaveAttribute('aria-expanded','false');expect(screen.getByRole('alert')).toHaveTextContent('branch unavailable');expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();
 });
+
+it('uses actual root entries as a map and switches to hierarchical rows on expansion',async()=>{
+ render(()=><DocumentSemanticTree snapshot={snapshot()} view="product" selectFile={vi.fn()}/>);await ready();
+ const tree=screen.getByRole('tree');expect(tree).toHaveClass('product-domain-map');expect(screen.getAllByRole('treeitem')).toHaveLength(1);expect(screen.getByText('个匹配文件')).toBeInTheDocument();
+ const advanced=screen.getByText('高级筛选').closest('details')!;expect(advanced).not.toHaveAttribute('open');fireEvent.click(screen.getByText('高级筛选'));expect(advanced).toHaveAttribute('open');
+ fireEvent.click(screen.getByRole('button',{name:'展开：模块需求（匹配 1 个文件）'}));await screen.findByRole('treeitem',{name:'专题需求'});expect(tree).not.toHaveClass('product-domain-map');
+});
