@@ -1,6 +1,6 @@
 {
   "record": {
-    "content_sha256": "694e1bdf8e22b0d6201a88206a2953c69fddfcf3687313eeae1bb29b02dedff2",
+    "content_sha256": "00685d90ea08c449d294508cbb39bc058e3c2b095239e5b581609990cfb14601",
     "current_authority": "doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_target_contract",

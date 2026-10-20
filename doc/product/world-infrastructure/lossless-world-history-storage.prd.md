@@ -121,7 +121,7 @@
 - 系统设计状态：已覆盖
 - 系统设计依据：[完整性与依赖闭包](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#des-lws-001)承接保留范围、历史版本、必要内容与缺证拒绝。
 - 实现状态：部分实现
-- 实现与验证依据：[正式已发布记录](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_writer_published.rs)及[正式归档读取](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7/src/runtime/world/formal_retention.rs)有局部实现；初始设计交付只形成目标合同，尚无本要求完整运行证据。
+- 实现与验证依据：[正式已发布记录](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/host/execution_bridge/formal_writer_published.rs)及[正式归档读取](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7/src/runtime/world/formal_retention.rs)有局部实现；初始设计交付只形成目标合同，尚无本要求完整运行证据。
 - 核对日期与基线：2026-10-17；需求为文档基线 `4220622fde069346a828d42572eea61c0073d95e` 上本 PR 候选；实现为上述固定 `2676c835cc50f12d7fd16a762eaa21f026ae79d4`，静态审查正式持久/归档入口，未执行 AC。
 - 剩余范围：设计目标已承接；完整范围依赖清单、长期规模、优化后全历史及多版本恢复的同候选实现与验证仍待完成。
 
@@ -175,7 +175,7 @@
 - 系统设计状态：已覆盖
 - 系统设计依据：[终态核对、读者与回收事务](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#des-lws-004)承接删除前证明、并发/未知保护与失败后的保留语义。
 - 实现状态：未实现
-- 实现与验证依据：[正式尝试入口](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/formal_live_owner_attempt.rs)、[持久候选](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_writer_saved_candidate.rs)与发布路径已审读；本条正式终态尝试回收及统一闭包回收尚无交付，普通 sidecar GC 不代替该范围。
+- 实现与验证依据：[正式尝试入口](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/host/formal_live_owner_attempt.rs)、[持久候选](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/host/execution_bridge/formal_writer_saved_candidate.rs)与发布路径已审读；本条正式终态尝试回收及统一闭包回收尚无交付，普通 sidecar GC 不代替该范围。
 - 核对日期与基线：2026-10-17；需求为 `4220622fde069346a828d42572eea61c0073d95e` 上本 PR 候选；实现审读为 `2676c835cc50f12d7fd16a762eaa21f026ae79d4` 的上述正式生命周期路径，未执行删除或故障测试。
 - 剩余范围：设计目标已承接；正式成功尝试/临时材料的安全回收、读者保护、崩溃恢复和长期收敛待实现验证。
 
@@ -229,7 +229,7 @@
 - 系统设计状态：已覆盖
 - 系统设计依据：[恢复路径及后续效果对照](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#des-lws-007)分别承接完整快照、非空历史恢复、固定输入候选重建和外部交付边界。
 - 实现状态：部分实现
-- 实现与验证依据：[正式恢复](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_writer_recovery.rs)已有精确候选/快照路径；[非空事件后缀合同](../../world-runtime/design.md#runtime-journal-suffix-recovery-design)仍要求独立控制状态与续跑验证，本次未执行。
+- 实现与验证依据：[正式恢复](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/host/execution_bridge/formal_writer_recovery.rs)已有精确候选/快照路径；[非空事件后缀合同](../../world-runtime/design.md#runtime-journal-suffix-recovery-design)仍要求独立控制状态与续跑验证，本次未执行。
 - 核对日期与基线：2026-10-17；需求为 `4220622fde069346a828d42572eea61c0073d95e` 上本 PR 候选；实现仅固定 `2676c835cc50f12d7fd16a762eaa21f026ae79d4` 静态恢复审读，无新配方/模块/外部交付运行。
 - 剩余范围：设计目标已承接；新存储路径下非空历史控制状态、新请求和模块行动正向对照、未知外部交付核对仍待完整实现验证。
 
@@ -265,7 +265,7 @@
 - 系统设计状态：已覆盖
 - 系统设计依据：[容量、性能与证据范围](../../world-runtime/runtime/formal-world-storage-efficiency.design.md#des-lws-009)承接全生命周期口径、同负载对照及各项独立判定。
 - 实现状态：部分实现
-- 实现与验证依据：[现有存储 metrics](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/storage_metrics.rs)提供部分尺寸与引用信息；[本地物理计量](../../../crates/oasis7_distfs/src/storage_inventory.rs)与[容量操作入口](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#v-lws-capacity)补充静止树的分域 inode 去重、allocated bytes 和不完整扫描报告；[离线 shadow 打包](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#v-lws-codec)可构建并精确读回相同对象命名空间的紧凑候选，提供源/目标 allocated 比较；它不激活、不删除源，不证明净释放。完整生命周期、真实独立端点与同业务历史容量收益仍未验证。
+- 实现与验证依据：[现有存储 metrics](https://github.com/nil-studio/oasis7/blob/2676c835cc50f12d7fd16a762eaa21f026ae79d4/crates/oasis7_chain_runtime/src/host/storage_metrics.rs)提供部分尺寸与引用信息；[本地物理计量](../../../crates/oasis7_distfs/src/storage_inventory.rs)与[容量操作入口](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#v-lws-capacity)补充静止树的分域 inode 去重、allocated bytes 和不完整扫描报告；[离线 shadow 打包](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#v-lws-codec)可构建并精确读回相同对象命名空间的紧凑候选，提供源/目标 allocated 比较；它不激活、不删除源，不证明净释放。完整生命周期、真实独立端点与同业务历史容量收益仍未验证。
 - 核对日期与基线：2026-10-17；需求为 `4220622fde069346a828d42572eea61c0073d95e` 上本 PR 候选；实现审读为固定 `2676c835cc50f12d7fd16a762eaa21f026ae79d4` 的 metrics 路径，无基准执行。
 - 剩余范围：设计目标已承接；完整采样、真实独立副本、业务规模矩阵、性能与恢复联合验证及运营者报告待实现验证。
 

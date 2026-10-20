@@ -1,14 +1,14 @@
 # Local Node Lifecycle Runbook
 
 - 对应项目文档: GitHub Issue / GitHub Project
-- 实现入口: `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/node_lifecycle.rs`
+- 实现入口: `crates/oasis7_chain_runtime/src/host/node_lifecycle.rs`
 - 整体计划与未完成项: [Persistent World Node Lifecycle](persistent-world-node-lifecycle.runbook.md)
 
 审计轮次: 1
 
 ## Source availability and deployed-binary gate
 
-[Code PR #4683](https://github.com/nil-studio/oasis7/pull/4683) is merged as `da890a9125a435969b82f5a14ab3c9143cc0690e`. At the fixed main baseline `b5476a616dd3d4dbc29f332ee42ed848903c1f60`, [command routing](https://github.com/nil-studio/oasis7/blob/b5476a616dd3d4dbc29f332ee42ed848903c1f60/crates/oasis7/src/bin/oasis7_chain_runtime/cli_contract.rs), [dispatch](https://github.com/nil-studio/oasis7/blob/b5476a616dd3d4dbc29f332ee42ed848903c1f60/crates/oasis7/src/bin/oasis7_chain_runtime/identity_receipt.rs), and the `node_lifecycle.rs` / `node_operations.rs` implementations are present. Waiting for #4683 to merge is no longer a prerequisite.
+[Code PR #4683](https://github.com/nil-studio/oasis7/pull/4683) is merged as `da890a9125a435969b82f5a14ab3c9143cc0690e`. At the fixed main baseline `b5476a616dd3d4dbc29f332ee42ed848903c1f60`, [command routing](https://github.com/nil-studio/oasis7/blob/b5476a616dd3d4dbc29f332ee42ed848903c1f60/crates/oasis7/src/host/cli_contract.rs), [dispatch](https://github.com/nil-studio/oasis7/blob/b5476a616dd3d4dbc29f332ee42ed848903c1f60/crates/oasis7/src/host/identity_receipt.rs), and the `node_lifecycle.rs` / `node_operations.rs` implementations are present. Waiting for #4683 to merge is no longer a prerequisite.
 
 Before operating a deployed instance, verify that its binary was built from a source version containing these commands, and inspect its `--help` plus the relevant subcommand `--help` for `node` / `op` and every required option. Source availability and a documentation merge do not establish the installed binary's version, successful lifecycle execution, synchronization readiness or production acceptance. Keep the lifecycle regression and role-specific readiness checks below as separate verification obligations.
 

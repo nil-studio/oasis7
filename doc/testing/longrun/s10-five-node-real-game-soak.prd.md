@@ -82,7 +82,7 @@
 - Architecture Overview: 基于 `oasis7_chain_runtime` 直接 headless 多进程编排 5 节点（1 sequencer + 2 storage + 2 observer），脚本统一构建 validator/peer 配置、采集每节点状态报告，并在 S10 门禁中联合判定共识推进、网络追平、存储挑战、结算应用与资产一致性。
 - Integration Points:
   - `scripts/s10-five-node-game-soak.sh`
-  - `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime.rs`
+  - `crates/oasis7_chain_runtime/src/host.rs`
   - `testing-manual.md`
 - Edge Cases & Error Handling:
   - 历史 no-LLM stall 处置：旧 Viewer 路径曾以仅 sequencer 执行 hook 避免 contiguous-height 冲突。当前脚本直接运行各节点 `oasis7_chain_runtime dev node --config`，以节点 role 和 attest 参数配置；`--llm/--no-llm` 仅写入 `llm_enabled_compat`，不切换 runtime 行为，不能据此声称当前仍使用旧 hook 开关。

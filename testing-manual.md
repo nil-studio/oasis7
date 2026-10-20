@@ -672,7 +672,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_
 
 ### S6.5：Chain Runtime Storage Profile / Gate 技术核验
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime node_runtime_execution_driver_uses_storage_profile_checkpoint_interval -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib node_runtime_execution_driver_uses_storage_profile_checkpoint_interval -- --nocapture
 ./scripts/oasis7-runtime-storage-gate.sh --status-json <status.json> --expected-profile release_default --min-checkpoint-count 1 --max-orphan-blob-count 0 --require-no-degraded
 OASIS7_CHAIN_STORAGE_PROFILE=release_default bash -x <bundle>/run-game.sh --help
 OASIS7_CHAIN_STORAGE_PROFILE=soak_forensics bash -x <bundle>/run-web-launcher.sh --help
@@ -1530,7 +1530,7 @@ Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；[准确专业接受关
 <a id="uws-v-status"></a>
 ### 11.3 UWS-V-STATUS：当前 status 来源正负例
 
-源码与 [Cargo bin 配置](crates/oasis7_chain_runtime/Cargo.toml)对应：对固定候选使用 `cargo test -p oasis7_chain_runtime --features node-libp2p --bin oasis7_chain_runtime <filter>`，filter 分别为 `status_prefers_latest_execution_record_cas_snapshot_over_stale_execution_world_json`、`status_rejects_tampered_authoritative_execution_record_cas_snapshot`、`status_rejects_invalid_latest_execution_record_over_ready_legacy_json`、`status_rejects_newer_execution_record_with_stale_verified_snapshot_height`；原测试使用临时离线材料。先核 discovery 每个命中具名测试，再保存原输出及使用的 record/CAS/height 关系，0 tests、编译失败或环境阻塞不报通过。另用现有 `status_uses_runtime_execution_snapshot_when_simulator_mirror_is_empty` 检查其真实 fallback fixture，不把一个 fallback 覆盖全部 recovery。范围只为来源读取和拒绝旧 ready，不启动链或证明共识。本次未运行。
+源码与 [Cargo bin 配置](crates/oasis7_chain_runtime/Cargo.toml)对应：对固定候选使用 `cargo test -p oasis7_chain_runtime --features node-libp2p --lib <filter>`，filter 分别为 `status_prefers_latest_execution_record_cas_snapshot_over_stale_execution_world_json`、`status_rejects_tampered_authoritative_execution_record_cas_snapshot`、`status_rejects_invalid_latest_execution_record_over_ready_legacy_json`、`status_rejects_newer_execution_record_with_stale_verified_snapshot_height`；原测试使用临时离线材料。先核 discovery 每个命中具名测试，再保存原输出及使用的 record/CAS/height 关系，0 tests、编译失败或环境阻塞不报通过。另用现有 `status_uses_runtime_execution_snapshot_when_simulator_mirror_is_empty` 检查其真实 fallback fixture，不把一个 fallback 覆盖全部 recovery。范围只为来源读取和拒绝旧 ready，不启动链或证明共识。本次未运行。
 
 <a id="uws-v-consumers"></a>
 ### 11.4 UWS-V-CONSUMERS：正式目标的对账与阻塞记录

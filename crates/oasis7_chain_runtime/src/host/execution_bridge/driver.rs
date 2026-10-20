@@ -1,8 +1,8 @@
 use std::fs;
 use std::time::{Duration, Instant};
 
+use crate::execution_config::ExecutionDriverConfig;
 use oasis7::simulator::WorldKernel;
-use oasis7_chain_runtime::execution_config::ExecutionDriverConfig;
 use oasis7_node::{
     EXECUTION_MISSING_PREDECESSOR_RECORD_SIGNATURE, NodeExecutionBootstrap,
     NodeExecutionCheckpointBlob, NodeExecutionCheckpointBundle,
@@ -55,7 +55,7 @@ use super::{
     ExecutionBridgeRecord, ExecutionBridgeState, ExecutionSimulatorMirrorRecord,
     persist_world_head_proof_for_record,
 };
-use oasis7_chain_runtime::execution_config::{
+use crate::execution_config::{
     EXECUTION_BRIDGE_RETENTION_DEGRADED_MARKER, EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER,
 };
 #[path = "driver_state.rs"]

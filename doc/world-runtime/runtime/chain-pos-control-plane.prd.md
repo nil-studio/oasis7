@@ -69,7 +69,7 @@
 
 ## 3. Technical Ownership and Interfaces
 
-- 代码真值：`crates/oasis7/src/chain_pos_defaults.rs`、`crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/cli.rs`、`startup_reconcile.rs`、`status_payload.rs` 与共识执行路径。
+- 代码真值：`crates/oasis7/src/chain_pos_defaults.rs`、`crates/oasis7_chain_runtime/src/host/cli.rs`、`startup_reconcile.rs`、`status_payload.rs` 与共识执行路径。
 - 本专题拥有 runtime 内部时间计算、状态推进、恢复和状态字段语义；参数值改变、validator/consensus 规则、ABI、网络/运维步骤或玩家承诺必须由相应 owner 经 TPM 联审。
 - 本专题不把默认值复制为不可更新的文档常量；当前默认 profile 以 `config/chain-pos-defaults.env` 与其解析回归为准。
 
@@ -78,7 +78,7 @@
 | PRD-ID | 验证 | 证明的合同 |
 | --- | --- | --- |
 | PRD-WORLD_RUNTIME-001 | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib chain_pos_defaults -- --nocapture` | 默认值解析和非法 duration/ticks/phase 拒绝。 |
-| PRD-WORLD_RUNTIME-001 | `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime oasis7_chain_runtime_tests -- --nocapture` | CLI 校验、控制面参数与 status 结构。 |
+| PRD-WORLD_RUNTIME-001 | `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib oasis7_chain_runtime_tests -- --nocapture` | CLI 校验、控制面参数与 status 结构。 |
 | PRD-WORLD_RUNTIME-001 | 定向共识 timing / startup reconcile 回归 | phase gate、strict-lag one-shot recovery、future/stale admission 与 restart counter 恢复。 |
 | PRD-WORLD_RUNTIME-001 | `./scripts/doc-governance-check.sh && ./scripts/readme-link-check.sh` | 专业 authority、索引和链接完整。 |
 

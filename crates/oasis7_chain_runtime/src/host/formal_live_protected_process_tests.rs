@@ -47,7 +47,7 @@ use std::{
 mod attempt_release_tests;
 #[path = "formal_live_protected_availability_tests.rs"]
 mod availability_tests;
-#[path = "../../../../oasis7/tests/common/mod.rs"]
+#[path = "../../../oasis7/tests/common/mod.rs"]
 pub(crate) mod common;
 #[path = "formal_live_protected_crash_tests.rs"]
 mod crash_tests;

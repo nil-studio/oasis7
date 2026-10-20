@@ -242,8 +242,8 @@ watch 为有界、只在 commit 变化时输出的 snapshot polling。`--cursor`
 ```sh
 env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint
 env -u RUSTC_WRAPPER cargo test -p oasis7 --lib governance_membership --no-default-features --features test_tier_required
-env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime --features node-libp2p,test_tier_required parse_options
-env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime --features node-libp2p,test_tier_required controlled_live -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --features node-libp2p,test_tier_required parse_options
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --features node-libp2p,test_tier_required controlled_live -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7_wasm_executor --features wasmtime
 ./scripts/p2p-triad-node-start.test.sh
 ./scripts/p2p-public-testnet-local-observer-sync.test.sh

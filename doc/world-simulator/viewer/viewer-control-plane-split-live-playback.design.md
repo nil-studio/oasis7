@@ -73,7 +73,7 @@ read outage 只改变可见性，不改变权威 W/history/effects；retry/repla
 
 ## Gameplay 反馈归属与提交资格设计
 
-Owner 为 `viewer_engineer` 与 `runtime_engineer`，`qa_engineer` 核对场景。基线 `fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e` 的静态审读确认：[请求分发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs)、[CollectData 分发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/collect_data.rs) 将错误写入共享反馈，[快照生成](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_blocking.rs) 再读取该反馈。兼容 [HTTP adapter](../../../crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/gameplay_submit_api.rs) 丢弃 builder code；预检尚未复用 canonical claim 解析。
+Owner 为 `viewer_engineer` 与 `runtime_engineer`，`qa_engineer` 核对场景。基线 `fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e` 的静态审读确认：[请求分发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs)、[CollectData 分发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/collect_data.rs) 将错误写入共享反馈，[快照生成](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_blocking.rs) 再读取该反馈。兼容 [HTTP adapter](../../../crates/oasis7_chain_runtime/src/host/gameplay_submit_api.rs) 丢弃 builder code；预检尚未复用 canonical claim 解析。
 
 本节是从 #2116/#2277/#2481 提炼的实现合同，测试与真实场景验收仍须分别核实。沿用现有 live/control、请求认证、world-service 与回执查询边界；不改变前文 PromptControl 的 wire capability、nonce/idempotency、application/persistence/sync scope，也不创建新的反馈持久化账本、公共权限 endpoint 或部署模式。
 

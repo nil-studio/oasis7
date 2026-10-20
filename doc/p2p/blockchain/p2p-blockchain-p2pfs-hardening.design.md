@@ -29,7 +29,7 @@
 
 ## 验证入口
 
-- `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/startup_reconcile.rs`
+- `crates/oasis7_chain_runtime/src/host/startup_reconcile.rs`
 - `crates/oasis7_consensus/src/signature.rs`
 - `crates/oasis7_consensus/src/ed25519_signer_policy.rs`
 - `crates/oasis7_consensus/src/membership_logic.rs`
@@ -79,11 +79,11 @@
 
 | 上游 requirement / acceptance | 本设计条款 | 验证目标 / oracle | 验证方法 / 精确来源 | 证据产物 | 未覆盖边界 / residual risk |
 | --- | --- | --- | --- | --- | --- |
-| [REQ-DCS-002](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002)；Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4 | [恢复连续性](#hardening-recovery-continuity) | 成功只更新可验证前向状态；无可用 latest 不伪造状态，损坏失败。 | 按 [testing manual](../../../testing-manual.md) 的 Rust 验证入口执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime startup_reconcile -- --nocapture`，已有断言覆盖陈旧同 world、异 world 与缺 node binding；缺失/损坏/不可读输入仍需补同候选负向证据；完整 DCS-002 另做 full 组合。 | 对应候选的命令、退出码、断言输出与环境；本次未运行此技术验收。 | 只覆盖 Node PoS reconciliation；合法 profile 链、checkpoint/replay 与恢复后正向续跑未覆盖。 |
+| [REQ-DCS-002](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002)；Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4 | [恢复连续性](#hardening-recovery-continuity) | 成功只更新可验证前向状态；无可用 latest 不伪造状态，损坏失败。 | 按 [testing manual](../../../testing-manual.md) 的 Rust 验证入口执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib startup_reconcile -- --nocapture`，已有断言覆盖陈旧同 world、异 world 与缺 node binding；缺失/损坏/不可读输入仍需补同候选负向证据；完整 DCS-002 另做 full 组合。 | 对应候选的命令、退出码、断言输出与环境；本次未运行此技术验收。 | 只覆盖 Node PoS reconciliation；合法 profile 链、checkpoint/replay 与恢复后正向续跑未覆盖。 |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | [签名与复制边界](#hardening-signature-boundary) | 无 verifier/非法 allowlist/错误签名被拒绝；写入失败 guard 不推进，后续记录不越过失败。 | 依 [testing manual](../../../testing-manual.md) 分别执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_consensus --lib signature`、`env -u RUSTC_WRAPPER cargo test -p oasis7_consensus --lib membership` 与 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs replication`；记录实际选中测试，分别核对 HMAC/ed25519、allowlist/keyring 与 guard/replay，不能仅由过滤名推断覆盖。 | 对应候选的命令、退出码、断言输出与环境；本次未运行此技术验收。 | 仅通过专业 PRD §3 的签名与复制准入支撑角色隔离；不证明完整服务暴露面、validator activation、custody 或主网可用。 |
 
 ## 精确源码与断言定位
 
-- [startup reconcile](../../../crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/startup_reconcile.rs)：`startup_reconcile_advances_stale_pos_state_from_execution_latest`、`startup_reconcile_skips_legacy_latest_without_node_block_hash`、`startup_reconcile_ignores_foreign_world_latest`。缺失/损坏/不可读状态的完整运行证据仍缺，不能用这三个断言代签。
+- [startup reconcile](../../../crates/oasis7_chain_runtime/src/host/startup_reconcile.rs)：`startup_reconcile_advances_stale_pos_state_from_execution_latest`、`startup_reconcile_skips_legacy_latest_without_node_block_hash`、`startup_reconcile_ignores_foreign_world_latest`。缺失/损坏/不可读状态的完整运行证据仍缺，不能用这三个断言代签。
 - [signature](../../../crates/oasis7_consensus/src/signature.rs)：HMAC/ed25519 action/head roundtrip 与 tampered action；[公钥规范化](../../../crates/oasis7_consensus/src/ed25519_signer_policy.rs) 的重复规范化公钥拒绝；[membership](../../../crates/oasis7_consensus/src/membership_tests.rs) 的 keyring roundtrip、unsigned default restore、unaccepted public key、HMAC-with-required-public-key 拒绝。
 - [replication](../../../crates/oasis7_distfs/src/replication.rs)：`apply_replication_record_hash_mismatch_does_not_mutate_guard`、`apply_replication_record_write_failure_does_not_mutate_guard`、`replay_replication_records_restores_files_in_order`，以及 epoch/sequence/writer 切换断言。fetch 鉴权、网络饱和与真实故障恢复需要各自额外证据，不由这些局部断言证明。
