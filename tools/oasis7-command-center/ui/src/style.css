@@ -272,3 +272,5 @@ button svg{vertical-align:middle;flex-shrink:0}
 @media(max-width:850px){.relation-map{grid-template-columns:minmax(0,1fr)}.relation-branch{grid-template-columns:32px minmax(0,1fr)}.semantic-tree-list.product-domain-map{grid-template-columns:minmax(0,1fr)}.pairing-map{grid-template-columns:minmax(0,1fr)}.pairing-arrow svg{transform:rotate(90deg)}.relationship-heading{align-items:flex-start;flex-direction:column}}
 
 .product-domain-map .actions button:first-child{font-weight:600;background:transparent;border-color:transparent;padding-left:0}.product-domain-map .actions{flex-direction:column}.product-domain-map .tree-node-source{font-size:.8125rem;color:#90a0b7}.semantic-tree>.inventory-filters{margin:8px 0}.tree-diagnostics{font-size:.8125rem}.domain-count{color:#b0bed0}.domain-count strong{color:#e0e8f5}
+
+.work-action-panel input,.work-action-panel select{width:100%;min-width:0;max-width:100%}@media(max-width:850px){.relation-line svg{transform:rotate(90deg)}}
