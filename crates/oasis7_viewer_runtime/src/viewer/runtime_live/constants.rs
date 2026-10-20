@@ -3,6 +3,10 @@ pub(super) const AUTHORITATIVE_BATCH_CONFIRM_DELAY_TICKS: u64 = 1;
 pub(super) const AUTHORITATIVE_BATCH_FINALITY_WINDOW_TICKS: u64 = 2;
 pub(super) const MAX_AUTHORITATIVE_BATCH_HISTORY: usize = 256;
 pub(super) const MAX_AUTHORITATIVE_CHALLENGE_HISTORY: usize = 512;
+// RequestSnapshot may replay both complete histories after snapshot, recovery
+// metadata and metrics. Keep the finite frame budget aligned with retention.
+pub(super) const DEFAULT_RESPONSE_TURN_MAX_FRAMES: usize =
+    MAX_AUTHORITATIVE_BATCH_HISTORY + MAX_AUTHORITATIVE_CHALLENGE_HISTORY + 3;
 pub(super) const MAX_AUTHORITATIVE_STABLE_CHECKPOINTS: usize = 64;
 pub(super) const LLM_GAMEPLAY_REQUIRED_HINT: &str =
     "enable --llm and configure a reachable LLM provider before retrying gameplay controls";

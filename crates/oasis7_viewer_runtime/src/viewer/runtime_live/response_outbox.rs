@@ -157,4 +157,93 @@ mod tests {
         assert!(count.flush().is_err());
         assert_eq!(count.bytes, b"first\n");
     }
+
+    #[test]
+    fn browser_initial_snapshot_replays_full_retained_history_with_default_limits() {
+        for config in [
+            ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal),
+            ViewerRuntimeLiveServerConfig::formal_release_default(),
+        ] {
+            let limits = ResponseLimits::from_config(&config);
+            let mut server = ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(
+                WorldScenario::Minimal,
+            ))
+            .unwrap();
+            for _ in 0..MAX_AUTHORITATIVE_BATCH_HISTORY {
+                server.register_authoritative_batch(&[]).unwrap();
+            }
+            let batch_id = server
+                .authoritative_batches
+                .back()
+                .unwrap()
+                .batch_id
+                .clone();
+            for index in 0..MAX_AUTHORITATIVE_CHALLENGE_HISTORY {
+                server
+                    .authoritative_challenges
+                    .push_back(RuntimeAuthoritativeChallengeRecord {
+                        challenge_id: format!("challenge-{index}"),
+                        batch_id: batch_id.clone(),
+                        watcher_id: "watcher".into(),
+                        recomputed_state_root: "0".repeat(64),
+                        recomputed_data_root: "0".repeat(64),
+                        status: AuthoritativeChallengeStatus::Challenged,
+                        submitted_at_tick: 0,
+                        resolved_at_tick: None,
+                        slash_applied: false,
+                        slash_reason: None,
+                    });
+            }
+            let mut session = RuntimeLiveSession::new_with_playing(false);
+            server
+                .handle_request(
+                    ViewerRequest::Subscribe {
+                        streams: vec![
+                            ViewerStream::Snapshot,
+                            ViewerStream::Events,
+                            ViewerStream::Metrics,
+                        ],
+                        event_kinds: vec![],
+                    },
+                    &mut session,
+                    &mut Vec::new(),
+                )
+                .unwrap();
+            let mut output = ResponseOutbox::new(limits);
+            server.handle_request(ViewerRequest::RequestSnapshot, &mut session, &mut output)
+                .expect("a browser subscription must receive all retained history without disconnecting");
+            assert!(!output.failed);
+            let responses: Vec<ViewerResponse> = output
+                .bytes
+                .split(|byte| *byte == b'\n')
+                .filter(|line| !line.is_empty())
+                .map(|line| serde_json::from_slice(line).unwrap())
+                .collect();
+            assert_eq!(
+                responses
+                    .iter()
+                    .filter(|response| matches!(
+                        response,
+                        ViewerResponse::AuthoritativeBatch { .. }
+                    ))
+                    .count(),
+                MAX_AUTHORITATIVE_BATCH_HISTORY
+            );
+            assert_eq!(
+                responses
+                    .iter()
+                    .filter(|response| matches!(
+                        response,
+                        ViewerResponse::AuthoritativeChallengeAck { .. }
+                    ))
+                    .count(),
+                MAX_AUTHORITATIVE_CHALLENGE_HISTORY
+            );
+            assert_eq!(
+                responses.len(),
+                MAX_AUTHORITATIVE_BATCH_HISTORY + MAX_AUTHORITATIVE_CHALLENGE_HISTORY + 3
+            );
+            assert!(session.initial_snapshot_sent);
+        }
+    }
 }
