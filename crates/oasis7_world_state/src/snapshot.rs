@@ -23,7 +23,7 @@ use super::modules::{ModuleLimits, ModuleRegistry};
 use super::policy::PolicySet;
 use super::state::WorldState;
 use super::types::{ActionId, IntentSeq, ProposalId, WorldEventId, WorldTime};
-use super::util::{atomic_write_json_to_path, deserialize_btreemap_u64_keys, read_json_from_path};
+use super::util::deserialize_btreemap_u64_keys;
 use super::world::{
     ModuleTickRoutingDeterministicSnapshot, WorldRuntimeBackpressureStats, WorldRuntimeMemoryLimits,
 };
@@ -190,11 +190,11 @@ impl Snapshot {
     }
 
     pub fn save_json(&self, path: impl AsRef<Path>) -> Result<(), WorldError> {
-        atomic_write_json_to_path(self, path.as_ref())
+        crate::codec::snapshot_save_json(self, path.as_ref())
     }
 
     pub fn load_json(path: impl AsRef<Path>) -> Result<Self, WorldError> {
-        read_json_from_path(path.as_ref())
+        crate::codec::snapshot_load_json(path.as_ref())
     }
 }
 
@@ -245,11 +245,11 @@ impl Journal {
     }
 
     pub fn save_json(&self, path: impl AsRef<Path>) -> Result<(), WorldError> {
-        atomic_write_json_to_path(self, path.as_ref())
+        crate::codec::journal_save_json(self, path.as_ref())
     }
 
     pub fn load_json(path: impl AsRef<Path>) -> Result<Self, WorldError> {
-        read_json_from_path(path.as_ref())
+        crate::codec::journal_load_json(path.as_ref())
     }
 }
 
