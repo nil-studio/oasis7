@@ -581,7 +581,8 @@ Trace ID: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196
 
 - 功能点：[EXT-F-071](#req-ext-018)；首期闭环目标，覆盖无预置 Agent/task/grant 的自主入场及原身份恢复。
 - 系统设计状态：已覆盖
-- 系统设计依据：[Game API bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)承接发现、身份/准入交接、恢复和发布边界；[适配器入场编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)承接受保护 owner 控制、独立 executor 及客户端恢复。角色分配仍复用[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)，不新增经济规则。
+- 系统设计依据：[Game API bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)承接发现、身份/准入交接、恢复和发布边界；[适配器入场编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)承接受保护 owner 控制、独立 executor 及客户端恢复。
+- 消费约束：角色分配仍复用[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)，不新增经济规则；该玩法条款是既有依赖，不独立证明本条新增公开入场组合已被设计覆盖。
 - 实现状态：未实现
 - 实现与验证依据：本条新增的是尚未交付的公开安全 bootstrap 组合；[现有 API 切片](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)仍将身份注册、公开写入、完整冷入场列为待实施，私有 loopback、import_only 和 prepared-world 只提供其既有子范围。已有账号、任务与执行链能力不被降级或抹去。
 - 核对日期与基线：2026-10-20；设计输入固定 `2161c0bf767795f47b234005262d1ec8187ba66b`；本次仅修订文档，未运行真实 Runtime、注册、部署或入场验收。
@@ -608,9 +609,9 @@ Trace refs: O7-REQ-b3e367c3-c72d-4959-b599-613ac652dab8；承接[REQ-EXT-001](#r
 <a id="ac-ext-002"></a>
 ### AC-EXT-002：错误绑定和越权成本路由被拒绝
 
-Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；承接[REQ-EXT-002](#req-ext-002)。
+Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接[REQ-EXT-002](#req-ext-002)及[REQ-EXT-018](#req-ext-018)的自主入场后权限关系共存部分。
 
-- 覆盖要求：[REQ-EXT-002](#req-ext-002)。
+- 覆盖要求：[REQ-EXT-002](#req-ext-002)；[REQ-EXT-018](#req-ext-018)的自有/受托关系共存与隔离，不替代其冷入场链验收。
 - 给定：同一 Runtime 对自身 Agent A 的合法 owner→独立 executor 关系、玩家 B 对 Agent B 的有效委托，以及他人 Agent、失效委托或不属于当前身份的费用路由作为负例。
 - 当：执行方尝试绑定、开始任务或在资格改变后继续。
 - 则：A/B 可分别正常执行且任务、目标、预算、回执和私有上下文不串用；B 的 executor 不能改 B 的 owner 目标或自批，A 的 owner 权限不扩张到 B。撤销 B 后旧 B fence 被拒绝，A 及其他独立委托继续按各自权限工作。公开标识、路由或同一进程不代替认证授权；不增加额外实体、认领补贴或维护豁免，也不将正常初始绑定误收费。
@@ -799,6 +800,7 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接[REQ-EXT-018](#r
 | [REQ-EXT-016](#req-ext-016) / [AC-EXT-016](#ac-ext-016) | viewer_engineer / game_visual_interaction_designer / qa_engineer | [世界探索](player-readable-world-stage.prd.md#req-agent-stage-003); [Fragment LOD](../../world-simulator/viewer/viewer-pixel-world-fragment-lod.prd.md) | 总览、区域、缩放、对象搜索选择、来源/权限负例 | test_tier_full |
 | [REQ-EXT-017](#req-ext-017) / [AC-EXT-017](#ac-ext-017) | agent_engineer / viewer_engineer / runtime_engineer / qa_engineer | [间接指导](player-readable-world-stage.prd.md#req-agent-stage-005); [Prompt](agent-conversation-and-prompt-control.prd.md) | 地图选中、目标应用、权威结果、无权直接动作与故障恢复 | test_tier_full |
 | [REQ-EXT-018](#req-ext-018) / [AC-EXT-018](#ac-ext-018) | agent_engineer / runtime_engineer / gameplay_designer / qa_engineer | [Game API 入场](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry); [逐账号初始绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001) | 无预置 Agent/task/grant 的冷入场、准入/权限负例、幂等恢复及两种关系共存 | test_tier_required + test_tier_full |
+| [REQ-EXT-018](#req-ext-018) / [AC-EXT-002](#ac-ext-002) | agent_engineer / runtime_engineer / qa_engineer | [资源关系隔离](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-relationship-isolation) | 自主入场后的自有/受托资源共存、目标与预算隔离及单份委托撤销负例；不代签冷入场 | test_tier_required |
 
 ### 5.3 证据范围与判定
 
