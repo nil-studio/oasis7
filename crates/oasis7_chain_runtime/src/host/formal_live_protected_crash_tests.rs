@@ -393,47 +393,62 @@ fn stop_after_controlled_publication(
     control: &BoundaryControl,
     scenario: ScenarioDeadline,
 ) -> Result<(), String> {
-    let result = runtime.stop(Duration::ZERO);
-    if result.as_ref().err().map(String::as_str)
-        != Some("formal Node stop is still pending; runtime remains owned")
-    {
-        control.release()?;
-        return Err(format!(
-            "C03 in-flight stop did not retain its owner: {result:?}"
-        ));
-    }
     let deadline = scenario
         .expires_at
         .min(Instant::now() + Duration::from_secs(10));
-    loop {
-        match runtime.runtime.try_lock() {
-            Err(std::sync::TryLockError::WouldBlock) => break,
-            Err(std::sync::TryLockError::Poisoned(_)) => {
-                return Err("C03 stop owner observation lock poisoned".into());
+    let node = runtime.runtime.clone();
+    let retained = (|| {
+        let result = runtime.stop(Duration::ZERO);
+        if result.as_ref().err().map(String::as_str)
+            != Some("formal Node stop is still pending; runtime remains owned")
+            || runtime.stop_worker.is_some()
+        {
+            return Err(format!("C03 zero-budget stop must retain a pre-worker owner: {result:?}"));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("C03 stop observation deadline expired before positive retry".into());
+        }
+        let result = runtime.stop(remaining.min(Duration::from_millis(10)));
+        if result.as_ref().err().map(String::as_str)
+            != Some("formal Node stop is still pending; runtime remains owned")
+            || !Arc::ptr_eq(&node, &runtime.runtime)
+        {
+            return Err(format!("C03 positive retry did not retain the same owner: {result:?}"));
+        }
+        let worker = runtime.stop_worker.as_ref()
+            .ok_or("C03 positive retry did not start the original stop worker")?
+            .worker.thread().id();
+        loop {
+            match runtime.runtime.try_lock() {
+                Err(std::sync::TryLockError::WouldBlock) => break,
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err("C03 stop owner observation lock poisoned".into());
+                }
+                Ok(node) => drop(node),
             }
-            Ok(node) => drop(node),
+            if Instant::now() >= deadline {
+                return Err("C03 original stop worker did not take ownership before deadline".into());
+            }
+            thread::sleep(Duration::from_millis(1));
         }
-        if Instant::now() >= deadline {
-            return Err("C03 original stop worker did not take ownership before deadline".into());
+        let pending = runtime.stop_worker.as_ref().ok_or("C03 pending stop owner missing")?;
+        if pending.worker.thread().id() != worker {
+            return Err("C03 stop observation replaced the original worker".into());
         }
-        thread::sleep(Duration::from_millis(1));
+        match pending.result.recv_timeout(
+            deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(10)),
+        ) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(()),
+            result => Err(format!("C03 in-flight stop completed before publication release: {result:?}")),
+        }
+    })();
+    // Every assertion path releases publication before returning to runtime cleanup.
+    let released = control.release();
+    match (retained, released) {
+        (Ok(()), Ok(())) => {}
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+        (Err(error), Err(release)) => return Err(format!("{error}; C03 publication release: {release}")),
     }
-    let pending = runtime
-        .stop_worker
-        .as_ref()
-        .ok_or("C03 pending stop owner missing")?;
-    match pending.result.recv_timeout(
-        deadline
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_millis(10)),
-    ) {
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-        result => {
-            return Err(format!(
-                "C03 in-flight stop completed before publication release: {result:?}"
-            ));
-        }
-    }
-    control.release()?;
     super::durable_set_tests::stop_healthy_runtime(runtime, scenario)
 }

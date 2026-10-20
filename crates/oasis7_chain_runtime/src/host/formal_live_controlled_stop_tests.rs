@@ -75,7 +75,6 @@ fn scenario(
             calls: calls.clone(),
         },
     )));
-    runtime.stop_entry_signal = Some(entry_send);
     let node = runtime.runtime.clone();
     let admission = runtime.admission_gate.clone();
     let state = runtime.state.clone();
@@ -88,6 +87,15 @@ fn scenario(
     entered_receive
         .recv_timeout(Duration::from_secs(1))
         .map_err(|error| error.to_string())?;
+    let runtime = owned.runtime.as_mut().unwrap();
+    if runtime.stop(Duration::ZERO).as_ref().map_err(String::as_str)
+        != Err("formal Node stop is still pending; runtime remains owned")
+        || runtime.stop_worker.is_some()
+        || !Arc::ptr_eq(&node, &runtime.runtime)
+    {
+        return Err("controlled active stop(0) did not retain its pre-worker owner".into());
+    }
+    runtime.stop_entry_signal = Some(entry_send);
     let timeout = Duration::from_millis(20);
     let (mut owned, result, deadline, returned, returned_while_held) =
         std::thread::scope(|scope| {
