@@ -1,5 +1,5 @@
 //! Concrete persistence and consensus codecs. Format distinctions are intentional.
-use crate::{Journal, Snapshot, WorldError, WorldStateProjection};
+use crate::{Journal, Snapshot, WorldError, WorldEvent, WorldStateProjection};
 use serde::Serialize;
 use std::path::Path;
 #[derive(Serialize)]
@@ -44,6 +44,10 @@ pub fn snapshot_from_cbor(bytes: &[u8]) -> Result<Snapshot, serde_cbor::Error> {
 }
 pub fn snapshot_canonical_cbor(snapshot: &Snapshot) -> Result<Vec<u8>, WorldError> {
     crate::util::to_canonical_cbor(snapshot)
+}
+/// Encode a concrete journal event for observation and Changes values.
+pub fn world_event_json_value(event: &WorldEvent) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::to_value(event)
 }
 pub fn journal_json(journal: &Journal) -> Result<Vec<u8>, serde_json::Error> {
     serde_json::to_vec(journal)
@@ -163,6 +167,18 @@ mod tests {
             journal_from_cbor(include_bytes!("../fixtures/journal.cbor")).unwrap(),
             journal
         );
+    }
+    #[test]
+    fn pre_extraction_journal_events_preserve_json_values() {
+        let bytes = include_bytes!("../fixtures/journal.json");
+        let journal = journal_from_json(bytes).unwrap();
+        let legacy: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        let events = legacy["events"].as_array().unwrap();
+        assert!(!events.is_empty());
+        assert_eq!(journal.events.len(), events.len());
+        for (event, expected) in journal.events.iter().zip(events) {
+            assert_eq!(world_event_json_value(event).unwrap(), *expected);
+        }
     }
     #[test]
     fn concrete_state_root_preserves_plain_and_sparse_encoding() {

@@ -49,6 +49,54 @@ impl oasis7_game_client::formal_read::FormalReadProjection for crate::WorldServi
     ) -> Result<VerifiedFormalProjectionV1, String> {
         verify_view(verifier, response, request, reader_public_key)
     }
+    fn decode_signed_changes_response(
+        bytes: &[u8],
+    ) -> Result<
+        oasis7_client_api::world_service::SignedServiceResponse<crate::codec::ChangesPage>,
+        String,
+    > {
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())
+    }
+    fn encode_signed_changes_response(
+        response: &oasis7_client_api::world_service::SignedServiceResponse<
+            crate::codec::ChangesPage,
+        >,
+    ) -> Result<Vec<u8>, String> {
+        serde_json::to_vec(response).map_err(|error| error.to_string())
+    }
+    fn verify_signed_changes_response(
+        path: &str,
+        request_digest: &str,
+        response: &oasis7_client_api::world_service::SignedServiceResponse<
+            crate::codec::ChangesPage,
+        >,
+        trusted_service_public_key: &str,
+    ) -> Result<(), String> {
+        oasis7_client_api::world_service::verify_service_response(
+            path,
+            request_digest,
+            response,
+            trusted_service_public_key,
+        )
+    }
+    fn encode_changes_page(page: &crate::codec::ChangesPage) -> Result<Vec<u8>, String> {
+        crate::codec::changes_page_json(page).map_err(|error| error.to_string())
+    }
+    fn verify_changes_page(
+        verifier: &mut FormalReadVerifier,
+        source: &oasis7_game_client::formal_business::VerifiedFormalChangesCursorV1,
+        read_authority_digest: &str,
+        page: &crate::codec::ChangesPage,
+        reader_public_key: &str,
+    ) -> Result<oasis7_game_client::formal_business::VerifiedFormalChangesPageV1, String> {
+        verify_changes_page(
+            verifier,
+            source,
+            read_authority_digest,
+            page,
+            reader_public_key,
+        )
+    }
     fn read_metadata(
         &self,
     ) -> Result<oasis7_client_api::world_service_read::WorldServiceProjectionMetadataV1, String>
@@ -60,7 +108,7 @@ impl oasis7_game_client::formal_read::FormalReadProjection for crate::WorldServi
                 events: self
                     .events
                     .iter()
-                    .map(serde_json::to_value)
+                    .map(oasis7_world_state::codec::world_event_json_value)
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| e.to_string())?,
             },
@@ -142,4 +190,21 @@ pub fn verify_view(
     reader_public_key: &str,
 ) -> Result<VerifiedFormalProjectionV1, String> {
     verifier.verify_view(response, request, reader_public_key)
+}
+
+/// Concrete Changes specialization delegates to the unique shared proof consumer.
+pub fn verify_changes_page(
+    verifier: &mut FormalReadVerifier,
+    source: &oasis7_game_client::formal_business::VerifiedFormalChangesCursorV1,
+    read_authority_digest: &str,
+    page: &crate::codec::ChangesPage,
+    reader_public_key: &str,
+) -> Result<oasis7_game_client::formal_business::VerifiedFormalChangesPageV1, String> {
+    oasis7_game_client::formal_business::verify_formal_changes_page(
+        verifier,
+        source,
+        read_authority_digest,
+        page,
+        reader_public_key,
+    )
 }

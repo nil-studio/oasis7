@@ -119,8 +119,67 @@ fn pre_split_projection_and_response_fixtures_reencode_without_wire_drift() {
         assert_eq!(response_to_json(&value).unwrap(), json);
         assert_eq!(response_to_cbor(&value).unwrap(), cbor);
         assert_eq!(
+            projection_revision(&value.view).unwrap(),
+            value.version.projection_revision
+        );
+        assert_eq!(
             oasis7_client_api::world_service::signing_bytes("view", &value).unwrap(),
             include_bytes!("../fixtures/response.signing")
+        );
+    }
+}
+
+#[test]
+fn concrete_changes_codec_preserves_page_bytes_and_parser_errors() {
+    use oasis7_client_api::world_service::{
+        FormalBusinessChangesCursorV1, FormalReadAnchorRefV1, ReadWorldViewRequest,
+    };
+    let target_view = response_from_json(include_bytes!("../fixtures/response.json")).unwrap();
+    let from_anchor = FormalReadAnchorRefV1 {
+        position: target_view.version.commit.position,
+        record_id: target_view.version.commit.execution_block_hash.clone(),
+        active_authority_id: "a".repeat(64),
+    };
+    let cursor = FormalBusinessChangesCursorV1 {
+        stream_id: target_view.continuation.stream_id.clone(),
+        scope_id: target_view.continuation.scope_id.clone(),
+        event_id_era: target_view.continuation.era,
+        sequence: target_view.continuation.sequence,
+        commit: target_view.version.commit.clone(),
+    };
+    let page = ChangesPage {
+        schema_version: 1,
+        from_anchor: from_anchor.clone(),
+        from_exclusive: cursor.clone(),
+        to_inclusive: cursor.clone(),
+        next_cursor: cursor.clone(),
+        target_request: ReadWorldViewRequest {
+            observation_nonce: None,
+            formal_anchor: Some(from_anchor),
+            contract_version: target_view.contract_version,
+            world: target_view.version.commit.world.clone(),
+            scope_id: cursor.scope_id,
+            min_commit: None,
+            fixed_commit: None,
+            deadline_unix_ms: None,
+        },
+        target_view,
+        changes: Vec::new(),
+    };
+    let json = changes_page_json(&page).unwrap();
+    assert_eq!(json, serde_json::to_vec(&page).unwrap());
+    assert_eq!(
+        changes_page_json(&changes_page_from_json(&json).unwrap()).unwrap(),
+        json
+    );
+    let source = std::str::from_utf8(&json).unwrap();
+    let duplicate = format!("{{\"schema_version\":1,{rest}", rest = &source[1..]);
+    for invalid in [b"null".as_slice(), b"{}", b"{", duplicate.as_bytes()] {
+        assert_eq!(
+            changes_page_from_json(invalid).unwrap_err().to_string(),
+            serde_json::from_slice::<ChangesPage>(invalid)
+                .unwrap_err()
+                .to_string()
         );
     }
 }

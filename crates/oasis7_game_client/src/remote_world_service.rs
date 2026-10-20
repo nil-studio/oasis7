@@ -322,6 +322,17 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
         self.finish_view(response, &signed.request, &signed.subject_public_key)
     }
 
+    pub(super) fn call_formal_changes<Q: Serialize>(
+        &self,
+        request: &Q,
+    ) -> Result<FormalBusinessChangesPageV1<P>, WorldServiceClientError> {
+        self.transport.call_with_response_codec(
+            CHANGES_PATH,
+            request,
+            P::decode_signed_changes_response,
+            P::verify_signed_changes_response,
+        )
+    }
     fn call_view(
         &self,
         request: &SignedReadRequest<ReadWorldViewRequest>,
@@ -544,6 +555,11 @@ mod tests {
         ) -> Result<SignedServiceResponse<ReadWorldViewResponse<Self>>, String> {
             Err("schema-owned view decoder invoked".into())
         }
+        fn decode_signed_changes_response(
+            _: &[u8],
+        ) -> Result<SignedServiceResponse<FormalBusinessChangesPageV1<Self>>, String> {
+            Err("schema-owned Changes decoder invoked".into())
+        }
         fn validate_contents(
             _: &ReadWorldViewResponse<Self>,
             _: &ReadWorldViewRequest,
@@ -582,6 +598,36 @@ mod tests {
                 matches!(result, Err(WorldServiceClientError::Assurance(message))
                 if message == "schema-owned view decoder invoked"),
                 "route {route}"
+            );
+            task.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn typed_changes_transport_uses_schema_decoder_after_response_bound() {
+        for bounded in [false, true] {
+            let (endpoint, task) =
+                serve_payload(CHANGES_PATH, serde_json::json!({"ok":true}), |_| {});
+            let mut config = config(endpoint);
+            if bounded {
+                config.max_response_bytes = 1;
+            }
+            let signed = authority::sign_read_request(
+                CHANGES_PATH,
+                serde_json::json!({"fixture":"decoder dispatch"}),
+                &config.read_private_key_hex,
+            )
+            .unwrap();
+            let client = RemoteWorldServiceReader::<HookedProjection>::new(config).unwrap();
+            let result = client.call_formal_changes(&signed);
+            let expected = if bounded {
+                "service response exceeds bound"
+            } else {
+                "schema-owned Changes decoder invoked"
+            };
+            assert!(
+                matches!(result, Err(WorldServiceClientError::Assurance(message))
+                if message == expected)
             );
             task.join().unwrap();
         }

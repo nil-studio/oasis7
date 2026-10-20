@@ -205,7 +205,7 @@ impl FormalReadPublication {
             version: ProjectionVersion {
                 commit,
                 visibility_scope: request.scope_id.clone(),
-                projection_revision: authority::request_digest("projection", &view)?,
+                projection_revision: oasis7_world_projection::codec::projection_revision(&view)?,
             },
             continuation,
             view,
