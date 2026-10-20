@@ -76,12 +76,21 @@ pub struct ProductProfileV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecipeProfileV1 {
     pub recipe_id: String,
+    /// Empty legacy profiles never authorize material substitution.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub substitution_rules: Vec<crate::SubstitutionRuleV1>,
     #[serde(default)]
     pub bottleneck_tags: Vec<String>,
     #[serde(default)]
     pub stage_gate: String,
     #[serde(default)]
     pub preferred_factory_tags: Vec<String>,
+}
+
+impl RecipeProfileV1 {
+    pub fn validate_substitution_rules(&self) -> Result<(), crate::SubstitutionRuleError> {
+        crate::validate_substitution_rules(&self.substitution_rules, &self.recipe_id)
+    }
 }
 
 /// Runtime factory profile used by progression and capacity tuning.
@@ -382,6 +391,7 @@ mod tests {
             unlock_stage: "scale_out".to_string(),
         };
         let recipe = RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.assembler.module_rack".to_string(),
             bottleneck_tags: vec!["control_chip".to_string(), "sensor_pack".to_string()],
             stage_gate: "scale_out".to_string(),

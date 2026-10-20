@@ -1,3 +1,5 @@
+import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
+import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
 import { AgentChatOwnerControls } from "./agent_chat_owner_controls.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
@@ -49,12 +51,6 @@ function buildViewerEntryUrls(locale) {
   return {
     softwareSafeUrl: softwareSafeUrl.toString(),
   };
-}
-function Badge(props) {
-  return <span class={props.class ?? "badge"}>{props.children}</span>;
-}
-function EmptyState(props) {
-  return <div class={`empty ${props.class ?? ""}`} style={props.style}>{props.children}</div>;
 }
 function targetSyncProgressLines(progress, locale) {
   if (!progress) {
@@ -2425,6 +2421,7 @@ function WorldSummaryPanel(props = {}) {
                   {gameplayProgressLabel(gameplay().progressPercent, locale())}
                 </Badge>
               </div>
+              <RecipeSubstitutionPanel model={gameplay().recipeSubstitution} locale={locale()} />
               <FactoryProductionFailureDispositionCard
                 disposition={gameplay().factoryProductionFailureDisposition}
                 locale={locale()}

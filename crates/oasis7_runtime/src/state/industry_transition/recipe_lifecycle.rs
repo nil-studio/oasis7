@@ -391,6 +391,7 @@ impl PreparedRecipeLifecycle {
             pending: Some((
                 *job_id,
                 Some(RecipeJobState {
+                    industrial_root_ref: None,
                     emergency_power_world_binding,
                     committed_recipe_origin: committed_recipe_origin.clone(),
                     job_id: *job_id,
@@ -489,6 +490,7 @@ impl PreparedRecipeLifecycle {
                     "recipe completion has no pending job: job_id={job_id}"
                 ))
             })?;
+        crate::world_rules::validate_industrial_completion(state, &pending)?;
         if now < pending.ready_at {
             return Err(invalid(format!(
                 "recipe completion is early: job_id={job_id} ready_at={} now={now}",
@@ -654,7 +656,10 @@ impl PreparedRecipeLifecycle {
         else {
             unreachable!()
         };
-        let terminal = blocker_kind == "product_validation";
+        let terminal = matches!(
+            blocker_kind.as_str(),
+            "product_validation" | "industrial_termination"
+        );
         let pending = state.pending_recipe_jobs.get(action_id).cloned();
         if terminal
             && let Some(existing) = state.factory_production_failure_dispositions.get(action_id)
@@ -747,7 +752,12 @@ impl PreparedRecipeLifecycle {
                     lost_inputs: pending.consume.clone(),
                     consumed_power: pending.power_required,
                     lost_power: pending.power_required,
-                    next_action: "inspect_product_validation_and_reschedule".into(),
+                    next_action: if blocker_kind == "industrial_termination" {
+                        "inspect_industrial_termination"
+                    } else {
+                        "inspect_product_validation_and_reschedule"
+                    }
+                    .into(),
                     next_recheck: None,
                 },
             )

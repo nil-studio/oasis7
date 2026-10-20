@@ -31,7 +31,7 @@
 
 ## 3. 当前状态、目标状态与差距
 
-| 对象 | 当前基线 | 目标 | 差距与证据边界 |
+| 对象 | 固定审读时基线 | 目标 | 差距与证据边界 |
 | --- | --- | --- | --- |
 | 配方 profile | [RecipeProfileV1](../../../crates/oasis7_wasm_abi/src/economy.rs) 描述 recipe、瓶颈、阶段与工厂偏好；没有 profile-declared 替代规则。 | `SubstitutionRuleV1` 明确材料、适用性、数量、全产出影响及 conversion 模式。 | 普通输入表不能推导异料兼容。 |
 | 执行动作 | [工业 Action](../../../crates/oasis7_agent_api/src/world_action/action.rs) 与 [recipe lifecycle reducer](../../../crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs) 提供普通排产及其消费/产出。 | 无效果 decision 和独立转换工作/结算。 | 现有单 job/去重不能证明替代身份或残余防套利。 |
@@ -123,6 +123,26 @@ decision 不是资源预留或永不过期的执行权；后续转换/排产仍�
 确认幂等键为 `(world, module_instance, owner, confirmation_intent_key)`，绑定 payload digest；真正效果继续由 `(root, revision, child, effect_role)` 去重。相同确认键同内容返回原 decision，不同内容 `idempotency_conflict`。另由 canonical input/join slot 的当前 decision/消费状态和 source lot 的数量账本约束换键/拆分：新的确认不能使同一已 sink 量再次可用。转换 start、settlement、每次合法处置各有独立 effect role，并引用同一原操作。
 
 错误集合为 `unsupported_schema / unsupported_substitution / missing_authority / not_applicable / stale_candidate / owner_mismatch / quantity_or_unit_invalid / quantization_blocked / resource_unavailable / causal_change_requires_cutover / conversion_not_authorized / unsupported_disposition / idempotency_conflict / commit_unknown`；返回准确 identity、已知结果/未决义务和可执行下一步，不从 timeout 推断未消费。`degraded` 只表示 profile 明确接受的品质等级，不是错误或未知的兼容别名。
+
+### 6.1 原生 profile 与 authority 绑定
+
+`RecipeProfileV1.substitution_rules` 发布有限的 `SubstitutionRuleV1` 集合。旧 profile 缺少该字段时只表示没有异料替代声明，不能默认生成 1:1 规则；空集合保持旧 profile 的编码。非空规则必须有明确版本引用、所有适用性、比例/单位/量子、rounding/residual、损耗、各因果影响与复查/处置政策。规则集合按稳定 rule identity 排序且唯一；缺少必需字段、未知值域、非正比例、溢出、超限或不匹配的 recipe 身份均拒绝。bootstrap、治理与 module release 使用相同校验。
+
+整数数量计划计算整个已接受的 canonical batch/cycle 域，而不是调用者任意拆分的 delta。计划保留 source requirement、显式 loss、target executable 与有理 residual；计算函数本身不授予权限。执行器持久化原 domain 和其单次消费，拆分、换键、换 decision 或 retry 不能重新获得舍入收益。
+
+规则引用不是外部证据本身。原生 execution authority 必须由现有受信 finality authority 对完整世界、root/slot、profile、来源 lot、owner、路径/品质、资源和所有因果影响作准确认证，并在执行时与当前 canonical 依赖重验。该 authority 不增加库存；实际来源只来自共享工业托管。未解析的 profile 引用、缺失 batch authority 或证据过期显示 unknown/blocked，不能仅凭字符串相等声称安全。转换只支持已实现且明示的模式；未支持的模式在 sink 前拒绝。
+
+### 6.2 原生能力发现与明确操作
+
+授权 `world_rule_status.recipe_substitution` 是 API、Agent 与 Viewer 的同一读面；包含 `reader_agent_id`、root、完整 preview、decision 与独立 settlement。只有当前经济 owner source 匹配的记录可见，同一 Agent ID 被重新取得不会转移旧私密记录。Viewer 的 chain 模式只读取已验证的私有 projection，缺失时不以本地重建世界补齐。超出读取或 preview 字节上限明确报告，不能把截断集合当完整合法选择。
+
+`WorldRuleCommandV1::IndustrialWork` 提供认证批次导入、接受 root、正常 `StartRoot`、单次 `TerminateRoot` 和未消费余额释放。`RecipeSubstitution` 提供认证 authority 发布、`Confirm`、`Convert`、`ApplyBinding`、`Cutover`；每个操作仍需要当前 actor、准确对象的 native grant 与 canonical admission。确认直接携带读取的完整 preview 和候选摘要、明确 scope 与上限；新配方 cutover 的完整处置 plan 与 digest 由 preview 提供，客户端不能靠猜测序列化顺序重建授权摘要。
+
+同料换源直接核对已认证 baseline 和源 lot，数量与单位完全一致，不依赖异料规则，也不产生 conversion。异料替代只使用有限显式规则；当前原生转换模式是同 ledger 的即时原子转换，`duration_ticks != 0` 或无需转换的异料直投在首 sink 前明确拒绝。原生跨材料且改变产出因果的转换不冒充等价转换；换配方引用另一个已认证、未 sink 的 root，预览在私有状态上执行正常 StartRoot guards 后，明确 cutover 只建立旧/新身份的 receipt 关系，再由新 root 正常生产。当前不宣称多 tick converter、任意 post-sink rework 或 #4856 其余独立叶子的实现。
+
+原生认证 authority 逐项声明风险、下一复查时刻和带单位的 held/consumed/expected-output 估值；这是该 profile 的机会成本说明，不是可支配货币、credit 或 reward。所有字段均进入签名及候选摘要，不能补默认安全、零估值或免费影响。各 input 和 output 的整数单位、recipe/profile、品质、保管、owner、工厂、ledger、材料余额、电力与有限 terminal 容量在实际边界重验；normal StartRoot 和最终产出共同遵守冻结的 per-material output 上限。终端权限或容量失效时原 pending job 保持原数量与损耗，产生可见 blocker，条件未改变不反复追加同一 blocker；恢复后只结算一次，不能重新扣输入。
+
+首 sink 后当前原生显式支持 baseline 声明的 `Terminate`：关联准确原 job、保留已消费材料和电力的 loss，移除原 pending commitment 并只写一次处置 receipt；不退款、不生成产物。未声明或未实现的 Hold/rework/return/salvage 均拒绝，不能用普通暂停伪造安全 WIP 迁移。已完成的 job 不能再终止；终止的未 sink 绑定可以释放仍未消费的托管量，但任何仍有效的新 root 绑定继续阻止释放。
 
 ## 7. 状态、事务与持久化
 

@@ -244,6 +244,7 @@ fn starter_milestone_survives_settled_history_compaction() {
 
 fn pending_recipe_job(job_id: ActionId) -> RecipeJobState {
     RecipeJobState {
+        industrial_root_ref: None,
         emergency_power_world_binding: None,
         committed_recipe_origin: None,
         job_id,

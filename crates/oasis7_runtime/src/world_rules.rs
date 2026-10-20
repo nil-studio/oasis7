@@ -9,6 +9,16 @@ mod authority;
 pub(crate) use authority::verify_world_rule_authority;
 mod action_results;
 mod industrial;
+pub mod industrial_work;
+mod industrial_work_admission;
+mod industrial_work_start;
+mod industrial_work_terminate;
+mod industrial_completion;
+pub(crate) use industrial_completion::validate_industrial_completion;
+mod substitution_read;
+mod recipe_substitution;
+pub use recipe_substitution::*;
+use oasis7_agent_api::world_action::IndustrialWorkStateV1;
 mod organization;
 #[cfg(test)]
 pub(crate) use organization::economic_contract_terms_hash;
@@ -33,7 +43,14 @@ pub struct WorldRulesStateV1 {
     #[serde(default)]
     pub emergency_supply: EmergencySupplyStateV1,
     pub agent_orders: BTreeMap<String, AgentIndustrialOrderV1>,
+    #[serde(default, skip_serializing_if = "industrial_work_is_empty")]
+    pub industrial_work: IndustrialWorkStateV1,
+    #[serde(default, skip_serializing_if = "substitution_is_empty")]
+    pub substitution: SubstitutionStateV1,
 }
+
+fn industrial_work_is_empty(value: &IndustrialWorkStateV1) -> bool { value == &IndustrialWorkStateV1::default() }
+fn substitution_is_empty(value: &SubstitutionStateV1) -> bool { value == &SubstitutionStateV1::default() }
 
 pub(crate) struct WorldRulesContinuityProjection<'a> {
     pub(crate) base: &'a WorldRulesStateV1,
@@ -42,7 +59,7 @@ pub(crate) struct WorldRulesContinuityProjection<'a> {
 
 impl Serialize for WorldRulesContinuityProjection<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut output = serializer.serialize_struct("WorldRulesStateV1", 11)?;
+        let mut output = serializer.serialize_struct("WorldRulesStateV1", 11 + usize::from(!industrial_work_is_empty(&self.base.industrial_work)) + usize::from(!substitution_is_empty(&self.base.substitution)))?;
         output.serialize_field("requests", &self.base.requests)?;
         output.serialize_field("governance_effects", &self.base.governance_effects)?;
         output.serialize_field("organization_cases", &self.base.organization_cases)?;
@@ -54,6 +71,8 @@ impl Serialize for WorldRulesContinuityProjection<'_> {
         output.serialize_field("organization_continuity", self.organization_continuity)?;
         output.serialize_field("emergency_supply", &self.base.emergency_supply)?;
         output.serialize_field("agent_orders", &self.base.agent_orders)?;
+        if !industrial_work_is_empty(&self.base.industrial_work) { output.serialize_field("industrial_work", &self.base.industrial_work)?; }
+        if !substitution_is_empty(&self.base.substitution) { output.serialize_field("substitution", &self.base.substitution)?; }
         output.end()
     }
 }
@@ -179,6 +198,8 @@ impl PreparedWorldRule {
             return Err(invalid("runtime_observation_is_system_only"));
         }
         let result_id = match command {
+            WorldRuleCommandV1::IndustrialWork { command } => next.industrial_work_command(state, actor_id, &key, command, now, world_binding.as_deref())?,
+            WorldRuleCommandV1::RecipeSubstitution { command } => next.recipe_substitution(state, actor_id, &key, command, now, world_binding.as_deref())?,
             WorldRuleCommandV1::MinimumService { command } => next.minimum_service(
                 state,
                 actor_id,
@@ -229,6 +250,9 @@ impl PreparedWorldRule {
                 world_binding.as_deref().unwrap_or(""),
             )?,
         };
+        if let Some(industry) = next.industry.as_mut() {
+            industry.set_routing_event(event);
+        }
         if let WorldRuleCommandV1::DeliverAgentOrder { order_id } = command {
             let order = &next.rules.agent_orders[order_id];
             if order.delivered_at == Some(now) {
@@ -498,7 +522,7 @@ impl WorldState {
             return None;
         }
         Some(
-            serde_json::json!({"source_tick":self.time,"agent_orders":orders,"manufacturing_quotes":quotes,"agent_order_count":rules.agent_orders.len(),"agent_orders_truncated":rules.agent_orders.len()>128,"organization_activity_contract_candidates":activity_contract_candidates,"supply_next_step":"inspect_verified_source_and_adapter_availability","organization_next_step":"inspect_explicit_continuity_registration_and_case"}),
+            serde_json::json!({"source_tick":self.time,"recipe_substitution":self.recipe_substitution_status(reader,world_binding),"agent_orders":orders,"manufacturing_quotes":quotes,"agent_order_count":rules.agent_orders.len(),"agent_orders_truncated":rules.agent_orders.len()>128,"organization_activity_contract_candidates":activity_contract_candidates,"supply_next_step":"inspect_verified_source_and_adapter_availability","organization_next_step":"inspect_explicit_continuity_registration_and_case"}),
         )
     }
 }
@@ -528,7 +552,10 @@ impl WorldRulesStateV1 {
             .retain(|_, o| reader == Some(o.owner_id.as_str()));
         value
             .requests
-            .retain(|_, r| Some(r.actor_id.as_str()) == reader);
+            .retain(|_, r| Some(r.actor_id.as_str()) == reader && !matches!(r.command, WorldRuleCommandV1::IndustrialWork { .. } | WorldRuleCommandV1::RecipeSubstitution { .. }));
+        // Without the canonical owner source, private industrial records stay closed.
+        value.industrial_work = IndustrialWorkStateV1::default();
+        value.substitution = SubstitutionStateV1::default();
         value.emergency_supply = self.emergency_supply.for_reader(reader);
         value.organization_continuity = self.organization_continuity.for_reader(reader);
         let mut visible_lineages = std::collections::BTreeSet::new();

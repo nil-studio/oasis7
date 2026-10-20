@@ -98,6 +98,7 @@ fn runtime_schedule_recipe_quote_is_authenticated_read_only_and_exposes_player_p
     server
         .world
         .upsert_recipe_profile(crate::runtime::RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.smelter.iron_ingot".to_string(),
             bottleneck_tags: vec!["iron_ore".to_string()],
             stage_gate: "bootstrap".to_string(),
@@ -212,6 +213,7 @@ fn runtime_schedule_recipe_quote_matches_recipe_started_duration_for_same_snapsh
     server
         .world
         .upsert_recipe_profile(crate::runtime::RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.smelter.iron_ingot".to_string(),
             bottleneck_tags: vec!["iron_ore".to_string()],
             stage_gate: "bootstrap".to_string(),

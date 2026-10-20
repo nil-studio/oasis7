@@ -463,6 +463,7 @@ fn schedule_recipe_rejects_when_profile_stage_gate_exceeds_current_stage() {
 
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.profile.governance".to_string(),
             bottleneck_tags: vec!["gear".to_string()],
             stage_gate: "governance".to_string(),
@@ -525,6 +526,7 @@ fn schedule_recipe_rejects_when_product_unlock_stage_exceeds_current_stage() {
 
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.profile.unlock_stage".to_string(),
             bottleneck_tags: Vec::new(),
             stage_gate: "bootstrap".to_string(),
@@ -611,6 +613,7 @@ fn schedule_recipe_rejects_when_factory_tags_conflict_with_recipe_profile() {
 
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.profile.tagged".to_string(),
             bottleneck_tags: Vec::new(),
             stage_gate: "bootstrap".to_string(),
@@ -673,6 +676,7 @@ fn schedule_recipe_uses_profile_bottleneck_tags_before_inference() {
 
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.profile.bottleneck".to_string(),
             bottleneck_tags: vec!["Copper_Wire".to_string()],
             stage_gate: "bootstrap".to_string(),
@@ -869,6 +873,7 @@ fn schedule_recipe_applies_product_maintenance_sink_to_consume() {
 
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.profile.maintenance_sink".to_string(),
             bottleneck_tags: vec!["iron_ingot".to_string()],
             stage_gate: "bootstrap".to_string(),

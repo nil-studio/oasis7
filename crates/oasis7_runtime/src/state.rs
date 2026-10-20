@@ -190,6 +190,10 @@ pub struct FactoryBuildJobState {
 /// In-flight recipe execution tracked by job id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecipeJobState {
+    /// Present only for native industrial escrow commitments. Recovery must
+    /// retain this link even when the referenced graph authority is unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub industrial_root_ref: Option<oasis7_agent_api::world_action::IndustrialRefV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emergency_power_world_binding: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

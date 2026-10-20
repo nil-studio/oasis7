@@ -53,6 +53,14 @@ Runtime 拥有目标记录的校验、顺序、准入、事务提交和恢复；
 
 同因果恢复保持 root 和 owning revision，只能新增 continuation segment；纯元数据修订可新建同 root 的 revision。改变已冻结配方定义的投入/产物/规格、工厂能力、阶段/边、电力/物流或终端因果内容，创建 parent-linked child root/new candidate，W 从零计数，旧实际、receipt、reservation、顺位和奖励保持原归属。不能证明非因果时拒绝原地修订，要求显式新候选。切换按 [单一 cutover](#industrial-cutover)执行，身份的事务、终态和恢复按 [原子恢复合同](#industrial-transaction-recovery)执行。已冻结 profile 明示的等价替代不等于修改配方定义，但只有 [替代因果合同](recipe-substitution-decision-and-conversion.design.md#substitution-causality)证明全部产出、品质、电力、时间、副产物、终端和 value class 不变后，才可保留 pinned recipe/root 并追加 child decision；source/batch 选择仍必须经过下述 parent-binding 接口，不能从同名或相同比例推断等价。
 
+### 原生入口的有资质批次托管
+
+原生执行路径的 `IndustrialWorkStateV1` 承载共享 root、input binding、lot、effect-role receipt 和处置。现有 `material_ledgers` 是可消费的聚合余额，不能据此补造品质、保管、单位或 provenance。导入有资质批次必须由当前受信 finality authority 证明完整的世界、owner/source、来源 ledger、material/profile、单位、spec、quality/custody、provenance、数量、有限托管容量及有效期；证明的签名载荷固定 schema、actor 与准确请求，导入还须检查当前 owner 与真实可用余额。未知证据不进入有资质集合。
+
+导入是 custody transfer：同一准备事务从普通可消费余额扣除数量并建立等量的共享工业托管 lot，尚不构成 input sink、生产或转换。旧排产和物流只能消费剩余普通余额；工业 join、转换和处置共同竞争托管 lot 的 `remaining`，不能建立替代专用的第二份可消费余额。导入 provenance 只能使用一次，换请求键不能复制批次。释放仅返还仍未消费且受权的数量，同一事务清零托管可用量并增加原受权 ledger；已 sink、丢失或已释放量不得返还。原证据及零余额记录继续保留以拒绝重放。
+
+接受工业 root 时从当前受支持的配方 plan 推导完整 input slot 数量与产出因果；各 slot 的品质、保管、单位和适用性须有完整的专业 baseline authority，不能由材料名字推导。尚未齐套的 slot 可以没有 parent binding，仍保留准确未决数量；任何 sink 必须重验完整 parent 集。原生入口不支持的 staged intake、处置或生命周期模式在不可逆边界之前明确拒绝。原生支持子集不改变其余目标合同的适用性和验收义务。
+
 ## 5. 关键运行流程
 
 <a id="industrial-join"></a>

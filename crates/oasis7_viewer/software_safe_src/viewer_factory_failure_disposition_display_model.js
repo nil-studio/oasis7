@@ -129,6 +129,7 @@ function normalizeInputs(value) {
 }
 
 const BLOCKER_LABELS = {
+  industrial_termination: ["工业作业已终止", "Industrial job terminated"],
   product_validation: ["产品验证失败", "Product validation failed"],
   product_validation_rejected: ["产品验证失败", "Product validation failed"],
 };

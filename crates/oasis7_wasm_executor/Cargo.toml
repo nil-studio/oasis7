@@ -12,7 +12,7 @@ sha2 = "0.11"
 
 # Keep the synchronous Core WASM contract and diagnostics; see
 # doc/world-runtime/wasm/wasm-executor.design.md for feature boundaries.
-wasmtime = { version = "49.0.3", optional = true, default-features = false, features = [
+wasmtime = { version = "49.0.4", optional = true, default-features = false, features = [
     "std",
     "runtime",
     "cranelift",

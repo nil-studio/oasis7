@@ -420,20 +420,11 @@ impl World {
 
         bodies.reserve(due_recipes.len());
         for job in due_recipes {
-            bodies.push(WorldEventBody::Domain(DomainEvent::RecipeCompleted {
-                committed_recipe_origin: job.committed_recipe_origin,
-                job_id: job.job_id,
-                requester_agent_id: job.requester_agent_id,
-                factory_id: job.factory_id,
-                recipe_id: job.recipe_id,
-                accepted_batches: job.accepted_batches,
-                produce: job.produce,
-                byproducts: job.byproducts,
-                output_ledger: job.output_ledger,
-                bottleneck_tags: job.bottleneck_tags,
-                logistics_route_ids: job.logistics_route_ids,
-                logistics_path_ids: job.logistics_path_ids,
-            }));
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+                bodies.extend(body.map(|body| *body));
+                continue;
+            }
+            bodies.push(Self::recipe_completion_body(job));
         }
         bodies
     }
@@ -511,6 +502,13 @@ impl World {
         });
 
         for job in due_recipes {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+                if let Some(body) = body {
+                    self.append_event(*body, None)?;
+                    if let Some(event) = self.journal.events.last() { emitted.push(event.clone()); }
+                }
+                continue;
+            }
             let mut validation_rejected = false;
             let outputs = job.produce.iter().chain(job.byproducts.iter());
             for (output_index, stack) in outputs.enumerate() {
@@ -688,20 +686,7 @@ impl World {
                 continue;
             }
             self.append_event(
-                WorldEventBody::Domain(DomainEvent::RecipeCompleted {
-                    committed_recipe_origin: job.committed_recipe_origin,
-                    job_id: job.job_id,
-                    requester_agent_id: job.requester_agent_id,
-                    factory_id: job.factory_id,
-                    recipe_id: job.recipe_id,
-                    accepted_batches: job.accepted_batches,
-                    produce: job.produce,
-                    byproducts: job.byproducts,
-                    output_ledger: job.output_ledger,
-                    bottleneck_tags: job.bottleneck_tags,
-                    logistics_route_ids: job.logistics_route_ids,
-                    logistics_path_ids: job.logistics_path_ids,
-                }),
+                Self::recipe_completion_body(job),
                 None,
             )?;
             if let Some(event) = self.journal.events.last() {

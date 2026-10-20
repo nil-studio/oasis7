@@ -4,6 +4,12 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", deny_unknown_fields)]
 pub enum WorldRuleCommandV1 {
+    IndustrialWork {
+        command: Box<super::IndustrialWorkCommandV1>,
+    },
+    RecipeSubstitution {
+        command: Box<super::RecipeSubstitutionCommandV1>,
+    },
     MinimumService {
         command: super::MinimumServiceCommandV1,
     },
@@ -164,6 +170,8 @@ impl WorldRuleCommandV1 {
     /// Exact object used by existing native delegation grants; no wildcard scope.
     pub fn authority_scope(&self) -> String {
         match self {
+            Self::IndustrialWork { command } => command.authority_scope(),
+            Self::RecipeSubstitution { command } => command.authority_scope(),
             Self::EmergencySupply { command } => command.authority_scope(),
             Self::MinimumService { command } => command.authority_scope(),
             Self::OrganizationContinuity { command } => command.authority_scope(),

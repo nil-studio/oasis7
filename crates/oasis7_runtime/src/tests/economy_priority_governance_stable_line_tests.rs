@@ -268,6 +268,7 @@ fn stable_line_logistics_snapshot_change_starts_fresh_candidate() {
     );
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: recipe_id.to_string(),
             bottleneck_tags: vec!["Iron_Ingot".to_string()],
             stage_gate: "bootstrap".to_string(),
@@ -282,6 +283,7 @@ fn stable_line_logistics_snapshot_change_starts_fresh_candidate() {
 
     world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: recipe_id.to_string(),
             bottleneck_tags: vec!["Copper_Wire".to_string()],
             stage_gate: "bootstrap".to_string(),

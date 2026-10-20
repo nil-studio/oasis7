@@ -16,6 +16,7 @@ fn recipe_only_profile_changes(recipe_id: &str) -> ModuleProfileChanges {
     ModuleProfileChanges {
         product_profiles: Vec::new(),
         recipe_profiles: vec![RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: recipe_id.to_string(),
             bottleneck_tags: vec!["control_chip".to_string()],
             stage_gate: "scale_out".to_string(),

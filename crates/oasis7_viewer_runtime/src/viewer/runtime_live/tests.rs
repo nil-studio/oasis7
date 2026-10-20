@@ -428,3 +428,5 @@ fn register_runtime_session_with_options(
     assert!(!emit_snapshot_after_ack);
     ack
 }
+#[path = "tests/recipe_substitution_read.rs"]
+mod recipe_substitution_read;

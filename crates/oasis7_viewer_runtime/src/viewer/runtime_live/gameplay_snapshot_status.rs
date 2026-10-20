@@ -122,3 +122,26 @@ pub(super) fn player_gameplay_escalation_hint(
                 .then(|| gameplay.next_step_hint.clone())
         })
 }
+
+pub(super) fn derive_player_gameplay_execution_state(
+    stage_status: PlayerGameplayStageStatus,
+    recent_feedback: Option<&PlayerGameplayRecentFeedback>,
+) -> PlayerGameplayExecutionState {
+    if let Some(feedback) = recent_feedback {
+        match feedback.stage.as_str() {
+            "accepted" | "submitted" | "queued" | "ack" => {
+                return PlayerGameplayExecutionState::Accepted;
+            }
+            "rejected" => return PlayerGameplayExecutionState::Rejected,
+            "executing" => return PlayerGameplayExecutionState::Executing,
+            "blocked" | "completed_no_progress" => return PlayerGameplayExecutionState::Blocked,
+            "completed_advanced" => return PlayerGameplayExecutionState::Completed,
+            _ => {}
+        }
+    }
+    match stage_status {
+        PlayerGameplayStageStatus::Blocked => PlayerGameplayExecutionState::Blocked,
+        PlayerGameplayStageStatus::BranchReady => PlayerGameplayExecutionState::Completed,
+        PlayerGameplayStageStatus::Active => PlayerGameplayExecutionState::Executing,
+    }
+}

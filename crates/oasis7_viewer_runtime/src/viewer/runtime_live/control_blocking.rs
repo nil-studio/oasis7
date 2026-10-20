@@ -386,6 +386,45 @@ impl ViewerRuntimeLiveServer {
             primary_agent_claim,
         );
         player_gameplay.canonical_agent_chat = canonical_chat.cloned();
+        // Chain-backed reads use the verified private projection; local snapshots
+        // use the authenticated player's current economic ownership source.
+        if self.chain_link_enabled() {
+            if let Some(chat) = canonical_chat {
+                player_gameplay.recipe_substitution = self
+                    .verified_world_view
+                    .as_ref()
+                    .and_then(|view| view.projection().world_rule_status.as_ref())
+                    .and_then(|status| status.get("recipe_substitution"))
+                    .filter(|value| {
+                        value
+                            .get("reader_agent_id")
+                            .and_then(serde_json::Value::as_str)
+                            == Some(chat.agent_id.as_str())
+                    })
+                    .cloned();
+            }
+        } else if let (Some(player_id), Some(agent_id)) =
+            (snapshot_player_id, snapshot_bound_agent_id)
+            && self
+                .llm_sidecar
+                .agent_player_bindings
+                .get(agent_id)
+                .map(String::as_str)
+                == Some(player_id)
+            && self
+                .world
+                .state()
+                .starter_oc_claims
+                .get(agent_id)
+                .is_some_and(|claim| claim.player_id == player_id)
+        {
+            player_gameplay.recipe_substitution = self
+                .world
+                .world_rule_status(Some(agent_id))
+                .and_then(|status| status.get("recipe_substitution").cloned())
+                .filter(|value| !value.is_null());
+        }
+
         if let (Some(player_id), Some(agent_id)) = (snapshot_player_id, snapshot_bound_agent_id)
             && self
                 .llm_sidecar

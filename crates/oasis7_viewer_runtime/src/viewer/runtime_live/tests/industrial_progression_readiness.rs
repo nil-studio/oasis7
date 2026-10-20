@@ -267,6 +267,7 @@ fn runtime_gameplay_schedule_readiness_matches_governed_recipe_and_output_unlock
     server
         .world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.smelter.iron_ingot".to_string(),
             bottleneck_tags: vec!["iron_ore".to_string()],
             stage_gate: "scale-out".to_string(),
@@ -287,6 +288,7 @@ fn runtime_gameplay_schedule_readiness_matches_governed_recipe_and_output_unlock
     server
         .world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.smelter.iron_ingot".to_string(),
             bottleneck_tags: vec!["iron_ore".to_string()],
             stage_gate: "bootstrap".to_string(),
@@ -307,6 +309,7 @@ fn runtime_gameplay_schedule_readiness_matches_governed_recipe_and_output_unlock
     server
         .world
         .upsert_recipe_profile(RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.smelter.iron_ingot".to_string(),
             bottleneck_tags: vec!["iron_ore".to_string()],
             stage_gate: "bootstrap".to_string(),
