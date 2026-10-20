@@ -113,4 +113,3 @@ fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 in
 本合同不新增 runtime/API/schema/action，不规定配比、产率、价格、物流/寻路、容量、队列、terminal 或 settlement 算法，不设计 UI 布局，不新增 recipe/catalog/lifecycle，也不改 starter completion、site selection、input reserve、source allocation、quality/custody、substitution、batch、demand、byproduct、changeover 或 pipeline checkpoint 合同。
 
 残余风险是当前各 authority 可能只有局部实现证据，导致 walkthrough 暂时只能标为 target/unknown；未来 recipe、receipt 或 terminal profile 变更时必须重新生成同一 fixture 的 composite evidence，避免玩家看到可选动作却无法获得一致结算与下一动力。
-
