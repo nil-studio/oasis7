@@ -144,3 +144,21 @@ it('uses actual root entries as a map and switches to hierarchical rows on expan
  const advanced=screen.getByText('高级筛选').closest('details')!;expect(advanced).not.toHaveAttribute('open');fireEvent.click(screen.getByText('高级筛选'));expect(advanced).toHaveAttribute('open');
  fireEvent.click(screen.getByRole('button',{name:'展开：模块需求（匹配 1 个文件）'}));await screen.findByRole('treeitem',{name:'专题需求'});expect(tree).not.toHaveClass('product-domain-map');expect(tree).toHaveClass('compact-product-tree');for(const details of Array.from(tree.querySelectorAll('details.tree-node-source')))expect(details).not.toHaveAttribute('open');
 });
+
+it('uses readable file names and explicit kinds in both trees without changing navigation identity',async()=>{
+ const select=vi.fn();render(()=><DocumentSemanticTree snapshot={snapshot()} view="professional" selectFile={select}/>);await ready();
+ const title=screen.getByRole('button',{name:'查看文档：模块需求'});expect(title).toHaveTextContent('模块需求');expect(title).not.toHaveTextContent('查看文档');
+ expect(title.closest('.tree-node-actions')).toHaveTextContent('需求');
+ const expand=screen.getByRole('button',{name:'展开：模块需求（匹配 1 个文件）'});expect(expand).toHaveTextContent('');
+ fireEvent.click(expand);await screen.findByRole('treeitem',{name:'专题需求'});
+ const topic=screen.getByRole('treeitem',{name:'专题需求'});expect(topic).toHaveAttribute('aria-level','2');
+ fireEvent.click(screen.getByRole('button',{name:'查看文档：专题需求'}));expect(select).toHaveBeenCalledWith(expect.objectContaining({path:child.path}),expect.anything(),undefined);
+ expect(topic).toHaveAttribute('aria-selected','true');
+ const details=topic.querySelector('details')!;expect(details).not.toHaveAttribute('open');expect(details.querySelector('summary')).toHaveTextContent('来源');
+ fireEvent.click(details.querySelector('summary')!);expect(details).toHaveTextContent(child.path!);
+});
+it('keeps an unknown file kind generic instead of guessing from its title',async()=>{
+ api.documentSemanticTree.mockResolvedValue(page({entries:[entry({label:'需求设计混合',file:{...file,kind:'future'}})]}));
+ render(()=><DocumentSemanticTree snapshot={snapshot()} view="professional" selectFile={vi.fn()}/>);await ready();
+ expect(screen.getByText('文档',{selector:'.tree-kind'})).toBeInTheDocument();expect(screen.queryByText('需求',{selector:'.tree-kind'})).not.toBeInTheDocument();
+});

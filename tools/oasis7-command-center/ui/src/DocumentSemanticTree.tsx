@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight, FileText, DraftingCompass, FolderTree, File } from 'lucide-solid';
 import { DomainIcon } from './VisualStatus';
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from 'solid-js';
 import { bridge, errorMessage, observedTime } from './bridge';
@@ -7,6 +8,7 @@ import { readingNotice, sameRoute, selectedSection, beginTreeReadingWriter, queu
 
 const lifecycleLabels: Record<string,string> = {current:'隐藏明确历史',all:'全部（含历史）',proposed:'提议',draft:'草案',active:'现行',superseded:'已替代',retired:'已退役',other:'其他声明',unknown:'类别未知'};
 const kindLabels: Record<string,string> = {all:'全部类型',prd:'需求',design:'设计',entry:'结构入口'};
+const fileKindLabels:Record<string,string>={prd:'需求',design:'设计',entry:'结构入口'};
 const pairingLabels: Record<string,string> = {all:'全部配对状态',unpaired:'未发现显式配对',unparsed:'尚未解析配对',missing:'配对目标或章节缺失',unread:'配对目标未读取',ambiguous:'配对锚点歧义',outside_scope:'配对范围外或路径不安全',incomplete:'配对解析不完整'};
 const resolutionLabels: Record<string,string> = {resolved:'目标文件已读取',fragment_unchecked:'章节尚未核对',missing:'目标已删除',missing_fragment:'目标章节缺失',ambiguous:'目标锚点歧义',unread:'目标未读取',outside_scope:'范围外或路径不安全'};
 const defaults = () => ({query:'',read:'all',lifecycle:'current',kind:'all',pairing:'all'});
@@ -309,7 +311,7 @@ export default function DocumentSemanticTree(props: {
       <Show when={result().stale}><p role="status" class="notice">树使用过期清单，保留原版本：{result().error}</p></Show>
       <Show when={result().issues.length}><div class="notice" role="status"><p>树解析诊断</p><ul><For each={result().issues}>{issue=><li>{issue}</li>}</For></ul></div></Show>
 
-      <div role="tree" class="semantic-tree-list" classList={{'compact-product-tree':props.view==='product','product-domain-map':props.view==='product'&&expanded().size===0&&rows().length<=120&&!page()?.nextCursor}} aria-label={`${title()}文档树`} aria-busy={busy()||loading().size>0} ref={list} tabindex={renderedRows().some(row=>row.id===focused())?-1:0} onKeyDown={event=>{if(event.target===event.currentTarget){const row=rows().find(item=>item.id===focused())??renderedRows()[0];if(row)keyboard(event,row);}}} onWheel={()=>{scrollIntent=true;}} onTouchMove={()=>{scrollIntent=true;}} onScroll={scrollChanged}>
+      <div role="tree" class="semantic-tree-list readable-document-tree" classList={{'compact-product-tree':props.view==='product','product-domain-map':props.view==='product'&&expanded().size===0&&rows().length<=120&&!page()?.nextCursor}} aria-label={`${title()}文档树`} aria-busy={busy()||loading().size>0} ref={list} tabindex={renderedRows().some(row=>row.id===focused())?-1:0} onKeyDown={event=>{if(event.target===event.currentTarget){const row=rows().find(item=>item.id===focused())??renderedRows()[0];if(row)keyboard(event,row);}}} onWheel={()=>{scrollIntent=true;}} onTouchMove={()=>{scrollIntent=true;}} onScroll={scrollChanged}>
         <div role="presentation" aria-hidden="true" style={{height:`${layout().offsets[windowRange().start]??0}px`}}/>
         <For each={renderedRows()}>{row=><div role="treeitem" ref={element=>registerNode(row.id,element)} tabindex={focused()===row.id?0:-1}
           aria-label={row.entry?.label??'加载下一页文档'} aria-describedby={row.entry?`tree-description-${row.id}`:undefined} aria-level={row.level} aria-posinset={row.position} aria-setsize={row.size}
@@ -318,13 +320,13 @@ export default function DocumentSemanticTree(props: {
           style={{'--tree-level':Math.min(row.level-1,8)}}
           onFocus={()=>setFocused(row.id)} onKeyDown={event=>keyboard(event,row)} onClick={event=>{if(event.target===event.currentTarget){changed();focusRow(row.id);persist();}}}>
           <Show when={row.entry} fallback={<button tabindex="-1" disabled={loading().has(row.parent)} onClick={()=>void nextPage(row.parent)}>加载此层下一页（最多 100 项）</button>}>{entryAccessor=>{const entry=entryAccessor();return <>
-          <Show when={row.level===1&&props.view==='product'}><DomainIcon path={entry.path}/></Show><div class="actions">
-            <Show when={entry.hasChildren&&!entry.cycle&&!entry.depthLimited&&!entry.boundary}><button tabindex="-1" disabled={loading().has(row.id)} aria-label={`${expanded().has(row.id)?'折叠':'展开'}：${entry.label}（匹配 ${entry.matchingFiles} 个文件）`} onClick={()=>{focusRow(row.id,false);if(expanded().has(row.id))collapse(entry);else void expand(entry);}}>{expanded().has(row.id)?'▾':'▸'} {entry.label}</button></Show>
-            <Show when={entry.file} fallback={<Show when={!entry.hasChildren||entry.cycle||entry.depthLimited}><span>{entry.label}</span></Show>}>{file=><button tabindex="-1" onClick={()=>openFile(entry)}>查看文档：{entry.label}</button>}</Show>
+          <Show when={row.level===1&&props.view==='product'}><DomainIcon path={entry.path}/></Show><div class="actions tree-node-actions">
+            <Show when={entry.hasChildren&&!entry.cycle&&!entry.depthLimited&&!entry.boundary}><button class="tree-expand" tabindex="-1" disabled={loading().has(row.id)} aria-label={`${expanded().has(row.id)?'折叠':'展开'}：${entry.label}（匹配 ${entry.matchingFiles} 个文件）`} onClick={()=>{focusRow(row.id,false);if(expanded().has(row.id))collapse(entry);else void expand(entry);}}><Show when={expanded().has(row.id)} fallback={<ChevronRight size={18} aria-hidden="true"/>}><ChevronDown size={18} aria-hidden="true"/></Show></button></Show>
+            <Show when={entry.file} fallback={<span class="tree-node-label">{entry.label}</span>}>{file=><><button class="tree-file-title" aria-label={`查看文档：${entry.label}`} tabindex="-1" onClick={()=>openFile(entry)}><Show when={file().kind==='prd'} fallback={<Show when={file().kind==='design'} fallback={<Show when={file().kind==='entry'} fallback={<File size={18} aria-hidden="true"/>}><FolderTree size={18} aria-hidden="true"/></Show>}><DraftingCompass size={18} aria-hidden="true"/></Show>}><FileText size={18} aria-hidden="true"/></Show><span>{entry.label}</span></button><span class="tree-kind">{fileKindLabels[file().kind]??'文档'}</span></>}</Show>
           </div>
           <Show when={row.level===1}><p class="domain-count"><strong>{entry.matchingFiles}</strong> 个匹配文件</p></Show>
           <div id={`tree-description-${row.id}`}>
-          <details class="tree-node-source"><summary onKeyDown={event=>event.stopPropagation()}>来源与文档状态</summary><Show when={entry.path}><p class="muted small">{entry.path}</p></Show>
+          <details class="tree-node-source"><summary onKeyDown={event=>event.stopPropagation()}>来源</summary><Show when={entry.path}><p class="muted small">{entry.path}</p></Show>
           <Show when={entry.file}>{file => <p class="muted small">生命周期：{lifecycleLabels[file().lifecycle?.category ?? 'unknown'] ?? '类别未知'} · 原声明：{file().lifecycle?.rawStatus ?? file().lifecycle?.status ?? '未声明'}</p>}</Show>
           <Show when={entry.historicalReferenceFiles > 0}><div class="notice"><p>历史引用占位：被 {entry.historicalReferenceFiles} 个非明确历史的已读文档显式引用；保留原生命周期，不代表现行、主责或实现完成。</p><p class="muted small">来源路径样本（最多 20）：{entry.historicalReferencePaths.join('、')}</p></div></Show>
           <Show when={entry.sourcePath}><p class="muted small">声明来源：{entry.sourcePath}<Show when={entry.sourceLine != null}> · 第 {entry.sourceLine} 行</Show></p></Show>
