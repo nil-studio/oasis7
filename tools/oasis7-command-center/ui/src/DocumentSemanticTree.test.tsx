@@ -142,5 +142,5 @@ it('uses actual root entries as a map and switches to hierarchical rows on expan
  render(()=><DocumentSemanticTree snapshot={snapshot()} view="product" selectFile={vi.fn()}/>);await ready();
  const tree=screen.getByRole('tree');expect(tree).toHaveClass('product-domain-map');expect(screen.getAllByRole('treeitem')).toHaveLength(1);expect(screen.getByText('个匹配文件')).toBeInTheDocument();
  const advanced=screen.getByText('高级筛选').closest('details')!;expect(advanced).not.toHaveAttribute('open');fireEvent.click(screen.getByText('高级筛选'));expect(advanced).toHaveAttribute('open');
- fireEvent.click(screen.getByRole('button',{name:'展开：模块需求（匹配 1 个文件）'}));await screen.findByRole('treeitem',{name:'专题需求'});expect(tree).not.toHaveClass('product-domain-map');
+ fireEvent.click(screen.getByRole('button',{name:'展开：模块需求（匹配 1 个文件）'}));await screen.findByRole('treeitem',{name:'专题需求'});expect(tree).not.toHaveClass('product-domain-map');expect(tree).toHaveClass('compact-product-tree');for(const details of Array.from(tree.querySelectorAll('details.tree-node-source')))expect(details).not.toHaveAttribute('open');
 });

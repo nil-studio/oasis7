@@ -309,7 +309,7 @@ export default function DocumentSemanticTree(props: {
       <Show when={result().stale}><p role="status" class="notice">树使用过期清单，保留原版本：{result().error}</p></Show>
       <Show when={result().issues.length}><div class="notice" role="status"><p>树解析诊断</p><ul><For each={result().issues}>{issue=><li>{issue}</li>}</For></ul></div></Show>
 
-      <div role="tree" class="semantic-tree-list" classList={{'product-domain-map':props.view==='product'&&expanded().size===0&&rows().length<=120&&!page()?.nextCursor}} aria-label={`${title()}文档树`} aria-busy={busy()||loading().size>0} ref={list} tabindex={renderedRows().some(row=>row.id===focused())?-1:0} onKeyDown={event=>{if(event.target===event.currentTarget){const row=rows().find(item=>item.id===focused())??renderedRows()[0];if(row)keyboard(event,row);}}} onWheel={()=>{scrollIntent=true;}} onTouchMove={()=>{scrollIntent=true;}} onScroll={scrollChanged}>
+      <div role="tree" class="semantic-tree-list" classList={{'compact-product-tree':props.view==='product','product-domain-map':props.view==='product'&&expanded().size===0&&rows().length<=120&&!page()?.nextCursor}} aria-label={`${title()}文档树`} aria-busy={busy()||loading().size>0} ref={list} tabindex={renderedRows().some(row=>row.id===focused())?-1:0} onKeyDown={event=>{if(event.target===event.currentTarget){const row=rows().find(item=>item.id===focused())??renderedRows()[0];if(row)keyboard(event,row);}}} onWheel={()=>{scrollIntent=true;}} onTouchMove={()=>{scrollIntent=true;}} onScroll={scrollChanged}>
         <div role="presentation" aria-hidden="true" style={{height:`${layout().offsets[windowRange().start]??0}px`}}/>
         <For each={renderedRows()}>{row=><div role="treeitem" ref={element=>registerNode(row.id,element)} tabindex={focused()===row.id?0:-1}
           aria-label={row.entry?.label??'加载下一页文档'} aria-describedby={row.entry?`tree-description-${row.id}`:undefined} aria-level={row.level} aria-posinset={row.position} aria-setsize={row.size}
@@ -324,7 +324,7 @@ export default function DocumentSemanticTree(props: {
           </div>
           <Show when={row.level===1}><p class="domain-count"><strong>{entry.matchingFiles}</strong> 个匹配文件</p></Show>
           <div id={`tree-description-${row.id}`}>
-          <details class="tree-node-source" open={!(row.level===1&&props.view==='product'&&expanded().size===0)}><summary onKeyDown={event=>event.stopPropagation()}>来源与文档状态</summary><Show when={entry.path}><p class="muted small">{entry.path}</p></Show>
+          <details class="tree-node-source"><summary onKeyDown={event=>event.stopPropagation()}>来源与文档状态</summary><Show when={entry.path}><p class="muted small">{entry.path}</p></Show>
           <Show when={entry.file}>{file => <p class="muted small">生命周期：{lifecycleLabels[file().lifecycle?.category ?? 'unknown'] ?? '类别未知'} · 原声明：{file().lifecycle?.rawStatus ?? file().lifecycle?.status ?? '未声明'}</p>}</Show>
           <Show when={entry.historicalReferenceFiles > 0}><div class="notice"><p>历史引用占位：被 {entry.historicalReferenceFiles} 个非明确历史的已读文档显式引用；保留原生命周期，不代表现行、主责或实现完成。</p><p class="muted small">来源路径样本（最多 20）：{entry.historicalReferencePaths.join('、')}</p></div></Show>
           <Show when={entry.sourcePath}><p class="muted small">声明来源：{entry.sourcePath}<Show when={entry.sourceLine != null}> · 第 {entry.sourceLine} 行</Show></p></Show>
