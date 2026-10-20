@@ -886,6 +886,9 @@ impl World {
     }
 
     pub fn upsert_recipe_profile(&mut self, profile: RecipeProfileV1) -> Result<(), WorldError> {
+        profile.validate_substitution_rules().map_err(|error| WorldError::ResourceBalanceInvalid {
+            reason: format!("invalid recipe substitution profile: {error}"),
+        })?;
         if profile.recipe_id.trim().is_empty() {
             return Err(WorldError::ResourceBalanceInvalid {
                 reason: "recipe profile recipe_id cannot be empty".to_string(),

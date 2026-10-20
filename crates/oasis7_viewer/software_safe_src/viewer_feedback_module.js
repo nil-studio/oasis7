@@ -1,3 +1,4 @@
+import { normalizeRecipeSubstitution } from "./recipe_substitution.js";
 import { feedbackForScope } from "./viewer_feedback_scope.js";
 import { projectGameplayReceiptFeedback } from "./viewer_gameplay_receipt_feedback.js";
 import { normalizeIndustrialStarterProfile } from "./industrial_starter_outcome.js";
@@ -574,6 +575,10 @@ export function createViewerFeedbackModule({
           return localeText(locale, "执行世界未就绪", "Execution World Not Ready");
         case "runtime_snapshot_empty_entities":
           return localeText(locale, "认领第一个 Agent", "Claim the first Agent");
+        case "industrial_termination":
+          return localeText(locale, "工业作业已终止", "Industrial job terminated");
+        case "industrial_terminal":
+          return localeText(locale, "工业产出终端受阻", "Industrial output terminal blocked");
         case "product_validation":
         case "product_validation_rejected":
           return localeText(locale, "产品验证失败", "Product validation failed");
@@ -1144,6 +1149,7 @@ export function createViewerFeedbackModule({
       validationUnlockPreview,
       factoryProductionFailureDisposition,
       industrialStarterProfile: normalizeIndustrialStarterProfile(gameplay.starter_industrial_feasibility),
+      recipeSubstitution: normalizeRecipeSubstitution(gameplay.recipe_substitution),
       narrativeBlockerDetail,
       narrativeNextStep,
       economicSurface,

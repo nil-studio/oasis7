@@ -614,6 +614,9 @@ impl PreparedModuleRelease {
                     .insert(profile.product_id.clone(), profile.clone());
             }
             DomainEvent::RecipeProfileGoverned { profile, .. } => {
+                profile.validate_substitution_rules().map_err(|error| {
+                    invalid(format!("invalid recipe substitution profile: {error}"))
+                })?;
                 if profile.recipe_id.trim().is_empty() {
                     return Err(invalid("recipe profile recipe_id cannot be empty"));
                 }

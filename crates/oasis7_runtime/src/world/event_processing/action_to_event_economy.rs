@@ -971,7 +971,7 @@ pub(crate) use action_to_event_economy_support::build_material_market_quotes;
 use action_to_event_economy_support::{
     compute_local_scarcity_delay_ticks, industry_stage_label,
     merge_recipe_consume_with_maintenance_sink, product_unlock_stage_allowed,
-    recipe_preferred_tags_compatible, recipe_stage_gate_allowed, resolve_recipe_bottleneck_tags,
+ resolve_recipe_bottleneck_tags,
 };
 
 pub(crate) fn ensure_profile_field_whitelist<T: serde::Serialize>(
@@ -985,3 +985,5 @@ pub(crate) fn ensure_profile_field_whitelist<T: serde::Serialize>(
         profile_label,
     )
 }
+
+pub(crate) use action_to_event_economy_support::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};

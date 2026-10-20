@@ -36,3 +36,11 @@ pub use world_rule_supply::*;
 
 mod world_rule_minimum_service;
 pub use world_rule_minimum_service::*;
+
+mod industrial_work;
+pub use industrial_work::*;
+
+mod industrial_work_command;
+pub use industrial_work_command::*;
+mod recipe_substitution;
+pub use recipe_substitution::*;

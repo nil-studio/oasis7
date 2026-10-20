@@ -1,3 +1,4 @@
+import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
 import { CanonicalAgentGoal } from "./canonical_agent_goal.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
@@ -2425,6 +2426,7 @@ function WorldSummaryPanel(props = {}) {
                   {gameplayProgressLabel(gameplay().progressPercent, locale())}
                 </Badge>
               </div>
+              <RecipeSubstitutionPanel model={gameplay().recipeSubstitution} locale={locale()} />
               <FactoryProductionFailureDispositionCard
                 disposition={gameplay().factoryProductionFailureDisposition}
                 locale={locale()}

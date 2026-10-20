@@ -171,6 +171,7 @@ impl World {
             "bottleneck_tags",
             "stage_gate",
             "preferred_factory_tags",
+            "substitution_rules",
         ];
         if let Err(reason) =
             ensure_profile_field_whitelist(profile, allowed_fields.as_slice(), "recipe profile")

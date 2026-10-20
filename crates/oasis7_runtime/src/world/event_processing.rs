@@ -1188,3 +1188,5 @@ impl World {
         Ok(Some(receipt_event_id))
     }
 }
+
+pub(crate) use action_to_event_economy::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};

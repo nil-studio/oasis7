@@ -476,6 +476,7 @@ impl World {
             "bottleneck_tags",
             "stage_gate",
             "preferred_factory_tags",
+            "substitution_rules",
         ];
         let factory_fields = ["factory_id", "tier", "recipe_slots", "tags"];
 
@@ -511,6 +512,7 @@ impl World {
 
         let mut recipe_ids = BTreeSet::new();
         for profile in &changes.recipe_profiles {
+            profile.validate_substitution_rules().map_err(|error| format!("invalid recipe substitution profile: {error}"))?;
             if profile.recipe_id.trim().is_empty() {
                 return Err("recipe profile recipe_id cannot be empty".to_string());
             }

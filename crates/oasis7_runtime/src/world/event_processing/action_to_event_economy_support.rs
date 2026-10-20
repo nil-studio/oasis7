@@ -347,7 +347,7 @@ pub(crate) fn build_material_market_quotes(
     quotes
 }
 
-pub(super) fn recipe_stage_gate_allowed(
+pub(crate) fn recipe_stage_gate_allowed(
     current_stage: crate::IndustryStage,
     stage_gate: &str,
 ) -> bool {
@@ -385,7 +385,7 @@ pub(super) fn industry_stage_label(stage: crate::IndustryStage) -> &'static str 
     }
 }
 
-pub(super) fn recipe_preferred_tags_compatible(
+pub(crate) fn recipe_preferred_tags_compatible(
     preferred_tags: &[String],
     factory_tags: &[String],
 ) -> bool {

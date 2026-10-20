@@ -105,7 +105,47 @@ pub(crate) struct PreparedRecipeLifecycle {
 }
 
 impl PreparedIndustryEvent {
-    pub(crate) fn world_rules_projection(&self)->Option<&crate::world_rules::WorldRulesStateV1> {match self {Self::RecipeLifecycle(v)=>v.world_rules.as_ref(),_=>None}}
+    /// Mark a private prepared native commitment before publication. Ordinary
+    /// recipe events keep their legacy unmarked representation.
+    pub(crate) fn bind_industrial_root(
+        &mut self,
+        root: &oasis7_agent_api::world_action::IndustrialRefV1,
+    ) -> Result<(), WorldError> {
+        if !root.is_qualified() {
+            return Err(invalid("industrial_job_root_invalid"));
+        }
+        let Self::RecipeLifecycle(value) = self else {
+            return Err(invalid("industrial_job_root_requires_recipe"));
+        };
+        let Some((_, Some(job))) = value.pending.as_mut() else {
+            return Err(invalid("industrial_job_root_requires_pending"));
+        };
+        if job
+            .industrial_root_ref
+            .as_ref()
+            .is_some_and(|old| old != root)
+        {
+            return Err(invalid("industrial_job_root_conflict"));
+        }
+        job.industrial_root_ref = Some(root.clone());
+        Ok(())
+    }
+    /// Nested native commands publish the outer committed event to mailboxes.
+    pub(crate) fn set_routing_event(&mut self, event: &DomainEvent) {
+        match self {
+            Self::LogisticsTopology(value) => value.event = event.clone(),
+            Self::MaterialTransfer(value) => value.event = event.clone(),
+            Self::MaterialTransit(value) => value.event = event.clone(),
+            Self::FactoryLifecycle(value) => value.event = event.clone(),
+            Self::RecipeLifecycle(value) => value.event = event.clone(),
+        }
+    }
+    pub(crate) fn world_rules_projection(&self) -> Option<&crate::world_rules::WorldRulesStateV1> {
+        match self {
+            Self::RecipeLifecycle(v) => v.world_rules.as_ref(),
+            _ => None,
+        }
+    }
 
     pub(crate) fn prepare_reserved_transit(
         state: &WorldState,
@@ -139,10 +179,21 @@ impl PreparedIndustryEvent {
             _ => None,
         };
         if factory.is_some_and(|id| {
-            let reserved=crate::world_rules::manufacturing_reserved_slots(state,id) as usize;
-            let jobs=state.pending_recipe_jobs.values().filter(|j|&j.factory_id==id).count();
-            reserved>0 && (matches!(event,DomainEvent::FactoryRecycled{..}) || state.factories.get(id).is_none_or(|f|jobs+reserved>=f.spec.recipe_slots as usize))
-        }) { return Err(invalid("factory_capacity_reserved_by_agent_order")); }
+            let reserved = crate::world_rules::manufacturing_reserved_slots(state, id) as usize;
+            let jobs = state
+                .pending_recipe_jobs
+                .values()
+                .filter(|j| &j.factory_id == id)
+                .count();
+            reserved > 0
+                && (matches!(event, DomainEvent::FactoryRecycled { .. })
+                    || state
+                        .factories
+                        .get(id)
+                        .is_none_or(|f| jobs + reserved >= f.spec.recipe_slots as usize))
+        }) {
+            return Err(invalid("factory_capacity_reserved_by_agent_order"));
+        }
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. } => Ok(Self::LogisticsTopology(

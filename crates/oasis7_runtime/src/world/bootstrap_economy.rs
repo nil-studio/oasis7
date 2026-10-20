@@ -578,6 +578,7 @@ fn recipe_profile(
     preferred_factory_tags: Vec<&str>,
 ) -> RecipeProfileV1 {
     RecipeProfileV1 {
+        substitution_rules: Vec::new(),
         recipe_id: recipe_id.to_string(),
         bottleneck_tags: bottleneck_tags.into_iter().map(str::to_string).collect(),
         stage_gate: stage_gate.to_string(),

@@ -1184,3 +1184,7 @@ mod world_rule_lifecycle;
 
 mod industrial_control;
 pub use industrial_control::ResolvedAgentOwnerV1;
+
+pub(crate) use event_processing::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};
+
+mod industrial_completion;

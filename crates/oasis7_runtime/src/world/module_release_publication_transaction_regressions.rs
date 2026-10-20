@@ -26,6 +26,7 @@ fn profiles() -> ModuleProfileChanges {
             unlock_stage: "scale_out".into(),
         }],
         recipe_profiles: vec![RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "release-recipe".into(),
             bottleneck_tags: vec![],
             stage_gate: "scale_out".into(),

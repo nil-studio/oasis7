@@ -6,9 +6,11 @@ use std::sync::Arc;
 mod canonical_cbor;
 mod capability_v2;
 mod economy;
+mod recipe_substitution;
 pub use canonical_cbor::encode_canonical_cbor;
 pub use capability_v2::*;
 pub use economy::*;
+pub use recipe_substitution::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModuleKind {

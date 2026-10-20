@@ -66,6 +66,7 @@ fn profile_changes(idx: usize) -> ModuleProfileChanges {
             unlock_stage: "sla".to_string(),
         }],
         recipe_profiles: vec![RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: format!("recipe.sla.{idx}"),
             bottleneck_tags: vec!["control_chip".to_string()],
             stage_gate: "sla".to_string(),

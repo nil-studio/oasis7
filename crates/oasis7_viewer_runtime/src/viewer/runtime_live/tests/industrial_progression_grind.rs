@@ -419,6 +419,7 @@ fn runtime_gameplay_snapshot_ignores_pending_sibling_when_matching_failed_job_is
     state.pending_recipe_jobs.insert(
         20,
         RecipeJobState {
+            industrial_root_ref: None,
             emergency_power_world_binding: None,
             committed_recipe_origin: None,
             job_id: 20,

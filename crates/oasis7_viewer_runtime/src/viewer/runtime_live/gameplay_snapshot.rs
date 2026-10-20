@@ -37,34 +37,13 @@ use fine_grain::{
     player_gameplay_fine_grain_action_translation, player_gameplay_player_facing_feedback,
 };
 use intent::{player_gameplay_intent_scope, player_gameplay_intent_summary};
+use status::derive_player_gameplay_execution_state;
 use status::{
     player_gameplay_escalation_hint, player_gameplay_last_world_change,
     player_gameplay_primary_blocker, player_gameplay_response_window_class,
     player_gameplay_stalled_reason, player_gameplay_status_reason,
 };
 use sync::first_session_runtime_sync_blocker;
-fn derive_player_gameplay_execution_state(
-    stage_status: PlayerGameplayStageStatus,
-    recent_feedback: Option<&PlayerGameplayRecentFeedback>,
-) -> PlayerGameplayExecutionState {
-    if let Some(feedback) = recent_feedback {
-        match feedback.stage.as_str() {
-            "accepted" | "submitted" | "queued" | "ack" => {
-                return PlayerGameplayExecutionState::Accepted;
-            }
-            "rejected" => return PlayerGameplayExecutionState::Rejected,
-            "executing" => return PlayerGameplayExecutionState::Executing,
-            "blocked" | "completed_no_progress" => return PlayerGameplayExecutionState::Blocked,
-            "completed_advanced" => return PlayerGameplayExecutionState::Completed,
-            _ => {}
-        }
-    }
-    match stage_status {
-        PlayerGameplayStageStatus::Blocked => PlayerGameplayExecutionState::Blocked,
-        PlayerGameplayStageStatus::BranchReady => PlayerGameplayExecutionState::Completed,
-        PlayerGameplayStageStatus::Active => PlayerGameplayExecutionState::Executing,
-    }
-}
 fn derive_player_gameplay_causality(
     gameplay: &PlayerGameplaySnapshot,
     recent_feedback: Option<&PlayerGameplayRecentFeedback>,
@@ -387,6 +366,7 @@ pub(super) fn build_player_gameplay_snapshot(
             .unwrap_or("gameplay requires runtime live server running with --llm");
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
             stage_id: PlayerGameplayStageId::FirstSessionLoop,
             stage_status: PlayerGameplayStageStatus::Blocked,
             execution_state: PlayerGameplayExecutionState::Executing,
@@ -510,6 +490,7 @@ pub(super) fn build_player_gameplay_snapshot(
         }
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
                 stage_id: PlayerGameplayStageId::FirstSessionLoop,
                 stage_status: PlayerGameplayStageStatus::Blocked,
                 execution_state: PlayerGameplayExecutionState::Executing,
@@ -585,6 +566,7 @@ pub(super) fn build_player_gameplay_snapshot(
         }
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
             stage_id: PlayerGameplayStageId::FirstSessionLoop,
             stage_status: PlayerGameplayStageStatus::Active,
             execution_state: PlayerGameplayExecutionState::Executing,
@@ -667,6 +649,7 @@ pub(super) fn build_player_gameplay_snapshot(
         };
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
             stage_id: PlayerGameplayStageId::PostOnboarding,
             stage_status: PlayerGameplayStageStatus::Blocked,
             execution_state: PlayerGameplayExecutionState::Executing,
@@ -758,6 +741,7 @@ pub(super) fn build_player_gameplay_snapshot(
                 };
                 return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
                     stage_id: PlayerGameplayStageId::PostOnboarding,
                     stage_status: PlayerGameplayStageStatus::Active,
                     execution_state: PlayerGameplayExecutionState::Executing,
@@ -819,6 +803,7 @@ pub(super) fn build_player_gameplay_snapshot(
             IndustryStage::ScaleOut => {
                 return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
                     stage_id: PlayerGameplayStageId::PostOnboarding,
                     stage_status: PlayerGameplayStageStatus::BranchReady,
                     execution_state: PlayerGameplayExecutionState::Executing,
@@ -883,6 +868,7 @@ pub(super) fn build_player_gameplay_snapshot(
             IndustryStage::Governance => {
                 return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
                     stage_id: PlayerGameplayStageId::PostOnboarding,
                     stage_status: PlayerGameplayStageStatus::BranchReady,
                     execution_state: PlayerGameplayExecutionState::Executing,
@@ -949,6 +935,7 @@ pub(super) fn build_player_gameplay_snapshot(
     if has_recipe_running {
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
             stage_id: PlayerGameplayStageId::PostOnboarding,
             stage_status: PlayerGameplayStageStatus::Active,
             execution_state: PlayerGameplayExecutionState::Executing,
@@ -1010,6 +997,7 @@ pub(super) fn build_player_gameplay_snapshot(
     if has_factory_ready {
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
             stage_id: PlayerGameplayStageId::PostOnboarding,
             stage_status: PlayerGameplayStageStatus::Active,
             execution_state: PlayerGameplayExecutionState::Executing,
@@ -1071,6 +1059,7 @@ pub(super) fn build_player_gameplay_snapshot(
     if has_material_flow {
         return finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
             stage_id: PlayerGameplayStageId::PostOnboarding,
             stage_status: PlayerGameplayStageStatus::Active,
             execution_state: PlayerGameplayExecutionState::Executing,
@@ -1131,6 +1120,7 @@ pub(super) fn build_player_gameplay_snapshot(
     }
     finalize(PlayerGameplaySnapshot {
             canonical_agent_chat: None,
+            recipe_substitution: None,
         stage_id: PlayerGameplayStageId::PostOnboarding,
         stage_status: PlayerGameplayStageStatus::Active,
         execution_state: PlayerGameplayExecutionState::Executing,

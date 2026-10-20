@@ -104,6 +104,7 @@ fn sample_profile_changes() -> ModuleProfileChanges {
             unlock_stage: "scale_out".to_string(),
         }],
         recipe_profiles: vec![RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "recipe.assembler.module_rack".to_string(),
             bottleneck_tags: vec!["control_chip".to_string()],
             stage_gate: "scale_out".to_string(),
@@ -167,12 +168,14 @@ fn duplicate_recipe_profile_changes() -> ModuleProfileChanges {
         product_profiles: Vec::new(),
         recipe_profiles: vec![
             RecipeProfileV1 {
+                substitution_rules: Vec::new(),
                 recipe_id: "dup_recipe".to_string(),
                 bottleneck_tags: vec!["control_chip".to_string()],
                 stage_gate: "scale_out".to_string(),
                 preferred_factory_tags: vec!["assembler".to_string()],
             },
             RecipeProfileV1 {
+                substitution_rules: Vec::new(),
                 recipe_id: "dup_recipe".to_string(),
                 bottleneck_tags: vec!["maintenance".to_string()],
                 stage_gate: "scale_out".to_string(),

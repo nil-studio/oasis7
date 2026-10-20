@@ -54,6 +54,18 @@ Use only typed commands supported by the current server and the authorized goal.
 
 For an estate operation that requires `effect_ref`, first run `<client> --config <device.json> world-rule-key --request <stable-business-id>`. This local read returns the exact effect identity for the configured Agent and request. Include it in the command before obtaining any required governance approval, then submit that same request and JSON. Computing a key grants no estate authority, reserves nothing, and cannot replace the committed receipt. Changing the request after approval changes the effect identity.
 
+## Recipe substitution
+
+Read `industry.world_rule_status.recipe_substitution` before choosing a substitute. It is private to the current economic owner and supplies complete preview payloads, declared risks/value units, exact root/slot identities and next recheck times. `unknown` is missing or stale authority; `no_legal_substitute` is a completed finite search. Truncation is not proof that omitted choices do not exist.
+
+The three choices are distinct: `same_material` changes a qualified source without a converter; `profile_substitute` requires an explicit rule and a separate actual conversion; `new_recipe` references a certified fresh candidate with zero inherited work. Do not invent source qualification, ratios, prices, finality certificates or profile rules. Batch import and root/authority publication require operator-supplied certified facts; an executor grant alone cannot create them.
+
+Use the existing `world-rule` CLI form with `kind: "RecipeSubstitution"` and nested `data.command.operation`. `confirm` carries the exact returned preview, selected `candidate_digest`, explicit `scope` (`decision_only` or `decision_and_exact_conversion`), `maximum_source`, `maximum_costs`, `maximum_power` and the published cutover plan digest when applicable. Choose the scope from the authorized goal; recording a choice never authorizes an arbitrary conversion. Copy certified quantities and limits from the chosen candidate instead of filling missing values. Each command still needs a current `WorldRule` grant for its exact root or decision object.
+
+A confirmed decision consumes no materials and provides no production progress. A separately authorized `convert` must return the original linked settlement before `apply_binding` can use converted input. Same-material binding has no conversion receipt. A new recipe uses the full `cutover_plan` and digest published in the preview, followed by its normal `IndustrialWork/start_root`; it never inherits old receipts, stock reservations or work. Do not compute hidden hashes or construct substitute plans from source code. Unsupported converter modes or post-sink dispositions remain blocked.
+
+After any write, recover the original request and reread industry. Check full qualified identities, actual escrow consumption, the independent settlement and ordinary pending/completed recipe results. A decision, start receipt or successful transport response cannot prove conversion or production. Preserve stable request/context/payload on unknown results; use a fresh preview only after the original result is known. The currently supported native post-sink `terminate_root` is available only when explicitly declared by the accepted baseline; it preserves consumed-input and power loss and never refunds or completes production.
+
 ## Decide and act
 
 The movement CLI proposal is movement of the configured Agent to three signed i64 centimeter coordinates:

@@ -578,6 +578,7 @@ fn govern_profile_actions_emit_events_and_update_profile_state() {
         operator_agent_id: "operator-a".to_string(),
         proposal_id,
         profile: RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "governed_recipe".to_string(),
             bottleneck_tags: vec!["control_chip".to_string()],
             stage_gate: "governance".to_string(),
@@ -696,6 +697,7 @@ fn govern_profile_actions_reject_invalid_profile_payloads() {
         operator_agent_id: "operator-a".to_string(),
         proposal_id,
         profile: RecipeProfileV1 {
+            substitution_rules: Vec::new(),
             recipe_id: "".to_string(),
             bottleneck_tags: vec!["gear".to_string()],
             stage_gate: "bootstrap".to_string(),

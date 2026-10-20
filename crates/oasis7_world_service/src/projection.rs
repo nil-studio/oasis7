@@ -82,7 +82,7 @@ impl WorldServiceProjection {
         let source = world.state();
         let mut state = WorldState {
             world_rules: source.world_rules.as_ref().map(|rules| {
-                let mut visible = rules.for_reader(authorized_agent);
+                let mut visible = rules.for_current_reader(world.state(), authorized_agent);
                 visible.agent_orders.retain(|_, order| {
                     world.can_read_agent_industrial_order(order, authorized_agent)
                 });
@@ -234,7 +234,7 @@ impl WorldServiceProjection {
             .retain(|key, _| fields.contains(&key.as_str()));
         let mut state: WorldState = serde_json::from_value(value).map_err(|e| e.to_string())?;
         state.world_rules = state.world_rules.map(|rules| {
-            let mut visible = rules.for_reader(authorized_agent);
+            let mut visible = rules.for_current_reader(world.state(), authorized_agent);
             visible
                 .agent_orders
                 .retain(|_, order| world.can_read_agent_industrial_order(order, authorized_agent));
