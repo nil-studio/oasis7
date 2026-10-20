@@ -220,3 +220,24 @@ it('keeps unread goal nodes noninteractive without inferring relationships',asyn
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));const graph=within(screen.getByRole('region',{name:'工作关系图'}));
  expect(graph.getAllByText('原文未读取 · 保留原关系')).toHaveLength(2);expect(graph.queryByRole('button',{name:'目标 A'})).not.toBeInTheDocument();
 });
+
+it('keeps an unlinked work compact without fabricating a goal graph',async()=>{
+ const value=projection();value.items[0].goals=[];vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'修复本地工具'}));
+ const graph=screen.getByRole('region',{name:'工作关系图'});
+ expect(within(graph).getByText('尚无明确目标关系')).toBeVisible();expect(graph.querySelector('.relation-map')).toBeNull();
+ expect(within(graph).queryByText('修复本地工具')).not.toBeInTheDocument();
+ expect(screen.getByText('目标验收尚未核实')).toBeVisible();
+ fireEvent.click(within(graph).getByRole('button',{name:'选择依据并确认关联'}));expect(screen.getByRole('tab',{name:'依据'})).toHaveAttribute('aria-selected','true');
+});
+it('opens the sole explicit home goal work and preserves removed relationship overrides',async()=>{
+ const source=snapshot();source.sections=[{id:'a',path:'doc/core/prd.md',title:'当前阶段交付目标与全局 P0',content:'明确目标与可恢复的剩余条件',revision:'r'}] as Snapshot['sections'];
+ const record=state();const [records,setRecords]=createSignal(0);vi.mocked(bridge.dailyWork).mockImplementation(async()=>record);
+ render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={records()} onExecution={()=>{}}/>);
+ await screen.findByText('1 项已读工作');fireEvent.click(screen.getByRole('button',{name:'进入关联工作'}));
+ await screen.findByRole('region',{name:'工作详情'});fireEvent.click(screen.getByRole('button',{name:'返回工作列表'}));
+ record.revision=10;record.relations=[{id:'removed',work:projection().items[0].reference,sectionId:'a',sourceRevision:'r',confirmedAt:'1',removedAt:'2',previous:[]}];
+ setRecords(1);await screen.findByText('尚无已读明确关联');expect(screen.queryByRole('button',{name:'进入关联工作'})).not.toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'选择工作，核对剩余条件'})).toBeEnabled();
+});
