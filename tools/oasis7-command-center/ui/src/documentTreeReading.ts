@@ -1,7 +1,7 @@
 import type { DocumentSection } from './types';
 import type { DocumentTreeReadingSelection, DocumentTreeRouteStep } from './generated/core';
 export type TreeSourcePosition = {section:DocumentSection;scrollTop:number;userInitiated:boolean};
-export type TreeFileRestore = {section?:DocumentSection;scrollTop:number;passive:boolean};
+export type TreeFileRestore = {section?:DocumentSection;unresolved?:boolean;scrollTop:number;passive:boolean};
 export const routeKey = (route:DocumentTreeRouteStep[]) => JSON.stringify(route.map(step=>[step.path,step.sourcePath,step.destination,step.group,step.duplicateIndex,step.duplicateCount]));
 export const sameRoute = (a:DocumentTreeRouteStep[],b:DocumentTreeRouteStep[]) => routeKey(a) === routeKey(b);
 export function selectedSection(selection:DocumentTreeReadingSelection,sections:DocumentSection[]) {

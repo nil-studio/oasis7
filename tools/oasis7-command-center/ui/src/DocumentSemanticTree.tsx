@@ -235,7 +235,7 @@ export default function DocumentSemanticTree(props: {
           detailScrollTop=state.detailScrollTop;
           const section=resolvedSectionId?selectedSection(state.selection,props.snapshot.sections):undefined;
           if(state.selection.sectionId && !section)setNotice(old=>`${old?`${old} `:''}原章节或内容版本已变化，未自动打开同名章节。`);
-          openFile(entry,true,{section,scrollTop:state.detailScrollTop,passive:true});setSelection(state.selection);
+          openFile(entry,true,{section,unresolved:!!state.selection.sectionId&&!section,scrollTop:state.detailScrollTop,passive:true});setSelection(state.selection);
         }else {
           const original=state.selection.path;const ancestorRoute=state.selection.route.slice(0,-1);const ancestor=await ensureRoute(ancestorRoute);
           if(epoch!==generation||intent!==interaction)return;focusRow(ancestor?.occurrenceId??'',false);
@@ -282,8 +282,7 @@ export default function DocumentSemanticTree(props: {
   async function resetReading(){if(!key)return;changed();const epoch=generation;const captured={...key};try{await bridge.resetDocumentTreeReading(captured);if(epoch!==generation)return;canSave=true;setProtectedRecord(false);setPreferenceError('');setNotice('此树阅读记录已重置；其他个人数据保持保留。');persist();}catch(failure){if(epoch===generation)setPreferenceError(errorMessage(failure));}}
   const stopCompositionEnter=(event:KeyboardEvent)=>{if((composing()||event.isComposing||event.keyCode===229)&&event.key==='Enter')event.preventDefault();};
 
-  return <section class="semantic-tree" aria-label={`${title()}导航`}>
-    <p class="muted small">选择模块，展开专题，再打开原文。数字表示本次筛选匹配的文件，不表示完成进度。</p>
+  const controls=()=> <>    <p class="muted small">选择模块，展开专题，再打开原文。数字表示本次筛选匹配的文件，不表示完成进度。</p>
     <form class="inventory-filters" onSubmit={event => {event.preventDefault(); if (!composing() && (lifecycle() !== 'raw' || rawStatus())) void applyFilters();}}>
       <label>标题、路径或文档 ID<input aria-label="筛选树文档" value={query()} onInput={e => setQuery(e.currentTarget.value)} onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} onKeyDown={stopCompositionEnter}/></label>
       <details class="advanced-tree-filters"><summary>高级筛选</summary><div class="inventory-filters"><label>读取结果<select aria-label="树读取结果" value={read()} onChange={e => setRead(e.currentTarget.value)}><option value="all">全部文件</option><option value="read">已读取</option><option value="omitted">仅看遗漏</option></select></label>
@@ -296,6 +295,8 @@ export default function DocumentSemanticTree(props: {
     </form>
 
     <div class="actions"><button disabled={busy()} onClick={()=>{changed();void initialize();}}>重新查询树根</button><button disabled={busy()} onClick={()=>{changed();setExpanded(new Set<string>());focusRow(rows()[0]?.id??'');persist();}}>折叠全部分支</button></div>
+</>;
+  return <section class="semantic-tree" aria-label={`${title()}导航`}>
     <Show when={busy()}><p role="status">正在查询与恢复{title()}…</p></Show>
     <Show when={notice()}><p role="status" class="notice">{notice()}</p></Show>
     <Show when={preferenceError()}><p role="status" class="notice">{preferenceError()}；树仍可阅读。</p></Show>
@@ -325,10 +326,10 @@ export default function DocumentSemanticTree(props: {
           <div id={`tree-description-${row.id}`}>
           <details class="tree-node-source" open={!(row.level===1&&props.view==='product'&&expanded().size===0)}><summary onKeyDown={event=>event.stopPropagation()}>来源与文档状态</summary><Show when={entry.path}><p class="muted small">{entry.path}</p></Show>
           <Show when={entry.file}>{file => <p class="muted small">生命周期：{lifecycleLabels[file().lifecycle?.category ?? 'unknown'] ?? '类别未知'} · 原声明：{file().lifecycle?.rawStatus ?? file().lifecycle?.status ?? '未声明'}</p>}</Show>
-          </details><Show when={entry.historicalReferenceFiles > 0}><div class="notice"><p>历史引用占位：被 {entry.historicalReferenceFiles} 个非明确历史的已读文档显式引用；保留原生命周期，不代表现行、主责或实现完成。</p><p class="muted small">来源路径样本（最多 20）：{entry.historicalReferencePaths.join('、')}</p></div></Show>
+          <Show when={entry.historicalReferenceFiles > 0}><div class="notice"><p>历史引用占位：被 {entry.historicalReferenceFiles} 个非明确历史的已读文档显式引用；保留原生命周期，不代表现行、主责或实现完成。</p><p class="muted small">来源路径样本（最多 20）：{entry.historicalReferencePaths.join('、')}</p></div></Show>
           <Show when={entry.sourcePath}><p class="muted small">声明来源：{entry.sourcePath}<Show when={entry.sourceLine != null}> · 第 {entry.sourceLine} 行</Show></p></Show>
           <Show when={entry.relationship}>{edge => <p class="muted small">关系目标：{edge().target ?? edge().destination} · {resolutionLabels[edge().resolution] ?? edge().resolution}</p>}</Show>
-          <Show when={entry.boundary === 'cross_domain'}><p class="muted small">跨域引用：仅保留导航目标，不展开，不提升为当前树的归属。</p></Show>
+          </details><Show when={entry.boundary === 'cross_domain'}><p class="muted small">跨域引用：仅保留导航目标，不展开，不提升为当前树的归属。</p></Show>
           <Show when={entry.cycle}><p role="status" class="notice">检测到循环引用，已停止此位置展开；原文件仍可查看。</p></Show>
           <Show when={entry.depthLimited}><p role="status" class="notice">已达树展开预算，停止此位置展开；完整文件仍可从文件清单查询。</p></Show>
 
@@ -341,5 +342,6 @@ export default function DocumentSemanticTree(props: {
       <Show when={!rows().length}><p class="empty">当前树没有匹配项目；这不代表仓库没有文档。</p></Show>
       <Show when={result().nextCursor}><button disabled={loading().has('')} onClick={()=>void nextPage('')}>下一页树（最多 100 项）</button></Show>
     </>}</Show>
+    <div class="tree-controls">{controls()}</div>
   </section>;
 }
