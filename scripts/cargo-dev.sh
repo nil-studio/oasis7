@@ -13,7 +13,8 @@ Default behavior:
 - Computes a stable cache namespace from the git common dir and current
   worktree source root
 - Stores shared targets under `<repo-parent>/.oasis7-cache/cargo-target/`
-- Uses a lean dev/test profile (debug=0, incremental=0) for local commands
+- Uses a lean dev/test profile (debug=0) for local commands
+- Enables incremental compilation for lean check; other lean commands disable it
 - Uses installed sccache for build/test/run in lean mode
 - Set OASIS7_CARGO_DEV_MODE=debug for full debug info and incremental builds
 - Keeps each worktree target isolated while sccache shares compiler results
@@ -245,6 +246,8 @@ PROFILE_ENV=()
 if [[ "${CI:-}" != "1" && "${CI:-}" != "true" ]]; then
   if [[ "$MODE" == "debug" ]]; then
     PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=2 CARGO_PROFILE_TEST_DEBUG=2 CARGO_INCREMENTAL=1)
+  elif [[ "${1:-}" == "check" ]]; then
+    PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=1)
   else
     PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0)
   fi

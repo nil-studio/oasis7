@@ -6,8 +6,6 @@ license = "MIT"
 
 [dependencies]
 oasis7_observability = { path = "../oasis7_observability" }
-oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
-oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_launcher_config = { version = "0.1.0", path = "../oasis7_launcher_config" }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_agent_harness = { version = "0.1.0", path = "../oasis7_agent_harness" }

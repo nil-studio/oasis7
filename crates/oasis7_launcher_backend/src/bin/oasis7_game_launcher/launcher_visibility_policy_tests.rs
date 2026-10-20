@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{CliOptions, build_oasis7_viewer_live_command, parse_options};
-use oasis7_runtime::MajorWorldEventVisibilityPermission;
+use oasis7_client_api::viewer_protocol::MajorWorldEventVisibilityPermission;
 
 #[test]
 fn parse_options_defaults_major_world_event_visibility_to_unknown() {

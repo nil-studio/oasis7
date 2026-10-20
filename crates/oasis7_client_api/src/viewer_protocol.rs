@@ -88,6 +88,17 @@ pub enum ChainLinkPolicy {
     Shadow,
 }
 
+/// Visibility input for major-world-event projection; this value grants no read authority.
+/// Runtime's current projection context supplies `Unknown` and cannot emit a projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MajorWorldEventVisibilityPermission {
+    Public,
+    Restricted,
+    Denied,
+    Unknown,
+}
+
 impl ChainLinkPolicy {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
@@ -129,4 +140,38 @@ pub fn runtime_agent_chat_echo_enabled_from_env() -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MajorWorldEventVisibilityPermission;
+
+    #[test]
+    fn major_world_event_visibility_keeps_existing_json_and_cbor_encoding() {
+        for (value, label) in [
+            (MajorWorldEventVisibilityPermission::Public, "public"),
+            (
+                MajorWorldEventVisibilityPermission::Restricted,
+                "restricted",
+            ),
+            (MajorWorldEventVisibilityPermission::Denied, "denied"),
+            (MajorWorldEventVisibilityPermission::Unknown, "unknown"),
+        ] {
+            let json = format!("\"{label}\"");
+            assert_eq!(serde_json::to_string(&value).unwrap(), json);
+            assert_eq!(
+                serde_json::from_str::<MajorWorldEventVisibilityPermission>(&json).unwrap(),
+                value
+            );
+            let cbor = serde_cbor::to_vec(&label).unwrap();
+            assert_eq!(serde_cbor::to_vec(&value).unwrap(), cbor);
+            assert_eq!(
+                serde_cbor::from_slice::<MajorWorldEventVisibilityPermission>(&cbor).unwrap(),
+                value
+            );
+        }
+        for invalid in ["\"all\"", "\"PUBLIC\"", "null"] {
+            assert!(serde_json::from_str::<MajorWorldEventVisibilityPermission>(invalid).is_err());
+        }
+    }
 }

@@ -13,6 +13,7 @@ use super::init::{
 use super::module_visual::ModuleVisualEntity;
 use super::types::{LocationId, LocationProfile, ResourceStock};
 use super::world_model::{SpaceConfig, WorldConfig};
+use oasis7_agent_api::world_scenario::{WORLD_SCENARIO_IDS, canonical_world_scenario_id};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,67 +55,17 @@ impl WorldScenario {
     }
 
     pub fn parse(input: &str) -> Option<Self> {
-        match input.trim().to_lowercase().as_str() {
-            "minimal" => Some(WorldScenario::Minimal),
-            "two_bases" | "two-bases" => Some(WorldScenario::TwoBases),
-            "llm_bootstrap" | "llm-bootstrap" | "llm" => Some(WorldScenario::LlmBootstrap),
-            "power_bootstrap" | "power-bootstrap" | "bootstrap" => {
-                Some(WorldScenario::PowerBootstrap)
-            }
-            "resource_bootstrap" | "resource-bootstrap" | "resources" => {
-                Some(WorldScenario::ResourceBootstrap)
-            }
-            "twin_region_bootstrap" | "twin-region-bootstrap" | "twin_regions" | "twin-regions" => {
-                Some(WorldScenario::TwinRegionBootstrap)
-            }
-            "triad_region_bootstrap"
-            | "triad-region-bootstrap"
-            | "triad_regions"
-            | "triad-regions" => Some(WorldScenario::TriadRegionBootstrap),
-            "triad_p2p_bootstrap"
-            | "triad-p2p-bootstrap"
-            | "triad-p2p"
-            | "p2p-triad"
-            | "p2p-triad-bootstrap" => Some(WorldScenario::TriadP2pBootstrap),
-            "asteroid_fragment_bootstrap"
-            | "asteroid-fragment-bootstrap"
-            | "asteroid_fragment"
-            | "asteroid-fragment" => Some(WorldScenario::AsteroidFragmentBootstrap),
-            "asteroid_fragment_detail_bootstrap"
-            | "asteroid-fragment-detail-bootstrap"
-            | "asteroid_fragment_detail"
-            | "asteroid-fragment-detail" => Some(WorldScenario::AsteroidFragmentDetailBootstrap),
-            "asteroid_fragment_twin_region_bootstrap"
-            | "asteroid-fragment-twin-region-bootstrap"
-            | "asteroid-fragment-twin-regions"
-            | "asteroid-fragment-regions" => {
-                Some(WorldScenario::AsteroidFragmentTwinRegionBootstrap)
-            }
-            "asteroid_fragment_triad_region_bootstrap"
-            | "asteroid-fragment-triad-region-bootstrap"
-            | "asteroid-fragment-triad-regions"
-            | "asteroid-fragment-triad" => {
-                Some(WorldScenario::AsteroidFragmentTriadRegionBootstrap)
-            }
-            _ => None,
-        }
+        let canonical = canonical_world_scenario_id(input)?;
+        // Deserialize only the canonical ID. The public enum and its construction
+        // methods remain local, while CLI aliases have a single shared owner.
+        Self::deserialize(
+            serde::de::value::StrDeserializer::<serde::de::value::Error>::new(canonical),
+        )
+        .ok()
     }
 
     pub fn variants() -> &'static [&'static str] {
-        &[
-            "minimal",
-            "two_bases",
-            "llm_bootstrap",
-            "power_bootstrap",
-            "resource_bootstrap",
-            "twin_region_bootstrap",
-            "triad_region_bootstrap",
-            "triad_p2p_bootstrap",
-            "asteroid_fragment_bootstrap",
-            "asteroid_fragment_detail_bootstrap",
-            "asteroid_fragment_twin_region_bootstrap",
-            "asteroid_fragment_triad_region_bootstrap",
-        ]
+        WORLD_SCENARIO_IDS
     }
 
     pub fn load_spec(&self) -> WorldScenarioSpec {
@@ -424,9 +375,16 @@ mod tests {
             WorldScenario::AsteroidFragmentTriadRegionBootstrap,
         ];
 
+        let ids: Vec<_> = scenarios.iter().map(WorldScenario::as_str).collect();
+        assert_eq!(ids.as_slice(), WorldScenario::variants());
         for scenario in scenarios {
             let spec = scenario.load_spec();
             assert_eq!(spec.id, scenario.as_str());
+            assert_eq!(WorldScenario::parse(&spec.id), Some(scenario));
+            assert_eq!(
+                serde_json::to_value(scenario).unwrap(),
+                serde_json::Value::String(spec.id)
+            );
         }
     }
 }

@@ -60,16 +60,8 @@ pub enum MajorWorldEventStreamState {
     Unavailable,
 }
 
-/// Permission is an explicit input to projection.  `current()` intentionally
-/// creates an unknown permission and therefore cannot emit a projection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MajorWorldEventVisibilityPermission {
-    Public,
-    Restricted,
-    Denied,
-    Unknown,
-}
+// Preserve the Runtime's public type path while sharing the value with light clients.
+pub use oasis7_client_api::viewer_protocol::MajorWorldEventVisibilityPermission;
 
 /// Stable event identity, including the reorg boundary that scopes its
 /// sequence.  `event_seq` is the durable `WorldEvent.id`.

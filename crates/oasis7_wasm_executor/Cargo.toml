@@ -10,7 +10,24 @@ serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 sha2 = "0.11"
 
-wasmtime = { version = "49.0.3", optional = true }
+# Keep the synchronous Core WASM contract and diagnostics; see
+# doc/world-runtime/wasm/wasm-executor.design.md for feature boundaries.
+wasmtime = { version = "49.0.3", optional = true, default-features = false, features = [
+    "std",
+    "runtime",
+    "cranelift",
+    "gc",
+    "gc-copying",
+    "gc-drc",
+    "gc-null",
+    "threads",
+    "parallel-compilation",
+    "wat",
+    "anyhow",
+    "backtrace",
+    "demangle",
+    "addr2line",
+] }
 
 [features]
 default = []

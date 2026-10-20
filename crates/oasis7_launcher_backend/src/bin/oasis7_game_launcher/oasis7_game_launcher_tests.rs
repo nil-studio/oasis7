@@ -27,7 +27,6 @@ use oasis7_agent_api::ProviderExecutionMode;
 use oasis7_client_api::viewer_protocol::{VIEWER_PROTOCOL_VERSION, ViewerRequest, ViewerResponse};
 use oasis7_launcher_config::DEFAULT_CHAIN_REPLICATION_BOOTSTRAP_PEERS;
 use oasis7_proto::storage_profile::StorageProfile;
-use oasis7_simulator::WorldModel;
 
 #[path = "provider_lineage_tests.rs"]
 mod provider_lineage_tests;
@@ -194,19 +193,34 @@ fn parse_options_rejects_generated_world_dir_with_scenario() {
 
 #[test]
 fn parse_options_rejects_llm_bootstrap_without_debug_opt_in() {
-    let err = parse_options(["--scenario", "llm_bootstrap"].into_iter())
-        .expect_err("debug scenario should require opt-in");
-    assert!(err.contains("seeded debug/LLM scenario"));
-    assert!(err.contains("--allow-debug-scenario"));
+    for scenario in [
+        "llm_bootstrap",
+        "llm-bootstrap",
+        "llm",
+        " LLM-BOOTSTRAP ",
+        "\tLlM\n",
+    ] {
+        let err = parse_options(["--scenario", scenario].into_iter())
+            .expect_err("every debug scenario alias should require opt-in");
+        assert!(err.contains("seeded debug/LLM scenario"));
+        assert!(err.contains("--allow-debug-scenario"));
+    }
 }
 
 #[test]
 fn parse_options_accepts_llm_bootstrap_with_debug_opt_in() {
-    let options =
-        parse_options(["--scenario", "llm_bootstrap", "--allow-debug-scenario"].into_iter())
+    for scenario in [
+        "llm_bootstrap",
+        "llm-bootstrap",
+        "llm",
+        " LLM-BOOTSTRAP ",
+        "\tLlM\n",
+    ] {
+        let options = parse_options(["--scenario", scenario, "--allow-debug-scenario"].into_iter())
             .expect("debug scenario opt-in");
-    assert_eq!(options.scenario, "llm_bootstrap");
-    assert!(options.allow_debug_scenario);
+        assert_eq!(options.scenario, scenario.trim());
+        assert!(options.allow_debug_scenario);
+    }
 }
 
 #[test]
@@ -1161,14 +1175,12 @@ fn query_runtime_bound_players_reads_snapshot_bindings() {
             serde_json::from_str(snapshot_line.trim_end()).expect("decode snapshot request");
         assert!(matches!(snapshot_request, ViewerRequest::RequestSnapshot));
 
-        let mut model = WorldModel::default();
-        model
-            .agent_player_bindings
-            .insert("agent-1".to_string(), "player-a".to_string());
-        model
-            .agent_player_bindings
-            .insert("agent-2".to_string(), "player-b".to_string());
-        let snapshot = serde_json::json!({"model": model});
+        // This client reads only the published binding projection, not an executable WorldModel.
+        let snapshot = serde_json::json!({
+            "model": {
+                "agent_player_bindings": {"agent-1": "player-a", "agent-2": "player-b"}
+            }
+        });
         serde_json::to_writer(&mut writer, &ViewerResponse::Snapshot { snapshot })
             .expect("write snapshot");
         writer.write_all(b"\n").expect("write newline");

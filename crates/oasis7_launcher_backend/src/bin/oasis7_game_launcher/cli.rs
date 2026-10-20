@@ -1,4 +1,5 @@
 use super::*;
+use oasis7_agent_api::world_scenario::is_debug_world_scenario;
 use oasis7_launcher_config::parse_chain_replication_bootstrap_peer;
 use std::net::IpAddr;
 
@@ -628,10 +629,7 @@ fn validate_debug_scenario_guardrail(options: &CliOptions) -> Result<(), String>
     if scenario.is_empty() || options.allow_debug_scenario {
         return Ok(());
     }
-    if matches!(
-        WorldScenario::parse(scenario),
-        Some(WorldScenario::LlmBootstrap)
-    ) {
+    if is_debug_world_scenario(scenario) {
         return Err(
             "`llm_bootstrap` is a seeded debug/LLM scenario, not a normal playtest or testnet entry; \
 rerun with `--allow-debug-scenario` only for targeted diagnostics, or omit `--scenario` for the formal release default world"
@@ -775,12 +773,12 @@ fn parse_chain_link_policy(raw: &str) -> Result<&'static str, String> {
 
 fn parse_major_world_event_visibility(
     raw: &str,
-) -> Result<oasis7_runtime::MajorWorldEventVisibilityPermission, String> {
+) -> Result<MajorWorldEventVisibilityPermission, String> {
     match raw.trim() {
-        "unknown" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Unknown),
-        "public" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Public),
-        "restricted" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Restricted),
-        "denied" => Ok(oasis7_runtime::MajorWorldEventVisibilityPermission::Denied),
+        "unknown" => Ok(MajorWorldEventVisibilityPermission::Unknown),
+        "public" => Ok(MajorWorldEventVisibilityPermission::Public),
+        "restricted" => Ok(MajorWorldEventVisibilityPermission::Restricted),
+        "denied" => Ok(MajorWorldEventVisibilityPermission::Denied),
         value => Err(format!(
             "--major-world-event-visibility must be one of unknown|public|restricted|denied, got `{value}`"
         )),
@@ -788,13 +786,13 @@ fn parse_major_world_event_visibility(
 }
 
 pub(super) fn major_world_event_visibility_as_str(
-    visibility: oasis7_runtime::MajorWorldEventVisibilityPermission,
+    visibility: MajorWorldEventVisibilityPermission,
 ) -> &'static str {
     match visibility {
-        oasis7_runtime::MajorWorldEventVisibilityPermission::Unknown => "unknown",
-        oasis7_runtime::MajorWorldEventVisibilityPermission::Public => "public",
-        oasis7_runtime::MajorWorldEventVisibilityPermission::Restricted => "restricted",
-        oasis7_runtime::MajorWorldEventVisibilityPermission::Denied => "denied",
+        MajorWorldEventVisibilityPermission::Unknown => "unknown",
+        MajorWorldEventVisibilityPermission::Public => "public",
+        MajorWorldEventVisibilityPermission::Restricted => "restricted",
+        MajorWorldEventVisibilityPermission::Denied => "denied",
     }
 }
 
