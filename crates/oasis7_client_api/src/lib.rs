@@ -70,3 +70,5 @@ pub mod gameplay_actions;
 pub mod legacy_world_service;
 
 pub mod legacy_task_results;
+
+pub mod safe_alternative;

@@ -121,6 +121,7 @@ mod recovery_session;
 mod request_dispatch;
 mod request_prime;
 mod runtime_script;
+mod safe_alternative;
 mod schedule_recipe_quote;
 mod session_policy;
 #[path = "runtime_live/smelter_affordability_debug.rs"]
@@ -190,6 +191,7 @@ pub struct ViewerRuntimeLiveServer {
     world_service_query_state: crate::world_service::client::WorldServiceQueryState,
     periodic_service_executor: Option<Arc<periodic_service_io::Executor>>,
     prepared_owner_read: Option<Box<owner_read::PreparedOwnerRead>>,
+    prepared_safe_alternative: Option<Result<serde_json::Value, String>>,
     prepared_world_service_submission: Option<chain_link::PreparedWorldServiceSubmission>,
     pending_world_service_gameplay: Vec<(
         oasis7_client_api::world_service::RequestCorrelation,
@@ -420,6 +422,7 @@ impl ViewerRuntimeLiveServer {
             world_service_query_state,
             periodic_service_executor: None,
             prepared_owner_read: None,
+            prepared_safe_alternative: None,
             prepared_world_service_submission: None,
             pending_world_service_gameplay: Vec::new(),
             chain_observer_loader: Arc::new(Mutex::new(chain_link::ObserverLoader::default())),
@@ -738,8 +741,12 @@ impl ViewerRuntimeLiveServer {
                                     let prepared_owner_read = Self::prepare_shared_owner_read(
                                         &shared, &request, &session,
                                     )?;
+                                    let prepared_safe_alternative =
+                                        Self::prepare_shared_safe_alternative(&shared, &request);
                                     handled = {
                                         let mut server = lock_shared_server(&shared)?;
+                                        server.prepared_safe_alternative =
+                                            prepared_safe_alternative;
                                         server.prepared_owner_read =
                                             prepared_owner_read.map(Box::new);
                                         server.prepared_world_service_submission =
@@ -752,6 +759,7 @@ impl ViewerRuntimeLiveServer {
                                         );
                                         server.prepared_world_service_submission = None;
                                         server.prepared_owner_read = None;
+                                        server.prepared_safe_alternative = None;
                                         agent_presence.observe(&mut server, &session);
                                         handled
                                     };

@@ -7,7 +7,7 @@ pub(super) fn driver_fixture() -> (
     String,
     String,
 ) {
-    fixture(false)
+    fixture(false, true)
 }
 pub(super) fn driver_fixture_with_verified_authority() -> (
     PathBuf,
@@ -16,10 +16,20 @@ pub(super) fn driver_fixture_with_verified_authority() -> (
     String,
     String,
 ) {
-    fixture(true)
+    fixture(true, true)
+}
+pub(super) fn driver_fixture_without_provider() -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture(false, false)
 }
 fn fixture(
     verified_authority: bool,
+    provider_fixture: bool,
 ) -> (
     PathBuf,
     NodeRuntimeExecutionDriver,
@@ -67,9 +77,11 @@ fn fixture(
             0,
         )
         .unwrap();
-    world
-        .install_test_provider_capability_fixture_without_cognition_balance("agent-a")
-        .unwrap();
+    if provider_fixture {
+        world
+            .install_test_provider_capability_fixture_without_cognition_balance("agent-a")
+            .unwrap();
+    }
     if verified_authority {
         assert!(world.promote_cognition_runtime_finality().unwrap());
     }

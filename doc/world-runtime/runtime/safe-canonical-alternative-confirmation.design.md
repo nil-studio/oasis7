@@ -127,6 +127,14 @@
 <a id="alternative-read"></a>
 结果读面分别显示原请求限制、候选比较、选定项、确认范围、授权状态、canonical 执行和实际结果，并列出 blocker/next/recovery。一个入口确认后，其他入口重读同一选项/状态；迟到的旧结果只回填自己的原 lineage，不能更新“最新目标”或重复完成提示。原始目标、授权材料和其他玩家信息按当前 owner/读取权限保护；同一结果公开可读不代表其私密原因公开。
 
+### 6.1 V1 移动替代编码与能力边界
+
+`oasis7_client_api::safe_alternative` 发布 V1 编码。原请求是带途经点序列或到达 tick 约束的移动请求；现有 canonical `MoveAgent` 只表达直接移动到一个坐标，不能把它解释为已经支持路径或到达时间保证。候选由 runtime 从原请求中的坐标产生，不接受模型自报安全结论；每项明确展示放弃路径/时间保证后的精确目标、成本、风险和撤回边界。单坐标且无时间要求的普通移动不进入此流程。尚无权威安全评估的动作不进入候选，不借此新增动作或开放任意目标执行。
+
+V1 每个原请求最多 8 个途经点，原目标最多 4096 UTF-8 字节；身份字段最多 256 字节。每 lineage 最多 8 代候选、完整单条控制记录最多 131072 字节，每世界最多 1024 个 lineage；容量用尽明确拒绝新记录，不删除历史去重事实、不截断安全说明或原件。超限整体拒绝，不截断授权说明。`SafeAlternativeCommandV1` 固定世界、genesis、branch、reorg、Agent、owner binding/generation 和独立 client operation ID。`Propose`、`Confirm`、`Execute`、`Cancel`、`Read` 分别使用 `safe_alternative.<operation>.v1` 签名域。原 chat 或工具签名不能重用为确认。所有入口消费同一 canonical 状态，native 模型工具不能签 owner 确认。
+
+确认仍只记录授权；执行使用固定授权与 execution identity，首效果前重新检查当前 owner、位置及相关规则。候选只能使用现有 canonical runtime 可核实的移动语义；若相关规则可能改变目标、成本或后果且不能界定，则停止评估。模拟器的分阶段移动不自动获得该能力。V1 在存在 module instance 或 active module registry 时返回 `evaluation_unavailable`，因为当前没有可以证明模块成本、改写与订阅后果的只读权威报价；不把内核零成本套用于模块世界。无关经济政策变化不失效候选，目标位置变为禁止位置或其他相关范围变化则拒绝后续效果。授权记录纳入现有 capability authorization root，旧版本若忽略记录会在恢复校验时失败；代价是发布控制元数据后，已捕获的 provider context 可能需要按既有新鲜度规则重新读取。候选预览仍不取得资源 hold、队列资格或玩法效果。未接入的入口和动作继续保持不可用；V1 编码存在不表示 SC-5 全部入口与 full 验收已通过。
+
 ## 7. 状态、事务与持久化
 
 <a id="alternative-state"></a>

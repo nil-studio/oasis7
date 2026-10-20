@@ -550,3 +550,20 @@ fn formal_changes_returns_history_unavailable_for_expired_or_wrong_era_cursor() 
         build_formal_changes_page(anchor, source, request, target_view, 10, 1_000_000).unwrap_err();
     assert!(wrong_era.starts_with("HistoryUnavailable"));
 }
+
+#[test]
+fn safe_alternative_formal_receipt_requires_original_current_owner_not_delegate() {
+    let world = delegated_world(8, 1);
+    let mut leaf = outcome();
+    leaf.correlation.key.operation_domain = "safe_alternative.confirm.v1".into();
+    leaf.correlation.key.verified_subject = public(7);
+    authorize_world_result_reader(&world, &leaf, "agent:agent-7", &public(7)).unwrap();
+    assert!(authorize_world_result_reader(&world, &leaf, "agent:agent-7", &public(8)).is_err());
+    assert!(authorize_world_result_reader(&world, &leaf, "public", &public(7)).is_err());
+    // A current owner cannot borrow a predecessor's private original.
+    leaf.correlation.key.verified_subject = public(6);
+    assert!(authorize_world_result_reader(&world, &leaf, "agent:agent-7", &public(7)).is_err());
+    // Existing ordinary delegated result reads retain their own audience.
+    leaf.correlation.key.operation_domain = "cognition".into();
+    authorize_world_result_reader(&world, &leaf, "agent:agent-7", &public(8)).unwrap();
+}

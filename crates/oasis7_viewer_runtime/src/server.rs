@@ -177,7 +177,8 @@ impl<'a> ViewerSession<'a> {
         world_id: &str,
     ) -> Result<bool, ViewerServerError> {
         match request {
-            ViewerRequest::RequestCanonicalAgentOwnerReadContext { .. }
+            ViewerRequest::SafeAlternative { .. }
+            | ViewerRequest::RequestCanonicalAgentOwnerReadContext { .. }
             | ViewerRequest::CanonicalAgentOwnerRead { .. } => {
                 send_response(
                     writer,

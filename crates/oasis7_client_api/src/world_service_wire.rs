@@ -35,6 +35,7 @@ pub struct CanonicalIntentResultV1<C = UnsupportedWireVariant, S = TaskScheduler
 pub enum WorldServicePayloadV1<C = UnsupportedWireVariant, S = TaskSchedulerIntentV1> {
     GameplayJson(Vec<u8>),
     AgentChat(C),
+    SafeAlternative(SignedReadRequest<crate::safe_alternative::SafeAlternativeCommandV1>),
     Cognition(SignedReadRequest<CognitionIntentV1>),
     FeedbackAck(SignedReadRequest<FeedbackAckIntentV1>),
     Delegation(SignedReadRequest<AgentSignerDelegationChangeV1>),
