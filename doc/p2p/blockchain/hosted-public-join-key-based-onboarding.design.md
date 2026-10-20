@@ -733,6 +733,8 @@ signed_bytes = domain_separator
 字符串使用 UTF-8，长度为固定 u32 大端且有上限，时间为 u64 大端；协议实现必须有跨语言 golden vectors，禁止临时拼接 JSON 字符串导致不同序列化签不同语义。`purpose` 严格列举 register/login/bind/reauth/recovery_candidate，不接受 wildcard。
 
 服务器验证签名、公钥类型、服务域、环境、用途、目标、期限和原子 nonce 消费，再接入相同身份事务。原生持有证明不自带 WebAuthn 的浏览器来源保护，也不证明终端已做硬件用户验证；客户端必须验证 TLS/目标服务并展示操作，不把该方式标成与 Passkey 完全相同的抗钓鱼等级。
+
+共享字节编码入口为 `oasis7_agent_api::identity::NativeIdentityChallengeV1::signing_bytes`，现有身份服务复用它；`tests/fixtures/native_identity_v1.json` 由 Rust 合同测试与 Viewer 原生签名测试共同消费，覆盖用途和 UTF-8 字节长度。codec 只编码显式字段，不验证服务信任、账号上下文、期限、凭据有效性或原子消费，不是可直接调用的 signer。枚举预留的 `register` / `recovery_candidate` 不表示对应入口已启用；现有网页入口仍严格限于下节三种用途。机器注册、受保护客户端密钥及恢复编排仍待实现，不能凭 codec 将 discovery 标成可注册。
 <a id="imported-key-web"></a>
 
 ### 15.2.1 网页会话内导入
