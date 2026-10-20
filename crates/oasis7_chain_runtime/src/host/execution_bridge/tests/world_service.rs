@@ -487,3 +487,6 @@ mod safe_alternative;
 
 #[path="participant_http.rs"]
 mod participant_http;
+
+#[path = "world_service_executor_rotation.rs"]
+mod executor_rotation_tests;

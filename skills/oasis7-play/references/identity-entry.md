@@ -45,6 +45,14 @@ Explicit owner operations use `--participant-operation <entry-id>
   `entry-executor-revoke --executor-public-key <key> --generation <n>
   --nonce <n>` revokes the selected signer delegation.
 
+After stop/revoke, `entry-executor-lookup --original-file <private-original.json>`
+uses the participant/login/operation options above to query an explicitly
+provided original signed executor payload. It persists the original before
+querying, permits a Suspended task, and never resubmits it or reopens old private
+context. A newly authorized executor may likewise reconcile an explicitly
+provided old signed original with current read authority. This does not share
+private vaults or authorize the old key again.
+
 These are explicit owner policy decisions. Ordinary game tools cannot call
 these commands, change a goal or authorize themselves. `entry-status` and
 `entry-owner-status` report historical progress, not current permission. After

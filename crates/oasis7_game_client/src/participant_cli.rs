@@ -1,7 +1,7 @@
 use crate::identity_client::{ParticipantClient, ParticipantClientConfig};
 use std::io::{IsTerminal, Read};
 use zeroize::Zeroizing;
-pub(crate) const HELP: &str = "oasis7_game_client --entry-config <entry.json> entry-owner-init|entry-register|entry-owner-view|entry-status|entry-task-create|entry-starter-claim|entry-starter-eligibility|entry-goal-prepare|entry-goal-publish|entry-goal-read|entry-executor-authorize|entry-executor-bind|entry-executor-stop|entry-executor-revoke|entry-executor-init|entry-owner-status [--operation <original-id>] [--login-operation <identity-login-id>]\nTrusted local owner control only; unlock through private stdin. Owner operations require explicit commands. No command starts a Runtime or proves complete cold entry. Goal content is read from --goal-file as JSON and never printed. Executor credentials use a separate --executor-directory.\nOwner writes require --participant-operation <entry-op> --login-operation <login-op> --operation <original-op>.\nGoal prepare adds --goal-file <private-content.json>; publication adds --prepare-operation <original-prepare-op>.\nExecutor authorize/revoke adds --executor-public-key <key> --generation <u64> --nonce <u64>; bind adds --executor-public-key <key> --generation <u64> --executor-id <id>.\nOwner status requires --participant-operation <entry-op> --operation <original-op>; goal read requires --participant-operation <entry-op> --login-operation <login-op>.";
+pub(crate) const HELP: &str = "oasis7_game_client --entry-config <entry.json> entry-owner-init|entry-register|entry-owner-view|entry-status|entry-task-create|entry-starter-claim|entry-starter-eligibility|entry-goal-prepare|entry-goal-publish|entry-goal-read|entry-executor-authorize|entry-executor-bind|entry-executor-stop|entry-executor-lookup|entry-executor-revoke|entry-executor-init|entry-owner-status [--operation <original-id>] [--login-operation <identity-login-id>]\nTrusted local owner control only; unlock through private stdin. Owner operations require explicit commands. No command starts a Runtime or proves complete cold entry. Goal content is read from --goal-file as JSON and never printed. Executor credentials use a separate --executor-directory.\nOwner writes require --participant-operation <entry-op> --login-operation <login-op> --operation <original-op>.\nGoal prepare adds --goal-file <private-content.json>; publication adds --prepare-operation <original-prepare-op>.\nExecutor authorize/revoke adds --executor-public-key <key> --generation <u64> --nonce <u64>; bind adds --executor-public-key <key> --generation <u64> --executor-id <id>.\nOwner status requires --participant-operation <entry-op> --operation <original-op>; goal read requires --participant-operation <entry-op> --login-operation <login-op>.\nOwner executor recovery: entry-executor-lookup --participant-operation <entry-op> --login-operation <login-op> --operation <lookup-id> --original-file <private-signed-payload.json>. Read only after stop/revoke; never resumes an executor.";
 pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
     if args.len() < 3 {
         return Err(HELP.into());
@@ -32,6 +32,12 @@ pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
             &["--participant-operation", "--login-operation"]
         }
         "entry-executor-init" => &["--executor-directory"],
+        "entry-executor-lookup" => &[
+            "--participant-operation",
+            "--login-operation",
+            "--operation",
+            "--original-file",
+        ],
         "entry-executor-authorize" | "entry-executor-revoke" => &[
             "--participant-operation",
             "--login-operation",
@@ -138,12 +144,36 @@ fn run_owner_command(
         "entry-goal-read"=>{let current=client.read_current_goal(options["--participant-operation"],options["--login-operation"])?;Ok(serde_json::json!({"stage":"current_goal","state":"confirmed","control":current.control,"read_commit":current.read_commit,"next_action":"explicit_executor_authorization_required"}))},
         "entry-executor-init"=>Ok(serde_json::json!({"stage":"executor_vault","state":"confirmed","executor_public_key":client.initialize_executor(std::path::Path::new(options["--executor-directory"]),password)?,"network_effects":false,"next_action":"explicit_owner_delegation_required"})),
         "entry-executor-authorize"=>serde_json::to_value(client.authorize_executor(options["--participant-operation"],options["--login-operation"],options["--operation"],options["--executor-public-key"],decimal_option(options,"--generation")?,decimal_option(options,"--nonce")?)?),
+        "entry-executor-lookup"=>serde_json::to_value(client.owner_lookup_executor_original(options["--participant-operation"],options["--login-operation"],options["--operation"],read_executor_original(options["--original-file"])?)?),
         "entry-executor-stop"=>serde_json::to_value(client.stop_executor(options["--participant-operation"],options["--login-operation"],options["--operation"])?),
         "entry-executor-revoke"=>serde_json::to_value(client.revoke_executor(options["--participant-operation"],options["--login-operation"],options["--operation"],options["--executor-public-key"],decimal_option(options,"--generation")?,decimal_option(options,"--nonce")?)?),
         "entry-executor-bind"=>serde_json::to_value(client.bind_executor(options["--participant-operation"],options["--login-operation"],options["--operation"],options["--executor-id"],options["--executor-public-key"],decimal_option(options,"--generation")?)?),
         _=>return Ok(None),
     }.map_err(|_|"owner progress encoding failed")?;
     Ok(encode(value))
+}
+fn read_executor_original(
+    path: &str,
+) -> Result<oasis7_client_api::world_service_wire::WorldServicePayloadV1, String> {
+    let file = std::fs::File::open(path).map_err(|_| "executor original file unavailable")?;
+    let mut bytes = Zeroizing::new(Vec::new());
+    file.take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "executor original file unavailable")?;
+    let value: serde_json::Value = oasis7_agent_api::game::parse_request(&bytes)
+        .map_err(|_| "invalid bounded executor original")?;
+    use serde::de::IntoDeserializer;
+    let mut ignored = false;
+    let original =
+        serde_ignored::deserialize(value.clone().into_deserializer(), |_| ignored = true)
+            .map_err(|_| "invalid executor original codec")?;
+    if ignored
+        || serde_json::to_value(&original).map_err(|_| "executor original encoding failed")?
+            != value
+    {
+        return Err("executor original contains unsupported or changed fields".into());
+    }
+    Ok(original)
 }
 fn decimal_option(
     options: &std::collections::BTreeMap<&str, &str>,
@@ -209,6 +239,43 @@ mod tests {
         for command in ["entry-starter-claim", "entry-starter-eligibility"] {
             assert!(run_owner_command(&client, command, &options, PASSWORD).is_err());
         }
+        use oasis7_agent_api::game::{DecimalU64, GAME_TASK_CREATE_DOMAIN, GameTaskCreateV1};
+        use oasis7_client_api::{
+            world_service::sign_read_request, world_service_wire::WorldServicePayloadV1,
+        };
+        let original: WorldServicePayloadV1 = WorldServicePayloadV1::GameTaskCreate(
+            sign_read_request(
+                GAME_TASK_CREATE_DOMAIN,
+                GameTaskCreateV1 {
+                    api_rev: 1,
+                    client_operation_id: "owner-only".into(),
+                    world_id: "world".into(),
+                    genesis_digest: "genesis".into(),
+                    branch_id: "main".into(),
+                    reorg_epoch: DecimalU64(0),
+                    agent_id: "agent".into(),
+                    owner_binding: "owner".into(),
+                    owner_generation: DecimalU64(1),
+                },
+                &hex::encode([95; 32]),
+            )
+            .unwrap(),
+        );
+        let path = root.join("executor-original.json");
+        let mut value = serde_json::to_value(original).unwrap();
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(read_executor_original(path.to_str().unwrap()).is_ok());
+        let mut lookup_options = options.clone();
+        lookup_options.insert("--operation", "lookup-original");
+        lookup_options.insert("--original-file", path.to_str().unwrap());
+        assert!(
+            run_owner_command(&client, "entry-executor-lookup", &lookup_options, PASSWORD).is_err(),
+            "explicit lookup dispatch must reject owner original, not fall through"
+        );
+        value["payload"]["ignored_private_field"] =
+            serde_json::json!("never discard an original field");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(read_executor_original(path.to_str().unwrap()).is_err());
         drop(client);
         std::fs::remove_dir_all(root).unwrap();
     }

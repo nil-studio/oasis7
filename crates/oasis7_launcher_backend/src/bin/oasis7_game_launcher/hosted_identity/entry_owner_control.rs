@@ -120,6 +120,52 @@ impl IdentityService {
                     }
                     entry.forward_bound(LOOKUP_PATH, LOOKUP_PATH, q, q)
                 }
+                EntryOwnerOperationV1::LookupExecutor(q) => {
+                    q.request
+                        .validate()
+                        .map_err(|_| reject("invalid_request"))?;
+                    let control: GameTaskControlV1 =
+                        serde_json::from_value(response.payload.view["game_task_control"].clone())
+                            .map_err(|_| reject("owner_control_context_mismatch"))?;
+                    let fence = GameTaskFenceV1::from_control(&control);
+                    if fence.agent_id != owner.agent_id
+                        || fence.world_id != entry.trust.world.world_id
+                        || fence.genesis_digest != entry.trust.world.genesis_digest
+                        || fence.owner_public_key != owner.public_key
+                        || fence.owner_binding != owner.player_id
+                        || fence.owner_generation.0
+                            != owner.canonical_authority.agent_identity_generation
+                        || fence.branch_id != owner.canonical_authority.branch_id
+                        || fence.reorg_epoch.0 != owner.reorg_epoch
+                    {
+                        return Err(reject("owner_control_context_mismatch"));
+                    }
+                    super::entry_executor_control::check_payload(
+                        &q.original,
+                        &owner.public_key,
+                        &fence,
+                        true,
+                    )?;
+                    let actual = oasis7_client_api::world_service_correlation::derive_correlation(
+                        entry.trust.world.clone(),
+                        &q.original,
+                    )
+                    .map_err(|_| reject("invalid_request"))?;
+                    if actual.key != q.request.key {
+                        return Err(reject("owner_control_context_mismatch"));
+                    }
+                    let wrapper = oasis7_client_api::world_service::entry_executor::EntryExecutorLookupRequestV1 {
+                        access: oasis7_client_api::world_service::entry_executor::EntryExecutorAccessV1 {
+                            read: request.access.read.clone(), fence,
+                        }, lookup: q.clone(),
+                    };
+                    entry.forward_bound(
+                        oasis7_client_api::world_service::entry_executor::EXECUTOR_LOOKUP_PATH,
+                        LOOKUP_PATH,
+                        &wrapper,
+                        q,
+                    )
+                }
                 EntryOwnerOperationV1::PrepareGoal(q) => {
                     q.verify().map_err(|_| reject("authentication_failed"))?;
                     let r = &q.request;

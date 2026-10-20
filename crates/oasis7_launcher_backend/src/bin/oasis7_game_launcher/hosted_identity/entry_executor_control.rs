@@ -293,7 +293,7 @@ fn check_read(
     }
     verify_read_request(VIEW_JSON_PATH, q).map_err(|_| reject("authentication_failed"))
 }
-fn check_payload(
+pub(super) fn check_payload(
     payload: &WorldServicePayloadV1,
     actor: &str,
     fence: &GameTaskFenceV1,
@@ -302,12 +302,13 @@ fn check_payload(
     let generation = fence
         .executor_binding
         .as_ref()
-        .ok_or_else(|| reject("executor_context_mismatch"))?
-        .delegation_generation
-        .0;
+        .map(|b| b.delegation_generation.0);
+    if !historical && generation.is_none() {
+        return Err(reject("executor_context_mismatch"));
+    }
     match payload {
         WorldServicePayloadV1::Cognition(s) => {
-            if (!historical && s.request.delegation_generation != generation)
+            if (!historical && Some(s.request.delegation_generation) != generation)
                 || s.request.request.agent_id != fence.agent_id
                 || s.request.task_fence.is_none()
                 || s.request.causal_proposal.is_some()
@@ -320,12 +321,13 @@ fn check_payload(
                 actor,
                 fence,
                 historical,
+                s.request.delegation_generation,
             )
         }
         WorldServicePayloadV1::Scheduler(s) => {
-            if s.subject_public_key != actor
+            if (!historical && s.subject_public_key != actor)
                 || s.request.agent_id != fence.agent_id
-                || (!historical && s.request.delegation_generation != generation)
+                || (!historical && Some(s.request.delegation_generation) != generation)
             {
                 return Err(reject("executor_context_mismatch"));
             }
@@ -340,6 +342,7 @@ fn check_payload(
                 actor,
                 fence,
                 historical,
+                s.request.delegation_generation,
             )
         }
         _ => Err(reject("executor_operation_not_allowed")),
@@ -351,11 +354,25 @@ fn check_payload_fence(
     actor: &str,
     current: &GameTaskFenceV1,
     historical: bool,
+    delegation_generation: u64,
 ) -> Result<(), StoreError> {
     if !historical {
         return check_actor_fence(public, old, actor, current);
     }
-    if public != actor
+    old.validate()
+        .map_err(|_| reject("executor_context_mismatch"))?;
+    let old_binding = old
+        .executor_binding
+        .as_ref()
+        .ok_or_else(|| reject("executor_context_mismatch"))?;
+    if (actor != current.owner_public_key
+        && current
+            .executor_binding
+            .as_ref()
+            .is_none_or(|b| b.executor_public_key != actor))
+        || old_binding.executor_public_key != public
+        || public == old.owner_public_key
+        || old_binding.delegation_generation.0 != delegation_generation
         || old.world_id != current.world_id
         || old.genesis_digest != current.genesis_digest
         || old.agent_id != current.agent_id

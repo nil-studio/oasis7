@@ -526,3 +526,38 @@ fn changed_current_delegate_or_fence_blocks_second_upstream_operation() {
         rejected(result, "executor_context_mismatch");
     }
 }
+
+#[test]
+fn rotated_current_executor_can_query_verified_old_original_but_cannot_submit_it() {
+    let old = GameTaskFenceV1::from_control(&control());
+    let original = scheduler(old.clone());
+    let mut current = old.clone();
+    current.executor_epoch.0 += 1;
+    let binding = current.executor_binding.as_mut().unwrap();
+    binding.executor_epoch = current.executor_epoch;
+    binding.executor_public_key = key(96);
+    binding.delegation_generation.0 += 1;
+    assert!(check_payload(&original, &key(96), &current, true).is_ok());
+    assert!(check_payload(&original, &key(96), &current, false).is_err());
+    assert!(check_payload(&original, &key(92), &current, true).is_err());
+    let mut bad = original.clone();
+    if let WorldServicePayloadV1::Scheduler(s) = &mut bad {
+        s.request.delegation_generation += 1;
+    }
+    assert!(check_payload(&bad, &key(96), &current, true).is_err());
+}
+
+#[test]
+fn stopped_current_owner_can_query_original_without_reenabling_executor() {
+    let old = GameTaskFenceV1::from_control(&control());
+    let original = scheduler(old.clone());
+    let mut stopped = old.clone();
+    stopped.executor_binding = None;
+    stopped.executor_epoch.0 += 1;
+    assert!(check_payload(&original, &stopped.owner_public_key, &stopped, true).is_ok());
+    assert!(check_payload(&original, &stopped.owner_public_key, &stopped, false).is_err());
+    assert!(check_payload(&original, &key(92), &stopped, true).is_err());
+    let mut wrong = stopped.clone();
+    wrong.owner_generation.0 += 1;
+    assert!(check_payload(&original, &wrong.owner_public_key, &wrong, true).is_err());
+}

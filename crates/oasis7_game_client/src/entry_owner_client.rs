@@ -5,7 +5,7 @@ use oasis7_client_api::world_service::{
     private_goal::{self, PreparedGoalReceiptV1, SignedGoalPrepareV1},
     private_goal_read::*,
 };
-use oasis7_client_api::world_service_wire::AgentSignerDelegationChangeV1;
+use oasis7_client_api::world_service_wire::{AgentSignerDelegationChangeV1, SchedulerOperationV1};
 
 #[cfg(test)]
 #[path = "entry_owner_client_tests.rs"]
@@ -45,6 +45,79 @@ fn resource_scope(
     )
 }
 
+fn executor_original_fence(original: &WorldServicePayloadV1) -> Result<&GameTaskFenceV1, String> {
+    let (fence, actor, generation, agent) = match original {
+        WorldServicePayloadV1::Cognition(s) if s.request.causal_proposal.is_none() => (
+            s.request
+                .task_fence
+                .as_ref()
+                .ok_or("executor original requires task fence")?,
+            s.subject_public_key.as_str(),
+            s.request.delegation_generation,
+            s.request.request.agent_id.as_str(),
+        ),
+        WorldServicePayloadV1::Scheduler(s) => {
+            let context = match &s.request.operation {
+                SchedulerOperationV1::TaskProviderPrefix { context }
+                | SchedulerOperationV1::TaskProviderFailure { context, .. } => context,
+                _ => return Err("owner recovery only queries task executor originals".into()),
+            };
+            (
+                &context.fence,
+                s.subject_public_key.as_str(),
+                s.request.delegation_generation,
+                s.request.agent_id.as_str(),
+            )
+        }
+        _ => return Err("owner recovery cannot submit or query owner/unscoped intents".into()),
+    };
+    fence.validate()?;
+    let binding = fence
+        .executor_binding
+        .as_ref()
+        .ok_or("original executor binding unavailable")?;
+    if actor == fence.owner_public_key
+        || actor != binding.executor_public_key
+        || generation == 0
+        || generation != binding.delegation_generation.0
+        || agent != fence.agent_id
+    {
+        return Err(
+            "original executor signer or delegation differs from original task fence".into(),
+        );
+    }
+    Ok(fence)
+}
+fn validate_owner_executor_lookup(
+    original: &WorldServicePayloadV1,
+    current: &GameTaskControlV1,
+    owner_public_key: &str,
+    world: &WorldIdentity,
+) -> Result<RequestCorrelation, String> {
+    let correlation =
+        oasis7_client_api::world_service_correlation::derive_correlation(world.clone(), original)?;
+    let old = executor_original_fence(original)?;
+    // Suspended/no-executor is valid for recovery. None of the mutable branch,
+    // revision, executor, delegation or lease fences authorize a new submission.
+    GameTaskFenceV1::from_control(current).validate()?;
+    if current.world_id != world.world_id
+        || current.genesis_digest != world.genesis_digest
+        || current.owner_public_key != owner_public_key
+        || old.world_id != current.world_id
+        || old.genesis_digest != current.genesis_digest
+        || old.agent_id != current.agent_id
+        || old.task_id != current.task_id
+        || old.owner_binding != current.owner_binding
+        || old.owner_generation != current.owner_generation
+        || old.owner_public_key != current.owner_public_key
+    {
+        return Err(
+            "owner executor recovery original belongs to another stable task resource".into(),
+        );
+    }
+    Ok(correlation)
+}
+
 fn verify_intent_response(
     request: &impl Serialize,
     path: &str,
@@ -72,6 +145,122 @@ fn verify_intent_response(
 }
 
 impl ParticipantClient {
+    /// Read-only owner recovery after Stop/revoke, including a Suspended task
+    /// with no active executor. Never signs, submits or resumes the old action.
+    pub fn owner_lookup_executor_original(
+        &self,
+        participant: &str,
+        login: &str,
+        operation: &str,
+        original: WorldServicePayloadV1,
+    ) -> Result<EntryOwnerProgress, String> {
+        self.reserve_owner_operation(participant, operation, "executor_original_lookup")?;
+        let correlation = oasis7_client_api::world_service_correlation::derive_correlation(
+            self.config.world.clone(),
+            &original,
+        )?;
+        let fence = executor_original_fence(&original)?;
+        let scope = resource_scope(
+            &self.scope,
+            &self.config.world,
+            &fence.agent_id,
+            Some(&fence.task_id),
+            fence.owner_generation.0,
+        )?;
+        let expected = (participant.to_string(), original);
+        let saved: (String, WorldServicePayloadV1) = self.owner.put_original(
+            &self.scope,
+            operation,
+            "owner-executor-lookup-original",
+            &expected,
+        )?;
+        if saved != expected {
+            return Err("owner executor lookup operation content conflict; retain original".into());
+        }
+        let current = self.current_owner(participant, login)?;
+        let task = current
+            .task
+            .ok_or("current canonical task unavailable for owner recovery")?;
+        let actual = validate_owner_executor_lookup(
+            &saved.1,
+            &task,
+            &hex::encode(self.key.verifying_key().to_bytes()),
+            &self.config.world,
+        )?;
+        if actual != correlation {
+            return Err("owner executor lookup correlation changed".into());
+        }
+        let lookup = AuthenticatedLookup {
+            request: LookupIntentRequest {
+                contract_version: 1,
+                key: correlation.key.clone(),
+            },
+            original: saved.1,
+        };
+        let wire: AuthenticatedLookup =
+            self.owner
+                .put_original(&scope, operation, "owner-executor-lookup-wire", &lookup)?;
+        if wire != lookup {
+            return Err("owner executor lookup original wire conflict".into());
+        }
+        let reply = self.owner_control_call(
+            participant,
+            login,
+            EntryOwnerOperationV1::LookupExecutor(wire.clone()),
+        )?;
+        let response = verify_intent_response(
+            &wire,
+            LOOKUP_PATH,
+            reply,
+            &correlation,
+            &self.config.trusted_world_service_key,
+        )?;
+        let (state, next_action, canonical_commit, receipt_ref) = match &response.outcome {
+            IntentOutcome::Committed { commit, receipt } => {
+                self.owner.put_original(
+                    &scope,
+                    operation,
+                    "owner-executor-lookup-settlement",
+                    &response,
+                )?;
+                (
+                    "confirmed",
+                    "original_settled_no_executor_resume",
+                    Some((**commit).clone()),
+                    Some(ws::request_digest(
+                        "executor-original-public-receipt/v1",
+                        receipt,
+                    )?),
+                )
+            }
+            IntentOutcome::Rejected { .. } | IntentOutcome::Expired => (
+                "blocked",
+                "inspect_original_rejection_no_executor_resume",
+                None,
+                None,
+            ),
+            IntentOutcome::Received { .. } | IntentOutcome::Pending => {
+                ("pending", "query_exact_original_read_only", None, None)
+            }
+            IntentOutcome::Unknown => ("unknown", "query_exact_original_read_only", None, None),
+            IntentOutcome::HistoryUnavailable => (
+                "unknown",
+                "inspect_history_availability_retain_original_no_resume",
+                None,
+                None,
+            ),
+        };
+        Ok(EntryOwnerProgress {
+            stage: "executor_original_lookup".into(),
+            operation_id: operation.into(),
+            state: state.into(),
+            next_action: next_action.into(),
+            resource_scope: scope,
+            payload_digest: correlation.payload_digest,
+            canonical_commit,
+            receipt_ref,
+        })
+    }
     fn reserve_owner_operation(
         &self,
         participant: &str,
@@ -145,6 +334,63 @@ impl ParticipantClient {
         operation: &str,
     ) -> Result<EntryOwnerProgress, String> {
         let Some(original) = self.stored_intent(participant, operation)? else {
+            if let Some((bound, payload)) = self
+                .owner
+                .read_original::<(String, WorldServicePayloadV1)>(
+                    &self.scope,
+                    operation,
+                    "owner-executor-lookup-original",
+                )?
+            {
+                if bound != participant {
+                    return Err("executor lookup participant resource conflict".into());
+                }
+                let correlation = oasis7_client_api::world_service_correlation::derive_correlation(
+                    self.config.world.clone(),
+                    &payload,
+                )?;
+                let fence = executor_original_fence(&payload)?;
+                let scope = resource_scope(
+                    &self.scope,
+                    &self.config.world,
+                    &fence.agent_id,
+                    Some(&fence.task_id),
+                    fence.owner_generation.0,
+                )?;
+                let settled = self.owner.read_original::<IntentResponse<Value>>(
+                    &scope,
+                    operation,
+                    "owner-executor-lookup-settlement",
+                )?;
+                let (state, next_action, canonical_commit, receipt_ref) =
+                    if let Some(settled) = settled {
+                        settled.validate(&correlation).map_err(|e| e.to_string())?;
+                        let IntentOutcome::Committed { commit, receipt } = settled.outcome else {
+                            return Err("invalid historical executor lookup settlement".into());
+                        };
+                        (
+                            "confirmed",
+                            "historical_receipt_only_no_current_authority_or_resume",
+                            Some(*commit),
+                            Some(ws::request_digest(
+                                "executor-original-public-receipt/v1",
+                                &receipt,
+                            )?),
+                        )
+                    } else {
+                        ("unknown", "query_exact_original_read_only", None, None)
+                    };
+                return Ok(EntryOwnerProgress {
+                    stage: "executor_original_lookup".into(),
+                    operation_id: operation.into(),
+                    state: state.into(),
+                    next_action: next_action.into(),
+                    resource_scope: scope,
+                    payload_digest: correlation.payload_digest,
+                    canonical_commit,
+                    receipt_ref,
+                });
+            }
             if let Some((bound, scope, _)) = self
                 .owner
                 .read_original::<(String, String, SignedGoalPrepareV1)>(

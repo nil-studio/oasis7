@@ -7,6 +7,134 @@ fn key(byte: u8) -> String {
             .to_bytes(),
     )
 }
+fn stopped_task(owner: &str) -> GameTaskControlV1 {
+    serde_json::from_value(json!({"schema_revision":1,"task_id":"task","world_id":"world","genesis_digest":"genesis","branch_id":"current","reorg_epoch":"2","agent_id":"agent","owner_binding":"owner","owner_generation":"1","owner_public_key":owner,"task_revision":"5","task_status":"suspended","latest_goal_revision":"1","active_goal_revision":"1","active_goal_reference":{"goal_revision":"1","goal_ref":"ab".repeat(32),"prepare_operation_id":"goal","publish_operation_id":"publish","activation_committed_height":"1"},"executor_epoch":"2","executor_id":null,"created_operation_id":"task-create"})).unwrap()
+}
+fn old_executor_original(owner: &str, seed: u8) -> WorldServicePayloadV1 {
+    use oasis7_client_api::world_service_wire::{SchedulerIntentV1, TaskSchedulerIntentV1};
+    let mut fence = GameTaskFenceV1::from_control(&stopped_task(owner));
+    fence.task_status = GameTaskStatusV1::Active;
+    fence.task_revision = DecimalU64(2);
+    fence.branch_id = "old".into();
+    fence.reorg_epoch = DecimalU64(0);
+    fence.executor_epoch = DecimalU64(1);
+    fence.executor_binding = Some(GameExecutorBindingV1 {
+        executor_id: "old-a".into(),
+        executor_public_key: key(seed),
+        delegation_generation: DecimalU64(1),
+        executor_epoch: DecimalU64(1),
+    });
+    let request: TaskSchedulerIntentV1 = SchedulerIntentV1 {
+        agent_id: "agent".into(),
+        request_id: "original-prefix".into(),
+        delegation_generation: 1,
+        captured_base_binding: oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1 {
+            world_id: "world".into(),
+            branch_id: "old".into(),
+            finality_epoch: 1,
+            finality_block_hash: None,
+            finality_status: "provisional".into(),
+            base_tick: 0,
+            base_world_hash: format!("blake3:{}", "a".repeat(64)),
+            reorg_epoch: 0,
+            runtime_manifest_hash: format!("blake3:{}", "b".repeat(64)),
+        },
+        operation: SchedulerOperationV1::TaskProviderPrefix {
+            context: TaskContextIdentityV1 {
+                schema_revision: 1,
+                fence,
+                agent_session_id: "session".into(),
+                agent_turn_id: "turn".into(),
+                decision_request_id: "decision".into(),
+                retry_seq: 1,
+                transport_attempt: 1,
+                request_commitment: format!("blake3:{}", "1".repeat(64)),
+                context_commitment: format!("blake3:{}", "2".repeat(64)),
+                provider_invocation_commitment: format!("blake3:{}", "3".repeat(64)),
+                valid_until_tick: DecimalU64(16),
+            },
+        },
+    };
+    WorldServicePayloadV1::Scheduler(
+        ws::sign_read_request("scheduler", request, &hex::encode([seed; 32])).unwrap(),
+    )
+}
+#[test]
+fn stopped_owner_recovery_queries_strict_original_without_reactivating_executor() {
+    let owner = key(21);
+    let current = stopped_task(&owner);
+    let world = WorldIdentity {
+        world_id: "world".into(),
+        genesis_digest: "genesis".into(),
+    };
+    let original = old_executor_original(&owner, 81);
+    let correlation = validate_owner_executor_lookup(&original, &current, &owner, &world).unwrap();
+    assert_eq!(correlation.key.verified_subject, key(81));
+    assert_ne!(correlation.key.verified_subject, owner);
+    let lookup = AuthenticatedLookup {
+        request: LookupIntentRequest {
+            contract_version: 1,
+            key: correlation.key,
+        },
+        original: original.clone(),
+    };
+    let operation = EntryOwnerOperationV1::LookupExecutor(lookup);
+    assert_eq!(
+        serde_json::to_value(operation).unwrap()["kind"],
+        "lookup_executor"
+    );
+    assert!(current.executor_binding.is_none());
+    assert_eq!(current.task_status, GameTaskStatusV1::Suspended);
+    let mut forged = original.clone();
+    if let WorldServicePayloadV1::Scheduler(s) = &mut forged {
+        s.signature_hex = "0".repeat(128);
+    }
+    assert!(validate_owner_executor_lookup(&forged, &current, &owner, &world).is_err());
+    for field in [
+        "task",
+        "agent",
+        "genesis",
+        "owner_binding",
+        "owner_generation",
+        "owner_key",
+    ] {
+        let mut wrong = current.clone();
+        match field {
+            "task" => wrong.task_id = "other".into(),
+            "agent" => wrong.agent_id = "other".into(),
+            "genesis" => wrong.genesis_digest = "other".into(),
+            "owner_binding" => wrong.owner_binding = "other".into(),
+            "owner_generation" => wrong.owner_generation.0 += 1,
+            _ => wrong.owner_public_key = key(22),
+        };
+        assert!(
+            validate_owner_executor_lookup(&original, &wrong, &owner, &world).is_err(),
+            "cross resource {field}"
+        );
+    }
+    assert!(
+        validate_owner_executor_lookup(
+            &old_executor_original(&owner, 21),
+            &current,
+            &owner,
+            &world
+        )
+        .is_err(),
+        "owner cannot impersonate historical executor"
+    );
+    assert!(
+        validate_owner_executor_lookup(&task_original().signed_payload, &current, &owner, &world)
+            .is_err(),
+        "owner recovery must not authorize owner submissions"
+    );
+    assert!(
+        serde_json::from_value::<WorldServicePayloadV1>(
+            json!({"kind":"prepare_context","request":{}})
+        )
+        .is_err(),
+        "private context is outside original payload protocol"
+    );
+}
 fn task_original() -> SubmitIntentRequest<WorldServicePayloadV1> {
     let payload = WorldServicePayloadV1::GameTaskCreate(
         ws::sign_read_request(
@@ -240,6 +368,104 @@ fn restart_retains_original_fence_and_wire_before_any_network_and_isolates_vault
     IdentityClient::initialize(&config.identity, PASSWORD).unwrap();
     ParticipantClient::initialize_owner(&config, PASSWORD).unwrap();
     let client = ParticipantClient::new(config.clone(), PASSWORD).unwrap();
+    let owner_public = hex::encode(client.key.verifying_key().to_bytes());
+    let old_executor = old_executor_original(&owner_public, 81);
+    assert!(
+        client
+            .owner_lookup_executor_original(
+                "participant",
+                "missing-login",
+                "lookup-original",
+                old_executor.clone()
+            )
+            .is_err()
+    );
+    let saved: (String, WorldServicePayloadV1) = client
+        .owner
+        .read_original(
+            &client.scope,
+            "lookup-original",
+            "owner-executor-lookup-original",
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.0, "participant");
+    assert_eq!(saved.1, old_executor);
+    assert!(
+        client
+            .owner
+            .read_original::<Value>(&client.scope, "lookup-original", "owner-intent-index")
+            .unwrap()
+            .is_none(),
+        "lookup original must never enter owner submit journal"
+    );
+    let conflict = client.owner_lookup_executor_original(
+        "participant",
+        "missing-login",
+        "lookup-original",
+        old_executor_original(&owner_public, 82),
+    );
+    assert!(matches!(conflict,Err(ref error) if error.contains("content conflict")));
+    assert!(
+        client
+            .create_task("participant", "missing-login", "lookup-original")
+            .is_err(),
+        "read-only recovery operation cannot be reused as a write"
+    );
+    let status = client
+        .owner_operation_status("participant", "lookup-original")
+        .unwrap();
+    assert_eq!(status.state, "unknown");
+    assert_eq!(status.stage, "executor_original_lookup");
+    assert!(status.canonical_commit.is_none());
+    assert!(status.receipt_ref.is_none());
+    let settlement: IntentResponse<Value> = IntentResponse {
+        contract_version: 1,
+        formal_profile: None,
+        execution_evidence_scope: None,
+        correlation: oasis7_client_api::world_service_correlation::derive_correlation(
+            client.config.world.clone(),
+            &old_executor,
+        )
+        .unwrap(),
+        outcome: IntentOutcome::Committed {
+            commit: Box::new(CommitRef {
+                world: client.config.world.clone(),
+                binding: ExecutionBinding {
+                    provider_world_id: "world".into(),
+                    branch_id: "old".into(),
+                    finality_ref: "fixture".into(),
+                    reorg_generation: 0,
+                    governing_manifest_ref: "manifest".into(),
+                    authority_generation: 1,
+                    permission_generation: 1,
+                },
+                position: 1,
+                execution_block_hash: "block".into(),
+                state_root_ref: "root".into(),
+            }),
+            receipt: json!({"applied":true}),
+        },
+    };
+    client
+        .owner
+        .put_original(
+            &status.resource_scope,
+            "lookup-original",
+            "owner-executor-lookup-settlement",
+            &settlement,
+        )
+        .unwrap();
+    let historical = client
+        .owner_operation_status("participant", "lookup-original")
+        .unwrap();
+    assert_eq!(historical.state, "confirmed");
+    assert_eq!(
+        historical.next_action,
+        "historical_receipt_only_no_current_authority_or_resume"
+    );
+    assert!(historical.canonical_commit.is_some());
+    assert!(historical.receipt_ref.is_some());
     let request = GameTaskCreateV1 {
         api_rev: 1,
         client_operation_id: "original-task".into(),

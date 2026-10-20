@@ -22,6 +22,9 @@ pub struct EntryOwnerControlRequestV1 {
 pub enum EntryOwnerOperationV1 {
     Submit(SubmitIntentRequest<WorldServicePayloadV1>),
     Lookup(AuthenticatedLookup),
+    /// Current owner may reconcile an executor's original after stop/revoke.
+    /// This variant never submits or opens the executor's private context.
+    LookupExecutor(AuthenticatedLookup),
     PrepareGoal(SignedGoalPrepareV1),
     ReadGoal(SignedReadRequest<CurrentGoalRequest>),
 }

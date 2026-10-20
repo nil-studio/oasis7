@@ -310,9 +310,6 @@ impl ExecutorGatewayContext {
             || f.owner_generation != self.fence.owner_generation
             || f.owner_binding != self.fence.owner_binding
             || f.owner_public_key != self.fence.owner_public_key
-            || f.executor_binding
-                .as_ref()
-                .is_none_or(|b| b.executor_public_key != self.public_key())
         {
             return Err(assurance(
                 "historical executor original belongs to another resource",
@@ -347,39 +344,34 @@ impl ExecutorGatewayContext {
         let correlation =
             oasis7_client_api::world_service_correlation::derive_correlation(self.world(), payload)
                 .map_err(assurance)?;
-        if correlation.key.verified_subject != self.public_key() {
+        if !historical && correlation.key.verified_subject != self.public_key() {
             return Err(assurance("executor intent subject mismatch"));
         }
-        let generation = self
-            .fence
-            .executor_binding
-            .as_ref()
-            .ok_or_else(|| assurance("executor binding missing"))?
-            .delegation_generation
-            .0;
         match payload {
             WorldServicePayloadV1::Cognition(s)
-                if (historical && s.request.delegation_generation > 0)
-                    || s.request.delegation_generation == generation =>
+                if s.request.request.agent_id == self.fence.agent_id
+                    && s.request.causal_proposal.is_none() =>
             {
-                self.match_payload_fence(
+                self.verify_payload_binding(
                     s.request
                         .task_fence
                         .as_ref()
                         .ok_or_else(|| assurance("executor cognition requires task fence"))?,
+                    &s.subject_public_key,
+                    s.request.delegation_generation,
                     historical,
                 )
             }
-            WorldServicePayloadV1::Scheduler(s)
-                if s.request.agent_id == self.fence.agent_id
-                    && ((historical && s.request.delegation_generation > 0)
-                        || s.request.delegation_generation == generation) =>
-            {
+            WorldServicePayloadV1::Scheduler(s) if s.request.agent_id == self.fence.agent_id => {
                 match &s.request.operation {
                     SchedulerOperationV1::TaskProviderPrefix { context }
-                    | SchedulerOperationV1::TaskProviderFailure { context, .. } => {
-                        self.match_payload_fence(&context.fence, historical)
-                    }
+                    | SchedulerOperationV1::TaskProviderFailure { context, .. } => self
+                        .verify_payload_binding(
+                            &context.fence,
+                            &s.subject_public_key,
+                            s.request.delegation_generation,
+                            historical,
+                        ),
                     _ => Err(assurance(
                         "executor gateway requires task scheduler operation",
                     )),
@@ -389,6 +381,32 @@ impl ExecutorGatewayContext {
                 "executor gateway denies owner and unscoped intents",
             )),
         }
+    }
+    fn verify_payload_binding(
+        &self,
+        fence: &GameTaskFenceV1,
+        original_actor: &str,
+        generation: u64,
+        historical: bool,
+    ) -> Result<(), Error> {
+        self.match_payload_fence(fence, historical)?;
+        let binding = fence
+            .executor_binding
+            .as_ref()
+            .ok_or_else(|| assurance("original executor binding missing"))?;
+        if original_actor == fence.owner_public_key
+            || binding.executor_public_key != original_actor
+            || generation == 0
+            || binding.delegation_generation.0 != generation
+        {
+            return Err(assurance(
+                "original executor signer or delegation generation differs from original fence",
+            ));
+        }
+        if !historical && original_actor != self.public_key() {
+            return Err(assurance("executor intent subject mismatch"));
+        }
+        Ok(())
     }
     fn operation<Q: Serialize>(
         &self,

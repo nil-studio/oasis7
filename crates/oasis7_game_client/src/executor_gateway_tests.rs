@@ -10,6 +10,173 @@ use std::{
     time::Duration,
 };
 const PASSWORD: &[u8] = b"synthetic executor gateway private unlock";
+fn historical_prefix(fence: GameTaskFenceV1, private: &str) -> WorldServicePayloadV1 {
+    let generation = fence
+        .executor_binding
+        .as_ref()
+        .unwrap()
+        .delegation_generation
+        .0;
+    let request: TaskSchedulerIntentV1 = SchedulerIntentV1 {
+        agent_id: fence.agent_id.clone(),
+        request_id: "old-a-prefix".into(),
+        delegation_generation: generation,
+        captured_base_binding: oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1 {
+            world_id: fence.world_id.clone(),
+            branch_id: fence.branch_id.clone(),
+            finality_epoch: 1,
+            finality_block_hash: None,
+            finality_status: "provisional".into(),
+            base_tick: 0,
+            base_world_hash: format!("blake3:{}", "a".repeat(64)),
+            reorg_epoch: fence.reorg_epoch.0,
+            runtime_manifest_hash: format!("blake3:{}", "b".repeat(64)),
+        },
+        operation: SchedulerOperationV1::TaskProviderPrefix {
+            context: oasis7_agent_api::game::TaskContextIdentityV1 {
+                schema_revision: 1,
+                fence,
+                agent_session_id: "old-a-session".into(),
+                agent_turn_id: "old-a-turn".into(),
+                decision_request_id: "old-a-decision".into(),
+                retry_seq: 1,
+                transport_attempt: 1,
+                request_commitment: format!("blake3:{}", "1".repeat(64)),
+                context_commitment: format!("blake3:{}", "2".repeat(64)),
+                provider_invocation_commitment: format!("blake3:{}", "3".repeat(64)),
+                valid_until_tick: DecimalU64(16),
+            },
+        },
+    };
+    WorldServicePayloadV1::Scheduler(ws::sign_read_request("scheduler", request, private).unwrap())
+}
+#[test]
+fn current_delegate_b_can_only_lookup_a_verified_original_from_old_delegate_a_same_resource() {
+    let (_root, identity, vault, mut current) = fixture("https://identity.invalid".into());
+    current.task_revision = DecimalU64(5);
+    current.executor_epoch = DecimalU64(3);
+    let current_binding = current.executor_binding.as_mut().unwrap();
+    current_binding.executor_epoch = DecimalU64(3);
+    current_binding.delegation_generation = DecimalU64(4);
+    let context = ExecutorGatewayContext::open(
+        identity,
+        "login".into(),
+        vault,
+        PASSWORD,
+        current.clone(),
+        service_key(),
+        65536,
+    )
+    .unwrap();
+    let old_private = hex::encode([96; 32]);
+    let old_public = ws::sign_read_request("fixture", (), &old_private)
+        .unwrap()
+        .subject_public_key;
+    assert_ne!(old_public, context.public_key());
+    let mut old = current.clone();
+    old.task_revision = DecimalU64(3);
+    old.branch_id = "old-branch".into();
+    old.executor_epoch = DecimalU64(1);
+    let old_binding = old.executor_binding.as_mut().unwrap();
+    old_binding.executor_epoch = DecimalU64(1);
+    old_binding.delegation_generation = DecimalU64(1);
+    old_binding.executor_public_key = old_public.clone();
+    old_binding.executor_id = "old-executor-a".into();
+    let original = historical_prefix(old.clone(), &old_private);
+    let correlation = oasis7_client_api::world_service_correlation::derive_correlation(
+        context.world(),
+        &original,
+    )
+    .unwrap();
+    let lookup = AuthenticatedLookup {
+        request: LookupIntentRequest {
+            contract_version: 1,
+            key: correlation.key.clone(),
+        },
+        original: original.clone(),
+    };
+    assert!(context.operation(LOOKUP_PATH, &lookup).is_ok());
+    let submit = SubmitIntentRequest {
+        contract_version: 1,
+        correlation,
+        deadline_unix_ms: None,
+        signed_payload: original.clone(),
+    };
+    assert!(
+        context.operation(SUBMIT_PATH, &submit).is_err(),
+        "current B must never submit old A's original"
+    );
+    let old_prepare = ws::sign_read_request(
+        TASK_CONTEXT_PREPARE_PATH,
+        TaskContextPrepareV1 {
+            schema_revision: 1,
+            fence: old.clone(),
+            client_operation_id: "old-prepare".into(),
+            client_nonce: "e".repeat(64),
+        },
+        &old_private,
+    )
+    .unwrap();
+    assert!(
+        context
+            .operation(TASK_CONTEXT_PREPARE_PATH, &old_prepare)
+            .is_err(),
+        "historical lookup cannot relax private-context signer/fence"
+    );
+    assert!(
+        context
+            .verify_payload_kind(
+                &historical_prefix(old.clone(), &hex::encode([97; 32])),
+                true
+            )
+            .is_err(),
+        "original signer must equal original fence executor"
+    );
+    let mut invalid = original.clone();
+    if let WorldServicePayloadV1::Scheduler(s) = &mut invalid {
+        s.signature_hex = "0".repeat(128);
+    }
+    assert!(context.verify_payload_kind(&invalid, true).is_err());
+    let mut wrong_generation = old.clone();
+    wrong_generation
+        .executor_binding
+        .as_mut()
+        .unwrap()
+        .delegation_generation = DecimalU64(2);
+    let mut bad = historical_prefix(wrong_generation, &old_private);
+    if let WorldServicePayloadV1::Scheduler(s) = &mut bad {
+        s.request.delegation_generation = 1;
+        *s = ws::sign_read_request("scheduler", s.request.clone(), &old_private).unwrap();
+    }
+    assert!(
+        context.verify_payload_kind(&bad, true).is_err(),
+        "payload generation must match its original binding"
+    );
+    for field in ["task", "agent", "genesis", "owner_generation"] {
+        let mut other = old.clone();
+        match field {
+            "task" => other.task_id = "different-task".into(),
+            "agent" => other.agent_id = "different-agent".into(),
+            "genesis" => other.genesis_digest = "different-genesis".into(),
+            _ => other.owner_generation.0 += 1,
+        };
+        assert!(
+            context
+                .verify_payload_kind(&historical_prefix(other, &old_private), true)
+                .is_err(),
+            "cross-resource {field}"
+        );
+    }
+    let owner_private = hex::encode([91; 32]);
+    let mut owner = old;
+    owner.executor_binding.as_mut().unwrap().executor_public_key = owner.owner_public_key.clone();
+    assert!(
+        context
+            .verify_payload_kind(&historical_prefix(owner, &owner_private), true)
+            .is_err(),
+        "owner must never count as a historical executor"
+    );
+}
 #[test]
 fn only_fixed_read_drift_categories_cross_gateway_transport() {
     for (path, code) in [
