@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "edd683b44867ff809d955b8c7a7f57121c360709a68d08c0db439d331a56c4b1",
+    "content_sha256": "737acc0ce603c2b5f8f4fc29bfcde29ae864120d51699a28c1e0409d28311fa1",
     "current_authority": "doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_target_contract",
-    "note": "current target design; fresh release evidence still required Scoped ownership review: chain process sources move to oasis7_chain_runtime and pure projection commitments move to oasis7_client_api; world execution and audience authorization remain with oasis7. Existing runtime requirements, protocol bytes, authority, disposition and evidence boundaries are retained. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained. Scoped review: require exact Runtime libtest identity and verified nonzero execution for each baseline attempt; retain command timing and single-World evidence limits, with no release-performance acceptance claim.",
+    "note": "current target design; fresh release evidence still required Scoped ownership review: chain process sources move to oasis7_chain_runtime and pure projection commitments move to oasis7_client_api; world execution and audience authorization remain with oasis7. Existing runtime requirements, protocol bytes, authority, disposition and evidence boundaries are retained. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained. Scoped review: require exact Runtime libtest identity and verified nonzero execution for each baseline attempt; retain command timing and single-World evidence limits, with no release-performance acceptance claim. Scoped source-navigation integration review: retain upstream exact Runtime test identity and verified nonzero execution requirements while moving the current chain host source link to src/host. Historical citations, authority, compatibility and evidence limits remain unchanged.",
     "path": "doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

@@ -179,8 +179,8 @@ Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；产品承接子范围�
   - `tools/wasm_build_suite/src/lib.rs`
   - `crates/oasis7_wasm_executor/src/lib.rs`
   - `crates/oasis7_wasm_router/src/lib.rs`
-  - `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/status_payload.rs`
-  - `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/storage_metrics.rs`
+  - `crates/oasis7_chain_runtime/src/host/status_payload.rs`
+  - `crates/oasis7_chain_runtime/src/host/storage_metrics.rs`
   - `doc/world-runtime/templates/runtime-release-gate-metrics-template.md`
   - 对应 GitHub task issue / Project（当前任务、候选和验收过程）
   - `tools/wasm_module_observe`

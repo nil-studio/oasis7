@@ -159,10 +159,10 @@ class BuildAndBundles(unittest.TestCase):
         for variant in ('required', 'formal-required'):
             with self.subTest(variant=variant):
                 self.assertEqual(classify(variant, 'oasis7_chain_runtime',
-                    dict(name='oasis7_chain_runtime', kind=['bin']), True), 'runtime-tests')
+                    dict(name='oasis7_chain_runtime', kind=['lib']), True), 'runtime-tests')
                 self.assertEqual(classify(variant, 'oasis7',
                     dict(name='oasis7', kind=['lib']), True), 'oasis7-lib-tests')
-                for package, kind, name in [('oasis7_chain_runtime', 'lib', 'oasis7_chain_runtime'),
+                for package, kind, name in [('oasis7_chain_runtime', 'bin', 'oasis7_chain_runtime'),
                                             ('other_package', 'bin', 'oasis7_chain_runtime'),
                                             ('oasis7', 'bin', 'oasis7')]:
                     logical = classify(variant, package, dict(name=name, kind=[kind]), True)
@@ -203,8 +203,8 @@ class BuildAndBundles(unittest.TestCase):
             config_path.write_text(json.dumps(config))
             def inventory(path, ignored=False, env=None):
                 if path.name == 'runtime-tests':
-                    return ['formal_case']
-                return [] if ignored else ['config::contract']
+                    return ['formal_case'] if ignored else ['config::contract']
+                return []
             for variant, scope in [('required', 'ordinary'), ('formal-required', 'formal')]:
                 with self.subTest(variant=variant):
                     bundle = root / variant
@@ -218,8 +218,8 @@ class BuildAndBundles(unittest.TestCase):
                     built = json.loads((bundle / 'manifest.json').read_text())
                     binaries = built['binaries']
                     library = next(name for name, binary in binaries.items() if binary.get('target_kind') == ['lib'])
-                    self.assertNotEqual(library, 'runtime-tests')
-                    self.assertEqual(binaries['runtime-tests']['target_kind'], ['bin'])
+                    self.assertEqual(library, 'runtime-tests')
+                    self.assertEqual(binaries['runtime-tests']['target_kind'], ['lib'])
                     self.assertEqual(binaries[library]['package'], 'oasis7_chain_runtime')
                     self.assertEqual(binaries[library]['ordinary'], scope == 'ordinary')
                     if scope == 'formal':
@@ -237,7 +237,7 @@ class BuildAndBundles(unittest.TestCase):
                                     if call.args[0][0] == str(bundle / binaries[library]['path'])]
                     self.assertEqual(len(library_runs), 1)
                     self.assertEqual(library_runs[0].kwargs['expected_count'], 1)
-            messages.append(messages[-1])
+            messages.append(messages[0])
             with patch.object(artifacts, 'ROOT', root), \
                  patch.object(artifacts, 'build_variants', return_value=[('required', ['test'], [])]), \
                  patch.object(artifacts.subprocess, 'Popen', return_value=CargoOutput()), \

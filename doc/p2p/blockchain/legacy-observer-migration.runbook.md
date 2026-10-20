@@ -1,7 +1,7 @@
 # Legacy Observer Migration Runbook
 
 - 对应项目文档: GitHub Issue / GitHub Project
-- 实现入口: `crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/node_lifecycle/legacy_migration.rs`
+- 实现入口: `crates/oasis7_chain_runtime/src/host/node_lifecycle/legacy_migration.rs`
 - 方案: [Persistent World Node Lifecycle](persistent-world-node-lifecycle.runbook.md)
 
 审计轮次: 1

@@ -87,7 +87,7 @@ chain-runtime config/CLI严格范围；budget/base/max backoff与hash mismatch/m
 
 - 本地 store、索引审计和 manifest：`crates/oasis7_cas/src/{lib.rs,store.rs,manifest.rs}`。
 - challenge cursor、policy、兼容状态和自探测：`crates/oasis7_distfs/src/challenge_scheduler.rs`。
-- CLI、probe-state load/persist、reward-runtime 接线：`crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/{cli.rs,distfs_probe_runtime.rs,reward_runtime_worker.rs}`。
+- CLI、probe-state load/persist、reward-runtime 接线：`crates/oasis7_chain_runtime/src/host/{cli.rs,distfs_probe_runtime.rs,reward_runtime_worker.rs}`。
 - 变更最小回归入口：`env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib`；涉及全链路、拓扑、恢复或对外 claim 时，按 `testing-manual.md` S9A 选择附加验证。
 
 ## 里程碑与历史阶段语义

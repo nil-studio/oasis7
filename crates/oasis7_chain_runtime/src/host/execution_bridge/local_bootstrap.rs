@@ -129,7 +129,7 @@ impl NodeRuntimeExecutionDriver {
             world_dir,
             records_dir,
             storage_root,
-            oasis7_chain_runtime::execution_config::ExecutionDriverConfig::from(storage_profile),
+            crate::execution_config::ExecutionDriverConfig::from(storage_profile),
             Some(local_execution_bootstrap),
         )
     }
