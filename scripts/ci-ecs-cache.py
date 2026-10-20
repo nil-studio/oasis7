@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Optional fixed-profile ECS workspace cache; cache failures never skip Cargo."""
+"""Optional fixed-profile ECS workspace cache; cache failures never skip Cargo.
+
+Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
+"""
 import argparse
 import hashlib
 import importlib.util
@@ -13,7 +16,7 @@ import time
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 STAGING_BYTES = 6 * 1024 ** 3
-FAMILY_BYTES = 12 * 1024 ** 3
+FAMILY_BYTES = 6 * 1024 ** 3
 GENERATIONS = 2
 
 
@@ -106,13 +109,41 @@ def identity():
     return dict(prefix=prefix, key=prefix + source)
 
 
-def save_allowed(entries, key, raw_bytes):
+def save_allowed(entries, key, raw_bytes, repository_limit_bytes=None):
+    return save_policy(entries, key, raw_bytes, repository_limit_bytes)['capacity_allowed']
+
+
+def quota_bytes(value):
+    limit = value.get('max_cache_size_gb') if isinstance(value, dict) else None
+    if type(limit) is not int or limit <= 0:
+        raise ValueError('repository cache quota unavailable or invalid')
+    return limit * 1000 ** 3
+
+
+def save_policy(entries, key, raw_bytes, repository_limit_bytes):
     family = [entry for entry in entries if entry['ref'] == 'refs/heads/main'
               and entry['key'].startswith('ecs-workspace-v1-')]
     compatible = [entry for entry in family if entry['key'].rsplit('-', 1)[0] == key.rsplit('-', 1)[0]]
-    return (not any(entry['key'] == key for entry in family)
-            and len(compatible) < GENERATIONS
-            and sum(entry['size_in_bytes'] for entry in family) + raw_bytes <= FAMILY_BYTES)
+    observed = sum(entry['size_in_bytes'] for entry in entries)
+    projected = observed + raw_bytes
+    report = dict(capacity_allowed=False, repository_limit_bytes=repository_limit_bytes,
+                  observed_repository_bytes=observed, projected_repository_bytes=projected,
+                  new_payload_logical_bytes=raw_bytes,
+                  projected_family_bytes=sum(entry['size_in_bytes'] for entry in family) + raw_bytes,
+                  family_limit_bytes=FAMILY_BYTES, compatible_generations=len(compatible))
+    if type(repository_limit_bytes) is not int or repository_limit_bytes <= 0:
+        report['reason'] = 'repository cache quota unavailable or invalid'
+    elif projected > repository_limit_bytes:
+        report['reason'] = 'repository cache capacity gap'
+    elif any(entry['key'] == key for entry in family):
+        report['reason'] = 'existing immutable key'
+    elif len(compatible) >= GENERATIONS:
+        report['reason'] = 'compatible generation limit'
+    elif report['projected_family_bytes'] > FAMILY_BYTES:
+        report['reason'] = 'ECS main family budget'
+    else:
+        report['capacity_allowed'] = True
+    return report
 
 
 def main():
@@ -122,6 +153,7 @@ def main():
     parser.add_argument('--state', type=Path)
     parser.add_argument('--report', type=Path)
     args = parser.parse_args()
+    report = dict(save=False)
     try:
         if args.mode == 'identity':
             report = identity()
@@ -135,10 +167,16 @@ def main():
                 maintenance = load('ecs_maintenance', 'ci-cache-maintenance.py')
                 api = maintenance.GitHubApi(os.environ.get('GITHUB_REPOSITORY'), os.environ.get('GH_TOKEN'))
                 entries = maintenance.validate_inventory(api.list_caches())
-                if save_allowed(entries, identity()['key'], report['raw_bytes']):
+                report.update(observed_repository_bytes=sum(entry['size_in_bytes'] for entry in entries),
+                              new_payload_logical_bytes=report['raw_bytes'],
+                              projected_repository_bytes=sum(entry['size_in_bytes'] for entry in entries) + report['raw_bytes'],
+                              repository_limit_bytes=None)
+                limit = quota_bytes(api.request('GET', '/actions/cache/storage-limit'))
+                policy = save_policy(entries, identity()['key'], report['raw_bytes'], limit)
+                report.update(policy)
+                if policy['capacity_allowed']:
                     report = units.cache_stage(state, args.cache, STAGING_BYTES)
-                else:
-                    report['reason'] = 'remote family budget, generation limit or existing immutable key'
+                    report.update(policy)
         if args.report:
             temporary(args.report).write_text(json.dumps(report, indent=2) + '\n')
         if os.environ.get('GITHUB_OUTPUT'):
@@ -149,9 +187,10 @@ def main():
         print(json.dumps(report, sort_keys=True))
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print('ECS cache unavailable; full build remains enabled: ' + str(error))
+        report.update(save=False, reason=str(error))
         if args.report:
             try:
-                temporary(args.report).write_text(json.dumps(dict(save=False, reason=str(error))) + '\n')
+                temporary(args.report).write_text(json.dumps(report) + '\n')
             except (OSError, ValueError):
                 pass
     return 0
