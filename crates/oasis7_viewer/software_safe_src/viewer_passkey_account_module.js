@@ -397,7 +397,7 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
     busy = true; notice = ""; render();
     try { await action(); await refresh(); }
     catch (error) {
-      if (invalidSession(error)) invalidate();
+      if (["session_expired", "session_revoked", "account_frozen"].includes(error.code)) invalidate();
       if (error.code === "control_elsewhere") {
         takeover = error.payload;
         notice = "另一设备仍控制此世界。你可以保留原设备控制，或明确选择在此设备继续。";

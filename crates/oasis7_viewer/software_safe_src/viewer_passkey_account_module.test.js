@@ -332,3 +332,20 @@ it("explains recovery beyond retention without allocating another unknown challe
   expect(accountErrorNotice(error)).toContain("请刷新页面，先确认当前会话");
   expect(accountErrorNotice(error)).toContain("结果仍未确定");
 });
+
+
+it("keeps the verified account when a fresh credential proof fails", async () => {
+  const root = document.createElement("section"); const invalidated = vi.fn();
+  const client = {
+    capabilities: async () => ({}), session: async () => ({ account: { display_name: "Verified Player" } }),
+    credentials: async () => ({ credentials: [{ id: "key", type: "passkey", state: "active" }] }),
+    sessions: async () => ({ sessions: [] }), clearImportedKey: vi.fn(),
+    revokeCredential: async () => { throw Object.assign(new Error("authentication_failed"), { code: "authentication_failed" }); },
+  };
+  const surface = mountPasskeyAccount(root, { client, onSessionInvalidated: invalidated });
+  await surface.refresh();
+  [...root.querySelectorAll("button")].find(b => b.textContent === "移除").click();
+  await vi.waitFor(() => expect(root.getAttribute("aria-busy")).toBe("false"));
+  expect(root.textContent).toContain("Verified Player");
+  expect(invalidated).not.toHaveBeenCalled(); surface.dispose();
+});
