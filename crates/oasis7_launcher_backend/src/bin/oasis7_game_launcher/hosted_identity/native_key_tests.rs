@@ -282,7 +282,8 @@ fn protocol_vector_is_stable() {
         &[2; 32],
         100,
         120100,
-    );
+    )
+    .unwrap();
     // Shared with the browser test; a byte change is a protocol change.
     assert_eq!(
         URL_SAFE_NO_PAD.encode(&bytes),
@@ -293,6 +294,20 @@ fn protocol_vector_is_stable() {
 #[test]
 fn purposes_namespace_config_and_binding_uniqueness_are_enforced() {
     let (mut s, token, key) = fixture();
+    for reserved in ["register", "recovery_candidate"] {
+        assert!(
+            s.native_options(
+                None,
+                "owner",
+                &json!({"intent":reserved,"public_key":key_hex(&key)}),
+                "source",
+                "https://localhost",
+                101
+            )
+            .is_err(),
+            "codec purpose must not enable the legacy route: {reserved}"
+        );
+    }
     assert!(
         s.native_options(
             None,

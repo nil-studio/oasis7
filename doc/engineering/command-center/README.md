@@ -122,6 +122,8 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ### 6. 外部游戏 Runtime 的 owner 目标控制前置
 
+自主入场设计局部核对（2026-10-20）：[#4947](https://github.com/nil-studio/oasis7/pull/4947) 已合入，合法机器身份、逐账号首次绑定及自有/受托资源共存由[冷入场合同](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)承接；实现由 [#4946](https://github.com/nil-studio/oasis7/issues/4946) 跟踪。当前 `import_only` 不支持新建账号，公开 bootstrap、完整冷入场和两 Runtime 实玩仍未验收；该任务禁止自动合入、部署和开放注册，既有发布暂停继续有效。
+
 世界舞台局部更新（2026-10-17）：主体绑定、Web 恢复及探索切片已在 [PR #4825](https://github.com/nil-studio/oasis7/pull/4825) 合入；远端来源、设施/路线及视口索引已在 [PR #4834](https://github.com/nil-studio/oasis7/pull/4834) 合入。本轮继续补齐增量/删除通知、工业聚合和显式事件锚点，当前尚未合入。功能状态为已实现，待完整测试；正式独立试玩仍缺私有世界/GameClient 配置，原生容器和容量实测未完成。用户已要求保留试玩缺口推进合入，不表示整体验收或部署完成。范围见[产品摘要](../../product/agents-world-simulation/player-readable-world-stage.prd.md#stage-implementation-status)，不刷新其他核验时点。
 
 局部摘要核对于 2026-10-14，仅本项：owner 私有目标控制、原生 fenced 执行、物流、权威配方及 prepared claimed Agent 建厂到首产物的代码切片已交付。实际游玩仍限定各自候选与 prepared-world 场景；失败、超时、cleanup 和普通 CI 修复分别回到 [执行 PR](https://github.com/eng-cc/oasis7/pull/4628#issuecomment-6162407180)、[物流 PR](https://github.com/eng-cc/oasis7/pull/4634#issuecomment-6162407791)、[生产 PR](https://github.com/eng-cc/oasis7/pull/4650#issuecomment-6162408442)、[建厂链 PR](https://github.com/eng-cc/oasis7/pull/4662#issuecomment-6162409087)。不将这些 targeted 结果提升为完整首局、两 Runtime parity、GUI 或生产部署验收。
