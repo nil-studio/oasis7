@@ -228,14 +228,15 @@ it('keeps an unlinked work compact without fabricating a goal graph',async()=>{
  const graph=screen.getByRole('region',{name:'工作关系图'});
  expect(within(graph).getByText('尚无明确目标关系')).toBeVisible();expect(graph.querySelector('.relation-map')).toBeNull();
  expect(within(graph).queryByText('修复本地工具')).not.toBeInTheDocument();
- expect(screen.getByText('目标验收尚未核实')).toBeVisible();
+ const verification=screen.getByText('目标验收尚未核实').closest('details')!;expect(verification).not.toHaveAttribute('open');expect(screen.getByText('目标验收尚未核实')).not.toBeVisible();
+ fireEvent.click(verification.querySelector('summary')!);expect(screen.getByText('目标验收尚未核实')).toBeVisible();
  fireEvent.click(within(graph).getByRole('button',{name:'选择依据并确认关联'}));expect(screen.getByRole('tab',{name:'依据'})).toHaveAttribute('aria-selected','true');
 });
 it('opens the sole explicit home goal work and preserves removed relationship overrides',async()=>{
  const source=snapshot();source.sections=[{id:'a',path:'doc/core/prd.md',title:'当前阶段交付目标与全局 P0',content:'明确目标与可恢复的剩余条件',revision:'r'}] as Snapshot['sections'];
  const record=state();const [records,setRecords]=createSignal(0);vi.mocked(bridge.dailyWork).mockImplementation(async()=>record);
  render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={records()} onExecution={()=>{}}/>);
- await screen.findByText('1 项已读工作');fireEvent.click(screen.getByRole('button',{name:'进入关联工作'}));
+ await screen.findByText('1 项已读工作');const original=screen.getByText('明确目标与可恢复的剩余条件');expect(original.closest('details')).not.toHaveAttribute('open');expect(original).not.toBeVisible();fireEvent.click(screen.getByRole('button',{name:'进入关联工作'}));
  await screen.findByRole('region',{name:'工作详情'});fireEvent.click(screen.getByRole('button',{name:'返回工作列表'}));
  record.revision=10;record.relations=[{id:'removed',work:projection().items[0].reference,sectionId:'a',sourceRevision:'r',confirmedAt:'1',removedAt:'2',previous:[]}];
  setRecords(1);await screen.findByText('尚无已读明确关联');expect(screen.queryByRole('button',{name:'进入关联工作'})).not.toBeInTheDocument();
@@ -271,4 +272,18 @@ it('uses open work as the home fallback while keeping source order within the sa
  const value=projection(),first=value.items[0];value.items.push({...first,reference:{...first.reference,number:'2'} as typeof first.reference,purpose:{...first.purpose,value:'进行中甲'},result:{...first.result,value:'PR OPEN'}},{...first,reference:{...first.reference,number:'3'} as typeof first.reference,purpose:{...first.purpose,value:'进行中乙'},result:{...first.result,value:'PR OPEN'}});vi.mocked(bridge.workProjection).mockResolvedValue(value);
  render(()=><WorkOverview snapshot={snapshot()} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);const home=screen.getByRole('heading',{name:'返回工作'}).closest('section')!;await within(home).findByRole('button',{name:'进行中甲'});
  expect(within(home).getAllByRole('button').filter(b=>b.hasAttribute('data-work-ref')).map(b=>b.textContent)).toEqual(['进行中甲','进行中乙','修复本地工具']);
+});
+
+it('folds selected-work filters without losing conditions and restores them on return',async()=>{
+ render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByRole('button',{name:'修复本地工具'});
+ fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'工具'}});
+ fireEvent.click(screen.getByRole('button',{name:/已合入\s*1/}));
+ fireEvent.click(screen.getByRole('button',{name:'修复本地工具'}));
+ const filters=screen.getByLabelText('筛选工作').closest('details')!;
+ expect(filters).not.toHaveAttribute('open');expect(filters.querySelector('summary')).toHaveTextContent('已合入 · 工具 · 1 项已读匹配');
+ fireEvent.click(filters.querySelector('summary')!);expect(screen.getByLabelText('筛选工作')).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'返回工作列表'}));
+ expect(filters).toHaveAttribute('open');expect(screen.getByLabelText('筛选工作')).toHaveValue('工具');
+ expect(screen.getByRole('button',{name:/已合入\s*1/})).toHaveAttribute('aria-pressed','true');
 });
