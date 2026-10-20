@@ -715,9 +715,8 @@ function shouldShowHostedLoginGate() {
 function focusableElements(root) {
   return [...root.querySelectorAll(
     [
-      "a[href]",
+      "a[href], summary",
       "button:not([disabled])",
-      "summary",
       "input:not([disabled])",
       "select:not([disabled])",
       "textarea:not([disabled])",
