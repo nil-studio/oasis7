@@ -433,6 +433,26 @@ fn native_rule_free_source_swap_and_explicit_new_recipe_cutover_preserve_identit
     assert_eq!(receipt.root_ref, old.root_ref);
     assert_eq!(receipt.child_ref, chosen);
     assert_eq!(receipt.output, vec![target.root_ref.clone()]);
+    // The fixture's real start also needs a fresh action identity; retain both
+    // historical collision sentinels used by the read-only preview regression.
+    let mut next_action_id = 1u64;
+    while state.pending_recipe_jobs.contains_key(&next_action_id)
+        || state.settled_recipe_job_ids.contains(&next_action_id)
+    {
+        next_action_id = next_action_id.checked_add(1).unwrap();
+    }
+    let mut target_start = producer::event(
+        "target-start",
+        IndustrialWorkCommandV1::StartRoot {
+            root_ref: target.root_ref.clone(),
+            expected_profile_digest: target.pinned_profile_digest.clone(),
+            logistics_route_ids: vec![],
+            logistics_path_ids: vec![],
+        },
+    );
+    if let crate::DomainEvent::WorldRuleCommitted { action_id, .. } = &mut target_start {
+        *action_id = next_action_id;
+    }
     let mut missing = state.clone();
     missing
         .world_rules
@@ -441,32 +461,8 @@ fn native_rule_free_source_swap_and_explicit_new_recipe_cutover_preserve_identit
         .industrial_work
         .imported_lot_authorities
         .clear();
-    reject_unchanged(
-        &missing,
-        producer::event(
-            "missing-target-start",
-            IndustrialWorkCommandV1::StartRoot {
-                root_ref: target.root_ref.clone(),
-                expected_profile_digest: target.pinned_profile_digest.clone(),
-                logistics_route_ids: vec![],
-                logistics_path_ids: vec![],
-            },
-        ),
-        3,
-    );
-    commit(
-        &mut state,
-        producer::event(
-            "target-start",
-            IndustrialWorkCommandV1::StartRoot {
-                root_ref: target.root_ref.clone(),
-                expected_profile_digest: target.pinned_profile_digest,
-                logistics_route_ids: vec![],
-                logistics_path_ids: vec![],
-            },
-        ),
-        3,
-    );
+    reject_unchanged(&missing, target_start.clone(), 3);
+    commit(&mut state, target_start, 3);
     assert!(
         !state.world_rules.as_ref().unwrap().industrial_work.roots[&old.root_ref.id].first_sink
     );
