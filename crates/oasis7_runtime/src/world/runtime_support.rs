@@ -67,7 +67,7 @@ pub(super) fn test_module_signer_public_key_hex() -> String {
 }
 
 impl super::World {
-    pub(super) fn prepare_threat_heatmap(&self) -> std::collections::BTreeMap<String, i64> {
+    pub(crate) fn prepare_threat_heatmap(&self) -> std::collections::BTreeMap<String, i64> {
         let mut next = std::collections::BTreeMap::new();
         for war in self.state.wars.values() {
             if !war.active {
