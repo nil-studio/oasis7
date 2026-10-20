@@ -46,7 +46,7 @@
 1. **范围**：读 diff 和相关 AC，固定 targeted 或 ac_ext_010_full 声明及必需 obligation，选用下面的最小场景；沿用当前开发任务/PR 的授权，不创建通用流程登记。选择 `attached_codex_subagent` 或 `supervised_runtime`，记录真正受测 Runtime，避免双重启动 Codex。
 2. **便宜前置**：按现有 `testing-manual.md` 执行受影响包的单元/合同测试；不跳过普通 CI，也不为了文档变更跑模型。候选准备可用当前仓库真实的 bundle/playtest 入口，必须先读其说明和实现，确认可指向本轮私有 fixture。不发明通用 spawn 命令或未实现的 autonomous runner 参数。
 3. **固定候选和许可**：按[来源到场景核对](#source-scene-check)保存精确条款来源、source/base/实际 tested-tree、未提交 patch hash（有则必记）、build/Skill hash、API/driver 版本、世界信任/branch/root/revision/初始条件、执行模式、test tier、evidence level、总预算和 deadline；报告不能只写 main/latest。测试期间源码或 build 改变则结束当前尝试并新建 attempt。
-4. **预检与环境**：确认玩家 Skill 是被测版本交付的同一份；旧 `site/skills/oasis7.md` 不自动替代新路径。验证真实 API/权限、world identity、独占进程/端口/存储、有效 executor 和最小测试账号；测试目录不是生产目录的 symlink。所有模型、GUI 与下游工具均已获准。localhost 可能转发远程生产，须验证实际世界身份；不复用用户日常世界，先记录本轮自有进程/会话。
+4. **预检与环境**：确认玩家 Skill 是被测版本交付的同一份；旧 `site/skills/oasis7.md` 不自动替代新路径。验证真实 API/权限、world identity、独占进程/端口/存储、适用执行器能力和最小合法身份/准入前置；既有委托场景验证有效 executor，AC-EXT-018 冷入场则不得预先创建 Agent/task/goal/执行 grant，executor 的合法绑定必须由待测流程完成。测试目录不是生产目录的 symlink。所有模型、GUI 与下游工具均已获准。localhost 可能转发远程生产，须验证实际世界身份；不复用用户日常世界，先记录本轮自有进程/会话。
 5. **启动场景**：`cold_entry` 由 subagent 按玩家 Skill 使用受限、预批准入口自己启动/连接；`prepared_world` 由主 Agent/setup 启动再交接。记录由谁完成每个步骤及 ready 的依据。准备好的世界不得代签冷启动体验。
 6. **真实派工**：使用宿主实际派工工具创建独立子会话；按[试玩任务模板](../templates/agent-runtime-playtester-task.template.md)发送最小输入，不附开发对话、答案或服务日志。验证子会话实际读取了指定 Skill。源码隔离应由环境权限实现；仅靠指令或仍能读源码时，记录 `isolation=instruction_only/source_visible`，不声称 source-blind。
 7. **游玩和观察**：子任务只走合法 Skill/API。主 Agent 不边看边给通关提示；需要提示时标为 assisted。UI 场景用独立 owner/observer 身份；故障注入由 setup 执行，不能赋予玩家原始存储写权限。
@@ -134,8 +134,8 @@
 - Test tier：`test_tier_required`（contract）；`test_tier_full`（live），按[分层矩阵](#selftest-test-tiers)分别执行和记录，不能相互代签。
 
 - 准备：当前正式玩家 Skill、固定 hash、有效私有世界配置；另有 Skill 缺失、错误 major、旧 Bridge 和非法世界目标。
-- 执行：新子会话仅阅读 Skill/公开帮助，使用受限入口启动或连接；分别运行 cold_entry 与 prepared_world。
-- 判定：进入真实受权世界，知道任务/能力与失败下一步；缺依赖 blocked，不能创造假端点或测试专用玩家说明。记录 setup_assisted，两个启动模式不代签。
+- 执行：新子会话仅阅读 Skill/公开帮助，使用受限入口启动或连接；分别运行 cold_entry 与 prepared_world。涉及 [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) 时，cold_entry 必须从无预置 Agent/task/goal/grant 的主体开始，按 [api-cold-entry](external-agent-runtime-contract-validation.manual.md#api-cold-entry)覆盖身份、准入、角色、owner/starter、task/目标与 executor 的整条链；只启动进程或连接预置角色不足以通过。
+- 判定：必要人类确认、凭据仪式及费用批准按原授权停下并记录，不被“自主”取消。记录每阶段实际执行者、初始预置内容与权限来源；setup 不得临时代做角色/task/grant 来掩盖缺口。进入真实受权世界，知道任务/能力与失败下一步；缺依赖 blocked，不能创造假端点或测试专用玩家说明。记录 setup_assisted，两个启动模式不代签。
 - 承接：[skill-release](external-agent-runtime-contract-validation.manual.md#skill-release)；此处新增的是独立试玩输入与冷启动体验。
 
 <a id="st-03"></a>

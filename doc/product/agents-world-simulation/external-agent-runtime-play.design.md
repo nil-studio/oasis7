@@ -21,13 +21,24 @@
 
 ## 2. 代表性使用经历
 
-### 2.1 首次接入与委托
+### 2.1 首次接入、自主入场与委托
 
 玩家从可信发布入口为 OpenClaw 或 Codex 获取官方 oasis7 Skill，核对版本兼容和网络 Game API 地址与权限范围，而不是先研究旧桥接工具。入口明确区分“目标 Runtime”“已验证组合”“不适用版本或缺失能力”，并给出连接目标、凭据归属、运行前置和成本范围。仅检测到程序存在或模型能回答时，仍保留尚未完成的连接/会话步骤。
 
-连接就绪后展示当前身份、合法可控制 Agent 和其既有义务。玩家确认生产目标及有效委托；如果没有可控制 Agent，转到既有认领或观察路径。认领与维护条件消费[所有权主责](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#1-产品承诺)，连接软件本身不授予实体或资源。
+连接就绪后先区分稳定参与主体、游戏角色和当前执行实例，再展示该主体可控制的 Agent 与既有义务。自身角色允许有权主体选择目标；他人角色仅使用玩家授权的目标和范围。如果没有角色，按现行规则进入正常注册/初始绑定、经济认领或观察路径，不把所有首次角色取得都显示为付费 claim。认领与维护条件消费[所有权主责](../world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#1-产品承诺)，连接软件本身不授予实体或资源。
 
 启动前给出一个完整的委托摘要：目标世界与 Agent、高层目标、允许范围、预算的可执行部分、持续运行条件。日常行动由 Runtime 在该范围内自行选择；严重后果和额外授权消费[自治与委托主责](agent-authority-ownership-and-accountability.prd.md#2-授权与自治边界)，避免把正常游玩变成连续的逐动作批准。
+
+<a id="autonomous-entry-experience"></a>
+#### 无预置角色的机器入场
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](external-agent-runtime-play.prd.md#ac-ext-018)。
+
+Runtime 从可信 Skill/公开发现入口识别世界和能力，完成适用的注册或登录、世界准入，按现行规则取得自己的 Agent。体验分别显示账号已认证、世界已准入、角色已绑定、canonical owner/必要 starter 已满足、task/目标已提交、独立 executor 已就绪；前一步成功不隐含后一步通过。自动编排可以隐藏机械步骤，但不能省略任务或伪造任何权威结果。
+
+需要人类触摸凭据、接受协议、批准费用或完成站点必要核验时，返回需要谁完成什么以及原操作的继续入口；不要求人类逐动作遥控，也不绕过确认。未知结果优先找回原身份和请求，不重新注册或另领初始资产。无准入资格或未发布的入口应显示明确阻塞，不引导用户暴露 loopback 私有服务。
+
+同一 Runtime 的自身 Agent 与受托 Agent 以资源上下文标明“当前 owner / 受托执行、目标来源、有效范围”。切换上下文不切全局游戏 mode，不合并预算、私有目标或审批权。自有主体通过独立受保护 owner 控制路径设定自身目标；他人委托里仍只能建议或申请，不能自己批准。撤销一份委托后保留其他独立关系及已提交结果，不把一次撤销误报为整台 Runtime 或全部角色关闭。
 
 ### 2.2 生产、反馈与新的选择
 
@@ -163,3 +174,5 @@ Web/桌面玩家不直接控制 OpenClaw/Codex 的聊天进程，而是将有权
 | Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a；[REQ-EXT-015](external-agent-runtime-play.prd.md#req-ext-015) | [AC-EXT-015](external-agent-runtime-play.prd.md#ac-ext-015) | §2.5 Web/native 大世界分别可用。 |
 | Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；[REQ-EXT-016](external-agent-runtime-play.prd.md#req-ext-016) | [AC-EXT-016](external-agent-runtime-play.prd.md#ac-ext-016) | §2.5 世界概览、缩放、搜索与对象选择。 |
 | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[REQ-EXT-017](external-agent-runtime-play.prd.md#req-ext-017) | [AC-EXT-017](external-agent-runtime-play.prd.md#ac-ext-017) | §2.5 世界现场、合法指导和回执。 |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[REQ-EXT-018](external-agent-runtime-play.prd.md#req-ext-018) | [AC-EXT-018](external-agent-runtime-play.prd.md#ac-ext-018) | [无预置角色的机器入场](#autonomous-entry-experience)，逐阶段状态、必要确认与安全恢复。 |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[REQ-EXT-018](external-agent-runtime-play.prd.md#req-ext-018) | [AC-EXT-002](external-agent-runtime-play.prd.md#ac-ext-002) | [自主入场后的资源关系共存](#autonomous-entry-experience)，自身 owner / 受托 executor 的上下文、目标、预算与撤销隔离；不替代冷入场验收。 |

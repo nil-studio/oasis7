@@ -41,6 +41,8 @@
 
 ### 2.2 唯一事实来源与身份
 
+本文的人类玩家协作流程不排斥[外部 Agent 合法自主入场](external-agent-runtime-play.prd.md#req-ext-018)。自有参与主体通过合法 owner 控制路径选择自身目标；同一 Runtime 可同时接受他人委托，统一消费[身份与资源关系要求](external-agent-runtime-play.prd.md#req-ext-002)，不把两种关系做成互斥 mode。以下“外部 Runtime 不得自行改目标/批准”约束其 executor 权限，不否定独立、受保护且真正拥有该资源的 owner 操作；同一进程不使 owner 权限扩张到他人资源。
+
 - 协作必须关联世界、游戏 Agent、游戏任务、有效目标/委托和当前执行方。Runtime 的内部 session、子任务或进程重启不能创建新的世界实体，也不能成为玩家任务唯一身份。
 - oasis7 的可信目标/委托记录保存玩家发布内容、版本和生效范围；Runtime 私有计划、普通聊天或本地文件不能覆盖它。审批权限、Agent 所有权与累积资源边界消费[自治与责任](agent-authority-ownership-and-accountability.prd.md#agent-delegation-boundary)。
 - 默认由有权玩家修改持续目标；外部 Runtime 可以提出目标调整建议。通过 Runtime 终端要求改目标，也必须使用明确的目标写入权限和同一提交路径，不能因文字来自本机而取得 owner 权限或批准自己。
