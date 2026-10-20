@@ -29,7 +29,7 @@ if str(number) == os.environ.get('TEST_FAIL_CALL'):
 ''')
         cargo.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root) + os.pathsep + os.environ['PATH'],
-                        CI='true', TEST_CARGO_LOG=str(self.log), RUSTC_WRAPPER='must-be-unset')
+                        CI='true', CI_VERBOSE='0', TEST_CARGO_LOG=str(self.log), RUSTC_WRAPPER='must-be-unset')
 
     def build(self):
         return subprocess.run(['bash', str(ROOT / 'scripts/ci-tests.sh'), 'cache-native',
@@ -39,18 +39,33 @@ if str(number) == os.environ.get('TEST_FAIL_CALL'):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
     def test_exact_consumer_variants_are_compiled_without_executing_tests(self):
+        for verbose in ('0', '1'):
+            with self.subTest(verbose=verbose):
+                self.log.unlink(missing_ok=True)
+                self.env['CI_VERBOSE'] = verbose
+                self.assert_consumer_variants()
+
+    def assert_consumer_variants(self):
         result = self.build()
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
         self.assertEqual(len(calls), 8)
-        args = [call['args'] for call in calls]
-        for call in calls:
+        # The shell driver adds a global verbosity flag; the shared Python
+        # artifact builder logs its own command without that flag. Both modes
+        # must produce the same build variants and preserve --no-run.
+        args = []
+        for index, call in enumerate(calls):
+            raw = call['args']
+            verbose = raw[0] == '--verbose'
+            self.assertEqual(verbose, index >= 4 and self.env['CI_VERBOSE'] == '1')
+            args.append(raw[1:] if verbose else raw)
+        for call, command in zip(calls, args):
             self.assertIsNone(call['wrapper'])
             self.assertEqual(call['cwd'], str(self.root))
-            self.assertIn('--locked', call['args'])
-            self.assertNotIn('--all-features', call['args'])
-            if call['args'][0] == 'test':
-                self.assertIn('--no-run', call['args'])
+            self.assertIn('--locked', command)
+            self.assertNotIn('--all-features', command)
+            if command[0] == 'test':
+                self.assertIn('--no-run', command)
         # Downloading an ordinary test bundle cannot substitute for these real
         # target builds. Required, default snapshot and plain wasmtime differ.
         self.assertEqual(args[0], ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live',
