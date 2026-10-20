@@ -1,0 +1,63 @@
+{
+  "record": {
+    "entries": [
+      {
+        "authority": "doc/p2p/blockchain/hosted-public-join-key-based-onboarding.design.md",
+        "backlink": "doc/testing/evidence/README.md",
+        "claim_boundary": "Component presentation only for source 210cd36bfa552e93280c0e5119302adda0534e48; not a hosted authentication or gameplay acceptance claim.",
+        "content_sha256": "dcf449b85bbd0c9f5f95a3c8ad513cb75330ba0d801bd670bd3f9a8c802a0cc9",
+        "disposition": "retain",
+        "domain_owner": "viewer_engineer",
+        "lifecycle": "WINDOW_OBSERVATION",
+        "observation_window": "login-surface-clarity-20261020",
+        "path": "doc/testing/evidence/login-surface-clarity/desktop.png",
+        "rationale": "User explicitly requested UI verification screenshots. Chrome capture on 2026-10-20 of source 210cd36bfa552e93280c0e5119302adda0534e48; desktop 1440x900 and mobile 390x844, collapsed and expanded.",
+        "required_followup_roles": [
+          "viewer_engineer"
+        ],
+        "residual_risk": "Real account component and canonical styles with simulated account service and mirrored outer gate wrapper. No live authentication, credential entry or end-to-end hosted login was tested.",
+        "retention_owner": "qa_engineer",
+        "semantic_role": "login_component_visual_validation"
+      },
+      {
+        "authority": "doc/p2p/blockchain/hosted-public-join-key-based-onboarding.design.md",
+        "backlink": "doc/testing/evidence/README.md",
+        "claim_boundary": "Component presentation only for source 210cd36bfa552e93280c0e5119302adda0534e48; not a hosted authentication or gameplay acceptance claim.",
+        "content_sha256": "1e0f2e5b4b1b01fc9305a84f77b10ccb1517dd2981d4689032361aac7f4a2de8",
+        "disposition": "retain",
+        "domain_owner": "viewer_engineer",
+        "lifecycle": "WINDOW_OBSERVATION",
+        "observation_window": "login-surface-clarity-20261020",
+        "path": "doc/testing/evidence/login-surface-clarity/mobile-expanded.png",
+        "rationale": "User explicitly requested UI verification screenshots. Chrome capture on 2026-10-20 of source 210cd36bfa552e93280c0e5119302adda0534e48; desktop 1440x900 and mobile 390x844, collapsed and expanded.",
+        "required_followup_roles": [
+          "viewer_engineer"
+        ],
+        "residual_risk": "Real account component and canonical styles with simulated account service and mirrored outer gate wrapper. No live authentication, credential entry or end-to-end hosted login was tested.",
+        "retention_owner": "qa_engineer",
+        "semantic_role": "login_component_visual_validation"
+      },
+      {
+        "authority": "doc/p2p/blockchain/hosted-public-join-key-based-onboarding.design.md",
+        "backlink": "doc/testing/evidence/README.md",
+        "claim_boundary": "Component presentation only for source 210cd36bfa552e93280c0e5119302adda0534e48; not a hosted authentication or gameplay acceptance claim.",
+        "content_sha256": "0e77a902e92b31a64ec34a99a9396759fa6668e8258601baf9a51d6194763ba5",
+        "disposition": "retain",
+        "domain_owner": "viewer_engineer",
+        "lifecycle": "WINDOW_OBSERVATION",
+        "observation_window": "login-surface-clarity-20261020",
+        "path": "doc/testing/evidence/login-surface-clarity/mobile.png",
+        "rationale": "User explicitly requested UI verification screenshots. Chrome capture on 2026-10-20 of source 210cd36bfa552e93280c0e5119302adda0534e48; desktop 1440x900 and mobile 390x844, collapsed and expanded.",
+        "required_followup_roles": [
+          "viewer_engineer"
+        ],
+        "residual_risk": "Real account component and canonical styles with simulated account service and mirrored outer gate wrapper. No live authentication, credential entry or end-to-end hosted login was tested.",
+        "retention_owner": "qa_engineer",
+        "semantic_role": "login_component_visual_validation"
+      }
+    ],
+    "group_sha256": "2eaff774424df9c3f009d901f5216d1351b5938132d41ec46859715290e27a31",
+    "id": "login-surface-clarity-20261020"
+  },
+  "schema": "oasis7.document-evidence-group/v1"
+}
