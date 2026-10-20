@@ -12,6 +12,8 @@
 
 ## 2. 代表性 fixture
 
+本节是复杂工业组合的覆盖样本，不是首笔铁锭的强制教程或额外前置。当前 starter 仍由[首局具体样本](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#first-session-concrete-sample)与 `production_only` 合同决定；只展开所选真实 profile 需要的节点，不能要求新人先完成 terminal 或整套多阶段治理。
+
 验收 fixture 固定覆盖形状：一座具备目标 capability 的 factory、一个 `active` 或作用域内 `restricted` recipe version、两类独立 required inputs、至少一条有容量约束或损耗的有效 logistics edge、一个 canonical executable cycle/quantum、一个主产物与至少一个必须处置的副产物 branch，以及一个明确 purpose/recipient 的 terminal。固定的是覆盖形状，不冻结材料、配比、产率、价格、绝对容量、tick 或字段编码。
 
 fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 input 的 provenance/适用性/join 结论、path/loss/capacity 与复查边界、合法 cycle 的 full/partial policy 与 power mode、output bundle/branch 的 owner/destination/policy、terminal admission 边界、当前 blocker、已占用/将消费价值、`next_action`、`next_recheck` 与 `progression_effect`。未选路径不取得 hold、吞吐顺位、input sink 或稳定进度。
@@ -45,15 +47,52 @@ fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 in
 
 `test_tier_required` 可验证这对 fixture 的状态与后果：基线 receipt、单一缺料、未齐套无新 sink/产出、保留价值及安全动作条件。适用入口的组合验证沿 `test_tier_full` 要求执行；玩家理解与意愿按 testing 的 playability 层级另记样本性质和未覆盖范围。静态合同、确定性 fixture、模型/Agent 观察与真人证据各自保持原有 claim boundary，本节没有实际试玩或 current capability 的通过结论。
 
+### 3.2 首产物之后：一次不预设正确答案的选择审阅
+
+“我已经生产了第一笔铁锭。现在是继续把现有产线用于一个真实用途，还是把可用资源准备给下一种能力？”这是对[经营分支设计](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#operating-branch-experience)的文档审阅样例，不保证两条路线当前都可提交，也不新增任务或奖励。
+
+| 候选 | 先核对的事实 | 接下来两次真正不同的决定 | 使当前偏好失效的例子 |
+| --- | --- | --- | --- |
+| 深化现有生产 | 所得是否有当前可达用途、输入/电力/输出余量与有效占槽 | 先决定本次产物给何种已支持用途，再决定如何补给/安排下一合法cycle | 产物无当前用途、输出已满或另有已承诺的优先用途，不能仅凭产量推荐 |
+| 准备后继能力 | Assembler只是候选；建设账本、地点和材料是否可用，建成后的首配方前置是否存在 | 先决定将哪些真正可用资源留给建设，再决定后继第一条合法生产及与旧链的供给协调 | 建设后无合法首配方或消耗恢复必需资源，不能将“候选解锁”当可用产能 |
+| 暂缓/保留 | 哪些资源已承诺、世界仍有何种变化、何时重查 | 先决定是否停止未提交投入，再在条件变化后继续或重新定目标 | 既有期限、在途风险或未知提交仍存在，等待并非天然零成本 |
+
+比较先指出：同一资源或槽位原本还能用于哪项当前合法用途，本次为何值得让它延后；没有真实竞争用途时不把分配包装成有意义取舍。比较记录从同一当前 authority 填入数量、单位、账本、时长/槽位与来源 revision；未取得的数值写“未知”，不适用写明理由，只有权威证据为零才填零。若无法证明替代用途、两次后继差异或合法路线，结论就是“当前仅操作选择/证据不足”，不为了通过评审补造材料、时限或买家。小批/大批可以有操作价值，但按钮数量不证明长期分支；改变电力、输入、输出空间或权限后，应重新核验偏好而非背诵推荐。
+
+### 3.3 一段可以自然结束、也可以继续的独立经营故事
+
+以下是跨文档一致性推演，不是运行记录，也不要求每位玩家走完全部节点。假设当前正式入口已确认该玩家的一批铁锭生产完成并持有匹配结算：3 铁锭是已得成果，Assembler 仍只按真实里程碑呈现候选与缺口。玩家可以核对当前用途后决定继续原生产、准备真实可达的下一能力，或暂不新增投入；没有交易需求也不生成买家，没有组织关系也不要求先入会。停在基础生产是有效成果，但不证明产线已经稳定。
+
+关键反例是玩家随后提交了一项实际受支持、会动用这批材料的操作，离场前却无法确认其结果。此时旧界面上的“3 铁”不能继续当可自由支配余额，也不能把停止代办当撤销原请求。离场前说明已确认的首产成果、未知请求及仍会推进的风险/义务；回来先按原请求核对权威结果、余额与占用，再决定下一笔投入。若仍未知就保留未知与核对入口，不因想续玩而盲目重交或编造退款。
+
+后来材料被合法消费，不抹掉已经发生的首产成就；首产成就也不能被当成仍持有材料的证明。玩家再次选择经营或离场，都不需要把故事强行补成下一座工厂、市场交易或区域治理。对照[回访设计](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#return-visit-experience)与[自愿合作/独立止损](gameplay-top-level-design.prd.md#crisis-voluntary-cooperation)检查：若读者只能靠未来功能解释下一步，就把该步记为玩法缺口；若能解释已有成果、剩余暴露与一个真实决定，只证明文档链条可理解，不证明真实留存或运行通过。
+
 ## 4. 失败恢复与状态守恒
 
 - 两类 input 未齐套、批次不适用、物流 edge 满/失效、power 或 factory fit 漂移、mandatory output destination 失效、terminal owner/资格/容量失效时，首个不可逆 sink 前只能延期或 atomic reject；已存在的 WIP、in-transit、buffer-held、terminal-pending 或 settled branch 只能按 profile 支持的 hold、等待、改道、返工、return、reroute/handoff/reject、salvage 或终止各处置一次。
 - `terminal_pending` 必须保留有限、可追溯的产物与占用，以及 recipient、destination、admission、capacity obligation 与 provenance，直到 matching settlement 或一次受支持处置；不得免费销毁、无限堆积、自动转卖、静默改道/改绑、提前或伪造交付，或用 production receipt 冒充 terminal settlement。任何恢复动作都要指出 primary root、已消费/仍占用/已损失价值和 `next_recheck`。
 - 因果变化（factory capability、recipe version、required edge、output branch 或 terminal purpose）建立 parent-linked 新 candidate 并从 `W=0` 开始；仅补齐同一 candidate 的缺料、容量或电力前置才可保持 root continuation。本合同不重新定义既有换线、来源、批量、需求或 terminal 处置合同。
 
+### 4.1 用失败样例检查玩家是否真的有下一步
+
+下列是文档与后续验证的场景设计，不要求在正常玩家会话中故意制造事故；没有执行证据时不记为运行通过。处置仅在所选 profile 支持时可用。
+
+| 所见情境 | 不应形成的错误理解 | 需要比较的下一步与成本/暴露 | 下一项决定性证据 |
+| --- | --- | --- | --- |
+| 原料足够但必需输出空间已满 | “继续加原料或重复排程就能产出” | 比较受支持的释放目的地/合法转移、延期或改目标；输出前置不满足时，首个不可逆sink前只能延期或无副作用拒绝；已开始部分按WIP/branch规则保留或处置，不许诺全部输入可退 | 输出目的地与容量重新满足，或明确的单次处置结果；旧预览不保证可提交 |
+| 能源断供，推荐修复自身也需要当前没有的能源 | “点恢复会免费补电” | 找真实可负担且获授权的独立来源/降级/止损；不存在时说明无安全恢复、保留/损失价值及重新定目标路径，不递归推荐不可负担操作 | 替代来源/动作的真实可用量、权限与成本；没有就继续保持缺口 |
+| 重连后找不到刚才提交的结果 | “没有回执就是没发生，可以换ID再来一次” | 保留原请求身份核对；可停止未来代办，但旧操作仍可能已消费或待决，不提交与其冲突的新承诺 | 原操作的权威结果或明确待决状态，而不是本地超时 |
+| 旧产线已恢复，玩家已选择新目标 | “修好了就按旧计划自动继续” | 保留旧结算与义务，重核当前目标、授权和资源，比较继续/暂停/新候选；切换不清零既有成本 | 当前适用授权与目标、旧待决处置、必要的fresh确认或cutover |
+
+没有受支持的取消、hold、salvage 或独立恢复，就不得把这些词当作通用按钮。审阅应能指出“哪一个事实让这条下一步成立”；否则先记录方案或能力缺口，而不是用更长解释掩盖无路可走。
+
 ## 5. Current/target evidence cutline
 
-当前 bounded evidence 仅能指向 `crates/oasis7_simulator/src/types.rs:630-641` 的 `BuildFactory`/`ScheduleRecipe` action 形状，以及 `actions_resolution.rs:361-447` 的建厂校验与通用成本处理；这不证明两输入 join、受限物流、output bundle、terminal settlement 或 progression walkthrough 已在 runtime、Viewer 或 Agent 组合实现。当前 gameplay surface 只能把本合同作为 target contract，不得宣称 current complete。
+证据按能力切片读取，不能继续把整个工业链概括为“只有 action 形状”，也不能把局部进展提升为全链完成：
+
+- **已有 starter 实现入口**：[固定源码的 profile 与持久 milestone](https://github.com/nil-studio/oasis7/blob/9df20824f3f0418eef7bd732782bf99205ab7b5d/crates/oasis7_runtime/src/state/starter_industrial.rs)及[生产生命周期](https://github.com/nil-studio/oasis7/blob/9df20824f3f0418eef7bd732782bf99205ab7b5d/crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs)承载 Smelter 首笔匹配正量铁锭结算与 Assembler 候选边界。这是源码定位，不等于当前所有玩家入口验收通过。
+- **历史局部运行证据**：[2026-10-13 prepared-world 样本](../../testing/evidence/native-task-starter-chain-2026-10-13/bounded-retry/README.md)记录其特定 source/build/Skill 的建厂、供料、首产物及原结果恢复；不能代签当前候选、冷启动、GUI、稳定链或部署。
+- **仍需组合证明的目标**：本合同完整两输入 join、受限物流、output bundle、多阶段/terminal 与 progression 的同候选跨入口 walkthrough 仍按目标合同核验。缺哪一段就保留哪一段未知，不能用 starter milestone 或普通 CI 填平。
 
 目标 evidence 需要一份 fresh composite runtime + QA fixture：同一 candidate 从档案读取、玩家选择、提交、执行、production/terminal receipt 到下一动作均可追溯，并能证明 profile/authority 缺失时 fail closed。Viewer、pure API 与 Agent 需从同一 snapshot/revision 得到等义档案与结果后，才能把该 walkthrough 标为 current-evidence-backed。
 
@@ -74,3 +113,4 @@ fixture 的档案必须同时读出 factory/recipe authority 与 fit、两类 in
 本合同不新增 runtime/API/schema/action，不规定配比、产率、价格、物流/寻路、容量、队列、terminal 或 settlement 算法，不设计 UI 布局，不新增 recipe/catalog/lifecycle，也不改 starter completion、site selection、input reserve、source allocation、quality/custody、substitution、batch、demand、byproduct、changeover 或 pipeline checkpoint 合同。
 
 残余风险是当前各 authority 可能只有局部实现证据，导致 walkthrough 暂时只能标为 target/unknown；未来 recipe、receipt 或 terminal profile 变更时必须重新生成同一 fixture 的 composite evidence，避免玩家看到可选动作却无法获得一致结算与下一动力。
+
