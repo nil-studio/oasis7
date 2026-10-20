@@ -118,7 +118,7 @@ impl IdentityService {
             } else { None };
             tx.replace(&akey, account.row_version, "account", Some(&account_id), None, &account.value)?;
             c.value.status = "consumed".into(); c.value.server_state = None; c.value.result_ref = Some(account_id.clone());
-            tx.replace(&ckey, c.row_version, "ceremony", Some(&account_id), Some(c.value.expires_at), &c.value)?;
+            tx.replace(&ckey, c.row_version, "ceremony", Some(&account_id), Some(ceremony_storage_expiry(&c.value)), &c.value)?;
             tx.create(&format!("receipt:{id}"), "receipt", Some(&account_id), Some(now + 7 * 86_400_000), &OperationReceipt { operation_id:id.into(), kind:ceremony.kind.clone(), owner_context_digest:owner.into(), request_digest:response_digest.clone(), state:"committed".into(), result_ids:vec![account_id.clone()], committed_at:now })?;
             audit(tx, &account.value, if purpose == "bind" {"security_changed"} else {"credential_authenticated"}, now)?;
             Ok((json!({"api_version":2,"ok":true,"phase":if purpose == "login" {"authenticated"} else {"credential_verified"},"account":{"account_id":account_id,"display_name":account.value.display_name},"world":{"state":"not_requested"}}), session_token))

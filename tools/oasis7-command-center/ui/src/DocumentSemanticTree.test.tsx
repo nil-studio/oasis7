@@ -53,11 +53,11 @@ it('restores stable expansion and exact section without moving focus or saving a
   api.loadDocumentTreeReading.mockResolvedValue({status:'ready',state:state({expandedRoutes:[route],parentRoute:childRoute,selection:{route,path:file.path,sectionPath:file.path,sectionId:'explicit',sectionRevision:'rev'},treeScrollTop:60,detailScrollTop:42}),notice:null,resolvedSectionId:'explicit'});
   const select=vi.fn();const focus=document.createElement('button');document.body.append(focus);focus.focus();
   render(()=><DocumentSemanticTree snapshot={{...snapshot(),sections:[section]}} view="product" selectFile={select}/>);await ready();await screen.findByRole('treeitem',{name:'专题需求'});
-  expect(select).toHaveBeenLastCalledWith(file,expect.any(HTMLElement),{section,scrollTop:42,passive:true});expect(focus).toHaveFocus();expect(screen.getByRole('tree')).toHaveProperty('scrollTop',60);expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();focus.remove();
+  expect(select).toHaveBeenLastCalledWith(file,expect.any(HTMLElement),{section,unresolved:false,scrollTop:42,passive:true});expect(focus).toHaveFocus();expect(screen.getByRole('tree')).toHaveProperty('scrollTop',60);expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();focus.remove();
 });
 it('does not reopen an equally titled chapter when its path or content version changed',async()=>{
   api.loadDocumentTreeReading.mockResolvedValue({status:'ready',state:state({selection:{route,path:file.path,sectionPath:file.path,sectionId:'explicit',sectionRevision:'older'}}),notice:null,resolvedSectionId:null});
-  const select=vi.fn();render(()=><DocumentSemanticTree snapshot={snapshot()} view="product" selectFile={select}/>);await ready();expect(screen.getByText(/原章节或内容版本已变化/)).toBeInTheDocument();expect(select.mock.calls.at(-1)![2]).toEqual({section:undefined,scrollTop:0,passive:true});
+  const select=vi.fn();render(()=><DocumentSemanticTree snapshot={snapshot()} view="product" selectFile={select}/>);await ready();expect(screen.getByText(/原章节或内容版本已变化/)).toBeInTheDocument();expect(select.mock.calls.at(-1)![2]).toEqual({section:undefined,unresolved:true,scrollTop:0,passive:true});
 });
 it('protects unsupported records until explicit reset and never saves programmatic scroll',async()=>{
   api.loadDocumentTreeReading.mockResolvedValue({status:'unsupported',state:null,notice:'未来版本记录',resolvedSectionId:null});

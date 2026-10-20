@@ -230,7 +230,7 @@ impl IdentityService {
                 &format!("ceremony:{id}"),
                 "ceremony",
                 account.as_deref(),
-                Some(expires),
+                Some(ceremony_storage_expiry(&ceremony)),
                 &ceremony,
             )
         })?;

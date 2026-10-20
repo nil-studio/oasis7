@@ -48,6 +48,8 @@ export async function importAccountKey(publicHex, privateHex, crypto = globalThi
 }
 
 export function renderImportedKey(root, { account, busy, client, run, onAuthenticated, isActive = () => true }) {
+  const disclosure = document.createElement("details");
+  const summary = document.createElement("summary"); summary.textContent = account ? "管理账号密钥" : "使用已绑定密钥登录"; disclosure.append(summary);
   const section = document.createElement("fieldset"); section.disabled = busy; section.className = "stack";
   const legend = document.createElement("legend"); legend.textContent = account ? "导入账号密钥" : "导入密钥登录"; section.append(legend);
   const hint = document.createElement("p"); hint.textContent = "仅支持已绑定的 Ed25519 账号密钥。私钥仅用于本页内存签名，退出或关闭页面后需重新导入。请勿输入钱包或节点私钥；此方式不具备通行密钥的抗钓鱼保护。"; section.append(hint);
@@ -59,12 +61,14 @@ export function renderImportedKey(root, { account, busy, client, run, onAuthenti
       const publicHex = pub.value; let privateHex = secret.value; secret.value = ""; pub.value = "";
       // Import starts only on the explicit click; do not retain plaintext in render state.
       const signer = importAccountKey(publicHex, privateHex); privateHex = "";
-      run(async () => { const key = await signer; if (isActive()) await operation(key); });
+      run(async () => { let key;
+        try { key = await signer; } catch (error) { error.stage = "本地密钥导入"; throw error; }
+        if (isActive()) await operation(key); });
     }); section.append(button);
   }
   if (account) {
     action("绑定这把密钥到当前账号", key => client.bindImportedKey(key));
     action("加载已绑定密钥用于安全确认", key => client.useImportedKey(key));
   } else action("使用导入密钥登录", async key => { await client.loginImportedKey(key); await onAuthenticated(); });
-  root.append(section);
+  disclosure.append(section); root.append(disclosure);
 }

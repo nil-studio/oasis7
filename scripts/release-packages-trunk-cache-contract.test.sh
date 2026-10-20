@@ -120,7 +120,7 @@ assert "restore-keys:" not in testnet_cache
 assert run(testnet_install) == expected_install
 assert "actions/cache@" not in testnet_web and "actions/cache/save@" not in testnet_web
 assert "save-if: false" in testnet_web
-assert "shared-key: release-packages-web-wasm-trusted-v2" in testnet_web
+assert "shared-key: release-packages-web-wasm-trusted-v3" in testnet_web
 assert "shared-key: testnet-packages-web-wasm-trusted-v2" not in testnet_web
 assert not re.search(r"\bcargo\s+install\s+trunk\b", testnet)
 assert [testnet_web.index(name) for name in (

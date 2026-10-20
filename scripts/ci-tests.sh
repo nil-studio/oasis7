@@ -8,7 +8,7 @@ tier="${1:-}"
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-core|full-support] [--repo-root PATH] [--group NAME] [--support-plan JSON|--support-profiles JSON]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--support-plan JSON|--support-profiles JSON]
 
   commit        Run the lightweight local commit gate used by pre-commit.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -16,6 +16,7 @@ Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-core|full-
   full-standard Run full checks excluding the independent formal-process suites.
   full-core     Run doc/fmt plus the heaviest `oasis7 --tests` full-tier shard.
   full-support  Run the remaining support crates/viewer shard plus `oasis7 --lib --bins`.
+  cache-native  Compile missing shared-cache variants without running tests.
 
 Requires Python 3.11 or newer with the standard-library tomllib module.
 The runner discovers a supported interpreter on PATH.
@@ -30,7 +31,7 @@ if [[ $# -eq 0 ]]; then
 fi
 
 case "$tier" in
-  commit|required|full|full-standard|full-core|full-support) ;;
+  commit|required|full|full-standard|full-core|full-support|cache-native) ;;
   *)
     usage
     exit 1
@@ -150,6 +151,12 @@ PY_VIEWER
   printf '%s\n' "$viewer_binary"
 }
 
+run_oasis7_package_tests() {
+  local features="$1"
+  shift
+  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+}
+
 run_oasis7_test_tier_with_viewer() {
   local features="$1"
   shift
@@ -158,7 +165,7 @@ run_oasis7_test_tier_with_viewer() {
   fi
   local viewer_binary
   viewer_binary="$(build_oasis7_viewer_binary "$features")"
-  PRE2_VIEWER_BINARY="$viewer_binary" run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+  PRE2_VIEWER_BINARY="$viewer_binary" run_oasis7_package_tests "$features" "$@"
 }
 
 run_oasis7_required_tier_tests() {
@@ -396,6 +403,8 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-workflow.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
+  run python3 ./scripts/ci-rust-cache-toolchains.test.py
+  run python3 ./scripts/ci-rust-cache-build.test.py
   run python3 ./scripts/ci-support-profiles.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
@@ -471,6 +480,7 @@ run_operational_node_contract_tests() {
 }
 
 run_operational_contract_tests() {
+  run python3 ./scripts/oasis7-runtime-finality-baseline.test.py
   run_operational_identity_contract_tests
   run_operational_node_contract_tests
 }
@@ -690,7 +700,17 @@ run_full_support_tier_tests() {
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
   run_oasis7_viewer_software_safe_build
-  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol --features wasmtime --lib --bins
+  run_oasis7_package_tests wasmtime --lib --bins
+}
+
+run_shared_native_cache_builds() {
+  # Bundle consumers do not populate this runner's target. Reuse the ordinary
+  # producer's exact variants, then fill the Release-only root-workspace gaps.
+  run python3 "$driver_dir/ci-test-artifacts.py" cache-build --scope ordinary --repo-root "$repo_root"
+  run_oasis7_package_tests wasmtime --lib --bins --no-run --locked
+  run_cargo build --locked -p oasis7_chain_runtime --bin oasis7_chain_runtime
+  run_cargo build --locked -p oasis7_distfs --bin hydrate_builtin_wasm
+  run_cargo build --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity
 }
 
 run_full_required_superset() {
@@ -767,6 +787,7 @@ else
     full|full-standard) run_full_required_superset; run_rust_baseline; run_oasis7_full_tier_tests; run_oasis7_llm_baseline_fixture_smoke; run_oasis7_production_mock_guard; run_oasis7_test_tier_with_viewer "test_tier_required,wasmtime" --lib --bins; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
     full-core) run_full_core_tier_tests ;;
     full-support) run_full_support_tier_tests ;;
+    cache-native) run_shared_native_cache_builds ;;
   esac
 fi
 

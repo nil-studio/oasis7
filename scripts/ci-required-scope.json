@@ -401,6 +401,7 @@
     },
     {
       "match": [
+        "scripts/oasis7-runtime-finality-*",
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
         "scripts/run-local-letai-game-test*",

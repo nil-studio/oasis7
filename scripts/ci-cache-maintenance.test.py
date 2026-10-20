@@ -29,8 +29,21 @@ def cache(number, *, compatibility='a', size=560_000_000, created=None, accessed
 def api_with(*snapshots):
     api = Mock()
     api.list_caches.side_effect = list(snapshots)
+    api.list_active_runs.return_value = []
     api.delete_cache.return_value = True
     return api
+
+
+def rust_cache(number, namespace, *, environment='a', dependencies='b', **overrides):
+    return cache(number, key=f'v0-rust-{namespace}-Linux-x64-{environment * 8}-{dependencies * 8}',
+                 **overrides)
+
+
+def active_run(number=42, *, created='2026-10-19T07:00:00Z', status='in_progress', **overrides):
+    result = dict(id=number, created_at=created, status=status, head_sha=f'{number:040x}',
+                  path='.github/workflows/rust.yml', repository={'full_name': 'nil-studio/oasis7'})
+    result.update(overrides)
+    return result
 
 
 class RetentionTests(unittest.TestCase):
@@ -44,12 +57,20 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual({item['id'] for item in plan['delete']}, {1, 2, 3, 4})
         self.assertEqual(plan['projected_bytes'], 1_120_000_000)
 
-    def test_family_budget_covers_old_compatibility_hashes(self):
+    def test_old_compatibility_groups_have_no_resident_allowance_below_the_budget(self):
         entries = [cache(1, compatibility='b'), cache(2, compatibility='c'), cache(3), cache(4)]
         plan = self.plan(entries)
-        self.assertEqual([item['id'] for item in plan['delete']], [1])
-        self.assertEqual(plan['projected_bytes'], 1_680_000_000)
+        self.assertEqual([item['id'] for item in plan['delete']], [1, 2])
+        self.assertEqual(plan['projected_bytes'], 1_120_000_000)
         self.assertLessEqual(plan['projected_bytes'], maintenance.FORMAL_MAX_BYTES)
+
+    def test_old_active_run_protects_caches_accessed_before_the_current_run(self):
+        entries = [cache(1, compatibility='b', created='2026-10-19T06:00:00Z',
+                         accessed='2026-10-19T07:30:00Z'), cache(2), cache(3)]
+        plan = self.plan(entries, active_runs=[active_run()])
+        self.assertEqual(plan['delete'], [])
+        self.assertIn(1, plan['protected_ids'])
+        self.assertEqual(plan['protection_started_at'], '2026-10-19T07:00:00Z')
 
     def test_old_run_finishing_late_preserves_newer_run_even_with_new_compatibility(self):
         entries = [cache(1), cache(2),
@@ -166,7 +187,162 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(report['after']['total_bytes'], 1_120_000_000)
 
 
+class RetiredNamespaceTests(unittest.TestCase):
+    migrations = {
+        'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
+        **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v3'
+           for shard in ('runtime-core', 'runtime-support', 'runtime-sync', 'soak')},
+        'release-packages-web-wasm-trusted-v2': 'release-packages-web-wasm-trusted-v3',
+        'oasis7-ecs-native-linux-packaging-v1': 'oasis7-ecs-native-linux-ecs-v2',
+        'oasis7-ecs-native-linux-ecs-v1': 'oasis7-ecs-native-linux-ecs-v2',
+    }
+
+    def test_only_enumerated_namespaces_retire_after_their_replacement_exists(self):
+        for old, new in self.migrations.items():
+            with self.subTest(old=old):
+                entries = [rust_cache(1, old), rust_cache(2, new), cache(3)]
+                plan = maintenance.plan_retention(entries, entries[-1]['key'], START)
+                self.assertEqual([entry['id'] for entry in plan['delete']], [1])
+                self.assertEqual(plan['delete'][0]['replacement_family'], new)
+
+    def test_missing_incomplete_other_ref_and_lookalike_replacements_do_not_authorize_retirement(self):
+        old = rust_cache(1, 'oasis7-ecs-native-linux-packaging-v1')
+        new = rust_cache(2, 'oasis7-ecs-native-linux-ecs-v2')
+        invalid = [[], [dict(new, size_in_bytes=0)], [dict(new, ref='refs/pull/1/merge')],
+                   [dict(new, key=new['key'] + '-extra')],
+                   [dict(new, key=new['key'].replace('aaaaaaaa', 'aaaaaaa'))],
+                   [dict(new, key=new['key'].replace('Linux-x64', 'Linux-arm64'))]]
+        for replacements in invalid:
+            with self.subTest(replacements=replacements):
+                entries = [old, *replacements, cache(3)]
+                plan = maintenance.plan_retention(entries, entries[-1]['key'], START)
+                self.assertEqual(plan['delete'], [])
+
+    def test_other_refs_unknown_namespaces_and_all_new_environment_keys_are_preserved(self):
+        old = rust_cache(1, 'ci-full-regression-trusted-v2')
+        new = rust_cache(2, 'ci-shared-native-trusted-v3')
+        entries = [dict(old, ref='refs/tags/v1.0.0'), new,
+                   rust_cache(3, 'ci-shared-native-trusted-v3', environment='c'),
+                   rust_cache(4, 'unregistered-trusted-v2'),
+                   dict(old, id=5, key=old['key'] + '-suffix'), cache(6)]
+        plan = maintenance.plan_retention(entries, entries[-1]['key'], START)
+        self.assertEqual(plan['delete'], [])
+        families = {entry['family'] for entry in maintenance.inventory_summary(entries)['groups']}
+        self.assertIn('rust/ci-shared-native-trusted-v3', families)
+        self.assertEqual(maintenance.family(rust_cache(7, 'oasis7-ecs-native-linux-ecs-v2')['key']),
+                         'rust/oasis7-ecs-native-linux-ecs-v2')
+
+    def test_active_access_and_incomplete_old_cache_are_protected(self):
+        entries = [rust_cache(1, 'ci-full-regression-trusted-v2',
+                              created='2026-10-19T06:00:00Z', accessed='2026-10-19T07:30:00Z'),
+                   rust_cache(2, 'ci-full-regression-trusted-v2', size=0),
+                   rust_cache(3, 'ci-shared-native-trusted-v3'), cache(4)]
+        plan = maintenance.plan_retention(entries, entries[-1]['key'], START,
+                                          active_runs=[active_run()])
+        self.assertEqual(plan['delete'], [])
+
+    def test_replacement_identity_must_survive_both_inventories(self):
+        old = rust_cache(1, 'oasis7-ecs-native-linux-packaging-v1')
+        new = rust_cache(2, 'oasis7-ecs-native-linux-ecs-v2')
+        first = [old, new, cache(3)]
+        replacements = [[], [dict(new, version='v2')], [dict(new, size_in_bytes=0)],
+                        [dict(new, size_in_bytes=new['size_in_bytes'] + 1)],
+                        [rust_cache(4, 'oasis7-ecs-native-linux-ecs-v2', environment='c')]]
+        for replacement in replacements:
+            with self.subTest(replacement=replacement):
+                second = [old, *replacement, first[-1]]
+                api = api_with(first, second, second)
+                report = maintenance.maintain(api, first[-1]['key'], START, apply=True)
+                api.delete_cache.assert_not_called()
+                self.assertEqual(report['deleted_ids'], [])
+
+    def test_one_stable_replacement_is_enough_without_picking_a_newest_environment(self):
+        old = rust_cache(1, 'release-packages-web-wasm-trusted-v2')
+        replacement_a = rust_cache(2, 'release-packages-web-wasm-trusted-v3')
+        replacement_b = rust_cache(3, 'release-packages-web-wasm-trusted-v3', environment='c')
+        current = cache(4)
+        first = [old, replacement_a, replacement_b, current]
+        second = [old, replacement_a, dict(replacement_b, size_in_bytes=0), current]
+        api = api_with(first, second, second[1:])
+        report = maintenance.maintain(api, current['key'], START, apply=True)
+        api.delete_cache.assert_called_once_with(1)
+        self.assertEqual(report['deleted_ids'], [1])
+
+    def test_later_replacement_and_later_active_run_cannot_expand_the_deletion_set(self):
+        old = rust_cache(1, 'ci-full-regression-trusted-v2')
+        new = rust_cache(2, 'ci-shared-native-trusted-v3')
+        current = cache(3)
+        first, second = [old, current], [old, new, current]
+        api = api_with(first, second, second)
+        report = maintenance.maintain(api, current['key'], START, apply=True)
+        api.delete_cache.assert_not_called()
+        self.assertEqual(report['deleted_ids'], [])
+
+        api = api_with(second, second, second)
+        api.list_active_runs.side_effect = [[], [active_run()]]
+        report = maintenance.maintain(api, current['key'], START, apply=True)
+        api.delete_cache.assert_not_called()
+        self.assertEqual(report['deleted_ids'], [])
+
+    def test_either_active_run_inventory_failure_prevents_all_deletes(self):
+        entries = [rust_cache(1, 'ci-full-regression-trusted-v2'),
+                   rust_cache(2, 'ci-shared-native-trusted-v3'), cache(3)]
+        for snapshots in ([maintenance.MaintenanceError('active page two failed')],
+                          [[], maintenance.MaintenanceError('active page two failed')]):
+            with self.subTest(snapshots=snapshots):
+                api = api_with(entries, entries, entries)
+                api.list_active_runs.side_effect = snapshots
+                report = maintenance.maintain(api, entries[-1]['key'], START, apply=True)
+                api.delete_cache.assert_not_called()
+                self.assertEqual(report['status'], 'skipped')
+                self.assertTrue(report['warnings'])
+
+
 class ApiTests(unittest.TestCase):
+    def test_active_run_statuses_are_completely_paginated_and_cross_status_moves_are_deduplicated(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        runs = [active_run(i, status='requested') for i in range(1, 102)]
+        responses = [{'total_count': 101, 'workflow_runs': runs[:100]},
+                     {'total_count': 101, 'workflow_runs': runs[100:]},
+                     {'total_count': 0, 'workflow_runs': []},
+                     {'total_count': 0, 'workflow_runs': []},
+                     {'total_count': 0, 'workflow_runs': []},
+                     {'total_count': 1, 'workflow_runs': [dict(runs[0], status='in_progress')]}]
+        api.request = Mock(side_effect=responses)
+        actual = api.list_active_runs()
+        self.assertEqual({run['id'] for run in actual}, set(range(1, 102)))
+        paths = [call.args[1] for call in api.request.call_args_list]
+        self.assertTrue(any('page=2' in path for path in paths))
+        for status in ('requested', 'pending', 'waiting', 'queued', 'in_progress'):
+            self.assertTrue(any(f'status={status}' in path for path in paths), status)
+
+    def test_active_run_incomplete_or_inconsistent_pages_fail_closed(self):
+        runs = [active_run(i, status='requested') for i in range(1, 101)]
+        failures = [{'total_count': 101, 'workflow_runs': []},
+                    {'total_count': 101, 'workflow_runs': [runs[0]]},
+                    {'total_count': 102, 'workflow_runs': [active_run(101)]},
+                    maintenance.MaintenanceError('HTTP 500')]
+        for second in failures:
+            with self.subTest(second=second):
+                api = maintenance.GitHubApi('nil-studio/oasis7', '')
+                api.request = Mock(side_effect=[{'total_count': 101, 'workflow_runs': runs}, second])
+                with self.assertRaises(maintenance.MaintenanceError):
+                    api.list_active_runs()
+
+    def test_active_run_unknown_identity_status_and_api_filter_limit_fail_closed(self):
+        invalid = [active_run(id=True), active_run(created='bad'), active_run(status='unknown'),
+                   active_run(head_sha='bad'), active_run(repository={'full_name': 'other/repo'})]
+        for run in invalid:
+            with self.subTest(run=run):
+                api = maintenance.GitHubApi('nil-studio/oasis7', '')
+                api.request = Mock(return_value={'total_count': 1, 'workflow_runs': [run]})
+                with self.assertRaises(maintenance.MaintenanceError):
+                    api.list_active_runs()
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        api.request = Mock(return_value={'total_count': 1001, 'workflow_runs': []})
+        with self.assertRaises(maintenance.MaintenanceError):
+            api.list_active_runs()
+
     def test_complete_pagination_and_deterministic_created_sort(self):
         api = maintenance.GitHubApi('nil-studio/oasis7', '')
         entries = [cache(i) for i in range(1, 102)]

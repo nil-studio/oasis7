@@ -163,6 +163,15 @@ def build_environment(scope):
     return env
 
 
+def build_cache_dependencies(scope):
+    """Compile the producer's exact variants without copying/running a bundle."""
+    env = build_environment(scope)
+    for name, args, _ in build_variants(scope):
+        command = ['cargo', *args, '--locked']
+        print('cache_build_variant=' + name + ' command=' + ' '.join(command), flush=True)
+        subprocess.run(command, env=env, cwd=ROOT, check=True)
+
+
 def validate_profile(logical, binary, scope=None):
     if logical == 'endpoint':
         profile = binary['profile']
@@ -849,7 +858,7 @@ def execute(bundle, suite, results, shard=None):
 def main():
     global ROOT, CONFIG
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-budget', 'cache-stage', 'cache-restore'])
+    parser.add_argument('action', choices=['build', 'run', 'pack', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
@@ -868,6 +877,9 @@ def main():
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     if args.measure_only and args.action != 'cache-stage':
         parser.error('--measure-only requires cache-stage')
+    if args.action == 'cache-build':
+        build_cache_dependencies(args.scope)
+        return
     if args.action in ('cache-budget', 'cache-stage', 'cache-restore'):
         if args.action == 'cache-budget':
             report = cache_budget(ROOT / 'target', args.max_bytes)
