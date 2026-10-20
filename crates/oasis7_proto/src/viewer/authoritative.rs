@@ -56,7 +56,7 @@ pub struct AuthoritativeChallengeAck<Time> {
     pub submitted_at_tick: Time,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_at_tick: Option<Time>,
-    #[serde(skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub slash_applied: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slash_reason: Option<String>,

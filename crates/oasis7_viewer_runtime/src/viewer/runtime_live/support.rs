@@ -25,7 +25,7 @@ impl ViewerRuntimeLiveServerConfig {
         Self {
             response_frame_max_bytes: 16 * 1024 * 1024,
             response_turn_max_bytes: 64 * 1024 * 1024,
-            response_turn_max_frames: 256,
+            response_turn_max_frames: DEFAULT_RESPONSE_TURN_MAX_FRAMES,
             response_write_timeout: Duration::from_secs(2),
             bind_addr: "127.0.0.1:5010".to_string(),
             world_id: format!("live-runtime-{}", scenario.as_str()),
@@ -57,7 +57,7 @@ impl ViewerRuntimeLiveServerConfig {
         Self {
             response_frame_max_bytes: 16 * 1024 * 1024,
             response_turn_max_bytes: 64 * 1024 * 1024,
-            response_turn_max_frames: 256,
+            response_turn_max_frames: DEFAULT_RESPONSE_TURN_MAX_FRAMES,
             response_write_timeout: Duration::from_secs(2),
             bind_addr: "127.0.0.1:5010".to_string(),
             world_id: FORMAL_RELEASE_DEFAULT_WORLD_ID.to_string(),
