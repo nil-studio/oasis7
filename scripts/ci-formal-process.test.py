@@ -445,12 +445,14 @@ class WorkspaceCache(unittest.TestCase):
             'println!("cargo:rerun-if-changed=input.txt"); println!("cargo:rerun-if-env-changed=CACHE_FIXTURE_ENV");', '')
         (self.root / 'app/build.rs').write_text(self.sources['app/build.rs'])
         self.seed()
-        for change in ('new', 'deleted', 'source-symlink'):
+        for change in ('new', 'deleted', 'renamed', 'source-symlink'):
             with self.subTest(change=change):
                 self.checkout()
                 path = self.root / 'app/input.txt'
                 if change == 'new':
                     (self.root / 'app/new.txt').write_text('new ignored input')
+                elif change == 'renamed':
+                    path.rename(self.root / 'app/renamed-input.txt')
                 else:
                     path.unlink()
                     if change == 'source-symlink':
@@ -460,7 +462,7 @@ class WorkspaceCache(unittest.TestCase):
                 self.assertFalse((self.root / 'target/debug/cache_app').exists())
 
                 if change != 'source-symlink':
-                    units, _ = self.cargo(success=change != 'deleted')
+                    units, _ = self.cargo(success=change not in ('deleted', 'renamed'))
                     self.assertTrue(any(not u['fresh'] for u in units))
         original = json.loads((self.cache / 'manifest.json').read_text())
         for damage in ('digest', 'missing', 'payload-symlink', 'traversal', 'future', 'checkout'):
