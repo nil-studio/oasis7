@@ -161,6 +161,7 @@ impl Client {
             json!({"api_revision":1,"read_version":view.version(),"logical_tick":view.logical_tick(),
                 "task_control":projection.game_task_control,
                 "proposal_forms":[
+                    {"action_ref":"native.world_rule","arguments":{"request":"stable business request ID","command":"typed WorldRuleCommandV1 JSON; exact case/authorization/factory scope"},"admission_required":true},
                     {"action_ref":"native.build_factory","arguments":{"site":"authorized ready site ID","factory":"factory ID matching a current BuildFactory grant.object_id","kind":"factory.smelter.mk1|factory.assembler.mk1"},"signed_quote_required":true,"admission_required":true},
                     {"action_ref":"native.move_agent","arguments":{"to":"three signed i64 centimeter coordinates x,y,z"},"admission_required":true},
                     {"action_ref":"native.schedule_recipe","arguments":{"factory":"factory ID","recipe":"exact built-in recipe ID","batches":"positive u32"},"signed_quote_required":true,"admission_required":true},
@@ -178,10 +179,10 @@ impl Client {
     }
     pub fn industry(&self) -> Result<Value, String> {
         let view = self.public_view()?;
-        let state = serde_json::to_value(&view.projection().state)
-            .map_err(|_| "industry encoding failed")?;
+        let state = &view.projection().state;
         let mut fields = serde_json::Map::new();
         for name in [
+            "world_rules",
             "materials",
             "material_ledgers",
             "material_profiles",
@@ -202,12 +203,16 @@ impl Client {
         ] {
             fields.insert(
                 name.into(),
-                bounded_collection(state.get(name).cloned().unwrap_or(Value::Null)),
+                if name == "world_rules" {
+                    bounded_world_rules(state.get(name).cloned().unwrap_or(Value::Null))
+                } else {
+                    bounded_collection(state.get(name).cloned().unwrap_or(Value::Null))
+                },
             );
         }
         Ok(
             json!({"api_revision":1,"read_version":view.version(),"logical_tick":view.logical_tick(),
-            "industry":fields,"collection_limit":128,"scope":"authenticated public industry observation; no signed transfer quote is provided"}),
+            "world_rule_status":view.raw_projection().get("world_rule_status"),"industry":fields,"collection_limit":128,"scope":"authenticated public industry observation; no signed transfer quote is provided"}),
         )
     }
     pub fn quote_schedule(

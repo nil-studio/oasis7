@@ -89,6 +89,7 @@ impl PreparedRecipeLifecycle {
             (requester.to_string(), cell)
         });
         Self {
+            world_rules: None,
             event: event.clone(),
             pending: None,
             settled_id: None,
@@ -111,6 +112,7 @@ impl PreparedRecipeLifecycle {
         now: WorldTime,
     ) -> Result<Self, WorldError> {
         let DomainEvent::RecipeStarted {
+            emergency_power_obligation,
             committed_recipe_origin,
             job_id,
             requester_agent_id,
@@ -262,12 +264,55 @@ impl PreparedRecipeLifecycle {
                 "recipe power_required must be non-negative: job_id={job_id} power_required={power_required}"
             )));
         }
-        let available = agent.state.resources.get(ResourceKind::Electricity);
-        if available < *power_required {
-            return Err(invalid(format!(
-                "recipe power consume failed: insufficient electricity: payer={power_owner} requested={power_required} available={available}"
-            )));
-        }
+        let prepared_rules = if let Some(obligation) = emergency_power_obligation {
+            let canonical = crate::builtin_recipe_plan(recipe_id, *accepted_batches)
+                .ok_or_else(|| invalid("unsupported_essential_recipe"))?;
+            if crate::state::apply_domain_event_industry_helpers::recipe_consume_with_maintenance(
+                state,
+                &canonical.consume,
+                &canonical.produce,
+            ) != *consume
+                || canonical.power_required != *power_required
+                || canonical.produce != *produce
+                || canonical.byproducts != *byproducts
+                || *duration_ticks < canonical.duration_ticks
+                || *ready_at < now.saturating_add(u64::from(canonical.duration_ticks))
+            {
+                return Err(invalid("essential_recipe_plan_mismatch"));
+            }
+            let mut rules = state
+                .world_rules
+                .clone()
+                .ok_or_else(|| invalid("resource_blocked"))?;
+            let service = rules
+                .emergency_supply
+                .services
+                .get(obligation)
+                .ok_or_else(|| invalid("need_source_unverifiable"))?;
+            if factory.site_location_id.as_ref() != Some(&service.location_id)
+                || state
+                    .agent_location_authorities
+                    .get(requester_agent_id)
+                    .is_none_or(|l| !l.active || l.location_id != service.location_id)
+            {
+                return Err(invalid("essential_recipe_location_mismatch"));
+            }
+            rules.emergency_supply = rules.emergency_supply.prepare_consumption_for_world(
+                state,
+                requester_agent_id,
+                obligation,
+                recipe_id,
+                now,
+                *power_required,
+            )?;
+            Some(rules)
+        } else {
+            let available = agent.state.resources.get(ResourceKind::Electricity);
+            if available < *power_required {
+                return Err(invalid("insufficient electricity"));
+            }
+            None
+        };
         let mut ledgers = BTreeMap::from([(world_id.clone(), world)]);
         if consume_ledger != &world_id {
             ledgers.insert(
@@ -291,15 +336,17 @@ impl PreparedRecipeLifecycle {
         if consume_ledger == &world_id {
             materials = ledgers[&world_id].clone();
         }
-        agent
-            .state
-            .resources
-            .remove(ResourceKind::Electricity, *power_required)
-            .map_err(|r| {
-                invalid(format!(
-                    "recipe power consume failed for payer {power_owner}: {r:?}"
-                ))
-            })?;
+        if emergency_power_obligation.is_none() {
+            agent
+                .state
+                .resources
+                .remove(ResourceKind::Electricity, *power_required)
+                .map_err(|r| {
+                    invalid(format!(
+                        "recipe power consume failed for payer {power_owner}: {r:?}"
+                    ))
+                })?;
+        }
         let mut paths = BTreeMap::new();
         for (path_id, amount) in allocations {
             let mut path = state.completed_logistics_paths[&path_id].clone();
@@ -327,11 +374,24 @@ impl PreparedRecipeLifecycle {
                 .latest_market_quotes
                 .insert(quote.kind.clone(), quote.clone());
         }
+        let emergency_power_world_binding = if emergency_power_obligation.is_some() {
+            Some(
+                prepared_rules
+                    .as_ref()
+                    .and_then(|rules| rules.emergency_supply.world_id.clone())
+                    .filter(|binding| !binding.is_empty())
+                    .ok_or_else(|| invalid("essential_recipe_world_binding_missing"))?,
+            )
+        } else {
+            None
+        };
         Ok(Self {
+            world_rules: prepared_rules,
             event: event.clone(),
             pending: Some((
                 *job_id,
                 Some(RecipeJobState {
+                    emergency_power_world_binding,
                     committed_recipe_origin: committed_recipe_origin.clone(),
                     job_id: *job_id,
                     requester_agent_id: requester_agent_id.clone(),
@@ -552,6 +612,7 @@ impl PreparedRecipeLifecycle {
                 (requester_agent_id.clone(), cell)
             });
         Ok(Self {
+            world_rules: None,
             event: event.clone(),
             pending: Some((*job_id, None)),
             settled_id: Some(*job_id),
@@ -705,6 +766,7 @@ impl PreparedRecipeLifecycle {
             && !state.industry_settlement_orders.contains_key(action_id))
         .then(|| state.next_industry_settlement_order.saturating_add(1));
         Ok(Self {
+            world_rules: None,
             event: event.clone(),
             pending: terminal.then_some((*action_id, None)),
             settled_id: terminal.then_some(*action_id),
@@ -729,6 +791,7 @@ impl PreparedRecipeLifecycle {
         world: BTreeMap<String, i64>,
     ) -> Self {
         Self {
+            world_rules: None,
             event: event.clone(),
             pending: None,
             settled_id: None,
@@ -754,6 +817,9 @@ impl PreparedRecipeLifecycle {
     }
 
     pub(crate) fn install(self, state: &mut WorldState) {
+        if let Some(rules) = self.world_rules {
+            state.world_rules = Some(rules);
+        }
         state.material_ledgers.extend(self.ledgers);
         state.materials = self.materials;
         if let Some((id, pending)) = self.pending {

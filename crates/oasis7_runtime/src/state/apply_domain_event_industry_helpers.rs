@@ -117,3 +117,17 @@ pub(super) fn validate_recipe_output_capacity(
     }
     Ok(())
 }
+
+/// The same maintenance sink is charged by normal and restricted-power schedules.
+pub(crate) fn recipe_consume_with_maintenance(state:&crate::WorldState, consume:&[crate::MaterialStack], produce:&[crate::MaterialStack])->Vec<crate::MaterialStack> {
+    let mut merged=std::collections::BTreeMap::<String,i64>::new();
+    for stack in consume {let entry=merged.entry(stack.kind.clone()).or_default();*entry=entry.saturating_add(stack.amount);}
+    for stack in produce.iter().filter(|s|s.amount>0) {
+        if let Some(profile)=state.product_profiles.get(&stack.kind) {
+            for sink in profile.maintenance_sink.iter().filter(|s|s.amount>0) {
+                let entry=merged.entry(sink.kind.clone()).or_default(); *entry=entry.saturating_add(sink.amount.saturating_mul(stack.amount));
+            }
+        }
+    }
+    merged.into_iter().map(|(kind,amount)|crate::MaterialStack::new(kind,amount)).collect()
+}

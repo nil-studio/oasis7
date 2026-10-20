@@ -137,3 +137,40 @@ fn typed_legacy_and_independent_read_codecs_preserve_public_owner_delegate_commi
         commitments.root().unwrap()
     );
 }
+
+#[test]
+fn reader_keeps_current_claim_sequence_without_disclosing_terminal_tombstones() {
+    let mut state = populated_world().state().clone();
+    state.agent_claims.insert(
+        "7".into(),
+        serde_json::from_value(serde_json::json!({
+            "target_agent_id":"7", "claim_owner_id":"7"
+        }))
+        .unwrap(),
+    );
+    state
+        .agent_claim_acquisition_sequences
+        .insert("7".into(), 3);
+    state
+        .agent_claim_acquisition_sequences
+        .insert("terminated-target".into(), 9);
+    let world = World::new_with_state(state);
+    let projection = WorldServiceProjection::from_world(&world, Some("7")).unwrap();
+    assert_eq!(
+        projection.state.agent_claim_acquisition_sequences.get("7"),
+        Some(&3)
+    );
+    assert!(
+        !projection
+            .state
+            .agent_claim_acquisition_sequences
+            .contains_key("terminated-target")
+    );
+    assert_eq!(
+        serde_json::to_value(&projection).unwrap(),
+        serde_json::to_value(
+            WorldServiceProjection::legacy_projection_from_world(&world, Some("7")).unwrap()
+        )
+        .unwrap()
+    );
+}

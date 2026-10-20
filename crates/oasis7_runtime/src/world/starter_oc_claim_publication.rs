@@ -46,6 +46,9 @@ impl PreparedStarterOcClaimed {
                 .ok_or_else(|| WorldError::AgentNotFound {
                     agent_id: agent_id.clone(),
                 })?;
+        if state.is_manufactured_agent(agent_id) {
+            return Err(invalid("manufactured_agent_cannot_claim_starter_support"));
+        }
         if state.starter_oc_claims.contains_key(agent_id) {
             return Err(invalid(format!(
                 "starter OC already claimed for agent: {agent_id}"

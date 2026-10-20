@@ -489,6 +489,7 @@ fn materials_routing_trim_and_topup_action_raw_parity_are_exact() {
         world
             .append_event_for_test(
                 WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                     agent_id: "liveops".into(),
                     pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
                 }),
@@ -547,6 +548,7 @@ fn materials_routing_trim_and_topup_action_raw_parity_are_exact() {
             world
                 .append_event_for_test(
                     WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                         agent_id: actor.clone(),
                         pos: oasis7_agent_api::world_action::GeoPos::new(index as i64, 0, 0),
                     }),

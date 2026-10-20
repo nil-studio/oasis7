@@ -26,7 +26,7 @@ fn every_domain_event_has_an_explicit_fail_closed_publication_classification() {
 
     assert_eq!(
         variants.len(),
-        103,
+        104,
         "review newly added DomainEvent variants"
     );
     let missing = variants

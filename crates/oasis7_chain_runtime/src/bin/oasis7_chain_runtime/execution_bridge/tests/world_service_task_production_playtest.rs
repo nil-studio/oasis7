@@ -2,7 +2,10 @@
 use super::*;
 #[path = "world_service_task_production_quote_retry.rs"]
 mod quote_retry;
+#[path = "world_service_task_world_rule_identity.rs"]
+mod world_rule_identity;
 use std::path::PathBuf;
+pub(super) use world_rule_identity::pin_world_rule_resource_identity;
 pub(super) fn fixture() -> (
     PathBuf,
     NodeRuntimeExecutionDriver,
@@ -21,6 +24,27 @@ pub(super) fn fixture_kind(
     String,
     String,
 ) {
+    fixture_mode(starter_chain, false)
+}
+pub(super) fn world_rule_fixture() -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture_mode(false, true)
+}
+fn fixture_mode(
+    starter_chain: bool,
+    world_rule: bool,
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
     let verified_authority = true;
     let dir = temp_dir("world-service-owner-chat");
     let owner = hex::encode([7u8; 32]);
@@ -31,16 +55,87 @@ pub(super) fn fixture_kind(
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = oasis7::runtime_host::world::new_with_state(if starter_chain {
+    let mut initial = if starter_chain {
         super::starter_chain_playtest::initial_state()
     } else {
         initial_state()
-    });
+    };
+    if world_rule {
+        let factory = initial.factories.get_mut("production-factory").unwrap();
+        factory.spec = oasis7_agent_api::world_quote::builtin_factory_spec(
+            "factory.assembler.mk1",
+            "production-factory",
+        )
+        .unwrap();
+        initial.factory_profiles.insert(
+            "production-factory".into(),
+            oasis7_runtime::FactoryProfileV1 {
+                factory_id: "production-factory".into(),
+                tier: 1,
+                recipe_slots: 2,
+                tags: vec!["assembler".into()],
+            },
+        );
+        factory.site_location_id = Some("production-location".into());
+        factory.site_authority_revision = Some(1);
+        factory.location_anchor_revision = Some(1);
+        factory.input_ledger = oasis7_runtime::MaterialLedgerId::agent("agent-a");
+        factory.output_ledger = factory.input_ledger.clone();
+        initial.material_ledgers.insert(
+            factory.input_ledger.clone(),
+            [
+                ("alloy_plate".into(), 12),
+                ("control_chip".into(), 4),
+                ("module_rack".into(), 1),
+                ("motor_mk1".into(), 4),
+                ("sensor_pack".into(), 2),
+            ]
+            .into_iter()
+            .collect(),
+        );
+    }
+    if world_rule {
+        initial.location_anchors.insert(
+            "production-location".into(),
+            oasis7_runtime::LocationAnchorV1 {
+                location_id: "production-location".into(),
+                active: true,
+                authority_revision: 1,
+                ..Default::default()
+            },
+        );
+        initial.factory_site_authorities.insert(
+            "production-site".into(),
+            oasis7_runtime::FactorySiteAuthorityV1 {
+                site_id: "production-site".into(),
+                location_id: "production-location".into(),
+                owner_agent_id: "agent-a".into(),
+                active: true,
+                chunk_ready: true,
+                authority_revision: 1,
+                ..Default::default()
+            },
+        );
+        initial.agent_location_authorities.insert(
+            "agent-a".into(),
+            oasis7_runtime::AgentLocationAuthorityV1 {
+                agent_id: "agent-a".into(),
+                location_id: "production-location".into(),
+                active: true,
+                authority_revision: 1,
+                ..Default::default()
+            },
+        );
+    }
+    let mut world = oasis7::runtime_host::world::new_with_state(initial);
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
+    if world_rule {
+        world.set_agent_reputation_score("agent-a", 25).unwrap();
+    }
     world
         .set_agent_resource_balance(
             "agent-a",
@@ -73,16 +168,37 @@ pub(super) fn fixture_kind(
             0,
         )
         .unwrap();
-    world
-        .install_test_provider_capability_fixture_without_cognition_balance("agent-a")
-        .unwrap();
+    world_rule_identity::install_provider_fixture(&mut world, world_rule);
     if verified_authority {
         assert!(world.promote_cognition_runtime_finality().unwrap());
     }
     world
         .provision_cognition_for_agent("agent-a", "provision-a", "owner-a", 100)
         .unwrap();
-    if starter_chain {
+    if world_rule {
+        world
+            .install_test_native_delegation_grant(oasis7_runtime::AgentDelegationGrantV1 {
+                grant_id: "industrial-order-budget".into(),
+                source_id: format!(
+                    "starter_claim:agent-a:{}",
+                    world.state().starter_oc_claims["agent-a"].claimed_at
+                ),
+                issuer_id: "owner-a".into(),
+                owner_id: "owner-a".into(),
+                organization_id: None,
+                agent_id: "agent-a".into(),
+                object_id: "production-factory".into(),
+                action_kinds: vec!["WorldRule".into()],
+                revision: 1,
+                period_id: "industrial-order-playtest".into(),
+                valid_from_tick: 0,
+                valid_until_tick: 1000,
+                limit_units: 64,
+                resource_kind: "electricity".into(),
+                revoked: false,
+            })
+            .unwrap();
+    } else if starter_chain {
         super::starter_chain_playtest::authorize(&mut world);
     } else {
         world
@@ -149,7 +265,7 @@ pub(super) fn fixture_kind(
         &oasis7_runtime::ReleaseSecurityPolicy::default(),
     )
     .unwrap();
-    let driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
+    let mut driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
         dir.join("state.json"),
         dir.join("world"),
         dir.join("records"),
@@ -158,6 +274,9 @@ pub(super) fn fixture_kind(
         baseline,
     )
     .unwrap();
+    if world_rule {
+        pin_world_rule_resource_identity(&mut driver, &identity);
+    }
     (dir, driver, identity, owner, public)
 }
 fn initial_state() -> WorldState {

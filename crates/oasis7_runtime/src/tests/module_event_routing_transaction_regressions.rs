@@ -91,6 +91,7 @@ fn routed_event() -> WorldEvent {
         time: 4,
         caused_by: None,
         body: WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
             agent_id: "event-route-target".to_string(),
             pos: super::pos(0, 0),
         }),

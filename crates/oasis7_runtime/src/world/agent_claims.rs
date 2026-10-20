@@ -21,7 +21,11 @@ impl World {
         &self,
         claimer_agent_id: &str,
     ) -> Result<AgentClaimCostQuote, WorldError> {
-        let owned_claim_count = self.claimed_agent_count(claimer_agent_id);
+        let owned_claim_count = if self.state.starter_oc_claims.contains_key(claimer_agent_id) {
+            let mut targets=crate::world_rules::manufacturing_existing_targets(&self.state,claimer_agent_id)?;
+            targets.extend(crate::world_rules::manufacturing_reserved_targets(&self.state,claimer_agent_id));
+            targets.len()
+        } else {self.claimed_agent_count(claimer_agent_id)};
         let reputation_score = self
             .state
             .reputation_scores
@@ -109,6 +113,7 @@ impl World {
         );
         if let Ok(funding) = funding {
             return Ok(Some(DomainEvent::AgentClaimUpkeepSettled {
+                activity_contract_version: 1,
                 claimer_agent_id: latest_claim.claim_owner_id.clone(),
                 target_agent_id: latest_claim.target_agent_id.clone(),
                 settled_at_epoch: current_epoch,
@@ -318,4 +323,34 @@ fn reclaim_bond_settlement(
         penalty_amount,
         refunded_bond_amount,
     )
+}
+
+// Historical v0 acquisition fixture: upkeep/replay regressions must continue
+// covering worlds with pre-industrial claims, without reopening the v1 action.
+#[cfg(test)]
+impl World {
+    pub(crate) fn append_legacy_claim_fixture(&mut self, owner: &str, target: &str) {
+        let q = agent_claim_quote(self.state.reputation_scores.get(owner).copied().unwrap_or(0),self.claimed_agent_count(owner)).unwrap();
+        let mut data = serde_json::to_value(&q)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        data.remove("claim_cap");
+        data.extend(serde_json::json!({
+            "claimer_agent_id":owner,"target_agent_id":target,
+            "upfront_restricted_spent_amount":0,
+            "upfront_liquid_spent_amount":q.activation_fee_amount+q.claim_bond_amount+q.upkeep_per_epoch,
+            "auto_issued_restricted_amount":0,
+            "auto_issued_restricted_source_treasury_bucket_id":null,
+            "claim_bond_locked_restricted_amount":0,
+            "claim_bond_locked_liquid_amount":q.claim_bond_amount,
+            "claimed_at_epoch":self.current_governance_epoch(),
+            "upkeep_paid_through_epoch":self.current_governance_epoch()
+        }).as_object().unwrap().clone());
+        let event: DomainEvent =
+            serde_json::from_value(serde_json::json!({"type":"AgentClaimed","data":data})).unwrap();
+        self.append_event(WorldEventBody::Domain(event), None)
+            .unwrap();
+    }
 }

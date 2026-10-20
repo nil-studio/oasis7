@@ -88,6 +88,7 @@ pub(crate) struct PreparedFactoryLifecycle {
 
 #[derive(Debug)]
 pub(crate) struct PreparedRecipeLifecycle {
+    world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     event: DomainEvent,
     pending: Option<(ActionId, Option<RecipeJobState>)>,
     settled_id: Option<ActionId>,
@@ -104,6 +105,20 @@ pub(crate) struct PreparedRecipeLifecycle {
 }
 
 impl PreparedIndustryEvent {
+    pub(crate) fn world_rules_projection(&self)->Option<&crate::world_rules::WorldRulesStateV1> {match self {Self::RecipeLifecycle(v)=>v.world_rules.as_ref(),_=>None}}
+
+    pub(crate) fn prepare_reserved_transit(
+        state: &WorldState,
+        event: &DomainEvent,
+        routed: &DomainEvent,
+        now: WorldTime,
+    ) -> Result<Self, WorldError> {
+        let mut value =
+            PreparedMaterialTransit::prepare_started_with_reservation(state, event, now, true)?;
+        value.event = routed.clone();
+        Ok(Self::MaterialTransit(Box::new(value)))
+    }
+
     pub(crate) fn has_construction_receipt(&self) -> bool {
         matches!(self, Self::FactoryLifecycle(value) if value.construction_receipt.is_some())
     }
@@ -118,6 +133,16 @@ impl PreparedIndustryEvent {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
+        let factory = match event {
+            DomainEvent::RecipeStarted { factory_id, .. }
+            | DomainEvent::FactoryRecycled { factory_id, .. } => Some(factory_id),
+            _ => None,
+        };
+        if factory.is_some_and(|id| {
+            let reserved=crate::world_rules::manufacturing_reserved_slots(state,id) as usize;
+            let jobs=state.pending_recipe_jobs.values().filter(|j|&j.factory_id==id).count();
+            reserved>0 && (matches!(event,DomainEvent::FactoryRecycled{..}) || state.factories.get(id).is_none_or(|f|jobs+reserved>=f.spec.recipe_slots as usize))
+        }) { return Err(invalid("factory_capacity_reserved_by_agent_order")); }
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. } => Ok(Self::LogisticsTopology(

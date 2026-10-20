@@ -150,7 +150,8 @@ impl ViewerRuntimeLiveServer {
         // or provider queueing so an unsupported provider has no side effect.
         self.llm_sidecar
             .ensure_provider_agent_chat_capability(agent_id.as_str())?;
-        if self.world.main_token_liquid_balance(agent_id.as_str()) == 0
+        if !self.world.state().is_manufactured_agent(agent_id.as_str())
+            && self.world.main_token_liquid_balance(agent_id.as_str()) == 0
             && !self
                 .world
                 .state()

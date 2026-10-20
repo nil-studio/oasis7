@@ -362,11 +362,7 @@ impl World {
             ));
         }
         ensure_local_finality_snapshot(self, binding.finality_epoch)?;
-        let identity = match self
-            .capability_revocation_state
-            .agent_identities
-            .get(config.agent_id.as_str())
-            .cloned()
+        let identity = match self.current_agent_identity(config.agent_id.as_str())
         {
             Some(existing) if existing.owner_binding == config.owner_binding => {
                 if existing.generation != config.owner_generation {

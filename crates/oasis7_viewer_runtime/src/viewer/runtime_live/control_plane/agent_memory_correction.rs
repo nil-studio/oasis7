@@ -150,13 +150,7 @@ impl ViewerRuntimeLiveServer {
                 "this player is not the bound owner of the requested Agent",
             );
         }
-        let Some(claim) = self
-            .world
-            .state()
-            .starter_oc_claims
-            .get(&request.agent_id)
-            .cloned()
-        else {
+        let Some(claim) = self.world.current_agent_owner(&request.agent_id) else {
             return agency_error(
                 request_id,
                 "owner_source_unavailable",
@@ -171,7 +165,7 @@ impl ViewerRuntimeLiveServer {
             );
         }
         let owner_id = claim.player_id.clone();
-        let source_id = format!("starter_claim:{}:{}", request.agent_id, claim.claimed_at);
+        let source_id = claim.source_id.clone();
         if let Err(message) = self
             .llm_sidecar
             .validate_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
@@ -708,7 +702,9 @@ impl ViewerRuntimeLiveServer {
             );
         }
         if existing.iter().any(|row| {
-            row.grant.object_id == grant.object_id
+            row.grant.source_id == grant.source_id
+                && !row.grant.revoked
+                && row.grant.object_id == grant.object_id
                 && row
                     .grant
                     .action_kinds

@@ -196,6 +196,7 @@ fn economic_contract_persisted_service_cannot_be_settled_by_atomic_event() {
             &DomainEvent::EconomicContractSettled {
                 operator_agent_id: "creator".to_string(),
                 contract_id: "contract.guard".to_string(),
+                world_binding: None,
                 success: false,
                 transfer_amount: 0,
                 tax_amount: 0,
@@ -291,6 +292,7 @@ fn economic_contract_persisted_service_cannot_be_expired_by_atomic_lifecycle() {
 
 fn sample_claim(target_agent_id: &str, claimer_agent_id: &str) -> AgentClaimState {
     AgentClaimState {
+        control_source: None,
         target_agent_id: target_agent_id.to_string(),
         claim_owner_id: claimer_agent_id.to_string(),
         reputation_tier: 0,
@@ -340,6 +342,7 @@ fn economic_contract_settlement_missing_operator_returns_agent_not_found() {
             &DomainEvent::EconomicContractSettled {
                 operator_agent_id: "missing".to_string(),
                 contract_id: "contract.guard".to_string(),
+                world_binding: None,
                 success: false,
                 transfer_amount: 0,
                 tax_amount: 0,

@@ -221,3 +221,34 @@ checkpoint 包含政策 artifact 引用、授权状态及撤销序、冻结输�
 | 共用 publication 与归档 | 接入既有 prepared delta / state root / checkpoint，保留最小累计与防重放事实。 | 不新增第二套事务底座；恢复/压缩需实测，不由日志可读推导 exactly-once。 |
 
 本次完成的是政策和目标技术合同，实施与运行验收仍由 [#4866](https://github.com/nil-studio/oasis7/issues/4866) 的实际候选承接。签名、权限、持久化兼容和结算接口落地时仍按[开发流程规范](../../engineering/workflow/source-of-truth.md)进行对应能力的独立评审；没有预先批准、已执行验证或发布承诺。
+
+
+## 13. 首版 authority 与同地点供配电适配器
+
+本节为 #4866 的本地实现候选补齐专业承载合同；不改变 GAME-018 §6.4 政策，不代表已完成正式网络或发布验收。首版付费报价、公共预算和跨地点电力网络仍须各自真实适配器；缺失时返回 `unsupported_resource_path`，不得借普通材料运输、OC 转账或客户端描述代签。
+
+### 13.1 独立最低服务登记
+
+最低服务承诺通过独立 `MinimumServiceCommandV1::Register` 形成，不由保供申请建立。登记同时消费原身份/claim 所有权、当前有效的 `AgentLocationAuthorityV1` 与 `LocationAnchorV1`，以及现有 finality signer registry 的阈值证书；提交者为该 Agent 或其冻结控制来源的 primary Agent，并通过正式签名意图入口证明同意。控制主体取 `resolved_agent_owner` 解析的 canonical `player_id`，不把经济 claim 本身当成控制授权；同一玩家的多个根和 Agent 聚合为一个主体。formal contract 冻结 `owner_source_id` 与 `operator_agent_id`；starter primary 自身可登记，制造 Agent 只沿已冻结的制造控制来源登记，后续根重绑或所有者变化不自动继承旧服务权限。登记绑定最低量、每个 60-tick 区间、recipe allowlist、公共关键用途、地点、区域和区域预算 lineage，不允许对已登记 ID 改名或回填登记时间。
+
+证书 manifest 对 `oasis7.minimum-service.register.v1`、live world binding、当前权威 tick、owner、完整登记和区域预算 lineage 的 canonical JSON payload 做 SHA-256 摘要。复用既有 finality 验签及权重，不新增固定的临时签名阈值；未知 signer、旧 registry、错世界、错高度或字段变化原子拒绝。live world binding 来自世界执行上下文，不能取客户端参数。保供 `RegisterService` 只消费该已形成、且至少成熟 600 ticks 的不可变承诺；普通 passed proposal 与 `source_ref` 字符串均不能替代该来源。
+
+### 13.2 权威观测与需求来源
+
+每个世界对齐的 60-tick 边界由 system producer 提交 `EmergencySupply::Observe { region_id }`，其 `action_id` 必须为零；普通 Agent 调用不得借此写入观测。pure reducer 重算完整成熟集合、当前 claim 聚合、有效且连续地点、真实普通 Electricity 库存和 WorldState digest。以未来十个完整 60-tick 区间为视野，对同一 Agent 的普通库存只覆盖一次，按消耗区间先后及义务身份字节序映射到具体最低义务；已预扣的普通制造、供给 escrow 和独立 restricted power 不再出现在该可用库存中。未接收、缺可达证明或未知来源的在途量不充作普通覆盖。
+
+观测保存每义务 600-tick 汇总和每需求区间的精确普通覆盖。`PublishEvidence` 只接受与内部已提交观测完全一致的三个连续窗口、原区域 lineage 及观测集合摘要；客户端提交的 root、比例、需求或 coverage 不产生事实。申请引用具体义务和世界对齐区间，最低量与普通覆盖均从这些权威来源取得，跨授权累计沿唯一需求键继续，不因换 request 重置。
+
+### 13.3 同地点有限供配电
+
+首版实现的免费内部供配电以双方当前有效的 canonical 同地点 authority 和 active anchor 为连接边界；文本相同但缺原权威、位置漂移或跨地点均不支持。供应方在授权时从其真实普通 Electricity 库存预扣自愿供给，进入该授权 escrow，不能同时供普通制造或另一授权使用。冻结保存该资源池及全部需求 read set，分配提交对其联合复核；没有可同时兑现的同地点计划则整批阻断。
+
+`Deliver` 只把原 escrow 中已经分配、未结算且未超过原消耗区间开始的电力转入受益方的 `EmergencyRestrictedPowerV1`。该专用用途余额不加入普通 Electricity、不成为可出售或可转让库存；受益方只可通过已登记 recipe、原义务和当前 60-tick 区间的正式 `ScheduleRecipe` adapter 原子消费。消费与排程共享 prepared successor，不能先加普通电力再补扣，也不能重复使用已消费额度。原 escrow = 未交付余额 + restricted 接收量，收到后普通账户不增；退出只退回未承担交付的原 escrow。
+
+### 13.4 容量和独立复核
+
+每授权窗口以 4096 需求记录、1024 聚合控制主体、64 地点为硬上限。经过来源与权限验证的新增登记会越界时，提交整个区域窗口的持久 `overflowed` 处置，阻止此前已登记集合继续冻结/分配；不采用先到先得前 N 条。超界处置无新增经济效果，重启仍保留阻塞。
+
+授权明确独立 reviewer；该 reviewer 的控制主体与供应方、受益方和分配执行方分离。受影响主体在分配结果提交后 120 ticks 内登记复核，登记不恢复资格或退款；超过受理后 120 ticks 尚未裁决的争议部分为 `review_blocked`，无争议部分继续。裁决消费 exact-bound 治理批准，只可确认结果或取消尚未交付分配并解除对应占用；不改写既有接收、使用或 receipt，不以该免费路径创建无来源的补偿资金。
+
+受限电力启动的真实 recipe job 同时保存原世界绑定。新消费和原始启动事件均比较当前世界绑定；已经在制的 job 迁入其他世界时不自动完成，也不能通过原始 `RecipeCompleted` 兑付物料，原 job 与占用保留，等待在原世界继续或由既有恢复 authority 处理。普通历史 job 的空来源保持原序列化与完成语义。

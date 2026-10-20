@@ -11,6 +11,8 @@ pub use feedback_history::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldServiceProjection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_rule_status: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formal_commit_header:
         Option<oasis7_client_api::world_service::FormalProjectionCommitHeaderV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +81,13 @@ impl WorldServiceProjection {
     pub fn from_world(world: &World, authorized_agent: Option<&str>) -> Result<Self, String> {
         let source = world.state();
         let mut state = WorldState {
+            world_rules: source.world_rules.as_ref().map(|rules| {
+                let mut visible = rules.for_reader(authorized_agent);
+                visible.agent_orders.retain(|_, order| {
+                    world.can_read_agent_industrial_order(order, authorized_agent)
+                });
+                visible
+            }),
             time: source.time,
             agents: source.agents.clone(),
             resources: source.resources.clone(),
@@ -99,6 +108,12 @@ impl WorldServiceProjection {
             alliances: source.alliances.clone(),
             gameplay_policy: source.gameplay_policy.clone(),
             agent_claims: source.agent_claims.clone(),
+            agent_claim_acquisition_sequences: source
+                .agent_claim_acquisition_sequences
+                .iter()
+                .filter(|(target, _)| source.agent_claims.contains_key(*target))
+                .map(|(target, sequence)| (target.clone(), *sequence))
+                .collect(),
             starter_oc_claims: source.starter_oc_claims.clone(),
             reputation_scores: source.reputation_scores.clone(),
             wars: source.wars.clone(),
@@ -146,6 +161,7 @@ impl WorldServiceProjection {
         // Generic journals may contain private cognition/prompt artifacts.
         // Authorized committed changes are delivered by the changes route.
         Ok(Self {
+            world_rule_status: world.world_rule_status(authorized_agent),
             canonical_agent_owner: authorized_agent
                 .map(|agent| super::agent_chat::owner_view(world, agent))
                 .transpose()?
@@ -177,6 +193,7 @@ impl WorldServiceProjection {
     ) -> Result<Self, String> {
         let mut value = serde_json::to_value(world.state()).map_err(|e| e.to_string())?;
         let fields = [
+            "world_rules",
             "time",
             "agents",
             "resources",
@@ -197,6 +214,7 @@ impl WorldServiceProjection {
             "alliances",
             "gameplay_policy",
             "agent_claims",
+            "agent_claim_acquisition_sequences",
             "starter_oc_claims",
             "reputation_scores",
             "wars",
@@ -215,6 +233,16 @@ impl WorldServiceProjection {
             .ok_or("invalid world state")?
             .retain(|key, _| fields.contains(&key.as_str()));
         let mut state: WorldState = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        state.world_rules = state.world_rules.map(|rules| {
+            let mut visible = rules.for_reader(authorized_agent);
+            visible
+                .agent_orders
+                .retain(|_, order| world.can_read_agent_industrial_order(order, authorized_agent));
+            visible
+        });
+        state
+            .agent_claim_acquisition_sequences
+            .retain(|target, _| state.agent_claims.contains_key(target));
         // Construction authority is scoped observation material. Preserve the
         // established public profiles/anchors, but never publish other Agents'
         // location assignments or a site's full private membership list.
@@ -248,6 +276,7 @@ impl WorldServiceProjection {
         // Generic journals may contain private cognition/prompt artifacts.
         // Authorized committed changes are delivered by the changes route.
         Ok(Self {
+            world_rule_status: world.world_rule_status(authorized_agent),
             canonical_agent_owner: authorized_agent
                 .map(|agent| super::agent_chat::owner_view(world, agent))
                 .transpose()?

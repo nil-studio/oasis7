@@ -5,6 +5,7 @@ use super::super::{
 pub(super) fn event_kind_label(body: &WorldEventBody) -> &'static str {
     match body {
         WorldEventBody::Domain(event) => match event {
+            DomainEvent::WorldRuleCommitted { .. } => "world_rule.committed",
             DomainEvent::AgentRegistered { .. } => "domain.agent_registered",
             DomainEvent::AgentMoved { .. } => "domain.agent_moved",
             DomainEvent::AgentLocationAuthorityUpdated { .. } => {
@@ -192,6 +193,8 @@ pub(super) fn event_kind_label(body: &WorldEventBody) -> &'static str {
 
 pub(super) fn action_kind_label(action: &Action) -> &'static str {
     match action {
+        Action::ScheduleEssentialRecipe {..} => "action.economy.schedule_essential_recipe",
+        Action::WorldRule { .. } => "action.world_rule",
         Action::WorldServiceIntent { .. } => "action.world_service.intent",
         Action::RegisterAgent { .. } => "action.register_agent",
         Action::MoveAgent { .. } => "action.move_agent",

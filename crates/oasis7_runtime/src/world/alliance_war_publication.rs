@@ -14,6 +14,7 @@ const MIN_MEMBERS: usize = 2;
 
 #[derive(Debug)]
 pub(crate) struct PreparedAllianceWarEvent {
+    world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     event: DomainEvent,
     agents: BTreeMap<String, AgentCell>,
     alliances: BTreeMap<String, AllianceState>,
@@ -24,11 +25,69 @@ pub(crate) struct PreparedAllianceWarEvent {
 }
 
 impl PreparedAllianceWarEvent {
+    pub(crate) fn world_rules_projection(&self) -> Option<&crate::world_rules::WorldRulesStateV1> {
+        self.world_rules.as_ref()
+    }
     pub(crate) fn prepare(
         state: &WorldState,
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
+        if let DomainEvent::WarDeclared {
+            aggressor_alliance_id,
+            defender_alliance_id,
+            ..
+        } = event
+            && (state.organization_risk_frozen(aggressor_alliance_id)
+                || state.organization_risk_frozen(defender_alliance_id))
+        {
+            return Err(invalid("organization_risk_frozen"));
+        }
+        let organization = match event {
+            DomainEvent::AllianceDissolved { alliance_id, .. }
+            | DomainEvent::AllianceJoined { alliance_id, .. }
+            | DomainEvent::AllianceLeft { alliance_id, .. } => Some(alliance_id),
+            _ => None,
+        };
+        if organization.is_some_and(|id| {
+            state.organization_risk_frozen(id)
+                || matches!(event, DomainEvent::AllianceDissolved { .. })
+                    && state.world_rules.as_ref().is_some_and(|r| {
+                        r.organization_continuity.registrations.contains_key(id)
+                            || r.organization_estate
+                                .values()
+                                .any(|d| &d.organization_id == id && !d.disposed)
+                    })
+        }) {
+            return Err(invalid("organization_case_required"));
+        }
+        let mut world_rules = None;
+        if let DomainEvent::AllianceJoined {
+            alliance_id,
+            member_agent_id,
+            ..
+        }
+        | DomainEvent::AllianceLeft {
+            alliance_id,
+            member_agent_id,
+            ..
+        } = event
+            && let Some(mut rules) = state.world_rules.clone().filter(|r| {
+                r.organization_continuity
+                    .registrations
+                    .contains_key(alliance_id)
+            })
+        {
+            rules.organization_continuity.record_membership_from_event(
+                state,
+                alliance_id,
+                member_agent_id,
+                now,
+                &crate::util::hash_json(event)?,
+                matches!(event, DomainEvent::AllianceJoined { .. }),
+            )?;
+            world_rules = Some(rules);
+        }
         let mut agents = BTreeMap::new();
         let mut alliances = BTreeMap::new();
         let mut alliance_deletion = None;
@@ -303,6 +362,7 @@ impl PreparedAllianceWarEvent {
             }
         }
         Ok(Self {
+            world_rules,
             event: event.clone(),
             agents,
             alliances,
@@ -321,6 +381,9 @@ impl PreparedAllianceWarEvent {
         &self.event == event
     }
     pub(crate) fn install_infallible(self, state: &mut WorldState) {
+        if let Some(rules) = self.world_rules {
+            state.world_rules = Some(rules);
+        }
         state.agents.extend(self.agents);
         state.alliances.extend(self.alliances);
         if let Some(id) = self.alliance_deletion {

@@ -272,6 +272,7 @@ fn zero_revision_site_authority_is_rejected_at_build_admission() {
     state
         .apply_domain_event(
             &DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: "builder-zero-revision".to_string(),
                 pos: oasis7_agent_api::world_action::GeoPos {
                     x_cm: 0,
@@ -392,6 +393,7 @@ fn zero_revision_agent_location_authority_is_rejected_at_build_admission() {
     state
         .apply_domain_event(
             &DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: "builder-zero-location-revision".to_string(),
                 pos: oasis7_agent_api::world_action::GeoPos {
                     x_cm: 0,
@@ -1028,6 +1030,7 @@ fn agent_location_revision_exhaustion_rejects_without_mutation() {
     state
         .apply_domain_event(
             &DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: "agent-exhausted".to_string(),
                 pos: oasis7_agent_api::world_action::GeoPos {
                     x_cm: 0,

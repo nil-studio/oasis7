@@ -38,6 +38,14 @@ impl World {
                         },
                     }));
                 }
+                if self.state.is_manufactured_agent(agent_id) {
+                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec!["manufactured_agent_cannot_claim_starter_support".into()],
+                        },
+                    }));
+                }
                 let player_id = player_id.trim();
                 if player_id.is_empty() {
                     return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
@@ -172,6 +180,14 @@ impl World {
                     }));
                 }
 
+                if let Some(reason) =
+                    self.industrial_acquisition_rejection(claimer_agent_id, target_agent_id)
+                {
+                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason,
+                    }));
+                }
                 let quote = match self.agent_claim_quote_for_owner(claimer_agent_id) {
                     Ok(quote) => quote,
                     Err(err) => {
@@ -223,6 +239,7 @@ impl World {
                 };
                 let current_epoch = self.current_governance_epoch();
                 let event = DomainEvent::AgentClaimed {
+                    acquisition_contract_version: 1,
                     claimer_agent_id: claimer_agent_id.clone(),
                     target_agent_id: target_agent_id.clone(),
                     reputation_tier: quote.reputation_tier,

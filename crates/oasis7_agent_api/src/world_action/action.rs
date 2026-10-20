@@ -7,6 +7,11 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Action {
+    WorldRule {
+        actor_id: String,
+        request_id: String,
+        command: WorldRuleCommandV1,
+    },
     /// Transport intent extracted by the canonical execution driver.
     /// Direct World execution is rejected.
     WorldServiceIntent {
@@ -503,6 +508,14 @@ pub enum Action {
         operator_agent_id: String,
         factory_id: String,
     },
+    /// Consume only a registered minimum-service electricity allocation.
+    ScheduleEssentialRecipe {
+        requester_agent_id: String,
+        factory_id: String,
+        recipe_id: String,
+        batches: u32,
+        obligation_id: String,
+    },
     ScheduleRecipe {
         requester_agent_id: String,
         factory_id: String,
@@ -612,6 +625,7 @@ pub enum MaterialTransitPriority {
 impl Action {
     pub fn actor_id(&self) -> Option<&str> {
         match self {
+            Action::WorldRule { actor_id, .. } => Some(actor_id),
             Action::WorldServiceIntent { .. } => None,
             Action::RegisterAgent { agent_id, .. }
             | Action::MoveAgent { agent_id, .. }
@@ -737,6 +751,9 @@ impl Action {
                 requester_agent_id, ..
             }
             | Action::SetLogisticsRouteAvailability {
+                requester_agent_id, ..
+            }
+            | Action::ScheduleEssentialRecipe {
                 requester_agent_id, ..
             }
             | Action::ScheduleRecipe {

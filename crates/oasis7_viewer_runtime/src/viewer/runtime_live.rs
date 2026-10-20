@@ -201,7 +201,7 @@ pub struct ViewerRuntimeLiveServer {
     snapshot_config: WorldConfig,
     seed_model: Option<WorldModel>,
     script: RuntimeLiveScript,
-    llm_sidecar: RuntimeLlmSidecar,
+    llm_sidecar: Box<RuntimeLlmSidecar>,
     agent_service_pump_started: bool,
     #[cfg(any(test, feature = "test_tier_required"))]
     agent_service_io_diagnostics: std::sync::Arc<agent_service_io_diagnostics::IoDiagnostics>,
@@ -380,12 +380,12 @@ impl ViewerRuntimeLiveServer {
         let initial_world_time = world.state().time;
         let world_service_query_state =
             crate::world_service::client::WorldServiceQueryState::default();
-        let mut llm_sidecar = match seed_model.as_ref() {
+        let mut llm_sidecar = Box::new(match seed_model.as_ref() {
             Some(model) => {
                 RuntimeLlmSidecar::new(config.decision_mode).with_runtime_seed_model(model)
             }
             None => RuntimeLlmSidecar::new(config.decision_mode),
-        };
+        });
         llm_sidecar.provider_service_required = config.world_service.is_some() || chain_linked;
         llm_sidecar.provider_service_config = config.world_service.clone();
         llm_sidecar.provider_service_lineage_store_explicit =

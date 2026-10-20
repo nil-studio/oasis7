@@ -104,6 +104,7 @@ fn budget_key(grant: &AgentDelegationGrantV1) -> Result<String, WorldError> {
 
 fn action_scope(action: &Action) -> Option<(&'static str, String)> {
     match action {
+        Action::WorldRule { command, .. } => Some(("WorldRule", command.authority_scope())),
         Action::MoveAgent { agent_id, .. } => Some(("MoveAgent", agent_id.clone())),
         Action::TransferMaterial {
             from_ledger,
@@ -118,7 +119,10 @@ fn action_scope(action: &Action) -> Option<(&'static str, String)> {
         Action::BuildFactoryWithModule { spec, .. } => {
             Some(("BuildFactoryWithModule", spec.factory_id.clone()))
         }
-        Action::ScheduleRecipe { factory_id, .. } => Some(("ScheduleRecipe", factory_id.clone())),
+        Action::ScheduleRecipe { factory_id, .. }
+        | Action::ScheduleEssentialRecipe { factory_id, .. } => {
+            Some(("ScheduleRecipe", factory_id.clone()))
+        }
         // Recognize unsupported delegated module actions so admission cannot bypass
         // the authority boundary; issuance and native quotes remain unavailable.
         Action::ScheduleRecipeWithModule { factory_id, .. } => {
@@ -148,8 +152,7 @@ impl World {
 
     fn save_delegation_ledger(&mut self, ledger: &Ledger) -> Result<(), WorldError> {
         if self.cognition.is_null() {
-            self.cognition =
-                crate::cognition_recovery::default_cognition_persistence_projection();
+            self.cognition = crate::cognition_recovery::default_cognition_persistence_projection();
         }
         self.cognition["agent_delegation"] =
             serde_json::to_value(ledger).map_err(WorldError::from)?;
@@ -163,13 +166,11 @@ impl World {
             return Err(denied("organization_source_unsupported"));
         }
         let owner = self
-            .state
-            .starter_oc_claims
-            .get(&grant.agent_id)
+            .current_agent_owner(&grant.agent_id)
             .ok_or_else(|| denied("owner_source_unavailable"))?;
         if owner.player_id != grant.owner_id
             || grant.issuer_id != grant.owner_id
-            || grant.source_id != format!("starter_claim:{}:{}", owner.agent_id, owner.claimed_at)
+            || grant.source_id != owner.source_id
         {
             return Err(denied("owner_source_changed"));
         }
@@ -212,7 +213,11 @@ impl World {
             || grant.action_kinds.iter().any(|kind| {
                 !matches!(
                     kind.as_str(),
-                    "MoveAgent" | "TransferMaterial" | "ScheduleRecipe" | "BuildFactory"
+                    "MoveAgent"
+                        | "TransferMaterial"
+                        | "ScheduleRecipe"
+                        | "BuildFactory"
+                        | "WorldRule"
                 )
             })
         {
@@ -387,6 +392,43 @@ impl World {
 
     fn native_delegation_quote(&self, action: &Action) -> Result<u64, WorldError> {
         let cost = match action {
+            Action::WorldRule {
+                actor_id,
+                request_id,
+                command,
+            } => {
+                let event = DomainEvent::WorldRuleCommitted {
+                    action_id: u64::MAX,
+                    actor_id: actor_id.clone(),
+                    request_id: request_id.clone(),
+                    command: command.clone(),
+                    governance_epoch: self.current_governance_epoch(),
+                    world_binding: self.world_rule_binding(),
+                };
+                self.prepare_world_rule_event(&event, self.state.time)?;
+                if self
+                    .state
+                    .world_rules
+                    .as_ref()
+                    .is_some_and(|rules| rules.has_exact_request(actor_id, request_id, command))
+                {
+                    0
+                } else {
+                    match command {
+                        oasis7_agent_api::world_action::WorldRuleCommandV1::ConfirmAgentOrder {
+                            ..
+                        } => crate::world_rules::AGENT_MANUFACTURING_POWER,
+                        oasis7_agent_api::world_action::WorldRuleCommandV1::EmergencySupply {
+                            command:
+                                oasis7_agent_api::world_action::EmergencySupplyCommandV1::Authorize {
+                                    quantity,
+                                    ..
+                                },
+                        } => *quantity,
+                        _ => 0,
+                    }
+                }
+            }
             Action::MoveAgent { .. } => 0,
             Action::TransferMaterial {
                 requester_agent_id,
@@ -428,9 +470,8 @@ impl World {
                 {
                     return Err(denied("domain_quote_construction_power_invalid"));
                 }
-                let canonical =
-                    crate::builtin_factory_spec(&power.factory_kind, &spec.factory_id)
-                        .ok_or_else(|| denied("domain_quote_factory_kind_unsupported"))?;
+                let canonical = crate::builtin_factory_spec(&power.factory_kind, &spec.factory_id)
+                    .ok_or_else(|| denied("domain_quote_factory_kind_unsupported"))?;
                 if &canonical != spec {
                     return Err(denied("domain_quote_factory_spec_mismatch"));
                 }
@@ -455,12 +496,18 @@ impl World {
                 }
                 power.electricity_amount
             }
+            Action::ScheduleEssentialRecipe {
+                recipe_id, batches, ..
+            } => {
+                crate::builtin_recipe_plan(recipe_id, *batches)
+                    .ok_or_else(|| denied("domain_quote_unsupported"))?
+                    .power_required
+            }
             Action::ScheduleRecipe {
                 recipe_id, plan, ..
             } => {
-                let canonical =
-                    crate::builtin_recipe_plan(recipe_id, plan.accepted_batches)
-                        .ok_or_else(|| denied("domain_quote_unsupported"))?;
+                let canonical = crate::builtin_recipe_plan(recipe_id, plan.accepted_batches)
+                    .ok_or_else(|| denied("domain_quote_unsupported"))?;
                 if *plan != canonical {
                     return Err(denied("domain_quote_plan_mismatch"));
                 }
@@ -618,8 +665,7 @@ impl World {
                         .iter()
                         .find(|event| event.id == *id)
                         .ok_or_else(|| denied("domain_reference_unavailable"))?;
-                    if event.caused_by != Some(crate::CausedBy::Action(receipt.action_id))
-                    {
+                    if event.caused_by != Some(crate::CausedBy::Action(receipt.action_id)) {
                         return Err(denied("domain_reference_action_mismatch"));
                     }
                     match &event.body {
@@ -694,6 +740,11 @@ impl World {
             }
             if let WorldEventBody::Domain(domain) = &event.body {
                 let relevant = match domain {
+                    DomainEvent::WorldRuleCommitted {
+                        action_id: id,
+                        actor_id,
+                        ..
+                    } => *id == action_id && action.actor_id() == Some(actor_id.as_str()),
                     DomainEvent::AgentMoved { agent_id, .. } => {
                         action.actor_id() == Some(agent_id.as_str())
                     }
@@ -726,11 +777,13 @@ impl World {
         let applied = rejection.is_none() && !actual.is_empty();
         let supported = matches!(
             action,
-            Action::MoveAgent { .. }
+            Action::WorldRule { .. }
+                | Action::MoveAgent { .. }
                 | Action::BuildFactory { .. }
                 | Action::BuildFactoryWithModule { .. }
                 | Action::TransferMaterial { .. }
                 | Action::ScheduleRecipe { .. }
+                | Action::ScheduleEssentialRecipe { .. }
                 | Action::ScheduleRecipeWithModule { .. }
         );
         let mut authorization = authorization;

@@ -82,6 +82,7 @@ fn run() -> Result<(), String> {
         time: 1,
         caused_by: None,
         body: WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
             agent_id: "agent-perf".to_string(),
             pos: pos(0, 0),
         }),

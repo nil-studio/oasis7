@@ -14,6 +14,7 @@ use serde::ser::SerializeStruct;
 #[derive(Debug)]
 pub struct WorldStateProjection<'a> {
     state: &'a WorldState,
+    world_rule_overlay: Option<&'a crate::world_rules::PreparedWorldRule>,
     body_overlay: Option<BodyOverlay>,
     command_overlay: Option<CommandStateOverlay<'a>>,
     module_visual_entities_overlay:
@@ -65,9 +66,19 @@ pub struct WorldStateProjection<'a> {
 }
 
 impl<'a> WorldStateProjection<'a> {
+    pub(crate) fn with_world_rule_overlay(
+        mut self,
+        overlay: &'a crate::world_rules::PreparedWorldRule,
+    ) -> Self {
+        self.world_rule_overlay = Some(overlay);
+        self.agent_claim_economic_overlay = overlay.claim.as_ref();
+        self.industry_overlay = overlay.industry.as_ref();
+        self
+    }
     pub fn borrowed(state: &'a WorldState) -> Self {
         Self {
             state,
+            world_rule_overlay: None,
             body_overlay: None,
             command_overlay: None,
             module_visual_entities_overlay: None,
@@ -198,36 +209,6 @@ impl<'a> WorldStateProjection<'a> {
         self
     }
 
-    pub(crate) fn with_starter_oc_claim_overlay(
-        mut self,
-        overlay: &'a crate::world::starter_oc_claim_publication::PreparedStarterOcClaimed,
-    ) -> Self {
-        self.starter_oc_claim_overlay = Some(overlay);
-        self
-    }
-
-    pub(crate) fn with_agent_claim_light_lifecycle_overlay(
-        mut self,
-        overlay: &'a crate::world::agent_claim_light_lifecycle_publication::PreparedAgentClaimLightLifecycle,
-    ) -> Self {
-        self.agent_claim_light_lifecycle_overlay = Some(overlay);
-        self
-    }
-    pub(crate) fn with_agent_claim_economic_overlay(
-        mut self,
-        overlay:&'a crate::world::agent_claim_economic_publication::PreparedAgentClaimEconomic,
-    ) -> Self {
-        self.agent_claim_economic_overlay = Some(overlay);
-        self
-    }
-    pub(crate) fn with_agent_claim_terminal_overlay(
-        mut self,
-        overlay: &'a crate::world::agent_claim_terminal_publication::PreparedAgentClaimTerminal,
-    ) -> Self {
-        self.agent_claim_terminal_overlay = Some(overlay);
-        self
-    }
-
     pub fn with_body_overlay(mut self, body_overlay: BodyOverlay) -> Self {
         self.body_overlay = Some(body_overlay);
         self
@@ -305,69 +286,15 @@ impl<'a> WorldStateProjection<'a> {
     }
 }
 
-impl Serialize for WorldState {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_world_state(
-            self, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None, None, None,
-            serializer,
-        )
-    }
-}
-
-impl Serialize for WorldStateProjection<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if let Some(overlay) = self.body_overlay.as_ref()
-            && overlay.requires_body_target()
-            && !self.state.agents.contains_key(&overlay.agent_id)
-        {
-            return Err(serde::ser::Error::custom(format!(
-                "body overlay target agent not found: {}",
-                overlay.agent_id
-            )));
-        }
-        serialize_world_state(
-            self.state,
-            self.body_overlay.as_ref(),
-            self.command_overlay.as_ref(),
-            self.module_visual_entities_overlay,
-            self.module_instance_overlay,
-            self.module_release_overlay,
-            self.module_marketplace_overlay,
-            self.governance_identity_profile_overlay.as_ref(),
-            self.governance_registry_overlay,
-            self.agent_intent_overlay,
-            self.economy_data_overlay,
-            self.economic_contract_overlay,
-            self.alliance_war_overlay,
-            self.governance_meta_overlay,
-            self.core_policy_overlay,
-            self.industry_overlay,
-            self.power_redemption_overlay,
-            self.node_points_settlement_overlay,
-            self.main_token_monetary_overlay,
-            self.main_token_governance_monetary_overlay,
-            self.main_token_restricted_claim_overlay,
-            self.starter_oc_claim_overlay,
-            self.agent_claim_light_lifecycle_overlay,
-            self.agent_claim_economic_overlay,
-            self.agent_claim_terminal_overlay,
-            self.product_validation_delivery_cursor,
-            self.industry_history_overlay,
-            serializer,
-        )
-    }
-}
+#[path = "projection_claims.rs"]
+mod claims;
+#[path = "projection_serialization.rs"]
+mod serialization;
 
 #[expect(clippy::too_many_arguments)]
 fn serialize_world_state<S>(
     state: &WorldState,
+    world_rule_overlay: Option<&crate::world_rules::PreparedWorldRule>,
     body_overlay: Option<&BodyOverlay>,
     command_overlay: Option<&CommandStateOverlay<'_>>,
     module_visual_entities_overlay: Option<&BTreeMap<String, ModuleVisualEntity>>,
@@ -378,18 +305,12 @@ fn serialize_world_state<S>(
     governance_registry_overlay: Option<
         &crate::world::governance_registry_publication::PreparedGovernanceRegistryEvent,
     >,
-    agent_intent_overlay: Option<
-        &crate::world::agent_intent_publication::PreparedAgentIntent,
-    >,
-    economy_data_overlay: Option<
-        &crate::world::economy_data_publication::PreparedEconomyDataEvent,
-    >,
+    agent_intent_overlay: Option<&crate::world::agent_intent_publication::PreparedAgentIntent>,
+    economy_data_overlay: Option<&crate::world::economy_data_publication::PreparedEconomyDataEvent>,
     economic_contract_overlay: Option<
         &crate::world::economic_contract_publication::PreparedEconomicContractEvent,
     >,
-    alliance_war_overlay: Option<
-        &crate::world::alliance_war_publication::PreparedAllianceWarEvent,
-    >,
+    alliance_war_overlay: Option<&crate::world::alliance_war_publication::PreparedAllianceWarEvent>,
     governance_meta_overlay: Option<
         &crate::world::governance_meta_publication::PreparedGovernanceMetaEvent,
     >,
@@ -432,6 +353,7 @@ where
     S: serde::Serializer,
 {
     let WorldState {
+        world_rules: _,
         time: _,
         agents: _,
         agent_intent_ledger: _,
@@ -530,21 +452,56 @@ where
     } = state;
 
     let field_count = base_field_count(95, state, module_instance_overlay)
+        + usize::from(
+            !state.agent_claim_acquisition_sequences.is_empty()
+                || agent_claim_economic_overlay
+                    .is_some_and(|overlay| overlay.has_acquisition_sequence_update()),
+        )
+        + usize::from(
+            state.world_rules.is_some()
+                || world_rule_overlay.is_some()
+                || industry_overlay
+                    .and_then(|o| o.world_rules_projection())
+                    .is_some(),
+        )
         - usize::from(
             state.agent_intent_ledger.is_empty()
                 && agent_intent_overlay.is_none_or(|overlay| overlay.ledger_updates.is_empty()),
         )
-        - usize::from(state.latest_product_validation.is_none() && governance_meta_overlay.is_none_or(|v| !matches!(v, crate::world::governance_meta_publication::PreparedGovernanceMetaEvent::Product(_))))
+        - usize::from(
+            state.latest_product_validation.is_none()
+                && governance_meta_overlay.is_none_or(|v| {
+                    !matches!(
+                    v,
+                    crate::world::governance_meta_publication::PreparedGovernanceMetaEvent::Product(
+                        _
+                    )
+                )
+                }),
+        )
         - usize::from(state.starter_oc_claims.is_empty() && starter_oc_claim_overlay.is_none())
         - usize::from(
             state.authenticated_collect_data_last_nonces.is_empty()
                 && economy_data_overlay.is_none_or(|overlay| !overlay.has_projected_nonces(state)),
         )
-        - usize::from(state.product_validation_receipts.is_empty() && industry_history_overlay.is_none())
-        - usize::from(state.factory_construction_receipts.is_empty() && industry_overlay.is_none_or(|v| !v.has_construction_receipt()))
-        - usize::from(state.product_validation_attempts.is_empty() && industry_history_overlay.is_none())
-        - usize::from(state.recipe_completion_receipts.is_empty() && industry_overlay.is_none_or(|v| !v.has_completion_receipt()))
-        - usize::from(state.factory_recycle_receipts.is_empty() && industry_overlay.is_none_or(|v| !v.has_recycle_receipt()))
+        - usize::from(
+            state.product_validation_receipts.is_empty() && industry_history_overlay.is_none(),
+        )
+        - usize::from(
+            state.factory_construction_receipts.is_empty()
+                && industry_overlay.is_none_or(|v| !v.has_construction_receipt()),
+        )
+        - usize::from(
+            state.product_validation_attempts.is_empty() && industry_history_overlay.is_none(),
+        )
+        - usize::from(
+            state.recipe_completion_receipts.is_empty()
+                && industry_overlay.is_none_or(|v| !v.has_completion_receipt()),
+        )
+        - usize::from(
+            state.factory_recycle_receipts.is_empty()
+                && industry_overlay.is_none_or(|v| !v.has_recycle_receipt()),
+        )
         - usize::from(
             module_visual_entities_overlay
                 .unwrap_or(&state.module_visual_entities)
@@ -552,7 +509,32 @@ where
         );
     let mut output = serializer.serialize_struct("WorldState", field_count)?;
     serialize_prefix(&mut output, state)?;
-    if let Some(overlay) = agent_claim_terminal_overlay {
+    if let Some(overlay) = world_rule_overlay {
+        output.serialize_field("world_rules", &overlay.rules)?;
+    } else if let Some(continuity) = economic_contract_overlay
+        .and_then(|overlay| overlay.organization_continuity_projection())
+        && let Some(rules) = industry_overlay
+            .and_then(|overlay| overlay.world_rules_projection())
+            .or_else(|| alliance_war_overlay.and_then(|overlay| overlay.world_rules_projection()))
+            .or(state.world_rules.as_ref())
+    {
+        output.serialize_field(
+            "world_rules",
+            &crate::world_rules::WorldRulesContinuityProjection {
+                base: rules,
+                organization_continuity: continuity,
+            },
+        )?;
+    } else if let Some(rules) = industry_overlay
+        .and_then(|o| o.world_rules_projection())
+        .or_else(|| alliance_war_overlay.and_then(|o| o.world_rules_projection()))
+        .or(state.world_rules.as_ref())
+    {
+        output.serialize_field("world_rules", rules)?;
+    }
+    if let Some(overlay) = world_rule_overlay {
+        overlay.serialize_agents(state, &mut output)?;
+    } else if let Some(overlay) = agent_claim_terminal_overlay {
         overlay.serialize_agents(state, &mut output)?;
     } else if let Some(overlay) = agent_claim_economic_overlay {
         overlay.serialize_agents(state, &mut output)?;
@@ -623,7 +605,9 @@ where
     } else {
         output.serialize_field("resources", &state.resources)?;
     }
-    if let Some(overlay) = core_policy_overlay {
+    if let Some(overlay) = world_rule_overlay {
+        overlay.serialize_materials(state, &mut output)?;
+    } else if let Some(overlay) = core_policy_overlay {
         overlay.serialize_materials(state, &mut output)?;
     } else if let Some(overlay) = industry_overlay {
         overlay.serialize_materials(state, &mut output)?;
@@ -752,7 +736,13 @@ where
     } else {
         output.serialize_field(
             "agent_location_authorities",
-            &state.agent_location_authorities,
+            &crate::world::economy_data_publication::SparseMapProjection {
+                base: &state.agent_location_authorities,
+                updates: &world_rule_overlay
+                    .map(|o| o.locations.clone())
+                    .unwrap_or_default(),
+                deletion: None,
+            },
         )?;
         output.serialize_field("location_anchors", &state.location_anchors)?;
         output.serialize_field("factory_site_authorities", &state.factory_site_authorities)?;
@@ -833,7 +823,9 @@ where
             }),
         )?;
     }
-    if let Some(overlay) = alliance_war_overlay {
+    if let Some(overlay) = world_rule_overlay {
+        overlay.serialize_alliances(state, &mut output)?;
+    } else if let Some(overlay) = alliance_war_overlay {
         overlay.serialize_alliances(state, &mut output)?;
     } else {
         output.serialize_field("alliances", &state.alliances)?;
@@ -854,20 +846,14 @@ where
     } else {
         output.serialize_field("economic_contracts", &state.economic_contracts)?;
     }
-    if let Some(overlay) = agent_claim_terminal_overlay {
-        overlay.serialize_claims(state, &mut output)?;
-    } else if let Some(overlay) = agent_claim_economic_overlay {
-        overlay.serialize_claims(state, &mut output)?;
-    } else if let Some(overlay) = agent_claim_light_lifecycle_overlay {
-        overlay.serialize_claims(state, &mut output)?;
-    } else {
-        output.serialize_field("agent_claims", &state.agent_claims)?;
-    }
-    if let Some(overlay) = starter_oc_claim_overlay {
-        overlay.serialize_claims(state, &mut output)?;
-    } else if !state.starter_oc_claims.is_empty() {
-        output.serialize_field("starter_oc_claims", &state.starter_oc_claims)?;
-    }
+    claims::serialize_claim_projection(
+        state,
+        &mut output,
+        agent_claim_terminal_overlay,
+        agent_claim_economic_overlay,
+        agent_claim_light_lifecycle_overlay,
+        starter_oc_claim_overlay,
+    )?;
     if let Some(overlay) = economy_data_overlay
         && overlay.has_projected_nonces(state)
     {
@@ -1036,7 +1022,17 @@ where
         )?;
     }
     output.serialize_field("main_token_config", &state.main_token_config)?;
-    if let Some(overlay) = agent_claim_terminal_overlay {
+    if let Some(overlay) = world_rule_overlay.filter(|o| o.claim.is_none()) {
+        output.serialize_field("main_token_supply", &state.main_token_supply)?;
+        output.serialize_field(
+            "main_token_balances",
+            &crate::world::economy_data_publication::SparseMapProjection {
+                base: &state.main_token_balances,
+                updates: &overlay.token_accounts,
+                deletion: None,
+            },
+        )?;
+    } else if let Some(overlay) = agent_claim_terminal_overlay {
         overlay.serialize_token(state, &mut output)?;
     } else if let Some(overlay) = agent_claim_economic_overlay {
         overlay.serialize_token(state, &mut output)?;

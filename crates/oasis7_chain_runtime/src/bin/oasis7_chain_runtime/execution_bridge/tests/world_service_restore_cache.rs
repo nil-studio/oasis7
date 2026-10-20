@@ -149,6 +149,7 @@ fn same_complete_journal_with_different_snapshot_bytes_restores_distinct_worlds(
     let cache = Mutex::new(RestoreCache::default());
     let (first, journal) = input();
     let other_world = oasis7::runtime_host::world::new_with_state(oasis7_runtime::WorldState {
+        world_rules: None,
         time: 7,
         ..oasis7_runtime::WorldState::default()
     });

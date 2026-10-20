@@ -24,6 +24,7 @@ pub(crate) struct PreparedEconomicContractEvent {
     window_started: BTreeMap<String, WorldTime>,
     window_accumulated: BTreeMap<String, i64>,
     materials: BTreeMap<String, i64>,
+    organization_continuity: Option<crate::world_rules::OrganizationContinuityStateV1>,
 }
 
 impl PreparedEconomicContractEvent {
@@ -100,6 +101,7 @@ impl PreparedEconomicContractEvent {
             DomainEvent::EconomicContractSettled {
                 operator_agent_id,
                 contract_id,
+                world_binding: _,
                 success,
                 transfer_amount,
                 tax_amount,
@@ -272,6 +274,24 @@ impl PreparedEconomicContractEvent {
                 ));
             }
         };
+        let organization_continuity =
+            if let DomainEvent::EconomicContractSettled { world_binding, .. } = event {
+                if let Some(world_rules) = state.world_rules.as_ref() {
+                    let mut continuity = world_rules.organization_continuity.clone();
+                    continuity
+                        .record_atomic_exchange_settlement(
+                            state,
+                            &contract,
+                            now,
+                            world_binding.as_deref(),
+                        )?
+                        .then_some(continuity)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
         Ok(Self {
             event: event.clone(),
             contract_id,
@@ -288,6 +308,7 @@ impl PreparedEconomicContractEvent {
                 .filter(|v| !v.is_empty())
                 .unwrap_or(&state.materials)
                 .clone(),
+            organization_continuity,
         })
     }
 
@@ -320,6 +341,16 @@ impl PreparedEconomicContractEvent {
         state
             .material_ledgers
             .insert(MaterialLedgerId::world(), self.materials);
+        if let Some(continuity) = self.organization_continuity
+            && let Some(world_rules) = state.world_rules.as_mut()
+        {
+            world_rules.organization_continuity = continuity;
+        }
+    }
+    pub(crate) fn organization_continuity_projection(
+        &self,
+    ) -> Option<&crate::world_rules::OrganizationContinuityStateV1> {
+        self.organization_continuity.as_ref()
     }
     pub(crate) fn serialize_agents<S: SerializeStruct>(
         &self,

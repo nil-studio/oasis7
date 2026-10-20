@@ -63,6 +63,26 @@ impl World {
         agent_id: &str,
         lifetime_ticks: u64,
     ) -> Result<CapabilityInvocationContext, WorldError> {
+        self.install_test_provider_capability_fixture_finite(agent_id, lifetime_ticks, true)
+    }
+
+    /// Finite proof-bearing fixture without seeding legacy cognition balances.
+    #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
+    pub fn install_test_provider_capability_fixture_without_cognition_balance_with_lifetime(
+        &mut self,
+        agent_id: &str,
+        lifetime_ticks: u64,
+    ) -> Result<CapabilityInvocationContext, WorldError> {
+        self.install_test_provider_capability_fixture_finite(agent_id, lifetime_ticks, false)
+    }
+
+    #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
+    fn install_test_provider_capability_fixture_finite(
+        &mut self,
+        agent_id: &str,
+        lifetime_ticks: u64,
+        seed_cognition_balance: bool,
+    ) -> Result<CapabilityInvocationContext, WorldError> {
         if !(1..=11_024).contains(&lifetime_ticks) {
             return Err(fixture_error(
                 "provider fixture lifetime must be 1..=11024 ticks",
@@ -76,7 +96,7 @@ impl World {
         let mut staged = self.clone();
         let invocation = staged.install_test_provider_capability_fixture_inner(
             agent_id,
-            true,
+            seed_cognition_balance,
             lifetime_ticks,
         )?;
         let grant: CapabilityGrantV2 = serde_json::from_value(
@@ -803,6 +823,36 @@ mod lifetime_tests {
             world.state.time += 1;
             assert!(!project(&world, &invocation));
         }
+    }
+    #[test]
+    fn bounded_provider_fixture_without_legacy_balance_is_finite_and_immutable() {
+        let mut world = world();
+        for invalid in [0, 11025, u64::MAX] {
+            assert!(world.install_test_provider_capability_fixture_without_cognition_balance_with_lifetime("agent", invalid).is_err());
+            assert!(world.capability_grants_v2().is_empty());
+        }
+        let before = world.cognition_economy().unwrap().snapshot_json().unwrap();
+        let invocation = world
+            .install_test_provider_capability_fixture_without_cognition_balance_with_lifetime(
+                "agent", 256,
+            )
+            .unwrap();
+        assert_eq!(
+            world.cognition_economy().unwrap().snapshot_json().unwrap(),
+            before
+        );
+        assert!(
+            world
+                .install_test_provider_capability_fixture_without_cognition_balance_with_lifetime(
+                    "agent", 257
+                )
+                .is_err()
+        );
+        assert_eq!(world.capability_grants_v2().len(), 1);
+        world.state.time = 104;
+        assert!(project(&world, &invocation));
+        world.state.time = 258;
+        assert!(!project(&world, &invocation));
     }
     #[test]
     fn bounded_provider_fixture_rejects_unbounded_or_cached_short_lifetime() {

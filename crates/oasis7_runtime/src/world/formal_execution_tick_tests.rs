@@ -62,6 +62,7 @@ fn formal_tick_qualified_gate_allows_exact_original_and_rejects_rewrite_atomical
             .append_event(
                 crate::WorldEventBody::Domain(
                     crate::DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                         agent_id: "new".into(),
                         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0)
                     }
@@ -112,6 +113,7 @@ fn formal_tick_administrative_successor_has_final_certificate_and_no_durable_pha
     world
         .append_event(
             crate::WorldEventBody::Domain(crate::DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: "admin".into(),
                 pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
             }),

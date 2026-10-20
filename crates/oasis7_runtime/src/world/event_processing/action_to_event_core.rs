@@ -52,6 +52,7 @@ impl World {
                     }))
                 } else {
                     Ok(WorldEventBody::Domain(DomainEvent::AgentRegistered {
+                        registration_contract_version: 1,
                         agent_id: agent_id.clone(),
                         pos: *pos,
                     }))

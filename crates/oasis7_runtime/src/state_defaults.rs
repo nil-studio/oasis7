@@ -61,6 +61,7 @@ pub(super) fn default_module_release_required_roles() -> Vec<String> {
 impl Default for WorldState {
     fn default() -> Self {
         Self {
+            world_rules: None,
             time: 0,
             retained_history_root: None,
             agents: BTreeMap::new(),
@@ -105,6 +106,7 @@ impl Default for WorldState {
             data_access_permissions: BTreeMap::new(),
             economic_contracts: BTreeMap::new(),
             agent_claims: BTreeMap::new(),
+            agent_claim_acquisition_sequences: BTreeMap::new(),
             starter_oc_claims: BTreeMap::new(),
             authenticated_collect_data_last_nonces: BTreeMap::new(),
             agent_claim_last_processed_epoch: 0,

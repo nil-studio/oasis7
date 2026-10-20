@@ -31,6 +31,7 @@ fn trust() -> FixedTrust {
 }
 fn snapshot() -> (Snapshot, Journal) {
     let state = oasis7_runtime::WorldState {
+        world_rules: None,
         time: 7,
         ..Default::default()
     };

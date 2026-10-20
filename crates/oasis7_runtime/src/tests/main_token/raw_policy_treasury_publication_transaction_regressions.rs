@@ -407,6 +407,7 @@ fn material_precedence_mailboxes_and_action_raw_published_roots_match() {
         world
             .append_event_for_test(
                 WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                     agent_id: "alice".into(),
                     pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
                 }),

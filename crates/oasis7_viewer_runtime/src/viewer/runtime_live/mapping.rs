@@ -125,6 +125,27 @@ pub(super) fn runtime_state_to_simulator_model(
     model.agent_prompt_profiles = sidecar.prompt_profiles.clone();
     model.agent_player_bindings = sidecar.agent_player_bindings.clone();
     model.agent_player_public_key_bindings = sidecar.agent_public_key_bindings.clone();
+    // Derived ownership is a read projection. It never changes the player's
+    // primary binding, creates starter support, or authorizes a command.
+    for agent_id in state
+        .agents
+        .keys()
+        .filter(|id| state.is_manufactured_agent(id))
+    {
+        model.agent_player_bindings.remove(agent_id);
+        model.agent_player_public_key_bindings.remove(agent_id);
+        if let Some(owner) = state.resolved_agent_owner(agent_id) {
+            model
+                .agent_player_bindings
+                .insert(agent_id.clone(), owner.player_id);
+            if let Some(key) = owner.public_key {
+                model
+                    .agent_player_public_key_bindings
+                    .insert(agent_id.clone(), key);
+            }
+        }
+    }
+
     model.agent_execution_debug_contexts = collect_agent_execution_debug_contexts(state, sidecar);
     model.player_auth_last_nonce = sidecar.player_auth_last_nonce.clone();
     model
@@ -268,7 +289,7 @@ pub(super) fn map_runtime_domain_event(
     seed_model: Option<&WorldModel>,
 ) -> Option<WorldEventKind> {
     match event {
-        RuntimeDomainEvent::AgentRegistered { agent_id, pos } => {
+        RuntimeDomainEvent::AgentRegistered { agent_id, pos, .. } => {
             Some(WorldEventKind::AgentRegistered {
                 agent_id: agent_id.clone(),
                 location_id: seed_location_id_for_agent_or_pos(seed_model, agent_id, *pos)

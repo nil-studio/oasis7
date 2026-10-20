@@ -20,7 +20,7 @@ pub(super) fn project(events: &[WorldEvent], world: &str, epoch: u64) -> Vec<Val
         .rev()
         .filter_map(|event| {
             let (kind, id, pos, visibility_kind) = match &event.body {
-                WorldEventBody::Domain(DomainEvent::AgentRegistered { agent_id, pos }) => {
+                WorldEventBody::Domain(DomainEvent::AgentRegistered { agent_id, pos, .. }) => {
                     ("agent_registered", agent_id.as_str(), pos, "agent")
                 }
                 WorldEventBody::ModuleEmitted(emit) => {

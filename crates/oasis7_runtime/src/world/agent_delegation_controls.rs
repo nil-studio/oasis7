@@ -42,9 +42,7 @@ impl World {
         };
         if record.owner_id != player_id
             || self
-                .state
-                .starter_oc_claims
-                .get(&record.control.agent_id)
+                .current_agent_owner(&record.control.agent_id)
                 .is_none_or(|owner| owner.player_id != player_id)
         {
             return Err(denied("owner_control_denied"));
@@ -83,9 +81,7 @@ impl World {
         control: AgentOwnerControlV1,
     ) -> Result<AgentIntentReplayDisposition, WorldError> {
         let owner = self
-            .state
-            .starter_oc_claims
-            .get(&control.agent_id)
+            .current_agent_owner(&control.agent_id)
             .ok_or_else(|| denied("owner_source_unavailable"))?;
         if player_id != owner.player_id || control.control_id.trim().is_empty() {
             return Err(denied("owner_control_denied"));

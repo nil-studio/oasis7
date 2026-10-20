@@ -197,6 +197,7 @@ fn add_agent(world: &mut World, agent_id: &str) {
     world
         .append_event_for_test(
             WorldEventBody::Domain(DomainEvent::AgentRegistered {
+            registration_contract_version: 0,
                 agent_id: agent_id.into(),
                 pos: GeoPos::new(0, 0, 0),
             }),

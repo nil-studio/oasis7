@@ -771,6 +771,7 @@ impl World {
                     .saturating_add(scarcity_delay_ticks);
                 let ready_at = self.state.time.saturating_add(duration_ticks as u64);
                 Ok(WorldEventBody::Domain(DomainEvent::RecipeStarted {
+                    emergency_power_obligation: None,
                     committed_recipe_origin: None,
                     job_id: action_id,
                     requester_agent_id: requester_agent_id.clone(),

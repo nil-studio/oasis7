@@ -132,6 +132,9 @@ impl ViewerRuntimeLiveServer {
             player_id,
             public_key,
         )?;
+        if self.world.state().is_manufactured_agent(agent_id) {
+            return Ok(());
+        }
         let events = self
             .llm_sidecar
             .bind_agent_player(agent_id, player_id, public_key, false)
@@ -174,6 +177,9 @@ impl ViewerRuntimeLiveServer {
             agent_id: err.agent_id,
         });
         mapped?;
+        if self.world.state().is_manufactured_agent(agent_id) {
+            return Ok(());
+        }
         let events = self
             .llm_sidecar
             .bind_agent_player(agent_id, player_id, public_key, false)
@@ -600,6 +606,22 @@ fn ensure_agent_player_access_runtime_inner(
             message: format!("agent not found: {agent_id}"),
             agent_id: Some(agent_id.to_string()),
             current_version: None,
+            ..PromptControlError::default_legacy()
+        });
+    }
+    if world.state().is_manufactured_agent(agent_id) {
+        let allowed = world.current_agent_owner(agent_id).is_some_and(|owner| {
+            owner.player_id == player_id
+                && owner.public_key.as_deref()
+                    == normalize_optional_public_key(public_key).as_deref()
+        });
+        if allowed {
+            return Ok(());
+        }
+        return Err(PromptControlError {
+            code: "agent_control_forbidden".into(),
+            message: "manufactured Agent has no current owner authority for this principal".into(),
+            agent_id: Some(agent_id.into()),
             ..PromptControlError::default_legacy()
         });
     }

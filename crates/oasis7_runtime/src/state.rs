@@ -46,7 +46,7 @@ mod apply_domain_event_core;
 mod apply_domain_event_gameplay;
 mod apply_domain_event_governance_meta;
 mod apply_domain_event_industry;
-mod apply_domain_event_industry_helpers;
+pub(crate) mod apply_domain_event_industry_helpers;
 #[cfg(test)]
 mod apply_domain_event_industry_history_tests;
 mod apply_domain_event_intent;
@@ -190,6 +190,8 @@ pub struct FactoryBuildJobState {
 /// In-flight recipe execution tracked by job id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecipeJobState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emergency_power_world_binding: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub committed_recipe_origin: Option<crate::CommittedRecipeOrigin>,
     pub job_id: ActionId,
@@ -506,6 +508,8 @@ pub struct ModuleReleaseManifestMappingState {
 /// The mutable state of the world.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct WorldState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     pub time: WorldTime,
     /// Independent authenticated archive index. It is committed by the
     /// enclosing Snapshot's state bytes and is trusted only when those exact
@@ -643,6 +647,9 @@ pub struct WorldState {
     pub economic_contracts: BTreeMap<String, EconomicContractState>,
     #[serde(default)]
     pub agent_claims: BTreeMap<String, AgentClaimState>,
+    /// Durable per-target acquisition ordinal; terminal claims retain this tombstone.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agent_claim_acquisition_sequences: BTreeMap<String, u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub starter_oc_claims: BTreeMap<String, StarterOcClaimState>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1014,6 +1021,9 @@ impl WorldState {
         committed_receipt_event_id: Option<WorldEventId>,
     ) -> Result<(), WorldError> {
         match event {
+            DomainEvent::WorldRuleCommitted { .. } => {
+                crate::world_rules::PreparedWorldRule::prepare(self, event, now)?.install(self);
+            }
             DomainEvent::AgentIntentProposed { .. }
             | DomainEvent::AgentIntentSubmitted { .. }
             | DomainEvent::AgentIntentAccepted { .. }

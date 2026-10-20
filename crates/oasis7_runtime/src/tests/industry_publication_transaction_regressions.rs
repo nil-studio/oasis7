@@ -224,6 +224,7 @@ fn fixtures() -> Vec<(&'static str, World, DomainEvent)> {
         .set_agent_resource_balance("actor", ResourceKind::Electricity, 10)
         .unwrap();
     let recipe = DomainEvent::RecipeStarted {
+            emergency_power_obligation: None,
         committed_recipe_origin: None,
         job_id: 201,
         requester_agent_id: "actor".into(),
