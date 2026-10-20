@@ -282,8 +282,10 @@ impl IdentityService {
                 && p["identity_namespace"]["service_id"]
                     == self.config.namespace.identity_service_id
                 && p["identity_namespace"]["environment_id"] == self.config.namespace.environment_id
-                && p["identity_namespace"]["instance_epoch"]
-                    == self.config.rp.identity_instance_epoch.to_string()
+                && serde_json::from_value::<DecimalU64>(
+                    p["identity_namespace"]["instance_epoch"].clone(),
+                )
+                .is_ok_and(|epoch| epoch.0 == self.config.rp.identity_instance_epoch)
         });
         Ok(json!({"api_version":2,"ok":true,"schema_revision":1,
             "identity":{"service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id,"instance_epoch":self.config.rp.identity_instance_epoch.to_string()},

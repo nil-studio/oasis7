@@ -42,10 +42,8 @@ pub(super) fn recovered(
                 key: original.correlation.key.clone(),
             },
             original.signed_payload.clone(),
-        ) {
-            if let IntentOutcome::Committed { receipt, .. } = response.outcome {
+        ) && let IntentOutcome::Committed { receipt, .. } = response.outcome {
                 return receipt;
-            }
         }
         std::thread::sleep(Duration::from_millis(50));
     }

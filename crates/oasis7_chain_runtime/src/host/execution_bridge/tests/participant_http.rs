@@ -179,10 +179,8 @@ fn settled(
                 key: correlation.key,
             },
             original,
-        ) {
-            if let IntentOutcome::Committed { receipt, .. } = response.outcome {
+        ) && let IntentOutcome::Committed { receipt, .. } = response.outcome {
                 return serde_json::from_value(receipt).unwrap();
-            }
         }
         std::thread::sleep(Duration::from_millis(50));
     }

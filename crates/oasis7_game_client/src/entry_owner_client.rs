@@ -63,10 +63,10 @@ fn verify_intent_response(
     {
         return Err("owner result requires configured ordinary service profile; formal proof downgrade forbidden".into());
     }
-    if let IntentOutcome::Committed { commit, .. } = &signed.payload.outcome {
-        if commit.world != correlation.key.world {
-            return Err("owner result world mismatch".into());
-        }
+    if let IntentOutcome::Committed { commit, .. } = &signed.payload.outcome
+        && commit.world != correlation.key.world
+    {
+        return Err("owner result world mismatch".into());
     }
     Ok(signed.payload)
 }
@@ -657,8 +657,7 @@ impl ParticipantClient {
             login,
             operation,
             executor_key,
-            generation,
-            nonce,
+            (generation, nonce),
             false,
         )
     }
@@ -676,8 +675,7 @@ impl ParticipantClient {
             login,
             operation,
             executor_key,
-            generation,
-            nonce,
+            (generation, nonce),
             true,
         )
     }
@@ -687,10 +685,10 @@ impl ParticipantClient {
         login: &str,
         operation: &str,
         executor_key: &str,
-        generation: u64,
-        nonce: u64,
+        revision: (u64, u64),
         revoked: bool,
     ) -> Result<EntryOwnerProgress, String> {
+        let (generation, nonce) = revision;
         self.validate_executor_key(executor_key)?;
         self.reserve_owner_operation(participant, operation, "executor_delegation")?;
         if let Some(original) = self.stored_intent(participant, operation)? {

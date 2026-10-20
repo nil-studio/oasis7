@@ -296,7 +296,7 @@ fn reserve(
         hex::encode(Sha256::digest(q.request_id.as_bytes()))
     );
     if let Some(old) = store::read_record(&d, &key, &name, MAGIC, AAD)? {
-        if &*old != original.as_slice() {
+        if *old != original.as_slice() {
             return Err("broker request id conflicts with original game command".into());
         }
     } else {

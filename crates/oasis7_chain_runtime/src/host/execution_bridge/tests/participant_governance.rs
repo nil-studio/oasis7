@@ -19,7 +19,7 @@ pub(super) fn install(
         for (index, node) in GOVERNORS.iter().enumerate() {
             world
                 .bind_node_identity(
-                    *node,
+                    node,
                     &hex::encode(governor(index).verifying_key().to_bytes()),
                 )
                 .unwrap();
