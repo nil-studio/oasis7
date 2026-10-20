@@ -241,3 +241,34 @@ it('opens the sole explicit home goal work and preserves removed relationship ov
  setRecords(1);await screen.findByText('尚无已读明确关联');expect(screen.queryByRole('button',{name:'进入关联工作'})).not.toBeInTheDocument();
  expect(screen.getByRole('button',{name:'选择工作，核对剩余条件'})).toBeEnabled();
 });
+
+it('combines source-status selection with text search without persisting a new schema',async()=>{
+ const value=projection();const first=value.items[0];value.items=[first,{...first,reference:{...first.reference,number:'2'} as typeof first.reference,purpose:{...first.purpose,value:'进行中的工作'},result:{...first.result,value:'PR OPEN'}},{...first,reference:{kind:'session',namespace:'external-locator',projectId:'p',environment:'local',threadId:'external'},purpose:{...first.purpose,value:'原外部工作'},result:{...first.result,value:'PR OPEN'}}];
+ vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ const [source,setSource]=createSignal(snapshot());render(()=><WorkOverview snapshot={source()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByRole('button',{name:'进行中的工作'});const statuses=within(screen.getByRole('group',{name:'工作状态筛选'}));
+ expect(statuses.getByRole('button',{name:/进行中/})).toHaveTextContent('1');
+ fireEvent.click(statuses.getByRole('button',{name:/进行中/}));expect(statuses.getByRole('button',{name:/进行中/})).toHaveAttribute('aria-pressed','true');
+ expect(screen.queryByRole('button',{name:'修复本地工具'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:'原外部工作'})).not.toBeInTheDocument();
+ expect(bridge.saveDailyWork).not.toHaveBeenCalled();
+ fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'没有匹配'}});expect(statuses.getByRole('button',{name:/进行中/})).toHaveTextContent('0');
+ fireEvent.click(screen.getByRole('button',{name:'清空筛选'}));expect(statuses.getByRole('button',{name:/全部/})).toHaveAttribute('aria-pressed','true');await screen.findByRole('button',{name:'原外部工作'});
+ fireEvent.click(statuses.getByRole('button',{name:/外部或未核实/}));expect(screen.queryByRole('button',{name:'进行中的工作'})).not.toBeInTheDocument();
+ vi.mocked(bridge.workProjection).mockResolvedValue(projection('other'));vi.mocked(bridge.dailyWork).mockResolvedValue(state('other'));setSource(snapshot('other'));
+ await screen.findByRole('button',{name:'修复本地工具'});expect(statuses.getByRole('button',{name:/全部/})).toHaveAttribute('aria-pressed','true');
+});
+it('prioritizes pinned and recent home returns before open-work fallback independently of list filters',async()=>{
+ const value=projection(),first=value.items[0];value.items.push({...first,reference:{...first.reference,number:'2'} as typeof first.reference,purpose:{...first.purpose,value:'正在继续的工作'},result:{...first.result,value:'PR OPEN'}},{...first,reference:{...first.reference,number:'3'} as typeof first.reference,purpose:{...first.purpose,value:'最近查看的旧工作'}});
+ const record=state();record.navigation.pinned=[first.reference];record.navigation.recentWork=[value.items[2].reference];record.navigation.filter='没有匹配';vi.mocked(bridge.workProjection).mockResolvedValue(value);vi.mocked(bridge.dailyWork).mockResolvedValue(record);
+ const [view,setView]=createSignal('direction');render(()=><WorkOverview snapshot={snapshot()} view={view()} sourceGeneration={0} onExecution={()=>setView('execution')} onView={setView}/>);
+ const home=screen.getByRole('heading',{name:'返回工作'}).closest('section')!;await within(home).findByRole('button',{name:'正在继续的工作'});
+ expect(within(home).getAllByRole('button').filter(b=>b.hasAttribute('data-work-ref')).map(b=>b.textContent)).toEqual(['修复本地工具','最近查看的旧工作','正在继续的工作']);
+ fireEvent.click(within(home).getByRole('button',{name:'查看全部工作'}));expect(screen.getByLabelText('筛选工作')).toHaveValue('');
+ const statuses=within(screen.getByRole('group',{name:'工作状态筛选'}));fireEvent.click(statuses.getByRole('button',{name:/已关闭/}));setView('direction');
+ expect(within(screen.getByRole('heading',{name:'返回工作'}).closest('section')!).getByRole('button',{name:'正在继续的工作'})).toBeInTheDocument();
+});
+it('uses open work as the home fallback while keeping source order within the same status',async()=>{
+ const value=projection(),first=value.items[0];value.items.push({...first,reference:{...first.reference,number:'2'} as typeof first.reference,purpose:{...first.purpose,value:'进行中甲'},result:{...first.result,value:'PR OPEN'}},{...first,reference:{...first.reference,number:'3'} as typeof first.reference,purpose:{...first.purpose,value:'进行中乙'},result:{...first.result,value:'PR OPEN'}});vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ render(()=><WorkOverview snapshot={snapshot()} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);const home=screen.getByRole('heading',{name:'返回工作'}).closest('section')!;await within(home).findByRole('button',{name:'进行中甲'});
+ expect(within(home).getAllByRole('button').filter(b=>b.hasAttribute('data-work-ref')).map(b=>b.textContent)).toEqual(['进行中甲','进行中乙','修复本地工具']);
+});
