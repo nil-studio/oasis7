@@ -1,6 +1,6 @@
 ---
 name: oasis7-play
-description: Execute an authorized Oasis7 native task through the signed game client, read the complete private goal and captured context, choose a supported action, and verify its canonical result. Use for the prepared-world task execution profile with an operator-provided device configuration.
+description: Execute an authorized Oasis7 native task through the supplied signed game client or approved local tool socket, read the complete goal/context, choose a supported action, and verify its canonical result. Owner-controlled entry remains separate.
 ---
 
 # Oasis7 native task play
@@ -9,11 +9,26 @@ This profile uses the ordinary `oasis7_game_client` executable and an operator-p
 
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.
 
-The native identity prerequisite has a separate [owner-control reference](references/identity-entry.md).
-It is not a cold-world play profile. Default executors must not invoke it, unlock
-identity storage or obtain owner credentials. A missing world/Agent/task binding
-still requires stopping at that boundary; identity registration alone cannot
-authorize the commands below.
+Trusted identity, world entry and explicit owner operations have a separate
+[owner-control reference](references/identity-entry.md). Default executors must
+not invoke those commands, unlock storage or obtain owner credentials. Missing
+world/Agent/task binding stops play; identity registration alone cannot authorize
+the commands below. OpenClaw/Codex cold-entry combinations require independent
+acceptance and are not certified by this Skill.
+
+For an approved isolated Runtime profile, the launcher supplies only a private
+tool socket, resource IDs and this Skill. Send a JSON request on stdin to
+`<client> broker-call --socket <approved-socket>`, for example
+`{"request_id":"read-a-1","resource_id":"A","args":["task"]}`.
+Use the native command/options below as `args`, omitting `--config` and its path.
+Never request arbitrary paths, unlock, owner control or raw signing. Resource A
+and delegated B have separate tasks, contexts, goals and budgets; choose the
+resource explicitly on every call. An unauthorized B cannot borrow A's fence or
+context. Stop/revocation blocks new execution; pending originals still require
+current authorized reconciliation. A broker error or exhausted tool budget is
+not a world receipt. Provider/model costs need their separately approved limits.
+The raw `--config` examples below apply only to a trusted prepared-world device
+profile; model socket callers must use the equivalent `args` form.
 
 ## Executor selection
 

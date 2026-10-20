@@ -12,3 +12,9 @@ pub use oasis7_client_api::world_service::*;
 pub use wire::*;
 
 pub mod safe_alternative;
+
+pub mod participant;
+
+pub mod participant_policy;
+
+pub mod starter;

@@ -51,3 +51,7 @@ mod game_client_conformance;
 
 #[cfg(test)]
 pub(crate) mod formal_read_response_fixture;
+
+pub mod participant;
+
+pub mod starter;

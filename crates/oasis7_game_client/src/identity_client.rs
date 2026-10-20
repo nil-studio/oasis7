@@ -10,10 +10,18 @@ use std::{io::Read, path::PathBuf, time::Duration};
 
 #[path = "identity_http.rs"]
 mod http;
+#[path = "participant_client.rs"]
+mod participant;
+pub use participant::{
+    EntryOwnerProgress, ParticipantClient, ParticipantClientConfig, ParticipantOwnerObservation,
+    ParticipantProgress,
+};
 #[cfg(test)]
 #[path = "identity_client_tests.rs"]
 mod tests;
 pub const IDENTITY_PREFIX: &str = "/api/public/hosted-account/v2";
+#[path = "identity_discovery.rs"]
+mod discovery;
 
 #[derive(Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -25,7 +33,7 @@ pub struct IdentityClientConfig {
     pub state_directory: PathBuf,
     #[cfg(test)]
     #[serde(skip)]
-    test_loopback: bool,
+    pub(crate) test_loopback: bool,
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 struct OriginalRequest {
@@ -55,6 +63,53 @@ pub struct IdentityClient {
     signing_key: SigningKey,
 }
 impl IdentityClient {
+    /// Only the trusted local entry adapters use current account authentication.
+    /// This does not expose cookies, signing keys, or an arbitrary HTTP client.
+    pub(crate) fn authenticated_entry_call(
+        &self,
+        login_operation: &str,
+        path: &str,
+        body: &Value,
+    ) -> Result<Value, String> {
+        validate_operation(login_operation)?;
+        if ![
+            "/participant/authorize",
+            "/participant/lookup",
+            "/participant/submit",
+            "/participant/owner-view",
+            "/participant/starter-eligibility",
+            "/entry-owner/control",
+            "/entry-executor/control",
+        ]
+        .contains(&path)
+        {
+            return Err("entry route not allowed".into());
+        }
+        let session = self
+            .store
+            .read_original::<IdentitySession>(&self.scope, login_operation, "login-session")?
+            .ok_or("action_required: explicit fresh identity login")?;
+        let mut original = OriginalRequest {
+            path: "/session".into(),
+            cookie: session.cookie,
+            csrf: String::new(),
+            body: String::new(),
+        };
+        let (current, _) = self.call("GET", "/session", Some(&original))?;
+        if current["account"]["account_id"] != session.account_id {
+            return Err("identity session subject changed".into());
+        }
+        original.path = "/capabilities".into();
+        let (caps, _) = self.call("GET", "/capabilities", Some(&original))?;
+        original.csrf = caps["csrf_token"]
+            .as_str()
+            .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            .ok_or("identity CSRF unavailable")?
+            .into();
+        original.path = path.into();
+        original.body = serde_json::to_string(body).map_err(|_| "entry request encoding failed")?;
+        self.call("POST", path, Some(&original)).map(|(v, _)| v)
+    }
     pub fn new(config: IdentityClientConfig, passphrase: &[u8]) -> Result<Self, String> {
         http::validate_config(&config)?;
         let store = IdentityStore::open(&config.state_directory, passphrase)?;

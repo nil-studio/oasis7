@@ -176,11 +176,21 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 
 ## 5. 关键运行流程
 
-### 机器身份前置的实际范围
+### 机器身份与受保护入场接续
 
-Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)拥有默认关闭的机器注册事务、用途隔离、两级注册开关、持久配额及原操作恢复。Unix `oasis7_game_client::identity_client` 和独立 `--identity-config` CLI 使用受保护本地身份、固定服务信任与不可变 outbox；它们不是默认 executor 的 owner 权限扩展。注册不签发会话，原生登录另用 `purpose=login`；两者均不创建世界、Agent、task 或 grant。
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；O7-REQ-d30925fe-d798-4056-9641-062255931a61。
 
-身份服务 `/api/public/hosted-account/v2/capabilities` 只公布本机实际开关下的 `machine_registration.available`。Game HTTP 读取 bootstrap 的 `writes_available=false` 继续有效，不能因身份路由存在而发布完整冷入场或公开游戏写入能力。世界准入、逐账号首次角色/owner、必要 starter 与任务执行仍须依下节逐项取得各自权威结果；未实施的接续不能由身份 receipt、CLI 状态或 prepared-world 验收代签。
+[身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)拥有双开关默认关闭的机器注册、独立登录、永久原操作回执与持久配额。账号 receipt 不创建 session、Agent 或 grant。Unix SDK 将 login、owner、executor 分别保存在不同用途的 Argon2id/XChaCha vault；原正文、签名、nonce、correlation 先落受保护 outbox，再查询/发送。
+
+身份 HTTPS 服务在既有 Origin/CSRF/session 校验后提供固定 `/entry/discovery`、`/participant/authorize|submit|lookup|owner-view|starter-eligibility`、`/entry-owner/control`、`/entry-executor/control`。只转发配置固定的 literal-loopback world service，核对固定服务公钥与 typed 请求/响应签名；私有 goal/context 正文不经过公开世界历史。公开正文上限 64 KiB，executor 响应上限 4 MiB；上游错误只保留列举的只读 drift，不把错误包装成签名成功。账号持久配额及脱敏审计在请求前执行，资源配额在 canonical actor 校验后执行。阻塞读取后、敏感投递前和回包后重新校验 session，独立进程撤销不得被缓存覆盖。
+
+世界准入依赖 journaled participant policy，未配置时拒绝新注册；治理通过的 proposal manifest 必须明确承诺 policy 与 issuer-signed migration manifest 的摘要。迁移完整性依赖授权 issuer 清单和治理审查，不由链状态推断外部账号库。稳定唯一性为 service/environment/account/world/genesis；instance epoch、branch 和 reorg 是新鲜度边界，不能产生第二个 Agent。已授权历史 epoch 的原请求可用当前准入继续或查询；关闭新注册保留旧身份认证和原结果。具体绑定、原子事件及迁移见[首次角色主责](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)。
+
+owner gateway 仅接受明确的 task、goal、delegation、executor bind/stop/revoke 和独立 starter claim。普通 executor 只可读取合法资源、准备上下文、提交当前完整 task fence 的认知/scheduler 原生请求。历史 lookup 使用当前 session/delegation/完整 fence 作为外层读授权，仍按原正文与原 correlation 查询；不能借旧 fence 新写入。owner key 不能作为 delegate；不同资源的目标、状态、预算和私有上下文不共用。
+
+启用由部署配置分别控制 `OASIS7_HOSTED_PARTICIPANT_ENTRY_ENABLED`、`OASIS7_HOSTED_OWNER_CONTROL_ENABLED`、`OASIS7_HOSTED_EXECUTOR_CONTROL_ENABLED`，均默认关闭。可信 world 配置 `OASIS7_HOSTED_PARTICIPANT_ENTRY_TRUST` 含 endpoint/service_public_key/world；issuer 私钥只由 `OASIS7_HOSTED_PARTICIPANT_ISSUER_PRIVATE_KEY` 的受控服务环境提供，不进入客户端或模型。启用入口仍需有效的 canonical policy 和既有部署授权；代码存在不代表已开放。discovery 返回实际阶段开关、policy 和 Runtime profiles；没有验收 profile 时保持 `complete_cold_entry=false`。
+
+[客户端控制参考](../../../skills/oasis7-play/references/identity-entry.md)说明显式阶段命令和模型只见 socket 的本地 broker。固定 profile/hash 只限定可信构建材料与工具边界，不证明实际 Runtime 沙箱或费用硬上限。Game HTTP 只读 bootstrap 的 `writes_available=false` 继续有效，不能因新入口存在而宣称该旧路由支持公开写入。OpenClaw/Codex 的实际冷入场、首局成果与重启恢复必须分别验收。
 
 <a id="api-auth"></a>
 ### 5.1 连接、配对和最小授权

@@ -83,7 +83,7 @@ impl Client {
             if reason == "context_expired" {
                 self.ensure_quote_has_no_write(operation)?;
             }
-            let signed = authority::sign_read_request("scheduler", intent, &self.key_hex)?;
+            let signed = self.sign("scheduler", intent)?;
             self.cache_intent(
                 ClientStateKind::Outcome,
                 operation,

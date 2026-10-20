@@ -2,10 +2,13 @@
 mod config;
 mod credentials;
 mod email;
+mod entry_executor_control;
+mod entry_owner_control;
 mod machine_registration;
 pub mod model;
 mod model_session;
 mod native_key;
+mod participant_entry;
 mod recovery;
 mod service;
 #[cfg(test)]

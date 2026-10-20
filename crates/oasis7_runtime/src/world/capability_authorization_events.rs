@@ -235,6 +235,11 @@ impl World {
         time: WorldTime,
     ) -> Result<(), WorldError> {
         match event {
+            CapabilityAuthorizationEvent::ParticipantPolicyInstalled { .. } | CapabilityAuthorizationEvent::ParticipantRegistered { .. } => {
+                let mut registry = self.capability_revocation_state.clone();
+                super::participant::project_event(self, &mut registry, event)?;
+                self.capability_revocation_state = registry;
+            }
             CapabilityAuthorizationEvent::AuthorityInstalled { .. } => {
                 return Err(deny(
                     "record-only capability authority event has no replayable finality certificate",

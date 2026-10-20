@@ -20,6 +20,7 @@ pub(crate) struct IdentityService {
     pub webauthn: WebAuthnAdapter,
     pub(super) email: super::email::EmailAdapter,
     pub(super) clock: super::ClockGuard,
+    pub(super) participant_entry: Option<super::participant_entry::ParticipantEntry>,
 }
 pub(super) const PREFIX: &str = "/api/public/hosted-account/v2";
 const SID: &str = "__Host-oasis7_sid";
@@ -176,6 +177,7 @@ impl IdentityService {
             );
         }
         Ok(Self {
+            participant_entry: super::participant_entry::ParticipantEntry::from_env()?,
             config,
             store,
             webauthn,
@@ -219,6 +221,40 @@ impl IdentityService {
         let writing = method != "GET";
         if writing && let Err(error) = self.validate_json_write(headers, &csrf) {
             return IdentityReply::error(error);
+        }
+        if relative == "/entry/discovery" {
+            return match if method == "GET" {
+                self.entry_discovery(source, now)
+            } else {
+                Err(reject("method_not_allowed"))
+            } {
+                Ok(v) => IdentityReply::ok(v),
+                Err(e) => IdentityReply::error(e),
+            };
+        }
+        if let Some(result) =
+            self.entry_executor_route(method, relative, sid.as_deref(), &payload, now)
+        {
+            return match result {
+                Ok(v) => IdentityReply::ok(v),
+                Err(e) => IdentityReply::error(e),
+            };
+        }
+        if let Some(result) =
+            self.entry_owner_route(method, relative, sid.as_deref(), &payload, now)
+        {
+            return match result {
+                Ok(v) => IdentityReply::ok(v),
+                Err(e) => IdentityReply::error(e),
+            };
+        }
+        if let Some(result) =
+            self.participant_route(method, relative, sid.as_deref(), &payload, now)
+        {
+            return match result {
+                Ok(v) => IdentityReply::ok(v),
+                Err(e) => IdentityReply::error(e),
+            };
         }
         if let Some(result) =
             self.world_route(method, relative, sid.as_deref(), &payload, issuer, now)

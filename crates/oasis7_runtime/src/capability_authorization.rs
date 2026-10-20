@@ -164,6 +164,8 @@ pub struct CapabilityBudgetAccount {
 /// The live trust and revocation view used for v2 authorization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct CapabilityRevocationState {
+    #[serde(default, skip_serializing_if = "crate::service_admission::participant::ParticipantRegistryV1::is_empty")]
+    pub participants: crate::service_admission::participant::ParticipantRegistryV1,
     #[serde(default)]
     pub epoch: u64,
     #[serde(default)]

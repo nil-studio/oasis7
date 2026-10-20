@@ -122,7 +122,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ### 6. 外部游戏 Runtime 的 owner 目标控制前置
 
-自主入场局部核对（2026-10-21）：[#4947](https://github.com/nil-studio/oasis7/pull/4947) 的设计与 [#4949](https://github.com/nil-studio/oasis7/pull/4949) 的共享身份 codec 已合入；[机器身份事务](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)维护双开关、独立登录及受保护 SDK 原件恢复的实际边界。逐账号首次 Agent/owner、公开游戏 bootstrap、完整冷入场和两 Runtime 实玩仍未交付；`import_only` 本身不提供注册。剩余实现由 [#4946](https://github.com/nil-studio/oasis7/issues/4946) 跟踪，后续 PR 仍禁止自动合入、部署和开放注册，既有发布暂停继续有效。
+自主入场局部核对（2026-10-21）：[身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)及 [#4954](https://github.com/nil-studio/oasis7/pull/4954) 候选已承接机器身份、canonical participant 唯一绑定/迁移、独立 owner/executor、starter、任务目标与原件恢复。本地工具代理按资源隔离配置、状态和预算；实际 Runtime 沙箱与费用须由获准 profile 约束。来源与剩余验收见 [#4946](https://github.com/nil-studio/oasis7/issues/4946)；完整 OpenClaw/Codex 冷入场未验收，候选不能当已合入/上线，禁止自动合入、部署和开放注册，既有发布暂停继续有效。
 
 世界舞台局部更新（2026-10-17）：主体绑定、Web 恢复及探索切片已在 [PR #4825](https://github.com/nil-studio/oasis7/pull/4825) 合入；远端来源、设施/路线及视口索引已在 [PR #4834](https://github.com/nil-studio/oasis7/pull/4834) 合入。本轮继续补齐增量/删除通知、工业聚合和显式事件锚点，当前尚未合入。功能状态为已实现，待完整测试；正式独立试玩仍缺私有世界/GameClient 配置，原生容器和容量实测未完成。用户已要求保留试玩缺口推进合入，不表示整体验收或部署完成。范围见[产品摘要](../../product/agents-world-simulation/player-readable-world-stage.prd.md#stage-implementation-status)，不刷新其他核验时点。
 

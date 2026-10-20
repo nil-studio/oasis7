@@ -241,6 +241,9 @@ impl World {
         capability_budget_accounts: &mut BTreeMap<String, CapabilityBudgetAccount>,
     ) -> Result<(), WorldError> {
         match event {
+            CapabilityAuthorizationEvent::ParticipantPolicyInstalled { .. } | CapabilityAuthorizationEvent::ParticipantRegistered { .. } => {
+                super::participant::project_event(self, capability_revocation_state, event)
+            }
             CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { signed } => {
                 let mut projected = self.clone();
                 projected.capability_revocation_state = capability_revocation_state.clone();
@@ -269,6 +272,9 @@ impl World {
             CapabilityAuthorizationEvent::WorldServiceIntentRecorded { key, record } => {
                 crate::service_admission::correlation::validate_result(key, record)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
+                super::participant::validate_service_receipt(capability_revocation_state, record)?;
+                let mut projected=self.clone();projected.capability_revocation_state=capability_revocation_state.clone();
+                crate::service_admission::starter::validate_result(&projected,record).map_err(|reason|super::capability_authorization::deny(&reason))?;
                 if let Some(existing) = capability_revocation_state.world_service_results.get(key)
                     && existing != record
                 {

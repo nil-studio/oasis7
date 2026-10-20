@@ -9,8 +9,7 @@ pub fn owner_public_key(world: &World, agent_id: &str) -> Result<String, String>
         .current_agent_identity(agent_id)
         .ok_or("Agent identity unavailable")?;
     let owner = world
-        .state()
-        .resolved_agent_owner(agent_id)
+        .current_agent_owner(agent_id)
         .ok_or("canonical owner claim unavailable")?;
     if owner.player_id != identity.owner_binding {
         return Err("canonical owner changed".into());

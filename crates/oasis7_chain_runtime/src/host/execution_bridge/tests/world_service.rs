@@ -484,3 +484,6 @@ mod cognition_rejection_tests;
 
 #[path = "world_service_safe_alternative.rs"]
 mod safe_alternative;
+
+#[path="participant_http.rs"]
+mod participant_http;

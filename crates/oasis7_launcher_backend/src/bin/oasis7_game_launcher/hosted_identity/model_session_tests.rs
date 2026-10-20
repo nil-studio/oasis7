@@ -25,6 +25,7 @@ fn service(config: IdentityConfig) -> IdentityService {
     .unwrap();
     let email = EmailAdapter::from_env(&config.session_key).unwrap();
     IdentityService {
+        participant_entry: None,
         config,
         store,
         webauthn,

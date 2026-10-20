@@ -33,6 +33,11 @@ pub struct CanonicalIntentResultV1<C = UnsupportedWireVariant, S = TaskScheduler
     reason = "Published signed payload variants preserve the existing typed API and canonical serialization boundary"
 )]
 pub enum WorldServicePayloadV1<C = UnsupportedWireVariant, S = TaskSchedulerIntentV1> {
+    GameStarterClaim(SignedReadRequest<oasis7_agent_api::game::GameStarterClaimV1>),
+    GameParticipantRegister {
+        owner: SignedReadRequest<oasis7_agent_api::game::GameParticipantRegisterV1>,
+        admission: SignedReadRequest<oasis7_agent_api::game::GameParticipantAdmissionV1>,
+    },
     GameplayJson(Vec<u8>),
     AgentChat(C),
     SafeAlternative(SignedReadRequest<crate::safe_alternative::SafeAlternativeCommandV1>),

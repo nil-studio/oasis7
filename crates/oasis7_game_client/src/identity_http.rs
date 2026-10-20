@@ -53,6 +53,13 @@ impl IdentityClient {
             "/machine-registration/complete",
             "/native-key/options",
             "/native-key/complete",
+            "/participant/authorize",
+            "/participant/submit",
+            "/participant/lookup",
+            "/participant/owner-view",
+            "/participant/starter-eligibility",
+            "/entry-owner/control",
+            "/entry-executor/control",
         ]
         .contains(&path)
         {
@@ -110,14 +117,19 @@ impl IdentityClient {
             cookie = Some(first.into());
         }
         let mut bytes = Vec::new();
+        let maximum = if path == "/entry-executor/control" {
+            4 * 1024 * 1024
+        } else {
+            65536
+        };
         response
-            .take(65537)
+            .take(maximum as u64 + 1)
             .read_to_end(&mut bytes)
             .map_err(|_| "identity response unknown; retain original operation")?;
-        if bytes.len() > 65536 {
+        if bytes.len() > maximum {
             return Err("identity response exceeds bound; retain original operation".into());
         }
-        let result: Value = oasis7_agent_api::game::parse_request(&bytes)
+        let result: Value = oasis7_agent_api::game::parse_bounded_json(&bytes, maximum)
             .map_err(|_| "identity response malformed; retain original operation")?;
         if status.as_u16() != 200 || result["api_version"] != 2 || result["ok"] != true {
             let code = match result["error_code"].as_str() {

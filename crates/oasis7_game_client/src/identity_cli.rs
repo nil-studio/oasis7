@@ -4,14 +4,14 @@ use serde_json::json;
 use std::io::{IsTerminal, Read};
 use zeroize::Zeroizing;
 
-pub(crate) const HELP: &str = "oasis7_game_client --identity-config <identity.json> identity-init|identity-public-key|identity-register|identity-login|identity-status [--operation <original-id>] [--name <display-name>]\nUnlock passphrase must be provided on private stdin by the trusted local user/launcher, never in argv, environment, chat or model tools. This owner-control entry does not start a runtime or enter a world.";
+pub(crate) const HELP: &str = "oasis7_game_client --identity-config <identity.json> identity-discovery|identity-init|identity-public-key|identity-register|identity-login|identity-status [--operation <original-id>] [--name <display-name>]\nUnlock passphrase must be provided on private stdin by the trusted local user/launcher, never in argv, environment, chat or model tools. This owner-control entry does not start a runtime or enter a world.";
 pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
     if args.len() < 3 {
         return Err(HELP.into());
     }
     let command = args[2].as_str();
     let allowed: &[&str] = match command {
-        "identity-init" | "identity-public-key" => &[],
+        "identity-discovery" | "identity-init" | "identity-public-key" => &[],
         "identity-login" | "identity-status" => &["--operation"],
         "identity-register" => &["--operation", "--name"],
         _ => return Err(HELP.into()),
@@ -42,6 +42,9 @@ pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
         .map_err(|_| "invalid identity configuration")?;
     let config: IdentityClientConfig =
         serde_json::from_value(value).map_err(|_| "invalid identity configuration")?;
+    if command == "identity-discovery" {
+        return crate::device_client::print(&IdentityClient::discover_entry(&config)?);
+    }
     if std::io::stdin().is_terminal() {
         return Err("action_required: unlock through trusted local private stdin; do not put secrets in model context".into());
     }

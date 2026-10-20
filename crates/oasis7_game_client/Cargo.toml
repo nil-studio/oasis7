@@ -18,6 +18,7 @@ getrandom = "0.4"
 ed25519-dalek = "3"
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 zeroize = "1"
+sha2 = "0.10"
 
 blake3 = "1"
 serde_cbor = "0.11"

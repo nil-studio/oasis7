@@ -49,7 +49,7 @@ pub(super) fn describe(
     )
 }
 
-fn outcome(
+pub(super) fn outcome(
     service: &Service<'_>,
     pinned: &PinnedWorld,
     correlation: &RequestCorrelation,
@@ -121,6 +121,9 @@ pub(super) fn submit(
         service.check_replay_payload(&pinned, &request.signed_payload)?;
     }
     let status = if matches!(existing, IntentOutcome::Unknown) {
+        if let WorldServicePayloadV1::GameParticipantRegister {owner,admission}=&request.signed_payload {
+            oasis7_runtime::service_admission::participant::validate_registration(&pinned.world,owner,admission,&pinned.commit.binding.branch_id,pinned.commit.binding.reorg_generation)?;
+        }
         if let WorldServicePayloadV1::AgentChat(chat) = &request.signed_payload {
             agent_chat::validate_fresh(&pinned.world, chat)?;
         }

@@ -60,6 +60,19 @@ impl Client {
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
     ) -> Result<IntentResponse<Value>, String> {
+        #[cfg(unix)]
+        if self.gateway.is_some() {
+            let response = self
+                .lookup_typed(request)
+                .map_err(|error| query_error(&error))?;
+            match response.outcome {
+                IntentOutcome::Unknown => {}
+                IntentOutcome::Received { .. } | IntentOutcome::Pending => {
+                    return self.poll_original(request);
+                }
+                _ => return Ok(response),
+            }
+        }
         // The original signed payload is durable before this single send. Lost
         // delivery can only lead to queries of this exact correlation/payload.
         let submission = self.remote.submit(request.clone());

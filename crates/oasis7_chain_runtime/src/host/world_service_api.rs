@@ -16,6 +16,10 @@ use std::{
 mod membership_operations;
 #[path = "world_service_operations.rs"]
 mod operations;
+#[path = "world_service_participant_api.rs"]
+mod participant_api;
+#[path="world_service_executor_api.rs"]
+mod executor_api;
 #[path = "world_service_private_goal.rs"]
 pub(super) mod private_goal;
 
@@ -123,6 +127,14 @@ impl Service<'_> {
         payload: &WorldServicePayloadV1,
     ) -> Result<(), String> {
         match payload {
+            WorldServicePayloadV1::GameStarterClaim(signed)=>{
+                oasis7_runtime::service_admission::starter::validate_owner(&pinned.world,signed,&pinned.commit.binding.branch_id,pinned.commit.binding.reorg_generation)?;
+            }
+            WorldServicePayloadV1::GameParticipantRegister { owner, admission } => {
+                oasis7_runtime::service_admission::participant::validate_admission(
+                    &pinned.world, owner, admission, &pinned.commit.binding.branch_id,
+                    pinned.commit.binding.reorg_generation)?;
+            }
             WorldServicePayloadV1::GameTaskCreate(signed) => {
                 oasis7::world_service::game_task::validate_owner(&pinned.world, signed)?;
             }
@@ -233,6 +245,10 @@ pub(super) fn maybe_handle_with_guarded(
         oasis7_client_api::world_service::VIEW_JSON_PATH,
         CHANGES_PATH,
         MEMBERSHIP_PATH,
+        participant_api::PARTICIPANT_POLICY_PATH,
+        participant_api::PARTICIPANT_OWNER_VIEW_PATH,
+        participant_api::PARTICIPANT_STARTER_ELIGIBILITY_PATH,
+        executor_api::EXECUTOR_LOOKUP_PATH,
     ]
     .contains(&path)
     {
@@ -265,6 +281,10 @@ pub(super) fn maybe_handle_with_guarded(
         };
         match path {
             DESCRIBE_PATH => operations::describe(&service, parse(body)?),
+            participant_api::PARTICIPANT_POLICY_PATH => participant_api::policy(&service, parse(body)?),
+            participant_api::PARTICIPANT_OWNER_VIEW_PATH=>participant_api::owner_view(&service,parse(body)?),
+            participant_api::PARTICIPANT_STARTER_ELIGIBILITY_PATH=>participant_api::starter_eligibility(&service,parse(body)?),
+            executor_api::EXECUTOR_LOOKUP_PATH=>executor_api::lookup(&service,parse(body)?),
             SUBMIT_PATH => operations::submit(&service, parse(body)?),
             LOOKUP_PATH => operations::lookup(&service, parse(body)?),
             VIEW_PATH => operations::view(&service, parse(body)?),

@@ -76,6 +76,32 @@ Registration closure preserves existing-key login. Neither local progress nor
 an identity receipt proves world admission, canonical ownership, starter funds,
 delegation, task activation or complete cold entry.
 
+The separate Unix `--entry-config` owner surface now connects participant
+registration/recovery, current canonical owner reads, starter eligibility/claim,
+task creation, private goal preparation/publication and explicit independent
+executor delegation/binding/stop/revoke. See the [trusted control reference](../../skills/oasis7-play/references/identity-entry.md)
+for command options. These stages retain their own authority and durable
+originals; current account/session plus signed world admission and current
+resource fences are checked at the authenticated gateway.
+
+`--executor-config <executor.json>` accepts the existing native game commands.
+Its fields are `identity`, `login_operation`, `executor_vault_directory`,
+`service_public_key`, complete `fence` and `state_directory`; unlock comes from
+trusted private stdin. The signer is a distinct encrypted executor vault, and
+raw signer config fields remain empty. Original writes are queried before an
+exact retry. Historical lookup supplies current authorization around the
+unchanged original payload, allowing reconciliation without resurrecting an
+old executor fence. Private responses verify their original typed CBOR domains.
+
+`broker-serve --profile <private-profile.json>` exposes bounded game commands
+on a private Unix socket; `broker-call --socket <socket>` consumes a bounded
+JSON request on stdin. Profiles pin Runtime version/binary, source attestation, Skill, client binary and
+resource configs by SHA256 and keep resource state/budgets separate. Source
+attestation is operator-approved build material. Configure actual Runtime OS
+isolation separately: the model must see only socket and Skill. A socket owned
+by the same user does not hide vaults. Profile validation is not cold-entry
+acceptance, provider fee enforcement or an automatic Runtime launcher.
+
 `lookup_typed` retains error categories for recovery decisions. After one
 submission, the high-level client retries only the original result query for
 transport failure, HTTP 503 or bounded Retry-After advice. It keeps forty attempts

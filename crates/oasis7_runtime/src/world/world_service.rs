@@ -44,6 +44,8 @@ pub(super) fn apply_service_authorization_event(
         }
         Event::WorldServiceIntentRecorded { key, record } => {
             crate::service_admission::correlation::validate_result(key, record).map_err(deny)?;
+            super::participant::validate_service_receipt(&world.capability_revocation_state,record)?;
+            crate::service_admission::starter::validate_result(world,record).map_err(deny)?;
             if world
                 .capability_revocation_state
                 .world_service_results
