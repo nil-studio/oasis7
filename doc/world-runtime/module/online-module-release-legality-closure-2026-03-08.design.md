@@ -91,6 +91,8 @@ release draft→signed→finalized→active/revoked、request proposed→atteste
 ## 9. 质量与容量
 热 cache 单模块 manifest+identity+signature p95<=200ms；100 signer 热 cache finality p95<=50ms；<=2治理 epoch收敛、trace100%、未签/伪签接受率0，均继承 PRD 阈值且独立 measured evidence。Duplicate NFR-OMR-6 按原文分别为 submit结构响应与finality latency，不静默编号。实际 scripts/oasis7-runtime-finality-baseline.sh summary.md/summary.json记录候选、配置、规模、窗口、分位数；本次未执行。
 
+固定 baseline 的测试归属为 `oasis7_runtime` 的 lib unit tests；按 required/full feature 和完整 identity 精确选择。每次 warmup/sample 均须在退出成功之外，确认唯一目标实际执行且通过；零命中、错 identity、ignored、失败或无法识别的结果一律失败，并传播到 case、总状态和进程退出码。原始日志保留命令和逐次执行结果；只有验证通过的 measured sample 进入耗时统计。dry-run 与零样本/skip-full 不作为执行证明。当前计时单位仍为整条 Cargo 命令毫秒，单 World 轮换不证明全节点收敛或热缓存单证书性能。
+
 ## 10. 兼容、迁移与回滚
 Current release mapping append-only且request不可重写。新 target receivers 不强制 current wasm-1新字段；trust root key rotation只在治理授权 grace内兼容，结束拒旧证书。历史 artifact、proof、schedule保留给 replay；rollback必须治理撤销/新activation，节点不能手改。Materializer source fallback能力差距在后续实现前阻断 production hardening claim，但不阻断本 concrete design authoring。
 
