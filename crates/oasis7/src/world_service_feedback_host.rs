@@ -49,7 +49,6 @@ mod tests {
     use crate::runtime::World;
     use oasis7_agent_api::Digest32;
     use oasis7_agent_api::FeedbackEnvelopeV1;
-    use oasis7_world_service::projection::WorldServiceProjection;
     fn feedback(agent: &str, session: &str, seq: u64) -> FeedbackEnvelopeV1 {
         FeedbackEnvelopeV1 {
             feedback_id: format!("{agent}-{session}-{seq}"),
