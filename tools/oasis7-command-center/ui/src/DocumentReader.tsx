@@ -31,7 +31,7 @@ export default function DocumentReader(props:{file:IndexedDocument;chapters:Docu
     <Show when={props.chapters.length} fallback={<p>已读取，文件没有可展示的章节。</p>}>
       <div class="reader-layout"><Show when={wide()} fallback={<details class="reader-directory"><summary>章节目录（{props.chapters.length}）</summary>{links()}</details>}><nav class="reader-directory" aria-label="章节目录">{links()}</nav></Show>
       <article class="reader-body" ref={body} tabindex="0" aria-label="文档正文" onWheel={()=>{programmaticTop=null;}} onTouchMove={()=>{programmaticTop=null;}} onKeyDown={()=>{programmaticTop=null;}} onScroll={()=>{const current=chapter(),top=body?.scrollTop??0;const passive=programmaticTop!==null&&Math.abs(top-programmaticTop)<1;programmaticTop=null;if(current&&!passive)props.onPosition({section:current,scrollTop:top,userInitiated:true});}}>
-        <Show when={chapter()} fallback={<p role="status">原阅读位置无法在当前文档恢复，请从目录明确选择当前章节。</p>}>{section=><><h4>{section().title}</h4><MarkdownText text={section().content} sourcePath={section().path} sections={props.sections} showSource={props.showSource}/></>}</Show>
+        <Show when={chapter()} fallback={<p role="status">原阅读位置无法在当前文档恢复，请从目录明确选择当前章节。</p>}>{section=><><MarkdownText text={section().content} sourcePath={section().path} sections={props.sections} showSource={props.showSource}/></>}</Show>
       </article></div>
     </Show>
   </section>;
