@@ -339,3 +339,9 @@ CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`te
 进程运行器使用单调绝对期限、20 秒存活心跳及独立进程所有权标识。Linux 扫描同 UID 环境标识并核对进程 starttime，清理包括脱离原进程组的自有后代；macOS 本地兼容使用独立进程组。退出码、超时、实际测试数、清理结果分别保存。摘要产物只含测试名和运行元数据；原输出通过 nocapture 进入 job 日志，不打包临时世界目录。
 
 验证方法见[测试手册](../../../testing-manual.md#ci-formal-process-validation)。具体候选、失败、独立评审及 hosted 结果归当前 PR，未完成真实 runner 验证不得宣称产物复用已验收。
+
+### Controlled graceful-stop deadline regression
+
+The runtime-protocol suite registers one real-owner controlled regression for admission and Node-worker budget consumption. With a short test-only timeout, a held admission gate must return retained Pending before release without creating a late worker; a later retry keeps the same owner and exactly one worker until real completion. Join-only Pending, unstarted/already-stopped stop(0), poison and cleanup failure remain distinct. This regression does not increase any existing caller or production stop timeout. Artificial blocking proves this mechanism rather than any historical CI root cause; measured return overruns include OS scheduling. No diagnostic workflow, observer or production timeout is enabled by this registration.
+
+Controlled crash-publication shutdown must distinguish a zero-budget Pending before worker creation from a Pending while a worker owns the Node. It advances that same owner with a positive interval bounded by the existing scenario/10-second observation deadline before asserting worker ownership; zero-budget Pending alone never authorizes release or successful completion. No retry creates a replacement worker or renews the scenario budget.

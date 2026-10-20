@@ -15,7 +15,7 @@
 
 ## 1. 决策摘要
 
-本次一次性接入 Rust、Python、JavaScript/TypeScript、GitHub Actions 四类分析。PR 使用默认查询集并按影响选择语言单元；默认分支定时更新完整默认查询基线；每日运行扩展查询。初始以四个稳定的语言级单元部署，不预设每个 Rust crate 都有独立扫描价值。
+实现支持 Rust、Python、JavaScript/TypeScript、GitHub Actions 四类分析，按下述 unit/profile 批次逐项验收和启用。PR 使用默认查询集并按影响选择语言单元；默认分支定时为已启用批次更新默认查询基线；每日运行已启用的扩展批次。初始以四个稳定的语言级单元部署，不预设每个 Rust crate 都有独立扫描价值。
 
 所有扫描任务与现有 Rust/required CI 平行运行。扫描工作流不依赖 task Issue 的 PR 回填、impact projection、review receipt 或 integration revalidation。扫描结果不会被纳入现有 CI 收据的身份或复用条件；CodeQL 也不得签发、替代或刷新这些凭据。
 
@@ -107,6 +107,20 @@ CodeQL 默认检测、生成文件识别与提取覆盖并不等价于“每个�
 
 纯 Python PR 初始选择一个 Python 单元；纯 JS/HTML PR选择一个 JS 单元；纯 Rust PR 选择一个 Rust 单元；跨语言与共享配置变更选相应并集。这样首先消除四语言全部触发与跨工具链安装的浪费。
 
+### 4.2.1 分批验收与启用控制
+
+四个稳定单元及 default/extended profile 是八个可独立验收范围；源码位置、native fixed-input helper 诊断、单 crate 或未证明可独立配置的 rule 不是运营批次。局部诊断 PASS 不能代替本批官方提取、查询、上传关联、覆盖与平台来源验收。失败或 unknown 保留原判定，不借其他批次补足。
+
+repository variable `OASIS7_CODEQL_BATCH_MODES` 为可信运营配置，使用 JSON object：键只能是 `<unit>/<profile>` 的八个固定组合；值只能是 `baseline` 或 `observe`。缺省或空字符串按 `{}`，全部批次禁用；禁用一批通过删除其键，不接受未知键、重复键、非法类型或值。`observe` 仅允许 default profile，extended 只在默认分支维护任务运行。该变量不是候选 PR 可修改的 policy，设置属于运营动作；本次控制能力交付保持全部批次 disabled，不设置外部变量。
+
+全局 `OASIS7_CODEQL_MODE` 继续作为上限：off 禁止全部；baseline 仅允许配置中已启用批次的默认分支维护扫描；observe 另外允许配置为 observe 的 default 批次参与合格 PR。仅将全局模式升为 observe 不会让仅 baseline 的批次参加 PR。每个请求 profile 仅从原影响路由/全量维护候选中与有效批次配置取交集，保留原稳定全语言上下文和 category、查询集、并发槽位、权限及超时。
+
+计划显式分别记录 requested/candidate units、selected units 与每个未选 unit 的原因（无影响、全局关闭、profile批次未启用、PR仅baseline）。有受影响范围但全部被运营配置禁用时状态为 disabled，不能用 not_applicable 冒充无影响；真实无影响仍是 not_applicable。扫描配置变更先保守选择四个候选单元，再按可信运营配置限制实际执行，禁用范围明确披露，不将其算作成功覆盖。可信 planner/policy 缺失的 bootstrap 同样解析并遵守批次配置，不能绕过空配置启动四语言。workflow 还须独立核对每行 unit/profile/category 与全局和批次模式，候选输出不能自启用。
+
+未登记且不能识别为已有归属/明确豁免的输入必须使规划失败；不能以自动全语言回退隐藏范围规则缺口。Git身份、配置解析、符号链接或批次配置不可信时同样失败，不输出假空矩阵。现有配置变更、嵌入输入、跨语言影响保守并集规则保持。
+
+首次验收使用同一可信控制入口：在覆盖设置与扫描动作的授权下，将目标批次配置为 baseline，读回变量并仅在可信默认分支manual/schedule试运行；该配置仅允许验收执行，批次仍是 pending acceptance，不代表已经验收或正式持续运营，PR仍禁用。失败删除该键回退，禁止绕allowlist启动。取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行；default的PR observe还需其PR路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。回退可删除本批配置键、将default从observe降baseline或全局off，读回配置和新计划；不删除alerts/analysis、不改required保护，已有运行另行按授权处理。
+
 ### 4.3 Rust 为什么不按每 crate 拆 job
 
 根 workspace 已包含核心 runtime、network、consensus、protocol、WASM 等相关 crate。将一个 crate 单独 checkout 或只保留它的 diff 文件，可能丢失调用方、共享类型、宏、build inputs 或跨包数据流；另一方面，给每个 crate 单独构建整个 workspace，会成倍重复提取成本。
@@ -169,7 +183,7 @@ python3 -I scripts/security/codeql-plan.py \
 | workflow 或 local action metadata | Actions；涉及扫描/多语言工具链配置则选相关语言并集 |
 | `.github/workflows/codeql.yml`、安全策略、planner、扫描配置 | 四语言及静态安全契约测试 |
 | 被 Rust `include_str!`、`include_bytes!`、build script 等使用的前端/数据文件 | 文件所属语言单元与消费者单元；识别不清选保守并集 |
-| 未登记源文件、无法识别的新 manifest/配置依赖 | 全部相关语言；无法确定语言则四语言 |
+| 未登记源文件、无法识别的新 manifest/配置依赖 | 规划失败，先补明确归属规则；任意 build.rs/动态 include 的可能消费不能豁免未知路径 |
 | diff 身份或输入不可信/不可读取 | planner 失败，记录未分析；不以空矩阵成功代替 |
 
 普通 Rust PR 在后续仅修改描述文件时，其整体 PR diff 仍可能包含 Rust，因此可能重新触发 Rust。首版不通过自造旧报告复用来绕过这一点；由取消旧任务、观察态和官方增量机制控制代价。

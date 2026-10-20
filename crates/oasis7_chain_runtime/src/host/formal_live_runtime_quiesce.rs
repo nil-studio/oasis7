@@ -2,6 +2,38 @@
 use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
+/// Stop may retain its owner before a worker exists. Unlike the idempotency
+/// lookup below, acquiring this gate after the caller deadline is not allowed.
+pub(super) fn acquire_for_stop(
+    gate: &Mutex<()>,
+    deadline: Instant,
+) -> Result<Option<MutexGuard<'_, ()>>, String> {
+    loop {
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        match gate.try_lock() {
+            Ok(admission) => {
+                if Instant::now() >= deadline {
+                    drop(admission);
+                    return Ok(None);
+                }
+                return Ok(Some(admission));
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err("formal Node admission gate poisoned".into());
+            }
+            Err(TryLockError::WouldBlock) => {
+                std::thread::sleep(
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(5)),
+                );
+            }
+        }
+    }
+}
+
 /// A late gate acquisition is allowed only for the caller's read-only lookup
 /// of an exact existing arm. The caller must reject a new arm after deadline.
 pub(super) fn acquire_for_idempotency_read<'a>(
@@ -91,6 +123,52 @@ mod tests {
         Arc,
         atomic::{AtomicBool, Ordering},
     };
+
+    #[test]
+    fn stop_gate_returns_expired_while_the_original_guard_remains_held() {
+        let gate = Arc::new(Mutex::new(()));
+        let held = gate.lock().unwrap();
+        let peer = gate.clone();
+        let worker = std::thread::spawn(move || {
+            acquire_for_stop(&peer, Instant::now() + Duration::from_millis(15))
+                .unwrap()
+                .is_none()
+        });
+        assert!(worker.join().unwrap());
+        drop(held);
+    }
+    #[test]
+    fn stop_gate_rejects_zero_and_late_free_acquisition() {
+        let gate = Mutex::new(());
+        assert!(acquire_for_stop(&gate, Instant::now()).unwrap().is_none());
+        assert!(
+            acquire_for_stop(&gate, Instant::now() - Duration::from_millis(1))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            acquire_for_stop(&gate, Instant::now() + Duration::from_secs(1))
+                .unwrap()
+                .is_some()
+        );
+    }
+    #[test]
+    fn stop_gate_preserves_poison_as_a_real_error() {
+        let gate = Arc::new(Mutex::new(()));
+        let peer = gate.clone();
+        assert!(
+            std::thread::spawn(move || {
+                let _held = peer.lock().unwrap();
+                panic!("controlled admission poison");
+            })
+            .join()
+            .is_err()
+        );
+        assert_eq!(
+            acquire_for_stop(&gate, Instant::now() + Duration::from_secs(1)).unwrap_err(),
+            "formal Node admission gate poisoned"
+        );
+    }
 
     #[test]
     fn pending_clear_reacquires_gate_after_fresh_commit_publication() {
