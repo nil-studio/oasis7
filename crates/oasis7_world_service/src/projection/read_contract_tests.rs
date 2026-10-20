@@ -202,13 +202,7 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
     )
     .unwrap();
     let delegated = read_current(&before, &trust, "agent:7", &secret(8)).unwrap();
-    assert!(
-        delegated
-            .view
-            .state
-            .pending_factory_builds
-            .contains_key(&7)
-    );
+    assert!(delegated.view.state.pending_factory_builds.contains_key(&7));
     before_tree
         .inclusion(&delegate)
         .unwrap()
