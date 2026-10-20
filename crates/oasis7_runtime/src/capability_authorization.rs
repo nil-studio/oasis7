@@ -194,6 +194,9 @@ pub struct CapabilityRevocationState {
         BTreeMap<String, crate::service_admission::AgentSignerDelegationChangeV1>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub world_service_results: BTreeMap<String, serde_json::Value>,
+    /// Permanent alternative lineage and dedup facts; never cold-result evicted.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub safe_alternatives: BTreeMap<String, serde_json::Value>,
     /// Runtime-bound system id -> current authorization epoch.  System
     /// subjects are not inferred from an enum value; the trusted host must
     /// journal a binding before the subject can execute.

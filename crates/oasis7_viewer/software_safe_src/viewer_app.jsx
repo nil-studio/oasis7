@@ -1,7 +1,7 @@
 import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
 import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
-import { CanonicalAgentGoal } from "./canonical_agent_goal.jsx";
+import { AgentChatOwnerControls } from "./agent_chat_owner_controls.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { TargetListWindow, createTargetListProjection } from "./target_list_window.jsx";
@@ -711,14 +711,14 @@ function shouldShowHostedLoginGate() {
 function focusableElements(root) {
   return [...root.querySelectorAll(
     [
-      "a[href]",
+      "a[href], summary",
       "button:not([disabled])",
       "input:not([disabled])",
       "select:not([disabled])",
       "textarea:not([disabled])",
       "[tabindex]:not([tabindex='-1'])",
     ].join(","),
-  )].filter((element) => !element.hasAttribute("aria-hidden"));
+  )].filter((element) => !element.hasAttribute("aria-hidden") && (!element.closest("details:not([open])") || element.tagName === "SUMMARY"));
 }
 
 function HostedLoginGate() {
@@ -780,18 +780,18 @@ function HostedLoginGate() {
         <div class="auth-gate__dialog">
           <div class="auth-gate__header">
             <div>
-              <div class="panel__eyebrow">{tr(locale(), "标准用户流程", "Standard User Flow")}</div>
+              <div class="panel__eyebrow">{tr(locale(), "欢迎来到 Oasis7", "Welcome to Oasis7")}</div>
               <h1 id="hosted-login-gate-title" class="auth-gate__title">
                 {tr(locale(), "登录后进入游戏", "Sign In to Play")}
               </h1>
             </div>
-            <Badge class="badge badge--warn">auth=missing</Badge>
+            <Badge class="badge badge--warn">{tr(locale(), "尚未登录", "Not signed in")}</Badge>
           </div>
           <div class="feedback-summary">
             {tr(
               locale(),
-              "当前是托管公开加入模式。先领取玩家会话，再进入聊天、玩法动作和后续授权。",
-              "This is hosted public join. Acquire a player session first, then continue to chat, gameplay actions, and later authorization.",
+              "先登录或创建账号，再进入世界，开始聊天与探索。",
+              "Sign in or create an account, then enter the world to chat and explore.",
             )}
           </div>
           <HostedLoginForm
@@ -3448,7 +3448,7 @@ function InteractionPanel() {
         meta={tr(locale(), "向当前目标发消息并读回复。", "Message the current target and read replies.")}
       >
         <div class="field">
-          <CanonicalAgentGoal state={core.state} agentId={agentId()} locale={locale()} />
+          <AgentChatOwnerControls core={core} agentId={agentId()} locale={locale()} />
           <label for="agent-chat-message">{tr(locale(), "消息", "Message")}</label>
               <textarea
                 id="agent-chat-message"

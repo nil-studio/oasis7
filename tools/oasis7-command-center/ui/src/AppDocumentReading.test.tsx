@@ -19,13 +19,12 @@ function setup(deleted=false){
   api.saveDocumentTreeReading.mockResolvedValue(undefined);api.recordReading.mockResolvedValue(undefined);api.readVersion.mockResolvedValue(section);
 }
 beforeEach(()=>{Object.values(api).forEach(mock=>mock.mockReset());setup();});afterEach(cleanup);
-it('restores exact source scroll passively, captures accessibility scroll without wheel, and clears a closed chapter',async()=>{
+it('restores inline chapter scroll passively and saves accessibility scrolling without opening an overlay',async()=>{
   const outside=document.createElement('button');document.body.append(outside);outside.focus();render(()=><App/>);
-  const pre=await screen.findByLabelText('来源章节原文');await waitFor(()=>expect(pre.scrollTop).toBe(42));expect(outside).toHaveFocus();expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();expect(api.recordReading).not.toHaveBeenCalled();
-  // A programmatic restoration event does not dirty the personal record.
-  fireEvent.scroll(pre,{target:{scrollTop:42}});await Promise.resolve();expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();
-  fireEvent.scroll(pre,{target:{scrollTop:120}});await waitFor(()=>expect(api.saveDocumentTreeReading).toHaveBeenCalled());expect(api.saveDocumentTreeReading.mock.calls.at(-1)![0].state.detailScrollTop).toBe(120);
-  fireEvent.click(screen.getByRole('button',{name:'关闭详情'}));await waitFor(()=>expect(api.saveDocumentTreeReading.mock.calls.at(-1)![0].state.selection.sectionId).toBeNull());expect(screen.queryByLabelText('来源章节原文')).not.toBeInTheDocument();outside.remove();
+  const body=await screen.findByRole('article',{name:'文档正文'});await waitFor(()=>expect(body.scrollTop).toBe(42));expect(body).toHaveTextContent('原文第 1 行');expect(outside).toHaveFocus();expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();expect(api.recordReading).not.toHaveBeenCalled();
+  fireEvent.scroll(body,{target:{scrollTop:42}});await Promise.resolve();expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();
+  fireEvent.scroll(body,{target:{scrollTop:120}});await waitFor(()=>expect(api.saveDocumentTreeReading).toHaveBeenCalled());expect(api.saveDocumentTreeReading.mock.calls.at(-1)![0].state.detailScrollTop).toBe(120);
+  fireEvent.click(screen.getByRole('button',{name:'返回文档树与列表'}));await waitFor(()=>expect(api.saveDocumentTreeReading.mock.calls.at(-1)![0].state.selection).toBeNull());expect(screen.queryByRole('article',{name:'文档正文'})).not.toBeInTheDocument();outside.remove();
 });
 it('does not let legacy saved-version fallback reopen a deleted chapter owned by tree restoration',async()=>{
   setup(true);const old=data([]);old.readingPositions=[{sectionId:section.id,revision:section.revision,line:1}];api.snapshot.mockResolvedValue(old);
@@ -57,4 +56,18 @@ it('returns to the original external entry after following a body link to an unl
   await waitFor(()=>expect(entry).toHaveFocus());
   expect(screen.queryByLabelText('来源章节原文')).not.toBeInTheDocument();
   expect(api.recordReading.mock.calls.map(call=>call[0].id)).toEqual([first.id,next.id]);
+});
+
+it('retains an invalid saved chapter until the user explicitly chooses current content',async()=>{
+ const restored=await api.loadDocumentTreeReading();api.loadDocumentTreeReading.mockResolvedValue({...restored,resolvedSectionId:null});
+ render(()=><App/>);await screen.findByText('原阅读位置无法在当前文档恢复，请从目录明确选择当前章节。');expect(screen.getByRole('article',{name:'文档正文'})).not.toHaveTextContent('原文第 1 行');expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'恢复章节 · 第 1 行'}));expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('原文第 1 行');await waitFor(()=>expect(api.saveDocumentTreeReading).toHaveBeenCalled());
+});
+
+it('keeps the inline document position when following and closing an external source link',async()=>{
+ const original={...section,content:'[关联设计](design.md)\n\n原始条款正文'};const target={...section,id:'design',path:'doc/product/module/design.md',title:'关联设计正文',content:'另一个文档的设计正文'};
+ api.snapshot.mockResolvedValue(data([original,target]));render(()=><App/>);const body=await screen.findByRole('article',{name:'文档正文'});const link=screen.getByRole('button',{name:'关联设计'});
+ fireEvent.click(link);await screen.findByRole('region',{name:'来源详情'});expect(screen.getByLabelText('来源章节原文')).toHaveTextContent('另一个文档的设计正文');
+ fireEvent.scroll(body,{target:{scrollTop:120}});await waitFor(()=>expect(api.saveDocumentTreeReading).toHaveBeenCalled());expect(api.saveDocumentTreeReading.mock.calls.at(-1)![0].state.selection.sectionPath).toBe(section.path);
+ fireEvent.click(screen.getByRole('button',{name:'关闭详情'}));await waitFor(()=>expect(link).toHaveFocus());expect(body).toHaveTextContent('原始条款正文');
 });

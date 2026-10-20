@@ -606,6 +606,10 @@ v2 world adapter 使用以上 `/world/*` 路由及版本化身份授权；既有
 | 准入 | not_requested / checking / denied / waiting / admitted | admitted 不等于 runtime 绑定成功 |
 | 控制 | not_bound / registering / bound / replaced / revoked / recovery_needed | 页面打开或 WS 已连接不等于可控制 |
 账号/会话失效优先阻止新的认证操作，但不抹掉已有原请求结果；世界回执和历史意图视图继续按其授权及已知事实呈现。不同错误不得互相覆盖成“注册失败”。
+账号登录以 `/session` 为依据，`credentials` / `sessions` 管理列表独立加载并单独提供失败提示和重试；列表不可用不能阻止认证回调或世界入口。列表报告 session 失效时必须清除账号、列表与页内签名器，并通知失效；不把未知网络故障解释成已退出。每次失败只展示本地阶段、固定接口路径、HTTP 状态、安全错误码及格式受限的诊断编号，不展示响应原文或浏览器异常详情。
+
+原生密钥 options 成功后、调用本地签名前即保存原 ceremony/operation 引用。本地签名失败先由原上下文取消：只有服务端确认 cancelled/expired/exhausted 才释放；已提交返回安全回执并重新核对 session；取消响应丢失或结果未知时保留原引用，重试先核对原操作，不能盲目建立第二个挑战。原生挑战的存储清理期限为证明到期后再保留 10 分钟，允许原上下文查询 expired/cancelled；证明有效期仍为 120 秒，保留不延长授权。上下文丢失或超出保留窗口时如实提示无法确认原结果，不把 authentication_failed 推断成取消成功；超过保留窗口仍无法查询时明确提示刷新页面先确认当前 session、必要时执行新鲜认证，并保留原结果未知的事实，不在当前页面自动分配新挑战。
+
 ### 12.2 跨标签页与重新进入
 同源多标签页通过 BroadcastChannel 或等价本地通知同步“session_changed / revoked”，但通知不是授权依据；每个标签页收到事件后向服务端核对。前端请求携带本地 generation，旧结果不能覆盖新账号 UI；generation 只是 UI 防竞态，不替代服务端 action/session 绑定。
 
@@ -734,6 +738,8 @@ signed_bytes = domain_separator
 ### 15.2.1 网页会话内导入
 
 Trace refs: O7-REQ-45c9a6e2-d624-4a57-bced-b96b6aa78f69，承接 [Flow-KEYAUTH-008](hosted-public-join-key-based-onboarding.prd.md#imported-key-login)。
+
+Viewer 将密钥导入放入原生 `details` / `summary` 折叠区，默认关闭；展开后保留格式、内存生命周期及防钓鱼告知，提交与签名合同不变。首屏状态使用玩家可理解的中文，协议标识留在诊断中。
 
 `native_key.available` 表示有限 `import_only` 能力；不代表受保护客户端生成或加密备份已发布。仅接受 Ed25519、32 字节公钥和种子；Web Crypto 导入 non-extractable 签名对象，原始输入不进缓存、storage、网络或日志。浏览器先验证公私钥配对。页面关闭/退出释放对象，服务端只存 `NativeKey { public_key }`。
 

@@ -1188,3 +1188,4 @@ pub use industrial_control::ResolvedAgentOwnerV1;
 pub(crate) use event_processing::{recipe_stage_gate_allowed, recipe_preferred_tags_compatible};
 
 mod industrial_completion;
+pub mod safe_alternative;

@@ -1268,8 +1268,11 @@ python3 ./scripts/ci-verify-m1-wasm-summaries.py --module-set m1 --summary-dir <
 ./scripts/oasis7-runtime-finality-baseline.sh --required-samples 1 --full-samples 1 --warmup-samples 0
 ```
 - 基准产物：
-  - 默认输出目录：`.tmp/world_runtime_finality_baseline/<timestamp>/`
+  - 默认输出目录：`.tmp/world_runtime_finality_baseline/<timestamp>-<unique>/`
   - 归档文件：`summary.md`（人读）与 `summary.json`（机器读）
+  - 每个 case 固定 `oasis7_runtime --lib`、required/full feature 和 `tests::governance::…` 完整 identity，以 `--exact --format pretty --color never` 运行。每次 warmup/sample 均校验退出码、唯一目标 `ok` 与非零通过计数；零命中、ignored、错目标或未知输出均失败，失败样本不计入耗时。
+  - 原始 `logs/<case-id>/*.log` 及对应 `*.result.json` 保留逐次退出码、identity、观测计数和校验结果；`summary.json` 的 case 新增 `test_package/test_target/test_features/test_identity/executions`，原有字段与 `cases.tsv` 格式保留。dry-run 仍有 `dry_run=true`/`note=dry_run` 且无执行记录，零样本与 skip-full 明确 skipped。
+  - 脚本回归：`python3 scripts/oasis7-runtime-finality-baseline.test.py`。计时仍覆盖整条 Cargo 命令，不能作为热缓存单证书性能或全节点传播收敛验收。
 - 运行时分诊检索（日志/审计）：
 ```bash
 rg -n "conflicting attestation already exists|attestation threshold not met|attestation receipt evidence mismatch|fault_signature=builtin_release_manifest_" output .tmp

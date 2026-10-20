@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Report cache storage and retire old trusted Formal snapshots after a save.
+"""Report cache storage and retire superseded trusted caches after a Formal save.
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
 No cache payload is restored here. Remote maintenance is advisory, defaults to
-read-only, and can only delete individually identified main Formal entries.
+read-only, and only deletes identified main Formal or migrated Rust namespaces.
 """
 import argparse
 from collections import Counter, defaultdict
@@ -22,11 +22,25 @@ FORMAL_KEEP_GENERATIONS = 2
 MAX_REQUESTS = 60
 MAX_SECONDS = 120
 PAGE_SIZE = 100
+# GitHub limits workflow-run queries using status to 1,000 results.
+MAX_FILTERED_RUNS = 1000
+ACTIVE_RUN_STATUSES = ('requested', 'pending', 'waiting', 'queued', 'in_progress')
 MAIN_REF = 'refs/heads/main'
 WORKFLOW_PATH = '.github/workflows/rust.yml'
 FORMAL_KEY = re.compile(
     r'formal-workspace-v2-ubuntu24-(?:X64|ARM64)-\d+\.\d+\.\d+-'
     r'nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{64}-[0-9a-f]{40}\Z', re.ASCII)
+# The pinned Swatinem action's src/config.ts uses HASH_LENGTH=8 for both hashes.
+RUST_KEY = re.compile(r'v0-rust-(?P<family>[a-z0-9]+(?:-[a-z0-9]+)*)-Linux-x64-'
+                      r'[0-9a-f]{8}-[0-9a-f]{8}\Z', re.ASCII)
+RETIRED_NAMESPACES = {
+    'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
+    **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v3'
+       for shard in ('runtime-core', 'runtime-support', 'runtime-sync', 'soak')},
+    'release-packages-web-wasm-trusted-v2': 'release-packages-web-wasm-trusted-v3',
+    'oasis7-ecs-native-linux-packaging-v1': 'oasis7-ecs-native-linux-ecs-v2',
+    'oasis7-ecs-native-linux-ecs-v1': 'oasis7-ecs-native-linux-ecs-v2',
+}
 
 
 class MaintenanceError(ValueError):
@@ -77,21 +91,90 @@ def immutable_identity(entry):
     return tuple(entry[field] for field in ('id', 'key', 'ref', 'version', 'created_at', 'size_in_bytes'))
 
 
+def validate_active_runs(entries, repository=None, *, allow_completed=False):
+    if not isinstance(entries, list):
+        raise MaintenanceError('active run inventory is not a list')
+    ids = set()
+    statuses = (*ACTIVE_RUN_STATUSES, 'completed') if allow_completed else ACTIVE_RUN_STATUSES
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise MaintenanceError('active run entry is not an object')
+        if type(entry.get('id')) is not int or entry['id'] <= 0 or entry['id'] in ids:
+            raise MaintenanceError('active run inventory has invalid or duplicate IDs')
+        ids.add(entry['id'])
+        if entry.get('status') not in statuses:
+            raise MaintenanceError('active run status is unknown')
+        timestamp(entry.get('created_at'))
+        if not isinstance(entry.get('head_sha'), str) or not re.fullmatch('[0-9a-f]{40}', entry['head_sha']):
+            raise MaintenanceError('active run source identity is invalid')
+        path = entry.get('path')
+        if not isinstance(path, str) or not path or len(path) > 1024 or any(ord(c) < 32 for c in path):
+            raise MaintenanceError('active run workflow identity is invalid')
+        owner = entry.get('repository')
+        if (not isinstance(owner, dict) or not isinstance(owner.get('full_name'), str)
+                or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+', owner['full_name'])
+                or (repository is not None and owner['full_name'] != repository)):
+            raise MaintenanceError('active run repository identity is invalid')
+    return entries
+
+
+def run_identity(entry):
+    return (entry['id'], entry['head_sha'], entry['path'], entry['created_at'], entry['repository']['full_name'])
+
+
+def protected_by_activity(entry, cutoff):
+    return (entry['size_in_bytes'] == 0 or timestamp(entry['created_at']) >= cutoff
+            or timestamp(entry['last_accessed_at']) >= cutoff)
+
+
+def rust_namespace(entry):
+    match = RUST_KEY.fullmatch(entry['key']) if entry['ref'] == MAIN_REF else None
+    return match['family'] if match else None
+
+
+def plan_namespace_retirement(entries, cutoff):
+    replacements = defaultdict(list)
+    owned, protected, deletions = [], [], []
+    for entry in entries:
+        namespace = rust_namespace(entry)
+        if namespace in RETIRED_NAMESPACES:
+            owned.append(entry)
+        elif namespace in RETIRED_NAMESPACES.values() and entry['size_in_bytes'] > 0:
+            # Keep every complete replacement identity. Neither creation order nor
+            # an arbitrary environment hash establishes one "current" Rust cache.
+            replacements[namespace].append(entry)
+    missing = set()
+    for entry in owned:
+        replacement = RETIRED_NAMESPACES[rust_namespace(entry)]
+        if protected_by_activity(entry, cutoff):
+            protected.append(entry['id'])
+        elif not replacements[replacement]:
+            missing.add(replacement)
+        else:
+            deletions.append(dict(entry, reason='retired Rust cache namespace', replacement_family=replacement))
+    managed_bytes = sum(entry['size_in_bytes'] for entry in owned)
+    return {'managed_bytes': managed_bytes, 'managed_count': len(owned),
+            'protected_ids': sorted(protected), 'missing_replacements': sorted(missing),
+            'replacements': dict(replacements),
+            'projected_bytes': managed_bytes - sum(entry['size_in_bytes'] for entry in deletions),
+            'delete': deletions}
+
+
 def plan_retention(entries, current_key, run_started_at, *, max_bytes=FORMAL_MAX_BYTES,
-                   keep_generations=FORMAL_KEEP_GENERATIONS):
+                   keep_generations=FORMAL_KEEP_GENERATIONS, active_runs=None):
     validate_inventory(entries)
     if not FORMAL_KEY.fullmatch(current_key or ''):
         raise MaintenanceError('current key is outside the managed Formal schema')
-    cutoff = timestamp(run_started_at)
+    active_runs = validate_active_runs([] if active_runs is None else active_runs)
+    protection_started_at = min([run_started_at, *(run['created_at'] for run in active_runs)], key=timestamp)
+    cutoff = timestamp(protection_started_at)
     owned = [entry for entry in entries if managed(entry)]
     current_matches = [entry for entry in owned if entry['key'] == current_key]
     if len(current_matches) != 1 or current_matches[0]['size_in_bytes'] == 0:
         raise MaintenanceError('saved current key must identify one complete main cache, including its version')
     current = current_matches[0]
     protected = {entry['id'] for entry in owned
-                 if entry['id'] == current['id'] or entry['size_in_bytes'] == 0
-                 or timestamp(entry['created_at']) >= cutoff
-                 or timestamp(entry['last_accessed_at']) >= cutoff}
+                 if entry['id'] == current['id'] or protected_by_activity(entry, cutoff)}
     previous = [entry for entry in owned if compatibility(entry) == compatibility(current)
                 and timestamp(entry['created_at']) < timestamp(current['created_at'])
                 and entry['size_in_bytes'] > 0]
@@ -107,7 +190,9 @@ def plan_retention(entries, current_key, run_started_at, *, max_bytes=FORMAL_MAX
                                            timestamp(entry['created_at']), entry['id']), reverse=True)
     for entry in candidates:
         group = compatibility(entry)
-        if counts[group] >= keep_generations:
+        if group != compatibility(current):
+            reason = 'superseded Formal compatibility'
+        elif counts[group] >= keep_generations:
             reason = 'generation limit'
         elif retained_bytes + entry['size_in_bytes'] > max_bytes:
             reason = 'Formal family compressed-byte budget'
@@ -116,24 +201,32 @@ def plan_retention(entries, current_key, run_started_at, *, max_bytes=FORMAL_MAX
             counts[group] += 1
             continue
         deletions.append(dict(entry, reason=reason))
+    retired = plan_namespace_retirement(entries, cutoff)
+    deletions.extend(retired['delete'])
     # Oldest first; stop on the first unexpected deletion error.
     deletions.sort(key=lambda entry: (timestamp(entry['created_at']), entry['id']))
     return {'managed_bytes': sum(entry['size_in_bytes'] for entry in owned),
             'managed_count': len(owned), 'max_bytes': max_bytes, 'keep_generations': keep_generations,
             'current_key': current_key, 'run_created_at': run_started_at,
+            'protection_started_at': protection_started_at,
+            'active_run_ids': sorted(run['id'] for run in active_runs),
             'protected_ids': sorted(protected), 'protected_bytes': protected_bytes,
             'protected_over_budget_bytes': max(0, protected_bytes - max_bytes),
-            'projected_bytes': retained_bytes, 'delete': deletions}
+            'projected_bytes': retained_bytes, 'retired_namespaces': retired, 'delete': deletions}
 
 
 def family(key):
     if FORMAL_KEY.fullmatch(key):
         return 'formal-workspace-v2'
+    match = RUST_KEY.fullmatch(key)
+    if match:
+        return 'rust/' + match['family']
     if key.startswith('v0-rust-'):
-        match = re.match(r'v0-rust-(.+?-trusted-v2)(?:-|$)', key)
+        match = re.match(r'v0-rust-(.+?-trusted-v[23])(?:-|$)', key)
         if match:
             return 'rust/' + match[1]
-    for prefix in ('trunk-archive-', 'wasm-bindgen-', 'node-cache-', 'setup-node-', 'cache-trust-sentinel-'):
+    for prefix in ('trunk-archive-', 'wasm-bindgen-', 'node-cache-', 'setup-node-', 'cache-trust-sentinel-',
+                   'oasis7-cache-permission-sentinel-'):
         if key.startswith(prefix):
             return prefix.rstrip('-')
     return 'unknown'
@@ -221,6 +314,40 @@ class GitHubApi:
                 raise MaintenanceError('cache pagination ended before total_count')
             page += 1
 
+    def list_active_runs(self):
+        # The API has no "all unfinished" filter. Query every nonterminal
+        # status, conservatively covering the entire repository. A run moving
+        # between statuses may appear twice; its immutable identity must agree.
+        active = {}
+        for status in ACTIVE_RUN_STATUSES:
+            entries, total, page = [], None, 1
+            while True:
+                result = self.request('GET', f'/actions/runs?per_page={PAGE_SIZE}&page={page}&status={status}')
+                if (not isinstance(result, dict) or type(result.get('total_count')) is not int
+                        or not 0 <= result['total_count'] <= MAX_FILTERED_RUNS):
+                    raise MaintenanceError('active run pagination has invalid or truncated total_count')
+                if total is None:
+                    total = result['total_count']
+                if result['total_count'] != total:
+                    raise MaintenanceError('active run inventory changed during pagination')
+                batch = validate_active_runs(result.get('workflow_runs'), self.repository, allow_completed=True)
+                if len(batch) > PAGE_SIZE or len(entries) + len(batch) > total:
+                    raise MaintenanceError('active run pagination exceeds expected count')
+                entries.extend(batch)
+                validate_active_runs(entries, self.repository, allow_completed=True)
+                if len(entries) == total:
+                    break
+                if len(batch) != PAGE_SIZE:
+                    raise MaintenanceError('active run pagination ended before total_count')
+                page += 1
+            for entry in entries:
+                prior = active.get(entry['id'])
+                if prior and run_identity(prior) != run_identity(entry):
+                    raise MaintenanceError('active run identity changed between status queries')
+                if entry['status'] != 'completed':
+                    active.setdefault(entry['id'], entry)
+        return sorted(active.values(), key=lambda run: run['id'])
+
     def delete_cache(self, cache_id):
         if type(cache_id) is not int or cache_id <= 0:
             raise MaintenanceError('invalid cache ID')
@@ -260,8 +387,10 @@ def trusted_run_start(api, environment, current_key):
 
 def empty_report(apply):
     return {'mode': 'apply' if apply else 'dry-run', 'status': 'skipped',
-            'policy': {'formal_max_bytes': FORMAL_MAX_BYTES, 'keep_generations': FORMAL_KEEP_GENERATIONS},
+            'policy': {'formal_max_bytes': FORMAL_MAX_BYTES, 'keep_generations': FORMAL_KEEP_GENERATIONS,
+                       'retired_namespaces': RETIRED_NAMESPACES},
             'before': None, 'after': None, 'plan': None, 'delete_candidates': [],
+            'stable_replacement_ids': {},
             'deleted_ids': [], 'already_absent_ids': [], 'warnings': []}
 
 
@@ -270,24 +399,33 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False):
     try:
         if apply and (not current_key or not run_started_at):
             raise MaintenanceError('apply requires a verified current key and workflow run boundary')
-        first = api.list_caches()
+        first = validate_inventory(api.list_caches())
         report['before'] = inventory_summary(first)
         if current_key:
-            report['plan'] = plan_retention(first, current_key, run_started_at)
+            report['plan'] = plan_retention(first, current_key, run_started_at, active_runs=api.list_active_runs())
         if not apply:
             report['status'] = 'dry-run'
             return report
         initial = {entry['id']: entry for entry in report['plan']['delete']}
         second = api.list_caches()
-        latest_plan = plan_retention(second, current_key, run_started_at)
+        latest_plan = plan_retention(second, current_key, run_started_at, active_runs=api.list_active_runs())
         first_current = next(entry for entry in first if managed(entry) and entry['key'] == current_key)
         second_current = next(entry for entry in second if managed(entry) and entry['key'] == current_key)
         if immutable_identity(first_current) != immutable_identity(second_current):
             raise MaintenanceError('saved current cache identity changed between inventories')
+        first_replacements = report['plan']['retired_namespaces']['replacements']
+        second_replacements = latest_plan['retired_namespaces']['replacements']
+        stable = {}
+        for namespace, replacements in first_replacements.items():
+            identities = {immutable_identity(entry) for entry in replacements}
+            stable[namespace] = sorted(entry['id'] for entry in second_replacements.get(namespace, [])
+                                       if immutable_identity(entry) in identities)
+        report['stable_replacement_ids'] = stable
         # Revalidation may only shrink the original mutation set. A recent read,
         # new cache or archive identity change cannot expand this invocation.
         candidates = [entry for entry in latest_plan['delete'] if entry['id'] in initial
-                      and immutable_identity(entry) == immutable_identity(initial[entry['id']])]
+                      and immutable_identity(entry) == immutable_identity(initial[entry['id']])
+                      and (not entry.get('replacement_family') or stable.get(entry['replacement_family']))]
         report['plan'] = latest_plan
         report['delete_candidates'] = candidates
         report['status'] = 'completed'
@@ -315,8 +453,9 @@ def render_summary(report):
         return html.escape(str(value)).replace('|', '&#124;').replace('\n', ' ')
 
     lines = ['## CI cache storage', '', f"Mode: **{report['mode']}**; status: **{report['status']}**.", '',
-             f'Formal main target: {FORMAL_MAX_BYTES:,} compressed bytes; {FORMAL_KEEP_GENERATIONS} generations per compatibility.',
-             'Current, previous compatible, concurrent and recently accessed caches take priority over these limits.', '']
+             f'Formal main target: {FORMAL_MAX_BYTES:,} compressed bytes; {FORMAL_KEEP_GENERATIONS} current-compatible generations.',
+             'Current, previous compatible, concurrent and actively accessed caches take priority over these limits.',
+             'Retired Rust namespaces require a complete main replacement with the same identity in both inventories.', '']
     for label in ('before', 'after'):
         inventory = report[label]
         if inventory is None:
@@ -330,8 +469,15 @@ def render_summary(report):
         lines.append('')
     if report['plan']:
         plan = report['plan']
+        retired = plan['retired_namespaces']
         lines += [f"Formal managed bytes at planning: {plan['managed_bytes']:,}; protected: {plan['protected_bytes']:,}; "
                   f"protected excess: {plan['protected_over_budget_bytes']:,}.", '',
+                  f"Activity protection starts at {cell(plan['protection_started_at'])}; "
+                  f"unfinished repository runs: {cell(plan['active_run_ids'])}.", '',
+                  f"Retired namespaces: {retired['managed_count']:,} entries, {retired['managed_bytes']:,} compressed bytes; "
+                  f"protected IDs: {cell(retired['protected_ids'])}; "
+                  f"missing complete replacement families: {cell(retired['missing_replacements'])}.", '',
+                  f"Stable replacement IDs: {cell(report['stable_replacement_ids'])}.", '',
                   f"Verified DELETE candidates: {len(report['delete_candidates'])}; "
                   f"confirmed deleted IDs: {cell(report['deleted_ids'])}; already absent IDs: {cell(report['already_absent_ids'])}.", '',
                   'The complete plan and per-ID results are in the step log. Planned bytes are not measured reclamation.', '']

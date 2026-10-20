@@ -64,20 +64,39 @@ jobs:
     name: release-gate-runtime-core
     needs: plan
     runs-on: ubuntu-24.04
+    env:
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify planned source HEAD
         shell: bash
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Resolve planned-source product-document range
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_oid="$(git rev-parse --verify 'HEAD^1')"
+          head_oid="$(git rev-parse --verify 'HEAD^{commit}')"
+          printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$base_oid" >>"$GITHUB_ENV"
+          printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$head_oid" >>"$GITHUB_ENV"
+      - name: Install product-document Markdown parser
+        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
+          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
+          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
+          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -95,12 +114,20 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: ci-shared-native-trusted-v3
           save-if: false
-          shared-key: release-packages-release-gate-runtime-core-trusted-v2
-          cache-on-failure: true
+          cache-on-failure: false
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime core release gate
+        shell: bash
         run: |
           mkdir -p .tmp/release_gate_runtime_core
           ./scripts/ci-tests.sh full-core | tee .tmp/release_gate_runtime_core/ci-tests-full-core.log
@@ -116,20 +143,39 @@ jobs:
     name: release-gate-runtime-support
     needs: plan
     runs-on: ubuntu-24.04
+    env:
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify planned source HEAD
         shell: bash
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Resolve planned-source product-document range
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_oid="$(git rev-parse --verify 'HEAD^1')"
+          head_oid="$(git rev-parse --verify 'HEAD^{commit}')"
+          printf 'OASIS7_PRODUCT_DOC_BASE=%s\n' "$base_oid" >>"$GITHUB_ENV"
+          printf 'OASIS7_PRODUCT_DOC_HEAD=%s\n' "$head_oid" >>"$GITHUB_ENV"
+      - name: Install product-document Markdown parser
+        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
+          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
+          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
+          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -145,12 +191,20 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: ci-shared-native-trusted-v3
           save-if: false
-          shared-key: release-packages-release-gate-runtime-support-trusted-v2
-          cache-on-failure: true
+          cache-on-failure: false
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime support release gate
+        shell: bash
         run: |
           mkdir -p .tmp/release_gate_runtime_support
           ./scripts/ci-tests.sh full-support | tee .tmp/release_gate_runtime_support/ci-tests-full-support.log
@@ -166,6 +220,11 @@ jobs:
     name: release-gate-runtime-sync
     needs: plan
     runs-on: ubuntu-24.04
+    env:
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,6 +239,9 @@ jobs:
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
+          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
+          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
+          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -196,16 +258,20 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: ci-shared-native-trusted-v3
           save-if: false
-          shared-key: release-packages-release-gate-runtime-sync-trusted-v2
-          cache-on-failure: true
-      - name: Install canonical builtin wasm toolchain
-        run: |
-          rustup toolchain install "${BUILTIN_WASM_TOOLCHAIN}" --profile minimal --component rust-src
-          rustup target add "${BUILTIN_WASM_TARGET}" --toolchain "${BUILTIN_WASM_TOOLCHAIN}"
+          cache-on-failure: false
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Run runtime sync release gate
+        shell: bash
         run: |
           mkdir -p .tmp/release_gate_runtime_sync
           {
@@ -266,11 +332,16 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: release-packages-web-wasm-trusted-v3
           save-if: false
-          shared-key: release-packages-web-wasm-trusted-v2
-          cache-on-failure: true
+          cache-on-failure: false
       - name: Run web strict release gate
         run: |
           xvfb-run -a ./scripts/release-gate.sh \
@@ -296,6 +367,11 @@ jobs:
     name: release-gate-soak
     needs: plan
     runs-on: ubuntu-24.04
+    env:
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+      OASIS7_WASM_TARGET: wasm32-unknown-unknown
+      OASIS7_WASM_BUILD_STD: "1"
+      OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -310,6 +386,9 @@ jobs:
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup default "${RUST_TOOLCHAIN}"
+          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
+          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
+          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -326,11 +405,18 @@ jobs:
             libxinerama-dev \
             libasound2-dev \
             libudev-dev
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: ci-shared-native-trusted-v3
           save-if: false
-          shared-key: release-packages-release-gate-soak-trusted-v2
-          cache-on-failure: true
+          cache-on-failure: false
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Prewarm soak runtime binary
         run: env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_chain_runtime
       - name: Run soak release gate
@@ -414,11 +500,16 @@ jobs:
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
           rustup default "${RUST_TOOLCHAIN}"
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: release-packages-web-wasm-trusted-v3
           save-if: false
-          shared-key: release-packages-web-wasm-trusted-v2
-          cache-on-failure: true
+          cache-on-failure: false
       - name: Install trunk
         run: cargo install trunk --locked
       - name: Build web dists

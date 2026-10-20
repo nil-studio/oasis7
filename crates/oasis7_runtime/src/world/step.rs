@@ -401,6 +401,20 @@ impl World {
         self.state.time = self.state.time.saturating_add(1);
         let _ = self.process_factory_depreciation()?;
         while let Some(envelope) = self.pending_actions.pop_front() {
+            if let Err(reason) = self.safe_alternative_action_guard(&envelope) {
+                self.append_action_accepted_event(&envelope)?;
+                let event_id = self.append_event(
+                    WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id: envelope.id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec![reason],
+                        },
+                    }),
+                    Some(CausedBy::Action(envelope.id)),
+                )?;
+                self.finalize_safe_alternative(&envelope, event_id)?;
+                continue;
+            }
             if self.try_apply_runtime_module_action(&envelope)? {
                 continue;
             }
@@ -408,7 +422,9 @@ impl World {
             let event_body = self.action_to_event(&envelope)?;
             self.preflight_domain_event(&event_body)?;
             self.append_action_accepted_event(&envelope)?;
-            self.append_event(event_body.clone(), Some(CausedBy::Action(envelope.id)))?;
+            let alternative_event_id =
+                self.append_event(event_body.clone(), Some(CausedBy::Action(envelope.id)))?;
+            self.finalize_safe_alternative(&envelope, alternative_event_id)?;
             let _ = self.append_logistics_reroute_receipt(&envelope.action, &event_body)?;
             let _ = self.append_factory_production_followup_event(
                 &envelope,
@@ -591,6 +607,20 @@ impl World {
         }
         if !resume_after_product_validation_intent {
             while let Some(envelope) = self.pending_actions.pop_front() {
+                if let Err(reason) = self.safe_alternative_action_guard(&envelope) {
+                    self.append_action_accepted_event(&envelope)?;
+                    let event_id = self.append_event(
+                        WorldEventBody::Domain(DomainEvent::ActionRejected {
+                            action_id: envelope.id,
+                            reason: RejectReason::RuleDenied {
+                                notes: vec![reason],
+                            },
+                        }),
+                        Some(CausedBy::Action(envelope.id)),
+                    )?;
+                    self.finalize_safe_alternative(&envelope, event_id)?;
+                    continue;
+                }
                 let mut action_envelope = envelope.clone();
                 let mut post_action_result_event: Option<WorldEvent> = None;
                 let module_resolution =
@@ -746,6 +776,9 @@ impl World {
                     }
                 }
 
+                if let Some(event) = post_action_result_event.as_ref() {
+                    self.finalize_safe_alternative(&envelope, event.id)?;
+                }
                 self.route_action_to_modules_with_stage_and_event(
                     &action_envelope,
                     ModuleSubscriptionStage::PostAction,

@@ -31,7 +31,7 @@ it('shows per-file omissions and opens only chapters from the matching file revi
   await screen.findByRole('button', {name:'设计文档'});
   fireEvent.click(screen.getByRole('button', {name:'设计文档'}));
   fireEvent.click(screen.getByRole('button', {name:'设计章节 · 第 1 行'}));
-  expect(showSource).toHaveBeenCalledWith(section, expect.any(HTMLElement));
+  expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('设计');expect(showSource).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', {name:'doc/empty.md'}));
   expect(screen.getByText('已读取，文件没有可展示的章节。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name:'doc/deleted.md'}));
@@ -248,7 +248,7 @@ it('reuses file details when selecting a directory leaf', async () => {
   fireEvent.click(screen.getByRole('button',{name:'文档目录'}));
   fireEvent.click(await screen.findByRole('button',{name:'设计文档 · doc/design.md'}));
   fireEvent.click(screen.getByRole('button',{name:'设计章节 · 第 1 行'}));
-  expect(showSource).toHaveBeenLastCalledWith(section,expect.any(HTMLElement));
+  expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('设计');expect(showSource).not.toHaveBeenCalled();
   expect(screen.getByRole('button',{name:'文档目录'})).toHaveAttribute('aria-pressed','true');
 });
 it('does not let a late file-list response clear the selected directory leaf', async () => {
@@ -274,7 +274,7 @@ it('switches both semantic trees and reuses same-revision details despite a late
   fireEvent.click(screen.getByRole('button',{name:'产品树'}));
   fireEvent.click(await screen.findByRole('button',{name:'查看文档：模块设计'}));
   fireEvent.click(screen.getByRole('button',{name:'设计章节 · 第 1 行'}));
-  expect(showSource).toHaveBeenLastCalledWith(section,expect.any(HTMLElement));
+  expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('设计');expect(showSource).not.toHaveBeenCalled();
   finish(page());await Promise.resolve();expect(screen.getByRole('button',{name:'设计章节 · 第 1 行'})).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'专业系统树'}));
   await waitFor(()=>expect(api.documentSemanticTree).toHaveBeenLastCalledWith(expect.objectContaining({view:'professional'})));
@@ -312,4 +312,13 @@ it('opens the stored product tree on restart when no newer browsing intent exist
   api.documentInventory.mockResolvedValue(page());api.loadDocumentTreeLastView.mockResolvedValue({status:'ready',view:'product',notice:null});
   api.documentSemanticTree.mockResolvedValue({schemaVersion:1,projectId:'project',snapshotId:'snapshot',baselineOid:'head',generatedAt:'1',view:'product',parentOccurrence:'',parentRoute:[],routeNotice:null,breadcrumbs:[],candidates:1,read:1,omitted:0,stale:false,error:null,eligibleFiles:1,matchingFiles:1,hiddenHistoryFiles:0,lifecycleFilter:'current',kindFilter:'all',pairingFilter:'all',totalChildren:0,entries:[],nextCursor:null,issues:[]});
   render(()=><DocumentInventory snapshot={snapshot()} showSource={vi.fn()}/>);await waitFor(()=>expect(screen.getByRole('button',{name:'产品树'})).toHaveAttribute('aria-pressed','true'));await screen.findByRole('tree',{name:'产品树文档树'});expect(api.saveDocumentTreeReading).not.toHaveBeenCalled();
+});
+
+it('opens content immediately, skips a heading-only chapter and preserves local chapter selection on personal updates',async()=>{
+ const intro={...section,id:'intro',content:'# 设计',title:'标题'};const first={...section,id:'first',title:'第一条',content:'正文第一条'};const second={...section,id:'second',title:'第二条',content:'正文第二条',line:20};
+ const [state,setState]=createSignal({...snapshot(),sections:[intro,first,second]});api.documentInventory.mockResolvedValue(page());const showSource=vi.fn();
+ renderInventory(()=><DocumentInventory snapshot={state()} showSource={showSource}/>);fireEvent.click(await screen.findByRole('button',{name:'设计文档'}));
+ await waitFor(()=>expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第一条'));expect(showSource).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'第二条 · 第 20 行'}));expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第二条');
+ setState({...state(),decisions:[]});expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第二条');
 });

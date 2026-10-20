@@ -135,6 +135,12 @@ impl Service<'_> {
             WorldServicePayloadV1::GameplayJson(bytes) => {
                 gameplay::authenticated_action(&pinned.world, bytes)?;
             }
+            WorldServicePayloadV1::SafeAlternative(signed) => {
+                oasis7_runtime::service_admission::safe_alternative::validate_owner(
+                    &pinned.world,
+                    signed,
+                )?;
+            }
             WorldServicePayloadV1::AgentChat(request) => {
                 agent_chat::validate_owner(&pinned.world, request)?
             }

@@ -277,7 +277,12 @@ release = workflow_paths[2].read_text()
 mainnet = workflow_paths[1].read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
 bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
+ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 assert "\ncache-mode: read\n" in mainnet
+native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
+                "release_gate_runtime_sync", "release_gate_soak")
+for name in native_gates:
+    assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v3", name
 for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync",
              "release_gate_soak", "release_gate_web", "build-web-dist"):
     expected = cache_identity(release, name)
@@ -285,15 +290,87 @@ for name in ("release_gate_runtime_core", "release_gate_runtime_support", "relea
     assert actual == expected, (name, "Mainnet cache identity differs from Release", actual, expected)
     assert "save-if: false" in job_body(mainnet, name)
     assert "cache-mode: write" not in job_body(mainnet, name)
-    # Existing shard producers remain separate: merging their keys would let the
-    # first finisher freeze an incomplete set of compiled dependencies.
-    if name.startswith("release_gate_runtime_") or name == "release_gate_soak":
-        assert expected["shared-key"].startswith("release-packages-release-gate-")
-        assert "save-if: false" not in job_body(release, name)
+    if name in native_gates:
+        assert expected == cache_identity(rust, "full-regression"), (name, "native writer identity differs")
+        assert "save-if: false" in job_body(release, name)
+        assert "    cache-mode: read\n" in job_body(release, name)
 assert cache_identity(mainnet, "package-native", True) == cache_identity(release, "package-native", True)
 assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "package-linux-x86-64"), \
     "NewAPI entrypoints must agree on Cargo environment and toolchain/path defaults, not just shared-key"
 
-print("ok: package readers reuse reachable compatible writers without merging shard targets or profile boundaries")
+web_identity = cache_identity(release, "build-web-dist")
+assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
+for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web", "build-web-dist")),
+                        (testnet, ("build-web-dist",)), (ecs, ("web",))):
+    for name in names:
+        assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
+        assert "save-if: false" in job_body(workflow, name)
+assert "    cache-mode: read\n" in job_body(release, "release_gate_web")
+web_writer = job_body(release, "build-web-dist")
+assert "cache-on-failure: false" in web_writer
+save_expression = re.search(r"^          save-if: \$\{\{ (.*) \}\}$", web_writer, re.M)[1]
+for ref, source, workflow_sha, expected in (
+    ("refs/heads/main", "event", "event", True),
+    ("refs/heads/main", "older-source", "event", False),
+    ("refs/heads/main", "event", "other-workflow", False),
+    ("refs/heads/candidate", "event", "event", False),
+    ("refs/tags/v1.0.0", "event", "event", False),
+):
+    expression = save_expression
+    context = {"github.ref": ref, "needs.plan.outputs.checkoutSha": source,
+               "github.workflow_sha": workflow_sha, "github.sha": "event"}
+    for key in sorted(context, key=len, reverse=True):
+        expression = expression.replace(key, repr(context[key]))
+    assert eval(expression.replace("&&", " and "), {"__builtins__": {}}) == expected
+
+# An older planned tag may not contain the normalizer. Both the normalizer and
+# its new cache step must then be skipped while the original cold build remains.
+normalizer = "scripts/ci-rust-cache-toolchains.py"
+for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web-dist")),
+                        (mainnet, (*native_gates, "release_gate_web", "build-web-dist")),
+                        (testnet, ("build-web-dist",)), (ecs, ("web", "native"))):
+    for name in names:
+        body = job_body(workflow, name)
+        steps = re.findall(r"^      - (.*?)(?=^      - |\Z)", body, re.M | re.S)
+        guarded = [step for step in steps if normalizer in step or "Swatinem/rust-cache@" in step]
+        assert len(guarded) == 2, (name, "one normalizer and one cache expected")
+        for step in guarded:
+            assert f"if: hashFiles('{normalizer}') != ''" in step, name
+        assert body.index(f"python3 {normalizer}") < body.index("Swatinem/rust-cache@"), name
+        for command in re.findall(r"^\s+(?:run: )?python3 scripts/ci-rust-cache-toolchains.py (.*)$", body, re.M):
+            assert ('"$OASIS7_WASM_TOOLCHAIN"' in command) == (name in native_gates)
+
+# Run the real logging pipelines with failing upstream commands. Merely finding
+# the word pipefail would not establish that tee cannot hide a gate failure.
+for workflow in (release, mainnet):
+    for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync"):
+        body = job_body(workflow, name)
+        blocks = re.findall(r"^      - name: ([^\n]+)\n(.*?)(?=^      - |\Z)", body, re.M | re.S)
+        gate = next(block for title, block in blocks if title.startswith("Run runtime"))
+        assert "shell: bash" in gate
+        script = textwrap.dedent(gate.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "scripts").mkdir()
+            filenames = (("sync-m1-builtin-wasm-artifacts.sh", "sync-m4-builtin-wasm-artifacts.sh",
+                          "sync-m5-builtin-wasm-artifacts.sh") if name == "release_gate_runtime_sync"
+                         else ("ci-tests.sh",))
+            for filename in filenames:
+                path = fixture / "scripts" / filename
+                path.write_text('#!/bin/sh\n[ "${0##*/}" != "$TEST_FAIL_SCRIPT" ] || exit 23\n')
+                path.chmod(0o755)
+            for filename in filenames:
+                result = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+                                        cwd=fixture, env=dict(os.environ, TEST_FAIL_SCRIPT=filename),
+                                        capture_output=True, text=True)
+                assert result.returncode == 23, (name, filename, result.returncode, result.stdout, result.stderr)
+        if name != "release_gate_runtime_sync":
+            assert "fetch-depth: 0" in body, "frozen fixture history must be available"
+            assert 'scripts/doc-governance-requirements.txt' in body
+            assert 'OASIS7_PRODUCT_DOC_BASE=' in body and 'OASIS7_PRODUCT_DOC_HEAD=' in body
+            assert "git rev-parse --verify 'HEAD^1'" in body
+            assert "git rev-parse --verify 'HEAD^{commit}'" in body
+
+print("ok: compatible cache readers share exclusive writers, old sources stay cold, and gate failures propagate")
 
 PY

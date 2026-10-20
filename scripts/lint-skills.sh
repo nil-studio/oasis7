@@ -115,3 +115,7 @@ print(
     f"{len(library_skill_files)} library skill entries checked)"
 )
 PY
+
+# Only this bounded, standard-library fixture test is part of skill validation.
+# It does not run agents or discover/execute arbitrary bundled skill scripts.
+python3 .agents/skills/evaluating-development-methods/tests/test_trial.py

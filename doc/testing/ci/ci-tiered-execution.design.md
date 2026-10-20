@@ -151,36 +151,42 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 现有 main `full-regression` 的 schedule/manual-full 是共享归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
 
-Release 的 runtime core、support、sync、soak 保留各自的 writer 和 target 缓存；Mainnet 对应四个只读 gate 分别使用同名 Release gate 的缓存身份。Mainnet Web 读取 Release Web 身份；非 Linux 原生打包只在 OS、target 和 profile 匹配时读取对应 Release 原生包缓存，不能把不兼容构建映射到同一族。Testnet / Storage / Compile 的独立现有边界不由这些映射扩展。
+普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v3`。唯一 producer 是 main schedule/manual-full 的 `full-regression`；这些 Release / Mainnet gate 仅有只读 cache token，所有消费者显式禁止保存。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，完整成功后保存一次，禁止失败保存。新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
 
-生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。NewAPI 两个打包入口只在各自 job 范围对齐 Cargo profile、网络重试及 registry 协议等 key 输入，避免修改全局环境而使无关大型 CI 缓存换代。
+producer 的 `full-standard` 已实际构建 full-core 和大部分 support 依赖。额外的 build-only 准备补齐 ordinary producer 的真实构建变体（下载的测试 binary 不算 target 预热）、support 的纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 使用的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。复用现有构建参数定义，任何补齐失败均使 job 失败且不保存。各 reader 继续原测试、sync 和 soak；没有以预热代替验收。builtin 模块的独立 workspace / Docker target 不属于根 target 缓存，仍走 canonical 构建，不为扩大归档改写其目标目录。
 
-registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档，没有关闭 registry 而保留 target 的选项；因此保留 Release 各 gate 的目标缓存，不用整个 full-regression 归档替换每个较小消费者。新增或合并缓存族时须分别验证 registry 共用范围和 target 的兼容集合，缺少产物仍由原构建补齐。存储节省、下载成本与关键路径分别报告，不因接线调整增加 writer 或扩大权限。
+生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。共享 native 族固定 stable 与 builtin nightly，保留显式 `CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM` 指纹。准备 helper 只在 GitHub-hosted 临时 Linux runner 上工作，验证所需的精确工具链与当前 active 工具链后，移除无关预装工具链；缺失、非固定版本或卸载失败均失败，不关闭环境 hash。Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协议、debug profile 和四项 WASM 环境。NewAPI 两个入口仍保持各自对齐的身份。
 
-Testnet / Mainnet Web 的 Rust 缓存只读取 Release Web 的 `release-packages-web-wasm-trusted-v2` 身份，不创建无人写入的独立 key。Linux 原生包按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2` 身份；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业，其他分支、tag、旧 SHA 或 workflow/source 不同版本均选择 read-only 作业。两条路径复用相同步骤且互斥，不重复编译；实际 checkout 再次匹配 main event 且 Linux 作业成功后才保存，非 Linux 的保存策略不变。此处仅调整缓存生产路径，不改变源码准入、包验证和 required checks。
+registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；此版保留 Web 发布、ECS `ecs` profile 与 Formal workspace 的专用生产路径，以免这些构建的发布频率或源码恢复合同绑到主缓存。
+
+Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
+
+Linux 原生发行包仍按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2`；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业。其他分支、tag、旧 SHA 或 workflow/source 不同版本均只读，两条路径互斥，不重复编译。非 Linux 原生包仅在 OS、target 和 profile 匹配时读取对应 Release 原生包缓存；Storage / Compile 的独立边界不扩展。core/support 的文档 gate 使用计划提交父子范围和完整历史；必要命令通过 `tee` 输出日志时启用 Bash `pipefail`，上游失败必须使 gate 失败。
 
 缓存是可回收的加速数据，没有发布状态、事务或持久化权威。main 尚未保存该身份、缓存被回收或 reader 不可达时，正确的冷下载仍可完成工具准备。恢复服务异常须保留实际 action 结果；若 action 允许继续且归档不存在，安装器仍执行同一校验冷路径，不用忽略必要安装失败来维持 job 绿色。
 
 跨 tag 复用的验证必须关联一个可确认的 main 保存记录及两个不同 tag 的实际 reader，记录 run/job、event/ref、请求和实际匹配 key、平台与 cache version 兼容条件、恢复及摘要验证结果。仅同 tag rerun 只能证明同 tag 恢复；未取得上述记录时保留“配置已接通、真实跨 tag 恢复待观察”。沿用自然发生且已授权的 main/full 与 Release 执行积累数据，不为本项新建发布事件或 required check。
 
 <a id="ci-cache-budget-design"></a>
-### 5.1 正式缓存的远端容量治理
+### 5.1 正式缓存保留与已迁移命名空间的退役
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)中的[正式缓存容量与保留](ci-tiered-execution.prd.md#ci-formal-cache-budget)。
 
 单份 8 GiB 上限只约束准备上传的 workspace 文件原始逻辑字节。[缓存维护 helper](../../../scripts/ci-cache-maintenance.py) 使用 GitHub cache API 的 `size_in_bytes`，按缓存 ID 校验唯一性，以缓存族和 ref 汇总条目数与压缩字节；相同 key 的不同 cache version 或 ref 仍是独立条目。兼容组由去除 source SHA 的完整 key 前缀与 cache version 共同确定，用于代数及恢复点判断。GitHub 的默认仓库额度与驱逐规则见[官方缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)，它不替代本仓库对受管族的预算，也不保证旧缓存能保留到下一次复用。
 
-正式 workspace 受管范围是 `refs/heads/main` 上符合 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 完整格式的条目，族预算覆盖所有兼容指纹与 source SHA。其他命名和 ref 不因具有相近前缀而纳入删除。source SHA 继续进入不可变精确 key；兼容前缀保持平台、工具链、Cargo 输入、features/profile 与构建脚本边界，不为减少条目改成可覆盖的固定 key 或扩大恢复范围。helper 的受管策略集中维护族级压缩字节预算、每个兼容组的保留代数及 API 总预算，运行摘要展开实际值；调用方显式提供当前 key，不能传入任意前缀扩大清理范围。
+正式 workspace 受管范围是 `refs/heads/main` 上符合 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 完整格式的条目，族预算覆盖所有兼容指纹与 source SHA。source SHA 继续进入不可变精确 key；兼容前缀保持平台、工具链、Cargo 输入、features/profile 与构建脚本边界，不扩大恢复范围。helper 集中维护族级压缩字节预算、当前兼容组的保留代数及 API 总预算；调用方显式提供当前 key，不能传入任意前缀扩大清理范围。
+
+额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v3` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。替代族所有条目均保留，不按最新时间推断其中的旧环境 hash 可删；近似命名、其他 ref 和其他族只统计。
 
 清理在可信 main producer 的必要构建、产物上传及缓存保存步骤成功后进入独立维护 job。该入口使用固定 concurrency 组、`cancel-in-progress: false` 与 `cache-mode: none`，不恢复或执行缓存 payload。先通过 REST 查询当前 `GITHUB_RUN_ID` 并核对仓库、source 与可信运行身份，以该 run 的 `created_at` 作为并发保护起点；不能使用客户端时间或当前缓存落盘时间。
 
 保存 action 的 outcome 只决定是否进入核验，精确 key 在同 ref 的完整库存中须对应唯一、合法且非零字节的条目，才视为保存已确认。预留竞争可能只产生 warning；若并发 writer 已保存同一精确条目且 API 核验通过，可以维护。保存未确认、当前 key 缺失、同 key 跨 version 多条或 API 结果不完整时跳过删除。
 
-保护集包括当前精确条目、同兼容组中创建时间早于当前条目的最新一个完整恢复点、零字节条目，以及 `created_at` 或 `last_accessed_at` 不早于当前 workflow run 的 `created_at` 的全部受管条目。这样较旧 SHA 的慢构建不能删除清点中可见的较新 SHA 已提前保存的结果，已观察到的运行期间访问和未完成上传也会进入保护集。
+保护集包括当前精确条目、同兼容组中创建时间早于当前条目的最新一个完整恢复点、零字节条目，以及保护起点之后新建或被访问的全部受管条目。起点取当前可信 run 与清点中相关未完成 workflow runs 的最早 `created_at`；活跃运行也须完整、有界查询，查询不完整时不删除。这样较旧 SHA 的慢构建不能删除清点中可见的较新 SHA 已提前保存的结果，已观察到的运行期间访问和未完成上传进入保护集。
 
-先保留保护集并计入各兼容组代数及族总字节，再把其余条目按 `last_accessed_at`、`created_at`、缓存 ID 降序排列。逐项保留尚未达到所属兼容组代数上限、且能容纳于剩余族预算的条目；其余条目才进入删除计划。旧兼容组没有额外的“最新条目优先”或永久保留名额。保护集是代数和字节预算的例外：超额时报告实际超额，不能扩大删除范围；因此这些数值是回收目标，不是任何并发条件下的硬上限。
+先保留保护集并计入族总字节；非当前兼容组的未保护 Formal 条目直接进入删除计划，当前兼容组的其他条目再按访问/创建时间降序受代数和字节目标约束。明确退役的旧 Rust 命名空间在替代核验后按同一活跃/零字节保护筛选，不占用 Formal 的 2 GiB 预算。保护集超额时报告实际超额，不能扩大删除范围；这些数值是回收目标，不是并发条件下的硬上限。
 
-先完整读取分页并核对缓存 ID、key、version、ref、字节及时间字段，再生成删除计划；执行前再次完整清点并按最新库存重算保护集和计划。只有两次计划都选中、且 ID、key、ref、version、创建时间和字节数保持相同的条目才能删除，第二次计划只能缩小首次删除集合。当前精确条目的不可变身份变化使整轮跳过。后页失败、重复或冲突数据、分页未结束、字段不合法均不得把部分结果用于删除。未知命名、其他族与其他 ref 只统计，不删除。
+先完整读取分页并核对缓存 ID、key、version、ref、字节及时间字段，再生成删除计划；执行前再次完整清点缓存和活跃 runs，重算保护集和计划。只有两次计划都选中、且 ID、key、ref、version、创建时间和字节数保持相同的条目才能删除，第二次计划只能缩小首次删除集合。当前精确条目的不可变身份变化使整轮跳过；替代项变化或消失使对应退役规则停止。后页失败、重复或冲突数据、分页未结束、字段不合法均不得把部分结果用于删除。
 
 删除按准确 cache ID 从创建时间较旧的条目开始，保留计划、实际结果与未执行部分；404 视为该条目已不存在，其他删除错误停止本轮回收并报告。清理和查询使用有限的请求与总时长预算，不进行无限重试；API 故障不使必要构建失败，也不能把原构建失败改成成功。维护入口仅在可信 producer 成功路径取得最小的 Actions 删除权限，PR 与其他只读消费者不继承。
 

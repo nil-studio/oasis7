@@ -49,7 +49,12 @@ impl PreparedCapabilityAuthorizationEvent {
 
     pub(super) fn install(self, world: &mut World) {
         world.capability_grants_v2 = self.capability_grants_v2;
+        let previous_alternatives = world.capability_revocation_state.safe_alternatives.clone();
         world.capability_revocation_state = self.capability_revocation_state;
+        let records = world.capability_revocation_state.safe_alternatives.clone();
+        for (key, record) in &records {
+            world.install_safe_alternative_queue(previous_alternatives.get(key), record);
+        }
         world.capability_invocation_contexts = self.capability_invocation_contexts;
         world.capability_budget_accounts = self.capability_budget_accounts;
         world.capability_authorization_root = self.capability_authorization_root;
@@ -120,7 +125,12 @@ impl World {
 
         self.install_prepared_tick_consensus_record(consensus_record)?;
         self.capability_grants_v2 = capability_grants_v2;
+        let previous_alternatives = self.capability_revocation_state.safe_alternatives.clone();
         self.capability_revocation_state = capability_revocation_state;
+        let records = self.capability_revocation_state.safe_alternatives.clone();
+        for (key, record) in &records {
+            self.install_safe_alternative_queue(previous_alternatives.get(key), record);
+        }
         self.capability_invocation_contexts = capability_invocation_contexts;
         self.capability_budget_accounts = capability_budget_accounts;
         self.capability_authorization_root = capability_authorization_root;
@@ -231,6 +241,31 @@ impl World {
         capability_budget_accounts: &mut BTreeMap<String, CapabilityBudgetAccount>,
     ) -> Result<(), WorldError> {
         match event {
+            CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { signed } => {
+                let mut projected = self.clone();
+                projected.capability_revocation_state = capability_revocation_state.clone();
+                let (key, record) = projected
+                    .project_safe_alternative(signed)
+                    .map_err(|reason| super::capability_authorization::deny(&reason))?;
+                capability_revocation_state
+                    .safe_alternatives
+                    .insert(key, record);
+                Ok(())
+            }
+            CapabilityAuthorizationEvent::SafeAlternativeOutcomeRecorded {
+                key,
+                action_id,
+                event_id,
+            } => {
+                let mut projected = self.clone();
+                projected.capability_revocation_state = capability_revocation_state.clone();
+                let record =
+                    projected.safe_alternative_outcome_projection(key, *action_id, *event_id)?;
+                capability_revocation_state
+                    .safe_alternatives
+                    .insert(key.clone(), record);
+                Ok(())
+            }
             CapabilityAuthorizationEvent::WorldServiceIntentRecorded { key, record } => {
                 crate::service_admission::correlation::validate_result(key, record)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
@@ -398,6 +433,7 @@ impl World {
         &mut self,
         events: Vec<CapabilityAuthorizationEvent>,
     ) -> Result<(), WorldError> {
-        self.append_capability_authorization_event_batch(events).map(|_| ())
+        self.append_capability_authorization_event_batch(events)
+            .map(|_| ())
     }
 }

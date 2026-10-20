@@ -16,7 +16,7 @@ Purpose:
   - full: 2-epoch finality signer rotation convergence
 
 Outputs:
-  <out-dir>/<timestamp>/
+  <out-dir>/<timestamp>-<unique>/
     summary.md
     summary.json
     cases.tsv
@@ -119,11 +119,11 @@ if [[ "$skip_full" -eq 1 ]]; then
 fi
 
 timestamp=$(date '+%Y%m%d-%H%M%S')
-run_dir="$out_dir/$timestamp"
+mkdir -p "$out_dir"
+run_dir=$(mktemp -d "$out_dir/$timestamp-XXXXXX")
 summary_md="$run_dir/summary.md"
 summary_json="$run_dir/summary.json"
 cases_tsv="$run_dir/cases.tsv"
-mkdir -p "$run_dir"
 : > "$cases_tsv"
 
 overall_status="PASS"
@@ -133,8 +133,10 @@ run_case() {
   local tier=$2
   local measured_samples=$3
   local convergence_target_epochs=$4
-  shift 4
-  local -a cmd=("$@")
+  local test_identity="tests::governance::$5"
+  local test_features=$6
+  local -a cmd=(oasis7_cargo_dev test -p oasis7_runtime --lib "$test_identity"
+    --features "$test_features" -- --exact --format pretty --color never)
 
   local cmd_rendered=""
   cmd_rendered="$(format_cmd "${cmd[@]}")"
@@ -174,9 +176,10 @@ run_case() {
       } >>"$warmup_log" 2>&1
       code=$?
       set -e
-      if [[ "$code" -ne 0 ]]; then
+      if ! python3 "$repo_root/scripts/oasis7-runtime-finality-result.py" \
+        "$warmup_log" "$test_identity" "$code"; then
         status="failed"
-        note="warmup_${attempt}_exit_${code}"
+        note="warmup_${attempt}_invalid_execution_exit_${code}"
         break
       fi
     done
@@ -201,13 +204,14 @@ run_case() {
         set -e
         end_ns=$(now_ns)
         elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
-        echo "$elapsed_ms" >> "$duration_path"
         echo "elapsed_ms=$elapsed_ms" >> "$sample_log"
-        if [[ "$code" -ne 0 ]]; then
+        if ! python3 "$repo_root/scripts/oasis7-runtime-finality-result.py" \
+          "$sample_log" "$test_identity" "$code"; then
           status="failed"
-          note="sample_${attempt}_exit_${code}"
+          note="sample_${attempt}_invalid_execution_exit_${code}"
           break
         fi
+        echo "$elapsed_ms" >> "$duration_path"
       done
     fi
   fi
@@ -234,34 +238,29 @@ run_case \
   required \
   "$required_samples" \
   0 \
-  oasis7_cargo_dev test -p oasis7 \
   governance_apply_with_finality_rejects_stake_root_mismatch \
-  --features test_tier_required \
-  -- --nocapture
+  test_tier_required
 
 run_case \
   epoch_snapshot_verify \
   required \
   "$required_samples" \
   0 \
-  oasis7_cargo_dev test -p oasis7 \
   governance_apply_with_finality_rejects_signer_outside_epoch_snapshot \
-  --features test_tier_required \
-  -- --nocapture
+  test_tier_required
 
 run_case \
   two_epoch_convergence \
   full \
   "$full_samples" \
   2 \
-  oasis7_cargo_dev test -p oasis7 \
   governance_finality_epoch_snapshot_rotation_rejects_stale_signers_and_accepts_rotated_set \
-  --features test_tier_full \
-  -- --nocapture
+  test_tier_full
 
 python3 - "$cases_tsv" "$summary_json" "$summary_md" "$run_dir" "$overall_status" "$dry_run" <<'PY'
 import json
 import statistics
+import shlex
 import sys
 from pathlib import Path
 
@@ -313,7 +312,18 @@ with open(cases_tsv, "r", encoding="utf-8") as fh:
             command,
         ) = parts
         durations = load_durations(Path(duration_path))
+        arguments = shlex.split(command)
+        executions = []
+        for result_path in sorted((Path(run_dir) / "logs" / case_id).glob("*.result.json")):
+            execution = json.loads(result_path.read_text(encoding="utf-8"))
+            execution["result_path"] = str(result_path)
+            executions.append(execution)
         row = {
+            "test_package": "oasis7_runtime",
+            "test_target": "lib",
+            "test_features": arguments[arguments.index("--features") + 1],
+            "test_identity": arguments[arguments.index("--lib") + 1],
+            "executions": executions,
             "case_id": case_id,
             "tier": tier,
             "status": status,

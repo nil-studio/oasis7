@@ -98,6 +98,10 @@ node scripts/hosted-passkey-world-runtime-smoke.mjs \
 
 ## 网页导入密钥登录
 
+反向代理上线前核对两条精确 POST 路由 `/api/public/hosted-account/v2/native-key/options` 与 `/api/public/hosted-account/v2/native-key/complete` 均转发到身份服务，沿用既有同源、CSRF、请求方法和来源头限制；不得为补路径而放开全部 `/api/`。`capabilities.native_key.available=true` 只说明后端能力，不能证明公网反代已开放路径。
+
+使用同源浏览器上下文及新读取的 CSRF token 提交无凭据的无效 `{}` 请求，两条路径均应返回身份服务的 JSON `invalid_request`；这只验证路由可达，不证明认证成功。若公网返回 Nginx HTML 404，而 loopback 身份服务返回 JSON，先修复反代配置，再做下述专用无资产账号绑定、退出、导入登录与 session 核对。`world/join` 的 `registration_pending` 仍不是世界控制成功，继续核对同一会话的续期结果为 `world.state=bound`，不得自动接管其他设备。
+
 `native_key.mode=import_only` 时，账号页提供“导入密钥登录”。它仅接受 Ed25519 公钥和 32 字节私钥种子，两者各为 64 位十六进制。私钥在本页内存中导入为不可导出的签名对象，不发送给服务器，也不保存到浏览器存储；提交后清空输入，关闭页面或退出后重新导入。此入口不提供密钥生成或加密备份，不能导入 Passkey，也不要使用钱包或节点私钥。
 
 部署时先升级世界授权 verifier，再升级身份服务和 Viewer。首次绑定后，旧身份 binary 无法读取新增凭证类型；回退须保留导入凭证读取和登录能力，不能直接切回旧 binary。

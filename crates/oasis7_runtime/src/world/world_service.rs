@@ -22,9 +22,28 @@ pub(super) fn apply_service_authorization_event(
                 .agent_signer_delegations
                 .insert(signed.request.agent_id.clone(), signed.request.clone());
         }
+        Event::SafeAlternativeCommandRecorded { signed } => {
+            let (key, record) = world.project_safe_alternative(signed).map_err(deny)?;
+            let old = world
+                .capability_revocation_state
+                .safe_alternatives
+                .insert(key, record.clone());
+            world.install_safe_alternative_queue(old.as_ref(), &record);
+        }
+        Event::SafeAlternativeOutcomeRecorded {
+            key,
+            action_id,
+            event_id,
+        } => {
+            let record = world.safe_alternative_outcome_projection(key, *action_id, *event_id)?;
+            world
+                .capability_revocation_state
+                .safe_alternatives
+                .insert(key.clone(), record.clone());
+            world.install_safe_alternative_queue(None, &record);
+        }
         Event::WorldServiceIntentRecorded { key, record } => {
-            crate::service_admission::correlation::validate_result(key, record)
-                .map_err(deny)?;
+            crate::service_admission::correlation::validate_result(key, record).map_err(deny)?;
             if world
                 .capability_revocation_state
                 .world_service_results
@@ -54,15 +73,11 @@ impl World {
         &mut self,
         result: crate::service_admission::CanonicalIntentResultV1,
     ) -> Result<(), String> {
-        let key = crate::service_admission::correlation::key_digest(
-            &result.request.correlation.key,
-        )?;
+        let key =
+            crate::service_admission::correlation::key_digest(&result.request.correlation.key)?;
         let record = serde_json::to_value(result).map_err(|e| e.to_string())?;
         self.append_capability_authorization_event_batch(vec![
-            crate::CapabilityAuthorizationEvent::WorldServiceIntentRecorded {
-                key,
-                record,
-            },
+            crate::CapabilityAuthorizationEvent::WorldServiceIntentRecorded { key, record },
         ])
         .map(|_| ())
         .map_err(|e| format!("{e:?}"))
@@ -177,9 +192,9 @@ impl World {
             crate::cognition_disposition::AuthenticatedCognitionDisposition::Committed(receipt) => {
                 Ok(receipt)
             }
-            crate::cognition_disposition::AuthenticatedCognitionDisposition::RejectedStale(rejection) => {
-                Err(rejection.rejection_text())
-            }
+            crate::cognition_disposition::AuthenticatedCognitionDisposition::RejectedStale(
+                rejection,
+            ) => Err(rejection.rejection_text()),
         }
     }
     /// Canonical adapters may preserve ONLY approved rejection metadata after
@@ -188,8 +203,7 @@ impl World {
         &mut self,
         signed: SignedReadRequest<CognitionIntentV1>,
         staged: &[crate::service_admission::CanonicalIntentResultV1],
-    ) -> Result<crate::cognition_disposition::AuthenticatedCognitionDisposition, String>
-    {
+    ) -> Result<crate::cognition_disposition::AuthenticatedCognitionDisposition, String> {
         agent_authority::validate_cognition_staged(self, &signed, staged)?;
         let subject = signed.subject_public_key;
         let intent = signed.request;
@@ -288,8 +302,7 @@ impl World {
             Err(crate::WorldError::DistributedValidationFailed { reason })
                 if actor_matches
                     && captured_base_stale
-                    && reason
-                        == crate::CognitionCommitRejectReasonV1::StaleBase.code() =>
+                    && reason == crate::CognitionCommitRejectReasonV1::StaleBase.code() =>
             {
                 return Ok(
                     crate::cognition_disposition::AuthenticatedCognitionDisposition::RejectedStale(

@@ -1,5 +1,5 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { createPasskeyAccountClient, mountPasskeyAccount } from "./viewer_passkey_account_module.js";
+import { accountErrorNotice, createPasskeyAccountClient, mountPasskeyAccount } from "./viewer_passkey_account_module.js";
 
 export function PasskeyAccountSurface(props) {
   let root;
@@ -29,7 +29,7 @@ export function PasskeyAccountSurface(props) {
     } catch (failure) {
       if (!alive) return;
       if (failure.status === 404) { setLegacy(true); focusReadySurface(); }
-      else setError("账号服务暂时不可用，请稍后刷新。");
+      else setError(accountErrorNotice(failure, "能力检查"));
     }
   });
   onCleanup(() => { alive = false; surface?.dispose(); });
