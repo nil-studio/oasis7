@@ -1,3 +1,4 @@
+import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
 import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
 import { CanonicalAgentGoal } from "./canonical_agent_goal.jsx";
@@ -50,12 +51,6 @@ function buildViewerEntryUrls(locale) {
   return {
     softwareSafeUrl: softwareSafeUrl.toString(),
   };
-}
-function Badge(props) {
-  return <span class={props.class ?? "badge"}>{props.children}</span>;
-}
-function EmptyState(props) {
-  return <div class={`empty ${props.class ?? ""}`} style={props.style}>{props.children}</div>;
 }
 function targetSyncProgressLines(progress, locale) {
   if (!progress) {

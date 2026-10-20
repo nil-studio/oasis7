@@ -340,10 +340,10 @@ pub fn record_receipt(
         return Err(invalid("industrial_capacity_exceeded"));
     }
     validate_ref(&receipt.child_ref, world)?;
-    if !state
+    if state
         .roots
         .get(&receipt.root_ref.id)
-        .is_some_and(|r| r.root_ref == receipt.root_ref)
+        .is_none_or(|r| r.root_ref != receipt.root_ref)
         || receipt.effect_role.is_empty()
         || receipt.payload_digest.len() != 64
     {
@@ -372,6 +372,110 @@ pub fn record_receipt(
         .receipts
         .insert(receipt.receipt_ref.id.clone(), receipt);
     Ok(true)
+}
+
+/// Shared conversion/join escrow sink. Validation completes before any debit.
+/// The caller commits the sink key and settlement receipt in one world delta.
+pub fn consume_lots(
+    state: &mut IndustrialWorkStateV1,
+    owner: &str,
+    parents: &[IndustrialParentV1],
+    sink_key: &str,
+    world: &str,
+) -> Result<(), WorldError> {
+    if sink_key.is_empty()
+        || state.sink_keys.contains(sink_key)
+        || parents.len() > 128
+        || parents.is_empty()
+    {
+        return Err(invalid("industrial_sink_invalid_or_consumed"));
+    }
+    let mut seen = BTreeSet::new();
+    for parent in parents {
+        validate_ref(&parent.lot_ref, world)?;
+        validate_ref(&parent.settlement_ref, world)?;
+        let lot = state
+            .lots
+            .get(&parent.lot_ref.id)
+            .filter(|l| l.lot_ref == parent.lot_ref)
+            .ok_or_else(|| invalid("industrial_parent_missing"))?;
+        if parent.quantity == 0
+            || !seen.insert(&parent.lot_ref)
+            || lot.owner_id != owner
+            || lot.remaining < parent.quantity
+        {
+            return Err(invalid("industrial_sink_quantity_or_owner_invalid"));
+        }
+        if parent.settlement_ref != lot.provenance_ref
+            && !state
+                .receipts
+                .get(&parent.settlement_ref.id)
+                .is_some_and(|r| {
+                    r.receipt_ref == parent.settlement_ref
+                        && r.effect_role == "conversion_settlement"
+                        && r.output.contains(&parent.lot_ref)
+                })
+        {
+            return Err(invalid("industrial_parent_not_settled"));
+        }
+    }
+    for parent in parents {
+        let lot = state
+            .lots
+            .get_mut(&parent.lot_ref.id)
+            .expect("validated lot");
+        lot.remaining = lot
+            .remaining
+            .checked_sub(parent.quantity)
+            .ok_or_else(|| invalid("industrial_quantity_underflow"))?;
+    }
+    state.sink_keys.insert(sink_key.into());
+    Ok(())
+}
+
+/// Private graph projection. No receipt or binding may bridge into another owner.
+pub fn for_reader(state: &IndustrialWorkStateV1, owner: &str) -> IndustrialWorkStateV1 {
+    let mut view = state.clone();
+    view.roots.retain(|_, root| {
+        root.owner_id == owner
+            && root.slots.values().all(|slot| {
+                slot.parents.iter().all(|parent| {
+                    state
+                        .lots
+                        .get(&parent.lot_ref.id)
+                        .is_some_and(|lot| lot.owner_id == owner && lot.lot_ref == parent.lot_ref)
+                })
+            })
+    });
+    view.lots.retain(|_, lot| lot.owner_id == owner);
+    view.imported_lot_authorities
+        .retain(|id, _| view.lots.contains_key(id));
+    let root_visible = |reference: &IndustrialRefV1| {
+        view.roots
+            .get(&reference.id)
+            .is_some_and(|root| &root.root_ref == reference)
+    };
+    let lot_visible = |reference: &IndustrialRefV1| {
+        view.lots
+            .get(&reference.id)
+            .is_some_and(|lot| &lot.lot_ref == reference)
+    };
+    view.receipts.retain(|_, receipt| {
+        root_visible(&receipt.root_ref)
+            && receipt.input.iter().all(|p| lot_visible(&p.lot_ref))
+            && receipt
+                .output
+                .iter()
+                .all(|reference| lot_visible(reference) || root_visible(reference))
+    });
+    view.bindings.retain(|binding| {
+        root_visible(&binding.root_ref) && binding.parents.iter().all(|p| lot_visible(&p.lot_ref))
+    });
+    view.dispositions
+        .retain(|_, plan| root_visible(&plan.root_ref));
+    // Sink keys are opaque world authority internals, never a player read surface.
+    view.sink_keys.clear();
+    view
 }
 
 #[cfg(test)]
@@ -558,108 +662,4 @@ mod tests {
             assert!(state.roots.is_empty());
         }
     }
-}
-
-/// Shared conversion/join escrow sink. Validation completes before any debit.
-/// The caller commits the sink key and settlement receipt in one world delta.
-pub fn consume_lots(
-    state: &mut IndustrialWorkStateV1,
-    owner: &str,
-    parents: &[IndustrialParentV1],
-    sink_key: &str,
-    world: &str,
-) -> Result<(), WorldError> {
-    if sink_key.is_empty()
-        || state.sink_keys.contains(sink_key)
-        || parents.len() > 128
-        || parents.is_empty()
-    {
-        return Err(invalid("industrial_sink_invalid_or_consumed"));
-    }
-    let mut seen = BTreeSet::new();
-    for parent in parents {
-        validate_ref(&parent.lot_ref, world)?;
-        validate_ref(&parent.settlement_ref, world)?;
-        let lot = state
-            .lots
-            .get(&parent.lot_ref.id)
-            .filter(|l| l.lot_ref == parent.lot_ref)
-            .ok_or_else(|| invalid("industrial_parent_missing"))?;
-        if parent.quantity == 0
-            || !seen.insert(&parent.lot_ref)
-            || lot.owner_id != owner
-            || lot.remaining < parent.quantity
-        {
-            return Err(invalid("industrial_sink_quantity_or_owner_invalid"));
-        }
-        if parent.settlement_ref != lot.provenance_ref
-            && !state
-                .receipts
-                .get(&parent.settlement_ref.id)
-                .is_some_and(|r| {
-                    r.receipt_ref == parent.settlement_ref
-                        && r.effect_role == "conversion_settlement"
-                        && r.output.contains(&parent.lot_ref)
-                })
-        {
-            return Err(invalid("industrial_parent_not_settled"));
-        }
-    }
-    for parent in parents {
-        let lot = state
-            .lots
-            .get_mut(&parent.lot_ref.id)
-            .expect("validated lot");
-        lot.remaining = lot
-            .remaining
-            .checked_sub(parent.quantity)
-            .ok_or_else(|| invalid("industrial_quantity_underflow"))?;
-    }
-    state.sink_keys.insert(sink_key.into());
-    Ok(())
-}
-
-/// Private graph projection. No receipt or binding may bridge into another owner.
-pub fn for_reader(state: &IndustrialWorkStateV1, owner: &str) -> IndustrialWorkStateV1 {
-    let mut view = state.clone();
-    view.roots.retain(|_, root| {
-        root.owner_id == owner
-            && root.slots.values().all(|slot| {
-                slot.parents.iter().all(|parent| {
-                    state
-                        .lots
-                        .get(&parent.lot_ref.id)
-                        .is_some_and(|lot| lot.owner_id == owner && lot.lot_ref == parent.lot_ref)
-                })
-            })
-    });
-    view.lots.retain(|_, lot| lot.owner_id == owner);
-    view.imported_lot_authorities
-        .retain(|id, _| view.lots.contains_key(id));
-    let root_visible = |reference: &IndustrialRefV1| {
-        view.roots
-            .get(&reference.id)
-            .is_some_and(|root| &root.root_ref == reference)
-    };
-    let lot_visible = |reference: &IndustrialRefV1| {
-        view.lots
-            .get(&reference.id)
-            .is_some_and(|lot| &lot.lot_ref == reference)
-    };
-    view.receipts.retain(|_, receipt| {
-        root_visible(&receipt.root_ref)
-            && receipt.input.iter().all(|p| lot_visible(&p.lot_ref))
-            && receipt
-                .output
-                .iter()
-                .all(|reference| lot_visible(reference) || root_visible(reference))
-    });
-    view.bindings.retain(|binding| {
-        root_visible(&binding.root_ref) && binding.parents.iter().all(|p| lot_visible(&p.lot_ref))
-    });
-    view.dispositions
-        .retain(|_, plan| root_visible(&plan.root_ref));
-    // Sink keys are opaque world authority internals, never a player read surface.
-    view.sink_keys.clear();
-    view
 }

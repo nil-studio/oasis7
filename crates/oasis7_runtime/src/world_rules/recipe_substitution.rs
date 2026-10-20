@@ -6,6 +6,12 @@ pub use oasis7_agent_api::world_action::{SubstitutionPreviewV1, SubstitutionStat
 use oasis7_wasm_abi::SubstitutionConversionV1;
 use std::collections::BTreeMap;
 
+#[derive(Clone, Copy)]
+struct SubstitutionContext<'a> {
+    actor: &'a str,
+    world: &'a str,
+    now: u64,
+}
 fn qualified(r: &IndustrialRefV1, world: &str) -> Result<(), WorldError> {
     if !r.is_qualified() || r.world_binding != world {
         return Err(invalid("substitution_reference_invalid"));
@@ -82,7 +88,12 @@ fn preview_with_rules(
     let mut blocker = None;
     for reference in &expected {
         match candidate(
-            state, rules, industrial, actor, request, reference, world, now,
+            state,
+            rules,
+            industrial,
+            request,
+            reference,
+            SubstitutionContext { actor, world, now },
         ) {
             Ok(c) => candidates.push(c),
             Err(e) => {
@@ -196,7 +207,7 @@ impl PreparedWorldRule {
                 }
                 let id = &authority.authority_ref.id;
                 if let Some(old) = self.rules.substitution.authorities.get(id) {
-                    if old != authority {
+                    if old != authority.as_ref() {
                         return Err(invalid("substitution_authority_conflict"));
                     }
                 } else {
@@ -206,7 +217,7 @@ impl PreparedWorldRule {
                     self.rules
                         .substitution
                         .authorities
-                        .insert(id.clone(), authority.clone());
+                        .insert(id.clone(), authority.as_ref().clone());
                 }
                 Ok(id.clone())
             }
@@ -225,12 +236,10 @@ impl PreparedWorldRule {
                 candidate_root,
             } => self.cutover_substitution(
                 state,
-                actor,
                 decision_ref,
                 disposition,
                 candidate_root,
-                now,
-                world,
+                SubstitutionContext { actor, world, now },
             ),
         }
     }
@@ -280,11 +289,9 @@ impl PreparedWorldRule {
             state,
             &self.rules.substitution,
             &self.rules.industrial_work,
-            actor,
             &intent.preview.request,
             &selected.authority.authority_ref,
-            world,
-            now,
+            SubstitutionContext { actor, world, now },
         )?;
         let candidate = selected;
         if current != candidate {

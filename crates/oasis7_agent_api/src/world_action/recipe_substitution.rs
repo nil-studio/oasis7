@@ -211,7 +211,7 @@ pub struct SubstitutionStateV1 {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RecipeSubstitutionCommandV1 {
     PublishAuthority {
-        authority: SubstitutionExecutionAuthorityV1,
+        authority: Box<SubstitutionExecutionAuthorityV1>,
         consensus_height: u64,
         finality_certificate: GovernanceFinalityCertificate,
     },
@@ -227,7 +227,7 @@ pub enum RecipeSubstitutionCommandV1 {
     Cutover {
         decision_ref: IndustrialRefV1,
         disposition: DispositionPlanV1,
-        candidate_root: RootOperationV1,
+        candidate_root: Box<RootOperationV1>,
     },
 }
 

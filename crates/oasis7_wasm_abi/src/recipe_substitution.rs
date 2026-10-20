@@ -220,7 +220,7 @@ impl SubstitutionRuleV1 {
         if source_unit != self.source_unit || target_unit != self.target_unit {
             return Err(SubstitutionRuleError::InvalidUnit);
         }
-        if total_target == 0 || total_target % self.executable_target_quantum != 0 {
+        if total_target == 0 || !total_target.is_multiple_of(self.executable_target_quantum) {
             return Err(SubstitutionRuleError::QuantizationBlocked);
         }
         let (source, residual) = checked_source_requirement(

@@ -25,11 +25,9 @@ impl PreparedWorldRule {
             state,
             &self.rules.substitution,
             &self.rules.industrial_work,
-            actor,
             request,
             &decision.candidate.authority.authority_ref,
-            world,
-            now,
+            SubstitutionContext { actor, world, now },
         )?;
         if fresh != decision.candidate {
             return Err(invalid("stale_candidate"));
@@ -292,11 +290,9 @@ impl PreparedWorldRule {
                 state,
                 &self.rules.substitution,
                 &self.rules.industrial_work,
-                actor,
                 request,
                 &decision.candidate.authority.authority_ref,
-                world,
-                now,
+                SubstitutionContext { actor, world, now },
             )?;
             if fresh != decision.candidate {
                 return Err(invalid("stale_candidate"));
@@ -337,13 +333,12 @@ impl PreparedWorldRule {
     pub(super) fn cutover_substitution(
         &mut self,
         state: &WorldState,
-        actor: &str,
         reference: &IndustrialRefV1,
         disposition: &DispositionPlanV1,
         root: &RootOperationV1,
-        now: u64,
-        world: &str,
+        context: SubstitutionContext<'_>,
     ) -> Result<String, WorldError> {
+        let SubstitutionContext { actor, world, now } = context;
         let decision = self.decision(actor, reference, world)?;
         if decision.candidate.cutover_plan.as_ref() != Some(disposition)
             || decision.candidate.candidate_root.as_ref() != Some(root)
@@ -366,11 +361,9 @@ impl PreparedWorldRule {
             state,
             &self.rules.substitution,
             &self.rules.industrial_work,
-            actor,
             &decision.intent.preview.request,
             &decision.candidate.authority.authority_ref,
-            world,
-            now,
+            SubstitutionContext { actor, world, now },
         )?;
         if fresh != decision.candidate {
             return Err(invalid("stale_candidate"));

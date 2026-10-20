@@ -52,7 +52,7 @@ fn publish(
         sub_event(
             request,
             RecipeSubstitutionCommandV1::PublishAuthority {
-                authority: a,
+                authority: Box::new(a),
                 consensus_height: 1,
                 finality_certificate: producer::certificate(manifest, key),
             },
@@ -78,11 +78,11 @@ fn authority(
     root: &RootOperationV1,
     slot: &str,
     selection: SubstitutionSelectionV1,
-    baseline: SubstitutionImpactV1,
-    candidate: SubstitutionImpactV1,
+    impacts: (SubstitutionImpactV1, SubstitutionImpactV1),
     target_recipe: &str,
     id: &str,
 ) -> SubstitutionExecutionAuthorityV1 {
+    let (baseline, candidate) = impacts;
     let input = &root.slots[slot];
     SubstitutionExecutionAuthorityV1 {
         authority_ref: work::industrial_ref(
@@ -230,8 +230,7 @@ fn native_rule_free_source_swap_and_explicit_new_recipe_cutover_preserve_identit
             source_lot: lot.lot_ref,
             source_material: reference("copper_ore"),
         },
-        target_impacts.clone(),
-        target_impacts.clone(),
+        (target_impacts.clone(), target_impacts.clone()),
         recipe,
         "source-authority",
     );
@@ -285,8 +284,7 @@ fn native_rule_free_source_swap_and_explicit_new_recipe_cutover_preserve_identit
         SubstitutionSelectionV1::NewRecipe {
             candidate_root: target.root_ref.clone(),
         },
-        baseline,
-        target_impacts,
+        (baseline, target_impacts),
         recipe,
         "recipe-choice",
     );
@@ -408,7 +406,7 @@ fn native_rule_free_source_swap_and_explicit_new_recipe_cutover_preserve_identit
             RecipeSubstitutionCommandV1::Cutover {
                 decision_ref: chosen.clone(),
                 disposition,
-                candidate_root: target.clone(),
+                candidate_root: Box::new(target.clone()),
             },
         ),
         2,

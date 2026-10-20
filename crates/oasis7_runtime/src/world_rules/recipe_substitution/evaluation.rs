@@ -3,12 +3,11 @@ pub(super) fn candidate(
     state: &WorldState,
     rules: &SubstitutionStateV1,
     industrial: &IndustrialWorkStateV1,
-    actor: &str,
     request: &SubstitutionPreviewRequestV1,
     reference: &IndustrialRefV1,
-    world: &str,
-    now: u64,
+    context: SubstitutionContext<'_>,
 ) -> Result<SubstitutionCandidateV1, WorldError> {
+    let SubstitutionContext { actor, world, now } = context;
     qualified(&request.root_ref, world)?;
     qualified(reference, world)?;
     let root = industrial
@@ -158,12 +157,12 @@ pub(super) fn candidate(
                 actor_id: actor.into(),
                 request_id: crate::util::hash_json(&(reference, "preview-start"))?,
                 command: WorldRuleCommandV1::IndustrialWork {
-                    command: IndustrialWorkCommandV1::StartRoot {
+                    command: Box::new(IndustrialWorkCommandV1::StartRoot {
                         root_ref: target.root_ref.clone(),
                         expected_profile_digest: target.pinned_profile_digest.clone(),
                         logistics_route_ids: vec![],
                         logistics_path_ids: vec![],
-                    },
+                    }),
                 },
                 governance_epoch: 0,
                 world_binding: Some(world.into()),

@@ -2,7 +2,62 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
-fn owner_fixture() -> (ViewerRuntimeLiveServer, String) {
+struct ProviderScope {
+    previous_llm: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    _mock: super::auth_actions::RuntimeLiveMockHttpServer,
+    _environment: std::sync::MutexGuard<'static, ()>,
+}
+impl Drop for ProviderScope {
+    fn drop(&mut self) {
+        clear_runtime_provider_env();
+        for (name, previous) in &self.previous_llm {
+            // SAFETY: the shared environment guard remains held through drop.
+            unsafe {
+                match previous {
+                    Some(value) => oasis7::env_mut::set_var(name, value),
+                    None => oasis7::env_mut::remove_var(name),
+                }
+            }
+        }
+    }
+}
+
+fn owner_fixture() -> (ViewerRuntimeLiveServer, String, ProviderScope) {
+    let environment = runtime_provider_env_lock()
+        .lock()
+        .expect("provider environment lock");
+    clear_runtime_provider_env();
+    // The owner fixture initializes its provider while accepting a genuine
+    // signed starter claim. Keep all configuration local for the entire read.
+    let mock = super::auth_actions::spawn_runtime_live_mock_http_server_until_drop(|request| {
+        super::auth_actions::MockHttpResponse {
+            status_code: if request.path.contains("feedback") { 200 } else { 500 },
+            body: serde_json::json!({"ok":request.path.contains("feedback"),"error":"read_only_fixture_does_not_execute_provider_decisions"}).to_string(),
+        }
+    });
+    let previous_llm = [
+        crate::simulator::ENV_LLM_BASE_URL,
+        crate::simulator::ENV_LLM_MODEL,
+        crate::simulator::ENV_LLM_API_KEY,
+    ]
+    .into_iter()
+    .map(|name| (name, std::env::var_os(name)))
+    .collect();
+    // SAFETY: this scope holds the shared provider environment lock until drop.
+    unsafe {
+        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, mock.base_url());
+        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_BASE_URL, mock.base_url());
+        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "read-only-local-fixture");
+        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "local-fixture-key");
+    }
+    let provider = ProviderScope {
+        previous_llm,
+        _mock: mock,
+        _environment: environment,
+    };
     let (mut server, agent, _, _) =
         super::agent_memory_correction_control::owner_server_with_config(
             186,
@@ -36,12 +91,12 @@ fn owner_fixture() -> (ViewerRuntimeLiveServer, String) {
         .roots
         .insert("private-root".into(), root);
     server.world = crate::runtime::World::new_with_state(state);
-    (server, agent)
+    (server, agent, provider)
 }
 
 #[test]
 fn selected_bound_agent_does_not_grant_anonymous_private_substitution_read() {
-    let (mut server, agent) = owner_fixture();
+    let (mut server, agent, _provider) = owner_fixture();
     assert!(
         server
             .llm_sidecar
@@ -68,7 +123,7 @@ fn selected_bound_agent_does_not_grant_anonymous_private_substitution_read() {
 
 #[test]
 fn authenticated_local_owner_gets_canonical_status_and_replaced_source_loses_old_roots() {
-    let (mut server, agent) = owner_fixture();
+    let (mut server, agent, _provider) = owner_fixture();
     let owner = server.compat_snapshot(Some("agency-owner"));
     let projected = owner.player_gameplay.unwrap().recipe_substitution.unwrap();
     assert!(projected["roots"].get("private-root").is_some());
@@ -93,7 +148,7 @@ fn authenticated_local_owner_gets_canonical_status_and_replaced_source_loses_old
 
 #[test]
 fn chain_backed_snapshot_never_falls_back_to_local_private_graph() {
-    let (mut server, agent) = owner_fixture();
+    let (mut server, agent, _provider) = owner_fixture();
     assert!(
         server.world.world_rule_status(Some(&agent)).unwrap()["recipe_substitution"]["roots"]
             .get("private-root")

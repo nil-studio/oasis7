@@ -128,7 +128,7 @@ pub(crate) fn import(
     event(
         request,
         IndustrialWorkCommandV1::ImportQualifiedLot {
-            facts,
+            facts: Box::new(facts),
             certificate: certificate(manifest, key),
         },
     )
@@ -138,7 +138,9 @@ pub(crate) fn event(request: &str, command: IndustrialWorkCommandV1) -> DomainEv
         action_id: 1,
         actor_id: "owner".into(),
         request_id: request.into(),
-        command: WorldRuleCommandV1::IndustrialWork { command },
+        command: WorldRuleCommandV1::IndustrialWork {
+            command: Box::new(command),
+        },
         governance_epoch: 0,
         world_binding: Some("world".into()),
     }
@@ -197,12 +199,10 @@ fn import_rejects_bad_authority_without_minting() {
     }
     let mut wrong_signer = import(&state, &key, "bad-signature", facts(&state));
     if let DomainEvent::WorldRuleCommitted {
-        command:
-            WorldRuleCommandV1::IndustrialWork {
-                command: IndustrialWorkCommandV1::ImportQualifiedLot { certificate, .. },
-            },
+        command: WorldRuleCommandV1::IndustrialWork { command },
         ..
     } = &mut wrong_signer
+        && let IndustrialWorkCommandV1::ImportQualifiedLot { certificate, .. } = command.as_mut()
     {
         certificate.signatures.clear();
     }
@@ -392,7 +392,7 @@ pub(crate) fn root_fixture() -> (WorldState, SigningKey, IndustrialWorkCommandV1
         recipe_id: recipe.into(),
         batches: 1,
         input_baselines,
-        authority,
+        authority: Box::new(authority),
         certificate: certificate("pending".into(), &signing_key),
     };
     let key = super::super::request_key("owner", "root");

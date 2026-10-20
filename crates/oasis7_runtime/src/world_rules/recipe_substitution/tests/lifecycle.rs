@@ -14,7 +14,8 @@ fn certified_producer_to_decision_conversion_binding_and_normal_start_survives_r
         digest: crate::util::sha256_hex(id.as_bytes()),
     };
     let mut rules = vec![];
-    for material in ["iron_ore"] {
+    {
+        let material = "iron_ore";
         let r = reference(material);
         rules.push(SubstitutionRuleV1 {
             rule: reference(&format!("rule-{material}")),
@@ -230,7 +231,7 @@ fn certified_producer_to_decision_conversion_binding_and_normal_start_survives_r
                     sub_event(
                         &id,
                         RecipeSubstitutionCommandV1::PublishAuthority {
-                            authority: large,
+                            authority: Box::new(large),
                             consensus_height: 1,
                             finality_certificate: producer::certificate(manifest, &key),
                         },
@@ -254,7 +255,7 @@ fn certified_producer_to_decision_conversion_binding_and_normal_start_survives_r
             sub_event(
                 &format!("publish-{material}"),
                 RecipeSubstitutionCommandV1::PublishAuthority {
-                    authority: a,
+                    authority: Box::new(a),
                     consensus_height: 1,
                     finality_certificate: producer::certificate(manifest, &key),
                 },

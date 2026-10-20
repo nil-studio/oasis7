@@ -415,20 +415,20 @@ impl World {
                     0
                 } else {
                     match command {
-                        oasis7_agent_api::world_action::WorldRuleCommandV1::RecipeSubstitution {
-                            command: oasis7_agent_api::world_action::RecipeSubstitutionCommandV1::Convert { decision_ref },
-                        } => {
-                            let rules = self.state.world_rules.as_ref().ok_or_else(|| denied("substitution state unavailable"))?;
-                            if rules.substitution.settlements.contains_key(&decision_ref.id) { 0 } else {
-                                let decision = rules.substitution.decisions.get(&decision_ref.id).filter(|d| d.decision_ref == *decision_ref).ok_or_else(|| denied("substitution decision unavailable"))?;
-                                i64::try_from(decision.candidate.authority.power_cost).map_err(|_| denied("substitution electricity cost overflow"))?
-                            }
+                        oasis7_agent_api::world_action::WorldRuleCommandV1::RecipeSubstitution { command } => {
+                            if let oasis7_agent_api::world_action::RecipeSubstitutionCommandV1::Convert { decision_ref } = command.as_ref() {
+                                let rules = self.state.world_rules.as_ref().ok_or_else(|| denied("substitution state unavailable"))?;
+                                if rules.substitution.settlements.contains_key(&decision_ref.id) { 0 } else {
+                                    let decision = rules.substitution.decisions.get(&decision_ref.id).filter(|d| d.decision_ref == *decision_ref).ok_or_else(|| denied("substitution decision unavailable"))?;
+                                    i64::try_from(decision.candidate.authority.power_cost).map_err(|_| denied("substitution electricity cost overflow"))?
+                                }
+                            } else { 0 }
                         }
-                        oasis7_agent_api::world_action::WorldRuleCommandV1::IndustrialWork {
-                            command: oasis7_agent_api::world_action::IndustrialWorkCommandV1::StartRoot { root_ref, .. },
-                        } => {
-                            let root = self.state.world_rules.as_ref().and_then(|rules| rules.industrial_work.roots.get(&root_ref.id)).filter(|r| r.root_ref == *root_ref).ok_or_else(|| denied("industrial root unavailable"))?;
-                            crate::builtin_recipe_plan(&root.pinned_recipe_id, root.accepted_batches).ok_or_else(|| denied("industrial recipe unavailable"))?.power_required
+                        oasis7_agent_api::world_action::WorldRuleCommandV1::IndustrialWork { command } => {
+                            if let oasis7_agent_api::world_action::IndustrialWorkCommandV1::StartRoot { root_ref, .. } = command.as_ref() {
+                                let root = self.state.world_rules.as_ref().and_then(|rules| rules.industrial_work.roots.get(&root_ref.id)).filter(|r| r.root_ref == *root_ref).ok_or_else(|| denied("industrial root unavailable"))?;
+                                crate::builtin_recipe_plan(&root.pinned_recipe_id, root.accepted_batches).ok_or_else(|| denied("industrial recipe unavailable"))?.power_required
+                            } else { 0 }
                         }
                         oasis7_agent_api::world_action::WorldRuleCommandV1::ConfirmAgentOrder {
                             ..

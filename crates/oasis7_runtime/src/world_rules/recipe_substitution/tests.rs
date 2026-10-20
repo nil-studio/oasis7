@@ -106,7 +106,9 @@ fn sub_event(request: &str, command: RecipeSubstitutionCommandV1) -> crate::Doma
         action_id: 1,
         actor_id: "owner".into(),
         request_id: request.into(),
-        command: WorldRuleCommandV1::RecipeSubstitution { command },
+        command: WorldRuleCommandV1::RecipeSubstitution {
+            command: Box::new(command),
+        },
         governance_epoch: 0,
         world_binding: Some("world".into()),
     }

@@ -51,7 +51,7 @@ pub struct IndustrialBaselineAuthorityV1 {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum IndustrialWorkCommandV1 {
     ImportQualifiedLot {
-        facts: QualifiedIndustrialLotFactsV1,
+        facts: Box<QualifiedIndustrialLotFactsV1>,
         certificate: GovernanceFinalityCertificate,
     },
     AcceptRoot {
@@ -59,7 +59,7 @@ pub enum IndustrialWorkCommandV1 {
         recipe_id: String,
         batches: u32,
         input_baselines: BTreeMap<String, IndustrialInputBaselineV1>,
-        authority: IndustrialBaselineAuthorityV1,
+        authority: Box<IndustrialBaselineAuthorityV1>,
         certificate: GovernanceFinalityCertificate,
     },
     StartRoot {
