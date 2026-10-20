@@ -188,11 +188,11 @@
 
 ## 2.4 情绪节奏设计
 
-进入 → 理解变化与当前目标  
-决策 → 比较真实取舍  
-执行 → 观察可解释进展  
-结果 → 获得成果或理解损失  
-修正/离场 → 保留掌控感与下一方向
+- 进入 → 理解变化与当前目标
+- 决策 → 比较真实取舍
+- 执行 → 观察可解释进展
+- 结果 → 获得成果或理解损失
+- 修正/离场 → 保留掌控感与下一方向
 
 紧张、惊喜或遗憾可以自然出现，但焦虑、复仇和持续在线不是必需情绪或验收目标；平静地完成一个有限目标也可以成立。
 
@@ -946,4 +946,3 @@ Trace ID: O7-REQ-3f259d96-508e-462d-a8c9-e1851e85e1ed
 - power 交易必须继续满足 `power_survival_quote` / `power_sale_quote`：展示交易后的续航、下一动作可负担性和 interruption/shutdown 风险，不能只展示现金收益。
 - offer/order 不承诺成交或 escrow。权威 runtime 决定资格、报价、price/time 确定性撮合、结算与回放；未成交订单保持可取消，失败至少区分资金不足、ownership/permission、价格不兼容、active-use destruction blocker 或当前无匹配。
 - 本文不冻结 action/event 字段、订单 ID、费用公式或价格带数值；这些属于 runtime/simulator 实现和专业验证真值。
-
