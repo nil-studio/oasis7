@@ -1,6 +1,5 @@
-import { SafeAlternativePanel } from "./safe_alternative_panel.jsx";
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
-import { CanonicalAgentGoal } from "./canonical_agent_goal.jsx";
+import { AgentChatOwnerControls } from "./agent_chat_owner_controls.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { TargetListWindow, createTargetListProjection } from "./target_list_window.jsx";
@@ -3452,8 +3451,7 @@ function InteractionPanel() {
         meta={tr(locale(), "向当前目标发消息并读回复。", "Message the current target and read replies.")}
       >
         <div class="field">
-          <SafeAlternativePanel core={core} />
-          <CanonicalAgentGoal state={core.state} agentId={agentId()} locale={locale()} />
+          <AgentChatOwnerControls core={core} agentId={agentId()} locale={locale()} />
           <label for="agent-chat-message">{tr(locale(), "消息", "Message")}</label>
               <textarea
                 id="agent-chat-message"

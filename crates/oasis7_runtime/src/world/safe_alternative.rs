@@ -76,13 +76,13 @@ impl World {
         let now = self.state.time;
         let previous = self.capability_revocation_state.safe_alternatives.get(&key);
         let command_digest = digest(&json!(c));
-        if let Some(old) = previous {
-            if let Some(recorded) = old["command_digests"].get(&c.client_operation_id) {
-                if *recorded != command_digest {
-                    return Err("identity_conflict".into());
-                }
-                return Ok((key, old.clone()));
+        if let Some(old) = previous
+            && let Some(recorded) = old["command_digests"].get(&c.client_operation_id)
+        {
+            if *recorded != command_digest {
+                return Err("identity_conflict".into());
             }
+            return Ok((key, old.clone()));
         }
         if let Op::Propose {
             original,

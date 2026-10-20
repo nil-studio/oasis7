@@ -28,11 +28,10 @@ impl ViewerRuntimeLiveServer {
                     &signed.request.owner_binding,
                     &signed.subject_public_key,
                 )?;
-                let client = server
+                server
                     .world_service_client()
                     .map_err(|e| format!("{e:?}"))?
-                    .ok_or("safe alternatives require WorldService")?;
-                client
+                    .ok_or("safe alternatives require WorldService")?
             };
             let signed: SignedReadRequest<SafeAlternativeCommandV1> =
                 serde_json::from_value(request.clone()).map_err(|e| e.to_string())?;

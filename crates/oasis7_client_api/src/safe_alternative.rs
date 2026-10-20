@@ -111,7 +111,7 @@ impl SafeAlternativeCommandV1 {
             self.operation.request_id(),
         ]
         .into_iter()
-        .all(|s| id(s))
+        .all(&id)
         {
             return Err("identity_conflict".into());
         }
@@ -157,10 +157,8 @@ impl SafeAlternativeCommandV1 {
                 authorization_id,
                 execution_id,
                 ..
-            } => {
-                if !id(authorization_id) || !id(execution_id) {
-                    return Err("identity_conflict".into());
-                }
+            } if !id(authorization_id) || !id(execution_id) => {
+                return Err("identity_conflict".into());
             }
             _ => {}
         }
