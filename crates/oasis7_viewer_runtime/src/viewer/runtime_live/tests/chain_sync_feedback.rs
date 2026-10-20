@@ -26,6 +26,10 @@ fn chain_status_cannot_choose_the_observers_local_root() {
     .unwrap();
     server.prime_chain_linked_runtime_for_snapshot().unwrap();
     assert!(
+        server.confirmed_player_gameplay_progress_time.is_none(),
+        "reading an existing committed world must not complete a player action loop"
+    );
+    assert!(
         server
             .world
             .state()

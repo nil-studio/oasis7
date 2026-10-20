@@ -48,8 +48,21 @@ function nextDecisionGuidance(value, locale, tr) {
   }
 }
 
-function quoteRequestErrorCopy(error, locale, tr) {
-  if (!error) return "";
+const QUOTE_ERROR_RECOVERY = {
+  invalid_amount: ["请输入正整数克数，再请求只读预估。", "Enter a positive whole-number amount in grams, then request another quote."],
+  connection_unavailable: ["世界连接已断开。连接恢复后重新请求预估。", "The world connection is offline. Request another quote after it reconnects."],
+  player_agent_binding_required: ["请先领取自己的 Agent；已领取时等待 Agent 同步，再刷新玩法快照。", "Claim your Agent first; if already claimed, wait for Agent sync and refresh the gameplay snapshot."],
+  player_session_required: ["玩家会话尚未就绪。请先完成登录并进入世界。", "The player session is not ready. Sign in and enter the world first."],
+  session_sync_failed: ["玩家控制资格未完成同步。请刷新玩法快照，确认自己的 Agent 后重试。", "Player control has not finished syncing. Refresh the gameplay snapshot and confirm your Agent before retrying."],
+  refine_quote_unavailable: ["当前世界尚不支持权威精炼预估。请查看已支持的生产方案；此请求未提交精炼或消耗资源。", "This world does not yet support an authoritative refining quote. Review the supported production plans; this request did not submit refining or spend resources."],
+  refine_quote_rejected: ["当前材料、电力或精炼条件不满足预估要求。请检查资源和输入量后重新规划。", "The current materials, power, or refining prerequisites do not support this quote. Check resources and the amount before replanning."],
+  auth_signature_invalid: ["请求认证失败。请恢复当前玩家会话后重试。", "Request authentication failed. Recover the current player session before retrying."],
+  session_key_unknown: ["当前玩家会话已失效。请重新进入世界后重试。", "The current player session is no longer valid. Enter the world again before retrying."],
+};
+function quoteRequestErrorCopy(error, code, locale, tr) {
+  if (!error && !code) return "";
+  const recovery = Object.hasOwn(QUOTE_ERROR_RECOVERY, code) ? QUOTE_ERROR_RECOVERY[code] : null;
+  if (recovery) return tr(locale, ...recovery);
   return tr(
     locale,
     "无法获取精炼预估。请检查连接、玩家会话和输入量后重试。",
@@ -139,9 +152,12 @@ export function RefineQuotePreflightPanel(props) {
   const remoteRequestState = () => props.requestState || {};
   const visibleError = () => quoteRequestErrorCopy(
     remoteRequestState().status === "error" ? remoteRequestState().error : requestError(),
+    remoteRequestState().errorCode,
     locale(),
     tr,
   );
+  const safeErrorCode = () => remoteRequestState().status === "error"
+    ? (Object.hasOwn(QUOTE_ERROR_RECOVERY, remoteRequestState().errorCode) ? remoteRequestState().errorCode : "unknown_error") : null;
   const visibleStatus = () => remoteRequestState().status === "received"
     ? tr(locale(), "预估已返回，请查看报价结果。", "Quote received; review the estimate below.")
     : requestStatus();
@@ -195,6 +211,7 @@ export function RefineQuotePreflightPanel(props) {
           </button>
         </form>
         {visibleError() ? <div class="feedback-summary feedback-summary--error" role="alert">{visibleError()}</div> : null}
+        {safeErrorCode() ? <details class="feedback-summary"><summary>{tr(locale(), "安全诊断", "Safe diagnostics")}</summary><code>{safeErrorCode()}</code></details> : null}
         {visibleStatus() ? <div class="feedback-summary" role="status">{visibleStatus()}</div> : null}
         {props.quote ? <RefineQuotePreflightCard quote={props.quote} locale={locale()} tr={tr} /> : null}
       </div>

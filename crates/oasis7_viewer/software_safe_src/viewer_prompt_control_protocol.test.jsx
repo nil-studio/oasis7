@@ -261,7 +261,7 @@ describe("viewer prompt control protocol", () => {
       type: "hello_v2",
       client: "viewer",
       version: 2,
-      capabilities: ["prompt_control_result_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"],
+      capabilities: ["prompt_control_result_v1", "canonical_agent_chat_v1", "world_view", "world_view_pins_v1", "world_view_delta_v1", "world_view_aggregate_v1", "world_view_event_anchor_v1"],
     });
     sockets[0].receive({
       type: "hello_ack",

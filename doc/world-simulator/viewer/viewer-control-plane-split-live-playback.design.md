@@ -128,6 +128,12 @@ JSON 的 `error_code` 仍为字符串，HTTP 状态类别与响应 shape 保持�
 | 预检后权限/余额/世界版本变化 | 提交重新校验，可明确拒绝；旧预检不承诺未来执行成功 |
 | 相同不可变视图反复调用资格函数 | world/claim/资源/动作 nonce 不变；入口自己的认证 nonce 按原规则处理 |
 
+### 精炼报价的权威边界
+
+`quote_refine_compound` 的兼容本地 Runtime 入口可继续从自己的只读状态与 Simulator 经济配置生成预览；验签和现有 session/owner 资格保持不变。链连接或 world-service 模式不能把 disposable 本地 World、sidecar binding 与本地 `snapshot_config.economy` 组合成当前 canonical 精炼报价。当前已验证 projection 虽包含 Agent 资源，但并不携带这组 Simulator 精炼经济参数，也没有正式精炼 quote service 合同，因此在合法身份验签和 session 校验后返回稳定的 `refine_quote_unavailable`，不消费 nonce、不修改资源或绑定，不将缺能力伪装成绑定丢失。
+
+消费者应明确说明该世界暂不提供权威精炼预览，保留刷新权威世界和查看已支持生产方案的入口；刷新不保证能力出现，不引导玩家盲目重新登录或按本地估值提交。未来补齐正式 quote 合同、权威参数及同版本资源/owner 资格后才能恢复该世界的精炼预览。本边界不撤销产品的提交前预览要求，也不证明该要求已交付。
+
 ### 实施、兼容与未决边界
 
 - 可按反馈隔离、错误码、CollectData 资格共享三个局部修改完成本控制面目标，测试复用表中现有文件；不扩展成所有 quote 的重构。渲染效率与视觉回归由[独立局部设计](viewer-pixel-world-bridge-rendering.design.md#render-reconcile-and-visual-regression-target)承担。

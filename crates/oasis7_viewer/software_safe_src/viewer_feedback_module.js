@@ -342,7 +342,9 @@ export function createViewerFeedbackModule({
     const locations = Object.keys(state.snapshot?.model?.locations || {});
     const missingAgents = agents.length === 0;
     const missingLocations = locations.length === 0;
-    const emptyEntityBlocker = missingAgents || missingLocations
+    const boundOwnerSync = state.auth?.available && state.auth?.registrationStatus === "registered"
+      && Boolean(state.auth?.boundAgentId) && state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1");
+    let emptyEntityBlocker = missingAgents || missingLocations
       ? (() => {
         const missingLabel = missingAgents && missingLocations
           ? localeText(locale, "agents 与 locations", "agents and locations")
@@ -373,6 +375,14 @@ export function createViewerFeedbackModule({
         };
       })()
       : null;
+    if (emptyEntityBlocker && boundOwnerSync) {
+      emptyEntityBlocker = {
+        blockerKind: "agent_owner_sync_pending",
+        blockerDetail: localeText(locale, "已绑定的 Agent 正在同步，请勿重复领取。", "Your bound Agent is syncing; do not claim another Agent."),
+        nextStepHint: localeText(locale, "等待 Agent 同步，或刷新玩法快照核对当前归属。", "Wait for Agent sync, or refresh the gameplay snapshot to verify current ownership."),
+        disabledReason: localeText(locale, "等待已绑定 Agent 同步。", "Waiting for the bound Agent to sync."),
+      };
+    }
     const progressRaw = Number(gameplay.progress_percent);
     const progressPercent = Number.isFinite(progressRaw)
       ? Math.max(0, Math.min(100, Math.floor(progressRaw)))
@@ -398,11 +408,14 @@ export function createViewerFeedbackModule({
       emptyEntityBlocker,
       firstAgentClaimSyncPending,
     });
+    // A registered binding is only a pending display hint; it grants no command authority.
+    // The private signed owner read and backend ownership checks remain authoritative.
+    if (boundOwnerSync) availableActions = availableActions.filter(action => action.actionId !== "claim_first_agent");
     const {localGameplayFeedback,recentFeedback} = projectGameplayReceiptFeedback(gameplay,lastGameplayActionFeedback,intentTarget);
     const runtimeBlockerKind = gameplay.blocker_kind || null;
     const runtimeBlockerDetail = gameplay.blocker_detail || null;
-    const runtimeAlreadyPublishedEmptyEntityBlocker =
-      runtimeBlockerKind === "runtime_snapshot_empty_entities";
+    const runtimeAlreadyPublishedEmptyEntityBlocker = !boundOwnerSync
+      && runtimeBlockerKind === "runtime_snapshot_empty_entities";
     const recentStage = String(recentFeedback?.stage || "").trim().toLowerCase();
     const pendingGameplayFeedback =
       ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent"].includes(recentStage)

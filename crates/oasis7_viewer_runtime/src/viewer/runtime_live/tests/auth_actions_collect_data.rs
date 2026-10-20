@@ -955,3 +955,80 @@ fn runtime_collect_data_quotes_and_submits_the_exact_authenticated_request() {
 
 #[path = "auth_actions_collect_data_service.rs"]
 mod service;
+
+#[test]
+fn runtime_refine_quote_chain_mode_rejects_local_economy_fallback_after_authentication() {
+    let _guard = lock_test_llm_env();
+    let mut server = ViewerRuntimeLiveServer::new(
+        ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
+            .with_decision_mode(ViewerLiveDecisionMode::Llm),
+    )
+    .unwrap();
+    let agent = server.world.state().agents.keys().next().unwrap().clone();
+    let (public, private) = test_signer(208);
+    register_runtime_session(
+        &mut server,
+        "refine-chain",
+        Some(&agent),
+        208,
+        &public,
+        &private,
+    );
+    server
+        .world
+        .set_agent_resource_balance(
+            &agent,
+            oasis7_agent_api::world_action::ResourceKind::Data,
+            2_500,
+        )
+        .unwrap();
+    server.config.chain_status_bind = Some("127.0.0.1:9".into());
+    let before = server.world.state().clone();
+    let nonce_before = server.llm_sidecar.player_auth_last_nonce.clone();
+    let bindings_before = server.llm_sidecar.player_agent_bindings.clone();
+    let request = signed_refine_quote_request(2_500, "refine-chain", 209, &public, &private);
+    let error = server
+        .handle_refine_quote(request.clone())
+        .expect_err("local simulator economics cannot quote the canonical world");
+    assert_eq!(error.code, "refine_quote_unavailable");
+    assert_eq!(error.action_id.as_deref(), Some("quote_refine_compound"));
+    assert_eq!(server.world.state(), &before);
+    assert_eq!(server.llm_sidecar.player_auth_last_nonce, nonce_before);
+    assert_eq!(server.llm_sidecar.player_agent_bindings, bindings_before);
+    assert_eq!(
+        server
+            .handle_refine_quote(request.clone())
+            .unwrap_err()
+            .code,
+        "refine_quote_unavailable"
+    );
+    server.config.chain_status_bind = None;
+    server.config.world_service = Some(crate::world_service::client::WorldServiceClientConfig {
+        endpoint: "http://127.0.0.1:9".into(),
+        trusted_service_public_key: test_signer(240).0,
+        expected_world: oasis7_client_api::world_service::WorldIdentity {
+            world_id: "refine-world".into(),
+            genesis_digest: "fixture".into(),
+        },
+        scope_id: "public".into(),
+        read_private_key_hex: test_signer(241).1,
+        timeout: Duration::from_millis(50),
+        formal_read_trust: None,
+        max_response_bytes: 4096,
+    });
+    assert_eq!(
+        server
+            .handle_refine_quote(request.clone())
+            .unwrap_err()
+            .code,
+        "refine_quote_unavailable"
+    );
+    assert_eq!(server.llm_sidecar.player_auth_last_nonce, nonce_before);
+    assert_eq!(server.world.state(), &before);
+    let mut tampered = request;
+    tampered.compound_mass_g += 1;
+    assert_eq!(
+        server.handle_refine_quote(tampered).unwrap_err().code,
+        "auth_signature_invalid"
+    );
+}

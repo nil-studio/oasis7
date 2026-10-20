@@ -492,7 +492,8 @@ fn compat_snapshot_surfaces_agent_override_causality_from_runtime_events() {
         Some(causality),
     );
 
-    let snapshot = server.compat_snapshot(Some("player-snapshot"));
+    // Shared world feedback is observer status, not a private player receipt.
+    let snapshot = server.compat_snapshot(None);
     let gameplay = snapshot
         .player_gameplay
         .as_ref()
@@ -1193,3 +1194,6 @@ fn compat_snapshot_keeps_post_onboarding_no_progress_after_confirmed_progress() 
         Some("Refresh gameplay snapshot")
     );
 }
+
+#[path = "snapshot_player_progress.rs"]
+mod player_progress;
