@@ -51,7 +51,7 @@ owner runtime_engineer；审读基线 eng-cc/oasis7@f9d5a552d9af04c1b13982628081
 <a id="pos-timing-state"></a>
 ### 时间输入、状态与拒绝顺序
 validated defaults/CLI → shared genesis/config → integer logical_tick/slot/tick_phase → monotone observed cursors/missed counters → guards → proposal or idle。duration/ticks>0、phase<ticks；非法显式值先字段级拒绝，不以默认替代。steady phase 必须相等且 next_slot<=current；严格 next_slot<current 对齐仅产生当前 tick edge，blocked 后丢弃、不 sticky、不下 tick 重试资格；pending/replication/participation/local enablement/expected proposer/signature/threshold/execution/fork/finality 均不被绕过。入站 future/stale/target epoch 在共识后续处理前拒绝，不能以 wall-clock jitter 放宽。
-当前 defaults/CLI/status/startup reconcile 来源分别 chain_pos_defaults.rs、bin/oasis7_chain_runtime/cli.rs、status_payload.rs、startup_reconcile.rs。launchers 只校验透传，chain_node_tick_ms 是 poll/fallback interval。timing 不赋 manifest 激活选择权，[root version](../design.md#runtime-version-design) 按 canonical block 判断；同样 timing green 不开放 [service](../design.md#runtime-recovery-design)。
+当前 defaults/CLI/status/startup reconcile 来源分别 chain_pos_defaults.rs、src/host/cli.rs、status_payload.rs、startup_reconcile.rs。launchers 只校验透传，chain_node_tick_ms 是 poll/fallback interval。timing 不赋 manifest 激活选择权，[root version](../design.md#runtime-version-design) 按 canonical block 判断；同样 timing green 不开放 [service](../design.md#runtime-recovery-design)。
 
 <a id="pos-persistence-readonly"></a>
 ### 状态、事务、持久化与恢复

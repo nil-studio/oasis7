@@ -65,7 +65,7 @@ Required targeted evidence:
 ```bash
 env -u RUSTC_WRAPPER cargo check -p oasis7_chain_runtime --bin oasis7_chain_runtime -p oasis7_client_launcher -p oasis7_launcher_backend --bin oasis7_web_launcher
 env -u RUSTC_WRAPPER cargo test -p oasis7_client_launcher transfer_auth -- --nocapture
-env -u RUSTC_WRAPPER CARGO_INCREMENTAL=0 cargo test -p oasis7_chain_runtime --lib transfer_submit -- --nocapture
+env -u RUSTC_WRAPPER CARGO_INCREMENTAL=0 cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime transfer_submit -- --nocapture
 ```
 
 ## 5. Risks & Roadmap

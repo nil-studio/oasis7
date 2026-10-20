@@ -165,7 +165,7 @@ Trace ID: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4
 - 系统设计状态：部分覆盖
 - 系统设计依据：[专业承接条款](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-error-code-preservation)：合法鉴权后的业务错误码保真；各失败类别到玩家恢复动作的完整表现承接须另核。
 - 实现状态：部分实现
-- 实现与验证依据：[合法鉴权后builder错误码保真](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_chain_runtime/src/host/gameplay_submit_api.rs#L275-L295)当前直接返回err.code/err.message，已不再把该分支统一改写为invalid_request。这是HTTP adapter切片，不是所有失败类型的玩家恢复体验。历史[PR#2485 review](https://github.com/nil-studio/oasis7/pull/2485#discussion_r3614431998)保留原问题语境；本轮没有取得此修复的独立运行结果，不将现状静态核对写成测试通过。
+- 实现与验证依据：[合法鉴权后builder错误码保真](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/gameplay_submit_api.rs#L275-L295)当前直接返回err.code/err.message，已不再把该分支统一改写为invalid_request。这是HTTP adapter切片，不是所有失败类型的玩家恢复体验。历史[PR#2485 review](https://github.com/nil-studio/oasis7/pull/2485#discussion_r3614431998)保留原问题语境；本轮没有取得此修复的独立运行结果，不将现状静态核对写成测试通过。
 - 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
 - 剩余范围：已确认合法鉴权后的builder错误码保真；各失败类别到修正输入、身份/权限、世界条件、等待和安全停止的正式surface映射、未知结果与所有入口验收仍未核清。
 

@@ -78,7 +78,7 @@
 | PRD-ID | 验证 | 证明的合同 |
 | --- | --- | --- |
 | PRD-WORLD_RUNTIME-001 | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib chain_pos_defaults -- --nocapture` | 默认值解析和非法 duration/ticks/phase 拒绝。 |
-| PRD-WORLD_RUNTIME-001 | `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib oasis7_chain_runtime_tests -- --nocapture` | CLI 校验、控制面参数与 status 结构。 |
+| PRD-WORLD_RUNTIME-001 | `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime oasis7_chain_runtime_tests -- --nocapture` | CLI 校验、控制面参数与 status 结构。 |
 | PRD-WORLD_RUNTIME-001 | 定向共识 timing / startup reconcile 回归 | phase gate、strict-lag one-shot recovery、future/stale admission 与 restart counter 恢复。 |
 | PRD-WORLD_RUNTIME-001 | `./scripts/doc-governance-check.sh && ./scripts/readme-link-check.sh` | 专业 authority、索引和链接完整。 |
 
