@@ -3553,6 +3553,10 @@ async function importAccountKey(publicHex, privateHex, crypto = globalThis.crypt
 	});
 }
 function renderImportedKey(root, { account, busy, client, run, onAuthenticated, isActive = () => true }) {
+	const disclosure = document.createElement("details");
+	const summary = document.createElement("summary");
+	summary.textContent = account ? "管理账号密钥" : "使用已绑定密钥登录";
+	disclosure.append(summary);
 	const section = document.createElement("fieldset");
 	section.disabled = busy;
 	section.className = "stack";
@@ -3603,7 +3607,8 @@ function renderImportedKey(root, { account, busy, client, run, onAuthenticated, 
 		await client.loginImportedKey(key);
 		await onAuthenticated();
 	});
-	root.append(section);
+	disclosure.append(section);
+	root.append(disclosure);
 }
 //#endregion
 //#region software_safe_src/viewer_passkey_account_module.js
@@ -4145,7 +4150,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 		root.replaceChildren();
 		root.setAttribute("aria-busy", String(busy));
 		root.append(element("h2", account ? "账号与安全" : "进入 Oasis7"));
-		const status = element("p", notice || (account ? "账号已登录。进入世界后才会申请玩家资格和控制会话。" : "使用设备解锁、PIN 或安全密钥创建账号，无需填写邮箱。"));
+		const status = element("p", notice || (account ? "账号已登录。进入世界后才会申请玩家资格和控制会话。" : "使用通行密钥，通过指纹、面容或设备解锁创建账号，无需填写邮箱。"));
 		status.setAttribute("role", "status");
 		root.append(status);
 		if (pendingOperation) {
@@ -26427,11 +26432,12 @@ function focusableElements(root) {
 	return [...root.querySelectorAll([
 		"a[href]",
 		"button:not([disabled])",
+		"summary",
 		"input:not([disabled])",
 		"select:not([disabled])",
 		"textarea:not([disabled])",
 		"[tabindex]:not([tabindex='-1'])"
-	].join(","))].filter((element) => !element.hasAttribute("aria-hidden"));
+	].join(","))].filter((element) => !element.hasAttribute("aria-hidden") && (!element.closest("details:not([open])") || element.tagName === "SUMMARY"));
 }
 function HostedLoginGate() {
 	observeViewerStateRevision();
@@ -26477,13 +26483,15 @@ function HostedLoginGate() {
 			_el$83.$$keydown = trapDialogFocus;
 			var _ref$2 = dialogRef;
 			typeof _ref$2 === "function" ? use(_ref$2, _el$83) : dialogRef = _el$83;
-			insert(_el$87, () => tr(locale(), "标准用户流程", "Standard User Flow"));
+			insert(_el$87, () => tr(locale(), "欢迎来到 Oasis7", "Welcome to Oasis7"));
 			insert(_el$88, () => tr(locale(), "登录后进入游戏", "Sign In to Play"));
 			insert(_el$85, createComponent(Badge, {
 				"class": "badge badge--warn",
-				children: "auth=missing"
+				get children() {
+					return tr(locale(), "尚未登录", "Not signed in");
+				}
 			}), null);
-			insert(_el$89, () => tr(locale(), "当前是托管公开加入模式。先领取玩家会话，再进入聊天、玩法动作和后续授权。", "This is hosted public join. Acquire a player session first, then continue to chat, gameplay actions, and later authorization."));
+			insert(_el$89, () => tr(locale(), "先登录或创建账号，再进入世界，开始聊天与探索。", "Sign in or create an account, then enter the world to chat and explore."));
 			insert(_el$84, createComponent(HostedLoginForm, {
 				get locale() {
 					return locale();

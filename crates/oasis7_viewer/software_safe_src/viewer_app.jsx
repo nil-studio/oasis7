@@ -717,12 +717,13 @@ function focusableElements(root) {
     [
       "a[href]",
       "button:not([disabled])",
+      "summary",
       "input:not([disabled])",
       "select:not([disabled])",
       "textarea:not([disabled])",
       "[tabindex]:not([tabindex='-1'])",
     ].join(","),
-  )].filter((element) => !element.hasAttribute("aria-hidden"));
+  )].filter((element) => !element.hasAttribute("aria-hidden") && (!element.closest("details:not([open])") || element.tagName === "SUMMARY"));
 }
 
 function HostedLoginGate() {
@@ -784,18 +785,18 @@ function HostedLoginGate() {
         <div class="auth-gate__dialog">
           <div class="auth-gate__header">
             <div>
-              <div class="panel__eyebrow">{tr(locale(), "标准用户流程", "Standard User Flow")}</div>
+              <div class="panel__eyebrow">{tr(locale(), "欢迎来到 Oasis7", "Welcome to Oasis7")}</div>
               <h1 id="hosted-login-gate-title" class="auth-gate__title">
                 {tr(locale(), "登录后进入游戏", "Sign In to Play")}
               </h1>
             </div>
-            <Badge class="badge badge--warn">auth=missing</Badge>
+            <Badge class="badge badge--warn">{tr(locale(), "尚未登录", "Not signed in")}</Badge>
           </div>
           <div class="feedback-summary">
             {tr(
               locale(),
-              "当前是托管公开加入模式。先领取玩家会话，再进入聊天、玩法动作和后续授权。",
-              "This is hosted public join. Acquire a player session first, then continue to chat, gameplay actions, and later authorization.",
+              "先登录或创建账号，再进入世界，开始聊天与探索。",
+              "Sign in or create an account, then enter the world to chat and explore.",
             )}
           </div>
           <HostedLoginForm

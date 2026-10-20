@@ -328,7 +328,7 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
     if (disposed) return;
     root.replaceChildren(); root.setAttribute("aria-busy", String(busy));
     root.append(element("h2", account ? "账号与安全" : "进入 Oasis7"));
-    const status = element("p", notice || (account ? "账号已登录。进入世界后才会申请玩家资格和控制会话。" : "使用设备解锁、PIN 或安全密钥创建账号，无需填写邮箱。"));
+    const status = element("p", notice || (account ? "账号已登录。进入世界后才会申请玩家资格和控制会话。" : "使用通行密钥，通过指纹、面容或设备解锁创建账号，无需填写邮箱。"));
     status.setAttribute("role", "status"); root.append(status);
     if (pendingOperation) {
       root.append(element("p", `待核对操作：${pendingOperation}`));

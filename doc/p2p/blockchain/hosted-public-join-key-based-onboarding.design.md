@@ -735,6 +735,8 @@ signed_bytes = domain_separator
 
 Trace refs: O7-REQ-45c9a6e2-d624-4a57-bced-b96b6aa78f69，承接 [Flow-KEYAUTH-008](hosted-public-join-key-based-onboarding.prd.md#imported-key-login)。
 
+Viewer 将密钥导入放入原生 `details` / `summary` 折叠区，默认关闭；展开后保留格式、内存生命周期及防钓鱼告知，提交与签名合同不变。首屏状态使用玩家可理解的中文，协议标识留在诊断中。
+
 `native_key.available` 表示有限 `import_only` 能力；不代表受保护客户端生成或加密备份已发布。仅接受 Ed25519、32 字节公钥和种子；Web Crypto 导入 non-extractable 签名对象，原始输入不进缓存、storage、网络或日志。浏览器先验证公私钥配对。页面关闭/退出释放对象，服务端只存 `NativeKey { public_key }`。
 
 `POST /native-key/options` 与 `/native-key/complete` 支持 `login`、`bind`、`reauth`，不支持新建账号。签名字节沿用 §15.2 格式：域分隔符为 UTF-8 `oasis7.identity.native.v1\0`，version 为单字节 1；audience 是经 Origin 白名单验证的精确来源；account_context 是绑定/重新认证账号 ID，登录为空；operation_id 是 ceremony_id，nonce 为独立随机 32 字节。全部字符串以 u32 大端长度编码；时间为毫秒 u64 大端。客户端按 capabilities 中的 namespace、当前 location.origin、用途、公钥、操作 ID 和期限重建并对比字节后才签名，不接受任意服务器字符串签名。
