@@ -130,3 +130,5 @@ Private-library editing, history, encrypted snapshots, CLI and signing follow th
 两树沿用类型、读取结果、生命周期与配对缺口筛选；分页、重试与显示历史使用已提交条件，项目或来源变化拒绝旧结果。方向上/下、Home/End 移动，方向右展开或进入子项，方向左折叠或回父项，Enter 打开文件；组合输入不触发导航。两树按工作树和视图保存已提交筛选、展开路由、文件/明确章节及滚动位置，重开恢复最近树；源变化按明确路径重投影，删除、歧义和章节摘要变化有提示。偏好与可重建清单分离，损坏或未来版本可显式重置；保存失败保留当前会话。窄窗口可在树和详情间返回。固定提交基线和独立树成功/部分尝试仍待实现，完整验收边界见文档树设计。
 
 产品 PRD 详情还识别二级“文档身份”中的明确“配对产品 design / 配对产品设计”字段，显示产品设计与同版本章节跳转；不是按同名或普通正文推断。专业文件头配对语义保持，旧清单需刷新。
+
+Home source text and long titles wrap within their columns. Old-summary discrepancies are grouped by source chapter and revision behind one collapsed count; expanding retains the original claims and every matching PR identity. The attention view shows personal questions and optional handled history directly, without a general PR list. An empty current question set links back to work; failed personal reads do not claim an empty set.

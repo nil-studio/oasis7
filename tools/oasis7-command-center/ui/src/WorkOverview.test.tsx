@@ -81,7 +81,7 @@ it('uses copy-only capability as the external session primary action',async()=>{
  render(()=><WorkOverview snapshot={snapshot()} view="execution" sourceGeneration={0} onExecution={()=>{}}/>);fireEvent.click(await screen.findByRole('button',{name:'原外部现场'}));expect(screen.queryByRole('button',{name:'核对原自管实例与操作'})).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'复制原工具定位'}));await screen.findByText('原定位已复制；源工作状态保持原样。');expect(writeText).toHaveBeenCalledWith('Original Tool / original-id');
 });
 it('only compares canonical status summaries and excludes quoted verification examples',async()=>{
- const source=snapshot();const clause={id:'summary',title:'真实摘要',path:'doc/engineering/command-center/README.md',content:'PR #1 尚未合入',revision:'old'};source.sections=[clause,{...clause,id:'report',title:'验收引用',path:'doc/engineering/command-center/daily-work-verification.manual.md'}] as Snapshot['sections'];render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);expect(await screen.findAllByRole('button',{name:'查看旧摘要及原核验范围'})).toHaveLength(1);
+ const source=snapshot();const clause={id:'summary',title:'真实摘要',path:'doc/engineering/command-center/README.md',content:'PR #1 尚未合入',revision:'old'};source.sections=[clause,{...clause,id:'report',title:'验收引用',path:'doc/engineering/command-center/daily-work-verification.manual.md'}] as Snapshot['sections'];render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={0} onExecution={()=>{}}/>);await screen.findByText('有旧摘要待核对（1 个章节）');expect(screen.getAllByRole('button',{name:'查看旧摘要及原核验范围',hidden:true})).toHaveLength(1);
 });
 
 it('replaces the home with a reading workspace and opens editing only on request',async()=>{
@@ -167,4 +167,42 @@ it('clears a zero-match filter and places secondary setup after the work list',a
  const setup=screen.getByText('接续仅有原工具定位的外部会话');expect(work.compareDocumentPosition(setup)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  fireEvent.input(screen.getByLabelText('筛选工作'),{target:{value:'没有匹配'}});expect(screen.queryByRole('button',{name:'修复本地工具'})).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'清空筛选'}));expect(screen.getByLabelText('筛选工作')).toHaveValue('');expect(screen.getByRole('button',{name:'修复本地工具'})).toBeInTheDocument();
+});
+
+it('groups repeated summary claims by section version and keeps every matching PR reachable',async()=>{
+ const value=projection();value.items.push({...value.items[0],reference:{kind:'pullRequest',host:'github.com',repository:'o/r',number:'2'},sourceUrl:'https://github.com/o/r/pull/2'});
+ vi.mocked(bridge.workProjection).mockResolvedValue(value);
+ const source=snapshot();const clause={id:'summary',title:'原摘要章节',path:'doc/engineering/command-center/README.md',content:'PR #1 与 #2 尚未合入\nPR #1 与 #2 尚未合入',revision:'old'};
+ source.sections=[clause,{...clause,id:'other',title:'另一章节',revision:'other-version'}] as Snapshot['sections'];
+ const showSource=vi.fn();render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={0} onExecution={()=>{}} showSource={showSource}/>);
+ const summary=await screen.findByText('有旧摘要待核对（2 个章节）');const details=summary.closest('details')!;
+ expect(details.open).toBe(false);details.open=true;
+ expect(within(details).getAllByText('PR #1 与 #2 尚未合入')).toHaveLength(2);
+ expect(within(details).getAllByRole('button',{name:'查看 PR #1 合入事实'})).toHaveLength(2);
+ expect(within(details).getAllByRole('button',{name:'查看 PR #2 合入事实'})).toHaveLength(2);
+ fireEvent.click(within(details).getAllByRole('button',{name:'查看旧摘要及原核验范围'})[0]);expect(showSource).toHaveBeenCalledWith(expect.objectContaining({id:'summary',revision:'old'}),expect.anything());
+ fireEvent.click(within(details).getAllByRole('button',{name:'查看 PR #2 合入事实'})[0]);
+ await screen.findByRole('region',{name:'工作详情'});fireEvent.click(screen.getByRole('button',{name:'打开原 PR'}));
+ expect(bridge.openSource).toHaveBeenCalledWith(value.items[1].sourceUrl);
+});
+it('shows personal questions before any general work and returns from the original work',async()=>{
+ const record=state();record.attention=[{id:'question',work:projection().items[0].reference,question:'是否保留这项方案？',state:'open',statement:'',sourceRevision:'head',updatedAt:'now',history:[]}];
+ vi.mocked(bridge.dailyWork).mockResolvedValue(record);
+ vi.mocked(bridge.saveDailyWork).mockImplementation(async request=>({...structuredClone(record),revision:request.expectedRevision+1}));
+ const execution=vi.fn();render(()=><WorkOverview snapshot={snapshot()} view="attention" sourceGeneration={0} onExecution={execution}/>);
+ const question=await screen.findByRole('heading',{name:'是否保留这项方案？'});expect(question).toBeInTheDocument();
+ expect(screen.queryByRole('region',{name:'已有工作'})).not.toBeInTheDocument();expect(screen.queryByLabelText('筛选工作')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'进入原工作'}));await screen.findByRole('region',{name:'工作详情'});
+ expect(screen.queryByRole('region',{name:'已有工作'})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'返回工作列表'}));await waitFor(()=>expect(screen.getByRole('button',{name:'进入原工作'})).toHaveFocus());
+ fireEvent.click(screen.getByRole('button',{name:'此个人问题已回答'}));await waitFor(()=>expect(bridge.saveDailyWork).toHaveBeenCalledWith(expect.objectContaining({action:expect.objectContaining({kind:'attention',item:expect.objectContaining({id:'question',state:'resolved',work:record.attention[0].work})})})));
+});
+it('uses the filtered attention empty state while preserving history and read failures',async()=>{
+ const record=state();record.attention=[{id:'done',work:projection().items[0].reference,question:'已回答的问题',state:'resolved',statement:'已回答',sourceRevision:'head',updatedAt:'now',history:[]}];vi.mocked(bridge.dailyWork).mockResolvedValue(record);
+ const execution=vi.fn();render(()=><WorkOverview snapshot={snapshot()} view="attention" sourceGeneration={0} onExecution={execution}/>);
+ await screen.findByText(/当前没有未决个人问题/);fireEvent.click(screen.getByRole('button',{name:'查看工作'}));expect(execution).toHaveBeenCalledOnce();
+ fireEvent.click(screen.getByRole('button',{name:'查看处理历史'}));expect(screen.getByRole('heading',{name:'已回答的问题'})).toBeInTheDocument();expect(screen.queryByText(/当前没有未决个人问题/)).not.toBeInTheDocument();
+ cleanup();vi.mocked(bridge.dailyWork).mockRejectedValue(new Error('记录读取失败'));
+ render(()=><WorkOverview snapshot={snapshot()} view="attention" sourceGeneration={0} onExecution={()=>{}}/>);
+ await screen.findByText(/记录读取失败/);expect(screen.queryByText(/当前没有.*个人问题/)).not.toBeInTheDocument();
 });
