@@ -133,7 +133,7 @@ export default function DocumentInventory(props: {
     <div class="panel-title"><h3>文档导航与读取缺口</h3><Show when={view() === 'files'}><button disabled={busy()} onClick={() => void load()}>重新查询首页</button></Show></div>
     <div class="panel-body" classList={{'tree-reader-active':(view()==='product'||view()==='professional')&&!!selected()}}>
       <Show when={lastViewNotice()}><p role="status" class="notice">{lastViewNotice()}</p></Show>
-      <p class="muted small">仅列当前工作树纳入索引的 tracked Markdown，未跟踪文件不在此范围。按文件去重；读取状态不代表设计或实现完成。详情展示文件头或产品身份章节的显式配对设计和设计上游声明；可打开已解析的目标章节并返回。产品树和专业系统树按显式入口与导航组织，配对保留为详情关系；同一文件可出现在多个位置。</p>
+      <details class="inventory-scope"><summary>文档范围与关系说明</summary><p class="muted small">仅列当前工作树纳入索引的 tracked Markdown，未跟踪文件不在此范围。按文件去重；读取状态不代表设计或实现完成。详情展示文件头或产品身份章节的显式配对设计和设计上游声明；可打开已解析的目标章节并返回。产品树和专业系统树按显式入口与导航组织，配对保留为详情关系；同一文件可出现在多个位置。</p></details>
       <div class="actions" role="group" aria-label="文档浏览方式"><button aria-pressed={view() === 'files'} onClick={() => browse('files')}>文件清单</button><button aria-pressed={view() === 'directory'} onClick={() => browse('directory')}>文档目录</button><button aria-pressed={view() === 'product'} onClick={() => browse('product')}>产品树</button><button aria-pressed={view() === 'professional'} onClick={() => browse('professional')}>专业系统树</button></div>
       <Show when={view() === 'directory'}><DocumentDirectory snapshot={props.snapshot} selectFile={selectFile} /></Show>
       <Show when={view() === 'product' || view() === 'professional'}><DocumentSemanticTree snapshot={props.snapshot} view={view() === 'product' ? 'product' : 'professional'} selectedFile={selected()} sourcePosition={props.sourcePosition === undefined ? localSource() : props.sourcePosition} userActivated={treeActivated()} selectFile={selectFile} /></Show>
@@ -176,7 +176,7 @@ export default function DocumentInventory(props: {
             </>}</Show>
           </section>
         </Show></details><Show when={file().state === 'read'}><DocumentNavigation navigation={file().navigation} sections={props.snapshot.sections} showSource={openSection} />
-          <DocumentRelations relations={file().pairings} mode={file().path.startsWith('doc/product/') ? 'product_pairing' : 'pairing'} sections={props.snapshot.sections} showSource={openSection} />
+          <DocumentRelations sourceTitle={file().path} relations={file().pairings} mode={file().path.startsWith('doc/product/') ? 'product_pairing' : 'pairing'} sections={props.snapshot.sections} showSource={openSection} />
           <Show when={file().kind === 'design'}><DocumentRelations relations={file().upstream} mode="upstream" sections={props.snapshot.sections} showSource={openSection} /><DocumentAllocations allocations={file().allocations} sections={props.snapshot.sections} showSource={openSection} /></Show>
         </Show>
         <Show when={file().state === 'read' && !chapters().length}><p>已读取，文件没有可展示的章节。</p></Show>

@@ -1,3 +1,4 @@
+import { ArrowRight, FileText } from 'lucide-solid';
 import { For, Show } from 'solid-js';
 import type { DocumentPairings, DocumentPairing, DocumentSection } from './generated/core';
 
@@ -13,6 +14,7 @@ const pairingIssues: Record<string, string> = {
 const resolutions: Record<string, string> = { resolved: '目标文件已读取', fragment_unchecked: '文件已读取，章节锚点尚未核对', missing: '目标已删除', missing_fragment: '目标文件中未找到章节锚点', ambiguous: '目标锚点重复，无法唯一定位', unread: '目标尚未读取', outside_scope: '目标不在本次清单或路径不安全' };
 
 export default function DocumentRelations(props: {
+  sourceTitle?: string;
   relations: DocumentPairings | null | undefined;
   mode: 'pairing' | 'product_pairing' | 'upstream' | 'allocation_upstream' | 'allocation_design';
   sections: DocumentSection[];
@@ -32,12 +34,13 @@ export default function DocumentRelations(props: {
     <Show when={props.relations} fallback={<p>旧清单尚未解析{subject()}，请刷新本地事实。</p>}>{relations => <>
       <Show when={relations().issue}><p role="status">{subject()}解析不完整：{pairingIssues[relations().issue!] ?? relations().issue}</p></Show>
       <Show when={!relations().targets.length && !relations().issue}><p>{props.mode === 'pairing' ? '本次范围未发现显式配对系统设计链接。' : props.mode === 'product_pairing' ? '本次范围未发现显式配对产品设计链接。' : props.mode === 'upstream' ? '本次文件头范围未发现显式上游链接。' : '本单元格明确声明无链接。'}</p></Show>
-      <For each={relations().targets}>{edge => <div class="small">
+      <For each={relations().targets}>{edge => <div class="small" classList={{'pairing-map':props.mode==='pairing'||props.mode==='product_pairing'}}>
+        <Show when={props.mode==='pairing'||props.mode==='product_pairing'}><div class="pairing-origin"><FileText size={20} aria-hidden="true"/><strong>{props.sourceTitle??'当前文档'}</strong></div><div class="pairing-arrow"><ArrowRight size={20} aria-hidden="true"/><span>显式配对</span></div></Show><div class="pairing-target">
         <p>第 {edge.declarationLine} 行 · {edge.target ?? edge.destination} · {resolutions[edge.resolution] ?? edge.resolution}</p>
         <Show when={props.mode !== 'pairing' && props.mode !== 'product_pairing'}><p class="muted">目标类型：{targetKind(edge)}</p></Show>
         <Show when={targetSection(edge)}>{target => <button onClick={event => props.showSource(target(), event.currentTarget)}>打开{subject()}章节：{target().title}</button>}</Show>
         <Show when={edge.resolution === 'resolved' && !targetSection(edge)}><p class="muted">{edge.targetRevision ? '目标没有可定位的索引章节。' : '旧清单尚无章节定位，请刷新本地事实。'}</p></Show>
-      </div>}</For>
+      </div></div>}</For>
     </>}</Show>
   </section>;
 }
