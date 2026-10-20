@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "ci_scope_01",
+      "split": "pilot",
+      "family": "ci_scope",
+      "prompt": "根据提供的完整小型工作区和范围选择合同，判断本次修改应选择哪些 CI groups。只返回 answer_format 指定的 JSON 字段，不执行 CI、不修改规则。这里的包名和配置属于 fixture，不代表整个 oasis7 工作区。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "selection_contract": [
+          "baseline 始终执行。",
+          "路径命中显式规则即为已登记；规则的 groups 可以为空。",
+          "包库源码及其嵌入文件变化影响该包及反向消费者；存在受影响包时增加 rust_baseline。",
+          "已知共享构建/CI 控制输入变化或无法解析 Git/依赖输入时选择 full；其余可解析输入选择 targeted。",
+          "已确认未登记的路径使规划失败，不能以 full 回退掩盖。"
+        ],
+        "config": {
+          "groups": ["baseline", "rust_baseline", "core", "consumer", "other", "windows_rollout", "macos_package_contract", "fleet_health"],
+          "package_groups": {"core": ["core"], "consumer": ["consumer"], "other": ["other"]},
+          "rules": [{"match": ["doc/**"], "groups": []}]
+        },
+        "workspace": {
+          "packages": ["core", "consumer", "other"],
+          "dependency_edges": [{"consumer": "consumer", "dependency": "core", "kind": "target cfg(unix) optional dev-dependency"}],
+          "embedded_inputs": [],
+          "git_and_dependency_inputs_parseable": true,
+          "additional_groups": []
+        },
+        "changes": [{"status": "M", "path": "doc/readme.md", "before": "ordinary doc", "after": "changed"}]
+      },
+      "answer_format": {
+        "planning_ok": "boolean：能否产出成功范围计划",
+        "scope": "string：targeted 或 full",
+        "groups": "list[str]：最终选择的全部组，顺序不限"
+      },
+      "expected": {"planning_ok": true, "scope": "targeted", "groups": ["baseline"]},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/scripts/plan-rust-required-scope.test.py#L556-L558",
+        "note": "提炼 Selection.setUp 与 test_docs_baseline_only 的真实回归 fixture。仅检查所列结构字段，不是某次 hosted run 的性能或成功率记录。"
+      }
+    },
+    {
+      "id": "ci_scope_02",
+      "split": "pilot",
+      "family": "ci_scope",
+      "prompt": "检查这个 diff 的范围规划能否成功，列出未登记的输入，并判断能否用全量运行代替登记错误。重命名的两端都需检查。只返回 answer_format 指定的 JSON，不补登记、不运行外部操作。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "selection_contract": [
+          "采用可信基准中的归属、显式路径规则和共享控制规则。",
+          "新增、删除和重命名的两端都参与输入识别。",
+          "已知共享控制输入可以扩大执行范围，但不会给其他未知路径补充登记。",
+          "确认未匹配任何归属或规则的路径属于 UnknownInputsError；即使同时存在 full 控制输入或请求全部 groups，也不得产出成功计划。",
+          "无法解析 Git/依赖输入的保守 full 回退，与已解析且确认未登记是不同情形。"
+        ],
+        "trusted_registry": {
+          "package_directories": ["crates/core/", "crates/consumer/", "crates/other/"],
+          "explicit_rules": [{"match": ["doc/**"], "groups": []}],
+          "shared_control_paths": ["Cargo.lock"],
+          "other_registered_paths": []
+        },
+        "git_and_dependency_inputs_parseable": true,
+        "changes": [
+          {"status": "R100", "old_path": "unknown-old.file", "new_path": "doc/moved.md", "content_unchanged": true},
+          {"status": "A", "path": "Cargo.lock"}
+        ],
+        "additional_groups_requested": "all configured groups"
+      },
+      "answer_format": {
+        "planning_ok": "boolean：是否可以产出成功范围计划",
+        "unregistered_paths": "list[str]：全部未登记路径，顺序不限",
+        "full_fallback_allowed": "boolean：能否用全量测试使本次未知输入规划成功"
+      },
+      "expected": {"planning_ok": false, "unregistered_paths": ["unknown-old.file"], "full_fallback_allowed": false},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/scripts/plan-rust-required-scope.test.py#L485-L526",
+        "note": "组合 test_unknown_inputs_block_even_with_full_control_or_extra_groups 和 test_unknown_deleted_and_renamed_endpoints_block 的两个已测试边界；本案例不是历史 PR 或 hosted run 的复刻。"
+      }
+    },
+    {
+      "id": "ci_diagnosis_01",
+      "split": "pilot",
+      "family": "ci_diagnosis",
+      "prompt": "依据 required-result 合同核对计划和实际 needs。判断最终汇总是否应接受，并分别列出违约作业、按计划可以跳过的作业。只返回 answer_format 指定的 JSON；不要将 cancelled 改称成功或建议放宽检查。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "required_result_contract": [
+          "select 必须 success。",
+          "plan.groups 必须是无重复的已知组列表，并包含 baseline。",
+          "被选择组的实际 job.result 只能为 success。",
+          "未选择组的实际 job.result 可为 skipped 或 success。",
+          "未出现在组映射中的额外 needs 依赖也必须明确 success。",
+          "缺失结果、failure、cancelled、未知结果都不等于 success。"
+        ],
+        "plan": {"groups": ["baseline", "rust_baseline", "node"]},
+        "group_jobs": {"baseline": "baseline", "rust_baseline": "rust-baseline", "node": "node", "viewer_js_required": "viewer-js-required"},
+        "needs": {
+          "select": {"result": "success"},
+          "baseline": {"result": "success"},
+          "rust-baseline": {"result": "success"},
+          "node": {"result": "cancelled"},
+          "viewer-js-required": {"result": "skipped"},
+          "fixture-extra-check": {"result": "success"}
+        }
+      },
+      "answer_format": {
+        "aggregate_accepted": "boolean：validate 是否应接受",
+        "violating_jobs": "list[str]：违反所给结果合同的作业名，顺序不限",
+        "allowed_skipped_jobs": "list[str]：实际为 skipped 且该结果合法的作业名，顺序不限"
+      },
+      "expected": {"aggregate_accepted": false, "violating_jobs": ["node"], "allowed_skipped_jobs": ["viewer-js-required"]},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/scripts/ci-required-result.py#L8-L28",
+        "note": "由 validate 的选中/未选中/额外依赖分支构造的最小输入。needs 是合约样本，不是抓取的 GitHub 作业状态。"
+      }
+    },
+    {
+      "id": "ci_diagnosis_02",
+      "split": "pilot",
+      "family": "ci_diagnosis",
+      "prompt": "使用给定时间线和统计合同，计算这个候选的必要 CI 就绪墙钟分钟数，并判断哪些排队、P95 和合入阻塞结论有足够证据。只返回 answer_format 指定的 JSON；所有时间和状态都是 fixture，不得作为真实项目统计发布。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "timezone": "Asia/Shanghai",
+        "measurement_contract": [
+          "候选 CI 就绪耗时是同一 source HEAD 的相关触发到所需检查全部满足的墙钟区间，不把并行 job 耗时相加。",
+          "run 创建到首个 job 启动仅为首次启动延迟；缺少 job 已具备执行条件的时间，无法确算 runner 排队。",
+          "可比完成样本不少于 20 才报告 P95；不足时用 null 表示未报告。",
+          "实际 CI 合入阻塞需结合评审和冲突等就绪条件；CI 等待超过筛查阈值不能单独证明它阻止了合入。"
+        ],
+        "source_head": "fixture-head-a",
+        "triggered_at": "2026-10-19T09:00:00+08:00",
+        "jobs": [
+          {"id": "fixture-select", "needs": [], "started_at": "2026-10-19T09:05:00+08:00", "completed_at": "2026-10-19T09:07:00+08:00", "result": "success"},
+          {"id": "fixture-test-a", "needs": ["fixture-select"], "started_at": "2026-10-19T09:07:00+08:00", "completed_at": "2026-10-19T09:47:00+08:00", "result": "success"},
+          {"id": "fixture-test-b", "needs": ["fixture-select"], "started_at": "2026-10-19T09:10:00+08:00", "completed_at": "2026-10-19T09:50:00+08:00", "result": "success"},
+          {"id": "fixture-required-gate", "needs": ["fixture-test-a", "fixture-test-b"], "started_at": "2026-10-19T09:50:00+08:00", "completed_at": "2026-10-19T09:51:00+08:00", "result": "success"}
+        ],
+        "runner_eligibility_timestamps_available": false,
+        "all_required_checks_satisfied_at": "2026-10-19T09:51:00+08:00",
+        "comparable_completed_ci_wall_minutes": [32, 40, 51],
+        "pr_timeline": {
+          "review_required": true,
+          "review_approved_at": "2026-10-19T11:00:00+08:00",
+          "conflicts": false,
+          "merged_at": "2026-10-19T11:02:00+08:00"
+        }
+      },
+      "answer_format": {
+        "ci_ready_wall_minutes": "number：triggered_at 到全部必要检查满足的分钟数",
+        "runner_queue_minutes": "number 或 null：只在能确算 runner 排队时返回数值",
+        "reported_p95_minutes": "number 或 null：依样本量合同决定是否报告",
+        "confirmed_ci_merge_blocker": "boolean：是否已有证据确认 CI 阻挡了一个其他条件已满足的合入"
+      },
+      "expected": {"ci_ready_wall_minutes": 51, "runner_queue_minutes": null, "reported_p95_minutes": null, "confirmed_ci_merge_blocker": false},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/.agents/dot/tasks/ci-duration-review.md",
+        "note": "依据耗时口径、P95 样本下限和合入阻塞归因要求构造时间线。日期、分钟数、PR 状态均为合成数据，不代表项目性能或真实 runner 排队。"
+      }
+    },
+    {
+      "id": "ci_scope_03",
+      "split": "holdout",
+      "family": "ci_scope",
+      "prompt": "根据这个完整小型工作区的代码引用和依赖关系，判断文档 diff 的实际 CI 影响范围。只返回 answer_format 指定的 JSON，不以文件扩展名替代消费者分析。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "selection_contract": [
+          "baseline 始终执行。",
+          "doc/** 是已登记的普通文档规则，规则本身不增加组；显式规则不会抹掉真实嵌入消费者。",
+          "include_str! 引入库的文件是该库的构建输入；文件变化需覆盖读取库及其反向消费者。",
+          "反向消费者包括已解析的 optional、target 和 dev-dependency。",
+          "存在受影响包时增加 rust_baseline，并按 package_groups 选择对应组。",
+          "本 fixture 的 Git、依赖和嵌入路径均能完整解析；没有其他共享控制输入或附加范围请求。"
+        ],
+        "config": {
+          "groups": ["baseline", "rust_baseline", "core", "consumer", "other", "windows_rollout", "macos_package_contract", "fleet_health"],
+          "package_groups": {"core": ["core"], "consumer": ["consumer"], "other": ["other"]},
+          "rules": [{"match": ["doc/**"], "groups": []}]
+        },
+        "workspace_files_unchanged_between_base_and_head": {
+          "Cargo.toml": "[workspace]\nmembers=[\"crates/*\"]\n[workspace.dependencies]\ncore={path=\"crates/core\"}\n",
+          "crates/core/Cargo.toml": "[package]\nname=\"core\"\nversion=\"0.1.0\"\n",
+          "crates/core/src/lib.rs": "const D:&str=include_str!(\"../../../doc/readme.md\");",
+          "crates/consumer/Cargo.toml": "[package]\nname=\"consumer\"\nversion=\"0.1.0\"\n[target.'cfg(unix)'.dev-dependencies]\ncore={workspace=true,optional=true}\n",
+          "crates/consumer/src/lib.rs": "",
+          "crates/other/Cargo.toml": "[package]\nname=\"other\"\nversion=\"0.1.0\"\n",
+          "crates/other/src/lib.rs": ""
+        },
+        "changes": [{"status": "M", "path": "doc/readme.md", "before": "ordinary doc", "after": "changed consumer input"}]
+      },
+      "answer_format": {
+        "scope": "string：targeted 或 full",
+        "affected_packages": "list[str]：受影响包及反向消费者，顺序不限",
+        "groups": "list[str]：最终选择的全部组，顺序不限"
+      },
+      "expected": {"scope": "targeted", "affected_packages": ["core", "consumer"], "groups": ["baseline", "rust_baseline", "core", "consumer"]},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/scripts/plan-rust-required-scope.test.py#L595-L599",
+        "note": "提炼 Selection.setUp 与 test_embedded_document_consumed，保留 target optional dev-dependency 边。holdout 只是预留公开 fixture，源码可公开读取，不具有秘密测试集性质。"
+      }
+    },
+    {
+      "id": "ci_scope_04",
+      "split": "holdout",
+      "family": "ci_scope",
+      "prompt": "本次测试对象是显式 target/source 合并提交。根据给定 Git 关系和范围合同，确定应计入本次选择的路径及 CI 组。只返回 answer_format 指定的 JSON；不要把 target 已有历史自动算作本 PR 的新增修改。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "selection_contract": [
+          "baseline 始终执行；doc/** 已登记但不额外选择组，且没有包嵌入这份文档。",
+          "对于可核实的双亲合并测试，使用 source 相对共同祖先的变化，与 tested merge 相对实际 first parent target 的变化取并集。",
+          "second parent 必须等于 source，event base 必须是实际 target 的祖先，source/target 必须只有一个共同 merge base。",
+          "只有计入本次选择的共享控制输入变化才触发 full；Cargo.lock 属于共享控制输入。",
+          "所有 Git/依赖输入可解析，包图无额外消费者，未发生冲突解决修改。"
+        ],
+        "git": {
+          "event_base": "fixture-base",
+          "source_head": "fixture-source",
+          "target_head": "fixture-target",
+          "tested_head": "fixture-merge",
+          "parents": {"fixture-source": ["fixture-base"], "fixture-target": ["fixture-base"], "fixture-merge": ["fixture-target", "fixture-source"]},
+          "merge_bases_of_source_and_target": ["fixture-base"],
+          "diff_base_to_source": [{"status": "M", "path": "doc/readme.md"}],
+          "diff_base_to_target": [{"status": "A", "path": "Cargo.lock"}],
+          "diff_target_to_tested": [{"status": "M", "path": "doc/readme.md"}]
+        },
+        "config": {
+          "groups": ["baseline", "rust_baseline", "core", "consumer", "other", "windows_rollout", "macos_package_contract", "fleet_health"],
+          "package_groups": {"core": ["core"], "consumer": ["consumer"], "other": ["other"]},
+          "rules": [{"match": ["doc/**"], "groups": []}]
+        }
+      },
+      "answer_format": {
+        "scope": "string：targeted 或 full",
+        "selected_input_paths": "list[str]：参与本次范围选择的路径并集，顺序不限",
+        "groups": "list[str]：最终选择的全部组，顺序不限"
+      },
+      "expected": {"scope": "targeted", "selected_input_paths": ["doc/readme.md"], "groups": ["baseline"]},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/scripts/plan-rust-required-scope.test.py#L617-L637",
+        "note": "提炼 merge_fixture 和 test_target_lock_advance_does_not_expand_docs_merge 的 event-base 分支；符号提交名不是实际 SHA。只证明此明确合并关系的范围判断，不授权复用未测试组合的旧结果。"
+      }
+    },
+    {
+      "id": "ci_diagnosis_03",
+      "split": "holdout",
+      "family": "ci_diagnosis",
+      "prompt": "先计算 formal 是否被选中，再核对 formal 汇总是否满足合同。所有 job 显示 success 也可能不满足执行分支合同。只返回 answer_format 指定的 JSON，不操作 workflow。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "formal_contract": {
+          "selection": [
+            "known_groups 包含 formal_process 时，仅以 plan.groups 是否包含 formal_process 决定选择。",
+            "旧配置没有 formal_process 时，才使用 scope=full 或 CORE 与所选组相交的兼容规则。",
+            "CORE 为 rust_baseline、oasis7_required、consensus、distfs、node、net。"
+          ],
+          "aggregation_order": [
+            "select 必须 success。",
+            "选中 formal 时，formal-test-build 与 formal-test-build-trusted 必须恰好一个 success、另一个 skipped；未选中时两个都必须 skipped。",
+            "选中时 formal-process-tests 必须 success；未选中时必须 skipped。"
+          ]
+        },
+        "known_groups": ["baseline", "rust_baseline", "formal_process"],
+        "plan": {"scope": "targeted", "groups": ["baseline", "formal_process"]},
+        "needs": {
+          "select": {"result": "success"},
+          "formal-test-build": {"result": "success"},
+          "formal-test-build-trusted": {"result": "success"},
+          "formal-process-tests": {"result": "success"}
+        }
+      },
+      "answer_format": {
+        "run_formal_process": "boolean：按 selection 合同是否选中 formal",
+        "aggregate_accepted": "boolean：当前 needs 是否通过 aggregation 合同",
+        "failure_kind": "string：none、select、builder_pair、formal_tests 中的首个失败层级"
+      },
+      "expected": {"run_formal_process": true, "aggregate_accepted": false, "failure_kind": "builder_pair"},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/scripts/ci-formal-plan.py#L7-L29",
+        "note": "依据 selected 与 aggregate 的确切分支合同构造双 builder success 输入。只核对有限结构字段，不声称实际 workflow 出现过此状态。"
+      }
+    },
+    {
+      "id": "ci_diagnosis_04",
+      "split": "holdout",
+      "family": "ci_diagnosis",
+      "prompt": "按计划日期而非查询时刻划定昨日窗口，对这三项作业分类，并计算窗口内 runner 执行分钟数。只返回 answer_format 指定的 JSON；窗口后完成不得回填为昨日完整样本。",
+      "input": {
+        "fixture_kind": "contract_fixture",
+        "planned_date": "2026-10-20",
+        "timezone": "Asia/Shanghai",
+        "queried_at": "2026-10-20T01:00:00+08:00",
+        "measurement_contract": [
+          "主窗口为计划日期 D 的前一自然日 [D-1 00:00, D 00:00)。",
+          "作业耗时 cohort 使用窗口内首次触发的作业；更早启动且窗口内仍执行的作业单列 carry-in。",
+          "完整成功样本必须在窗口结束前观察到成功完成；窗口结束时未完成的 cohort 单列，窗口后状态仅作后续信息。",
+          "runner 执行分钟数是每个 job 的 [started_at, completed_at) 与主窗口交集之和；可以跨作业相加，但它不是用户等待墙钟时间。"
+        ],
+        "jobs": [
+          {"id": "fixture-job-a", "triggered_at": "2026-10-18T23:50:00+08:00", "started_at": "2026-10-18T23:55:00+08:00", "completed_at": "2026-10-19T00:15:00+08:00", "result_at_query": "success"},
+          {"id": "fixture-job-b", "triggered_at": "2026-10-19T10:00:00+08:00", "started_at": "2026-10-19T10:00:00+08:00", "completed_at": "2026-10-19T10:20:00+08:00", "result_at_query": "success"},
+          {"id": "fixture-job-c", "triggered_at": "2026-10-19T23:45:00+08:00", "started_at": "2026-10-19T23:50:00+08:00", "completed_at": "2026-10-20T00:20:00+08:00", "result_at_query": "success"}
+        ],
+        "coverage": "这三项是本 fixture 的完整作业集合，无重复 job ID。"
+      },
+      "answer_format": {
+        "completed_success_cohort_job_ids": "list[str]：主窗口 cohort 中在窗口结束前完整成功的作业 ID",
+        "carry_in_job_ids": "list[str]：更早触发且在主窗口仍有执行交集的作业 ID",
+        "unfinished_at_window_end_job_ids": "list[str]：主窗口 cohort 中窗口结束时尚未完成的作业 ID",
+        "window_runner_minutes": "number：三项 job 的实际执行区间与主窗口交集分钟数之和"
+      },
+      "expected": {"completed_success_cohort_job_ids": ["fixture-job-b"], "carry_in_job_ids": ["fixture-job-a"], "unfinished_at_window_end_job_ids": ["fixture-job-c"], "window_runner_minutes": 45},
+      "provenance": {
+        "kind": "contract_fixture",
+        "source": "https://github.com/nil-studio/oasis7/blob/285f988296516402b80c8066e79d2250b7740e29/.agents/dot/tasks/ci-duration-review.md",
+        "note": "依据自然日窗口、carry-in、跨日未完成和资源交集口径构造。时间线是合成公开 fixture，非历史 GitHub API 快照；holdout 不提供保密性或完整能力评估。"
+      }
+    }
+  ]
+}
