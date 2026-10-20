@@ -186,8 +186,28 @@ impl ExecutorGatewayContext {
             "oasis7/executor-operation-state/v1",
             &material,
         ));
-        let state =
-            crate::operation_store::OperationStore::open(directory, *key).map_err(configuration)?;
+        let prior: Option<PathBuf> = self
+            .store
+            .read_original(
+                "executor-resource-state/v1",
+                &self.resource_scope,
+                "directory",
+            )
+            .map_err(configuration)?;
+        let state = if let Some(expected) = prior {
+            let actual = directory
+                .canonicalize()
+                .map_err(|_| configuration("original executor state missing; reconcile it"))?;
+            if actual != expected {
+                return Err(configuration(
+                    "executor original state directory changed; reconcile it",
+                ));
+            }
+            crate::operation_store::OperationStore::open_existing(directory, *key)
+        } else {
+            crate::operation_store::OperationStore::open(directory, *key)
+        }
+        .map_err(configuration)?;
         let canonical = directory
             .canonicalize()
             .map_err(|_| configuration("executor state directory unavailable"))?;

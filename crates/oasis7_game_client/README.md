@@ -96,7 +96,10 @@ old executor fence. Private responses verify their original typed CBOR domains.
 `broker-serve --profile <private-profile.json>` exposes bounded game commands
 on a private Unix socket; `broker-call --socket <socket>` consumes a bounded
 JSON request on stdin. Profiles pin Runtime version/binary, source attestation, Skill, client binary and
-resource configs by SHA256 and keep resource state/budgets separate. Source
+resource configs by SHA256 and keep resource executor/state/budgets separate.
+The same trusted login identity may serve several resources. Vault-pinned
+operation and budget directories fail closed after loss; they are not reset by
+a restart or resource rename. Source
 attestation is operator-approved build material. Configure actual Runtime OS
 isolation separately: the model must see only socket and Skill. A socket owned
 by the same user does not hide vaults. Profile validation is not cold-entry

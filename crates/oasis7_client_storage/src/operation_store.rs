@@ -12,16 +12,35 @@ pub struct OperationStore {
 }
 impl OperationStore {
     pub fn open(root: &Path, key: [u8; 32]) -> Result<Self, String> {
+        Self::open_with_mode(root, key, true)
+    }
+    /// A vault-bound recovery directory must already retain its key marker.
+    /// Opening it never recreates an empty namespace after state loss.
+    pub fn open_existing(root: &Path, key: [u8; 32]) -> Result<Self, String> {
+        Self::open_with_mode(root, key, false)
+    }
+    fn open_with_mode(root: &Path, key: [u8; 32], initialize: bool) -> Result<Self, String> {
         let key = Zeroizing::new(key);
         #[cfg(unix)]
         {
+            if !initialize
+                && !std::fs::symlink_metadata(root)
+                    .map_err(|_| "original operation directory missing")?
+                    .is_dir()
+            {
+                return Err("original operation directory invalid".into());
+            }
             let directory = crate::private_storage::open_root(root)?;
-            crate::private_storage::initialize_key(&directory, &key)?;
+            if initialize {
+                crate::private_storage::initialize_key(&directory, &key)?;
+            } else {
+                crate::private_storage::verify_key(&directory, &key)?;
+            }
             Ok(Self { directory, key })
         }
         #[cfg(not(unix))]
         {
-            let _ = (root, key);
+            let _ = (root, key, initialize);
             Err("private client operation storage unsupported".into())
         }
     }

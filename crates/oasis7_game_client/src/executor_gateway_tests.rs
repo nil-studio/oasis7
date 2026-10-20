@@ -2,6 +2,7 @@ use super::*;
 use oasis7_agent_api::game::{DecimalU64, GameExecutorBindingV1, GameGoalReferenceV1};
 use oasis7_client_storage::identity_store::IdentityStore;
 use serde_json::json;
+use std::os::unix::fs::PermissionsExt;
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -548,6 +549,28 @@ fn authenticated_device_retains_exact_private_original_after_restart_and_rejects
     let mut moved = config();
     moved.state_directory = root.0.join("other-operation-state");
     assert!(crate::device_client::Client::from_authenticated_config(moved, PASSWORD).is_err());
+    drop(restarted);
+    std::fs::remove_file(root.0.join("operation-state/.key-verifier-v1")).unwrap();
+    assert!(crate::device_client::Client::from_authenticated_config(config(), PASSWORD).is_err());
+    std::fs::remove_dir_all(root.0.join("operation-state")).unwrap();
+    assert!(
+        crate::device_client::Client::from_authenticated_config(config(), PASSWORD).is_err(),
+        "lost original state must not be silently recreated at the same path"
+    );
+    assert!(!root.0.join("operation-state").exists());
+    std::fs::create_dir(root.0.join("operation-state")).unwrap();
+    std::fs::set_permissions(
+        root.0.join("operation-state"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    assert!(crate::device_client::Client::from_authenticated_config(config(), PASSWORD).is_err());
+    assert!(
+        std::fs::read_dir(root.0.join("operation-state"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
 }
 
 #[test]

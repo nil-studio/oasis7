@@ -269,3 +269,85 @@ fn broker_runtime_version_and_artifact_are_pinned_without_resetting_budget() {
             .contains("budget")
     );
 }
+
+fn change_identity(c: &mut BrokerConfig, name: &str, path: PathBuf) {
+    let r = c.resources.get_mut(name).unwrap();
+    let mut cfg: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&r.executor_config.path).unwrap()).unwrap();
+    cfg["identity"]["state_directory"] = json!(path);
+    r.identity_state_directory = path;
+    r.executor_config = artifact(
+        r.executor_config.path.clone(),
+        &serde_json::to_vec(&cfg).unwrap(),
+        0o600,
+    );
+}
+#[test]
+fn broker_shared_identity_keeps_independent_resource_budgets_and_rejects_role_overlap() {
+    let mut f = fixture(1);
+    let shared = f.c.resources["A"].identity_state_directory.clone();
+    change_identity(&mut f.c, "B", shared.clone());
+    f.c.validate().unwrap();
+    for name in ["A", "B"] {
+        execute(&f.c, b"private-unlock-test", &q(name, "first", "describe")).unwrap();
+        assert!(
+            execute(&f.c, b"private-unlock-test", &q(name, "next", "describe"))
+                .unwrap_err()
+                .contains("budget")
+        );
+    }
+    let mut cross = f.c.clone();
+    cross.resources.get_mut("B").unwrap().budget_directory = shared.clone();
+    assert!(cross.validate().is_err());
+    let mut nested = f.c.clone();
+    change_identity(&mut nested, "B", shared.join("nested"));
+    assert!(nested.validate().is_err());
+    let mut socket = f.c.clone();
+    socket.socket_directory = shared;
+    assert!(socket.validate().is_err());
+}
+#[test]
+fn broker_vault_lifetime_pin_rejects_root_loss_root_change_and_resource_rename() {
+    let f = fixture(5);
+    let secret = b"private-unlock-test";
+    let request = q("A", "first", "describe");
+    execute(&f.c, secret, &request).unwrap();
+    let vault = f.c.resources["A"]
+        .executor_vault_directory
+        .join("executor-control.encrypted-v1");
+    let original_vault = std::fs::read(&vault).unwrap();
+    let mut renamed = f.c.clone();
+    let resource = renamed.resources.remove("A").unwrap();
+    renamed.resources.insert("renamed".into(), resource);
+    assert!(
+        execute(&renamed, secret, &q("renamed", "next", "describe"))
+            .unwrap_err()
+            .contains("profile changed")
+    );
+    let mut moved = f.c.clone();
+    moved.resources.get_mut("A").unwrap().budget_directory = f.root.join("new-budget");
+    assert!(
+        execute(&moved, secret, &request)
+            .unwrap_err()
+            .contains("root or profile changed")
+    );
+    // Profile failures preserve the actual original allowance and encrypted vault.
+    execute(&f.c, secret, &request).unwrap();
+    assert_eq!(std::fs::read(&vault).unwrap(), original_vault);
+    std::fs::remove_dir_all(&f.c.resources["A"].budget_directory).unwrap();
+    assert!(
+        execute(&f.c, secret, &request)
+            .unwrap_err()
+            .contains("history missing")
+    );
+    assert_eq!(std::fs::read(&vault).unwrap(), original_vault);
+    // Losing only the counter also cannot reset a surviving lock/binding.
+    execute(&f.c, secret, &q("B", "b-first", "describe")).unwrap();
+    let b = &f.c.resources["B"];
+    std::fs::remove_file(b.budget_directory.join("counter")).unwrap();
+    assert!(
+        execute(&f.c, secret, &q("B", "b-next", "describe"))
+            .unwrap_err()
+            .contains("history missing")
+    );
+}

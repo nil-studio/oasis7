@@ -180,7 +180,7 @@ impl BrokerConfig {
         pinned(&self.skill, false)?;
         pinned(&self.client_binary, false)?;
         pinned(&self.runtime_binary, false)?;
-        let mut all = vec![self.socket_directory.clone()];
+        let mut all = vec![(self.socket_directory.clone(), false)];
         for (name, r) in &self.resources {
             if !id(name) || r.max_tool_requests == 0 || r.max_tool_requests > 100000 {
                 return Err("invalid broker resource budget".into());
@@ -195,20 +195,20 @@ impl BrokerConfig {
             {
                 return Err("broker executor resource paths differ".into());
             }
-            for p in [
-                &r.executor_vault_directory,
-                &r.identity_state_directory,
-                &r.state_directory,
-                &r.budget_directory,
+            for (p, identity) in [
+                (&r.executor_vault_directory, false),
+                (&r.identity_state_directory, true),
+                (&r.state_directory, false),
+                (&r.budget_directory, false),
             ] {
                 private_dir(p)?;
-                if all
-                    .iter()
-                    .any(|other| p.starts_with(other) || other.starts_with(p))
-                {
+                if all.iter().any(|(other, other_identity)| {
+                    (p.starts_with(other) || other.starts_with(p))
+                        && !(identity && *other_identity && p == other)
+                }) {
                     return Err("broker resources must use independent private directories".into());
                 }
-                all.push(p.clone());
+                all.push((p.clone(), identity));
             }
         }
         Ok(())
@@ -278,7 +278,37 @@ fn reserve(
     let fingerprint = hex::encode(Sha256::digest(
         serde_json::to_vec(&(c, &q.resource_id)).map_err(|_| "broker budget encode")?,
     ));
+    // Fixed vault slot: neither renaming a resource nor deleting/moving its
+    // budget root can mint a fresh lifetime allowance.
+    let binding = (r.budget_directory.clone(), fingerprint.clone());
+    let previous_binding: Option<(PathBuf, String)> =
+        executor.read_original("runtime-tool-budget/v1", "lifetime", "root-profile")?;
+    if previous_binding
+        .as_ref()
+        .is_some_and(|saved| saved != &binding)
+    {
+        return Err("broker budget root or profile changed".into());
+    }
     let old = store::read_record(&d, &key, "counter", MAGIC, AAD)?;
+    if previous_binding.is_some() && (created || old.is_none()) {
+        return Err("broker budget history missing; operator reconciliation required".into());
+    }
+    if previous_binding.is_none() {
+        if !created || old.is_some() {
+            return Err(
+                "broker budget lifetime binding missing; operator reconciliation required".into(),
+            );
+        }
+        let saved = executor.put_original(
+            "runtime-tool-budget/v1",
+            "lifetime",
+            "root-profile",
+            &binding,
+        )?;
+        if saved != binding {
+            return Err("broker budget root or profile changed".into());
+        }
+    }
     let (previous, count): (String, u64) = match old {
         Some(b) => serde_json::from_slice(&b).map_err(|_| "broker budget corrupt")?,
         None if created => (fingerprint.clone(), 0),

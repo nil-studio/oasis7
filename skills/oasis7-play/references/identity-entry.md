@@ -66,10 +66,17 @@ with private unlock stdin. The model receives only the approved private Unix
 socket and this Skill, using `broker-call --socket <socket>` with a bounded
 JSON request on stdin: `request_id`, `resource_id`, `args` (native game command
 and its exact options). Each resource pins an executor config and independent
-vault, operation state and durable tool-request budget. A/B resources share no
-private state or budget. `broker-profile --profile <path>` validates configured
+vault, operation state and durable tool-request budget. Executor vaults, task operation state and budgets stay separate. The trusted
+daemon may reuse the exact same login identity directory for A and B; account
+revocation then affects both sessions, while resource delegation remains scoped. `broker-profile --profile <path>` validates configured
 hashes and paths; it does not start or certify a Runtime. OS/container isolation
 must prevent the model from reading daemon config, vaults, owner/identity state
 or unlock. A same-user socket alone provides no such isolation. Tool-request
 counts do not enforce provider/model fees or world costs; the Runtime profile
 must separately disclose and enforce its approved cost scope.
+
+The executor vault pins its original operation directory and tool-budget root.
+After initialization, missing roots, missing key markers or budget counters
+block recovery; restarting or renaming a resource cannot initialize fresh
+originals or reset its budget. Restore/reconcile the approved state through the
+trusted control surface; never replace an unknown operation automatically.
