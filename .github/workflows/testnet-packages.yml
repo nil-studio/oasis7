@@ -129,11 +129,16 @@ jobs:
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
           rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
           rustup default "${RUST_TOOLCHAIN}"
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: release-packages-web-wasm-trusted-v3
           save-if: false
-          shared-key: release-packages-web-wasm-trusted-v2
-          cache-on-failure: true
+          cache-on-failure: false
       - name: Restore pinned Trunk release archive
         id: trunk-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

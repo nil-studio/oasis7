@@ -17,6 +17,10 @@ jobs:
   web:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,10 +35,16 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
           rustup default "$RUST_TOOLCHAIN"
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
+          shared-key: release-packages-web-wasm-trusted-v3
           save-if: false
-          shared-key: release-packages-web-wasm-trusted-v2
+          cache-on-failure: false
       - name: Build Viewer Web only
         run: |
           ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/optional-payload
@@ -61,9 +71,14 @@ jobs:
           rustup default "$RUST_TOOLCHAIN"
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: oasis7-ecs-native-linux-ecs-v1
+          shared-key: oasis7-ecs-native-linux-ecs-v2
           save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Compile three ECS binaries
