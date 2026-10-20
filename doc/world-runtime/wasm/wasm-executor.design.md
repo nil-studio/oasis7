@@ -35,6 +35,34 @@
 - `max_gas=0` 回退到配置 fuel；epoch 与 memory limiter 保证可抢占和有界资源。
 - compiled cache 按 engine/OS/arch 隔离，损坏缓存降级为 miss；storage lifecycle 仍由 root world-runtime authority 拥有。
 
+### Wasmtime Cargo 功能选择与执行兼容
+
+执行器使用 Core WASM、Cranelift 和同步 `Module/Store/Linker/TypedFunc` 调用。
+Wasmtime 的 Cargo 功能通过[执行器 manifest](../../../crates/oasis7_wasm_executor/Cargo.toml)
+显式选择，减少未使用的宿主能力及其 Rust 构建依赖；实际 WASM proposal、fuel、
+内存、NaN 和正式回放配置继续由执行器的 `Config` 构造统一设置。
+
+| 功能选择 | 设计依据与边界 |
+| --- | --- |
+| 保留 `std/runtime/cranelift`、`parallel-compilation`、`wat` | 支持新模块编译、同步执行、并行编译 guest 函数及现有 `Module::new` 文本输入能力。并行编译影响运行时首次加载延迟，不能仅按 Rust 构建时间裁剪。 |
+| 保留 `gc` 及三个 collector、`threads` | Wasmtime 49.0.3 的 `wasm_reference_types`、`wasm_exceptions` 配置 API 依赖 `gc`，`wasm_threads` API 依赖 `threads`。`wasm_gc(false)` 不代表可删除 Cargo `gc`；保留 collector 集合及选择顺序，避免改变现有 reference/function-reference 支持与资源行为。 |
+| 保留 `anyhow/backtrace/demangle/addr2line` | 保留错误转换和诊断信息；结构化失败及其文本可能进入 runtime 事件，不能把诊断变化一概视为无共识影响。 |
+| 不启用 component/WIT、`async/debug`、`stack-switching`、`compile-time-builtins` | 当前执行路径没有组件、异步宿主调用、guest 调试或自定义编译期 builtin；保留同步 epoch trap。调整时须检查上游功能依赖，避免其他功能重新启用整个功能族。 |
+| 不启用内置 `cache`、`profiling`、`pooling-allocator`、`coredump/debug-builtins` | 当前使用自建 serialized artifact cache 和默认 on-demand 分配器，没有配置对应宿主能力。内置 `cache` 与 `Module::serialize/deserialize` 是独立功能。 |
+
+功能裁剪沿用现有[确定性执行要求](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-001)，
+不以 Wasmtime 版本号相同推断语义自动相同。修改功能集合时须复核上游
+`Config` 的条件默认值，在完整功能与候选功能下运行同一组 guest 回归，比较
+三种同步 ABI 的 `ModuleOutput`、reference/call-ref、NaN 位模式、正式回放
+relaxed SIMD、fuel、epoch 和失败映射；世界事件/hash 仍由 runtime 回归验证。
+[执行器功能回归](../../../crates/oasis7_wasm_executor/src/tests/engine_contract.rs)
+验证可观察结果与新执行器的磁盘命中，既有资源限制和损坏恢复回归继续适用。
+
+Cargo 功能变化可能改变 engine compatibility key；缓存继续以
+`precompile_compatibility_hash` 隔离并校验 wrapper/version/checksum，允许旧缓存
+正常 miss 后重编译。缓存 key 或原生编译工件字节一致不作为确定性执行的判据，
+也不得为维持命中而绕过兼容检查。
+
 ## 5. 设计演进计划
 - 先接执行入口。
 - 再补宿主交互与资源约束。

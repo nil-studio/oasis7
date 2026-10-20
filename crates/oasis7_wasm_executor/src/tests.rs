@@ -1,5 +1,8 @@
 use super::*;
 
+#[cfg(feature = "wasmtime")]
+mod engine_contract;
+
 #[test]
 fn deterministic_replay_requires_finite_budgets_and_preserves_mode_on_clone() {
     let config = WasmExecutorConfig {

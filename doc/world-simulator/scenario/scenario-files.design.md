@@ -32,6 +32,7 @@
 <a id="scenario-loading-design"></a>
 ## 4. 约束与边界
 - 内置场景文件需保持单一来源。
+- 内置场景的规范 ID、CLI 别名与调试分类由 `oasis7_agent_api::world_scenario` 唯一维护，Launcher 与 `WorldScenario::parse` 共用解析；首尾空白、大小写和全部既有 aliases 的处理保持兼容，`WorldScenario::variants` 与规范 ID 保持闭合。Simulator 保留 `WorldScenario` 枚举、Serde 编码及场景文件加载/初始化方法，场景 JSON 与构建语义不变。
 - 普通地点按相同有效 seed、空间和生成配置可复现；chunk/fragment 另外固定 effective config 与 trigger order。
 - 消费者的模型保留与默认 Agent 语义以[初始化入口矩阵](scenario-files.prd.md#场景初始化与消费入口矩阵)为准；纯碎片场景当前使用 Simulator 离线入口验收，不推荐普通 named runtime-live Web 回归作为零 Agent 模型证明。
 - `asteroid_fragment` 是唯一规范字段名；`min_fragment_spacing_cm` 缺省继承 `50_000` cm，`<= 0` 关闭额外 spacing。effective config 必须进入固定 seed/触发序列的确定性上下文，replay 只应用 committed delta。

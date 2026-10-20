@@ -31,6 +31,8 @@ Runtime 的源码编译通过 API 的 `ModuleSourceCompiler` 过程内能力注�
 
 Launcher bootstrap address parsing is shared by desktop and backend launchers in `oasis7_launcher_config`; world execution does not own CLI topology parsing. Viewer HTTP/WebSocket and offline socket hosting belong to `oasis7_viewer_runtime`, consuming the existing authoritative world/view protocols. `oasis7_wasm_materializer` owns artifact transport, external build invocation and cache resolution, while the world adapter preserves module identity, hash validation and admission failures. Independent formal read proof verification belongs to the client layer; world-specific projection construction and typed gameplay adapters remain with the world. These ownership boundaries preserve existing wire bytes, signer/trust configuration, recovery behavior and artifact fallback order.
 
+Launcher 后端只消费启动配置、共享协议和进程控制接口，其 normal/build 依赖闭包不包含 `oasis7_runtime` 或 `oasis7_simulator`。重大世界事件的可见性枚举由 `oasis7_client_api::viewer_protocol` 唯一声明，Runtime 保留原公开路径的再导出及全部投影授权判断；枚举值本身不授予读取权。内置场景的规范 ID、CLI 别名与调试分类由 `oasis7_agent_api::world_scenario` 提供，Launcher 与 Simulator 共用解析。Simulator 仍拥有 `WorldScenario`、场景文件加载和初始化方法，旧 Rust 路径、枚举序列化与构建调用保持兼容。Launcher 的 `Unknown` 默认值、四种可见性字符串和 `--allow-debug-scenario` 防护不变；类型下沉不改变启动参数、世界执行或恢复语义。
+
 
 ## 2. 阅读顺序
 1. `doc/world-runtime/prd.md`
