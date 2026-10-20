@@ -176,6 +176,12 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 
 ## 5. 关键运行流程
 
+### 机器身份前置的实际范围
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)拥有默认关闭的机器注册事务、用途隔离、两级注册开关、持久配额及原操作恢复。Unix `oasis7_game_client::identity_client` 和独立 `--identity-config` CLI 使用受保护本地身份、固定服务信任与不可变 outbox；它们不是默认 executor 的 owner 权限扩展。注册不签发会话，原生登录另用 `purpose=login`；两者均不创建世界、Agent、task 或 grant。
+
+身份服务 `/api/public/hosted-account/v2/capabilities` 只公布本机实际开关下的 `machine_registration.available`。Game HTTP 读取 bootstrap 的 `writes_available=false` 继续有效，不能因身份路由存在而发布完整冷入场或公开游戏写入能力。世界准入、逐账号首次角色/owner、必要 starter 与任务执行仍须依下节逐项取得各自权威结果；未实施的接续不能由身份 receipt、CLI 状态或 prepared-world 验收代签。
+
 <a id="api-auth"></a>
 ### 5.1 连接、配对和最小授权
 

@@ -6288,6 +6288,7 @@ dependencies = [
  "libc",
  "oasis7_agent_api",
  "oasis7_client_api",
+ "oasis7_secure_envelope",
  "oasis7_wasm_abi",
  "serde",
  "serde_cbor",
@@ -6364,6 +6365,7 @@ dependencies = [
 name = "oasis7_game_client"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "blake3",
  "ed25519-dalek",
  "getrandom 0.4.3",

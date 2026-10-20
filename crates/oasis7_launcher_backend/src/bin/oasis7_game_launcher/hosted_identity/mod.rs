@@ -2,6 +2,7 @@
 mod config;
 mod credentials;
 mod email;
+mod machine_registration;
 pub mod model;
 mod model_session;
 mod native_key;

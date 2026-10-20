@@ -123,7 +123,8 @@ fn enabled_v2_with_closed_registration_keeps_existing_sqlite() {
     let root = TestDirectory::new();
     let path = root.path().join("identity.sqlite");
     std::fs::write(&path, b"existing identity authority").unwrap();
-    let output = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .env_clear()
         .args([
             "--ignored",
@@ -139,22 +140,49 @@ fn enabled_v2_with_closed_registration_keeps_existing_sqlite() {
         .env("OASIS7_HOSTED_IDENTITY_INSTANCE_EPOCH", "1")
         .env("OASIS7_HOSTED_IDENTITY_SERVICE_ID", "config-test")
         .env("OASIS7_HOSTED_IDENTITY_ENVIRONMENT", "test")
-        .env("OASIS7_HOSTED_WORLD_IDENTITY_SCOPE", "fixture-world")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        .env("OASIS7_HOSTED_WORLD_IDENTITY_SCOPE", "fixture-world");
+    for flag in [
+        None,
+        Some("0"),
+        Some("1"),
+        Some("true"),
+        Some("01"),
+        Some(" 1 "),
+    ] {
+        if let Some(flag) = flag {
+            command.env("OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED", flag);
+        } else {
+            command.env_remove("OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    }
 }
 
 #[test]
 #[ignore = "only invoked by isolated config regression parent"]
 fn identity_v2_enabled_config_probe() {
+    let flag = std::env::var("OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED").ok();
+    if flag.as_deref().is_some_and(|v| !["0", "1"].contains(&v)) {
+        assert!(
+            IdentityConfig::from_env()
+                .err()
+                .unwrap()
+                .contains("OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED")
+        );
+        return;
+    }
     let config = IdentityConfig::from_env().unwrap().unwrap();
     assert!(!config.registration_enabled);
+    assert_eq!(
+        config.machine_registration_enabled,
+        flag.as_deref() == Some("1")
+    );
     assert!(config.sqlite_path.try_exists().unwrap());
 }
 

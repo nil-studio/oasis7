@@ -6,8 +6,22 @@ use std::{collections::BTreeMap, path::Path};
 const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  schedule-essential --context <context-id> --factory <factory-id> --recipe <recipe-id> --batches <positive-u32> --obligation <registered-id>\n  world-rule-key --request <stable-id>\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
+    if args == ["identity-operation-id"] {
+        use base64::Engine;
+        let mut bytes = [0; 32];
+        getrandom::fill(&mut bytes).map_err(|_| "identity randomness unavailable")?;
+        return print(
+            &json!({"operation_id":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)}),
+        );
+    }
+    #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "--identity-config") {
+        return crate::identity_cli::run(args);
+    }
     if args.is_empty() || args == ["--help"] {
         println!("{HELP}");
+        #[cfg(unix)]
+        println!("{}", crate::identity_cli::HELP);
         return Ok(());
     }
     if args.len() < 3 || args[0] != "--config" {

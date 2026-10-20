@@ -48,6 +48,7 @@ pub(crate) fn fixture() -> Fixture {
         },
         sqlite_path: path.join("identity.sqlite"),
         registration_enabled: false,
+        machine_registration_enabled: false,
         session_key: [19; 32],
         world_scope: "test-world".into(),
         runtime_live_bind: String::new(),

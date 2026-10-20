@@ -583,10 +583,10 @@ Trace ID: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196
 - 系统设计状态：已覆盖
 - 系统设计依据：[Game API bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)承接发现、身份/准入交接、恢复和发布边界；[适配器入场编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)承接受保护 owner 控制、独立 executor 及客户端恢复。
 - 消费约束：角色分配仍复用[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)，不新增经济规则；该玩法条款是既有依赖，不独立证明本条新增公开入场组合已被设计覆盖。
-- 实现状态：未实现
-- 实现与验证依据：本条新增的是尚未交付的公开安全 bootstrap 组合；[现有 API 切片](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)仍将身份注册、公开写入、完整冷入场列为待实施，私有 loopback、import_only 和 prepared-world 只提供其既有子范围。已有账号、任务与执行链能力不被降级或抹去。
-- 核对日期与基线：2026-10-20；设计输入固定 `2161c0bf767795f47b234005262d1ec8187ba66b`；本次仅修订文档，未运行真实 Runtime、注册、部署或入场验收。
-- 剩余范围：独立实现、认证与准入安全评审、SDK/CLI/Skill 接续、普通客户端正负例和两个真实 Runtime 的冷入场证据；文档采纳不等于能力开放。
+- 实现状态：部分实现
+- 实现与验证依据：[机器身份事务](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)提供默认关闭的原生注册、既有登录及受保护 SDK/CLI 原请求恢复；普通身份/客户端回归只证明这些子范围。[公开 bootstrap 组合](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)仍缺逐账号世界首次绑定、公开游戏写入与完整冷入场，私有 loopback、import_only 和 prepared-world 不代签它们。已有账号、任务与执行链能力不被降级或抹去。
+- 核对日期与基线：2026-10-21；承接 `abe88f02a305803ff88e1a06ca2be1e7c5225df1` 的共享身份 codec；仅本地身份/协议回归，不声明真实 Runtime、公开注册、部署或完整入场验收。
+- 剩余范围：canonical 首次角色/owner、准入与公开入口安全、SDK/CLI/Skill 的完整世界链路接续、普通客户端完整正负例和两个真实 Runtime 的冷入场证据；身份切片不等于能力开放。
 - 要求：机器客户端从可信公开发现入口出发，能合法注册/登录并完成世界准入，按现行规则取得自己的游戏 Agent，核对 canonical owner 与必要 starter 条件，创建或恢复持久任务、选择并发布自己的目标、授权和绑定独立 executor，随后观察、行动、读取权威回执并安全恢复。已有身份必须恢复原归属，不能因换设备、清缓存或重试而再次建号、占用他人 Agent 或领取初始资产。
 - 约束：账号/凭据、准入配额、必要一次人类确认及费用批准继续有效；失败须说明需要谁完成什么，不承诺匿名无限注册或无限免费角色。不能要求 operator 预造 Agent/task/grant 才算自主入场。正常注册/初始绑定与经济 ClaimAgent、starter 领取分别满足各自主责，不额外收费、不绕过费用或反滥用。
 - 上位承诺：[根 SC-14](prd.md#external-runtime-play)；消费[逐账号首次入场](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#req-agc-entry-001)和[账号/世界准入分离](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#native)。

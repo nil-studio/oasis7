@@ -53,6 +53,7 @@ fn hosted_passkey_virtual_authenticator_fixture() {
         tablestore: None,
         trusted_proxy_loopback: false,
         registration_enabled: true,
+        machine_registration_enabled: false,
         session_key,
         world_scope: "fixture-world".into(),
         runtime_live_bind: live_bind.clone(),

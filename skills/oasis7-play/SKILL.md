@@ -9,6 +9,12 @@ This profile uses the ordinary `oasis7_game_client` executable and an operator-p
 
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.
 
+The native identity prerequisite has a separate [owner-control reference](references/identity-entry.md).
+It is not a cold-world play profile. Default executors must not invoke it, unlock
+identity storage or obtain owner credentials. A missing world/Agent/task binding
+still requires stopping at that boundary; identity registration alone cannot
+authorize the commands below.
+
 ## Executor selection
 
 An operator may select a built-in consumer through the trusted launcher BYOK

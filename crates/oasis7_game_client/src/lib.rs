@@ -3,6 +3,10 @@ use oasis7_client_api::world_service::{self as authority, *};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{io::Read, time::Duration};
 mod cooldown;
+#[cfg(unix)]
+mod identity_cli;
+#[cfg(unix)]
+pub mod identity_client;
 pub use cooldown::WorldServiceQueryState;
 #[derive(Clone)]
 pub struct WorldServiceClientConfig {

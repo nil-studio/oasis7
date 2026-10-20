@@ -126,7 +126,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 **设计状态：** 接入、委托和角色边界由各自主责合同拥有。外部 Runtime 的首期功能清单是承诺范围，阶段标签不等于实现状态。
 
-2026-10-20 自主入场设计核对：[冷入场合同](../../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)经 [#4947](https://github.com/nil-studio/oasis7/pull/4947) 采纳，身份 authority、世界准入、首次角色绑定与 owner/executor 各自授权，SDK 编排不建立第二份权限账本；实现与缺口见 [#4946](https://github.com/nil-studio/oasis7/issues/4946)。当前导入密钥登录不能代签机器注册或公开 bootstrap，完整冷入场未验收，公开部署仍暂停。
+2026-10-21 自主入场局部核对：[冷入场合同](../../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)经 [#4947](https://github.com/nil-studio/oasis7/pull/4947) 采纳；[机器身份事务](../../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)与受保护客户端仅负责账号注册、登录和原件恢复，不授予 canonical Agent/owner 或 executor 权限。世界准入、逐账号首次绑定与任务仍各自授权；SDK 编排不建立第二份权限账本。后继实现与缺口由 [#4946](https://github.com/nil-studio/oasis7/issues/4946) 承接，完整冷入场未验收，公开部署仍暂停。
 
 2026-10-12 局部设计增量（同上固定基线）：[首次绑定目标](../../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001) 按账号在同一世界的权威状态处理注册、返回和幂等；[首聊 service 目标](../../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-chat-005) 使用 owner 最小权威投影区分可通过、受阻和未知，并在提交时重验。注册/绑定、starter OC 领取与经济 ClaimAgent 分别成立；现有固定 starter 和不完整余额投影不能证明这些后继目标已实现。
 

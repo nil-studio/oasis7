@@ -16,6 +16,7 @@ fn fixture() -> (IdentityService, String, SigningKey) {
         tablestore: None,
         trusted_proxy_loopback: false,
         registration_enabled: false,
+        machine_registration_enabled: false,
         session_key: [71; 32],
         world_scope: "test".into(),
         runtime_live_bind: String::new(),

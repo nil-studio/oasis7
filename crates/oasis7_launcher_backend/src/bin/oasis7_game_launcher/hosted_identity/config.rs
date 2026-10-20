@@ -23,6 +23,7 @@ pub(crate) struct IdentityConfig {
     pub rp: RpConfig,
     pub sqlite_path: PathBuf,
     pub registration_enabled: bool,
+    pub machine_registration_enabled: bool,
     pub session_key: [u8; 32],
     pub world_scope: String,
     pub runtime_live_bind: String,
@@ -133,6 +134,14 @@ impl IdentityConfig {
                 .ok()
                 .as_deref()
                 == Some("1"),
+            machine_registration_enabled: match env::var(
+                "OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED",
+            ) {
+                Err(env::VarError::NotPresent) => false,
+                Ok(value) if value == "0" => false,
+                Ok(value) if value == "1" => true,
+                _ => return Err("OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED must be 0 or 1".into()),
+            },
             session_key,
             world_scope: required("OASIS7_HOSTED_WORLD_IDENTITY_SCOPE")?,
             runtime_live_bind: env::var("OASIS7_HOSTED_RUNTIME_LIVE_BIND").unwrap_or_default(),
