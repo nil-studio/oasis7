@@ -6,3 +6,4 @@
 - [verification-before-completion](verification-before-completion/SKILL.md)
 - [requesting-repo-owned-review](requesting-repo-owned-review/SKILL.md)
 - [systematic-debugging](systematic-debugging/SKILL.md)
+- [evaluating-development-methods](evaluating-development-methods/SKILL.md)：按需比较开发方法与 Skill 改动的效果。
