@@ -143,7 +143,7 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
   - `cargo test -p oasis7_net --lib`
   - `cargo test -p oasis7_net --features libp2p --lib`
   - `./scripts/llm-baseline-fixture-smoke.sh`
-  - 以 `wasmtime` 且不含 test-tier feature 构建真实 `oasis7_chain_runtime` / `oasis7_game_launcher`，由 `scripts/hosted-local-mock-production-guard.py` 读取 Cargo artifact 清单，分别核对 Hosted local-mock funding 参数被生产 guard 精确拒绝；不以其他启动错误代替拒绝结果。
+  - 构建真实生产 `oasis7_chain_runtime` / `oasis7_game_launcher`：Chain 所属包启用 `wasmtime`，Launcher 使用 `oasis7_launcher_backend` 的默认 features，两者均不含 test-tier feature。`scripts/hosted-local-mock-production-guard.py` 按所属包核对 Cargo artifact 清单中的 manifest、bin target、非 test harness 与各自的 feature 要求，再分别启动并核对 Hosted local-mock funding 参数被生产 guard 精确拒绝；不以其他启动错误代替拒绝结果。
   - `cargo test -p oasis7 --features test_tier_required,wasmtime --lib --bins`：启用跨 crate 测试夹具，保持未启用 `test_tier_full` 时的严格 Wasmtime 默认预算。驱动按相同 features 构建 Viewer，并通过 `PRE2_VIEWER_BINARY` 传入 Cargo 返回的真实路径；不依赖预先存在的 executable。
   - `run_full_required_superset` 显式调用当前 scoped-required capability；重叠 support shard 只保留一次。仍以实际命令为准，不能据函数名推断每个 required 子检查都覆盖。
   - 独立 `full-support` tier 仍运行 `cargo test -p oasis7 --features wasmtime --lib --bins`；`full` 和 `full-standard` 使用上述 `test_tier_required,wasmtime` 命令及对应 Viewer artifact。
