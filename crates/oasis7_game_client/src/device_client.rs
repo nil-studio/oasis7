@@ -42,8 +42,85 @@ pub struct Client {
     pub public_key: String,
     pub key_hex: Zeroizing<String>,
     pub state: PrivateGoalStore,
+    #[cfg(unix)]
+    pub(crate) gateway: Option<std::sync::Arc<crate::executor_gateway::ExecutorGatewayContext>>,
+}
+#[cfg(unix)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutorDeviceConfig {
+    pub identity: crate::identity_client::IdentityClientConfig,
+    pub login_operation: String,
+    pub executor_vault_directory: PathBuf,
+    pub service_public_key: String,
+    pub fence: GameTaskFenceV1,
+    pub state_directory: PathBuf,
 }
 impl Client {
+    #[cfg(unix)]
+    pub fn open_authenticated(path: &Path, private_unlock: &[u8]) -> Result<Self, String> {
+        let file = std::fs::File::open(path).map_err(|_| "executor configuration unavailable")?;
+        let mut bytes = Vec::new();
+        file.take(65537)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "executor configuration unavailable")?;
+        if bytes.len() > 65536 {
+            return Err("executor configuration exceeds byte bound".into());
+        }
+        let config: ExecutorDeviceConfig = oasis7_agent_api::game::parse_request(&bytes)
+            .map_err(|_| "invalid executor configuration")?;
+        Self::from_authenticated_config(config, private_unlock)
+    }
+    #[cfg(unix)]
+    pub fn from_authenticated_config(
+        config: ExecutorDeviceConfig,
+        private_unlock: &[u8],
+    ) -> Result<Self, String> {
+        let world = WorldIdentity {
+            world_id: config.fence.world_id.clone(),
+            genesis_digest: config.fence.genesis_digest.clone(),
+        };
+        let agent = config.fence.agent_id.clone();
+        let endpoint = config.identity.endpoint.clone();
+        let gateway = std::sync::Arc::new(
+            crate::executor_gateway::ExecutorGatewayContext::open(
+                config.identity,
+                config.login_operation,
+                config.executor_vault_directory,
+                private_unlock,
+                config.fence,
+                config.service_public_key.clone(),
+                MAX_PRIVATE_CONTEXT_BYTES,
+            )
+            .map_err(|_| "executor protected configuration rejected")?,
+        );
+        let state = gateway
+            .open_operation_store(&config.state_directory)
+            .map_err(|_| "executor original operation state rejected")?;
+        let public_key = gateway.executor_public_key();
+        let remote = RemoteWorldServiceClient::new_authenticated(
+            WorldServiceClientConfig {
+                endpoint,
+                trusted_service_public_key: config.service_public_key,
+                expected_world: world.clone(),
+                scope_id: format!("agent:{agent}"),
+                read_private_key_hex: String::new(),
+                timeout: Duration::from_secs(5),
+                max_response_bytes: MAX_PRIVATE_CONTEXT_BYTES,
+            },
+            gateway.clone(),
+        )
+        .map_err(|_| "executor gateway configuration rejected")?;
+        Ok(Self {
+            remote,
+            world,
+            agent,
+            public_key,
+            key_hex: Zeroizing::new(String::new()),
+            state,
+            gateway: Some(gateway),
+        })
+    }
     pub fn open(path: &Path) -> Result<Self, String> {
         let file = std::fs::File::open(path).map_err(|_| "client configuration unavailable")?;
         let mut bytes = Vec::new();
@@ -96,12 +173,36 @@ impl Client {
             public_key,
             key_hex,
             state,
+            #[cfg(unix)]
+            gateway: None,
         })
+    }
+    pub(crate) fn sign<Q: Serialize + serde::de::DeserializeOwned>(
+        &self,
+        domain: &str,
+        request: Q,
+    ) -> Result<SignedReadRequest<Q>, String> {
+        #[cfg(unix)]
+        if let Some(gateway) = &self.gateway {
+            return gateway
+                .sign_native_request(domain, request)
+                .map_err(|_| "executor request scope or signing domain rejected".into());
+        }
+        authority::sign_read_request(domain, request, &self.key_hex)
+    }
+    fn observation_nonce(&self) -> Result<Option<String>, String> {
+        #[cfg(unix)]
+        if self.gateway.is_some() {
+            let mut nonce = [0u8; 32];
+            getrandom::fill(&mut nonce).map_err(|_| "executor read nonce unavailable")?;
+            return Ok(Some(hex::encode(nonce)));
+        }
+        Ok(None)
     }
     pub fn public_view(&self) -> Result<crate::VerifiedTaskWorldView, String> {
         self.remote
             .read_view(ReadWorldViewRequest {
-                observation_nonce: None,
+                observation_nonce: self.observation_nonce()?,
                 formal_anchor: None,
                 contract_version: 1,
                 world: self.world.clone(),
@@ -118,10 +219,22 @@ impl Client {
             })
     }
     pub fn capabilities(&self) -> Result<Value, String> {
+        #[cfg(unix)]
+        if self.gateway.is_some() {
+            let view = self.public_view()?;
+            let projection = view.projection();
+            return Ok(capability_response(
+                view.version(),
+                view.logical_tick(),
+                &projection.native_delegation_authorizations,
+                &projection.game_task_control,
+                &projection.agent_context,
+            ));
+        }
         let view = self
             .remote
             .read_original_view(ReadWorldViewRequest {
-                observation_nonce: None,
+                observation_nonce: self.observation_nonce()?,
                 formal_anchor: None,
                 contract_version: 1,
                 world: self.world.clone(),
@@ -137,45 +250,13 @@ impl Client {
                 )
             })?;
         let projection = view.projection().observation();
-        let grants: Vec<_> = projection
-            .native_delegation_authorizations
-            .iter()
-            .take(128)
-            .map(|authorization| {
-                let grant = &authorization.grant;
-                let status = if grant.revoked {
-                    "revoked"
-                } else if view.logical_tick() < grant.valid_from_tick {
-                    "not_yet_valid"
-                } else if view.logical_tick() > grant.valid_until_tick {
-                    "expired"
-                } else if authorization.remaining_units == 0 {
-                    "exhausted"
-                } else {
-                    "current"
-                };
-                json!({"authorization":authorization,"status":status,"admission_required":true})
-            })
-            .collect();
-        Ok(
-            json!({"api_revision":1,"read_version":view.version(),"logical_tick":view.logical_tick(),
-                "task_control":projection.game_task_control,
-                "proposal_forms":[
-                    {"action_ref":"native.world_rule","arguments":{"request":"stable business request ID","command":"typed WorldRuleCommandV1 JSON; exact case/authorization/factory scope"},"admission_required":true},
-                    {"action_ref":"native.build_factory","arguments":{"site":"authorized ready site ID","factory":"factory ID matching a current BuildFactory grant.object_id","kind":"factory.smelter.mk1|factory.assembler.mk1"},"signed_quote_required":true,"admission_required":true},
-                    {"action_ref":"native.move_agent","arguments":{"to":"three signed i64 centimeter coordinates x,y,z"},"admission_required":true},
-                    {"action_ref":"native.schedule_recipe","arguments":{"factory":"factory ID","recipe":"exact built-in recipe ID","batches":"positive u32"},"signed_quote_required":true,"admission_required":true},
-                    {"action_ref":"native.transfer_material","arguments":{"from":"ledger ID","to":"ledger ID","material":"kind","amount":"positive i64","distance_km":"nonnegative i64","priority":"standard|urgent","routes":"ordered route IDs or direct"},"admission_required":true}
-                ],
-                "module_capability_catalog":projection.agent_context.as_ref().map(|context| &context.capability_catalog),
-                "native_delegation_authorizations":grants,
-                "native_authorization_count":projection.native_delegation_authorizations.len(),
-                "native_authorizations_truncated":projection.native_delegation_authorizations.len()>128,
-                "outcomes":["executor_aborted","provider_failed","transport_exhausted","context_expired"],
-                "context_expired_requires":"first creation requires committed original prefix, no competing action/outcome, current Active complete task fence and strictly expired lease; existing outcome recovers its exact original; wait for committed outcome before new context",
-                "scope":"local native proposal forms are distinct from module commands and native action/object electricity grants; current grants do not guarantee admission"
-            }),
-        )
+        Ok(capability_response(
+            view.version(),
+            view.logical_tick(),
+            &projection.native_delegation_authorizations,
+            &projection.game_task_control,
+            &projection.agent_context,
+        ))
     }
     pub fn industry(&self) -> Result<Value, String> {
         let view = self.public_view()?;
@@ -250,22 +331,22 @@ impl Client {
         let proof = self
             .context_read_proof(operation)
             .map_err(crate::WorldServiceClientError::Configuration)?;
-        let request = authority::sign_read_request(
-            TASK_RECIPE_QUOTE_PATH,
-            TaskRecipeQuoteRequestV1 {
-                schema_revision: 1,
-                context_proof: proof,
-                expected_base_binding: captured
-                    .current_public_context
-                    .captured_base_binding
-                    .clone(),
-                factory_id: factory.to_owned(),
-                recipe_id: recipe.to_owned(),
-                batches,
-            },
-            &self.key_hex,
-        )
-        .map_err(crate::WorldServiceClientError::Configuration)?;
+        let request = self
+            .sign(
+                TASK_RECIPE_QUOTE_PATH,
+                TaskRecipeQuoteRequestV1 {
+                    schema_revision: 1,
+                    context_proof: proof,
+                    expected_base_binding: captured
+                        .current_public_context
+                        .captured_base_binding
+                        .clone(),
+                    factory_id: factory.to_owned(),
+                    recipe_id: recipe.to_owned(),
+                    batches,
+                },
+            )
+            .map_err(crate::WorldServiceClientError::Configuration)?;
         self.remote.quote_task_recipe(&request)
     }
     pub fn schedule(
@@ -294,10 +375,9 @@ impl Client {
         }
         captured.current_public_context = quoted.current_public_context;
         self.ensure_quote_has_no_write(operation)?;
-        let signed = authority::sign_read_request(
+        let signed = self.sign(
             "cognition",
             cognition_intent(&captured, quoted.quote.action)?,
-            &self.key_hex,
         )?;
         self.ensure_quote_has_no_write(operation)?;
         let request = self.cache_intent(
@@ -318,11 +398,7 @@ impl Client {
                 request
             } else {
                 let captured = self.captured(operation)?;
-                let signed = authority::sign_read_request(
-                    "cognition",
-                    cognition_intent(&captured, action)?,
-                    &self.key_hex,
-                )?;
+                let signed = self.sign("cognition", cognition_intent(&captured, action)?)?;
                 self.cache_intent(
                     ClientStateKind::Action,
                     operation,
@@ -335,7 +411,7 @@ impl Client {
         let view = self
             .remote
             .read_view(ReadWorldViewRequest {
-                observation_nonce: None,
+                observation_nonce: self.observation_nonce()?,
                 formal_anchor: None,
                 contract_version: 1,
                 world: self.world.clone(),
@@ -358,6 +434,17 @@ impl Client {
         {
             return Err("task read scope mismatch".into());
         }
+        #[cfg(unix)]
+        if self
+            .gateway
+            .as_ref()
+            .is_some_and(|g| g.resource_fence() != &fence)
+        {
+            return Err(
+                "executor resource fence changed; reconcile originals before explicit refresh"
+                    .into(),
+            );
+        }
         Ok(fence)
     }
     pub fn original_prepare(
@@ -372,7 +459,7 @@ impl Client {
         } else {
             let mut nonce = Zeroizing::new([0; 32]);
             getrandom::fill(&mut *nonce).map_err(|_| "device randomness unavailable")?;
-            let proof = authority::sign_read_request(
+            let proof = self.sign(
                 TASK_CONTEXT_PREPARE_PATH,
                 TaskContextPrepareV1 {
                     schema_revision: 1,
@@ -380,7 +467,6 @@ impl Client {
                     client_operation_id: operation.to_owned(),
                     client_nonce: hex::encode(nonce.as_slice()),
                 },
-                &self.key_hex,
             )?;
             self.state.put_client_state(
                 ClientStateKind::Prepare,
@@ -461,8 +547,7 @@ impl Client {
         }
         let original = self.original_prepare(operation)?;
         let prepared = self.prepare_original(&original)?;
-        let signed =
-            authority::sign_read_request("scheduler", public_prefix(&prepared)?, &self.key_hex)?;
+        let signed = self.sign("scheduler", public_prefix(&prepared)?)?;
         self.cache_intent(
             ClientStateKind::Prefix,
             operation,
@@ -482,14 +567,13 @@ impl Client {
         let SchedulerOperationV1::TaskProviderPrefix { context } = signed.request.operation else {
             return Err("invalid cached context prefix".into());
         };
-        authority::sign_read_request(
+        self.sign(
             TASK_CONTEXT_READ_PATH,
             TaskContextGetV1 {
                 schema_revision: 1,
                 context,
                 prepare_operation_id: operation.to_owned(),
             },
-            &self.key_hex,
         )
     }
     pub fn captured(&self, operation: &str) -> Result<CapturedTaskContextV1, String> {
@@ -501,6 +585,50 @@ impl Client {
             )
         })
     }
+}
+fn capability_response(
+    version: &ProjectionVersion,
+    logical_tick: u64,
+    authorizations: &[oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1],
+    task_control: &Option<oasis7_agent_api::game::GameTaskControlV1>,
+    agent_context: &Option<oasis7_agent_api::world_context::WorldServiceAgentContext>,
+) -> Value {
+    let grants: Vec<_> = authorizations
+        .iter()
+        .take(128)
+        .map(|authorization| {
+            let grant = &authorization.grant;
+            let status = if grant.revoked {
+                "revoked"
+            } else if logical_tick < grant.valid_from_tick {
+                "not_yet_valid"
+            } else if logical_tick > grant.valid_until_tick {
+                "expired"
+            } else if authorization.remaining_units == 0 {
+                "exhausted"
+            } else {
+                "current"
+            };
+            json!({"authorization":authorization,"status":status,"admission_required":true})
+        })
+        .collect();
+    json!({"api_revision":1,"read_version":version,"logical_tick":logical_tick,
+        "task_control":task_control,
+        "proposal_forms":[
+            {"action_ref":"native.world_rule","arguments":{"request":"stable business request ID","command":"typed WorldRuleCommandV1 JSON; exact case/authorization/factory scope"},"admission_required":true},
+            {"action_ref":"native.build_factory","arguments":{"site":"authorized ready site ID","factory":"factory ID matching a current BuildFactory grant.object_id","kind":"factory.smelter.mk1|factory.assembler.mk1"},"signed_quote_required":true,"admission_required":true},
+            {"action_ref":"native.move_agent","arguments":{"to":"three signed i64 centimeter coordinates x,y,z"},"admission_required":true},
+            {"action_ref":"native.schedule_recipe","arguments":{"factory":"factory ID","recipe":"exact built-in recipe ID","batches":"positive u32"},"signed_quote_required":true,"admission_required":true},
+            {"action_ref":"native.transfer_material","arguments":{"from":"ledger ID","to":"ledger ID","material":"kind","amount":"positive i64","distance_km":"nonnegative i64","priority":"standard|urgent","routes":"ordered route IDs or direct"},"admission_required":true}
+        ],
+        "module_capability_catalog":agent_context.as_ref().map(|context| &context.capability_catalog),
+        "native_delegation_authorizations":grants,
+        "native_authorization_count":authorizations.len(),
+        "native_authorizations_truncated":authorizations.len()>128,
+        "outcomes":["executor_aborted","provider_failed","transport_exhausted","context_expired"],
+        "context_expired_requires":"first creation requires committed original prefix, no competing action/outcome, current Active complete task fence and strictly expired lease; existing outcome recovers its exact original; wait for committed outcome before new context",
+        "scope":"local native proposal forms are distinct from module commands and native action/object electricity grants; current grants do not guarantee admission"
+    })
 }
 pub fn print(value: &impl Serialize) -> Result<(), String> {
     let text = serde_json::to_string(value).map_err(|_| "response encoding failed")?;

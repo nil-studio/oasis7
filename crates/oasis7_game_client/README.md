@@ -21,6 +21,90 @@ level `WorldServiceTransport` verifies request-bound service envelopes; callers 
 its generic methods must also validate world, scope, evidence and business correlation.
 A service signature is not an independent consensus or durable receipt proof.
 
+## Native machine identity
+
+Unix callers can use `identity_client::IdentityClient` and the same executable's
+`--identity-config <identity.json>` entry for explicit identity creation,
+registration, login and original-operation recovery. This owner-control entry is
+separate from the executor's `--config` commands. It does not start a Runtime or
+create an Agent/task. Full autonomous world entry remains unimplemented.
+
+The nonsecret configuration pins an exact HTTPS origin, service/environment and
+audience, plus an absolute private state directory without symlink components:
+
+```json
+{
+  "endpoint": "https://identity.example",
+  "identity_service_id": "configured-identity-service",
+  "environment_id": "configured-environment",
+  "audience": "https://identity.example",
+  "state_directory": "/private/identity-state"
+}
+```
+
+The trusted local user/launcher supplies the unlock passphrase as 12–1024 exact
+bytes on private stdin. Never put it in arguments, environment, model tools or
+chat. A terminal stdin is rejected to avoid echoing secrets. The SDK can instead
+receive unlock bytes directly from a trusted local control surface. Windows
+and other unsupported local-storage guarantees fail closed.
+
+```sh
+<client> identity-operation-id
+<client> --identity-config <identity.json> identity-init
+<client> --identity-config <identity.json> identity-register --operation <saved-id> --name <display-name>
+<client> --identity-config <identity.json> identity-login --operation <different-saved-id>
+<client> --identity-config <identity.json> identity-status --operation <saved-id>
+```
+
+These commands require private unlock input; the examples omit its transport
+deliberately. Identity initialization is explicit and local only. It generates a
+random login key in the existing Argon2id/XChaCha password envelope, with a
+separate random key for encrypted request originals. It never writes a raw
+identity key file or places a long-term key in the outbox. Keep the original
+vault; missing/corrupt originals block recovery rather than generating a new
+identity. This profile does not claim hardware or OS-keystore protection.
+
+Registration requires both deployment-controlled registration switches and the
+advertised machine capability. The SDK verifies pinned discovery/challenge
+fields and recomputes signed bytes. It persists cookie/CSRF, canonical request
+body, original challenge and proof before sending. Repeating an operation uses
+the original request; changing its name/content conflicts. A registration
+receipt creates no session or world authority. A login whose reply was lost is
+reconciled with its original proof; if no original session cookie was saved,
+`action_required/explicit_fresh_login` requires an explicit new login operation.
+Registration closure preserves existing-key login. Neither local progress nor
+an identity receipt proves world admission, canonical ownership, starter funds,
+delegation, task activation or complete cold entry.
+
+The separate Unix `--entry-config` owner surface now connects participant
+registration/recovery, current canonical owner reads, starter eligibility/claim,
+task creation, private goal preparation/publication and explicit independent
+executor delegation/binding/stop/revoke. See the [trusted control reference](../../skills/oasis7-play/references/identity-entry.md)
+for command options. These stages retain their own authority and durable
+originals; current account/session plus signed world admission and current
+resource fences are checked at the authenticated gateway.
+
+`--executor-config <executor.json>` accepts the existing native game commands.
+Its fields are `identity`, `login_operation`, `executor_vault_directory`,
+`service_public_key`, complete `fence` and `state_directory`; unlock comes from
+trusted private stdin. The signer is a distinct encrypted executor vault, and
+raw signer config fields remain empty. Original writes are queried before an
+exact retry. Historical lookup supplies current authorization around the
+unchanged original payload, allowing reconciliation without resurrecting an
+old executor fence. Private responses verify their original typed CBOR domains.
+
+`broker-serve --profile <private-profile.json>` exposes bounded game commands
+on a private Unix socket; `broker-call --socket <socket>` consumes a bounded
+JSON request on stdin. Profiles pin Runtime version/binary, source attestation, Skill, client binary and
+resource configs by SHA256 and keep resource executor/state/budgets separate.
+The same trusted login identity may serve several resources. Vault-pinned
+operation and budget directories fail closed after loss; they are not reset by
+a restart or resource rename. Source
+attestation is operator-approved build material. Configure actual Runtime OS
+isolation separately: the model must see only socket and Skill. A socket owned
+by the same user does not hide vaults. Profile validation is not cold-entry
+acceptance, provider fee enforcement or an automatic Runtime launcher.
+
 `lookup_typed` retains error categories for recovery decisions. After one
 submission, the high-level client retries only the original result query for
 transport failure, HTTP 503 or bounded Retry-After advice. It keeps forty attempts

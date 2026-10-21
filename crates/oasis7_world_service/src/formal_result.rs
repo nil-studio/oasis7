@@ -783,6 +783,17 @@ fn authorize_world_result_reader(
 
 fn outcome_agent_id(world: &World, payload: &WorldServicePayloadV1) -> Result<String, String> {
     match payload {
+        WorldServicePayloadV1::GameStarterClaim(signed) => Ok(signed.request.agent_id.clone()),
+        WorldServicePayloadV1::GameParticipantRegister { owner, .. } => {
+            let key = oasis7_runtime::service_admission::participant::account_key(&owner.request)?;
+            world
+                .capability_revocation_state()
+                .participants
+                .bindings
+                .get(&key)
+                .map(|r| r.agent_id.clone())
+                .ok_or_else(|| "participant binding unavailable".into())
+        }
         WorldServicePayloadV1::SafeAlternative(signed) => Ok(signed.request.agent_id.clone()),
         WorldServicePayloadV1::AgentChat(request) => Ok(request.agent_id.clone()),
         WorldServicePayloadV1::Cognition(request) => Ok(request.request.request.agent_id.clone()),

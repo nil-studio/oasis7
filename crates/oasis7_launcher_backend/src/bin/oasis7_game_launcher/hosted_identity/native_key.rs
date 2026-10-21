@@ -9,7 +9,7 @@ mod complete;
 #[path = "native_key_tests.rs"]
 mod tests;
 
-fn public_key(p: &Value) -> Result<[u8; 32], StoreError> {
+pub(super) fn public_key(p: &Value) -> Result<[u8; 32], StoreError> {
     let raw = p["public_key"]
         .as_str()
         .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -22,7 +22,7 @@ fn public_key(p: &Value) -> Result<[u8; 32], StoreError> {
     VerifyingKey::from_bytes(&key).map_err(|_| reject("invalid_request"))?;
     Ok(key)
 }
-fn lookup_key(key: &[u8; 32]) -> String {
+pub(super) fn lookup_key(key: &[u8; 32]) -> String {
     format!("lookup:native:{}", URL_SAFE_NO_PAD.encode(key))
 }
 #[expect(

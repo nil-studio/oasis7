@@ -28,6 +28,8 @@ fn fixture() -> (Client, PathBuf, WorldServicePayloadV1) {
             .unwrap()
             .subject_public_key,
         key_hex: hex::encode([7; 32]).into(),
+        #[cfg(unix)]
+        gateway: None,
         remote: crate::WorldServiceTaskClient::new(config).unwrap(),
         state: crate::operation_store::OperationStore::open(&root, [17; 32]).unwrap(),
     };

@@ -163,6 +163,26 @@ service 来源需单独限定：[world_service/projection.rs](../../../crates/oa
 
 三种情境按 [PRD 入口矩阵](gameplay-agent-claim-economy-contract.prd.md#player-session-first-agent-entry) 验收。world/chain/genesis 固定，新账号加入不能重建世界；返回账号恢复原 Agent、目标与产物。幂等查询沿原请求 identity/digest，冲突 digest 拒绝；原结果尚未知时不能换 nonce 自动重提或另建 Agent。经济 Claim 的 Prepare/Confirm 终结与 fixture 隔离仍由其独立交付验收，本节不替代该状态机。
 
+#### Canonical 首次绑定协议与信任边界
+
+首次绑定使用专用 `participant_register` 用途。现有 `player_session` / `player_session_release` 只授权相应会话操作，不能作为此用途的 grant。稳定业务原件固定 identity service/environment/instance/account、world/genesis、owner 公钥与版本、客户端 operation 和受限注册参数；owner 独立签名。identity issuer 在当前账号、凭证、session、准入及配额检查后，对相同业务 digest、owner、world、branch、policy generation 和有限 tick 窗口签发专用准入证明。登录密钥、owner 密钥与 executor 密钥分别保管，owner 不成为默认 delegate。
+
+准入 grant 与稳定业务相关性分离。刷新登录或准入只重新授权相同原请求及 digest，不改变 operation、业务签名、nonce 或绑定唯一性。历史 owner 签名不是永久登录态，公开查询和重放均须当前认证；当前认证失败时不回退到匿名读取私有绑定。原请求已提交且响应丢失时先查原结果；无法确定旧绑定或丢失原件时保持 unknown/blocked。
+
+Runtime 使用版本化 participant admission policy，默认禁用。policy 明确 issuer namespace/key、identity epoch、world/genesis、branch/authority generation、确定性有效 tick 范围、注册预算及迁移完成条件，并由 canonical 管理事件安装或更新。执行和重放只读取已提交 policy 与执行上下文，不能读取环境变量、墙钟、身份数据库或网络。HTTP 层的当前认证不能替代 canonical 验签。已有世界缺少完整历史绑定证据时不能以空 registry 推断新首次资格；启用前须显式完成相应迁移，不自动重建账号或 Agent。
+
+生产 policy 安装/更新必须携带治理 finality proof。获批准 proposal 的 manifest 明确承诺专用 install/update purpose、完整 policy digest 和已签署迁移 manifest digest，certificate 必须批准该 manifest；不得借任意历史 Approved proposal 的 signer 集另签新文本。附加签名集与证书 signer 集一致，变更 generation 连续，关闭只停止新首次资格，保留已绑定主体的当前认证恢复、历史 policy 和原结果。身份 issuer key 轮换通过同一治理更新，不从 HTTP 或环境变量覆盖 canonical policy。
+
+旧绑定迁移 manifest 由受信 issuer 按专用用途签署，固定 identity namespace/instance、世界、branch/reorg、数据库 snapshot epoch、水位、完整清单 digest、完整性声明及 canonical registry/legacy-owner 前态 digest；每个账号到初始 Agent/owner 的映射还须独立 owner 签名。治理批准同一清单，承担“issuer 提供的是其权威旧绑定全集”的信任边界；canonical 节点不能证明外部数据库不存在遗漏。执行逐项核对实际 Agent、当前 owner 与 generation，拒绝重复账号/Agent、错世界、过时前态、错误映射和缺失签名，不改 starter/经济资产。显式空清单同样必须由 issuer 和治理证明，不把本地空 map 当证据；必要材料未知时阻塞迁移。
+
+永久唯一索引以稳定 namespace/account/world 为键，branch 只作为执行 fence，不产生第二份首次资格。绑定保留 Agent、owner/version、identity generation、原 operation/digest 和权威结果引用；结果归档不能删除资格记录。上述 policy、绑定及变更事件进入能力授权状态、授权根、快照、恢复校验和重放。旧快照缺少 policy 时默认拒绝新注册，保留原世界状态。
+
+稳定 namespace 只含 identity service/environment；identity instance epoch 与 branch 均不是首次资格的一部分。离线推进身份 epoch 保留账号，policy 允许 epoch 单调推进，旧 session/grant 失效；已绑定账号通过当前认证和当前 epoch grant 查询其历史业务原件/receipt，不重签、不改原 digest、不新建 Agent。历史 epoch 必须曾被该世界 policy 授权，未知来源不能凭同名账号恢复。
+
+在一个可回滚 canonical candidate 内检查唯一性和预算，分配不占用他人的 Agent ID，实际执行既有 `RegisterAgent` 并核对成功事件，再安装 canonical owner identity、写绑定与结果。仅 `submit_action` 入队不构成注册成功；不得调用 `step()` 顺带执行其他待办动作。任一步失败不发布半绑定、owner、资产或成功 receipt。同账号的竞争请求最多创建一个 Agent；不同 operation 读取原绑定时不得替换 owner 或重复给付 starter。starter 和经济 Claim 继续由各自 authority 单独确认。
+
+当前实现候选必须以真实 Agent/owner 结果、并发、失败回滚、快照/重放一致性及错 issuer/world/branch/owner/用途负例验证本节；这些测试不代签公开 bootstrap 或两个实际 Runtime 的完整冷入场。
+
 <a id="des-claim-chat-002"></a>
 ### 6.2 首聊 gate 与资源边界投影
 

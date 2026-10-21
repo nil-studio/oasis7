@@ -3,14 +3,43 @@ use crate::operation_store::ClientStateKind;
 use oasis7_client_api::world_service::*;
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path};
-const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  schedule-essential --context <context-id> --factory <factory-id> --recipe <recipe-id> --batches <positive-u32> --obligation <registered-id>\n  world-rule-key --request <stable-id>\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
+const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  schedule-essential --context <context-id> --factory <factory-id> --recipe <recipe-id> --batches <positive-u32> --obligation <registered-id>\n  world-rule-key --request <stable-id>\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nAuthenticated executor: --executor-config <executor.json> <same-command> [same-options]. Public config contains identity, login_operation, executor_vault_directory, service_public_key, full fence and state_directory; private unlock only through trusted local stdin. No owner signing or Runtime launch.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
+    #[cfg(unix)]
+    if args
+        .first()
+        .is_some_and(|v| ["broker-serve", "broker-profile", "broker-call"].contains(&v.as_str()))
+    {
+        return crate::runtime_broker_cli::run(&args);
+    }
+    if args == ["identity-operation-id"] {
+        use base64::Engine;
+        let mut bytes = [0; 32];
+        getrandom::fill(&mut bytes).map_err(|_| "identity randomness unavailable")?;
+        return print(
+            &json!({"operation_id":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)}),
+        );
+    }
+    #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "--identity-config") {
+        return crate::identity_cli::run(args);
+    }
+    #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "--entry-config") {
+        return crate::participant_cli::run(args);
+    }
     if args.is_empty() || args == ["--help"] {
         println!("{HELP}");
+        #[cfg(unix)]
+        println!("{}", crate::identity_cli::HELP);
+        #[cfg(unix)]
+        println!("{}", crate::participant_cli::HELP);
+        #[cfg(unix)]
+        println!("{}", crate::runtime_broker_cli::HELP);
         return Ok(());
     }
-    if args.len() < 3 || args[0] != "--config" {
+    if args.len() < 3 || !["--config", "--executor-config"].contains(&args[0].as_str()) {
         return Err(HELP.into());
     }
     let command = &args[2];
@@ -60,7 +89,30 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             .copied()
             .ok_or_else(|| format!("missing {name}"))
     };
-    let client = Client::open(Path::new(&args[1]))?;
+    let client = if args[0] == "--executor-config" {
+        #[cfg(unix)]
+        {
+            use std::io::{IsTerminal, Read};
+            if std::io::stdin().is_terminal() {
+                return Err("action_required: executor unlock requires trusted local private stdin; never place unlock in model context".into());
+            }
+            let mut password = zeroize::Zeroizing::new(Vec::new());
+            std::io::stdin()
+                .take(1025)
+                .read_to_end(&mut password)
+                .map_err(|_| "executor private unlock unavailable")?;
+            if !(12..=1024).contains(&password.len()) {
+                return Err("executor private unlock requires 12 to 1024 bytes".into());
+            }
+            Client::open_authenticated(Path::new(&args[1]), &password)?
+        }
+        #[cfg(not(unix))]
+        {
+            return Err("protected executor gateway unavailable on this platform".into());
+        }
+    } else {
+        Client::open(Path::new(&args[1]))?
+    };
     match command.as_str() {
         "describe" => print(
             &client

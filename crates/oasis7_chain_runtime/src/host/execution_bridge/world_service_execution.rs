@@ -75,6 +75,15 @@ pub(super) fn apply_intents(
         let mut runtime_action_id = None;
         let mut rejected_cognition = None;
         let applied = match request.signed_payload.clone() {
+            WorldServicePayloadV1::GameStarterClaim(signed)=>{
+                let binding=candidate.current_cognition_runtime_binding().map_err(|e|format!("{e:?}"))?;
+                candidate.apply_game_starter_claim(&signed,&binding.branch_id,binding.reorg_epoch).map(|(receipt,id)|{runtime_action_id=id;receipt})
+            }
+            WorldServicePayloadV1::GameParticipantRegister { owner, admission } => {
+                let binding = candidate.current_cognition_runtime_binding().map_err(|e| format!("{e:?}"))?;
+                candidate.apply_participant_registration(&owner, &admission, &binding.branch_id, binding.reorg_epoch)
+                    .and_then(|receipt| serde_json::to_value(receipt).map_err(|e| e.to_string()))
+            }
             WorldServicePayloadV1::GameExecutorControl(_) => {
                 oasis7::world_service::game_task::prepare_executor_control(
                     &candidate,

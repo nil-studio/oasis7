@@ -203,6 +203,7 @@ fn world_cookie_adapter_protocol_child() {
         },
         sqlite_path: temp.join("identity.sqlite"),
         registration_enabled: true,
+        machine_registration_enabled: false,
         session_key: [9; 32],
         world_scope: "scope".into(),
         runtime_live_bind: addr,

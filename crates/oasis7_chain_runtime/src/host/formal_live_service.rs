@@ -901,6 +901,10 @@ impl FormalLiveService {
         }
         validate_payload(&cut.world, &request.signed_payload)
             .map_err(|error| (400, "invalid_payload", error))?;
+        if let WorldServicePayloadV1::GameParticipantRegister {owner,admission}=&request.signed_payload {
+            let binding=cut.world.current_cognition_runtime_binding().map_err(|e|(400,"invalid_payload",format!("{e:?}")))?;
+            oasis7_runtime::service_admission::participant::validate_registration(&cut.world,owner,admission,&binding.branch_id,binding.reorg_epoch).map_err(|e|(400,"invalid_payload",e))?;
+        }
         let key_digest = correlation::key_digest(&request.correlation.key)
             .map_err(|error| (400, "invalid_payload", error))?;
         let digest = blake3::hash(key_digest.as_bytes());
@@ -1029,6 +1033,14 @@ impl FormalLiveService {
 
 fn validate_payload(world: &World, payload: &WorldServicePayloadV1) -> Result<(), String> {
     match payload {
+        WorldServicePayloadV1::GameStarterClaim(signed)=>{
+            let binding=world.current_cognition_runtime_binding().map_err(|e|format!("{e:?}"))?;
+            oasis7_runtime::service_admission::starter::validate_owner(world,signed,&binding.branch_id,binding.reorg_epoch)
+        }
+        WorldServicePayloadV1::GameParticipantRegister {owner,admission} => {
+            let binding=world.current_cognition_runtime_binding().map_err(|e|format!("{e:?}"))?;
+            oasis7_runtime::service_admission::participant::validate_admission(world,owner,admission,&binding.branch_id,binding.reorg_epoch)
+        }
         WorldServicePayloadV1::GameTaskCreate(signed) => game_task::validate_owner(world, signed),
         WorldServicePayloadV1::GameGoalPublish(signed) => {
             game_task::validate_publish_owner(world, signed)

@@ -13,6 +13,8 @@
 //! durable operation admission are not implemented by this module. In
 //! particular, an operation status is a wire value, never a finality proof.
 
+mod participant;
+pub use participant::*;
 mod executor;
 mod goal;
 mod goal_prepare;
@@ -152,3 +154,6 @@ impl ActionSubmissionV1 {
         Ok(())
     }
 }
+
+mod starter;
+pub use starter::*;

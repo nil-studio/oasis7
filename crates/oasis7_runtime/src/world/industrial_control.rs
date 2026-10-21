@@ -19,6 +19,29 @@ impl World {
     /// Native grants bind the current credential generation as well as the
     /// immutable economic claim source. Reauthentication cannot revive a grant.
     pub fn current_agent_owner(&self, agent: &str) -> Option<ResolvedAgentOwnerV1> {
+        let participant = self.capability_revocation_state.participants.bindings.values()
+            .find(|receipt| receipt.agent_id == agent);
+        if let Some(receipt) = participant {
+            let policy=self.capability_revocation_state.participants.policy.as_ref()?;
+            let identity=self.current_agent_identity(agent)?;
+            if !self.state.agents.contains_key(agent) || self.state.is_manufactured_agent(agent)
+                || receipt.world_id != self.chain_resource_manifest.world_id
+                || self.chain_resource_manifest.genesis_ref.as_ref() != Some(&receipt.genesis_digest)
+                || !receipt.identity_namespace.same_authority(&policy.identity_namespace)
+                || !crate::service_admission::participant::namespace_was_authorized(self,&receipt.identity_namespace)
+                || identity.owner_binding != receipt.owner_binding || identity.generation != receipt.owner_generation.0
+                || self.state.agent_claims.get(agent).is_some_and(|claim| claim.claim_owner_id != agent || claim.control_source.is_some()) {
+                return None;
+            }
+            if let Some(starter)=self.state.starter_oc_claims.get(agent)
+                && (starter.agent_id != agent || starter.player_id != receipt.owner_binding
+                    || starter.public_key.as_ref() != Some(&receipt.owner_public_key)) {
+                return None;
+            }
+            return Some(ResolvedAgentOwnerV1 {primary_agent_id:agent.into(),player_id:receipt.owner_binding.clone(),
+                public_key:Some(receipt.owner_public_key.clone()),source_id:format!("participant:{}",receipt.business_digest),
+                generation:identity.generation});
+        }
         let mut owner = self.state.resolved_agent_owner(agent)?;
         if !self.state.is_manufactured_agent(agent) {
             return Some(owner);

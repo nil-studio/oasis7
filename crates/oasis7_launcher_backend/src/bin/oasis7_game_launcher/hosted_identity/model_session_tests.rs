@@ -25,6 +25,7 @@ fn service(config: IdentityConfig) -> IdentityService {
     .unwrap();
     let email = EmailAdapter::from_env(&config.session_key).unwrap();
     IdentityService {
+        participant_entry: None,
         config,
         store,
         webauthn,
@@ -48,6 +49,7 @@ pub(crate) fn fixture() -> Fixture {
         },
         sqlite_path: path.join("identity.sqlite"),
         registration_enabled: false,
+        machine_registration_enabled: false,
         session_key: [19; 32],
         world_scope: "test-world".into(),
         runtime_live_bind: String::new(),

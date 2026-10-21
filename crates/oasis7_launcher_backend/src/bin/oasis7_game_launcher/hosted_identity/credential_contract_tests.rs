@@ -18,6 +18,7 @@ fn fixture() -> (IdentityService, String) {
         tablestore: None,
         trusted_proxy_loopback: false,
         registration_enabled: true,
+        machine_registration_enabled: false,
         session_key: [71; 32],
         world_scope: "test".into(),
         runtime_live_bind: "127.0.0.1:5023".into(),

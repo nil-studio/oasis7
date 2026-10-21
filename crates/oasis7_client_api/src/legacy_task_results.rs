@@ -86,6 +86,78 @@ pub fn publish_receipt(
     })
 }
 pub fn validate_result(result: &CanonicalIntentResultV1) -> Result<(), String> {
+    if let WorldServicePayloadV1::GameStarterClaim(signed) = &result.request.signed_payload {
+        if result.rejected.is_some() {
+            if !result.receipt.is_null() {
+                return Err("rejected starter action has success receipt".into());
+            }
+        } else {
+            let claim = result
+                .receipt
+                .get("claim")
+                .ok_or("starter result missing actual claim")?;
+            if claim.get("agent_id").and_then(serde_json::Value::as_str)
+                != Some(signed.request.agent_id.as_str())
+                || claim.get("player_id").and_then(serde_json::Value::as_str)
+                    != Some(signed.request.owner_binding.as_str())
+                || claim.get("public_key").and_then(serde_json::Value::as_str)
+                    != Some(signed.subject_public_key.as_str())
+                || claim
+                    .get("amount")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_none_or(|amount| amount == 0)
+            {
+                return Err("starter result scope invalid".into());
+            }
+        }
+    }
+    if let WorldServicePayloadV1::GameParticipantRegister { owner, .. } =
+        &result.request.signed_payload
+    {
+        if result.rejected.is_some() {
+            if !result.receipt.is_null() {
+                return Err("rejected participant operation has success receipt".into());
+            }
+        } else {
+            let receipt: oasis7_agent_api::game::GameParticipantReceiptV1 =
+                serde_json::from_value(result.receipt.clone()).map_err(|e| e.to_string())?;
+            let r = &owner.request;
+            let account = crate::world_service::request_digest(
+                "participant-account-world",
+                &(
+                    &r.identity_namespace.service_id,
+                    &r.identity_namespace.environment_id,
+                    &r.account_id,
+                    &r.world_id,
+                    &r.genesis_digest,
+                ),
+            )?;
+            let agent = format!(
+                "participant:{}",
+                account.strip_prefix("blake3:").unwrap_or(&account)
+            );
+            if receipt.api_rev != 1
+                || !receipt
+                    .identity_namespace
+                    .same_authority(&r.identity_namespace)
+                || receipt.account_id != r.account_id
+                || receipt.world_id != r.world_id
+                || receipt.genesis_digest != r.genesis_digest
+                || receipt.owner_public_key != r.owner_public_key
+                || receipt.owner_generation.0 == 0
+                || receipt.owner_binding.is_empty()
+                || receipt.agent_id.is_empty()
+                || (!receipt.imported
+                    && (receipt.owner_generation.0 != 1
+                        || receipt.owner_binding != account
+                        || receipt.agent_id != agent))
+                || receipt.client_operation_id.is_empty()
+                || receipt.business_digest.is_empty()
+            {
+                return Err("participant receipt scope invalid".into());
+            }
+        }
+    }
     let expected = match &result.request.signed_payload {
         WorldServicePayloadV1::GameTaskCreate(_) => Some(
             serde_json::to_value(create_control(&result.request)?).map_err(|e| e.to_string())?,

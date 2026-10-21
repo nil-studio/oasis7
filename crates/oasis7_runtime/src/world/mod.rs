@@ -200,7 +200,6 @@ pub use transition::{
     TransitionKernelView, TransitionPrepareError, TransitionRollbackError, TransitionSavepoint,
 };
 
-use super::CrisisStatus;
 use super::capability_authorization::{
     CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationNonceRecord,
     CapabilityBudgetAccount, CapabilityEffectReceiptLink, CapabilityInvocationContext,
@@ -1033,36 +1032,6 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn prepare_threat_heatmap(&self) -> BTreeMap<String, i64> {
-        let mut next = BTreeMap::new();
-        for war in self.state.wars.values() {
-            if !war.active {
-                continue;
-            }
-            let war_risk = (war.intensity as i64).saturating_mul(10).max(10);
-            *next
-                .entry(format!("alliance:{}", war.aggressor_alliance_id))
-                .or_insert(0) += war_risk;
-            *next
-                .entry(format!("alliance:{}", war.defender_alliance_id))
-                .or_insert(0) += war_risk;
-            *next.entry("global:war".to_string()).or_insert(0) += war_risk;
-        }
-        for crisis in self.state.crises.values() {
-            if !matches!(crisis.status, CrisisStatus::Active) {
-                continue;
-            }
-            let crisis_risk = (crisis.severity as i64).saturating_mul(12).max(12);
-            *next.entry(format!("crisis:{}", crisis.kind)).or_insert(0) += crisis_risk;
-            *next.entry("global:crisis".to_string()).or_insert(0) += crisis_risk;
-        }
-        next
-    }
-
-    pub(super) fn refresh_threat_heatmap(&mut self) {
-        self.threat_heatmap = self.prepare_threat_heatmap();
-    }
-
     pub(super) fn enforce_pending_effect_limit(&mut self) {
         let max_len = self.runtime_memory_limits.max_pending_effects.max(1);
         while self.pending_effects.len() > max_len {
@@ -1157,3 +1126,15 @@ pub use industrial_control::ResolvedAgentOwnerV1;
 
 mod industrial_completion;
 pub mod safe_alternative;
+
+mod participant;
+
+#[cfg(test)]
+mod participant_tests;
+
+mod participant_policy;
+
+mod game_starter;
+
+#[cfg(test)]
+mod game_starter_tests;

@@ -8,6 +8,9 @@
 //! not signed by wrapping a payload, and cannot grant new retry or world authority.
 
 use serde::{Deserialize, Serialize};
+pub mod entry_control;
+pub mod entry_executor;
+pub mod participant_discovery;
 
 pub const WORLD_SERVICE_CONTRACT_VERSION: u32 = 1;
 
@@ -548,7 +551,7 @@ pub const VIEW_PATH: &str = "/v1/world/view";
 pub const CHANGES_PATH: &str = "/v1/world/changes";
 
 /// The signature binds the operation domain and every request field.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedReadRequest<T> {
     pub request: T,
     pub subject_public_key: String,

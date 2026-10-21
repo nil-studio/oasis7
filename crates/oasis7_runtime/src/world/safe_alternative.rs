@@ -371,8 +371,7 @@ impl World {
             .current_cognition_runtime_binding()
             .map_err(|_| "authority_changed")?;
         let owner = self
-            .state
-            .resolved_agent_owner(&c.agent_id)
+            .current_agent_owner(&c.agent_id)
             .ok_or("authority_changed")?;
         if !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty() {
             return Err("evaluation_unavailable".into());

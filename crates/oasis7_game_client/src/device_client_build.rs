@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(test)]
 use oasis7_client_api::world_service as authority;
 use oasis7_client_api::world_service::task_factory_quote::{
     TASK_FACTORY_QUOTE_PATH, TaskFactoryQuoteDeniedV1, TaskFactoryQuoteRequestV1,
@@ -61,24 +62,24 @@ impl Client {
         factory: &str,
         kind: &str,
     ) -> Result<TaskFactoryQuoteResponseV1, crate::WorldServiceClientError> {
-        let request = authority::sign_read_request(
-            TASK_FACTORY_QUOTE_PATH,
-            TaskFactoryQuoteRequestV1 {
-                schema_revision: 1,
-                context_proof: self
-                    .context_read_proof(operation)
-                    .map_err(crate::WorldServiceClientError::Configuration)?,
-                expected_base_binding: captured
-                    .current_public_context
-                    .captured_base_binding
-                    .clone(),
-                site_id: site.to_owned(),
-                factory_id: factory.to_owned(),
-                factory_kind: kind.to_owned(),
-            },
-            &self.key_hex,
-        )
-        .map_err(crate::WorldServiceClientError::Configuration)?;
+        let request = self
+            .sign(
+                TASK_FACTORY_QUOTE_PATH,
+                TaskFactoryQuoteRequestV1 {
+                    schema_revision: 1,
+                    context_proof: self
+                        .context_read_proof(operation)
+                        .map_err(crate::WorldServiceClientError::Configuration)?,
+                    expected_base_binding: captured
+                        .current_public_context
+                        .captured_base_binding
+                        .clone(),
+                    site_id: site.to_owned(),
+                    factory_id: factory.to_owned(),
+                    factory_kind: kind.to_owned(),
+                },
+            )
+            .map_err(crate::WorldServiceClientError::Configuration)?;
         let quoted = self.remote.quote_task_factory_outcome(&request)?;
         if let TaskFactoryQuoteResponseV1::Quote(quote) = &quoted {
             quote
@@ -116,10 +117,9 @@ impl Client {
         }
         captured.current_public_context = quoted.current_public_context;
         self.ensure_quote_has_no_write(operation)?;
-        let signed = authority::sign_read_request(
+        let signed = self.sign(
             "cognition",
             cognition_intent(&captured, quoted.quote.action)?,
-            &self.key_hex,
         )?;
         self.ensure_quote_has_no_write(operation)?;
         let original = self.cache_intent(

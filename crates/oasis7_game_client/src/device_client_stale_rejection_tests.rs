@@ -111,6 +111,8 @@ fn check(
         agent: "a".into(),
         public_key: public,
         key_hex: hex::encode([7; 32]).into(),
+        #[cfg(unix)]
+        gateway: None,
         state: crate::operation_store::OperationStore::open(&root, [13; 32]).unwrap(),
     };
     let control = control();

@@ -50,6 +50,8 @@ fn persisted_acceptance_retains_original_ack_across_restart_and_identity_conflic
         agent: "a".into(),
         public_key: public.clone(),
         key_hex: key.clone().into(),
+        #[cfg(unix)]
+        gateway: None,
         state: OperationStore::open(&root, [19; 32]).unwrap(),
     };
     let digest = format!("blake3:{}", "2".repeat(64));

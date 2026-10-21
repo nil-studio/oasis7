@@ -24,6 +24,15 @@ fn ordinary(scope: Option<&str>) -> Result<(), Error> {
     Ok(())
 }
 impl WorldServiceTaskClient {
+    #[cfg(unix)]
+    pub fn new_authenticated(
+        config: WorldServiceClientConfig,
+        gateway: std::sync::Arc<crate::executor_gateway::ExecutorGatewayContext>,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            transport: WorldServiceTransport::new_authenticated(config, gateway)?,
+        })
+    }
     pub fn new(config: WorldServiceClientConfig) -> Result<Self, Error> {
         Ok(Self {
             transport: WorldServiceTransport::new(config)?,
@@ -40,7 +49,7 @@ impl WorldServiceTaskClient {
         self.transport.config()
     }
     pub fn read_authority_identity(&self) -> Result<String, String> {
-        self.config().read_authority_identity()
+        self.transport.read_authority_identity()
     }
     /// Read the explicit normalized JSON profile. This service assertion never
     /// supplies independent consensus or task admission proof.

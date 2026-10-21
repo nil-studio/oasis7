@@ -315,7 +315,9 @@ impl World {
                 self.prepare_governance_registry_event(event)?,
             )),
             WorldEventBody::CapabilityAuthorization(
-                event @ (CapabilityAuthorizationEvent::AuthorityInstalledWithProof { .. }
+                event @ (CapabilityAuthorizationEvent::ParticipantPolicyInstalled { .. }
+                | CapabilityAuthorizationEvent::ParticipantRegistered { .. }
+                | CapabilityAuthorizationEvent::AuthorityInstalledWithProof { .. }
                 | CapabilityAuthorizationEvent::AgentIdentityInstalled { .. }
                 | CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { .. }
                 | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }

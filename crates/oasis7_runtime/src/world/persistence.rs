@@ -828,7 +828,11 @@ impl World {
         for (key, result) in &world.capability_revocation_state.world_service_results {
             crate::service_admission::correlation::validate_result(key, result)
                 .map_err(|reason| super::capability_authorization::deny(&reason))?;
+            super::participant::validate_service_receipt(&world.capability_revocation_state,result)?;
+            crate::service_admission::starter::validate_result(&world,result).map_err(|reason|super::capability_authorization::deny(&reason))?;
         }
+        crate::service_admission::participant::validate_registry(&world)
+            .map_err(|reason| super::capability_authorization::deny(&reason))?;
         world.capability_nonce_records = snapshot.capability_nonce_records;
         world.capability_authorization_receipts = snapshot.capability_authorization_receipts;
         world.capability_invocation_contexts = snapshot.capability_invocation_contexts;
@@ -900,6 +904,7 @@ impl World {
                 .attach_verified_formal_history(parent, reader)
                 .map_err(|reason| WorldError::DistributedValidationFailed { reason })?;
         }
+        world.validate_participant_policy_history()?;
         crate::service_admission::game_task::validate_history(&world)
             .map_err(|reason| super::capability_authorization::deny(&reason))?;
         if observer {
@@ -924,6 +929,8 @@ impl World {
                 // or already-consumed task predecessor. Validate the replayed
                 // chain before publishing the recovered world or trimming its
                 // journal. With no tail, the pre-replay history is unchanged.
+                world.validate_participant_policy_history()?;
+                crate::service_admission::participant::validate_registry(&world).map_err(|reason| super::capability_authorization::deny(&reason))?;
                 crate::service_admission::game_task::validate_history(&world)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
             }

@@ -152,6 +152,8 @@ impl Probe {
                 .unwrap()
                 .subject_public_key,
             key_hex: Zeroizing::new(hex::encode([7; 32])),
+            #[cfg(unix)]
+            gateway: None,
             remote: crate::WorldServiceTaskClient::new(config).unwrap(),
             state: crate::operation_store::OperationStore::open(&root, [7; 32]).unwrap(),
         };
@@ -365,6 +367,8 @@ fn restarted_cached_original_retries_transient_queries_without_submit_or_new_ide
             agent: probe.client.agent.clone(),
             public_key: probe.client.public_key.clone(),
             key_hex: probe.client.key_hex.clone(),
+            #[cfg(unix)]
+            gateway: None,
             state: crate::operation_store::OperationStore::open(&probe.root, [7; 32]).unwrap(),
         };
         let original = restarted

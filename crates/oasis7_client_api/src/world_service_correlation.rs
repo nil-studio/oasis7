@@ -25,6 +25,76 @@ pub fn derive_correlation_with_legacy<
         &WorldServicePayloadProfileV1<C, P, L, CP, ST, R, D, X>,
     ) -> Result<LegacyIdentity, String>,
 ) -> Result<RequestCorrelation, String> {
+    if let WorldServicePayloadV1::GameStarterClaim(signed) = payload {
+        use oasis7_agent_api::game::GAME_STARTER_CLAIM_DOMAIN;
+        signed.request.validate()?;
+        verify_owner_signature_strict(
+            GAME_STARTER_CLAIM_DOMAIN,
+            &signed.request,
+            &signed.subject_public_key,
+            &signed.signature_hex,
+        )?;
+        if signed.request.world_id != world.world_id
+            || signed.request.genesis_digest != world.genesis_digest
+        {
+            return Err("starter world identity mismatch".into());
+        }
+        let correlation = RequestCorrelation {
+            key: RequestKey {
+                world,
+                verified_subject: signed.subject_public_key.clone(),
+                operation_domain: GAME_STARTER_CLAIM_DOMAIN.into(),
+                nonce_scope: format!("agent:{}", signed.request.agent_id),
+                request_id_or_nonce: signed.request.client_operation_id.clone(),
+            },
+            payload_digest: request_digest("intent", payload)?,
+        };
+        correlation.validate().map_err(|e| e.to_string())?;
+        return Ok(correlation);
+    }
+    if let WorldServicePayloadV1::GameParticipantRegister { owner, admission } = payload {
+        use oasis7_agent_api::game::*;
+        owner.request.validate()?;
+        if owner.subject_public_key != owner.request.owner_public_key {
+            return Err("participant owner signature mismatch".into());
+        }
+        verify_owner_signature_strict(
+            GAME_PARTICIPANT_REGISTER_DOMAIN,
+            &owner.request,
+            &owner.subject_public_key,
+            &owner.signature_hex,
+        )?;
+        verify_owner_signature_strict(
+            GAME_PARTICIPANT_ADMISSION_DOMAIN,
+            &admission.request,
+            &admission.subject_public_key,
+            &admission.signature_hex,
+        )?;
+        if owner.request.world_id != world.world_id
+            || owner.request.genesis_digest != world.genesis_digest
+        {
+            return Err("participant world identity mismatch".into());
+        }
+        let correlation = RequestCorrelation {
+            key: RequestKey {
+                world,
+                verified_subject: owner.subject_public_key.clone(),
+                operation_domain: GAME_PARTICIPANT_REGISTER_DOMAIN.into(),
+                nonce_scope: request_digest(
+                    "participant-account",
+                    &(
+                        &owner.request.identity_namespace.service_id,
+                        &owner.request.identity_namespace.environment_id,
+                        &owner.request.account_id,
+                    ),
+                )?,
+                request_id_or_nonce: owner.request.client_operation_id.clone(),
+            },
+            payload_digest: participant_business_digest(&owner.request)?,
+        };
+        correlation.validate().map_err(|e| e.to_string())?;
+        return Ok(correlation);
+    }
     if let WorldServicePayloadV1::SafeAlternative(signed) = payload {
         signed.request.validate()?;
         verify_owner_signature_strict(
@@ -137,7 +207,9 @@ pub fn derive_correlation_with_legacy<
         return Ok(correlation);
     }
     let (subject, domain, scope, id) = match payload {
-        WorldServicePayloadV1::SafeAlternative(_)
+        WorldServicePayloadV1::GameStarterClaim(_)
+        | WorldServicePayloadV1::GameParticipantRegister { .. }
+        | WorldServicePayloadV1::SafeAlternative(_)
         | WorldServicePayloadV1::GameTaskCreate(_)
         | WorldServicePayloadV1::GameGoalPublish(_)
         | WorldServicePayloadV1::GameExecutorControl(_) => {
@@ -274,4 +346,91 @@ pub fn derive_correlation(
     derive_correlation_with_legacy(world, payload, |_| {
         Err("unsupported native browser payload".into())
     })
+}
+
+/// Renewable admission proofs do not change the original business identity.
+pub fn participant_business_digest(
+    request: &oasis7_agent_api::game::GameParticipantRegisterV1,
+) -> Result<String, String> {
+    request_digest(
+        oasis7_agent_api::game::GAME_PARTICIPANT_REGISTER_DOMAIN,
+        request,
+    )
+}
+
+#[cfg(test)]
+mod participant_tests {
+    use super::*;
+    use oasis7_agent_api::game::*;
+    #[test]
+    fn participant_grant_refresh_preserves_business_correlation_and_signature_tampering_fails() {
+        let key = hex::encode([72; 32]);
+        let public = sign_read_request("fixture", (), &key)
+            .unwrap()
+            .subject_public_key;
+        let r = GameParticipantRegisterV1 {
+            api_rev: 1,
+            client_operation_id: "original".into(),
+            identity_namespace: GameIdentityNamespaceV1 {
+                service_id: "identity".into(),
+                environment_id: "private".into(),
+                instance_epoch: DecimalU64(1),
+            },
+            account_id: "account".into(),
+            world_id: "world".into(),
+            genesis_digest: "genesis".into(),
+            owner_public_key: public,
+            owner_key_version: DecimalU64(1),
+        };
+        let owner = sign_read_request(GAME_PARTICIPANT_REGISTER_DOMAIN, r.clone(), &key).unwrap();
+        let a = GameParticipantAdmissionV1 {
+            api_rev: 1,
+            business_digest: participant_business_digest(&r).unwrap(),
+            identity_namespace: r.identity_namespace.clone(),
+            account_id: r.account_id.clone(),
+            world_id: r.world_id.clone(),
+            genesis_digest: r.genesis_digest.clone(),
+            owner_public_key: r.owner_public_key.clone(),
+            branch_id: "main".into(),
+            reorg_epoch: DecimalU64(0),
+            policy_generation: DecimalU64(1),
+            valid_from_tick: DecimalU64(0),
+            valid_until_tick: DecimalU64(16),
+        };
+        let admission = sign_read_request(
+            GAME_PARTICIPANT_ADMISSION_DOMAIN,
+            a.clone(),
+            &hex::encode([71; 32]),
+        )
+        .unwrap();
+        let original: WorldServicePayloadV1 = WorldServicePayloadV1::GameParticipantRegister {
+            owner: owner.clone(),
+            admission,
+        };
+        let mut fresh = a;
+        fresh.valid_from_tick = DecimalU64(10);
+        fresh.valid_until_tick = DecimalU64(26);
+        let fresh: WorldServicePayloadV1 = WorldServicePayloadV1::GameParticipantRegister {
+            owner,
+            admission: sign_read_request(
+                GAME_PARTICIPANT_ADMISSION_DOMAIN,
+                fresh,
+                &hex::encode([71; 32]),
+            )
+            .unwrap(),
+        };
+        let world = WorldIdentity {
+            world_id: r.world_id,
+            genesis_digest: r.genesis_digest,
+        };
+        assert_eq!(
+            derive_correlation(world.clone(), &original).unwrap(),
+            derive_correlation(world.clone(), &fresh).unwrap()
+        );
+        let mut changed = original;
+        if let WorldServicePayloadV1::GameParticipantRegister { owner, .. } = &mut changed {
+            owner.request.account_id = "other".into();
+        }
+        assert!(derive_correlation(world, &changed).is_err());
+    }
 }

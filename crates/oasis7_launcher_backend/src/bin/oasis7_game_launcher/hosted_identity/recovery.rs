@@ -1115,6 +1115,7 @@ mod tests {
             sqlite_path: std::env::temp_dir()
                 .join(format!("oasis7-recovery-{}.sqlite", uuid::Uuid::new_v4())),
             registration_enabled: false,
+            machine_registration_enabled: false,
             session_key: [7; 32],
             world_scope: "world:test".into(),
             runtime_live_bind: "127.0.0.1:5023".into(),

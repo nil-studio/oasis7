@@ -3,6 +3,14 @@ use oasis7_client_api::world_service::{self as authority, *};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{io::Read, time::Duration};
 mod cooldown;
+#[cfg(unix)]
+pub mod executor_gateway;
+#[cfg(unix)]
+mod identity_cli;
+#[cfg(unix)]
+pub mod identity_client;
+#[cfg(unix)]
+mod participant_cli;
 pub use cooldown::WorldServiceQueryState;
 #[derive(Clone)]
 pub struct WorldServiceClientConfig {
@@ -90,9 +98,34 @@ pub struct WorldServiceTransport {
     config: WorldServiceClientConfig,
     http: reqwest::blocking::Client,
     query_state: WorldServiceQueryState,
+    #[cfg(unix)]
+    executor_gateway: Option<std::sync::Arc<executor_gateway::ExecutorGatewayContext>>,
 }
 impl WorldServiceTransport {
     pub fn new(config: WorldServiceClientConfig) -> Result<Self, WorldServiceClientError> {
+        #[cfg(unix)]
+        {
+            Self::build(config, None)
+        }
+        #[cfg(not(unix))]
+        {
+            Self::build(config)
+        }
+    }
+    #[cfg(unix)]
+    pub fn new_authenticated(
+        config: WorldServiceClientConfig,
+        gateway: std::sync::Arc<executor_gateway::ExecutorGatewayContext>,
+    ) -> Result<Self, WorldServiceClientError> {
+        gateway.validate_config(&config)?;
+        Self::build(config, Some(gateway))
+    }
+    fn build(
+        config: WorldServiceClientConfig,
+        #[cfg(unix)] executor_gateway: Option<
+            std::sync::Arc<executor_gateway::ExecutorGatewayContext>,
+        >,
+    ) -> Result<Self, WorldServiceClientError> {
         config
             .expected_world
             .validate()
@@ -114,10 +147,17 @@ impl WorldServiceTransport {
             ));
         }
         // Decode and validate configured trust/signer before any request.
-        let proof = authority::sign_read_request(DESCRIBE_PATH, (), &config.read_private_key_hex)
-            .map_err(WorldServiceClientError::Configuration)?;
-        authority::verify_read_request(DESCRIBE_PATH, &proof)
-            .map_err(WorldServiceClientError::Configuration)?;
+        #[cfg(unix)]
+        let local_signer = executor_gateway.is_none();
+        #[cfg(not(unix))]
+        let local_signer = true;
+        if local_signer {
+            let proof =
+                authority::sign_read_request(DESCRIBE_PATH, (), &config.read_private_key_hex)
+                    .map_err(WorldServiceClientError::Configuration)?;
+            authority::verify_read_request(DESCRIBE_PATH, &proof)
+                .map_err(WorldServiceClientError::Configuration)?;
+        }
         if hex::decode(&config.trusted_service_public_key).map_or(true, |key| key.len() != 32) {
             return Err(WorldServiceClientError::Configuration(
                 "invalid service trust key".into(),
@@ -132,6 +172,8 @@ impl WorldServiceTransport {
             config,
             http,
             query_state: WorldServiceQueryState::default(),
+            #[cfg(unix)]
+            executor_gateway,
         })
     }
     pub fn with_query_state(mut self, state: WorldServiceQueryState) -> Self {
@@ -140,6 +182,13 @@ impl WorldServiceTransport {
     }
     pub fn config(&self) -> &WorldServiceClientConfig {
         &self.config
+    }
+    pub fn read_authority_identity(&self) -> Result<String, String> {
+        #[cfg(unix)]
+        if let Some(gateway) = &self.executor_gateway {
+            return Ok(gateway.authority_identity());
+        }
+        self.config.read_authority_identity()
     }
     pub fn private_connection(&self) -> Result<reqwest::blocking::Client, WorldServiceClientError> {
         let endpoint = reqwest::Url::parse(&self.config.endpoint).map_err(|_| {
@@ -206,6 +255,15 @@ impl WorldServiceTransport {
         request: &Q,
         maximum: usize,
     ) -> Result<zeroize::Zeroizing<Vec<u8>>, WorldServiceClientError> {
+        #[cfg(unix)]
+        if let Some(gateway) = &self.executor_gateway {
+            self.query_state.check()?;
+            return gateway.response_bytes(
+                path,
+                request,
+                self.config.max_response_bytes.min(maximum),
+            );
+        }
         let http = self.private_connection()?;
         self.query_state.check()?;
         let mut response = http
@@ -266,6 +324,11 @@ impl WorldServiceTransport {
         request: &Q,
         maximum: usize,
     ) -> Result<SignedServiceResponse<R>, WorldServiceClientError> {
+        #[cfg(unix)]
+        if let Some(gateway) = &self.executor_gateway {
+            self.query_state.check()?;
+            return gateway.call(path, request, self.config.max_response_bytes.min(maximum));
+        }
         let bound = self
             .config
             .max_response_bytes
@@ -309,6 +372,12 @@ impl WorldServiceTransport {
     ) -> Result<R, WorldServiceClientError> {
         if path != SUBMIT_PATH {
             self.query_state.check()?;
+        }
+        #[cfg(unix)]
+        if let Some(gateway) = &self.executor_gateway {
+            let signed: SignedServiceResponse<R> =
+                gateway.call(path, request, self.config.max_response_bytes)?;
+            return Ok(signed.payload);
         }
         let digest =
             authority::request_digest(path, request).map_err(WorldServiceClientError::Assurance)?;
@@ -387,6 +456,11 @@ impl WorldServiceTransport {
         path: &str,
         request: Q,
     ) -> Result<R, WorldServiceClientError> {
+        #[cfg(unix)]
+        if let Some(gateway) = &self.executor_gateway {
+            let signed = gateway.sign_read(path, request)?;
+            return self.call(path, &signed);
+        }
         let signed = authority::sign_read_request(path, request, &self.config.read_private_key_hex)
             .map_err(WorldServiceClientError::Assurance)?;
         self.call(path, &signed)
@@ -478,3 +552,7 @@ pub mod read_projection;
 pub mod task_original_view;
 
 pub mod legacy_profile;
+#[cfg(unix)]
+pub mod runtime_broker;
+#[cfg(unix)]
+mod runtime_broker_cli;

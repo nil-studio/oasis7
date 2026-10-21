@@ -85,6 +85,20 @@ pub struct ModuleRuntimeChargeEvent {
 )]
 #[serde(tag = "type", content = "data")]
 pub enum CapabilityAuthorizationEvent {
+    ParticipantPolicyInstalled {
+        policy: crate::service_admission::participant::ParticipantEntryPolicyV1,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proof: Option<crate::service_admission::participant_policy::ParticipantPolicyProofV1>,
+    },
+    ParticipantRegistered {
+        owner: crate::service_admission::SignedReadRequest<
+            oasis7_agent_api::game::GameParticipantRegisterV1,
+        >,
+        admission: crate::service_admission::SignedReadRequest<
+            oasis7_agent_api::game::GameParticipantAdmissionV1,
+        >,
+        receipt: oasis7_agent_api::game::GameParticipantReceiptV1,
+    },
     /// Legacy record-only authority admission. Recovery intentionally rejects
     /// this shape because it has no replayable finality evidence.
     AuthorityInstalled {

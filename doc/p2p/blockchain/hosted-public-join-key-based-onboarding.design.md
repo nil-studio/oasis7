@@ -66,6 +66,7 @@ P1 增加原生 Ed25519 **登录**密钥及项目定义的加密备份格式；�
 ### 2.1 需求承接与分配表
 | 上游需求 | 具体义务与适用条件 | 本设计条款 | 主责与依赖 | 未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) | 可信机器身份的首次注册、独立登录与原操作恢复；关闭新注册保留已有账号。 | [机器注册](#machine-registration) | identity / SDK；按[机器身份回归](#machine-registration-validation)验证 | 仅身份前置，不证明世界准入、逐账号 Agent/owner 或完整冷入场。 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | P0 在声明的 `viewer` 入口使用可发现凭证完成认证；通行密钥是本设计选用的协议，不改变产品的 primary mode。 | [条款](#webauthn) | identity / viewer / runtime | 不证明真实设备兼容、生产 custody 或公开放量。 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | 身份认证失败、中断或会话失效时提供真实恢复路径；稳定账号登录与重新认证不得恢复已失效 authority。 | [条款](#auth-flows) | identity / viewer / runtime | 不证明真实邮件送达、真实设备矩阵或 P1 原生密钥。 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | 撤销或凭证失效后，入口必须保持阻塞/恢复语义；凭证唯一归属和最后凭证保护属于实现该失败边界的专业规则。 | [条款](#credential-management) | identity / viewer / runtime | 不定义产品层的凭证存储 schema。 |
@@ -483,6 +484,7 @@ HostedAuthContextV2 {
 ### 11.1 验证映射表
 | 上游需求 | 本设计条款 | 独立义务与适用条件 | 准确验证方法 / test / manual source | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) | [机器注册](#machine-registration) | 双开关控制首次开户；原操作绑定、原子消费、受保护存储与独立登录。 | [机器注册回归](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/machine_registration_tests.rs)，canonical hosted_identity 测试过滤器；客户端与 CLI 另见 §17.6。 | 当前候选 PR 的冻结 HEAD 与测试记录。 | 不证明世界准入、逐账号 Agent/owner、公开 bootstrap 或 OpenClaw/Codex 冷入场。 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | [条款](#webauthn) | P0 可发现凭证仅作为声明 viewer 入口的认证方式。 | [验收手册](../../testing/manual/hosted-passkey-account.manual.md#contract-suite)；候选 hosted v2 / 隔离测试环境。 | 同候选测试记录 | 真实设备、真实云事务、性能与外部灾备须另验。 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [条款](#auth-flows) | 身份认证失败、中断或会话失效时须沿可解释恢复路径重新认证。 | [验收手册](../../testing/manual/hosted-passkey-account.manual.md#contract-suite)；候选 hosted v2 / 隔离测试环境。 | 同候选测试记录 | 真实设备、真实邮件送达、生产恢复服务须另验。 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [条款](#credential-management) | 撤销或凭证失效后保持 blocked/恢复语义，不复活旧认证 authority。 | [验收手册](../../testing/manual/hosted-passkey-account.manual.md#contract-suite)；候选 hosted v2 / 隔离测试环境。 | 同候选测试记录 | 真实设备、云事务与性能须另验。 |
@@ -734,7 +736,7 @@ signed_bytes = domain_separator
 
 服务器验证签名、公钥类型、服务域、环境、用途、目标、期限和原子 nonce 消费，再接入相同身份事务。原生持有证明不自带 WebAuthn 的浏览器来源保护，也不证明终端已做硬件用户验证；客户端必须验证 TLS/目标服务并展示操作，不把该方式标成与 Passkey 完全相同的抗钓鱼等级。
 
-共享字节编码入口为 `oasis7_agent_api::identity::NativeIdentityChallengeV1::signing_bytes`，现有身份服务复用它；`tests/fixtures/native_identity_v1.json` 由 Rust 合同测试与 Viewer 原生签名测试共同消费，覆盖用途和 UTF-8 字节长度。codec 只编码显式字段，不验证服务信任、账号上下文、期限、凭据有效性或原子消费，不是可直接调用的 signer。枚举预留的 `register` / `recovery_candidate` 不表示对应入口已启用；现有网页入口仍严格限于下节三种用途。机器注册、受保护客户端密钥及恢复编排仍待实现，不能凭 codec 将 discovery 标成可注册。
+共享字节编码入口为 `oasis7_agent_api::identity::NativeIdentityChallengeV1::signing_bytes`，现有身份服务复用它；`tests/fixtures/native_identity_v1.json` 由 Rust 合同测试与 Viewer 原生签名测试共同消费，覆盖用途和 UTF-8 字节长度。codec 只编码显式字段，不验证服务信任、账号上下文、期限、凭据有效性或原子消费，不是可直接调用的 signer。现有网页入口仍严格限于下节三种用途；机器注册按[独立事务入口](#machine-registration)的双开关发布实际能力，不能凭 codec 将 discovery 标成可注册或可完整入场。
 <a id="imported-key-web"></a>
 
 ### 15.2.1 网页会话内导入
@@ -750,6 +752,25 @@ Viewer 将密钥导入放入原生 `details` / `summary` 折叠区，默认关�
 挑战持久化保存 owner、namespace、RP version、用途、公钥、action 和签名字节；120 秒、最多 5 次失败。完成时重新检查 owner、namespace、RP version、账号/凭证/action 有效性与一次消费。绑定须现有敏感 `bind` action；reauth 只授权同账号同 session 的 pending action。登录/绑定共用来源及全局挑战配额。绑定唯一 lookup、凭证、账号 policy_version、action 消费、审计和 receipt 同事务；重试同 operation 返回已提交结果，不重新发行 session。登录复用 cookie/session/world 权限边界；`HostedAuthContextV2.auth_method=native_key` 仍仅允许原有 player_session/release 能力，不能升级到资产或 operator 权限。恢复完成时撤销全部旧公钥类型；原生凭证不能冒充 WebAuthn 恢复候选。
 
 部署先升级所有世界授权 verifier 以识别 `native_key`（仍只接受玩家会话能力），再升级身份服务和 Viewer 开放入口；旧 verifier 会安全拒绝该 auth_method。首次绑定后身份库存有新的 credential union 分支，旧身份 binary 不具备读取兼容性，不能原地降级或删除新凭证来回退。回退版本必须继续识别并服务已绑定导入凭证，备份/迁移仍按现有存储合同执行。
+
+<a id="machine-registration"></a>
+
+### 15.2.2 机器首次注册事务
+
+当前代码提供默认关闭的身份事务与原件恢复；它不交付世界首次绑定、公开游戏写入口或完整冷入场。
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接[合法冷入场](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018)。机器注册使用同一身份 authority 和 `NativeKey` 公钥类型，不新增世界角色或 executor 权限。新增 `/machine-registration/options` 与 `/machine-registration/complete`，仍由现有 HTTPS、Origin/CSRF/JSON、请求上限和事务存储保护。客户端先读取可信 `/capabilities`，保存 preauth cookie/CSRF 于受保护本地存储；它们不进入模型上下文。
+
+注册必须同时满足已有注册总开关及默认关闭的 `OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED=1`，两者在挑战创建和完成时均重验。配置缺失为关闭，非法值拒绝启动。关闭注册后，已有账号仍可经原 `native-key` 登录、撤销、恢复及查询原结果；网页 `import_only` 入口不接收 register intent。机器 profile 不绕过站点配额或额外人类确认，部署尚未批准时保持关闭。
+
+Unix SDK 的 `IdentityClient` 固定 HTTPS origin、identity service/environment 与 audience，禁用重定向和环境代理；每次响应最多 64 KiB。注册 options/complete 与登录 complete 原件先加密持久化再发送。登录回包丢失后重放原 complete 只对账；缺原 session cookie 时显示 `action_required/explicit_fresh_login`，由调用者显式启动新登录操作。历史进度不代替当前 session 验证。
+
+客户端在 options 前持久保存随机 32 字节 base64url `operation_id`、公钥和显示名；相同 preauth/operation/内容返回原挑战，异内容拒绝。options 分配原账号引用与一次性 nonce，使用 `purpose=register`、空 account_context 的共享 v1 codec。显示名保存在该不可变 operation 的服务端状态中，不由 complete 再提供。完成请求仅含原 operation/ceremony ID 和确切字节的签名；客户端在发送前持久保存原请求，不能超时后更换键或 nonce。
+
+账号、唯一公钥 lookup、凭据、挑战消费、配额、审计与永久原操作 receipt 在同一事务提交。注册仅返回账号及 receipt，不签发会话，也不进入世界；后续登录是独立用途的挑战。complete 原件重放只返回原 receipt，不重复建号或签发 session；原挑战到期不允许新提交，但已提交原件仍可恢复 receipt。原件丢失时使用受支持的新登录挑战查回同一公钥主体，不能删除或替换账号以绕过未知结果。永久公钥 lookup（包括撤销 tombstone）阻止并发、重启和历史请求重复创建主体。失败、耗尽、取消与 proof 过期也持续保留机器注册原 operation 的内容绑定，cleanup 不解除该身份。公开响应不能把此身份 receipt 表示为准入、owner、starter 或任务生效。
+
+Unix 密码解锁 profile 复用 `oasis7_secure_envelope` 的固定 Argon2id（64 MiB、3 次、1 lane）与 XChaCha20-Poly1305，使用独立 `login-identity-v1` kind。登录种子与随机 outbox 密钥只在加密 key envelope 内持久保存；请求原件按独立密钥、服务/操作/阶段 AAD 保护，不含长期私钥。目录/文件沿用无符号链接、当前用户所有、0700/0600、fsync 和不可变原件发布合同；缺失或损坏不自动换钥。解锁仅经可信本机控制面的私有 stdin/API；不从 argv/env/聊天获取，不把身份存储交给默认 executor 工具。不支持的平台拒绝打开，密码 profile 不声明硬件不可导出或 OS 凭据库验收。
+
 
 ### 15.3 项目登录身份备份格式
 采用项目专属 `oasis7-login-identity-backup` v1。备份不包含 node key、wallet seed 或资产 signer。推荐 Argon2id 派生加密 key、XChaCha20-Poly1305 做带附加数据的认证加密；两者能力分别参考 RFC 与 libsodium 官方文档。[W9][W10]
@@ -879,6 +900,15 @@ P0 放量必须同时满足全部 P0 AC、NFR 安全不变量、真实支持矩�
 测试报告须绑定候选提交、构建、模式 `viewer`、hosted deployment、存储后端、RP/环境、浏览器/认证器版本和证据窗口。文档链接、单元测试通过、虚拟认证器成功都不能证明生产 custody、多节点最终性或真人持续回访成立。
 
 本候选已运行身份契约、签名世界授权、loopback Tablestore 协议和 Chromium 虚拟认证器回归；这些证据不替代真实 SMTP/Tablestore、真实设备支持矩阵、性能及首次用户验收。新注册默认关闭，完整 P0 放量仍以本节验收为门禁。
+
+<a id="machine-registration-validation"></a>
+### 17.6 机器身份前置回归
+
+`hosted_identity::machine_registration` 覆盖双开关、独立存储连接的公钥竞争、原回执重放/重启、提交前关闭注册、错 owner/服务域/用途/期限、公钥冲突、HTTP Origin/CSRF 和失败/取消后清理不解除原 operation。现有 native-key 撤销、冻结和会话派生测试继续适用，机器注册不另建凭据权限类别。原生注册回执不包含会话，重新签发登录仍须独立用途的有效证明。
+
+`oasis7_game_client::identity_client` 覆盖固定服务信任、逐字段挑战重算、加密身份重开/错误密码/拒绝覆盖、原件跨服务隔离、丢提交回包后重启的精确重放，以及无秘密的历史状态。CLI 集成测试验证真实 executable 使用私有 stdin 初始化并重开身份、重复初始化拒绝和本地状态查询；这些离线测试不访问注册服务。密码 envelope 和文件权限/无链接/认证篡改的共用回归分别由 `oasis7_secure_envelope` 与 `oasis7_client_storage` 承担。
+
+这些是普通身份/协议测试，不代签生产启用、真实部署、游戏成果或两 Runtime 冷入场。完整入口仍按[冷入场场景](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry)及[独立试玩](../../testing/manual/agent-runtime-self-playtest.manual.md#st-02)验收，缺少前置时记录 blocked/not_run。
 
 <a id="delivery"></a>
 ## 18. 代码落点、交付顺序与设计交接
