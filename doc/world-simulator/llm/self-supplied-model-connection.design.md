@@ -97,6 +97,8 @@ DeepSeek / OpenRouter       Harness / 第一方 Game Client
 | 操作 | 输入/输出合同 | 约束 |
 | --- | --- | --- |
 | GET `/v1/agent-client/capabilities` | 受信执行端身份、支持的预设/模型能力、期限/限制和不可用原因 | 可读不等于游戏授权；不输出 secret 或 operator 配置 |
+| GET `/v1/agent-client/model-connections` | 当前认证会话下的脱敏连接页、页上限、完整性和可选继续 cursor | 只读；遵循下述管理读取合同，不暴露凭证或其他账号对象 |
+| GET `.../model-connections/{id}` | 当前认证会话下指定连接的脱敏状态、version、租约和运行投影 | 每次校验主体；不存在/无权不泄漏存在性；读取不续租、不发模型调用 |
 | POST `/v1/agent-client/model-connections` | provider_id、model_id、raw_key、明确的本次使用同意；返回脱敏 connection/version | authenticated JSON body；不接受客户端指定 owner、任意 base_url/headers；新草稿不替换活跃连接 |
 | POST `.../{id}/probe` | 当前 version、检查同意与客户端操作 ID；返回有界 ProbeResult | 有限、显式、可计费；测试工具不允许写世界；重复 ID 返回同一检查状态而非重复发上游请求 |
 | POST `.../{id}/activate` | expected_version、目标任务/Agent 引用、用户确认的运行限制；返回绑定状态 | 复用当前 Runtime 授权；不上传长期 signer；无有效目标/委托不能自动补权 |
@@ -105,6 +107,17 @@ DeepSeek / OpenRouter       Harness / 第一方 Game Client
 | DELETE `.../{id}` | expected_version；返回停用/忘记状态 | 幂等停用凭证和续期；不调用上游管理/充值接口，不宣称已撤销供应商 Key |
 
 所有写接口校验应用认证、精确 Origin 与 CSRF，响应 `Cache-Control: no-store`；不使用 URL/query/Referer 传 Key。跨账号读取返回不暴露对象是否存在的错误。并发更新用版本比较，冲突返回当前脱敏版本和刷新指引；禁止 last-write-wins 隐式替换。
+
+<a id="model-management-reconciliation"></a>
+
+### 6.1 管理读取、版本收敛与检查身份
+
+Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；O7-REQ-26cefe7a-deb5-4b21-845a-a2d4556f7dca；O7-REQ-d3d63078-ef30-45fb-8ae6-2f6db1f46c34。承接 [REQ-BYOK-001](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-001)、[REQ-BYOK-002](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-002) 与 [REQ-BYOK-004](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-004)，不增加世界权限。
+
+- 列表使用有界分页，服务端返回的单页条数不得超过已公布且客户端可接受的上限；继续 cursor 绑定认证主体、会话及列表切点，失效时明确要求重读，不能将两次切点的页面拼为完整结果。客户端只在服务端明确终页且所有页校验成功后声明完整；当前连接可以按其已知 ID 进行同权限的只读核对和管理，不依赖历史全量载入。任何数量限制都不能把合法历史增长变成整个管理入口的协议错误。
+- 活跃凭证数量、脱敏历史保留数量与单页上限是不同限制。部署须明确各自上限和到期/淘汰语义；历史清理不得移除仍需管理的活跃连接，也不删除未决操作的恢复关联。容量、保留窗口外和读取失败分别解释，不静默截断、不把 unavailable 当作空集合。上述分页与按 ID 读取是目标接口义务，未实现组合应明确不可用，不能宣称现有端点已支持。
+- lease 成功、运行结束、版本冲突或 lease 回复丢失后，先通过同权限只读管理投影归一当前 connection/version、租约截止时间、运行代与停止状态，再决定是否允许后续管理操作。只读刷新不能续租、activate、开始模型调用、重置预算或改变世界任务；旧会话/连接/请求代的响应不能覆盖当前状态。租约确已过期仍按既有合同失效，不能借刷新复活。
+- 同一 probe 操作 ID 的查询或重试只返回原检查状态。超时、断连或单个 HTTP 状态不证明检查已经终止，结果未知时先核对原 ID，不创建新 ID 来绕过未知状态。只有原检查已确认终态，且用户明确发起新的有限检查，才分配新操作 ID；新检查重新验证版本、同意与剩余共享预算，不沿用旧成功结果或重置已消费预算。认证、余额与不兼容错误仍不得自动重试；状态读取本身不得再次调用供应商。
 
 <a id="des-byok-005"></a>
 
@@ -213,6 +226,8 @@ Provider 的固定分类必须通过 Harness 的可选 `model_failure` 诊断字
 | Trace refs: O7-REQ-84294c93-3275-4d19-8faf-389950b87464；[REQ-BYOK-003](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-003) | [DES-BYOK-003](#des-byok-003) | BYOK-04 合法工具/游戏闭环；BYOK-05 会话失效与重启 | [BYOK 验收手册](../../testing/manual/self-supplied-model-connection.manual.md#byok-04)：按该手册对应场景执行确定性/HTTP/网页及获授权真实试玩 | 同一 Runtime 准入；到期后无新调用，世界作业按原规则推进 | 计划验证；功能、真实供应商与网页均未验收 |
 | Trace refs: O7-REQ-d3d63078-ef30-45fb-8ae6-2f6db1f46c34；[REQ-BYOK-004](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-004) | [DES-BYOK-004](#des-byok-004) | BYOK-06 换 Key、Stop、双标签页 CAS、迟到结果与原件恢复 | [BYOK 验收手册](../../testing/manual/self-supplied-model-connection.manual.md#byok-06)：按该手册对应场景执行确定性/HTTP/网页及获授权真实试玩 | 旧运行代永久失效；不替换未知原操作，不保证上游退费 | 计划验证；功能、真实供应商与网页均未验收 |
 | Trace refs: O7-REQ-e0ae0d80-31ca-488b-8ba2-a728bfb9ce8d；[REQ-BYOK-005](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-005) | [DES-BYOK-005](#des-byok-005) | BYOK-07 双协议工具往返/路由、多轮历史归属与容量负例；BYOK-08 两家授权真实模型闭环 | [BYOK 验收手册](../../testing/manual/self-supplied-model-connection.manual.md#byok-07)：按该手册对应场景执行确定性/HTTP/网页及获授权真实试玩 | 协议可配不等于已支持；分供应商/模型/协议/路由/浏览器取证 | 计划验证；功能、真实供应商与网页均未验收 |
+
+管理合同补充验收：按 [6.1](#model-management-reconciliation) 构造超过单页的历史连接、有效连接位于后页、cursor/会话变更和失败响应；断言当前连接可管理、完整性准确且无跨账号泄漏。构造 lease 回复丢失与执行结束后的旧版本，确认只读刷新归一且零新增模型调用；probe 覆盖未知原 ID、同 ID 重放、已知失败后显式新 ID、旧回复迟到，核对上游调用计数及原预算。此为待实现/待执行映射，未证明现有接口或 UI 已符合。
 
 本表都是待执行场景，不是新增 CI 状态或流程材料。实现 PR 记录实际测试命令、版本和结果；费用调用另获真实凭证/预算授权。fixture 不使用真实 Key；截图、HAR、日志和回执证据必须先脱敏。普通 CI 可验证确定性安全与协议合同，真实付费模型和真实玩家体验不能由其代签。
 

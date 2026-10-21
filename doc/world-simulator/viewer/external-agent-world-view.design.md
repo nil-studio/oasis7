@@ -164,6 +164,18 @@ Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；O7-REQ-2ede7851-f1c0-4
 
 本切片不交付 HTTP 目标路由或 native 窗口；投影只覆盖现有获准对象、明确路线及最近有界 typed 事件候选，不声明完整历史、所有实体类型、§9 数值预算和端到端验收已经通过。
 
+<a id="public-feed-history-source"></a>
+
+### 5.6 公共 Feed 历史来源与重连就绪
+
+Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。承接 [AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001)、[AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002) 与 [AC-AGENT-STAGE-004](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-004)。
+
+公共 Feed 的历史分页与实时流复用同一获准公共投影和既有 `world_feed/v1` 事件身份/顺序；WorldService 模式从该世界的权威公共历史读取，不用本地 disposable Runtime 的空历史冒充远端历史。历史不可用、超出保留窗口、分页未完和已确认空窗口分别表达；不得由空的本地缓存推断世界从未发生事件。cursor 绑定 world、epoch、audience 与来源切点，换源或权限变化使旧 cursor 失效，不能拼接另一世界的历史。Feed 不补造私人操作回执或行动完成状态。
+
+投影在服务端以允许列表选择公共事件类型和字段，历史与实时走同一隔离边界。未列入的私有上下文、供应商原始响应及其他主体诊断不进入公共 DTO、搜索、缓存、日志或错误详情；未知事件默认不公开，不以内容字符串过滤代替类型边界。负例仅使用合成 canary 验证匿名与不同账号均不可见，不记录或公开真实私有内容。
+
+普通断连后，旧画面只可作为仍获准的 stale/last-known 来源；新 socket 的 hello 不代表世界 ready。只有当前连接代、当前 world/audience 和当前读取作用域匹配的首个有效 snapshot（或符合原合同的增量恢复基线）被接纳后，才解除连接恢复锁定并重新评估只读交互；控制能力仍由独立 authority 判定。首读失败保留明确失败/重试入口，不无限等待，不用旧 socket 的迟到 snapshot 解锁。重试是有界只读恢复，不重发原 pending 操作；scope 切换继续遵守 5.5 的定向快照约束，报价继续按各自相关输入/版本合同失效，而非任意 snapshot 一律清空。
+
 ## 6. 接口与数据合同
 
 目标路由为Game API `/v1/game/worlds/{W}/views`，复用鉴权。以下为实施输入，不声称端点已部署；wire schema由API owner与实现锁定，未知版本明确blocked/升级。
@@ -293,6 +305,8 @@ camera/selection/filters/drawer是客户端展示偏好，可按账号/world保�
 | [AC-EXT-015](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-015) | [原生与逐端合同](#view-native) | 两表面实际同世界交互。 | [viewer-dual](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-dual)，真实候选/平台。 | 双端操作与权威结果。 | 不单独证明模型/完整首局。 |
 | [AC-EXT-016](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-016) | [探索查询](#view-query) | 概览至局部再返回任务。 | [viewer-explore](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-explore)，实际授权世界。 | 对象、来源、定位与返回。 | 不证明全图可见。 |
 | [AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | [指导边界](#view-guidance) | 世界现场合法指导/回执。 | [viewer-guidance](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-guidance)，实际owner操作。 | 原operation/receipt关联。 | accepted/animation不代签效果。 |
+
+补充验证 [5.6](#public-feed-history-source)：固定同一 world/epoch，比较历史与实时公共事件身份、顺序和允许字段；以历史不可用、真实空窗口、分页未完及换源测试不同展示；用合成 canary 检查匿名/A/B 的公共 DTO 与错误均无私有内容。重连覆盖旧 socket 迟到、新 hello 后首读失败/重试、当前首 snapshot 接纳和 scope 变化，断言 stale 到 ready 的条件及零副作用重发。此映射尚待确定性回归与真实 Viewer 同候选验证，不证明实现完成。
 
 ## 12. 决策、长期风险与未决问题
 
