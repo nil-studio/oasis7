@@ -49,7 +49,7 @@ members = ["crates/oasis7_model_provider",
     "tools/wasm_build_suite",
     "tools/wasm_module_observe",
 ]
-exclude = ["tools/oasis7-command-center"]
+exclude = ["tools/oasis7-command-center", "vendor-egui-winit-0.33.3"]
 resolver = "2"
 
 [workspace.dependencies]

@@ -173,6 +173,8 @@ jobs:
     env:
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: ${{ matrix.language == 'rust' && 'true' || 'false' }}
+      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: ${{ matrix.language == 'rust' && format('["{0}/crates/oasis7_builtin_wasm_modules/_templates"]', github.workspace) || '[]' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
