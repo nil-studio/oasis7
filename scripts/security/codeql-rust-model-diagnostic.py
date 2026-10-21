@@ -269,6 +269,7 @@ def bundle_search_root(cli):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--codeql", type=Path, required=True)
+    parser.add_argument("--inspect-packs-only", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--deadline", type=float, required=True)
@@ -316,13 +317,52 @@ def diagnose(args):
     write(args.output / "rust-library-pack.json", json.dumps(pack_identity, indent=2) + "\n")
     query = args.output / "queries"
     write(query / "qlpack.yml", "name: oasis7/rust-model-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.23\n")
-    locks = list(args.codeql.parent.glob("qlpacks/codeql/rust-queries/*/codeql-pack.lock.yml"))
-    if len(locks) != 1:
-        raise RuntimeError("official Rust query lock identity ambiguous")
-    shutil.copyfile(locks[0], query / "codeql-pack.lock.yml")
+    pack_files = sorted(search_root.glob("*/*/*/qlpack.yml"))
+    inventory = []
+    for manifest in pack_files:
+        text = manifest.read_text()
+        names = re.findall(r"(?m)^name: (.+)$", text)
+        versions = re.findall(r"(?m)^version: (.+)$", text)
+        if len(names) != 1 or len(versions) != 1:
+            raise RuntimeError("ambiguous bundle pack manifest")
+        lock = manifest.parent / "codeql-pack.lock.yml"
+        inventory.append({"name": names[0], "version": versions[0],
+                          "root": str(manifest.parent.resolve()), "manifest": text,
+                          "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                          "lock": lock.read_text() if lock.exists() else None,
+                          "lock_sha256": hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else None})
+    if not inventory or len({p["name"] for p in inventory}) != len(inventory):
+        raise RuntimeError("empty or duplicate bundle pack identities")
+    bundle_manifests = {}
+    for path in (args.codeql.parent / ".codeqlmanifest.json", search_root / ".codeqlmanifest.json"):
+        bundle_manifests[str(path)] = path.read_text() if path.exists() else None
+    write(args.output / "bundle-pack-inputs.json", json.dumps({
+        "packs": inventory, "bundle_manifests": bundle_manifests,
+        "source_pack": "new owned source pack without copied compiled lock",
+        "ram_requested_mib": 3072, "hard_rss_cap": False}, indent=2) + "\n")
+    search_root = os.pathsep.join(p["root"] for p in inventory)
     write(query / "Macros.ql", MACROS)
     write(query / "Calls.ql", CALLS)
     write(query / "Closures.ql", CLOSURES)
+    run([cli, "resolve", "packs", "--help"], args.work,
+        args.output / "resolve-packs-help.log", args.deadline, 20, args.output, env)
+    run([cli, "resolve", "packs", "--search-path=" + search_root], args.work,
+        args.output / "resolve-packs.log", args.deadline, 20, args.output, env)
+    run([cli, "resolve", "qlpacks", "--format=json", "--additional-packs=" + search_root], args.work,
+        args.output / "resolve-qlpacks.json", args.deadline, 20, args.output, env)
+    run([cli, "resolve", "library-path", "--help"], args.work,
+        args.output / "resolve-library-help.log", args.deadline, 20, args.output, env)
+    for name in ("Macros", "Calls", "Closures"):
+        run([cli, "resolve", "library-path", "--query=" + str(query / (name + ".ql")),
+             "--format=json", "--additional-packs=" + search_root], args.work,
+            args.output / f"library-path-{name}.json", args.deadline, 20, args.output, env)
+    if args.inspect_packs_only:
+        write(args.output / "inspection-result.json", json.dumps({
+            "disposition": "INSPECTION_REQUIRES_REVIEW", "databases": 0,
+            "model_queries": 0, "query_preflight": "NOT_RUN",
+            "resolver_json_schema": "requires independent exact-shape review",
+            "production_coverage": "NOT_ESTABLISHED"}, indent=2) + "\n")
+        return
     run([cli, "query", "compile", "--help"], args.work,
         args.output / "query-compile-help.log", args.deadline, 20, args.output, env)
     help_text = (args.output / "query-compile-help.log").read_text()
@@ -330,7 +370,7 @@ def diagnose(args):
         if option not in help_text and option.replace("--", "--[no-]", 1) not in help_text:
             raise RuntimeError("exact CLI missing preflight option: " + option)
     run([cli, "query", "compile", "--check-only", "--keep-going",
-         "--additional-packs=" + str(search_root), "--threads=2", "--ram=2048",
+         "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
          *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]],
         args.work, args.output / "query-preflight.log", args.deadline, 60, args.output, env)
     before = {}
@@ -354,12 +394,12 @@ def diagnose(args):
                     raise RuntimeError("standalone dependency version changed")
         database = args.work / name
         run([cli, "database", "create", str(database), "--language=rust", "--build-mode=none",
-             "--source-root=" + str(source), "--threads=2", "--ram=2048"], source,
+             "--source-root=" + str(source), "--threads=2", "--ram=3072"], source,
             args.output / f"{name}-extract.log", args.deadline, 180, args.output, env)
         for q in ("Macros", "Calls", "Closures"):
             bqrs = args.output / f"{name}-{q}.bqrs"
             run([cli, "query", "run", str(query / (q + ".ql")), "--database=" + str(database),
-                 "--output=" + str(bqrs), "--threads=2", "--ram=2048",
+                 "--output=" + str(bqrs), "--threads=2", "--ram=3072",
                  "--additional-packs=" + str(search_root)], source,
                 args.output / f"{name}-{q}.log", args.deadline, 60, args.output, env)
             run([cli, "bqrs", "decode", str(bqrs), "--format=csv", "--output=" + str(args.output / f"{name}-{q}.csv")],
