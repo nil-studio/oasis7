@@ -331,6 +331,7 @@ fn validate_private_headers(bytes: &[u8]) -> Result<(), PrivateError> {
     clippy::too_many_arguments,
     reason = "Explicit authority and storage roots"
 )]
+#[cfg(test)]
 pub(crate) fn maybe_handle(
     stream: &mut TcpStream,
     bytes: &[u8],
@@ -344,7 +345,7 @@ pub(crate) fn maybe_handle(
     signer: &FeedbackSubmitSigner,
     store: Option<&PrivateGoalStore>,
 ) -> Result<bool, String> {
-    maybe_handle_with_delivery_hook(
+    maybe_handle_with_context(
         stream,
         bytes,
         runtime,
@@ -356,6 +357,41 @@ pub(crate) fn maybe_handle(
         storage,
         signer,
         store,
+        &world_service_read::RestoreContext::default(),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Explicit authority, private store and trusted restore context"
+)]
+pub(crate) fn maybe_handle_with_context(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    runtime: &Arc<Mutex<NodeRuntime>>,
+    method: &str,
+    target: &str,
+    world_id: &str,
+    world_dir: &Path,
+    records: &Path,
+    storage: &Path,
+    signer: &FeedbackSubmitSigner,
+    store: Option<&PrivateGoalStore>,
+    restore_context: &world_service_read::RestoreContext,
+) -> Result<bool, String> {
+    maybe_handle_configured(
+        stream,
+        bytes,
+        runtime,
+        method,
+        target,
+        world_id,
+        world_dir,
+        records,
+        storage,
+        signer,
+        store,
+        restore_context,
         || {},
         |stage| {
             tracing::warn!(stage, "private task context operation rejected");
@@ -386,6 +422,7 @@ fn private_route_tag(target: &str) -> &'static str {
     clippy::too_many_arguments,
     reason = "Explicit service authority and private store"
 )]
+#[cfg(test)]
 pub(crate) fn maybe_handle_with_delivery_hook(
     stream: &mut TcpStream,
     bytes: &[u8],
@@ -398,6 +435,44 @@ pub(crate) fn maybe_handle_with_delivery_hook(
     storage: &Path,
     signer: &FeedbackSubmitSigner,
     store: Option<&PrivateGoalStore>,
+    before_delivery: impl FnOnce(),
+    on_read_conflict: impl FnMut(&'static str),
+) -> Result<bool, String> {
+    maybe_handle_configured(
+        stream,
+        bytes,
+        runtime,
+        method,
+        target,
+        world_id,
+        world_dir,
+        records,
+        storage,
+        signer,
+        store,
+        &world_service_read::RestoreContext::default(),
+        before_delivery,
+        on_read_conflict,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Explicit private service configuration and delivery guards"
+)]
+fn maybe_handle_configured(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    runtime: &Arc<Mutex<NodeRuntime>>,
+    method: &str,
+    target: &str,
+    world_id: &str,
+    world_dir: &Path,
+    records: &Path,
+    storage: &Path,
+    signer: &FeedbackSubmitSigner,
+    store: Option<&PrivateGoalStore>,
+    restore_context: &world_service_read::RestoreContext,
     before_delivery: impl FnOnce(),
     mut on_read_conflict: impl FnMut(&'static str),
 ) -> Result<bool, String> {
@@ -439,6 +514,7 @@ pub(crate) fn maybe_handle_with_delivery_hook(
         let store = store.ok_or("private goals disabled")?;
         let body = super::super::feedback_submit_api::extract_http_json_body(bytes)?;
         let service = Service {
+            restore_context: restore_context.clone(),
             records,
             storage,
             identity: world_service_read::identity(world_dir, world_id)?,

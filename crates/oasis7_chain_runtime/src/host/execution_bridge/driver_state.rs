@@ -20,6 +20,7 @@ pub(crate) struct NodeRuntimeExecutionDriver {
     /// It is deliberately outside the runtime state root and is cleared after
     /// the authoritative per-height record is published.
     pub(in super::super) pending_product_validation_intent: Option<ProductValidationIntentMarkerV1>,
+    pub(crate) devlocal_participant: crate::execution_config::DevLocalParticipantConfig,
     pub(crate) local_execution_bootstrap: Option<NodeExecutionBootstrap>,
     pub(crate) controlled_capture_enabled: bool,
     /// Enabled only by the formal executor after qualified-parent attachment.

@@ -280,6 +280,13 @@ impl World {
                 });
             }
         }
+        if self.devlocal_participant_authority.is_some() && !admissions.is_empty() {
+            return Err(WorldError::GovernancePolicyInvalid {
+                reason:
+                    "validator admission conflicts with explicit DevLocal participant authority"
+                        .into(),
+            });
+        }
         Ok(PreparedGovernanceRegistryEvent {
             event: event.clone(),
             controller_registry,

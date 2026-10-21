@@ -78,11 +78,12 @@ pub(super) fn outcome(
     let historical = if service.guarded.is_some() {
         service.pin_at_height(result.committed_height)?
     } else {
-        let Some(historical) = world_service_read::pin_retained_at_height(
+        let Some(historical) = world_service_read::pin_retained_at_height_with_context(
             service.records,
             service.storage,
             &service.identity,
             result.committed_height,
+            &service.restore_context,
         )?
         else {
             return Ok(IntentOutcome::HistoryUnavailable);
@@ -121,8 +122,16 @@ pub(super) fn submit(
         service.check_replay_payload(&pinned, &request.signed_payload)?;
     }
     let status = if matches!(existing, IntentOutcome::Unknown) {
-        if let WorldServicePayloadV1::GameParticipantRegister {owner,admission}=&request.signed_payload {
-            oasis7_runtime::service_admission::participant::validate_registration(&pinned.world,owner,admission,&pinned.commit.binding.branch_id,pinned.commit.binding.reorg_generation)?;
+        if let WorldServicePayloadV1::GameParticipantRegister { owner, admission } =
+            &request.signed_payload
+        {
+            oasis7_runtime::service_admission::participant::validate_registration(
+                &pinned.world,
+                owner,
+                admission,
+                &pinned.commit.binding.branch_id,
+                pinned.commit.binding.reorg_generation,
+            )?;
         }
         if let WorldServicePayloadV1::AgentChat(chat) = &request.signed_payload {
             agent_chat::validate_fresh(&pinned.world, chat)?;
@@ -305,9 +314,11 @@ fn view_profile(
         .map_err(|e| e.to_string())?;
     if json_projection {
         // Normalize before signing, never reinterpret a typed-CBOR signature as JSON.
-        let response: ReadWorldViewResponse<Value> =
-            serde_json::from_value(oasis7_world_projection::codec::response_to_json_value(&response).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
+        let response: ReadWorldViewResponse<Value> = serde_json::from_value(
+            oasis7_world_projection::codec::response_to_json_value(&response)
+                .map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         service.signed(path, &request, response)
     } else {
         service.signed(path, &request, response)

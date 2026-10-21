@@ -8,6 +8,50 @@ use std::path::Path;
 #[path = "world_service_restore_cache.rs"]
 mod restore_cache;
 
+/// Trusted host restore configuration; never decoded from an HTTP request.
+/// Defaults preserve legacy release behavior without granting local authority.
+/// Running services always pass their effective host context explicitly.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RestoreContext {
+    release: oasis7_runtime::ReleaseSecurityPolicy,
+    local: Option<oasis7_runtime::DevLocalParticipantAuthority>,
+}
+impl RestoreContext {
+    pub(crate) fn new(
+        release: oasis7_runtime::ReleaseSecurityPolicy,
+        local: Option<oasis7_runtime::DevLocalParticipantAuthority>,
+    ) -> Result<Self, String> {
+        if local
+            .as_ref()
+            .is_some_and(|authority| authority.release_security_policy() != &release)
+        {
+            return Err(
+                "WorldService restore authority differs from effective release policy".into(),
+            );
+        }
+        Ok(Self { release, local })
+    }
+    pub(super) fn restore(
+        &self,
+        snapshot: Snapshot,
+        journal: Journal,
+    ) -> Result<World, oasis7_runtime::WorldError> {
+        if let Some(local) = &self.local {
+            oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+                snapshot,
+                journal,
+                local.clone(),
+            )
+        } else {
+            oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+                snapshot,
+                journal,
+                self.release.clone(),
+            )
+        }
+    }
+}
+
 pub(crate) struct PinnedWorld {
     pub world: World,
     pub(super) record: ExecutionBridgeRecord,
@@ -31,12 +75,29 @@ pub(crate) fn pin(
     identity: &WorldIdentity,
     fixed: Option<&CommitRef>,
 ) -> Result<PinnedWorld, String> {
-    load(
+    pin_with_context(
+        records,
+        storage,
+        identity,
+        fixed,
+        &RestoreContext::default(),
+    )
+}
+
+pub(crate) fn pin_with_context(
+    records: &Path,
+    storage: &Path,
+    identity: &WorldIdentity,
+    fixed: Option<&CommitRef>,
+    context: &RestoreContext,
+) -> Result<PinnedWorld, String> {
+    load_with_context(
         records,
         storage,
         identity,
         fixed.map(|commit| commit.position),
         fixed,
+        context,
     )
 }
 
@@ -154,15 +215,48 @@ pub(crate) fn pin_at_height(
     identity: &WorldIdentity,
     height: u64,
 ) -> Result<PinnedWorld, String> {
-    load(records, storage, identity, Some(height), None)
+    pin_at_height_with_context(
+        records,
+        storage,
+        identity,
+        height,
+        &RestoreContext::default(),
+    )
+}
+
+pub(crate) fn pin_at_height_with_context(
+    records: &Path,
+    storage: &Path,
+    identity: &WorldIdentity,
+    height: u64,
+    context: &RestoreContext,
+) -> Result<PinnedWorld, String> {
+    load_with_context(records, storage, identity, Some(height), None, context)
 }
 
 /// Historical result reads may outlive the retained full material window.
+#[cfg(test)]
 pub(crate) fn pin_retained_at_height(
     records: &Path,
     storage: &Path,
     identity: &WorldIdentity,
     height: u64,
+) -> Result<Option<PinnedWorld>, String> {
+    pin_retained_at_height_with_context(
+        records,
+        storage,
+        identity,
+        height,
+        &RestoreContext::default(),
+    )
+}
+
+pub(crate) fn pin_retained_at_height_with_context(
+    records: &Path,
+    storage: &Path,
+    identity: &WorldIdentity,
+    height: u64,
+    context: &RestoreContext,
 ) -> Result<Option<PinnedWorld>, String> {
     let path = checkpoint::execution_bridge_record_path(records, height);
     match std::fs::metadata(&path) {
@@ -180,26 +274,29 @@ pub(crate) fn pin_retained_at_height(
     {
         return Ok(None);
     }
-    pin_at_height(records, storage, identity, height).map(Some)
+    pin_at_height_with_context(records, storage, identity, height, context).map(Some)
 }
 
-fn load(
+fn load_with_context(
     records: &Path,
     storage: &Path,
     identity: &WorldIdentity,
     height: Option<u64>,
     fixed: Option<&CommitRef>,
+    context: &RestoreContext,
 ) -> Result<PinnedWorld, String> {
-    load_with_cache(
+    load_with_cache_context(
         records,
         storage,
         identity,
         height,
         fixed,
         restore_cache::shared(),
+        context,
     )
 }
 
+#[cfg(test)]
 fn load_with_cache(
     records: &Path,
     storage: &Path,
@@ -207,6 +304,26 @@ fn load_with_cache(
     height: Option<u64>,
     fixed: Option<&CommitRef>,
     cache: &std::sync::Mutex<restore_cache::RestoreCache>,
+) -> Result<PinnedWorld, String> {
+    load_with_cache_context(
+        records,
+        storage,
+        identity,
+        height,
+        fixed,
+        cache,
+        &RestoreContext::default(),
+    )
+}
+
+fn load_with_cache_context(
+    records: &Path,
+    storage: &Path,
+    identity: &WorldIdentity,
+    height: Option<u64>,
+    fixed: Option<&CommitRef>,
+    cache: &std::sync::Mutex<restore_cache::RestoreCache>,
+    context: &RestoreContext,
 ) -> Result<PinnedWorld, String> {
     if let Some(commit) = fixed
         && &commit.world != identity
@@ -276,8 +393,15 @@ fn load_with_cache(
     {
         return Err("pinned proof does not bind execution record and CAS refs".into());
     }
-    let world = restore_cache::restore(cache, &snapshot_bytes, &journal_bytes, snapshot, journal)
-        .map_err(|e| format!("pinned world: {e:?}"))?;
+    let world = restore_cache::restore_with_context(
+        cache,
+        &snapshot_bytes,
+        &journal_bytes,
+        snapshot,
+        journal,
+        context,
+    )
+    .map_err(|e| format!("pinned world: {e:?}"))?;
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|e| format!("binding unavailable: {e:?}"))?;

@@ -385,6 +385,7 @@ pub fn run_cli(raw_args: Vec<String>) -> Result<(), String> {
 }
 
 fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
+    cli::validate_local_participant_options(&options)?;
     if let Some(config_path) = options.formal_live_config.as_deref() {
         if options.guarded_initial_config.is_some() {
             return Err(
@@ -411,6 +412,8 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
     }
     let mut options = options;
     apply_network_tier_manifest_defaults(&mut options);
+    cli::validate_local_participant_options(&options)?;
+    let mut participant_control = cli::devlocal_participant_config(&options)?;
     let trace_session_id = oasis7::observability::resolve_trace_session_id("oasis7_chain_runtime");
     info!(
         trace_session_id = %trace_session_id,
@@ -443,11 +446,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
             options.deployment_inventory_path.as_deref(),
             options.loaded_network_tier_manifest.as_ref(),
         )?;
-    governance_registry::ensure_world_governance_validator_registry(
-        paths.execution_world_dir.as_path(),
-        options.genesis_validator_registry_path.as_deref(),
-        options.loaded_network_tier_manifest.as_ref(),
-    )?;
+    cli::prepare_participant_world(&options, &paths, &keypair, &mut participant_control)?;
     let mut config = NodeConfig::new(
         options.node_id.clone(),
         options.world_id.clone(),
@@ -654,7 +653,13 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         runtime = runtime.with_local_execution_bootstrap(baseline.clone());
     }
     if materialize_execution {
-        let mut execution_driver = if let Some(baseline) = local_execution_bootstrap {
+        let mut execution_driver = if participant_control.authority.is_some() {
+            NodeRuntimeExecutionDriver::new_with_participant_paths(
+                &paths,
+                &storage_profile_config,
+                participant_control.clone(),
+            )
+        } else if let Some(baseline) = local_execution_bootstrap {
             #[cfg(not(test))]
             {
                 NodeRuntimeExecutionDriver::new_with_local_bootstrap(

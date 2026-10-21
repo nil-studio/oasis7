@@ -20,6 +20,9 @@ use std::{
 mod archive;
 #[path = "preview_world_init_fs.rs"]
 mod files;
+#[path = "preview_world_init_origin.rs"]
+mod origin;
+pub(super) use origin::verify_existing_origin;
 
 const SCHEMA: &str = "oasis7.devlocal.preview-world-init/v1";
 const GENESIS_DOMAIN: &str = "oasis7.devlocal.preview-genesis/v1";
@@ -34,6 +37,7 @@ fn source_hash() -> String {
             include_bytes!("preview_world_init.rs").as_slice(),
             include_bytes!("preview_world_init_fs.rs").as_slice(),
             include_bytes!("preview_world_init_archive.rs").as_slice(),
+            include_bytes!("preview_world_init_origin.rs").as_slice(),
             include_bytes!("execution_bridge/world_service_read.rs").as_slice(),
         ]
         .concat(),

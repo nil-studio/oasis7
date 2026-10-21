@@ -12,6 +12,9 @@ pub(crate) fn render_help() -> String {
         text.push_str(&format!("  {} {}\n", command.name, command.usage));
     }
     text.push_str(
+        "  --devlocal-participant-operator-public-key <Ed25519-hex> [--devlocal-participant-policy-file <private-signed-policy.json>]\n    Requires effective development_runtime=true and isolated DevLocal node administration; operator and issuer signatures are independent. No HTTP trust setter or governance/finality claim.\n",
+    );
+    text.push_str(
         "  initialize-preview-world --root <fresh-root> --world-id <id> --node-id <id> --key-dir <secure-config> --genesis-nonce <64-hex> --status-bind <loopback:port>\n    Creates a fresh local preview world from genuine Runtime and NodeRuntime commits; it does not activate formal finality, provider funding, or test grants.\n",
     );
     text.push_str(

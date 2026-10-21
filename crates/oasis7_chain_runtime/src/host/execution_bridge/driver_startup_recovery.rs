@@ -482,13 +482,18 @@ impl NodeRuntimeExecutionDriver {
         let restored_resource_manifest = snapshot.chain_resource_manifest.clone();
         let restored_resource_delta = snapshot.latest_chain_resource_delta.clone();
         let runtime_rebuild_started_at = Instant::now();
-        let mut restored_world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
-            .map_err(|err| {
-                format!(
-                    "execution driver rebuild runtime world failed at height {}: {:?}",
-                    target_height, err
-                )
-            })?;
+        let mut restored_world = crate::execution_config::restore_execution_world(
+            snapshot,
+            journal,
+            world_policy.clone(),
+            self.devlocal_participant.authority.as_ref(),
+        )
+        .map_err(|err| {
+            format!(
+                "execution driver rebuild runtime world failed at height {}: {:?}",
+                target_height, err
+            )
+        })?;
         // Module artifact bytes are restored by `World::from_snapshot` from
         // the canonical CAS snapshot payload. Do not consult `world_dir`
         // here: it may contain a newer module-store cache than this

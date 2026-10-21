@@ -105,6 +105,27 @@ python3 "$release/deployment/ecs-skill-release.py" verify \
 
 同时检查原入口跳转、HEAD 空正文、POST 405、未知文件 404 以及主页发现头。回滚游戏时，用已校验的旧 release 重跑 `activate`，使页面和游戏一起回退；旧包若无本工具，使用原部署备份恢复对应静态发布配置并核对哈希，不能复用新版本 Skill。生成包和发布 Skill 不代表 Runtime 冷入场、游戏权限或真实试玩已通过。
 
+### DevLocal 世界的参与者准入授权
+
+官方客户端与外部 Agent 使用相同的身份、participant、owner 和 executor 接入协议。世界的准入策略由运营者预先建立；客户端不负责补造治理提案或 finality epoch。正式网络仍按治理初始化和治理授权流程执行，不能使用本节替代。
+
+实际使用 `DevLocal` storage profile、经现有启动配置解析为 development runtime、非 hardened 的隔离执行节点，可在原 chain 启动参数后显式追加下列参数。该入口拒绝 network tier / manifest、formal、guarded、deployment authority、外部 bootstrap、历史 capture 及 gossip / replication 网络组合，不提供多节点本地信任根传播。
+
+```text
+--devlocal-participant-operator-public-key <operator-public-key-64hex>
+--devlocal-participant-policy-file /etc/oasis7-preview/participant-policy.json
+```
+
+公钥 pin 是本机运营者的信任配置，不从客户端请求、策略文件或公网 discovery 自动接受。策略文件是 `SignedReadRequest<DevLocalParticipantPolicyAuthorizationV1>`；其 `request` 包含完整 `policy` 和 issuer 签名的 `manifest`。外层签名主体必须匹配 operator pin，首次策略使用 `participant_devlocal_policy_install_v1` domain，更新使用 `participant_devlocal_policy_update_v1`；内层 manifest 使用 `participant_migration_manifest_v1`。该文件保存签名材料，不保存私钥；必须是 canonical 绝对路径的普通文件、无符号链接、单链接、当前服务用户所有、权限 `0600`，且不超过 1 MiB。
+
+签发前由可信运营者工具读取原世界前态，计算 `participant_registry_digest()` 和 `participant_legacy_owner_state_digest()`，填入对应策略与迁移证明；核对原 world / genesis、分支、前代策略、完整 identity snapshot 和已有 owner 的迁移签名。当前手册不提供自动签发或迁移采集命令；不能把空映射、猜测的摘要或测试签名当成现有世界授权材料。保留原世界目录、身份、资产和绑定，不运行新世界初始化器。
+
+旧 Preview 若在后续提交中丢失 resource manifest 的 `genesis_ref`，同时提供 `--devlocal-participant-origin-root /var/lib/oasis7-preview/<existing-root>`，其中 `world/` 必须就是当前 execution world。节点使用原 node key 派生的独立 service 公钥验证原 `initialization-receipt.json` 签名及 `genesis/initial-artifact.json` 的原 digest，核对当前 identity 文件，再与 operator 签署的 policy/world/genesis 和 issuer 前态证明绑定；仅补回缺失的原引用，不替换已有非空 genesis。该绑定与策略在同一 canonical candidate 中提交，失败不落盘；不能只凭普通 identity JSON 或 policy 自报生成创世身份。缺原签名收据、原 artifact 或原 node key 时保持阻塞。旧收据可用于这个有限身份核验，不代表缺失的初始 publication archive 已补齐，也不放宽正式恢复流程。
+
+节点在原有世界写锁和正常 canonical commit 中安装策略。相同已提交授权在重启时幂等；冲突或过期前态失败，不直接改 snapshot / journal。后续读取和恢复需要继续提供相同的运营者 pin；首次安装后可移除策略文件及 origin-root 参数，保留历史验证所需的 pin。已绑定 genesis 的普通提交和重启持续保留原引用。local 与 governed 授权历史分别验证，不能仅切换 profile 把本地历史解释成正式网络历史；回退程序前也要确认其理解新增历史格式。
+
+验收先核对签名策略读取中的授权来源与配置一致，再检查普通 participant 注册、owner 控制、executor 授权和重启后读取。配置世界准入不会自动打开身份服务的注册、owner / executor 开关，也不等于 Runtime profile、受限执行或真实试玩已通过。DevLocal 的提交结果不宣称正式网络 finality。
+
 ## 4. 马上验证
 
 - 确认上述 Skill 同版本发布和公网校验成功；失败时本次部署尚未完成，不以首页 HTTP 200 代替。

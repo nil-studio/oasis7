@@ -27,6 +27,13 @@ impl World {
         body: WorldEventBody,
         caused_by: Option<CausedBy>,
     ) -> Result<WorldEventId, WorldError> {
+        if self.devlocal_participant_authority.is_some()
+            && matches!(&body, WorldEventBody::Governance(GovernanceEvent::FinalityEpochSnapshotSet { .. }))
+        {
+            return Err(WorldError::GovernancePolicyInvalid {
+                reason: "finality epoch conflicts with explicit DevLocal participant authority".into(),
+            });
+        }
         if let WorldEventBody::Domain(DomainEvent::EconomicContractSettled {
             world_binding: Some(event_binding),
             ..
@@ -315,7 +322,7 @@ impl World {
                 self.prepare_governance_registry_event(event)?,
             )),
             WorldEventBody::CapabilityAuthorization(
-                event @ (CapabilityAuthorizationEvent::ParticipantPolicyInstalled { .. }
+                event @ (CapabilityAuthorizationEvent::DevLocalParticipantPolicyInstalled { .. } | CapabilityAuthorizationEvent::ParticipantPolicyInstalled { .. }
                 | CapabilityAuthorizationEvent::ParticipantRegistered { .. }
                 | CapabilityAuthorizationEvent::AuthorityInstalledWithProof { .. }
                 | CapabilityAuthorizationEvent::AgentIdentityInstalled { .. }

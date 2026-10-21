@@ -49,6 +49,10 @@ fn resign(policy:&ParticipantEntryPolicyV1,proof:&mut ParticipantPolicyProofV1) 
 fn participant_governed_migration_preserves_existing_agent_assets_and_replays() {
     let mut world=world();let before=world.state().clone();let policy=policy();let proof=proof(&mut world,&policy,true);let checkpoint=world.snapshot();
     world.install_participant_policy_with_finality_proof(policy.clone(),proof.clone()).unwrap();
+    let local=crate::world::DevLocalParticipantAuthority::new(oasis7_proto::storage_profile::StorageProfile::DevLocal,
+        &world.release_security_policy().clone(),sign_read_request("pin",(),&hex::encode([77;32])).unwrap().subject_public_key).unwrap();
+    assert!(world.clone().with_devlocal_participant_authority(local).is_err());
+
     assert_eq!(world.state(),&before);
     let imported=world.capability_revocation_state().participants.bindings.values().next().unwrap();
     assert_eq!(imported.agent_id,fixture::SUBJECT_ID);assert!(imported.imported);

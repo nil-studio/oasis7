@@ -356,3 +356,55 @@ fn retained_history_material_rejects_malformed_record_and_missing_cas() {
         .is_err()
     );
 }
+
+#[test]
+fn effective_host_config_flows_into_current_and_historical_service_reads() {
+    let fixture = Fixture::new();
+    let release = oasis7_runtime::ReleaseSecurityPolicy::default();
+    let options = crate::cli::CliOptions {
+        development_runtime: true,
+        devlocal_participant_operator_public_key: Some(
+            oasis7::world_service::sign_read_request("test", (), &hex::encode([77; 32]))
+                .unwrap()
+                .subject_public_key,
+        ),
+        ..Default::default()
+    };
+    let authority = crate::cli::devlocal_participant_config(&options)
+        .unwrap()
+        .authority;
+    assert!(authority.is_some());
+    let context = RestoreContext::new(release.clone(), authority.clone()).unwrap();
+    let current = pin_with_context(
+        &fixture.root.join("records"),
+        &fixture.root.join("store"),
+        &fixture.identity,
+        None,
+        &context,
+    )
+    .unwrap();
+    assert_eq!(
+        current.world.devlocal_participant_authority(),
+        authority.as_ref()
+    );
+    assert_eq!(current.world.release_security_policy(), &release);
+    let historical = pin_retained_at_height_with_context(
+        &fixture.root.join("records"),
+        &fixture.root.join("store"),
+        &fixture.identity,
+        1,
+        &context,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        historical.world.devlocal_participant_authority(),
+        authority.as_ref()
+    );
+    let governed = fixture.pin(1).unwrap();
+    assert!(governed.world.devlocal_participant_authority().is_none());
+    assert_eq!(
+        governed.world.release_security_policy(),
+        &oasis7_runtime::ReleaseSecurityPolicy::default()
+    );
+}

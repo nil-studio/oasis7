@@ -30,6 +30,12 @@ pub struct ParticipantRegistryV1 {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub migrated_bindings:
         BTreeMap<String, super::participant_policy::ParticipantMigrationBindingV1>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub devlocal_policy_history: Vec<
+        super::SignedReadRequest<
+            super::participant_policy::DevLocalParticipantPolicyAuthorizationV1,
+        >,
+    >,
     pub bindings: BTreeMap<String, GameParticipantReceiptV1>,
     pub operations: BTreeMap<String, ParticipantOperationV1>,
 }
@@ -58,6 +64,7 @@ impl ParticipantRegistryV1 {
     pub fn is_empty(&self) -> bool {
         self.policy.is_none()
             && self.policy_history.is_empty()
+            && self.devlocal_policy_history.is_empty()
             && self.migrated_bindings.is_empty()
             && self.bindings.is_empty()
             && self.operations.is_empty()
