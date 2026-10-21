@@ -365,8 +365,55 @@ def _module_cache_layout(root, known):
             raise CleanupError('unknown submodule cache retained: ' + str(child))
 
 
+def _module_config(gitdir):
+    """Accept generated clone configuration, retaining repository-local overrides."""
+    raw = _run(['git', 'config', '--file', str(gitdir / 'config'), '-z', '--list']).stdout
+    branches = set(_module_git(gitdir, 'for-each-ref', '--format=%(refname:strip=2)',
+                               'refs/heads').splitlines())
+    declarations = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
+                         'config', '-z', '--blob', 'HEAD:.gitmodules', '--get-regexp',
+                         r'^submodule\..*\.path$'], check=False)
+    names = set()
+    if declarations.returncode == 0:
+        names = {row.split('\n', 1)[0][len('submodule.'):-len('.path')]
+                 for row in filter(None, declarations.stdout.split('\0'))}
+    bools = {'core.filemode', 'core.bare', 'core.logallrefupdates', 'core.ignorecase',
+             'core.precomposeunicode', 'core.symlinks', 'remote.origin.promisor'}
+    seen = set()
+    for row in filter(None, raw.split('\0')):
+        key, _, value = row.partition('\n')
+        allowed = False
+        if key in bools:
+            allowed = value in {'true', 'false'}
+        elif key == 'core.repositoryformatversion':
+            allowed = value in {'0', '1'}
+        elif key == 'extensions.objectformat':
+            allowed = value in {'sha1', 'sha256'}
+        elif key == 'core.worktree':
+            allowed = bool(value)
+        elif key in {'remote.origin.url', 'remote.origin.partialclonefilter'}:
+            allowed = bool(value) and '\n' not in value
+        elif key == 'remote.origin.fetch':
+            allowed = re.fullmatch(r'\+?refs/heads/([^:]+):refs/remotes/origin/\1', value) is not None
+        else:
+            for name in branches:
+                if key == f'branch.{name}.remote' and value == 'origin':
+                    allowed = True
+                if key == f'branch.{name}.merge' and value == f'refs/heads/{name}':
+                    allowed = True
+            for name in names:
+                if key == f'submodule.{name}.active' and value in {'true', 'false'}:
+                    allowed = True
+                if key == f'submodule.{name}.url' and value and '\n' not in value:
+                    allowed = True
+        if not allowed or key in seen:
+            raise CleanupError('custom or unknown submodule configuration retained: ' + key)
+        seen.add(key)
+
+
 def _module_material(gitdir):
     """Keep nonstandard metadata, pending operations and unpublished objects."""
+    _module_config(gitdir)
     cached = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
                    'diff-index', '--cached', '--quiet', 'HEAD', '--'], check=False)
     if cached.returncode:
@@ -386,6 +433,8 @@ def _module_material(gitdir):
                 raise CleanupError('symlinked submodule metadata retained')
             relative = target.relative_to(gitdir).as_posix()
             if target.is_dir():
+                if relative == 'branches' and not any(target.iterdir()):
+                    continue
                 if (relative in {'info', 'hooks', 'refs', 'logs', 'objects', 'objects/info', 'objects/pack'}
                         or relative.startswith(('refs/', 'logs/'))
                         or re.fullmatch(r'objects/[0-9a-f]{2}', relative)):

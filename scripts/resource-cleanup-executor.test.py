@@ -516,11 +516,9 @@ class SubmoduleSafetyTests(unittest.TestCase):
         self.module = self.path / 'vendor/module'
         self.module_head = self.command(self.module, 'rev-parse', 'HEAD')
         self.module_gitdir = pathlib.Path(self.command(self.module, 'rev-parse', '--absolute-git-dir'))
-        self.command(self.module, 'config', 'user.email', 'test@example.com')
-        self.command(self.module, 'config', 'user.name', 'test')
 
     def command(self, path, *args):
-        return subprocess.check_output(['git', '-C', str(path), *args], text=True, stderr=subprocess.DEVNULL).strip()
+        return subprocess.check_output(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.com', '-C', str(path), *args], text=True, stderr=subprocess.DEVNULL).strip()
 
     def inspect(self, allow=True):
         return cleanup.inspect(self.repo, self.path, 'feature', self.head, allow_submodules=allow)
@@ -688,6 +686,29 @@ class SubmoduleSafetyTests(unittest.TestCase):
                             target.parent.rmdir()
                     else:
                         target.write_bytes(original)
+
+    def test_custom_module_config_retained(self):
+        for key, value in [('user.private-note', 'valuable-setting'), ('user.name', 'private user name')]:
+            with self.subTest(key=key):
+                self.command(self.module, 'config', key, value)
+                try:
+                    with self.assertRaises(cleanup.CleanupError):
+                        self.inspect()
+                    self.assertEqual(subprocess.check_output(['git', '-C', str(self.module), 'config', '--local', '--get', key], text=True).strip(), value)
+                finally:
+                    self.command(self.module, 'config', '--unset', key)
+
+    def test_empty_legacy_branches_directory_removal(self):
+        (self.module_gitdir / 'branches').mkdir(exist_ok=True)
+        self.remove()
+
+    def test_legacy_branches_directory_user_material_retained(self):
+        branches = self.module_gitdir / 'branches'
+        branches.mkdir(exist_ok=True)
+        (branches / 'user-note').write_text('valuable branch notes')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertEqual((branches / 'user-note').read_text(), 'valuable branch notes')
 
     def test_raw_metadata_with_user_text_retained(self):
         for relative in ['logs/HEAD', 'COMMIT_EDITMSG']:

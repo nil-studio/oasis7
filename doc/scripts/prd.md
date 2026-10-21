@@ -143,7 +143,7 @@ unknown ignored 文件、真实 target 目录、改动 config 均保留；已识
 
 执行前重查 Git、base 与材料，remove 成功后才用事务核验 base 并按 expected 删除 branch；另一 worktree 检出、tip/base 改变或 ref 重建均保留并报告部分完成。JSON 的 `eligible`、`blocked_reasons`、`worktree_removed` 和 `branch_removed` 反映实际结果。
 
-含子模块时默认保留；`--allow-submodules` 仅启用[含子模块工作区的有条件清理](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)，不放宽身份、交付、材料、锁定或占用保护。该选项可用于预览，只有同时传入 `--execute` 才会先非强制反初始化，再执行一次 `--force`。已初始化和缓存的递归子模块均核对 gitlink、暂存区、未推送/不可达对象和独立 Git 数据；自定义 hooks、改动默认模板及未知或进行中的 Git 操作资料均保留；未知 ignored 资料、共享或外置 Git 数据、未覆盖的本地 refs/reflog 提交均阻断。远端证明来自当前本地 remote refs，调用前按需正常 fetch；工具不声称远端引用实时有效。JSON 附带 `submodule_gitdirs` 和 `submodule_force_remove`，后者只在实际成功执行该删除后为 true。
+含子模块时默认保留；`--allow-submodules` 仅启用[含子模块工作区的有条件清理](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)，不放宽身份、交付、材料、锁定或占用保护。该选项可用于预览，只有同时传入 `--execute` 才会先非强制反初始化，再执行一次 `--force`。已初始化和缓存的递归子模块均核对 gitlink、暂存区、未推送/不可达对象和独立 Git 数据；自定义 config/hooks、改动默认模板及未知或进行中的 Git 操作资料均保留；未知 ignored 资料、共享或外置 Git 数据、未覆盖的本地 refs/reflog 提交均阻断。远端证明来自当前本地 remote refs，调用前按需正常 fetch；工具不声称远端引用实时有效。JSON 附带 `submodule_gitdirs` 和 `submodule_force_remove`，后者只在实际成功执行该删除后为 true。
 
 Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一清理保护要求。
 
