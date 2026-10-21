@@ -105,6 +105,8 @@ CQ-R01–CQ-R09 是本专题下列锚点保留的 CodeQL 专业合同，不是�
 
 Rust 单元保留默认全部 Cargo features，并显式启用 `cargo_all_targets` 以加载当前 host 的 Cargo targets；这不等于跨架构、跨操作系统或 nightly 全覆盖。`extra_includes` 仅补充已跟踪的内建 WASM 模板目录到语义分析文件系统，不能代替实际宏展开与 build.rs 诊断验收。Cargo 补丁包若原本不是 workspace member，应有明确的 workspace exclusion，令其 standalone manifest 可以加载；这不是 CodeQL 的路径排除，仍扫描其维护源码。上述配置只作用于 Rust，固定 45 分钟预算不变；实际配置、模板加载失败和其余语义诊断必须在变更后重验，未消失的缺口保持可见。
 
+Rust 覆盖缺口可先通过显式手动触发的最小模型诊断定位：固定工具版本、无外部依赖的正负对照以及独立数据库，分别检查原源位置、宏展开边、实际调用目标和数据流，而不是以 Cargo 编译或 AST 数量代替语义证据。诊断不上传 SARIF、不选择常态批次、不满足 required checks；scanner-owned 临时 wrapper 不得改变原源码或 manifest，也不能把合成 fixture 的成功回签为真实依赖、targets 或生产覆盖。实际安全边界与预算经独立检查后，只有有差异的配置或模型证据才能支持后续受测 source 的覆盖重验。
+
 CodeQL 默认检测、生成文件识别与提取覆盖并不等价于“每个文件都有效分析”。清单、提取诊断和已知控制样本必须结合验证。
 
 JavaScript 单元显式设置官方 `CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES=true`，适用于 default 与 extended；其它语言不启用该开关。CLI 2.24 起默认按平均行长跳过疑似 minified 文件，这会误跳过维护中的长行 JSX/JS，不能作为第一方源码的排除理由。保留现有路径排除、查询集与 vendor 文件，不以格式化业务源码绕过提取规则。验收须比对源码清单、实际提取与 skipped/parse diagnostics；开启提取不取消标准查询对 generated/minified top-level 的既有过滤，也不证明阳性完备，相关查询覆盖边界仍须如实记录。

@@ -14,7 +14,7 @@ on:
         required: true
         default: full
         type: choice
-        options: [full, newapi_bridge_package]
+        options: [full, newapi_bridge_package, codeql_rust_model_diagnostic]
       newapi_bridge_build_profile:
         description: "Cargo package profile"
         required: true
@@ -46,6 +46,60 @@ env:
 cache-mode: read
 
 jobs:
+  codeql-rust-model-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'codeql_rust_model_diagnostic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Freeze diagnostic identity and deadline
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "MODEL_DEADLINE=$(( $(date +%s) + 1080 ))" >> "$GITHUB_ENV"
+          mkdir "$RUNNER_TEMP/rust-model-tools"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/rust-model-tools/source.txt"
+      - name: Set up immutable Rust CodeQL bundle
+        shell: bash
+        run: |
+          curl --fail --location --max-time 120 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.2/codeql-bundle-rust-linux64.tar.zst \
+            --output "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst"
+          echo "acf2050189aeede5b9aa566f8fb382b02ac1ace72f534778f68b06fce5371cea  $RUNNER_TEMP/rust-model-tools/bundle.tar.zst" | sha256sum --check
+          timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
+          timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          timeout 180 rustup toolchain install 1.98.1 --profile minimal
+      - name: Run fixed synthetic model controls
+        run: |
+          python3 scripts/security/codeql-rust-model-diagnostic.py \
+            --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
+            --output "$RUNNER_TEMP/rust-model-evidence" \
+            --work "$RUNNER_TEMP/rust-model-databases" \
+            --deadline "$MODEL_DEADLINE"
+      - name: Check combined artifact budget
+        id: artifact-budget
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'rust-model-evidence'
+          size = sum(p.stat().st_size for p in root.rglob('*') if p.is_file())
+          assert root.is_dir() and size <= 64 * 1024 * 1024, 'diagnostic artifact unavailable or over budget'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('fit=true\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.artifact-budget.outputs.fit == 'true'
+        with:
+          name: rust-model-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-model-evidence
+          retention-days: 14
+          if-no-files-found: error
   select:
     if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'
     runs-on: ubuntu-24.04

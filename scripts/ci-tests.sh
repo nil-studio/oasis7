@@ -419,6 +419,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-plan.test.py
   run python3 ./scripts/security/codeql-workflow.test.py
   run python3 ./scripts/security/codeql-rust-coverage.test.py
+  run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
   run python3 ./scripts/security/codeql-health.test.py
   run python3 ./scripts/security/codeql-upload-association.test.py
   run python3 ./scripts/security/codeql-acceptance.test.py

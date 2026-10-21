@@ -167,9 +167,10 @@ class Workflow(unittest.TestCase):
                                   {'CANDIDATE_RESULT': 'success', 'FULL_RESULT': state})
                 self.assertNotEqual(result.returncode, 0)
 
-        nonfull = run_gate('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package',
-                           {'FULL_RESULT': 'success'})
-        self.assertNotEqual(nonfull.returncode, 0)
+        for mode in ('newapi_bridge_package', 'codeql_rust_model_diagnostic'):
+            nonfull = run_gate('workflow_dispatch', 'refs/heads/main', mode,
+                               {'FULL_RESULT': 'success'})
+            self.assertNotEqual(nonfull.returncode, 0)
 
     def test_command_center_is_reusable_and_required(self):
         workflow = (ROOT / '.github/workflows/command-center.yml').read_text()
