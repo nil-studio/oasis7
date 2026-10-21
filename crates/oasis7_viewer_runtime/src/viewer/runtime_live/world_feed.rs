@@ -21,6 +21,9 @@ struct Cursor {
     last_event_seq: u64,
 }
 
+#[path = "world_feed_source.rs"]
+mod source;
+
 pub(super) fn build_world_feed(
     world_id: &str,
     reorg_epoch: u64,
@@ -131,6 +134,9 @@ pub(super) fn build_world_feed(
         )
     });
     let authority_unavailable = first_hidden_crisis_seq.is_some() && !permission_denied;
+    let unclassified = page_events
+        .iter()
+        .any(|event| !is_public_event(event, major_events_by_seq.get(&event.id)));
     let events: Vec<_> = page_events
         .into_iter()
         .filter_map(|event| {
@@ -142,11 +148,11 @@ pub(super) fn build_world_feed(
             if is_crisis_event(event) && major_event.is_none() {
                 None
             } else {
-                Some(project_event(event, major_event))
+                is_public_event(event, major_event).then(|| project_event(event, major_event))
             }
         })
         .collect();
-    let status = if permission_denied || authority_unavailable {
+    let status = if permission_denied || authority_unavailable || unclassified {
         protocol::WorldFeedStatus::Unavailable
     } else if events.is_empty() {
         protocol::WorldFeedStatus::Empty
@@ -164,7 +170,7 @@ pub(super) fn build_world_feed(
         None,
         if permission_denied {
             Some(protocol::WorldFeedUnavailableReason::PermissionDenied)
-        } else if authority_unavailable {
+        } else if authority_unavailable || unclassified {
             Some(protocol::WorldFeedUnavailableReason::SourceUnavailable)
         } else {
             None
@@ -254,6 +260,23 @@ fn latest_seq(journal: &RuntimeJournal) -> u64 {
         .unwrap_or(0)
 }
 
+fn is_public_event(
+    event: &crate::runtime::WorldEvent,
+    major: Option<&protocol::WorldFeedMajorEvent>,
+) -> bool {
+    // Explicit type boundary: adding a new runtime event never publishes its body.
+    major.is_some()
+        || project_module_visual_event(&event.body).is_some()
+        || matches!(
+            event.body,
+            crate::runtime::WorldEventBody::SnapshotCreated(_)
+                | crate::runtime::WorldEventBody::Domain(
+                    crate::runtime::DomainEvent::AgentRegistered { .. }
+                        | crate::runtime::DomainEvent::AgentMoved { .. }
+                )
+        )
+}
+
 fn project_event(
     event: &crate::runtime::WorldEvent,
     major_event: Option<&protocol::WorldFeedMajorEvent>,
@@ -271,8 +294,9 @@ fn project_event(
     protocol::WorldFeedEvent {
         event_seq: event.id,
         summary: format!("{} event", kind.replace('_', " ")),
-        kind,
-        detail: serde_json::to_string(&event.body).unwrap_or_else(|_| "null".to_string()),
+        kind: kind.clone(),
+        // Detail is a public DTO too; no source-body fallback is permitted.
+        detail: serde_json::json!({"kind":kind,"event_seq":event.id}).to_string(),
         // No durable runtime receipt identity is available yet; never infer one.
         receipt_ref: None,
         module_visual_entity_id: module_visual_projection.map(|projection| projection.entity_id),
@@ -417,6 +441,30 @@ mod tests {
     use crate::runtime::{
         Journal, MajorWorldEventVisibilityPermission, SnapshotMeta, WorldEvent, WorldEventBody,
     };
+
+    #[test]
+    fn unclassified_module_payload_is_never_public_for_any_audience() {
+        for _audience in ["anonymous", "other-owner"] {
+            let private = module_emit_event(
+                1,
+                "private_fixture",
+                serde_json::json!({"canary":"synthetic-private-canary"}),
+            );
+            let feed = build_world_feed(
+                "w",
+                0,
+                &Journal {
+                    events: vec![private],
+                },
+                &BTreeMap::new(),
+                None,
+                50,
+                MajorWorldEventVisibilityPermission::Public,
+            );
+            assert!(feed.events.is_empty());
+            assert_eq!(feed.status, protocol::WorldFeedStatus::Unavailable);
+        }
+    }
 
     fn module_emit_event(id: u64, kind: &str, payload: serde_json::Value) -> WorldEvent {
         WorldEvent {
@@ -589,9 +637,8 @@ mod tests {
             MajorWorldEventVisibilityPermission::Public,
         );
 
-        assert_eq!(feed.events.len(), 1);
-        assert_eq!(feed.events[0].kind, "module_emitted");
-        assert_eq!(feed.events[0].module_visual_entity_id, None);
+        assert!(feed.events.is_empty());
+        assert_eq!(feed.status, protocol::WorldFeedStatus::Unavailable);
     }
 
     #[test]
@@ -613,10 +660,8 @@ mod tests {
             MajorWorldEventVisibilityPermission::Public,
         );
 
-        assert_eq!(feed.events.len(), 1);
-        assert_eq!(feed.events[0].kind, "module_emitted");
-        assert_eq!(feed.events[0].module_visual_entity_id, None);
-        assert!(feed.events[0].detail.contains("module-relay"));
+        assert!(feed.events.is_empty());
+        assert_eq!(feed.status, protocol::WorldFeedStatus::Unavailable);
     }
 
     #[test]
@@ -648,8 +693,8 @@ mod tests {
                 MajorWorldEventVisibilityPermission::Public,
             );
 
-            assert_eq!(feed.events[0].kind, "module_emitted");
-            assert_eq!(feed.events[0].module_visual_entity_id, None);
+            assert!(feed.events.is_empty());
+            assert_eq!(feed.status, protocol::WorldFeedStatus::Unavailable);
         }
     }
 

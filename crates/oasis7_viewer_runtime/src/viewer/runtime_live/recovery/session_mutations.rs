@@ -78,6 +78,15 @@ impl ViewerRuntimeLiveServer {
             ));
         }
 
+        if self.config.world_service.is_some() && self.canonical_binding_source().is_none() {
+            return Err(recovery_error(
+                "canonical_owner_not_ready",
+                "verified canonical binding source unavailable",
+                None,
+                Some(player_id),
+                request.session_pubkey,
+            ));
+        }
         let mut session_pubkey = request
             .session_pubkey
             .as_deref()
@@ -157,10 +166,15 @@ impl ViewerRuntimeLiveServer {
         } else {
             Some(format!("snapshot_reload_required: {}", reasons.join("; ")))
         };
-        let bound_agent_id = self
-            .llm_sidecar
-            .bound_agent_for_player(player_id.as_str())
-            .map(ToOwned::to_owned);
+        let bound_agent_id = if self.config.world_service.is_some() {
+            session_pubkey
+                .as_deref()
+                .and_then(|key| self.canonical_session_agent(&player_id, key))
+        } else {
+            self.llm_sidecar
+                .bound_agent_for_player(&player_id)
+                .map(ToOwned::to_owned)
+        };
         let binding_epoch = bound_agent_id
             .as_deref()
             .map(|agent_id| self.prompt_control_authority.binding_epoch(agent_id));

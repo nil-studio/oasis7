@@ -211,6 +211,7 @@ impl ViewerRuntimeLiveServer {
         let Some(agent) = self.world.state().agents.get(agent_id) else {
             return;
         };
+        let owner = self.current_private_chat_request_owner();
         self.enqueue_virtual_event(WorldEventKind::AgentSpoke {
             agent_id: agent_id.to_string(),
             location_id: location_id_for_pos(agent.state.pos),
@@ -219,6 +220,11 @@ impl ViewerRuntimeLiveServer {
             ),
             target_agent_id: None,
         });
+        if let Some(owner) = owner
+            && let Some(event) = self.pending_virtual_events.back()
+        {
+            self.pin_private_chat_event_owner(event.id, owner);
+        }
     }
 
     fn enqueue_agent_chat_reply_event(&mut self, agent_id: &str, message: &str) {
@@ -285,7 +291,19 @@ impl ViewerRuntimeLiveServer {
                 pending.intent_id.as_deref(),
                 pending.request_digest.as_deref(),
             ) {
+                let owner = pending
+                    .intent_id
+                    .as_ref()
+                    .and_then(|intent| self.private_chat_intent_owners.remove(intent))
+                    .filter(|owner| self.private_chat_owner_is_current(owner));
+                let previous_id = self.next_virtual_event_id;
                 self.enqueue_agent_chat_reply_event(pending.agent_id.as_str(), message.as_str());
+                if let Some(owner) = owner
+                    && self.next_virtual_event_id != previous_id
+                    && let Some(event) = self.pending_virtual_events.back()
+                {
+                    self.pin_private_chat_event_owner(event.id, owner);
+                }
                 if let (Some(intent_id), Some(request_digest)) = (
                     pending.intent_id.as_deref(),
                     pending.request_digest.as_deref(),

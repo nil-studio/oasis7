@@ -1,8 +1,8 @@
 const API = "/v1/agent-client";
 const IDENTITY = "/api/public/hosted-account/v2/capabilities";
-const CODES = new Set(["authentication_required", "authentication_failed", "quota_unavailable", "budget_exhausted", "rate_limited", "model_unavailable", "capability_unsupported", "transport_failed", "session_expired", "version_conflict", "executor_unavailable", "executor_busy", "game_executor_unavailable", "deployment_unavailable", "untrusted_executor", "invalid_request", "request_failed"]);
+const CODES = new Set(["authentication_required", "authentication_failed", "quota_unavailable", "budget_exhausted", "rate_limited", "model_unavailable", "capability_unsupported", "transport_failed", "session_expired", "version_conflict", "executor_unavailable", "executor_busy", "game_executor_unavailable", "deployment_unavailable", "untrusted_executor", "invalid_request", "request_failed", "input_limit", "output_limit", "response_limit", "model_identity_mismatch", "unexpected_streaming", "unsupported_finish_reason", "unsupported_tool", "invalid_tool_identity", "unsupported_content", "invalid_response", "list_changed", "connection_capacity_exceeded"]);
 export class ModelConnectionError extends Error {
-  constructor(code, status = 0) { super(CODES.has(code) ? code : "request_failed"); this.code = this.message; this.status = status; }
+  constructor(code, status = 0, operationState = null) { super(CODES.has(code) ? code : "request_failed"); this.code = this.message; this.status = status; this.operationState = ["pending", "ready", "failed", "not_started"].includes(operationState) ? operationState : null; }
 }
 const text = (value, max = 256) => typeof value === "string" && value.length <= max ? value : "";
 const number = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -35,7 +35,7 @@ export function createViewerModelConnectionClient({ fetch: fetchImpl = globalThi
     } catch { throw new ModelConnectionError("transport_failed"); }
     let value;
     try { value = await response.json(); } catch { throw new ModelConnectionError("request_failed", response.status); }
-    if (!response.ok || value?.ok === false) throw new ModelConnectionError(CODES.has(value?.error_code) ? value.error_code : response.status === 401 ? "authentication_required" : response.status === 409 ? "version_conflict" : "request_failed", response.status);
+    if (!response.ok || value?.ok === false) throw new ModelConnectionError(CODES.has(value?.error_code) ? value.error_code : response.status === 401 ? "authentication_required" : "request_failed", response.status, value?.operation_state);
     return value;
   }
   const path = (connection) => {
@@ -43,13 +43,21 @@ export function createViewerModelConnectionClient({ fetch: fetchImpl = globalThi
     return `/model-connections/${encodeURIComponent(connection.id)}`;
   };
   async function mutate(connection, action, extra = {}, method = "POST") {
-    const key = `${connection.id}:${connection.version}:${action}`;
+    const key = `${connection.id}:${action}`;
     const needsId = action === "probe" || action === "stop";
-    if (needsId && !pending.has(key)) pending.set(key, operationId());
-    const value = await request(path(connection) + (action ? `/${action}` : ""), { expected_version: connection.version, ...extra, ...(needsId ? { operation_id: pending.get(key) } : {}) }, method);
-    const result = modelConnectionSnapshot(value.connection);
-    pending.delete(key);
-    return result;
+    if (needsId && !pending.has(key)) pending.set(key, { id: operationId(), version: connection.version });
+    const operation = pending.get(key);
+    const complete = () => { if (pending.get(key) === operation) pending.delete(key); };
+    try {
+      const value = await request(path(connection) + (action ? `/${action}` : ""), { expected_version: needsId ? operation.version : connection.version, ...extra, ...(needsId ? { operation_id: operation.id } : {}) }, method);
+      const result = modelConnectionSnapshot(value.connection);
+      if (value.operation_state !== "pending") complete();
+      return result;
+    } catch (failure) {
+      // HTTP status alone does not prove that the original operation ended.
+      if (["ready", "failed", "not_started"].includes(failure.operationState)) complete();
+      throw failure;
+    }
   }
   return {
     async capabilities() {
@@ -58,7 +66,25 @@ export function createViewerModelConnectionClient({ fetch: fetchImpl = globalThi
       const limits = Object.fromEntries(["max_calls", "max_tokens", "max_input_tokens", "max_output_tokens", "max_concurrent", "lease_ms", "absolute_ms", "renew_interval_ms"].map((key) => [key, number(value.limits?.[key])]));
       return { ok: value.ok === true, enabled: value.enabled === true, authenticated: value.authenticated === true, executor_available: value.executor_available === true, reason: CODES.has(value.reason) ? value.reason : value.reason ? "request_failed" : "", trusted_executor: executor ? { trusted: executor.trusted === true, display_name: text(executor.display_name), location: text(executor.location), origin: text(executor.origin, 2048) } : null, limits, presets: Array.isArray(value.presets) ? value.presets.slice(0, 64).filter((preset) => preset && /^[a-zA-Z0-9_.:-]{1,128}$/.test(preset.id || "") && ["deepseek", "openrouter"].includes(preset.provider_id)).map((preset) => ({ id: preset.id, provider_id: preset.provider_id, model_id: text(preset.model_id), protocol: text(preset.protocol, 64) })) : [] };
     },
-    async list() { const value = await request("/model-connections"); if (!Array.isArray(value.connections) || value.connections.length > 64) throw new ModelConnectionError("request_failed"); return value.connections.map(modelConnectionSnapshot); },
+    async read(connection) { const value = await request(path(connection)); return modelConnectionSnapshot(value.connection); },
+    async list() {
+      const items = [], ids = new Set(), cursors = new Set();
+      let cursor = null, cut;
+      do {
+        const value = await request(cursor ? `/model-connections/pages/${encodeURIComponent(cursor)}` : "/model-connections");
+        if (value.page_limit !== 64 || !Array.isArray(value.connections) || value.connections.length > 64 || !text(value.list_cut, 128) || (cut && cut !== value.list_cut) || !(value.next_cursor === null || /^[a-zA-Z0-9_-]{1,256}$/.test(value.next_cursor || ""))) throw new ModelConnectionError("request_failed");
+        cut = value.list_cut;
+        for (const raw of value.connections) {
+          const connection = modelConnectionSnapshot(raw);
+          if (ids.has(connection.id) || items.length >= 4096) throw new ModelConnectionError("request_failed");
+          ids.add(connection.id); items.push(connection);
+        }
+        cursor = value.next_cursor;
+        if (cursor && (cursors.has(cursor) || value.connections.length === 0)) throw new ModelConnectionError("request_failed");
+        cursors.add(cursor);
+      } while (cursor);
+      return items;
+    },
     async create({ preset_id, raw_key, consent }) { try { const value = await request("/model-connections", { preset_id, raw_key, consent: consent === true }); return modelConnectionSnapshot(value.connection); } finally { raw_key = ""; } },
     probe(connection) { return mutate(connection, "probe", { consent: true }); },
     activate(connection, { target_ref, limits }) { return mutate(connection, "activate", { consent: true, target_ref, limits }); },

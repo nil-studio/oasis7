@@ -215,3 +215,9 @@ completion 测试并补完整链，不引入 Web Seek 或 live seek。
 - 表现/自动化：`crates/oasis7_viewer/software_safe_src/{legacy_core.js,legacy_core_control_gate.test.js}`；生成浏览器入口为 `crates/oasis7_viewer/viewer.js`。
 - PromptControl 浏览器签名与反馈 consumer 还需对齐 `crates/oasis7_viewer/software_safe_src/{main.jsx,viewer_feedback_module.js,viewer_auth_surface_module.js,software_safe_state.js}`；runner/QA 使用真实 backend-issued grant 与 runtime trace。
 - 本设计不改变世界规则、P2P/共识回退策略、视觉方向或测试发布判断；实现 leaf 不得在此 system leaf 中合并。
+
+### Signed request response correlation
+
+Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6; O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4; O7-REQ-92124092-6021-49e4-8def-33038e20b637. This refines the existing player feedback isolation, typed failure and request identity contracts above.
+
+Gameplay ACK `submission_status` preserves WorldService `received`, `pending` and `committed` dispositions; none independently grants owner control or proves a gameplay effect. Typed rejection is distinct from unknown/unavailable original outcome. Gameplay, chat and signed PromptControl ACK/error envelopes carry `request_auth_nonce` copied from the original request proof, as correlation metadata only; it never grants authorization. A client with an outstanding signed request accepts only a matching nonce, action and target from the current connection. Quote responses use the same envelope correlation. Scoped gameplay `recent_feedback.request_auth_nonce` retains the original verified nonce through execution and terminal result updates, so the matching authoritative result supersedes temporary transport feedback without replacing a newer same-action request. Legacy responses without correlation cannot terminate a newer correlated operation. Missing ACK, disconnect and timeout preserve the original signed request for read-only reconciliation; they do not authorize a new submission.

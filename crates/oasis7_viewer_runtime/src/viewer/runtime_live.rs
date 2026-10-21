@@ -177,7 +177,7 @@ use support::{
     FORMAL_RELEASE_DEFAULT_WORLD_ID, RuntimeLiveSession,
     apply_provider_backed_bootstrap_authorities, bootstrap_runtime_live_world,
     is_expected_disconnect_error, is_timeout_error, latest_runtime_event_seq, lock_shared_server,
-    runtime_metrics, send_response,
+    runtime_metrics, send_correlated_response, send_response,
 };
 pub const VIEWER_FORMAL_RELEASE_DEFAULT_WORLD_ID: &str = FORMAL_RELEASE_DEFAULT_WORLD_ID;
 pub struct ViewerRuntimeLiveServer {
@@ -210,6 +210,9 @@ pub struct ViewerRuntimeLiveServer {
     agent_service_session_count: usize,
     agent_service_pump_error: Option<&'static str>,
     pending_virtual_events: VecDeque<WorldEvent>,
+    active_private_chat_authorized: bool,
+    private_chat_event_owners: BTreeMap<u64, gameplay_feedback_scope::GameplayFeedbackOwner>,
+    private_chat_intent_owners: BTreeMap<String, gameplay_feedback_scope::GameplayFeedbackOwner>,
     next_virtual_event_id: u64,
     authoritative_batches: VecDeque<RuntimeAuthoritativeBatchRecord>,
     next_authoritative_batch_id: u64,
@@ -446,6 +449,9 @@ impl ViewerRuntimeLiveServer {
                         .clone()
                 })
                 .unwrap_or_default(),
+            active_private_chat_authorized: false,
+            private_chat_event_owners: BTreeMap::new(),
+            private_chat_intent_owners: BTreeMap::new(),
             next_virtual_event_id,
             authoritative_batches: recovered_generation
                 .as_ref()

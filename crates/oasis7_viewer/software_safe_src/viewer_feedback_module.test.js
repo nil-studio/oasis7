@@ -947,6 +947,22 @@ describe("viewer feedback module", () => {
 
 
 describe("owned Agent claim convergence", () => {
+  it.each(["received", "pending", "unknown"])("keeps %s claims separate from accepted world effects", (stage) => {
+    const state = {uiLocale:"en",auth:{},snapshot:{model:{agents:{},locations:{}},player_gameplay:{blocker_kind:"runtime_snapshot_empty_entities"}},
+      lastGameplayActionFeedback:{kind:"gameplay_action",action:"claim_first_agent",stage,accepted:false,ok:false}};
+    const summary = createFeedbackModule(state).buildGameplaySummary();
+    expect(summary.executionState).toBe(stage);
+    expect(summary.executionSummary).not.toMatch(/is executing|is queued/);
+    expect(summary.executionCauseKind).toBe("outcome_unconfirmed");
+    expect(summary.nextStepHint).not.toMatch(/submit that claim first/i);
+    expect(summary.nextStepHint).toMatch(/original|authoritative/i);
+    state.snapshot.player_gameplay.recent_feedback = state.lastGameplayActionFeedback;
+    state.lastGameplayActionFeedback = null;
+    const fromRuntime = createFeedbackModule(state).buildGameplaySummary();
+    expect(fromRuntime.executionState).toBe(stage);
+    expect(fromRuntime.nextStepHint).toMatch(/original|authoritative/i);
+  });
+
   it("does not offer a second first-Agent claim while the bound owner projection catches up", () => {
     const state = { uiLocale: "en", auth: { available: true, registrationStatus: "registered", boundAgentId: "a" },
       viewerProtocol: { capabilities: ["canonical_agent_chat_v1"] }, snapshot: { model: { agents: {}, locations: {} },

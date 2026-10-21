@@ -1,3 +1,4 @@
+use oasis7_simulator::WorldEventKind;
 use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -254,6 +255,7 @@ pub(super) struct RuntimeLiveSession {
     pub(super) subscribed: HashSet<ViewerStream>,
     pub(super) event_filters: Option<HashSet<ViewerEventKind>>,
     pub(super) current_player_id: Option<String>,
+    pub(super) private_chat_owner: Option<super::gameplay_feedback_scope::GameplayFeedbackOwner>,
     pub(super) gameplay_feedback_owner:
         Option<super::gameplay_feedback_scope::GameplayFeedbackOwner>,
     pub(super) local_gameplay_feedback:
@@ -294,6 +296,7 @@ impl RuntimeLiveSession {
             subscribed: HashSet::new(),
             event_filters: None,
             current_player_id: None,
+            private_chat_owner: None,
             gameplay_feedback_owner: None,
             local_gameplay_feedback: Arc::new(Mutex::new(Default::default())),
             playing,
@@ -465,10 +468,72 @@ pub(super) fn latest_runtime_event_seq(world: &RuntimeWorld) -> u64 {
         .unwrap_or(0)
 }
 
+// Additive envelope metadata preserves the typed response and original nonce.
+// The nonce correlates transport replies, and is never an authorization proof.
+pub(super) fn send_correlated_response(
+    writer: &mut dyn Write,
+    response: &ViewerResponse,
+    request_auth_nonce: Option<u64>,
+) -> Result<(), ViewerRuntimeLiveServerError> {
+    #[derive(serde::Serialize)]
+    struct CorrelatedResponse<'a> {
+        #[serde(flatten)]
+        response: &'a ViewerResponse,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_auth_nonce: Option<u64>,
+    }
+    serde_json::to_writer(
+        &mut *writer,
+        &CorrelatedResponse {
+            response,
+            request_auth_nonce,
+        },
+    )
+    .map_err(|err| ViewerRuntimeLiveServerError::Serde(err.to_string()))?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    Ok(())
+}
+
 pub(super) fn send_response(
     writer: &mut dyn Write,
     response: &ViewerResponse,
 ) -> Result<(), ViewerRuntimeLiveServerError> {
+    // Event bodies are internal rollback/causality evidence. Only the typed
+    // mapped public kind may cross the anonymous/cross-owner wire boundary.
+    let public_response;
+    let response = if let ViewerResponse::Event { event } = response {
+        if let WorldEventKind::RuntimeEvent { kind, .. } = &event.kind
+            && ((!kind.starts_with("runtime.") && kind != "snapshot_created")
+                || kind.starts_with("runtime.gameplay.crisis_"))
+        {
+            // Unclassified runtime events have no public DTO. Crisis rows
+            // require the permission-aware major-event Feed projection.
+            return Ok(());
+        }
+        let mut event = event.clone();
+        match &mut event.kind {
+            WorldEventKind::AgentRegistered { .. }
+            | WorldEventKind::AgentMoved { .. }
+            | WorldEventKind::ResourceTransferred { .. } => {}
+            WorldEventKind::RuntimeEvent { domain_kind, .. } => {
+                // Legacy structured summaries may contain private diagnostic
+                // strings. Public consumers receive the classified kind only.
+                *domain_kind = None;
+            }
+            WorldEventKind::ActionRejected { reason } => {
+                *reason = oasis7_simulator::RejectReason::RuleDenied {
+                    notes: vec!["Action rejected".into()],
+                };
+            }
+            _ => return Ok(()),
+        }
+        event.runtime_event = None;
+        public_response = ViewerResponse::Event { event };
+        &public_response
+    } else {
+        response
+    };
     serde_json::to_writer(&mut *writer, response)
         .map_err(|err| ViewerRuntimeLiveServerError::Serde(err.to_string()))?;
     writer.write_all(b"\n")?;
@@ -507,6 +572,27 @@ pub(super) fn is_expected_disconnect_error(err: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn correlated_response_preserves_typed_error_and_original_request_nonce() {
+        let response = ViewerResponse::GameplayActionError {
+            error: GameplayActionError {
+                code: "session_not_found".into(),
+                message: "missing session".into(),
+                action_id: Some("inspect_target".into()),
+                target_agent_id: Some("agent".into()),
+            },
+        };
+        let mut bytes = Vec::new();
+        send_correlated_response(&mut bytes, &response, Some(42)).unwrap();
+        let wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(wire["request_auth_nonce"], 42);
+        assert_eq!(wire["error"]["code"], "session_not_found");
+        let decoded: ViewerResponse = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            matches!(decoded, ViewerResponse::GameplayActionError { error } if error.code == "session_not_found")
+        );
+    }
 
     #[test]
     fn provider_lineage_store_path_requires_explicit_formal_path() {

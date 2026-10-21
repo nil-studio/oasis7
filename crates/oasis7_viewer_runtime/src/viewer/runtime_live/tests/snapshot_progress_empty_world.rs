@@ -288,6 +288,7 @@ fn existing_world_with_bound_starter_claim_target_does_not_publish_duplicate_fir
 #[test]
 fn runtime_sync_blocker_preserves_empty_world_first_agent_claim() {
     let feedback = crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "chain_sync".to_string(),
         stage: "blocked".to_string(),
         effect: "committed runtime sync failed before the viewer could observe new world state"

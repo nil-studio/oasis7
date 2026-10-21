@@ -27,7 +27,7 @@ import { AgentActivitySurface } from "./agent_activity_surface.jsx"; import { Ho
 import { AgentIntentSurface } from "./agent_intent_surface.jsx";
 import { FactoryProductionFailureDispositionCard } from "./factory_production_failure_disposition_card.jsx";
 import { ControlProofPanel } from "./control_proof_panel.jsx";
-import { PasskeyAccountSurface } from "./viewer_passkey_account_surface.jsx";
+import { PasskeyAccountSurface, hostedAccountGateCopy } from "./viewer_passkey_account_surface.jsx";
 import { keepFocusInDialog } from "./viewer_modal_focus.js";
 import { AgentContextLite } from "./agent_context_lite.jsx";
 import { buildAgentContextDisplayModel } from "./viewer_agent_context_display_model.js";
@@ -611,7 +611,7 @@ function CalloutCard(props) {
 }
 
 function HostedLoginForm(props) {
-  return <PasskeyAccountSurface onJoinWorld={(account, options) => core.joinHostedAccountWorld(account, options)} onV2Detected={() => core.disableLegacyHostedSession()}
+  return <PasskeyAccountSurface onAccountState={props.onAccountState} onJoinWorld={(account, options) => core.joinHostedAccountWorld(account, options)} onV2Detected={() => core.disableLegacyHostedSession()}
     onSessionInvalidated={() => core.invalidateHostedAccountSession()}
     legacyForm={() => <LegacyHostedLoginForm {...props} />} />;
 }
@@ -722,6 +722,8 @@ function focusableElements(root) {
 }
 
 function HostedLoginGate() {
+  const [accountSignedIn, setAccountSignedIn] = createSignal(false);
+  const accountCopy = () => hostedAccountGateCopy(accountSignedIn(), uiLocale());
   observeViewerStateRevision();
   const locale = () => uiLocale();
   let dialogRef;
@@ -782,19 +784,14 @@ function HostedLoginGate() {
             <div>
               <div class="panel__eyebrow">{tr(locale(), "欢迎来到 Oasis7", "Welcome to Oasis7")}</div>
               <h1 id="hosted-login-gate-title" class="auth-gate__title">
-                {tr(locale(), "登录后进入游戏", "Sign In to Play")}
+                {accountCopy().title}
               </h1>
             </div>
-            <Badge class="badge badge--warn">{tr(locale(), "尚未登录", "Not signed in")}</Badge>
+            <Badge class="badge badge--warn">{accountCopy().badge}</Badge>
           </div>
-          <div class="feedback-summary">
-            {tr(
-              locale(),
-              "先登录或创建账号，再进入世界，开始聊天与探索。",
-              "Sign in or create an account, then enter the world to chat and explore.",
-            )}
-          </div>
+          <div class="feedback-summary">{accountCopy().summary}</div>
           <HostedLoginForm
+            onAccountState={({ signedIn }) => setAccountSignedIn(signedIn)}
             locale={locale()}
             handleId="gate-hosted-login-handle"
             codeId="gate-hosted-login-code"
@@ -945,8 +942,8 @@ function goalExecutionBadgeClass(state) {
       : "badge badge--accent";
 }
 
-const PENDING_GAMEPLAY_FEEDBACK_STAGES = new Set(["accepted", "submitted", "queued", "ack", "registering", "signing", "sent"]);
-const GAMEPLAY_ACTION_BUSY_STAGES = new Set(["queued", "registering", "signing", "sent"]);
+const PENDING_GAMEPLAY_FEEDBACK_STAGES = new Set(["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "received", "pending", "committed", "unknown"]);
+const GAMEPLAY_ACTION_BUSY_STAGES = new Set(["queued", "registering", "signing", "sent", "received", "pending", "unknown"]);
 const GAMEPLAY_ACTION_PENDING_MIN_MS = 900;
 let gameplayActionPendingClearTimer = null;
 
@@ -1108,6 +1105,9 @@ function gameplayActionButtonLabel(action, locale) {
 }
 
 function gameplayActionBusyLabel(action, locale) {
+  const stage = core.state.lastGameplayActionFeedback?.stage;
+  if (gameplayActionFeedbackMatches(action) && stage === "unknown") return tr(locale, "结果待确认，请刷新", "Result unknown; refresh");
+  if (gameplayActionFeedbackMatches(action) && ["received", "pending"].includes(stage)) return tr(locale, "等待权威结果...", "Waiting for result...");
   if (action?.executeKind === "request_snapshot") {
     return tr(locale, "刷新中...", "Refreshing...");
   }

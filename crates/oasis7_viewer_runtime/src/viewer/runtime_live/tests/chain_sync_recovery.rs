@@ -282,6 +282,7 @@ fn chain_linked_runtime_empty_poll_does_not_advance_world() {
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "chain_sync".to_string(),
         stage: "blocked".to_string(),
         effect: "committed runtime sync failed before the viewer could observe new world state"
@@ -390,6 +391,7 @@ fn chain_linked_runtime_committed_height_zero_consumes_persisted_execution_world
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "chain_sync".to_string(),
         stage: "blocked".to_string(),
         effect: "stale bootstrap execution world should be ignored before the first commit"
@@ -1075,6 +1077,7 @@ fn legacy_operator_observer_blocks_hosted_prompt_and_reconnects_exact_head() {
         .store(next_chain_height, Ordering::SeqCst);
     cold_viewer.latest_player_gameplay_feedback =
         Some(crate::simulator::PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: "chain_sync".to_string(),
             stage: "blocked".to_string(),
             effect: "stale chain sync feedback".to_string(),

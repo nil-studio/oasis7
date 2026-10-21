@@ -186,8 +186,10 @@ describe("viewer prompt control protocol", () => {
     core.state.auth.sessionEpoch = 12;
     core.state.auth.bindingEpoch = 9;
 
+    core.state.lastChatFeedback = { id: 1, kind: "chat", agentId: "agent-0", stage: "sent", requestAuthNonce: 21 };
     sockets[0].receive({
       type: "agent_chat_error",
+      request_auth_nonce: 21,
       error: {
         code: "agent_control_forbidden",
         agent_id: "agent-0",
@@ -230,6 +232,7 @@ describe("viewer prompt control protocol", () => {
 
   it("maps real prompt-control conflict receipts to safe retry guidance", async () => {
     const { core, sockets } = await setupConnectedSemanticCore();
+    core.state.lastPromptFeedback = { id: 1, kind: "prompt", agentId: "agent-0", stage: "sent", requestId: "pc-replay" };
     sockets[0].receive({
       type: "prompt_control_error",
       error: {
@@ -242,6 +245,7 @@ describe("viewer prompt control protocol", () => {
     expect(core.describeSemanticFeedback(core.state.lastPromptFeedback, "en").detail)
       .toContain("Refresh authority, then retry with a new request id");
 
+    core.state.lastPromptFeedback = { id: 2, kind: "prompt", agentId: "agent-0", stage: "sent", requestId: "pc-version" };
     sockets[0].receive({
       type: "prompt_control_error",
       error: {
@@ -475,6 +479,7 @@ describe("viewer prompt control protocol", () => {
     const snapshotRequestsBeforeAck = sentMessages.filter((message) => message.type === "request_snapshot").length;
     sockets[0].receive({
       type: "prompt_control_ack",
+      request_auth_nonce: sentMessages.find((message) => message.type === "prompt_control")?.command?.request?.auth?.nonce,
       ack: {
         request_id: sentMessages.find((message) => message.type === "prompt_control")?.command?.request?.request_id,
         operation: "apply",

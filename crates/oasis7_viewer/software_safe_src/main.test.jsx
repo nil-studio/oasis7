@@ -81,6 +81,7 @@ function installMockWebSocket() {
       sentMessages.push(JSON.parse(payload));
     }
     close() {
+      if (this.readyState === MockWebSocket.CLOSED) return;
       this.readyState = MockWebSocket.CLOSED;
       this.emit("close", {});
     }
@@ -1028,15 +1029,9 @@ describe("viewer web ui automation baseline", () => {
     expect(dispatchSpy).toHaveBeenCalledTimes(1);
     expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ actionId: "claim_first_agent", executeKind: "claim_first_agent" }));
 
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      if (core.state.lastGameplayActionFeedback?.stage !== "queued") {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
     expect(core.state.auth.available).toBe(true);
     expect(core.state.lastGameplayActionFeedback?.action).toBe("claim_first_agent");
-    expect(core.state.lastGameplayActionFeedback?.stage).toBe("error");
+    await waitFor(() => expect(core.state.lastGameplayActionFeedback?.stage).toBe("error"));
     expect(core.state.lastGameplayActionFeedback?.reason).toMatch(/viewer websocket is not connected/i);
     expect(core.buildGameplaySummary().recentFeedback).toMatchObject({
       action: "claim_first_agent",
@@ -1049,7 +1044,7 @@ describe("viewer web ui automation baseline", () => {
     });
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
-  it("disables first-agent claim buttons while committed snapshot sync is pending", async () => {
+  it.each(["ack", "received", "pending", "unknown"])("disables first-agent claim while result is %s", async (stage) => {
     const { container, core } = await renderViewerApp({
       snapshot: sampleSnapshot({
         model: {
@@ -1077,7 +1072,7 @@ describe("viewer web ui automation baseline", () => {
         core.state.lastGameplayActionFeedback = {
           kind: "gameplay_action",
           action: "claim_first_agent",
-          stage: "ack",
+          stage,
           accepted: true,
           ok: true,
           effect: "submitted gameplay action claim_first_agent for starter-agent-0",
@@ -1090,8 +1085,8 @@ describe("viewer web ui automation baseline", () => {
     const stagePanel = container.querySelector("#viewer-stage-panel");
     const targetsPanel = container.querySelector("#viewer-targets-panel");
     const claimButtons = [
-      ...within(stagePanel).getAllByRole("button", { name: "Claim First Agent" }),
-      ...within(targetsPanel).getAllByRole("button", { name: "Claim First Agent" }),
+      ...within(stagePanel).getAllByRole("button", { name: /Claim First Agent|Waiting for result|Result unknown/ }),
+      ...within(targetsPanel).getAllByRole("button", { name: /Claim First Agent|Waiting for result|Result unknown/ }),
     ];
     expect(claimButtons.length).toBeGreaterThan(1);
     claimButtons.forEach((button) => expect(button).toBeDisabled());
@@ -2152,13 +2147,15 @@ describe("viewer web ui automation baseline", () => {
 
     expect(core.state.lastGameplayActionFeedback).toEqual(
       expect.objectContaining({
-        stage: "error",
+        stage: "unknown",
         ok: false,
         accepted: false,
         effect: "gameplay_action ack timeout",
         reason: "gameplay_action timed out waiting for ack/error from live server",
       }),
     );
+    expect(core.sendGameplayAction({ protocol_action: "gameplay_action.submit", action_id: "inspect_target", target_agent_id: "agent-0" })).toMatchObject({ ok: false });
+    expect(sentMessages.filter(message => message.type === "gameplay_action")).toHaveLength(1);
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
   it("signs actor-scoped gameplay actions with the Rust auth payload field order", async () => {
@@ -2201,7 +2198,7 @@ describe("viewer web ui automation baseline", () => {
     expect(Array.from(actualSigningPayload)).toEqual(Array.from(expectedSigningPayload));
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
-  it("auto-advances local test runtime after first-agent claim ack", async () => {
+  it("keeps first-agent claim pending without binding or advancing on transport ack", async () => {
     vi.useFakeTimers();
     const { core, sockets, sentMessages } = await setupConnectedSemanticCore({
       snapshot: sampleSnapshot({
@@ -2243,6 +2240,8 @@ describe("viewer web ui automation baseline", () => {
     });
     sentMessages.length = 0;
 
+    core.state.auth.boundAgentId = null;
+    core.state.auth.pendingRequestedAgentId = null;
     core.state.lastGameplayActionFeedback = { action: "claim_first_agent", agentId: "starter-agent-0", stage: "sent" };
     sockets[0].receive({
       type: "gameplay_action_ack",
@@ -2255,37 +2254,14 @@ describe("viewer web ui automation baseline", () => {
       },
     });
 
-    expect(core.state.auth.boundAgentId).toBe("starter-agent-0");
+    expect(core.state.auth.boundAgentId).toBeNull();
+    expect(core.state.lastGameplayActionFeedback).toMatchObject({ stage: "pending", ok: false, accepted: false });
     expect(sentMessages).toContainEqual({ type: "request_snapshot" });
     expect(sentMessages.some((message) => message.type === "live_control")).toBe(false);
 
-    vi.advanceTimersByTime(450);
-    const snapshotRequestsBeforeControlAck = sentMessages.filter((message) => message.type === "request_snapshot").length;
-    expect(sentMessages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "live_control",
-          mode: { mode: "step", count: 1 },
-        }),
-      ]),
-    );
-    const autoAdvanceMessage = sentMessages.find((message) => message.type === "live_control");
-    sockets[0].receive({
-      type: "control_completion_ack",
-      ack: {
-        request_id: autoAdvanceMessage.request_id,
-        status: "advanced",
-        delta_logical_time: 1,
-        delta_event_seq: 1,
-      },
-    });
-    expect(sentMessages.filter((message) => message.type === "request_snapshot").length)
-      .toBeGreaterThan(snapshotRequestsBeforeControlAck);
-
-    const snapshotRequestsBeforeAutoRefresh = sentMessages.filter((message) => message.type === "request_snapshot").length;
     vi.advanceTimersByTime(1200);
-    expect(sentMessages.filter((message) => message.type === "request_snapshot").length)
-      .toBeGreaterThan(snapshotRequestsBeforeAutoRefresh);
+    expect(sentMessages.some((message) => message.type === "live_control")).toBe(false);
+    expect(core.state.auth.boundAgentId).toBeNull();
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
   it("resolves pending session registration when runtime returns session_registered", async () => {
@@ -3092,6 +3068,34 @@ describe("viewer web ui automation baseline", () => {
     expect(within(targetsPanel).getByText("No agents in current snapshot.")).toBeInTheDocument();
     expect(within(targetsPanel).getByText("No locations in current snapshot.")).toBeInTheDocument();
     expect(within(targetsPanel).queryByText("Syncing agents…")).not.toBeInTheDocument();
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+
+  it("shows a cookie-authenticated account waiting for world entry without granting control", async () => {
+    let account = { account_id: "synthetic-cookie-account", display_name: "Synthetic Cookie Player" };
+    globalThis.fetch.mockImplementation(async url => {
+      const result = String(url).endsWith("/capabilities") ? { ok: true, csrf_token: "synthetic-csrf", passkey: { available: true } }
+        : String(url).endsWith("/session") ? { ok: true, account }
+        : String(url).endsWith("/credentials") ? { ok: true, credentials: [] }
+        : String(url).endsWith("/sessions") ? { ok: true, sessions: [] }
+        : String(url).endsWith("/logout") ? (account = null, { ok: true })
+        : { ok: true };
+      return { ok: true, status: 200, json: async () => result };
+    });
+    const { core } = await renderViewerApp({
+      autoBindSnapshotAgent: false,
+      setupAfterMount(core) {
+        core.state.hostedAccess = sampleHostedPublicJoinAccess();
+        core.state.auth = { available: false, playerId: null, publicKey: null, boundAgentId: null, source: "guest_only", registrationStatus: "guest", runtimeStatus: "guest" };
+      },
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Enter the World to Play" });
+    expect(within(dialog).getByText("Signed in · world entry pending")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Not signed in")).not.toBeInTheDocument();
+    expect(core.state.auth.available).toBe(false);
+    expect(core.state.auth.boundAgentId).toBeNull();
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).endsWith("/world/join"))).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "退出登录" }));
+    expect(await screen.findByRole("dialog", { name: "Sign In to Play" })).toBeInTheDocument();
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
   it("surfaces hosted recovery and preview strong-auth truth without not-implemented drift", async () => {

@@ -1,6 +1,6 @@
 import { normalizeRecipeSubstitution } from "./recipe_substitution.js";
 import { feedbackForScope } from "./viewer_feedback_scope.js";
-import { projectGameplayReceiptFeedback } from "./viewer_gameplay_receipt_feedback.js";
+import { projectGameplayReceiptFeedback, firstClaimAwaitingOutcome, gameplayExecutionStateLabel } from "./viewer_gameplay_receipt_feedback.js";
 import { normalizeIndustrialStarterProfile } from "./industrial_starter_outcome.js";
 import { normalizeViewerAvailableActions } from "./viewer_feedback_actions.js";
 import { buildGameplayEconomicSurface } from "./viewer_feedback_gameplay_economics.js";
@@ -55,6 +55,7 @@ export function createViewerFeedbackModule({
       action: feedback.action,
       agentId: feedback.agentId || null,
       requestId: feedback.requestId || response?.request_id || null,
+      requestAuthNonce: feedback.requestAuthNonce ?? null,
       accepted: feedback.accepted,
       stage: feedback.stage,
       ok: feedback.ok,
@@ -396,10 +397,11 @@ export function createViewerFeedbackModule({
     const resumeAnchor = gameplay.resume_anchor || null;
     const resumeNextStep = gameplay.resume_next_step || null;
     const agentExists = (agentId) => Boolean(String(agentId || "").trim() && modelAgents[String(agentId || "").trim()]);
-    const firstAgentClaimSyncPending = emptyEntityBlocker
-      && lastGameplayActionFeedback?.action === "claim_first_agent"
-      && lastGameplayActionFeedback?.accepted !== false
-      && lastGameplayActionFeedback?.stage !== "error";
+    const pendingClaim = firstClaimAwaitingOutcome(lastGameplayActionFeedback) ? lastGameplayActionFeedback : firstClaimAwaitingOutcome(gameplay.recent_feedback) ? gameplay.recent_feedback : null;
+    const firstAgentClaimSyncPending = emptyEntityBlocker && pendingClaim;
+    if (firstAgentClaimSyncPending) emptyEntityBlocker = { ...emptyEntityBlocker,
+      nextStepHint: localeText(locale, "等待并刷新原请求的权威结果；请勿重复提交认领。", "Refresh the original request's authoritative result; do not submit the claim again."),
+    };
     let availableActions = normalizeViewerAvailableActions({
       gameplay,
       locale,
@@ -418,7 +420,7 @@ export function createViewerFeedbackModule({
       && runtimeBlockerKind === "runtime_snapshot_empty_entities";
     const recentStage = String(recentFeedback?.stage || "").trim().toLowerCase();
     const pendingGameplayFeedback =
-      ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent"].includes(recentStage)
+      ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "received", "pending", "committed", "unknown"].includes(recentStage)
       && Boolean(String(recentFeedback?.action || "").trim());
     const pendingEmptyWorldClaimSync = Boolean(emptyEntityBlocker && pendingGameplayFeedback);
     const resolvedStageStatus = pendingEmptyWorldClaimSync
@@ -434,7 +436,7 @@ export function createViewerFeedbackModule({
       : emptyEntityBlocker
         ? emptyEntityBlocker.blockerDetail
         : runtimeBlockerDetail;
-    const executionState = pendingEmptyWorldClaimSync
+    const executionState = firstAgentClaimSyncPending && ["received", "pending", "unknown"].includes(pendingClaim.stage) ? pendingClaim.stage : pendingEmptyWorldClaimSync
       ? "accepted"
       : emptyEntityBlocker
       ? "blocked"
@@ -460,28 +462,16 @@ export function createViewerFeedbackModule({
         }
         return "executing";
       })();
-    const executionStateLabel = (() => {
-      switch (executionState) {
-        case "accepted":
-          return localeText(locale, "已接受", "Accepted");
-        case "blocked":
-          return localeText(locale, "已阻塞", "Blocked");
-        case "completed":
-          return localeText(locale, "已完成", "Completed");
-        case "rejected":
-          return localeText(locale, "已拒绝", "Rejected");
-        default:
-          return localeText(locale, "执行中", "Executing");
-      }
-    })();
+    const executionStateLabel = gameplayExecutionStateLabel(executionState, locale, localeText);
     const executionStateMachine = [
+      ...["received", "pending", "unknown"].map(id => ({ id, label: gameplayExecutionStateLabel(id, locale, localeText) })),
       { id: "accepted", label: localeText(locale, "已接受", "Accepted") },
       { id: "executing", label: localeText(locale, "执行中", "Executing") },
       { id: "blocked", label: localeText(locale, "已阻塞", "Blocked") },
       { id: "completed", label: localeText(locale, "已完成", "Completed") },
       { id: "rejected", label: localeText(locale, "已拒绝", "Rejected") },
     ];
-    const executionCauseKind = pendingEmptyWorldClaimSync
+    const executionCauseKind = ["received", "pending", "unknown"].includes(executionState) ? "outcome_unconfirmed" : pendingEmptyWorldClaimSync
       ? "queued_for_execution"
       : emptyEntityBlocker
       ? "world_constraint"
@@ -495,6 +485,8 @@ export function createViewerFeedbackModule({
       })();
     const executionCauseLabel = (() => {
       switch (executionCauseKind) {
+        case "outcome_unconfirmed":
+          return localeText(locale, "等待权威结果", "Awaiting Authoritative Result");
         case "queued_for_execution":
           return localeText(locale, "等待执行", "Queued for Execution");
         case "world_constraint":
@@ -538,6 +530,10 @@ export function createViewerFeedbackModule({
         );
       }
       switch (executionState) {
+        case "received":
+        case "pending":
+        case "unknown":
+          return localeText(locale, "请求结果尚未确认；请回读原请求的权威结果，不要重复提交。", "The original request outcome is unconfirmed; read its authoritative result before submitting again.");
         case "accepted":
           return localeText(
             locale,
@@ -1151,7 +1147,7 @@ export function createViewerFeedbackModule({
       blockerSupplementalDetail: emptyEntityBlocker && runtimeBlockerDetail && !runtimeAlreadyPublishedEmptyEntityBlocker
         ? runtimeBlockerDetail
         : null,
-      nextStepHint: runtimeAlreadyPublishedEmptyEntityBlocker
+      nextStepHint: firstAgentClaimSyncPending ? emptyEntityBlocker.nextStepHint : runtimeAlreadyPublishedEmptyEntityBlocker
         ? gameplay.next_step_hint || emptyEntityBlocker?.nextStepHint || resumeNextStep || null
         : emptyEntityBlocker
           ? emptyEntityBlocker.nextStepHint

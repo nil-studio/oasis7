@@ -91,7 +91,7 @@ describe("requestRefineQuote", () => {
       ok: true,
       request: expect.objectContaining({ compound_mass_g: 40 }),
     }));
-    expect(core.state.refineQuoteRequest).toEqual({ status: "pending", error: null });
+    expect(core.state.refineQuoteRequest).toMatchObject({ status: "pending", error: null, requestAuthNonce: expect.any(Number), dependencyFingerprint: expect.any(String) });
     const message = sentMessages.find((entry) => entry.type === "quote_refine_compound");
     expect(message).toEqual(expect.objectContaining({
       type: "quote_refine_compound",

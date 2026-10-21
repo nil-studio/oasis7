@@ -300,6 +300,17 @@ impl ViewerRuntimeLiveServer {
                 action_id: Some("quote_validate_product".to_string()),
                 target_agent_id: None,
             })?;
+        if self.config.world_service.is_some() {
+            // The remote view does not supply the execution quote port. A
+            // canonical binding alone cannot authorize a local simulation.
+            return Err(GameplayActionError {
+                code: "product_validation_quote_unavailable".into(),
+                message: "this world does not provide an authoritative product validation quote"
+                    .into(),
+                action_id: Some("quote_validate_product".into()),
+                target_agent_id: None,
+            });
+        }
         let agent_id = self
             .llm_sidecar
             .bound_agent_for_player(verified.player_id.as_str())
@@ -514,13 +525,14 @@ impl ViewerRuntimeLiveServer {
                     action_id: Some(request.action_id.clone()),
                     target_agent_id: Some(request.target_agent_id.clone()),
                 })?;
-            let (runtime_action_id, consensus_action_payload_hash) =
+            let (runtime_action_id, consensus_action_payload_hash, submission_status) =
                 self.submit_world_service_gameplay(&request)?;
             if runtime_action_id != 0 {
                 self.runtime_action_players
                     .insert(runtime_action_id, verified.player_id.clone());
             }
             return Ok(GameplayActionAck {
+                submission_status: Some(submission_status.into()),
                 consensus_action_payload_hash,
                 action_id: request.action_id,
                 target_agent_id: request.target_agent_id,
@@ -710,6 +722,7 @@ impl ViewerRuntimeLiveServer {
             self.set_verified_player_gameplay_feedback(
                 &verified,
                 PlayerGameplayRecentFeedback {
+                    request_auth_nonce: None,
                     action: format!("gameplay_action:{}", request.action_id),
                     stage: "completed_advanced".to_string(),
                     effect: format!(
@@ -731,6 +744,7 @@ impl ViewerRuntimeLiveServer {
                 },
             );
             return Ok(GameplayActionAck {
+                submission_status: None,
                 consensus_action_payload_hash: None,
                 action_id: request.action_id,
                 target_agent_id: request.target_agent_id,
@@ -778,6 +792,7 @@ impl ViewerRuntimeLiveServer {
                 )?;
             }
             self.set_verified_player_gameplay_feedback_for_action(&verified, Some(submitted_action_id), PlayerGameplayRecentFeedback {
+                request_auth_nonce: None,
                 action: format!("gameplay_action:{}", request.action_id),
                 stage: "submitted".to_string(),
                 effect: format!(
@@ -799,7 +814,7 @@ impl ViewerRuntimeLiveServer {
             });
 
             return Ok(GameplayActionAck {
-
+                submission_status: None,
                 action_id: request.action_id,
                 target_agent_id: request.target_agent_id,
                 player_id: verified.player_id,
@@ -829,6 +844,7 @@ impl ViewerRuntimeLiveServer {
             &verified,
             Some(runtime_action_id),
             PlayerGameplayRecentFeedback {
+                request_auth_nonce: None,
                 action: format!("gameplay_action:{}", request.action_id),
                 stage: "queued".to_string(),
                 effect: format!(
@@ -857,6 +873,7 @@ impl ViewerRuntimeLiveServer {
         );
 
         Ok(GameplayActionAck {
+            submission_status: None,
             consensus_action_payload_hash: None,
             action_id: request.action_id,
             target_agent_id: request.target_agent_id,

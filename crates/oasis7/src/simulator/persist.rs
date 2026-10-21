@@ -159,6 +159,8 @@ pub struct PlayerGameplayFineGrainActionTranslation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerGameplayRecentFeedback {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_auth_nonce: Option<u64>,
     pub action: String,
     pub stage: String,
     pub effect: String,
