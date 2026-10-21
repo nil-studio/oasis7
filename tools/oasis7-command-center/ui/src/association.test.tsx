@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-li
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Snapshot } from './types';
 const mock = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: mock.invoke }));
+vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: (command:string,args?:unknown) => ['context_bindings','tool_jobs'].includes(command)?Promise.resolve([]):mock.invoke(command,args) }));
 import App from './App';
 afterEach(() => { cleanup(); mock.invoke.mockReset(); });
 

@@ -1,7 +1,8 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js';
+import { createEffect, createSignal, on, onCleanup, Show } from 'solid-js';
 import { BookOpen } from 'lucide-solid';
 import MarkdownText from './MarkdownText';
 import DocumentRelations from './DocumentRelations';
+import ChapterOutline from './ChapterOutline';
 import type { DocumentSection, IndexedDocument } from './generated/core';
 import type { TreeFileRestore, TreeSourcePosition } from './documentTreeReading';
 
@@ -24,7 +25,7 @@ export default function DocumentReader(props:{file:IndexedDocument;chapters:Docu
     if(props.restore?.unresolved||(saved&&!exact))return;
     if(exact||first)choose((exact||first)!,false,exact?props.restore?.scrollTop??0:0);
   }));
-  const links=()=> <div class="chapter-links"><For each={props.chapters}>{section=><button aria-current={chapter()?.id===section.id?'location':undefined} onClick={()=>choose(section)}>{section.title} · 第 {section.line} 行</button>}</For></div>;
+  const links=()=> <ChapterOutline chapters={props.chapters} current={chapter()?.id} choose={choose}/>;
   return <section class="document-reader" aria-label="文档阅读器">
     <h4 class="reader-title"><BookOpen size={20} aria-hidden="true"/>{props.file.title}</h4>
     <DocumentRelations sourceTitle={props.file.title} relations={props.file.pairings} mode={props.file.path.startsWith('doc/product/')?'product_pairing':'pairing'} sections={props.sections} showSource={props.showSource}/>
