@@ -94,6 +94,11 @@ while True:
             while not (root / "writes").exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
             sys.exit(0)
+        if mode == "complete_disconnect":
+            # Persist completion but lose both the start reply and notification.
+            state["turns"][-1]["status"] = "completed"
+            save()
+            sys.exit(0)
         if mode == "disconnect":
             sys.exit(0)
         if mode == "early_completed":
@@ -189,9 +194,10 @@ class RuntimeTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.history([self.stored_turn(status)])
                 result = self.run_turn(thread_id="thread-1")
-                self.assertEqual(result["status"], "blocked")
+                self.assertEqual(result["status"], status if status in runtime.TERMINAL else "blocked")
                 self.assertEqual(result["turn_id"], "turn-1")
         self.assertNotIn("turn/start", self.methods())
+        self.assertNotIn("thread/resume", self.methods())
 
     def test_unrelated_active_turn_prevents_new_execution(self):
         self.history([self.stored_turn("inProgress", "another-event")])

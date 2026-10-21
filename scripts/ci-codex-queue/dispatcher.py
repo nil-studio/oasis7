@@ -280,11 +280,15 @@ def control(snapshot):
     return None
 
 
-def inputs(snapshot):
+def inputs(snapshot, *, ignore_controls=False):
     def brief(x):
         return {k: x.get(k) for k in ("id", "body", "state", "updated_at", "submitted_at", "commit_id")}
+    comments = snapshot["comments"]
+    if ignore_controls:
+        comments = [x for x in comments if (x.get("body") or "").strip()
+                    not in ("/codex pause", "/codex resume")]
     return digest({"body": snapshot["issue"].get("body"),
-                   "comments": [brief(x) for x in snapshot["comments"]],
+                   "comments": [brief(x) for x in comments],
                    "reviews": [brief(x) for x in snapshot["reviews"]]})
 
 
@@ -379,8 +383,13 @@ def payload_facts(payload):
 
 
 def block(store, github, issue, facts, generation, code, message):
-    store.update(issue, pending_event=None, blocked_facts=facts,
-                 handled_generation=generation, status="blocked", error=message)
+    row = store.get(issue)
+    values = dict(blocked_facts=facts, status="blocked", error=message)
+    # A started event may have committed work even when recovery preparation or
+    # the runtime fails. Only a verified terminal outcome can retire its identity.
+    if not row["pending_event"] or row["last_started_event"] != row["pending_event"]:
+        values.update(pending_event=None, handled_generation=generation)
+    store.update(issue, **values)
     github.labels(issue, add=(BLOCKED,), remove=())
     row = store.get(issue)
     # Only a fixed reason code and nonsecret counters cross into the Issue.
@@ -551,20 +560,22 @@ def worker(config, issue, event, github=None, execute=None, prepare=prepare_work
             row = store.get(issue)
             if not row or row["pending_event"] != event:
                 return {"status": "stale_dispatch"}
+            recovering = row["last_started_event"] == event
+            generation = row["retry_generation"]
             current = github.snapshot(issue, row["branch"])
             stop = control(current)
             if (config.state_dir / "STOP").exists() or stop:
                 # If a previous process started the event, retain it for history
                 # reconciliation on resume. An unsent event can be dropped.
                 store.update(issue, status=stop or "paused",
-                             pending_event=event if row["last_started_event"] == event else None)
+                             pending_event=event if recovering else None)
                 return {"status": stop or "paused"}
             if not github.trusted(current["issue"]):
                 raise QueueError("Issue author is outside the current trusted_users")
             payload = json.loads(row["payload"])
             facts = payload_facts(payload)
             snapshot = payload["snapshot"]
-            if row["last_started_event"] != event:
+            if not recovering:
                 fresh_reason, _ = decide(current, row, config)
                 if not fresh_reason or payload_facts(event_payload(current, fresh_reason)) != facts:
                     store.update(issue, pending_event=None, status="waiting")
@@ -574,7 +585,7 @@ def worker(config, issue, event, github=None, execute=None, prepare=prepare_work
             if payload["reason"] == "post-merge-feedback" and not row["thread_id"]:
                 raise QueueError("Missing original thread for post-merge recovery")
             if (payload["reason"] == "post-merge-feedback" and current["pr"] and current["pr"].get("merged")
-                    and row["last_started_event"] != event):
+                    and not recovering):
                 branch = f"codex/queue-{issue}-r{row['turn_count'] + 1}"
                 store.update(issue, branch=branch, pr=None)
                 row = store.get(issue)
@@ -582,7 +593,7 @@ def worker(config, issue, event, github=None, execute=None, prepare=prepare_work
             prepare(config, row["branch"])
             github.labels(issue, add=(ACTIVE,), remove=(READY, BLOCKED))
             github.note(issue, "claimed", "Codex 已领取代码任务；后续 CI、评审和验收反馈继续关联本 Issue。部署、测试与反馈由 dot 按任务授权协调。")
-            if row["last_started_event"] != event:
+            if not recovering:
                 store.update(issue, turn_count=row["turn_count"] + 1, last_started_event=event,
                              same_fact_turns=row["same_fact_turns"] + 1 if row["last_facts"] == facts else 1,
                              last_facts=facts)
@@ -615,10 +626,16 @@ def worker(config, issue, event, github=None, execute=None, prepare=prepare_work
                 # A completed model turn is not acceptance. The next tick reads
                 # the real PR/checks, and only a matching trusted acceptance can
                 # mark delivery complete. This code never closes an Issue.
+                handled_input = payload["input"]
+                if recovering and inputs(snapshot, ignore_controls=True) == inputs(current, ignore_controls=True):
+                    # A resume used to reconcile this completed event is already
+                    # satisfied. Preserve real feedback and requests arriving
+                    # after this worker's snapshot for a later turn.
+                    handled_input = inputs(current)
                 store.update(issue, pending_event=None, handled_event=event,
-                             handled_input=payload["input"], handled_generation=payload["generation"],
+                             handled_input=handled_input, handled_generation=generation,
                              blocked_facts=None, status="waiting", error=None)
-            else:
+            elif result["status"] in ("failed", "interrupted"):
                 store.update(issue, pending_event=None, handled_event=event,
                              handled_input=payload["input"], handled_generation=payload["generation"],
                              blocked_facts=facts,
@@ -627,6 +644,12 @@ def worker(config, issue, event, github=None, execute=None, prepare=prepare_work
                 if result["status"] != "interrupted":
                     block(store, github, issue, facts, payload["generation"],
                           "runtime_" + result["status"], result.get("message", result["status"]))
+            else:
+                # blocked includes a lost submission response or an unconfirmed
+                # interrupt. Keep the frozen event and handled state until its
+                # original thread history proves an outcome, even after resume.
+                block(store, github, issue, facts, payload["generation"],
+                      "runtime_blocked", stop_reason[0] or result.get("message", result["status"]))
             return result
     except (QueueError, OSError, subprocess.TimeoutExpired) as error:
         row = store.get(issue)

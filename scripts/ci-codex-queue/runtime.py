@@ -318,9 +318,10 @@ def execute(
 ) -> dict:
     """Execute at most one turn; completed is not a PR/CI success assertion.
 
-    A recorded event with an uncertain/failed/interrupted turn is never replayed.
-    The queue must reconcile it or explicitly authorize a new event. No command
-    is invoked unless the caller has supplied an open execution-lock descriptor.
+    A recorded event is never replayed. Verified terminal history returns its
+    actual status; blocked is not proof of an outcome and the queue must retain
+    the original event for reconciliation. No command is invoked unless the
+    caller has supplied an open execution-lock descriptor.
     """
     result = {"thread_id": thread_id, "turn_id": None, "status": "blocked", "message": ""}
     server = None
@@ -356,8 +357,9 @@ def execute(
             if matches:
                 turn = matches[0]
                 result["turn_id"] = turn["id"]
-                if turn.get("status") == "completed":
-                    result.update(status="completed", message="Existing completed event recovered; no new turn started")
+                if turn.get("status") in TERMINAL:
+                    result.update(status=turn["status"],
+                                  message=f"Existing {turn['status']} event recovered; no new turn started")
                     return result
                 raise _Blocked(f"Existing event turn is {turn.get('status', 'unknown')}; it was not replayed")
             status = _thread_status(thread)
