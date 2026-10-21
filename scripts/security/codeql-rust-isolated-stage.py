@@ -18,6 +18,10 @@ LOCATABLE = "codeql/rust/elements/internal/LocatableImpl.qll"
 LOCATION_SHA = "8c6f8f3cb1fb5cbaa85a5f61a5d4d50e1a15bb70948f5e2508076fbce97a0da9"
 LOCATION_OLD = "    cached\n    Location getLocation() {"
 LOCATION_NEW = "    Location getLocation() {"
+MACRO_MODULE = "codeql/rust/elements/internal/ElementImpl.qll"
+MACRO_SHA = "b5648da97c3efedd78184d032086603e54f8173f5e85147f37660fb18ad2a8fb"
+MACRO_OLD = "  cached\n  module MacroExpansion {"
+MACRO_NEW = "  module MacroExpansion {"
 
 
 def inventory(root):
@@ -38,7 +42,7 @@ def inventory(root):
     return result
 
 
-def copy_and_patch(original, candidate, uncache_location=False):
+def copy_and_patch(original, candidate, uncache_location=False, ungroup_macro=False):
     before = inventory(original)
     if before.get(STAGE) != BEFORE_SHA:
         raise RuntimeError("official CachedStages differs from frozen bundle")
@@ -67,6 +71,17 @@ def copy_and_patch(original, candidate, uncache_location=False):
         if location.read_text().replace(LOCATION_NEW, LOCATION_OLD, 1) != text:
             raise RuntimeError("location patch changes logical expressions")
         changed.add(LOCATABLE)
+    if ungroup_macro:
+        if not uncache_location or before.get(MACRO_MODULE) != MACRO_SHA:
+            raise RuntimeError("macro grouping candidate lacks frozen prerequisites")
+        macro = candidate / MACRO_MODULE
+        text = macro.read_text()
+        if text.count(MACRO_OLD) != 1:
+            raise RuntimeError("macro module annotation is not unique")
+        macro.write_text(text.replace(MACRO_OLD, MACRO_NEW, 1))
+        if macro.read_text().replace(MACRO_NEW, MACRO_OLD, 1) != text:
+            raise RuntimeError("macro patch changes logical expressions")
+        changed.add(MACRO_MODULE)
     after = inventory(candidate)
     if {name for name in before if before[name] != after.get(name)} != changed or set(before) != set(after):
         raise RuntimeError("candidate changes more than declared annotation files")
@@ -75,7 +90,7 @@ def copy_and_patch(original, candidate, uncache_location=False):
     return before, after
 
 
-def inspect_location_plans(driver, production, args, env):
+def inspect_location_plans(driver, production, args, env, ungroup_macro=False):
     cli = str(args.codeql)
     official = args.codeql.parent / "qlpacks/codeql/rust-all/0.2.23"
     before = inventory(official)
@@ -90,11 +105,12 @@ def inspect_location_plans(driver, production, args, env):
             raise RuntimeError("insufficient original compile/space budget")
         end = min(args.deadline - 90, time.monotonic() + 360)
         plans = {}
-        for name, uncache_location in (("stage-only", False), ("demand-location", True)):
+        variants = (("ungroup-macro", True),) if ungroup_macro else (("stage-only", False), ("demand-location", True))
+        for name, uncache_location in variants:
             copy = args.work / ("library-plan-" + name)
-            original_hashes, copied = copy_and_patch(official, copy, uncache_location)
+            original_hashes, copied = copy_and_patch(official, copy, uncache_location, ungroup_macro)
             save("library-plan-" + name + ".json", {"official": original_hashes, "candidate": copied,
-                "annotation_deletions": 2 if uncache_location else 1})
+                "annotation_deletions": 3 if ungroup_macro else 2 if uncache_location else 1})
             query = args.output / ("query-plan-" + name)
             driver.write(query / "qlpack.yml", "name: oasis7/rust-model-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.23\n")
             driver.write(query / "SourceAst.ql", production.QUERIES["SourceAst"])
@@ -113,7 +129,10 @@ def inspect_location_plans(driver, production, args, env):
             plans[name] = {"query_sha256": hashlib.sha256((query / "SourceAst.ql").read_bytes()).hexdigest(),
                            "library_root": str(copy), "compilation_cache": str(cache)}
         save("location-plan-result.json", {"disposition": "REQUIRES_INDEPENDENT_PLAN_REVIEW", "plans": plans,
-            "database_downloads": 0, "extractions": 0, "query_evaluations": 0, "coverage": "HOLD"})
+            "database_downloads": 0, "extractions": 0, "query_evaluations": 0, "coverage": "HOLD",
+            "fixed_wall_deadline": getattr(args, "fixed_wall_deadline", None),
+            "remaining_cached_roots": ["enclosing-macro", "TElement", "TLocation", "Element.toString"],
+            "cut_scope": "identified forced-location module group, not every cache root"})
     except BaseException as exc:
         error = exc
     finally:

@@ -306,6 +306,7 @@ def main():
     mode.add_argument("--compile-anchored-parent", action="store_true")
     mode.add_argument("--isolated-ast-stage", action="store_true")
     mode.add_argument("--inspect-isolated-location-plans", action="store_true")
+    mode.add_argument("--inspect-isolated-macro-plan", action="store_true")
     parser.add_argument("--evaluator-cost-probes", action="store_true")
     parser.add_argument("--evaluator-batch", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
@@ -331,12 +332,14 @@ def main():
 
 
 def diagnose(args):
+    args.fixed_wall_deadline = args.deadline
     args.deadline = time.monotonic() + max(0, args.deadline - time.time())
     args.output.mkdir(exist_ok=False)
     args.owned_output = True
     args.work.mkdir(exist_ok=False)
     write(args.output / "identity.json", json.dumps({
         "source": os.environ.get("GITHUB_SHA"), "run": os.environ.get("GITHUB_RUN_ID"),
+        "fixed_wall_deadline": args.fixed_wall_deadline,
         "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "platform": platform.platform(),
         "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "bundle_sha256": "acf2050189aeede5b9aa566f8fb382b02ac1ace72f534778f68b06fce5371cea"}, indent=2) + "\n")
@@ -354,7 +357,7 @@ def diagnose(args):
     version = json.loads((args.output / "codeql-version.json").read_text())
     if version["version"] != "2.27.2":
         raise RuntimeError("unexpected CodeQL version")
-    if args.isolated_ast_stage or args.inspect_isolated_location_plans:
+    if args.isolated_ast_stage or args.inspect_isolated_location_plans or args.inspect_isolated_macro_plan:
         import types
         modules = []
         for label, filename in (("production", "codeql-rust-production-macros.py"),
@@ -363,9 +366,12 @@ def diagnose(args):
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             modules.append(module)
-        action = modules[1].inspect_location_plans if args.inspect_isolated_location_plans else modules[1].experiment
-        action(types.SimpleNamespace(run=run, fixture=fixture, write=write, hashes=hashes,
-            LIBRARY_VERSIONS=LIBRARY_VERSIONS, MACROS=MACROS, CALLS=CALLS, CLOSURES=CLOSURES), modules[0], args, env)
+        driver = types.SimpleNamespace(run=run, fixture=fixture, write=write, hashes=hashes,
+            LIBRARY_VERSIONS=LIBRARY_VERSIONS, MACROS=MACROS, CALLS=CALLS, CLOSURES=CLOSURES)
+        if args.inspect_isolated_location_plans or args.inspect_isolated_macro_plan:
+            modules[1].inspect_location_plans(driver, modules[0], args, env, ungroup_macro=args.inspect_isolated_macro_plan)
+        else:
+            modules[1].experiment(driver, modules[0], args, env)
         return
     if args.inspect_evaluator_evidence:
         helper = Path(__file__).with_name("codeql-rust-production-macros.py")

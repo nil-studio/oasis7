@@ -73,10 +73,10 @@ jobs:
           timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
           timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           timeout 180 rustup toolchain install 1.98.1 --profile minimal
-      - name: Compile isolated location scheduling plans
+      - name: Compile isolated macro grouping plan
         run: |
           python3 scripts/security/codeql-rust-model-diagnostic.py \
-            --inspect-isolated-location-plans \
+            --inspect-isolated-macro-plan \
             --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
             --output "$RUNNER_TEMP/rust-model-evidence" \
             --work "$RUNNER_TEMP/rust-model-databases" \

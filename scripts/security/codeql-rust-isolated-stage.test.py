@@ -44,6 +44,21 @@ class Isolated(unittest.TestCase):
             self.assertEqual((root / "candidate" / m.LOCATABLE).read_text().replace(m.LOCATION_NEW, m.LOCATION_OLD, 1), text)
             self.assertEqual(m.inventory(original), before)
 
+    def test_complete_group_cut_keeps_individual_macro_formulas_cached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); official = root / "official"
+            stage_sha = self.source(official)
+            location = official / m.LOCATABLE; location.parent.mkdir(parents=True, exist_ok=True)
+            location.write_text(m.LOCATION_OLD + "\n getLocationDefault(this)\n}\n")
+            macro = official / m.MACRO_MODULE
+            text = m.MACRO_OLD + "\n cached predicate isRelevantElement() { any() }\n cached predicate isFromMacroExpansion() { originalFormula() }\n}\n"
+            macro.write_text(text)
+            with patch.object(m,"BEFORE_SHA",stage_sha), patch.object(m,"LOCATION_SHA",hashlib.sha256(location.read_bytes()).hexdigest()), patch.object(m,"MACRO_SHA",hashlib.sha256(text.encode()).hexdigest()):
+                before, after = m.copy_and_patch(official, root / "candidate", True, True)
+            self.assertEqual({p for p in before if before[p] != after[p]}, {m.STAGE, m.LOCATABLE, m.MACRO_MODULE})
+            self.assertEqual((root/"candidate"/m.MACRO_MODULE).read_text().replace(m.MACRO_NEW,m.MACRO_OLD,1),text)
+            self.assertEqual(m.inventory(official),before)
+
     def test_actual_plan_wiring_only_compiles_and_keeps_copies_separate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); official = root / "bundle/qlpacks/codeql/rust-all/0.2.23"

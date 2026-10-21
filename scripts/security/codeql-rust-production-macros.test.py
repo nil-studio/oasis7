@@ -348,7 +348,7 @@ class Guards(unittest.TestCase):
         job = workflow.split("  codeql-rust-model-diagnostic:",1)[1].split("\n  select:",1)[0]
         self.assertNotIn("security-events:", job)
         self.assertNotIn("actions: read", job)
-        self.assertIn("--inspect-isolated-location-plans", job)
+        self.assertIn("--inspect-isolated-macro-plan", job)
         self.assertNotIn("GH_TOKEN:", job)
 
 if __name__ == "__main__": unittest.main()
