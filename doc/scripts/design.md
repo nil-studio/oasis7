@@ -63,3 +63,9 @@
 
 新增能力时先确定它属于模块级契约还是专题契约；只有跨多个专题的稳定
 结构才回写本页，参数、端口、临时兼容路径和任务完成明细留在各自 owner 文档。
+
+### 子模块工作区清理
+
+Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；要求声明见[开发流程规范](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)。
+
+`resource-cleanup-executor.py` 复用现有 path/branch/HEAD、交付、材料与进程检查，在显式 `--allow-submodules` 下增加递归 gitlink 与模块 Git 数据核对。只有当前 worktree 私有的模块数据可随它删除；已反初始化的数据仍检查本地历史。预览只读取，执行前重新核对后先非强制 deinit，再单次 force remove，最后按原 ref 事务删除 topic 分支。子模块数据或进程可见性不明即保留，失败不会回退到 rm 或双重 force。验证用临时真实 Git 仓库覆盖干净成功、未提交/未推送及并发拒绝路径。
