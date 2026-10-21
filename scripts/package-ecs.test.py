@@ -111,6 +111,51 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 assemble(root / "symlink")
 
+    def test_native_staging_reset_removes_previous_job_outputs(self):
+        text = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
+        section = text.split("      - name: Reset native staging directories\n", 1)[1].split("      - uses:", 1)[0]
+        script = textwrap.dedent(section.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("ecs-native", "ecs-workspace-cache", "ecs-reports"):
+                (root / name).mkdir()
+                (root / name / "stale").write_text("old source")
+            for name in ("ecs-cache-state.json", "ecs-cache-restore.json", "ecs-cache-stage.json", "ecs-units.json", "unrelated"):
+                (root / name).write_text("preserve unrelated state")
+            for _ in range(2):
+                subprocess.run(["bash", "-euo", "pipefail", "-c", script],
+                    env=dict(os.environ, RUNNER_TEMP=str(root)), check=True)
+                self.assertEqual([path.name for path in root.iterdir()], ["unrelated"])
+
+    def test_runner_validation_rejects_untrusted_self_hosted_requests(self):
+        text = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
+        section = text.split("  validate:\n", 1)[1].split("  web:\n", 1)[0]
+        script = textwrap.dedent(section.split("        run: |\n", 1)[1])
+        self.assertNotIn("uses:", section)
+        for runner, jobs, ref, matching, expected in (
+            ("github-hosted", "1", "refs/heads/feature", False, 0),
+            ("github-hosted", "2", "refs/tags/v1", True, 0),
+            ("github-hosted", "8", "refs/heads/main", True, 1),
+            ("self-hosted", "8", "refs/heads/main", True, 0),
+            ("self-hosted", "16", "refs/heads/main", True, 0),
+            ("self-hosted", "2", "refs/heads/feature", True, 1),
+            ("self-hosted", "2", "refs/tags/v1", True, 1),
+            ("self-hosted", "2", "refs/heads/main", False, 1),
+        ):
+            with self.subTest(runner=runner, jobs=jobs, ref=ref, matching=matching):
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", script],
+                    env=dict(os.environ, NATIVE_RUNNER=runner, NATIVE_JOBS=jobs,
+                             SOURCE_REF=ref, SOURCE_SHA="a" * 40,
+                             WORKFLOW_SHA=("a" if matching else "b") * 40),
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+        trusted = text.split("  native-trusted:\n", 1)[1].split("  package:\n", 1)[0]
+        self.assertIn("needs: validate", trusted)
+        self.assertIn("github.ref == 'refs/heads/main' && github.workflow_sha == github.sha", trusted)
+        self.assertIn('fromJSON(\'["self-hosted","Linux","X64"]\')', trusted)
+        self.assertIn("steps: *native-steps", trusted)
+        self.assertIn("group: ecs-workspace-cache-main-writer", trusted)
+
     def test_workflow_parallel_join_and_trust(self):
         workflow = ROOT / ".github/workflows/ecs-packages.yml"
         # Use the same YAML parser as the repository workflow contracts.
@@ -127,7 +172,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("needs.native.result == 'success' && needs.native-trusted.result == 'skipped'", text)
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)
         for section in (text.split("  web:\n", 1)[1].split("  native:", 1)[0], text.split("  native:\n", 1)[1].split("  native-trusted:", 1)[0]):
-            self.assertNotIn("needs:", section)
+            self.assertIn("needs: validate", section)
         self.assertEqual(text.count("ref: ${{ github.sha }}"), 3)
 
 

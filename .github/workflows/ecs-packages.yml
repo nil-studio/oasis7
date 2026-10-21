@@ -1,15 +1,21 @@
 name: ECS Server Package
-run-name: ECS Server Package (jobs=${{ inputs.native_build_jobs || '2' }}, ${{ github.ref_name }})
+run-name: ECS Server Package (${{ inputs.native_runner || 'github-hosted' }}, jobs=${{ inputs.native_build_jobs || '2' }}, ${{ github.ref_name }})
 
 on:
   workflow_dispatch:
     inputs:
+      native_runner:
+        description: Native build runner (self-hosted requires main)
+        type: choice
+        required: true
+        default: github-hosted
+        options: [github-hosted, self-hosted]
       native_build_jobs:
-        description: Native Cargo jobs (1 for comparison)
+        description: Native Cargo jobs (above 2 requires self-hosted)
         type: choice
         required: true
         default: '2'
-        options: ['1', '2']
+        options: ['1', '2', '4', '8', '16']
 
 permissions:
   contents: read
@@ -23,7 +29,31 @@ env:
   RUST_TOOLCHAIN: 1.96.0
 
 jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate runner trust and concurrency
+        env:
+          NATIVE_RUNNER: ${{ inputs.native_runner || 'github-hosted' }}
+          NATIVE_JOBS: ${{ inputs.native_build_jobs || '2' }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          if [[ "$NATIVE_RUNNER" == self-hosted ]]; then
+            if [[ "$SOURCE_REF" != refs/heads/main || "$WORKFLOW_SHA" != "$SOURCE_SHA" ]]; then
+              echo '::error::Self-hosted ECS builds require main and the same workflow/source SHA.'
+              exit 1
+            fi
+          elif [[ "$NATIVE_RUNNER" != github-hosted || "$NATIVE_JOBS" -gt 2 ]]; then
+            echo '::error::GitHub-hosted ECS builds support only 1 or 2 Cargo jobs.'
+            exit 1
+          fi
+
   web:
+    needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -66,10 +96,20 @@ jobs:
           if-no-files-found: error
 
   native:
+    needs: validate
+    env:
+      # Both Rust cache layers include RUST_* in their compatibility identity.
+      RUST_ECS_CACHE_NAMESPACE: ${{ inputs.native_runner || 'github-hosted' }}
     if: github.ref != 'refs/heads/main' || github.workflow_sha != github.sha
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps: &native-steps
+      - name: Reset native staging directories
+        shell: bash
+        run: |
+          # Runner temp may survive failed or cancelled jobs on a persistent host.
+          rm -rf -- "$RUNNER_TEMP/ecs-native" "$RUNNER_TEMP/ecs-workspace-cache" "$RUNNER_TEMP/ecs-reports"
+          rm -f -- "$RUNNER_TEMP/ecs-cache-state.json" "$RUNNER_TEMP/ecs-cache-restore.json" "$RUNNER_TEMP/ecs-cache-stage.json" "$RUNNER_TEMP/ecs-units.json"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -79,7 +119,7 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup default "$RUST_TOOLCHAIN"
           sudo apt-get update
-          sudo apt-get install -y pkg-config libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo apt-get install -y time pkg-config libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Normalize Rust cache toolchains
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
@@ -163,12 +203,17 @@ jobs:
           key: ${{ steps.ecs-cache-identity.outputs.key }}
 
   native-trusted:
+    needs: validate
+    env:
+      # Both Rust cache layers include RUST_* in their compatibility identity.
+      RUST_ECS_CACHE_NAMESPACE: ${{ inputs.native_runner || 'github-hosted' }}
     concurrency:
       group: ecs-workspace-cache-main-writer
       cancel-in-progress: false
     if: github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
     cache-mode: write
-    runs-on: ubuntu-24.04
+    # Select only the published Linux/X64 labels; runner names are not labels.
+    runs-on: ${{ inputs.native_runner == 'self-hosted' && fromJSON('["self-hosted","Linux","X64"]') || fromJSON('["ubuntu-24.04"]') }}
     timeout-minutes: 180
     steps: *native-steps
 
