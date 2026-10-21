@@ -1,4 +1,6 @@
 //! Self-contained sparse Snapshot checkpoint closures; state roots stay raw-byte hashes.
+#[cfg(test)]
+use super::to_cbor;
 use super::{controlled_capture as capture, formal_package::insert};
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     ArtifactObject, ArtifactRole, ClosedRecord,
