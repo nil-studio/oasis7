@@ -139,6 +139,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("upload: never", WORKFLOW)
         self.assertIn("wait-for-processing: true", WORKFLOW)
 
+    def test_javascript_minified_source_opt_in_is_language_scoped(self):
+        scan_env = WORKFLOW.split("    env:\n      RUSTC_WRAPPER:", 1)[1].split("    steps:", 1)[0]
+        self.assertIn("CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES: ${{ matrix.language == 'javascript-typescript' && 'true' || 'false' }}", scan_env)
+        self.assertEqual(WORKFLOW.count("CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES:"), 1)
+        # Both profiles use this shared scan job; no per-profile omission or new path exclusion.
+        self.assertNotIn("needs.plan.outputs.profile", scan_env)
+        self.assertNotIn("software_safe_src/**", WORKFLOW)
+
     def test_shared_queue_empty_guard_and_cancel(self):
         self.assertIn("group: oasis7-codeql-scan-slot-${{ matrix.slot }}\n      queue: max\n      cancel-in-progress: false", WORKFLOW)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", WORKFLOW)

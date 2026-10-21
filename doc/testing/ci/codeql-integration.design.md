@@ -107,6 +107,8 @@ Rust 单元保留默认全部 Cargo features，并显式启用 `cargo_all_target
 
 CodeQL 默认检测、生成文件识别与提取覆盖并不等价于“每个文件都有效分析”。清单、提取诊断和已知控制样本必须结合验证。
 
+JavaScript 单元显式设置官方 `CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES=true`，适用于 default 与 extended；其它语言不启用该开关。CLI 2.24 起默认按平均行长跳过疑似 minified 文件，这会误跳过维护中的长行 JSX/JS，不能作为第一方源码的排除理由。保留现有路径排除、查询集与 vendor 文件，不以格式化业务源码绕过提取规则。验收须比对源码清单、实际提取与 skipped/parse diagnostics；开启提取不取消标准查询对 generated/minified top-level 的既有过滤，也不证明阳性完备，相关查询覆盖边界仍须如实记录。
+
 纯 Python PR 初始选择一个 Python 单元；纯 JS/HTML PR选择一个 JS 单元；纯 Rust PR 选择一个 Rust 单元；跨语言与共享配置变更选相应并集。这样首先消除四语言全部触发与跨工具链安装的浪费。
 
 ### 4.2.1 分批验收与启用控制
