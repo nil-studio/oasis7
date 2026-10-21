@@ -223,7 +223,7 @@ def execute(run, args, env, query, packs, cache):
                 run([str(args.codeql), "query", "run", str(query / (name + ".ql")), "--database=" + str(database),
                      "--output=" + str(bqrs), "--additional-packs=" + str(packs),
                      "--compilation-cache=" + str(cache), "--threads=2", "--ram=3072"], source,
-                    args.output / f"{kind}-{name}.log", args.deadline, 60, args.output, extraction_env)
+                    args.output / f"{kind}-{name}.log", args.deadline, 120, args.output, extraction_env)
                 run([str(args.codeql), "bqrs", "decode", str(bqrs), "--format=csv",
                      "--output=" + str(args.output / f"{kind}-{name}.csv")], source,
                     args.output / f"{kind}-{name}-decode.log", args.deadline, 20, args.output, extraction_env)
