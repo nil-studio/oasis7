@@ -507,6 +507,20 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
             "fixture_failure_stages={}",
             fixture.stage_diagnostics.snapshot()
         );
+        if admission_mode == "pending-cadence" {
+            // Report the actual child failure before the observer's join can
+            // replace it with a secondary readiness or sampling assertion.
+            eprintln!(
+                "pending_cadence_child_exit={} ready={} gated={} sampled={} released={}\nchild_stdout:\n{}\nchild_stderr:\n{}",
+                output.status,
+                app_dir.join("pending-cadence-ready").exists(),
+                app_dir.join("pending-cadence-gated").exists(),
+                app_dir.join("pending-cadence-sampled").exists(),
+                app_dir.join("pending-cadence-released").exists(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
     if hosted
         && (metadata_probe
