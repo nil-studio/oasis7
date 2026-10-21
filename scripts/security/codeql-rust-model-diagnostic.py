@@ -297,7 +297,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--codeql", type=Path, required=True)
     parser.add_argument("--inspect-packs-only", action="store_true")
-    parser.add_argument("--real-peer-projection", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--real-peer-projection", action="store_true")
+    mode.add_argument("--production-macro-database", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--deadline", type=float, required=True)
@@ -332,6 +334,8 @@ def diagnose(args):
         "panic": "record every layer and dataframe witness; no automatic coverage PASS or warning waiver"}, indent=2) + "\n")
     env = dict(os.environ, CARGO_NET_OFFLINE="true", RUSTUP_TOOLCHAIN="1.96.0",
                CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS="true")
+    env.pop("GH_TOKEN", None)
+    env.pop("GITHUB_TOKEN", None)
     cli = str(args.codeql.resolve())
     run([cli, "version", "--format=json"], args.work, args.output / "codeql-version.json",
         args.deadline, 20, args.output, env)
@@ -371,8 +375,8 @@ def diagnose(args):
     search_root = os.pathsep.join(p["root"] for p in inventory)
     peer_mode = None
     query_texts = {"Macros": MACROS, "Calls": CALLS, "Closures": CLOSURES}
-    if args.real_peer_projection:
-        helper = Path(__file__).with_name("codeql-rust-peer-inputs.py")
+    if args.real_peer_projection or args.production_macro_database:
+        helper = Path(__file__).with_name("codeql-rust-production-macros.py" if args.production_macro_database else "codeql-rust-peer-inputs.py")
         specification = importlib.util.spec_from_file_location("real_peer_inputs", helper)
         peer_mode = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(peer_mode)

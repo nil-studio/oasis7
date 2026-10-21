@@ -781,7 +781,12 @@ run_cargo() {
         self.assertNotIn('matrix.group', WORKFLOW)
         self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', WORKFLOW)), WORKFLOW.count('persist-credentials: false'))
         self.assertNotIn('secrets.', WORKFLOW)
-        self.assertNotIn('GH_TOKEN:', WORKFLOW)
+        diagnostic = JOBS["codeql-rust-model-diagnostic"]
+        self.assertNotIn('GH_TOKEN:', WORKFLOW.replace(diagnostic, ""))
+        self.assertEqual(diagnostic.count('GH_TOKEN:'), 1)
+        self.assertIn('GH_TOKEN: ${{ github.token }}', diagnostic)
+        self.assertIn('security-events: read', diagnostic)
+        self.assertIn("inputs.run_mode == 'codeql_rust_model_diagnostic'", diagnostic)
         self.assertNotIn('scripts/pm/', WORKFLOW)
         self.assertNotIn('task_uid', WORKFLOW)
         self.assertIn('permissions:\n  contents: read', WORKFLOW)

@@ -52,6 +52,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      security-events: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,10 +74,12 @@ jobs:
           timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
           timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           timeout 180 rustup toolchain install 1.98.1 --profile minimal
-      - name: Run fixed synthetic model controls
+      - name: Inspect production macro model from existing database
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/security/codeql-rust-model-diagnostic.py \
-            --real-peer-projection \
+            --production-macro-database \
             --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
             --output "$RUNNER_TEMP/rust-model-evidence" \
             --work "$RUNNER_TEMP/rust-model-databases" \
