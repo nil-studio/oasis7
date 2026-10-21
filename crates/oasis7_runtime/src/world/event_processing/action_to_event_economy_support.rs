@@ -347,34 +347,13 @@ pub(crate) fn build_material_market_quotes(
     quotes
 }
 
-pub(crate) fn recipe_stage_gate_allowed(
-    current_stage: crate::IndustryStage,
-    stage_gate: &str,
-) -> bool {
-    let normalized = stage_gate.trim();
-    if normalized.is_empty() {
-        return true;
-    }
-    let Some(required_stage) = parse_industry_stage(normalized) else {
-        return true;
-    };
-    current_stage >= required_stage
-}
+pub(crate) use oasis7_world_state::world::pure_helpers::recipe_stage_gate_allowed;
 
 pub(super) fn product_unlock_stage_allowed(
     current_stage: crate::IndustryStage,
     unlock_stage: &str,
 ) -> bool {
     recipe_stage_gate_allowed(current_stage, unlock_stage)
-}
-
-fn parse_industry_stage(raw: &str) -> Option<crate::IndustryStage> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "bootstrap" => Some(crate::IndustryStage::Bootstrap),
-        "scale_out" | "scaleout" | "scale-out" => Some(crate::IndustryStage::ScaleOut),
-        "governance" => Some(crate::IndustryStage::Governance),
-        _ => None,
-    }
 }
 
 pub(super) fn industry_stage_label(stage: crate::IndustryStage) -> &'static str {
@@ -385,23 +364,7 @@ pub(super) fn industry_stage_label(stage: crate::IndustryStage) -> &'static str 
     }
 }
 
-pub(crate) fn recipe_preferred_tags_compatible(
-    preferred_tags: &[String],
-    factory_tags: &[String],
-) -> bool {
-    if preferred_tags.is_empty() {
-        return true;
-    }
-    let normalized_factory: BTreeSet<String> = factory_tags
-        .iter()
-        .map(|tag| tag.trim().to_ascii_lowercase())
-        .filter(|tag| !tag.is_empty())
-        .collect();
-    preferred_tags.iter().any(|tag| {
-        let normalized = tag.trim().to_ascii_lowercase();
-        !normalized.is_empty() && normalized_factory.contains(normalized.as_str())
-    })
-}
+pub(crate) use oasis7_world_state::world::pure_helpers::recipe_preferred_tags_compatible;
 
 pub(super) fn normalized_factory_tags(tags: &[String]) -> Vec<String> {
     let normalized: BTreeSet<String> = tags

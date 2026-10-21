@@ -3,7 +3,7 @@ use crate::DomainEvent;
 use ed25519_dalek::{Signer, SigningKey};
 use oasis7_wasm_abi::SubstitutionProfileRefV1;
 
-pub(crate) fn fixture() -> (WorldState, SigningKey) {
+pub fn fixture() -> (WorldState, SigningKey) {
     let mut world = crate::World::new();
     world.submit_action(crate::Action::RegisterAgent {
         agent_id: "owner".into(),
@@ -47,7 +47,7 @@ pub(crate) fn fixture() -> (WorldState, SigningKey) {
     });
     (state, key)
 }
-pub(crate) fn certificate(manifest: String, key: &SigningKey) -> GovernanceFinalityCertificate {
+pub fn certificate(manifest: String, key: &SigningKey) -> GovernanceFinalityCertificate {
     let mut c = GovernanceFinalityCertificate {
         proposal_id: 1,
         manifest_hash: manifest,
@@ -81,7 +81,7 @@ pub(crate) fn certificate(manifest: String, key: &SigningKey) -> GovernanceFinal
     );
     c
 }
-pub(crate) fn facts(state: &WorldState) -> QualifiedIndustrialLotFactsV1 {
+pub fn facts(state: &WorldState) -> QualifiedIndustrialLotFactsV1 {
     QualifiedIndustrialLotFactsV1 {
         world_binding: "world".into(),
         owner_id: "owner".into(),
@@ -112,7 +112,7 @@ pub(crate) fn facts(state: &WorldState) -> QualifiedIndustrialLotFactsV1 {
         consensus_height: 1,
     }
 }
-pub(crate) fn import(
+pub fn import(
     _state: &WorldState,
     key: &SigningKey,
     request: &str,
@@ -133,7 +133,7 @@ pub(crate) fn import(
         },
     )
 }
-pub(crate) fn event(request: &str, command: IndustrialWorkCommandV1) -> DomainEvent {
+pub fn event(request: &str, command: IndustrialWorkCommandV1) -> DomainEvent {
     DomainEvent::WorldRuleCommitted {
         action_id: 1,
         actor_id: "owner".into(),
@@ -309,7 +309,7 @@ fn certified_root_uses_canonical_inputs_without_sink_and_rejects_stale_baseline(
     assert!(PreparedWorldRule::prepare(&state, &event("root", command), 1).is_err());
 }
 
-pub(crate) fn root_fixture() -> (WorldState, SigningKey, IndustrialWorkCommandV1) {
+pub fn root_fixture() -> (WorldState, SigningKey, IndustrialWorkCommandV1) {
     let (mut state, signing_key) = fixture();
     let recipe = "recipe.smelter.iron_ingot";
     state.recipe_profiles.insert(
@@ -590,7 +590,7 @@ fn bound_root_fixture_with_site(site_output: bool) -> (WorldState, RootOperation
     (state, bound_root)
 }
 
-pub(crate) fn started_root_fixture() -> (WorldState, IndustrialRefV1, u64) {
+pub fn started_root_fixture() -> (WorldState, IndustrialRefV1, u64) {
     let (mut state, root) = bound_root_fixture();
     let start = event(
         "start",

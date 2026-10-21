@@ -57,7 +57,7 @@ fn response(request: &ReadWorldViewRequest) -> ReadWorldViewResponse<WorldServic
         ),
     );
     let world = oasis7::runtime::World::new_with_state(state);
-    let mut view = WorldServiceProjection::from_world(&world, Some("a")).unwrap();
+    let mut view = oasis7::world_service::projection::from_world(&world, Some("a")).unwrap();
     view.runtime_binding = None;
     let subject = json!({"kind":"agent","agent_id":"a","owner_binding":"owner","generation":1});
     let presenter = json!({"presenter_id":"executor","presenter_kind":"agent_client"});

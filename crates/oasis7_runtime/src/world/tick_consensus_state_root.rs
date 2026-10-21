@@ -5,6 +5,7 @@ use super::super::util::hash_json;
 use super::super::{GovernanceIdentityProfileState, WorldError, WorldState};
 use super::World;
 use super::tick_consensus::StateRootProjection;
+use oasis7_world_state::codec::state_root_hash;
 
 impl World {
     pub(crate) fn current_state_root_hash(&self) -> Result<String, WorldError> {
@@ -17,7 +18,7 @@ impl World {
     ) -> Result<String, WorldError> {
         let projection =
             WorldStateProjection::borrowed(&self.state).with_industry_history_overlay(prepared);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &projection,
             manifest_hash: &self.current_manifest_hash()?,
             policy_hash: &hash_json(&self.policies)?,
@@ -42,7 +43,7 @@ impl World {
             state_projection
                 .with_governance_identity_profile_overlay(target_agent_id, next_profile.clone())
         };
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &state_projection,
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
@@ -57,7 +58,7 @@ impl World {
         let policy_hash = hash_json(&self.policies)?;
         let state =
             WorldStateProjection::borrowed(&self.state).with_governance_registry_overlay(overlay);
-        hash_json(&StateRootProjection {
+        state_root_hash(&StateRootProjection {
             state: &state,
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
@@ -67,8 +68,8 @@ impl World {
     fn state_root_hash_for_state(&self, state: &WorldState) -> Result<String, WorldError> {
         let manifest_hash = self.current_manifest_hash()?;
         let policy_hash = hash_json(&self.policies)?;
-        hash_json(&StateRootProjection {
-            state,
+        state_root_hash(&StateRootProjection {
+            state: &WorldStateProjection::borrowed(state),
             manifest_hash: manifest_hash.as_str(),
             policy_hash: policy_hash.as_str(),
         })

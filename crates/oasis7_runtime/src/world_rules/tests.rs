@@ -134,10 +134,10 @@ mod organization_continuity_tests;
 mod organization_tests;
 mod supply_tests;
 
-pub(super) fn emergency_authorize_fixture() -> (World, Action) {
+pub fn emergency_authorize_fixture() -> (World, Action) {
     supply_tests::emergency_authorize_fixture()
 }
 #[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
-pub(super) fn essential_recipe_fixture() -> (World, Action) {
+pub fn essential_recipe_fixture() -> (World, Action) {
     supply_tests::essential_recipe_fixture()
 }

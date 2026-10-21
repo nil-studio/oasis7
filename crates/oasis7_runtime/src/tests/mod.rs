@@ -171,3 +171,4 @@ mod agent_delegation;
 mod war_declaration_quote;
 
 mod participant_policy;
+mod world_state_extraction;

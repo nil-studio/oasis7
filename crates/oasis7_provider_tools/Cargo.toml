@@ -13,8 +13,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [features]
-default = ["wasmtime", "node-libp2p"]
+default = ["wasmtime"]
 wasmtime = ["oasis7/wasmtime"]
-node-libp2p = ["oasis7/node-libp2p"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]

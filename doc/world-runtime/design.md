@@ -10,7 +10,20 @@ Legacy Scheduler 的纯合同由 `oasis7_agent_api::{legacy_economy, legacy_sche
 
 ## 实现边界与共享值所有权
 
-`oasis7_runtime` 拥有完整 World、权威状态、准入、事务、cognition、持久化与恢复；`oasis7_world_service` 拥有受权服务用例、已提交投影、结果与发布，依赖 Runtime 与合同层。`oasis7` 保留宿主组装及现有消费者需要的兼容门面。Runtime 与 Simulator 是并列的执行实现，不通过对方拥有共享领域值。资源库存和元素预算属于 `oasis7_agent_api::world_resource`，机器人规格和视觉实体属于 `world_entity`，chunk 坐标与纯几何派生属于 `world_geometry`；Runtime 专属 Agent/body 状态归 `oasis7_runtime::agent_state`。旧 `models` 和 Simulator 类型路径仅作为现有消费者的兼容导出。
+### 状态与服务投影的编译边界
+
+权威执行的数据边界由 `oasis7_world_state` 拥有：`WorldState`、Agent cell、事件/envelope、Snapshot/Journal、catalog/rollback metadata 及其完整持久化值闭包、默认值、纯查询和必要状态变换。该包可以消费已有 API/Proto 合同，但不得依赖 Runtime、Service、Game Client、Simulator、Viewer、Chain host 或 Wasmtime 执行器。Runtime 依赖状态库，继续拥有活 World、行动准入、authority/base 检查、外部模块执行、事务发布、快照采集、恢复和 retention 编排。
+
+状态投影使用借用和 typed sparse patch/view。仅依赖状态、事件和世界时间且只改变纯字段的准备值及其有限方法可下沉；读取活 World、授权事实、journal、receipt 或整体发布的准备/提交对象留 Runtime，改为持有下层 patch。下层 patch 不是外部提交命令，不能绕过 Runtime 对 event ID、journal、nonce、receipt、queue 和 consensus root 的原子检查。禁止跨包 `include!`、重复类型或整份 World clone 规避归属。`SchedulerWakeV1`、`AgentContinuation` 和 `CognitionLeaseV1` 等持久读取值及其格式/digest 校验可归下层；`CognitionScheduler` 队列选择/容量恢复、`ContinuationTransition` 生命周期策略、`CognitionRecovery` 恢复判定和 cognition 余额/lease 业务引擎留 Runtime，不因纯内存或无活 World 引用而整体下沉。
+
+`oasis7_world_projection` 拥有 `WorldServiceProjection`、continuation context 等服务读取 DTO，以及具体投影/response codec 和证明验证适配，依赖状态库、既有 API/Formal Protocol 和 Game Client 的验证核心。Game Client 保持独立读模型，不反向依赖状态/投影库。Service 依赖 Runtime 和投影库；从活 World 认证读者、按 audience 构造与裁剪投影、生成执行许可和发布正式结果仍由 Service 的自由函数或本地 builder 完成。旧类型路径可再导出同一声明，但关联构造 API 必须迁移到 Service owner。
+
+状态库集中 Snapshot/Journal 的具体 JSON/CBOR codec 及状态投影 root 编码/哈希；投影库集中完整投影和既有 response envelope 的具体 codec/验证入口，生产消费者调用这些入口。迁移必须保留 compact/pretty JSON、普通/规范 CBOR、字段/tag/default/skip、数字 map key、未知/重复字段处理、错误语义、hash domain 和签名 payload。解码不授予恢复资格，普通视图不替代执行快照；现有 public/owner/delegate/撤销后权限、私有内容白名单及 native/WASM 能力边界保持。
+
+这两个边界不保证所有 Runtime 修改均免于重编：状态 schema 或下沉 reducer 改变必须使真实依赖闭包失效。收益用固定工具链、profile、features、jobs、target 和缓存条件的同配置单元/timings 测量；架构成立与跨 run ECS 缓存消费分别验收，不能用普通 CI 或缓存命中代替实际 Cargo Fresh、测试执行与包身份验证。
+
+
+`oasis7_runtime` 拥有完整活 World、准入、事务、cognition 执行、持久化与恢复编排；权威状态值由 `oasis7_world_state` 拥有并经 Runtime 兼容再导出；`oasis7_world_service` 拥有受权服务用例、已提交投影、结果与发布，依赖 Runtime 与合同层。`oasis7` 保留宿主组装及现有消费者需要的兼容门面。Runtime 与 Simulator 是并列的执行实现，不通过对方拥有共享领域值。资源库存和元素预算属于 `oasis7_agent_api::world_resource`，机器人规格和视觉实体属于 `world_entity`，chunk 坐标与纯几何派生属于 `world_geometry`；权威 Agent/body 状态归 `oasis7_world_state::agent_state`，`oasis7_runtime::agent_state` 兼容再导出同一声明。旧 `models` 和 Simulator 类型路径仅作为现有消费者的兼容导出。
 
 资源清单 DTO、规范 hash 和纯上下文由 API 拥有；`runtime::chain_resource` 从权威状态派生，`simulator::chain_resource` 从内核状态派生。派生是两侧的 free function，不在共享 DTO 上挂接执行层固有方法。资源 commit 引用仍是既有资源关联合同，不扩大为共识最终性证明。
 
@@ -25,6 +38,8 @@ Runtime 的源码编译通过 API 的 `ModuleSourceCompiler` 过程内能力注�
 `world-runtime` 是 world-infrastructure 的上层确定性执行层：它不决定产品规则或网络/共识部署，而是把已排序的世界动作确定性地执行为事件、状态根、receipt、checkpoint 与可验证回放。gameplay、Agent 与 Viewer 经版本化协议提交 intent 或消费已提交状态；它们不拥有世界推进权。
 
 链节点进程组合由 `oasis7_chain_runtime` crate 拥有。同 package library 的 `execution_config` 拥有纯 release policy 与 retention profile 解释，binary 组装显式 `ExecutionDriverConfig` 后交给 execution driver，后者不读取进程根级 policy helper。执行桥和进程安全适配继续位于 binary。世界执行归 `oasis7_runtime`，授权投影构造归 `oasis7_world_service`，跨实现与进程适配留在 `oasis7`。纯投影承诺、规范编码和包含证明由 `oasis7_client_api::formal_projection` 提供；世界适配函数 `world_service::formal_projection::commitments_for_world` 只枚举当前合法 audience、生成已提交投影并调用共享算法。客户端协议层不得反向依赖世界或节点；编码、hash domain、Merkle 结构和预算保持同一协议。本地 snapshot/journal 分段和组装由 `oasis7_cas` 提供；Runtime 直接消费 CAS 与 `oasis7_formal_protocol`，World Service 直接消费 Formal Protocol，不通过 DistFS 取得存储或协议能力。DistFS 保留分段函数的兼容重导出，其职责限于分布式存储协调。端点持久化与恢复仍由 `oasis7_distfs` / `oasis7_node` 负责，进程入口消费这些接口，不形成第二套存储或恢复实现。
+
+Node snapshot 与目录存储观测到奖励运行时输入的宿主适配由实际消费它的 `oasis7_chain_runtime` reward host 拥有；core 不通过该适配依赖 Node。恢复宿主的 `BusinessIndexNodeReader` 直接消费 Formal Protocol 合同，DistFS 只保留 core 测试所需依赖。真实 Node 消费者 Chain/Viewer 直接转发 `oasis7_node/libp2p`，不经 core 传播网络 feature；这些消费者自身的 Node/DistFS 依赖仍会使其随节点实现变化而重编。
 
 `oasis7` owns the shared world library and no executable targets. `oasis7_launcher_backend` owns game/Web launcher backends; `oasis7_viewer_runtime` owns viewer processes; `oasis7_client_cli` and `oasis7_ops_tools` own client commands and world operations. Newapi service, local provider bridge and provider diagnostics/benchmarks have separate package ownership. Observability, hosted-access policy and LetAI credit adaptation are shared libraries; libraries and executables must not borrow another binary's source. Client CLI production defaults exclude Wasmtime/libp2p. Entrypoints that execute local worlds, resolve authoritative simulator configuration or serve viewers retain explicit world-library dependencies instead of duplicating protocol, authorization or recovery logic. Executable names, CLI, serialized formats and persistence behavior remain unchanged.
 

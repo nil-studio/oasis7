@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 cache-mode: read
 
 env:
@@ -89,13 +90,28 @@ jobs:
           shared-key: oasis7-ecs-native-linux-ecs-v2
           save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
+      - name: Identify ECS workspace cache
+        id: ecs-cache-identity
+        continue-on-error: true
+        run: python3 scripts/ci-ecs-cache.py identity
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        id: ecs-workspace-cache
+        if: steps.ecs-cache-identity.outputs.key != ''
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/ecs-workspace-cache
+          key: ${{ steps.ecs-cache-identity.outputs.key }}
+          restore-keys: ${{ steps.ecs-cache-identity.outputs.prefix }}
+      - name: Validate ECS workspace cache
+        continue-on-error: true
+        run: python3 scripts/ci-ecs-cache.py restore --cache "$RUNNER_TEMP/ecs-workspace-cache" --report "$RUNNER_TEMP/ecs-cache-restore.json"
       - name: Compile three ECS binaries
         shell: bash
         env:
           # Keep this step-local so jobs=1/2 restore the same Rust cache.
           CARGO_BUILD_JOBS: ${{ inputs.native_build_jobs || '2' }}
         run: |
-          resource_dir=target/cargo-timings
+          resource_dir="$RUNNER_TEMP/ecs-reports"
           mkdir -p "$resource_dir"
           printf 'ECS native build: jobs=%s\n' "$CARGO_BUILD_JOBS"
           python3 scripts/package-ecs-resource-monitor.py --out "$resource_dir/ecs-resources.json" &
@@ -111,23 +127,45 @@ jobs:
           }
           trap finish_resources EXIT
           /usr/bin/time -v -o "$resource_dir/ecs-time.txt" \
-            python3 scripts/package-ecs.py native --out output/native
+            python3 scripts/package-ecs.py native --out "$RUNNER_TEMP/ecs-native" --cache-state "$RUNNER_TEMP/ecs-cache-state.json"
+      - name: Stage ECS workspace cache
+        id: ecs-cache-stage
+        if: github.job == 'native-trusted'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-ecs-cache.py stage --cache "$RUNNER_TEMP/ecs-workspace-cache" --state "$RUNNER_TEMP/ecs-cache-state.json" --report "$RUNNER_TEMP/ecs-cache-stage.json"
       - name: Upload native Cargo timings
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ecs-native-timings
-          path: target/cargo-timings/
+          path: |
+            target/cargo-timings/
+            ${{ runner.temp }}/ecs-reports/
+            ${{ runner.temp }}/ecs-cache-*.json
+            ${{ runner.temp }}/ecs-units.json
           if-no-files-found: ignore
-      - run: tar -C output/native -czf output/native.tar.gz .
+      - run: |
+          mkdir -p output
+          tar -C "$RUNNER_TEMP/ecs-native" -czf output/native.tar.gz .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ecs-native-stage
           path: output/native.tar.gz
           if-no-files-found: error
+      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/ecs-workspace-cache
+          key: ${{ steps.ecs-cache-identity.outputs.key }}
 
   native-trusted:
+    concurrency:
+      group: ecs-workspace-cache-main-writer
+      cancel-in-progress: false
     if: github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
     cache-mode: write
     runs-on: ubuntu-24.04

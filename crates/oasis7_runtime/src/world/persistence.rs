@@ -336,8 +336,8 @@ impl World {
             world_config_hash,
             generation_algorithm_hash,
         );
-        let latest_chain_resource_delta = Some(
-            crate::chain_resource::latest_from_runtime_manifest(
+        let latest_chain_resource_delta =
+            Some(crate::chain_resource::latest_from_runtime_manifest(
                 super::super::ChainResourceDerivationContext {
                     world_id: chain_resource_manifest.world_id.as_str(),
                     chain_id: chain_resource_manifest.chain_id.as_str(),
@@ -348,8 +348,7 @@ impl World {
                     tick: self.state.time,
                 },
                 &chain_resource_manifest,
-            ),
-        );
+            ));
         Snapshot {
             snapshot_catalog: self.snapshot_catalog.clone(),
             manifest: self.manifest.clone(),
@@ -709,7 +708,7 @@ impl World {
             });
         }
         if let Some((parent, _)) = &history {
-            let bytes = serde_cbor::to_vec(&snapshot).map_err(|e| {
+            let bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|e| {
                 WorldError::DistributedValidationFailed {
                     reason: e.to_string(),
                 }

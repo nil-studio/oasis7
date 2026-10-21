@@ -355,7 +355,7 @@ fn probe_compatibility_state(config: &NodeConfig) -> Result<Value, String> {
 }
 
 fn decoded_world_snapshot_root(world: &World) -> Result<String, String> {
-    let snapshot = serde_cbor::to_vec(&world.snapshot())
+    let snapshot = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
         .map_err(|error| format!("serialize decoded World snapshot: {error}"))?;
     Ok(oasis7_runtime::blake3_hex(&snapshot))
 }

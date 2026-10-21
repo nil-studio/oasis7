@@ -28,9 +28,7 @@ fn install_collect_data_verified_projection(
         execution_block_hash: "fixture".into(),
         state_root_ref: "fixture".into(),
     };
-    let mut projection =
-        crate::world_service::projection::WorldServiceProjection::from_world(&server.world, None)
-            .unwrap();
+    let mut projection = crate::world_service::projection::from_world(&server.world, None).unwrap();
     projection.runtime_binding = None;
     projection.state.starter_oc_claims.clear();
     for index in 0..claims {

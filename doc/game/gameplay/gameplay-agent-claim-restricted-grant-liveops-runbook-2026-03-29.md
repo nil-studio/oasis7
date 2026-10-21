@@ -15,7 +15,7 @@ Lifecycle: current controlled operator procedure; the date is its establishment 
 - Runtime Dependencies:
   - `crates/oasis7_runtime/src/world/event_processing/action_to_event_core.rs`
   - `crates/oasis7_runtime/src/world/event_processing/action_to_event_policy_contract.rs`
-  - `crates/oasis7_runtime/src/state/apply_domain_event_main_token.rs`
+  - `crates/oasis7_world_state/src/state/apply_domain_event_main_token.rs`
   - `crates/oasis7_runtime/src/world/governance.rs`
   - `crates/oasis7_runtime/src/tests/agent_claims.rs`
 

@@ -160,7 +160,8 @@ mod tests {
             execution_block_hash: "block".into(),
             state_root_ref: "root".into(),
         };
-        let mut projection = WorldServiceProjection::from_world(&server.world, None).unwrap();
+        let mut projection =
+            oasis7::world_service::projection::from_world(&server.world, None).unwrap();
         projection.runtime_binding = None;
         let response = ReadWorldViewResponse {
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,

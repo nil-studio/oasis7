@@ -6111,9 +6111,9 @@ dependencies = [
  "oasis7_agent_harness",
  "oasis7_client_api",
  "oasis7_distfs",
+ "oasis7_formal_protocol",
  "oasis7_hosted_access",
  "oasis7_model_provider",
- "oasis7_node",
  "oasis7_observability",
  "oasis7_proto",
  "oasis7_runtime",
@@ -6205,6 +6205,8 @@ dependencies = [
  "oasis7_wasm_abi",
  "oasis7_wasm_executor",
  "oasis7_wasm_router",
+ "oasis7_world_projection",
+ "oasis7_world_state",
  "reqwest 0.13.5",
  "serde",
  "serde_cbor",
@@ -6575,6 +6577,7 @@ dependencies = [
  "oasis7_runtime",
  "oasis7_simulator",
  "oasis7_wasm_abi",
+ "oasis7_world_state",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -6644,6 +6647,7 @@ dependencies = [
  "oasis7_wasm_materializer",
  "oasis7_wasm_router",
  "oasis7_wasm_store",
+ "oasis7_world_state",
  "serde",
  "serde_cbor",
  "serde_json",
@@ -6709,6 +6713,7 @@ dependencies = [
  "oasis7_runtime",
  "oasis7_simulator",
  "oasis7_wasm_abi",
+ "oasis7_world_projection",
  "reqwest 0.13.5",
  "serde",
  "serde_cbor",
@@ -6793,6 +6798,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oasis7_world_projection"
+version = "0.1.0"
+dependencies = [
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_formal_protocol",
+ "oasis7_game_client",
+ "oasis7_proto",
+ "oasis7_world_state",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+]
+
+[[package]]
 name = "oasis7_world_service"
 version = "0.1.0"
 dependencies = [
@@ -6812,6 +6832,8 @@ dependencies = [
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_wasm_abi",
+ "oasis7_world_projection",
+ "oasis7_world_state",
  "reqwest 0.13.5",
  "serde",
  "serde_cbor",
@@ -6820,6 +6842,31 @@ dependencies = [
  "sha2 0.11.0",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "oasis7_world_state"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "ed25519-dalek",
+ "hex",
+ "hmac 0.13.0",
+ "libc",
+ "oasis7_agent_api",
+ "oasis7_cas",
+ "oasis7_client_api",
+ "oasis7_formal_protocol",
+ "oasis7_proto",
+ "oasis7_wasm_abi",
+ "serde",
+ "serde_cbor",
+ "serde_json",
+ "sha2 0.11.0",
+ "unicode-normalization",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

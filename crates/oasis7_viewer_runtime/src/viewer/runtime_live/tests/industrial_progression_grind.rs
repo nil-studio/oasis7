@@ -135,6 +135,7 @@ fn failure_disposition_gameplay_snapshot() -> crate::simulator::PlayerGameplaySn
         false,
         true,
         None,
+        false,
     )
 }
 
@@ -153,6 +154,7 @@ fn gameplay_snapshot_for_failure_state(
         false,
         true,
         None,
+        false,
     )
 }
 
@@ -188,7 +190,7 @@ fn runtime_gameplay_snapshot_flags_grind_only_after_repeating_same_loop_without_
     );
 
     let gameplay = super::super::gameplay_snapshot::build_player_gameplay_snapshot(
-        &state, None, true, None, None, None, true, None, false, true, None,
+        &state, None, true, None, None, None, true, None, false, true, None, false,
     );
 
     assert_eq!(

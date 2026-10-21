@@ -205,7 +205,7 @@ fn canonical_owner_chat_driver_dedup_restart_rejection_and_replacement() {
         None,
     )
     .unwrap();
-    let authorized = projection::WorldServiceProjection::from_authenticated_world(
+    let authorized = projection::from_authenticated_world(
         &pinned.world,
         Some("agent-a"),
         &public,
@@ -460,7 +460,7 @@ fn canonical_owner_goal_http_view_excludes_public_and_registered_delegate() {
             if path == VIEW_PATH {
                 let typed: SignedServiceResponse<
                     ReadWorldViewResponse<
-                        oasis7::world_service::projection::WorldServiceProjection,
+                        oasis7_world_projection::WorldServiceProjection,
                     >,
                 > = serde_json::from_value(value.clone()).unwrap();
                 verify_service_response(

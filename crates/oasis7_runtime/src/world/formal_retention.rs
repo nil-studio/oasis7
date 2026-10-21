@@ -7,7 +7,7 @@
 
 use super::World;
 use crate::{
-    CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationNonceRecord, WorldError,
+    CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationNonceRecord,
     formal_retained_history::{
         AgentChatIntentLookupV1, DistinctReorgEpochSummaryV1, FeedbackPublicationLookupV1,
         FormalRetainedHistoryIndexViewV1, FormalRetainedHistoryRootV1, GameTaskControlLookupV1,
@@ -92,14 +92,6 @@ pub struct FormalWorldRetentionPlanV1 {
     pub tick_consensus_archive: super::FormalTickConsensusArchivePlanV1,
 }
 
-impl From<RetainedHistoryReadError> for WorldError {
-    fn from(error: RetainedHistoryReadError) -> Self {
-        Self::DistributedValidationFailed {
-            reason: error.to_string(),
-        }
-    }
-}
-
 impl World {
     /// Initialize the independent retained-history index on a fresh staged
     /// World before its first profile-v2 Snapshot is externally approved.
@@ -172,8 +164,8 @@ impl World {
         parent: VerifiedFormalRetainedHistoryParentV1,
         reader: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
     ) -> Result<(), String> {
-        let snapshot_bytes =
-            serde_cbor::to_vec(&self.snapshot()).map_err(|error| error.to_string())?;
+        let snapshot_bytes = oasis7_world_state::codec::snapshot_cbor(&self.snapshot())
+            .map_err(|error| error.to_string())?;
         let current_snapshot_root = blake3::hash(&snapshot_bytes).to_hex().to_string();
         if current_snapshot_root != parent.after_snapshot_root() {
             return Err(
@@ -243,10 +235,8 @@ impl World {
     pub fn read_retained_world_service_result(
         &self,
         correlation_key_digest: &str,
-    ) -> Result<
-        Option<crate::service_admission::CanonicalIntentResultV1>,
-        RetainedHistoryReadError,
-    > {
+    ) -> Result<Option<crate::service_admission::CanonicalIntentResultV1>, RetainedHistoryReadError>
+    {
         if self.state.retained_history_root.is_none() {
             return Ok(None);
         }
@@ -397,10 +387,8 @@ impl World {
     pub(crate) fn read_retained_agent_chat_intent_results(
         &self,
         lookup: &AgentChatIntentLookupV1,
-    ) -> Result<
-        Vec<crate::service_admission::CanonicalIntentResultV1>,
-        RetainedHistoryReadError,
-    > {
+    ) -> Result<Vec<crate::service_admission::CanonicalIntentResultV1>, RetainedHistoryReadError>
+    {
         let (parent, reader) = self.attached_formal_history()?;
         parent.agent_chat_intent_results(lookup, reader)
     }
@@ -416,10 +404,8 @@ impl World {
     pub(crate) fn read_retained_game_task_control_results(
         &self,
         lookup: &GameTaskControlLookupV1,
-    ) -> Result<
-        Vec<crate::service_admission::CanonicalIntentResultV1>,
-        RetainedHistoryReadError,
-    > {
+    ) -> Result<Vec<crate::service_admission::CanonicalIntentResultV1>, RetainedHistoryReadError>
+    {
         let (parent, reader) = self.attached_formal_history()?;
         parent.game_task_control_results(lookup, reader)
     }

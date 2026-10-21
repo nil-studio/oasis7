@@ -5,7 +5,8 @@
 //! The prepared install is the sole canonical publication seam; in particular,
 //! this path must not turn a full `World` clone into the production transaction.
 
-use serde::Serialize;
+use crate::WorldStateProjection;
+use oasis7_world_state::codec::state_root_hash;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::util::hash_json;
@@ -17,12 +18,7 @@ use super::super::{
 };
 use super::World;
 
-#[derive(Serialize)]
-struct StateRootProjection<'a, T: ?Sized> {
-    state: &'a T,
-    manifest_hash: &'a str,
-    policy_hash: &'a str,
-}
+use oasis7_world_state::codec::StateRootProjection;
 
 /// All state published by one governed proposal application.
 ///
@@ -606,9 +602,9 @@ pub(super) fn state_root_hash_with_manifest(
     let manifest_hash = hash_json(manifest)?;
     let policy_hash = hash_json(&world.policies)?;
     let projection = StateRootProjection {
-        state: &world.state,
+        state: &WorldStateProjection::borrowed(&world.state),
         manifest_hash: manifest_hash.as_str(),
         policy_hash: policy_hash.as_str(),
     };
-    hash_json(&projection)
+    state_root_hash(&projection)
 }

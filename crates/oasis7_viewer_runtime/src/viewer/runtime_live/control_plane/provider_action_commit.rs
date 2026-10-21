@@ -704,7 +704,7 @@ fn provider_service_cognition_payload(
     runtime_action: &crate::runtime::Action,
     cognition: &RuntimeProviderActionContext,
     signer: &crate::world_service::client::WorldServiceAgentSignerConfig,
-    authority: &crate::world_service::projection::WorldServiceAgentContext,
+    authority: &oasis7_world_projection::WorldServiceAgentContext,
     correction_refs: Vec<String>,
 ) -> Result<crate::world_service::WorldServicePayloadV1, String> {
     let (mut request, response_artifact) = provider_cognition_commit_inputs(world, cognition)?;

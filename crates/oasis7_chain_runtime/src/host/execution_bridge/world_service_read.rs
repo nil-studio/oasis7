@@ -80,7 +80,7 @@ pub(crate) fn verify_archived_initial_publication(
         return Err("archived initial refs differ from the signed original commit".into());
     }
     let snapshot: Snapshot =
-        serde_cbor::from_slice(snapshot_bytes).map_err(|_| "initial snapshot invalid")?;
+        oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes).map_err(|_| "initial snapshot invalid")?;
     let journal: Journal =
         serde_cbor::from_slice(journal_bytes).map_err(|_| "initial journal invalid")?;
     if snapshot.journal_len != record.journal_len
@@ -242,7 +242,7 @@ fn load_with_cache(
     let journal_bytes = store
         .get_verified(journal_ref)
         .map_err(|e| format!("journal CAS: {e:?}"))?;
-    let snapshot: Snapshot = serde_cbor::from_slice(&snapshot_bytes).map_err(|e| e.to_string())?;
+    let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes).map_err(|e| e.to_string())?;
     let journal: Journal = serde_cbor::from_slice(&journal_bytes).map_err(|e| e.to_string())?;
     if blake3_hex(&snapshot_bytes) != record.execution_state_root
         || snapshot.journal_len != record.journal_len

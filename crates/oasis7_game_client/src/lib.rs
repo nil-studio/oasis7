@@ -355,6 +355,21 @@ impl WorldServiceTransport {
         path: &str,
         request: &Q,
     ) -> Result<R, WorldServiceClientError> {
+        self.call_with_response_codec(
+            path,
+            request,
+            |bytes| serde_json::from_slice(bytes).map_err(|error| error.to_string()),
+            authority::verify_service_response,
+        )
+    }
+    /// Keep transport limits and authenticated errors shared with generic callers.
+    pub(crate) fn call_with_response_codec<Q: Serialize, R: Serialize + DeserializeOwned>(
+        &self,
+        path: &str,
+        request: &Q,
+        decode: fn(&[u8]) -> Result<SignedServiceResponse<R>, String>,
+        verify: fn(&str, &str, &SignedServiceResponse<R>, &str) -> Result<(), String>,
+    ) -> Result<R, WorldServiceClientError> {
         if path != SUBMIT_PATH {
             self.query_state.check()?;
         }
@@ -426,9 +441,8 @@ impl WorldServiceTransport {
                     .unwrap_or_else(|| "service rejected request".into());
             return Err(WorldServiceClientError::Rejected { status, message });
         }
-        let signed: SignedServiceResponse<R> = serde_json::from_slice(&bytes)
-            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
-        authority::verify_service_response(
+        let signed = decode(&bytes).map_err(WorldServiceClientError::Assurance)?;
+        verify(
             path,
             &digest,
             &signed,

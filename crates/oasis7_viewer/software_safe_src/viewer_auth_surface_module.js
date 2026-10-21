@@ -1,3 +1,4 @@
+import { canonicalAgentChatView } from "./viewer_canonical_owner_read_module.js";
 import {
   LEGACY_VIEWER_AUTH_BOOTSTRAP_SOURCE,
   isHostedPublicJoinDeploymentMode,
@@ -203,11 +204,28 @@ export function createViewerAuthSurfaceModule({
     return null;
   }
 
+  function agentChatProtocolGate() {
+    if (!state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) return null;
+    const view = canonicalAgentChatView(state);
+    const extension = view?.canonical_authority;
+    if (state.auth.registrationStatus !== "registered" || !state.auth.boundAgentId || !view
+      || !["ready", "replay", "empty"].includes(state.worldFeed?.status)
+      || view.authority_scope !== "player_agent_chat"
+      || typeof extension?.branch_id !== "string" || !extension.branch_id.trim()
+      || !Number.isSafeInteger(extension.agent_identity_generation) || extension.agent_identity_generation <= 0) {
+      return { code: "canonical_owner_not_ready", reason: localeText(state.uiLocale,
+        "正在核对你对该 Agent 的控制资格。请等待同步；若未恢复，请刷新玩法快照。",
+        "Your control of this Agent is being verified. Wait for sync, or refresh the gameplay snapshot if it does not recover.") };
+    }
+    return null;
+  }
+
   function buildSemanticCapability(actionId) {
     const deploymentHint = authDeploymentHint(state.auth);
     const strongAuthSensitive = isStrongAuthSensitiveAction(actionId);
     const policy = hostedActionPolicy(actionId);
-    const protocolGate = actionId === "prompt_control" ? promptControlProtocolGate() : null;
+    const protocolGate = actionId === "prompt_control" ? promptControlProtocolGate()
+      : actionId === "agent_chat" ? agentChatProtocolGate() : null;
     const finalize = (result) => {
       if (protocolGate && result.enabled) {
         return {

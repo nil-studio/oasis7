@@ -641,8 +641,7 @@ impl ViewerRuntimeLiveServer {
         if self.config.world_service.is_none() {
             self.last_chain_observer_identity = Some(prepared_identity);
         }
-        self.confirm_player_gameplay_progress();
-
+        // Observing a committed world is not a player-attributable action.
         self.update_gameplay_feedback_from_runtime_events(&runtime_events);
 
         let mapped_events: Vec<_> = runtime_events

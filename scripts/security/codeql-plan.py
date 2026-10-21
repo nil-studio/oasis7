@@ -13,6 +13,23 @@ UNITS = [('actions-repo', 'actions'), ('python-repo', 'python'),
          ('javascript-repo', 'javascript-typescript'), ('rust-repo', 'rust')]
 
 
+def batch_modes(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate batch key")
+            result[key] = value
+        return result
+    value = json.loads(raw or "{}", object_pairs_hook=unique)
+    allowed = {unit + "/" + profile for unit, _ in UNITS for profile in ("default", "extended")}
+    if not isinstance(value, dict) or any(key not in allowed or mode not in ("baseline", "observe")
+                                        or (key.endswith("/extended") and mode == "observe")
+                                        for key, mode in value.items()):
+        raise ValueError("invalid CodeQL batch modes")
+    return value
+
+
 def git(root, *args):
     result = subprocess.run(['git', '-C', str(root), *args], capture_output=True)
     if result.returncode:
@@ -58,6 +75,7 @@ def changes(root, base, head):
 
 
 def plan(args):
+    batches = batch_modes(getattr(args, 'batch_modes', '{}'))
     root = pathlib.Path(args.repo_root).resolve()
     raw = pathlib.Path(args.policy).read_bytes()
     policy = json.loads(raw)
@@ -126,7 +144,7 @@ def plan(args):
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):
             add('actions-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
-            all_units('unknown input: ' + path)
+            raise ValueError('unregistered input: ' + path)
         # build.rs can read arbitrary repository data or invoke generators. No
         # suffix proves non-consumption, including documents and scripts. Keep
         # old-side consumers when the build script itself has been removed.
@@ -146,7 +164,20 @@ def plan(args):
             raise ValueError('maintenance requires trusted default branch checkout')
     elif args.mode == 'baseline':
         enabled = False
-    selected = [u for u, _ in UNITS if reasons[u]] if enabled else []
+    candidates = [u for u, _ in UNITS if reasons[u]]
+    selected, not_selected = [], {}
+    for unit, _ in UNITS:
+        mode = batches.get(unit + "/" + args.profile)
+        if not enabled:
+            not_selected[unit] = "global_or_event_disabled"
+        elif unit not in candidates:
+            not_selected[unit] = "not_affected"
+        elif mode is None:
+            not_selected[unit] = "batch_disabled"
+        elif args.event == "pull_request" and (args.profile != "default" or mode != "observe"):
+            not_selected[unit] = "pr_baseline_only"
+        else:
+            selected.append(unit)
     matrix = []
     for index, (unit, language) in enumerate(UNITS):
         if unit in selected:
@@ -154,9 +185,10 @@ def plan(args):
                                slot=(index + args.pr_number) % args.max_slots, build_mode='none',
                                queries='' if args.profile == 'default' else 'security-extended',
                                timeout_minutes=45 if language == 'rust' or args.profile == 'extended' else 20))
-    return dict(schema='oasis7-codeql-plan/v1', status='disabled' if not enabled else ('selected' if selected else 'not_applicable'),
+    return dict(schema='oasis7-codeql-plan/v1', status='disabled' if not enabled or (candidates and not selected) else ('selected' if selected else 'not_applicable'),
                 profile=args.profile, identity=ids, policy=dict(path=str(args.policy), sha256=hashlib.sha256(raw).hexdigest()),
                 completeness=dict(complete=True, diff_paths=changed, manifest_inventory=manifests),
+                candidate_units=candidates, batch_modes=batches, not_selected_reasons=not_selected,
                 selected_units=selected, has_units=bool(selected), reasons={u: sorted(set(v)) for u, v in reasons.items()},
                 fallback_reasons=sorted(set(fallbacks)), expected_coverage=policy['coverage_note'], matrix=dict(include=matrix))
 
@@ -166,6 +198,7 @@ def main():
     for arg in ('repo-root', 'base', 'head', 'policy', 'output'):
         parser.add_argument('--' + arg, required=True)
     parser.add_argument('--checkout')
+    parser.add_argument('--batch-modes', default='{}')
     parser.add_argument('--profile', choices=['default', 'extended'], default='default')
     parser.add_argument('--mode', choices=['off', 'baseline', 'observe'], default='off')
     parser.add_argument('--event', choices=['pull_request', 'schedule', 'workflow_dispatch'], default='pull_request')

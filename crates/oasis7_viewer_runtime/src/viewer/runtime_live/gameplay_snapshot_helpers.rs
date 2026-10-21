@@ -150,3 +150,37 @@ fn primary_factory_priority(factory: &FactoryState) -> (bool, bool, bool, bool, 
         production.last_completed_at.unwrap_or(0),
     )
 }
+
+/// A player loop advances from owner-bound Runtime evidence, never a shared
+/// clock/event counter. These facts are reconstructed from the current world;
+/// no Viewer-local completion bit survives or substitutes for Runtime state.
+pub(super) fn has_player_world_effect(
+    state: &WorldState,
+    controlled_agent_id: Option<&str>,
+    primary_intent: Option<&crate::runtime_host::archive::PlayerGameplayPrimaryIntent>,
+) -> bool {
+    let Some(agent_id) = controlled_agent_id else {
+        return false;
+    };
+    super::starter_industrial_outcome::settled_outcome(state, Some(agent_id)).is_some()
+        || primary_intent.is_some_and(|intent| {
+            intent.agent_id.as_deref() == Some(agent_id)
+                && intent.status == "completed"
+                && super::player_agency_projection::canonical_accepted_runtime_intent_id(
+                    &intent.status,
+                    intent.source_class.as_deref(),
+                    intent.freshness.as_deref(),
+                    intent.intent_id.as_deref(),
+                )
+                .is_some()
+                && intent.receipt_ref.as_ref().is_some_and(|receipt| {
+                    receipt.is_object()
+                        && receipt.get("intent_id").and_then(serde_json::Value::as_str)
+                            == intent.intent_id.as_deref()
+                        && receipt
+                            .get("receipt_id")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|id| !id.trim().is_empty())
+                })
+        })
+}

@@ -116,6 +116,7 @@ fn runtime_live_formal_bootstrap_keeps_smelter_and_assembler_builds_ready() {
         false,
         true,
         None,
+        false,
     );
     let smelter = initial
         .available_actions
@@ -171,6 +172,7 @@ fn runtime_live_formal_bootstrap_keeps_smelter_and_assembler_builds_ready() {
         false,
         true,
         None,
+        false,
     );
     let assembler = after_first_run
         .available_actions
@@ -217,6 +219,7 @@ fn runtime_live_formal_bootstrap_keeps_smelter_and_assembler_builds_ready() {
         false,
         true,
         None,
+        false,
     );
     let gear = after_assembler
         .available_actions

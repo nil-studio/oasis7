@@ -3,4 +3,4 @@
 #[cfg(not(target_arch = "wasm32"))]
 include!("native.rs");
 #[cfg(target_arch = "wasm32")]
-pub mod agent_state;
+pub use oasis7_world_state::agent_state;

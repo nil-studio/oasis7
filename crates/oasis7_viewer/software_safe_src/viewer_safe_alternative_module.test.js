@@ -4,7 +4,7 @@ import { signAuthPayload } from "./viewer_auth_crypto.js";
 import { createSafeAlternativeModule } from "./viewer_safe_alternative_module.js";
 beforeEach(() => { sessionStorage.clear(); vi.clearAllMocks(); });
 function fixture() {
- const state = { auth: { publicKey: "ab".repeat(32), playerId:"p", boundAgentId:"a" }, worldFeed:{worldId:"w",reorgEpoch:0,stale:false}, viewerProtocol:{capabilities:["canonical_agent_chat_v1"]}, canonicalOwnerWorldIdentity:{world_id:"w",genesis_digest:"g"} };
+ const state = { auth: { publicKey: "ab".repeat(32), playerId:"p", boundAgentId:"a" }, worldFeed:{worldId:"w",reorgEpoch:"0",stale:false}, viewerProtocol:{capabilities:["canonical_agent_chat_v1"]}, canonicalOwnerWorldIdentity:{world_id:"w",genesis_digest:"g"} };
  state.canonicalAgentOwnerView={agent_id:"a",player_id:"p",public_key:state.auth.publicKey,world_id:"w",reorg_epoch:0,canonical_authority:{branch_id:"b",agent_identity_generation:1}};
  const sendJson=vi.fn(); const module=createSafeAlternativeModule({state,sendJson,render:vi.fn(),refreshOwner:vi.fn(async()=>{})}); return {state,sendJson,module};
 }

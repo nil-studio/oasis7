@@ -10,17 +10,23 @@
 
 | 设置 | 值与行为 |
 | --- | --- |
-| `OASIS7_CODEQL_MODE` | 缺省 `off`：planner 报告 disabled，不启动重型分析。`baseline`：只允许默认分支 schedule/manual 扫描。`observe`：另允许非 draft、非 closed 的 PR 扫描。非法值使计划步骤失败。 |
+| `OASIS7_CODEQL_MODE` | 缺省 `off`：planner 报告 disabled，不启动重型分析。`baseline`：只允许已配置批次的默认分支 schedule/manual 扫描。`observe`：另允许配置为 observe 的 default 批次参与非 draft、非 closed 的 PR 扫描。非法值使计划步骤失败。 |
 | `OASIS7_CODEQL_MAX_SLOTS` | 缺省 `2`；只接受 `1` 或 `2`。重型 jobs 共用固定 native concurrency 槽位；matrix 的 max-parallel 不是仓库级上限的证明。 |
 | manual `profile` | `default` 或 `extended`。PR 固定 default；六小时 schedule 使用 default，每日 schedule 使用 extended。类别为 `oasis7/<unit>/<profile>`，不能重标旧结果。 |
 
-四个稳定单元是 `actions-repo`、`python-repo`、`javascript-repo`、`rust-repo`。选中单元保留全语言上下文；路由清单不等于 extractor 已覆盖全部文件。维护任务使用完整四语言计划，manual 必须选可信默认分支。PR 新 head 仅取消本 PR 旧 workflow；不同 PR 与维护 jobs 在共享槽位排队，job concurrency 使用 `queue: max` 且不互相取消。队列容量、取消结果和 runner 竞争仍须 hosted 验证。
+四个稳定单元是 `actions-repo`、`python-repo`、`javascript-repo`、`rust-repo`。选中单元保留全语言上下文；路由清单不等于 extractor 已覆盖全部文件。维护任务使用完整四语言候选范围并受批次配置约束，manual 必须选可信默认分支。PR 新 head 仅取消本 PR 旧 workflow；不同 PR 与维护 jobs 在共享槽位排队，job concurrency 使用 `queue: max` 且不互相取消。队列容量、取消结果和 runner 竞争仍须 hosted 验证。
+
+## 分批控制
+
+`OASIS7_CODEQL_BATCH_MODES` 缺省 `{}`，八个 unit/profile 批次全部 disabled。它是 repository variable JSON object，例如 `{"actions-repo/default":"baseline"}` 仅允许该目标批次参加默认分支维护（含获授权的首次验收试运行，不代表已验收）；`observe` 仅可用于 default profile，并且全局 mode 也必须为 observe 才允许其合格 PR。删除键停该批，default值从observe降baseline停其PR，global off停全部后续计划。非法/重复键、未知组合、非字符串值或extended observe使规划失败。
+
+manual/schedule仍提出完整四语言候选范围，但实际矩阵受当前profile批次配置约束；未启用范围逐项标明原因，不能当扫描成功。改变全局mode不会自动绕过批次限制。首次交付控制能力不设置外部变量、不发起扫描或上传。首次验收时，经覆盖设置和扫描的授权仅将目标键设为baseline并读回，在可信默认分支试运行；此时pending acceptance，配置不是验收通过，PR仍禁用，失败删除键回退。真实hosted验收完成后才声明已验收并持续运营；native位置切片、fixture、局部helper或其他批次PASS不代签。分批控制不改变八批整体healthy、category、权限、并发或required政策。
 
 ## 可信计划与权限
 
-PR workflow 从事件 base commit 取 `scripts/security/codeql-plan.py` 与 `codeql-policy.json`，在临时目录用 isolated Python 执行，避免导入候选 planner。可信 base 缺少任一文件时，workflow 保守选择四语言 bootstrap；不能改用候选策略缩小范围。计划同时记录 source head 与实际 analysis checkout，二者不能混用；workflow 验证实际 checkout 等于事件分析 SHA，并按该 checkout 分析和上传。
+PR workflow 从事件 base commit 取 `scripts/security/codeql-plan.py` 与 `codeql-policy.json`，在临时目录用 isolated Python 执行，避免导入候选 planner。可信 base 缺少任一文件时，workflow 保守提出四语言 bootstrap 候选，再受可信批次配置限制；不能改用候选策略缩小范围。计划同时记录 source head 与实际 analysis checkout，二者不能混用；workflow 验证实际 checkout 等于事件分析 SHA，并按该 checkout 分析和上传。
 
-planner 使用旧、新 Git 路径与 Cargo manifest 清单；未知输入扩展范围，读不到 Git 身份或更改 symbolic link 会显式失败。未被消费的文档可得到 `not_applicable`；空计划不上传空 SARIF。排除项固定为 `third_party/`、`target/`、`node_modules/`、`dist/`、`.pm/`；维护中的本地 vendor 补丁不能被这些排除项误遮蔽。manifest 清单、动态 include/build 输入与 Rust nightly/features/targets 的实际覆盖仍需 extraction diagnostics 核对。
+planner 使用旧、新 Git 路径与 Cargo manifest 清单；未登记输入使规划失败（任意 build.rs/动态 include 的可能消费不构成登记），读不到 Git 身份或更改 symbolic link 会显式失败。未被消费的文档可得到 `not_applicable`；空计划不上传空 SARIF。排除项固定为 `third_party/`、`target/`、`node_modules/`、`dist/`、`.pm/`；维护中的本地 vendor 补丁不能被这些排除项误遮蔽。manifest 清单、动态 include/build 输入与 Rust nightly/features/targets 的实际覆盖仍需 extraction diagnostics 核对。
 
 顶层权限为 `contents: read`；分析 job 增加 `security-events: write` 和 `actions: read`。checkout 不保留凭据，actions 使用完整 SHA，CodeQL dependency caching 关闭。不要引入业务或发布 secrets、特权候选执行或 `pull_request_target`。Rust `build-mode: none` 仍可能执行 build scripts/macros。fork/Dependabot 的有效权限与上传行为必须实测；权限不足是失败或未知，不能宣称上传成功。
 
@@ -32,7 +38,8 @@ planner 使用旧、新 Git 路径与 Cargo manifest 清单；未知输入扩展
 python3 -I "$TRUSTED_PLANNER" --repo-root "$REPO_ROOT" \
   --base "$BASE_OID" --head "$SOURCE_OID" --checkout "$CHECKOUT_OID" \
   --policy "$TRUSTED_POLICY" --output "$PLAN_OUTPUT" \
-  --mode observe --event pull_request --profile default --max-slots 2
+  --mode observe --event pull_request --profile default --max-slots 2 \
+  --batch-modes '{"python-repo/default":"observe"}'
 ```
 
 `--pr-number` 仅参与槽位分配；不能建立 task 或 PR authority。维护诊断另指定 `--event workflow_dispatch --default-branch "$DEFAULT_BRANCH" --full`，并使用默认分支相同 source/checkout。CLI 不替代 workflow 对 draft、closed、事件 ref 的验证。

@@ -69,11 +69,8 @@ fn canonical_goal_prompt_delivery_preserves_provider_capability_refusal() {
     sidecar
         .replace_provider_backed_runner_for_test("agent-1")
         .unwrap();
-    let mut projection = crate::world_service::projection::WorldServiceProjection::from_world(
-        &RuntimeWorld::default(),
-        None,
-    )
-    .unwrap();
+    let mut projection =
+        crate::world_service::projection::from_world(&RuntimeWorld::default(), None).unwrap();
     projection.canonical_agent_chat = Some(CanonicalAgentChatViewV1 {
         agent_id: "agent-1".into(),
         player_id: "owner".into(),
@@ -136,11 +133,8 @@ fn canonical_goal_metadata_without_active_goal_does_not_invoke_prompt_control() 
     sidecar
         .replace_provider_backed_runner_for_test("agent-1")
         .unwrap();
-    let mut projection = crate::world_service::projection::WorldServiceProjection::from_world(
-        &RuntimeWorld::default(),
-        None,
-    )
-    .unwrap();
+    let mut projection =
+        crate::world_service::projection::from_world(&RuntimeWorld::default(), None).unwrap();
     projection.canonical_agent_chat = Some(CanonicalAgentChatViewV1 {
         agent_id: "agent-1".into(),
         player_id: "owner".into(),

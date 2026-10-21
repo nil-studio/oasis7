@@ -103,7 +103,7 @@ fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
         .unwrap();
     let before = serde_json::to_value(world.snapshot()).unwrap();
     for scope in [None, Some("agent-a")] {
-        let generic = WorldServiceProjection::from_world(&world, scope).unwrap();
+        let generic = crate::projection::from_world(&world, scope).unwrap();
         assert!(generic.native_delegation_authorizations.is_empty());
         assert!(
             serde_json::to_value(generic)
@@ -113,7 +113,7 @@ fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
         );
     }
     let scoped =
-        WorldServiceProjection::from_authenticated_world(&world, Some("agent-a"), &public).unwrap();
+        crate::projection::from_authenticated_world(&world, Some("agent-a"), &public).unwrap();
     assert_eq!(scoped.native_delegation_authorizations.len(), 1);
     let authorization = &scoped.native_delegation_authorizations[0];
     assert_eq!(authorization.grant.agent_id, "agent-a");

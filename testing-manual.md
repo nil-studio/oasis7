@@ -71,7 +71,7 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
 ### 应用主链（world + runtime + simulator + viewer 协议）
 - 核心 crate：`crates/oasis7`
 - 主要测试分布：
-  - 运行时：`crates/oasis7_runtime/src/tests/*.rs`
+  - 运行时：`crates/oasis7_runtime/src/tests/*.rs`；状态/快照纯值与稀疏投影归 `crates/oasis7_world_state`，服务 DTO/具体 codec/证明适配归 `crates/oasis7_world_projection`。required Rust 测试必须实际执行两个新包的 lib harness，Runtime 的恢复、rollback、retention 与 Service 的 public/owner/delegate/撤权回归继续保留。
   - 模拟器：`crates/oasis7/src/simulator/tests/*.rs`
   - LLM 行为：`crates/oasis7/src/simulator/llm_agent/tests_part2.rs`
   - Viewer live 服务：`crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`（内置 `#[cfg(test)]`）
@@ -1561,3 +1561,7 @@ R3/R4 用正常、有明确 empty-world 状态、缺 manifest、未 committed �
 输入固定 candidate/profile、同一 Agent、同一 snapshot height/hash 及同等合法观察权限；分别保存 Viewer 实际 model.locations/terrain/resource summary 和 provider observation。oracle 是同一 location/resource IDs、附近资源摘要与 world seed/version，并保留 compat/provisional 来源标记；隐藏 frag 低层细节不允许替换正式资源身份。方法在同一快照静止窗口采两输出，逐字段及引用对账；异步到达但版本不同先归为不可比，不强行判一致。
 
 负例在隔离 harness 中使一方读取旧 snapshot、不同 location/resource ID、不同 seed/version 或将 compat anchor 标为正式资源来源，每次只改一项。比较必须显式报告对应 mismatch/stale/不可比，不能给 AC4 通过；正式动作是否拒绝另由 R6 和原权限/动作合同核验，不在本计划发明新 API 行为。保存两份完整原输出、snapshot/Agent/权限标识、受控差异、字段对照和 verdict。缺真实两消费者接线则 blocked，不能用同一 DTO 自比或两份模拟输出代签。
+
+### Node reward host observation boundary
+
+Node snapshot / filesystem reward observations are owned by the Chain reward host. Run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p,test_tier_required node_points` to execute the snapshot proof-hint/storage-count unit tests and the multi-node points closure regression. These tests retain their existing feature tier; the core package no longer owns the Node host adapter or its network feature.

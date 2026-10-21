@@ -1,6 +1,5 @@
 use super::*;
 use oasis7::runtime::{Action, World};
-use oasis7::world_service::projection::WorldServiceProjection;
 use oasis7_client_api::world_service::{
     CommitRef, EventCursor, ExecutionBinding, IntentOutcome, IntentResponse, ProjectionVersion,
     ReadWorldViewResponse,
@@ -179,7 +178,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
                             .subject_public_key
                     );
                 }
-                let mut projection = WorldServiceProjection::from_authenticated_world(
+                let mut projection = oasis7::world_service::projection::from_authenticated_world(
                     &world,
                     owner,
                     &signed.subject_public_key,

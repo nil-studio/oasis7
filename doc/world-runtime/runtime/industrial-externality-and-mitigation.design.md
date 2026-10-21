@@ -27,7 +27,7 @@
 | 对象 | 当前基线与证据 | 目标及差距 |
 | --- | --- | --- |
 | Profile | [RecipeProfileV1/FactoryProfileV1](../../../crates/oasis7_wasm_abi/src/economy.rs)承载既有配方/工厂元数据；未提供本文的 scope、mitigation authority 与处置模型。 | 增加显式、有版本和已声明语义的可选 facet；不从 tags 补出授权。 |
-| 生产与物流 | [工业事件准备](../../../crates/oasis7_runtime/src/world/event_processing/publication.rs)、[配方生命周期](../../../crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs)、[物流](../../../crates/oasis7_runtime/src/state/industry_transition/material_transit.rs)有真实各域写入。 | 外部性消费者必须独立存在，并与该运行的生产提交关联；现有 writer 不能替代它。 |
+| 生产与物流 | [工业事件准备](../../../crates/oasis7_runtime/src/world/event_processing/publication.rs)、[配方生命周期](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs)、[物流](../../../crates/oasis7_world_state/src/state/industry_transition/material_transit.rs)有真实各域写入。 | 外部性消费者必须独立存在，并与该运行的生产提交关联；现有 writer 不能替代它。 |
 | 状态及读面 | [持久化](../../../crates/oasis7_runtime/src/world/persistence.rs)提供既有存取；[专业 current/target 边界](../../game/gameplay/gameplay-industrial-externality-contract.prd.md#4-currenttarget-evidence-cutline)保留目标状态。 | 接入 profile/authority/capacity/impact/obligation/receipt 的共同恢复和读模型。 |
 
 当前结论限仓库默认/内置路径的静态审读。没有运行本专题生产、故障或跨入口验收；文件和普通工业实现存在不代表 externality 已实现。
@@ -157,7 +157,7 @@ snapshot+journal 同时保留 profile binding、全部被引用 profile 版本�
 **EXT-VERIFY-001（范围、授权及只读）**：固定实际 candidate、profile/authority revisions 和世界初值，沿 SC-33 required 生成无 profile legacy、已声明无义务、known-contained 且容量充足、容量满、authority unknown/expired，以及 factory/recipe profile 冲突样例。只读 preview 前后权威摘要相同；只有 profile 支持的动作可选，逐个核对成本/吞吐/复查及缺权限禁止 sink，Viewer/API/Agent 分别读取同一来源。
 
 <a id="ext-verify-002"></a>
-**EXT-VERIFY-002（事务与隔离）**：以[配方生命周期](../../../crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs)和[工业 prepared publication](../../../crates/oasis7_runtime/src/world/event_processing/publication.rs)的实际 writer 为测试边界，扩展专用 runtime 回归。注入准备/提交失败、容量竞争、重复同 step、同键异内容、profile 换版再投与超限输入；两个不同 module instance 持有同 local profile/pool ID，由第三实例消费，必须只写授权绑定的原 pool，换 profile/实例不能复制余额或刷新原义务去重，缺两侧权限或联合提交能力的交接拒绝。断言 production/disposition 相互引用且各至多一次，quality/custody/byproduct/maintenance/terminal/W 差分仅来自原域合法事件。没有 production 的 defer 不生成假生产 receipt。这些为实现验证方法，不代表现有测试已覆盖。
+**EXT-VERIFY-002（事务与隔离）**：以[配方生命周期](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs)和[工业 prepared publication](../../../crates/oasis7_runtime/src/world/event_processing/publication.rs)的实际 writer 为测试边界，扩展专用 runtime 回归。注入准备/提交失败、容量竞争、重复同 step、同键异内容、profile 换版再投与超限输入；两个不同 module instance 持有同 local profile/pool ID，由第三实例消费，必须只写授权绑定的原 pool，换 profile/实例不能复制余额或刷新原义务去重，缺两侧权限或联合提交能力的交接拒绝。断言 production/disposition 相互引用且各至多一次，quality/custody/byproduct/maintenance/terminal/W 差分仅来自原域合法事件。没有 production 的 defer 不生成假生产 receipt。这些为实现验证方法，不代表现有测试已覆盖。
 
 <a id="ext-verify-003"></a>
 **EXT-VERIFY-003（存量、幂等与恢复）**：在[工作图处置合同](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)的代表性未开始/WIP/transit/buffer/terminal 节点分别撤销授权、更新 profile、竞争完成/处置并丢失响应；扩展[恢复回归](../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs)验证 snapshot、reorder、replay、重连和 Agent retry。核对每个原 node/义务/容量/receipt；terminal 六项字段保留至 matching settlement 或合法处置。原 required 不删除任一恢复或 parity 子义务；full 多阶段、长期、区域影响只按未来独立专业 authority 和实际环境验收。

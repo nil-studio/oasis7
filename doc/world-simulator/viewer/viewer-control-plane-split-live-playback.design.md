@@ -110,7 +110,7 @@ JSON 的 `error_code` 仍为字符串，HTTP 状态类别与响应 shape 保持�
 
 从现有 claim 判断提取小型纯函数，输入为不可变 canonical `WorldState` 与验签所得 player/key，输出唯一 collector Agent 或 typed 拒绝原因。零份与重复匹配分别返回 `CollectDataQualificationError`；Agent 是否存在及资源是否足够继续在消费者的 quote/execution 层检查，不能取第一项或自动补 claim。Viewer 的 service preflight、world-service submit 和仍支持的兼容 HTTP CollectData adapter 复用该函数。
 
-`WorldServiceProjection::from_world` 已在[字段 allowlist](../../../crates/oasis7_world_service/src/projection.rs)中保留 `starter_oc_claims` 与 Agent 资源，因此预检使用当前获准的 [VerifiedWorldView](../../../crates/oasis7_game_client/src/verified_world_view.rs)，无需扩大公开字段或新建 owner endpoint。一次计算固定其 projection 和 `ProjectionVersion/CommitRef`，claim、collector 和电力余额都来自该不可变视图。缺少可用权威视图、隔离身份不匹配或现行 freshness 条件不满足时返回需刷新/不可判断，不把未知数据当成空 claim 或默认资格；固定本次计算输入不等于要求开放历史 owner-read。
+`oasis7_world_service::projection::from_world` 已在[字段 allowlist](../../../crates/oasis7_world_service/src/projection.rs)中保留 `starter_oc_claims` 与 Agent 资源，因此预检使用当前获准的 [VerifiedWorldView](../../../crates/oasis7_game_client/src/verified_world_view.rs)，无需扩大公开字段或新建 owner endpoint。一次计算固定其 projection 和 `ProjectionVersion/CommitRef`，claim、collector 和电力余额都来自该不可变视图。缺少可用权威视图、隔离身份不匹配或现行 freshness 条件不满足时返回需刷新/不可判断，不把未知数据当成空 claim 或默认资格；固定本次计算输入不等于要求开放历史 owner-read。
 
 缺少 verified view 时，现有 provider readiness 检查可能先以 `llm_init_failed` 和 `canonical Agent observation unavailable` 拒绝；不统一改写成某个新同步错误码。验证应断言原有 gate 的真实结果，以及未消费认证 nonce、未改变世界状态，再分别测试可达的 canonical claim 拒绝分支。
 
@@ -127,6 +127,12 @@ JSON 的 `error_code` 仍为字符串，HTTP 状态类别与响应 shape 保持�
 | 本地绑定与 canonical collector 不一致 | 提示刷新/绑定不一致，不混用 Agent 与余额 |
 | 预检后权限/余额/世界版本变化 | 提交重新校验，可明确拒绝；旧预检不承诺未来执行成功 |
 | 相同不可变视图反复调用资格函数 | world/claim/资源/动作 nonce 不变；入口自己的认证 nonce 按原规则处理 |
+
+### 精炼报价的权威边界
+
+`quote_refine_compound` 的兼容本地 Runtime 入口可继续从自己的只读状态与 Simulator 经济配置生成预览；验签和现有 session/owner 资格保持不变。链连接或 world-service 模式不能把 disposable 本地 World、sidecar binding 与本地 `snapshot_config.economy` 组合成当前 canonical 精炼报价。当前已验证 projection 虽包含 Agent 资源，但并不携带这组 Simulator 精炼经济参数，也没有正式精炼 quote service 合同，因此在合法身份验签和 session 校验后返回稳定的 `refine_quote_unavailable`，不消费 nonce、不修改资源或绑定，不将缺能力伪装成绑定丢失。
+
+消费者应明确说明该世界暂不提供权威精炼预览，保留刷新权威世界和查看已支持生产方案的入口；刷新不保证能力出现，不引导玩家盲目重新登录或按本地估值提交。未来补齐正式 quote 合同、权威参数及同版本资源/owner 资格后才能恢复该世界的精炼预览。本边界不撤销产品的提交前预览要求，也不证明该要求已交付。
 
 ### 实施、兼容与未决边界
 

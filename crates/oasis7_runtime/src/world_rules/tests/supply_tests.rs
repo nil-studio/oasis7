@@ -454,10 +454,10 @@ fn supply_independent_review_cancels_only_unsettled_reservation_and_keeps_histor
 #[path = "supply_adapter_tests.rs"]
 mod adapter_tests;
 
-pub(super) fn emergency_authorize_fixture() -> (World, Action) {
+pub fn emergency_authorize_fixture() -> (World, Action) {
     adapter_tests::authorized_preparation_fixture()
 }
 #[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
-pub(super) fn essential_recipe_fixture() -> (World, Action) {
+pub fn essential_recipe_fixture() -> (World, Action) {
     adapter_tests::essential_preparation_fixture()
 }

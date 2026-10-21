@@ -93,8 +93,8 @@ impl LiveFixture {
             genesis_digest: "trace-fixture-genesis".into(),
         };
         let base_commit = fixture_commit(&identity, 1);
-        let mut projection =
-            WorldServiceProjection::from_world(&server.world, None).expect("project fixture world");
+        let mut projection = oasis7::world_service::projection::from_world(&server.world, None)
+            .expect("project fixture world");
         projection.runtime_binding = None;
 
         let base_request = fixture_view_request(identity.clone());
@@ -664,7 +664,7 @@ fn disabled_trace_keeps_real_snapshot_delivery_and_eof_without_diagnostic_record
 
 fn verified_fixture_assertion(
     response: oasis7_client_api::world_service::ReadWorldViewResponse<
-        crate::world_service::projection::WorldServiceProjection,
+        oasis7_world_projection::WorldServiceProjection,
     >,
     request: &oasis7_client_api::world_service::ReadWorldViewRequest,
 ) -> crate::world_service::verified_view::VerifiedWorldView {
@@ -716,7 +716,8 @@ fn periodic_snapshot_reaches_every_primed_session_after_another_connection_advan
             .commit
             .world
             .clone();
-        let mut projection = WorldServiceProjection::from_world(&server.world, None).unwrap();
+        let mut projection =
+            oasis7::world_service::projection::from_world(&server.world, None).unwrap();
         projection.runtime_binding = None;
         let time = server.world.state().time;
         server.verified_world_view = Some(verified_fixture_assertion(

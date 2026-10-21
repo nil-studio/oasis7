@@ -30,7 +30,8 @@ NETWORK_SUFFIXES = (
 )
 LIBRARIES = ('distfs-tests', 'storage-lib-oasis7_cas',
              'storage-lib-oasis7_formal_protocol', 'storage-lib-oasis7_runtime',
-             'storage-lib-oasis7_world_service')
+             'storage-lib-oasis7_world_service', 'storage-lib-oasis7_world_state',
+             'storage-lib-oasis7_world_projection')
 
 
 def host_observation(directory):

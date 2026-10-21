@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn runtime_continuation_for_wake_with_identity(
     world: &RuntimeWorld,
-    projection: Option<&crate::world_service::projection::WorldServiceProjection>,
+    projection: Option<&oasis7_world_projection::WorldServiceProjection>,
     wake: &crate::runtime::SchedulerWakeV1,
     session_id: &str,
     sequence: u64,

@@ -45,6 +45,7 @@ jobs:
           CODEQL_MODE: ${{ vars.OASIS7_CODEQL_MODE || 'off' }}
           CODEQL_SLOTS: ${{ vars.OASIS7_CODEQL_MAX_SLOTS || '2' }}
           CODEQL_PROFILE: ${{ inputs.profile || 'default' }}
+          CODEQL_BATCH_MODES: ${{ vars.OASIS7_CODEQL_BATCH_MODES || '{}' }}
         shell: bash
         run: |
           python3 -I - <<'PY'
@@ -54,6 +55,20 @@ jobs:
           mode, slots = os.environ['CODEQL_MODE'], os.environ['CODEQL_SLOTS']
           if mode not in ('off', 'baseline', 'observe') or slots not in ('1', '2'):
               raise SystemExit('invalid CodeQL operational mode/slot configuration')
+          allowed = {'actions-repo': 'actions', 'python-repo': 'python',
+                     'javascript-repo': 'javascript-typescript', 'rust-repo': 'rust'}
+          def unique(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise SystemExit('duplicate CodeQL batch key')
+                  result[key] = value
+              return result
+          batches = json.loads(os.environ['CODEQL_BATCH_MODES'] or '{}', object_pairs_hook=unique)
+          keys = {u + '/' + p for u in allowed for p in ('default', 'extended')}
+          if not isinstance(batches, dict) or any(k not in keys or v not in ('baseline', 'observe')
+                  or (k.endswith('/extended') and v == 'observe') for k, v in batches.items()):
+              raise SystemExit('invalid CodeQL batch modes')
           default = event['repository']['default_branch']
           pr = event.get('pull_request', {})
           profile = 'extended' if event.get('schedule') == '43 18 * * *' else os.environ['CODEQL_PROFILE']
@@ -72,7 +87,8 @@ jobs:
               raise SystemExit('maintenance scan requires trusted default branch')
           plan = {'schema': 'oasis7-codeql-plan/v1', 'profile': profile,
                   'status': 'disabled', 'identity': {'event_base': base, 'source_head': head, 'checkout': checkout},
-                  'matrix': {'include': []}, 'selected_units': []}
+                  'matrix': {'include': []}, 'selected_units': [], 'batch_modes': batches,
+                  'candidate_units': [], 'not_selected_reasons': {u: 'global_or_event_disabled' for u in allowed}}
           if not inactive:
               for identity in (base, head):
                   subprocess.run(['git', 'cat-file', '-e', identity + '^{commit}'], check=True)
@@ -92,31 +108,38 @@ jobs:
                                  '--base', base, '--head', head, '--checkout', checkout, '--profile', profile,
                                  '--policy', str(trusted / 'codeql-policy.json'), '--output', str(out),
                                  '--mode', mode, '--event', kind, '--default-branch', default,
-                                 '--pr-number', str(pr.get('number', 0)), '--max-slots', slots]
+                                 '--pr-number', str(pr.get('number', 0)), '--max-slots', slots,
+                                 '--batch-modes', json.dumps(batches)]
                       if kind != 'pull_request':
                           command.append('--full')
                       subprocess.run(command, check=True, cwd=trusted)
                       plan = json.loads(out.read_text())
                   else:
-                      # Conservative bootstrap cannot reduce scope using the newly proposed planner.
-                      units = [('actions-repo', 'actions'), ('python-repo', 'python'),
-                               ('javascript-repo', 'javascript-typescript'), ('rust-repo', 'rust')]
-                      plan.update(status='selected', selected_units=[u for u, _ in units],
-                                  fallback_reasons=['trusted-base planner unavailable: four-language bootstrap'])
+                      # Fixed full-context candidates; operational batches still constrain bootstrap.
+                      units = list(allowed.items())
+                      selected = [u for u in allowed if batches.get(u + '/' + profile) and
+                                  (kind != 'pull_request' or batches[u + '/' + profile] == 'observe')]
+                      plan.update(status='selected' if selected else 'disabled', selected_units=selected,
+                                  candidate_units=list(allowed), not_selected_reasons={u: 'batch_disabled'
+                                      if u + '/' + profile not in batches else 'pr_baseline_only'
+                                      for u in allowed if u not in selected},
+                                  fallback_reasons=['trusted-base planner unavailable: four-language candidates'])
                       plan['matrix']['include'] = [dict(unit=u, language=lang, slot=i % int(slots),
                           category='oasis7/' + u + '/' + profile, build_mode='none',
                           queries='security-extended' if profile == 'extended' else '',
                           timeout_minutes=45 if lang == 'rust' or profile == 'extended' else 20)
-                          for i, (u, lang) in enumerate(units)]
+                          for i, (u, lang) in enumerate(units) if u in selected]
           if plan['identity']['checkout'] != checkout or plan.get('profile') != profile:
               raise SystemExit('planner identity/profile mismatch')
           rows = plan['matrix']['include']
-          allowed = {'actions-repo': 'actions', 'python-repo': 'python',
-                     'javascript-repo': 'javascript-typescript', 'rust-repo': 'rust'}
+          if plan.get('batch_modes') != batches:
+              raise SystemExit('planner batch configuration mismatch')
           if plan['status'] not in ('selected', 'disabled', 'not_applicable') or bool(rows) != (plan['status'] == 'selected'):
               raise SystemExit('invalid planner status/matrix')
           for row in rows:
-              if (allowed.get(row['unit']) != row['language'] or row['slot'] not in range(int(slots)) or
+              batch_mode = batches.get(row['unit'] + '/' + profile)
+              if (inactive or batch_mode is None or (kind == 'pull_request' and batch_mode != 'observe') or
+                  allowed.get(row['unit']) != row['language'] or row['slot'] not in range(int(slots)) or
                   row['category'] != 'oasis7/' + row['unit'] + '/' + profile or row['build_mode'] != 'none' or
                   row['queries'] != ('security-extended' if profile == 'extended' else '')):
                   raise SystemExit('planner matrix contract mismatch')

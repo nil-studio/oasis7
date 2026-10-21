@@ -109,7 +109,7 @@ fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
         "initial_priority": 0, "wake_seq": 1, "retry_seq": 0, "status": "pending",
         "pending_reason": "capacity_available"
     })).unwrap();
-    let mut projection = crate::world_service::projection::WorldServiceProjection {
+    let mut projection = oasis7_world_projection::WorldServiceProjection {
         world_rule_status: None,
         formal_commit_header: None,
         canonical_agent_owner: None,
@@ -129,7 +129,7 @@ fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
     projection.state.time = 9;
     projection.continuation_contexts.insert(
         continuation.continuation_id.clone(),
-        crate::world_service::projection::WorldServiceContinuationContext {
+        oasis7_world_projection::WorldServiceContinuationContext {
             baseline_observation_digest: "observation-old".into(),
             goal_digest: "goal-old".into(),
             policy_digest: "policy-old".into(),

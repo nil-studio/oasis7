@@ -19,7 +19,8 @@ SHA, BASE, HEAD = "a" * 40, "b" * 40, "c" * 40
 
 class WorkflowTests(unittest.TestCase):
     def plan(self, mode="observe", kind="pull_request", action="synchronize", draft=False,
-             profile="default", slots="2", ref=None, trusted=False, planner_failure=False):
+             profile="default", slots="2", ref=None, trusted=False, planner_failure=False,
+             batches=None, forged_rows=None):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             event = {"repository": {"default_branch": "main"}}
@@ -34,6 +35,10 @@ class WorkflowTests(unittest.TestCase):
                    "RUNNER_TEMP": directory, "GITHUB_OUTPUT": str(folder / "output"),
                    "GITHUB_STEP_SUMMARY": str(folder / "summary"), "CODEQL_MODE": mode,
                    "CODEQL_PROFILE": profile, "CODEQL_SLOTS": slots}
+            env["CODEQL_BATCH_MODES"] = batches if batches is not None else json.dumps({
+                u + "/" + p: "observe" if p == "default" else "baseline"
+                for u in ("actions-repo", "python-repo", "javascript-repo", "rust-repo")
+                for p in ("default", "extended")})
             calls = []
             def run(command, **kwargs):
                 calls.append((command, kwargs))
@@ -45,7 +50,9 @@ class WorkflowTests(unittest.TestCase):
                     raise subprocess.CalledProcessError(1, command)
                 output = Path(command[command.index("--output") + 1])
                 output.write_text(json.dumps({"profile": profile, "identity": {"checkout": SHA},
-                                             "status": "not_applicable", "matrix": {"include": []}}))
+                    "batch_modes": json.loads(env["CODEQL_BATCH_MODES"] or "{}"),
+                    "status": "selected" if forged_rows else "not_applicable",
+                    "matrix": {"include": forged_rows or []}}))
                 return subprocess.CompletedProcess(command, 0)
             with patch.dict(os.environ, env), patch("subprocess.check_output", return_value=SHA + "\n"), patch("subprocess.run", side_effect=run):
                 exec(compile(PLAN, "codeql.yml:plan", "exec"), {})
@@ -91,6 +98,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(kwargs["cwd"], str(ROOT))
         with self.assertRaises(subprocess.CalledProcessError):
             self.plan(trusted=True, planner_failure=True)
+
+    def test_empty_batches_never_bootstrap_scans(self):
+        for kind in ("pull_request", "workflow_dispatch", "schedule"):
+            outputs, _ = self.plan(kind=kind, batches="{}")
+            self.assertEqual(outputs["status"], "disabled")
+            self.assertEqual(json.loads(outputs["matrix"])["include"], [])
+        self.assertIn("CODEQL_BATCH_MODES: ${{ vars.OASIS7_CODEQL_BATCH_MODES || '{}' }}", WORKFLOW)
+
+    def test_single_baseline_trial_cannot_enable_pr(self):
+        config = json.dumps({"actions-repo/default": "baseline"})
+        outputs, _ = self.plan(batches=config)
+        self.assertEqual(outputs["has_units"], "false")
+        outputs, _ = self.plan(mode="baseline", kind="workflow_dispatch", batches=config)
+        self.assertEqual([r["unit"] for r in json.loads(outputs["matrix"])["include"]], ["actions-repo"])
+        outputs, _ = self.plan(mode="off", kind="workflow_dispatch", batches=config)
+        self.assertEqual(outputs["has_units"], "false")
+
+    def test_invalid_batches_and_forged_rows_rejected(self):
+        for config in ("[]", "null", "{", '{"actions-repo/default":"observe","actions-repo/default":"baseline"}',
+                       '{"actions-repo/extended":"observe"}', '{"missing/default":"baseline"}',
+                       '{"actions-repo/default":true}'):
+            with self.subTest(config=config), self.assertRaises((SystemExit, ValueError)):
+                self.plan(batches=config)
+        forged = [dict(unit="rust-repo", language="rust", slot=0, category="oasis7/rust-repo/default",
+                       build_mode="none", queries="")]
+        with self.assertRaises(SystemExit):
+            self.plan(trusted=True, batches="{}", forged_rows=forged)
+        with self.assertRaises(SystemExit):
+            self.plan(trusted=True, batches='{"rust-repo/default":"baseline"}', forged_rows=forged)
 
     def test_permissions_pins_and_no_business_chain(self):
         uses = re.findall(r"uses: ([^\s]+)", WORKFLOW)

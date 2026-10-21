@@ -29,8 +29,8 @@ containment 限制扩散并保护基本连续性；恢复项目产生独立的�
 
 | 对象/能力 | 当前状态（基线） | 目标状态 | 差距/证据 |
 | --- | --- | --- | --- |
-| 普通危机 | `CrisisStatus` 与 `CrisisState` 记录 active/resolved/timedout、resolver、success/impact | 保留原能力；新增独立的 containment/project/contribution authority | [当前状态](../../../crates/oasis7_runtime/src/gameplay_state.rs)并无贡献型项目 |
-| 危机写点 | `ResolveCrisis` 校验普通 crisis 后形成 impact；prepared reducer 原子发布局部结果 | 项目效果必须匹配资源事实、资格和里程碑 receipt | [当前 command](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_gameplay_meta.rs)、[当前 reducer](../../../crates/oasis7_runtime/src/world/governance_meta_publication.rs)不提供项目效果证明 |
+| 普通危机 | `CrisisStatus` 与 `CrisisState` 记录 active/resolved/timedout、resolver、success/impact | 保留原能力；新增独立的 containment/project/contribution authority | [当前状态](../../../crates/oasis7_world_state/src/gameplay_state.rs)并无贡献型项目 |
+| 危机写点 | `ResolveCrisis` 校验普通 crisis 后形成 impact；prepared reducer 原子发布局部结果 | 项目效果必须匹配资源事实、资格和里程碑 receipt | [当前 command](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_gameplay_meta.rs)、[当前 reducer](../../../crates/oasis7_world_state/src/world/governance_meta_publication.rs)不提供项目效果证明 |
 | 模块/恢复 | 已有 gameplay module、snapshot/journal 与一般恢复 | 版本化项目/贡献/消费索引持久化，restore 后恢复相同义务 | [M5 crisis](../../../crates/oasis7_builtin_wasm_modules/m5_gameplay_crisis_cycle/src/lib.rs)、[持久化](../../../crates/oasis7_runtime/src/world/persistence.rs)是已有基础，不代签新合同 |
 | 验证 | 当前专题未执行业务验证 | AC-6/7 full，同候选跨项目/范围变化/恢复/读面 | 本文只给实施与验证合同 |
 

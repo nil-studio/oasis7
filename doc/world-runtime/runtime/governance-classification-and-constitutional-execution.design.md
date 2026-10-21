@@ -32,7 +32,7 @@
 
 | 对象 | 当前基线事实 | 目标 | 差距与证据边界 |
 | --- | --- | --- | --- |
-| 普通事项输入 | [OpenGovernanceProposal](../../../crates/oasis7_agent_api/src/world_action/action.rs) 接收自由标题、描述、选项及窗口/阈值；[票局状态](../../../crates/oasis7_runtime/src/gameplay_state.rs) 是 `Open/Passed/Rejected`。 | 声明、效果集合、分类与来源可分别审查。 | 原字段检查和只读票局 quote 不等于分类执行器。 |
+| 普通事项输入 | [OpenGovernanceProposal](../../../crates/oasis7_agent_api/src/world_action/action.rs) 接收自由标题、描述、选项及窗口/阈值；[票局状态](../../../crates/oasis7_world_state/src/gameplay_state.rs) 是 `Open/Passed/Rejected`。 | 声明、效果集合、分类与来源可分别审查。 | 原字段检查和只读票局 quote 不等于分类执行器。 |
 | 技术发布治理 | [governance_publication](../../../crates/oasis7_runtime/src/world/governance_publication.rs) 处理技术 manifest 发布。 | 宪制确认属于独立制度记录与授权域。 | 不从发布成功推导受影响主体确认、宪制申诉或规则生效。 |
 | 提交与恢复 | [统一事务设计](../design.md#621-explicit-transaction-and-typed-delta-model) 已有 staged delta、journal 与恢复边界，局部实现范围由其正文说明。 | 分类、授权消费、规则变化和唯一结果在同一权威事务可恢复。 | 本专题所需记录、执行器、兼容与组合测试仍须实现，通用机制不代签。 |
 

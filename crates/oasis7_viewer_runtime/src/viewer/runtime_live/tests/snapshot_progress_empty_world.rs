@@ -12,6 +12,7 @@ fn empty_entity_guard_marks_gameplay_snapshot_blocked() {
         false,
         true,
         None,
+        false,
     );
     super::super::gameplay_snapshot::apply_runtime_snapshot_empty_entities_blocker(
         &mut gameplay,
@@ -74,6 +75,7 @@ fn empty_runtime_snapshot_publishes_first_agent_claim_action() {
         false,
         true,
         None,
+        false,
     );
     let action = gameplay
         .available_actions
@@ -186,6 +188,7 @@ fn existing_world_without_bound_agent_publishes_first_agent_claim_action() {
         false,
         true,
         None,
+        false,
     );
     let action = gameplay
         .available_actions
@@ -228,6 +231,7 @@ fn existing_world_with_unbound_starter_target_publishes_first_agent_claim_action
         false,
         true,
         None,
+        false,
     );
     let action = gameplay
         .available_actions
@@ -270,6 +274,7 @@ fn existing_world_with_bound_starter_claim_target_does_not_publish_duplicate_fir
         false,
         false,
         None,
+        false,
     );
     assert!(
         gameplay
@@ -306,6 +311,7 @@ fn runtime_sync_blocker_preserves_empty_world_first_agent_claim() {
         false,
         true,
         None,
+        false,
     );
 
     assert_eq!(

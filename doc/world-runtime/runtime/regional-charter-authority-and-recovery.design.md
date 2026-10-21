@@ -32,8 +32,8 @@
 
 | 对象 | 当前基线 | 目标 | 差距 / owner |
 | --- | --- | --- | --- |
-| 区域身份 | [AllianceState](../../../crates/oasis7_runtime/src/gameplay_state.rs) 具有成员、`charter: String` 与形成时间。 | 独立 charter identity、空间/权限修订及审查链。 | Alliance 关系不是区域资格；runtime/institution module。 |
-| 权重与物流 | [现有票权状态](../../../crates/oasis7_runtime/src/gameplay_state.rs) 与 [路线状态](../../../crates/oasis7_runtime/src/state/industry_transition/logistics_topology.rs) 各自存在。 | 同一 charter 上下文中的双资格及不封路校验。 | 现有 Agent 权重、路线 owner/capacity 不证明该合取。 |
+| 区域身份 | [AllianceState](../../../crates/oasis7_world_state/src/gameplay_state.rs) 具有成员、`charter: String` 与形成时间。 | 独立 charter identity、空间/权限修订及审查链。 | Alliance 关系不是区域资格；runtime/institution module。 |
+| 权重与物流 | [现有票权状态](../../../crates/oasis7_world_state/src/gameplay_state.rs) 与 [路线状态](../../../crates/oasis7_world_state/src/state/industry_transition/logistics_topology.rs) 各自存在。 | 同一 charter 上下文中的双资格及不封路校验。 | 现有 Agent 权重、路线 owner/capacity 不证明该合取。 |
 | 持久化 | [统一事务与恢复](../design.md#622-disposition-and-idempotency-contract) 有基础合同。 | 证据、审查、bond、权限、阶段与处置账本共同恢复。 | 下列专用 schema/producer/消费者和验收仍须交付。 |
 
 ## 4. 边界与结构

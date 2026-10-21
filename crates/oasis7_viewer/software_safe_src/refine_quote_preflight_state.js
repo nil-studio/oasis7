@@ -13,6 +13,7 @@ export function createRefineQuotePreflightStateModule({ clone, getSearchParams, 
     if (String(error?.action_id || "").trim() !== "quote_refine_compound") return false;
     state.refineQuoteRequest = {
       status: "error",
+      errorCode: String(error?.code || "unknown_error"),
       error: String(error?.message || error?.code || "refine quote request failed"),
     };
     return true;

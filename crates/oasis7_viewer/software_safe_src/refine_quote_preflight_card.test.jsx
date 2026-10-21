@@ -135,4 +135,19 @@ describe("RefineQuotePreflightCard", () => {
     render(() => <RefineQuotePreflightCard quote={{ ...quote, value_classification: valueClassification }} locale="en" tr={tr} />);
     expect(screen.getByTestId("refine-quote-next-decision")).toHaveTextContent(guidance);
   });
+  it("explains a binding failure and exposes only the safe business code", () => {
+    render(() => <RefineQuotePreflightPanel quote={null} requestRefineQuote={vi.fn()}
+      requestState={{ status: "error", errorCode: "player_agent_binding_required", error: "private server diagnostics" }} locale="en" tr={tr} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(/claim.*Agent|Agent.*sync/i);
+    expect(screen.getByText("player_agent_binding_required")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("private server diagnostics");
+  });
+
+  it.each(["constructor", "PRIVATE_DIAGNOSTIC_".repeat(10)])("does not echo an unrecognized code %s", code => {
+    render(() => <RefineQuotePreflightPanel quote={null} requestRefineQuote={vi.fn()}
+      requestState={{ status: "error", errorCode: code, error: "private detail" }} locale="en" tr={tr} />);
+    expect(screen.getByText("unknown_error")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).not.toHaveTextContent("private detail");
+  });
+
 });

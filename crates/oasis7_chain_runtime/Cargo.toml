@@ -10,6 +10,8 @@ path = "src/bin/oasis7_chain_runtime.rs"
 required-features = ["node-libp2p"]
 
 [dependencies]
+oasis7_world_state = { path = "../oasis7_world_state" }
+oasis7_world_projection = { path = "../oasis7_world_projection" }
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }
@@ -51,7 +53,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [features]
 default = ["wasmtime", "node-libp2p"]
-node-libp2p = ["oasis7_node/libp2p", "oasis7/node-libp2p"]
+node-libp2p = ["oasis7_node/libp2p"]
 wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]

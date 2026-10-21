@@ -28,8 +28,8 @@
 
 | 对象 | 当前基线与证据 | 目标及差距 |
 | --- | --- | --- |
-| 可排他物流服务费 | [物流报价](../../../crates/oasis7_runtime/src/world/logistics.rs)与[转运状态转换](../../../crates/oasis7_runtime/src/state/industry_transition/material_transit.rs)已有费用和托管/完成分配；旧 receipt 的 `governance_tax=0` 保留原意。 | 继续独立运行，不把旧服务收费重标为 levy。 |
-| 治理与公共征收 | [治理事件准备](../../../crates/oasis7_runtime/src/world/governance_meta_publication.rs)承接普通治理事实；不是本文的 levy 权限、预算及复核合取执行器。 | 新增本专题的领域记录和提交消费者，不能只增加展示字段。 |
+| 可排他物流服务费 | [物流报价](../../../crates/oasis7_runtime/src/world/logistics.rs)与[转运状态转换](../../../crates/oasis7_world_state/src/state/industry_transition/material_transit.rs)已有费用和托管/完成分配；旧 receipt 的 `governance_tax=0` 保留原意。 | 继续独立运行，不把旧服务收费重标为 levy。 |
+| 治理与公共征收 | [治理事件准备](../../../crates/oasis7_world_state/src/world/governance_meta_publication.rs)承接普通治理事实；不是本文的 levy 权限、预算及复核合取执行器。 | 新增本专题的领域记录和提交消费者，不能只增加展示字段。 |
 | 账目与恢复 | [持久化入口](../../../crates/oasis7_runtime/src/world/persistence.rs)提供现有恢复基础；没有据此取得 levy 专用账本和单次结算的证据。 | 接入同一持久化边界并完成专用恢复与对账验证。 |
 
 上述仅为固定版本静态审读。目标模型和验证计划不改变产品的当前实现结论，不推断未提供的外部 WASM 或线上配置。

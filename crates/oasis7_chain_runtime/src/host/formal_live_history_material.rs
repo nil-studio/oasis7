@@ -288,7 +288,7 @@ impl NativeHistoryResolver {
         let snapshot: Snapshot = decode_role(material, ArtifactRole::Snapshot)?;
         let journal: Journal = decode_role(material, ArtifactRole::Journal)?;
         let world = if snapshot.state.retained_history_root.is_some() {
-            let bytes = serde_cbor::to_vec(&snapshot).map_err(|e| e.to_string())?;
+            let bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|e| e.to_string())?;
             let parent =
                 oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
             oasis7::runtime_host::world::from_verified_formal_snapshot(
