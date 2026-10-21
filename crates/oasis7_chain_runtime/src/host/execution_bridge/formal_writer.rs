@@ -1,6 +1,7 @@
 //! Native writer transaction boundary; only dual qualified results advance World.
 use super::{
-    controlled_capture as capture, durable_transaction, formal_executor, formal_package, to_cbor,
+    controlled_capture as capture, durable_transaction, formal_executor, formal_package,
+    snapshot_to_cbor, to_cbor,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use oasis7_distfs::controlled_authority::{

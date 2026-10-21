@@ -21,7 +21,7 @@ pub(super) fn restore(
     let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|e| format!("{e:?}"))?
         .with_release_security_policy(release.clone());
-    if blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
+    if blake3_hex(&snapshot_to_cbor(&world.snapshot())?)
         != candidate.candidate.record.after_state_root
     {
         return Err("formal writer restored candidate root mismatch".into());
@@ -62,7 +62,7 @@ pub(super) fn restore_qualified(
         }
         return restore(candidate, release);
     }
-    let bytes = super::snapshot_to_cbor(&snapshot)?;
+    let bytes = snapshot_to_cbor(&snapshot)?;
     let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
     let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
         snapshot, journal, parent, reader,

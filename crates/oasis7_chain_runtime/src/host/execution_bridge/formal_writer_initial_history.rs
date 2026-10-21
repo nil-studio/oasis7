@@ -145,7 +145,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             .map_err(|error| format!("{error:?}"))?
             .with_release_security_policy(self.release.clone());
         if world.state().time != 0
-            || blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
+            || blake3_hex(&snapshot_to_cbor(&world.snapshot())?)
                 != anchor.head().record().after_state_root
         {
             return Err("retained initial World is not the exact zero-height genesis".into());

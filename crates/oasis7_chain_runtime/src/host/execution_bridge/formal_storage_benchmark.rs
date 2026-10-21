@@ -52,7 +52,9 @@ fn initial() -> Fixture {
         height: world.state().time,
         consensus_block_hash: fixtures::h(81),
         execution_block_hash: fixtures::h(82),
-        execution_state_root: blake3_hex(&super::snapshot_to_cbor(&world.snapshot()).unwrap()),
+        execution_state_root: blake3_hex(
+            &super::super::super::snapshot_to_cbor(&world.snapshot()).unwrap(),
+        ),
     };
     let closure = super::super::super::formal_initial::InitialWorldClosure::from_genesis_world_with_node_bootstrap(
         &world, &identity, &release, bootstrap.clone()).unwrap();
@@ -185,7 +187,7 @@ fn restore(
         capture::decode_journal_role(&candidate.material, ArtifactRole::Journal).unwrap();
     let retained = VerifiedFormalRetainedHistoryParentV1::verify(
         &anchor,
-        &super::snapshot_to_cbor(&snapshot).unwrap(),
+        &super::super::super::snapshot_to_cbor(&snapshot).unwrap(),
     )
     .unwrap();
     let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
