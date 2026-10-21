@@ -396,16 +396,30 @@ def diagnose(args):
     for name in ("Macros", "Calls", "Closures"):
         verify_library_path(json.loads((args.output / f"library-path-{name}.json").read_text()),
                             args.codeql.resolve().parent, query.resolve(), name)
-    run([cli, "query", "compile", "--help"], args.work,
+    run([cli, "query", "compile", "--help", "-v"], args.work,
         args.output / "query-compile-help.log", args.deadline, 20, args.output, env)
     help_text = (args.output / "query-compile-help.log").read_text()
-    for option in ("--check-only", "--keep-going", "--additional-packs"):
+    for option in ("--check-only", "--keep-going", "--additional-packs", "--compilation-cache"):
         if option not in help_text and option.replace("--", "--[no-]", 1) not in help_text:
             raise RuntimeError("exact CLI missing preflight option: " + option)
     run([cli, "query", "compile", "--check-only", "--keep-going",
          "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
          *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]],
         args.work, args.output / "query-preflight.log", args.deadline, 60, args.output, env)
+    run([cli, "query", "run", "--help", "-v"], args.work,
+        args.output / "query-run-help.log", args.deadline, 20, args.output, env)
+    if "--compilation-cache" not in (args.output / "query-run-help.log").read_text():
+        raise RuntimeError("exact query run missing compilation cache option")
+    cache = args.work / "query-cache"
+    cache.mkdir(exist_ok=False)
+    write(args.output / "compiled-query-inputs.json", json.dumps({
+        "cache": str(cache), "shared_compile_seconds": 360,
+        "queries": {name: hashlib.sha256((query / (name + ".ql")).read_bytes()).hexdigest()
+                    for name in ("Macros", "Calls", "Closures")}}, indent=2) + "\n")
+    run([cli, "query", "compile", "--keep-going", "--compilation-cache=" + str(cache),
+         "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
+         *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]],
+        args.work, args.output / "query-compile.log", args.deadline, 360, args.output, env)
     before = {}
     for name, wrappers in [("baseline", False), ("wrappers", True)]:
         source = args.output / name
@@ -433,7 +447,7 @@ def diagnose(args):
             bqrs = args.output / f"{name}-{q}.bqrs"
             run([cli, "query", "run", str(query / (q + ".ql")), "--database=" + str(database),
                  "--output=" + str(bqrs), "--threads=2", "--ram=3072",
-                 "--additional-packs=" + str(search_root)], source,
+                 "--additional-packs=" + str(search_root), "--compilation-cache=" + str(cache)], source,
                 args.output / f"{name}-{q}.log", args.deadline, 60, args.output, env)
             run([cli, "bqrs", "decode", str(bqrs), "--format=csv", "--output=" + str(args.output / f"{name}-{q}.csv")],
                 source, args.output / f"{name}-{q}-decode.log", args.deadline, 20, args.output, env)
