@@ -11,7 +11,7 @@ import subprocess
 
 BINS = ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_viewer_live")
 ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("ecs_skill_release", ROOT / "scripts/ecs-skill-release.py")
+spec = importlib.util.spec_from_file_location("ecs_skill_release", ROOT / "scripts/package-ecs-skills.py")
 skills = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(skills)
 
@@ -83,7 +83,7 @@ def main():
         shutil.copytree(args.web, args.out / "web-dist")
         skills.package(ROOT, sha, args.out / "web-dist")
         (args.out / "deployment").mkdir()
-        shutil.copy2(ROOT / "scripts/ecs-skill-release.py", args.out / "deployment/ecs-skill-release.py")
+        shutil.copy2(ROOT / "scripts/package-ecs-skills.py", args.out / "deployment/ecs-skill-release.py")
         (args.out / "BUILDINFO").write_text(f"source={sha}\nprofile=ecs\nplatform=linux-x64\nkind=ecs-server\n")
         (args.out / "manifest.json").write_text(json.dumps(identity, indent=2) + "\n")
         files = sorted(path for path in args.out.rglob("*") if path.is_file())
