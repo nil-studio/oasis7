@@ -112,15 +112,44 @@ pub(crate) fn load_execution_world_with_policy(
     world_dir: &Path,
     release_security_policy: ReleaseSecurityPolicy,
 ) -> Result<RuntimeWorld, String> {
+    load_execution_world_with_context(world_dir, release_security_policy, None)
+}
+
+pub(crate) fn load_execution_world_with_context(
+    world_dir: &Path,
+    release_security_policy: ReleaseSecurityPolicy,
+    authority: Option<&oasis7_runtime::DevLocalParticipantAuthority>,
+) -> Result<RuntimeWorld, String> {
+    if authority
+        .is_some_and(|authority| authority.release_security_policy() != &release_security_policy)
+    {
+        return Err("local participant recovery release context mismatch".into());
+    }
     let snapshot_path = world_dir.join("snapshot.json");
     let journal_path = world_dir.join("journal.json");
+    if authority.is_some() && (!snapshot_path.is_file() || !journal_path.is_file()) {
+        return Err(
+            "local participant administration requires a complete existing execution world".into(),
+        );
+    }
     if !snapshot_path.exists() || !journal_path.exists() {
         let mut world = oasis7::runtime_host::world::new_production_hardened()
             .with_release_security_policy(release_security_policy.clone());
         normalize_execution_world_main_token_config_for_policy(&mut world, release_security_policy);
         return Ok(world);
     }
-    oasis7::runtime_host::world::load_from_dir(world_dir)
+    let loaded = if let Some(authority) = authority {
+        oasis7::runtime_host::world::load_from_dir_with_devlocal_participant_authority(
+            world_dir,
+            authority.clone(),
+        )
+    } else {
+        oasis7::runtime_host::world::load_from_dir_with_release_security_policy(
+            world_dir,
+            release_security_policy.clone(),
+        )
+    };
+    loaded
         .map_err(|err| {
             format!(
                 "load execution world from {} failed: {:?}",

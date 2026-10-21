@@ -87,6 +87,10 @@ pub(super) fn start_chain_status_server(
     feedback_submit_signer: FeedbackSubmitSigner,
     runtime_authority_binding: Option<super::runtime_authority::RuntimeAuthorityBinding>,
 ) -> Result<ChainStatusServer, String> {
+    let restore_context = super::execution_bridge::world_service_read::RestoreContext::new(
+        release_security_policy.clone(),
+        super::cli::devlocal_participant_config(&options)?.authority,
+    )?;
     let listener = TcpListener::bind((host, port))
         .map_err(|err| format!("failed to bind status server at {host}:{port}: {err}"))?;
     let private_goal_store = super::world_service_api::private_goal::configured_store(
@@ -126,6 +130,7 @@ pub(super) fn start_chain_status_server(
             feedback_submit_signer,
             runtime_authority_binding,
             private_goal_store,
+            restore_context,
         ) {
             let _ = error_tx.send(err);
         }
@@ -200,6 +205,7 @@ fn run_chain_status_server_loop(
     feedback_submit_signer: FeedbackSubmitSigner,
     runtime_authority_binding: Option<super::runtime_authority::RuntimeAuthorityBinding>,
     private_goal_store: Option<Arc<oasis7::world_service::private_goal_store::PrivateGoalStore>>,
+    restore_context: super::execution_bridge::world_service_read::RestoreContext,
 ) -> Result<(), String> {
     let admission = super::status_admission::Admission::default();
     loop {
@@ -233,6 +239,7 @@ fn run_chain_status_server_loop(
                 let feedback_submit_signer = feedback_submit_signer.clone();
                 let runtime_authority_binding = runtime_authority_binding.clone();
                 let private_goal_store = private_goal_store.clone();
+                let restore_context = restore_context.clone();
                 thread::spawn(move || {
                     let _permit = permit;
                     if let Err(err) = handle_chain_status_connection(
@@ -253,6 +260,7 @@ fn run_chain_status_server_loop(
                         &feedback_submit_signer,
                         runtime_authority_binding.as_ref(),
                         private_goal_store,
+                        &restore_context,
                     ) {
                         let stderr_message =
                             format!("warning: chain status connection failed: {err}");
@@ -296,6 +304,7 @@ fn handle_chain_status_connection(
     feedback_submit_signer: &FeedbackSubmitSigner,
     runtime_authority_binding: Option<&super::runtime_authority::RuntimeAuthorityBinding>,
     private_goal_store: Option<Arc<oasis7::world_service::private_goal_store::PrivateGoalStore>>,
+    restore_context: &super::execution_bridge::world_service_read::RestoreContext,
 ) -> Result<(), String> {
     stream
         .set_nonblocking(false)
@@ -332,7 +341,7 @@ fn handle_chain_status_connection(
     let target = parts.next().unwrap_or_default();
     let path = target.split('?').next().unwrap_or(target);
     let head_only = method.eq_ignore_ascii_case("HEAD");
-    if super::world_service_api::private_goal::maybe_handle(
+    if super::world_service_api::private_goal::maybe_handle_with_context(
         &mut stream,
         &request_bytes,
         &runtime,
@@ -344,10 +353,11 @@ fn handle_chain_status_connection(
         execution_storage_root,
         feedback_submit_signer,
         private_goal_store.as_deref(),
+        restore_context,
     )? {
         return Ok(());
     }
-    if super::world_service_api::maybe_handle(
+    if super::world_service_api::maybe_handle_with_context(
         &mut stream,
         &request_bytes,
         &runtime,
@@ -358,6 +368,7 @@ fn handle_chain_status_connection(
         execution_records_dir,
         execution_storage_root,
         feedback_submit_signer,
+        restore_context,
     )? {
         #[cfg(test)]
         record_test_service_request_witness(method, path)?;

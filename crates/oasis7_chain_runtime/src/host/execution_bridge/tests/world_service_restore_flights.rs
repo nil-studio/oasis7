@@ -306,3 +306,21 @@ fn old_cleanup_cannot_remove_same_key_replacement_marker() {
     assert!(cache.lock().unwrap().flights.is_empty());
     assert_eq!(cache.lock().unwrap().active_input_bytes, 0);
 }
+
+#[test]
+fn same_content_different_effective_context_cannot_join_an_inflight_restore() {
+    let cache = Mutex::new(RestoreCache::default());
+    let local = super::tests::local_context(77);
+    let local_key = Key::from_bytes_with_context(b"same", b"journal", &local);
+    let governed_key = Key::from_bytes(b"same", b"journal");
+    let Selection::Lead(local_leader) = select(&cache, &local_key) else {
+        panic!("local leader required")
+    };
+    let Selection::Lead(governed_leader) = select(&cache, &governed_key) else {
+        panic!("governed request must not join local flight")
+    };
+    assert!(!Arc::ptr_eq(&local_leader.flight, &governed_leader.flight));
+    drop(governed_leader);
+    drop(local_leader);
+    assert!(cache.lock().unwrap().flights.is_empty());
+}

@@ -1,4 +1,5 @@
 use super::*;
+use crate::{DevLocalParticipantAuthority, ReleaseSecurityPolicy};
 
 pub struct CommittedAuthoritativeRecoveryGeneration {
     pub generation_id: String,
@@ -25,6 +26,36 @@ pub enum AuthoritativeRecoveryCommitError {
 impl World {
     pub fn load_authoritative_recovery_generation(
         dir: impl AsRef<Path>,
+    ) -> Result<Option<CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        Self::load_authoritative_recovery_generation_with_context(
+            dir,
+            ReleaseSecurityPolicy::default(),
+            None,
+        )
+    }
+
+    pub fn load_authoritative_recovery_generation_with_release_security_policy(
+        dir: impl AsRef<Path>,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<Option<CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        Self::load_authoritative_recovery_generation_with_context(dir, policy, None)
+    }
+
+    pub fn load_authoritative_recovery_generation_with_devlocal_participant_authority(
+        dir: impl AsRef<Path>,
+        authority: DevLocalParticipantAuthority,
+    ) -> Result<Option<CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        Self::load_authoritative_recovery_generation_with_context(
+            dir,
+            authority.release_security_policy().clone(),
+            Some(authority),
+        )
+    }
+
+    fn load_authoritative_recovery_generation_with_context(
+        dir: impl AsRef<Path>,
+        policy: ReleaseSecurityPolicy,
+        authority: Option<DevLocalParticipantAuthority>,
     ) -> Result<Option<CommittedAuthoritativeRecoveryGeneration>, WorldError> {
         let dir = dir.as_ref();
         let store_root = dir.join(DISTFS_STATE_DIR);
@@ -76,7 +107,12 @@ impl World {
                 )?;
             }
             let events: Vec<WorldEvent> = assemble_journal(&journal_segments, &store)?;
-            let world = World::from_snapshot(snapshot, Journal { events })?;
+            let world = Self::restore_authoritative_recovery_world(
+                snapshot,
+                Journal { events },
+                policy,
+                authority,
+            )?;
             return Ok(Some(CommittedAuthoritativeRecoveryGeneration {
                 generation_id: generation_id.to_string(),
                 world,
@@ -122,14 +158,22 @@ impl World {
         dir: impl AsRef<Path>,
         recovery_metadata: &[u8],
     ) -> Result<AuthoritativeRecoveryCommitStatus, AuthoritativeRecoveryCommitError> {
+        self.validate_devlocal_participant_authority_context()
+            .map_err(|err| AuthoritativeRecoveryCommitError::StatusUnknown {
+                reason: format!(
+                    "authoritative recovery candidate authority invalid before write: {err:?}"
+                ),
+            })?;
         let dir = dir.as_ref();
         let expected_metadata_hash = super::super::super::util::sha256_hex(recovery_metadata);
         let snapshot = self.snapshot();
         let write_result = fs::create_dir_all(dir)
             .map_err(WorldError::from)
             .and_then(|_| self.save_distfs_sidecar(dir, &snapshot, None, Some(recovery_metadata)));
-        let readback =
-            Self::readback_authoritative_recovery_generation(dir, expected_metadata_hash.as_str());
+        let readback = self.readback_authoritative_recovery_generation_for_current_context(
+            dir,
+            expected_metadata_hash.as_str(),
+        );
         match readback {
             Ok(status) => Ok(status),
             Err(error) => {
@@ -142,6 +186,63 @@ impl World {
     pub fn readback_authoritative_recovery_generation(
         dir: impl AsRef<Path>,
         expected_metadata_hash: &str,
+    ) -> Result<AuthoritativeRecoveryCommitStatus, AuthoritativeRecoveryCommitError> {
+        Self::readback_authoritative_recovery_generation_with_context(
+            dir,
+            expected_metadata_hash,
+            ReleaseSecurityPolicy::default(),
+            None,
+        )
+    }
+
+    pub fn readback_authoritative_recovery_generation_with_release_security_policy(
+        dir: impl AsRef<Path>,
+        expected_metadata_hash: &str,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<AuthoritativeRecoveryCommitStatus, AuthoritativeRecoveryCommitError> {
+        Self::readback_authoritative_recovery_generation_with_context(
+            dir,
+            expected_metadata_hash,
+            policy,
+            None,
+        )
+    }
+
+    pub fn readback_authoritative_recovery_generation_with_devlocal_participant_authority(
+        dir: impl AsRef<Path>,
+        expected_metadata_hash: &str,
+        authority: DevLocalParticipantAuthority,
+    ) -> Result<AuthoritativeRecoveryCommitStatus, AuthoritativeRecoveryCommitError> {
+        Self::readback_authoritative_recovery_generation_with_context(
+            dir,
+            expected_metadata_hash,
+            authority.release_security_policy().clone(),
+            Some(authority),
+        )
+    }
+
+    pub fn readback_authoritative_recovery_generation_for_current_context(
+        &self,
+        dir: impl AsRef<Path>,
+        expected_metadata_hash: &str,
+    ) -> Result<AuthoritativeRecoveryCommitStatus, AuthoritativeRecoveryCommitError> {
+        self.validate_devlocal_participant_authority_context()
+            .map_err(|err| AuthoritativeRecoveryCommitError::StatusUnknown {
+                reason: format!("authoritative recovery caller authority invalid: {err:?}"),
+            })?;
+        Self::readback_authoritative_recovery_generation_with_context(
+            dir,
+            expected_metadata_hash,
+            self.release_security_policy.clone(),
+            self.devlocal_participant_authority.clone(),
+        )
+    }
+
+    fn readback_authoritative_recovery_generation_with_context(
+        dir: impl AsRef<Path>,
+        expected_metadata_hash: &str,
+        policy: ReleaseSecurityPolicy,
+        authority: Option<DevLocalParticipantAuthority>,
     ) -> Result<AuthoritativeRecoveryCommitStatus, AuthoritativeRecoveryCommitError> {
         let dir = dir.as_ref();
         let store_root = dir.join(DISTFS_STATE_DIR);
@@ -248,13 +349,17 @@ impl World {
                     record.generation_id
                 ),
             })?;
-        let world = World::from_snapshot(snapshot, Journal { events }).map_err(|err| {
-            AuthoritativeRecoveryCommitError::StatusUnknown {
-                reason: format!(
-                    "matching recovery world restore failed: generation_id={} err={err:?}",
-                    record.generation_id
-                ),
-            }
+        let world = Self::restore_authoritative_recovery_world(
+            snapshot,
+            Journal { events },
+            policy,
+            authority,
+        )
+        .map_err(|err| AuthoritativeRecoveryCommitError::StatusUnknown {
+            reason: format!(
+                "matching recovery world restore failed: generation_id={} err={err:?}",
+                record.generation_id
+            ),
         })?;
         Ok(AuthoritativeRecoveryCommitStatus::Committed(
             CommittedAuthoritativeRecoveryGeneration {
@@ -263,6 +368,42 @@ impl World {
                 recovery_metadata,
             },
         ))
+    }
+
+    fn restore_authoritative_recovery_world(
+        snapshot: Snapshot,
+        journal: Journal,
+        policy: ReleaseSecurityPolicy,
+        authority: Option<DevLocalParticipantAuthority>,
+    ) -> Result<World, WorldError> {
+        match authority {
+            Some(authority) => Self::from_snapshot_with_devlocal_participant_authority(
+                snapshot, journal, authority,
+            ),
+            None => Self::from_snapshot_with_release_security_policy(snapshot, journal, policy),
+        }
+    }
+
+    pub fn load_authoritative_recovery_metadata_with_release_security_policy(
+        dir: impl AsRef<Path>,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<Option<Vec<u8>>, WorldError> {
+        Ok(
+            Self::load_authoritative_recovery_generation_with_release_security_policy(dir, policy)?
+                .map(|generation| generation.recovery_metadata),
+        )
+    }
+
+    pub fn load_authoritative_recovery_metadata_with_devlocal_participant_authority(
+        dir: impl AsRef<Path>,
+        authority: DevLocalParticipantAuthority,
+    ) -> Result<Option<Vec<u8>>, WorldError> {
+        Ok(
+            Self::load_authoritative_recovery_generation_with_devlocal_participant_authority(
+                dir, authority,
+            )?
+            .map(|generation| generation.recovery_metadata),
+        )
     }
 
     pub fn load_authoritative_recovery_metadata(

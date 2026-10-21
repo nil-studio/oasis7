@@ -58,6 +58,22 @@ pub mod world {
     pub fn from_snapshot(snapshot: Snapshot, journal: Journal) -> Result<World, WorldError> {
         World::from_snapshot(snapshot, journal).map(install_runtime_capabilities)
     }
+    pub fn from_snapshot_with_release_security_policy(
+        snapshot: Snapshot,
+        journal: Journal,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<World, WorldError> {
+        World::from_snapshot_with_release_security_policy(snapshot, journal, policy)
+            .map(install_runtime_capabilities)
+    }
+    pub fn from_snapshot_with_devlocal_participant_authority(
+        snapshot: Snapshot,
+        journal: Journal,
+        authority: oasis7_runtime::DevLocalParticipantAuthority,
+    ) -> Result<World, WorldError> {
+        World::from_snapshot_with_devlocal_participant_authority(snapshot, journal, authority)
+            .map(install_runtime_capabilities)
+    }
     pub fn from_verified_formal_snapshot(
         snapshot: Snapshot,
         journal: Journal,
@@ -70,17 +86,50 @@ pub mod world {
     pub fn load_from_dir(path: impl AsRef<Path>) -> Result<World, WorldError> {
         World::load_from_dir(path).map(install_runtime_capabilities)
     }
+    pub fn load_from_dir_with_release_security_policy(
+        path: impl AsRef<Path>,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<World, WorldError> {
+        World::load_from_dir_with_release_security_policy(path, policy)
+            .map(install_runtime_capabilities)
+    }
+    pub fn load_from_dir_with_devlocal_participant_authority(
+        path: impl AsRef<Path>,
+        authority: oasis7_runtime::DevLocalParticipantAuthority,
+    ) -> Result<World, WorldError> {
+        World::load_from_dir_with_devlocal_participant_authority(path, authority)
+            .map(install_runtime_capabilities)
+    }
     pub fn load_from_dir_with_modules(path: impl AsRef<Path>) -> Result<World, WorldError> {
         World::load_from_dir_with_modules(path).map(install_runtime_capabilities)
     }
     pub fn load_authoritative_recovery_generation(
         path: impl AsRef<Path>,
     ) -> Result<Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>, WorldError> {
-        World::load_authoritative_recovery_generation(path).map(|generation| {
-            generation.map(|mut generation| {
-                generation.world = install_runtime_capabilities(generation.world);
-                generation
-            })
+        World::load_authoritative_recovery_generation(path).map(install_generation_capabilities)
+    }
+    pub fn load_authoritative_recovery_generation_with_release_security_policy(
+        path: impl AsRef<Path>,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        World::load_authoritative_recovery_generation_with_release_security_policy(path, policy)
+            .map(install_generation_capabilities)
+    }
+    pub fn load_authoritative_recovery_generation_with_devlocal_participant_authority(
+        path: impl AsRef<Path>,
+        authority: oasis7_runtime::DevLocalParticipantAuthority,
+    ) -> Result<Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        World::load_authoritative_recovery_generation_with_devlocal_participant_authority(
+            path, authority,
+        )
+        .map(install_generation_capabilities)
+    }
+    fn install_generation_capabilities(
+        generation: Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>,
+    ) -> Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration> {
+        generation.map(|mut generation| {
+            generation.world = install_runtime_capabilities(generation.world);
+            generation
         })
     }
 }

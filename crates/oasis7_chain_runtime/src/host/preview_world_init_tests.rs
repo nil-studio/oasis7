@@ -287,6 +287,50 @@ fn legacy_receipt_without_archive_fails_closed_without_rewriting_world() {
     assert!(error.contains("verified backup"), "{error}");
     assert_eq!(fs::read(&receipt_path).unwrap(), legacy_receipt);
     assert!(o.root.join("genesis/initial-artifact.json").exists());
+    // The retained signed origin can identify this world, without upgrading
+    // the missing archive into a verified-history recovery certificate.
+    assert_eq!(
+        verify_existing_origin(&o.root, &o.world_id, &o.node_id, &service.public_key_hex).unwrap(),
+        legacy.world
+    );
+    assert_eq!(fs::read(&receipt_path).unwrap(), legacy_receipt);
+}
+
+#[test]
+fn preview_origin_requires_independent_pin_signature_and_original_artifact() {
+    let root = Directory::new();
+    let o = root.options();
+    let receipt = initialize(&o).unwrap();
+    let pin = receipt.service_public_key.clone();
+    let verify =
+        |world: &str, node: &str, key: &str| verify_existing_origin(&o.root, world, node, key);
+    assert_eq!(
+        verify(&o.world_id, &o.node_id, &pin).unwrap(),
+        receipt.world
+    );
+    assert!(verify("another-world", &o.node_id, &pin).is_err());
+    assert!(verify(&o.world_id, "another-node", &pin).is_err());
+    assert!(verify(&o.world_id, &o.node_id, &"11".repeat(32)).is_err());
+
+    let path = o.root.join("genesis/initial-artifact.json");
+    let before = fs::read(&path).unwrap();
+    let mut altered = before.clone();
+    altered.push(b' ');
+    fs::write(&path, altered).unwrap();
+    assert!(verify(&o.world_id, &o.node_id, &pin).is_err());
+    fs::write(&path, &before).unwrap();
+
+    let receipt_path = o.root.join("initialization-receipt.json");
+    let original = fs::read(&receipt_path).unwrap();
+    let mut tampered: Receipt = serde_json::from_slice(&original).unwrap();
+    tampered.world.genesis_digest = format!("blake3:{}", "a".repeat(64));
+    fs::write(&receipt_path, encode(json!(tampered)).unwrap()).unwrap();
+    assert!(verify(&o.world_id, &o.node_id, &pin).is_err());
+    fs::write(&receipt_path, original).unwrap();
+    assert_eq!(
+        verify(&o.world_id, &o.node_id, &pin).unwrap(),
+        receipt.world
+    );
 }
 #[test]
 fn partial_existing_root_and_mismatched_receipt_are_never_repaired() {

@@ -37,6 +37,30 @@ fn fixture(
     String,
     String,
 ) {
+    fixture_with_controller(verified_authority, provider_fixture, None)
+}
+pub(super) fn driver_fixture_with_controller_registry(
+    registry: oasis7_runtime::GovernanceMainTokenControllerRegistry,
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture_with_controller(false, false, Some(registry))
+}
+fn fixture_with_controller(
+    verified_authority: bool,
+    provider_fixture: bool,
+    controller: Option<oasis7_runtime::GovernanceMainTokenControllerRegistry>,
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
     let dir = temp_dir("world-service-owner-chat");
     let owner = hex::encode([7u8; 32]);
     let public = sign_read_request("owner", (), &owner)
@@ -47,6 +71,11 @@ fn fixture(
         genesis_digest: "fixture-genesis-v1".into(),
     };
     let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default());
+    if let Some(controller) = controller {
+        world
+            .set_governance_main_token_controller_registry(controller)
+            .unwrap();
+    }
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
@@ -205,12 +234,8 @@ fn canonical_owner_chat_driver_dedup_restart_rejection_and_replacement() {
         None,
     )
     .unwrap();
-    let authorized = projection::from_authenticated_world(
-        &pinned.world,
-        Some("agent-a"),
-        &public,
-    )
-    .unwrap();
+    let authorized =
+        projection::from_authenticated_world(&pinned.world, Some("agent-a"), &public).unwrap();
     assert_eq!(
         authorized
             .canonical_agent_chat
@@ -459,9 +484,7 @@ fn canonical_owner_goal_http_view_excludes_public_and_registered_delegate() {
             assert_eq!(projection.get("canonical_agent_chat").is_some(), is_owner);
             if path == VIEW_PATH {
                 let typed: SignedServiceResponse<
-                    ReadWorldViewResponse<
-                        oasis7_world_projection::WorldServiceProjection,
-                    >,
+                    ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
                 > = serde_json::from_value(value.clone()).unwrap();
                 verify_service_response(
                     path,

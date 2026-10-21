@@ -14,9 +14,10 @@ impl NodeRuntimeExecutionDriver {
     fn execution_world_without_persistence(&self) -> Result<RuntimeWorld, String> {
         let snapshot = self.execution_world.snapshot();
         let has_inline_module_artifacts = !snapshot.module_artifact_bytes.is_empty();
-        let mut world = oasis7::runtime_host::world::from_snapshot(
-            snapshot,
-            self.execution_world.journal().clone(),
+        let mut world = crate::execution_config::restore_execution_world(
+            snapshot, self.execution_world.journal().clone(),
+            self.execution_world.release_security_policy().clone(),
+            self.devlocal_participant.authority.as_ref(),
         )
         .map_err(|error| {
             format!(

@@ -11,7 +11,7 @@ impl World {
         serde_json::json!({"available":policy.is_some_and(|p| p.enabled && p.registry_complete),
             "world_id":self.chain_resource_manifest.world_id,
             "genesis_digest":self.chain_resource_manifest.genesis_ref,
-            "logical_tick":self.state.time.to_string(), "policy":policy})
+            "logical_tick":self.state.time.to_string(), "authority_source":if !self.capability_revocation_state.participants.devlocal_policy_history.is_empty() {"dev_local_operator"} else if !self.capability_revocation_state.participants.policy_history.is_empty() {"governed"} else {"unconfigured"}, "policy":policy})
     }
     /// Explicit private fixture only. Existing worlds need a separate audited migration.
     /// No production caller, environment toggle or HTTP policy setter is provided.
@@ -71,6 +71,9 @@ pub(super) fn project_event(world: &World, registry: &mut crate::capability_auth
     event: &CapabilityAuthorizationEvent) -> Result<(), WorldError> {
     let deny = |s: String| WorldError::DistributedValidationFailed { reason:s };
     match event {
+        CapabilityAuthorizationEvent::DevLocalParticipantPolicyInstalled { authorization } => {
+            return super::participant_devlocal::project_devlocal_policy(world,registry,authorization);
+        }
         CapabilityAuthorizationEvent::ParticipantPolicyInstalled {policy,proof} => {
             if let Some(proof)=proof {
                 return super::participant_policy::project_policy(world,registry,policy,proof);

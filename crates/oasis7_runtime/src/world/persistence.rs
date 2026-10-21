@@ -519,6 +519,29 @@ impl World {
     }
 
     pub fn load_from_dir(dir: impl AsRef<Path>) -> Result<Self, WorldError> {
+        Self::load_from_dir_with_participant_context(dir, None, None)
+    }
+    pub fn load_from_dir_with_release_security_policy(
+        dir: impl AsRef<Path>,
+        policy: super::ReleaseSecurityPolicy,
+    ) -> Result<Self, WorldError> {
+        Self::load_from_dir_with_participant_context(dir, Some(policy), None)
+    }
+    pub fn load_from_dir_with_devlocal_participant_authority(
+        dir: impl AsRef<Path>,
+        authority: super::DevLocalParticipantAuthority,
+    ) -> Result<Self, WorldError> {
+        Self::load_from_dir_with_participant_context(
+            dir,
+            Some(authority.release_security_policy().clone()),
+            Some(authority),
+        )
+    }
+    fn load_from_dir_with_participant_context(
+        dir: impl AsRef<Path>,
+        release: Option<super::ReleaseSecurityPolicy>,
+        authority: Option<super::DevLocalParticipantAuthority>,
+    ) -> Result<Self, WorldError> {
         let dir = dir.as_ref();
         persistence_format::validate_selector_before_load(dir)?;
         if let Some((mut snapshot, journal)) = Self::try_load_from_distfs_sidecar(dir)? {
@@ -535,7 +558,14 @@ impl World {
                 let journal = Journal::load_json(dir.join(JOURNAL_FILE))?;
                 hydrate_tick_consensus_snapshot_from_archive(dir, &mut json_snapshot)?;
                 let has_inline_module_artifacts = !json_snapshot.module_artifact_bytes.is_empty();
-                let world = Self::from_snapshot(json_snapshot, journal)?;
+                let world = Self::from_snapshot_with_participant_context(
+                    json_snapshot,
+                    journal,
+                    false,
+                    None,
+                    release.clone(),
+                    authority.clone(),
+                )?;
                 let mut world = Self::recover_loaded_runtime_world(world, dir)?;
                 if !has_inline_module_artifacts {
                     world.load_module_store_from_dir(dir)?;
@@ -546,7 +576,14 @@ impl World {
                 hydrate_tick_consensus_snapshot_from_archive(dir, &mut snapshot)?;
             }
             let has_inline_module_artifacts = !snapshot.module_artifact_bytes.is_empty();
-            let world = Self::from_snapshot(snapshot, journal)?;
+            let world = Self::from_snapshot_with_participant_context(
+                snapshot,
+                journal,
+                false,
+                None,
+                release.clone(),
+                authority.clone(),
+            )?;
             let mut world = Self::recover_loaded_runtime_world(world, dir)?;
             if has_indexed_generation && !has_inline_module_artifacts {
                 world.load_selected_generation_module_artifacts_from_dir(dir)?;
@@ -561,7 +598,14 @@ impl World {
         let mut snapshot = Snapshot::load_json(snapshot_path)?;
         hydrate_tick_consensus_snapshot_from_archive(dir, &mut snapshot)?;
         let has_inline_module_artifacts = !snapshot.module_artifact_bytes.is_empty();
-        let world = Self::from_snapshot(snapshot, journal)?;
+        let world = Self::from_snapshot_with_participant_context(
+            snapshot,
+            journal,
+            false,
+            None,
+            release.clone(),
+            authority.clone(),
+        )?;
         let mut world = Self::recover_loaded_runtime_world(world, dir)?;
         if !has_inline_module_artifacts {
             world.load_module_store_from_dir(dir)?;
@@ -660,6 +704,35 @@ impl World {
         Self::from_snapshot_mode(snapshot, journal, false)
     }
 
+    pub fn from_snapshot_with_release_security_policy(
+        snapshot: Snapshot,
+        journal: Journal,
+        policy: super::ReleaseSecurityPolicy,
+    ) -> Result<Self, WorldError> {
+        Self::from_snapshot_with_participant_context(
+            snapshot,
+            journal,
+            false,
+            None,
+            Some(policy),
+            None,
+        )
+    }
+    pub fn from_snapshot_with_devlocal_participant_authority(
+        snapshot: Snapshot,
+        journal: Journal,
+        authority: super::DevLocalParticipantAuthority,
+    ) -> Result<Self, WorldError> {
+        Self::from_snapshot_with_participant_context(
+            snapshot,
+            journal,
+            false,
+            None,
+            Some(authority.release_security_policy().clone()),
+            Some(authority),
+        )
+    }
+
     fn from_snapshot_mode(
         snapshot: Snapshot,
         journal: Journal,
@@ -686,6 +759,23 @@ impl World {
         observer: bool,
         history:Option<(crate::VerifiedFormalRetainedHistoryParentV1,Arc<dyn oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>)>,
     ) -> Result<Self, WorldError> {
+        Self::from_snapshot_with_participant_context(
+            snapshot, journal, observer, history, None, None,
+        )
+    }
+    fn from_snapshot_with_participant_context(
+        snapshot: Snapshot,
+        journal: Journal,
+        observer: bool,
+        history:Option<(crate::VerifiedFormalRetainedHistoryParentV1,Arc<dyn oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader + Send + Sync>)>,
+        release: Option<super::ReleaseSecurityPolicy>,
+        authority: Option<super::DevLocalParticipantAuthority>,
+    ) -> Result<Self, WorldError> {
+        if observer && authority.is_some() {
+            return Err(WorldError::DistributedValidationFailed {
+                reason: "formal observer rejects DevLocal participant authority".into(),
+            });
+        }
         if snapshot.tick_consensus_archived_record_count > 0
             && snapshot.tick_consensus_records.is_empty()
         {
@@ -755,6 +845,12 @@ impl World {
         }
 
         let mut world = Self::new_with_state(snapshot.state);
+        if let Some(release) = release {
+            world.release_security_policy = release;
+        }
+        if let Some(authority) = authority {
+            world = world.with_devlocal_participant_authority(authority)?;
+        }
         world.rollback_authority_registry = snapshot.rollback_authority_registry;
         world.consumed_rollback_nonces = snapshot.consumed_rollback_nonces;
         world.rollback_nonce_outcomes = snapshot.rollback_nonce_outcomes;

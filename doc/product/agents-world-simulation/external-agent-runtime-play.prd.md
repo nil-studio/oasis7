@@ -585,10 +585,10 @@ Trace ID: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196
 - 消费约束：角色分配仍复用[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)，不新增经济规则；该玩法条款是既有依赖，不独立证明本条新增公开入场组合已被设计覆盖。
 - 实现状态：部分实现
 - 实现与验证依据：[身份事务](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)、[首次角色主责](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)与[受保护接续](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)已有候选源码，覆盖独立身份/owner/executor、canonical 唯一绑定与政策迁移、starter、task/goal/delegation、当前权限下原结果恢复及本地隔离工具代理。候选与实际测试由 [#4954](https://github.com/nil-studio/oasis7/pull/4954) 承接；合入事实、部署与真实 Runtime 结果分别判定。
-- 核对日期与基线：2026-10-21；实现工作 [#4946](https://github.com/nil-studio/oasis7/issues/4946)，候选 PR 未作为已发布能力。确定性 HTTP/执行与故障回归不代签实际 Runtime 冷入场。
-- 剩余范围：最终候选的普通 CI/独立安全评审、获准隔离环境及 OpenClaw/Codex 各自真实 profile 的正式 Skill 冷入场与断连/重启验收。未完成的必需场景保持 blocked/not_run；公开注册和部署继续暂停。
+- 核对日期与基线：2026-10-21；实现工作 [#4946](https://github.com/nil-studio/oasis7/issues/4946)，[#4954](https://github.com/nil-studio/oasis7/pull/4954) 已合入；本轮新增 DevLocal 与正式网络的准入管理拆分候选，尚待验证和合入，部署范围未在本轮刷新。确定性 HTTP/执行与故障回归不代签实际 Runtime 冷入场。
+- 剩余范围：准入管理拆分候选的普通 CI/独立安全评审、获准隔离环境及 OpenClaw/Codex 各自真实 profile 的正式 Skill 冷入场与断连/重启验收。未完成的必需场景保持 blocked/not_run；注册开关、部署和真实 Runtime 支持按各自实际授权及验收判定，不从代码合入推定已经开放。
 - 要求：机器客户端从可信公开发现入口出发，能合法注册/登录并完成世界准入，按现行规则取得自己的游戏 Agent，核对 canonical owner 与必要 starter 条件，创建或恢复持久任务、选择并发布自己的目标、授权和绑定独立 executor，随后观察、行动、读取权威回执并安全恢复。已有身份必须恢复原归属，不能因换设备、清缓存或重试而再次建号、占用他人 Agent 或领取初始资产。
-- 约束：账号/凭据、准入配额、必要一次人类确认及费用批准继续有效；失败须说明需要谁完成什么，不承诺匿名无限注册或无限免费角色。不能要求 operator 预造 Agent/task/grant 才算自主入场。正常注册/初始绑定与经济 ClaimAgent、starter 领取分别满足各自主责，不额外收费、不绕过费用或反滥用。
+- 约束：账号/凭据、准入配额、必要一次人类确认及费用批准继续有效；失败须说明需要谁完成什么，不承诺匿名无限注册或无限免费角色。不能要求 operator 预造 Agent/task/grant 才算自主入场。官方与外部客户端使用同一接入协议；世界信任规则由部署管理者先行建立，DevLocal 可使用显式本地管理来源，正式网络继续使用适用治理来源，客户端不因来源不同而承担治理初始化。正常注册/初始绑定与经济 ClaimAgent、starter 领取分别满足各自主责，不额外收费、不绕过费用或反滥用。
 - 上位承诺：[根 SC-14](prd.md#external-runtime-play)；消费[逐账号首次入场](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#req-agc-entry-001)和[账号/世界准入分离](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#native)。
 - 验收：[AC-EXT-018](#ac-ext-018)；与 [AC-EXT-002](#ac-ext-002)共同证明两种权限关系可并存。
 
@@ -773,6 +773,7 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；承接[REQ-EXT-017](#r
 Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接[REQ-EXT-018](#req-ext-018)。
 
 - 覆盖要求：[REQ-EXT-018](#req-ext-018)。
+- 接入与信任管理分层：官方客户端、普通网络客户端和外部 Runtime 消费同一身份、角色、任务、委托与回执协议，不因客户端来源而额外要求治理初始化。DevLocal 的世界管理者可通过显式本地管理入口建立和更新准入信任；正式网络按其治理与最终性机制管理信任。世界信任规则先由部署管理层建立，客户端不创建治理提案或 finality epoch；本地管理结果不得冒充正式网络治理授权。
 - 给定：已存在的获准测试世界、可信 Skill/发现入口、符合站点政策的新机器参与主体；没有为它预置游戏 Agent、task、goal 或 grant。仅提供允许的凭据获取/确认通道和有界预算，不提供 operator 世界写权限。
 - 当：普通网络客户端以及两个声明支持的真实 Runtime 分别完成发现、注册/登录、准入、初始绑定/合法取得、必要 starter、owner 任务与目标、独立 executor 绑定、观察行动和权威回执；在注册或绑定提交回包丢失及执行重启后恢复。
 - 则：同一主体/世界只取得原合法归属、原任务和原操作效果，角色/目标/委托有 canonical 依据；不重建世界、不新造第二角色或重复领取资产。确认不足、无准入/配额、错误世界/主体、重放挑战、未知结果和他人角色尝试均保持安全阻塞或拒绝并给出恢复下一步。按首局主责取得成果后才声明可玩，不以注册 ACK 或 task 创建代签。

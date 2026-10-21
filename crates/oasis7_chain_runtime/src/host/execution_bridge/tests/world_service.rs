@@ -490,3 +490,6 @@ mod participant_http;
 
 #[path = "world_service_executor_rotation.rs"]
 mod executor_rotation_tests;
+
+#[path = "participant_devlocal_host.rs"]
+mod participant_devlocal_host;

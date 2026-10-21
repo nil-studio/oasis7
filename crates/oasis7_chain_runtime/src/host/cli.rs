@@ -1,3 +1,8 @@
+#[path = "cli_participant_authority.rs"]
+mod participant_authority;
+pub(super) use participant_authority::{
+    devlocal_participant_config, prepare_participant_world, validate as validate_local_participant_options,
+};
 #[path = "cli_contract.rs"]
 pub(super) mod cli_contract;
 use cli_contract::parse_required_value;
@@ -90,6 +95,9 @@ pub(super) struct CliOptions {
     pub status_bind: String,
     pub guarded_initial_config: Option<PathBuf>,
     pub formal_live_config: Option<PathBuf>,
+    pub devlocal_participant_operator_public_key: Option<String>,
+    pub devlocal_participant_policy_file: Option<PathBuf>,
+    pub devlocal_participant_origin_root: Option<PathBuf>,
     pub development_runtime: bool,
     pub storage_profile: StorageProfile,
     pub traffic_profile: TrafficProfile,
@@ -187,6 +195,20 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
                     &mut iter,
                     "--formal-live-config",
                 )?));
+            }
+            "--devlocal-participant-operator-public-key" => {
+                options.devlocal_participant_operator_public_key = Some(parse_required_value(
+                    &mut iter,
+                    "--devlocal-participant-operator-public-key",
+                )?);
+            }
+            "--devlocal-participant-policy-file" => {
+                options.devlocal_participant_policy_file = Some(PathBuf::from(
+                    parse_required_value(&mut iter, "--devlocal-participant-policy-file")?,
+                ));
+            }
+            "--devlocal-participant-origin-root" => {
+                options.devlocal_participant_origin_root = Some(PathBuf::from(parse_required_value(&mut iter, "--devlocal-participant-origin-root")?));
             }
             "--status-bind" => {
                 options.status_bind = parse_required_value(&mut iter, "--status-bind")?;
@@ -607,8 +629,10 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
         let typed = super::development_runtime::from_options(&options)?;
         super::development_runtime::into_options(typed, false)?;
         options.development_runtime = true;
+        participant_authority::validate(&options)?;
         return Ok(options);
     }
+    participant_authority::validate(&options)?;
     Ok(options)
 }
 
