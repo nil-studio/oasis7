@@ -74,6 +74,7 @@ Trace refs: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e；唯一专业声明：[
 - `<config>.identity-v2.json` 保存版本、规范目标路径、原配置摘要、随机候选 ID、准备摘要、公钥及 complete；不含私钥。候选 `<config>.identity-<id>.toml` 排他创建、0600，保留非 key 字段；完整候选重试复用。新文件用 hard-link 不覆盖发布；既有 private-only config 用同目录发布链接及 rename 原子替换。完成记录持久后删除候选；同步失败保留可重试状态，不删除目标。
 - 已存在完整 key 原样收录公钥连续性记录。complete 后允许修改非 key 配置；目标丢失、key 改变或损坏须恢复原件。路径绑定变化不能直接复制旧意图接管；正式迁移仍由原迁移入口负责。无摘要且为空的未发布候选隔离为 `.incomplete` 后按原意图继续；非空损坏或冲突候选保留并阻断，须由操作员核对原件恢复。
 - 升级必须先停旧写者，不支持 v1/v2 并发混跑。发现旧 `<config>.lock`（包括未知标记）立即阻断并提示离线迁移；确认无旧写者后由操作员处理旧标记。不能按 PID／超时抢锁，也不能回退旧版继续写 v2 目录。备份应覆盖原配置、v2 意图和未完成候选；新协议不宣称抵御整机旧备份回滚。
+- 正式数据目录迁移在既有 stopped/source fence 下，校验源完整身份后，仅在私有 stage 中重绑定 complete 意图的目标路径，并随原目录原子发布；未完成发布或未清理候选必须先在源完成恢复。legacy 迁移同时覆盖独立 config 与嵌入 runtime 组件的 config：不可遗漏相邻 complete 意图。其不可变 Entry 可选 `publication_metadata` 固定该公有 JSON 的目标字节；源校验仍用原摘要，目标校验／容量用变换后字节，原 key／world／业务文件原样复制。缺此字段的旧 plan 序列化不变；旧解释器不得接管带新字段的 plan，仍受原 runtime digest 约束。普通复制不提供重绑定权限；source 与 migration receipt 保留原身份连续性。
 - 所有成功／阻断只涉及本机 key；不得由此签发 admission、私有读取 grant 或 validator/controller 权限。进程 SIGKILL 与操作边界注入不等于真实断电验证。
 
 

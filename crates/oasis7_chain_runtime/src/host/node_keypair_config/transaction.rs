@@ -419,3 +419,37 @@ pub(super) fn verify_published(path: &Path, public_key: &str) -> Result<(), Stri
     }
     Ok(())
 }
+
+pub(super) fn relocated_metadata(
+    source_path: &Path,
+    destination: &Path,
+) -> Result<Option<(PathBuf, String)>, String> {
+    let intent_path = sidecar(source_path, ".identity-v2.json");
+    if source(&intent_path)?.is_none() {
+        return Ok(None);
+    }
+    if !destination.is_absolute() {
+        return Err("identity relocation requires an absolute destination".into());
+    }
+    io::reject_symlinks(destination)?;
+    let key = read_existing_legacy_keypair(source_path)?;
+    private_owned(&intent_path)?;
+    let mut intent: Intent = io::read(&intent_path)?;
+    verify_published(source_path, &key.public_key_hex)?;
+    let candidate = sidecar(
+        source_path,
+        &format!(".identity-{}.toml", intent.candidate_id),
+    );
+    if source(&candidate)?.is_some() {
+        return Err(
+            "identity publication cleanup pending; resume original initialization before migration"
+                .into(),
+        );
+    }
+    // A complete record has no live candidate. Its original target/digest and
+    // candidate ID remain in the migration source/receipt for audit. Carry the
+    // same public key to the explicitly mapped destination, never generate one.
+    intent.target = destination.to_path_buf();
+    let bytes = serde_json::to_string_pretty(&intent).map_err(|e| e.to_string())?;
+    Ok(Some((intent_path, bytes)))
+}

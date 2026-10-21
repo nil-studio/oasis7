@@ -562,3 +562,58 @@ fn legacy_never_recorded_mirror_requires_original_genesis_kernel() {
     assert!(source::plan(&fixture.source, &fixture.destination, "changed-genesis").is_err());
     assert!(!fixture.destination.exists());
 }
+
+#[test]
+fn legacy_v2_identity_relocates_completed_metadata_for_split_and_embedded_config() {
+    for embedded_config in [false, true] {
+        let fixture = Fixture::new();
+        let original = fixture.root.join("old-config.toml");
+        let key_path = if embedded_config {
+            let embedded = fixture.root.join("old-runtime/node.toml");
+            fs::rename(&original, &embedded).unwrap();
+            let mut contract: source::Source = io::read(&fixture.source).unwrap();
+            for value in &mut contract.argv {
+                if value == "old-config.toml" {
+                    *value = "old-runtime/node.toml".into();
+                }
+            }
+            contract
+                .declared_env
+                .insert("CONFIG_PATH".into(), "old-runtime/node.toml".into());
+            io::write(&fixture.source, &contract).unwrap();
+            embedded
+        } else {
+            original
+        };
+        let key = crate::node_keypair_config::ensure_node_keypair_in_config(&key_path).unwrap();
+        let plan = source::plan(&fixture.source, &fixture.destination, "v2-relocation").unwrap();
+        assert_eq!(
+            plan.files
+                .iter()
+                .filter(|entry| entry.publication_metadata.is_some())
+                .count(),
+            1
+        );
+        let key_before = fs::read(&key_path).unwrap();
+        transaction::apply(&fixture.source, &fixture.destination, "v2-relocation").unwrap();
+        let options = source::load_launch(&fixture.destination.join("legacy-launch.json")).unwrap();
+        let relocated = Path::new(&options.config_path);
+        assert_eq!(
+            crate::node_keypair_config::read_existing_legacy_keypair(relocated).unwrap(),
+            key
+        );
+        assert_eq!(
+            crate::node_keypair_config::ensure_node_keypair_in_config(relocated).unwrap(),
+            key
+        );
+        assert_eq!(fs::read(&key_path).unwrap(), key_before);
+        assert_eq!(
+            crate::node_keypair_config::read_existing_legacy_keypair(&key_path).unwrap(),
+            key
+        );
+        transaction::apply(&fixture.source, &fixture.destination, "v2-relocation").unwrap();
+        fs::remove_file(relocated).unwrap();
+        assert!(crate::node_keypair_config::ensure_node_keypair_in_config(relocated).is_err());
+        assert!(!relocated.exists());
+    }
+}

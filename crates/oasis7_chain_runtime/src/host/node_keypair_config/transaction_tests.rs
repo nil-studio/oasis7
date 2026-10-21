@@ -288,3 +288,26 @@ fn read_only_identity_loader_blocks_pending_publication_without_mutation() {
     let key = ensure(&fixture.0, false).unwrap();
     assert_eq!(read_existing_legacy_keypair(&fixture.0).unwrap(), key);
 }
+
+#[test]
+fn pending_publication_cannot_be_relocated_by_migration() {
+    for stage in ["published", "complete"] {
+        let fixture = Fixture::new();
+        kill(fixture.stopped(stage));
+        let destination = fixture.0.parent().unwrap().join("relocated.toml");
+        let original_intent = fs::read(sidecar(&fixture.0, ".identity-v2.json")).unwrap();
+        assert!(relocated_metadata(&fixture.0, &destination).is_err());
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(sidecar(&fixture.0, ".identity-v2.json")).unwrap(),
+            original_intent
+        );
+        ensure(&fixture.0, false).unwrap();
+        assert!(
+            relocated_metadata(&fixture.0, &destination)
+                .unwrap()
+                .is_some()
+        );
+        assert!(!destination.exists());
+    }
+}

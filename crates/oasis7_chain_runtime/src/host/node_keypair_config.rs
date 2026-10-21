@@ -268,6 +268,15 @@ pub(super) fn ensure_node_keypair_in_config(path: &Path) -> Result<NodeKeypairCo
     transaction::ensure(path, false)
 }
 
+/// Only the stopped-node migration transaction may relocate completed metadata.
+/// The key bytes are copied unchanged; pending identity transactions cannot move.
+pub(crate) fn relocated_publication_metadata(
+    source: &Path,
+    destination: &Path,
+) -> Result<Option<(PathBuf, String)>, String> {
+    transaction::relocated_metadata(source, destination)
+}
+
 fn prepare_config(
     mut table: toml::map::Map<String, toml::Value>,
 ) -> Result<(NodeKeypairConfig, toml::map::Map<String, toml::Value>), String> {

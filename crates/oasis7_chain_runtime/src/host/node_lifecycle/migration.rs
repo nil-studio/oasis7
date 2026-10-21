@@ -253,6 +253,20 @@ pub(crate) fn migrate_data_directory(
         {
             return Err("copied node identity/config differs from migration source".into());
         }
+        let key_relative = Path::new("keys/node-keypair.toml");
+        if let Some((metadata, bytes)) = crate::node_keypair_config::relocated_publication_metadata(
+            &source.join(key_relative),
+            &destination.join(key_relative),
+        )? {
+            // The source admission fence and exact tree copy already validated
+            // the original key. Rewrite only its completed path-bound metadata
+            // in the private staging directory before atomic publication.
+            let copied_metadata =
+                stage.join(metadata.strip_prefix(&source).map_err(|e| e.to_string())?);
+            let value: serde_json::Value =
+                serde_json::from_str(&bytes).map_err(|e| e.to_string())?;
+            io::write(&copied_metadata, &value)?;
+        }
         migrated.identity.data_dir = destination.to_path_buf();
         io::write(&stage.join("node-binding.json"), &migrated.identity)?;
         io::write(&stage.join("node.json"), &migrated)?;
