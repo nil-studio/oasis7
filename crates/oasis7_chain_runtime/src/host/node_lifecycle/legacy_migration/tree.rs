@@ -7,7 +7,7 @@ use std::os::unix::{
 };
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 const MAX_ENTRIES: usize = 16_000;
@@ -21,6 +21,23 @@ pub(super) struct Entry {
     pub bytes: u64,
     pub sha256: String,
     pub source_mode: u32,
+    // Only a completed, source-verified identity intent may be transformed.
+    // The immutable plan pins these public metadata bytes for the new path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication_metadata: Option<String>,
+}
+impl Entry {
+    fn target_digest(&self) -> (String, u64) {
+        self.publication_metadata.as_ref().map_or_else(
+            || (self.sha256.clone(), self.bytes),
+            |bytes| {
+                (
+                    hex::encode(Sha256::digest(bytes.as_bytes())),
+                    bytes.len() as u64,
+                )
+            },
+        )
+    }
 }
 fn safe_source(path: &Path) -> Result<fs::Metadata, String> {
     io::reject_symlinks(path)?;
@@ -73,6 +90,7 @@ pub(super) fn file_entry(source: &Path, target: PathBuf) -> Result<Entry, String
         bytes,
         sha256,
         source_mode: meta.mode() & 0o777,
+        publication_metadata: None,
     })
 }
 pub(super) fn inventory(
@@ -106,6 +124,7 @@ pub(super) fn inventory(
                     bytes: 0,
                     sha256: String::new(),
                     source_mode: meta.mode() & 0o777,
+                    publication_metadata: None,
                 });
                 let mut children = fs::read_dir(&source)
                     .map_err(|e| e.to_string())?
@@ -140,7 +159,12 @@ pub(super) fn verify_entries(entries: &[Entry], destination: Option<&Path>) -> R
         }
         if !entry.directory {
             let (actual, size) = hash(&path)?;
-            if actual != entry.sha256 || size != entry.bytes {
+            let (expected, expected_size) = if destination.is_some() {
+                entry.target_digest()
+            } else {
+                (entry.sha256.clone(), entry.bytes)
+            };
+            if actual != expected || size != expected_size {
                 return Err(format!("migration bytes differ: {}", path.display()));
             }
         }
@@ -168,7 +192,10 @@ pub(super) fn verify_exact(
     let shape = |items: &[Entry]| {
         items
             .iter()
-            .map(|e| (e.target.clone(), (e.directory, e.bytes, e.sha256.clone())))
+            .map(|e| {
+                let (digest, bytes) = e.target_digest();
+                (e.target.clone(), (e.directory, bytes, digest))
+            })
             .collect::<std::collections::BTreeMap<_, _>>()
     };
     if shape(&actual) != shape(entries) {
@@ -199,7 +226,9 @@ pub(super) fn require_capacity(entries: &[Entry], stage: &Path) -> Result<(), St
             }
             continue;
         }
-        required = required.saturating_add(entry.bytes).saturating_add(4096);
+        required = required
+            .saturating_add(entry.target_digest().1)
+            .saturating_add(4096);
     }
     if required > available {
         return Err(format!(
@@ -277,6 +306,13 @@ pub(super) fn copy(entry: &Entry, stage: &Path) -> Result<(), String> {
     }
     if copied != entry.bytes || hex::encode(digest.finalize()) != entry.sha256 {
         return Err("source changed during copy".into());
+    }
+    if let Some(bytes) = &entry.publication_metadata {
+        output.set_len(0).map_err(|e| e.to_string())?;
+        output.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        output
+            .write_all(bytes.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
     output
         .sync_all()

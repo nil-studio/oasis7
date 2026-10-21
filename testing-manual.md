@@ -430,6 +430,21 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib
 env -u RUSTC_WRAPPER cargo test -p oasis7_net --features runtime_bridge --lib
 ```
 
+#### 本机身份发布回归（NIR bootstrap）
+
+针对普通启动 ensure 与专用身份 helper 的本机持久化修改，运行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p node_keypair_config -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p local_node_init_retains_identity_and_never_creates_world_or_authority -- --nocapture
+```
+
+`node_keypair_config::transaction::tests` 使用当前 test executable 的独立子进程，在锁持有、意图、候选文件、准备、发布与完成边界 SIGKILL；逐次重开核对同一公钥、锁 inode、原配置及候选／完成状态。另覆盖发布后注入错误、损坏候选／目标冲突拒绝、private-only 补公钥、完整旧身份迁移与原件丢失阻断、旧锁离线迁移边界。`process_worker` 是该套件的子进程入口，独立执行不构成场景覆盖。临时环境变量只在 `cfg(test)` 中生效，不提供生产故障开关，不输出私钥。
+
+迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；本机 canonical Cargo 通过 `target` 符号链接启动 test executable 时，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
+
+这些测试证明实际覆盖的进程恢复与调用路径，不证明断电、整机旧备份回滚或全初始化绑定事务。目标文件系统断电／fsync 错误、完整 CLI enabled/disabled/read-only 组合及其未覆盖项仍按[身份设计](doc/p2p/node/node-identity-replication-contract.design.md#des-nir-bootstrap)记录；不得用单元通过代签。
+
 <a name="s4b：governance-registry-drill（l4-前置-l4）"></a>
 
 ### S4B：Governance Registry Drill（L4 前置 / L4）
