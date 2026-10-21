@@ -610,28 +610,79 @@ run_cargo() {
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             manifest = directory / 'artifacts.jsonl'
+            calls = directory / 'calls.log'
             executables = {}
-            for name in guard['TARGETS']:
+            artifacts = {}
+            packages = {
+                'oasis7_chain_runtime': ('oasis7_chain_runtime', ['default', 'node-libp2p', 'wasmtime']),
+                'oasis7_game_launcher': ('oasis7_launcher_backend', ['default']),
+            }
+
+            def write_executable(name, output, code):
+                executables[name].write_text(
+                    f'#!{sys.executable}\nfrom pathlib import Path\n'
+                    f'with Path({str(calls)!r}).open("a") as log: log.write({name!r} + "\\n")\n'
+                    f'print({output!r})\nraise SystemExit({code})\n'
+                )
+                executables[name].chmod(0o755)
+
+            for name, (package, features) in packages.items():
                 executable = directory / name
-                executable.write_text(f'#!{sys.executable}\nprint({guard["REJECTION"]!r})\nraise SystemExit(1)\n')
-                executable.chmod(0o755)
                 executables[name] = executable
-            def write_manifest(features):
-                manifest.write_text('\n'.join(json.dumps({
-                    'reason': 'compiler-artifact', 'target': {'name': name},
+                write_executable(name, guard['REJECTION'], 1)
+                artifacts[name] = {
+                    'reason': 'compiler-artifact', 'target': {'name': name, 'kind': ['bin']},
+                    'manifest_path': str(ROOT / 'crates' / package / 'Cargo.toml'),
+                    'profile': {'test': False},
                     'executable': str(executable), 'features': features,
-                }) for name, executable in executables.items()))
-            write_manifest(['wasmtime'])
+                }
+
+            def write_manifest(records):
+                # Cargo's JSON stream can also contain driver status lines.
+                manifest.write_text('+ cargo build\n' + '\n'.join(json.dumps(record) for record in records))
+                calls.unlink(missing_ok=True)
+
+            # Match the split packages: only Chain declares wasmtime.
+            write_manifest(artifacts.values())
             guard['verify'](manifest)
-            write_manifest(['wasmtime', 'test_tier_required'])
-            with self.assertRaises(AssertionError):
-                guard['verify'](manifest)
-            write_manifest(['wasmtime'])
-            executable = executables['oasis7_chain_runtime']
-            for output, code in ((guard['REJECTION'], 0), ('unrelated failure', 1)):
-                executable.write_text(f'#!{sys.executable}\nprint({output!r})\nraise SystemExit({code})\n')
-                with self.assertRaises(AssertionError):
-                    guard['verify'](manifest)
+            self.assertEqual(calls.read_text().splitlines(), list(packages))
+
+            for name, artifact in artifacts.items():
+                invalid = [
+                    {'features': [*artifact['features'], feature]}
+                    for feature in ('test_tier_required', 'test_tier_full')
+                ]
+                invalid.extend([
+                    {'target': {'name': name, 'kind': ['test']}},
+                    {'profile': {'test': True}},
+                    {'manifest_path': str(ROOT / 'crates/oasis7/Cargo.toml')},
+                    {'manifest_path': None},
+                ])
+                if name == 'oasis7_chain_runtime':
+                    invalid.append({'features': ['default', 'node-libp2p']})
+                for changes in invalid:
+                    with self.subTest(target=name, changes=changes):
+                        write_manifest(dict(record, **changes) if target == name else record
+                                       for target, record in artifacts.items())
+                        with self.assertRaises(AssertionError):
+                            guard['verify'](manifest)
+                        self.assertFalse(calls.exists(), 'invalid artifacts must fail before execution')
+                for records in ([record for target, record in artifacts.items() if target != name],
+                                [*artifacts.values(), artifact]):
+                    with self.subTest(target=name, count=len(records)):
+                        write_manifest(records)
+                        with self.assertRaises(AssertionError):
+                            guard['verify'](manifest)
+                        self.assertFalse(calls.exists())
+
+            for name in executables:
+                for output, code in ((guard['REJECTION'], 0), ('unrelated failure', 1)):
+                    with self.subTest(target=name, output=output, code=code):
+                        write_manifest(artifacts.values())
+                        write_executable(name, output, code)
+                        with self.assertRaises(AssertionError):
+                            guard['verify'](manifest)
+                write_executable(name, guard['REJECTION'], 1)
 
     def test_network_wasm_tools_precede_group_execution(self):
         net = JOBS['net']

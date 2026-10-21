@@ -10,7 +10,11 @@ import tempfile
 
 
 REJECTION = 'Hosted local-mock funding requires a binary built with feature test_tier_required'
-TARGETS = ('oasis7_chain_runtime', 'oasis7_game_launcher')
+ROOT = Path(__file__).resolve().parent.parent
+TARGETS = {
+    'oasis7_chain_runtime': ('oasis7_chain_runtime', {'wasmtime'}),
+    'oasis7_game_launcher': ('oasis7_launcher_backend', set()),
+}
 
 
 def verify(manifest):
@@ -22,8 +26,14 @@ def verify(manifest):
         name = artifact.get('target', {}).get('name')
         if artifact.get('reason') != 'compiler-artifact' or name not in TARGETS or not artifact.get('executable'):
             continue
+        package, required_features = TARGETS[name]
+        package_manifest = artifact.get('manifest_path')
+        assert package_manifest and Path(package_manifest).resolve() == ROOT / 'crates' / package / 'Cargo.toml', (name, package_manifest)
+        assert artifact['target'].get('kind') == ['bin'], (name, artifact['target'])
+        assert artifact.get('profile', {}).get('test') is False, (name, artifact.get('profile'))
         features = set(artifact['features'])
-        assert 'wasmtime' in features and not features.intersection({'test_tier_required', 'test_tier_full'}), features
+        assert required_features <= features, (name, features)
+        assert not features.intersection({'test_tier_required', 'test_tier_full'}), (name, features)
         assert name not in executables, name
         executables[name] = Path(artifact['executable']).resolve(strict=True)
     assert set(executables) == set(TARGETS), executables
