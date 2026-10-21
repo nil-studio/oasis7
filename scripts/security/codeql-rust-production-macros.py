@@ -24,19 +24,31 @@ SOURCES = {
 # Predicates are fixed before the run. Existence is exactly count > 0, not a
 # filter that drops generated descendants from a previously accepted scope.
 QUERIES = {
+"SourceAst": '''import rust
+from MacroCall mc
+where (mc.getLocation().getFile().getRelativePath() = "crates/oasis7_chain_runtime/src/host/executable_image_tests.rs" or
+ mc.getLocation().getFile().getRelativePath().regexpMatch(".*/crates/oasis7_chain_runtime/src/host/executable_image_tests[.]rs")) and
+ mc.getLocation().getStartLine() = [100, 102, 104, 107, 110, 111]
+select mc.getLocation().getFile().getRelativePath(), mc.getLocation().getStartLine(),
+ mc.getLocation().getEndLine(), mc.getPath().toString()
+''',
 "MacroLayers": '''import rust
-from File file, string layer, int line, string path
+from File file, string layer, int line, string path, int entity, int expanded
 where (file.getRelativePath() = "crates/oasis7_chain_runtime/src/host/executable_image_tests.rs" or file.getRelativePath().regexpMatch(".*/crates/oasis7_chain_runtime/src/host/executable_image_tests[.]rs")) and ((layer = "unconditional" and line = 100 and path = "assert") or
  (layer = "mac-outer" and line = 102 and path = "assert") or
  (layer = "mac-panic" and line = 104 and path = "panic") or
  (layer = "linux-outer" and line = 107 and path = "assert") or
  (layer = "linux-format" and line = 110 and path = "format") or
  (layer = "linux-panic" and line = 111 and path = "panic"))
-select file.getRelativePath(), layer, line,
- count(MacroCall mc | mc.getLocation().getFile() = file and
- mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%")),
- count(MacroCall mc | mc.getLocation().getFile() = file and
- mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%") and exists(mc.getMacroCallExpansion()))
+ and ((entity = 1 and exists(MacroCall mc | mc.getLocation().getFile() = file and
+ mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%"))) or
+ (entity = 0 and not exists(MacroCall mc | mc.getLocation().getFile() = file and
+ mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%")))) and
+ ((expanded = 1 and exists(MacroCall mc | mc.getLocation().getFile() = file and
+ mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%") and exists(mc.getMacroCallExpansion()))) or
+ (expanded = 0 and not exists(MacroCall mc | mc.getLocation().getFile() = file and
+ mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%") and exists(mc.getMacroCallExpansion()))))
+select file.getRelativePath(), layer, line, entity, expanded
 ''',
 "MacroFlow": '''import rust
 import codeql.rust.dataflow.DataFlow
@@ -196,7 +208,8 @@ def execute(run, args, env, query, packs, cache):
                 raise RuntimeError("production archived module/source changed")
             source_hashes[path] = {"archive_key": matches[0].filename, "sha256": actual}
     (args.output / "production-source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
-    for name in QUERIES:
+    # Save independent source/closure observations before the previously costly layer query.
+    for name in ("SourceAst", "ClosureFlow", "MacroFlow", "MacroLayers"):
         bqrs = args.output / f"production-{name}.bqrs"
         run([cli, "query", "run", str(query / (name + ".ql")), "--database=" + str(database), "--output=" + str(bqrs),
              "--additional-packs=" + str(packs), "--compilation-cache=" + str(cache), "--threads=2", "--ram=3072"],

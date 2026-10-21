@@ -69,7 +69,11 @@ class Guards(unittest.TestCase):
                 m.identity(Opener(dict(correct, **{key:value})), "token", time.monotonic()+1)
 
     def test_queries_bind_full_source_not_basename(self):
-        for query in m.QUERIES.values():
+        for name, query in m.QUERIES.items():
+            if name == "SourceAst":
+                self.assertIn(m.TARGET, query)
+                self.assertIn("select mc.getLocation().getFile().getRelativePath()", query)
+                continue
             self.assertIn('file.getRelativePath() = "' + m.TARGET + '"', query)
             self.assertIn('file.getRelativePath().regexpMatch(".*/' + m.TARGET.replace('.', '[.]') + '")', query)
             self.assertIn('select file.getRelativePath()', query)
@@ -78,6 +82,21 @@ class Guards(unittest.TestCase):
         self.assertTrue(eligible("checkout/" + m.TARGET))
         self.assertFalse(eligible("foreign/executable_image_tests.rs"))
         self.assertFalse(eligible(m.TARGET.replace("_", "X")))
+
+    def test_presence_preserves_fixed_positive_criterion_and_rows(self):
+        query = m.QUERIES["MacroLayers"]
+        self.assertNotIn("count(", query)
+        for flag in ("entity", "expanded"):
+            self.assertIn(flag + " = 1 and exists", query)
+            self.assertIn(flag + " = 0 and not exists", query)
+        for layer in ("unconditional", "mac-outer", "mac-panic", "linux-outer", "linux-format", "linux-panic"):
+            self.assertIn('layer = "' + layer + '"', query)
+        for entity_count, expanded_count in ((0,0),(1,0),(1,1),(4,2)):
+            self.assertEqual((int(entity_count > 0), int(expanded_count > 0)),
+                             (int(bool(entity_count)), int(bool(expanded_count))))
+        source = Path(__file__).with_name("codeql-rust-production-macros.py").read_text()
+        self.assertIn('for name in ("SourceAst", "ClosureFlow", "MacroFlow", "MacroLayers")', source)
+        self.assertNotIn("DataFlow", m.QUERIES["SourceAst"])
 
     def test_actual_driver_and_workflow_token_boundary(self):
         driver = Path(__file__).with_name("codeql-rust-model-diagnostic.py").read_text()
