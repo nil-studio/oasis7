@@ -1,21 +1,21 @@
 name: ECS Server Package
-run-name: ECS Server Package (${{ inputs.native_runner || 'github-hosted' }}, jobs=${{ inputs.native_build_jobs || '2' }}, ${{ github.ref_name }})
+run-name: ECS Server Package (${{ inputs.native_runner || 'auto' }}, jobs=${{ inputs.native_build_jobs || 'auto' }}, ${{ github.ref_name }})
 
 on:
   workflow_dispatch:
     inputs:
       native_runner:
-        description: Native build runner (self-hosted requires main)
+        description: Native runner (auto prefers online self-hosted on main)
         type: choice
         required: true
-        default: github-hosted
-        options: [github-hosted, self-hosted]
+        default: auto
+        options: [auto, github-hosted]
       native_build_jobs:
-        description: Native Cargo jobs (above 2 requires self-hosted)
+        description: "Native Cargo jobs (auto: self-hosted 8, hosted 2; hosted capped at 2)"
         type: choice
         required: true
-        default: '2'
-        options: ['1', '2', '4', '8', '16']
+        default: auto
+        options: ['auto', '1', '2', '4', '8', '16']
 
 permissions:
   contents: read
@@ -32,25 +32,65 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      native_runner: ${{ steps.runner.outputs.native_runner }}
+      native_jobs: ${{ steps.runner.outputs.native_jobs }}
     steps:
-      - name: Validate runner trust and concurrency
+      - name: Select available native runner
+        id: runner
         env:
-          NATIVE_RUNNER: ${{ inputs.native_runner || 'github-hosted' }}
-          NATIVE_JOBS: ${{ inputs.native_build_jobs || '2' }}
+          NATIVE_RUNNER: ${{ inputs.native_runner || 'auto' }}
+          NATIVE_JOBS: ${{ inputs.native_build_jobs || 'auto' }}
           SOURCE_REF: ${{ github.ref }}
           SOURCE_SHA: ${{ github.sha }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
-        shell: bash
+          # Only a trusted main dispatch receives the optional organization read token.
+          RUNNER_STATUS_TOKEN: ${{ github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && secrets.ECS_RUNNER_STATUS_TOKEN || '' }}
+        shell: python
         run: |
-          if [[ "$NATIVE_RUNNER" == self-hosted ]]; then
-            if [[ "$SOURCE_REF" != refs/heads/main || "$WORKFLOW_SHA" != "$SOURCE_SHA" ]]; then
-              echo '::error::Self-hosted ECS builds require main and the same workflow/source SHA.'
-              exit 1
-            fi
-          elif [[ "$NATIVE_RUNNER" != github-hosted || "$NATIVE_JOBS" -gt 2 ]]; then
-            echo '::error::GitHub-hosted ECS builds support only 1 or 2 Cargo jobs.'
-            exit 1
-          fi
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          mode = os.environ['NATIVE_RUNNER']
+          jobs = os.environ['NATIVE_JOBS']
+          if mode not in ('auto', 'github-hosted') or jobs not in ('auto', '1', '2', '4', '8', '16'):
+              raise SystemExit('Invalid native runner or concurrency selection')
+          selected = 'github-hosted'
+          reason = 'explicit GitHub-hosted selection'
+          trusted = (os.environ['SOURCE_REF'] == 'refs/heads/main'
+                     and os.environ['WORKFLOW_SHA'] == os.environ['SOURCE_SHA'])
+          if mode == 'auto' and not trusted:
+              reason = 'candidate refs use GitHub-hosted runners'
+          elif mode == 'auto':
+              token = os.environ.get('RUNNER_STATUS_TOKEN', '')
+              reason = 'runner status token unavailable'
+              if token:
+                  try:
+                      owner = os.environ['GITHUB_REPOSITORY'].split('/')[0]
+                      request = urllib.request.Request(
+                          f'https://api.github.com/orgs/{owner}/actions/runners/2984',
+                          headers={'Authorization': f'Bearer {token}',
+                                   'Accept': 'application/vnd.github+json'})
+                      with urllib.request.urlopen(request, timeout=10) as response:
+                          runner = json.load(response)
+                      labels = {label['name'].lower() for label in runner.get('labels', [])}
+                      if (runner.get('name') == 'scc-ubuntu' and runner.get('status') == 'online'
+                              and runner.get('busy') is False
+                              and {'self-hosted', 'linux', 'x64'} <= labels):
+                          selected = 'self-hosted'
+                          reason = 'scc-ubuntu is online and idle'
+                      else:
+                          reason = 'scc-ubuntu is offline, busy, or labels do not match'
+                  except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                      reason = 'runner status query failed'
+          concurrency = (8 if selected == 'self-hosted' else 2) if jobs == 'auto' else int(jobs)
+          if selected == 'github-hosted':
+              concurrency = min(concurrency, 2)
+          print(f'ECS native runner: {selected}; jobs={concurrency}; {reason}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'native_runner={selected}\nnative_jobs={concurrency}\n')
 
   web:
     needs: validate
@@ -99,7 +139,7 @@ jobs:
     needs: validate
     env:
       # Both Rust cache layers include RUST_* in their compatibility identity.
-      RUST_ECS_CACHE_NAMESPACE: ${{ inputs.native_runner || 'github-hosted' }}
+      RUST_ECS_CACHE_NAMESPACE: ${{ needs.validate.outputs.native_runner }}
     if: github.ref != 'refs/heads/main' || github.workflow_sha != github.sha
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -149,7 +189,7 @@ jobs:
         shell: bash
         env:
           # Keep this step-local so jobs=1/2 restore the same Rust cache.
-          CARGO_BUILD_JOBS: ${{ inputs.native_build_jobs || '2' }}
+          CARGO_BUILD_JOBS: ${{ needs.validate.outputs.native_jobs }}
         run: |
           resource_dir="$RUNNER_TEMP/ecs-reports"
           mkdir -p "$resource_dir"
@@ -206,14 +246,14 @@ jobs:
     needs: validate
     env:
       # Both Rust cache layers include RUST_* in their compatibility identity.
-      RUST_ECS_CACHE_NAMESPACE: ${{ inputs.native_runner || 'github-hosted' }}
+      RUST_ECS_CACHE_NAMESPACE: ${{ needs.validate.outputs.native_runner }}
     concurrency:
       group: ecs-workspace-cache-main-writer
       cancel-in-progress: false
     if: github.ref == 'refs/heads/main' && github.workflow_sha == github.sha
     cache-mode: write
     # Select only the published Linux/X64 labels; runner names are not labels.
-    runs-on: ${{ inputs.native_runner == 'self-hosted' && fromJSON('["self-hosted","Linux","X64"]') || fromJSON('["ubuntu-24.04"]') }}
+    runs-on: ${{ needs.validate.outputs.native_runner == 'self-hosted' && fromJSON('["self-hosted","Linux","X64"]') || fromJSON('["ubuntu-24.04"]') }}
     timeout-minutes: 180
     steps: *native-steps
 
