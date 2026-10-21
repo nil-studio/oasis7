@@ -286,6 +286,32 @@ class SkillReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-regular"):
             self.checked()
 
+    def test_mutable_publication_files_and_ancestors_are_rejected(self):
+        protected = Path("/opt/preview/releases/v1/web-dist/skills/SKILL.md")
+        def stat_for(bad_path=None, owner=0, mode=0o100644):
+            def stat(path):
+                return argparse.Namespace(st_uid=owner if path == bad_path else 0,
+                                          st_mode=mode if path == bad_path else 0o100755)
+            return stat
+        for target in (protected, protected.parent, Path("/opt")):
+            for owner, mode in ((1000, 0o100644), (0, 0o100664), (0, 0o100646)):
+                with self.subTest(target=target, owner=owner, mode=mode), patch.object(Path, "lstat", stat_for(target, owner, mode)), patch.object(Path, "is_symlink", return_value=False):
+                    with self.assertRaisesRegex(ValueError, "root-owned"):
+                        ecs.skills.require_root_owned([protected])
+        with patch.object(Path, "lstat", stat_for()), patch.object(Path, "is_symlink", return_value=False):
+            ecs.skills.require_root_owned([protected])
+
+    def test_activation_rejects_mutable_paths_before_any_service_call(self):
+        include = self.root / "skills.conf"
+        include.write_bytes(b"old")
+        args = argparse.Namespace(release=self.release, origin="https://game.invalid", player_service="fixture",
+                                  nginx_include=include, lock_file=self.root / "deploy.lock")
+        with patch.object(ecs.skills, "require_root_owned", side_effect=ValueError("root-owned path required")), patch.object(subprocess, "check_output") as command:
+            with self.assertRaisesRegex(ValueError, "root-owned"):
+                ecs.skills.activate(args, self.checked())
+            command.assert_not_called()
+        self.assertEqual(include.read_bytes(), b"old")
+
     def test_tampered_launcher_cannot_bind_another_runtime_version(self):
         (self.release / "bin/oasis7_game_launcher").write_bytes(b"old running launcher")
         with self.assertRaisesRegex(ValueError, "bundle checksums"):
@@ -338,7 +364,7 @@ class SkillReleaseTests(unittest.TestCase):
             return b"launcher" if str(path) == "/proc/123/exe" else real_read(path)
         def output(command, **kwargs):
             return "123\n" if command[0] == "systemctl" else f"include {include};\n"
-        with patch.object(Path, "read_bytes", read), patch.object(subprocess, "check_output", side_effect=output), patch.object(subprocess, "run") as run, patch.object(ecs.skills, "verify", side_effect=ValueError("public mismatch")):
+        with patch.object(ecs.skills, "require_root_owned"), patch.object(Path, "read_bytes", read), patch.object(subprocess, "check_output", side_effect=output), patch.object(subprocess, "run") as run, patch.object(ecs.skills, "verify", side_effect=ValueError("public mismatch")):
             with self.assertRaisesRegex(ValueError, "public mismatch"):
                 ecs.skills.activate(args, public)
         self.assertEqual(include.read_bytes(), b"# previous version\n")
@@ -356,7 +382,7 @@ class SkillReleaseTests(unittest.TestCase):
         real_read = Path.read_bytes
         def read(path):
             return b"different launcher" if str(path) == "/proc/123/exe" else real_read(path)
-        with patch.object(Path, "read_bytes", read), patch.object(subprocess, "check_output", return_value="123\n"), patch.object(subprocess, "run") as run:
+        with patch.object(ecs.skills, "require_root_owned"), patch.object(Path, "read_bytes", read), patch.object(subprocess, "check_output", return_value="123\n"), patch.object(subprocess, "run") as run:
             with self.assertRaisesRegex(ValueError, "running launcher"):
                 ecs.skills.activate(args, public)
             run.assert_not_called()

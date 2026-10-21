@@ -170,9 +170,23 @@ def atomic_write(path, data):
         temp.unlink(missing_ok=True)
 
 
+def require_root_owned(paths):
+    checked = set()
+    for path in paths:
+        for item in (path, *path.parents):
+            if item in checked:
+                continue
+            checked.add(item)
+            stat = item.lstat()
+            if item.is_symlink() or stat.st_uid != 0 or stat.st_mode & 0o022:
+                raise ValueError("publication path must be root-owned and not group/world writable: " + str(item))
+
+
 def activate(args, public):
     import fcntl
     public_origin(args.origin)
+    include = args.nginx_include.absolute()
+    require_root_owned([*public.values(), args.release / "bin/oasis7_game_launcher", include])
     # Shared with the ECS operator; acquire before reading the previous config.
     with args.lock_file.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -181,7 +195,6 @@ def activate(args, public):
             raise ValueError("player service is not running")
         if sha256(Path(f"/proc/{pid}/exe").read_bytes()) != sha256((args.release / "bin/oasis7_game_launcher").read_bytes()):
             raise ValueError("running launcher does not match the selected release")
-        include = args.nginx_include.absolute()
         if include.is_symlink() or not include.is_file():
             raise ValueError("bootstrap a regular nginx include before activation")
         config = subprocess.check_output(["nginx", "-T"], stderr=subprocess.STDOUT, text=True, timeout=6)
