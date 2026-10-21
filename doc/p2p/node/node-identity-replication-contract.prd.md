@@ -9,6 +9,16 @@ Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；审读 so
 
 local/dev missing key 仅启用节点启动前在当前 config path 创建；disabled 不创建；missing/malformed/conflict/unwritable 明确失败，不替换已有非法 identity。不是 custody/admission。
 
+Trace ID: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e
+
+同一初始化意图的并发执行、进程中止和重试必须至多发布一份有效节点身份，已发布或已绑定的公钥／PeerId 不能因重试改变。除现有 local/dev missing-key ensure 外，显式 `node init` 的本机身份准备也适用该持久性要求；formal runtime 的启动不能借此自动生成 authority、validator 或 governance signer。运营者只有在身份与初始化绑定已持久可恢复后才能得到成功结果。
+
+进程异常退出遗留的锁标记不能永久阻塞合法重试，重试也不能仅凭等待超时夺取存活持有者的锁。写入中断不得把半份密钥发布为有效配置；恢复必须区分未发布临时材料、已发布但未完成绑定、完整身份以及损坏／冲突。完整材料重用原身份，损坏或归属不明保持明确失败，不以重新生成身份代替恢复。私钥、seed 和临时密钥不得出现在诊断或验证产物中。
+
+系统设计依据：[原子初始化与恢复](node-identity-replication-contract.design.md#des-nir-bootstrap)。该 crash-safe 目标当前未实现完整闭环：基线 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e` 的 [ConfigFileLock 与写入 helper](../../../crates/oasis7_chain_runtime/src/host/node_keypair_config.rs) 使用 create-new 锁文件和直接配置写入；异常退出不经过 Drop，残留锁与部分写入不能由正常并发测试证明可恢复。此条为本机初始化专业要求，产品 AC 不适用；它不新增世界恢复、生产 custody 或 validator admission 承诺。
+
+验收要求在临时写入、原子发布、绑定和目录同步各边界中断／重启，并覆盖并发及持锁进程 SIGKILL：有效重试保持原公钥／PeerId 或在尚未发布时完成唯一发布；失败没有新绑定或隐式身份替换。现有权限、symlink 和正常并发测试只证明各自子范围。
+
 配对设计必须用该条款的独立条件建立承接/验证关系；本条不把文档合并解释为运行能力或组合通过。
 
 <a id="nir-signer-binding"></a>
@@ -67,6 +77,10 @@ settlement, deployment, or release decisions.
   config path before it starts. Disabled-node flows do not bootstrap identity.
 - Missing, malformed, conflicting, or unwritable configuration fails with an
   explicit diagnostic. It must not silently replace an existing invalid identity.
+- Crash-safe publication and retry follow [Local identity](#nir-bootstrap).
+  This is a target contract; current create-new lock files and direct writes do
+  not establish crash recovery. A completed local identity remains separate from
+  network membership, governance authorization, and protected signer custody.
 - When `validator_signer_public_keys` is configured, it binds every configured
   validator ID to one normalized 32-byte ed25519 public key. The map must cover
   the validator set, contain no unknown validator, and reject invalid keys.
@@ -79,6 +93,12 @@ a production keystore, KMS/HSM custody mechanism, rotation or revocation
 workflow, validator admission, governance signer, mainnet claim, or readiness
 verdict. Private keys, seeds, mnemonics, and complete secret environments must
 not enter documentation, inventory, monitor artifacts, or evidence.
+
+Transport and consensus signing purposes must remain distinct. Deriving them
+under separate domains from one local root does not create independent custody:
+compromise of that root affects both derived identities. Governance signers and
+formal authority are accepted only through their own trusted policy, never from
+successful local initialization or a matching PeerId.
 
 ### 接口 / 数据：replication and recovery
 
@@ -135,6 +155,11 @@ signer rejection, apply-before-observe ingest behavior, corrupt-state startup
 failure, duplicate/stale record rejection, and persisted replication recovery.
 The specific command set is selected by the runtime and QA owners; documentation
 migration itself does not claim runtime, integration, or release success.
+
+The bootstrap target additionally requires crash injection across lock ownership,
+private temporary writes, atomic publication, directory sync and binding recovery.
+Test output compares public identity and file-state outcomes without exposing key
+material; a normal concurrency pass does not prove kill/power-loss recovery.
 
 For this authority migration, run:
 

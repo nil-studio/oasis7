@@ -82,13 +82,13 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 **设计状态：** 本组是当前主责文档声明的路线与目标合同；正式 profile、完整事务和灾备目标不能因为已有前置切片而标为已验收。
 
-2026-10-12 局部设计增量（实现边界核对至 `main@e01e29064517f4bf375767a19a09802335828249`）：[原候选恢复 v1](../../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 要求执行前完整材料持久化、先核对原决定再隔离重放；[正式受控权威 v1](../../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 与 [epoch 接管](../../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 集中定义激活、普通消费者和存储/签名隔离。均为待实现目标，现有工程 scope 不因本次文档收敛取得正式权威；实际部署和故障域证据未刷新。
+2026-10-21 节点生命周期局部核对（源码 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`）：[产品角色与状态路径](../../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)区分公开读取、获授权完整只读、受控写者与目标 BFT。[治理与实际成员应用](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-membership-application)、[读取撤销](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)、[发现证据](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)、[完整恢复与 checkpoint](../../../p2p/design.md#des-p2p-full-sync-checkpoint-capacity-v1)及[监控新鲜度](../../../p2p/node/node-triad-operations-observability.design.md#report-freshness)补齐目标约束和负例。当前实现与目标逐项分列，设计覆盖不代表新保证已实现；本段没有新部署或故障域证据，不刷新其他主题的核验时间。
 
 **已有实现：**
 
-- ARCH-04：本地 journal、双端持久协议、受控历史重执行、activation/bootstrap 等前置持续落地；完整正式激活、消费者接线和 BFT 验收尚未闭合。
+- ARCH-04：正式受控 writer、公开投影和获授权完整只读同步已有[实现入口](../../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)；完整消费者、真实恢复与 BFT 验收尚未闭合。新 BFT 轮次/锁定/持久签名合同见[目标设计](../../../p2p/design.md#des-p2p-bft-round-lock-v1)，不能由现有 PoS 原型代签。
 - ARCH-05：已有有序动作、roots、execution records、checkpoint/replay 及多种 prepare/publish 路径；[当前实现边界](../../../world-runtime/design.md#5-current-implementation-boundary-and-target-gap)仍明确整体能力为 partial。
-- ARCH-06：局部双端持久证明不等于正式 CommitRef，若干原子发布切片不等于整个 World 的根事务；同机双目录不能证明独立故障域。
+- ARCH-06：正式受控路径已有 qualified cut、保护服务与原请求恢复的实现切片，详见[当前实现边界](../../../p2p/design.md#des-p2p-formal-controlled-authority-v1)；同机双目录不能证明独立故障域。真实 P/R 故障、旧写者隔离和原结果恢复按[故障域验收](../../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)分别取证，受控路径不承诺 BFT 分区期间继续写入。
 - ARCH-07：已有 execution bridge v3、CAS、sidecar、retention/GC/replay 的实现合同；[本地恢复边界](../../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-accept-service-boundary)不证明分布式可得性或完整灾备。
 
 ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入[当前存储实现](../../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)，覆盖共享压缩、事务物理代、独立闭包读回与 attempt 回收、完整增量、Merkle v2、任务控制冷链和原生工件。新世界直接创建新物理表示；codec 不改变逻辑身份、独立持久条件或服务权限。已验证版本有局部容量和同机恢复证据；后续按[手动专项入口](../../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)逐场景核对网络模型、资源预算与所选规模，具体运行不外推生产延迟。当前无部署节点，真实双故障域和更大规模未完成验收；其他架构及环境基线不变。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选把 attempt 双端释放确认为可恢复阶段，接通有预算的默认物理维护，避免每页重复全 selector 恢复扫描，并保留原有共享布局。候选完整目录盘点包含 native、P/R、attempt、旧代和 checkpoint；短样本不证明净节省，规模与部署验收仍有缺口。

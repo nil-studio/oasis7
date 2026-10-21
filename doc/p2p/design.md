@@ -4,12 +4,12 @@
 
 同一 world 的共识顺序、可验证材料与执行/恢复共同形成权威底座；解决 receipt、transport 或历史恢复被误当最终性/可服务的问题。
 
-Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；固定审读基线 f9d5a552d9af04c1b1398262808198a58e560230，2026-09-26。本设计消费下表有限关系；旧章节保留作兼容详细条款，新增DES细化原义务而不改算法/schema/默认值/产品承诺。任务实际source/integration/tested tree/config/environment/window/结果由GitHub Issue/Project evidence维护，本文不伪造候选/通过结果。
+Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；历史审读基线 f9d5a552d9af04c1b1398262808198a58e560230，2026-09-26。本设计消费下表有限关系；旧章节保留兼容合同，后继规范明确其适用 profile、算法和 schema，不改变已部署默认值。任务实际source/integration/tested tree/config/environment/window/结果由GitHub Issue/Project evidence维护，本文不伪造候选/通过结果。
 
 2026-10-12 以 e01e29064517f4bf375767a19a09802335828249 补充的
 `original-candidate-recovery-v1`、`formal-controlled-authority-v1` 与
 `controlled-epoch-takeover-v1` 是后继目标协议，明确新增目标类型和状态机。
-它们尚未实现或验收，不改变下文已交付 prerequisite 的 schema、拒绝边界、默认入口或部署状态。
+它们是正式规范；当前已有 native formal、受保护 signer 接口、原输入恢复和有界只读 full-sync 子范围，详见[持久节点手册](blockchain/persistent-world-node-lifecycle.runbook.md#正式合同层与准入边界)。文中的早期 planned 描述只保留其当时证据范围；不能整体推断当前无实现，也不能由本机接线推断真实故障域或全部消费者通过。新增 BFT、动态集合安装及长期 checkpoint 接续仍待实现和验收，既有 prerequisite 的拒绝边界及部署 hold 不变。
 
 非目标：不以文档active/合并、local fixture、历史MIG或CLI可编译宣称运行、BFT、部署、SLA或release。剩余215-object required set及root SC1..10/full组合不变。
 
@@ -37,7 +37,13 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 | [professional_acceptance: p2p-ordered-execution](prd.md#p2p-ordered-execution) | 下一committed height、有序序列/root/decode及journal绑定；错误不推进 | [des-p2p-ordered-commit](#des-p2p-ordered-commit) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-receipt-finality-boundary](prd.md#p2p-receipt-finality-boundary) | receipt≠QC；同parent/manifest/actions独立重执行，缺artifact/fault/root拒绝vote/commit | [des-p2p-receipt-finality](#des-p2p-receipt-finality) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-target-bft](prd.md#p2p-target-bft) | Propose/Prevote/Precommit仅verified >2/3 active stake cert生效；world/height/round/phase/roots/set和dedup签名绑定 | [des-p2p-target-bft](#des-p2p-target-bft) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | 固定高度的 Tendermint 锁、validRound、nil、超时和严格权重阈值 | [轮次与锁定](#des-p2p-bft-round-lock-v1) | P2P 状态机；Runtime valid(v)；QA 模型/对抗验证 | 已选定算法，尚未实现或证明 BFT readiness |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | 对外签名前持久决定；恢复与复制实例不重签冲突字节 | [签名与恢复](#des-p2p-bft-signing-recovery-v1) | P2P WAL；受保护 signer；ops custody/反回滚；QA 崩溃验证 | 本机 snapshot/文件锁不证明跨机 signer 安全 |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | h 最终提交更新、h+2 固定激活，治理有效与本机安装分离 | [集合转换](#des-p2p-bft-validator-transition-v1) | 治理认证；P2P 高度/集合；Runtime install ACK；QA 转换 | 当前不支持安全 runtime 更新，不因 registry 查询成功授予投票 |
 | [professional_acceptance: p2p-target-recovery-trust-chain](prd.md#p2p-target-recovery-trust-chain) | manifest/genesis→cert/header+set transition→hash snapshot→canonical replay→root→serve/vote；每环缺失/冲突/回退/异world停止 | [des-p2p-target-recovery](#des-p2p-target-recovery) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
+| [完整同步只读资格](prd.md#p2p-full-sync-read-only) | 外部 C0、minimum、同 cut 和完整闭包验证后才发布只读 head | [完整状态同步](#des-p2p-full-sync-read-only-v1) | P2P proof/CAS；安全治理读权；Runtime snapshot；QA 角色拒绝 | 已有有界实现；不含 writer/validator 或完整部署资格 |
+| [长期同步容量](prd.md#p2p-full-sync-capacity-checkpoint) | 容量限制可见；checkpoint 接续保留 C0 与受保护 minimum，GC 前证明重建 | [checkpoint 与容量](#des-p2p-full-sync-checkpoint-capacity-v1) | P2P 接续；ops 持久水位/archive/SLO；QA 冷恢复 | 长期接续与跨当前容量边界仍待实现验证 |
+| [单权威提交与恢复](prd.md#p2p-single-authority-durable-commit) | P/R 单域失效、原请求续办、旧写者隔离及防回滚的真实证据 | [实际故障域验收](#des-p2p-controlled-fault-domain-acceptance-v1) | Ops 实际域/provider/witness；Runtime/P2P；QA 同窗口判定 | 不承诺单端失效后不停写；本机测试不证明真实故障域 |
 | [professional_acceptance: p2p-target-role-isolation](prd.md#p2p-target-role-isolation) | 治理validator与permissionless服务、light/archive角色隔离；验证材料而非operator身份；prune重建+archive条件 | [des-p2p-layer-authority](#des-p2p-layer-authority) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-service-gate](prd.md#p2p-service-gate) | verified-serving→stale/catching-up→readonly→serving；proof冲突→isolated；非serving新intent receipt0、历史不改 | [des-p2p-target-service-gate](#des-p2p-target-service-gate) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-replication-recovery](prd.md#p2p-replication-recovery) | writer/epoch从seq1及guard不污染；权威恢复错误与qualified storage-challenge fallback区分 | [des-p2p-replication-scope](#des-p2p-replication-scope) | runtime/WASM/消费者/ops/QA各自authority；同candidate证据 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
@@ -47,8 +53,8 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 | Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4；[product_requirement: ac-dcs-002](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-002) | sameworld恢复链每环验证；历史只读与重新服务闸门分开 | [des-p2p-target-recovery](#des-p2p-target-recovery) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；[product_requirement: req-dcs-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | governed validator与permissionless服务隔离；公网IP非通用前提 | [des-p2p-layer-authority](#des-p2p-layer-authority) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；[product_requirement: ac-dcs-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-003) | governed validator与permissionless服务隔离；公网IP非通用前提 | [des-p2p-layer-authority](#des-p2p-layer-authority) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
-| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: req-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) | verified >2/3 active stake证书才推进；wrongset/equivocation/round缺证拒绝 | [des-p2p-target-bft](#des-p2p-target-bft) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
-| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: ac-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-004) | verified >2/3 active stake证书才推进；wrongset/equivocation/round缺证拒绝 | [des-p2p-target-bft](#des-p2p-target-bft) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
+| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: req-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) | verified >2/3 active stake证书才推进；错集或缺少合法 round 证明拒绝；矛盾票不重复计权、不使合法证书失效 | [des-p2p-target-bft](#des-p2p-target-bft) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
+| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: ac-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-004) | verified >2/3 active stake证书才推进；错集或缺少合法 round 证明拒绝；矛盾票不重复计权、不使合法证书失效 | [des-p2p-target-bft](#des-p2p-target-bft) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[product_requirement: req-dcs-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) | 服务转换及manifest/head/finality conjunction；非serving intent receipt0 | [des-p2p-target-service-gate](#des-p2p-target-service-gate) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[product_requirement: ac-dcs-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-005) | 服务转换及manifest/head/finality conjunction；非serving intent receipt0 | [des-p2p-target-service-gate](#des-p2p-target-service-gate) | P2P/runtime、ops、consumer与QA；product owner审读含义 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；[product_requirement: req-dwe-001](../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-001) | 同parent/version/order重执行及root绑定；runtime原子apply外部 | [des-p2p-receipt-finality](#des-p2p-receipt-finality) | runtime/WASM/Agent/Viewer专业owner与QA；不定义其schema | external durability/lineage/activation/消费者设计及证据未闭合 |
@@ -74,7 +80,7 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 
 | 对象 | 当前专业合同（冻结source） | 目标 / 差距 | 实现 / 执行证据 |
 | --- | --- | --- | --- |
-| 本专题现行规则 | 配对PRD与保留旧章节的有界接口/失败合同 | 目标锁定/解锁、anti-double-sign、timeout/new-round、set transition与partition/heal/restart需独立对抗性证明；本文给拒绝条件而不发明新lock算法/schema。pending/lineage/manifest/consumer字段及DC5 structured attachment仍外部未闭合。 | 本次source阅读，未运行behavior tests；具体测试定义存在不等于覆盖或通过 |
+| 本专题现行规则 | 配对PRD与保留旧章节的有界接口/失败合同 | BFT 已选择 Tendermint Algorithm 1、持久签名决定及 h+2 集合转换；锁、timeout、partition/heal/restart 的实现与独立对抗性证明仍缺。pending/lineage/manifest/consumer字段及DC5 structured attachment仍外部未闭合。 | 本次source阅读，未运行behavior tests；具体测试定义存在不等于覆盖或通过 |
 | BFT/QC/治理恢复 | root记录stake-threshold prototype；无持久QC/round/view-change/replication QC复验 | 目标证书/round/transition/recovery有明确拒绝条件，实现仍缺 | 运行/部署/发行未验证；不能由文档推导 |
 
 ## 4. 边界与结构
@@ -97,9 +103,56 @@ hash-bound material仍须与verified历史/roots相符；服务operator身份、
 
 ### des-p2p-target-bft
 
-Propose/Prevote/Precommit仅verified >2/3 active stake cert生效；world/height/round/phase/roots/set和dedup签名绑定。
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。首版采用下述完整 Tendermint 状态机；oasis7 保有应用、wire、持久化与证明消费语义，依赖可替换，不要求新增外部进程或 Go 依赖。现有 proposer/attestation threshold prototype 不作此状态机的实现证明。
 
-目标证书验证先确定同world/height/round/phase的活动治理set及stake，再逐签名验真并按validator去重，核对block/action/execution roots和严格大于三分之二stake；缺失、冲突、double-sign或错误set/round/phase/root拒绝且无权威进展。slot仅pacing/proposer，timeout进入独立round；lock/unlock、anti-double-sign及transition/restart必须保留同一安全约束，不能用本地threshold或重启跳过。具体lock/timeout证据及算法接口未由现prototype实现，本文不发明新算法。
+`BftProposalV1`、`BftVoteV1`、`BftCommitCertificateV1` 是新协议目标。所有签名绑定固定 world/chain/genesis、协议版本、height、round、消息 phase、活动 validator-set hash 及 block ID 或显式 nil；proposal 另绑定 proposer 与 validRound。block ID 承诺 parent CommitRef、authority epoch、governing manifest、有序 actions 及 execution/event/state roots，候选身份不含当前 round 或 proposal 签名，保证同一值能跨 round 重提。编码沿用[正式协议](#des-p2p-formal-controlled-authority-v1)的 canonical CBOR、domain framing 与 strict Ed25519，但使用独立 `oasis7.bft.<kind>.v1.<purpose>` 域；nil 与任意非空 hash 不可混用，旧 wire 不自动升级。
+
+验证先从合法历史确定本高度固定的集合与整数权重，再逐票验签、按 validator 去重，要求同一 height、round、precommit phase 和非 nil block ID 的总权重 `q=floor(2W/3)+1`。权重求和与阈值算术均 checked，零总权重、溢出、重复身份/key 或错集拒绝。证书中拼接不同 round、phase 或 block 的票不能凑数；当前已进入更高 round 不妨碍接纳同高度较早 round 的完整有效 commit certificate。发现 equivocation 保留可验证证据，不能重复计权或未经治理自行移除当前集合成员；一名 Byzantine 的矛盾投票也不能使一个仍满足规范的有效证书自动失效。
+
+`valid(v)` 由同一 committed parent、manifest、确定有序输入和可验证执行闭包定义；每名活动验证者在隔离候选状态重执行并核对全部 roots，投票前不发布世界效果、不重新调用 LLM。仅在证书验证与适用持久条件成立后安装 canonical 状态；复制、checkpoint、普通消费者和冷恢复使用同一 verifier，不接受 receipt、传输成功或本地 stake 计数替代。
+
+#### des-p2p-bft-round-lock-v1
+
+规范算法为 Buchman、Kwon、Milosevic [The latest gossip on BFT consensus, v3，Algorithm 1](https://arxiv.org/abs/1807.04938v3)；其 `n` 按 voting power 计。固定高度内 Byzantine power 须小于 `W/3`；安全性不依赖及时到达，活性依赖最终同步和可用的足额正确节点。proposer 选择采用 [CometBFT weighted round-robin 规范](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/spec/consensus/proposer-selection.md)的优先级更新、归一化与成员变更规则；oasis7 将相同优先级的 tie-break 固定为 consensus 公钥原始字节升序。优先级属于确定性持久状态，每个 `height/round` 只有一个合法 proposer。slot 仅 pacing，不替代 round。初始化、一次触发规则、nil、未来 round 跳转和三类 timeout 完整按算法实现，不混入旧 prototype 的同高替换或其他共识的解锁规则；采用的参考规范内容随协议版本冻结，上游文档变化不自动改变已激活规则。
+
+下表是实现审查必须保持的安全不变量，算法原文仍定义全部触发顺序：
+
+| 事件 | 允许的动作与持久状态 |
+| --- | --- |
+| 新 proposal，无 validRound 证据 | 只有 valid(v) 且未锁定或锁定同一值才 prevote(v)；否则 nil。仅接受本 round 合法 proposer。 |
+| proposal 引用旧 round 的 validRound | 先取得该高度、该值、该旧 round 的 q 个有效 prevote；仅在 lockedRound≤validRound 或锁定同值时允许改投。裸 round 数字、超时或新 proposer 自述均不解锁。 |
+| 本 round 的 q 个同值 prevote | 按算法保存 validValue/validRound；尚处 prevote 时先保存 lockedValue/lockedRound 再 precommit(v)。q 个 nil prevote 或 prevote timeout 只能走相应 nil precommit，不能清锁。 |
+| 超时、未来 round 与提交 | propose timeout→nil prevote；规范条件启动的 prevote/precommit timeout 分别→nil precommit/下一 round；未来 round 跳转须同一高度、同一未来 round 中超过 W/3 的不同合法成员消息。round 推进保留锁和有效值，只有本高度完整 commit 后才能初始化下一高度。 |
+
+timeout 随 round 增长，旧高度/round 的 timer 不改变当前状态；上溢或无法恢复计时状态停签，不回绕。实现须用独立状态机模型和一致性向量逐规则核对，覆盖消息乱序、重复、丢失、nil、锁定后 proposer 作恶及分区重合；只改阈值并不形成 BFT。三等权时 q=3；四等权时 q=3，才具备容忍一名 Byzantine 的权重条件。共享 key custody 或单机多实例不能作为独立故障域。
+
+#### des-p2p-bft-signing-recovery-v1
+
+签名槽固定为 `(world/chain/genesis, protocol, signer_key, height, round, phase)`；nil 同样占用槽。同槽仅允许同一完整 canonical bytes，不能把时间戳、manifest、set hash 或其他字段变化当作可重签例外。已保存的原签名可重发；异字节一律拒签。不同 round 的安全改投仍须上述锁定证据，不能因签名槽不同跳过共识状态机。
+
+签名路径是“验证事件及锁条件 → WAL 持久保存完整决定与新状态 → signer 保留该槽的原字节决定 → 生成并持久保存签名 → 对外释放”。WAL 同步保存 height/round/step、locked/valid value 与 round、对应 prevote 证明、活动/待生效集合、原 proposal/签名字节及最后 committed anchor；引用的候选和必要执行工件先持久 pin。文件同步、原子替换和目录同步或等价事务必须在响应/广播前完成，任一步失败或结果不确定立即停签，不只是记录 last_error 后继续。
+
+只靠本机 WAL 防崩溃，不防旧盘回滚或复制 signer。正式 custody 须把签名决定与不可回滚水位置于同一受保护签名边界，并保证该 key 同时只服务一个合法实例；远程 signer 也必须执行相同规则，不能成为任意 bytes 签名口。跨机接管须证明旧实例停签并转移原决定/WAL；无法证明时保留只读。不得以删除状态文件、清 pending、重置到 committed height、换目录或自动新建 signer-state 恢复投票。
+
+重启先校验外部最低 anchor、受保护签名水位与 WAL 完整性，重放到最后可证明状态再接网络。reserve 已落盘但签名回应丢失时，只续办原字节；已签而尚未广播时只重发原签名；材料不齐、倒退或冲突保持 blocked。进入下一高度和回收旧热 WAL 必须已有完整持久 commit 及可重建历史证据；不能丢失尚未提交高度的锁或处罚证据。
+
+#### des-p2p-bft-validator-transition-v1
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。治理准入、授权与运行应用闭环由[安全治理合同](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-membership-application)拥有；本节唯一规定投票集合何时切换。采用与 [CometBFT 官方 validator update 语义](https://docs.cosmos.network/cometbft/latest/spec/abci/Requirements-for-the-Application#updating-the-validator-set)一致的两高度延迟，作为 oasis7 自身协议，不声称已接入 ABCI。
+
+首版一个 world 至多有一个 scheduled 尚未激活的转换；其他 approved 意图保持未排程，待前次激活后按当时 committed policy/set 重新验证。epoch 意图须由协议确定性映射到提交高度 h 和固定 activation_height=h+2；无法映射、已错过边界或旧 set hash 不符则不排程，不能由单机解释或延后。
+
+| 权威边界 | 集合与证明规则 |
+| --- | --- |
+| h 最终提交 | 旧集合 S_old 签 h；治理动作经同一确定性执行产生完整 S_new、权重/key 映射、旧/新 set hash、原治理决定及 h+2。更新承诺进入 h 的 block/execution roots。 |
+| h+1 | 仍由 S_old 签，header/证明绑定下一高度的 S_new hash 和 h 的转换承诺。新节点取得 h+1 的完整合法状态/证明，恢复签名水位并安装 S_new。 |
+| h+2 及以后 | 只以 S_new 验票；退出/旧 key 权重为零。未安装或未同步完成的节点停止签名，不能让全网边界等待本机 ACK，也不能临时沿用旧集合。 |
+
+排程和安装记录至少含治理决定 CommitRef、world/manifest、旧/新集合 hash、activation height、runtime 实例与 signer binding，安装 ACK 持久化后只报告对应的本机采用事实。ACK 引用的 head 须属于当前 verified head 的合法祖先链，且其 set/activation 与当前签名高度及受保护 signer 状态一致；旧实例、已被后继集合替代、部分安装和重启丢失 ACK 均不授予投票权，不要求每个新块重做同一集合安装。重复 validator/key、负权重、空集合和总权重溢出在 h 的有效性检查时拒绝。轮换、移除与 stake 改动同样适用；发现作恶不允许本地先改分母。
+
+安全性沿旧集合最终提交的唯一历史传递到新集合，每个活动集合分别满足 Byzantine 权重限制；不要求把新旧票混合凑一个阈值，也不把独立治理批准当作共识证书。该规则与[单权威在 H 提交、BFT 从 H+1 开始](prd.md#p2p-authority-handoff)的 profile 交接不同。
+
+同步/恢复须验证完整集合转换链并固定可信 checkpoint/minimum。长期离线的节点不能只依赖已退出 key 对“最新历史”的自证：BFT 激活配置须规定可信 checkpoint 的有效期及旧 key/stake 安全约束，有效期不得超过该约束可保证的期限；超期或约束不明时停止自动追随，重新取得独立认证的同世界 checkpoint。此信任条件及当前各集合的实际故障域须进入部署验收，不能由算法论文代签。
 
 ### des-p2p-target-recovery
 
@@ -108,6 +161,24 @@ Propose/Prevote/Precommit仅verified >2/3 active stake cert生效；world/height
 按信任链逐环确认，snapshot blob缺失/hash错或replay/root不一致停止，不能用任意peer/latest backup/otherworld/覆盖替代。pruning必须先证明checkpoint+replay重建、hash/root验证和冗余archive可用。既有历史/offline local recovery事实不抹除；当前governed live部署禁止raw-copy路径，signed-V2只在原runbook限定observer/drill scope，observer高head不等于execution-required full restore。
 
 运维接受入口是 [node-triad inventory/采样合同](node/node-triad-operations-observability.prd.md#inventory-与采样合同) 与 [权威边界](node/node-triad-operations-observability.prd.md#权威边界)；governed live 约束见 [bootstrap truth model](blockchain/public-testnet-governed-bootstrap.runbook.md#3-truth-model)、[hard rules](blockchain/public-testnet-governed-bootstrap.runbook.md#4-hard-rules) 和 [failure/rollback](blockchain/public-testnet-governed-bootstrap.runbook.md#14-phase-h---failure-handling-and-rollback)。这些具体环境的恢复 admission 不覆盖历史/offline local 恢复。
+
+#### des-p2p-full-sync-read-only-v1
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。已有 `formal_full_state_sync_read_only_v1` 从独立固定的 C0 验证持久历史页链，核对 minimum 与精确旧 head，安装目标 cut 的 manifest、record 及 retained material 闭包；边界见[本机生命周期](blockchain/local-node-lifecycle.runbook.md)。状态是 verified read-only，不构造 writer authority、BFT voting membership 或 current serving 资格。
+
+provider 只是材料来源；目标 cut、原请求身份和全程预算在换 provider、分页或重试时保持。逐页/对象验签、hash、连续性及权限，完整闭包与本地持久安装前不推进对外 verified head；失败保留上一次合法 cut 和明确 blocker。private full-state 读权及撤权按[安全治理主责](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)执行，同步授权不免除最低水位或 proof 验证，也不能被 public observer 权限替代。
+
+#### des-p2p-full-sync-checkpoint-capacity-v1
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。当前[历史页链](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_history.rs)从外部 C0 重新验证保留页：上限 65,536 页、4 GiB proof 字节、64 MiB manifest 链；[retained tree](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_cas.rs)上限 65,536 节点，[provider](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_providers.rs) 单轮总预算上限 512 MiB。这些是当前实现支持边界，不是长期规模承诺。另一路[observer/watch](blockchain/persistent-world-node-lifecycle.runbook.md#cli-与成员查询)的 32 帧/16 MiB cursor 重基仍依赖单次 C0→head inline 历史≤128 步；不能用 full-sync 页 API 证明 watch 已自动续页。
+
+目标 successor checkpoint 是从原信任根导出的加速依据，绑定 world/chain/genesis、前序 checkpoint 与精确 head、位置/roots、profile/epoch/manifest 和 validator transitions、最低已确认水位，以及 snapshot/journal/retained material 闭包。验证必须证明包含原 head/authority 与 minimum，且冷恢复可沿合法链到该 checkpoint 后 canonical replay 并核对 root；仅 provider 签名、高 head 或可回滚本机 pointer 不授予信任。
+
+为避免每次从 C0 全量重放，已验证的 checkpoint 摘要及 minimum 必须再写入不可与数据盘一同回滚的受保护持久记录，或取得由原独立信任政策授权、可验证单调接续的外部更新证明。该记录保留前驱和原 C0 的认证关系，不替换 C0；缺少此条件则继续保留并验证原链，达到容量界限后停止推进。普通 fsync/rename 只解决崩溃原子性，不能承担防回滚认证。
+
+安装顺序为 prepare 新材料 → 验证闭包/连续性 → 持久保存新 checkpoint 与受保护 minimum → 原子提交本机 active pointer → 验证可独立重开 → GC。若受保护 minimum 已前进而 pointer 尚未切换，恢复必须完成同一已保存 checkpoint 的安装，不能选择较旧 pointer；任一步材料缺失则 blocked，不降水位。GC 仅回收已证明可重建的热材料；冗余 archive 先完成重建/损坏负例检查，完整 canonical audit history 和唯一原请求依据不能被删除。
+
+分块、streaming 和断点接续仍受每对象、总字节、证明深度及绝对截止时间预算约束，换 provider 不重置累计预算。状态输出版本化 limits、used/remaining、checkpoint age、重开预算和 lag；阈值前预警，触限保留历史只读并报 stale/catching-up 或 HistoryUnavailable，不能无限分配内存或把历史可读宣称当前可服务。长期接续、容量跨界和恢复 SLO 仍待实现验收，不因本节设计或已有分页代码而完成。
 
 ### des-p2p-layer-authority
 
@@ -287,8 +358,8 @@ put-if-absent：同 key 同完整结果返回既有对象，任一 digest/root �
 
 ### des-p2p-formal-controlled-authority-v1
 
-本节规定目标 `controlled_single_authority` profile version 1 的正式发行与消费协议；
-实现仍缺。它沿用两端完整持久判定，新增正式激活链、proof 编码、不可绕过的 signer/storage
+本节规定 `controlled_single_authority` profile version 1 的正式发行与消费协议；
+已有 native formal 子范围按[持久节点手册](blockchain/persistent-world-node-lifecycle.runbook.md#正式合同层与准入边界)核对，完整部署与各消费面的实现状态分别取证。它沿用两端完整持久判定，规定正式激活链、proof 编码、不可绕过的 signer/storage
 admission 和普通客户端验证，不能通过删掉 `execution_evidence_scope` 升级工程记录。
 此 profile 仍信任运营权威的执行正确性，不声称独立验证者 BFT。
 
@@ -354,6 +425,23 @@ writer 不能直接读出 signer key、替换最终存储文件或绕过接收�
 任一端丢失后，幸存端保存的完整 qualified 前缀仍可验证已确认历史；缺副本时只读，
 恢复写入必须先恢复完整双端条件。独立域和实际 fsync 能力另须部署事实证明，不能由签名
 或两个目录推导。首次正式开放及单故障域演练仍由现有运行验收闸门控制。
+
+#### des-p2p-controlled-fault-domain-acceptance-v1
+
+Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39、O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4。P/R 的双端回执证明受信端点作出持久声明；实际抗故障能力由部署事实及故障注入共同证明。inventory 记录 P/R 的主机、存储、恢复/回滚边界和依赖的 signer/provider、单调 floor、issuer witness；至少证明声明中的一个主机或存储域失效不能同时毁损两份完整 qualified 历史。共享电源、区域、管理凭据及备份体系的相关风险须披露；未声称覆盖的同时多域毁损不外推为已保障。
+
+nonexportable key custody、签名决定/epoch floor 的防回滚和独立 issuer witness 必须在真实 provider 上验证。进程锁、两个目录、不同公钥、远程 capability 字符串和本机 mock 均不能替代。provider/witness 不可用或完整性存疑时停写，既有可验证历史可只读；恢复不得退回 exportable key、本机计数器或自授 issuer。
+
+| 故障窗口/动作 | 必须观察的结果 | 判定材料 |
+| --- | --- | --- |
+| P 或 R 任一真实域损毁；断电/强制退出后冷启动 | 已向用户确认的每个 CommitRef、root、原请求结果及闭包均可由幸存域恢复；缺另一端时无新 committed 回应 | 同窗口域 inventory、确认结果清单、幸存历史/闭包、冷恢复 root 与 receipt 对账 |
+| 冻结前、冻结完成、候选写入中、决定/proof 写入中、qualified 后但回应前分别中断 | 未固定 pending 才当前重审；固定 continuation/候选/决定按原身份和原输入续办，回应丢失不创建新请求，重复调用不产生第二结算、LLM 调用或 outbox effect | 各持久 seam、原 identity/nonce、冻结输入/工件、决定与 oracle 对照、效果计数 |
+| 旧 writer/signer 仍存活，旧盘或凭据副本在接管后重连 | 最终 signer 与存储入口实际拒绝旧实例；新 epoch/head 不回退，未证明隔离时不进入新写入阶段 | 受保护 floor/lease、控制面隔离事实、旧签写实际拒绝和无新增历史 |
+| plan/seal/activation 每次持久动作后故障或重试 | 原 recovery_id、原 tail 和唯一新绑定收敛；缺历史、原 pending、闭包或隔离证据保持 blocked | 前后 epoch/head、原计划/seal/activation、重试回执和拒绝原因 |
+| provider/witness 暂停、回滚备份或复制实例 | 无新签名/提交，不降为本机弱实现；合法恢复后仍保留原签名决定与最低水位 | provider 实际响应、counter/witness 原记录、恢复前后同请求结果 |
+| controlled 的 H 已提交、BFT 的 H+1 尚未提交时故障 | 只恢复合法历史并保持停写；恢复 issuer、取消计划或旧 signer 均不能恢复 H+1 controlled 写入 | H 证明、交接边界、旧追加拒绝与零双写 |
+
+该矩阵扩充既有 CA-R1/R2/R3、CA-F1/F2、CA-B1，不建立第二套提交规则。Ops 负责真实故障边界与注入，Runtime/P2P 负责原候选、proof/root 和拒绝事实，QA 按同一 world/配置/工件/窗口判定；本机协议测试与真实域演练分别出证。安全与可用性分开：单域故障后已确认结果不丢失可以成立，同时新写入因双端条件不全而暂停。本文不预填 RTO、实际 provider 能力或运行通过结论。
 
 <a id="formal-replica-staging-content-reuse"></a>
 #### 健康 Replica 归档安装中的内容复用
@@ -586,8 +674,14 @@ target protected validators + public services；governed registry有效epoch/sta
 | [professional_acceptance: p2p-authority-handoff](prd.md#p2p-authority-handoff) | [des-p2p-authority-profiles](#des-p2p-authority-profiles) | H/H+1 唯一 profile 与提交后不可撤回 | [testing-manual.md](../../testing-manual.md) S9A；planned H 未提交、H 已提交及 H+1 尚未提交/已提交四个窗口，尝试旧 profile 追加、回滚和双权威激活 | H/H+1 证据链、选定 profile、拒绝结果与零旧追加 | 不证明完整 BFT 或实际治理交接已执行 |
 | [professional_acceptance: p2p-ordered-execution](prd.md#p2p-ordered-execution) | [des-p2p-ordered-commit](#des-p2p-ordered-commit) | 下一committed height、有序序列/root/decode及journal绑定；错误不推进 | [testing-manual.md](../../testing-manual.md)；S9A phase2/3；同candidate重排、tamper、decode/root/journal负例；执行receipt/状态变化oracle。现有手册入口，完整组合未运行。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-receipt-finality-boundary](prd.md#p2p-receipt-finality-boundary) | [des-p2p-receipt-finality](#des-p2p-receipt-finality) | receipt≠QC；同parent/manifest/actions独立重执行，缺artifact/fault/root拒绝vote/commit | [testing-manual.md](../../testing-manual.md)；S9A；全部活动validator+runtime相同输入/父状态/版本，逐一根不匹配及旧threshold1证据负例。target完整矩阵planned。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
-| [professional_acceptance: p2p-target-bft](prd.md#p2p-target-bft) | [des-p2p-target-bft](#des-p2p-target-bft) | Propose/Prevote/Precommit仅verified >2/3 active stake cert生效；world/height/round/phase/roots/set和dedup签名绑定 | [testing-manual.md](../../testing-manual.md)；S9A full target场景：错误签名/阈值/集合/round、缺证/equivocation拒绝；锁定/解锁、timeout/new-round、transition、partition/heal/restart；prototype不能证明。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
+| [professional_acceptance: p2p-target-bft](prd.md#p2p-target-bft) | [des-p2p-target-bft](#des-p2p-target-bft) | Propose/Prevote/Precommit仅verified >2/3 active stake cert生效；world/height/round/phase/roots/set和dedup签名绑定 | [testing-manual.md](../../testing-manual.md)；S9A full target场景：错误签名/阈值/集合/round 与缺证拒绝；矛盾票不重复计权，单个成员 equivocation 不阻断仍足额合法的证书，也不触发本地删 stake；锁定/解锁、timeout/new-round、transition、partition/heal/restart；prototype不能证明。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | [轮次与锁定](#des-p2p-bft-round-lock-v1) | 足额真签、锁与 round 保持唯一历史；活性只在声明条件成立时验 | BFT-R1，planned model/conformance/integration；[S9A](../../testing-manual.md) full 同候选：q−1/q、三等权两签拒绝、nil、错 proposer、伪 validRound、相互矛盾 proposal、乱序/分区/heal、旧 round 有效 cert；无网络进展与恢复同步分别判定 | 状态机规则/向量、签名集合/权重、消息调度、唯一 committed roots、模型反例或通过范围 | 文档选型不等于形式化证明；无已执行 BFT 验收 |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | [签名与恢复](#des-p2p-bft-signing-recovery-v1) | 决定/锁在签名前持久；原签名重发，冲突与回滚停签 | BFT-S1，planned storage/provider integration；沿 [testing-manual.md](../../testing-manual.md) S9A 的同候选 full 边界新增每次 WAL/reserve/signature/fsync/广播 seam 中断，重启同槽同/异字节、nil→非 nil、旧盘/复制实例、WAL 缺失和 provider 不可用；固定同 key/世界与真实 custody 组合，现有手册不表示这些新场景已执行 | durable 决定、签名返回/广播顺序、受保护水位、零冲突签名及恢复 blocker | 普通进程重启不证明防回滚 provider；当前 prototype snapshot 不覆盖 |
+| [BFT 证书闸门](prd.md#p2p-target-bft) | [集合转换](#des-p2p-bft-validator-transition-v1) | h/h+1 旧集、h+2 新集；ACK 不改变全网边界 | BFT-M1，planned full integration；沿 [testing-manual.md](../../testing-manual.md) S9A 的同候选 full 边界新增添加/移除/轮换/stake 更新、重复 key/空集/溢出、第二 pending 排程、h/h+1/h+2 重启分区、错 set cert、迟到/丢失 ACK、旧 key 与过期恢复 checkpoint；固定同治理决定及链，现有手册不表示这些新场景已执行 | 决定 CommitRef、排程/安装 ACK、逐高度 set hash/权重、旧 key 拒绝、停签与恢复事实 | 治理 CLI 查询不等于安装；不代签 controlled→BFT 的独立交接 |
 | [professional_acceptance: p2p-target-recovery-trust-chain](prd.md#p2p-target-recovery-trust-chain) | [des-p2p-target-recovery](#des-p2p-target-recovery) | manifest/genesis→cert/header+set transition→hash snapshot→canonical replay→root→serve/vote；每环缺失/冲突/回退/异world停止 | [testing-manual.md](../../testing-manual.md)；S9A state-sync/full restore：逐环负例、snapshot/replay/state-sync/pruning/drill；同world+samecandidate+同窗口材料，readonly历史与writable闸门分判。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
+| [完整同步只读资格](prd.md#p2p-full-sync-read-only) | [完整状态同步](#des-p2p-full-sync-read-only-v1) | 同 cut、minimum 和闭包完整后原子发布，不自授权限 | FS-R1，现有[有界 full-sync 测试](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_tests.rs)仅作为局部基线；planned 同候选 full 组合补错 C0/旧 minimum/缺 blob/坏 manifest/provider 切换/授权失效，核对原 head 保留与无 writer/vote；本次未运行 | 原/新 cut、页链与闭包校验、实际读权 verdict、只读状态和错误原因 | 本机有界测试不关闭长期容量或部署验收 |
+| [长期同步容量](prd.md#p2p-full-sync-capacity-checkpoint) | [checkpoint 与容量](#des-p2p-full-sync-checkpoint-capacity-v1) | 接续不换根、不回滚；容量触限保留 verified 历史 | FS-C1，planned full storage/restore；沿 [testing-manual.md](../../testing-manual.md) S9A 新增合法历史跨现有页/字节/树上限，跨 epoch/profile/manifest 接续，伪 checkpoint/缺旧 head/minimum、安装各 seam 崩溃、旧 pointer、archive 缺失/损坏、GC 前重建、换 provider 累计预算与冷重开 SLO；现有手册不表示这些新场景已执行 | 版本化规模、使用/上限、受保护最低记录、冷恢复 roots、archive 重建、重开耗时与 stale/blocked | 当前页链和 watch inline 不证明该目标；本次未运行这些场景 |
+| [单权威提交与恢复](prd.md#p2p-single-authority-durable-commit) | [实际故障域验收](#des-p2p-controlled-fault-domain-acceptance-v1) | 已确认结果经任一单域损失可恢复，缺双端条件停写 | 复用 CA-R1/R2/R3、CA-F1/F2、CA-B1；[S9A](../../testing-manual.md) 与真实独立域演练按本节六行矩阵逐项注入；固定世界/工件/provider/配置与窗口 | 域 inventory、qualified 清单、原请求结果/roots、旧签写拒绝、无第二效果、部署 blocker | 本机目录、mock 与协议测试不可代签实际域或 RTO |
 | [professional_acceptance: p2p-target-role-isolation](prd.md#p2p-target-role-isolation) | [des-p2p-layer-authority](#des-p2p-layer-authority) | 治理validator与permissionless服务、light/archive角色隔离；验证材料而非operator身份；prune重建+archive条件 | [testing-manual.md](../../testing-manual.md)；S9A full：compromised服务/错误角色签名不能推进，archive失联禁止未证明prune；Ops同窗口inventory/role与runtime验证oracle。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-service-gate](prd.md#p2p-service-gate) | [des-p2p-target-service-gate](#des-p2p-target-service-gate) | verified-serving→stale/catching-up→readonly→serving；proof冲突→isolated；非serving新intent receipt0、历史不改 | [testing-manual.md](../../testing-manual.md)；S9A + GWSC full同candidate：当前manifest/head/finality逐项负例、三恢复状态+gate rollback；receipt0/1与consumer blocker/next-step必须实际linked附件，现模板不足。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
 | [professional_acceptance: p2p-replication-recovery](prd.md#p2p-replication-recovery) | [des-p2p-replication-scope](#des-p2p-replication-scope) | writer/epoch从seq1及guard不污染；权威恢复错误与qualified storage-challenge fallback区分 | [testing-manual S4/S9A](../../testing-manual.md)；exact local test source `crates/oasis7_node/src/tests_fetch_blob_chunking.rs`；existing fetch_blob_storage_challenge_empty_provider_routes_probe_bounded_generic_route、fetch_blob_storage_challenge_without_provider_lookup_does_not_probe_generic_route；node局部fixture，不是DHT fetch fallback或QC证明。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | target实现与full组合未证明；外部pending/lineage/manifest/消费者字段未闭合 |
@@ -597,8 +691,8 @@ target protected validators + public services；governed registry有效epoch/sta
 | Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4；[product_requirement: ac-dcs-002](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-002) | [des-p2p-target-recovery](#des-p2p-target-recovery) | sameworld恢复链每环验证；历史只读与重新服务闸门分开 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；[product_requirement: req-dcs-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | [des-p2p-layer-authority](#des-p2p-layer-authority) | governed validator与permissionless服务隔离；公网IP非通用前提 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；[product_requirement: ac-dcs-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-003) | [des-p2p-layer-authority](#des-p2p-layer-authority) | governed validator与permissionless服务隔离；公网IP非通用前提 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
-| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: req-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) | [des-p2p-target-bft](#des-p2p-target-bft) | verified >2/3 active stake证书才推进；wrongset/equivocation/round缺证拒绝 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
-| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: ac-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-004) | [des-p2p-target-bft](#des-p2p-target-bft) | verified >2/3 active stake证书才推进；wrongset/equivocation/round缺证拒绝 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
+| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: req-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) | [des-p2p-target-bft](#des-p2p-target-bft) | verified >2/3 active stake证书才推进；错集或缺少合法 round 证明拒绝；矛盾票不重复计权、不使合法证书失效 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
+| Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46；[product_requirement: ac-dcs-004](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-004) | [des-p2p-target-bft](#des-p2p-target-bft) | verified >2/3 active stake证书才推进；错集或缺少合法 round 证明拒绝；矛盾票不重复计权、不使合法证书失效 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[product_requirement: req-dcs-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) | [des-p2p-target-service-gate](#des-p2p-target-service-gate) | 服务转换及manifest/head/finality conjunction；非serving intent receipt0 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[product_requirement: ac-dcs-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-005) | [des-p2p-target-service-gate](#des-p2p-target-service-gate) | 服务转换及manifest/head/finality conjunction；非serving intent receipt0 | [testing-manual S9A](../../testing-manual.md)；target full同candidate场景按对应DES；DCS001/004的required局部不降低根full组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | 只接受该P2P portion；target实现/执行/完整组合未证明 |
 | Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；[product_requirement: req-dwe-001](../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-001) | [des-p2p-receipt-finality](#des-p2p-receipt-finality) | 同parent/version/order重执行及root绑定；runtime原子apply外部 | [testing-manual S9A](../../testing-manual.md)；对应DWE同candidate跨runtime/P2P/消费者replay/outage/lineage/activation负例计划；DWE004 full，其余局部required不代根组合。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | external durability/lineage/activation/消费者设计及证据未闭合 |
@@ -630,9 +724,10 @@ target protected validators + public services；governed registry有效epoch/sta
 
 #### val-p2p-controlled-authority-v1
 
-以下 CA 场景全部为新目标验证计划，尚无实现通过或真实故障域证据。
-现有 `controlled_live`、`replicated_protocol`、`controlled_history` 回归仅提供故障接缝与原
-工程拒绝行为的基线，不覆盖新 codec、formal activation、普通 v2 消费或跨主机 fencing。
+以下 CA 场景定义完整合同所需的验收范围，不把早期 planned 标签作为当前全部未实现的结论。
+已有本机 formal/恢复子范围及其测试按[持久节点手册](blockchain/persistent-world-node-lifecycle.runbook.md#剩余整体验收)逐项引用；没有同候选适用证据的项继续未验证。
+`controlled_live`、`replicated_protocol`、`controlled_history` 等本机回归不能代签跨主机
+fencing、真实 nonexportable provider/witness 或独立故障域；逐项真实注入按[故障域矩阵](#des-p2p-controlled-fault-domain-acceptance-v1)执行。
 实施时由 Runtime/P2P/QA 绑定同 source/integration/tested tree、world/config、执行工件和
 环境窗口；单机故障注入与实际独立域演练分别出证。实际部署 hold 不因文档验收解除。
 
@@ -641,7 +736,7 @@ target protected validators + public services；governed registry有效epoch/sta
 
 ## 12. 决策、长期风险与未决问题
 
-选择保留现有专业合同并精确分配，拒绝以导航/历史标签免除真实设计，也拒绝将local证明升级为full。目标锁定/解锁、anti-double-sign、timeout/new-round、set transition与partition/heal/restart需独立对抗性证明；本文给拒绝条件而不发明新lock算法/schema。pending/lineage/manifest/consumer字段及DC5 structured attachment仍外部未闭合。
+选择保留现有专业合同并精确分配，拒绝以导航/历史标签免除真实设计，也拒绝将local证明升级为full。首个 BFT 明确采纳 Tendermint Algorithm 1、严格权重阈值、签名前持久决定及固定 h+2 集合转换；代价是持久写入、可证明的 signer 独占和集合安装期间可能停签。实现、模型/一致性向量及分区/重启对抗性验收仍未完成。长期 full-sync 选择保留 C0 认证关系和受保护最低 checkpoint，代价是归档、受保护状态与容量管理；不以本机 pointer 替代信任。pending/lineage/manifest/consumer字段及DC5 structured attachment仍外部未闭合。
 
 后继 controlled v1 明确选择执行前双端闭包和原决定重建，代价是额外持久写入、原 native
 工件保留与单世界未决执行串行；不选择重开原请求、采用当前版本或依赖外部 provider 重试。
