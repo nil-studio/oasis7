@@ -150,6 +150,34 @@ class BundlePackIdentity(unittest.TestCase):
                 D.bundle_search_root(cli)
 
 
+class ActualLibrarySchema(unittest.TestCase):
+    def packet(self):
+        bundle, query = Path("/owned/bundle"), Path("/owned/queries")
+        return bundle, query, {
+            "libraryPath": [str(query)] + [str(bundle / "qlpacks/codeql" / k / v) for k, v in D.LIBRARY_VERSIONS.items()],
+            "dbscheme": str(bundle / "qlpacks/codeql/rust-all/0.2.23/rust.dbscheme"),
+            "compilationCache": ["/owned/cache"], "relativeName": "oasis7/rust-model-diagnostic/Macros.ql",
+            "qlPackName": "oasis7/rust-model-diagnostic"}
+
+    def test_exact_actual_schema(self):
+        bundle, query, packet = self.packet()
+        D.verify_library_path(packet, bundle, query, "Macros")
+
+    def test_embedded_or_foreign_library_rejected(self):
+        bundle, query, packet = self.packet()
+        packet["libraryPath"][1] = "/foreign/codeql/concepts/0.0.33"
+        with self.assertRaisesRegex(RuntimeError, "dependency closure"):
+            D.verify_library_path(packet, bundle, query, "Macros")
+
+    def test_unknown_schema_and_wrong_source_rejected(self):
+        bundle, query, packet = self.packet()
+        packet["qlPackName"] = "codeql/rust-queries"
+        with self.assertRaisesRegex(RuntimeError, "source query pack"):
+            D.verify_library_path(packet, bundle, query, "Macros")
+        with self.assertRaisesRegex(RuntimeError, "unknown actual"):
+            D.verify_library_path({"error": str(packet)}, bundle, query, "Macros")
+
+
 class ProcessBoundaries(unittest.TestCase):
     def test_existing_output_is_never_claimed_or_written(self):
         with tempfile.TemporaryDirectory() as temp:

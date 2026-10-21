@@ -266,6 +266,32 @@ def bundle_search_root(cli):
                             "name": "codeql/rust-all", "version": "0.2.23"}
 
 
+LIBRARY_VERSIONS = {
+    "concepts": "0.0.33", "controlflow": "2.0.43", "dataflow": "2.1.15",
+    "mad": "1.0.59", "namebinding": "0.0.8", "regex": "1.0.59",
+    "rust-all": "0.2.23", "ssa": "2.0.35", "threat-models": "1.0.59",
+    "tutorial": "1.0.59", "typeinference": "0.0.40", "typetracking": "2.0.43",
+    "util": "2.0.46"}
+
+
+def verify_library_path(value, bundle, query, name):
+    expected_keys = {"libraryPath", "dbscheme", "compilationCache", "relativeName", "qlPackName"}
+    if not isinstance(value, dict) or set(value) != expected_keys:
+        raise RuntimeError("unknown actual library-path schema")
+    roots = {str(bundle / "qlpacks/codeql" / key / version) for key, version in LIBRARY_VERSIONS.items()}
+    paths = value["libraryPath"]
+    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths) or len(paths) != len(set(paths)):
+        raise RuntimeError("invalid actual library paths")
+    if set(paths) != roots | {str(query)}:
+        raise RuntimeError("actual library dependency closure differs from pinned bundle")
+    if value["dbscheme"] != str(bundle / "qlpacks/codeql/rust-all/0.2.23/rust.dbscheme"):
+        raise RuntimeError("actual dbscheme differs from pinned bundle")
+    if value["qlPackName"] != "oasis7/rust-model-diagnostic" or value["relativeName"] != f"oasis7/rust-model-diagnostic/{name}.ql":
+        raise RuntimeError("actual source query pack identity mismatch")
+    if not isinstance(value["compilationCache"], list) or not all(isinstance(p, str) for p in value["compilationCache"]):
+        raise RuntimeError("unknown compilation cache schema")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--codeql", type=Path, required=True)
@@ -363,6 +389,13 @@ def diagnose(args):
             "resolver_json_schema": "requires independent exact-shape review",
             "production_coverage": "NOT_ESTABLISHED"}, indent=2) + "\n")
         return
+    versions = {p["name"]: p["version"] for p in inventory}
+    for name, version in LIBRARY_VERSIONS.items():
+        if versions.get("codeql/" + name) != version:
+            raise RuntimeError("pinned dependency manifest mismatch: " + name)
+    for name in ("Macros", "Calls", "Closures"):
+        verify_library_path(json.loads((args.output / f"library-path-{name}.json").read_text()),
+                            args.codeql.resolve().parent, query.resolve(), name)
     run([cli, "query", "compile", "--help"], args.work,
         args.output / "query-compile-help.log", args.deadline, 20, args.output, env)
     help_text = (args.output / "query-compile-help.log").read_text()
