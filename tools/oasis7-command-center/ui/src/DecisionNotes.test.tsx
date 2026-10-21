@@ -12,10 +12,19 @@ const record:DecisionRecord={id:'decision',content:'保留简单决定',reason:'
 const data=(decisions:DecisionRecord[]=[]):Snapshot=>({project:{id:'project',path:'/repo',head:'head',branch:'main',gitCommonDir:'/repo/.git',environment:'local'},sources:[],sections:[document],decisions,preferences:{projectPath:'/repo',view:'direction',query:''},associations:[],readingPositions:[],git:{status:'',worktrees:''}});
 beforeEach(()=>{Object.values(api).forEach(m=>m.mockReset());api.snapshot.mockResolvedValue(data());api.github.mockResolvedValue({state:'ready',repository:'nil-studio/oasis7',account:'reader',pulls:[{id:4919,title:'不应重复的 PR',url:'https://github.com/nil-studio/oasis7/pull/4919',state:'MERGED',headOid:'oid'}],coverage:'已读一页',error:null});api.savePreferences.mockResolvedValue(undefined);api.recordReading.mockResolvedValue(undefined);});
 afterEach(cleanup);
+it('keeps chapter groups and decision editor closed until requested, retaining unsaved text and focus',async()=>{
+ render(()=><App/>);await screen.findByText('oasis7 · 本地项目');fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
+ expect(screen.queryByLabelText('决定内容')).not.toBeInTheDocument();
+ const chapter=screen.getAllByText('正式条款')[0].closest('details')!;expect(chapter).not.toHaveAttribute('open');
+ const create=screen.getByRole('button',{name:'新建决定'});fireEvent.click(create);await waitFor(()=>expect(screen.getByRole('form',{name:'决定编辑器'})).toHaveFocus());
+ fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'尚未保存'}});fireEvent.click(screen.getByRole('button',{name:'收起编辑，保留输入'}));
+ await waitFor(()=>expect(create).toHaveFocus());expect(screen.queryByLabelText('决定内容')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'继续编辑未清空内容'}));expect(screen.getByLabelText('决定内容')).toHaveValue('尚未保存');expect(api.saveDecision).not.toHaveBeenCalled();
+});
 it('saves the simple note with a formal document association and opens that document',async()=>{
  api.saveDecision.mockResolvedValue(record);api.snapshot.mockResolvedValueOnce(data()).mockResolvedValue(data([record]));
  render(()=><App/>);await screen.findByText('oasis7 · 本地项目');fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
- fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:record.content}});fireEvent.input(screen.getByLabelText('理由'),{target:{value:record.reason}});fireEvent.input(screen.getByLabelText('适用范围'),{target:{value:record.scope}});fireEvent.change(screen.getByLabelText('正式文档关联'),{target:{value:'formal'}});
+ if(!screen.queryByLabelText('决定内容'))fireEvent.click((screen.queryByRole('button',{name:'继续编辑未清空内容'})??screen.getByRole('button',{name:'新建决定'})));fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:record.content}});fireEvent.input(screen.getByLabelText('理由'),{target:{value:record.reason}});fireEvent.input(screen.getByLabelText('适用范围'),{target:{value:record.scope}});fireEvent.change(screen.getByLabelText('正式文档关联'),{target:{value:'formal'}});
  await waitFor(()=>expect(screen.getByRole('button',{name:'记录已决定'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'记录已决定'}));
  await waitFor(()=>expect(api.saveDecision).toHaveBeenCalledWith({id:null,content:record.content,reason:record.reason,scope:record.scope,relatedSection:'formal',confirmed:true}));
  const link=await screen.findByRole('button',{name:'查看正式文档：正式条款'});fireEvent.click(link);expect(await screen.findByLabelText('来源详情')).toHaveTextContent('文档正文');
@@ -24,7 +33,7 @@ it('saves the simple note with a formal document association and opens that docu
 it('retains confirmed note history and offers a replacement without synchronization fields',async()=>{
  api.snapshot.mockResolvedValue(data([record]));api.decisionHistory.mockResolvedValue([record]);api.replaceDecision.mockResolvedValue({...record,id:'new',supersedes:'decision'});
  render(()=><App/>);await screen.findByText('oasis7 · 本地项目');fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));fireEvent.click(screen.getByRole('button',{name:record.content}));
- expect(screen.getByRole('button',{name:'保存草稿'})).toBeDisabled();fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'新的决定'}});await waitFor(()=>expect(screen.getByRole('button',{name:'建立新决定并替代原决定'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'建立新决定并替代原决定'}));await waitFor(()=>expect(api.replaceDecision).toHaveBeenCalledWith(expect.objectContaining({content:'新的决定',confirmed:true}),'decision'));
+ expect(screen.getByRole('button',{name:'保存草稿'})).toBeDisabled();if(!screen.queryByLabelText('决定内容'))fireEvent.click((screen.queryByRole('button',{name:'继续编辑未清空内容'})??screen.getByRole('button',{name:'新建决定'})));fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'新的决定'}});await waitFor(()=>expect(screen.getByRole('button',{name:'建立新决定并替代原决定'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'建立新决定并替代原决定'}));await waitFor(()=>expect(api.replaceDecision).toHaveBeenCalledWith(expect.objectContaining({content:'新的决定',confirmed:true}),'decision'));
  await screen.findByText('新决定已保存，原决定与确认时间保留在历史。');fireEvent.click(screen.getByRole('button',{name:'查看修订历史'}));await waitFor(()=>expect(api.decisionHistory).toHaveBeenCalledWith('decision'));expect(screen.getByText(/原确认 original-confirmation/)).toBeInTheDocument();
 });
 it('keeps GitHub diagnostics and paging without a second PR list',async()=>{

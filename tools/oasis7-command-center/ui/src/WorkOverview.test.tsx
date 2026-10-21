@@ -236,7 +236,7 @@ it('opens the sole explicit home goal work and preserves removed relationship ov
  const source=snapshot();source.sections=[{id:'a',path:'doc/core/prd.md',title:'当前阶段交付目标与全局 P0',content:'明确目标与可恢复的剩余条件',revision:'r'}] as Snapshot['sections'];
  const record=state();const [records,setRecords]=createSignal(0);vi.mocked(bridge.dailyWork).mockImplementation(async()=>record);
  render(()=><WorkOverview snapshot={source} view="direction" sourceGeneration={records()} onExecution={()=>{}}/>);
- await screen.findByText('1 项已读工作');const original=screen.getByText('明确目标与可恢复的剩余条件');expect(original.closest('details')).not.toHaveAttribute('open');expect(original).not.toBeVisible();fireEvent.click(screen.getByRole('button',{name:'进入关联工作'}));
+ await screen.findByText('1 项已读工作');expect(screen.getAllByText('明确目标与可恢复的剩余条件').some(node=>node.closest('[aria-label="具体交付目标"]'))).toBe(true);fireEvent.click(screen.getByRole('button',{name:'进入关联工作'}));
  await screen.findByRole('region',{name:'工作详情'});fireEvent.click(screen.getByRole('button',{name:'返回工作列表'}));
  record.revision=10;record.relations=[{id:'removed',work:projection().items[0].reference,sectionId:'a',sourceRevision:'r',confirmedAt:'1',removedAt:'2',previous:[]}];
  setRecords(1);await screen.findByText('尚无已读明确关联');expect(screen.queryByRole('button',{name:'进入关联工作'})).not.toBeInTheDocument();

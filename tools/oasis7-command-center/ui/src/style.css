@@ -383,3 +383,39 @@ button svg{vertical-align:middle;flex-shrink:0}
  .readable-document-tree .tree-node-actions{gap:4px}
  .readable-document-tree .tree-node-source summary{min-height:28px}
 }
+
+/* Source-backed goals and compact, explicitly dated outcomes. */
+.focus-route>.goal-summary{grid-column:1/-1;min-width:0}
+.goal-statement{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px}
+.goal-statement>svg{color:#76e0bd;margin-top:3px}
+.goal-statement .document-prose{font-size:.9375rem;line-height:1.65}
+.goal-statement .document-prose p{margin:4px 0 8px}
+.goal-statement .text-link{font-size:.8125rem;color:#b0bed0}
+.milestone-cards{display:grid;align-items:start;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+.milestone-card{border:1px solid #354256;border-radius:6px;background:#101d2b;min-width:0}
+.milestone-card>summary{display:flex;align-items:center;gap:8px;padding:10px;font-size:.875rem;cursor:pointer;list-style:none}
+.milestone-chevron{margin-left:auto}
+.milestone-card[open] .milestone-chevron{transform:rotate(90deg)}
+.milestone-card svg{color:#8cb9d9;flex-shrink:0}
+.milestone-card dl{margin:0;padding:0 10px 12px;font-size:.8125rem;overflow-wrap:anywhere}
+.milestone-card dt{color:#8cb9d9;margin-top:8px}.milestone-card dd{margin:3px 0}
+.compact-timeline .timeline-day{margin:0 0 12px}
+.compact-timeline h4{margin:0 0 6px;color:#b0bed0;font-size:.8125rem;font-weight:500}
+.compact-timeline ol{list-style:none;padding:0;margin:0}
+.compact-timeline li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:10px;padding:8px 0 8px 10px;border-left:1px solid #567e78}
+.compact-timeline li>svg{width:18px;height:18px;margin-top:3px;flex-shrink:0}
+.compact-timeline .row-title{font-size:.875rem;line-height:1.5;padding:0;text-align:left}
+.timeline-facts{display:flex;align-items:start;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:.75rem;color:#b0bed0}
+.timeline-facts .tag{font-size:inherit;padding:1px 5px}
+.timeline-facts details>time{display:block;overflow-wrap:anywhere}
+.rule-documents>details{border-top:1px solid #354256}
+.rule-documents>details>summary{display:flex;align-items:center;gap:8px;padding:12px 0;cursor:pointer}
+.rule-documents>details>summary svg{color:#8cb9d9;flex-shrink:0}
+.rule-documents>details>summary .tag{margin-left:auto}
+.rule-documents .row{padding:10px 0}
+.decision-editor:focus{outline:2px solid #8bb7ff;outline-offset:-2px}
+@media(max-width:640px){.milestone-cards{grid-template-columns:minmax(0,1fr)}}
+
+.rule-documents>details[open]>summary .rule-chevron{transform:rotate(90deg)}
+
+.rule-workspace{align-items:start}
