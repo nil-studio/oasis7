@@ -304,12 +304,15 @@ def main():
     mode.add_argument("--production-macro-database", action="store_true")
     mode.add_argument("--inspect-evaluator-evidence", action="store_true")
     parser.add_argument("--evaluator-cost-probes", action="store_true")
+    parser.add_argument("--evaluator-batch", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--deadline", type=float, required=True)
     args = parser.parse_args()
     if args.evaluator_cost_probes and not args.production_macro_database:
         parser.error("cost probes require the production database mode")
+    if args.evaluator_batch and (not args.production_macro_database or args.evaluator_cost_probes):
+        parser.error("batch requires production database mode without cost probes")
     args.owned_output = False
     terminal = {"status": "failed"}
     try:

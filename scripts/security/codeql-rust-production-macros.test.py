@@ -257,6 +257,48 @@ class Guards(unittest.TestCase):
             def open(self,*args,**kwargs):raise AssertionError("expired must not request")
         with self.assertRaises(TimeoutError):m.artifact_request(Never(),"token",packet,time.monotonic()-1)
 
+    def test_batch_fails_before_evaluation_on_unknown_help_or_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = SimpleNamespace(codeql=Path("/cli"), work=root, output=root, deadline=time.monotonic()+569)
+            calls = []
+            def invoke(argv, cwd, log, *rest, **kw):
+                calls.append(argv)
+                log.write_text("--additional-packs= --compilation-cache= --max-disk-cache= --evaluator-log= --evaluator-log-minify --[no-]tuple-counting --common-caches= --no-default-compilation-cache")
+            with self.assertRaisesRegex(RuntimeError, "requires480"):
+                m.batch_queries(invoke, args, {}, root, root, root, root)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][1:], ["database", "run-queries", "--help", "-v"])
+            def unknown(argv, cwd, log, *rest, **kw): log.write_text("unknown")
+            with self.assertRaisesRegex(RuntimeError, "option unavailable"):
+                m.batch_queries(unknown, args, {}, root, root, root, root)
+
+    def test_batch_timeout_survives_summary_error_without_decode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); work = root / "work"; out = root / "out"
+            work.mkdir(); out.mkdir(); query = out / "queries"; query.mkdir()
+            database = work / "db"; database.mkdir(); cache = work / "cache"; cache.mkdir()
+            for name, text in m.QUERIES.items(): (query / (name+".ql")).write_text(text)
+            args = SimpleNamespace(codeql=Path("/cli"), work=work, output=out, deadline=time.monotonic()+900)
+            calls = []
+            def invoke(argv, cwd, log, *rest, **kw):
+                calls.append(argv)
+                if "--help" in argv:
+                    log.write_text("--additional-packs= --compilation-cache= --max-disk-cache= --evaluator-log= --evaluator-log-minify --[no-]tuple-counting --common-caches= --[no-]default-compilation-cache")
+                elif "run-queries" in argv:
+                    log.write_text('{"kind":"header"}\n')
+                    log.with_suffix(".log.result.json").write_text(json.dumps({"cleanup_errors": [], "error": "TimeoutError('diagnostic phase deadline exhausted')"}))
+                    self.assertEqual(kw["file_limit"], 1024**3)
+                    self.assertEqual(argv[-4:], [str(query/(name+".ql")) for name in m.QUERIES])
+                    raise RuntimeError("original batch timeout")
+                else: raise RuntimeError("summary failure")
+            with patch.object(m.shutil, "disk_usage", return_value=SimpleNamespace(free=8*1024**3)):
+                with self.assertRaisesRegex(RuntimeError, "original batch timeout"):
+                    m.batch_queries(invoke, args, {}, query, work, cache, database)
+            self.assertFalse(any("decode" in call for call in calls))
+            self.assertEqual(len(calls), 3)
+            self.assertTrue((out/"batch-framing.json").is_file())
+
     def test_actual_driver_and_workflow_token_boundary(self):
         driver = Path(__file__).with_name("codeql-rust-model-diagnostic.py").read_text()
         self.assertLess(driver.index('env.pop("GH_TOKEN", None)'), driver.index('run([cli, "version"'))
@@ -264,9 +306,9 @@ class Guards(unittest.TestCase):
         self.assertIn('mode.add_argument("--production-macro-database"', driver)
         workflow = Path(".github/workflows/rust.yml").read_text()
         job = workflow.split("  codeql-rust-model-diagnostic:",1)[1].split("\n  select:",1)[0]
-        self.assertIn("actions: read", job)
-        self.assertNotIn("security-events:", job)
-        self.assertIn("--inspect-evaluator-evidence", job)
+        self.assertIn("security-events: read", job)
+        self.assertNotIn("actions: read", job)
+        self.assertIn("--production-macro-database --evaluator-batch", job)
         self.assertIn("GH_TOKEN: ${{ github.token }}", job)
 
 if __name__ == "__main__": unittest.main()

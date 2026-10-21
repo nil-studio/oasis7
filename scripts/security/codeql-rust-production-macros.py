@@ -278,6 +278,83 @@ def inspect_saved_evaluator_evidence(run, args, env):
         raise RuntimeError("postprocess retained incomplete summary; no query rerun")
 
 
+def batch_queries(run, args, env, query, packs, cache, database):
+    """Run the unchanged production predicates together; sharing is measured, not assumed."""
+    cli = str(args.codeql)
+    run([cli, "database", "run-queries", "--help", "-v"], args.work,
+        args.output / "batch-help.log", args.deadline, 20, args.output, env)
+    help_text = (args.output / "batch-help.log").read_text()
+    for option in ("--additional-packs=", "--compilation-cache=", "--max-disk-cache=",
+                   "--evaluator-log=", "--evaluator-log-minify", "--[no-]tuple-counting",
+                   "--common-caches="):
+        if option not in help_text:
+            raise RuntimeError("exact batch CLI option unavailable: " + option)
+    if not any(value in help_text for value in ("--no-default-compilation-cache", "--[no-]default-compilation-cache")):
+        raise RuntimeError("exact batch default-cache isolation option unavailable")
+    if args.deadline - time.monotonic() < 570:
+        raise RuntimeError("batch requires480 plus90 remaining; zero evaluation")
+    free = shutil.disk_usage(args.work).free
+    if free < 4 * 1024**3:
+        raise RuntimeError("insufficient owned batch data space")
+    frozen = {name: hashlib.sha256((query / (name + ".ql")).read_bytes()).hexdigest()
+              for name in QUERIES}
+    if any((query / (name + ".ql")).read_text() != text for name, text in QUERIES.items()):
+        raise RuntimeError("batch production predicate changed")
+    evidence_write(args.output / "batch-inputs.json", (json.dumps({"queries": frozen,
+        "free_bytes": free, "data_per_file_limit": 1024**3, "disk_cache_requested_mb": 1024,
+        "batch_seconds": 480, "reserve_seconds": 90, "shared_stage_reuse": "UNPROVEN"}, indent=2)+"\n").encode(), args.output)
+    log = args.output / "batch-evaluation.log"
+    for owned in (database, query, cache):
+        if not owned.resolve().is_relative_to(args.work.resolve()) and owned != query:
+            raise RuntimeError("batch cache/database outside owned root")
+    batch_error = None
+    summary_error = None
+    try:
+        run([cli, "database", "run-queries", "--additional-packs=" + str(packs),
+             "--compilation-cache=" + str(cache), "--no-default-compilation-cache",
+             "--common-caches=" + str(args.work / "common-caches"), "--max-disk-cache=1024", "--threads=2", "--ram=3072",
+             "--verbosity=progress+++", "--tuple-counting", "--evaluator-log=/dev/stderr",
+             "--evaluator-log-minify", "--", str(database)] +
+            [str(query / (name + ".ql")) for name in QUERIES], args.work, log,
+            args.deadline - 90, 480, args.output, env, file_limit=1024**3)
+    except BaseException as error:
+        batch_error = error
+    finally:
+        result_path = log.with_suffix(".log.result.json")
+        if result_path.exists():
+            result = json.loads(result_path.read_text())
+            allowed = not result["cleanup_errors"] and (result["error"] is None or
+                result["error"] == "TimeoutError('diagnostic phase deadline exhausted')")
+            if allowed and args.deadline - time.monotonic() >= 25:
+                try:
+                    events = args.output / "batch-events.jsonl"
+                    framing = frame_complete_events(log, events, args.output)
+                    evidence_write(args.output / "batch-framing.json", (json.dumps(framing, indent=2)+"\n").encode(), args.output)
+                    run([cli, "generate", "log-summary", "--format=text", str(events)], args.work,
+                        args.output / "batch-official-summary.log", args.deadline, 20, args.output, env)
+                except BaseException as error:
+                    summary_error = error
+    if batch_error is not None:
+        raise batch_error
+    if summary_error is not None:
+        raise RuntimeError("batch summary UNKNOWN; no decode") from summary_error
+    outputs = {}
+    for name in QUERIES:
+        matches = list((database / "results").rglob(name + ".bqrs"))
+        if len(matches) != 1 or not matches[0].is_file() or matches[0].is_symlink():
+            raise RuntimeError("missing or ambiguous batch output: " + name)
+        digest = hashlib.sha256()
+        with matches[0].open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""): digest.update(chunk)
+        outputs[name] = {"query_sha256": frozen[name], "bqrs_sha256": digest.hexdigest()}
+        run([cli, "bqrs", "decode", str(matches[0]), "--format=csv",
+             "--output=" + str(args.output / ("production-" + name + ".csv"))], args.work,
+            args.output / ("batch-decode-" + name + ".log"), args.deadline, 20, args.output, env)
+    evidence_write(args.output / "batch-result.json", (json.dumps({"outputs": outputs,
+        "coverage": "REQUIRES_INDEPENDENT_LAYER_REVIEW", "stage_reuse": "REQUIRES_RAW_REVIEW",
+        "rust_baseline": "HOLD"}, indent=2)+"\n").encode(), args.output)
+
+
 def cost_probes(run, args, env, query, packs, cache, database):
     cli = str(args.codeql)
     help_text = (args.output / "query-run-help.log").read_text()
@@ -481,6 +558,9 @@ def execute(run, args, env, query, packs, cache):
                 raise RuntimeError("production archived module/source changed")
             source_hashes[path] = {"archive_key": matches[0].filename, "sha256": actual}
     (args.output / "production-source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
+    if getattr(args, "evaluator_batch", False):
+        batch_queries(run, args, env, query, packs, cache, database)
+        return
     if getattr(args, "evaluator_cost_probes", False):
         cost_probes(run, args, env, query, packs, cache, database)
         return
