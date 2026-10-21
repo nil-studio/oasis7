@@ -547,10 +547,14 @@ impl FormalFullSyncSession {
         }
         let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes)
             .map_err(|error| format!("full-sync Snapshot decode: {error}"))?;
-        let journal: Journal = serde_cbor::from_slice(journal_bytes)
-            .map_err(|error| format!("full-sync Journal decode: {error}"))?;
-        if oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|error| error.to_string())? != snapshot_bytes
-            || serde_cbor::to_vec(&journal).map_err(|error| error.to_string())? != journal_bytes
+        let journal: Journal = oasis7_world_state::codec::journal_from_cbor(journal_bytes)
+            .map_err(|error| format!("full-sync Journal decode: {error}"))
+            .map_err(|error| error.to_string())?;
+        if oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|error| error.to_string())?
+            != snapshot_bytes
+            || oasis7_world_state::codec::journal_cbor(&journal)
+                .map_err(|error| error.to_string())?
+                != journal_bytes
         {
             return Err("full-sync Snapshot or Journal is not canonical CBOR".into());
         }

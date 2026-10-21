@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-use super::super::util::{hash_json, sha256_hex, to_canonical_cbor};
+use super::super::util::{sha256_hex, to_canonical_cbor};
 use super::super::{
     Journal, RollbackAuthorityRegistry, RollbackAuthorityRole, RollbackAuthorizationEnvelope,
     RollbackEvent, RollbackNonceOutcome, RollbackOutcomeRecoveryMetadata, RollbackReadiness,
@@ -314,7 +314,7 @@ pub fn rollback_journal_commitment(
             supplied_journal_len: journal.len(),
         });
     }
-    let snapshot_hash = hash_json(snapshot)?;
+    let snapshot_hash = oasis7_world_state::codec::snapshot_json_hash(snapshot)?;
     Ok(sha256_hex(&to_canonical_cbor(
         &RollbackJournalCommitment {
             domain: "oasis7:rollback-journal-commitment:v1",
@@ -766,7 +766,7 @@ impl World {
             return Ok(());
         }
 
-        let snapshot_hash = hash_json(&snapshot)?;
+        let snapshot_hash = oasis7_world_state::codec::snapshot_json_hash(&snapshot)?;
         let outcome_nonce = approval.intent.nonce.clone();
         let outcome_ticket = approval.intent.rollback_ticket.clone();
         let outcome_commitment = approval
@@ -950,7 +950,7 @@ impl World {
             ));
         }
         let intent = &envelope.intent;
-        let expected_hash = hash_json(snapshot)?;
+        let expected_hash = oasis7_world_state::codec::snapshot_json_hash(snapshot)?;
         if intent.rollback_ticket.trim().is_empty()
             || intent.reason != reason
             || intent.snapshot_hash != expected_hash

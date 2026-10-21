@@ -7,8 +7,8 @@ use oasis7_node::{
     NodeExecutionCheckpointBundle, NodeExecutionCheckpointInstallContext, NodeExecutionCommitResult,
 };
 use oasis7_runtime::{
-    BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal,
-    World as RuntimeWorld, blake3_hex,
+    BlobStore, ChainResourceDerivationContext, Journal as RuntimeJournal, World as RuntimeWorld,
+    blake3_hex,
 };
 use serde::{Deserialize, Serialize};
 
@@ -640,8 +640,8 @@ pub(super) fn install_checkpoint_bundle(
     blob_store_ms += snapshot_started_at.elapsed();
     let snapshot_bytes_len = snapshot_bytes.len();
     let snapshot_decode_started_at = Instant::now();
-    let snapshot =
-        oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes.as_slice()).map_err(|err| {
+    let snapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes.as_slice())
+        .map_err(|err| {
             format!(
                 "decode execution checkpoint snapshot failed at height {}: {err}",
                 context.height
@@ -671,13 +671,14 @@ pub(super) fn install_checkpoint_bundle(
     blob_store_ms += journal_started_at.elapsed();
     let journal_bytes_len = journal_bytes.len();
     let journal_decode_started_at = Instant::now();
-    let journal =
-        serde_cbor::from_slice::<RuntimeJournal>(journal_bytes.as_slice()).map_err(|err| {
+    let journal = oasis7_world_state::codec::journal_from_cbor(journal_bytes.as_slice())
+        .map_err(|err| {
             format!(
                 "decode execution checkpoint journal failed at height {}: {err}",
                 context.height
             )
-        })?;
+        })
+        .map_err(|error| error.to_string())?;
     decode_ms += journal_decode_started_at.elapsed();
     let world_policy = driver.execution_world.release_security_policy().clone();
     let restored_resource_manifest = snapshot.chain_resource_manifest.clone();

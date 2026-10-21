@@ -813,6 +813,16 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     super::write_bytes_atomic(path, bytes)
 }
 
+pub(super) fn snapshot_to_cbor(value: &oasis7_runtime::Snapshot) -> Result<Vec<u8>, String> {
+    oasis7_world_state::codec::snapshot_cbor(value)
+        .map_err(|err| format!("serialize to cbor failed: {}", err))
+}
+
+pub(super) fn journal_to_cbor(value: &oasis7_runtime::Journal) -> Result<Vec<u8>, String> {
+    oasis7_world_state::codec::journal_cbor(value)
+        .map_err(|err| format!("serialize to cbor failed: {}", err))
+}
+
 fn to_cbor<T: Serialize>(value: T) -> Result<Vec<u8>, String> {
     serde_cbor::to_vec(&value).map_err(|err| format!("serialize to cbor failed: {}", err))
 }

@@ -329,7 +329,9 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         {
             return Err("formal writer key differs from external authority".into());
         }
-        if blake3_hex(&to_cbor(world.snapshot())?) != anchor.head().record().after_state_root {
+        if blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
+            != anchor.head().record().after_state_root
+        {
             return Err("formal writer initial World differs from external anchor".into());
         }
         super::controlled_live::private_directory(&root)?;
@@ -587,7 +589,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             return Err("formal business reader requires explicitly authorized profile 2".into());
         }
         if self.world.state().retained_history_root.is_some() {
-            let bytes = to_cbor(self.world.snapshot())?;
+            let bytes = super::snapshot_to_cbor(&self.world.snapshot())?;
             let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(
                 &self.anchor,
                 &bytes,

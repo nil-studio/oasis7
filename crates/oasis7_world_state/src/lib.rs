@@ -137,3 +137,5 @@ pub mod codec;
 pub mod cognition;
 #[cfg(not(target_arch = "wasm32"))]
 mod cognition_receipt_binding;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod segmentation;

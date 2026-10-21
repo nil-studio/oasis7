@@ -76,8 +76,8 @@ impl World {
                 reason: "rollback checkpoint journal position exceeds replay target".into(),
             }
         })?;
-        let replay_bytes =
-            serde_json::to_vec(suffix).map_err(|error| WorldError::Serde(error.to_string()))?;
+        let replay_bytes = oasis7_world_state::codec::journal_events_json(suffix)
+            .map_err(|error| WorldError::Serde(error.to_string()))?;
         if suffix.len() > approval.intent.max_replay_events
             || replay_bytes.len() > approval.intent.max_replay_bytes
         {
@@ -88,9 +88,10 @@ impl World {
         let checkpoint_hash = blake3::hash(&oasis7_world_state::codec::snapshot_json(&snapshot)?)
             .to_hex()
             .to_string();
-        let target_hash = blake3::hash(&serde_json::to_vec(&retained_target)?)
-            .to_hex()
-            .to_string();
+        let target_hash =
+            blake3::hash(&oasis7_world_state::codec::snapshot_json(&retained_target)?)
+                .to_hex()
+                .to_string();
         let intent = &approval.intent;
         if intent.rollback_checkpoint.snapshot_hash != checkpoint_hash
             || intent.rollback_checkpoint.snapshot_journal_len != snapshot.journal_len
@@ -116,7 +117,7 @@ impl World {
             });
         }
         let mut envelope = runtime_envelope(approval)?;
-        envelope.intent.snapshot_hash = crate::util::hash_json(&snapshot)?;
+        envelope.intent.snapshot_hash = oasis7_world_state::codec::snapshot_json_hash(&snapshot)?;
         envelope.intent.expected_target_state_root = execution_root;
         let payload = approval
             .intent

@@ -109,8 +109,8 @@ fn bridge_committed_heights_with_policy(
             runtime_resource_context_hash.clone(),
         );
         let journal_value = execution_world.journal().clone();
-        let snapshot_bytes = super::to_cbor(snapshot_value)?;
-        let journal_bytes = super::to_cbor(journal_value)?;
+        let snapshot_bytes = super::snapshot_to_cbor(&snapshot_value)?;
+        let journal_bytes = super::journal_to_cbor(&journal_value)?;
 
         let snapshot_ref = execution_store
             .put_bytes(snapshot_bytes.as_slice())

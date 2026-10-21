@@ -117,7 +117,8 @@ impl InitialWorldClosure {
     ) -> Result<Self, String> {
         if bootstrap.height == 0
             || bootstrap.height != world.state().time
-            || bootstrap.execution_state_root != blake3_hex(&to_cbor(world.snapshot())?)
+            || bootstrap.execution_state_root
+                != blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
             || bootstrap.consensus_block_hash.trim().is_empty()
             || bootstrap.execution_block_hash.trim().is_empty()
         {
@@ -138,7 +139,8 @@ impl InitialWorldClosure {
     ) -> Result<Self, String> {
         if bootstrap.height != 0
             || world.state().time != 0
-            || bootstrap.execution_state_root != blake3_hex(&to_cbor(world.snapshot())?)
+            || bootstrap.execution_state_root
+                != blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
             || bootstrap.consensus_block_hash.trim().is_empty()
             || bootstrap.execution_block_hash.trim().is_empty()
         {
@@ -156,7 +158,8 @@ impl InitialWorldClosure {
     ) -> Result<Self, String> {
         if bootstrap.height == 0
             || bootstrap.height != world.state().time
-            || bootstrap.execution_state_root != blake3_hex(&to_cbor(world.snapshot())?)
+            || bootstrap.execution_state_root
+                != blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
             || bootstrap.consensus_block_hash.trim().is_empty()
             || bootstrap.execution_block_hash.trim().is_empty()
         {
@@ -209,8 +212,8 @@ impl InitialWorldClosure {
             // index. Restore its process-local reader without minting lineage.
             restored.initialize_empty_formal_history()?;
         }
-        let snapshot_bytes = to_cbor(&snapshot)?;
-        if to_cbor(restored.snapshot())? != snapshot_bytes {
+        let snapshot_bytes = super::snapshot_to_cbor(&snapshot)?;
+        if super::snapshot_to_cbor(&restored.snapshot())? != snapshot_bytes {
             return Err("formal initial typed checkpoint changed on restoration".into());
         }
         let world = &restored;
@@ -228,7 +231,11 @@ impl InitialWorldClosure {
         };
         let mut objects = BTreeMap::new();
         let state_root = insert(&mut objects, snapshot_bytes, vec![]);
-        let journal = insert(&mut objects, to_cbor(world.journal())?, vec![]);
+        let journal = insert(
+            &mut objects,
+            super::journal_to_cbor(&world.journal())?,
+            vec![],
+        );
         let business_contract = bootstrap.is_some();
         let mut result_bytes = match bootstrap {
             Some(node_bootstrap) => to_cbor(InitialResultV1 {
@@ -331,7 +338,10 @@ impl InitialWorldClosure {
             executable_digest: executable,
             roots,
             objects,
-            event_root: blake3_hex(&to_cbor(&world.journal().events)?),
+            event_root: blake3_hex(
+                &oasis7_world_state::codec::journal_events_cbor(&world.journal().events)
+                    .map_err(|err| format!("serialize to cbor failed: {}", err))?,
+            ),
             projection_root: oasis7::world_service::formal_projection::commitments_for_world(
                 world,
             )?

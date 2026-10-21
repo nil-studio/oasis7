@@ -7,8 +7,8 @@ use super::super::{
 };
 use super::World;
 use super::module_tick_runtime::ModuleTickRoutingMetrics;
-use oasis7_cas::{assemble_journal, assemble_snapshot};
 use oasis7_proto::distributed::SnapshotManifest;
+use oasis7_world_state::segmentation::{assemble_journal, assemble_snapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -739,7 +739,9 @@ impl World {
             return Err(WorldError::JournalMismatch);
         }
         if !snapshot.journal_commitment.is_empty() {
-            let actual = hash_json(&journal.events[..snapshot.journal_len].to_vec())?;
+            let actual = oasis7_world_state::codec::journal_events_json_hash(
+                &journal.events[..snapshot.journal_len],
+            )?;
             if actual != snapshot.journal_commitment {
                 return Err(WorldError::JournalMismatch);
             }
@@ -828,8 +830,12 @@ impl World {
         for (key, result) in &world.capability_revocation_state.world_service_results {
             crate::service_admission::correlation::validate_result(key, result)
                 .map_err(|reason| super::capability_authorization::deny(&reason))?;
-            super::participant::validate_service_receipt(&world.capability_revocation_state,result)?;
-            crate::service_admission::starter::validate_result(&world,result).map_err(|reason|super::capability_authorization::deny(&reason))?;
+            super::participant::validate_service_receipt(
+                &world.capability_revocation_state,
+                result,
+            )?;
+            crate::service_admission::starter::validate_result(&world, result)
+                .map_err(|reason| super::capability_authorization::deny(&reason))?;
         }
         crate::service_admission::participant::validate_registry(&world)
             .map_err(|reason| super::capability_authorization::deny(&reason))?;
@@ -930,7 +936,8 @@ impl World {
                 // chain before publishing the recovered world or trimming its
                 // journal. With no tail, the pre-replay history is unchanged.
                 world.validate_participant_policy_history()?;
-                crate::service_admission::participant::validate_registry(&world).map_err(|reason| super::capability_authorization::deny(&reason))?;
+                crate::service_admission::participant::validate_registry(&world)
+                    .map_err(|reason| super::capability_authorization::deny(&reason))?;
                 crate::service_admission::game_task::validate_history(&world)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
             }
@@ -969,8 +976,7 @@ impl World {
             });
         }
 
-        let restored_events: Vec<WorldEvent> =
-            assemble_journal(&journal_segments, &store, |event: &WorldEvent| event.id)?;
+        let restored_events: Vec<WorldEvent> = assemble_journal(&journal_segments, &store)?;
         if restored_events != self.journal.events {
             return Err(WorldError::DistributedValidationFailed {
                 reason: "distfs journal assemble verification mismatch".to_string(),

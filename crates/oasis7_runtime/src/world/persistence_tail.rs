@@ -71,8 +71,7 @@ impl World {
                         archive.archived_records,
                     )?;
                 }
-                let events: Vec<WorldEvent> =
-                    assemble_journal(&journal_segments, &store, |event: &WorldEvent| event.id)?;
+                let events: Vec<WorldEvent> = assemble_journal(&journal_segments, &store)?;
                 let _ = write_distfs_recovery_audit(
                     dir,
                     if record.recovery_metadata_path.is_some() {
@@ -135,8 +134,7 @@ impl World {
         let journal_segments: Vec<JournalSegmentRef> = read_json_from_path(journal_segments_path)?;
         let store = LocalCasStore::new(store_root);
         let snapshot: Snapshot = assemble_snapshot(&manifest, &store)?;
-        let events: Vec<WorldEvent> =
-            assemble_journal(&journal_segments, &store, |event: &WorldEvent| event.id)?;
+        let events: Vec<WorldEvent> = assemble_journal(&journal_segments, &store)?;
         Ok((snapshot, Journal { events }))
     }
 

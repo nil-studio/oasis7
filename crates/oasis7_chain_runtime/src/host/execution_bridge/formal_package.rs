@@ -169,7 +169,7 @@ fn freeze_material_inner(
         return Err("formal frozen parent public proof mismatch".into());
     }
     let snapshot = world.snapshot();
-    let snapshot_bytes = to_cbor(&snapshot)?;
+    let snapshot_bytes = super::snapshot_to_cbor(&snapshot)?;
     let pre_state_root = blake3_hex(&snapshot_bytes);
     let c = &continuation.context;
     let identity = &snapshot.chain_resource_manifest;
@@ -219,7 +219,7 @@ fn freeze_material_inner(
     }
     .map_err(|e| format!("{e:?}"))?
     .with_release_security_policy(release_policy.clone());
-    if to_cbor(restored.snapshot())? != snapshot_bytes {
+    if super::snapshot_to_cbor(&restored.snapshot())? != snapshot_bytes {
         return Err("formal typed prestate restoration changed bytes".into());
     }
     let (policy_cbor, executable_digest, execution_policy_digest) =
@@ -255,7 +255,7 @@ fn freeze_material_inner(
     } else {
         insert(&mut objects, snapshot_bytes, vec![])
     };
-    let journal_ref = insert(&mut objects, to_cbor(&journal)?, vec![]);
+    let journal_ref = insert(&mut objects, super::journal_to_cbor(&journal)?, vec![]);
     let result = insert(
         &mut objects,
         to_cbor(("oasis7.formal.frozen_result.v1", &parent.head()))?,
@@ -503,8 +503,10 @@ pub(super) fn restore_executable(
     if let Some(transition) = &manifest.durable_set_transition {
         verify_durable_set_transition_arm(transition, original_authority, parent)?;
     }
-    let snapshot: Snapshot = capture::decode_generic(verified_snapshot.bytes_for(material)?)?;
-    let journal: Journal = capture::decode_role(material, ArtifactRole::Journal)?;
+    let snapshot: Snapshot =
+        oasis7_world_state::codec::snapshot_from_cbor(verified_snapshot.bytes_for(material)?)
+            .map_err(|error| error.to_string())?;
+    let journal: Journal = capture::decode_journal_role(material, ArtifactRole::Journal)?;
     let world = if original_authority.definition().profile_version == 2 {
         if let Some(source) = history_source {
             source
@@ -516,7 +518,7 @@ pub(super) fn restore_executable(
                 return Err("formal frozen restore read anchor differs from exact parent".into());
             }
             let reader = business_reader.ok_or("formal frozen restore lacks CAS reader")?;
-            let bytes = to_cbor(&snapshot)?;
+            let bytes = super::snapshot_to_cbor(&snapshot)?;
             let retained =
                 oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
             oasis7::runtime_host::world::from_verified_formal_snapshot(
@@ -627,10 +629,10 @@ pub(super) fn candidate_with_business_reader(
         .as_ref()
         .map(|transition| verify_durable_set_transition_arm(transition, authority, parent))
         .transpose()?;
-    let before_bytes = to_cbor(before_world.snapshot())?;
-    let before_journal_bytes = to_cbor(before_world.journal())?;
-    let after_bytes = to_cbor(after_world.snapshot())?;
-    let after_journal_bytes = to_cbor(after_world.journal())?;
+    let before_bytes = super::snapshot_to_cbor(&before_world.snapshot())?;
+    let before_journal_bytes = super::journal_to_cbor(&before_world.journal())?;
+    let after_bytes = super::snapshot_to_cbor(&after_world.snapshot())?;
+    let after_journal_bytes = super::journal_to_cbor(&after_world.journal())?;
     let previous_block = continuation
         .predecessor_execution_block_hash
         .as_deref()
@@ -665,7 +667,9 @@ pub(super) fn candidate_with_business_reader(
         after_world
             .verify_formal_archived_journal_prefix(&prefix)
             .map_err(|error| error.to_string())?;
-        let predecessor: Journal = capture::decode_generic(&before_journal_bytes)?;
+        let predecessor: Journal =
+            oasis7_world_state::codec::journal_from_cbor(&before_journal_bytes)
+                .map_err(|error| error.to_string())?;
         if full.len() < predecessor.events.len()
             || full[..predecessor.events.len()] != predecessor.events
             || outputs.event_root != blake3_hex(&to_cbor(&full[predecessor.events.len()..])?)

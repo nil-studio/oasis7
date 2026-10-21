@@ -122,7 +122,8 @@ pub(crate) fn verify_bootstrap_anchor(
     let snapshot_bytes = capture::object(record, &record.roots[&ArtifactRole::Snapshot])?;
     let journal_bytes = capture::object(record, &record.roots[&ArtifactRole::Journal])?;
     let snapshot = capture::decode_snapshot(snapshot_bytes)?;
-    let journal: Journal = capture::decode_generic(journal_bytes)?;
+    let journal: Journal = oasis7_world_state::codec::journal_from_cbor(journal_bytes)
+        .map_err(|error| error.to_string())?;
     let checkpoint: ExecutionBridgeRecord = capture::decode_role(record, ArtifactRole::Result)?;
     if blake3_hex(snapshot_bytes) != record.after_state_root
         || snapshot.state.time != manifest.snapshot_tick
@@ -178,7 +179,9 @@ pub(crate) fn verify_bootstrap_anchor(
     // dispatcher, module executor, signer or configured persistence destination.
     let world = oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
         .map_err(|e| format!("bootstrap world restore: {e:?}"))?;
-    if to_cbor(world.snapshot())? != snapshot_bytes || to_cbor(world.journal())? != journal_bytes {
+    if super::snapshot_to_cbor(&world.snapshot())? != snapshot_bytes
+        || super::journal_to_cbor(&world.journal())? != journal_bytes
+    {
         return Err("bootstrap restored bytes differ from original checkpoint".into());
     }
     if identity.manifest_height != checkpoint.height

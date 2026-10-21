@@ -122,14 +122,15 @@ pub(super) fn validate_continuity(
             .as_deref()
             .ok_or("missing post snapshot")?,
     )?)?;
-    let journal: Journal = decode_generic(object(
+    let journal: Journal = oasis7_world_state::codec::journal_from_cbor(object(
         package,
         manifest
             .record
             .journal_ref
             .as_deref()
             .ok_or("missing post journal")?,
-    )?)?;
+    )?)
+    .map_err(|error| error.to_string())?;
     validate_snapshot_continuity(&post, journal, Some(&previous_pre), next)
 }
 
@@ -193,8 +194,8 @@ pub(super) fn validate_snapshot_continuity(
     let mut expected = world.snapshot();
     expected.chain_resource_manifest = incoming.chain_resource_manifest;
     expected.latest_chain_resource_delta = incoming.latest_chain_resource_delta;
-    if to_cbor(expected)? != next.before_snapshot
-        || to_cbor(world.journal())? != next.before_journal
+    if super::snapshot_to_cbor(&expected)? != next.before_snapshot
+        || super::journal_to_cbor(&world.journal())? != next.before_journal
     {
         return Err("history typed world/journal prefix mismatch".into());
     }
@@ -211,8 +212,8 @@ pub(super) fn prepare(
         scope: CAPTURE_SCOPE.into(),
         context: context.clone(),
         release_security_policy: world.release_security_policy().clone(),
-        before_snapshot: to_cbor(world.snapshot())?,
-        before_journal: to_cbor(world.journal())?,
+        before_snapshot: super::snapshot_to_cbor(&world.snapshot())?,
+        before_journal: super::journal_to_cbor(&world.journal())?,
     })
 }
 
@@ -263,7 +264,8 @@ pub(super) fn build(
     // including inline module SHA256 and journal-prefix commitments.
     oasis7::runtime_host::world::from_snapshot(
         after.clone(),
-        decode_generic::<Journal>(journal_bytes)?,
+        oasis7_world_state::codec::journal_from_cbor(journal_bytes)
+            .map_err(|error| error.to_string())?,
     )
     .map_err(|e| format!("invalid post-execution world: {e:?}"))?;
     if before.state.time.saturating_add(1) != preparation.context.height
@@ -277,7 +279,8 @@ pub(super) fn build(
     }
     let before_world = oasis7::runtime_host::world::from_snapshot(
         before.clone(),
-        decode_generic::<Journal>(&preparation.before_journal)?,
+        oasis7_world_state::codec::journal_from_cbor(&preparation.before_journal)
+            .map_err(|error| error.to_string())?,
     )
     .map_err(|e| format!("pre-world restore: {e:?}"))?
     .with_release_security_policy(preparation.release_security_policy.clone());
@@ -487,15 +490,40 @@ pub(super) fn object<'a>(package: &'a ClosedRecord, reference: &str) -> Result<&
         .map(|o| o.bytes.as_slice())
         .ok_or_else(|| "capture object unavailable".into())
 }
+fn role_bytes<'a>(
+    package: &'a ClosedRecord,
+    role: ArtifactRole,
+) -> Result<std::borrow::Cow<'a, [u8]>, String> {
+    if role == ArtifactRole::Snapshot {
+        return Ok(std::borrow::Cow::Owned(super::formal_snapshot::bytes(
+            package,
+        )?));
+    }
+    let reference = package.roots.get(&role).ok_or("capture role unavailable")?;
+    Ok(std::borrow::Cow::Borrowed(object(package, reference)?))
+}
+
+pub(super) fn decode_snapshot_role(
+    package: &ClosedRecord,
+    role: ArtifactRole,
+) -> Result<oasis7_runtime::Snapshot, String> {
+    oasis7_world_state::codec::snapshot_from_cbor(&role_bytes(package, role)?)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn decode_journal_role(
+    package: &ClosedRecord,
+    role: ArtifactRole,
+) -> Result<oasis7_runtime::Journal, String> {
+    oasis7_world_state::codec::journal_from_cbor(&role_bytes(package, role)?)
+        .map_err(|error| error.to_string())
+}
+
 pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
     package: &ClosedRecord,
     role: ArtifactRole,
 ) -> Result<T, String> {
-    if role == ArtifactRole::Snapshot {
-        return decode_generic(&super::formal_snapshot::bytes(package)?);
-    }
-    let reference = package.roots.get(&role).ok_or("capture role unavailable")?;
-    decode_generic(object(package, reference)?)
+    serde_cbor::from_slice(&role_bytes(package, role)?).map_err(|error| error.to_string())
 }
 
 /// Only the new capture publication path requires this stronger local CAS

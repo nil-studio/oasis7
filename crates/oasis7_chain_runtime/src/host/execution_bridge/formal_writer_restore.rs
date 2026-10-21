@@ -12,14 +12,18 @@ pub(super) fn restore(
         )
         .map_err(|e| e.to_string())?;
     let snapshot: Snapshot = match expanded_snapshot {
-        Some(bytes) => capture::decode_generic(&bytes)?,
-        None => capture::decode_role(&candidate.material, ArtifactRole::Snapshot)?,
+        Some(bytes) => oasis7_world_state::codec::snapshot_from_cbor(&bytes)
+            .map_err(|error| error.to_string())?,
+        None => capture::decode_snapshot_role(&candidate.material, ArtifactRole::Snapshot)?,
     };
-    let journal: Journal = capture::decode_role(&candidate.material, ArtifactRole::Journal)?;
+    let journal: Journal =
+        capture::decode_journal_role(&candidate.material, ArtifactRole::Journal)?;
     let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
         .map_err(|e| format!("{e:?}"))?
         .with_release_security_policy(release.clone());
-    if blake3_hex(&to_cbor(world.snapshot())?) != candidate.candidate.record.after_state_root {
+    if blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
+        != candidate.candidate.record.after_state_root
+    {
         return Err("formal writer restored candidate root mismatch".into());
     }
     super::super::formal_business_package::tree(
@@ -46,17 +50,19 @@ pub(super) fn restore_qualified(
         return Err("formal restore candidate differs from qualified anchor".into());
     }
     let snapshot: Snapshot = match expanded_snapshot {
-        Some(bytes) => capture::decode_generic(&bytes)?,
-        None => capture::decode_role(&candidate.material, ArtifactRole::Snapshot)?,
+        Some(bytes) => oasis7_world_state::codec::snapshot_from_cbor(&bytes)
+            .map_err(|error| error.to_string())?,
+        None => capture::decode_snapshot_role(&candidate.material, ArtifactRole::Snapshot)?,
     };
-    let journal: Journal = capture::decode_role(&candidate.material, ArtifactRole::Journal)?;
+    let journal: Journal =
+        capture::decode_journal_role(&candidate.material, ArtifactRole::Journal)?;
     if snapshot.state.retained_history_root.is_none() {
         if anchor.authority().definition().profile_version == 2 {
             return Err("profile2 native restore requires retained-history descriptor".into());
         }
         return restore(candidate, release);
     }
-    let bytes = to_cbor(&snapshot)?;
+    let bytes = super::snapshot_to_cbor(&snapshot)?;
     let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
     let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
         snapshot, journal, parent, reader,

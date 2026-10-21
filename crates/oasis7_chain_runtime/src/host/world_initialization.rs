@@ -429,8 +429,9 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
             .map_err(|error| format!("formal World journal budget: {error:?}"))?;
         let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes)
             .map_err(|error| format!("formal World snapshot CBOR: {error}"))?;
-        let journal: Journal = serde_cbor::from_slice(&journal_bytes)
-            .map_err(|error| format!("formal World journal CBOR: {error}"))?;
+        let journal: Journal = oasis7_world_state::codec::journal_from_cbor(&journal_bytes)
+            .map_err(|error| format!("formal World journal CBOR: {error}"))
+            .map_err(|error| error.to_string())?;
         let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|error| format!("restore explicit formal World boundary: {error:?}"))?;
         let release = ReleaseSecurityPolicy::production_hardened();
@@ -461,8 +462,10 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
             .activation_body(config.authority, config.recovery_policy)
             .map_err(|error| format!("formal v2 activation body: {error}"))?;
         let snapshot_digest = activation_body.initial_state_root.clone();
-        let journal_digest =
-            blake3_hex(&serde_cbor::to_vec(world.journal()).map_err(|error| error.to_string())?);
+        let journal_digest = blake3_hex(
+            &oasis7_world_state::codec::journal_cbor(world.journal())
+                .map_err(|error| error.to_string())?,
+        );
         let activation_ref = activation_body
             .activation_ref()
             .map_err(|error| error.to_string())?;

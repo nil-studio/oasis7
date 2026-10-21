@@ -75,8 +75,7 @@ impl World {
                     archive.archived_records,
                 )?;
             }
-            let events: Vec<WorldEvent> =
-                assemble_journal(&journal_segments, &store, |event: &WorldEvent| event.id)?;
+            let events: Vec<WorldEvent> = assemble_journal(&journal_segments, &store)?;
             let world = World::from_snapshot(snapshot, Journal { events })?;
             return Ok(Some(CommittedAuthoritativeRecoveryGeneration {
                 generation_id: generation_id.to_string(),
@@ -242,10 +241,7 @@ impl World {
                 ),
             })?;
         }
-        let events: Vec<WorldEvent> =
-            assemble_journal(journal_segments.as_slice(), &store, |event: &WorldEvent| {
-                event.id
-            })
+        let events: Vec<WorldEvent> = assemble_journal(journal_segments.as_slice(), &store)
             .map_err(|err| AuthoritativeRecoveryCommitError::StatusUnknown {
                 reason: format!(
                     "matching recovery journal assemble failed: generation_id={} err={err:?}",

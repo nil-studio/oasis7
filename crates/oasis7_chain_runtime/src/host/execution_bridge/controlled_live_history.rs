@@ -130,8 +130,9 @@ pub(super) fn verify_successor(
             != Some(predecessor.record.execution_state_root.as_str())
         || closed.before_state_root != predecessor.record.execution_state_root
         || capture::object(closed, &manifest.before_snapshot_ref)?
-            != to_cbor(&predecessor.snapshot)?
-        || capture::object(closed, &manifest.before_journal_ref)? != to_cbor(&predecessor.journal)?
+            != super::snapshot_to_cbor(&predecessor.snapshot)?
+        || capture::object(closed, &manifest.before_journal_ref)?
+            != super::journal_to_cbor(&predecessor.journal)?
         || evidence.proposal.body.request != request(c)?
     {
         return Err("controlled original request/execution predecessor mismatch".into());
@@ -146,8 +147,8 @@ pub(super) fn verify_successor(
     Ok(VerifiedRuntimeHead {
         head,
         record: capture::decode_role(closed, ArtifactRole::Result)?,
-        snapshot: capture::decode_role(closed, ArtifactRole::Snapshot)?,
-        journal: capture::decode_role(closed, ArtifactRole::Journal)?,
+        snapshot: capture::decode_snapshot_role(closed, ArtifactRole::Snapshot)?,
+        journal: capture::decode_journal_role(closed, ArtifactRole::Journal)?,
         continuation: Some(c.clone()),
     })
 }

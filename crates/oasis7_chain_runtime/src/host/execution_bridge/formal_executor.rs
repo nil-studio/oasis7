@@ -97,7 +97,7 @@ fn execute_with_business_reader(
             return Err("formal retention parent anchor mismatch".into());
         }
         let reader = business_reader.ok_or("formal retention CAS reader unavailable")?;
-        let bytes = super::to_cbor(world.snapshot())?;
+        let bytes = super::snapshot_to_cbor(&world.snapshot())?;
         let retained =
             oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
         world.attach_verified_formal_history(retained, reader.0.clone())?;
@@ -205,7 +205,9 @@ fn execute_with_business_reader(
         )
         .map_err(|e| format!("{e:?}"))?;
     let output_snapshot: oasis7_runtime::Snapshot = capture::decode_snapshot(&snapshot)?;
-    let output_journal: oasis7_runtime::Journal = capture::decode_generic(&journal)?;
+    let output_journal: oasis7_runtime::Journal =
+        oasis7_world_state::codec::journal_from_cbor(&journal)
+            .map_err(|error| error.to_string())?;
     let after = if formal_retention {
         executor
             .execution_world

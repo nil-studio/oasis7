@@ -785,8 +785,8 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         );
         let journal_value = self.execution_world.journal().clone();
         let serialize_started_at = Instant::now();
-        let snapshot_bytes = rollback_on_error!(super::to_cbor(snapshot_value));
-        let journal_bytes = rollback_on_error!(super::to_cbor(journal_value));
+        let snapshot_bytes = rollback_on_error!(super::snapshot_to_cbor(&snapshot_value));
+        let journal_bytes = rollback_on_error!(super::journal_to_cbor(&journal_value));
         let serialize_ms = serialize_started_at.elapsed();
         let snapshot_bytes_len = snapshot_bytes.len();
         let journal_bytes_len = journal_bytes.len();
