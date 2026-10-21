@@ -325,6 +325,11 @@ class Guards(unittest.TestCase):
         self.assertEqual(candidate.count("targetDescendant(file, line, path, n.asExpr())"), 2)
         self.assertIn("or targetDescendant(file, line, path, node.getParentNode())", candidate)
         self.assertNotIn("node.getLocation()", candidate)
+        selected = candidate.split("predicate selectedExpansion", 1)[1].split("predicate targetDescendant", 1)[0]
+        self.assertIn('line = [100, 102, 107] and path = "assert"', selected)
+        self.assertIn('line = [104, 111] and path = "panic"', selected)
+        self.assertIn('line = 110 and path = "format"', selected)
+        self.assertLess(selected.index('path = "assert"'), selected.index("exists(MacroCall mc"))
 
     def test_compile_mode_returns_before_any_database_or_fixture(self):
         driver = Path(__file__).with_name("codeql-rust-model-diagnostic.py").read_text()

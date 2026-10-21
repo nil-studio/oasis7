@@ -89,6 +89,8 @@ def anchored_macroflow():
     original = QUERIES["MacroFlow"]
     imports = "import rust\nimport codeql.rust.dataflow.DataFlow\n"
     selected = """predicate selectedExpansion(File file, int line, string path, AstNode root) {
+  ((line = [100, 102, 107] and path = "assert") or
+   (line = [104, 111] and path = "panic") or (line = 110 and path = "format")) and
   exists(MacroCall mc |
     mc.getLocation().getFile() = file and
     mc.getLocation().getStartLine() = line and
