@@ -84,6 +84,119 @@ select file.getRelativePath(), "linux-closure-parameter-use", present
 '''}
 
 
+COST_QUERIES = {
+    "Engine": "select 1\n",
+    "ExactFile": '''import rust
+from File file
+where file.getRelativePath() = "crates/oasis7_chain_runtime/src/host/executable_image_tests.rs" or
+ file.getRelativePath().regexpMatch(".*/crates/oasis7_chain_runtime/src/host/executable_image_tests[.]rs")
+select file.getRelativePath()
+''',
+    "MacroPopulation": "import rust\nselect count(MacroCall mc)\n",
+    "SourceAst": QUERIES["SourceAst"],
+}
+
+
+def frame_complete_events(raw, destination):
+    """Only frame JSON objects; never interpret the unstable event schema."""
+    complete = 0
+    partial = 0
+    with destination.open("xb") as output:
+        for line in raw.read_bytes().splitlines():
+            stripped = line.strip()
+            if not stripped.startswith(b"{"):
+                continue
+            try:
+                value = json.loads(stripped)
+            except (ValueError, UnicodeError):
+                partial += 1
+                continue
+            if isinstance(value, dict):
+                output.write(stripped + b"\n")
+                complete += 1
+    return {"complete_object_lines": complete, "partial_or_non_object_lines": partial,
+            "event_schema_interpreted": False, "full_raw_preserved": True}
+
+
+def cost_probes(run, args, env, query, packs, cache, database):
+    cli = str(args.codeql)
+    help_text = (args.output / "query-run-help.log").read_text()
+    for option in ("--evaluator-log=", "--evaluator-log-minify", "--[no-]tuple-counting", "--verbosity="):
+        if option not in help_text:
+            raise RuntimeError("exact CLI cost logging option unavailable: " + option)
+    run([cli, "generate", "log-summary", "--help"], args.work,
+        args.output / "log-summary-help.log", args.deadline, 20, args.output, env)
+    summary_help = (args.output / "log-summary-help.log").read_text()
+    if "--format=" not in summary_help or "text" not in summary_help:
+        raise RuntimeError("exact CLI text evaluator summary unavailable")
+    results = []
+    timed_out = False
+    stop = None
+    summary_errors = []
+    unsafe_stop = False
+    try:
+        for name in COST_QUERIES:
+            if args.deadline - time.monotonic() < 210:
+                stop = "insufficient original remaining budget for next120 plus90 reserve"
+                break
+            log = args.output / f"cost-{name}.log"
+            command = [cli, "query", "run", str(query / (name + ".ql")),
+                "--database=" + str(database), "--output=" + str(args.output / f"cost-{name}.bqrs"),
+                "--additional-packs=" + str(packs), "--compilation-cache=" + str(cache),
+                "--threads=2", "--ram=3072", "--verbosity=progress+++", "--tuple-counting",
+                "--evaluator-log=/dev/stderr", "--evaluator-log-minify"]
+            try:
+                run(command, args.work, log, args.deadline - 90, 120, args.output, env)
+            except RuntimeError:
+                result = json.loads(log.with_suffix(".log.result.json").read_text())
+                results.append({"probe": name, "result": result})
+                if result["error"] != "TimeoutError('diagnostic phase deadline exhausted')" or result["cleanup_errors"]:
+                    raise
+                timed_out = True
+            else:
+                results.append({"probe": name, "result": json.loads(log.with_suffix(".log.result.json").read_text())})
+                run([cli, "bqrs", "decode", str(args.output / f"cost-{name}.bqrs"), "--format=csv",
+                    "--output=" + str(args.output / f"cost-{name}.csv")], args.work,
+                    args.output / f"cost-{name}-decode.log", args.deadline - 90, 20, args.output, env)
+    except BaseException:
+        unsafe_stop = True
+        raise
+    finally:
+        # Raw remains authoritative even if framing/official summary cannot finish.
+        for item in results:
+            name = item["probe"]
+            if unsafe_stop:
+                item["summary"] = "not launched: non-allowlisted failure or cleanup uncertainty"
+                continue
+            if args.deadline - time.monotonic() < 25:
+                item["summary"] = "not launched: final time reserve"
+                continue
+            events = args.work / f"cost-{name}-events.jsonl"
+            try:
+                item["framing"] = frame_complete_events(args.output / f"cost-{name}.log", events)
+            except (OSError, ValueError) as error:
+                item["framing_error"] = repr(error)
+                summary_errors.append(repr(error))
+                break
+            if not item["framing"]["complete_object_lines"]:
+                item["summary"] = "UNKNOWN: no complete structured object lines; full raw retained"
+                continue
+            try:
+                run([cli, "generate", "log-summary", "--format=text", str(events)], args.work,
+                    args.output / f"cost-{name}-summary.log", args.deadline - 15, 10, args.output, env)
+                item["summary"] = "official text summary produced; no custom event-schema inference"
+            except RuntimeError:
+                item["summary"] = "UNKNOWN: official summary failed or partial; raw/result preserved"
+                summary_errors.append("official summary failed; no further subprocess launched")
+                break
+        (args.output / "cost-probe-results.json").write_text(json.dumps({
+            "probes": results, "stop": stop, "unsafe_stop": unsafe_stop, "summary_errors": summary_errors, "coverage": "NOT_EVALUATED", "rust_baseline": "HOLD",
+            "query_predicate_changed": False, "structured_log_transport": "/dev/stderr via bounded parent pipe"
+        }, indent=2) + "\n")
+    if timed_out or stop or summary_errors:
+        raise RuntimeError("cost diagnostic retained timeout/budget evidence; no coverage conclusion")
+
+
 class NoCredentialRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, url):
         if not url.startswith("https://"):
@@ -208,6 +321,9 @@ def execute(run, args, env, query, packs, cache):
                 raise RuntimeError("production archived module/source changed")
             source_hashes[path] = {"archive_key": matches[0].filename, "sha256": actual}
     (args.output / "production-source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
+    if getattr(args, "evaluator_cost_probes", False):
+        cost_probes(run, args, env, query, packs, cache, database)
+        return
     # Save independent source/closure observations before the previously costly layer query.
     for name in ("SourceAst", "ClosureFlow", "MacroFlow", "MacroLayers"):
         bqrs = args.output / f"production-{name}.bqrs"

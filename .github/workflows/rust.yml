@@ -79,7 +79,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/security/codeql-rust-model-diagnostic.py \
-            --production-macro-database \
+            --production-macro-database --evaluator-cost-probes \
             --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
             --output "$RUNNER_TEMP/rust-model-evidence" \
             --work "$RUNNER_TEMP/rust-model-databases" \

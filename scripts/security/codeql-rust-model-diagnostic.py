@@ -302,10 +302,13 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--real-peer-projection", action="store_true")
     mode.add_argument("--production-macro-database", action="store_true")
+    parser.add_argument("--evaluator-cost-probes", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--deadline", type=float, required=True)
     args = parser.parse_args()
+    if args.evaluator_cost_probes and not args.production_macro_database:
+        parser.error("cost probes require the production database mode")
     args.owned_output = False
     terminal = {"status": "failed"}
     try:
@@ -382,7 +385,7 @@ def diagnose(args):
         specification = importlib.util.spec_from_file_location("real_peer_inputs", helper)
         peer_mode = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(peer_mode)
-        query_texts = peer_mode.QUERIES
+        query_texts = peer_mode.COST_QUERIES if args.evaluator_cost_probes else peer_mode.QUERIES
         write(args.output / "real-peer-helper-sha256.txt", hashlib.sha256(helper.read_bytes()).hexdigest() + "\n")
     names = tuple(query_texts)
     for name, text in query_texts.items():
