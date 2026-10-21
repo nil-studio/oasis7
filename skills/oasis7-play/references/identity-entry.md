@@ -5,6 +5,15 @@ game tools. Cold-entry OpenClaw/Codex profiles require their own approved
 runtime manifest, isolated environment and real acceptance; neither a valid
 profile nor an account receipt proves complete cold entry.
 
+Official and external clients use the same identity, participant, owner and
+executor protocol. Establishing the world's admission trust is a deployment
+operator responsibility: DevLocal may use its explicitly configured local
+operator authority, while governed networks require their governance evidence.
+Clients must not install either trust root, create governance history to log in,
+select a weaker authority mode, or treat a local authorization as network finality.
+Missing server trust remains a deployment blocker; it never authorizes bypassing
+identity, owner signatures, quotas, delegation or current task fences.
+
 The executable accepts `--identity-config <identity.json>` for `identity-discovery` (read-only, before unlock or vault creation), then explicit
 `identity-init`, `identity-register --operation <id> --name <name>`,
 `identity-login --operation <different-id>` and `identity-status --operation <id>`.

@@ -341,6 +341,252 @@ def user_material(repo, path, records):
             raise CleanupError('unknown ignored user material retained: ' + item)
 
 
+def _module_git(gitdir, *args):
+    result = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir), *args])
+    if result.stderr.strip():
+        raise CleanupError('submodule metadata inspection warned: ' + result.stderr.strip())
+    return result.stdout.strip()
+
+
+def _module_cache_layout(root, known):
+    """Retain cached repositories that no current gitlink can account for."""
+    if not root.exists():
+        return
+    if root.is_symlink() or not root.is_dir():
+        raise CleanupError('ambiguous submodule cache retained')
+    for child in root.iterdir():
+        if child.is_symlink():
+            raise CleanupError('symlinked submodule Git data retained')
+        if child in known:
+            continue
+        if child.is_dir() and any(child in target.parents for target in known):
+            _module_cache_layout(child, known)
+        else:
+            raise CleanupError('unknown submodule cache retained: ' + str(child))
+
+
+def _module_config(gitdir):
+    """Accept generated clone configuration, retaining repository-local overrides."""
+    raw = _run(['git', 'config', '--file', str(gitdir / 'config'), '-z', '--list']).stdout
+    branches = set(_module_git(gitdir, 'for-each-ref', '--format=%(refname:strip=2)',
+                               'refs/heads').splitlines())
+    declarations = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
+                         'config', '-z', '--blob', 'HEAD:.gitmodules', '--get-regexp',
+                         r'^submodule\..*\.path$'], check=False)
+    names = set()
+    if declarations.returncode == 0:
+        names = {row.split('\n', 1)[0][len('submodule.'):-len('.path')]
+                 for row in filter(None, declarations.stdout.split('\0'))}
+    bools = {'core.filemode', 'core.bare', 'core.logallrefupdates', 'core.ignorecase',
+             'core.precomposeunicode', 'core.symlinks', 'remote.origin.promisor'}
+    seen = set()
+    for row in filter(None, raw.split('\0')):
+        key, _, value = row.partition('\n')
+        allowed = False
+        if key in bools:
+            allowed = value in {'true', 'false'}
+        elif key == 'core.repositoryformatversion':
+            allowed = value in {'0', '1'}
+        elif key == 'extensions.objectformat':
+            allowed = value in {'sha1', 'sha256'}
+        elif key == 'core.worktree':
+            allowed = bool(value)
+        elif key in {'remote.origin.url', 'remote.origin.partialclonefilter'}:
+            allowed = bool(value) and '\n' not in value
+        elif key == 'remote.origin.fetch':
+            allowed = re.fullmatch(r'\+?refs/heads/([^:]+):refs/remotes/origin/\1', value) is not None
+        else:
+            for name in branches:
+                if key == f'branch.{name}.remote' and value == 'origin':
+                    allowed = True
+                if key == f'branch.{name}.merge' and value == f'refs/heads/{name}':
+                    allowed = True
+            for name in names:
+                if key == f'submodule.{name}.active' and value == 'true':
+                    allowed = True
+                if key == f'submodule.{name}.url' and value and '\n' not in value:
+                    allowed = True
+        if not allowed or key in seen:
+            raise CleanupError('custom or unknown submodule configuration retained: ' + key)
+        seen.add(key)
+
+
+def _module_material(gitdir):
+    """Keep nonstandard metadata, pending operations and unpublished objects."""
+    _module_config(gitdir)
+    cached = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
+                   'diff-index', '--cached', '--quiet', 'HEAD', '--'], check=False)
+    if cached.returncode:
+        raise CleanupError('staged or unreadable submodule index retained')
+    templates = pathlib.Path(_run(['git', '--exec-path']).stdout.strip()).parent.parent / 'share/git-core/templates'
+    defaults = {'description', 'info/exclude'}
+    metadata = {'HEAD', 'config', 'index', 'packed-refs', 'shallow', 'FETCH_HEAD', 'ORIG_HEAD'}
+    object_file = re.compile(r'objects/(?:[0-9a-f]{2}/[0-9a-f]{38,62}|pack/pack-[0-9a-f]{40,64}\.(?:pack|idx|rev|bitmap|mtimes|promisor))')
+    for directory, dirs, files in os.walk(gitdir, followlinks=False):
+        parent = pathlib.Path(directory)
+        # Each nested modules directory is independently checked against gitlinks.
+        if parent == gitdir:
+            dirs[:] = [name for name in dirs if name != 'modules']
+        for name in dirs + files:
+            target = parent / name
+            if target.is_symlink():
+                raise CleanupError('symlinked submodule metadata retained')
+            relative = target.relative_to(gitdir).as_posix()
+            if target.is_dir():
+                if relative == 'branches' and not any(target.iterdir()):
+                    continue
+                if (relative in {'info', 'hooks', 'refs', 'logs', 'objects', 'objects/info', 'objects/pack'}
+                        or relative.startswith(('refs/', 'logs/'))
+                        or re.fullmatch(r'objects/[0-9a-f]{2}', relative)):
+                    continue
+                raise CleanupError('unknown submodule Git directory retained: ' + relative)
+            if relative in defaults or relative.startswith('hooks/'):
+                sample = templates / relative
+                if (not sample.is_file() or sample.is_symlink() or
+                        target.read_bytes() != sample.read_bytes()):
+                    raise CleanupError('custom submodule template/hook retained: ' + relative)
+            elif relative == 'COMMIT_EDITMSG':
+                if target.read_bytes().strip() != _module_git(gitdir, 'log', '-1', '--format=%B').encode():
+                    raise CleanupError('uncommitted submodule message retained')
+            elif relative in metadata or object_file.fullmatch(relative):
+                continue
+            elif relative.startswith(('refs/', 'logs/')):
+                # Commit/ref validation below still checks these histories.
+                if relative.endswith('.lock'):
+                    raise CleanupError('submodule reference lock retained')
+                raw = target.read_bytes()
+                if relative.startswith('logs/'):
+                    entry = rb'[0-9a-f]{40,64} [0-9a-f]{40,64} [^\n<>]* <[^\n<>]*> [0-9]+ [+-][0-9]{4}(?:\t[^\n]*)?\n'
+                    if any(not re.fullmatch(entry, line) for line in raw.splitlines(keepends=True)):
+                        raise CleanupError('unrecognized submodule reflog material retained')
+                elif not re.fullmatch(rb'(?:[0-9a-f]{40,64}|ref: refs/[^\s]+)\n?', raw):
+                    raise CleanupError('unrecognized submodule reference material retained')
+            else:
+                raise CleanupError('unknown submodule Git material retained: ' + relative)
+    # Missing objects, corrupt stores and unreachable local work all stop removal.
+    fsck = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
+                 'fsck', '--full', '--no-reflogs', '--unreachable'], check=False, timeout=30)
+    if fsck.returncode or fsck.stdout.strip() or fsck.stderr.strip():
+        raise CleanupError('unreachable or unverifiable submodule objects retained')
+
+
+def _module_registration(gitdir, name, backend):
+    """deinit removes this whole section from the parent's local configuration."""
+    registered = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
+                       'config', '--local', '-z', '--get-regexp', r'^submodule\.'], check=False)
+    if registered.returncode not in (0, 1):
+        raise CleanupError('parent submodule registration unavailable')
+    origin = _module_git(backend, 'config', '--get', 'remote.origin.url')
+    seen = set()
+    for row in filter(None, registered.stdout.split('\0')):
+        key, _, value = row.partition('\n')
+        section, _, option = key.rpartition('.')
+        if section != 'submodule.' + name:
+            continue
+        if (key in seen or (option == 'url' and value != origin)
+                or (option == 'active' and value != 'true') or option not in {'url', 'active'}):
+            raise CleanupError('custom parent submodule registration retained: ' + key)
+        seen.add(key)
+
+
+def inspect_submodules(path, allow_submodules=False):
+    """Check active and dormant module data before the single-force exception."""
+    root_gitdir = pathlib.Path(git(path, 'rev-parse', '--absolute-git-dir')).resolve()
+    result = []
+
+    def visit(gitdir, worktree):
+        links = {}
+        for row in _module_git(gitdir, 'ls-tree', '-rz', 'HEAD').split('\0'):
+            if row:
+                info, name = row.split('\t', 1)
+                mode, _, commit = info.split()
+                if mode == '160000':
+                    links[name] = commit
+        cache = gitdir / 'modules'
+        if not links and not cache.exists():
+            return
+        if not allow_submodules:
+            raise CleanupError('submodule worktree retained; use --allow-submodules after verification')
+        names = {}
+        config = _run(['git', '--git-dir', str(gitdir), 'config', '-z', '--blob',
+                       'HEAD:.gitmodules', '--get-regexp', r'^submodule\..*\.path$'], check=False)
+        if config.returncode not in (0, 1):
+            raise CleanupError('submodule declarations unavailable')
+        for row in filter(None, config.stdout.split('\0')):
+            key, value = row.split('\n', 1)
+            if value in names:
+                raise CleanupError('duplicate submodule path retained')
+            names[value] = key[len('submodule.'):-len('.path')]
+        known = set()
+        for name, commit in sorted(links.items()):
+            module_name = names.get(name)
+            if module_name is None:
+                raise CleanupError('gitlink has no submodule declaration')
+            for value in (name, module_name):
+                relative = pathlib.PurePosixPath(value)
+                if (not value or relative.is_absolute() or
+                        any(part in {'.', '..', '.git'} for part in relative.parts)):
+                    raise CleanupError('ambiguous submodule path/name retained')
+            child = worktree / name
+            current = worktree
+            for component in pathlib.PurePosixPath(name).parts:
+                current = current / component
+                if current.is_symlink():
+                    raise CleanupError('symlinked submodule worktree retained')
+            backend = cache / module_name
+            # Do not follow a symlink in the repository-private module hierarchy.
+            current = cache
+            for component in pathlib.PurePosixPath(module_name).parts:
+                current = current / component
+                if current.is_symlink():
+                    raise CleanupError('symlinked submodule Git data retained')
+            marker = child / '.git'
+            initialized = marker.exists() or marker.is_symlink()
+            if initialized:
+                actual = pathlib.Path(git(child, 'rev-parse', '--absolute-git-dir')).resolve()
+                if marker.is_symlink() or actual != backend or not backend.is_dir():
+                    raise CleanupError('external or missing submodule Git data retained')
+                _module_registration(gitdir, module_name, backend)
+                if git(child, 'status', '--porcelain', '--untracked-files=all', '--ignored',
+                       '--ignore-submodules=none'):
+                    raise CleanupError('submodule user material retained: ' + str(child))
+            elif child.exists() and (not child.is_dir() or any(child.iterdir())):
+                raise CleanupError('uninitialized submodule user material retained')
+            state = {'path': str(child), 'gitlink': commit, 'gitdir': None}
+            if backend.exists():
+                if not backend.is_dir():
+                    raise CleanupError('invalid submodule Git data retained')
+                known.add(backend)
+                common = pathlib.Path(_module_git(backend, 'rev-parse', '--path-format=absolute',
+                                                  '--git-common-dir')).resolve()
+                if common != backend:
+                    raise CleanupError('shared submodule Git data retained')
+                checkouts = _module_git(backend, 'worktree', 'list', '--porcelain', '-z')
+                roots = [row[len('worktree '):] for row in checkouts.split('\0') if row.startswith('worktree ')]
+                if len(roots) != 1:
+                    raise CleanupError('submodule linked worktrees retained')
+                configured = _run(['git', '--git-dir', str(backend), '--work-tree', str(backend),
+                                   'config', '--get', 'core.worktree'], check=False)
+                if configured.returncode not in (0, 1) or (initialized and configured.returncode != 0):
+                    raise CleanupError('submodule working directory identity unavailable')
+                if configured.returncode == 0 and (backend / configured.stdout.strip()).resolve() != child:
+                    raise CleanupError('external submodule working directory retained')
+                if _module_git(backend, 'rev-parse', '--verify', 'HEAD^{commit}') != commit:
+                    raise CleanupError('submodule HEAD does not match parent gitlink')
+                if _module_git(backend, 'rev-list', '--reflog', '--all', 'HEAD', '--not', '--remotes'):
+                    raise CleanupError('unpublished submodule history retained')
+                _module_material(backend)
+                state['gitdir'] = str(backend)
+                visit(backend, child)
+            elif initialized:
+                raise CleanupError('missing submodule Git data retained')
+            result.append(state)
+        _module_cache_layout(cache, known)
+
+    visit(root_gitdir, path)
+    return sorted(result, key=lambda item: item['path'])
+
+
 def github_repository(remote):
     """Resolve only an exact GitHub host and owner/repository origin."""
     if '://' in remote:
@@ -374,6 +620,12 @@ def delivery(repo, expected, base_ref, pr):
             raise CleanupError('no main ancestry or explicit merged PR proof')
         remote = git(repo, 'remote', 'get-url', 'origin')
         slug = github_repository(remote)
+        # GitHub may redirect an old origin after a repository transfer/rename.
+        repository = json.loads(_run(['gh', 'api', f'repos/{slug}']).stdout)
+        canonical = repository.get('full_name')
+        if not isinstance(canonical, str):
+            raise CleanupError('canonical origin repository identity unavailable')
+        slug = github_repository('https://github.com/' + canonical)
         data = json.loads(_run(['gh', 'api', f'repos/{slug}/pulls/{pr}']).stdout)
         merged = data.get('merge_commit_sha')
         if (data.get('merged') is not True or data.get('head', {}).get('sha') != expected
@@ -384,7 +636,7 @@ def delivery(repo, expected, base_ref, pr):
     return base, origin
 
 
-def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', pr=None):
+def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', pr=None, allow_submodules=False):
     repo, path = repo.resolve(), path.resolve()
     if branch in {'main', 'master'}:
         raise CleanupError('primary branch retained')
@@ -399,6 +651,7 @@ def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', p
     if pathlib.Path(git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != pathlib.Path(git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve():
         raise CleanupError('repository identity mismatch')
     user_material(repo, path, records)
+    modules = inspect_submodules(path, allow_submodules)
     base, origin = delivery(repo, expected, base_ref, pr)
     upstream = _run(['git', '-C', str(path), 'rev-parse', '--symbolic-full-name', '@{upstream}'], check=False)
     ref = upstream.stdout.strip()
@@ -408,15 +661,16 @@ def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', p
             raise CleanupError('independent remote topic changed; retained')
     if _process_mentions_path(path):
         raise CleanupError('worktree is in use')
+    for module in modules:
+        if module['gitdir'] and _process_mentions_path(pathlib.Path(module['gitdir'])):
+            raise CleanupError('submodule Git data is in use')
     return {'worktree': str(path), 'branch': branch, 'head': expected, 'base_ref': base_ref,
+            'submodules': modules, 'submodule_gitdirs': [m['gitdir'] for m in modules if m['gitdir']],
             'base_oid': base, 'origin_main_oid': origin, 'process_state': 'clear_observed',
             'process_scope': 'current_user_and_visible_all_user_target_holders'}
 
 
-def execute(repo, path, branch, expected, base_ref, pr, report):
-    fresh = inspect(repo, path, branch, expected, base_ref, pr)
-    if fresh['base_oid'] != report['base_oid'] or fresh['origin_main_oid'] != report['origin_main_oid']:
-        raise CleanupError('base changed before deletion; retained')
+def _removal_identity(repo, path, branch, expected, base_ref, report):
     # Recheck identity and materials immediately after the potentially slow process scan.
     records = worktrees(repo)
     wanted = next((r for r in records if r.get('worktree') == str(path.resolve())), {})
@@ -426,8 +680,35 @@ def execute(repo, path, branch, expected, base_ref, pr, report):
         raise CleanupError('repository identity changed before deletion')
     if base_ref == 'refs/heads/main' and oid(repo, 'refs/remotes/origin/main') != report['origin_main_oid']:
         raise CleanupError('origin main changed before deletion')
+    return records
+
+
+def execute(repo, path, branch, expected, base_ref, pr, report, allow_submodules=False):
+    repo, path = repo.resolve(), path.resolve()
+    fresh = inspect(repo, path, branch, expected, base_ref, pr, allow_submodules)
+    if (fresh['base_oid'] != report['base_oid'] or fresh['origin_main_oid'] != report['origin_main_oid']
+            or fresh['submodules'] != report['submodules']):
+        raise CleanupError('base changed before deletion; retained')
+    records = _removal_identity(repo, path, branch, expected, base_ref, report)
     user_material(repo, path, records)
-    git(repo, 'worktree', 'remove', str(path.resolve()))
+    modules = inspect_submodules(path, allow_submodules)
+    if modules != fresh['submodules']:
+        raise CleanupError('submodule identity changed before deletion')
+    if modules:
+        # No force for deinit: any Git-detected changes still stop cleanup.
+        active = [pathlib.Path(m['path']) for m in modules if (pathlib.Path(m['path']) / '.git').exists()]
+        roots = [child for child in active if not any(parent in active for parent in child.parents)]
+        if roots:
+            git(path, '--literal-pathspecs', 'submodule', 'deinit', '--',
+                *(str(child.relative_to(path)) for child in roots))
+        records = _removal_identity(repo, path, branch, expected, base_ref, report)
+        user_material(repo, path, records)
+        if inspect_submodules(path, allow_submodules) != modules:
+            raise CleanupError('submodule identity changed during deinitialization')
+        git(repo, 'worktree', 'remove', '--force', str(path.resolve()))
+        report['submodule_force_remove'] = True
+    else:
+        git(repo, 'worktree', 'remove', str(path.resolve()))
     report['worktree_removed'] = True
     if any(r.get('branch') == 'refs/heads/' + branch for r in worktrees(repo)):
         raise CleanupError('branch checked out elsewhere; partial cleanup retained branch')
@@ -462,25 +743,26 @@ def cargo_cache_followup(repo, worktree):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, epilog='Process snapshots cover current-user processes and visible all-user target holders; invisible foreign use is outside this observation domain. Current-ABI pycache requires matching tracked source content. Unsupported cache ABI is retained. Stop known users and run outside the target. Never fetches, sudo, or forces removal. Exit: 0 eligible/success, 1 blocked/partial, 2 invalid arguments.')
+    parser = argparse.ArgumentParser(description=__doc__, epilog='Process snapshots cover current-user processes and visible all-user target holders; invisible foreign use is outside this observation domain. Current-ABI pycache requires matching tracked source content. Unsupported cache ABI is retained. Stop known users and run outside the target. Never fetches or uses sudo. A single force removal is allowed only for verified submodule worktrees with --allow-submodules; all other safeguards still apply. Exit: 0 eligible/success, 1 blocked/partial, 2 invalid arguments.')
     parser.add_argument('--repo-root', type=pathlib.Path, default=pathlib.Path.cwd())
     parser.add_argument('--worktree', type=pathlib.Path, required=True)
     parser.add_argument('--branch', required=True)
     parser.add_argument('--expected-head', required=True, help='full expected commit OID')
     parser.add_argument('--base-ref', choices=['refs/remotes/origin/main', 'refs/heads/main'], default='refs/remotes/origin/main')
     parser.add_argument('--pr', type=int, help='explicit PR number for squash/rebase merged proof')
+    parser.add_argument('--allow-submodules', action='store_true', help='verify recursive submodule data and allow one force remove after non-force deinit')
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
     if not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', args.expected_head) or (args.pr is not None and args.pr <= 0):
         parser.error('expected-head must be full OID; PR must be positive')
     if _run(['git', 'check-ref-format', 'refs/heads/' + args.branch], check=False).returncode:
         parser.error('invalid branch name')
-    report = dict(eligible=False, blocked_reasons=[], executed=args.execute, worktree_removed=False, branch_removed=False)
+    report = dict(eligible=False, blocked_reasons=[], executed=args.execute, worktree_removed=False, branch_removed=False, submodule_force_remove=False)
     try:
-        report.update(inspect(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr))
+        report.update(inspect(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, args.allow_submodules))
         report['eligible'] = True
         if args.execute:
-            execute(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, report)
+            execute(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, report, args.allow_submodules)
     except (CleanupError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
         report['eligible'] = False
         report['blocked_reasons'].append(str(exc))

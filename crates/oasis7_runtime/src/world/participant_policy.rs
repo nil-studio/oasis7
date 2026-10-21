@@ -39,7 +39,9 @@ impl World {
             let public=self.node_identity_public_key(node).ok_or_else(||error("participant policy signer unavailable"))?;
             verify_owner_signature_strict(domain,&policy_signing_payload(policy,proof),public,sig).map_err(error)?;
         }
-        let manifest=&proof.manifest;
+        self.validate_participant_manifest(policy, &proof.manifest)
+    }
+    pub(crate) fn validate_participant_manifest(&self,policy:&ParticipantEntryPolicyV1,manifest:&crate::service_admission::SignedReadRequest<ParticipantMigrationManifestV1>)->Result<(),WorldError> {
         if manifest.subject_public_key != policy.issuer_public_key {return Err(error("participant migration issuer differs from policy"));}
         verify_owner_signature_strict(PARTICIPANT_MIGRATION_MANIFEST_DOMAIN,&manifest.request,&manifest.subject_public_key,&manifest.signature_hex).map_err(error)?;
         let m=&manifest.request;
@@ -58,68 +60,196 @@ impl World {
         }
         Ok(())
     }
-    pub(crate) fn validate_participant_policy_history(&self)->Result<(),WorldError> {
-        let registry=&self.capability_revocation_state.participants;
-        if registry.policy.is_some() && registry.policy_history.is_empty() && !cfg!(test) {
+    pub(crate) fn validate_participant_policy_history(&self) -> Result<(), WorldError> {
+        let registry = &self.capability_revocation_state.participants;
+        if self.devlocal_participant_authority.is_some() {
+            self.validate_devlocal_participant_context()?;
+        }
+        if registry.policy.is_some()
+            && registry.policy_history.is_empty()
+            && registry.devlocal_policy_history.is_empty()
+            && !cfg!(test)
+        {
             return Err(error("participant policy checkpoint has no finality proof"));
         }
-        for (i,authorization) in registry.policy_history.iter().enumerate() {
-            self.validate_participant_policy_proof(&authorization.policy,&authorization.proof,i==0)?;
-            if authorization.policy.generation != i as u64 + 1 {
+        if !registry.devlocal_policy_history.is_empty() && !registry.policy_history.is_empty() {
+            return Err(error("participant authority sources cannot mix"));
+        }
+        let history: Vec<(
+            &ParticipantEntryPolicyV1,
+            &crate::service_admission::SignedReadRequest<ParticipantMigrationManifestV1>,
+        )> = if !registry.devlocal_policy_history.is_empty() {
+            registry
+                .devlocal_policy_history
+                .iter()
+                .map(|signed| {
+                    self.validate_devlocal_participant_authorization(
+                        &signed.request.policy,
+                        signed,
+                    )?;
+                    Ok((&signed.request.policy, &signed.request.manifest))
+                })
+                .collect::<Result<_, WorldError>>()?
+        } else {
+            registry
+                .policy_history
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    self.validate_participant_policy_proof(&a.policy, &a.proof, i == 0)?;
+                    Ok((&a.policy, &a.proof.manifest))
+                })
+                .collect::<Result<_, WorldError>>()?
+        };
+        for (i, (policy, manifest)) in history.iter().enumerate() {
+            if policy.generation != i as u64 + 1 {
                 return Err(error("participant policy history generation gap"));
             }
-            if i == 0 && authorization.proof.manifest.request.previous_registry_digest != request_digest("participant-registry",&ParticipantRegistryV1::default()).map_err(error)? {
-                return Err(error("participant initial policy history has no empty registry predecessor"));
+            if i == 0
+                && manifest.request.previous_registry_digest
+                    != request_digest("participant-registry", &ParticipantRegistryV1::default())
+                        .map_err(error)?
+            {
+                return Err(error(
+                    "participant initial policy history has no empty registry predecessor",
+                ));
             }
             if i > 0 {
-                let previous=&registry.policy_history[i-1];
-                if authorization.policy.world_id != previous.policy.world_id || authorization.policy.genesis_digest != previous.policy.genesis_digest
-                    || !authorization.policy.identity_namespace.same_authority(&previous.policy.identity_namespace)
-                    || authorization.policy.identity_namespace.instance_epoch.0 < previous.policy.identity_namespace.instance_epoch.0
-                    || !authorization.proof.manifest.request.entries.is_empty()
-                    || authorization.proof.manifest.request.source_snapshot_epoch < previous.proof.manifest.request.source_snapshot_epoch {
-                    return Err(error("participant policy history changes namespace or repeats migration"));
+                let (previous_policy, previous_manifest) = history[i - 1];
+                if policy.world_id != previous_policy.world_id
+                    || policy.genesis_digest != previous_policy.genesis_digest
+                    || !policy
+                        .identity_namespace
+                        .same_authority(&previous_policy.identity_namespace)
+                    || policy.identity_namespace.instance_epoch.0
+                        < previous_policy.identity_namespace.instance_epoch.0
+                    || !manifest.request.entries.is_empty()
+                    || manifest.request.source_snapshot_epoch
+                        < previous_manifest.request.source_snapshot_epoch
+                {
+                    return Err(error(
+                        "participant policy history changes namespace or repeats migration",
+                    ));
                 }
             }
-            for entry in &authorization.proof.manifest.request.entries {
-                verify_owner_signature_strict(PARTICIPANT_MIGRATION_OWNER_DOMAIN,&entry.request,&entry.subject_public_key,&entry.signature_hex).map_err(error)?;
+            for entry in &manifest.request.entries {
+                verify_owner_signature_strict(
+                    PARTICIPANT_MIGRATION_OWNER_DOMAIN,
+                    &entry.request,
+                    &entry.subject_public_key,
+                    &entry.signature_hex,
+                )
+                .map_err(error)?;
             }
         }
-        if let Some(last)=registry.policy_history.last() && registry.policy.as_ref()!=Some(&last.policy) {
-            return Err(error("participant policy checkpoint does not match authorized history"));
+        if let Some((last, _)) = history.last()
+            && registry.policy.as_ref() != Some(*last)
+        {
+            return Err(error(
+                "participant policy checkpoint does not match authorized history",
+            ));
         }
-        for (key,mapping) in &registry.migrated_bindings {
-            let receipt=registry.bindings.get(key).ok_or_else(||error("participant imported binding missing"))?;
-            let expected=migration_receipt(mapping,receipt.registered_tick.0).map_err(error)?;
-            if &expected != receipt || !registry.policy_history.iter().any(|a|a.proof.manifest.request.entries.iter().any(|e|&e.request==mapping)) {
-                return Err(error("participant imported binding has no approved manifest"));
+        for (key, mapping) in &registry.migrated_bindings {
+            let receipt = registry
+                .bindings
+                .get(key)
+                .ok_or_else(|| error("participant imported binding missing"))?;
+            let expected = migration_receipt(mapping, receipt.registered_tick.0).map_err(error)?;
+            if &expected != receipt
+                || !history
+                    .iter()
+                    .any(|(_, m)| m.request.entries.iter().any(|e| &e.request == mapping))
+            {
+                return Err(error(
+                    "participant imported binding has no approved manifest",
+                ));
             }
         }
         Ok(())
     }
 }
 
-pub(super) fn project_policy(world:&World,registry:&mut CapabilityRevocationState,policy:&ParticipantEntryPolicyV1,proof:&ParticipantPolicyProofV1)->Result<(),WorldError> {
-    let install=registry.participants.policy.is_none();
-    world.validate_participant_policy_proof(policy,proof,install)?;
-    let binding=world.current_cognition_runtime_binding()?;
-    let m=&proof.manifest.request;
-    let mut projected=world.clone();projected.capability_revocation_state=registry.clone();
-    if m.previous_registry_digest != projected.participant_registry_digest().map_err(error)?
-        || m.legacy_owner_state_digest != world.participant_legacy_owner_state_digest().map_err(error)?
-        || m.branch_id != binding.branch_id || m.reorg_epoch != binding.reorg_epoch {
-        return Err(error("participant policy migration predecessor/history mismatch"));
+pub(super) fn project_policy(
+    world: &World,
+    registry: &mut CapabilityRevocationState,
+    policy: &ParticipantEntryPolicyV1,
+    proof: &ParticipantPolicyProofV1,
+) -> Result<(), WorldError> {
+    if !registry.participants.devlocal_policy_history.is_empty() {
+        return Err(error("local participant authority cannot become governed"));
     }
-    if let Some(old)=&registry.participants.policy {
-        if policy.generation != old.generation.checked_add(1).ok_or_else(||error("participant policy generation overflow"))?
-            || policy.world_id != old.world_id || policy.genesis_digest != old.genesis_digest || !policy.identity_namespace.same_authority(&old.identity_namespace)
+    let install = registry.participants.policy.is_none();
+    world.validate_participant_policy_proof(policy, proof, install)?;
+    project_authorized_policy(world, registry, policy, &proof.manifest)?;
+    registry
+        .participants
+        .policy_history
+        .push(ParticipantPolicyAuthorizationV1 {
+            policy: policy.clone(),
+            proof: proof.clone(),
+        });
+    Ok(())
+}
+pub(super) fn project_authorized_policy(
+    world: &World,
+    registry: &mut CapabilityRevocationState,
+    policy: &ParticipantEntryPolicyV1,
+    manifest: &crate::service_admission::SignedReadRequest<ParticipantMigrationManifestV1>,
+) -> Result<(), WorldError> {
+    let binding = world.current_cognition_runtime_binding()?;
+    let m = &manifest.request;
+    let mut projected = world.clone();
+    projected.capability_revocation_state = registry.clone();
+    if m.previous_registry_digest != projected.participant_registry_digest().map_err(error)?
+        || m.legacy_owner_state_digest
+            != world
+                .participant_legacy_owner_state_digest()
+                .map_err(error)?
+        || m.branch_id != binding.branch_id
+        || m.reorg_epoch != binding.reorg_epoch
+    {
+        return Err(error(
+            "participant policy migration predecessor/history mismatch",
+        ));
+    }
+    if let Some(old) = &registry.participants.policy {
+        if policy.generation
+            != old
+                .generation
+                .checked_add(1)
+                .ok_or_else(|| error("participant policy generation overflow"))?
+            || policy.world_id != old.world_id
+            || policy.genesis_digest != old.genesis_digest
+            || !policy
+                .identity_namespace
+                .same_authority(&old.identity_namespace)
             || policy.identity_namespace.instance_epoch.0 < old.identity_namespace.instance_epoch.0
-            || !m.entries.is_empty() || policy.max_participants < registry.participants.bindings.len() as u64 {
-            return Err(error("participant policy update cannot reset namespace, migrate again or erase bindings"));
+            || !m.entries.is_empty()
+            || policy.max_participants < registry.participants.bindings.len() as u64
+        {
+            return Err(error(
+                "participant policy update cannot reset namespace, migrate again or erase bindings",
+            ));
         }
-        let old_manifest=registry.participants.policy_history.last().ok_or_else(||error("fixture policy cannot become production authority"))?;
-        if m.source_snapshot_epoch < old_manifest.proof.manifest.request.source_snapshot_epoch {return Err(error("participant migration snapshot epoch regressed"));}
-    } else if policy.generation != 1 || !registry.participants.is_empty() {return Err(error("participant initial policy registry conflict"));}
+        let old_manifest = registry
+            .participants
+            .policy_history
+            .last()
+            .map(|a| &a.proof.manifest)
+            .or_else(|| {
+                registry
+                    .participants
+                    .devlocal_policy_history
+                    .last()
+                    .map(|a| &a.request.manifest)
+            })
+            .ok_or_else(|| error("fixture policy cannot become production authority"))?;
+        if m.source_snapshot_epoch < old_manifest.request.source_snapshot_epoch {
+            return Err(error("participant migration snapshot epoch regressed"));
+        }
+    } else if policy.generation != 1 || !registry.participants.is_empty() {
+        return Err(error("participant initial policy registry conflict"));
+    }
     let mut accounts=BTreeSet::new();let mut agents=BTreeSet::new();
     let mut imports=Vec::new();
     for signed in &m.entries {
@@ -143,7 +273,6 @@ pub(super) fn project_policy(world:&World,registry:&mut CapabilityRevocationStat
     }
     if registry.participants.bindings.len()+imports.len()>policy.max_participants as usize {return Err(error("participant migrated registry exceeds quota"));}
     registry.participants.policy=Some(policy.clone());
-    registry.participants.policy_history.push(ParticipantPolicyAuthorizationV1 {policy:policy.clone(),proof:proof.clone()});
     for (key,op,entry,receipt) in imports {
         registry.participants.migrated_bindings.insert(key.clone(),entry.clone());
         registry.participants.bindings.insert(key,receipt.clone());

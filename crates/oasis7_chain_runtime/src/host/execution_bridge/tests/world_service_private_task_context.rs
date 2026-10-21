@@ -12,11 +12,17 @@ use oasis7_agent_api::game::{
 };
 use std::sync::{Arc, Mutex};
 
+#[path = "world_service_private_task_context_stack.rs"]
+mod stack;
+use stack::{
+    boxed_context_driver_fixture, boxed_context_driver_restart, boxed_context_value,
+    run_context_stage,
+};
+
 #[test]
 fn private_task_context_native_complete_prepare_capture_read_action_and_restart() {
     const AGE: u64 = 34;
-    let (dir, mut driver, world, owner, owner_public) =
-        canonical_agent_chat::driver_fixture_with_verified_authority();
+    let (dir, mut driver, world, owner, owner_public) = boxed_context_driver_fixture();
     let create = game_task_tests::create(&world, &owner, "context-task");
     commit(&mut driver, 3, create.clone());
     let c = game_task::current_control(&driver.execution_world, "agent-a")
@@ -262,15 +268,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
         "w1",
     )
     .unwrap();
-    let mut driver = NodeRuntimeExecutionDriver::new_with_local_bootstrap(
-        dir.join("state.json"),
-        dir.join("world"),
-        dir.join("records"),
-        dir.join("store"),
-        &oasis7_proto::storage_profile::StorageProfileConfig::default(),
-        bootstrap,
-    )
-    .unwrap();
+    let mut driver = boxed_context_driver_restart(&dir, bootstrap);
     let prepared = consumer(&dir, &runtime, &signer, &store, &world, |client| {
         client.prepare_task_context(&proof).unwrap()
     });
@@ -340,14 +338,14 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
         .is_err(),
         "correctly signed overlong public prefix must fail correlation validation"
     );
-    let before_overlong = driver.execution_world.snapshot();
+    let before_overlong = boxed_context_value(|| driver.execution_world.snapshot());
     assert!(
         driver
             .execution_world
             .apply_authenticated_scheduler(overlong)
             .is_err()
     );
-    assert_eq!(driver.execution_world.snapshot(), before_overlong);
+    run_context_stage(|| assert_eq!(driver.execution_world.snapshot(), *before_overlong));
 
     let public = serde_json::to_string(&prefix).unwrap();
     for secret in [
@@ -512,7 +510,8 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
         .0,
         409
     );
-    let canonical = serde_json::to_string(&driver.execution_world.snapshot()).unwrap();
+    let canonical =
+        boxed_context_value(|| serde_json::to_string(&driver.execution_world.snapshot()).unwrap());
     for secret in [
         &goal.request.content.goal_text,
         &goal.request.goal_digest.0,
@@ -753,87 +752,91 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
         assert_eq!(canonical.is_ok(), batched.is_ok());
         assert!(canonical.is_err());
     }
-    let mut stopped_world = driver.execution_world.clone();
-    assert!(expiry.valid_until_tick.0 >= stopped_world.state().time);
-    let canonical = game_task::validate_task_context_capture(
-        &stopped_world,
-        &expiry.identity,
-        &delegate_public,
-    );
-    let before_stop_history = game_task::validate_retention_history(&stopped_world).unwrap();
-    let batched = before_stop_history.validate_prefix_capture(&expiry.identity, &delegate_public);
-    assert_eq!(canonical.is_ok(), batched.is_ok());
-    assert!(canonical.is_ok(), "fresh context must pass before Stop");
-    let stop_request = request(
-        &world,
-        WorldServicePayloadV1::GameExecutorControl(
-            sign_read_request(
-                GAME_EXECUTOR_CONTROL_DOMAIN,
-                GameExecutorControlV1 {
-                    api_rev: 1,
-                    client_operation_id: "retention-stop-fence".into(),
-                    fence: expiry.identity.fence.clone(),
-                    operation: GameExecutorOperationV1::Stop,
-                },
-                &owner,
+    run_context_stage(|| {
+        let mut stopped_world = boxed_context_value(|| driver.execution_world.clone());
+        assert!(expiry.valid_until_tick.0 >= stopped_world.state().time);
+        let canonical = game_task::validate_task_context_capture(
+            &stopped_world,
+            &expiry.identity,
+            &delegate_public,
+        );
+        let before_stop_history = game_task::validate_retention_history(&stopped_world).unwrap();
+        let batched =
+            before_stop_history.validate_prefix_capture(&expiry.identity, &delegate_public);
+        assert_eq!(canonical.is_ok(), batched.is_ok());
+        assert!(canonical.is_ok(), "fresh context must pass before Stop");
+        let stop_request = request(
+            &world,
+            WorldServicePayloadV1::GameExecutorControl(
+                sign_read_request(
+                    GAME_EXECUTOR_CONTROL_DOMAIN,
+                    GameExecutorControlV1 {
+                        api_rev: 1,
+                        client_operation_id: "retention-stop-fence".into(),
+                        fence: expiry.identity.fence.clone(),
+                        operation: GameExecutorOperationV1::Stop,
+                    },
+                    &owner,
+                )
+                .unwrap(),
+            ),
+        );
+        let stop_height = game_task_tests::recorded(&driver, &expiry_prefix).committed_height + 1;
+        let stop_record = CanonicalIntentResultV1 {
+            receipt: game_task::prepare_executor_control(&stopped_world, &stop_request, [])
+                .unwrap(),
+            request: stop_request,
+            action_id: stop_height,
+            committed_height: stop_height,
+            rejected: None,
+        };
+        stopped_world
+            .record_world_service_result(stop_record)
+            .unwrap();
+        assert!(expiry.valid_until_tick.0 >= stopped_world.state().time);
+        let stopped_history = game_task::validate_retention_history(&stopped_world).unwrap();
+        let canonical = game_task::validate_task_context_capture(
+            &stopped_world,
+            &expiry.identity,
+            &delegate_public,
+        );
+        let batched = stopped_history.validate_prefix_capture(&expiry.identity, &delegate_public);
+        assert_eq!(canonical.is_ok(), batched.is_ok());
+        assert!(canonical.is_err(), "Stop must reject a still-live context");
+        let mut revoked_world = boxed_context_value(|| driver.execution_world.clone());
+        revoked_world
+            .apply_agent_signer_delegation(
+                &sign_read_request(
+                    "delegation",
+                    AgentSignerDelegationChangeV1 {
+                        world_id: "w1".into(),
+                        branch_id: "main".into(),
+                        agent_id: "agent-a".into(),
+                        owner_binding: "owner-a".into(),
+                        agent_identity_generation: 1,
+                        delegate_public_key: delegate_public.clone(),
+                        generation: 2,
+                        revoked: true,
+                        nonce: 2,
+                    },
+                    &owner,
+                )
+                .unwrap(),
             )
-            .unwrap(),
-        ),
-    );
-    let stop_height = game_task_tests::recorded(&driver, &expiry_prefix).committed_height + 1;
-    let stop_record = CanonicalIntentResultV1 {
-        receipt: game_task::prepare_executor_control(&stopped_world, &stop_request, []).unwrap(),
-        request: stop_request,
-        action_id: stop_height,
-        committed_height: stop_height,
-        rejected: None,
-    };
-    stopped_world
-        .record_world_service_result(stop_record)
-        .unwrap();
-    assert!(expiry.valid_until_tick.0 >= stopped_world.state().time);
-    let stopped_history = game_task::validate_retention_history(&stopped_world).unwrap();
-    let canonical = game_task::validate_task_context_capture(
-        &stopped_world,
-        &expiry.identity,
-        &delegate_public,
-    );
-    let batched = stopped_history.validate_prefix_capture(&expiry.identity, &delegate_public);
-    assert_eq!(canonical.is_ok(), batched.is_ok());
-    assert!(canonical.is_err(), "Stop must reject a still-live context");
-    let mut revoked_world = driver.execution_world.clone();
-    revoked_world
-        .apply_agent_signer_delegation(
-            &sign_read_request(
-                "delegation",
-                AgentSignerDelegationChangeV1 {
-                    world_id: "w1".into(),
-                    branch_id: "main".into(),
-                    agent_id: "agent-a".into(),
-                    owner_binding: "owner-a".into(),
-                    agent_identity_generation: 1,
-                    delegate_public_key: delegate_public.clone(),
-                    generation: 2,
-                    revoked: true,
-                    nonce: 2,
-                },
-                &owner,
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let revoked_history = game_task::validate_retention_history(&revoked_world).unwrap();
-    let canonical = game_task::validate_task_context_capture(
-        &revoked_world,
-        &expiry.identity,
-        &delegate_public,
-    );
-    let batched = revoked_history.validate_prefix_capture(&expiry.identity, &delegate_public);
-    assert_eq!(canonical.is_ok(), batched.is_ok());
-    assert!(
-        canonical.is_err(),
-        "revoked delegation must fail in both paths"
-    );
+            .unwrap();
+        let revoked_history = game_task::validate_retention_history(&revoked_world).unwrap();
+        let canonical = game_task::validate_task_context_capture(
+            &revoked_world,
+            &expiry.identity,
+            &delegate_public,
+        );
+        let batched = revoked_history.validate_prefix_capture(&expiry.identity, &delegate_public);
+        assert_eq!(canonical.is_ok(), batched.is_ok());
+        assert!(
+            canonical.is_err(),
+            "revoked delegation must fail in both paths"
+        );
+    });
     let expiry_get = sign_read_request(
         TASK_CONTEXT_READ_PATH,
         TaskContextGetV1 {

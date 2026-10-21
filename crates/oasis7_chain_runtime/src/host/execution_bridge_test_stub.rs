@@ -50,6 +50,25 @@ impl NodeRuntimeExecutionDriver {
         Ok(Self)
     }
 
+    pub(super) fn new_with_participant_paths(
+        _paths: &crate::RuntimePaths,
+        _profile: &StorageProfileConfig,
+        _participant: crate::execution_config::DevLocalParticipantConfig,
+    ) -> Result<Self, String> {
+        Err("test stub cannot install participant authority".into())
+    }
+
+    pub(super) fn new_with_participant_control(
+        _state_path: std::path::PathBuf,
+        _world_dir: std::path::PathBuf,
+        _records_dir: std::path::PathBuf,
+        _storage_root: std::path::PathBuf,
+        _storage_profile: &StorageProfileConfig,
+        _participant: crate::execution_config::DevLocalParticipantConfig,
+    ) -> Result<Self, String> {
+        Err("test stub cannot install participant authority".into())
+    }
+
     pub(super) fn new_with_storage_profile(
         _state_path: std::path::PathBuf,
         _world_dir: std::path::PathBuf,

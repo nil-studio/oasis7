@@ -497,6 +497,8 @@ pub struct World {
     builtin_release_manifest: BuiltinReleaseManifestState,
     #[serde(default)]
     release_security_policy: ReleaseSecurityPolicy,
+    #[serde(skip, default)]
+    devlocal_participant_authority: Option<DevLocalParticipantAuthority>,
     #[serde(default)]
     rollback_authority_registry: super::RollbackAuthorityRegistry,
     #[serde(default)]
@@ -650,6 +652,7 @@ impl World {
             next_governance_identity_penalty_id: default_next_governance_identity_penalty_id(),
             builtin_release_manifest: BuiltinReleaseManifestState::default(),
             release_security_policy: ReleaseSecurityPolicy::default(),
+            devlocal_participant_authority: None,
             rollback_authority_registry: super::RollbackAuthorityRegistry::default(),
             consumed_rollback_nonces: BTreeSet::new(),
             rollback_nonce_outcomes: BTreeMap::new(),
@@ -1138,3 +1141,9 @@ mod game_starter;
 
 #[cfg(test)]
 mod game_starter_tests;
+
+#[cfg(test)]
+mod participant_devlocal_tests;
+
+mod participant_devlocal;
+pub use participant_devlocal::DevLocalParticipantAuthority;

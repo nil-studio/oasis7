@@ -21,6 +21,33 @@ pub(crate) struct OptionSpec {
 
 pub(crate) const OPTIONS: &[OptionSpec] = &[
     OptionSpec {
+        name: "--devlocal-participant-origin-root",
+        alias: None,
+        kind: OptionKind::Scalar,
+        conflict: None,
+        value: "<original-preview-root>",
+        description: "verify original node-signed preview genesis for an explicit signed local binding migration",
+        default: None,
+    },
+    OptionSpec {
+        name: "--devlocal-participant-operator-public-key",
+        alias: None,
+        kind: OptionKind::Scalar,
+        conflict: None,
+        value: "<Ed25519-hex>",
+        description: "independent local participant administrator pin; requires effective development runtime and isolated DevLocal administration; no governance/finality claim",
+        default: None,
+    },
+    OptionSpec {
+        name: "--devlocal-participant-policy-file",
+        alias: None,
+        kind: OptionKind::Scalar,
+        conflict: None,
+        value: "<private-signed-policy.json>",
+        description: "explicit operator and issuer signed participant startup policy",
+        default: None,
+    },
+    OptionSpec {
         name: "--node-id",
         alias: None,
         kind: OptionKind::Scalar,
