@@ -32,7 +32,7 @@ describe('Chinese composition and source states', () => {
   it('keeps unsaved decision text when switching views and searching', () => {
     render(() => <App />);
     fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
-    fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'保留中文草稿'}});
+    if(!screen.queryByLabelText('决定内容'))fireEvent.click((screen.queryByRole('button',{name:'继续编辑未清空内容'})??screen.getByRole('button',{name:'新建决定'})));fireEvent.input(screen.getByLabelText('决定内容'),{target:{value:'保留中文草稿'}});
     fireEvent.click(screen.getByRole('button',{name:/开发执行/}));
     fireEvent.click(screen.getByRole('button',{name:/规范与决策/}));
     expect(screen.getByLabelText('决定内容')).toHaveValue('保留中文草稿');
