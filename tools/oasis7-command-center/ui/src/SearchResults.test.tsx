@@ -4,13 +4,13 @@ import { createSignal } from 'solid-js';
 import SearchResults from './SearchResults';
 import SourceSearchMatches from './SourceSearchMatches';
 import MarkdownText from './MarkdownText';
-import { matchParts,matchSnippet } from './SearchText';
+import { documentSearchName,matchParts,matchSnippet } from './SearchText';
 import type { DocumentSection } from './types';
 afterEach(cleanup);
 const section=(id:string,path:string,content:string)=>({id,path,content,title:id,line:1,revision:'r',committedRevision:'r',dirty:false} as DocumentSection);
 it('matches literal metacharacters and Unicode without executing markup',()=>{
  expect(matchParts('恢复 A+B a+b <script>','a+b').filter(p=>p.match).map(p=>p.text)).toEqual(['A+B','a+b']);
- expect(matchSnippet('前文。恢复后继续。','恢复')).toContain('恢复');
+ expect(matchSnippet('前文。恢复后继续。','恢复')).toContain('恢复');expect(matchSnippet('[恢复](other.md)原文','恢复')).toBe('恢复原文');expect(documentSearchName('doc/product/world/prd.md')).toBe('world/prd.md');expect(matchSnippet('<a id="id"></a>恢复','恢复')).toBe('恢复');
  render(()=><MarkdownText text={'# 标题\n\n恢复 <script>alert(1)</script> 恢复'} searchQuery="恢复"/>);
  expect(document.querySelectorAll('mark')).toHaveLength(2);expect(document.querySelector('script')).toBeNull();
 });

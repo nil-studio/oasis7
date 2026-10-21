@@ -7,4 +7,5 @@ export function matchParts(text:string, query:string):{text:string;match:boolean
   if(from<text.length)parts.push({text:text.slice(from),match:false});return parts;
 }
 export default function SearchText(props:{text:string;query:string}){return <For each={matchParts(props.text,props.query)}>{part=>part.match?<mark>{part.text}</mark>:part.text}</For>;}
-export function matchSnippet(text:string,query:string){const match=matchParts(text,query).find(p=>p.match);if(!match)return '';const at=text.indexOf(match.text);const start=Math.max(0,at-45),end=Math.min(text.length,at+match.text.length+85);return `${start?'…':''}${text.slice(start,end).replace(/\s+/g,' ')}${end<text.length?'…':''}`;}
+export function documentSearchName(path:string){const parts=path.split('/');return /^(prd|design|README)\.md$/.test(parts.at(-1)??'')?parts.slice(-2).join('/'):parts.at(-1)??path;}
+export function matchSnippet(text:string,query:string){text=text.replace(/<a\s+id=["'][^"']+["']\s*><\/a>/g,'').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1');const match=matchParts(text,query).find(p=>p.match);if(!match)return '';const at=text.indexOf(match.text);const start=Math.max(0,at-45),end=Math.min(text.length,at+match.text.length+85);return `${start?'…':''}${text.slice(start,end).replace(/\s+/g,' ')}${end<text.length?'…':''}`;}

@@ -75,7 +75,7 @@ it('keeps the inline document position when following and closing an external so
 it('labels results with the submitted query and ignores responses after clearing',async()=>{
  const snapshot=data([section]);snapshot.preferences.view='direction';api.snapshot.mockResolvedValue(snapshot);api.savePreferences.mockResolvedValue(undefined);api.search.mockResolvedValue([section]);
  render(()=><App/>);await screen.findByText('oasis7 · 本地项目');
- const input=screen.getByLabelText('搜索规范、标题、路径或条款 ID');fireEvent.input(input,{target:{value:'恢复'}});fireEvent.click(screen.getByRole('button',{name:'搜索',exact:true}));await screen.findByText('查询：恢复');
+ const input=screen.getByLabelText('搜索规范、标题、路径或条款 ID');fireEvent.input(input,{target:{value:'恢复'}});fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));await screen.findByText('查询：恢复');
  fireEvent.input(input,{target:{value:'新查询'}});expect(screen.getByText('查询：恢复')).toBeInTheDocument();expect(screen.queryByText('查询：新查询')).not.toBeInTheDocument();
- let resolve!:(value:DocumentSection[])=>void;api.search.mockImplementation(()=>new Promise(r=>{resolve=r;}));fireEvent.click(screen.getByRole('button',{name:'搜索',exact:true}));fireEvent.click(screen.getByRole('button',{name:'返回当前视图'}));resolve([section]);await Promise.resolve();await Promise.resolve();expect(screen.queryByLabelText('文档检索结果')).not.toBeInTheDocument();
+ let resolve!:(value:DocumentSection[])=>void;api.search.mockImplementation(()=>new Promise(r=>{resolve=r;}));fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));fireEvent.click(screen.getByRole('button',{name:'返回当前视图'}));resolve([section]);await Promise.resolve();await Promise.resolve();expect(screen.queryByLabelText('文档检索结果')).not.toBeInTheDocument();
 });
