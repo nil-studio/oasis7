@@ -170,6 +170,10 @@ quote facade 分流前清普通动作 timer。已有部分 ACK identity 校验�
    同连接超时后同目标重试等歧义不能靠本地 seq 补出远端没有 echo 的身份；保持未知并沿
    支持的权威查询/重新建立请求上下文恢复，不把旧 ACK 写成新历史或新 applied。
 
+7. 自动恢复的次数属于原逻辑操作上下文，不属于可替换的 feedback 或 timer。对于当前请求明确返回且仍有授权的可恢复 `session_not_found`，同一逻辑操作至多执行一次自动会话恢复；替换反馈、重签名或重建等待实例不得重置预算。再次失败停止自动循环，保留原因和安全下一步。原副作用结果未知时先按原身份查询，不能把会话恢复当作重新提交世界效果的许可；用户后续显式操作仍须重新核验当前授权与原结果。
+
+本条承接既有 [REQ-AGENT-SURFACE-004](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-004) 的安全下一步要求（Trace refs: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4），补充恢复预算生命周期，不改变错误码、签名或世界准入。验收以 fake clock/受控 transport 连续返回两次 `session_not_found`，同时替换 feedback、注入迟到响应：自动恢复最多一次、第二次有终止反馈，unknown 路径无新副作用提交。实际测试结果由实现 PR 提供。
+
 | 场景 | 必须断言的时序与结果 | 现有实现/测试接点 |
 | --- | --- | --- |
 | R1 Prompt 旧 error | A rollback(999)→B Apply，A error 不改 B ID/timer，B ACK 正常 applied/刷新；B 签名期、A 超时后重试、不同 Agent 与当前 control_lost 分别覆盖 | `viewer_prompt_control_module.js`、`viewer_prompt_control_protocol.test.jsx` |
