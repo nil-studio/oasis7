@@ -163,8 +163,10 @@ def check_tables(root):
             "panic_disposition": "requires independent layer-by-layer model interpretation"}
 
 
-def run(argv, cwd, output, end, timeout, artifact_root, env):
+def run(argv, cwd, output, end, timeout, artifact_root, env, file_limit=CAP):
     """Own one process group; a timeout/error cannot leave its children running."""
+    if not isinstance(file_limit, int) or not 0 < file_limit <= 8 * 1024**3:
+        raise ValueError("invalid owned child file-size limit")
     process = None
     error = None
     cleanup = []
@@ -178,7 +180,7 @@ def run(argv, cwd, output, end, timeout, artifact_root, env):
             process = subprocess.Popen(
                 argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, start_new_session=True,
-                preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (CAP, CAP)))
+                preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit)))
             os.set_blocking(process.stdout.fileno(), False)
             selector.register(process.stdout, selectors.EVENT_READ)
             phase_end = time.monotonic() + remaining
@@ -244,7 +246,7 @@ def run(argv, cwd, output, end, timeout, artifact_root, env):
         result = {"argv": argv, "cwd": str(cwd), "started": started,
                   "elapsed": time.time() - started, "pid": process.pid if process else None,
                   "exit": process.returncode if process else None, "error": error,
-                  "cleanup_errors": cleanup}
+                  "cleanup_errors": cleanup, "file_size_limit_bytes": file_limit}
         try:
             output.with_suffix(output.suffix + ".result.json").write_text(json.dumps(result, indent=2) + "\n")
         except Exception as exc:

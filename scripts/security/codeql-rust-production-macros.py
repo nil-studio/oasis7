@@ -159,17 +159,21 @@ def execute(run, args, env, query, packs, cache):
     (args.output / "database-after.json").write_text(json.dumps(after, indent=2) + "\n")
     with zipfile.ZipFile(bundle) as archive:
         infos = zip_inputs(archive)
+        max_member_bytes = max(info.file_size for info in infos)
+        member_limit = max(64 * 1024**2, max_member_bytes)
         required = sum(info.file_size for info in infos) + 1024**3
         if shutil.disk_usage(args.work).free < required:
             raise RuntimeError("insufficient owned disk for database plus query cache")
-        (args.output / "database-archive.json").write_text(json.dumps({"bytes": total, "sha256": digest.hexdigest(), "uncompressed_bytes": required - 1024**3, "entries": len(infos)}, indent=2) + "\n")
+        (args.output / "database-archive.json").write_text(json.dumps({"bytes": total, "sha256": digest.hexdigest(), "uncompressed_bytes": required - 1024**3, "entries": len(infos), "max_member_bytes": max_member_bytes, "unbundle_file_limit_bytes": member_limit, "members": [{"name": info.filename, "bytes": info.file_size} for info in infos]}, indent=2) + "\n")
     cli = str(args.codeql)
     run([cli, "database", "unbundle", "--help"], args.work, args.output / "unbundle-help.log", args.deadline, 20, args.output, env)
     if "--target" not in (args.output / "unbundle-help.log").read_text():
         raise RuntimeError("exact CLI unbundle target option unavailable")
     database = args.work / "production-database"
-    run([cli, "database", "unbundle", "--target=" + str(database), str(bundle)], args.work,
-        args.output / "database-unbundle.log", args.deadline, 120, args.output, env)
+    if database.exists():
+        raise RuntimeError("owned unbundle destination already exists")
+    run([cli, "database", "unbundle", "--target=" + str(args.work), "--name=production-database", str(bundle)], args.work,
+        args.output / "database-unbundle.log", args.deadline, 120, args.output, env, file_limit=member_limit)
     descriptor = database / "codeql-database.yml"
     raw = descriptor.read_text()
     (args.output / "production-database.yml").write_text(raw)

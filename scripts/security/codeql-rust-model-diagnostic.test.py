@@ -190,6 +190,25 @@ class ProcessBoundaries(unittest.TestCase):
                     D.main()
             self.assertEqual(list(root.iterdir()), before)
 
+    def test_data_file_limit_is_explicit_and_default_remains_evidence_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            command = [sys.executable, "-c", "from pathlib import Path; Path('data').write_bytes(b'x'*4096)"]
+            with self.assertRaises(RuntimeError):
+                D.run(command, root, root / "small.log", time.monotonic()+5, 2, root, os.environ, file_limit=1024)
+            D.run(command, root, root / "data.log", time.monotonic()+5, 2, root, os.environ, file_limit=8192)
+            self.assertEqual((root / "data").stat().st_size, 4096)
+            result = json.loads((root / "data.log.result.json").read_text())
+            self.assertEqual(result["file_size_limit_bytes"], 8192)
+            self.assertEqual(result["cleanup_errors"], [])
+            D.run([sys.executable, "-c", "import resource; print(resource.getrlimit(resource.RLIMIT_FSIZE)[0])"],
+                  root, root / "default.log", time.monotonic()+5, 2, root, os.environ)
+            self.assertEqual(int((root / "default.log").read_text()), 64*1024**2)
+            with patch.object(D.subprocess, "Popen") as spawn:
+                with self.assertRaises(ValueError):
+                    D.run(command, root, root / "invalid.log", time.monotonic()+5, 2, root, os.environ, file_limit=8*1024**3+1)
+                spawn.assert_not_called()
+
     def test_expired_deadline_spawns_nothing(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
