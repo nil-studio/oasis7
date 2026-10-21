@@ -76,6 +76,7 @@ jobs:
       - name: Run fixed synthetic model controls
         run: |
           python3 scripts/security/codeql-rust-model-diagnostic.py \
+            --real-peer-projection \
             --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
             --output "$RUNNER_TEMP/rust-model-evidence" \
             --work "$RUNNER_TEMP/rust-model-databases" \

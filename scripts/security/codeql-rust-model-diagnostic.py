@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Manual, bounded CodeQL model experiment; never uploads Code Scanning results."""
 import argparse
+import importlib.util
 import csv
 import hashlib
 import json
@@ -296,6 +297,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--codeql", type=Path, required=True)
     parser.add_argument("--inspect-packs-only", action="store_true")
+    parser.add_argument("--real-peer-projection", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--deadline", type=float, required=True)
@@ -367,9 +369,18 @@ def diagnose(args):
         "source_pack": "new owned source pack without copied compiled lock",
         "ram_requested_mib": 3072, "hard_rss_cap": False}, indent=2) + "\n")
     search_root = os.pathsep.join(p["root"] for p in inventory)
-    write(query / "Macros.ql", MACROS)
-    write(query / "Calls.ql", CALLS)
-    write(query / "Closures.ql", CLOSURES)
+    peer_mode = None
+    query_texts = {"Macros": MACROS, "Calls": CALLS, "Closures": CLOSURES}
+    if args.real_peer_projection:
+        helper = Path(__file__).with_name("codeql-rust-peer-inputs.py")
+        specification = importlib.util.spec_from_file_location("real_peer_inputs", helper)
+        peer_mode = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(peer_mode)
+        query_texts = peer_mode.QUERIES
+        write(args.output / "real-peer-helper-sha256.txt", hashlib.sha256(helper.read_bytes()).hexdigest() + "\n")
+    names = tuple(query_texts)
+    for name, text in query_texts.items():
+        write(query / (name + ".ql"), text)
     run([cli, "resolve", "packs", "--help"], args.work,
         args.output / "resolve-packs-help.log", args.deadline, 20, args.output, env)
     run([cli, "resolve", "packs", "--search-path=" + search_root], args.work,
@@ -378,7 +389,7 @@ def diagnose(args):
         args.output / "resolve-qlpacks.json", args.deadline, 20, args.output, env)
     run([cli, "resolve", "library-path", "--help"], args.work,
         args.output / "resolve-library-help.log", args.deadline, 20, args.output, env)
-    for name in ("Macros", "Calls", "Closures"):
+    for name in names:
         run([cli, "resolve", "library-path", "--query=" + str(query / (name + ".ql")),
              "--format=json", "--additional-packs=" + search_root], args.work,
             args.output / f"library-path-{name}.json", args.deadline, 20, args.output, env)
@@ -393,7 +404,7 @@ def diagnose(args):
     for name, version in LIBRARY_VERSIONS.items():
         if versions.get("codeql/" + name) != version:
             raise RuntimeError("pinned dependency manifest mismatch: " + name)
-    for name in ("Macros", "Calls", "Closures"):
+    for name in names:
         verify_library_path(json.loads((args.output / f"library-path-{name}.json").read_text()),
                             args.codeql.resolve().parent, query.resolve(), name)
     run([cli, "query", "compile", "--help", "-v"], args.work,
@@ -404,7 +415,7 @@ def diagnose(args):
             raise RuntimeError("exact CLI missing preflight option: " + option)
     run([cli, "query", "compile", "--check-only", "--keep-going",
          "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
-         *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]],
+         *[str(query / (name + ".ql")) for name in names]],
         args.work, args.output / "query-preflight.log", args.deadline, 60, args.output, env)
     run([cli, "query", "run", "--help", "-v"], args.work,
         args.output / "query-run-help.log", args.deadline, 20, args.output, env)
@@ -415,11 +426,14 @@ def diagnose(args):
     write(args.output / "compiled-query-inputs.json", json.dumps({
         "cache": str(cache), "shared_compile_seconds": 360,
         "queries": {name: hashlib.sha256((query / (name + ".ql")).read_bytes()).hexdigest()
-                    for name in ("Macros", "Calls", "Closures")}}, indent=2) + "\n")
+                    for name in names}}, indent=2) + "\n")
     run([cli, "query", "compile", "--keep-going", "--compilation-cache=" + str(cache),
          "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
-         *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]],
+         *[str(query / (name + ".ql")) for name in names]],
         args.work, args.output / "query-compile.log", args.deadline, 360, args.output, env)
+    if peer_mode is not None:
+        peer_mode.execute(run, args, env, query, search_root, cache)
+        return
     before = {}
     for name, wrappers in [("baseline", False), ("wrappers", True)]:
         source = args.output / name
