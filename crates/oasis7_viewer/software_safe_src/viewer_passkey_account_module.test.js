@@ -349,3 +349,11 @@ it("keeps the verified account when a fresh credential proof fails", async () =>
   expect(root.textContent).toContain("Verified Player");
   expect(invalidated).not.toHaveBeenCalled(); surface.dispose();
 });
+
+it("explains local cloned-tab recovery custody without asserting another device or offering automatic takeover", () => {
+  const notice = accountErrorNotice(new Error("world_recovery_context_in_use"));
+  expect(notice).toContain("原页面仍在使用");
+  expect(notice).toContain("不会自动接管");
+  expect(notice).not.toContain("另一设备");
+  expect(accountErrorNotice(new Error("world_recovery_unavailable"))).toContain("无法安全恢复");
+});

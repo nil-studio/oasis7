@@ -115,9 +115,13 @@ DeepSeek / OpenRouter       Harness / 第一方 Game Client
 Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；O7-REQ-26cefe7a-deb5-4b21-845a-a2d4556f7dca；O7-REQ-d3d63078-ef30-45fb-8ae6-2f6db1f46c34。承接 [REQ-BYOK-001](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-001)、[REQ-BYOK-002](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-002) 与 [REQ-BYOK-004](../../product/agents-world-simulation/self-supplied-model-connection.prd.md#req-byok-004)，不增加世界权限。
 
 - 列表使用有界分页，服务端返回的单页条数不得超过已公布且客户端可接受的上限；继续 cursor 绑定认证主体、会话及列表切点，失效时明确要求重读，不能将两次切点的页面拼为完整结果。客户端只在服务端明确终页且所有页校验成功后声明完整；当前连接可以按其已知 ID 进行同权限的只读核对和管理，不依赖历史全量载入。任何数量限制都不能把合法历史增长变成整个管理入口的协议错误。
+- 当前受控 Launcher 实现：初页 `GET /v1/agent-client/model-connections`，继续页 `GET /v1/agent-client/model-connections/pages/{cursor}`，每页 `page_limit: 64`；`list_cut` 是认证账号、账号会话、授权引用与完整脱敏管理投影的 SHA-256 摘要，`next_cursor` 仅携带摘要与偏移，终页明确为 `null`。任一投影变化或换主体/会话使旧 cursor 返回 typed `list_changed`；客户端丢弃未完成集合，不拼接不同切点，也不在失败时回报空集合。已知连接继续使用上表按 ID 读取以核对版本；历史页失败不关闭其管理入口，状态读取仍不续租或调用模型。
+- 当前容量分别为每个认证主体最多 8 条持有效凭证记录、每个服务进程最多 4096 条总记录、每页最多 64 条；响应 `management_limits` 明确这些限制和 `history_retention: process_lifetime`。进程内不淘汰历史 tombstone 或未决关联，达到容量时新建返回 `connection_capacity_exceeded`，与模型调用的 `budget_exhausted` 分开；已有合法记录仍可读取和管理。此进程内管理保留不替代世界 operation 的持久恢复，也不授权以重启清空预算或恢复未知结果。
 - 活跃凭证数量、脱敏历史保留数量与单页上限是不同限制。部署须明确各自上限和到期/淘汰语义；历史清理不得移除仍需管理的活跃连接，也不删除未决操作的恢复关联。容量、保留窗口外和读取失败分别解释，不静默截断、不把 unavailable 当作空集合。上述分页与按 ID 读取是目标接口义务，未实现组合应明确不可用，不能宣称现有端点已支持。
 - lease 成功、运行结束、版本冲突或 lease 回复丢失后，先通过同权限只读管理投影归一当前 connection/version、租约截止时间、运行代与停止状态，再决定是否允许后续管理操作。只读刷新不能续租、activate、开始模型调用、重置预算或改变世界任务；旧会话/连接/请求代的响应不能覆盖当前状态。租约确已过期仍按既有合同失效，不能借刷新复活。
 - 同一 probe 操作 ID 的查询或重试只返回原检查状态。超时、断连或单个 HTTP 状态不证明检查已经终止，结果未知时先核对原 ID，不创建新 ID 来绕过未知状态。只有原检查已确认终态，且用户明确发起新的有限检查，才分配新操作 ID；新检查重新验证版本、同意与剩余共享预算，不沿用旧成功结果或重置已消费预算。认证、余额与不兼容错误仍不得自动重试；状态读取本身不得再次调用供应商。
+- 当前 probe HTTP 响应、Stop 的已确认拒绝响应携带独立的 `operation_state`：`pending` 保留原 ID 和原 expected_version，`ready`/`failed` 证明该原检查终态；只有管理器经同权限查询确认该 ID 从未进入对应检查/Stop 记录时才返回 `not_started`。真实 CAS 拒绝同时保留 `version_conflict`，允许只读刷新后由下一次明确操作使用新 ID；HTTP 状态、未知错误或缺失该证明不能单独终结原 ID。客户端收到终态/未受理证明后仅释放本地待定身份，不自动重新探测、不恢复预算；迟到回包不得删除更新操作的身份。供应商安全 typed failure 保留固定分类，未知 409 不推断为跨页面 CAS 修改。
+
 
 <a id="des-byok-005"></a>
 

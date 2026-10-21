@@ -616,12 +616,19 @@ v2 world adapter 使用以上 `/world/*` 路由及版本化身份授权；既有
 同源多标签页通过 BroadcastChannel 或等价本地通知同步“session_changed / revoked”，但通知不是授权依据；每个标签页收到事件后向服务端核对。前端请求携带本地 generation，旧结果不能覆盖新账号 UI；generation 只是 UI 防竞态，不替代服务端 action/session 绑定。
 
 刷新后先调用 `/session`，再查询目标世界原 join attempt/既有绑定状态。先核对已有结果，必要时注册新页内临时 key；绝不恢复浏览器长期 player privateKey，也不自动重发原世界 intent。
+
+同 tab reload 的短期世界控制恢复可以保留加密 recovery capsule：仅 `sessionStorage` 保存账号范围、原 join attempt、临时控制 key 与尚未终结的原签名玩法请求的 AES-GCM 密文；独立随机 AES key 为 IndexedDB 中 non-extractable CryptoKey，不持久化裸私钥或账号 bearer。恢复须先通过当前 cookie 的 `/session` 账号匹配，再以原 attempt 查询 `/world/join`，权威 bound 后才继续控制；候选 pending 不能借 `/world/refresh` 获取授权。该机制不保存长期登录 key、不自动重发玩法 intent，也不改变服务端 current-only refresh/fence。hosted 玩法发送前必须先完成原请求 nonce/签名原件的加密保存；保存不可用则不得发送。reload 安全恢复控制后，只在 endpoint、world、authority epoch、公共 Feed source fence（branch/generations）与 reorg epoch 均匹配原记录时安装 unknown 反馈并沿原 nonce 对账，不为未确定请求分配新 nonce。当前 scope 未验证或不匹配时保留加密原件，不把它呈现为当前世界请求，也不允许当前世界的同 nonce 终态清理另一 scope 的原件。仅精确匹配的权威终态（含明确拒绝）可清理原请求；received/pending、传输错误和超时不清理。
+
+原 tab 通过按 capsule ID 的 exclusive Web Lock 持有使用权；复制 sessionStorage 的新 tab 遇到已持有 lock 必须拒绝恢复，不能生成新 attempt 绕过确认。缺 IndexedDB、Web Locks、存储权限或加密能力时不写恢复材料，保留页内控制并明确要求重新确认控制；未知/损坏恢复材料不得猜测成功。退出或账号切换删除 capsule 与加密 key；真实其他控制者、失效 epoch、撤销均遵循原 fail-closed 和明确接管合同。此存储防止裸 key 落盘，不承诺防御同源脚本执行或浏览器 profile 被完全控制。
+
 ### 12.3 存储白名单
 | 位置 | 允许 | 禁止 |
 | --- | --- | --- |
 | HttpOnly cookie | 短期 pre-auth 上下文、账号 session token | 被返回到 JS、被加入 URL 或分析埋点 |
 | JS 内存 | 系统响应的短暂处理材料、CSRF token、页内临时会话 key、进行中请求引用 | 跨页面持久保存标准响应和长期登录私钥 |
 | localStorage | 语言、UI 偏好、非秘密目标 world/operation 引用；继续清理旧 privateKey | 账号 bearer、长期 release token、原生私钥、OTP、恢复完成证明 |
+| sessionStorage | 当前 tab 的短期世界控制 AES-GCM recovery capsule 和非秘密账号/attempt 引用；受 Web Lock 排他约束 | 裸控制私钥、长期登录私钥、账号 bearer、registration grant、OTP |
+| IndexedDB | 仅用于上述 capsule 的 non-extractable 随机 AES CryptoKey；退出/账号切换删除 | 裸控制或账号私钥、可导出包裹 key、账号 bearer、长期恢复令牌 |
 | 系统认证器 | Passkey 的认证器管理材料 | 产品不得声称自己可任意导出、备份或删除其私钥 |
 | 原生安全存储（P1） | 明确隔离的登录 key，按本地保护合同访问 | 节点、治理或资产 key 冒充登录身份 |
 CSRF/Origin 防护与 Cookie 安全属性必须同时存在。对来自受信任反向代理的请求才能采纳转发来源，不能信任公网随便提供的 `X-Forwarded-For` 来绕过限流。[W7][W8]

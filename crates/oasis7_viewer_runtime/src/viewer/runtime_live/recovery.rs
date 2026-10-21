@@ -14,6 +14,57 @@ use oasis7_simulator::WorldEventKind;
 mod session_mutations;
 
 impl ViewerRuntimeLiveServer {
+    /// WorldService bindings come from the installed verified canonical owner,
+    /// not the optional local LLM sidecar cache. A missing/mismatched source
+    /// remains unbound, including key rotation and canonical revocation.
+    pub(super) fn canonical_binding_source(
+        &self,
+    ) -> Option<&crate::world_service::verified_view::VerifiedWorldView> {
+        let config = self.config.world_service.as_ref()?;
+        let view = self.verified_world_view.as_ref()?;
+        let reader = config.read_authority().ok()?;
+        if !view.belongs_to(&reader)
+            || view.version().commit.world != config.expected_world
+            || self.config.world_id != config.expected_world.world_id
+            || view.version().visibility_scope != config.scope_id
+            || view.evidence_policy()
+                != crate::world_service::verified_view::ReadEvidencePolicy::Ordinary
+            || view.execution_evidence_scope().is_some()
+            || view.logical_tick() != self.world.state().time
+        {
+            return None;
+        }
+        Some(view)
+    }
+
+    pub(super) fn canonical_session_agent(&self, player: &str, key: &str) -> Option<String> {
+        let config = self.config.world_service.as_ref()?;
+        let view = self.canonical_binding_source()?;
+        let state = &view.projection().state;
+        let mut candidates = state.agents.keys().filter(|agent| {
+            state.resolved_agent_owner(agent).is_some_and(|owner| {
+                owner.player_id == player
+                    && owner.public_key.as_deref() == Some(key)
+                    && owner.primary_agent_id == **agent
+            })
+        });
+        let agent = candidates.next()?.clone();
+        if candidates.next().is_some() {
+            return None;
+        }
+        if let Some(fence) = &view.projection().canonical_agent_owner
+            && (fence.agent_id != agent
+                || fence.player_id != player
+                || fence.public_key != key
+                || fence.world_id != config.expected_world.world_id
+                || fence.reorg_epoch != view.version().commit.binding.reorg_generation
+                || fence.canonical_authority.branch_id != view.version().commit.binding.branch_id)
+        {
+            return None;
+        }
+        Some(agent)
+    }
+
     #[expect(
         clippy::result_large_err,
         reason = "Recovery protocol errors preserve the stable typed error envelope"
@@ -861,10 +912,22 @@ impl ViewerRuntimeLiveServer {
                 Some(verified.public_key.clone()),
             )
         })?;
-        let current_bound_agent_id = self
-            .llm_sidecar
-            .bound_agent_for_player(verified.player_id.as_str())
-            .map(ToOwned::to_owned);
+        if self.config.world_service.is_some() && self.canonical_binding_source().is_none() {
+            return Err(recovery_error(
+                "canonical_owner_not_ready",
+                "verified canonical binding source unavailable",
+                None,
+                Some(verified.player_id.clone()),
+                Some(verified.public_key.clone()),
+            ));
+        }
+        let current_bound_agent_id = if self.config.world_service.is_some() {
+            self.canonical_session_agent(&verified.player_id, &verified.public_key)
+        } else {
+            self.llm_sidecar
+                .bound_agent_for_player(&verified.player_id)
+                .map(ToOwned::to_owned)
+        };
         let requested_agent_id = self
             .smelter_affordability_debug_agent_for_local_test_player(verified.player_id.as_str())
             .map(ToOwned::to_owned)
@@ -882,37 +945,31 @@ impl ViewerRuntimeLiveServer {
                 )
                 .map(ToOwned::to_owned)
             });
-        let (bound_agent_id, binding_plan) = match requested_agent_id.as_deref() {
-            Some(agent_id) => {
-                let rotates_current_binding =
-                    rotates_session_key && current_bound_agent_id.as_deref() == Some(agent_id);
-                let plan = self
-                    .plan_player_session_agent_binding(
-                        agent_id,
-                        verified.player_id.as_str(),
-                        Some(verified.public_key.as_str()),
-                        request.force_rebind || rotates_current_binding,
-                    )
-                    .map_err(|message| {
-                        recovery_error(
-                            "player_bind_failed",
-                            message,
-                            None,
-                            Some(verified.player_id.clone()),
-                            Some(verified.public_key.clone()),
-                        )
-                    })?;
-                (Some(agent_id.to_string()), Some(plan))
+        let (bound_agent_id, binding_plan) = if self.config.world_service.is_some() {
+            if requested_agent_id
+                .as_ref()
+                .is_some_and(|agent| Some(agent) != current_bound_agent_id.as_ref())
+            {
+                return Err(recovery_error(
+                    "player_bind_failed",
+                    "canonical owner binding unavailable or mismatched",
+                    None,
+                    Some(verified.player_id.clone()),
+                    Some(verified.public_key.clone()),
+                ));
             }
-            None if rotates_session_key => {
-                let bound_agent_id = current_bound_agent_id.clone();
-                let plan = match bound_agent_id.as_deref() {
-                    Some(agent_id) => Some(
-                        self.plan_player_session_agent_binding(
+            (current_bound_agent_id, None)
+        } else {
+            match requested_agent_id.as_deref() {
+                Some(agent_id) => {
+                    let rotates_current_binding =
+                        rotates_session_key && current_bound_agent_id.as_deref() == Some(agent_id);
+                    let plan = self
+                        .plan_player_session_agent_binding(
                             agent_id,
                             verified.player_id.as_str(),
                             Some(verified.public_key.as_str()),
-                            true,
+                            request.force_rebind || rotates_current_binding,
                         )
                         .map_err(|message| {
                             recovery_error(
@@ -922,13 +979,35 @@ impl ViewerRuntimeLiveServer {
                                 Some(verified.player_id.clone()),
                                 Some(verified.public_key.clone()),
                             )
-                        })?,
-                    ),
-                    None => None,
-                };
-                (bound_agent_id, plan)
+                        })?;
+                    (Some(agent_id.to_string()), Some(plan))
+                }
+                None if rotates_session_key => {
+                    let bound_agent_id = current_bound_agent_id.clone();
+                    let plan = match bound_agent_id.as_deref() {
+                        Some(agent_id) => Some(
+                            self.plan_player_session_agent_binding(
+                                agent_id,
+                                verified.player_id.as_str(),
+                                Some(verified.public_key.as_str()),
+                                true,
+                            )
+                            .map_err(|message| {
+                                recovery_error(
+                                    "player_bind_failed",
+                                    message,
+                                    None,
+                                    Some(verified.player_id.clone()),
+                                    Some(verified.public_key.clone()),
+                                )
+                            })?,
+                        ),
+                        None => None,
+                    };
+                    (bound_agent_id, plan)
+                }
+                None => (current_bound_agent_id, None),
             }
-            None => (current_bound_agent_id, None),
         };
 
         if let Some(registration_nonce) = verified.hosted_registration_nonce.as_deref() {

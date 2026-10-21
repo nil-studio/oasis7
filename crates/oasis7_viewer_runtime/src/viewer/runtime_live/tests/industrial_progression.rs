@@ -554,6 +554,7 @@ fn runtime_gameplay_snapshot_surfaces_same_loop_repeat_count_before_new_leverage
 fn runtime_gameplay_snapshot_marks_forced_major_power_dependency_when_no_local_recovery_path_exists()
  {
     let feedback = PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "step".to_string(),
         stage: "blocked".to_string(),
         effect: "no committed recovery".to_string(),

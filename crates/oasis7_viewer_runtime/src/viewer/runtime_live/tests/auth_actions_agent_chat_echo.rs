@@ -1,4 +1,5 @@
 use super::*;
+use oasis7_simulator::WorldEventKind;
 
 #[test]
 fn runtime_agent_chat_echo_env_enqueues_agent_spoke_virtual_event() {
@@ -221,4 +222,113 @@ fn runtime_agent_chat_echo_removed_old_brand_env_is_ignored() {
         oasis7_simulator::WorldEventKind::AgentSpoke { agent_id: event_agent_id, message, .. }
             if event_agent_id == &agent_id && message == "[local-mock-receipt] 已收到消息；当前本地 mock provider 不生成真实 Agent 回复：hello removed old brand runtime echo"
     )));
+}
+
+#[test]
+fn private_chat_echo_requires_signed_owner_and_preserves_queue_for_owner() {
+    let _guard = lock_test_llm_env();
+    unsafe {
+        oasis7::env_mut::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
+    }
+    let mut server = ViewerRuntimeLiveServer::new(
+        ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
+            .with_decision_mode(ViewerLiveDecisionMode::Llm),
+    )
+    .unwrap();
+    let agent = server.world.state().agents.keys().next().unwrap().clone();
+    seed_agent_chat_oc(&mut server, &agent);
+    let (key, secret) = test_signer(31);
+    register_runtime_session(
+        &mut server,
+        "private-owner",
+        Some(&agent),
+        30,
+        &key,
+        &secret,
+    );
+    let request = signed_agent_chat_request(
+        crate::viewer::AgentChatRequest {
+            agent_id: agent.clone(),
+            player_id: Some("private-owner".into()),
+            public_key: None,
+            auth: None,
+            message: "synthetic-owner-chat-canary".into(),
+            intent_tick: Some(9),
+            intent_seq: Some(31),
+            world_id: None,
+            reorg_epoch: None,
+            authority_scope: None,
+            replaces_intent_id: None,
+            canonical_authority: None,
+        },
+        31,
+        &key,
+        &secret,
+    );
+    let mut owner = RuntimeLiveSession::new();
+    owner.subscribed.insert(ViewerStream::Events);
+    let origin = server.gameplay_request_feedback_origin(&ViewerRequest::AgentChat {
+        request: request.clone(),
+    });
+    server.active_gameplay_feedback_origin =
+        server.begin_gameplay_feedback_request(&mut owner, origin);
+    server.active_gameplay_feedback_authorized = false;
+    server.handle_agent_chat(request).unwrap();
+    server.finish_private_chat_request(&mut owner);
+    server.finish_gameplay_feedback_request(&mut owner);
+    let echo = server
+        .pending_virtual_events
+        .iter()
+        .find(|event| matches!(event.kind, WorldEventKind::AgentSpoke { .. }))
+        .unwrap()
+        .clone();
+    let mut public = Vec::new();
+    send_response(
+        &mut public,
+        &ViewerResponse::Event {
+            event: echo.clone(),
+        },
+    )
+    .unwrap();
+    assert!(public.is_empty(), "public Event projection stays closed");
+    for player in [None, Some("different-owner"), Some("private-owner")] {
+        let mut stranger = RuntimeLiveSession::new();
+        stranger.current_player_id = player.map(str::to_owned);
+        stranger.subscribed.insert(ViewerStream::Events);
+        let mut output = Vec::new();
+        server
+            .flush_pending_virtual_events(&mut stranger, &mut output)
+            .unwrap();
+        assert!(
+            !String::from_utf8(output)
+                .unwrap()
+                .contains("synthetic-owner-chat-canary"),
+            "scan all responses including batch"
+        );
+    }
+    let mut output = Vec::new();
+    server
+        .flush_pending_virtual_events(&mut owner, &mut output)
+        .unwrap();
+    let wire = String::from_utf8(output).unwrap();
+    assert!(wire.contains("synthetic-owner-chat-canary"));
+    assert!(wire.contains("authoritative_batch"));
+    assert!(server.private_chat_event_owners.is_empty());
+    // Reusing an old pinned event after key rotation must never relabel it.
+    let old_owner = owner.private_chat_owner.clone().unwrap();
+    server.private_chat_event_owners.insert(echo.id, old_owner);
+    server.pending_virtual_events.push_back(echo);
+    server
+        .session_policy
+        .revoke_session("private-owner", Some(&key))
+        .unwrap();
+    let mut output = Vec::new();
+    server
+        .flush_pending_virtual_events(&mut owner, &mut output)
+        .unwrap();
+    assert!(
+        !String::from_utf8(output)
+            .unwrap()
+            .contains("synthetic-owner-chat-canary")
+    );
 }

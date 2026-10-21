@@ -178,7 +178,7 @@ impl ViewerRuntimeLiveServer {
                 );
                 mapped_events.push(event);
             }
-            mapped_events.extend(self.pending_virtual_events.drain(..));
+            mapped_events.extend(self.take_virtual_events_for_session(session));
             let pending_batch = match self.register_authoritative_batch(mapped_events.as_slice()) {
                 Ok(batch) => batch,
                 Err(error) => {
@@ -227,12 +227,7 @@ impl ViewerRuntimeLiveServer {
             {
                 for event in &mapped_events {
                     if session.event_allowed(event) {
-                        send_response(
-                            writer,
-                            &ViewerResponse::Event {
-                                event: event.clone(),
-                            },
-                        )?;
+                        self.send_session_event(session, writer, event)?;
                     }
                 }
                 send_response(

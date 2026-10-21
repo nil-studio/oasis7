@@ -38,6 +38,7 @@ pub(super) struct GameplayFeedbackOwner {
 
 #[derive(Debug, Clone)]
 pub(super) struct GameplayFeedbackOrigin {
+    request_auth_nonce: u64,
     owner: GameplayFeedbackOwner,
     order: u64,
     runtime_action_id: Option<u64>,
@@ -137,6 +138,7 @@ impl ViewerRuntimeLiveServer {
         let owner = self.gameplay_feedback_owner(&verified.player_id, &verified.public_key)?;
         self.next_gameplay_feedback_order = self.next_gameplay_feedback_order.saturating_add(1);
         Some(GameplayFeedbackOrigin {
+            request_auth_nonce: verified.nonce,
             owner,
             order: self.next_gameplay_feedback_order,
             runtime_action_id: None,
@@ -214,6 +216,74 @@ impl ViewerRuntimeLiveServer {
         origin
     }
 
+    pub(super) fn current_private_chat_request_owner(&self) -> Option<GameplayFeedbackOwner> {
+        self.active_gameplay_feedback_origin
+            .as_ref()
+            .filter(|origin| {
+                self.active_private_chat_authorized
+                    && self.gameplay_feedback_owner_is_current(&origin.owner)
+            })
+            .map(|origin| origin.owner.clone())
+    }
+
+    pub(super) fn pin_private_chat_event_owner(
+        &mut self,
+        event_id: u64,
+        owner: GameplayFeedbackOwner,
+    ) {
+        // An absent owner subscriber must not make the shared private outbox
+        // unbounded. Eviction never republishes the private event elsewhere.
+        if self.private_chat_event_owners.len() >= MAX_SCOPED_GAMEPLAY_FEEDBACK_PLAYERS
+            && let Some((evicted, _)) = self.private_chat_event_owners.pop_first()
+        {
+            self.pending_virtual_events
+                .retain(|event| event.id != evicted);
+        }
+        self.private_chat_event_owners.insert(event_id, owner);
+    }
+
+    pub(super) fn private_chat_owner_is_current(&self, owner: &GameplayFeedbackOwner) -> bool {
+        self.config.world_service.is_none() && self.gameplay_feedback_owner_is_current(owner)
+    }
+
+    pub(super) fn private_chat_event_allowed(
+        &self,
+        session: &RuntimeLiveSession,
+        event: &WorldEvent,
+    ) -> bool {
+        let Some(owner) = self.private_chat_event_owners.get(&event.id) else {
+            return false;
+        };
+        let oasis7_simulator::WorldEventKind::AgentSpoke {
+            agent_id,
+            target_agent_id: None,
+            ..
+        } = &event.kind
+        else {
+            return false;
+        };
+        session.private_chat_owner.as_ref() == Some(owner)
+            && session.current_player_id.as_deref() == Some(owner.player_id.as_str())
+            && self.private_chat_owner_is_current(owner)
+            && control_plane::ensure_agent_player_access_runtime(
+                &self.world,
+                &self.llm_sidecar,
+                agent_id,
+                &owner.player_id,
+                Some(&owner.public_key),
+            )
+            .is_ok()
+    }
+
+    pub(super) fn finish_private_chat_request(&mut self, session: &mut RuntimeLiveSession) {
+        let owner = self.current_private_chat_request_owner();
+        self.active_private_chat_authorized = false;
+        if let Some(owner) = owner {
+            self.set_gameplay_feedback_session_player(session, owner.player_id.clone());
+            session.private_chat_owner = Some(owner);
+        }
+    }
+
     pub(super) fn gameplay_feedback_session_matches(
         &self,
         session: &RuntimeLiveSession,
@@ -227,6 +297,7 @@ impl ViewerRuntimeLiveServer {
     }
 
     pub(super) fn clear_session_gameplay_feedback(&self, session: &mut RuntimeLiveSession) {
+        session.private_chat_owner = None;
         session.gameplay_feedback_owner = None;
         if let Ok(mut local) = session.local_gameplay_feedback.lock() {
             local.generation = local.generation.saturating_add(1);
@@ -339,8 +410,9 @@ impl ViewerRuntimeLiveServer {
     fn set_local_request_gameplay_feedback(
         &self,
         origin: &GameplayFeedbackOrigin,
-        feedback: PlayerGameplayRecentFeedback,
+        mut feedback: PlayerGameplayRecentFeedback,
     ) {
+        feedback.request_auth_nonce = Some(origin.request_auth_nonce);
         if self.current_local_feedback_owner(&origin.owner).is_none() {
             return;
         }
@@ -361,8 +433,9 @@ impl ViewerRuntimeLiveServer {
     pub(super) fn set_scoped_gameplay_feedback(
         &mut self,
         origin: GameplayFeedbackOrigin,
-        feedback: PlayerGameplayRecentFeedback,
+        mut feedback: PlayerGameplayRecentFeedback,
     ) {
+        feedback.request_auth_nonce = Some(origin.request_auth_nonce);
         if !self.gameplay_feedback_owner_is_current(&origin.owner) {
             return;
         }

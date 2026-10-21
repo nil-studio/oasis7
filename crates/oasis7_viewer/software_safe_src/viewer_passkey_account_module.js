@@ -352,6 +352,12 @@ const messages = {
   email_unavailable: "邮箱服务暂时不可用；通行密钥登录仍可继续使用。",
   recovery_unavailable: "当前环境未开放邮箱恢复，请使用其他已登记的登录方式。",
   identity_store_unavailable: "账号服务暂时不可用，请稍后重试。",
+  world_recovery_scope_unavailable: "当前世界范围尚未完成权威同步，请等待原请求范围确认后继续。",
+  world_recovery_context_changed: "世界或账号控制上下文已改变。请先核对原请求范围，不要用新请求重复原操作。",
+  original_gameplay_outcome_pending: "原玩法请求的结果尚未确定。请等待原请求的权威结果，不要重复领取或更换控制身份。",
+  world_recovery_pending_control: "原控制切换仍在核对中。请先确认原控制请求的结果，再提交玩法操作。",
+  world_recovery_context_in_use: "原页面仍在使用此世界的恢复上下文。请返回原页面继续，或新开页面并明确确认控制；本页面不会自动接管。",
+  world_recovery_unavailable: "无法安全恢复原世界控制上下文。请保留原页面；需要更换控制时，请重新确认会话并明确选择接管。",
 };
 
 export function accountErrorNotice(error, stage = "账号请求") {
@@ -373,7 +379,7 @@ const invalidSession = error => ["session_expired", "session_revoked", "authenti
 
 /** No authenticator UI is opened until an explicit button click. No bearer is persisted. */
 export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAuthenticated = () => {},
-  onJoinWorld, onSessionInvalidated = () => {} } = {}) {
+  onJoinWorld, onSessionInvalidated = () => {}, onAccountState = () => {} } = {}) {
   let disposed = false;
   let busy = false;
   let generation = 0;
@@ -400,7 +406,7 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
       if (["session_expired", "session_revoked", "account_frozen"].includes(error.code)) invalidate();
       if (error.code === "control_elsewhere") {
         takeover = error.payload;
-        notice = "另一设备仍控制此世界。你可以保留原设备控制，或明确选择在此设备继续。";
+        notice = "此世界已有控制会话，可能来自原页面、其他标签页或设备。你可以保留原会话控制，或明确选择在此页面继续。";
       } else if (error.next_action === "check_original_operation" || error.payload?.next_action === "check_original_operation" || error.code === "operation_pending") {
         pendingOperation = error.pending_operation_id || error.payload?.operation_id;
         notice = "原操作结果尚未确定，请核对原操作进度；不要重新创建账号或更换恢复候选。";
@@ -475,12 +481,13 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
       const row = element("div"); row.append(element("span", session.current ? "当前会话" : (session.device_label || "未知设备")));
       row.append(button(session.current ? "退出当前会话" : "退出该会话", () => client.revokeSession(session))); root.append(row);
     }
-    root.append(button("退出登录", async () => { await client.logout(); account = null; onSessionInvalidated(); }));
+    root.append(button("退出登录", async () => { await client.logout(); account = null; onAccountState({ signedIn: false }); onSessionInvalidated(); }));
   }
   function invalidate() {
     const hadAccount = account;
     account = null; credentialList = []; sessionList = []; managementErrors = {}; credentialsLoaded = false;
     client.clearImportedKey?.();
+    onAccountState({ signedIn: false });
     if (hadAccount) onSessionInvalidated();
   }
   async function loadManagement(revision, fields = ["credentials", "sessions"]) {
@@ -515,7 +522,7 @@ export function mountPasskeyAccount(root, { client = createPasskeyAccountClient(
     }
     if (disposed || revision !== generation) return;
     if (!nextAccount) invalidate();
-    else { account = nextAccount; credentialList = []; sessionList = []; managementErrors = {}; credentialsLoaded = false; }
+    else { account = nextAccount; onAccountState({ signedIn: true }); credentialList = []; sessionList = []; managementErrors = {}; credentialsLoaded = false; }
     render();
     if (notifyAuthenticated && account) onAuthenticated(account);
     if (account) void loadManagement(revision);

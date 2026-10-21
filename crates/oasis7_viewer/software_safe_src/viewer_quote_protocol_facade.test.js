@@ -126,3 +126,14 @@ describe("viewer quote protocol facade", () => {
     expect(warDeclarationQuote.invalidateWarDeclarationQuoteForAuthoritativeSnapshot).toHaveBeenCalledOnce();
   });
 });
+
+it("invalidates the two missing quotes on dependency changes and leaves unrelated snapshot updates valid",()=>{
+ const snapshot={time:1,config:{economy:{}},model:{agents:{a:{resources:{amounts:{data:40,electricity:20}}}}},runtime_snapshot:{state:{industry_progress:{stage:"bootstrap"},product_profiles:{sensor:{role_tag:"build",tradable:true,unlock_stage:"bootstrap"}}}}};
+ const state={auth:{boundAgentId:"a"},snapshot,refineQuotePreflight:{value:"refine"},refineQuoteRequest:{status:"received"},productValidationQuote:{value:"product"},productValidationQuoteRequest:{status:"received"}};
+ const facade=createViewerQuoteProtocolFacade({fragmentRefillPreview:integration(),handleRefineQuoteError:vi.fn(),handleRefineQuotePreflight:vi.fn(),marketQuoteDecision:integration(),powerSurvivalQuote:integration(),productValidationQuote:integration(),state,warDeclarationQuote:integration()});
+ facade.invalidateSnapshotBoundQuotes({...snapshot,time:2});
+ expect(state.refineQuotePreflight).toEqual({value:"refine"}); expect(state.productValidationQuote).toEqual({value:"product"});
+ const changed=structuredClone(snapshot); changed.model.agents.a.resources.amounts.electricity=0; changed.runtime_snapshot.state.industry_progress.stage="scale_out";
+ facade.invalidateSnapshotBoundQuotes(changed);
+ expect(state.refineQuotePreflight).toBeNull(); expect(state.productValidationQuote).toBeNull();
+});

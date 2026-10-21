@@ -358,7 +358,7 @@ impl ViewerRuntimeLiveServer {
     pub(super) fn submit_world_service_gameplay<T: serde::Serialize>(
         &mut self,
         original: &T,
-    ) -> Result<(u64, Option<String>), GameplayActionError> {
+    ) -> Result<(u64, Option<String>, &'static str), GameplayActionError> {
         use oasis7_client_api::world_service::{
             IntentOutcome, SubmitIntentRequest, SubmitObservation,
         };
@@ -444,15 +444,20 @@ impl ViewerRuntimeLiveServer {
                             0, 0,
                         ));
                     }
-                    Ok((action_id, payload_hash))
+                    Ok((action_id, payload_hash, "committed"))
                 }
-                IntentOutcome::Received { .. } | IntentOutcome::Pending => {
+                outcome @ (IntentOutcome::Received { .. } | IntentOutcome::Pending) => {
+                    let status = if matches!(outcome, IntentOutcome::Received { .. }) {
+                        "received"
+                    } else {
+                        "pending"
+                    };
                     if let Some(origin) = origin.clone() {
                         self.set_request_gameplay_feedback(
                             origin,
                             Self::make_player_gameplay_feedback(
                                 "world_service_intent",
-                                "pending",
+                                status,
                                 "intent received; no committed world effect yet",
                                 None,
                                 None,
@@ -467,11 +472,16 @@ impl ViewerRuntimeLiveServer {
                     self.remember_pending_world_service_gameplay(correlation, payload);
                     // Legacy ACK has a scalar action ID; zero denotes no
                     // committed action reference, never execution success.
-                    Ok((0, None))
+                    Ok((0, None, status))
                 }
-                other => Err(error(
-                    "world_service_intent_unresolved",
-                    format!("{other:?}"),
+                IntentOutcome::Unknown | IntentOutcome::HistoryUnavailable => {
+                    self.pending_gameplay_feedback_origin(&correlation, origin);
+                    self.remember_pending_world_service_gameplay(correlation, payload);
+                    Err(error("world_service_outcome_unknown", "original request outcome is unavailable; retain its signed correlation for reconciliation".into()))
+                }
+                IntentOutcome::Rejected { .. } | IntentOutcome::Expired => Err(error(
+                    "world_service_intent_rejected",
+                    "world service rejected or expired the original request".into(),
                 )),
             },
         }

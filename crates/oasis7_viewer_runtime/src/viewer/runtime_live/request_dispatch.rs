@@ -365,15 +365,7 @@ impl ViewerRuntimeLiveServer {
                 send_response(writer, &ViewerResponse::WorldView { view })?;
             }
             ViewerRequest::RequestWorldFeed { cursor, limit } => {
-                let feed = world_feed::build_world_feed(
-                    &self.config.world_id,
-                    self.reorg_epoch,
-                    self.world.journal(),
-                    &self.world.state().crises,
-                    cursor.as_deref(),
-                    limit,
-                    self.config.major_world_event_visibility,
-                );
+                let feed = self.public_world_feed(cursor.as_deref(), limit);
                 send_response(writer, &ViewerResponse::WorldFeed { feed })?;
             }
             ViewerRequest::PlaybackControl { mode, request_id } => {
@@ -386,6 +378,15 @@ impl ViewerRuntimeLiveServer {
                 self.apply_control_mode(mode, request_id, session, writer)?;
             }
             ViewerRequest::PromptControl { command } => {
+                let request_auth_nonce = match command.as_ref() {
+                    crate::viewer::PromptControlCommand::Apply { request } => {
+                        request.auth.as_ref().map(|auth| auth.nonce)
+                    }
+                    crate::viewer::PromptControlCommand::Rollback { request } => {
+                        request.auth.as_ref().map(|auth| auth.nonce)
+                    }
+                    _ => None,
+                };
                 let feedback_request = matches!(
                     command.as_ref(),
                     crate::viewer::PromptControlCommand::Apply { .. }
@@ -407,25 +408,40 @@ impl ViewerRuntimeLiveServer {
                 }
                 match result {
                     Ok(ack) => {
-                        send_response(writer, &ViewerResponse::PromptControlAck { ack })?;
+                        send_correlated_response(
+                            writer,
+                            &ViewerResponse::PromptControlAck { ack },
+                            request_auth_nonce,
+                        )?;
                     }
                     Err(error) => {
-                        send_response(writer, &ViewerResponse::PromptControlError { error })?;
+                        send_correlated_response(
+                            writer,
+                            &ViewerResponse::PromptControlError { error },
+                            request_auth_nonce,
+                        )?;
                     }
                 }
             }
             ViewerRequest::AgentChat { request } => {
+                let request_auth_nonce = request.auth.as_ref().map(|auth| auth.nonce);
                 let origin = self.gameplay_request_feedback_origin(&ViewerRequest::AgentChat {
                     request: request.clone(),
                 });
                 self.active_gameplay_feedback_origin =
                     self.begin_gameplay_feedback_request(session, origin);
                 self.active_gameplay_feedback_authorized = false;
+                self.active_private_chat_authorized = false;
                 let result = self.handle_agent_chat(request);
+                self.finish_private_chat_request(session);
                 self.finish_gameplay_feedback_request(session);
                 match result {
                     Ok(ack) => {
-                        send_response(writer, &ViewerResponse::AgentChatAck { ack })?;
+                        send_correlated_response(
+                            writer,
+                            &ViewerResponse::AgentChatAck { ack },
+                            request_auth_nonce,
+                        )?;
                         let provider_errors = self.enqueue_pending_provider_agent_chat_replies();
                         for error in provider_errors {
                             send_response(writer, &ViewerResponse::AgentChatError { error })?;
@@ -433,11 +449,16 @@ impl ViewerRuntimeLiveServer {
                         self.flush_pending_virtual_events(session, writer)?;
                     }
                     Err(error) => {
-                        send_response(writer, &ViewerResponse::AgentChatError { error })?;
+                        send_correlated_response(
+                            writer,
+                            &ViewerResponse::AgentChatError { error },
+                            request_auth_nonce,
+                        )?;
                     }
                 }
             }
             ViewerRequest::GameplayAction { request } => {
+                let request_auth_nonce = request.auth.as_ref().map(|auth| auth.nonce);
                 let origin =
                     self.gameplay_request_feedback_origin(&ViewerRequest::GameplayAction {
                         request: request.clone(),
@@ -446,12 +467,18 @@ impl ViewerRuntimeLiveServer {
                 self.active_gameplay_feedback_authorized = self.config.world_service.is_some()
                     && self.gameplay_feedback_session_matches(session, origin.as_ref());
                 self.active_gameplay_feedback_origin = origin.clone();
+                let action_id = request.action_id.clone();
+                let target_agent_id = request.target_agent_id.clone();
                 let result = self.handle_gameplay_action(request);
                 let origin = self.finish_gameplay_feedback_request(session);
                 match result {
                     Ok(ack) => {
                         let ack_player_id = ack.player_id.clone();
-                        send_response(writer, &ViewerResponse::GameplayActionAck { ack })?;
+                        send_correlated_response(
+                            writer,
+                            &ViewerResponse::GameplayActionAck { ack },
+                            request_auth_nonce,
+                        )?;
                         if !ack_player_id.trim().is_empty() {
                             self.set_gameplay_feedback_session_player(session, ack_player_id);
                         }
@@ -460,9 +487,15 @@ impl ViewerRuntimeLiveServer {
                             send_response(writer, &ViewerResponse::Snapshot { snapshot })?;
                         }
                     }
-                    Err(error) => {
+                    Err(mut error) => {
+                        error.action_id.get_or_insert(action_id);
+                        error.target_agent_id.get_or_insert(target_agent_id);
                         self.record_session_gameplay_rejection(session, &error, origin);
-                        send_response(writer, &ViewerResponse::GameplayActionError { error })?;
+                        send_correlated_response(
+                            writer,
+                            &ViewerResponse::GameplayActionError { error },
+                            request_auth_nonce,
+                        )?;
                         if session.explicitly_subscribed_to(ViewerStream::Snapshot) {
                             let snapshot = self.compat_snapshot_for_session(session);
                             send_response(writer, &ViewerResponse::Snapshot { snapshot })?;
@@ -473,13 +506,17 @@ impl ViewerRuntimeLiveServer {
             ViewerRequest::CollectData { command } => {
                 self.handle_collect_data_protocol_request(command, session, writer)?;
             }
-            ViewerRequest::QuoteRefineCompound { request } => send_response(
-                writer,
-                &self
-                    .handle_refine_quote(request)
-                    .map(|quote| ViewerResponse::RefineQuotePreflight { quote })
-                    .unwrap_or_else(|error| ViewerResponse::GameplayActionError { error }),
-            )?,
+            ViewerRequest::QuoteRefineCompound { request } => {
+                let request_auth_nonce = request.auth.as_ref().map(|auth| auth.nonce);
+                send_correlated_response(
+                    writer,
+                    &self
+                        .handle_refine_quote(request)
+                        .map(|quote| ViewerResponse::RefineQuotePreflight { quote })
+                        .unwrap_or_else(|error| ViewerResponse::GameplayActionError { error }),
+                    request_auth_nonce,
+                )?;
+            }
             ViewerRequest::QuoteScheduleRecipe { request } => send_response(
                 writer,
                 &self
@@ -487,13 +524,17 @@ impl ViewerRuntimeLiveServer {
                     .map(|quote| ViewerResponse::ScheduleRecipeQuotePreflight { quote })
                     .unwrap_or_else(|error| ViewerResponse::GameplayActionError { error }),
             )?,
-            ViewerRequest::QuoteProductValidation { request } => send_response(
-                writer,
-                &self
-                    .handle_product_validation_quote(request)
-                    .map(|quote| ViewerResponse::ProductValidationQuotePreflight { quote })
-                    .unwrap_or_else(|error| ViewerResponse::GameplayActionError { error }),
-            )?,
+            ViewerRequest::QuoteProductValidation { request } => {
+                let request_auth_nonce = request.auth.as_ref().map(|auth| auth.nonce);
+                send_correlated_response(
+                    writer,
+                    &self
+                        .handle_product_validation_quote(request)
+                        .map(|quote| ViewerResponse::ProductValidationQuotePreflight { quote })
+                        .unwrap_or_else(|error| ViewerResponse::GameplayActionError { error }),
+                    request_auth_nonce,
+                )?;
+            }
             ViewerRequest::QuotePowerSurvival { request } => self.quote_power(request, writer)?,
             ViewerRequest::QuotePowerSale { request } => self.quote_power_sale(request, writer)?,
             request @ (ViewerRequest::QuoteDeclareSocialEdge { .. }

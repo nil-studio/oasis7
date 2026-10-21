@@ -269,7 +269,7 @@ impl ConnectionManager {
                 .count()
                 >= 8
         {
-            return Err(ConnectionError::BudgetExceeded);
+            return Err(ConnectionError::CapacityExceeded);
         }
         let c = Connection {
             owner: p.clone(),
@@ -321,6 +321,35 @@ impl ConnectionManager {
             .filter(|(_, c)| c.owner == *p)
             .map(|(id, c)| Self::projection(id, c, budget.clone()))
             .collect())
+    }
+    /// Read an original probe's terminal status without sending or reserving a call.
+    pub fn probe_status(
+        &self,
+        p: &Principal,
+        name: &str,
+        operation: &str,
+    ) -> Result<Option<ProbeState>, ConnectionError> {
+        self.authenticate(p)?;
+        let mut state = self.lock()?;
+        self.expire(&mut state);
+        let c = Self::current(&mut state, p, name, None)?;
+        Ok(c.probes.get(operation).map(|record| record.state))
+    }
+    /// Read whether an original Stop was committed, without changing its run.
+    pub fn stop_recorded(
+        &self,
+        p: &Principal,
+        name: &str,
+        operation: &str,
+    ) -> Result<bool, ConnectionError> {
+        self.authenticate(p)?;
+        let state = self.lock()?;
+        let c = state
+            .connections
+            .get(name)
+            .filter(|c| c.owner == *p)
+            .ok_or(ConnectionError::Unavailable)?;
+        Ok(c.stops.contains_key(operation))
     }
     pub fn renew(
         &self,

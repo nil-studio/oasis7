@@ -5,7 +5,9 @@ use crate::runtime::{
     Action, AgentActivityV1, AgentCell, FactoryModuleSpec, FactoryProductionState, FactoryState,
     MaterialLedgerId, MaterialStack, SnapshotMeta,
 };
+use crate::simulator::WorldEvent;
 use crate::simulator::WorldKernel;
+use crate::viewer::ViewerResponse;
 use crate::viewer::runtime_live::support::FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID;
 use crate::viewer::runtime_live::{ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig};
 use oasis7_agent_api::world_action::ResourceKind;
@@ -559,7 +561,7 @@ fn runtime_reject_reason_unmapped_falls_back_to_rule_denied() {
 }
 
 #[test]
-fn map_runtime_event_fallback_includes_runtime_payload() {
+fn map_runtime_event_fallback_includes_internal_runtime_payload() {
     let event = RuntimeWorldEvent {
         id: 9,
         time: 42,
@@ -574,7 +576,7 @@ fn map_runtime_event_fallback_includes_runtime_payload() {
 }
 
 #[test]
-fn map_runtime_event_unmapped_domain_event_keeps_payload_with_domain_label() {
+fn map_runtime_event_unmapped_domain_event_keeps_internal_payload_with_domain_label() {
     let event = RuntimeWorldEvent {
         id: 10,
         time: 43,
@@ -643,4 +645,63 @@ fn safe_alternative_public_event_keeps_identity_without_signed_original() {
             .unwrap()
             .contains("PRIVATE_ALTERNATIVE_GOAL")
     );
+}
+
+#[test]
+fn public_runtime_mapping_never_attaches_unclassified_synthetic_payload() {
+    for _audience in ["anonymous", "different-owner"] {
+        let event = RuntimeWorldEvent {
+            id: 99,
+            time: 1,
+            caused_by: None,
+            body: RuntimeWorldEventBody::ModuleEmitted(oasis7_wasm_abi::ModuleEmitEvent {
+                module_id: "fixture".into(),
+                trace_id: "trace".into(),
+                kind: "unclassified".into(),
+                payload: serde_json::json!({"canary":"synthetic-private-canary"}),
+            }),
+        };
+        let public = map_runtime_event(&event, &WorldConfig::default(), None);
+        let mut output = Vec::new();
+        crate::viewer::runtime_live::support::send_response(
+            &mut output,
+            &ViewerResponse::Event { event: public },
+        )
+        .unwrap();
+        assert!(output.is_empty(), "unclassified events have no public DTO");
+    }
+}
+
+#[test]
+fn public_event_wire_omits_mapped_freeform_diagnostics() {
+    for kind in [
+        WorldEventKind::ActionRejected {
+            reason: oasis7_simulator::RejectReason::RuleDenied {
+                notes: vec!["synthetic-private-canary".into()],
+            },
+        },
+        WorldEventKind::RuntimeEvent {
+            kind: "runtime.economy.factory_production_blocked".into(),
+            domain_kind: Some("synthetic-private-canary".into()),
+        },
+    ] {
+        let mut output = Vec::new();
+        crate::viewer::runtime_live::support::send_response(
+            &mut output,
+            &ViewerResponse::Event {
+                event: WorldEvent {
+                    id: 1,
+                    time: 1,
+                    kind,
+                    runtime_event: None,
+                },
+            },
+        )
+        .unwrap();
+        assert!(
+            !String::from_utf8(output)
+                .unwrap()
+                .contains("synthetic-private-canary")
+        );
+    }
 }

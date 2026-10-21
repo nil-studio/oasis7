@@ -1,3 +1,4 @@
+import { invalidateDependentQuote } from "./viewer_quote_dependencies.js";
 export function createViewerQuoteProtocolFacade({
   fragmentRefillPreview,
   governanceVoteQuote,
@@ -65,7 +66,9 @@ export function createViewerQuoteProtocolFacade({
     }
   }
 
-  function invalidateSnapshotBoundQuotes() {
+  function invalidateSnapshotBoundQuotes(snapshot = state.snapshot) {
+    invalidateDependentQuote(state, "refine", snapshot);
+    invalidateDependentQuote(state, "product", snapshot);
     powerSaleQuote?.invalidatePowerSaleQuote();
     powerSurvivalQuote.invalidatePowerSurvivalQuote();
     scheduleRecipeQuote?.invalidateScheduleRecipeQuote();

@@ -5,6 +5,7 @@ fn snapshot_after_fine_grain_request(
     action_id: &str,
 ) -> crate::simulator::PlayerGameplaySnapshot {
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: format!("gameplay_action:{action_id}"),
         stage: "rejected".to_string(),
         effect: format!("unknown gameplay action `{action_id}` was rejected"),

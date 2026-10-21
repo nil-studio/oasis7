@@ -421,7 +421,12 @@ fn runtime_feedback_isolated_across_players_and_shared_only_between_authorized_s
             &mut responses,
         )
         .unwrap();
-    assert_eq!(session_feedback(&mut server, &mut a), Some(b_feedback));
+    let mut latest_b_feedback = b_feedback;
+    latest_b_feedback.request_auth_nonce = Some(3);
+    assert_eq!(
+        session_feedback(&mut server, &mut a),
+        Some(latest_b_feedback)
+    );
     server.record_chain_sync_failure(&ViewerRuntimeLiveServerError::Init(
         "shared sync unavailable".into(),
     ));

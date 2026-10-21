@@ -1,3 +1,7 @@
+import { getGameplayRecoveryScope, gameplaySendContextCurrent } from "./viewer_gameplay_recovery_scope.js";
+import { normalizeGameplayActionRequest } from "./viewer_feedback_actions.js";
+import { matchesGameplayReply, recoverGameplayFeedback, settleGameplayOriginal } from "./viewer_gameplay_receipt_feedback.js";
+import { quoteDependencyFingerprint, invalidateDependentQuote } from "./viewer_quote_dependencies.js";
 import { safeAlternativeMarkup, bindSafeAlternativeLegacy } from "./viewer_safe_alternative_legacy.js";
 import { createSafeAlternativeModule } from "./viewer_safe_alternative_module.js";
 import { bindFeedbackScope } from "./viewer_feedback_scope.js";
@@ -75,6 +79,8 @@ let socket = null;
 let reconnectTimer = null;
 let helloAckTimer = null;
 let initialSnapshotRequested = false;
+let currentConnectionSnapshotReceived = false;
+let initialSnapshotReadFailed = false;
 let initialSnapshotRetryTimer = null;
 let initialSnapshotRetryCount = 0;
 let emptyEntitySnapshotRefreshTimer = null;
@@ -84,8 +90,6 @@ let pendingAgentChatAckTimer = null;
 let pendingAgentChatOverallTimer = null;
 let pendingPromptControlAckTimer = null;
 let pendingGameplayActionAckTimer = null;
-let firstAgentClaimAutoAdvanceTimer = null;
-let firstAgentClaimAutoRefreshTimer = null;
 let requestId = 0;
 let authNonceCounter = 0;
 let localTestPlayerSessionInFlight = null;
@@ -102,7 +106,6 @@ let bootstrapPromise = null; const worldFeedTransport = createWorldFeedTransport
 export const requestWorldFeed = (...args) => worldFeedTransport.requestWorldFeed(...args); export const reloadWorldFeedFromAuthoritativeSnapshot = (...args) => worldFeedTransport.reloadWorldFeedFromAuthoritativeSnapshot(...args);
 const HELLO_ACK_TIMEOUT_MS = 2000; const INITIAL_SNAPSHOT_RETRY_DELAY_MS = 1000; const INITIAL_SNAPSHOT_SLOW_RETRY_AFTER = 5;
 const INITIAL_SNAPSHOT_SLOW_RETRY_DELAY_MS = 5000; const EMPTY_ENTITY_SNAPSHOT_REFRESH_DELAY_MS = 2500;
-const FIRST_AGENT_CLAIM_AUTO_ADVANCE_DELAY_MS = 450; const FIRST_AGENT_CLAIM_AUTO_REFRESH_DELAY_MS = 1200;
 const SESSION_REGISTER_ACK_TIMEOUT_MS = 15000;
 const AGENT_CHAT_ACK_TIMEOUT_MS = 30000;
 const SEMANTIC_ACTION_ACK_TIMEOUT_MS = 30000;
@@ -348,7 +351,7 @@ const issueHostedAccountLogin = createViewerHostedAccountLoginIssuer({ state, ca
 const hostedLoginRegistrationBridge = createViewerHostedLoginRegistrationBridge({ registerPlayerSession: ensureRegisteredPlayerSession, render, state });
 const startHostedTestLogin = hostedLoginRegistrationBridge.wrapLogin(issueHostedTestLogin, "hosted_test_login");
 const completeHostedAccountLogin = hostedLoginRegistrationBridge.wrapLogin(issueHostedAccountLogin, "hosted_browser_storage");
-const hostedWorldAccount = createHostedWorldAccount({ state, generateKeypair: generateEphemeralEd25519Keypair, register: ensureRegisteredPlayerSession, render, clearLegacy: clearHostedPlayerSession });
+const hostedWorldAccount = createHostedWorldAccount({ state, generateKeypair: generateEphemeralEd25519Keypair, register: ensureRegisteredPlayerSession, render, clearLegacy: clearHostedPlayerSession, getGameplayScope: () => getGameplayRecoveryScope(state) });
 export const joinHostedAccountWorld = (...args) => hostedWorldAccount.join(...args);
 export const disableLegacyHostedSession = () => hostedWorldAccount.disableLegacy();
 export const releaseHostedAccountWorld = () => hostedWorldAccount.release();
@@ -1088,7 +1091,7 @@ function expirePromptControlAckTimeout(feedback) {
 }
 
 function expireGameplayActionAckTimeout(feedback) {
-  if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback) || state.lastGameplayActionFeedback.stage !== "sent") {
+  if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback) || !["sent", "pending", "received"].includes(state.lastGameplayActionFeedback.stage)) {
     return false;
   }
   clearPendingGameplayActionAckTimer();
@@ -1097,6 +1100,7 @@ function expireGameplayActionAckTimeout(feedback) {
     "gameplay_action timed out waiting for ack/error from live server",
     "gameplay_action ack timeout",
   );
+  feedback.stage = "unknown";
   state.lastGameplayActionFeedback = feedback;
   render();
   return true;
@@ -1147,10 +1151,11 @@ function failPendingPromptControlAck(reason, effect = "prompt_control ack failed
 function failPendingGameplayActionAck(reason, effect = "gameplay_action ack failed") {
   clearPendingGameplayActionAckTimer();
   const feedback = state.lastGameplayActionFeedback;
-  if (!feedback || feedback.stage !== "sent") {
+  if (!feedback || !["sent", "pending", "received"].includes(feedback.stage)) {
     return;
   }
   markSemanticFeedbackError(feedback, reason, effect);
+  feedback.stage = "unknown";
   state.lastGameplayActionFeedback = feedback;
 }
 
@@ -1182,8 +1187,13 @@ function sendInitialSnapshotRequest() {
 
 function scheduleInitialSnapshotRetry() {
   clearInitialSnapshotRetryTimer();
-  if (state.snapshot) {
+  if (currentConnectionSnapshotReceived) {
     return;
+  }
+  if (initialSnapshotRetryCount >= 8) {
+    initialSnapshotReadFailed = true;
+    state.lastError = "World snapshot unavailable. Refresh the snapshot to retry.";
+    render(); return;
   }
   const retryDelay =
     initialSnapshotRetryCount >= INITIAL_SNAPSHOT_SLOW_RETRY_AFTER
@@ -1191,15 +1201,14 @@ function scheduleInitialSnapshotRetry() {
       : INITIAL_SNAPSHOT_RETRY_DELAY_MS;
   initialSnapshotRetryTimer = window.setTimeout(() => {
     initialSnapshotRetryTimer = null;
-    if (state.snapshot || !socket || socket.readyState !== WebSocket.OPEN) {
+    if (currentConnectionSnapshotReceived || !socket || socket.readyState !== WebSocket.OPEN) {
       return;
     }
     initialSnapshotRetryCount += 1;
     try {
       sendInitialSnapshotRequest();
-      scheduleInitialSnapshotRetry();
     } catch (_) {
-    }
+    } finally { scheduleInitialSnapshotRetry(); }
   }, retryDelay);
 }
 
@@ -1312,59 +1321,6 @@ function sendControl(action, payload = null) {
   return sendViewerControl(action, payload);
 }
 
-function clearFirstAgentClaimAutoAdvanceTimers() {
-  if (firstAgentClaimAutoAdvanceTimer != null) {
-    window.clearTimeout(firstAgentClaimAutoAdvanceTimer);
-    firstAgentClaimAutoAdvanceTimer = null;
-  }
-  if (firstAgentClaimAutoRefreshTimer != null) {
-    window.clearTimeout(firstAgentClaimAutoRefreshTimer);
-    firstAgentClaimAutoRefreshTimer = null;
-  }
-}
-
-function scheduleFirstAgentClaimAutoAdvance() {
-  if (!isTestApiEnabled()) {
-    return;
-  }
-  clearFirstAgentClaimAutoAdvanceTimers();
-  firstAgentClaimAutoAdvanceTimer = window.setTimeout(() => {
-    firstAgentClaimAutoAdvanceTimer = null;
-    const currentRequestId = nextRequestId();
-    const feedback = {
-      id: currentRequestId,
-      action: "step",
-      accepted: true,
-      stage: "queued",
-      reason: null,
-      hint: "auto-advancing after first-agent claim ack",
-      effect: "queued first-agent claim auto-advance",
-      baselineLogicalTime: state.logicalTime,
-      baselineEventSeq: state.eventSeq,
-      deltaLogicalTime: 0,
-      deltaEventSeq: 0,
-      deltaTraceCount: 0,
-      requestId: currentRequestId,
-    };
-    try {
-      sendJson({
-        type: "live_control",
-        mode: { mode: "step", count: 1 },
-        request_id: currentRequestId,
-      });
-      pendingControlFeedback.set(currentRequestId, feedback);
-      state.lastControlFeedback = feedback;
-      render();
-    } catch (_) {
-      requestSnapshotSafe();
-    }
-    firstAgentClaimAutoRefreshTimer = window.setTimeout(() => {
-      firstAgentClaimAutoRefreshTimer = null;
-      requestSnapshotSafe();
-    }, FIRST_AGENT_CLAIM_AUTO_REFRESH_DELAY_MS);
-  }, FIRST_AGENT_CLAIM_AUTO_ADVANCE_DELAY_MS);
-}
-
 function runSteps(payload) {
   const count = parseStepCount(payload);
   if (!count) {
@@ -1395,8 +1351,12 @@ function addRecentEvent(event) {
 }
 
 function handleSnapshot(snapshot) {
-  clearInitialSnapshotRetryTimer(); quoteProtocolFacade.invalidateSnapshotBoundQuotes();
+  if (initialSnapshotReadFailed) state.lastError = null;
+  initialSnapshotReadFailed = false;
+  currentConnectionSnapshotReceived = true;
+  clearInitialSnapshotRetryTimer(); quoteProtocolFacade.invalidateSnapshotBoundQuotes(snapshot);
   state.snapshot = snapshot;
+  recoverGameplayFeedback(snapshot, state, hostedWorldAccount, getGameplayRecoveryScope(state), clearPendingGameplayActionAckTimer);
   state.logicalTime = Math.max(state.logicalTime, Number(snapshot?.time || 0));
   state.tick = state.logicalTime;
   adoptCurrentPlayerBindingFromSnapshot(snapshot);
@@ -1413,7 +1373,7 @@ function handleSnapshot(snapshot) {
   }
   hydrateChatHistoryFromStorage();
   syncAgentInteractionDrafts(reconcilePendingPromptAuthoritativeRefresh(snapshot));
-  void canonicalOwnerRead.refresh().catch(() => {}); syncEmptyEntitySnapshotRefreshLoop(); if (snapshot?.model?.agents?.[STARTER_AGENT_ID]) { clearFirstAgentClaimAutoAdvanceTimers(); } worldFeedTransport.refreshAfterSnapshot();
+  void canonicalOwnerRead.refresh().catch(() => {}); syncEmptyEntitySnapshotRefreshLoop(); worldFeedTransport.refreshAfterSnapshot();
 }
 
 function normalizedGameplayActions(snapshot = state.snapshot) {
@@ -1499,6 +1459,9 @@ function syncEmptyEntitySnapshotRefreshLoop() {
 }
 
 function adoptCurrentPlayerBindingFromSnapshot(snapshot) {
+  // Public player-to-Agent relations do not prove the current signing key's
+  // control. Hosted/WorldService sessions adopt canonical registration ACKs.
+  if (state.auth.source === "hosted_account_cookie" || state.viewerProtocol?.capabilities?.includes("canonical_agent_chat_v1")) return;
   const playerId = String(state.auth.playerId || "").trim();
   if (!playerId) {
     return;
@@ -1738,7 +1701,9 @@ async function buildRefineQuoteAuthProof(request, auth) {
   };
 }
 
+let refineQuoteRequestGeneration = 0;
 async function requestRefineQuote(compoundMassG) {
+  const generation = ++refineQuoteRequestGeneration;
   const compoundMassGNumber = Number(compoundMassG);
   if (!Number.isSafeInteger(compoundMassGNumber) || compoundMassGNumber <= 0) {
     state.refineQuoteRequest = { status: "error", errorCode: "invalid_amount", error: "refine quote requires a positive whole-number compound mass in grams" }; return { ok: false, reason: "refine quote requires a positive whole-number compound mass in grams" };
@@ -1764,11 +1729,20 @@ async function requestRefineQuote(compoundMassG) {
       player_id: state.auth.playerId,
       public_key: state.auth.publicKey,
     };
+    const dependencyFingerprint = quoteDependencyFingerprint(state, "refine");
+    const requestSocket = socket;
     request.auth = await buildRefineQuoteAuthProof(request, state.auth);
-    state.refineQuoteRequest = { status: "pending", error: null };
+    if (generation !== refineQuoteRequestGeneration || socket !== requestSocket
+      || requestSocket?.readyState !== WebSocket.OPEN
+      || dependencyFingerprint !== quoteDependencyFingerprint(state, "refine")) {
+      return { ok: false, reason: "refine quote inputs changed during signing" };
+    }
+    state.refineQuotePreflight = null;
+    state.refineQuoteRequest = { status: "pending", error: null, requestAuthNonce: request.auth.nonce, dependencyFingerprint, dependencyInputs: {} };
     sendJson({ type: "quote_refine_compound", request });
     return { ok: true, request: clone(request) };
   } catch (error) {
+    if (generation !== refineQuoteRequestGeneration) return { ok: false, reason: "refine quote superseded" };
     const reason = `refine quote request failed: ${String(error)}`;
     state.refineQuoteRequest = { status: "error", errorCode: "session_sync_failed", error: reason };
     return { ok: false, reason };
@@ -2684,6 +2658,7 @@ function sendAgentChat(agentIdOrPayload, maybeMessage) {
       request.auth = await buildAgentChatAuthProof(request, state.auth);
       assertAgentChatFeedbackActive(feedback);
       if (request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey) throw new Error("agent_chat identity changed during signing");
+      feedback.requestAuthNonce = request.auth?.nonce;
       feedback.canonicalRequest = request.canonical_authority ? request : null; feedback.canonicalRetryCount = 0;
       feedback.stage = "sent";
       feedback.effect = "agent_chat request sent; waiting for ack";
@@ -2791,6 +2766,7 @@ function sendPromptControl(mode, payload = null) {
       feedback.effect = `prompt ${normalizedMode} request sent; waiting for ack`;
       state.lastPromptFeedback = feedback;
       feedback.requestId = request.request_id || null;
+      feedback.requestAuthNonce = commandRequest.auth?.nonce;
       feedback.submittedDraft = promptDraftValuesForRequest(request);
       sendJson({
         type: "prompt_control",
@@ -2809,21 +2785,6 @@ function sendPromptControl(mode, payload = null) {
 
 function gameplayActionRequiresActorAgent(actionId) {
   return actionId === "claim_agent" || actionId === "release_agent_claim";
-}
-
-function normalizeGameplayActionRequest(action) {
-  if (!action || typeof action !== "object") {
-    return null;
-  }
-  const normalized = {
-    ...action,
-    protocol_action: action.protocol_action || action.protocolAction || null,
-    action_id: action.action_id || action.actionId || null,
-    target_agent_id: action.target_agent_id || action.targetAgentId || null,
-    actor_agent_id: action.actor_agent_id || action.actorAgentId || null,
-    disabled_reason: action.disabled_reason || action.disabledReason || null,
-  };
-  return normalized;
 }
 
 function gameplayActionControlError(action) {
@@ -2872,7 +2833,7 @@ function resolveGameplayActionRequest(actionOrId) {
   return normalizeGameplayActionRequest(actionOrId);
 }
 
-function sendGameplayAction(actionOrId) {
+function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempted: false }, retryFeedback = null) {
   const action = resolveGameplayActionRequest(actionOrId);
   if (!action) {
     return { ok: false, reason: "gameplay action is unavailable in the current snapshot" };
@@ -2926,11 +2887,22 @@ function sendGameplayAction(actionOrId) {
     return { ok: false, reason: controlError };
   }
 
+  const previous = state.lastGameplayActionFeedback;
+  const internalRetry = retryFeedback && sameSemanticFeedback(previous, retryFeedback)
+    && previous.stage === "registering" && operation === retryFeedback.operation && operation.sessionRefreshRetryAttempted === true;
+  if (hostedWorldAccount.hasPendingGameplayRequest() || (!internalRetry && previous && ((previous.action === actionId && (previous.targetAgentId || previous.agentId) === targetAgentId
+    && ["sent", "pending", "received", "unknown"].includes(previous.stage)) || (state.auth.source === "hosted_account_cookie"
+    && ["queued", "registering", "signing", "sent", "pending", "received", "unknown"].includes(previous.stage))))) {
+    requestSnapshotSafe();
+    return { ok: false, reason: "original gameplay request outcome is unresolved; refresh its authoritative result before submitting again" };
+  }
+
   const feedback = createSemanticFeedback("gameplay_action", actionId, targetAgentId, {
     effect: "queued for signing and send",
     targetAgentId,
     protocolAction,
   });
+  feedback.operation = operation;
   state.lastGameplayActionFeedback = feedback;
   render();
 
@@ -2947,6 +2919,8 @@ function sendGameplayAction(actionOrId) {
           ? null
         : targetAgentId;
       await ensureRegisteredPlayerSession(registrationAgentId);
+      if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("viewer websocket is not connected");
       feedback.stage = "signing";
       feedback.effect = "building auth proof";
       render();
@@ -2959,7 +2933,18 @@ function sendGameplayAction(actionOrId) {
       if (gameplayActionRequiresActorAgent(actionId)) {
         request.actor_agent_id = actorAgentId || state.auth.boundAgentId || registrationAgentId;
       }
+      const sendContext = { socket, scope: getGameplayRecoveryScope(state), session: captureSessionContext(state, authConnectionGeneration(), state.wsUrl) };
       request.auth = await buildGameplayActionAuthProof(request, state.auth);
+      if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
+      if (request.auth.player_id !== state.auth.playerId || request.auth.public_key !== state.auth.publicKey) throw new Error("gameplay identity changed during signing");
+      feedback.requestAuthNonce = request.auth.nonce;
+      feedback.originalRequest = clone(request);
+      await hostedWorldAccount.rememberGameplayRequest(request, sendContext.scope);
+      if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
+      if (!gameplaySendContextCurrent(state, socket, sendContext)) {
+        feedback.stage = "unknown"; feedback.effect = "original request context changed before send";
+        state.lastGameplayActionFeedback = feedback; render(); return;
+      }
       feedback.stage = "sent";
       feedback.effect = "gameplay action sent; waiting for ack";
       state.lastGameplayActionFeedback = feedback;
@@ -2970,6 +2955,7 @@ function sendGameplayAction(actionOrId) {
       scheduleGameplayActionAckTimeout(feedback);
       render();
     } catch (error) {
+      if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
       markCurrentGameplayActionFeedbackError(error);
       render();
     }
@@ -2981,35 +2967,37 @@ function sendGameplayAction(actionOrId) {
 function handleGameplayActionAck(ack) {
   if (!acceptRuntimeAckIdentity(ack)) return;
   const pendingAction = state.lastGameplayActionFeedback;
-  if (!pendingAction || ack?.action_id !== pendingAction.action || ack?.target_agent_id !== (pendingAction.targetAgentId || pendingAction.agentId)) return;
+  if (!pendingAction || !["sent", "pending", "received", "unknown"].includes(pendingAction.stage) || !matchesGameplayReply(ack, pendingAction)) return;
   clearPendingGameplayActionAckTimer();
   const feedback = state.lastGameplayActionFeedback || createSemanticFeedback(
     "gameplay_action",
     ack?.action_id || "gameplay_action",
     ack?.target_agent_id || null,
   );
-  feedback.stage = "ack";
-  feedback.ok = true;
-  feedback.accepted = true;
+  feedback.stage = ack?.submission_status || "ack";
+  feedback.ok = ack?.submission_status == null || ack.submission_status === "committed";
+  feedback.accepted = feedback.ok;
   feedback.reason = null;
   feedback.effect = ack?.message || `gameplay action accepted at tick ${Number(ack?.accepted_at_tick || state.logicalTime)}`;
   feedback.response = clone(ack);
   state.lastGameplayActionFeedback = feedback;
-  if (ack?.action_id === "claim_first_agent" && ack?.target_agent_id) {
-    state.auth.boundAgentId = ack.target_agent_id;
-    state.auth.pendingRequestedAgentId = ack.target_agent_id;
-    state.auth.registrationStatus = "registered";
-    state.auth.runtimeStatus = "registered";
-    state.auth.error = null;
-    scheduleFirstAgentClaimAutoAdvance();
+  if (ack?.submission_status === "committed") {
+    settleGameplayOriginal(hostedWorldAccount, feedback.requestAuthNonce, getGameplayRecoveryScope(state), state);
+  }
+  if (ack?.action_id === "claim_first_agent" || Number(ack?.runtime_action_id) === 0) {
+    feedback.stage = ["received", "pending", "committed"].includes(ack?.submission_status) ? ack.submission_status : "pending";
+    feedback.ok = false;
+    feedback.accepted = false;
+    feedback.effect = "request received; waiting for authoritative result and owner binding";
+    scheduleGameplayActionAckTimeout(feedback);
   }
   requestSnapshotSafe();
 }
 
-async function retryGameplayActionAfterMissingSession(feedback, error) {
+async function retryGameplayActionAfterMissingSession(feedback, error, settlement) {
   const actionId = String(error?.action_id || feedback?.action || "").trim();
   const targetAgentId = String(error?.target_agent_id || feedback?.agentId || "").trim();
-  if (!actionId || !targetAgentId || feedback?.sessionRefreshRetryAttempted) {
+  if (!actionId || !targetAgentId || feedback?.operation?.sessionRefreshRetryAttempted) {
     return;
   }
   const action = resolveGameplayActionRequest(actionId) || normalizeGameplayActionRequest({
@@ -3031,7 +3019,8 @@ async function retryGameplayActionAfterMissingSession(feedback, error) {
     render();
     return;
   }
-  feedback.sessionRefreshRetryAttempted = true;
+  feedback.operation ||= { sessionRefreshRetryAttempted: false };
+  feedback.operation.sessionRefreshRetryAttempted = true;
   feedback.stage = "registering";
   feedback.ok = false;
   feedback.accepted = false;
@@ -3040,14 +3029,22 @@ async function retryGameplayActionAfterMissingSession(feedback, error) {
   state.lastGameplayActionFeedback = feedback;
   render();
   try {
+    const settled = await settlement;
+    if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
+    if (state.auth.source === "hosted_account_cookie" && settled !== true) {
+      feedback.stage = "unknown"; feedback.reason = "original gameplay request settlement is not confirmed";
+      state.lastGameplayActionFeedback = feedback; render(); return;
+    }
     const registrationAgentId = gameplayActionRequiresActorAgent(actionId)
       ? action.actor_agent_id || action.actorAgentId || state.auth.boundAgentId || targetAgentId
       : actionId === "claim_first_agent"
         ? null
         : targetAgentId;
     await ensureRegisteredPlayerSession(registrationAgentId, { forceRebind: true });
-    sendGameplayAction(action);
+    if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
+    sendGameplayAction(action, feedback.operation, feedback);
   } catch (retryError) {
+    if (!sameSemanticFeedback(state.lastGameplayActionFeedback, feedback)) return;
     markCurrentGameplayActionFeedbackError(
       retryError,
       "player session refresh failed before retrying gameplay action",
@@ -3057,24 +3054,20 @@ async function retryGameplayActionAfterMissingSession(feedback, error) {
 }
 
 function handleGameplayActionError(error) {
+  if (quoteProtocolFacade.handleQuoteGameplayActionError(error)) return;
+  const feedback = state.lastGameplayActionFeedback;
+  if (!feedback || !["sent", "pending", "received", "unknown"].includes(feedback.stage) || !matchesGameplayReply(error, feedback)) return;
   clearPendingGameplayActionAckTimer();
-  if (quoteProtocolFacade.handleQuoteGameplayActionError(error)) {
-    return;
-  }
-  const feedback = state.lastGameplayActionFeedback || createSemanticFeedback(
-    "gameplay_action",
-    error?.action_id || "gameplay_action",
-    error?.target_agent_id || null,
-  );
-  feedback.stage = "error";
+  feedback.stage = error?.code === "world_service_outcome_unknown" ? "unknown" : "error";
   feedback.ok = false;
   feedback.accepted = false;
   feedback.reason = error?.message || error?.code || "gameplay action failed";
   feedback.effect = error?.code || "gameplay action error";
   feedback.response = clone(error);
   state.lastGameplayActionFeedback = feedback;
+  const settlement = feedback.stage !== "unknown" ? settleGameplayOriginal(hostedWorldAccount, feedback.requestAuthNonce, getGameplayRecoveryScope(state), state) : Promise.resolve(false);
   if (String(error?.code || "").trim() === "session_not_found") {
-    void retryGameplayActionAfterMissingSession(feedback, error);
+    void retryGameplayActionAfterMissingSession(feedback, error, settlement);
   }
 }
 
@@ -3126,6 +3119,7 @@ function handleAgentChatAck(ack) {
   const feedback = state.lastChatFeedback;
   if (!agentChatFeedbackInFlight(feedback) || ack?.agent_id !== feedback.agentId) return;
   if (feedback.canonicalRequest && !canonicalAckMatches(ack, feedback.canonicalRequest)) return;
+  if (feedback.requestAuthNonce != null && (ack?.request_auth_nonce ?? ack?.auth_nonce) !== feedback.requestAuthNonce) return;
   clearPendingAgentChatAckTimer();
   if (feedback.canonicalRequest && ack?.status === "pending") {
     pendingAgentChatAckTimer = scheduleCanonicalGoalPending({ ack, feedback, state, clone, requestSnapshotSafe, sameAgentChatFeedback, failPendingAgentChatAck, sendJson, scheduleAgentChatAckTimeout, getSocket: () => socket });
@@ -3139,6 +3133,10 @@ function handleAgentChatAck(ack) {
 }
 
 function handleAgentChatError(error) {
+  const current = state.lastChatFeedback;
+  if (!agentChatFeedbackInFlight(current) || error?.agent_id !== current.agentId) return;
+  if (current.canonicalRequest && error?.request_auth_nonce !== current.canonicalRequest.auth?.nonce) return;
+  if (current.requestAuthNonce != null && error?.request_auth_nonce !== current.requestAuthNonce) return;
   clearPendingAgentChatAckTimer();
   clearPendingAgentChatOverallTimer();
   const feedback = state.lastChatFeedback || createSemanticFeedback("chat", "agent_chat", error?.agent_id || selectedAgentId());
@@ -3385,6 +3383,9 @@ export const requestScopeSnapshot = () => scopeSnapshotTransport.request();
 // Host authorizes the captured scope before this existing adopter triggers render.
 export const acceptScopeSnapshot = snapshot => handleSnapshot(snapshot);
 function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket && socket !== sourceSocket) return;
+  if (message?.request_auth_nonce != null) {
+    for (const key of ["ack", "error", "quote"]) if (message[key]) message[key].request_auth_nonce = message.request_auth_nonce;
+  }
   if (scopeSnapshotTransport.handle(message)) return;
   if (worldViewTransport.handle(message)) return;
   if (quoteProtocolFacade.handleQuoteViewerMessage(message)) return;
@@ -3410,7 +3411,9 @@ function handleViewerMessage(message, sourceSocket = null) { if (sourceSocket &&
     case "snapshot":
       handleSnapshot(message.snapshot);
       break;
-    case "world_feed": worldFeedTransport.handleWorldFeed(message.feed, sourceSocket); break;
+    case "world_feed":
+      worldFeedTransport.handleWorldFeed(message.feed, sourceSocket);
+      hostedWorldAccount.restoreGameplayRequest(getGameplayRecoveryScope(state)); break;
     case "event": {
       addRecentEvent(message.event);
       const chatEntry = extractAgentSpokeEntry(message.event);
@@ -3476,6 +3479,8 @@ function attachSocket(ws) {
     state.server = null;
     state.worldId = null;
     initialSnapshotRequested = false;
+    currentConnectionSnapshotReceived = false;
+    initialSnapshotReadFailed = false;
     initialSnapshotRetryCount = 0;
     clearHelloAckTimer();
     clearInitialSnapshotRetryTimer();
@@ -3559,12 +3564,14 @@ function modelLists() {
 function buildTargetSyncProgress() {
   const { agents, locations } = entityCollections();
   const lists = modelLists();
-  const snapshotReceived = !!state.snapshot;
+  const snapshotReceived = currentConnectionSnapshotReceived;
   const serverReady = !!state.server;
   const sessionSyncing = !!state.auth.syncInFlight || !!pendingSessionRegisterWaiter;
   let stage = "connecting";
   if (state.connectionStatus === "connected") {
-    if (!serverReady) {
+    if (initialSnapshotReadFailed) {
+      stage = "error";
+    } else if (!serverReady) {
       stage = "handshake";
     } else if (!snapshotReceived) {
       stage = "snapshot";
@@ -4164,6 +4171,8 @@ function bindEvents() {
 }
 
 function render(invalidation) {
+  invalidateDependentQuote(state, "refine", state.snapshot);
+  invalidateDependentQuote(state, "product", state.snapshot);
   renderHook.invoke(invalidation);
 }
 

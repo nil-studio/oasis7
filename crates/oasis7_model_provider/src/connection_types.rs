@@ -125,6 +125,7 @@ pub enum ConnectionError {
     Invalid,
     Conflict,
     BudgetExceeded,
+    CapacityExceeded,
     BindingDenied,
     NotReady,
     AlreadySent,

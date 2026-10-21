@@ -78,6 +78,251 @@ mod tests {
     };
     use oasis7_client_api::world_service::*;
 
+    fn owner_test_key() -> String {
+        hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[5; 32])
+                .verifying_key()
+                .to_bytes(),
+        )
+    }
+
+    #[test]
+    fn canonical_binding_survives_signed_registration_renewals_and_reconnect() {
+        let mut server = fixture_owned(1, 1, false, true);
+        let key = owner_test_key();
+        // Seven signed registration renewals cover the same control lease's
+        // renewal cadence. Logical time is independent of wall-clock lease age.
+        for nonce in 1..=7 {
+            let mut request = AuthoritativeSessionRegisterRequest {
+                player_id: "owner".into(),
+                public_key: Some(key.clone()),
+                registration_grant: None,
+                auth: None,
+                requested_agent_id: None,
+                force_rebind: false,
+            };
+            request.auth = Some(
+                crate::viewer::sign_session_register_auth_proof(
+                    &request,
+                    nonce,
+                    &key,
+                    &hex::encode([5; 32]),
+                )
+                .unwrap(),
+            );
+            let (ack, _) = server
+                .handle_authoritative_recovery(AuthoritativeRecoveryCommand::RegisterSession {
+                    request,
+                })
+                .unwrap();
+            assert_eq!(ack.agent_id.as_deref(), Some("a"));
+            let (ack, _) = server
+                .handle_authoritative_recovery(AuthoritativeRecoveryCommand::ReconnectSync {
+                    request: AuthoritativeReconnectSyncRequest {
+                        player_id: "owner".into(),
+                        session_pubkey: Some(key.clone()),
+                        last_known_log_cursor: None,
+                        expected_reorg_epoch: Some(server.reorg_epoch),
+                    },
+                })
+                .unwrap();
+            assert_eq!(ack.agent_id.as_deref(), Some("a"));
+        }
+        let previous_epoch = server.session_policy.session_epoch("owner");
+        let verified = server.verified_world_view.take();
+        let mut request = AuthoritativeSessionRegisterRequest {
+            player_id: "owner".into(),
+            public_key: Some(key.clone()),
+            registration_grant: None,
+            auth: None,
+            requested_agent_id: None,
+            force_rebind: false,
+        };
+        request.auth = Some(
+            crate::viewer::sign_session_register_auth_proof(
+                &request,
+                8,
+                &key,
+                &hex::encode([5; 32]),
+            )
+            .unwrap(),
+        );
+        let error = server
+            .handle_authoritative_recovery(AuthoritativeRecoveryCommand::RegisterSession {
+                request: request.clone(),
+            })
+            .unwrap_err();
+        assert_eq!(error.code, "canonical_owner_not_ready");
+        assert_eq!(server.session_policy.session_epoch("owner"), previous_epoch);
+        let error = server
+            .handle_authoritative_recovery(AuthoritativeRecoveryCommand::ReconnectSync {
+                request: AuthoritativeReconnectSyncRequest {
+                    player_id: "owner".into(),
+                    session_pubkey: Some(key.clone()),
+                    last_known_log_cursor: None,
+                    expected_reorg_epoch: Some(server.reorg_epoch),
+                },
+            })
+            .unwrap_err();
+        assert_eq!(error.code, "canonical_owner_not_ready");
+        server.verified_world_view = verified;
+        let (ack, _) = server
+            .handle_authoritative_recovery(AuthoritativeRecoveryCommand::RegisterSession {
+                request,
+            })
+            .unwrap();
+        assert_eq!(
+            ack.agent_id.as_deref(),
+            Some("a"),
+            "unavailable attempt did not consume the signed nonce"
+        );
+        assert!(server.llm_sidecar.bound_agent_for_player("owner").is_none());
+    }
+
+    #[test]
+    fn verified_canonical_binding_snapshot_never_offers_repeat_claim_with_empty_sidecar() {
+        let mut server = fixture_owned(1, 1, false, true);
+        let key = owner_test_key();
+        server
+            .session_policy
+            .register_session("owner", &key)
+            .unwrap();
+        let snapshot = server.compat_snapshot(Some("owner"));
+        let gameplay = snapshot.player_gameplay.unwrap();
+        assert!(
+            gameplay
+                .available_actions
+                .iter()
+                .all(|action| action.action_id != crate::viewer::ACTION_CLAIM_FIRST_AGENT)
+        );
+        assert!(server.llm_sidecar.bound_agent_for_player("owner").is_none());
+        assert_eq!(
+            server.canonical_session_agent("owner", &key).as_deref(),
+            Some("a")
+        );
+    }
+
+    #[test]
+    fn canonical_session_binding_ignores_empty_sidecar_and_rejects_wrong_authority() {
+        let key = owner_test_key();
+        let mut server = fixture_owned(1, 1, false, true);
+        assert!(server.llm_sidecar.bound_agent_for_player("owner").is_none());
+        for _renewal in 0..7 {
+            assert_eq!(
+                server.canonical_session_agent("owner", &key).as_deref(),
+                Some("a")
+            );
+        }
+        assert_eq!(server.canonical_session_agent("other-owner", &key), None);
+        assert_eq!(server.canonical_session_agent("owner", "rotated-key"), None);
+        server.config.world_service.as_mut().unwrap().scope_id = "other-scope".into();
+        assert_eq!(server.canonical_session_agent("owner", &key), None);
+        server.config.world_service.as_mut().unwrap().scope_id = "public".into();
+        server.verified_world_view = None;
+        assert_eq!(server.canonical_session_agent("owner", &key), None);
+        let revoked = fixture_owned(2, 1, false, false);
+        assert_eq!(revoked.canonical_session_agent("owner", &key), None);
+        let controlled = fixture_owned(2, 1, true, true);
+        assert_eq!(controlled.canonical_session_agent("owner", &key), None);
+    }
+
+    #[test]
+    fn missing_public_history_with_verified_nonzero_cursor_is_unavailable() {
+        let server = fixture();
+        assert!(
+            server
+                .verified_world_view
+                .as_ref()
+                .unwrap()
+                .projection()
+                .events
+                .is_empty()
+        );
+        assert_eq!(
+            server.public_world_feed(None, 50).status,
+            crate::viewer::WorldFeedStatus::Unavailable
+        );
+    }
+
+    fn install_fixture_history(
+        server: &mut ViewerRuntimeLiveServer,
+        ids: &[u64],
+        revision: &str,
+        permission: u64,
+    ) {
+        let config = server.config.world_service.as_ref().unwrap().clone();
+        let old = server.verified_world_view.as_ref().unwrap();
+        let mut version = old.version().clone();
+        version.projection_revision = revision.into();
+        version.commit.binding.permission_generation = permission;
+        let mut continuation = old.continuation().clone();
+        continuation.sequence = ids.last().copied().unwrap_or(0);
+        continuation.commit = version.commit.clone();
+        let mut projection = old.projection().clone();
+        projection.events = ids
+            .iter()
+            .map(|id| crate::runtime::WorldEvent {
+                id: *id,
+                time: *id,
+                caused_by: None,
+                body: crate::runtime::WorldEventBody::SnapshotCreated(
+                    crate::runtime::SnapshotMeta {
+                        journal_len: *id as usize,
+                    },
+                ),
+            })
+            .collect();
+        let response = ReadWorldViewResponse {
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            formal_profile: None,
+            formal_proof: None,
+            execution_evidence_scope: None,
+            version,
+            logical_tick: old.logical_tick(),
+            continuation,
+            view: projection,
+        };
+        let request = ReadWorldViewRequest {
+            observation_nonce: None,
+            formal_anchor: None,
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            world: config.expected_world.clone(),
+            scope_id: config.scope_id.clone(),
+            min_commit: None,
+            fixed_commit: None,
+            deadline_unix_ms: None,
+        };
+        server.verified_world_view = Some(authenticated_fixture_view(
+            response,
+            &request,
+            &config,
+            ReadEvidencePolicy::Ordinary,
+        ));
+    }
+
+    #[test]
+    fn public_history_cursor_survives_new_projection_but_rejects_permission_change() {
+        let mut server = fixture();
+        install_fixture_history(&mut server, &[1], "first", 1);
+        let first = server.public_world_feed(None, 50);
+        assert_eq!(first.status, crate::viewer::WorldFeedStatus::Ready);
+        install_fixture_history(&mut server, &[1, 2], "changed-content-digest", 1);
+        let next = server.public_world_feed(Some(&first.cursor), 50);
+        assert_eq!(next.status, crate::viewer::WorldFeedStatus::Replay);
+        assert_eq!(
+            next.events
+                .iter()
+                .map(|event| event.event_seq)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
+        install_fixture_history(&mut server, &[1, 2], "changed-content-digest", 2);
+        assert_eq!(
+            server.public_world_feed(Some(&next.cursor), 50).status,
+            crate::viewer::WorldFeedStatus::Gap
+        );
+    }
+
     fn authenticated_fixture_view(
         response: ReadWorldViewResponse<WorldServiceProjection>,
         request: &ReadWorldViewRequest,
@@ -101,6 +346,14 @@ mod tests {
         fixture_bound(1, 1, false)
     }
     fn fixture_bound(position: u64, permission: u64, controlled: bool) -> ViewerRuntimeLiveServer {
+        fixture_owned(position, permission, controlled, false)
+    }
+    fn fixture_owned(
+        position: u64,
+        permission: u64,
+        controlled: bool,
+        owned: bool,
+    ) -> ViewerRuntimeLiveServer {
         let mut server = ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(
             WorldScenario::Minimal,
         ))
@@ -114,6 +367,11 @@ mod tests {
                 0,
             ),
         );
+        if owned {
+            state.starter_oc_claims.insert("a".into(), serde_json::from_value(serde_json::json!({
+                "agent_id":"a","player_id":"owner","public_key":owner_test_key(),"amount":0,"claimed_at":0
+            })).unwrap());
+        }
         server.world = crate::runtime_host::world::new_with_state(state);
         let world = WorldIdentity {
             world_id: "view-world".into(),

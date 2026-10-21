@@ -270,6 +270,7 @@ describe("viewer agent chat auth", () => {
     }));
     sockets[0].receive({
       type: "agent_chat_ack",
+      request_auth_nonce: chatMessage.request.auth.nonce,
       ack: { agent_id: "agent-0", player_id: "player-1", accepted_at_tick: 12 },
     });
     core.state.viewerProtocol.capabilities.push("canonical_agent_chat_v1");

@@ -17,6 +17,10 @@ const COPY = {
  executor_unavailable: ["本部署尚无可用游戏执行器。可检查模型连接，但不能开始行动。", "No game executor is available on this deployment. Model checks are available; actions cannot start."],
  untrusted_executor: ["尚未建立可信执行端，不能提交凭证。", "A trusted executor has not been established. Credentials cannot be submitted."],
  invalid_request: ["连接请求无效，请刷新并重新确认。", "The connection request is invalid. Refresh and confirm again."],
+ connection_capacity_exceeded: ["连接存储容量已满；已有连接仍可管理，本次没有调用模型。", "Connection storage capacity is full. Existing connections remain manageable; no model call was made."],
+ list_changed: ["连接列表在读取时发生变化，请重新刷新；已知连接仍可核对和管理。", "The connection list changed while reading. Refresh again; known connections can still be checked and managed."],
+ invalid_response: ["模型响应格式无效，请核对协议兼容性。", "The model response format is invalid. Check protocol compatibility."],
+ response_limit: ["模型响应超过安全大小上限，请核对输出配置。", "The model response exceeded the safe size limit. Check output settings."],
  request_failed: ["连接服务暂不可用，请刷新状态或稍后重试。", "The connection service is unavailable. Refresh status or try again later."],
 };
 const RUN_REASON = {
@@ -57,7 +61,7 @@ export function ModelConnectionPanel(props) {
  const read = (value) => typeof value === "function" ? value() : value;
  const zh = () => String(read(props.locale) || "en").startsWith("zh");
  const tr = (cn, en) => zh() ? cn : en;
- const message = (code) => (COPY[code === "game_executor_unavailable" ? "executor_unavailable" : code] || COPY.request_failed)[zh() ? 0 : 1];
+ const message = (code) => (COPY[code === "game_executor_unavailable" ? "executor_unavailable" : code] || MODEL_FAILURE[code] || COPY.request_failed)[zh() ? 0 : 1];
  const modelFailure = (connection) => {
   const execution = connection.execution;
   if (["revoked", "expired"].includes(connection.state) || execution?.phase !== "finished" || !["model_failed", "input_limit"].includes(execution.reason)) return null;
@@ -85,18 +89,40 @@ export function ModelConnectionPanel(props) {
   refreshGeneration++;
   setConnections((previous) => { const current = previous.find((value) => value.id === connection.id); if (current && current.version > connection.version) return previous; return current ? previous.map((value) => value.id === connection.id ? connection : value) : [...previous, connection]; });
  };
+ function discardUnavailable(connection, failure) {
+  if (failure.status !== 404 && failure.status !== 401 && !["authentication_required", "authentication_failed"].includes(failure.code)) return;
+  refreshGeneration++;
+  setConnections(previous => previous.filter(value => value.id !== connection.id));
+  if (selectedId() === connection.id) setSelectedId("");
+  if (failure.status === 401 || ["authentication_required", "authentication_failed"].includes(failure.code)) setCapabilities(null);
+ }
  async function refresh() {
   const generation = ++refreshGeneration;
+  let capabilityRead = false;
   try {
    const cap = await client.capabilities();
    if (disposed || generation !== refreshGeneration) return;
    setCapabilities(cap);
+   capabilityRead = true;
    if (!acceptsModelCredentials(cap)) { setConnections([]); if (keyInput) keyInput.value = ""; return; }
    const items = await client.list();
    if (disposed || generation !== refreshGeneration) return;
    setConnections(items);
    if (!items.some((item) => item.id === selectedId())) setSelectedId(items[0]?.id || "");
-  } catch (failure) { if (!disposed && generation === refreshGeneration) { setError(message(failure.code)); setCapabilities(null); if (keyInput) keyInput.value = ""; } }
+  } catch (failure) {
+   if (!disposed && generation === refreshGeneration) {
+    setError(message(failure.code));
+    if (!capabilityRead) setCapabilities(null);
+    if (keyInput) keyInput.value = "";
+    // A failed history page must not hide a known live connection. Read its
+    // current authority/version independently without claiming list completeness.
+    const current = selected();
+    if (capabilityRead && current) {
+     try { const value = await client.read(current); if (!disposed && generation === refreshGeneration) apply(value); }
+     catch (readFailure) { if (!disposed && generation === refreshGeneration) discardUnavailable(current, readFailure); }
+    }
+   }
+  }
  }
  async function act(action) {
   if (busy()) return;
@@ -125,7 +151,21 @@ export function ModelConnectionPanel(props) {
      if (!Number.isFinite(interval) || interval < 1000) continue;
      // Server deadlines remain authoritative; an expired local view never renews.
      if (connection.expires_at_ms - Date.now() > capabilities().limits.lease_ms - interval) continue;
-     try { apply(await client.lease(connection)); } catch (failure) { if (!disposed) setError(message(failure.code)); }
+     const leaseGeneration = refreshGeneration;
+     try {
+      const current = await client.lease(connection);
+      if (!disposed && leaseGeneration === refreshGeneration) apply(current);
+     } catch (failure) {
+      if (disposed || leaseGeneration !== refreshGeneration) continue;
+      setError(message(failure.code));
+      // Read the same connection after a lost reply or a completed worker's CAS
+      // change. Reconciliation never activates a run or changes its budget.
+      const generation = refreshGeneration;
+      try {
+       const current = await client.read(connection);
+       if (!disposed && generation === refreshGeneration) apply(current);
+      } catch (readFailure) { if (!disposed && generation === refreshGeneration) { setError(message(readFailure.code)); discardUnavailable(connection, readFailure); } }
+     }
     }
    } finally { renewing = false; }
   }, 1000);

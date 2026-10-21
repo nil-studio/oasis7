@@ -69,6 +69,7 @@ pub(super) fn player_gameplay_feedback_from_control_ack(
         ),
     };
     PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action,
         stage,
         effect,
