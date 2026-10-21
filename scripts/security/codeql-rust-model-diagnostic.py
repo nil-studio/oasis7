@@ -323,6 +323,16 @@ def diagnose(args):
     write(query / "Macros.ql", MACROS)
     write(query / "Calls.ql", CALLS)
     write(query / "Closures.ql", CLOSURES)
+    run([cli, "query", "compile", "--help"], args.work,
+        args.output / "query-compile-help.log", args.deadline, 20, args.output, env)
+    help_text = (args.output / "query-compile-help.log").read_text()
+    for option in ("--check-only", "--keep-going", "--additional-packs"):
+        if option not in help_text:
+            raise RuntimeError("exact CLI missing preflight option: " + option)
+    run([cli, "query", "compile", "--check-only", "--keep-going",
+         "--additional-packs=" + str(search_root), "--threads=2", "--ram=2048",
+         *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]],
+        args.work, args.output / "query-preflight.log", args.deadline, 60, args.output, env)
     before = {}
     for name, wrappers in [("baseline", False), ("wrappers", True)]:
         source = args.output / name
