@@ -23,7 +23,7 @@ fn main() { let _ = peer_flow(7); }
 MACROS = '''import rust
 import codeql.rust.dataflow.DataFlow
 from MacroCall mc
-where mc.getLocation().getFile().getRelativePath().regexpMatch(".*(peer|lib|orphan|panic_shape)\\.rs")
+where mc.getLocation().getFile().getRelativePath().regexpMatch(".*(peer|lib|orphan|panic_shape)[.]rs")
 select mc.getLocation().getFile().getRelativePath(), mc.getLocation().getStartLine(),
   mc.getPath().toString(), count(AstNode n | mc.getMacroCallExpansion() = n.getParentNode*()),
   count(DataFlow::Node n | mc.getMacroCallExpansion() = n.asExpr().getParentNode*())
