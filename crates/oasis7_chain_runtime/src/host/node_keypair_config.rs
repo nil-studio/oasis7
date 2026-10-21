@@ -1,10 +1,11 @@
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use ed25519_dalek::SigningKey;
+
+#[path = "node_keypair_config/transaction.rs"]
+mod transaction;
 
 pub(super) const NODE_TABLE_KEY: &str = "node";
 pub(super) const NODE_PRIVATE_KEY_FIELD: &str = "private_key";
@@ -47,6 +48,7 @@ pub(crate) fn read_existing_legacy_keypair(path: &Path) -> Result<NodeKeypairCon
         .ok_or("legacy public key missing")?
         .trim()
         .to_owned();
+    transaction::verify_published(path, &public_key_hex)?;
     Ok(NodeKeypairConfig {
         private_key_hex,
         public_key_hex,
@@ -109,6 +111,7 @@ pub(super) fn read_existing_node_keypair_in_secure_config_dir(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("key config {} missing public key", key_path.display()))?
         .to_string();
+    transaction::verify_published(&key_path, &public_key_hex)?;
     Ok((
         NodeKeypairConfig {
             private_key_hex,
@@ -168,7 +171,7 @@ pub(super) fn ensure_node_keypair_in_secure_config_dir(
         }
     }
 
-    let keypair = ensure_node_keypair_in_config(&key_path)?;
+    let keypair = transaction::ensure(&key_path, true)?;
     set_exact_mode(&key_path, 0o600, "key config")?;
     Ok((keypair, key_path))
 }
@@ -262,14 +265,12 @@ fn set_exact_mode(_path: &Path, _expected: u32, _label: &str) -> Result<(), Stri
 }
 
 pub(super) fn ensure_node_keypair_in_config(path: &Path) -> Result<NodeKeypairConfig, String> {
-    let _lock = ConfigFileLock::acquire(path)?;
-    ensure_node_keypair_in_config_unlocked(path)
+    transaction::ensure(path, false)
 }
 
-fn ensure_node_keypair_in_config_unlocked(path: &Path) -> Result<NodeKeypairConfig, String> {
-    let mut table = load_config_table(path)?;
-    let mut wrote = false;
-
+fn prepare_config(
+    mut table: toml::map::Map<String, toml::Value>,
+) -> Result<(NodeKeypairConfig, toml::map::Map<String, toml::Value>), String> {
     let node_table = table
         .entry(NODE_TABLE_KEY.to_string())
         .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
@@ -305,13 +306,20 @@ fn ensure_node_keypair_in_config_unlocked(path: &Path) -> Result<NodeKeypairConf
                 NODE_PUBLIC_KEY_FIELD.to_string(),
                 toml::Value::String(public_key_hex.clone()),
             );
-            wrote = true;
             NodeKeypairConfig {
                 private_key_hex: private_hex,
                 public_key_hex,
             }
         }
-        _ => {
+        (None, Some(_)) => {
+            return Err("node.public_key without private key; recovery required".into());
+        }
+        (None, None) => {
+            if node_table.contains_key(NODE_PRIVATE_KEY_FIELD)
+                || node_table.contains_key(NODE_PUBLIC_KEY_FIELD)
+            {
+                return Err("invalid existing node key fields; recovery required".into());
+            }
             let mut private_key_bytes = [0_u8; 32];
             getrandom::fill(&mut private_key_bytes)
                 .map_err(|err| format!("generate node signing key failed: {err}"))?;
@@ -326,7 +334,6 @@ fn ensure_node_keypair_in_config_unlocked(path: &Path) -> Result<NodeKeypairConf
                 NODE_PUBLIC_KEY_FIELD.to_string(),
                 toml::Value::String(public_key_hex.clone()),
             );
-            wrote = true;
             NodeKeypairConfig {
                 private_key_hex,
                 public_key_hex,
@@ -334,66 +341,7 @@ fn ensure_node_keypair_in_config_unlocked(path: &Path) -> Result<NodeKeypairConf
         }
     };
 
-    if wrote {
-        write_config_table(path, &table)?;
-    }
-    Ok(keypair)
-}
-
-struct ConfigFileLock {
-    path: PathBuf,
-}
-
-impl ConfigFileLock {
-    fn acquire(config_path: &Path) -> Result<Self, String> {
-        let path = config_lock_path(config_path);
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "create config lock parent dir {} failed: {}",
-                    parent.display(),
-                    err
-                )
-            })?;
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Ok(Self { path }),
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
-                    if Instant::now() >= deadline {
-                        return Err(format!(
-                            "timed out waiting for config lock {}",
-                            path.display()
-                        ));
-                    }
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Err(err) => {
-                    return Err(format!(
-                        "create config lock {} failed: {}",
-                        path.display(),
-                        err
-                    ));
-                }
-            }
-        }
-    }
-}
-
-impl Drop for ConfigFileLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-fn config_lock_path(config_path: &Path) -> PathBuf {
-    let mut lock_path = config_path.as_os_str().to_os_string();
-    lock_path.push(".lock");
-    PathBuf::from(lock_path)
+    Ok((keypair, table))
 }
 
 fn load_config_table(path: &Path) -> Result<toml::map::Map<String, toml::Value>, String> {
@@ -407,32 +355,16 @@ fn load_config_table(path: &Path) -> Result<toml::map::Map<String, toml::Value>,
         return Ok(toml::map::Map::new());
     }
 
-    let value: toml::Value = toml::from_str(content.as_str())
-        .map_err(|err| format!("parse {} failed: {}", path.display(), err))?;
+    let value: toml::Value = toml::from_str(content.as_str()).map_err(|_| {
+        format!(
+            "parse {} failed: invalid TOML (content redacted)",
+            path.display()
+        )
+    })?;
     value
         .as_table()
         .cloned()
         .ok_or_else(|| format!("{} root must be a table", path.display()))
-}
-
-fn write_config_table(
-    path: &Path,
-    table: &toml::map::Map<String, toml::Value>,
-) -> Result<(), String> {
-    let content = toml::to_string_pretty(table)
-        .map_err(|err| format!("serialize {} failed: {}", path.display(), err))?;
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "create config parent dir {} failed: {}",
-                parent.display(),
-                err
-            )
-        })?;
-    }
-    fs::write(path, content).map_err(|err| format!("write {} failed: {}", path.display(), err))
 }
 
 fn validate_node_keypair_hex(private_key_hex: &str, public_key_hex: &str) -> Result<(), String> {
@@ -457,6 +389,7 @@ fn signing_key_from_hex(private_key_hex: &str) -> Result<SigningKey, String> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_config_path(label: &str) -> PathBuf {
@@ -464,7 +397,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        std::env::temp_dir()
+        fs::canonicalize(std::env::temp_dir())
+            .expect("temp directory")
             .join(format!("oasis7-node-keypair-config-{label}-{unique}"))
             .join("config.toml")
     }
@@ -481,10 +415,11 @@ mod tests {
             .join(format!("oasis7-node-keypair-config-{label}-{unique}"))
     }
 
+    #[cfg(unix)]
     #[test]
     fn concurrent_first_writers_share_one_generated_keypair() {
         let config_path = temp_config_path("concurrent");
-        let lock_path = config_lock_path(&config_path);
+        let lock_path = transaction::sidecar(&config_path, ".identity-v2.lock");
         let barrier = Arc::new(Barrier::new(8));
         let handles = (0..8)
             .map(|_| {
@@ -503,12 +438,23 @@ mod tests {
             .collect::<Vec<_>>();
         let first = keypairs.first().expect("first keypair");
         assert!(keypairs.iter().all(|keypair| keypair == first));
-        assert!(!lock_path.exists(), "config lock should be removed");
+        assert!(lock_path.exists(), "OS lock carrier must remain stable");
 
         let persisted =
             ensure_node_keypair_in_config(&config_path).expect("read persisted keypair");
         assert_eq!(persisted, *first);
         let _ = fs::remove_dir_all(config_path.parent().expect("config parent"));
+    }
+
+    #[test]
+    fn public_only_identity_is_not_silently_replaced() {
+        let path = temp_config_path("public-only");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "[node]\npublic_key = 'unknown'\n").unwrap();
+        let original = fs::read(&path).unwrap();
+        assert!(ensure_node_keypair_in_config(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[cfg(unix)]
