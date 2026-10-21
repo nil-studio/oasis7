@@ -33,14 +33,19 @@ impl Fixture {
         command
     }
     fn stopped(&self, stage: &str) -> Child {
-        let _ = fs::remove_file(sidecar(&self.0, ".test-ready"));
+        let ready = sidecar(&self.0, ".test-ready");
+        match fs::remove_file(&ready) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => panic!("cannot clear old checkpoint marker: {e}"),
+        }
         let mut child = self
             .worker()
             .env("OASIS7_IDENTITY_TEST_STOP_AT", stage)
             .spawn()
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(30);
-        while !sidecar(&self.0, ".test-ready").exists() {
+        while fs::read_to_string(&ready).as_deref() != Ok(stage) {
             assert!(
                 child.try_wait().unwrap().is_none(),
                 "worker exited before {stage}"
