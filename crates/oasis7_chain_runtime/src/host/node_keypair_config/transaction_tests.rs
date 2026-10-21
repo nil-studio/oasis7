@@ -45,7 +45,7 @@ impl Fixture {
             .spawn()
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(30);
-        while fs::read_to_string(&ready).as_deref() != Ok(stage) {
+        while !fs::read_to_string(&ready).is_ok_and(|value| value == stage) {
             assert!(
                 child.try_wait().unwrap().is_none(),
                 "worker exited before {stage}"
