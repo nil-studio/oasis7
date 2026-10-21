@@ -3,6 +3,9 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import tempfile
+import json
+import time
+from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
 
@@ -27,6 +30,53 @@ class Isolated(unittest.TestCase):
             self.assertEqual(before, m.inventory(original))
             self.assertNotEqual(before[m.STAGE], after[m.STAGE])
             self.assertEqual((candidate / m.STAGE).read_text().replace(m.NEW, m.OLD, 1), (original / m.STAGE).read_text())
+
+    def test_interaction_copy_preserves_fallback_and_synth_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); original = root / "official"
+            stage_sha = self.source(original)
+            location = original / m.LOCATABLE; location.parent.mkdir(parents=True, exist_ok=True)
+            text = "final override Location getLocation() { synth() }\n" + m.LOCATION_OLD + "\n defaultFallback(this)\n}\n"
+            location.write_text(text)
+            with patch.object(m, "BEFORE_SHA", stage_sha), patch.object(m, "LOCATION_SHA", hashlib.sha256(text.encode()).hexdigest()):
+                before, after = m.copy_and_patch(original, root / "candidate", True)
+            self.assertEqual({p for p in before if before[p] != after[p]}, {m.STAGE, m.LOCATABLE})
+            self.assertEqual((root / "candidate" / m.LOCATABLE).read_text().replace(m.LOCATION_NEW, m.LOCATION_OLD, 1), text)
+            self.assertEqual(m.inventory(original), before)
+
+    def test_actual_plan_wiring_only_compiles_and_keeps_copies_separate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); official = root / "bundle/qlpacks/codeql/rust-all/0.2.23"
+            sha = self.source(official)
+            location = official / m.LOCATABLE; location.parent.mkdir(parents=True, exist_ok=True)
+            location.write_text(m.LOCATION_OLD + "\n fallback(this)\n}\n")
+            locsha = hashlib.sha256(location.read_bytes()).hexdigest()
+            work = root / "work"; output = root / "output"; work.mkdir(); output.mkdir()
+            args = SimpleNamespace(codeql=root / "bundle/codeql", work=work, output=output, deadline=time.monotonic()+1000)
+            calls = []
+            def run(argv, cwd, log, *rest, **kwargs):
+                calls.append(argv)
+                if "--help" in argv: log.write_text("--[no-]dump-ra")
+                elif "resolve" in argv:
+                    query = Path(next(a.split("=",1)[1] for a in argv if a.startswith("--query=")))
+                    library = Path(next(a.split("=",1)[1] for a in argv if a.startswith("--additional-packs=")))
+                    log.write_text(json.dumps({"libraryPath": [str(library), str(query.parent)], "dbscheme": str(library/"rust.dbscheme"),
+                        "compilationCache": [], "qlPackName": "oasis7/rust-model-diagnostic", "relativeName": "oasis7/rust-model-diagnostic/SourceAst.ql"}))
+                elif "compile" in argv:
+                    self.assertIn("--dump-ra", argv); self.assertIn("--no-default-compilation-cache", argv); log.write_text("dummy RA")
+                else: self.fail("unexpected non-compile command")
+            def write(path, text): path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+            def evidence(path, data, artifact): path.write_bytes(data)
+            driver = SimpleNamespace(run=run, write=write, LIBRARY_VERSIONS={"rust-all": "0.2.23"})
+            production = SimpleNamespace(evidence_write=evidence, QUERIES={"SourceAst": "import rust\nselect 1\n"})
+            with patch.object(m, "BEFORE_SHA", sha), patch.object(m, "LOCATION_SHA", locsha), patch.object(m.shutil,"disk_usage",return_value=SimpleNamespace(free=8*1024**3)):
+                m.inspect_location_plans(driver, production, args, {})
+            self.assertEqual(len(calls), 5)
+            self.assertFalse(any("database" in call or "run" in call for call in calls))
+            result = json.loads((output / "location-plan-result.json").read_text())
+            self.assertEqual(result["query_evaluations"], 0)
+            self.assertEqual(len({p["compilation_cache"] for p in result["plans"].values()}), 2)
+            self.assertTrue(json.loads((output/"location-plan-official-after.json").read_text())["unchanged"])
 
     def test_wrong_source_zero_copy_and_precompiled_or_link_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

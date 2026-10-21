@@ -14,6 +14,10 @@ STAGE = "codeql/rust/internal/CachedStages.qll"
 BEFORE_SHA = "e9ec32dedd08185b23787efb12879032dc7a7c0cc59db2b48dd49202d54b5754"
 OLD = "  cached\n  module AstStage {"
 NEW = "  module AstStage {"
+LOCATABLE = "codeql/rust/elements/internal/LocatableImpl.qll"
+LOCATION_SHA = "8c6f8f3cb1fb5cbaa85a5f61a5d4d50e1a15bb70948f5e2508076fbce97a0da9"
+LOCATION_OLD = "    cached\n    Location getLocation() {"
+LOCATION_NEW = "    Location getLocation() {"
 
 
 def inventory(root):
@@ -34,7 +38,7 @@ def inventory(root):
     return result
 
 
-def copy_and_patch(original, candidate):
+def copy_and_patch(original, candidate, uncache_location=False):
     before = inventory(original)
     if before.get(STAGE) != BEFORE_SHA:
         raise RuntimeError("official CachedStages differs from frozen bundle")
@@ -51,12 +55,80 @@ def copy_and_patch(original, candidate):
     if source.count(OLD) != 1:
         raise RuntimeError("AstStage annotation patch is not unique")
     stage.write_text(source.replace(OLD, NEW, 1))
+    changed = {STAGE}
+    if uncache_location:
+        if before.get(LOCATABLE) != LOCATION_SHA:
+            raise RuntimeError("official Locatable differs from frozen bundle")
+        location = candidate / LOCATABLE
+        text = location.read_text()
+        if text.count(LOCATION_OLD) != 1:
+            raise RuntimeError("cached public location annotation is not unique")
+        location.write_text(text.replace(LOCATION_OLD, LOCATION_NEW, 1))
+        if location.read_text().replace(LOCATION_NEW, LOCATION_OLD, 1) != text:
+            raise RuntimeError("location patch changes logical expressions")
+        changed.add(LOCATABLE)
     after = inventory(candidate)
-    if {name for name in before if before[name] != after.get(name)} != {STAGE} or set(before) != set(after):
-        raise RuntimeError("candidate changes more than the one stage file")
+    if {name for name in before if before[name] != after.get(name)} != changed or set(before) != set(after):
+        raise RuntimeError("candidate changes more than declared annotation files")
     if stage.read_text().replace(NEW, OLD, 1) != source:
         raise RuntimeError("candidate changes logical source expressions")
     return before, after
+
+
+def inspect_location_plans(driver, production, args, env):
+    cli = str(args.codeql)
+    official = args.codeql.parent / "qlpacks/codeql/rust-all/0.2.23"
+    before = inventory(official)
+    save = lambda name, value: production.evidence_write(args.output / name, (json.dumps(value, indent=2)+"\n").encode(), args.output)
+    error = None
+    try:
+        help_path = args.output / "isolated-query-compile-help.log"
+        driver.run([cli, "query", "compile", "--help", "-v"], args.work, help_path, args.deadline - 90, 20, args.output, env)
+        if "--[no-]dump-ra" not in help_path.read_text():
+            raise RuntimeError("exact CLI RA output support unknown")
+        if args.deadline - time.monotonic() < 450 or shutil.disk_usage(args.work).free < 4 * 1024**3:
+            raise RuntimeError("insufficient original compile/space budget")
+        end = min(args.deadline - 90, time.monotonic() + 360)
+        plans = {}
+        for name, uncache_location in (("stage-only", False), ("demand-location", True)):
+            copy = args.work / ("library-plan-" + name)
+            original_hashes, copied = copy_and_patch(official, copy, uncache_location)
+            save("library-plan-" + name + ".json", {"official": original_hashes, "candidate": copied,
+                "annotation_deletions": 2 if uncache_location else 1})
+            query = args.output / ("query-plan-" + name)
+            driver.write(query / "qlpack.yml", "name: oasis7/rust-model-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.23\n")
+            driver.write(query / "SourceAst.ql", production.QUERIES["SourceAst"])
+            roots = [copy if key == "rust-all" else args.codeql.parent / "qlpacks/codeql" / key / version for key, version in driver.LIBRARY_VERSIONS.items()]
+            packs = os.pathsep.join(map(str, roots))
+            path = args.output / ("plan-resolver-" + name + ".json")
+            driver.run([cli, "resolve", "library-path", "--query=" + str(query / "SourceAst.ql"), "--format=json", "--additional-packs=" + packs],
+                args.work, path, end, 20, args.output, env)
+            verify_resolver(json.loads(path.read_text()), roots, query, "SourceAst", copy)
+            cache = args.work / ("plan-cache-" + name)
+            cache.mkdir(exist_ok=False)
+            driver.run([cli, "query", "compile", "--dump-ra", "--compilation-cache=" + str(cache), "--no-default-compilation-cache",
+                "--common-caches=" + str(args.work / ("plan-common-" + name)), "--additional-packs=" + packs,
+                "--threads=2", "--ram=3072", str(query / "SourceAst.ql")], args.work,
+                args.output / ("plan-ra-" + name + ".log"), end, 360, args.output, env)
+            plans[name] = {"query_sha256": hashlib.sha256((query / "SourceAst.ql").read_bytes()).hexdigest(),
+                           "library_root": str(copy), "compilation_cache": str(cache)}
+        save("location-plan-result.json", {"disposition": "REQUIRES_INDEPENDENT_PLAN_REVIEW", "plans": plans,
+            "database_downloads": 0, "extractions": 0, "query_evaluations": 0, "coverage": "HOLD"})
+    except BaseException as exc:
+        error = exc
+    finally:
+        try:
+            after = inventory(official)
+            save("location-plan-official-after.json", {"unchanged": before == after, "hashes": after})
+            if before != after:
+                raise RuntimeError("official library changed during plan inspection")
+        except BaseException as exc:
+            if error is None:
+                error = exc
+            else:
+                print("secondary official-library verification failure: " + repr(exc), file=sys.stderr)
+    if error is not None:
+        raise error
 
 
 def verify_resolver(value, roots, query, name, library):

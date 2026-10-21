@@ -346,9 +346,9 @@ class Guards(unittest.TestCase):
         self.assertIn('mode.add_argument("--production-macro-database"', driver)
         workflow = Path(".github/workflows/rust.yml").read_text()
         job = workflow.split("  codeql-rust-model-diagnostic:",1)[1].split("\n  select:",1)[0]
-        self.assertIn("security-events: read", job)
+        self.assertNotIn("security-events:", job)
         self.assertNotIn("actions: read", job)
-        self.assertIn("--isolated-ast-stage", job)
-        self.assertIn("GH_TOKEN: ${{ github.token }}", job)
+        self.assertIn("--inspect-isolated-location-plans", job)
+        self.assertNotIn("GH_TOKEN:", job)
 
 if __name__ == "__main__": unittest.main()
