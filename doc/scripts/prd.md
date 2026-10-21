@@ -116,7 +116,7 @@
   - AC-18C: 新增 `scripts/pr-review-thread-closeout.sh`，默认按当前 branch 关联的 PR 读取 review threads；`--unresolved-only` 仅返回 unresolved threads，`--resolve-thread <id>` 可重复，`--resolve-all-unresolved` 只在显式传入时执行批量 resolve。
   - AC-18D: `scripts/pr-review-thread-closeout.sh --help` 必须明确列出 `[pr-number]`、`--unresolved-only`、`--resolve-thread`、`--resolve-all-unresolved` 与 `--json`；`--json` 至少输出 `pr.number`、`pr.review_decision`、`pr.merge_state_status`、`summary.total_threads`、`summary.unresolved_threads`、`resolved_now.thread_ids` 与每个 thread 的 `id`、`is_resolved`、`is_outdated`、`path`、`line`、`latest_comment`。
   - AC-18I: 仓库必须提供轻量 Web/UI automation smoke `scripts/viewer-software-safe-step-regression-smoke.sh`；该脚本需在不启动完整 runtime 栈的前提下，通过临时 fixture 页面复用真 `agent-browser` 与 `scripts/viewer-software-safe-step-regression.sh`，并验证 `software-safe-step-summary.json` 与关键 state artifact 的最小契约。
-  - AC-20: `resource-cleanup-executor.py` 默认只读；只有身份、expected HEAD、已合入证明、资料与占用检查通过才可执行普通 worktree remove 和 ref CAS 删除。阻挡或部分完成返回 1；参数错误返回 2。
+  - AC-20: `resource-cleanup-executor.py` 默认只读；只有身份、expected HEAD、已合入证明、资料与占用检查通过才可执行 worktree remove 和 ref CAS 删除；含子模块时仅按开发规范的显式有条件例外执行单次强制删除。阻挡或部分完成返回 1；参数错误返回 2。
   - AC-22: `--resume-setup` 只恢复同 common-dir、精确 path/branch 的注册独立 worktree；不更改 HEAD 或 dirty 文件，与 `--with-harness` 互斥。config 已有则保留；缺失发布不覆盖；target 仅复用正确 symlink，其他对象保留并报冲突。
   - AC-23: 新增 `scripts/cargo-dev.sh`，为本地开发态 `cargo check/test/run/build` 提供 worktree-scoped shared cache 入口，并默认使用 `env -u RUSTC_WRAPPER cargo ...`。
   - AC-23A: 新增 `scripts/cargo-dev-lib.sh`，为本地 smoke / playtest / prewarm / regression / drill / longrun 脚本提供 `oasis7_cargo_dev` 与 shared-target debug binary 解析 helper；默认本地复用 `cargo-dev.sh`，但在 `CI=1`、`OASIS7_CARGO_DEV_SHARED=0` 或 `OASIS7_FORCE_RAW_CARGO=1` 时回退到原始 cargo target 语义。
@@ -141,7 +141,11 @@ python3 scripts/resource-cleanup-executor.py \
 
 unknown ignored 文件、真实 target 目录、改动 config 均保留；已识别的外部缓存链接、与仍存在 canonical config 字节一致的副本，以及能验证与目标 worktree 已跟踪源码对应的普通 Python 字节码缓存可重建。缓存目录名本身不构成可删除证明，未知内容、符号链接和无法验证的字节码仍保留。Linux/macOS 以有界 ps、原生启动身份和 lsof 观察当前操作用户进程，并补充可见的跨用户目标占用者。无关系统进程的身份读取失败不扩大为目标资源未知；当前用户进程或可见目标占用者的身份、覆盖或查询结果不明确时保留，不自动 sudo。该检查证明有限观察域内未发现占用，不声称覆盖不可见的其他用户进程，也不锁住后续新进程。Windows 不执行删除。
 
-执行前重查 Git、base 与材料，普通 remove 成功后才用事务核验 base 并按 expected 删除 branch；另一 worktree 检出、tip/base 改变或 ref 重建均保留并报告部分完成。JSON 的 `eligible`、`blocked_reasons`、`worktree_removed` 和 `branch_removed` 反映实际结果。
+执行前重查 Git、base 与材料，remove 成功后才用事务核验 base 并按 expected 删除 branch；另一 worktree 检出、tip/base 改变或 ref 重建均保留并报告部分完成。JSON 的 `eligible`、`blocked_reasons`、`worktree_removed` 和 `branch_removed` 反映实际结果。
+
+含子模块时默认保留；`--allow-submodules` 仅启用[含子模块工作区的有条件清理](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)，不放宽身份、交付、材料、锁定或占用保护。该选项可用于预览，只有同时传入 `--execute` 才会先非强制反初始化，再执行一次 `--force`。已初始化和缓存的递归子模块均核对 gitlink、暂存区、未推送/不可达对象和独立 Git 数据；自定义 config/hooks、改动默认模板及未知或进行中的 Git 操作资料均保留；未知 ignored 资料、共享或外置 Git 数据、未覆盖的本地 refs/reflog 提交均阻断。远端证明来自当前本地 remote refs，调用前按需正常 fetch；工具不声称远端引用实时有效。JSON 附带 `submodule_gitdirs` 和 `submodule_force_remove`，后者只在实际成功执行该删除后为 true。
+
+Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一清理保护要求。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: Bash 校验、脚本帮助文档、CI 调用链路。
