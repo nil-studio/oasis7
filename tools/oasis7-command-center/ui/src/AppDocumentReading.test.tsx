@@ -2,7 +2,7 @@ import { cleanup,fireEvent,render,screen,waitFor } from '@solidjs/testing-librar
 import { afterEach,beforeEach,expect,it,vi } from 'vitest';
 import App from './App';
 import type { Snapshot,DocumentSection } from './types';
-const api=vi.hoisted(()=>({snapshot:vi.fn(),github:vi.fn(),documentInventory:vi.fn(),documentSemanticTree:vi.fn(),loadDocumentTreeLastView:vi.fn(),loadDocumentTreeReading:vi.fn(),saveDocumentTreeReading:vi.fn(),recordReading:vi.fn(),readVersion:vi.fn()}));
+const api=vi.hoisted(()=>({search:vi.fn(),savePreferences:vi.fn(),snapshot:vi.fn(),github:vi.fn(),documentInventory:vi.fn(),documentSemanticTree:vi.fn(),loadDocumentTreeLastView:vi.fn(),loadDocumentTreeReading:vi.fn(),saveDocumentTreeReading:vi.fn(),recordReading:vi.fn(),readVersion:vi.fn()}));
 vi.mock('./bridge',()=>({bridge:api,connected:()=>true,errorMessage:String,observedTime:()=>'',statusLabel:String,acceptsEnter:()=>false}));
 vi.mock('./WorkOverview',()=>({default:()=>null}));
 vi.mock('./LocalTools',()=>({default:()=>null}));
@@ -70,4 +70,12 @@ it('keeps the inline document position when following and closing an external so
  fireEvent.click(link);await screen.findByRole('region',{name:'来源详情'});expect(screen.getByLabelText('来源章节原文')).toHaveTextContent('另一个文档的设计正文');
  fireEvent.scroll(body,{target:{scrollTop:120}});await waitFor(()=>expect(api.saveDocumentTreeReading).toHaveBeenCalled());expect(api.saveDocumentTreeReading.mock.calls.at(-1)![0].state.selection.sectionPath).toBe(section.path);
  fireEvent.click(screen.getByRole('button',{name:'关闭详情'}));await waitFor(()=>expect(link).toHaveFocus());expect(body).toHaveTextContent('原始条款正文');
+});
+
+it('labels results with the submitted query and ignores responses after clearing',async()=>{
+ const snapshot=data([section]);snapshot.preferences.view='direction';api.snapshot.mockResolvedValue(snapshot);api.savePreferences.mockResolvedValue(undefined);api.search.mockResolvedValue([section]);
+ render(()=><App/>);await screen.findByText('oasis7 · 本地项目');
+ const input=screen.getByLabelText('搜索规范、标题、路径或条款 ID');fireEvent.input(input,{target:{value:'恢复'}});fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));await screen.findByText('查询：恢复');
+ fireEvent.input(input,{target:{value:'新查询'}});expect(screen.getByText('查询：恢复')).toBeInTheDocument();expect(screen.queryByText('查询：新查询')).not.toBeInTheDocument();
+ let resolve!:(value:DocumentSection[])=>void;api.search.mockImplementation(()=>new Promise(r=>{resolve=r;}));fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));fireEvent.click(screen.getByRole('button',{name:'返回当前视图'}));resolve([section]);await Promise.resolve();await Promise.resolve();expect(screen.queryByLabelText('文档检索结果')).not.toBeInTheDocument();
 });
