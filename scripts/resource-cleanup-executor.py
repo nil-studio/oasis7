@@ -402,7 +402,7 @@ def _module_config(gitdir):
                 if key == f'branch.{name}.merge' and value == f'refs/heads/{name}':
                     allowed = True
             for name in names:
-                if key == f'submodule.{name}.active' and value in {'true', 'false'}:
+                if key == f'submodule.{name}.active' and value == 'true':
                     allowed = True
                 if key == f'submodule.{name}.url' and value and '\n' not in value:
                     allowed = True
@@ -470,6 +470,25 @@ def _module_material(gitdir):
         raise CleanupError('unreachable or unverifiable submodule objects retained')
 
 
+def _module_registration(gitdir, name, backend):
+    """deinit removes this whole section from the parent's local configuration."""
+    registered = _run(['git', '--git-dir', str(gitdir), '--work-tree', str(gitdir),
+                       'config', '--local', '-z', '--get-regexp', r'^submodule\.'], check=False)
+    if registered.returncode not in (0, 1):
+        raise CleanupError('parent submodule registration unavailable')
+    origin = _module_git(backend, 'config', '--get', 'remote.origin.url')
+    seen = set()
+    for row in filter(None, registered.stdout.split('\0')):
+        key, _, value = row.partition('\n')
+        section, _, option = key.rpartition('.')
+        if section != 'submodule.' + name:
+            continue
+        if (key in seen or (option == 'url' and value != origin)
+                or (option == 'active' and value != 'true') or option not in {'url', 'active'}):
+            raise CleanupError('custom parent submodule registration retained: ' + key)
+        seen.add(key)
+
+
 def inspect_submodules(path, allow_submodules=False):
     """Check active and dormant module data before the single-force exception."""
     root_gitdir = pathlib.Path(git(path, 'rev-parse', '--absolute-git-dir')).resolve()
@@ -527,6 +546,7 @@ def inspect_submodules(path, allow_submodules=False):
                 actual = pathlib.Path(git(child, 'rev-parse', '--absolute-git-dir')).resolve()
                 if marker.is_symlink() or actual != backend or not backend.is_dir():
                     raise CleanupError('external or missing submodule Git data retained')
+                _module_registration(gitdir, module_name, backend)
                 if git(child, 'status', '--porcelain', '--untracked-files=all', '--ignored',
                        '--ignore-submodules=none'):
                     raise CleanupError('submodule user material retained: ' + str(child))
@@ -676,7 +696,11 @@ def execute(repo, path, branch, expected, base_ref, pr, report, allow_submodules
         raise CleanupError('submodule identity changed before deletion')
     if modules:
         # No force for deinit: any Git-detected changes still stop cleanup.
-        git(path, 'submodule', 'deinit', '--all')
+        active = [pathlib.Path(m['path']) for m in modules if (pathlib.Path(m['path']) / '.git').exists()]
+        roots = [child for child in active if not any(parent in active for parent in child.parents)]
+        if roots:
+            git(path, '--literal-pathspecs', 'submodule', 'deinit', '--',
+                *(str(child.relative_to(path)) for child in roots))
         records = _removal_identity(repo, path, branch, expected, base_ref, report)
         user_material(repo, path, records)
         if inspect_submodules(path, allow_submodules) != modules:

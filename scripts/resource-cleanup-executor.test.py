@@ -651,7 +651,7 @@ class SubmoduleSafetyTests(unittest.TestCase):
         original = cleanup.git
         def race(repo, *args):
             result = original(repo, *args)
-            if args[:2] == ('submodule', 'deinit'):
+            if 'submodule' in args and args[args.index('submodule') + 1:args.index('submodule') + 2] == ('deinit',):
                 self.git('update-ref', 'refs/heads/feature', new)
             return result
         with patch.object(cleanup, 'git', side_effect=race), self.assertRaises(cleanup.CleanupError):
@@ -697,6 +697,30 @@ class SubmoduleSafetyTests(unittest.TestCase):
                     self.assertEqual(subprocess.check_output(['git', '-C', str(self.module), 'config', '--local', '--get', key], text=True).strip(), value)
                 finally:
                     self.command(self.module, 'config', '--unset', key)
+
+    def test_parent_submodule_custom_config_retained_before_deinit(self):
+        report = dict(self.inspect(), worktree_removed=False, branch_removed=False)
+        key = 'submodule.vendor/module.private-note'
+        self.command(self.path, 'config', '--local', key, 'valuable-setting')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        with self.assertRaises(cleanup.CleanupError):
+            cleanup.execute(self.repo, self.path, 'feature', self.head, 'refs/remotes/origin/main', None,
+                            report, allow_submodules=True)
+        self.assertEqual(self.command(self.path, 'config', '--local', '--get', key), 'valuable-setting')
+        self.assertTrue((self.module / 'tracked').exists())
+
+    def test_literal_deinit_keeps_dormant_pattern_match_registration(self):
+        self.command(self.path, 'submodule', 'deinit', '--all')
+        key = 'submodule.vendor/module.private-note'
+        self.command(self.path, 'config', '--local', key, 'valuable dormant registration')
+        self.command(self.path, '--literal-pathspecs', '-c', 'protocol.file.allow=always', 'submodule', 'add', '--name', 'literal-module', '-q', str(self.origin), 'vendor/[m]odule')
+        self.command(self.path, 'commit', '-qam', 'add literal pattern module')
+        self.head = self.command(self.path, 'rev-parse', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', self.head)
+        self.git('update-ref', 'refs/remotes/origin/feature', self.head)
+        self.remove()
+        self.assertEqual(self.git('config', '--local', '--get', key), 'valuable dormant registration')
 
     def test_empty_legacy_branches_directory_removal(self):
         (self.module_gitdir / 'branches').mkdir(exist_ok=True)
