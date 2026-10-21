@@ -113,6 +113,33 @@ class ModelControls(unittest.TestCase):
                 D.check_tables(root)
 
 
+class BundlePackIdentity(unittest.TestCase):
+    def test_exact_library_and_search_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cli = Path(temp) / "codeql"
+            pack = cli.parent / "qlpacks/codeql/rust-all/0.2.23/qlpack.yml"
+            pack.parent.mkdir(parents=True)
+            pack.write_text("name: codeql/rust-all\nversion: 0.2.23\n")
+            root, identity = D.bundle_search_root(cli)
+            self.assertEqual(root, (cli.parent / "qlpacks").resolve())
+            self.assertEqual(identity["version"], "0.2.23")
+            pack.write_text("name: codeql/rust-all\nversion: 0.2.24\n")
+            with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
+                D.bundle_search_root(cli)
+
+    def test_absent_or_ambiguous_library_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cli = Path(temp) / "codeql"
+            with self.assertRaisesRegex(RuntimeError, "identity ambiguous"):
+                D.bundle_search_root(cli)
+            for version in ["one", "two"]:
+                p = cli.parent / f"qlpacks/codeql/rust-all/{version}/qlpack.yml"
+                p.parent.mkdir(parents=True)
+                p.write_text("name: codeql/rust-all\nversion: 0.2.23\n")
+            with self.assertRaisesRegex(RuntimeError, "identity ambiguous"):
+                D.bundle_search_root(cli)
+
+
 class ProcessBoundaries(unittest.TestCase):
     def test_existing_output_is_never_claimed_or_written(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import resource
+import re
 import selectors
 import shutil
 import signal
@@ -252,6 +253,19 @@ def run(argv, cwd, output, end, timeout, artifact_root, env):
         raise RuntimeError(json.dumps(result))
 
 
+def bundle_search_root(cli):
+    root = cli.parent / "qlpacks"
+    packs = list(root.glob("codeql/rust-all/*/qlpack.yml"))
+    if len(packs) != 1:
+        raise RuntimeError("official Rust library pack identity ambiguous")
+    text = packs[0].read_text()
+    if not re.search(r"(?m)^name: codeql/rust-all$", text) or not re.search(r"(?m)^version: 0\.2\.23$", text):
+        raise RuntimeError("official Rust library pack identity mismatch")
+    return root.resolve(), {"path": str(packs[0].relative_to(cli.parent)),
+                            "sha256": hashlib.sha256(packs[0].read_bytes()).hexdigest(),
+                            "name": "codeql/rust-all", "version": "0.2.23"}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--codeql", type=Path, required=True)
@@ -298,6 +312,8 @@ def diagnose(args):
     for toolchain in ("1.96.0", "1.98.1"):
         run(["rustup", "run", toolchain, "rustc", "-vV"], args.work,
             args.output / f"rustc-{toolchain}.log", args.deadline, 20, args.output, env)
+    search_root, pack_identity = bundle_search_root(args.codeql.resolve())
+    write(args.output / "rust-library-pack.json", json.dumps(pack_identity, indent=2) + "\n")
     query = args.output / "queries"
     write(query / "qlpack.yml", "name: oasis7/rust-model-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.23\n")
     locks = list(args.codeql.parent.glob("qlpacks/codeql/rust-queries/*/codeql-pack.lock.yml"))
@@ -333,7 +349,8 @@ def diagnose(args):
         for q in ("Macros", "Calls", "Closures"):
             bqrs = args.output / f"{name}-{q}.bqrs"
             run([cli, "query", "run", str(query / (q + ".ql")), "--database=" + str(database),
-                 "--output=" + str(bqrs), "--threads=2", "--ram=2048"], source,
+                 "--output=" + str(bqrs), "--threads=2", "--ram=2048",
+                 "--search-path=" + str(search_root)], source,
                 args.output / f"{name}-{q}.log", args.deadline, 60, args.output, env)
             run([cli, "bqrs", "decode", str(bqrs), "--format=csv", "--output=" + str(args.output / f"{name}-{q}.csv")],
                 source, args.output / f"{name}-{q}-decode.log", args.deadline, 20, args.output, env)
