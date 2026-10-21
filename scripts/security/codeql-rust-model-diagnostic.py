@@ -327,7 +327,7 @@ def diagnose(args):
         args.output / "query-compile-help.log", args.deadline, 20, args.output, env)
     help_text = (args.output / "query-compile-help.log").read_text()
     for option in ("--check-only", "--keep-going", "--additional-packs"):
-        if option not in help_text:
+        if option not in help_text and option.replace("--", "--[no-]", 1) not in help_text:
             raise RuntimeError("exact CLI missing preflight option: " + option)
     run([cli, "query", "compile", "--check-only", "--keep-going",
          "--additional-packs=" + str(search_root), "--threads=2", "--ram=2048",

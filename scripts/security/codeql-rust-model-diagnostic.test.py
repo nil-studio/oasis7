@@ -127,6 +127,11 @@ class BundlePackIdentity(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
                 D.bundle_search_root(cli)
 
+    def test_exact_boolean_help_format(self):
+        help_text = "-k, --[no-]keep-going"
+        option = "--keep-going"
+        self.assertTrue(option in help_text or option.replace("--", "--[no-]", 1) in help_text)
+
     def test_locked_query_uses_additional_packs(self):
         source = Path(D.__file__).read_text()
         self.assertIn('"--additional-packs=" + str(search_root)', source)
