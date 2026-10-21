@@ -448,3 +448,27 @@ main{padding:16px 24px}
  .work-facts{gap:8px;margin-bottom:12px}
  .work-fact{padding:8px;gap:8px}
 }
+
+.chapter-outline{grid-template-columns:minmax(0,1fr)}
+.chapter-outline ul,.chapter-outline li{min-width:0}
+.chapter-outline ul{list-style:none;margin:0;padding:0}
+.chapter-outline li>ul{margin-left:12px;padding-left:10px;border-left:1px solid #354256}
+.chapter-outline .chapter-row{display:flex;align-items:start;gap:4px;min-width:0}
+.chapter-outline .chapter-title{flex:1;min-width:0;border-color:transparent;padding:6px;text-align:left;line-height:1.5}
+.chapter-outline .chapter-title[aria-current=location]{border-color:#76e0bd}
+.chapter-outline .chapter-toggle{display:flex;align-items:center;justify-content:center;flex:0 0 28px;min-height:32px;padding:4px;border-color:transparent}
+.chapter-toggle[aria-expanded=true] svg{transform:rotate(90deg)}
+.chapter-leaf{flex:0 0 28px;color:#90a0b7;margin-top:8px}
+.chapter-ancestor>.chapter-row>.chapter-title{color:#a2e8d2;font-weight:600}
+.tool-tasks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.tool-tasks button{display:flex;align-items:center;gap:10px;min-width:0;text-align:left;padding:10px 12px;background:#141e2c;border:1px solid #354256}
+.tool-tasks button[aria-current=page]{border-color:#76e0bd;background:#1c3637;color:#9fe9d3}
+.tool-tasks button>span{min-width:0;overflow-wrap:anywhere}
+.tool-tasks strong,.tool-task-state{display:block}
+.tool-task-state{font-size:.8125rem;color:#b0bed0;margin-top:2px}
+.tool-tasks svg{flex-shrink:0;color:#8cb9d9}
+.tool-current{display:flex;gap:10px;align-items:start;margin:12px 0;padding:12px;border-left:3px solid #76e0bd;background:#141e2c}
+.tool-current>div{flex:1;min-width:0}.tool-current>svg{flex-shrink:0;margin-top:4px;color:#8cb9d9}
+.tool-current p{font-size:.875rem;color:#b0bed0;margin:4px 0}
+.tool-diagnostics>summary{padding:10px 16px!important}
+@container app (max-width:47.5rem){.tool-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}.tool-current{flex-wrap:wrap}.tool-current>div{flex-basis:70%}.tool-current>button{margin-left:auto}}

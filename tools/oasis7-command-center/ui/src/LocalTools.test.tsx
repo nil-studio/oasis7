@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LocalTools from './LocalTools';
 const api=vi.hoisted(()=>({info:vi.fn(),bindings:vi.fn(),list:vi.fn(),get:vi.fn(),save:vi.fn(),signer:vi.fn(),jobs:vi.fn(),cli:vi.fn(),installCli:vi.fn(),chooseFile:vi.fn(),prepare:vi.fn(),reconcilePrepare:vi.fn(),recoverPrepare:vi.fn(),submit:vi.fn(),inspect:vi.fn(),snapshot:vi.fn(),importSignContext:vi.fn()}));
@@ -364,4 +364,25 @@ describe('task form mounting and draft retention',()=>{
     fireEvent.click(screen.getByRole('button',{name:'独立验签'}));expect(screen.getByLabelText('验签上下文')).toHaveValue('retained verification context');
     fireEvent.click(screen.getByRole('button',{name:'资料'}));expect(screen.getByLabelText('资料正文')).toHaveValue('retained ordinary draft');
   });
+});
+
+
+it('shows observed task states without treating startup reads as completed operations',async()=>{
+ api.info.mockResolvedValue({});api.cli.mockResolvedValue(null);api.signer.mockResolvedValue({state:'needs_configuration',reason:'App is not the bound ordinary caller'});
+ render(()=><LocalTools/>);
+ const nav=within(screen.getByRole('navigation',{name:'本机任务'}));
+ await waitFor(()=>expect(nav.getByRole('button',{name:'签名'})).toHaveTextContent('需要配置'));
+ expect(nav.getByRole('button',{name:'终端 CLI'})).toHaveTextContent('未安装');
+ expect(nav.getByRole('button',{name:'操作核对'})).toHaveTextContent('0 条已读记录');
+ expect(screen.queryByText(/本次操作已返回/)).not.toBeInTheDocument();
+ expect(screen.getByText('本机环境与诊断').closest('details')).not.toHaveAttribute('open');
+ fireEvent.click(nav.getByRole('button',{name:'独立验签'}));expect(nav.getByRole('button',{name:'独立验签'})).toHaveAttribute('aria-current','page');expect(screen.getByLabelText('预期公钥')).toBeInTheDocument();
+ expect(api.prepare).not.toHaveBeenCalled();expect(api.submit).not.toHaveBeenCalled();
+});
+it('keeps failed observations distinct from an empty operation list or missing installation',async()=>{
+ api.jobs.mockRejectedValueOnce(new Error('job read unavailable'));api.cli.mockRejectedValueOnce(new Error('cli read unavailable'));api.signer.mockRejectedValueOnce(new Error('signer read unavailable'));
+ render(()=><LocalTools/>);const nav=within(screen.getByRole('navigation',{name:'本机任务'}));
+ await waitFor(()=>expect(nav.getByRole('button',{name:'操作核对'})).toHaveTextContent('读取失败'));
+ expect(nav.getByRole('button',{name:'终端 CLI'})).toHaveTextContent('读取失败');expect(nav.getByRole('button',{name:'签名'})).toHaveTextContent('读取失败');
+ fireEvent.click(nav.getByRole('button',{name:'操作核对'}));expect(screen.queryByText('尚无已登记的本机操作。')).not.toBeInTheDocument();
 });
