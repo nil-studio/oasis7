@@ -97,25 +97,185 @@ select file.getRelativePath()
 }
 
 
-def frame_complete_events(raw, destination):
-    """Only frame JSON objects; never interpret the unstable event schema."""
-    complete = 0
-    partial = 0
-    with destination.open("xb") as output:
-        for line in raw.read_bytes().splitlines():
-            stripped = line.strip()
-            if not stripped.startswith(b"{"):
-                continue
-            try:
-                value = json.loads(stripped)
-            except (ValueError, UnicodeError):
-                partial += 1
-                continue
-            if isinstance(value, dict):
-                output.write(stripped + b"\n")
-                complete += 1
-    return {"complete_object_lines": complete, "partial_or_non_object_lines": partial,
+def evidence_write(path, data, artifact_root):
+    """A direct evidence writer shares the parent's combined prewrite cap."""
+    total = sum(p.stat().st_size for p in artifact_root.rglob("*") if p.is_file())
+    if total + len(data) > 63 * 1024**2:
+        raise RuntimeError("combined evidence budget before direct write")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("xb") as output:
+        output.write(data)
+
+
+def frame_complete_events(raw, destination, artifact_root=None):
+    """Frame first JSON object prefixes; no unstable event fields are interpreted."""
+    decoder = json.JSONDecoder()
+    records = []
+    partial = []
+    output = bytearray()
+    byte_offset = 0
+    ignored_text_lines = 0
+    for number, line in enumerate(raw.read_bytes().splitlines(keepends=True), 1):
+        stripped = line.lstrip(b" \t")
+        prefix_offset = len(line) - len(stripped)
+        if not stripped.startswith(b"{"):
+            ignored_text_lines += 1
+            byte_offset += len(line)
+            continue
+        try:
+            text = stripped.decode("utf-8")
+            value, end = decoder.raw_decode(text)
+            prefix = text[:end].encode("utf-8")
+        except (ValueError, UnicodeError) as error:
+            partial.append({"line": number, "byte_offset": byte_offset + prefix_offset,
+                            "bytes": len(stripped), "sha256": hashlib.sha256(stripped).hexdigest(),
+                            "error": str(error)[:160], "disposition": "UNKNOWN partial JSON; raw preserved"})
+            byte_offset += len(line)
+            continue
+        if isinstance(value, dict):
+            output.extend(prefix + b"\n")
+            tail = stripped[len(prefix):]
+            records.append({"line": number, "byte_offset": byte_offset + prefix_offset,
+                            "object_bytes": len(prefix), "trailing_bytes": len(tail),
+                            "trailing_sha256": hashlib.sha256(tail).hexdigest()})
+        byte_offset += len(line)
+    if artifact_root is None:
+        with destination.open("xb") as stream:
+            stream.write(output)
+    else:
+        evidence_write(destination, output, artifact_root)
+    return {"complete_object_lines": len(records), "partial_or_non_object_lines": len(partial),
+            "prefix_records": records, "partial_records": partial, "ignored_text_lines": ignored_text_lines,
             "event_schema_interpreted": False, "full_raw_preserved": True}
+
+
+def artifact_request(opener, token, packet, end, archive=False):
+    remaining = end - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("fixed artifact inspection download expired")
+    url = "https://api.github.com/repos/nil-studio/oasis7/actions/artifacts/" + str(packet["artifact_id"])
+    if archive:
+        url += "/zip"
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+    req.add_unredirected_header("Authorization", "Bearer " + token)
+    try:
+        return opener.open(req, timeout=min(15, remaining))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError("frozen artifact HTTP status " + str(error.code)) from None
+
+
+def artifact_identity(opener, token, packet, end):
+    with artifact_request(opener, token, packet, end) as response:
+        raw = response.read(1024**2 + 1)
+    if len(raw) > 1024**2:
+        raise RuntimeError("artifact metadata cap")
+    value = json.loads(raw)
+    if (value.get("id") != packet["artifact_id"] or value.get("name") != packet["name"] or
+        value.get("size_in_bytes") != packet["zip_bytes"] or value.get("digest") != "sha256:" + packet["zip_sha256"] or
+        value.get("expired") is not False or value.get("workflow_run", {}).get("id") != packet["run"] or
+        value.get("workflow_run", {}).get("head_sha") != packet["source"]):
+        raise RuntimeError("frozen artifact identity changed")
+    return value
+
+
+def inspect_saved_evaluator_evidence(run, args, env):
+    import os
+    packet_path = Path(__file__).with_name("codeql-rust-evaluator-input.json")
+    packet = json.loads(packet_path.read_text())
+    if "GH_TOKEN" in env or "GITHUB_TOKEN" in env:
+        raise RuntimeError("inspection token reached CLI env")
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        raise RuntimeError("artifact read token missing")
+    if shutil.disk_usage(args.work).free < 2 * 1024**3:
+        raise RuntimeError("insufficient owned disk for bounded artifact inspection")
+    end = min(args.deadline, time.monotonic() + 90)
+    opener = urllib.request.build_opener(NoCredentialRedirect())
+    before = artifact_identity(opener, token, packet, end)
+    evidence_write(args.output / "artifact-before.json", (json.dumps(before, indent=2)+"\n").encode(), args.output)
+    archive_path = args.work / "frozen-evaluator-artifact.zip"
+    digest = hashlib.sha256(); total = 0
+    with artifact_request(opener, token, packet, end, archive=True) as response, archive_path.open("xb") as stream:
+        while True:
+            if time.monotonic() >= end:
+                raise TimeoutError("single artifact download expired")
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > packet["zip_bytes"] or total > 16 * 1024**2:
+                raise RuntimeError("artifact download cap")
+            stream.write(chunk); digest.update(chunk)
+    if total != packet["zip_bytes"] or digest.hexdigest() != packet["zip_sha256"]:
+        raise RuntimeError("artifact ZIP size/hash mismatch")
+    after = artifact_identity(opener, token, packet, end)
+    evidence_write(args.output / "artifact-after.json", (json.dumps(after, indent=2)+"\n").encode(), args.output)
+    raw_names = ["cost-" + name + ".log" for name in COST_QUERIES]
+    with zipfile.ZipFile(archive_path) as archive:
+        infos = zip_inputs(archive)
+        files = {info.filename: info for info in infos if not info.is_dir()}
+        if set(files) != set(packet["members"]) or sum(info.file_size for info in infos) > 64 * 1024**2:
+            raise RuntimeError("artifact member closure changed")
+        for name, info in files.items():
+            expected = packet["members"][name]
+            if info.file_size != expected["bytes"]:
+                raise RuntimeError("artifact member size mismatch")
+            data = archive.read(info)
+            if hashlib.sha256(data).hexdigest() != expected["sha256"]:
+                raise RuntimeError("artifact member SHA mismatch")
+            if name in raw_names:
+                evidence_write(args.output / "original" / name, data, args.output)
+    recoveries = {}
+    for name in COST_QUERIES:
+        source = args.output / "original" / f"cost-{name}.log"
+        events = args.output / f"recovered-{name}.jsonl"
+        recoveries[name] = frame_complete_events(source, events, args.output)
+    evidence_write(args.output / "framing-offsets.json", (json.dumps(recoveries, indent=2)+"\n").encode(), args.output)
+    library = args.codeql.resolve().parent / "qlpacks/codeql/rust-all/0.2.23"
+    manifest = (library / "qlpack.yml").read_text()
+    if re.findall(r"(?m)^name: (.+)$", manifest) != ["codeql/rust-all"] or re.findall(r"(?m)^version: (.+)$", manifest) != ["0.2.23"]:
+        raise RuntimeError("bundled source pack identity mismatch")
+    sources = {}
+    source_bytes = 0
+    for relative, tag_blob in packet["tag_git_blob_sha1"].items():
+        source = library / "codeql/rust" / relative
+        source.resolve().relative_to(args.codeql.resolve().parent)
+        if source.is_symlink() or not source.is_file() or source.stat().st_size > 2 * 1024**2:
+            raise RuntimeError("bundled source type/size rejected")
+        data = source.read_bytes(); source_bytes += len(data)
+        if source_bytes > 4 * 1024**2:
+            raise RuntimeError("combined bundled source cap")
+        blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+        sources[relative] = {"sha256": hashlib.sha256(data).hexdigest(), "git_blob_sha1": blob,
+                             "tag_git_blob_sha1": tag_blob, "matches_tag": blob == tag_blob}
+        evidence_write(args.output / "bundle-source" / relative, data, args.output)
+    evidence_write(args.output / "bundle-source-identity.json", (json.dumps(sources, indent=2)+"\n").encode(), args.output)
+    cli = str(args.codeql)
+    run([cli, "generate", "log-summary", "--help"], args.work,
+        args.output / "official-summary-help.log", args.deadline, 20, args.output, env)
+    help_text = (args.output / "official-summary-help.log").read_text()
+    if "--format=" not in help_text or "text" not in help_text:
+        raise RuntimeError("exact CLI summary text option absent")
+    summaries = {}
+    for name in COST_QUERIES:
+        if args.deadline - time.monotonic() < 40:
+            summaries[name] = "UNKNOWN: insufficient final remaining budget"
+            break
+        try:
+            run([cli, "generate", "log-summary", "--format=text", str(args.output / f"recovered-{name}.jsonl")],
+                args.work, args.output / f"official-{name}-summary.log", args.deadline - 15, 20, args.output, env)
+            summaries[name] = "official command completed; interpretation requires review"
+        except RuntimeError:
+            summaries[name] = "UNKNOWN: official summary failed; raw retained; no further subprocess"
+            break
+    evidence_write(args.output / "inspection-result.json", (json.dumps({
+        "disposition": "REQUIRES_INDEPENDENT_EVIDENCE_REVIEW", "artifact_id": packet["artifact_id"],
+        "packet_sha256": hashlib.sha256(packet_path.read_bytes()).hexdigest(), "summaries": summaries,
+        "bundle_sources_match_tag": all(item["matches_tag"] for item in sources.values()),
+        "database_downloads": 0, "repository_extractions": 0, "query_compiles": 0, "query_evaluations": 0,
+        "coverage": "NOT_EVALUATED", "rust_baseline": "HOLD"}, indent=2)+"\n").encode(), args.output)
+    if len(summaries) != 4 or any(value.startswith("UNKNOWN") for value in summaries.values()):
+        raise RuntimeError("postprocess retained incomplete summary; no query rerun")
 
 
 def cost_probes(run, args, env, query, packs, cache, database):

@@ -120,6 +120,19 @@ class Guards(unittest.TestCase):
             self.assertEqual(result["partial_or_non_object_lines"],1)
             self.assertFalse(result["event_schema_interpreted"])
 
+    def test_object_prefix_recovers_header_and_preserves_tail_offsets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            raw=Path(temp)/"raw";dest=Path(temp)/"events"
+            data=b'{"header":1}[progress text]\ntext {"not_event":true}\n{"unfinished":'
+            raw.write_bytes(data)
+            result=m.frame_complete_events(raw,dest)
+            self.assertEqual(dest.read_bytes(),b'{"header":1}\n')
+            record=result["prefix_records"][0]
+            self.assertEqual(data[record["byte_offset"]:record["byte_offset"]+record["object_bytes"]],b'{"header":1}')
+            self.assertGreater(record["trailing_bytes"],1)
+            self.assertEqual(len(result["partial_records"]),1)
+            self.assertEqual(raw.read_bytes(),data)
+
     def test_dev_stderr_is_captured_and_timeout_retains_partial_stage(self):
         spec=importlib.util.spec_from_file_location("owned_cost_runner",Path(__file__).with_name("codeql-rust-model-diagnostic.py"))
         runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
@@ -192,6 +205,58 @@ class Guards(unittest.TestCase):
             self.assertFalse(any("query" in c and "run" in c for c in calls))
         finally:temporary.cleanup()
 
+    def test_artifact_only_postprocess_binds_inputs_and_never_runs_queries(self):
+        for summary_failure in (False,True):
+            with self.subTest(summary_failure=summary_failure),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);output=root/"out";output.mkdir();work=root/"work";work.mkdir()
+                codeql=root/"tools/codeql";codeql.parent.mkdir()
+                library=codeql.parent/"qlpacks/codeql/rust-all/0.2.23";library.mkdir(parents=True)
+                (library/"qlpack.yml").write_text("name: codeql/rust-all\nversion: 0.2.23\n")
+                source=library/"codeql/rust/internal/CachedStages.qll";source.parent.mkdir(parents=True);source.write_bytes(b"source\n")
+                blob=m.hashlib.sha1(b"blob 7\0source\n").hexdigest()
+                raw=b'{"header":1}progress\n{"event":2}\n'
+                buffer=io.BytesIO()
+                with zipfile.ZipFile(buffer,"w") as archive:
+                    for name in m.COST_QUERIES:archive.writestr("cost-"+name+".log",raw)
+                data=buffer.getvalue()
+                packet=dict(artifact_id=1,run=2,source="source",name="frozen",zip_bytes=len(data),zip_sha256=m.hashlib.sha256(data).hexdigest(),
+                    members={"cost-"+n+".log":{"bytes":len(raw),"sha256":m.hashlib.sha256(raw).hexdigest()} for n in m.COST_QUERIES},
+                    tag_git_blob_sha1={"internal/CachedStages.qll":blob})
+                (root/"codeql-rust-evaluator-input.json").write_text(json.dumps(packet))
+                metadata=dict(id=1,name="frozen",size_in_bytes=len(data),digest="sha256:"+packet["zip_sha256"],expired=False,workflow_run=dict(id=2,head_sha="source"))
+                class Opener:
+                    def open(self,request,timeout):return io.BytesIO(data if request.full_url.endswith("/zip") else json.dumps(metadata).encode())
+                calls=[]
+                def run(argv,cwd,log,end,timeout,artifact,env):
+                    calls.append(argv);self.assertNotIn("GH_TOKEN",env)
+                    log.write_text("--format=text" if "--help" in argv else "summary")
+                    if summary_failure and "--format=text" in argv:raise RuntimeError("controlled partial summary")
+                args=SimpleNamespace(codeql=codeql,work=work,output=output,deadline=time.monotonic()+300)
+                with patch.object(m,"__file__",str(root/"helper.py")),patch.object(m.urllib.request,"build_opener",return_value=Opener()),patch.dict(os.environ,{"GH_TOKEN":"controlled-unit-token"}):
+                    if summary_failure:
+                        with self.assertRaises(RuntimeError):m.inspect_saved_evaluator_evidence(run,args,{})
+                    else:m.inspect_saved_evaluator_evidence(run,args,{})
+                self.assertTrue(all(c[1:3]==["generate","log-summary"] for c in calls))
+                self.assertEqual(sum("--format=text" in c for c in calls),1 if summary_failure else 4)
+                self.assertEqual(len(list(output.glob("recovered-*.jsonl"))),4)
+                result=json.loads((output/"inspection-result.json").read_text())
+                self.assertEqual(result["query_evaluations"],0);self.assertEqual(result["database_downloads"],0)
+                self.assertTrue(result["bundle_sources_match_tag"])
+
+    def test_artifact_identity_failure_or_expiry_prevents_download(self):
+        packet=dict(artifact_id=1,run=2,source="source",name="frozen",zip_bytes=3,zip_sha256="a"*64)
+        correct=dict(id=1,name="frozen",size_in_bytes=3,digest="sha256:"+"a"*64,expired=False,workflow_run=dict(id=2,head_sha="source"))
+        for bad in (dict(correct,expired=True),dict(correct,digest="changed"),dict(correct,workflow_run=dict(id=2,head_sha="other"))):
+            class Opener:
+                def open(self,request,timeout):
+                    self.assertion=None
+                    if request.full_url.endswith("/zip"):raise AssertionError("must not download")
+                    return io.BytesIO(json.dumps(bad).encode())
+            with self.assertRaises(RuntimeError):m.artifact_identity(Opener(),"token",packet,time.monotonic()+2)
+        class Never:
+            def open(self,*args,**kwargs):raise AssertionError("expired must not request")
+        with self.assertRaises(TimeoutError):m.artifact_request(Never(),"token",packet,time.monotonic()-1)
+
     def test_actual_driver_and_workflow_token_boundary(self):
         driver = Path(__file__).with_name("codeql-rust-model-diagnostic.py").read_text()
         self.assertLess(driver.index('env.pop("GH_TOKEN", None)'), driver.index('run([cli, "version"'))
@@ -199,8 +264,9 @@ class Guards(unittest.TestCase):
         self.assertIn('mode.add_argument("--production-macro-database"', driver)
         workflow = Path(".github/workflows/rust.yml").read_text()
         job = workflow.split("  codeql-rust-model-diagnostic:",1)[1].split("\n  select:",1)[0]
-        self.assertIn("security-events: read", job)
-        self.assertIn("--production-macro-database", job)
+        self.assertIn("actions: read", job)
+        self.assertNotIn("security-events:", job)
+        self.assertIn("--inspect-evaluator-evidence", job)
         self.assertIn("GH_TOKEN: ${{ github.token }}", job)
 
 if __name__ == "__main__": unittest.main()

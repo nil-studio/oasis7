@@ -302,6 +302,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--real-peer-projection", action="store_true")
     mode.add_argument("--production-macro-database", action="store_true")
+    mode.add_argument("--inspect-evaluator-evidence", action="store_true")
     parser.add_argument("--evaluator-cost-probes", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
@@ -347,6 +348,13 @@ def diagnose(args):
     version = json.loads((args.output / "codeql-version.json").read_text())
     if version["version"] != "2.27.2":
         raise RuntimeError("unexpected CodeQL version")
+    if args.inspect_evaluator_evidence:
+        helper = Path(__file__).with_name("codeql-rust-production-macros.py")
+        specification = importlib.util.spec_from_file_location("evaluator_inspection", helper)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        module.inspect_saved_evaluator_evidence(run, args, env)
+        return
     for toolchain in ("1.96.0", "1.98.1"):
         run(["rustup", "run", toolchain, "rustc", "-vV"], args.work,
             args.output / f"rustc-{toolchain}.log", args.deadline, 20, args.output, env)
