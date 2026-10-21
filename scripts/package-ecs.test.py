@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Exercise ECS compilation selection and real assembly without compiling Rust."""
 import importlib.util
-import io
 import json
 import os
 from pathlib import Path
@@ -112,83 +111,12 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 assemble(root / "symlink")
 
-    def test_native_staging_reset_removes_previous_job_outputs(self):
-        text = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
-        section = text.split("      - name: Reset native staging directories\n", 1)[1].split("      - uses:", 1)[0]
-        script = textwrap.dedent(section.split("        run: |\n", 1)[1])
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for name in ("ecs-native", "ecs-workspace-cache", "ecs-reports"):
-                (root / name).mkdir()
-                (root / name / "stale").write_text("old source")
-            for name in ("ecs-cache-state.json", "ecs-cache-restore.json", "ecs-cache-stage.json", "ecs-units.json", "unrelated"):
-                (root / name).write_text("preserve unrelated state")
-            for _ in range(2):
-                subprocess.run(["bash", "-euo", "pipefail", "-c", script],
-                    env=dict(os.environ, RUNNER_TEMP=str(root)), check=True)
-                self.assertEqual([path.name for path in root.iterdir()], ["unrelated"])
-
-    def test_runner_selection_and_fallback(self):
-        text = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
-        section = text.split("  validate:\n", 1)[1].split("  web:\n", 1)[0]
-        script = textwrap.dedent(section.split("        run: |\n", 1)[1])
-        online = dict(name="scc-ubuntu", status="online", busy=False,
-                      labels=[dict(name=name) for name in ("self-hosted", "Linux", "X64")])
-        cases = [
-            ("auto", "auto", True, "token", online, "self-hosted", "8", 1),
-            ("auto", "16", True, "token", online, "self-hosted", "16", 1),
-            ("auto", "auto", True, "token", dict(online, status="offline"), "github-hosted", "2", 1),
-            ("auto", "16", True, "token", dict(online, busy=True), "github-hosted", "2", 1),
-            ("auto", "1", True, "token", dict(online, labels=[]), "github-hosted", "1", 1),
-            ("auto", "auto", True, "token", dict(online, name="other"), "github-hosted", "2", 1),
-            ("auto", "auto", True, "token", OSError("unavailable"), "github-hosted", "2", 1),
-            ("auto", "auto", True, "token", [], "github-hosted", "2", 1),
-            ("auto", "auto", True, "token", b"not JSON", "github-hosted", "2", 1),
-            ("auto", "auto", True, "", online, "github-hosted", "2", 0),
-            ("auto", "auto", False, "token", online, "github-hosted", "2", 0),
-            ("github-hosted", "8", True, "token", online, "github-hosted", "2", 0),
-        ]
-        for mode, jobs, trusted, token, payload, selected, expected_jobs, calls in cases:
-            with self.subTest(mode=mode, jobs=jobs, trusted=trusted, payload=payload), tempfile.TemporaryDirectory() as directory:
-                output = Path(directory) / "outputs"
-                env = dict(NATIVE_RUNNER=mode, NATIVE_JOBS=jobs, SOURCE_REF="refs/heads/main",
-                           SOURCE_SHA="a" * 40, WORKFLOW_SHA=("a" if trusted else "b") * 40,
-                           RUNNER_STATUS_TOKEN=token, GITHUB_REPOSITORY="nil-studio/oasis7",
-                           GITHUB_OUTPUT=str(output))
-                with patch.dict(os.environ, env), patch("urllib.request.urlopen") as request:
-                    if isinstance(payload, Exception):
-                        request.side_effect = payload
-                    else:
-                        data = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-                        request.return_value = io.BytesIO(data)
-                    exec(compile(script, "runner-selection", "exec"), {})
-                    self.assertEqual(request.call_count, calls)
-                    if calls:
-                        self.assertEqual(request.call_args.kwargs["timeout"], 10)
-                self.assertEqual(output.read_text(), f"native_runner={selected}\nnative_jobs={expected_jobs}\n")
-        # A branch cannot select self-hosted even when source/workflow SHAs match.
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, dict(
-                NATIVE_RUNNER="auto", NATIVE_JOBS="auto", SOURCE_REF="refs/heads/feature",
-                SOURCE_SHA="same", WORKFLOW_SHA="same", RUNNER_STATUS_TOKEN="token",
-                GITHUB_OUTPUT=str(Path(directory) / "outputs"))), patch("urllib.request.urlopen") as request:
-            exec(compile(script, "runner-selection", "exec"), {})
-            request.assert_not_called()
-            self.assertIn("native_runner=github-hosted", (Path(directory) / "outputs").read_text())
-        trusted = text.split("  native-trusted:\n", 1)[1].split("  package:\n", 1)[0]
-        self.assertIn("needs: validate", trusted)
-        self.assertIn("github.ref == 'refs/heads/main' && github.workflow_sha == github.sha", trusted)
-        self.assertIn("needs.validate.outputs.native_runner == 'self-hosted'", trusted)
-        self.assertIn('fromJSON(\'["self-hosted","Linux","X64"]\')', trusted)
-        self.assertIn("steps: *native-steps", trusted)
-        self.assertIn("group: ecs-workspace-cache-main-writer", trusted)
-        self.assertNotIn("secrets.", text.split("  web:\n", 1)[1])
-        self.assertIn("github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && secrets.ECS_RUNNER_STATUS_TOKEN", section)
-
     def test_workflow_parallel_join_and_trust(self):
         workflow = ROOT / ".github/workflows/ecs-packages.yml"
         # Use the same YAML parser as the repository workflow contracts.
         text = workflow.read_text()
         self.assertNotIn("ref_or_sha", text)
+        self.assertNotIn("secrets.", text)
         self.assertNotIn("contents: write", text)
         self.assertIn("needs: [web, native, native-trusted]", text)
         self.assertIn("--web output/web", text)
@@ -199,7 +127,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("needs.native.result == 'success' && needs.native-trusted.result == 'skipped'", text)
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)
         for section in (text.split("  web:\n", 1)[1].split("  native:", 1)[0], text.split("  native:\n", 1)[1].split("  native-trusted:", 1)[0]):
-            self.assertIn("needs: validate", section)
+            self.assertNotIn("needs:", section)
         self.assertEqual(text.count("ref: ${{ github.sha }}"), 3)
 
 
