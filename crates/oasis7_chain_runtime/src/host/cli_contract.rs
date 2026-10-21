@@ -35,7 +35,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         kind: OptionKind::Scalar,
         conflict: None,
         value: "<Ed25519-hex>",
-        description: "independent local participant administrator pin; isolated DevLocal only",
+        description: "independent local participant administrator pin; requires effective development runtime and isolated DevLocal administration; no governance/finality claim",
         default: None,
     },
     OptionSpec {
