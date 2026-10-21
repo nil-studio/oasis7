@@ -595,7 +595,7 @@ collector 提供实际目录关系及可用性，adapter 统一字段，summary 
 - `crates/oasis7_runtime/src/world/persistence.rs`
   - sidecar generation index
   - manifest-aware sweep
-- `crates/oasis7_runtime/src/snapshot.rs`
+- `crates/oasis7_world_state/src/snapshot.rs`
   - `tick_consensus_records` 热冷分层索引字段
 - `crates/oasis7_chain_runtime/src/host.rs`
   - storage profile 配置与 metrics 发布

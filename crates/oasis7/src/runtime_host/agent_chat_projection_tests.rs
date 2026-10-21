@@ -103,27 +103,16 @@ fn canonical_owner_goal_survives_journal_restore_and_is_private_to_authorized_vi
         "fixture",
     );
     let restored = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
-    let owner = projection::WorldServiceProjection::from_authenticated_world(
-        &restored,
-        Some("agent"),
-        &public,
-    )
-    .unwrap();
+    let owner = projection::from_authenticated_world(&restored, Some("agent"), &public).unwrap();
     let goal = owner.canonical_agent_chat.unwrap().goal.unwrap();
     assert_eq!(goal.message, "private engineering goal");
     assert_eq!(goal.intent_id, receipt["intent_id"]);
-    let public_view = serde_json::to_value(
-        projection::WorldServiceProjection::from_world(&restored, None).unwrap(),
-    )
-    .unwrap();
+    let public_view =
+        serde_json::to_value(projection::from_world(&restored, None).unwrap()).unwrap();
     assert!(public_view.get("canonical_agent_chat").is_none());
     assert!(!public_view.to_string().contains("private engineering goal"));
-    let delegated = projection::WorldServiceProjection::from_authenticated_world(
-        &restored,
-        Some("agent"),
-        "different-key",
-    )
-    .unwrap();
+    let delegated =
+        projection::from_authenticated_world(&restored, Some("agent"), "different-key").unwrap();
     assert!(delegated.canonical_agent_chat.is_none());
     assert!(
         !serde_json::to_string(&delegated)

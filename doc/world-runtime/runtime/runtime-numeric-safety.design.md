@@ -16,7 +16,7 @@
 | 子系统 | 当前实现入口 | 设计要求 |
 | --- | --- | --- |
 | World 资源/规则 | `crates/oasis7_simulator/src/types.rs`、`runtime/world/resources.rs`、`runtime/world/step.rs`、`runtime/state/apply_domain_event_gameplay.rs` | 资源与规则聚合受检；事件 effect 预计算；失败转为拒绝且不部分提交。 |
-| Node points | `crates/oasis7_runtime/src/node_points.rs` | award、cumulative、total 与 epoch successor 全部计算成功后一次提交。 |
+| Node points | `crates/oasis7_world_state/src/node_points.rs` | award、cumulative、total 与 epoch successor 全部计算成功后一次提交。 |
 | PoS | `crates/oasis7_consensus/src/node_pos.rs` | stake/slot 越界返回错误；proposal/vote 状态保持不变。 |
 | Node engine/recovery | `crates/oasis7_node/src/pos_state_store.rs` 及 PosNodeEngine 路径 | height/slot/gap/snapshot 后继值受检；不可表示的 snapshot 拒绝启动。 |
 | Replication | `crates/oasis7_node/src/replication.rs` | writer position 返回 `Result`；local commit 构造透传错误。 |
@@ -78,7 +78,7 @@ read current state
 
 ### Action allocator 的来源记录与恢复
 
-**现状与目标。** 当前 [`snapshot.rs`](../../../crates/oasis7_runtime/src/snapshot.rs) 保存 `next_action_id`、`action_id_era` 与 `pending_actions`；[`persistence.rs`](../../../crates/oasis7_runtime/src/world/persistence.rs) 在加载 checkpoint 时赋值。分配入口在 [`actions.rs`](../../../crates/oasis7_runtime/src/world/actions.rs) 与 [`world/mod.rs`](../../../crates/oasis7_runtime/src/world/mod.rs)，[`event_processing.rs`](../../../crates/oasis7_runtime/src/world/event_processing.rs) 的既有 suffix replay 尚未闭合 action allocator 的推进。下文是待实现的专业合同，已有 snapshot 字段、event/intent replay 或边界测试不证明本合同已完成。
+**现状与目标。** 当前 [`snapshot.rs`](../../../crates/oasis7_world_state/src/snapshot.rs) 保存 `next_action_id`、`action_id_era` 与 `pending_actions`；[`persistence.rs`](../../../crates/oasis7_runtime/src/world/persistence.rs) 在加载 checkpoint 时赋值。分配入口在 [`actions.rs`](../../../crates/oasis7_runtime/src/world/actions.rs) 与 [`world/mod.rs`](../../../crates/oasis7_runtime/src/world/mod.rs)，[`event_processing.rs`](../../../crates/oasis7_runtime/src/world/event_processing.rs) 的既有 suffix replay 尚未闭合 action allocator 的推进。下文是待实现的专业合同，已有 snapshot 字段、event/intent replay 或边界测试不证明本合同已完成。
 
 #### 分配记录的最小语义
 

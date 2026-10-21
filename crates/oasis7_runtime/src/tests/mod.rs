@@ -169,3 +169,5 @@ mod world_state_projection;
 // Pre-submit DeclareWar projection and non-mutation contract.
 mod agent_delegation;
 mod war_declaration_quote;
+
+mod world_state_extraction;

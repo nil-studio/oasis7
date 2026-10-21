@@ -65,7 +65,7 @@
 - Integration Points:
   - `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md`
   - `doc/p2p/token/mainchain-token-genesis-and-contributor-reward.prd.md`
-  - `crates/oasis7_runtime/src/main_token.rs`
+  - `crates/oasis7_world_state/src/main_token.rs`
   - `crates/oasis7_runtime/src/world/event_processing.rs`
   - `doc/testing/evidence/token-genesis-allocation-audit-template.md`
 - Edge Cases & Error Handling:

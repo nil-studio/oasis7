@@ -79,3 +79,7 @@ trace session ID 默认每次启动变化。验证它属于当前 launcher 的 P
 成功后再删除未使用的历史安装目录，只保留当前和上一个可用版本；混合版本运行时保留所有实际被进程、unit 或配置引用的版本。世界数据、密钥、备份、journal 和失败证据不属于旧版本清理范围。
 
 部署记录放在实际任务 / Issue：`候选SHA、包SHA256、更新组件、前后版本、真实验证结果、失败/回滚结果`。手册保持通用步骤，不写入当轮 PID、密码、临时目录或审批流水。
+
+### ECS workspace cache validation
+
+Retain actual trusted main native producer and compatible consumer run/job links, requested/restored keys, cache-hit, Cargo unit Fresh/rebuilt, transfer durations, and raw/compressed bytes. Inspect cache reports in `ecs-native-timings`; a cache miss or rejection must still perform the full native build. Exercise added, removed and renamed source inputs for conservative invalidation. Limits are 6 GiB staging, 6 GiB remote main family and two compatible generations; inventory failures or exhausted limits skip saving. Also inspect the live repository quota (positive integer GB converted conservatively to decimal bytes), observed usage across all refs/families and projected bytes in the cache report; missing quota or insufficient repository capacity skips saving without changing settings or deleting caches. Concurrent writers can change capacity after this point-in-time guard, so it does not reserve space atomically. Record pending remote evidence explicitly rather than treating local tests as cross-run reuse proof.

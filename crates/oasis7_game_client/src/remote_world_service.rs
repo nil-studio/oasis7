@@ -228,8 +228,8 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
         response: SignedServiceResponse<ReadWorldViewResponse<P>>,
         signed: SignedReadRequest<ReadWorldViewRequest>,
     ) -> Result<VerifiedWorldView<P>, WorldServiceClientError> {
-        if serde_json::to_vec(&response)
-            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?
+        if P::encode_signed_view_response(&response)
+            .map_err(WorldServiceClientError::Assurance)?
             .len()
             > self.config.max_response_bytes
         {
@@ -260,7 +260,7 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
             .map_err(WorldServiceClientError::Assurance)?;
         let digest = authority::request_digest(VIEW_PATH, &signed)
             .map_err(WorldServiceClientError::Assurance)?;
-        authority::verify_service_response(
+        P::verify_signed_view_response(
             VIEW_PATH,
             &digest,
             &response,
@@ -318,16 +318,31 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
         }
         authority::verify_read_request(VIEW_PATH, &signed)
             .map_err(WorldServiceClientError::Assurance)?;
-        let response: ReadWorldViewResponse<P> = self.call(VIEW_PATH, &signed)?;
+        let response: ReadWorldViewResponse<P> = self.call_view(&signed)?;
         self.finish_view(response, &signed.request, &signed.subject_public_key)
     }
 
-    fn call<Q: Serialize, R: Serialize + DeserializeOwned>(
+    pub(super) fn call_formal_changes<Q: Serialize>(
         &self,
-        path: &str,
         request: &Q,
-    ) -> Result<R, WorldServiceClientError> {
-        self.transport.call(path, request)
+    ) -> Result<FormalBusinessChangesPageV1<P>, WorldServiceClientError> {
+        self.transport.call_with_response_codec(
+            CHANGES_PATH,
+            request,
+            P::decode_signed_changes_response,
+            P::verify_signed_changes_response,
+        )
+    }
+    fn call_view(
+        &self,
+        request: &SignedReadRequest<ReadWorldViewRequest>,
+    ) -> Result<ReadWorldViewResponse<P>, WorldServiceClientError> {
+        self.transport.call_with_response_codec(
+            VIEW_PATH,
+            request,
+            P::decode_signed_view_response,
+            P::verify_signed_view_response,
+        )
     }
     /// Forward the original browser proof without replacing its signer.
     pub fn read_owner_view(
@@ -347,7 +362,7 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
                 "owner read world mismatch".into(),
             ));
         }
-        let response = self.call(VIEW_PATH, &signed)?;
+        let response = self.call_view(&signed)?;
         self.finish_view(response, &signed.request, &signed.subject_public_key)
     }
     fn signed_call<Q: Serialize, R: Serialize + DeserializeOwned>(
@@ -408,7 +423,7 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
             &self.config.read_private_key_hex,
         )
         .map_err(WorldServiceClientError::Assurance)?;
-        let response: ReadWorldViewResponse<P> = self.call(VIEW_PATH, &signed)?;
+        let response: ReadWorldViewResponse<P> = self.call_view(&signed)?;
         let identity = self
             .read_authority_identity()
             .map_err(WorldServiceClientError::Assurance)?;
@@ -532,6 +547,92 @@ mod tests {
         });
         (endpoint, task)
     }
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct HookedProjection;
+    impl FormalReadProjection for HookedProjection {
+        fn decode_signed_view_response(
+            _: &[u8],
+        ) -> Result<SignedServiceResponse<ReadWorldViewResponse<Self>>, String> {
+            Err("schema-owned view decoder invoked".into())
+        }
+        fn decode_signed_changes_response(
+            _: &[u8],
+        ) -> Result<SignedServiceResponse<FormalBusinessChangesPageV1<Self>>, String> {
+            Err("schema-owned Changes decoder invoked".into())
+        }
+        fn validate_contents(
+            _: &ReadWorldViewResponse<Self>,
+            _: &ReadWorldViewRequest,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn all_typed_http_view_routes_use_schema_owned_decoder() {
+        for route in ["read", "actor", "owner"] {
+            let (endpoint, task) = serve(|_| {});
+            let config = config(endpoint);
+            let request = ReadWorldViewRequest {
+                observation_nonce: None,
+                formal_anchor: None,
+                contract_version: 1,
+                world: config.expected_world.clone(),
+                scope_id: config.scope_id.clone(),
+                min_commit: None,
+                fixed_commit: None,
+                deadline_unix_ms: None,
+            };
+            let signed = authority::sign_read_request(
+                VIEW_PATH,
+                request.clone(),
+                &config.read_private_key_hex,
+            )
+            .unwrap();
+            let client = RemoteWorldServiceReader::<HookedProjection>::new(config).unwrap();
+            let result = match route {
+                "actor" => client.read_actor_view(signed),
+                "owner" => client.read_owner_view(signed),
+                _ => client.read_view(request),
+            };
+            assert!(
+                matches!(result, Err(WorldServiceClientError::Assurance(message))
+                if message == "schema-owned view decoder invoked"),
+                "route {route}"
+            );
+            task.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn typed_changes_transport_uses_schema_decoder_after_response_bound() {
+        for bounded in [false, true] {
+            let (endpoint, task) =
+                serve_payload(CHANGES_PATH, serde_json::json!({"ok":true}), |_| {});
+            let mut config = config(endpoint);
+            if bounded {
+                config.max_response_bytes = 1;
+            }
+            let signed = authority::sign_read_request(
+                CHANGES_PATH,
+                serde_json::json!({"fixture":"decoder dispatch"}),
+                &config.read_private_key_hex,
+            )
+            .unwrap();
+            let client = RemoteWorldServiceReader::<HookedProjection>::new(config).unwrap();
+            let result = client.call_formal_changes(&signed);
+            let expected = if bounded {
+                "service response exceeds bound"
+            } else {
+                "schema-owned Changes decoder invoked"
+            };
+            assert!(
+                matches!(result, Err(WorldServiceClientError::Assurance(message))
+                if message == expected)
+            );
+            task.join().unwrap();
+        }
+    }
+
     #[test]
     fn engineering_owner_read_rejects_before_transport_preserving_original_proof() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

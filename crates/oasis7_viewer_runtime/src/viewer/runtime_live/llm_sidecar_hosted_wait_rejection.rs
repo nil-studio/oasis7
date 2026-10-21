@@ -192,7 +192,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
 impl HostedWait {
     fn validate_rejected_projection(
         &self,
-        projection: &crate::world_service::projection::WorldServiceProjection,
+        projection: &oasis7_world_projection::WorldServiceProjection,
         settled: bool,
     ) -> Result<(), String> {
         let cognition = self

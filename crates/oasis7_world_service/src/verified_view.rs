@@ -2,6 +2,4 @@
 pub use oasis7_game_client::verified_world_view::{
     CONTROLLED_PREREQUISITE_READ_SCOPE, ReadEvidencePolicy,
 };
-pub type VerifiedWorldView = oasis7_game_client::verified_world_view::VerifiedWorldView<
-    crate::projection::WorldServiceProjection,
->;
+pub use oasis7_world_projection::VerifiedWorldView;

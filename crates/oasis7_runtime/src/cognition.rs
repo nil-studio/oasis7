@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
-use unicode_normalization::UnicodeNormalization;
 
 use super::cognition_validation::{validate_precondition_shape, validate_preconditions};
 use super::util::hash_json;
@@ -22,16 +21,10 @@ pub(crate) const MAX_PRECONDITIONS: usize = 32;
 pub(crate) const MAX_PRECONDITION_BYTES: usize = 4096;
 const DIGEST_HEX_BYTES: usize = 64;
 
-const WORLD_STATE_HASH_DOMAIN_V1: &str = "oasis7.runtime.world-state.v1";
 const RUNTIME_MANIFEST_HASH_DOMAIN_V1: &str = "oasis7.runtime.manifest.v1";
 const AUTHORITY_CONTEXT_HASH_DOMAIN_V1: &str = "oasis7.runtime.authority-context.v1";
 
-pub(crate) fn is_canonical_identifier(value: &str, max_bytes: usize) -> bool {
-    !value.trim().is_empty()
-        && value.len() <= max_bytes
-        && !value.chars().any(char::is_control)
-        && value.nfc().collect::<String>() == value
-}
+pub(crate) use oasis7_world_state::cognition::is_canonical_identifier;
 
 /// Typed disposition reason for a cognition commit that cannot be applied.
 ///
@@ -70,19 +63,6 @@ pub fn classify_cognition_commit_error(
             | "cognition validation failed: cognition_world_head_mismatch"
     )
     .then_some(CognitionCommitRejectReasonV1::StaleBase)
-}
-
-#[derive(Debug, Serialize)]
-struct WorldStateHashInput<'a> {
-    world_id: &'a str,
-    branch_id: &'a str,
-    finality_epoch: u64,
-    finality_block_hash: Option<&'a str>,
-    finality_status: &'a str,
-    logical_tick: u64,
-    state_root: &'a str,
-    reorg_epoch: u64,
-    runtime_manifest_hash: &'a str,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,36 +142,7 @@ pub(crate) fn finality_binding_digest_v1(
     )
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "This hash preimage is a stable replay/persistence contract; grouping fields would change call-site/API shape."
-)]
-pub(crate) fn world_state_binding_digest_v1(
-    world_id: &str,
-    branch_id: &str,
-    finality_epoch: u64,
-    finality_block_hash: Option<&str>,
-    finality_status: &str,
-    logical_tick: u64,
-    state_root: &str,
-    reorg_epoch: u64,
-    runtime_manifest_hash: &str,
-) -> String {
-    h_v1(
-        WORLD_STATE_HASH_DOMAIN_V1,
-        &WorldStateHashInput {
-            world_id,
-            branch_id,
-            finality_epoch,
-            finality_block_hash,
-            finality_status,
-            logical_tick,
-            state_root,
-            reorg_epoch,
-            runtime_manifest_hash,
-        },
-    )
-}
+pub(crate) use oasis7_world_state::cognition::world_state_binding_digest_v1;
 
 pub(crate) use oasis7_agent_api::world_cognition::finality_binding_is_legal;
 

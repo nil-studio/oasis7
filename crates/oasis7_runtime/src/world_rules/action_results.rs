@@ -6,7 +6,7 @@ const JOURNAL_WINDOW: usize = 2048;
 const RESULT_LIMIT: usize = 16;
 
 impl World {
-    pub(super) fn recent_world_rule_action_results(&self, reader: Option<&str>) -> Value {
+    pub fn recent_world_rule_action_results(&self, reader: Option<&str>) -> Value {
         let Some(reader) = reader else {
             return json!([]);
         };

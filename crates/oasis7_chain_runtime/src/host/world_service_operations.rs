@@ -276,7 +276,7 @@ fn view_profile(
         &request.request.scope_id,
         &request.subject_public_key,
     )?;
-    let projection = projection::WorldServiceProjection::from_committed_world(
+    let projection = projection::from_committed_world(
         &pinned.world,
         agent.as_deref(),
         &request.subject_public_key,
@@ -303,7 +303,7 @@ fn view_profile(
     if json_projection {
         // Normalize before signing, never reinterpret a typed-CBOR signature as JSON.
         let response: ReadWorldViewResponse<Value> =
-            serde_json::from_value(serde_json::to_value(response).map_err(|e| e.to_string())?)
+            serde_json::from_value(oasis7_world_projection::codec::response_to_json_value(&response).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
         service.signed(path, &request, response)
     } else {

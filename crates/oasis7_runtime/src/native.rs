@@ -8,51 +8,51 @@
 // - Governance and manifest management
 // - Agent scheduling
 
-mod agent_cell;
-mod agent_claims;
-mod audit;
+pub use oasis7_world_state::agent_cell;
+pub use oasis7_world_state::agent_claims;
+pub use oasis7_world_state::audit;
 mod blob_store;
-mod builtin_factory_catalog;
-mod builtin_recipe_catalog;
+pub use oasis7_world_state::builtin_factory_catalog;
+pub use oasis7_world_state::builtin_recipe_catalog;
 mod builtin_wasm_identity_manifest;
 mod builtin_wasm_materializer;
-mod capability_authorization;
+pub use oasis7_world_state::capability_authorization;
 mod cognition;
-mod cognition_feedback_contract;
-mod cognition_receipt_binding;
+pub use oasis7_world_state::cognition_feedback_contract;
+
 mod cognition_recovery;
 mod cognition_retention;
 mod cognition_scheduler;
 mod cognition_validation;
 mod cognition_wake;
-mod consensus;
-mod effect;
-mod error;
+pub use oasis7_world_state::consensus;
+pub use oasis7_world_state::effect;
+pub use oasis7_world_state::error;
 mod events;
-mod formal_retained_history;
+pub use oasis7_world_state::formal_retained_history;
 mod gameplay;
-mod gameplay_state;
-mod governance;
+pub use oasis7_world_state::gameplay_state;
+pub use oasis7_world_state::governance;
 mod governance_membership;
 mod governance_projection;
 mod m1_builtin_wasm_artifact;
 mod m4_builtin_wasm_artifact;
 mod m5_builtin_wasm_artifact;
-mod main_token;
+pub use oasis7_world_state::main_token;
 mod major_world_event;
-mod manifest;
+pub use oasis7_world_state::manifest;
 mod module_source_compiler;
 mod module_store;
-mod modules;
+pub use oasis7_world_state::modules;
 mod node_points;
 mod node_points_runtime;
 mod operability;
-mod policy;
-mod reward_asset;
+pub use oasis7_world_state::policy;
+pub use oasis7_world_state::reward_asset;
 mod rules;
 mod segmenter;
 mod signer;
-mod snapshot;
+pub use oasis7_world_state::snapshot;
 mod snapshot_delta;
 pub use snapshot_delta::{
     MAX_SNAPSHOT_CHAIN_BYTES, MAX_SNAPSHOT_DELTA_BYTES, MAX_SNAPSHOT_DELTA_DEPTH,
@@ -60,10 +60,10 @@ pub use snapshot_delta::{
     resolve_snapshot_artifact_with_depth,
 };
 mod state;
-mod types;
-mod util;
+pub use oasis7_world_state::types;
+pub use oasis7_world_state::util;
 mod world;
-mod world_event;
+pub use oasis7_world_state::world_event;
 
 #[cfg(test)]
 mod tests;
@@ -416,7 +416,7 @@ pub mod cognition_disposition;
 
 pub mod service_admission;
 
-pub mod agent_state;
+pub use oasis7_world_state::agent_state;
 
 #[cfg(all(test, feature = "test_tier_full"))]
 mod env_mut;

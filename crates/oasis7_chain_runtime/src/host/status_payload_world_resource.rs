@@ -358,7 +358,7 @@ fn load_latest_execution_record_resource_snapshot(
     let snapshot_bytes = store
         .get_verified(snapshot_ref.as_str())
         .map_err(|err| format!("load execution snapshot CAS ref {snapshot_ref} failed: {err:?}"))?;
-    let snapshot: RuntimeSnapshot = serde_cbor::from_slice(snapshot_bytes.as_slice())
+    let snapshot: RuntimeSnapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes.as_slice())
         .map_err(|err| format!("parse execution snapshot CAS ref {snapshot_ref} failed: {err}"))?;
     if snapshot.chain_resource_manifest.generated_chunks.is_empty() {
         return Err("latest execution snapshot has empty resource manifest".to_string());

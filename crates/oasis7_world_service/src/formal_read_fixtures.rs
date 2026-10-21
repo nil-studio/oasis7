@@ -136,6 +136,18 @@ pub(crate) fn actual_world_initial_fixture_with_execution_policy(
     original
         .bind_cognition_runtime("formal-fixture-world", "main", 0, None, "pending", 0)
         .unwrap();
+    actual_world_initial_fixture_from_world(original, execution_policy_digest)
+}
+/// Qualify the supplied actual test World, including its current manifest and audiences.
+pub(crate) fn actual_world_initial_fixture_from_world(
+    original: World,
+    execution_policy_digest: String,
+) -> (
+    World,
+    InitialActivationTrustV1,
+    VerifiedFormalReadAnchorV1,
+    FormalQualifiedCommitProofV1,
+) {
     let genesis = h(8);
     let snapshot = original.snapshot_with_chain_resource_context(
         oasis7_runtime::ChainResourceDerivationContext {
@@ -254,7 +266,7 @@ pub(crate) fn actual_world_initial_fixture_with_execution_policy(
     (world, trust, anchor, proof)
 }
 pub(crate) fn projection(world: &World) -> WorldServiceProjection {
-    WorldServiceProjection::from_formal_committed_world(world, None, "").unwrap()
+    crate::projection::from_formal_committed_world(world, None, "").unwrap()
 }
 /// Actual restored World cuts with test-authority light envelopes. This helper
 /// does not exercise the production executor or certify endpoint key custody.

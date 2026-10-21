@@ -347,7 +347,7 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) canonical_goal_prompt_applied:
         Option<(String, Option<String>)>,
     pub(in crate::viewer::runtime_live) provider_service_projection:
-        Option<crate::world_service::projection::WorldServiceProjection>,
+        Option<oasis7_world_projection::WorldServiceProjection>,
     pub(in crate::viewer::runtime_live) provider_service_signer:
         Option<crate::world_service::client::WorldServiceAgentSignerConfig>,
     provider_wait_until: BTreeMap<String, u64>,

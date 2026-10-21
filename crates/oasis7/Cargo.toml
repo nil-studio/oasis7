@@ -29,8 +29,7 @@ oasis7_world_service = { path = "../oasis7_world_service", default-features = fa
 oasis7_observability = { path = "../oasis7_observability" }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_model_provider = { path = "../oasis7_model_provider" }
-oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
-oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 toml = "0.9.12"
 tracing = "0.1"
@@ -56,8 +55,7 @@ ci_formal_host_indexmap = { package = "indexmap", version = "2", optional = true
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [features]
-default = ["wasmtime", "node-libp2p"]
-node-libp2p = ["oasis7_node/libp2p"]
+default = ["wasmtime"]
 wasmtime = ["oasis7_runtime/wasmtime", "oasis7_world_service/wasmtime"]
 test_tier_required = ["oasis7_simulator/test_tier_required", "oasis7_runtime/test_tier_required", "oasis7_world_service/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7_simulator/test_tier_full", "oasis7_runtime/test_tier_full", "oasis7_world_service/test_tier_full"]
@@ -76,7 +74,7 @@ ci_formal_required_features = [
 ]
 
 [dev-dependencies]
-oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false, features = ["test-hooks"] }
+oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

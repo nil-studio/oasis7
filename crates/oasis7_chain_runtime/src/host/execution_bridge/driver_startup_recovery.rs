@@ -416,7 +416,7 @@ impl NodeRuntimeExecutionDriver {
         let snapshot_bytes_len = snapshot_bytes.len();
 
         let runtime_decode_started_at = Instant::now();
-        let snapshot = serde_cbor::from_slice::<RuntimeSnapshot>(snapshot_bytes.as_slice())
+        let snapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes.as_slice())
             .map_err(|err| {
                 format!(
                     "execution driver decode runtime snapshot failed at height {}: {}",

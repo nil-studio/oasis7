@@ -49,7 +49,6 @@ mod tests {
     use crate::runtime::World;
     use oasis7_agent_api::Digest32;
     use oasis7_agent_api::FeedbackEnvelopeV1;
-    use oasis7_world_service::projection::WorldServiceProjection;
     fn feedback(agent: &str, session: &str, seq: u64) -> FeedbackEnvelopeV1 {
         FeedbackEnvelopeV1 {
             feedback_id: format!("{agent}-{session}-{seq}"),
@@ -82,7 +81,8 @@ mod tests {
         enqueue(&mut world, "agent-a", "session-a", 1);
         enqueue(&mut world, "agent-a", "session-a", 2);
         enqueue(&mut world, "agent-b", "session-b", 1);
-        let projection = WorldServiceProjection::from_world(&world, Some("agent-a")).unwrap();
+        let projection =
+            oasis7_world_service::projection::from_world(&world, Some("agent-a")).unwrap();
         let history = projection.feedback_history.unwrap();
         assert_eq!(history.records.len(), 2);
         check_fresh_session(&history, "agent-a", "session-a").unwrap();
@@ -96,7 +96,7 @@ mod tests {
             history.records[0].original_envelope_digest,
             actual[0].envelope_digest
         );
-        let public = WorldServiceProjection::from_world(&world, None).unwrap();
+        let public = oasis7_world_service::projection::from_world(&world, None).unwrap();
         assert!(public.feedback_history.is_none());
         assert!(
             serde_json::to_value(public)

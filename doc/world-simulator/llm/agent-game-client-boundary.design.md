@@ -266,3 +266,8 @@ AGC 是本设计的**计划场景 ID**，并非已有测试名称或通过报告
 | 不迁出世界许可和确定性世界作业 | 全部“agent/cognition”文件外移会丢权威、恢复或世界自治 | runtime owner 复核 lease、memory receipt、continuation、历史解码归属 |
 
 尚需实测的是具体 crate 切口、保留能力覆盖、受支持平台安装体验、长推理与有界 Context 的活性，以及 transport 的真实成本。实现 PR 必须给出对应结果和范围；它们不是放宽权限、改默认值或自动发布的授权。当前部署暂停/公开支持限制仍由原发行与部署 authority 持有，本文不解除。
+
+
+### 权威状态与服务投影数据边界
+
+具体权威状态、事件和恢复快照由 `oasis7_world_state` 唯一声明；该库不依赖执行器。服务读取 DTO 与具体 codec/验证适配由 `oasis7_world_projection` 拥有，复用 Game Client 的既有证明验证核心，不复制 finality、scope 或 replay 策略。Game Client 的独立读模型不反向依赖这两个库。Service 保留当前 World 认证、权限裁剪、DTO 构造和业务结果发布；投影 DTO 本身既不授予读取权，也不能用于恢复世界。具体职责见 [Runtime 设计](../../world-runtime/design.md#状态与服务投影的编译边界)。

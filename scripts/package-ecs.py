@@ -2,6 +2,7 @@
 """Build a Linux ECS server bundle, or assemble already compiled binaries."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("native", "assemble"))
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--cache-state", type=Path, help="optional complete workspace Cargo unit state outside checkout")
     parser.add_argument("--native", type=Path)
     parser.add_argument("--web", type=Path)
     args = parser.parse_args()
@@ -39,10 +41,16 @@ def main():
     if args.mode == "native":
         env = dict(os.environ)
         env.pop("RUSTC_WRAPPER", None)
-        subprocess.run(["cargo", "build", "--locked", "--timings", "--profile", "ecs",
+        command = ["cargo", "build", "--locked", "--timings", "--profile", "ecs",
                         "-p", "oasis7_chain_runtime", "-p", "oasis7_launcher_backend",
-                        "-p", "oasis7_viewer_runtime", *[arg for name in BINS for arg in ("--bin", name)]],
-                       cwd=ROOT, env=env, check=True)
+                        "-p", "oasis7_viewer_runtime", *[arg for name in BINS for arg in ("--bin", name)]]
+        if args.cache_state:
+            spec = importlib.util.spec_from_file_location("ecs_cache", ROOT / "scripts/ci-ecs-cache.py")
+            cache = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cache)
+            cache.build(command, env, args.cache_state)
+        else:
+            subprocess.run(command, cwd=ROOT, env=env, check=True)
         target = Path(env.get("CARGO_TARGET_DIR", ROOT / "target")) / "ecs"
         files = {}
         for name in BINS:

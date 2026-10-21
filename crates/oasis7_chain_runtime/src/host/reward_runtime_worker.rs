@@ -1,4 +1,4 @@
-use oasis7::node_points_observation::measure_directory_storage_bytes;
+use super::node_points_observation::measure_directory_storage_bytes;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -302,7 +302,7 @@ fn reward_runtime_loop(
         let effective_storage_bytes =
             measure_directory_storage_bytes(config.storage_root.as_path());
         let mut observation =
-            oasis7::node_points_observation::node_points_observation_from_snapshot(
+            super::node_points_observation::node_points_observation_from_snapshot(
                 &snapshot,
                 effective_storage_bytes,
                 observed_at_unix_ms,

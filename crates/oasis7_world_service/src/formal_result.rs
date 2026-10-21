@@ -70,9 +70,12 @@ impl FormalBusinessResultTreeV1 {
                 "formal initial business index requires explicit legacy result migration".into(),
             );
         }
-        let root = blake3::hash(&serde_cbor::to_vec(&world.snapshot()).map_err(|e| e.to_string())?)
-            .to_hex()
-            .to_string();
+        let root = blake3::hash(
+            &oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
+                .map_err(|e| e.to_string())?,
+        )
+        .to_hex()
+        .to_string();
         let governing = world
             .current_cognition_runtime_binding()
             .map_err(|e| format!("{e:?}"))?
@@ -465,7 +468,8 @@ fn metadata_for_boundary(
     governing_manifest_digest: &str,
 ) -> Result<FormalBusinessCommitMetadataV1, String> {
     let snapshot = world.snapshot();
-    let snapshot_bytes = serde_cbor::to_vec(&snapshot).map_err(|error| error.to_string())?;
+    let snapshot_bytes =
+        oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|error| error.to_string())?;
     let snapshot_root = blake3::hash(&snapshot_bytes).to_hex().to_string();
     let manifest = &snapshot.chain_resource_manifest;
     if snapshot_root != after_state_root

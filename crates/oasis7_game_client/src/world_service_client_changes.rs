@@ -58,12 +58,12 @@ impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
             )
             .map_err(WorldServiceClientError::Assurance)?,
         };
-        let page: FormalBusinessChangesPageV1<H::Projection> = self.call(CHANGES_PATH, &message)?;
+        let page = self.reader.call_formal_changes(&message)?;
         if page.target_request != message.read.request
             || page.from_exclusive != message.cursor
             || page.changes.len() > max_items as usize
-            || serde_json::to_vec(&page)
-                .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?
+            || H::Projection::encode_changes_page(&page)
+                .map_err(WorldServiceClientError::Assurance)?
                 .len()
                 > max_bytes as usize
         {
@@ -85,7 +85,7 @@ impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
             })?
             .lock()
             .map_err(|_| WorldServiceClientError::Assurance("formal cache poisoned".into()))?;
-        crate::formal_business::verify_formal_changes_page::<H::Projection>(
+        H::Projection::verify_changes_page(
             &mut verifier,
             source,
             &identity,

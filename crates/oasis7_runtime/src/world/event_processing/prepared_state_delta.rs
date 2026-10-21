@@ -514,7 +514,7 @@ impl PreparedEventStateDelta {
                 }
             }
             Self::ManifestUpdated { manifest, .. } => world.manifest = manifest,
-            Self::GovernanceRegistry(prepared) => prepared.install(world),
+            Self::GovernanceRegistry(prepared) => prepared.install(&mut world.state),
             Self::CapabilityAuthorization(prepared) => (*prepared).install(world),
             Self::CapabilityCommandCommit(prepared) => prepared.install(world),
             Self::CapabilityEffectReceipt(prepared) => prepared.install(world),

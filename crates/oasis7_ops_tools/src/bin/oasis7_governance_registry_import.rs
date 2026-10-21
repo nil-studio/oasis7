@@ -9,7 +9,7 @@ use oasis7_runtime::{
     GovernanceThresholdSignerPolicy, MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
     MAIN_TOKEN_TREASURY_BUCKET_SECURITY_RESERVE, MAIN_TOKEN_TREASURY_BUCKET_STAKING_REWARD,
     ReleaseSecurityPolicy, RollbackAuthorityRecord, RollbackAuthorityRegistry,
-    RollbackAuthorityRole, World, WorldState,
+    RollbackAuthorityRole, World,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -68,12 +68,8 @@ struct ManifestSlotThresholds {
     thresholds: BTreeMap<String, u16>,
 }
 
-#[derive(Debug, Serialize)]
-struct StateRootProjection<'a> {
-    state: &'a WorldState,
-    manifest_hash: &'a str,
-    policy_hash: &'a str,
-}
+use oasis7_world_state::WorldStateProjection;
+use oasis7_world_state::codec::{StateRootProjection, state_root_hash};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct ImportSummary {
@@ -226,8 +222,8 @@ fn reconcile_latest_tick_consensus_state_root(
         .map_err(|err| format!("compute current manifest hash failed: {err:?}"))?;
     let policy_hash = hash_json(&world.policies())
         .map_err(|err| format!("compute current policy hash failed: {err:?}"))?;
-    let state_root = hash_json(&StateRootProjection {
-        state: world.state(),
+    let state_root = state_root_hash(&StateRootProjection {
+        state: &WorldStateProjection::borrowed(world.state()),
         manifest_hash: manifest_hash.as_str(),
         policy_hash: policy_hash.as_str(),
     })

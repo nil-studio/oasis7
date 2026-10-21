@@ -79,7 +79,7 @@ fn bound_event(actor: &str, request: &str, c: WorldRuleCommandV1) -> DomainEvent
     }
     event
 }
-pub(super) fn registered_fixture() -> WorldState {
+pub fn registered_fixture() -> WorldState {
     let mut state = fixture();
     let keys = install_finality_registry(&mut state);
     state.agent_claims.clear();
@@ -604,7 +604,7 @@ fn authority_minimum_service_producer_canonical_observation_and_local_restricted
     );
 }
 
-pub(super) fn supply_test_binding() -> String {
+pub fn supply_test_binding() -> String {
     crate::util::hash_json(&(
         "oasis7-world-rule-world-v1",
         "supply-test-world",
@@ -693,7 +693,7 @@ fn observed_authorization_fixture(starts_at: u64) -> (WorldState, WorldRuleComma
     state.time = 840;
     (state, authorization)
 }
-pub(super) fn authorized_preparation_fixture() -> (World, Action) {
+pub fn authorized_preparation_fixture() -> (World, Action) {
     let (state, command) = observed_authorization_fixture(900);
     (
         supply_test_world(state, "supply-test-world"),
@@ -705,7 +705,7 @@ pub(super) fn authorized_preparation_fixture() -> (World, Action) {
     )
 }
 #[cfg(all(feature = "wasmtime", feature = "test_tier_full"))]
-pub(super) fn essential_preparation_fixture() -> (World, Action) {
+pub fn essential_preparation_fixture() -> (World, Action) {
     let (mut state, authorization) = observed_authorization_fixture(840);
     apply(
         &mut state,

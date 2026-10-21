@@ -27,20 +27,7 @@ fn validate_result_record_uncached(
 ) -> Result<CanonicalIntentResultV1, String> {
     #[cfg(test)]
     RESULT_VALIDATIONS.with(|count| count.set(count.get() + 1));
-    let result: CanonicalIntentResultV1 =
-        serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
-    result.request.validate().map_err(|e| e.to_string())?;
-    if derive_correlation(
-        result.request.correlation.key.world.clone(),
-        &result.request.signed_payload,
-    )? != result.request.correlation
-        || key_digest(&result.request.correlation.key)? != key
-        || result.committed_height == 0
-    {
-        return Err("invalid canonical intent result identity".into());
-    }
-    super::game_task::validate_result(&result)?;
-    Ok(result)
+    oasis7_world_state::service_admission::correlation::validate_result_record_uncached(key, value)
 }
 
 #[cfg(test)]

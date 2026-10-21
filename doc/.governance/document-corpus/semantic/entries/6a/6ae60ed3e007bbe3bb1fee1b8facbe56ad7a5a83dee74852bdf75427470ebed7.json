@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "667248571e3b8fe36d7895b16109124f3e18f1456f6cf3b8dad2a4fd1c8145e5",
+    "content_sha256": "c7066b0068169698da46e028e522ed7070fb9097c64c3547ba472d9f45309811",
     "current_authority": "doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md",
     "decision_owner": "liveops_community",
     "disposition": "retain_current_controlled_runbook",
-    "note": "current slot-1 restricted-grant SOP; no transferable public reward general eligibility launch or automatic entitlement Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained.",
+    "note": "current slot-1 restricted-grant SOP; no transferable public reward general eligibility launch or automatic entitlement Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance. Scoped review: Runtime source ownership paths updated; original authority and evidence limits retained. Source navigation reviewed for #4948: relocated state value/reducer paths only; authority, disposition, historical baseline and evidence limitations preserved.",
     "path": "doc/game/gameplay/gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

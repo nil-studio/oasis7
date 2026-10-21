@@ -142,6 +142,11 @@ mod rebuild_status;
 mod rebuild_status_tests;
 #[path = "host/reward_runtime_settlement.rs"]
 mod reward_runtime_settlement;
+#[path = "host/node_points_observation.rs"]
+mod node_points_observation;
+#[cfg(test)]
+#[path = "host/node_points_runtime_closure.rs"]
+mod node_points_runtime_closure;
 #[path = "host/reward_runtime_worker.rs"]
 mod reward_runtime_worker;
 #[path = "host/runtime_authority.rs"]

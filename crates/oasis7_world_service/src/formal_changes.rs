@@ -60,7 +60,8 @@ pub fn build_formal_changes_page(
         .map(|event| {
             Ok((
                 event.id,
-                serde_json::to_value(event).map_err(|error| error.to_string())?,
+                oasis7_world_state::codec::world_event_json_value(event)
+                    .map_err(|error| error.to_string())?,
             ))
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -97,7 +98,7 @@ pub fn build_formal_changes_page(
         page.changes.push(FormalBusinessChangeV1 { cursor, change });
         page.to_inclusive = page.changes.last().unwrap().cursor.clone();
         page.next_cursor = page.to_inclusive.clone();
-        if serde_json::to_vec(&page)
+        if oasis7_world_projection::codec::changes_page_json(&page)
             .map_err(|error| error.to_string())?
             .len()
             > (max_bytes as usize).min(MAX_PAGE_BYTES)
@@ -133,7 +134,7 @@ pub fn build_formal_changes_page(
         page.next_cursor = page.to_inclusive.clone();
     }
     page.validate().map_err(|error| error.to_string())?;
-    if serde_json::to_vec(&page)
+    if oasis7_world_projection::codec::changes_page_json(&page)
         .map_err(|error| error.to_string())?
         .len()
         > (max_bytes as usize).min(MAX_PAGE_BYTES)
@@ -176,7 +177,7 @@ pub fn verify_formal_changes_page(
     page: &FormalBusinessChangesPageV1<WorldServiceProjection>,
     reader_public_key: &str,
 ) -> Result<VerifiedFormalChangesPageV1, String> {
-    oasis7_game_client::formal_business::verify_formal_changes_page(
+    oasis7_world_projection::formal_read::verify_changes_page(
         verifier,
         source,
         read_authority_digest,

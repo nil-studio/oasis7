@@ -40,7 +40,8 @@ impl World {
         let tick = parent
             .logical_tick()
             .ok_or_else(|| invalid("formal successor requires hash-bound parent time"))?;
-        let bytes = serde_cbor::to_vec(&self.snapshot()).map_err(|e| invalid(e.to_string()))?;
+        let bytes = oasis7_world_state::codec::snapshot_cbor(&self.snapshot())
+            .map_err(|e| invalid(e.to_string()))?;
         if self.state.time != tick
             || blake3::hash(&bytes).to_hex().as_str() != parent.after_snapshot_root()
             || context.height <= tick

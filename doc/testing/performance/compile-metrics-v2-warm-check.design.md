@@ -597,6 +597,34 @@ WASM specialist to confirm that the fixture represents a meaningful boundary;
 required gate. No touch threshold, fixture, or automatic trigger is implied by
 this warm/no-op design.
 
+### 11.2 State/projection extraction: fixed-profile build experiments
+
+Issue [#4948](https://github.com/nil-studio/oasis7/issues/4948) additionally requires real `cargo build` experiments for the state/projection boundary. These are manual build observations, separate from the implemented V2 `cargo check` schema and its thresholds. The no-op check above does not satisfy this obligation. Record results in the implementation PR or attached run artifacts; this design contains no claimed timing result.
+
+Use functionally equivalent immutable baseline/candidate revisions containing only the extraction and necessary supporting changes. Freeze the native Rust toolchain, host target, `ecs` profile, default feature resolution, flags, Cargo configuration, runner image, jobs (choose 1 for serial unit attribution), dependency input identities and cache state. Record exact manifest/lock identities and `rustc -vV`. Do not compare the historical ECS timing sample to a different current profile or machine as a percentage improvement. Keep three conditions separate: cold dependencies, warm dependencies with workspace outputs absent, and warm workspace outputs. Provision these conditions in disposable measurement runners or repository-approved measurement fixtures; never clear the shared development target or change the everyday `CARGO_TARGET_DIR` to manufacture a cold result.
+
+For the production native root set, the canonical timed command is:
+
+```bash
+env -u RUSTC_WRAPPER CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo build --locked --timings --profile ecs --message-format=json-render-diagnostics -p oasis7_chain_runtime -p oasis7_launcher_backend -p oasis7_viewer_runtime --bin oasis7_chain_runtime --bin oasis7_game_launcher --bin oasis7_viewer_live
+```
+
+Preserve JSON stdout, rendered compiler diagnostics, Cargo timing HTML and an external wall-clock/resource report outside the scanned checkout. Identify each compiler artifact by package ID, target name/kind, resolved features and profile, then record its `fresh` value. Keep binary package source identity validation separate from Cargo freshness. Timing HTML distinguishes frontend/codegen where available; unavailable fields are unknown rather than zero. If LLVM inspection is needed to establish concrete codec ownership, retain its exact invocation/profile and actual unit/symbol evidence separately; moving a type alias does not establish code-generation consolidation.
+
+Each touched-source scenario starts from its own independently seeded fixture with the same completed production build. Run an unchanged identical rebuild first and record its check/link overhead. Then apply exactly one reviewed, deterministic source mutation that preserves behavior and rerun the identical command. Never accumulate mutations across scenarios or edit the canonical task worktree. Freeze and retain the patch bytes and pre/post input digests, not just an mtime `touch`. Include equivalent mutations at the corresponding baseline owner when comparing revisions.
+
+| Scenario | Required observation |
+| --- | --- |
+| Same-source no-op build | Valid units remain Fresh; separately report metadata/check/link overhead. |
+| Runtime execution orchestration only | State and projection libraries remain Fresh when their actual inputs are unchanged; real execution adapters rebuild as needed. |
+| Service reader authentication/construction only | State and projection libraries remain Fresh; applicable permission tests still execute separately. |
+| Viewer presentation/read adapter only | State and projection libraries remain Fresh when unchanged; do not infer that all Viewer paths lost Runtime dependencies. |
+| State schema or required reducer change | State and its real downstream dependency closure rebuild; necessary invalidation is correct behavior. |
+| Added, removed and renamed source input | Retain three separate patches and the cache rejection/rebuild evidence; path-set changes conservatively miss the workspace overlay. |
+| Cross-run ECS producer/consumer | Retain successful trusted main native producer and compatible reader links, request/restored key identity, payload validation, true unit Fresh/rebuilt and final package identity. |
+
+For every sample preserve immutable source/head IDs, scenario patch, exact command/environment, cache provenance, wall time, unit identities/Fresh/rebuilt, available frontend/codegen time and rebuild closure. For cross-run cache samples also record raw/unique/compressed bytes and restore/save duration; calculate net benefit including transfer overhead only from comparable runs. Cache-hit, successful build, test execution and package verification are distinct facts. A compile-only harness or surviving executable is not test execution evidence. Report regressions and missing measurements explicitly; architecture acceptance and real remote workspace cache consumption remain independent completion items. This manual protocol does not add a default gate, threshold or automatic workflow trigger.
+
 ## 12. Residual risk and deferred-debt trigger
 
 The warm signal still inherits hosted-runner CPU, filesystem, scheduler, and

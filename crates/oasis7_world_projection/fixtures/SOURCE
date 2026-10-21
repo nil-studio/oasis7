@@ -1,0 +1,5 @@
+Generated from pre-extraction source 6da220a8217807ab53caac80b1a1c00672fbb6f7.
+public/owner/delegate: oasis7_world_service projection/read_contract_tests.rs populated_world(), from_formal_committed_world(None/Some("7"), empty/public(7)/public(8)).
+response: formal_read_fixtures::actual_world_initial_fixture(), formal_read_response_fixture::response with schema_version 1 and empty history steps.
+JSON: serde_json::to_vec; CBOR: serde_cbor::to_vec; signing: authority::signing_bytes("view", value).
+These fixed wire fixtures cover numeric map keys, private owner/delegate visibility, formal proof response envelopes and signing payloads. Service tests reconstruct the same observations and compare against these files.

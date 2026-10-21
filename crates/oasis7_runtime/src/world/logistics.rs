@@ -6,8 +6,8 @@ use oasis7_agent_api::world_action::ResourceKind;
 use super::super::state::LogisticsRouteV1;
 use super::super::util::sha256_hex;
 use super::super::{
-    DomainEvent, MaterialDefaultPriority, MaterialLedgerId, MaterialTransitPriority,
-    MaterialTransportLossClass, RejectReason, WorldError, WorldEvent, WorldEventBody, WorldTime,
+    DomainEvent, MaterialDefaultPriority, MaterialLedgerId, MaterialTransitPriority, RejectReason,
+    WorldError, WorldEvent, WorldEventBody, WorldTime,
 };
 use super::{LogisticsSlaMetrics, World};
 
@@ -17,9 +17,7 @@ struct PreparedDueMaterialTransits {
 }
 
 pub(super) const MATERIAL_TRANSFER_MAX_DISTANCE_KM: i64 = 10_000;
-pub(super) const MATERIAL_TRANSFER_LOSS_PER_KM_BPS: i64 = 5;
-pub(super) const MATERIAL_TRANSFER_SPEED_KM_PER_TICK: i64 = 100;
-pub(super) const MATERIAL_TRANSFER_MAX_INFLIGHT: usize = 2;
+pub(super) use oasis7_world_state::world::pure_helpers::MATERIAL_TRANSFER_MAX_INFLIGHT;
 pub(super) const LOGISTICS_MAX_HOPS: usize = 8;
 pub(super) const LOGISTICS_MAX_PATH_SEARCHES: usize = 4_096;
 
@@ -382,29 +380,9 @@ pub(super) fn material_transit_priority_for_kind(
 pub(super) fn material_transit_loss_bps_for_kind(world: &World, kind: &str) -> i64 {
     material_transit_loss_bps_for_state(&world.state, kind)
 }
-pub(crate) fn material_transit_loss_bps_for_state(state: &crate::WorldState, kind: &str) -> i64 {
-    let base = MATERIAL_TRANSFER_LOSS_PER_KM_BPS.max(0);
-    let factor = state
-        .material_profiles
-        .get(kind)
-        .map(|profile| match profile.transport_loss_class {
-            MaterialTransportLossClass::Low => 1_i64,
-            MaterialTransportLossClass::Medium => 2_i64,
-            MaterialTransportLossClass::High => 4_i64,
-        })
-        .unwrap_or(1);
-    base.saturating_mul(factor)
-}
+pub(crate) use oasis7_world_state::world::pure_helpers::material_transit_loss_bps_for_state;
 
-pub(crate) fn material_transit_ticks(distance_km: i64) -> u64 {
-    if distance_km == 0 {
-        0
-    } else {
-        ((distance_km + MATERIAL_TRANSFER_SPEED_KM_PER_TICK - 1)
-            / MATERIAL_TRANSFER_SPEED_KM_PER_TICK)
-            .max(1) as u64
-    }
-}
+pub(crate) use oasis7_world_state::world::pure_helpers::material_transit_ticks;
 
 pub(super) fn material_transit_loss_amount(amount: i64, distance_km: i64, loss_bps: i64) -> i64 {
     ((amount as i128)
@@ -1033,8 +1011,4 @@ impl World {
 
         Ok(emitted)
     }
-}
-
-pub(crate) fn material_transit_has_capacity(state: &crate::WorldState) -> bool {
-    state.pending_material_transits.len() < MATERIAL_TRANSFER_MAX_INFLIGHT
 }

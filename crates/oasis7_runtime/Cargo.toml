@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
 serde = { version = "1", features = ["derive"] }
 
@@ -42,3 +43,6 @@ test_tier_full = ["test_tier_required"]
 # Nondefault test-artifact capability for private cross-crate persistence fault seams.
 # Cargo feature unification and --all-features enable it; do not ship those test artifacts.
 test-support = []
+
+[dev-dependencies]
+oasis7_world_state = { path = "../oasis7_world_state", features = ["test-support"] }
