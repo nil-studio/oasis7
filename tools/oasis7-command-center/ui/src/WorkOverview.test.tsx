@@ -228,6 +228,7 @@ it('keeps an unlinked work compact without fabricating a goal graph',async()=>{
  const graph=screen.getByRole('region',{name:'工作关系图'});
  expect(within(graph).getByText('尚无明确目标关系')).toBeVisible();expect(graph.querySelector('.relation-map')).toBeNull();
  expect(within(graph).queryByText('修复本地工具')).not.toBeInTheDocument();
+ const facts=within(screen.getByRole('group',{name:'工作事实状态'}));expect(facts.getByText('PR 已合入')).toBeVisible();expect(facts.getByText('目标验收')).toBeVisible();expect(facts.getByText('尚未核实')).toBeVisible();
  const verification=screen.getByText('目标验收尚未核实').closest('details')!;expect(verification).not.toHaveAttribute('open');expect(screen.getByText('目标验收尚未核实')).not.toBeVisible();
  fireEvent.click(verification.querySelector('summary')!);expect(screen.getByText('目标验收尚未核实')).toBeVisible();
  fireEvent.click(within(graph).getByRole('button',{name:'选择依据并确认关联'}));expect(screen.getByRole('tab',{name:'依据'})).toHaveAttribute('aria-selected','true');
