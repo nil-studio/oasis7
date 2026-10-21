@@ -157,8 +157,7 @@ def experiment(driver, production, args, env):
                 args.output / ("isolated-create-" + variant + ".log"), args.deadline - 90, 90, args.output, env, file_limit=1024**3)
             query, packs, cache = variants[variant]
             run([cli, "database", "run-queries", "--additional-packs=" + packs, "--compilation-cache=" + str(cache), "--no-default-compilation-cache",
-                 "--common-caches=" + str(args.work / ("isolated-common-" + variant)), "--max-disk-cache=1024", "--threads=2", "--ram=3072", "--verbosity=progress+++", "--tuple-counting",
-                 "--evaluator-log=/dev/stderr", "--evaluator-log-minify", "--", str(database),
+                 "--common-caches=" + str(args.work / ("isolated-common-" + variant)), "--max-disk-cache=1024", "--threads=2", "--ram=3072", "--", str(database),
                  *[str(query / (name + ".ql")) for name in ("Macros", "Calls", "Closures")]], args.work,
                 args.output / ("isolated-reference-" + variant + ".log"), args.deadline - 90, 90, args.output, env, file_limit=1024**3)
             for name in ("Macros", "Calls", "Closures"):
