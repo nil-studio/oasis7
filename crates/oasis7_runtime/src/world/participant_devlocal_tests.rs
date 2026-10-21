@@ -390,3 +390,121 @@ fn devlocal_trusted_authority_setters_reject_before_mutation() {
         .validate_devlocal_participant_authority_context()
         .unwrap();
 }
+
+#[test]
+fn devlocal_authoritative_recovery_commit_preserves_explicit_context() {
+    let mut world = super::participant_tests::fixture()
+        .with_devlocal_participant_authority(authority(77))
+        .unwrap();
+    let policy = super::participant_tests::policy();
+    let signed = authorization(&world, &policy);
+    world
+        .install_devlocal_participant_policy(policy, signed)
+        .unwrap();
+    let path = std::env::temp_dir().join(format!(
+        "oasis7-local-authoritative-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let result = world.commit_authoritative_recovery_generation(&path, b"local-metadata");
+    let committed = match result {
+        Ok(crate::AuthoritativeRecoveryCommitStatus::Committed(value)) => value,
+        Err(error) => panic!("real local generation commit must confirm readback: {error:?}"),
+        _ => panic!("real local generation must commit"),
+    };
+    assert_eq!(
+        committed.world.devlocal_participant_authority(),
+        world.devlocal_participant_authority()
+    );
+    assert!(World::load_authoritative_recovery_generation(&path).is_err());
+    assert!(
+        World::load_authoritative_recovery_generation_with_release_security_policy(
+            &path,
+            ReleaseSecurityPolicy::production_hardened()
+        )
+        .is_err()
+    );
+    assert!(
+        World::load_authoritative_recovery_generation_with_devlocal_participant_authority(
+            &path,
+            authority(78)
+        )
+        .is_err()
+    );
+    let loaded = World::load_authoritative_recovery_generation_with_devlocal_participant_authority(
+        &path,
+        authority(77),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(loaded.generation_id, committed.generation_id);
+    assert_eq!(loaded.recovery_metadata, b"local-metadata");
+    assert_eq!(loaded.world.snapshot(), world.snapshot());
+    assert!(World::load_authoritative_recovery_metadata(&path).is_err());
+    assert!(
+        World::load_authoritative_recovery_metadata_with_release_security_policy(
+            &path,
+            ReleaseSecurityPolicy::production_hardened()
+        )
+        .is_err()
+    );
+    assert!(
+        World::load_authoritative_recovery_metadata_with_devlocal_participant_authority(
+            &path,
+            authority(78)
+        )
+        .is_err()
+    );
+    assert_eq!(
+        World::load_authoritative_recovery_metadata_with_devlocal_participant_authority(
+            &path,
+            authority(77)
+        )
+        .unwrap(),
+        Some(b"local-metadata".to_vec())
+    );
+    let hash = crate::util::sha256_hex(b"local-metadata");
+    assert!(World::readback_authoritative_recovery_generation(&path, &hash).is_err());
+    assert!(
+        World::readback_authoritative_recovery_generation_with_release_security_policy(
+            &path,
+            &hash,
+            ReleaseSecurityPolicy::production_hardened()
+        )
+        .is_err()
+    );
+    assert!(
+        World::readback_authoritative_recovery_generation_with_devlocal_participant_authority(
+            &path,
+            &hash,
+            authority(78)
+        )
+        .is_err()
+    );
+    assert!(matches!(
+        World::readback_authoritative_recovery_generation_with_devlocal_participant_authority(
+            &path,
+            &hash,
+            authority(77)
+        ),
+        Ok(crate::AuthoritativeRecoveryCommitStatus::Committed(_))
+    ));
+    assert!(matches!(
+        world.readback_authoritative_recovery_generation_for_current_context(&path, &hash),
+        Ok(crate::AuthoritativeRecoveryCommitStatus::Committed(_))
+    ));
+    // A corrupted in-memory authority cannot publish an unrecoverable generation.
+    world.state.governance_finality_signer_registry =
+        Some(crate::GovernanceFinalitySignerRegistry::default());
+    let rejected = path.join("invalid-candidate");
+    assert!(
+        world
+            .commit_authoritative_recovery_generation(&rejected, b"invalid")
+            .is_err()
+    );
+    assert!(!rejected.exists());
+    std::fs::remove_dir_all(path).unwrap();
+}

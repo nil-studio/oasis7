@@ -106,11 +106,30 @@ pub mod world {
     pub fn load_authoritative_recovery_generation(
         path: impl AsRef<Path>,
     ) -> Result<Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>, WorldError> {
-        World::load_authoritative_recovery_generation(path).map(|generation| {
-            generation.map(|mut generation| {
-                generation.world = install_runtime_capabilities(generation.world);
-                generation
-            })
+        World::load_authoritative_recovery_generation(path).map(install_generation_capabilities)
+    }
+    pub fn load_authoritative_recovery_generation_with_release_security_policy(
+        path: impl AsRef<Path>,
+        policy: ReleaseSecurityPolicy,
+    ) -> Result<Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        World::load_authoritative_recovery_generation_with_release_security_policy(path, policy)
+            .map(install_generation_capabilities)
+    }
+    pub fn load_authoritative_recovery_generation_with_devlocal_participant_authority(
+        path: impl AsRef<Path>,
+        authority: oasis7_runtime::DevLocalParticipantAuthority,
+    ) -> Result<Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>, WorldError> {
+        World::load_authoritative_recovery_generation_with_devlocal_participant_authority(
+            path, authority,
+        )
+        .map(install_generation_capabilities)
+    }
+    fn install_generation_capabilities(
+        generation: Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration>,
+    ) -> Option<crate::runtime::CommittedAuthoritativeRecoveryGeneration> {
+        generation.map(|mut generation| {
+            generation.world = install_runtime_capabilities(generation.world);
+            generation
         })
     }
 }
