@@ -132,10 +132,10 @@ impl HostedModelClient {
         if method == "GET" && relative == "/model-connections" {
             return self.connection_page(p, None);
         }
-        if method == "GET" {
-            if let Some(cursor) = relative.strip_prefix("/model-connections/pages/") {
-                return self.connection_page(p, Some(cursor));
-            }
+        if method == "GET"
+            && let Some(cursor) = relative.strip_prefix("/model-connections/pages/")
+        {
+            return self.connection_page(p, Some(cursor));
         }
         if method == "POST" && relative == "/model-connections" {
             // Move the sole decoded key allocation into zeroizing storage before
