@@ -66,6 +66,20 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
 
 低调试配置不会清除已有大体积产物；本地普通 `target` 也不会被自动搬移或删除。报告预算无法满足时列出剩余占用与保护原因，不把未知目录视为可释放空间。
 
+### ECS 缓存与完整 native 构建测量
+
+ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。达到代数或容量上限应报告跳过，不自动删其他缓存或提高额度。
+
+手动执行 `ECS Server Package`，启用 `measure_builds` 并提供明确的 `measurement_baseline`，可同时取得正常完整包和独立的 full native/no-op/Viewer 改动对照。选择相同 jobs（串行归因选 1），保留 `ecs-build-metrics` 与 `oasis7-ecs-linux-x64` 两类产物。前者测量三个生产 binary 的完整 native 闭包，后者另验证 Web/native 组合与 package source/hash；不能互相代签。
+
+已有所需 Git revisions 和 Linux x64/Rust 1.96.0 环境时，可直接执行：
+
+```bash
+python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-ref <current-sha> --jobs 1 --out-dir <external-new-report-directory>
+```
+
+脚本在自有临时 worktree/target 中预取锁定依赖，依次执行 seed、同命令 no-op 和固定 Viewer 注释变更重建。报告目录必须在 checkout 外，不能清空开发 target 造冷样本。核对来源、patch、profile/features/flags、Fresh/rebuilt 及实际重建闭包；比较不同功能修订时注明混杂因素。真实跨 run 加速仍需可信 main producer 保存成功和独立 consumer 恢复后的实际编译/包身份，PR 分支始终只读。具体测量协议见[性能设计](doc/testing/performance/compile-metrics-v2-warm-check.design.md#113-executable-ecs-native-build-and-viewer-experiment)。
+
 ## 当前实现分布（2026-02-18 基线）
 
 ### 应用主链（world + runtime + simulator + viewer 协议）

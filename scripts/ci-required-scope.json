@@ -84,7 +84,9 @@
       "python"
     ],
     "codex_agent_config_validation": [],
-    "compile_metrics": [],
+    "compile_metrics": [
+      "rust_toolchain"
+    ],
     "site_quality": [],
     "doc_checker_contracts": [
       "python",
