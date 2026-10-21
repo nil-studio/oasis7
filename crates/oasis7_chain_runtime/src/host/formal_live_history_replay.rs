@@ -431,13 +431,13 @@ pub(super) fn advance_durable_set_marker(
     Ok((successor, activation))
 }
 
-pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
-    material: &ClosedRecord,
+fn role_bytes<'a>(
+    material: &'a ClosedRecord,
     role: ArtifactRole,
-) -> Result<T, String> {
+) -> Result<std::borrow::Cow<'a, [u8]>, String> {
     if role == ArtifactRole::Snapshot {
         let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
-        return serde_cbor::from_slice(&bytes).map_err(|e| e.to_string());
+        return Ok(std::borrow::Cow::Owned(bytes));
     }
     let hash = material
         .roots
@@ -451,7 +451,30 @@ pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
     if blake3::hash(&object.bytes).to_hex().as_str() != hash {
         return Err("native publication artifact hash mismatch".into());
     }
-    serde_cbor::from_slice(&object.bytes).map_err(|error| error.to_string())
+    Ok(std::borrow::Cow::Borrowed(&object.bytes))
+}
+
+pub(super) fn decode_snapshot_role(
+    material: &ClosedRecord,
+    role: ArtifactRole,
+) -> Result<oasis7_runtime::Snapshot, String> {
+    oasis7_world_state::codec::snapshot_from_cbor(&role_bytes(material, role)?)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn decode_journal_role(
+    material: &ClosedRecord,
+    role: ArtifactRole,
+) -> Result<oasis7_runtime::Journal, String> {
+    oasis7_world_state::codec::journal_from_cbor(&role_bytes(material, role)?)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
+    material: &ClosedRecord,
+    role: ArtifactRole,
+) -> Result<T, String> {
+    serde_cbor::from_slice(&role_bytes(material, role)?).map_err(|error| error.to_string())
 }
 
 pub(super) fn require_exact_history_target(

@@ -11,6 +11,19 @@ pub struct StateRootProjection<'a, 's> {
 pub fn state_root_hash(projection: &StateRootProjection<'_, '_>) -> Result<String, WorldError> {
     crate::util::hash_json(projection)
 }
+pub fn snapshot_json_hash(snapshot: &Snapshot) -> Result<String, WorldError> {
+    crate::util::hash_json(snapshot)
+}
+pub fn journal_events_json(events: &[WorldEvent]) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(events)
+}
+pub fn journal_events_json_hash(events: &[WorldEvent]) -> Result<String, WorldError> {
+    crate::util::hash_json(&events)
+}
+/// Write pretty JSON without atomic replacement, matching the original writer.
+pub fn snapshot_write_json(snapshot: &Snapshot, path: &Path) -> Result<(), WorldError> {
+    crate::util::write_json_to_path(snapshot, path)
+}
 /// Save the concrete Snapshot through the existing atomic pretty-JSON writer.
 pub fn snapshot_save_json(snapshot: &Snapshot, path: &Path) -> Result<(), WorldError> {
     crate::util::atomic_write_json_to_path(snapshot, path)
@@ -60,6 +73,10 @@ pub fn journal_from_json(bytes: &[u8]) -> Result<Journal, serde_json::Error> {
 }
 pub fn journal_cbor(journal: &Journal) -> Result<Vec<u8>, serde_cbor::Error> {
     serde_cbor::to_vec(journal)
+}
+/// Encode the event array without the enclosing Journal object.
+pub fn journal_events_cbor(events: &[WorldEvent]) -> Result<Vec<u8>, serde_cbor::Error> {
+    serde_cbor::to_vec(&events)
 }
 pub fn journal_from_cbor(bytes: &[u8]) -> Result<Journal, serde_cbor::Error> {
     serde_cbor::from_slice(bytes)
@@ -131,6 +148,43 @@ mod tests {
     }
 
     #[test]
+    fn concrete_hashes_and_non_atomic_writer_preserve_existing_semantics() {
+        let snapshot = snapshot_from_json(include_bytes!("../fixtures/snapshot.json")).unwrap();
+        let journal = journal_from_json(include_bytes!("../fixtures/journal.json")).unwrap();
+        assert_eq!(
+            snapshot_json_hash(&snapshot),
+            crate::util::hash_json(&snapshot)
+        );
+        assert_eq!(
+            journal_events_json_hash(&journal.events),
+            crate::util::hash_json(&journal.events)
+        );
+        assert_eq!(
+            journal_events_json(&journal.events).unwrap(),
+            serde_json::to_vec(&journal.events).unwrap()
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "oasis7-codec-write-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("snapshot.json");
+        snapshot_write_json(&snapshot, &path).unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            include_bytes!("../fixtures/snapshot.pretty.json")
+        );
+        assert_eq!(
+            snapshot_write_json(&snapshot, &dir),
+            crate::util::write_json_to_path(&snapshot, &dir)
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
     fn pre_extraction_snapshot_and_journal_codecs_preserve_bytes() {
         let snapshot = snapshot_from_json(include_bytes!("../fixtures/snapshot.json")).unwrap();
         let journal = journal_from_json(include_bytes!("../fixtures/journal.json")).unwrap();
@@ -158,6 +212,10 @@ mod tests {
         assert_eq!(
             journal_json_pretty(&journal).unwrap(),
             include_bytes!("../fixtures/journal.pretty.json")
+        );
+        assert_eq!(
+            journal_events_cbor(&journal.events).unwrap(),
+            serde_cbor::to_vec(&journal.events).unwrap()
         );
         assert_eq!(
             journal_cbor(&journal).unwrap(),

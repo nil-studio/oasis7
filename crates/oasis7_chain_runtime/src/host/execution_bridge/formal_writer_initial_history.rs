@@ -139,12 +139,14 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         }
         let snapshot: Snapshot = capture::decode_snapshot(&snapshot_bytes)?;
         let journal_bytes = object(ArtifactRole::Journal)?;
-        let journal: Journal = capture::decode_generic(&journal_bytes)?;
+        let journal: Journal = oasis7_world_state::codec::journal_from_cbor(&journal_bytes)
+            .map_err(|error| error.to_string())?;
         let mut world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|error| format!("{error:?}"))?
             .with_release_security_policy(self.release.clone());
         if world.state().time != 0
-            || blake3_hex(&to_cbor(world.snapshot())?) != anchor.head().record().after_state_root
+            || blake3_hex(&snapshot_to_cbor(&world.snapshot())?)
+                != anchor.head().record().after_state_root
         {
             return Err("retained initial World is not the exact zero-height genesis".into());
         }

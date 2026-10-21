@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use super::super::util::{hash_json, write_json_to_path};
+use super::super::util::hash_json;
 use super::super::{Snapshot, SnapshotRecord, SnapshotRetentionPolicy, WorldError};
 use super::World;
 
@@ -23,7 +23,7 @@ impl World {
     }
 
     pub fn record_snapshot(&mut self, snapshot: &Snapshot) -> Result<SnapshotRecord, WorldError> {
-        let snapshot_hash = hash_json(snapshot)?;
+        let snapshot_hash = oasis7_world_state::codec::snapshot_json_hash(snapshot)?;
         let manifest_hash = hash_json(&snapshot.manifest)?;
         let record = SnapshotRecord {
             snapshot_hash,
@@ -46,7 +46,7 @@ impl World {
         let dir = dir.as_ref().join("snapshots");
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.json", record.snapshot_hash));
-        write_json_to_path(&snapshot, &path)?;
+        oasis7_world_state::codec::snapshot_write_json(&snapshot, &path)?;
 
         self.prune_snapshot_files(&dir)?;
         Ok(record)

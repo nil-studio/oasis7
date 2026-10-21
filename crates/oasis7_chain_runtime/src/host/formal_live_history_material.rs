@@ -1,6 +1,6 @@
 //! Exact publication closure recovery after typed history replay.
 use super::replay::ReplayedHistoryCut;
-use super::replay::decode_role;
+use super::replay::{decode_journal_role, decode_snapshot_role};
 use super::*;
 
 impl NativeHistoryResolver {
@@ -285,10 +285,11 @@ impl NativeHistoryResolver {
         anchor: &VerifiedFormalReadAnchorV1,
         material: &ClosedRecord,
     ) -> Result<World, String> {
-        let snapshot: Snapshot = decode_role(material, ArtifactRole::Snapshot)?;
-        let journal: Journal = decode_role(material, ArtifactRole::Journal)?;
+        let snapshot: Snapshot = decode_snapshot_role(material, ArtifactRole::Snapshot)?;
+        let journal: Journal = decode_journal_role(material, ArtifactRole::Journal)?;
         let world = if snapshot.state.retained_history_root.is_some() {
-            let bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|e| e.to_string())?;
+            let bytes =
+                oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|e| e.to_string())?;
             let parent =
                 oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
             oasis7::runtime_host::world::from_verified_formal_snapshot(

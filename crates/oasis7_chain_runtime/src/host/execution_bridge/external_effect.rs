@@ -228,7 +228,9 @@ pub(super) fn execution_world_snapshot_root(
     execution_world: &RuntimeWorld,
 ) -> Result<String, String> {
     let pre_step_snapshot = execution_world.snapshot();
-    Ok(blake3_hex(super::to_cbor(pre_step_snapshot)?.as_slice()))
+    Ok(blake3_hex(
+        super::snapshot_to_cbor(&pre_step_snapshot)?.as_slice(),
+    ))
 }
 
 pub(super) fn build_execution_external_effect_materialization_with_pre_step_root(

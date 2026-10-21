@@ -527,10 +527,7 @@ fn validate_staged_sidecar_generation(
     )?;
     let store = LocalCasStore::new(store_root);
     let restored_snapshot: Snapshot = assemble_snapshot(&manifest, &store)?;
-    let restored_events: Vec<WorldEvent> =
-        assemble_journal(journal_segments.as_slice(), &store, |event: &WorldEvent| {
-            event.id
-        })?;
+    let restored_events: Vec<WorldEvent> = assemble_journal(journal_segments.as_slice(), &store)?;
     let _ = restored_snapshot;
     let _ = restored_events;
     Ok(())

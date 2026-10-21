@@ -44,10 +44,10 @@ fn validate(
         .execution_store
         .get_verified(&boundary.journal_ref)
         .map_err(|error| format!("service setup journal CAS: {error:?}"))?;
-    let snapshot: Snapshot =
-        oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes).map_err(|error| error.to_string())?;
-    let journal: Journal =
-        serde_cbor::from_slice(&journal_bytes).map_err(|error| error.to_string())?;
+    let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes)
+        .map_err(|error| error.to_string())?;
+    let journal: Journal = oasis7_world_state::codec::journal_from_cbor(&journal_bytes)
+        .map_err(|error| error.to_string())?;
     if blake3_hex(&snapshot_bytes) != boundary.execution_state_root
         || boundary.snapshot_ref != boundary.execution_state_root
         || snapshot.state.time != boundary.height
@@ -103,8 +103,8 @@ pub(super) fn persist_initial(
         .current_cognition_runtime_binding()
         .map_err(|error| format!("{error:?}"))?;
     let identity = world_service_read::identity(&driver.world_dir, &binding.world_id)?;
-    let snapshot_bytes = to_cbor(driver.execution_world.snapshot())?;
-    let journal_bytes = to_cbor(driver.execution_world.journal())?;
+    let snapshot_bytes = super::snapshot_to_cbor(&driver.execution_world.snapshot())?;
+    let journal_bytes = super::journal_to_cbor(driver.execution_world.journal())?;
     let snapshot_ref = blake3_hex(&snapshot_bytes);
     let journal_ref = blake3_hex(&journal_bytes);
     driver

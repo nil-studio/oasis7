@@ -25,6 +25,7 @@ mod cognition_retention;
 mod cognition_scheduler;
 mod cognition_validation;
 mod cognition_wake;
+pub use oasis7_world_state::codec;
 pub use oasis7_world_state::consensus;
 pub use oasis7_world_state::effect;
 pub use oasis7_world_state::error;

@@ -440,19 +440,21 @@ impl NodeRuntimeExecutionDriver {
                 blob_count = blob_count.saturating_add(1);
                 journal_bytes_len = journal_bytes.len();
                 bundle_bytes = bundle_bytes.saturating_add(journal_bytes_len);
-                let journal = serde_cbor::from_slice::<RuntimeJournal>(journal_bytes.as_slice())
-                    .map_err(|err| {
-                        format!(
-                            "execution driver decode runtime journal failed at height {}: {}",
-                            target_height, err
-                        )
-                    })?;
+                let journal =
+                    oasis7_world_state::codec::journal_from_cbor(journal_bytes.as_slice())
+                        .map_err(|err| {
+                            format!(
+                                "execution driver decode runtime journal failed at height {}: {}",
+                                target_height, err
+                            )
+                        })
+                        .map_err(|error| error.to_string())?;
                 (journal, None)
             }
             None => {
                 let journal =
                     self.recover_runtime_journal_from_loaded_world(&snapshot, target_height)?;
-                let journal_bytes = super::to_cbor(journal.clone())?;
+                let journal_bytes = super::journal_to_cbor(&journal)?;
                 journal_bytes_len = journal_bytes.len();
                 bundle_bytes = bundle_bytes.saturating_add(journal_bytes_len);
                 let recovered_ref = self

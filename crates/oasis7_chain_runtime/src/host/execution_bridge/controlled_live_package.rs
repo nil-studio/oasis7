@@ -338,13 +338,16 @@ fn validate_transition_inner(
     }
     let before: Snapshot = capture::decode_snapshot(before_snapshot_bytes)?;
     let after: Snapshot = capture::decode_snapshot(after_snapshot_bytes)?;
-    let before_journal: Journal = capture::decode_generic(before_journal_bytes)?;
-    let after_journal: Journal = capture::decode_generic(after_journal_bytes)?;
+    let before_journal: Journal =
+        oasis7_world_state::codec::journal_from_cbor(before_journal_bytes)
+            .map_err(|error| error.to_string())?;
+    let after_journal: Journal = oasis7_world_state::codec::journal_from_cbor(after_journal_bytes)
+        .map_err(|error| error.to_string())?;
     let restored_worlds = if let Some((actual_before, actual_after)) = formal_worlds {
-        if to_cbor(actual_before.snapshot())? != before_snapshot_bytes
-            || to_cbor(actual_before.journal())? != before_journal_bytes
-            || to_cbor(actual_after.snapshot())? != after_snapshot_bytes
-            || to_cbor(actual_after.journal())? != after_journal_bytes
+        if super::snapshot_to_cbor(&actual_before.snapshot())? != before_snapshot_bytes
+            || super::journal_to_cbor(actual_before.journal())? != before_journal_bytes
+            || super::snapshot_to_cbor(&actual_after.snapshot())? != after_snapshot_bytes
+            || super::journal_to_cbor(actual_after.journal())? != after_journal_bytes
         {
             return Err("formal actual Worlds differ from serialized transition bytes".into());
         }
@@ -374,7 +377,7 @@ fn validate_transition_inner(
     {
         return Err("formal hot journal is not the exact executed suffix".into());
     }
-    if to_cbor(before_world.snapshot())? != before_snapshot_bytes
+    if super::snapshot_to_cbor(&before_world.snapshot())? != before_snapshot_bytes
         || continuation.predecessor_execution_state_root.as_deref()
             != Some(blake3_hex(before_snapshot_bytes).as_str())
         || full_journal.events.len() < before_journal.events.len()

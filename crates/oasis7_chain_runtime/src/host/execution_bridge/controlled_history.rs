@@ -237,7 +237,8 @@ fn validate_published_initial_anchor(
     )?;
     let journal_bytes = pinned(&anchor.journal_path, &anchor.journal_hash, 64 * 1024 * 1024)?;
     let snapshot = capture::decode_snapshot(&snapshot_bytes)?;
-    let journal: Journal = capture::decode_generic(&journal_bytes)?;
+    let journal: Journal = oasis7_world_state::codec::journal_from_cbor(&journal_bytes)
+        .map_err(|error| error.to_string())?;
     if record.schema_version != 3
         || record.world_id != config.trust.world_id
         || record.height != config.initial_execution_height
@@ -309,7 +310,9 @@ fn reexecute(
         return Err("real reexecution requires the wasmtime feature".into());
     }
     let before: Snapshot = capture::decode_snapshot(&preparation.before_snapshot)?;
-    let journal: Journal = capture::decode_generic(&preparation.before_journal)?;
+    let journal: Journal =
+        oasis7_world_state::codec::journal_from_cbor(&preparation.before_journal)
+            .map_err(|error| error.to_string())?;
     let mut world = oasis7::runtime_host::world::from_snapshot(before, journal)
         .map_err(|e| format!("world restore: {e:?}"))?
         .with_release_security_policy(preparation.release_security_policy.clone());
@@ -353,12 +356,12 @@ fn reexecute(
         tick: world.state().time,
     };
     let resource_hash = execution_resource_context_hash(&context.world_id);
-    let actual_snapshot = to_cbor(world.snapshot_with_chain_resource_context(
+    let actual_snapshot = super::snapshot_to_cbor(&world.snapshot_with_chain_resource_context(
         resource_context,
         resource_hash.clone(),
         resource_hash,
     ))?;
-    let actual_journal = to_cbor(world.journal())?;
+    let actual_journal = super::journal_to_cbor(world.journal())?;
     if actual_snapshot != snapshot_bytes || actual_journal != journal_bytes {
         return Err("real reexecution snapshot/journal/result mismatch".into());
     }

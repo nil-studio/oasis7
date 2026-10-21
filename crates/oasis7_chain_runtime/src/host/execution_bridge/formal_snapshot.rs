@@ -1,5 +1,7 @@
 //! Self-contained sparse Snapshot checkpoint closures; state roots stay raw-byte hashes.
-use super::{controlled_capture as capture, formal_package::insert, to_cbor};
+#[cfg(test)]
+use super::to_cbor;
+use super::{controlled_capture as capture, formal_package::insert};
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     ArtifactObject, ArtifactRole, ClosedRecord,
 };
@@ -93,10 +95,10 @@ pub(super) fn append(
         oasis7_runtime::resolve_snapshot_artifact_with_depth(&base_ref, &|hash| {
             capture::object(frozen, hash).map(<[u8]>::to_vec)
         })?;
-    if to_cbor(&base_snapshot)? != to_cbor(before)? {
+    if super::snapshot_to_cbor(&base_snapshot)? != super::snapshot_to_cbor(before)? {
         return Err("Snapshot delta producer base differs from signed Frozen prestate".into());
     }
-    if to_cbor(before)? == raw_after {
+    if super::snapshot_to_cbor(before)? == raw_after {
         return Ok(base_ref);
     }
     if depth < PRODUCER_MAX_SNAPSHOT_DELTA_DEPTH {
@@ -113,7 +115,7 @@ pub(super) fn append(
                         capture::object(frozen, hash).map(<[u8]>::to_vec)
                     }
                 })
-                .and_then(|snapshot| to_cbor(&snapshot));
+                .and_then(|snapshot| super::snapshot_to_cbor(&snapshot));
                 // Validate the exact prospective chain's recovery budget. A full
                 // checkpoint is safe when adding a delta would exceed it.
                 if rebuilt.as_deref() == Ok(raw_after.as_slice()) {

@@ -111,7 +111,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
     fn committed_read_cut(&self) -> Result<(World, VerifiedFormalReadAnchorV1), String> {
         let anchor = self.anchor().clone();
         let world = self.world().clone();
-        let snapshot_root = blake3_hex(&to_cbor(world.snapshot())?);
+        let snapshot_root = blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?);
         if snapshot_root != anchor.head().record().after_state_root
             || anchor.head().record().world.world_id != self.world_id()
         {
@@ -402,7 +402,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
 
         let record = anchor.head().record();
         let head = anchor.head().head();
-        let world_root = blake3_hex(&to_cbor(world.snapshot())?);
+        let world_root = blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?);
         if !matches!(&record.kind, FormalRecordKindV1::InitialActivation)
             || record.position != 1
             || head.position != 1
@@ -499,7 +499,7 @@ fn bootstrap_from_initial(
             "formal InitialActivation bootstrap height differs from positive World time".into(),
         );
     }
-    let world_root = blake3_hex(&to_cbor(world.snapshot())?);
+    let world_root = blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?);
     if bootstrap.execution_state_root != world_root {
         return Err("formal InitialActivation bootstrap root differs from verified World".into());
     }

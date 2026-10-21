@@ -166,7 +166,7 @@ impl ViewerRuntimeLiveServer {
             ));
         }
         let runtime_snapshot_hash = hex::encode(Sha256::digest(
-            serde_json::to_vec(&rollback_checkpoint.snapshot).map_err(|err| {
+            crate::runtime::codec::snapshot_json(&rollback_checkpoint.snapshot).map_err(|err| {
                 recovery_error(
                     "rollback_intent_encode_failed",
                     format!("encode rollback checkpoint failed: {err}"),
