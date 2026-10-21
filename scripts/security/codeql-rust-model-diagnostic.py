@@ -304,6 +304,7 @@ def main():
     mode.add_argument("--production-macro-database", action="store_true")
     mode.add_argument("--inspect-evaluator-evidence", action="store_true")
     mode.add_argument("--compile-anchored-parent", action="store_true")
+    mode.add_argument("--isolated-ast-stage", action="store_true")
     parser.add_argument("--evaluator-cost-probes", action="store_true")
     parser.add_argument("--evaluator-batch", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
@@ -352,6 +353,18 @@ def diagnose(args):
     version = json.loads((args.output / "codeql-version.json").read_text())
     if version["version"] != "2.27.2":
         raise RuntimeError("unexpected CodeQL version")
+    if args.isolated_ast_stage:
+        import types
+        modules = []
+        for label, filename in (("production", "codeql-rust-production-macros.py"),
+                                ("isolated", "codeql-rust-isolated-stage.py")):
+            spec = importlib.util.spec_from_file_location(label, Path(__file__).with_name(filename))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            modules.append(module)
+        modules[1].experiment(types.SimpleNamespace(run=run, fixture=fixture, write=write, hashes=hashes,
+            LIBRARY_VERSIONS=LIBRARY_VERSIONS, MACROS=MACROS, CALLS=CALLS, CLOSURES=CLOSURES), modules[0], args, env)
+        return
     if args.inspect_evaluator_evidence:
         helper = Path(__file__).with_name("codeql-rust-production-macros.py")
         specification = importlib.util.spec_from_file_location("evaluator_inspection", helper)

@@ -386,6 +386,47 @@ def batch_queries(run, args, env, query, packs, cache, database):
         "rust_baseline": "HOLD"}, indent=2)+"\n").encode(), args.output)
 
 
+def isolated_source_ast(run, args, env, query, packs, cache, database):
+    if args.deadline - time.monotonic() < 210:
+        raise RuntimeError("insufficient original SourceAst budget plus90 reserve")
+    cli = str(args.codeql)
+    log = args.output / "isolated-production-SourceAst.log"
+    error = None
+    summary_error = None
+    try:
+        run([cli, "query", "run", str(query / "SourceAst.ql"), "--database=" + str(database),
+             "--output=" + str(args.work / "isolated-production-SourceAst.bqrs"),
+             "--additional-packs=" + packs, "--compilation-cache=" + str(cache),
+             "--no-default-compilation-cache", "--common-caches=" + str(args.work / "isolated-common-candidate"),
+             "--threads=2", "--ram=3072", "--max-disk-cache=1024", "--verbosity=progress+++", "--tuple-counting",
+             "--evaluator-log=/dev/stderr", "--evaluator-log-minify"], args.work, log,
+            args.deadline - 90, 120, args.output, env, file_limit=1024**3)
+    except BaseException as exc:
+        error = exc
+    try:
+        result = json.loads(log.with_suffix(".log.result.json").read_text())
+        allowed = not result["cleanup_errors"] and (result["error"] is None or
+            result["error"] == "TimeoutError('diagnostic phase deadline exhausted')")
+        if allowed and args.deadline - time.monotonic() >= 25:
+            events = args.output / "isolated-production-events.jsonl"
+            framing = frame_complete_events(log, events, args.output)
+            evidence_write(args.output / "isolated-production-framing.json", (json.dumps(framing)+"\n").encode(), args.output)
+            run([cli, "generate", "log-summary", "--format=text", str(events)], args.work,
+                args.output / "isolated-production-summary.log", args.deadline, 20, args.output, env)
+    except BaseException as exc:
+        summary_error = exc
+    if error is not None:
+        raise error
+    if summary_error is not None:
+        raise RuntimeError("isolated summary UNKNOWN") from summary_error
+    run([cli, "bqrs", "decode", str(args.work / "isolated-production-SourceAst.bqrs"), "--format=csv",
+         "--output=" + str(args.output / "isolated-production-SourceAst.csv")], args.work,
+        args.output / "isolated-production-decode.log", args.deadline, 20, args.output, env)
+    evidence_write(args.output / "isolated-production-result.json", (json.dumps({
+        "source_ast": "REQUIRES_INDEPENDENT_TABLE_REVIEW", "df_peer_coverage": "HOLD",
+        "rust_baseline": "HOLD", "official_pack_modified": False})+"\n").encode(), args.output)
+
+
 def cost_probes(run, args, env, query, packs, cache, database):
     cli = str(args.codeql)
     help_text = (args.output / "query-run-help.log").read_text()
@@ -589,6 +630,9 @@ def execute(run, args, env, query, packs, cache):
                 raise RuntimeError("production archived module/source changed")
             source_hashes[path] = {"archive_key": matches[0].filename, "sha256": actual}
     (args.output / "production-source-hashes.json").write_text(json.dumps(source_hashes, indent=2) + "\n")
+    if getattr(args, "isolated_library_source_ast", False):
+        isolated_source_ast(run, args, env, query, packs, cache, database)
+        return
     if getattr(args, "evaluator_batch", False):
         batch_queries(run, args, env, query, packs, cache, database)
         return
