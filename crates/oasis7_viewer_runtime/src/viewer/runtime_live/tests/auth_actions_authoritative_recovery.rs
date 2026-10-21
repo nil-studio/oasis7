@@ -1193,3 +1193,6 @@ fn runtime_authoritative_recovery_rotate_and_revoke_session_enforced_for_agent_c
         .expect_err("revoked key should be rejected");
     assert_eq!(revoked_err.code, "session_revoked");
 }
+
+#[path = "auth_actions_authoritative_recovery/devlocal_write_fence.rs"]
+mod devlocal_write_fence;

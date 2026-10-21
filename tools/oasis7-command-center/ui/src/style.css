@@ -472,3 +472,21 @@ main{padding:16px 24px}
 .tool-current p{font-size:.875rem;color:#b0bed0;margin:4px 0}
 .tool-diagnostics>summary{padding:10px 16px!important}
 @container app (max-width:47.5rem){.tool-tasks{grid-template-columns:repeat(2,minmax(0,1fr))}.tool-current{flex-wrap:wrap}.tool-current>div{flex-basis:70%}.tool-current>button{margin-left:auto}}
+
+/* Search follows source identity, with visible literal matches. */
+.query-summary,.search-document-title,.source-match-nav{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.search-document{padding:20px 24px;border-top:1px solid var(--border,#334155);min-width:0}
+.search-document-title strong,.query-summary .tag,.source-document-name{overflow-wrap:anywhere;white-space:normal}
+.search-document details{margin:8px 0;overflow-wrap:anywhere}
+.search-hit{padding:16px 0;border-top:1px solid #29384a}
+.match-snippet{margin:8px 0;line-height:1.6;overflow-wrap:anywhere}
+mark{background:#655024;color:#fff0bf;border-radius:3px;padding:0 2px}
+mark.active-match{background:#a3f1d5;color:#10251f;outline:2px solid #a3f1d5;outline-offset:2px}
+.source-match-nav{position:sticky;top:0;z-index:2;background:#162031;padding:12px;border:1px solid #526579;border-radius:8px}
+.source-match-nav span{overflow-wrap:anywhere;min-width:0}
+.source-document-name{color:#aebdd0;margin-top:0}
+.search-results .panel-title{flex-wrap:wrap;gap:12px}
+
+.source-inspector{display:flex;flex-direction:column;overflow:hidden}
+.source-inspector>.panel-title{flex-shrink:0}
+.source-inspector>.panel-body{overflow:auto;min-height:0}

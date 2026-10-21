@@ -112,6 +112,71 @@ impl ViewerRuntimeLiveServer {
         Ok(true)
     }
 
+    pub(super) fn take_virtual_events_for_session(
+        &mut self,
+        session: &RuntimeLiveSession,
+    ) -> Vec<WorldEvent> {
+        let pending = std::mem::take(&mut self.pending_virtual_events);
+        let mut events = Vec::new();
+        for event in pending {
+            if matches!(
+                event.kind,
+                oasis7_simulator::WorldEventKind::AgentSpoke { .. }
+            ) {
+                let current = self
+                    .private_chat_event_owners
+                    .get(&event.id)
+                    .is_some_and(|owner| self.private_chat_owner_is_current(owner));
+                if !current {
+                    self.private_chat_event_owners.remove(&event.id);
+                    continue;
+                }
+                if !session.explicitly_subscribed_to(ViewerStream::Events)
+                    || !self.private_chat_event_allowed(session, &event)
+                {
+                    self.pending_virtual_events.push_back(event);
+                    continue;
+                }
+            }
+            events.push(event);
+        }
+        events
+    }
+
+    pub(super) fn send_session_event(
+        &mut self,
+        session: &RuntimeLiveSession,
+        writer: &mut dyn Write,
+        event: &WorldEvent,
+    ) -> Result<(), ViewerRuntimeLiveServerError> {
+        if matches!(
+            event.kind,
+            oasis7_simulator::WorldEventKind::AgentSpoke { .. }
+        ) {
+            if !self.private_chat_event_allowed(session, event) {
+                return Ok(());
+            }
+            // This private DTO is reachable only with immutable signed-request
+            // provenance and the current session/owner/binding fences above.
+            let event_id = event.id;
+            let mut event = event.clone();
+            event.runtime_event = None;
+            serde_json::to_writer(&mut *writer, &ViewerResponse::Event { event })
+                .map_err(|error| ViewerRuntimeLiveServerError::Serde(error.to_string()))?;
+            writer.write_all(b"\n")?;
+            writer.flush()?;
+            self.private_chat_event_owners.remove(&event_id);
+            Ok(())
+        } else {
+            send_response(
+                writer,
+                &ViewerResponse::Event {
+                    event: event.clone(),
+                },
+            )
+        }
+    }
+
     pub(super) fn flush_pending_virtual_events(
         &mut self,
         session: &mut RuntimeLiveSession,
@@ -120,7 +185,10 @@ impl ViewerRuntimeLiveServer {
         if self.pending_virtual_events.is_empty() {
             return Ok(());
         }
-        let mapped_events: Vec<_> = self.pending_virtual_events.drain(..).collect();
+        let mapped_events = self.take_virtual_events_for_session(session);
+        if mapped_events.is_empty() {
+            return Ok(());
+        }
         let pending_batch = self.register_authoritative_batch(mapped_events.as_slice())?;
         let batch_finality_updates =
             self.advance_authoritative_batch_finality(self.world.state().time)?;
@@ -128,12 +196,7 @@ impl ViewerRuntimeLiveServer {
         if session.explicitly_subscribed_to(ViewerStream::Events) {
             for event in &mapped_events {
                 if session.event_allowed(event) {
-                    send_response(
-                        writer,
-                        &ViewerResponse::Event {
-                            event: event.clone(),
-                        },
-                    )?;
+                    self.send_session_event(session, writer, event)?;
                 }
             }
             send_response(
@@ -218,8 +281,21 @@ impl ViewerRuntimeLiveServer {
                         .validate_known_session_key(&chat.player_id, &chat.public_key)
                         .is_ok()
             });
+        let canonical_binding = if self.config.world_service.is_some() {
+            snapshot_player_id.and_then(|player| {
+                let key = self.session_policy.active_session_public_key(player)?;
+                self.session_policy
+                    .validate_known_session_key(player, key)
+                    .ok()?;
+                self.canonical_session_agent(player, key)
+            })
+        } else {
+            None
+        };
         let snapshot_bound_agent_id = if self.chain_link_enabled() {
-            canonical_chat.map(|chat| chat.agent_id.as_str())
+            canonical_chat
+                .map(|chat| chat.agent_id.as_str())
+                .or(canonical_binding.as_deref())
         } else {
             snapshot_player_id
                 .and_then(|player_id| self.llm_sidecar.bound_agent_for_player(player_id))
@@ -231,13 +307,21 @@ impl ViewerRuntimeLiveServer {
                 self.world.governance_execution_policy().epoch_length_ticks,
             )
         });
-        let first_agent_claim_target_bound = runtime_state
-            .agents
-            .contains_key(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
-            && self
-                .llm_sidecar
-                .agent_player_bindings
-                .contains_key(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID);
+        let first_agent_claim_target_bound = if self.config.world_service.is_some() {
+            // Claim availability is a public ownership fact, independent of
+            // the optional local sidecar and private owner-control readiness.
+            runtime_state
+                .resolved_agent_owner(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+                .is_some()
+        } else {
+            runtime_state
+                .agents
+                .contains_key(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+                && self
+                    .llm_sidecar
+                    .agent_player_bindings
+                    .contains_key(crate::viewer::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+        };
         // A local session binding is only a sync hint. It must never grant canonical
         // ownership, command authority, or completion progress.
         let owner_sync_pending = self.chain_link_enabled()

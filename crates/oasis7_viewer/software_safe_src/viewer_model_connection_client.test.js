@@ -56,7 +56,7 @@ describe("model connection client", () => {
   expect(result.raw_key).toBeUndefined(); expect(result.error_code).toBe("request_failed");
   expect(JSON.stringify(result)).not.toContain("private-canary");
   const conflict = createViewerModelConnectionClient({ fetch: async (url) => url.endsWith("/capabilities") ? response({ csrf_token: "csrf" }) : response({ error: "private-canary" }, 409) });
-  await expect(conflict.stop(snapshot)).rejects.toMatchObject({ code: "version_conflict", status: 409 });
+  await expect(conflict.stop(snapshot)).rejects.toMatchObject({ code: "request_failed", status: 409 });
  });
  it("preserves safe model and budget errors instead of turning all conflicts into CAS errors", async () => {
   for (const code of ["budget_exhausted", "model_unavailable", "game_executor_unavailable"]) {
@@ -83,4 +83,48 @@ it("allowlists model diagnostics and preserves legacy snapshots without raw deta
   expect(result.execution.model_failure).toBeNull();
   expect(JSON.stringify(result)).not.toContain("private-canary");
  }
+});
+
+it("uses a new explicit probe identity only after a confirmed terminal failure", async () => {
+ let attempts = 0;
+ const fetch = vi.fn(async (url) => url.endsWith("/capabilities") ? response({csrf_token:"csrf"}) : ++attempts === 1 ? response({error_code:"rate_limited", operation_state:"failed"},409) : response({ok:true,connection:snapshot,operation_state:"ready"}));
+ let id=0; const client=createViewerModelConnectionClient({fetch,operationId:()=>`probe-${++id}`});
+ await expect(client.probe(snapshot)).rejects.toMatchObject({code:"rate_limited"}); await client.probe(snapshot);
+ expect(fetch.mock.calls.filter(([url])=>url.endsWith("/probe")).map(([,init])=>JSON.parse(init.body).operation_id)).toEqual(["probe-1","probe-2"]);
+});
+it("preserves typed protocol failures and never infers a CAS conflict from status alone", async () => {
+ for (const code of ["model_identity_mismatch","invalid_response","unexpected_streaming","private-secret"]) {
+ const client=createViewerModelConnectionClient({fetch:async()=>response({error_code:code},409)});
+ await expect(client.capabilities()).rejects.toMatchObject({code:code==="private-secret"?"request_failed":code});
+ }
+});
+it("reads 65 connections over coherent bounded pages", async () => {
+ const items=Array.from({length:65},(_,i)=>({...snapshot,id:`connection-${i}`}));
+ const fetch=vi.fn(async url=>response(url.endsWith("/pages/cursor-1")?{connections:items.slice(64),page_limit:64,list_cut:"cut",next_cursor:null}:{connections:items.slice(0,64),page_limit:64,list_cut:"cut",next_cursor:"cursor-1"}));
+ expect(await createViewerModelConnectionClient({fetch}).list()).toHaveLength(65); expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it("keeps unknown probe identity and original version across read-only reconciliation", async () => {
+ const fetch=vi.fn(async url=>url.endsWith("/capabilities")?response({csrf_token:"csrf"}):response({error_code:"request_failed"},502));
+ let id=0;const client=createViewerModelConnectionClient({fetch,operationId:()=>`probe-${++id}`});
+ await expect(client.probe(snapshot)).rejects.toMatchObject({code:"request_failed"});
+ await expect(client.probe({...snapshot,version:2})).rejects.toMatchObject({code:"request_failed"});
+ const sent=fetch.mock.calls.filter(([url])=>url.endsWith("/probe")).map(([,init])=>JSON.parse(init.body));
+ expect(sent[0]).toEqual(sent[1]); expect(id).toBe(1);
+});
+it("rejects inconsistent, repeated, or oversized pages without returning partial management results", async () => {
+ for(const second of [{connections:[snapshot],page_limit:64,list_cut:"changed",next_cursor:null},{connections:[snapshot],page_limit:64,list_cut:"cut",next_cursor:null},{connections:Array(65).fill(snapshot),page_limit:64,list_cut:"cut",next_cursor:null}]) {
+ let calls=0;const client=createViewerModelConnectionClient({fetch:async()=>response(++calls===1?{connections:[snapshot],page_limit:64,list_cut:"cut",next_cursor:"cursor"}:second)});
+ await expect(client.list()).rejects.toMatchObject({code:"request_failed"});
+ }
+});
+
+it.each(["probe", "stop"])("starts a new explicit %s after authoritative non-admission and refreshed CAS version", async (action) => {
+ let writes=0,id=0;
+ const fetch=vi.fn(async(url,init)=>url.endsWith("/capabilities")?response({csrf_token:"csrf"}):init.method==="GET"?response({connection:{...snapshot,version:2}}):++writes===1?response({error_code:"version_conflict",operation_state:"not_started"},409):response({connection:{...snapshot,version:2},operation_state:"ready"}));
+ const client=createViewerModelConnectionClient({fetch,operationId:()=>`probe-${++id}`});
+ await expect(client[action](snapshot)).rejects.toMatchObject({code:"version_conflict"});
+ await client[action](await client.read(snapshot));
+ const sent=fetch.mock.calls.filter(([url])=>url.endsWith(`/${action}`)).map(([,init])=>JSON.parse(init.body));
+ expect(sent.map(v=>[v.operation_id,v.expected_version])).toEqual([["probe-1",1],["probe-2",2]]);
 });

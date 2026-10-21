@@ -273,6 +273,13 @@ mod tests {
             server
                 .scoped_feedback_for_player(Some("owner"))
                 .unwrap()
+                .request_auth_nonce,
+            Some(1)
+        );
+        assert_eq!(
+            server
+                .scoped_feedback_for_player(Some("owner"))
+                .unwrap()
                 .stage,
             "completed_advanced"
         );

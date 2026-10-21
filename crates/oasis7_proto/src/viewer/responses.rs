@@ -263,6 +263,8 @@ pub struct AgentChatError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameplayActionAck<Time> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submission_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consensus_action_payload_hash: Option<String>,
     pub action_id: String,
     pub target_agent_id: String,

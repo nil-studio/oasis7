@@ -313,3 +313,190 @@ fn explicit_stop_hides_finished_failure_and_late_old_generation() {
     assert_eq!(replay.status, 200);
     assert_eq!(replay.body["connection"]["execution"], finished);
 }
+
+#[test]
+fn management_pages_keep_65_records_and_bind_continuation_to_session_and_cut() {
+    let (host, _) = fixture();
+    let p = principal("owner", "session");
+    for _ in 0..64 {
+        let c = create(&host, &p);
+        let reply = request(
+            &host,
+            &p,
+            "DELETE",
+            &format!("/model-connections/{}", c["id"].as_str().unwrap()),
+            json!({"expected_version":1}),
+        );
+        assert_eq!(reply.status, 200);
+    }
+    let active = create(&host, &p);
+    let first = request(&host, &p, "GET", "/model-connections", Value::Null);
+    assert_eq!(first.body["connections"].as_array().unwrap().len(), 64);
+    assert_eq!(first.body["page_limit"], 64);
+    let continuation = format!(
+        "/model-connections/pages/{}",
+        first.body["next_cursor"].as_str().unwrap()
+    );
+    let second = request(&host, &p, "GET", &continuation, Value::Null);
+    assert_eq!(second.status, 200);
+    assert_eq!(second.body["connections"].as_array().unwrap().len(), 1);
+    assert!(second.body["next_cursor"].is_null());
+    let ids: std::collections::HashSet<_> = first.body["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(second.body["connections"].as_array().unwrap())
+        .map(|v| v["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 65);
+    assert!(ids.contains(active["id"].as_str().unwrap()));
+    let active_path = format!("/model-connections/{}", active["id"].as_str().unwrap());
+    assert_eq!(
+        request(&host, &p, "GET", &active_path, Value::Null).body["connection"]["version"],
+        1
+    );
+    assert_eq!(
+        request(
+            &host,
+            &principal("owner", "other-session"),
+            "GET",
+            &continuation,
+            Value::Null
+        )
+        .body["error_code"],
+        "list_changed"
+    );
+    assert_eq!(
+        request(
+            &host,
+            &principal("other-owner", "session"),
+            "GET",
+            &active_path,
+            Value::Null
+        )
+        .status,
+        404
+    );
+    assert_eq!(
+        request(
+            &host,
+            &p,
+            "POST",
+            &format!("{active_path}/stop"),
+            json!({"expected_version":1,"operation_id":"change-list-cut"})
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        request(&host, &p, "GET", &continuation, Value::Null).body["error_code"],
+        "list_changed"
+    );
+}
+
+#[test]
+fn probe_replay_reports_terminal_failure_without_new_provider_work() {
+    use oasis7_model_provider::connection::ProbeStart;
+    let (host, _) = fixture();
+    let p = principal("owner", "session");
+    let c = create(&host, &p);
+    let id = c["id"].as_str().unwrap();
+    let ProbeStart::Operation(operation) = host.manager.begin_probe(&p, id, 1, "original").unwrap()
+    else {
+        panic!("new operation required")
+    };
+    let permit = operation.reserve_phase(0, 1).unwrap();
+    permit.finish(None, false).unwrap();
+    let before = host.manager.snapshot(&p, id).unwrap();
+    let reply = request(
+        &host,
+        &p,
+        "POST",
+        &format!("/model-connections/{id}/probe"),
+        json!({"expected_version":1,"operation_id":"original","consent":true}),
+    );
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.body["operation_state"], "failed");
+    assert_eq!(reply.body["connection"]["version"], before.version);
+    assert_eq!(reply.body["connection"]["calls_spent"], before.budget.calls);
+    assert_eq!(
+        host.manager
+            .probe_status(&principal("other", "session"), id, "original"),
+        Err(ConnectionError::Unavailable)
+    );
+}
+
+#[test]
+fn management_capacity_is_distinct_from_model_call_budget() {
+    let (host, _) = fixture();
+    let p = principal("owner", "session");
+    for _ in 0..8 {
+        create(&host, &p);
+    }
+    let response = request(
+        &host,
+        &p,
+        "POST",
+        "/model-connections",
+        json!({"preset_id":"test","raw_key":SECRET,"consent":true}),
+    );
+    assert_eq!(response.body["error_code"], "connection_capacity_exceeded");
+    let page = request(&host, &p, "GET", "/model-connections", Value::Null);
+    assert_eq!(
+        page.body["management_limits"]["retained_records_per_process"],
+        4096
+    );
+    assert!(
+        page.body["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["calls_spent"] == 0)
+    );
+}
+
+#[test]
+fn probe_pre_admission_conflict_is_explicitly_not_started() {
+    let (host, _) = fixture();
+    let p = principal("owner", "session");
+    let c = create(&host, &p);
+    let id = c["id"].as_str().unwrap();
+    host.manager.stop(&p, id, 1).unwrap();
+    let reply = request(
+        &host,
+        &p,
+        "POST",
+        &format!("/model-connections/{id}/probe"),
+        json!({"expected_version":1,"operation_id":"not-admitted","consent":true}),
+    );
+    assert_eq!(reply.body["error_code"], "version_conflict");
+    assert_eq!(reply.body["operation_state"], "not_started");
+    assert_eq!(host.manager.snapshot(&p, id).unwrap().budget.calls, 0);
+}
+
+#[test]
+fn stop_pre_admission_conflict_is_explicitly_not_started() {
+    let (host, _) = fixture();
+    let p = principal("owner", "session");
+    let c = create(&host, &p);
+    let id = c["id"].as_str().unwrap();
+    host.manager.stop(&p, id, 1).unwrap();
+    let reply = request(
+        &host,
+        &p,
+        "POST",
+        &format!("/model-connections/{id}/stop"),
+        json!({"expected_version":1,"operation_id":"not-admitted"}),
+    );
+    assert_eq!(reply.body["error_code"], "version_conflict");
+    assert_eq!(reply.body["operation_state"], "not_started");
+    let reply = request(
+        &host,
+        &p,
+        "POST",
+        &format!("/model-connections/{id}/stop"),
+        json!({"expected_version":2,"operation_id":"next-explicit-stop"}),
+    );
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.body["connection"]["version"], 3);
+}

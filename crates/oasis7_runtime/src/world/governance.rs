@@ -298,6 +298,11 @@ impl World {
         &mut self,
         registry: GovernanceFinalitySignerRegistry,
     ) -> Result<(), WorldError> {
+        if self.devlocal_participant_authority.is_some() {
+            return Err(WorldError::GovernancePolicyInvalid {
+                reason: "finality signer registry conflicts with explicit DevLocal participant authority".into(),
+            });
+        }
         let registry = self.validate_governance_finality_signer_registry(registry)?;
         for (node_id, public_key_hex) in &registry.signer_bindings {
             match self.node_identity_public_key(node_id.as_str()) {

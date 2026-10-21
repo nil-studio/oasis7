@@ -106,3 +106,49 @@ it("hides stale failure details in revoked, expired or stopped-phase snapshots",
  await waitFor(() => expect(result.container.textContent).toContain("Authority or run state changed"));
  expect(result.container.textContent).not.toContain("Model output reached its limit");
 });
+
+it("reconciles a failed lease to the finished version without restarting or resetting budget", async () => {
+ vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-16T00:00:00Z"));
+ const descriptor=Object.getOwnPropertyDescriptor(document,"visibilityState"); Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"});
+ const initial={...connection(),run_state:"running",calls_spent:2};
+ const finished={...initial,version:3,run_state:"stopped",execution:{phase:"finished",reason:"completed"}};
+ const api=client([initial]); api.lease.mockRejectedValueOnce({code:"version_conflict"}); api.read=vi.fn(async()=>finished);
+ const result=panel(api); await vi.advanceTimersByTimeAsync(0); await vi.advanceTimersByTimeAsync(31000);
+ expect(api.read).toHaveBeenCalledWith(initial); expect(result.container.textContent).not.toContain("Executor running");
+ expect(api.activate).not.toHaveBeenCalled(); expect(api.create).not.toHaveBeenCalled();
+ await vi.advanceTimersByTimeAsync(1000); expect(api.lease.mock.calls.at(-1)[0]).toMatchObject({version:3,calls_spent:2,absolute_expires_at_ms:initial.absolute_expires_at_ms});
+ if(descriptor) Object.defineProperty(document,"visibilityState",descriptor); else delete document.visibilityState;
+});
+
+it("keeps a known connection manageable when paginated history changes", async () => {
+ const api=client(); api.read=vi.fn(async(value)=>({...value,version:2}));
+ const result=panel(api); await waitFor(()=>expect(result.container.textContent).toContain("Model ready"));
+ api.list.mockRejectedValueOnce({code:"list_changed"});
+ fireEvent.click(result.getByRole("button",{name:"Refresh connection status"}));
+ await waitFor(()=>expect(api.read).toHaveBeenCalledTimes(1));
+ expect(result.getByRole("alert").textContent).toContain("list changed");
+ fireEvent.click(result.getByRole("button",{name:"Disconnect and forget"}));
+ await waitFor(()=>expect(api.forget).toHaveBeenCalledWith(expect.objectContaining({version:2})));
+});
+
+it("drops a last-known connection after an authoritative ownership denial", async () => {
+ const api=client(); api.read=vi.fn(async()=>{throw {status:404,code:"request_failed"};});
+ const result=panel(api); await waitFor(()=>expect(result.container.textContent).toContain("Model ready"));
+ api.list.mockRejectedValueOnce({code:"list_changed"});
+ fireEvent.click(result.getByRole("button",{name:"Refresh connection status"}));
+ await waitFor(()=>expect(api.read).toHaveBeenCalledTimes(1));
+ expect(result.container.textContent).not.toContain("Model ready");
+ expect(result.queryByRole("button",{name:"Disconnect and forget"})).toBeNull();
+});
+
+it("ignores a delayed lease after a newer management refresh", async () => {
+ vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-16T00:00:00Z"));
+ const descriptor=Object.getOwnPropertyDescriptor(document,"visibilityState");Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"});
+ let finish;const old={...connection(),run_state:"running"};const api=client([old]);api.read=vi.fn();api.lease.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ const result=panel(api);await vi.advanceTimersByTimeAsync(0);await vi.advanceTimersByTimeAsync(30000);
+ expect(finish).toBeTypeOf("function");api.list.mockResolvedValueOnce([]);
+ fireEvent.click(result.getByRole("button",{name:"Refresh connection status"}));await vi.advanceTimersByTimeAsync(0);
+ finish({...old,version:2});await vi.advanceTimersByTimeAsync(0);
+ expect(result.container.textContent).not.toContain("Executor running");expect(api.read).not.toHaveBeenCalled();
+ if(descriptor)Object.defineProperty(document,"visibilityState",descriptor);else delete document.visibilityState;
+});

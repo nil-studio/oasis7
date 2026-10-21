@@ -90,6 +90,11 @@ pub enum CapabilityAuthorizationEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         proof: Option<crate::service_admission::participant_policy::ParticipantPolicyProofV1>,
     },
+    DevLocalParticipantPolicyInstalled {
+        authorization: crate::service_admission::SignedReadRequest<
+            crate::service_admission::participant_policy::DevLocalParticipantPolicyAuthorizationV1,
+        >,
+    },
     ParticipantRegistered {
         owner: crate::service_admission::SignedReadRequest<
             oasis7_agent_api::game::GameParticipantRegisterV1,

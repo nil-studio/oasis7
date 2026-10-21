@@ -292,6 +292,14 @@ impl ViewerRuntimeLiveServer {
                 return Err(error);
             }
         }
+        self.active_private_chat_authorized = true;
+        if let Some(owner) = self.current_private_chat_request_owner() {
+            if self.private_chat_intent_owners.len() >= 256 {
+                self.private_chat_intent_owners.pop_first();
+            }
+            self.private_chat_intent_owners
+                .insert(accepted_intent.intent_id.clone(), owner);
+        }
         self.enqueue_agent_chat_echo_event_if_enabled(agent_id.as_str(), message.as_str());
         self.complete_agent_chat_if_receipt_bound(
             agent_id.as_str(),
@@ -306,6 +314,7 @@ impl ViewerRuntimeLiveServer {
             .primary_intents
             .insert(agent_id.clone(), primary_intent);
         self.set_verified_player_gameplay_feedback(&verified, PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: "agent_chat".to_string(),
             stage: "accepted".to_string(),
             effect: format!("queued direct agent instruction for {}", agent_id),

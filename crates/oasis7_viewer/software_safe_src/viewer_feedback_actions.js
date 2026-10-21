@@ -77,3 +77,18 @@ export function normalizeViewerAvailableActions({
     };
   });
 }
+
+export function normalizeGameplayActionRequest(action) {
+  if (!action || typeof action !== "object") {
+    return null;
+  }
+  const normalized = {
+    ...action,
+    protocol_action: action.protocol_action || action.protocolAction || null,
+    action_id: action.action_id || action.actionId || null,
+    target_agent_id: action.target_agent_id || action.targetAgentId || null,
+    actor_agent_id: action.actor_agent_id || action.actorAgentId || null,
+    disabled_reason: action.disabled_reason || action.disabledReason || null,
+  };
+  return normalized;
+}

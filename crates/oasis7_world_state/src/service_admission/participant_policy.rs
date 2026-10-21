@@ -91,3 +91,21 @@ pub fn policy_proposal_commitment(
         "policy_digest":policy_digest(policy)?,"manifest_digest":request_digest("participant-policy-approved-manifest",manifest)?}),
     )
 }
+
+/// Explicit operator authorization, separate from governed finality evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevLocalParticipantPolicyAuthorizationV1 {
+    pub policy: ParticipantEntryPolicyV1,
+    pub manifest: SignedReadRequest<ParticipantMigrationManifestV1>,
+}
+pub const PARTICIPANT_DEVLOCAL_POLICY_INSTALL_DOMAIN: &str =
+    "participant_devlocal_policy_install_v1";
+pub const PARTICIPANT_DEVLOCAL_POLICY_UPDATE_DOMAIN: &str = "participant_devlocal_policy_update_v1";
+pub fn devlocal_policy_signing_domain(generation: u64) -> &'static str {
+    if generation == 1 {
+        PARTICIPANT_DEVLOCAL_POLICY_INSTALL_DOMAIN
+    } else {
+        PARTICIPANT_DEVLOCAL_POLICY_UPDATE_DOMAIN
+    }
+}

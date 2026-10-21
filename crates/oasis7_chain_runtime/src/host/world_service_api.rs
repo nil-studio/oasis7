@@ -12,18 +12,19 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[path = "world_service_executor_api.rs"]
+mod executor_api;
 #[path = "membership_operations.rs"]
 mod membership_operations;
 #[path = "world_service_operations.rs"]
 mod operations;
 #[path = "world_service_participant_api.rs"]
 mod participant_api;
-#[path="world_service_executor_api.rs"]
-mod executor_api;
 #[path = "world_service_private_goal.rs"]
 pub(super) mod private_goal;
 
 pub(super) struct Service<'a> {
+    restore_context: world_service_read::RestoreContext,
     records: &'a Path,
     storage: &'a Path,
     identity: WorldIdentity,
@@ -39,14 +40,26 @@ impl Service<'_> {
         if let Some((config, authority)) = self.guarded {
             world_service_read::pin_guarded(self.records, config, authority, fixed, None)
         } else {
-            world_service_read::pin(self.records, self.storage, &self.identity, fixed)
+            world_service_read::pin_with_context(
+                self.records,
+                self.storage,
+                &self.identity,
+                fixed,
+                &self.restore_context,
+            )
         }
     }
     fn pin_at_height(&self, height: u64) -> Result<PinnedWorld, String> {
         if let Some((config, authority)) = self.guarded {
             world_service_read::pin_guarded(self.records, config, authority, None, Some(height))
         } else {
-            world_service_read::pin_at_height(self.records, self.storage, &self.identity, height)
+            world_service_read::pin_at_height_with_context(
+                self.records,
+                self.storage,
+                &self.identity,
+                height,
+                &self.restore_context,
+            )
         }
     }
     fn signed<Q: Serialize, T: Serialize>(
@@ -127,13 +140,22 @@ impl Service<'_> {
         payload: &WorldServicePayloadV1,
     ) -> Result<(), String> {
         match payload {
-            WorldServicePayloadV1::GameStarterClaim(signed)=>{
-                oasis7_runtime::service_admission::starter::validate_owner(&pinned.world,signed,&pinned.commit.binding.branch_id,pinned.commit.binding.reorg_generation)?;
+            WorldServicePayloadV1::GameStarterClaim(signed) => {
+                oasis7_runtime::service_admission::starter::validate_owner(
+                    &pinned.world,
+                    signed,
+                    &pinned.commit.binding.branch_id,
+                    pinned.commit.binding.reorg_generation,
+                )?;
             }
             WorldServicePayloadV1::GameParticipantRegister { owner, admission } => {
                 oasis7_runtime::service_admission::participant::validate_admission(
-                    &pinned.world, owner, admission, &pinned.commit.binding.branch_id,
-                    pinned.commit.binding.reorg_generation)?;
+                    &pinned.world,
+                    owner,
+                    admission,
+                    &pinned.commit.binding.branch_id,
+                    pinned.commit.binding.reorg_generation,
+                )?;
             }
             WorldServicePayloadV1::GameTaskCreate(signed) => {
                 oasis7::world_service::game_task::validate_owner(&pinned.world, signed)?;
@@ -203,6 +225,7 @@ fn parse<T: DeserializeOwned>(body: &[u8]) -> Result<T, String> {
     clippy::too_many_arguments,
     reason = "Existing status dispatcher carries explicit authority and storage roots."
 )]
+#[cfg(test)]
 pub(super) fn maybe_handle(
     stream: &mut TcpStream,
     bytes: &[u8],
@@ -215,8 +238,51 @@ pub(super) fn maybe_handle(
     storage: &Path,
     signer: &FeedbackSubmitSigner,
 ) -> Result<bool, String> {
-    maybe_handle_with_guarded(
-        stream, bytes, runtime, method, path, world_id, world_dir, records, storage, signer, None,
+    maybe_handle_with_context(
+        stream,
+        bytes,
+        runtime,
+        method,
+        path,
+        world_id,
+        world_dir,
+        records,
+        storage,
+        signer,
+        &world_service_read::RestoreContext::default(),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Explicit service roots and trusted host context"
+)]
+pub(super) fn maybe_handle_with_context(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    runtime: &Arc<Mutex<NodeRuntime>>,
+    method: &str,
+    path: &str,
+    world_id: &str,
+    world_dir: &Path,
+    records: &Path,
+    storage: &Path,
+    signer: &FeedbackSubmitSigner,
+    restore_context: &world_service_read::RestoreContext,
+) -> Result<bool, String> {
+    maybe_handle_configured(
+        stream,
+        bytes,
+        runtime,
+        method,
+        path,
+        world_id,
+        world_dir,
+        records,
+        storage,
+        signer,
+        None,
+        restore_context,
     )
 }
 
@@ -236,6 +302,40 @@ pub(super) fn maybe_handle_with_guarded(
     storage: &Path,
     signer: &FeedbackSubmitSigner,
     guarded: Option<(&Path, &super::controlled_live_config::GuardedReadAuthority)>,
+) -> Result<bool, String> {
+    maybe_handle_configured(
+        stream,
+        bytes,
+        runtime,
+        method,
+        path,
+        world_id,
+        world_dir,
+        records,
+        storage,
+        signer,
+        guarded,
+        &world_service_read::RestoreContext::default(),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Explicit roots, guarded authority and trusted restore context"
+)]
+fn maybe_handle_configured(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    runtime: &Arc<Mutex<NodeRuntime>>,
+    method: &str,
+    path: &str,
+    world_id: &str,
+    world_dir: &Path,
+    records: &Path,
+    storage: &Path,
+    signer: &FeedbackSubmitSigner,
+    guarded: Option<(&Path, &super::controlled_live_config::GuardedReadAuthority)>,
+    restore_context: &world_service_read::RestoreContext,
 ) -> Result<bool, String> {
     if ![
         DESCRIBE_PATH,
@@ -272,6 +372,7 @@ pub(super) fn maybe_handle_with_guarded(
             world_service_read::identity(world_dir, world_id)?
         };
         let service = Service {
+            restore_context: restore_context.clone(),
             records,
             storage,
             identity,
@@ -281,10 +382,16 @@ pub(super) fn maybe_handle_with_guarded(
         };
         match path {
             DESCRIBE_PATH => operations::describe(&service, parse(body)?),
-            participant_api::PARTICIPANT_POLICY_PATH => participant_api::policy(&service, parse(body)?),
-            participant_api::PARTICIPANT_OWNER_VIEW_PATH=>participant_api::owner_view(&service,parse(body)?),
-            participant_api::PARTICIPANT_STARTER_ELIGIBILITY_PATH=>participant_api::starter_eligibility(&service,parse(body)?),
-            executor_api::EXECUTOR_LOOKUP_PATH=>executor_api::lookup(&service,parse(body)?),
+            participant_api::PARTICIPANT_POLICY_PATH => {
+                participant_api::policy(&service, parse(body)?)
+            }
+            participant_api::PARTICIPANT_OWNER_VIEW_PATH => {
+                participant_api::owner_view(&service, parse(body)?)
+            }
+            participant_api::PARTICIPANT_STARTER_ELIGIBILITY_PATH => {
+                participant_api::starter_eligibility(&service, parse(body)?)
+            }
+            executor_api::EXECUTOR_LOOKUP_PATH => executor_api::lookup(&service, parse(body)?),
             SUBMIT_PATH => operations::submit(&service, parse(body)?),
             LOOKUP_PATH => operations::lookup(&service, parse(body)?),
             VIEW_PATH => operations::view(&service, parse(body)?),

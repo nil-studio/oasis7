@@ -14,6 +14,7 @@ fn compat_snapshot_serializes_stalled_and_blocked_fallback_tradeoff_previews() {
         Some(stalled_server.world.state().time);
     stalled_server.latest_player_gameplay_feedback =
         Some(crate::simulator::PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: "play".to_string(),
             stage: "completed_no_progress".to_string(),
             effect: "no visible world delta: logicalTime +0, eventSeq +0".to_string(),

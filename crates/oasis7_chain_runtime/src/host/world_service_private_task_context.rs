@@ -583,6 +583,7 @@ mod diagnostic_tests {
                 .unwrap(),
         )));
         let service = Service {
+            restore_context: world_service_read::RestoreContext::default(),
             records: &records,
             storage: &storage,
             identity,

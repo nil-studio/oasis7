@@ -319,7 +319,7 @@ class DeliveryTests(SafetyTests):
         original = cleanup._run
         def api(args, **kwargs):
             if args[0] == 'gh':
-                return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+                return subprocess.CompletedProcess(args, 0, json.dumps({'full_name': 'example/repo'} if args[-1] == 'repos/example/repo' else data), '')
             return original(args, **kwargs)
         with patch.object(cleanup, '_run', side_effect=api):
             cleanup.delivery(self.repo, new, 'refs/remotes/origin/main', 42)
@@ -465,9 +465,307 @@ class DeliveryTests(SafetyTests):
         py_compile.compile(str(source), cfile=str(optimized), doraise=True, optimize=1)
         self.assertTrue(cleanup.reconstructable_pycache(self.path, optimized.relative_to(self.path).as_posix()))
 
+    def test_renamed_github_origin_uses_canonical_repository_identity(self):
+        self.git('remote', 'set-url', 'origin', 'https://github.com/eng-cc/old-name.git')
+        topic = self.git('commit-tree', self.git('rev-parse', 'HEAD^{tree}'), '-m', 'topic root')
+        data = {'merged': True, 'head': {'sha': topic}, 'base': {'ref': 'main', 'repo': {'full_name': 'example/repo'}}, 'merge_commit_sha': self.head}
+        original = cleanup._run
+        endpoints = []
+        def api(args, **kwargs):
+            if args[0] == 'gh':
+                endpoints.append(args[-1])
+                response = {'full_name': 'example/repo'} if args[-1] == 'repos/eng-cc/old-name' else data
+                return subprocess.CompletedProcess(args, 0, json.dumps(response), '')
+            return original(args, **kwargs)
+        with patch.object(cleanup, '_run', side_effect=api):
+            cleanup.delivery(self.repo, topic, 'refs/remotes/origin/main', 42)
+            self.assertIn('repos/example/repo/pulls/42', endpoints)
+            data['base']['repo']['full_name'] = 'unrelated/repo'
+            with self.assertRaises(cleanup.CleanupError):
+                cleanup.delivery(self.repo, topic, 'refs/remotes/origin/main', 42)
+
     def test_invalid_base_cli_is_argument_error(self):
         result = subprocess.run([sys.executable, str(pathlib.Path(cleanup.__file__)), '--worktree', str(self.path), '--branch', 'feature', '--expected-head', self.head, '--base-ref', 'refs/heads/feature'], capture_output=True)
         self.assertEqual(result.returncode, 2)
+
+class SubmoduleSafetyTests(unittest.TestCase):
+    """Exercise disposable real Git metadata; only host process census is stubbed."""
+    git = SafetyTests.git
+
+    def setUp(self):
+        SafetyTests.setUp(self)
+        self.process_patch = patch.object(cleanup, '_process_mentions_path', return_value=False)
+        self.process_patch.start()
+        self.addCleanup(self.process_patch.stop)
+        self.origin = self.root / 'module-origin'
+        self.origin.mkdir()
+        self.command(self.origin, 'init', '-q', '-b', 'main')
+        self.command(self.origin, 'config', 'user.email', 'test@example.com')
+        self.command(self.origin, 'config', 'user.name', 'test')
+        (self.origin / 'tracked').write_text('module base')
+        (self.origin / '.gitignore').write_text('secret\n')
+        self.command(self.origin, 'add', '.')
+        self.command(self.origin, 'commit', '-qm', 'module base')
+        self.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(self.origin), 'vendor/module')
+        self.git('commit', '-qam', 'add module')
+        self.head = self.git('rev-parse', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', self.head)
+        self.git('update-ref', 'refs/remotes/origin/feature', self.head)
+        self.command(self.path, 'reset', '--hard', self.head)
+        self.command(self.path, '-c', 'protocol.file.allow=always', 'submodule', 'update', '--init')
+        self.module = self.path / 'vendor/module'
+        self.module_head = self.command(self.module, 'rev-parse', 'HEAD')
+        self.module_gitdir = pathlib.Path(self.command(self.module, 'rev-parse', '--absolute-git-dir'))
+
+    def command(self, path, *args):
+        return subprocess.check_output(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.com', '-C', str(path), *args], text=True, stderr=subprocess.DEVNULL).strip()
+
+    def inspect(self, allow=True):
+        return cleanup.inspect(self.repo, self.path, 'feature', self.head, allow_submodules=allow)
+
+    def remove(self):
+        report = dict(self.inspect(), worktree_removed=False, branch_removed=False)
+        cleanup.execute(self.repo, self.path, 'feature', self.head, 'refs/remotes/origin/main', None, report, allow_submodules=True)
+        self.assertTrue(report['worktree_removed'])
+        self.assertTrue(report['branch_removed'])
+        self.assertTrue(report['submodule_force_remove'])
+        self.assertFalse(self.path.exists())
+
+    def test_clean_initialized_removal(self):
+        self.remove()
+
+    def test_clean_deinitialized_cache_removal(self):
+        self.command(self.path, 'submodule', 'deinit', '--all')
+        self.assertTrue(self.module_gitdir.exists())
+        self.remove()
+
+    def test_explicit_opt_in_required(self):
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect(allow=False)
+        self.assertTrue(self.module.exists())
+
+    def test_submodule_user_material_retained(self):
+        for relative in ['tracked', 'untracked', 'secret']:
+            with self.subTest(relative=relative):
+                target = self.module / relative
+                target.write_text('user material')
+                with self.assertRaises(cleanup.CleanupError):
+                    self.inspect()
+                self.assertEqual(target.read_text(), 'user material')
+                if relative == 'tracked':
+                    self.command(self.module, 'checkout', '--', relative)
+                else:
+                    target.unlink()
+
+    def local_commit(self):
+        self.command(self.module, 'checkout', '-qb', 'private-work')
+        (self.module / 'tracked').write_text('unpublished')
+        self.command(self.module, 'commit', '-qam', 'private work')
+        self.command(self.module, 'checkout', '--detach', self.module_head)
+
+    def test_local_branch_commit_retained_after_deinit(self):
+        self.local_commit()
+        self.command(self.path, 'submodule', 'deinit', '--all')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertTrue(self.module_gitdir.exists())
+
+    def test_reflog_only_commit_retained(self):
+        self.local_commit()
+        self.command(self.module, 'branch', '-D', 'private-work')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+
+    def test_head_must_match_gitlink_even_if_published(self):
+        (self.origin / 'tracked').write_text('remote advance')
+        self.command(self.origin, 'commit', '-qam', 'remote advance')
+        self.command(self.module, 'fetch', 'origin')
+        self.command(self.module, 'checkout', '--detach', 'origin/main')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+
+    def test_unknown_cached_module_retained(self):
+        unknown = self.module_gitdir.parent / 'unknown-module'
+        unknown.mkdir()
+        (unknown / 'notes').write_text('user material')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertTrue((unknown / 'notes').exists())
+
+    def test_external_module_gitdir_retained(self):
+        external = self.root / 'external-module-gitdir'
+        self.module_gitdir.rename(external)
+        (self.module / '.git').write_text('gitdir: ' + str(external) + '\n')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertTrue(external.exists())
+
+    def test_missing_initialized_backend_retained(self):
+        self.module_gitdir.rename(self.root / 'saved-module-backend')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertTrue(self.module.exists())
+
+    def test_module_with_other_linked_worktree_retained(self):
+        other = self.root / 'module-worktree'
+        self.command(self.module, 'worktree', 'add', '--detach', str(other), self.module_head)
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertTrue(other.exists())
+
+    def test_inspection_leaves_initialized_checkout_untouched(self):
+        before = (self.module / '.git').read_text()
+        self.inspect()
+        self.assertEqual((self.module / '.git').read_text(), before)
+        self.assertEqual((self.module / 'tracked').read_text(), 'module base')
+        self.assertEqual(self.command(self.module, 'rev-parse', 'HEAD'), self.module_head)
+
+    def add_nested_module(self):
+        nested_origin = self.root / 'nested-origin'
+        self.command(self.root, 'clone', '-q', str(self.origin), str(nested_origin))
+        self.command(self.module, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(nested_origin), 'nested')
+        self.command(self.module, 'commit', '-qam', 'nested module')
+        published = self.command(self.module, 'rev-parse', 'HEAD')
+        self.command(self.module, 'update-ref', 'refs/remotes/origin/main', published)
+        self.command(self.path, 'add', 'vendor/module')
+        self.command(self.path, 'commit', '-qm', 'nested module pointer')
+        self.head = self.command(self.path, 'rev-parse', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', self.head)
+        self.git('update-ref', 'refs/remotes/origin/feature', self.head)
+        return self.module / 'nested'
+
+    def test_clean_recursive_module_removal(self):
+        self.add_nested_module()
+        self.remove()
+
+    def test_nested_ignored_user_material_retained(self):
+        nested = self.add_nested_module()
+        (nested / 'secret').write_text('nested user material')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertEqual((nested / 'secret').read_text(), 'nested user material')
+
+    def test_branch_changed_during_deinit_retained(self):
+        report = dict(self.inspect(), worktree_removed=False, branch_removed=False)
+        new = self.git('commit-tree', self.git('rev-parse', 'HEAD^{tree}'), '-p', self.head, '-m', 'concurrent branch')
+        original = cleanup.git
+        def race(repo, *args):
+            result = original(repo, *args)
+            if 'submodule' in args and args[args.index('submodule') + 1:args.index('submodule') + 2] == ('deinit',):
+                self.git('update-ref', 'refs/heads/feature', new)
+            return result
+        with patch.object(cleanup, 'git', side_effect=race), self.assertRaises(cleanup.CleanupError):
+            cleanup.execute(self.repo, self.path, 'feature', self.head, 'refs/remotes/origin/main', None, report, allow_submodules=True)
+        self.assertTrue(self.path.exists())
+        self.assertFalse(report['worktree_removed'])
+        self.assertEqual(self.git('rev-parse', 'feature'), new)
+
+    def test_dormant_staged_index_retained(self):
+        (self.module / 'tracked').write_text('staged user work')
+        self.command(self.module, 'add', 'tracked')
+        self.command(self.path, 'submodule', 'deinit', '--force', '--all')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertTrue(self.module_gitdir.exists())
+
+    def test_backend_user_material_retained(self):
+        for relative in ['notes.txt', 'hooks/pre-commit', 'hooks/pre-commit.sample', 'rebase-merge/git-rebase-todo']:
+            with self.subTest(relative=relative):
+                target = self.module_gitdir / relative
+                original = target.read_bytes() if target.exists() else None
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('user backend material')
+                try:
+                    with self.assertRaises(cleanup.CleanupError):
+                        self.inspect()
+                    self.assertEqual(target.read_text(), 'user backend material')
+                finally:
+                    if original is None:
+                        target.unlink()
+                        if relative.startswith('rebase-merge/'):
+                            target.parent.rmdir()
+                    else:
+                        target.write_bytes(original)
+
+    def test_custom_module_config_retained(self):
+        for key, value in [('user.private-note', 'valuable-setting'), ('user.name', 'private user name')]:
+            with self.subTest(key=key):
+                self.command(self.module, 'config', key, value)
+                try:
+                    with self.assertRaises(cleanup.CleanupError):
+                        self.inspect()
+                    self.assertEqual(subprocess.check_output(['git', '-C', str(self.module), 'config', '--local', '--get', key], text=True).strip(), value)
+                finally:
+                    self.command(self.module, 'config', '--unset', key)
+
+    def test_parent_submodule_custom_config_retained_before_deinit(self):
+        report = dict(self.inspect(), worktree_removed=False, branch_removed=False)
+        key = 'submodule.vendor/module.private-note'
+        self.command(self.path, 'config', '--local', key, 'valuable-setting')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        with self.assertRaises(cleanup.CleanupError):
+            cleanup.execute(self.repo, self.path, 'feature', self.head, 'refs/remotes/origin/main', None,
+                            report, allow_submodules=True)
+        self.assertEqual(self.command(self.path, 'config', '--local', '--get', key), 'valuable-setting')
+        self.assertTrue((self.module / 'tracked').exists())
+
+    def test_literal_deinit_keeps_dormant_pattern_match_registration(self):
+        self.command(self.path, 'submodule', 'deinit', '--all')
+        key = 'submodule.vendor/module.private-note'
+        self.command(self.path, 'config', '--local', key, 'valuable dormant registration')
+        self.command(self.path, '--literal-pathspecs', '-c', 'protocol.file.allow=always', 'submodule', 'add', '--name', 'literal-module', '-q', str(self.origin), 'vendor/[m]odule')
+        self.command(self.path, 'commit', '-qam', 'add literal pattern module')
+        self.head = self.command(self.path, 'rev-parse', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', self.head)
+        self.git('update-ref', 'refs/remotes/origin/feature', self.head)
+        self.remove()
+        self.assertEqual(self.git('config', '--local', '--get', key), 'valuable dormant registration')
+
+    def test_empty_legacy_branches_directory_removal(self):
+        (self.module_gitdir / 'branches').mkdir(exist_ok=True)
+        self.remove()
+
+    def test_legacy_branches_directory_user_material_retained(self):
+        branches = self.module_gitdir / 'branches'
+        branches.mkdir(exist_ok=True)
+        (branches / 'user-note').write_text('valuable branch notes')
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+        self.assertEqual((branches / 'user-note').read_text(), 'valuable branch notes')
+
+    def test_raw_metadata_with_user_text_retained(self):
+        for relative in ['logs/HEAD', 'COMMIT_EDITMSG']:
+            with self.subTest(relative=relative):
+                target = self.module_gitdir / relative
+                original = target.read_bytes() if target.exists() else None
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('uncommitted user notes\n')
+                try:
+                    with self.assertRaises(cleanup.CleanupError):
+                        self.inspect()
+                    self.assertEqual(target.read_text(), 'uncommitted user notes\n')
+                finally:
+                    if original is None:
+                        target.unlink()
+                    else:
+                        target.write_bytes(original)
+
+    def test_unreferenced_local_commit_retained(self):
+        commit = self.command(self.module, 'commit-tree', self.command(self.module, 'rev-parse', 'HEAD^{tree}'), '-p', self.module_head, '-m', 'unreferenced user work')
+        self.assertNotEqual(commit, self.module_head)
+        with self.assertRaises(cleanup.CleanupError):
+            self.inspect()
+
+    def test_module_mutation_during_process_scan_retained(self):
+        report = dict(self.inspect(), worktree_removed=False, branch_removed=False)
+        def mutate(path):
+            (self.module / 'secret').write_text('concurrent user material')
+            return False
+        with patch.object(cleanup, '_process_mentions_path', side_effect=mutate), self.assertRaises(cleanup.CleanupError):
+            cleanup.execute(self.repo, self.path, 'feature', self.head, 'refs/remotes/origin/main', None, report, allow_submodules=True)
+        self.assertTrue(self.path.exists())
+        self.assertFalse(report['worktree_removed'])
 
 class HostSmokeTests(unittest.TestCase):
     def test_native_named_fifo_is_target_file_use(self):
@@ -533,4 +831,4 @@ if __name__ == '__main__':
         sys.argv.remove('--host-smoke')
         unittest.main(defaultTest='HostSmokeTests')
     else:
-        unittest.main(defaultTest=['SafetyTests', 'ProcessReadbackTests', 'DeliveryTests'])
+        unittest.main(defaultTest=['SafetyTests', 'ProcessReadbackTests', 'DeliveryTests', 'SubmoduleSafetyTests'])

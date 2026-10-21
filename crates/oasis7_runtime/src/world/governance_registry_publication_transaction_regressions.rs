@@ -326,3 +326,41 @@ fn raw_registry_lifecycle_and_synthetic_revoke_replay_to_identical_root() {
         world.current_state_root_hash().expect("live root")
     );
 }
+
+#[test]
+fn devlocal_validator_admission_publication_is_rejected_before_mutation() {
+    let mut world = World::new();
+    seed_controller_registry(&mut world);
+    let pin = hex::encode(
+        ed25519_dalek::SigningKey::from_bytes(&[81; 32])
+            .verifying_key()
+            .to_bytes(),
+    );
+    let authority = super::super::DevLocalParticipantAuthority::new(
+        oasis7_proto::storage_profile::StorageProfile::DevLocal,
+        &world.release_security_policy,
+        pin,
+    )
+    .unwrap();
+    world = world
+        .with_devlocal_participant_authority(authority)
+        .unwrap();
+    let before = world.snapshot();
+    let result = world.append_event(
+        WorldEventBody::Governance(submitted(CANDIDATE, NODE, PUBLIC_KEY)),
+        None,
+    );
+    assert!(
+        result.is_err(),
+        "local authority must reject admission before commit"
+    );
+    assert_eq!(world.snapshot(), before);
+    assert!(
+        World::from_snapshot_with_devlocal_participant_authority(
+            world.snapshot(),
+            world.journal().clone(),
+            world.devlocal_participant_authority().unwrap().clone(),
+        )
+        .is_ok()
+    );
+}

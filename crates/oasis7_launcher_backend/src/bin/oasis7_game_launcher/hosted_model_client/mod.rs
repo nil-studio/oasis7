@@ -3,6 +3,7 @@ mod config;
 mod execution;
 mod executor;
 mod http;
+mod management;
 pub(super) use http::handle_request;
 #[cfg(test)]
 mod tests;
@@ -129,7 +130,12 @@ impl HostedModelClient {
             return Ok(capabilities);
         }
         if method == "GET" && relative == "/model-connections" {
-            return self.manager.list(p).map(|connections|json!({"ok":true,"connections":connections.iter().map(|c|self.execution_snapshot(c)).collect::<Vec<_>>()})).map_err(connection_error);
+            return self.connection_page(p, None);
+        }
+        if method == "GET"
+            && let Some(cursor) = relative.strip_prefix("/model-connections/pages/")
+        {
+            return self.connection_page(p, Some(cursor));
         }
         if method == "POST" && relative == "/model-connections" {
             // Move the sole decoded key allocation into zeroizing storage before
@@ -184,14 +190,34 @@ impl HostedModelClient {
                 if !input.consent {
                     return Err(error(400, "consent_required"));
                 }
-                oasis7_model_provider::probe::run_probe(
+                let result = oasis7_model_provider::probe::run_probe(
                     &self.manager,
                     p,
                     id,
                     input.expected_version,
                     &input.operation_id,
-                )
-                .map_err(|failure| error(409, &failure.to_string()))?;
+                );
+                let operation_state = self
+                    .manager
+                    .probe_status(p, id, &input.operation_id)
+                    .map_err(connection_error)?;
+                let connection = self.manager.snapshot(p, id).map_err(connection_error)?;
+                if let Err(failure) = result {
+                    let code = if operation_state.is_none()
+                        && connection.version != input.expected_version
+                    {
+                        "version_conflict".to_string()
+                    } else {
+                        failure.to_string()
+                    };
+                    let mut reply = error(409, &code);
+                    reply.body["operation_state"] =
+                        operation_state.map_or(json!("not_started"), |state| json!(state));
+                    return Err(reply);
+                }
+                return Ok(
+                    json!({"ok":true,"connection":self.execution_snapshot(&connection),"operation_state":operation_state}),
+                );
             }
             ("POST", "lease") => {
                 let input: Version = decode(body)?;
@@ -204,7 +230,15 @@ impl HostedModelClient {
                 let stopped = self
                     .manager
                     .stop_operation(p, id, input.expected_version, &input.operation_id)
-                    .map_err(connection_error)?;
+                    .map_err(|failure| {
+                        let mut reply = connection_error(failure);
+                        if let Ok(recorded) = self.manager.stop_recorded(p, id, &input.operation_id)
+                        {
+                            reply.body["operation_state"] =
+                                json!(if recorded { "ready" } else { "not_started" });
+                        }
+                        reply
+                    })?;
                 // An old idempotent receipt must not alter a later run display.
                 if input.expected_version.checked_add(1) == Some(stopped.version)
                     && stopped.active_version.is_none()
@@ -289,6 +323,7 @@ fn connection_error(error_code: ConnectionError) -> IdentityReply {
         ConnectionError::Unavailable => error(404, "not_found"),
         ConnectionError::Conflict => error(409, "version_conflict"),
         ConnectionError::BudgetExceeded => error(409, "budget_exhausted"),
+        ConnectionError::CapacityExceeded => error(409, "connection_capacity_exceeded"),
         ConnectionError::BindingDenied => error(409, "game_executor_unavailable"),
         ConnectionError::NotReady => error(409, "model_unavailable"),
         _ => error(400, "invalid_request"),

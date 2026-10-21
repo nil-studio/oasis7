@@ -339,6 +339,38 @@ fn world_cookie_adapter_protocol_child() {
         .unwrap()
         .unwrap();
     assert_eq!(candidate["grant"]["world_session_epoch"], 2);
+    // Pending candidates reconcile only by replaying their original join.
+    // Refresh is intentionally current-only, including before runtime registration.
+    let pending_refresh = json!({"public_key":key2,"device_session_id":candidate["grant"]["device_session_id"],"expected_epoch":2});
+    assert!(
+        service
+            .world_route(
+                "POST",
+                "/world/refresh",
+                Some(&second_token),
+                &pending_refresh,
+                &mut issuer,
+                now_ms()
+            )
+            .unwrap()
+            .is_err()
+    );
+    let replay = service
+        .world_route(
+            "POST",
+            "/world/join",
+            Some(&second_token),
+            &takeover,
+            &mut issuer,
+            now_ms(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(replay["world"]["state"], "registration_pending");
+    assert_eq!(
+        replay["grant"]["device_session_id"],
+        candidate["grant"]["device_session_id"]
+    );
     // The candidate has not bound: original controller and slot still work.
     assert!(
         service
@@ -371,6 +403,24 @@ fn world_cookie_adapter_protocol_child() {
             .is_err()
     );
     assert_eq!(state.lock().unwrap().key.as_deref(), Some(key2.as_str()));
+    // Lost register ACK: original attempt now reports authoritative bound.
+    let recovered = service
+        .world_route(
+            "POST",
+            "/world/join",
+            Some(&second_token),
+            &takeover,
+            &mut issuer,
+            now_ms(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovered["world"]["state"], "bound");
+    assert_eq!(recovered["join_attempt_id"], takeover["join_attempt_id"]);
+    assert_eq!(
+        recovered["grant"]["device_session_id"],
+        candidate["grant"]["device_session_id"]
+    );
     let refresh2 = json!({"public_key":key2,"device_session_id":candidate["grant"]["device_session_id"],"expected_epoch":2});
     assert!(
         service

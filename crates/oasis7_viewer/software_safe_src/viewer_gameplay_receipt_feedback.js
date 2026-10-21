@@ -1,3 +1,43 @@
+import { getGameplayRecoveryScope } from "./viewer_gameplay_recovery_scope.js";
+export function settleGameplayOriginal(account, nonce, scope, state) {
+  const auth = state.auth;
+  return account.settleGameplayRequest(nonce, scope).catch(error => {
+    if (state.auth === auth && JSON.stringify(getGameplayRecoveryScope(state)) === JSON.stringify(scope)) state.auth.error = String(error);
+    return false;
+  });
+}
+export function recoverGameplayFeedback(snapshot, state, account, scope, clearTimer) {
+  account.restoreGameplayRequest(scope);
+  const result = adoptRuntimeGameplayFeedback(snapshot, state.lastGameplayActionFeedback, clearTimer);
+  if (result && ["committed", "applied", "completed_advanced", "rejected", "blocked"].includes(result.stage)) {
+    settleGameplayOriginal(account, result.request_auth_nonce, scope, state);
+  }
+}
+
+export function matchesGameplayReply(reply, feedback) {
+  return reply?.action_id === feedback.action && reply?.target_agent_id === (feedback.targetAgentId || feedback.agentId)
+    && (feedback.requestAuthNonce == null || reply.request_auth_nonce === feedback.requestAuthNonce);
+}
+export function adoptRuntimeGameplayFeedback(snapshot, feedback, clearTimer) {
+  const authoritative = matchingRuntimeGameplayFeedback(snapshot?.player_gameplay, feedback);
+  if (!authoritative) return;
+  clearTimer();
+  feedback.stage = authoritative.stage;
+  feedback.effect = authoritative.effect;
+  feedback.reason = authoritative.reason || null;
+  feedback.ok = ["committed", "applied", "completed_advanced"].includes(authoritative.stage);
+  feedback.accepted = feedback.ok;
+  return authoritative;
+}
+
+export function matchingRuntimeGameplayFeedback(gameplay, localFeedback) {
+  const feedback = gameplay?.recent_feedback;
+  return localFeedback?.requestAuthNonce != null && feedback?.request_auth_nonce === localFeedback.requestAuthNonce
+    && (!feedback.target_agent_id || feedback.target_agent_id === (localFeedback.targetAgentId || localFeedback.agentId))
+    && (feedback.action === `gameplay_action:${localFeedback.action}` || feedback.action === localFeedback.action || feedback.action === "world_service_intent")
+    ? feedback : null;
+}
+
 export function projectGameplayReceiptFeedback(gameplay, localFeedback, intentTarget) {
     const runtimeRecentFeedback = gameplay.recent_feedback && typeof gameplay.recent_feedback === "object"
       ? {
@@ -25,6 +65,21 @@ export function projectGameplayReceiptFeedback(gameplay, localFeedback, intentTa
           deltaEventSeq: Number(localFeedback.deltaEventSeq || 0),
         }
       : null;
-    const recentFeedback = localGameplayFeedback || runtimeRecentFeedback;
+    const sameRequest = matchingRuntimeGameplayFeedback(gameplay, localFeedback);
+    const recentFeedback = sameRequest && runtimeRecentFeedback
+      ? runtimeRecentFeedback : localGameplayFeedback || runtimeRecentFeedback;
   return {runtimeRecentFeedback,localGameplayFeedback,recentFeedback};
+}
+
+export function firstClaimAwaitingOutcome(feedback) {
+  return String(feedback?.action || "").replace(/^gameplay_action:/, "") === "claim_first_agent"
+    && ["received", "pending", "unknown", "committed", "accepted", "submitted", "queued", "ack", "registering", "signing", "sent"].includes(feedback.stage);
+}
+export function gameplayExecutionStateLabel(state, locale, localeText) {
+  const labels = {
+    received: ["已收到请求", "Received"], pending: ["等待权威结果", "Pending"], unknown: ["结果待确认", "Result unknown"],
+    accepted: ["已接受", "Accepted"], blocked: ["已阻塞", "Blocked"], completed: ["已完成", "Completed"],
+    rejected: ["已拒绝", "Rejected"], executing: ["执行中", "Executing"],
+  };
+  return localeText(locale, ...(labels[state] || labels.executing));
 }

@@ -76,6 +76,7 @@ fn snapshot_player_gameplay_execution_state_backfills_from_legacy_fields() {
             disabled_reason: None,
         }],
         recent_feedback: Some(PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: "step".to_string(),
             stage: "completed_no_progress".to_string(),
             effect: "no visible world delta".to_string(),

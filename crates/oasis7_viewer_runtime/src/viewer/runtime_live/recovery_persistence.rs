@@ -135,10 +135,12 @@ impl ViewerRuntimeLiveServer {
                 "authoritative recovery write fence has no durable recovery directory".to_string(),
             ));
         };
-        match crate::runtime::World::readback_authoritative_recovery_generation(
-            &recovery_dir,
-            expected_hash.as_str(),
-        ) {
+        match self
+            .world
+            .readback_authoritative_recovery_generation_for_current_context(
+                &recovery_dir,
+                expected_hash.as_str(),
+            ) {
             Ok(crate::runtime::AuthoritativeRecoveryCommitStatus::Committed(committed)) => {
                 self.apply_committed_authoritative_recovery_generation(committed)?;
                 self.authoritative_recovery_write_fence = None;

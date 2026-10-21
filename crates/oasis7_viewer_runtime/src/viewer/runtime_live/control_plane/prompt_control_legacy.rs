@@ -222,6 +222,7 @@ impl ViewerRuntimeLiveServer {
         }
         self.llm_sidecar.request_decision();
         self.set_verified_player_gameplay_feedback(&verified, PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: "prompt_control.apply".to_string(),
             stage: "completed_advanced".to_string(),
             effect: format!(
@@ -351,6 +352,7 @@ impl ViewerRuntimeLiveServer {
         self.set_verified_player_gameplay_feedback(
             &verified,
             PlayerGameplayRecentFeedback {
+                request_auth_nonce: None,
                 action: "prompt_control.rollback".to_string(),
                 stage: "completed_advanced".to_string(),
                 effect: format!(

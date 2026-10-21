@@ -11,6 +11,7 @@ fn compat_snapshot_quotes_when_a_queued_intent_can_be_safely_waited_on() {
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "gameplay_action:build_factory_smelter_mk1".to_string(),
         stage: "queued".to_string(),
         effect: "queued gameplay action build_factory_smelter_mk1 for agent-0 as runtime action 7"
@@ -85,6 +86,7 @@ fn compat_snapshot_omits_wait_resolution_quote_for_blocked_feedback() {
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "gameplay_action:build_factory_smelter_mk1".to_string(),
         stage: "blocked".to_string(),
         effect: "factory construction remains blocked".to_string(),

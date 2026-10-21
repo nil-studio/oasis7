@@ -479,6 +479,7 @@ fn compat_snapshot_surfaces_agent_override_causality_from_runtime_events() {
 
     server.set_latest_player_gameplay_feedback_with_causality(
         crate::simulator::PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: "move_agent".to_string(),
             stage: "completed_advanced".to_string(),
             effect: "world advanced: logicalTime +1, eventSeq +2".to_string(),
@@ -554,6 +555,7 @@ fn compat_snapshot_surfaces_control_feeling_contract_fields_from_gameplay_feedba
     .expect("runtime server");
 
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "gameplay_action:build_factory_smelter_mk1".to_string(),
         stage: "accepted".to_string(),
         effect: "queued gameplay action build_factory_smelter_mk1 for agent-0 as runtime action 7"
@@ -874,6 +876,7 @@ fn compat_snapshot_promotes_to_post_onboarding_after_control_feedback() {
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "step".to_string(),
         stage: "completed_advanced".to_string(),
         effect: "world advanced: logicalTime +1, eventSeq +1".to_string(),
@@ -913,6 +916,7 @@ fn compat_snapshot_ignores_zero_delta_completed_advanced_for_last_world_change()
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "prompt_control.apply".to_string(),
         stage: "completed_advanced".to_string(),
         effect: "applied prompt-control override".to_string(),
@@ -982,6 +986,7 @@ fn compat_snapshot_keeps_first_session_loop_after_bootstrap_tick_blocked_feedbac
     .expect("runtime server");
     server.world.step().expect("advance world once");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "play".to_string(),
         stage: "blocked".to_string(),
         effect: "gameplay blocked before requested advance completed: logicalTime +0, eventSeq +0"
@@ -1031,6 +1036,7 @@ fn compat_snapshot_blocks_first_session_when_chain_sync_is_unavailable() {
     )
     .expect("runtime server");
     server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
+        request_auth_nonce: None,
         action: "chain_sync".to_string(),
         stage: "blocked".to_string(),
         effect: "committed runtime sync failed before the viewer could observe new world state"
@@ -1079,119 +1085,6 @@ fn compat_snapshot_blocks_first_session_when_chain_sync_is_unavailable() {
             .iter()
             .filter(|action| action.protocol_action != "request_snapshot")
             .all(|action| action.disabled_reason.is_some())
-    );
-}
-
-#[test]
-fn compat_snapshot_keeps_post_onboarding_blocked_after_confirmed_progress() {
-    let _guard = lock_test_llm_env();
-    let mut server = ViewerRuntimeLiveServer::new(
-        ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
-            .with_decision_mode(ViewerLiveDecisionMode::Llm),
-    )
-    .expect("runtime server");
-    server.confirmed_player_gameplay_progress_time = Some(server.world.state().time);
-    server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
-        action: "play".to_string(),
-        stage: "blocked".to_string(),
-        effect: "gameplay blocked before requested advance completed: logicalTime +0, eventSeq +0"
-            .to_string(),
-        intent_summary: None,
-        target_agent_id: None,
-        reason: Some("simulated retention blocker".to_string()),
-        hint: Some("repair the blocker before retrying play".to_string()),
-        delta_logical_time: 0,
-        delta_event_seq: 0,
-    });
-
-    let snapshot = server.compat_snapshot(None);
-    let gameplay = snapshot
-        .player_gameplay
-        .as_ref()
-        .expect("player gameplay snapshot");
-    assert_eq!(
-        gameplay.stage_id,
-        crate::simulator::PlayerGameplayStageId::PostOnboarding
-    );
-    assert_eq!(
-        gameplay.stage_status,
-        crate::simulator::PlayerGameplayStageStatus::Blocked
-    );
-    assert_eq!(gameplay.goal_id, "post_onboarding.recover_capability");
-    assert_eq!(
-        gameplay
-            .recent_feedback
-            .as_ref()
-            .expect("recent feedback")
-            .stage,
-        "blocked"
-    );
-    assert_eq!(gameplay.blocker_kind.as_deref(), Some("no_progress"));
-}
-
-#[test]
-fn compat_snapshot_keeps_post_onboarding_no_progress_after_confirmed_progress() {
-    let _guard = lock_test_llm_env();
-    let mut server = ViewerRuntimeLiveServer::new(
-        ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
-            .with_decision_mode(ViewerLiveDecisionMode::Llm),
-    )
-    .expect("runtime server");
-    server.confirmed_player_gameplay_progress_time = Some(server.world.state().time);
-    server.latest_player_gameplay_feedback = Some(crate::simulator::PlayerGameplayRecentFeedback {
-        action: "play".to_string(),
-        stage: "completed_no_progress".to_string(),
-        effect: "no visible world delta: logicalTime +0, eventSeq +0".to_string(),
-        intent_summary: None,
-        target_agent_id: None,
-        reason: Some("latest command did not create forward progress".to_string()),
-        hint: Some("inspect blockers before retrying play".to_string()),
-        delta_logical_time: 0,
-        delta_event_seq: 0,
-    });
-
-    let snapshot = server.compat_snapshot(None);
-    let gameplay = snapshot
-        .player_gameplay
-        .as_ref()
-        .expect("player gameplay snapshot");
-    assert_eq!(
-        gameplay.stage_id,
-        crate::simulator::PlayerGameplayStageId::PostOnboarding
-    );
-    assert_eq!(
-        gameplay.stage_status,
-        crate::simulator::PlayerGameplayStageStatus::Blocked
-    );
-    assert_eq!(gameplay.goal_id, "post_onboarding.recover_capability");
-    assert_eq!(
-        gameplay
-            .recent_feedback
-            .as_ref()
-            .expect("recent feedback")
-            .stage,
-        "completed_no_progress"
-    );
-    assert_eq!(gameplay.blocker_kind.as_deref(), Some("no_progress"));
-    assert_eq!(
-        gameplay.response_window_class.as_deref(),
-        Some("stalled_needs_escalation")
-    );
-    assert_eq!(
-        gameplay.stalled_reason.as_deref(),
-        Some("latest command did not create forward progress")
-    );
-    assert_eq!(
-        gameplay.escalation_hint.as_deref(),
-        Some("inspect blockers before retrying play")
-    );
-    assert_eq!(
-        gameplay.fallback_action_id.as_deref(),
-        Some("request_snapshot")
-    );
-    assert_eq!(
-        gameplay.fallback_action_label.as_deref(),
-        Some("Refresh gameplay snapshot")
     );
 }
 

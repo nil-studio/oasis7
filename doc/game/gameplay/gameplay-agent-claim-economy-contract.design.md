@@ -152,7 +152,9 @@ service 来源需单独限定：[world_service/projection.rs](../../../crates/oa
 <a id="des-claim-entry-001"></a>
 ### 6.1.1 同世界逐账号注册/绑定的后继目标
 
-承接 [REQ-AGC-ENTRY-001](gameplay-agent-claim-economy-contract.prd.md#req-agc-entry-001)。当前 [player_gameplay.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/player_gameplay.rs) 的 native `claim_first_agent` 仍限制固定 `FIRST_AGENT_CLAIM_TARGET_AGENT_ID`，该目标已绑定时拒绝；[auth_actions_claims.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/auth_actions_claims.rs) 的空世界注册、旧 sidecar binding 恢复只证明局部路径。此设计不宣称当前 WorldService 或该固定入口已能接纳第二账号。
+Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264, O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270, O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196。
+
+承接 [REQ-AGC-ENTRY-001](gameplay-agent-claim-economy-contract.prd.md#req-agc-entry-001) 与 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018)。当前 [player_gameplay.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/player_gameplay.rs) 的 native `claim_first_agent` 仍限制固定 `FIRST_AGENT_CLAIM_TARGET_AGENT_ID`，该目标已绑定时拒绝；[auth_actions_claims.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/auth_actions_claims.rs) 的空世界注册、旧 sidecar binding 恢复只证明局部路径。此设计不宣称当前 WorldService 或该固定入口已能接纳第二账号。
 
 后继入口继续复用注册与身份绑定 authority，按以下顺序执行，不让 Viewer 直接创建 canonical 归属：
 
@@ -171,11 +173,19 @@ service 来源需单独限定：[world_service/projection.rs](../../../crates/oa
 
 Runtime 使用版本化 participant admission policy，默认禁用。policy 明确 issuer namespace/key、identity epoch、world/genesis、branch/authority generation、确定性有效 tick 范围、注册预算及迁移完成条件，并由 canonical 管理事件安装或更新。执行和重放只读取已提交 policy 与执行上下文，不能读取环境变量、墙钟、身份数据库或网络。HTTP 层的当前认证不能替代 canonical 验签。已有世界缺少完整历史绑定证据时不能以空 registry 推断新首次资格；启用前须显式完成相应迁移，不自动重建账号或 Agent。
 
-生产 policy 安装/更新必须携带治理 finality proof。获批准 proposal 的 manifest 明确承诺专用 install/update purpose、完整 policy digest 和已签署迁移 manifest digest，certificate 必须批准该 manifest；不得借任意历史 Approved proposal 的 signer 集另签新文本。附加签名集与证书 signer 集一致，变更 generation 连续，关闭只停止新首次资格，保留已绑定主体的当前认证恢复、历史 policy 和原结果。身份 issuer key 轮换通过同一治理更新，不从 HTTP 或环境变量覆盖 canonical policy。
+客户端准入协议与 policy 管理授权来源分开。官方客户端与外部客户端共用上述身份、owner/executor、唯一性、任务及回执检查，不携带部署类型选择器，也不承担世界治理初始化。正式网络的 policy 安装/更新必须携带治理 finality proof。获批准 proposal 的 manifest 明确承诺专用 install/update purpose、完整 policy digest 和已签署迁移 manifest digest，certificate 必须批准该 manifest；不得借任意历史 Approved proposal 的 signer 集另签新文本。附加签名集与证书 signer 集一致，变更 generation 连续，关闭只停止新首次资格，保留已绑定主体的当前认证恢复、历史 policy 和原结果。正式网络的 issuer key 轮换通过同一治理更新，不从 HTTP 或环境变量覆盖 canonical policy。
 
-旧绑定迁移 manifest 由受信 issuer 按专用用途签署，固定 identity namespace/instance、世界、branch/reorg、数据库 snapshot epoch、水位、完整清单 digest、完整性声明及 canonical registry/legacy-owner 前态 digest；每个账号到初始 Agent/owner 的映射还须独立 owner 签名。治理批准同一清单，承担“issuer 提供的是其权威旧绑定全集”的信任边界；canonical 节点不能证明外部数据库不存在遗漏。执行逐项核对实际 Agent、当前 owner 与 generation，拒绝重复账号/Agent、错世界、过时前态、错误映射和缺失签名，不改 starter/经济资产。显式空清单同样必须由 issuer 和治理证明，不把本地空 map 当证据；必要材料未知时阻塞迁移。
+DevLocal policy 由显式启用的本地 operator 管理来源授权，使用独立用途签名、固定 operator 公钥及独立历史记录，不构造 proposal、certificate 或 finality epoch。Host 从最终生效配置核验真实 `StorageProfile::DevLocal`、非 hardened policy 和不存在正式网络/guarded authority，再建立不可由客户端请求反序列化的本地管理上下文。单独的环境变量、请求正文中的 profile 名称或 `proof=None` 都不能授予安装权限。operator 签名绑定完整 policy 与 issuer-signed 迁移 manifest；issuer 完整性、前态 digest、world/genesis/branch/reorg、owner 映射、连续 generation 和永久唯一性检查与正式来源共用。
+
+本地来源持久化到 canonical event、授权根与 policy 历史，快照恢复和 journal tail replay 先获得明确的 Host 安全上下文再校验。默认恢复不暗授本地管理能力；缺失 operator pin、错误 pin、非 DevLocal、hardened 或正式网络 authority 均拒绝带本地历史的世界。不能用切换 storage profile、删除来源标记或重启将本地授权升级成治理授权；转换到正式治理须另有明确的治理迁移协议。既有正式 proof 和历史 wire 形状保持可读，两个管理来源不得静默混用。
+
+本地管理入口是持有现有 world writer 排他锁的 node 配置/执行驱动控制面，政策变更与正常 canonical candidate 一起提交；公开 participant/owner/executor API 不安装信任根。相同已提交配置重启后只回读原结果，不重复迁移；无效、过时或冲突配置不发布半状态。运行中引入正式 validator admission、finality 或其他冲突 authority 的变更在事件发布和 canonical 持久化前拒绝，保留普通 proposal，不写出下一次读取无法恢复的快照。既有世界不因启用本地管理而重建或发放额外资产。管理权限只建立信任规则，后续每次入场仍需正常 session、owner 签名、有限 grant 及 canonical 注册检查。
+
+旧绑定迁移 manifest 由受信 issuer 按专用用途签署，固定 identity namespace/instance、世界、branch/reorg、数据库 snapshot epoch、水位、完整清单 digest、完整性声明及 canonical registry/legacy-owner 前态 digest；每个账号到初始 Agent/owner 的映射还须独立 owner 签名。相应管理来源（正式网络治理或 DevLocal operator）授权同一清单，承担“issuer 提供的是其权威旧绑定全集”的信任边界；canonical 节点不能证明外部数据库不存在遗漏。执行逐项核对实际 Agent、当前 owner 与 generation，拒绝重复账号/Agent、错世界、过时前态、错误映射和缺失签名，不改 starter/经济资产。显式空清单同样必须由 issuer 签署并经相应管理来源授权，不把本地空 map 当证据；必要材料未知时阻塞迁移。
 
 永久唯一索引以稳定 namespace/account/world 为键，branch 只作为执行 fence，不产生第二份首次资格。绑定保留 Agent、owner/version、identity generation、原 operation/digest 和权威结果引用；结果归档不能删除资格记录。上述 policy、绑定及变更事件进入能力授权状态、授权根、快照、恢复校验和重放。旧快照缺少 policy 时默认拒绝新注册，保留原世界状态。
+
+旧 DevLocal Preview 的 resource manifest 若丢失 genesis 引用，仅在显式 operator 授权下，从原 node key 独立派生的 service 公钥验证原初始化收据与 genesis artifact，核对原世界 identity 及同一 signed policy 后，在安装策略的 canonical candidate 补回该原引用。不能从 policy 或普通 identity 文件单独创造 genesis，不能替换已有非空引用；正常提交和重启持续固定已绑定身份。这只是原身份的有限核验，不替代完整历史/初始 publication archive 的恢复验证。
 
 稳定 namespace 只含 identity service/environment；identity instance epoch 与 branch 均不是首次资格的一部分。离线推进身份 epoch 保留账号，policy 允许 epoch 单调推进，旧 session/grant 失效；已绑定账号通过当前认证和当前 epoch grant 查询其历史业务原件/receipt，不重签、不改原 digest、不新建 Agent。历史 epoch 必须曾被该世界 policy 授权，未知来源不能凭同名账号恢复。
 

@@ -199,6 +199,10 @@ pub fn namespace_was_authorized(world: &World, namespace: &GameIdentityNamespace
             .policy_history
             .iter()
             .any(|a| &a.policy.identity_namespace == namespace)
+        || registry
+            .devlocal_policy_history
+            .iter()
+            .any(|a| &a.request.policy.identity_namespace == namespace)
 }
 
 /// New effects additionally require enabled registration; receipt reads do not.

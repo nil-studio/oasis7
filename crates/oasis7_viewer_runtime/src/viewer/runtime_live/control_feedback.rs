@@ -26,6 +26,7 @@ impl ViewerRuntimeLiveServer {
         delta_event_seq: u64,
     ) -> PlayerGameplayRecentFeedback {
         PlayerGameplayRecentFeedback {
+            request_auth_nonce: None,
             action: action.into(),
             stage: stage.into(),
             effect: effect.into(),

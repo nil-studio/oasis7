@@ -395,9 +395,10 @@ pub(super) fn recover_checkpoint_install_transaction(
         transaction.restore(driver)?;
         driver.state = transaction.previous_state.clone();
         let policy = driver.execution_world.release_security_policy().clone();
-        driver.execution_world = super::driver_persistence::load_execution_world_with_policy(
+        driver.execution_world = super::driver_persistence::load_execution_world_with_context(
             driver.world_dir.as_path(),
             policy,
+            driver.devlocal_participant.authority.as_ref(),
         )?;
     }
     transaction.finalize_committed_best_effort(driver);
@@ -683,13 +684,18 @@ pub(super) fn install_checkpoint_bundle(
     let restored_resource_manifest = snapshot.chain_resource_manifest.clone();
     let restored_resource_delta = snapshot.latest_chain_resource_delta.clone();
     let rebuild_started_at = Instant::now();
-    let mut restored_world = oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal)
-        .map_err(|err| {
-            format!(
-                "rebuild execution checkpoint world failed at height {}: {err:?}",
-                context.height
-            )
-        })?;
+    let mut restored_world = crate::execution_config::restore_execution_world(
+        snapshot.clone(),
+        journal,
+        world_policy.clone(),
+        driver.devlocal_participant.authority.as_ref(),
+    )
+    .map_err(|err| {
+        format!(
+            "rebuild execution checkpoint world failed at height {}: {err:?}",
+            context.height
+        )
+    })?;
     restored_world.set_release_security_policy(world_policy);
     let rebuild_ms = rebuild_started_at.elapsed();
     let restored_commit_block_hash = restored_resource_delta

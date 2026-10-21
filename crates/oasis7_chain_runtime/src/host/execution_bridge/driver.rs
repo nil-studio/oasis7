@@ -68,6 +68,8 @@ mod construction;
 mod formal_retention;
 #[path = "driver_formal_tick.rs"]
 mod formal_tick;
+#[path = "driver_participant.rs"]
+mod participant;
 
 impl NodeRuntimeExecutionDriver {
     pub(super) fn new_with_config_and_local_bootstrap(
@@ -85,11 +87,23 @@ impl NodeRuntimeExecutionDriver {
         promote_interrupted_execution_bridge_retention(records_dir.as_path())?;
         let state = load_execution_bridge_state(state_path.as_path())?;
         let release_security_policy = config.release_security_policy;
+        let devlocal_participant = config.devlocal_participant;
+        if devlocal_participant.authority.is_some()
+            && execution_world_persistence_files_missing(world_dir.as_path())
+        {
+            return Err(
+                "local participant administration requires a complete existing execution world"
+                    .into(),
+            );
+        }
         remove_partial_execution_world_persistence_files(world_dir.as_path())?;
         let execution_world_bootstrap_required =
             execution_world_persistence_files_missing(world_dir.as_path());
-        let execution_world =
-            load_execution_world_with_policy(world_dir.as_path(), release_security_policy)?;
+        let execution_world = super::driver_persistence::load_execution_world_with_context(
+            world_dir.as_path(),
+            release_security_policy,
+            devlocal_participant.authority.as_ref(),
+        )?;
         let execution_sandbox: Box<dyn ModuleSandbox + Send> = Box::new(
             WasmExecutor::new(WasmExecutorConfig::default()).map_err(|err| err.to_string())?,
         );
@@ -107,6 +121,7 @@ impl NodeRuntimeExecutionDriver {
             config.checkpoint_interval_heights,
             config.checkpoint_keep_latest,
         );
+        driver.devlocal_participant = devlocal_participant;
         driver.pending_product_validation_intent = durable_product_validation_intent;
         driver.local_execution_bootstrap = local_execution_bootstrap;
         if let Some(baseline) = driver.local_execution_bootstrap.clone() {
@@ -175,6 +190,8 @@ impl NodeRuntimeExecutionDriver {
                 )?;
             }
         }
+        driver.pin_devlocal_participant_resource_identity()?;
+        driver.validate_devlocal_participant_startup()?;
         Ok(driver)
     }
 
@@ -219,6 +236,7 @@ impl NodeRuntimeExecutionDriver {
             retention_reconcile_pending,
             retention_reconcile_next_height,
             pending_product_validation_intent: None,
+            devlocal_participant: crate::execution_config::DevLocalParticipantConfig::default(),
             local_execution_bootstrap: None,
             controlled_capture_enabled: false,
             formal_retention_enabled: false,
@@ -496,10 +514,12 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                     pre_step_execution_state_root =
                         Some(effect.pre_step_execution_state_root.clone());
                 }
-                let durable_execution_world = load_execution_world_with_policy(
-                    self.world_dir.as_path(),
-                    self.execution_world.release_security_policy().clone(),
-                )?;
+                let durable_execution_world =
+                    super::driver_persistence::load_execution_world_with_context(
+                        self.world_dir.as_path(),
+                        self.execution_world.release_security_policy().clone(),
+                        self.devlocal_participant.authority.as_ref(),
+                    )?;
                 if world_is_staged_for_product_validation_intent(
                     &durable_execution_world,
                     &marker,
@@ -612,6 +632,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                 }
             };
         }
+        rollback_on_error!(self.apply_devlocal_participant_startup());
         let committed_tick_context = RuntimeCommittedTickContext {
             height: context.height,
             slot: context.slot,
@@ -703,6 +724,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                 // crash after this write is recognizable as an exact
                 // predecessor marker; a crash after the world write leaves
                 // both artifacts available for continuation.
+                staged.validate_devlocal_participant_authority_context()?;
                 persist_product_validation_intent_for_staged_world(
                     intent_records_dir.as_path(),
                     staged,
@@ -751,6 +773,11 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
             service_results
         ));
         rollback_on_error!(self.finish_formal_tick(&committed_tick_context, service_admin_only));
+        rollback_on_error!(
+            self.execution_world
+                .validate_devlocal_participant_authority_context()
+                .map_err(|e| format!("candidate local participant authority conflict: {e:?}"))
+        );
         if self.formal_retention_enabled {
             rollback_on_error!(self.capture_formal_retention(&previous_execution_world));
         }
@@ -1040,7 +1067,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
             total_ms: commit_started_at.elapsed(),
         });
 
-        Ok(NodeExecutionCommitResult {
+        let result = NodeExecutionCommitResult {
             execution_height: context.height,
             execution_block_hash: self
                 .state
@@ -1052,7 +1079,11 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                 .last_execution_state_root
                 .clone()
                 .ok_or_else(|| "execution driver missing execution_state_root".to_string())?,
-        })
+        };
+        // Only a fully published canonical commit consumes the startup input.
+        // A restart revalidates the configured original against retained history.
+        self.devlocal_participant.startup = None;
+        Ok(result)
     }
 
     fn restore_to_height(&mut self, world_id: &str, height: u64) -> Result<bool, String> {

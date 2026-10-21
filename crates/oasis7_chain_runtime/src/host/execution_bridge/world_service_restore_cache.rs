@@ -8,16 +8,26 @@ const MAX_ENTRIES: usize = 2;
 const MAX_ENTRY_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RETAINED_INPUT_BYTES: usize = 16 * 1024 * 1024;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 struct Key {
+    context: super::RestoreContext,
     snapshot_digest: [u8; 32],
     journal_digest: [u8; 32],
     snapshot_len: usize,
     journal_len: usize,
 }
 impl Key {
+    #[cfg(test)]
     fn from_bytes(snapshot: &[u8], journal: &[u8]) -> Self {
+        Self::from_bytes_with_context(snapshot, journal, &super::RestoreContext::default())
+    }
+    fn from_bytes_with_context(
+        snapshot: &[u8],
+        journal: &[u8],
+        context: &super::RestoreContext,
+    ) -> Self {
         Self {
+            context: context.clone(),
             snapshot_digest: blake3::derive_key("oasis7.pinned-world.snapshot.v1", snapshot),
             journal_digest: blake3::derive_key("oasis7.pinned-world.journal.v1", journal),
             snapshot_len: snapshot.len(),
@@ -45,6 +55,7 @@ pub(super) fn shared() -> &'static Mutex<RestoreCache> {
     CACHE.get_or_init(|| Mutex::new(RestoreCache::default()))
 }
 
+#[cfg(test)]
 pub(super) fn restore(
     cache: &Mutex<RestoreCache>,
     snapshot_bytes: &[u8],
@@ -52,10 +63,28 @@ pub(super) fn restore(
     snapshot: Snapshot,
     journal: Journal,
 ) -> Result<World, oasis7_runtime::WorldError> {
+    restore_with_context(
+        cache,
+        snapshot_bytes,
+        journal_bytes,
+        snapshot,
+        journal,
+        &super::RestoreContext::default(),
+    )
+}
+
+pub(super) fn restore_with_context(
+    cache: &Mutex<RestoreCache>,
+    snapshot_bytes: &[u8],
+    journal_bytes: &[u8],
+    snapshot: Snapshot,
+    journal: Journal,
+    context: &super::RestoreContext,
+) -> Result<World, oasis7_runtime::WorldError> {
     restore_with(
         cache,
-        Key::from_bytes(snapshot_bytes, journal_bytes),
-        || oasis7::runtime_host::world::from_snapshot(snapshot, journal),
+        Key::from_bytes_with_context(snapshot_bytes, journal_bytes, context),
+        || context.restore(snapshot, journal),
     )
 }
 

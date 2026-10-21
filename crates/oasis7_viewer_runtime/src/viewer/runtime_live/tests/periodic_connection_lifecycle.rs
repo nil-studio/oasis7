@@ -83,6 +83,9 @@ struct LiveFixture {
 
 impl LiveFixture {
     fn new(hold_first_view: bool) -> Self {
+        Self::with_events(hold_first_view, None)
+    }
+    fn with_events(hold_first_view: bool, events: Option<Vec<crate::runtime::WorldEvent>>) -> Self {
         let mut config = ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal);
         config.chain_poll_interval = Duration::from_secs(30);
         let mut server = ViewerRuntimeLiveServer::new(config).expect("create fixture viewer");
@@ -96,6 +99,9 @@ impl LiveFixture {
         let mut projection = oasis7::world_service::projection::from_world(&server.world, None)
             .expect("project fixture world");
         projection.runtime_binding = None;
+        if let Some(events) = events {
+            projection.events = events;
+        }
 
         let base_request = fixture_view_request(identity.clone());
         let base_response =
@@ -814,6 +820,110 @@ fn periodic_snapshot_reaches_every_primed_session_after_another_connection_advan
         assert!(
             output.is_empty(),
             "catchup cannot substitute initial authorization or subscription"
+        );
+    }
+}
+
+#[test]
+fn world_service_prepare_install_request_feed_uses_verified_public_history() {
+    let event = crate::runtime::WorldEvent {
+        id: 41,
+        time: 1,
+        caused_by: None,
+        body: crate::runtime::WorldEventBody::Domain(
+            crate::runtime::DomainEvent::AgentRegistered {
+                registration_contract_version: 0,
+                agent_id: "public-agent".into(),
+                pos: crate::GeoPos::new(1, 2, 3),
+            },
+        ),
+    };
+    let fixture = LiveFixture::with_events(false, Some(vec![event]));
+    let mut server = fixture.shared.lock().unwrap();
+    server.config.world_id = PRIVATE_WORLD_SENTINEL.into();
+    let mut session = RuntimeLiveSession::new();
+    let mut output = Vec::new();
+    server
+        .sync_chain_linked_runtime(&mut session, &mut output)
+        .unwrap();
+    assert!(
+        server.world.journal().events.is_empty(),
+        "mapping journal stays disposable"
+    );
+    output.clear();
+    server
+        .handle_request(
+            ViewerRequest::RequestWorldFeed {
+                cursor: None,
+                limit: 50,
+            },
+            &mut session,
+            &mut output,
+        )
+        .unwrap();
+    let response: ViewerResponse = serde_json::from_slice(&output).unwrap();
+    let ViewerResponse::WorldFeed { feed } = response else {
+        panic!("expected feed")
+    };
+    assert_eq!(feed.status, crate::viewer::WorldFeedStatus::Ready);
+    assert_eq!(feed.events.len(), 1);
+    assert_eq!(feed.events[0].event_seq, 41);
+    server.verified_world_view = None;
+    assert_eq!(
+        server.public_world_feed(None, 50).status,
+        crate::viewer::WorldFeedStatus::Unavailable
+    );
+}
+
+#[test]
+fn installed_public_feed_and_live_events_hide_canary_for_anonymous_and_cross_owner() {
+    let event = crate::runtime::WorldEvent {
+        id: 41,
+        time: 1,
+        caused_by: None,
+        body: crate::runtime::WorldEventBody::ModuleEmitted(oasis7_wasm_abi::ModuleEmitEvent {
+            module_id: "fixture.private".into(),
+            trace_id: "fixture".into(),
+            kind: "unclassified".into(),
+            payload: serde_json::json!({"canary":"synthetic-private-canary"}),
+        }),
+    };
+    for player in [None, Some("other-owner")] {
+        let fixture = LiveFixture::with_events(false, Some(vec![event.clone()]));
+        let mut server = fixture.shared.lock().unwrap();
+        server.config.world_id = PRIVATE_WORLD_SENTINEL.into();
+        let mut session = RuntimeLiveSession::new();
+        session.current_player_id = player.map(str::to_owned);
+        session.subscribed.insert(ViewerStream::Events);
+        let mut output = Vec::new();
+        server
+            .sync_chain_linked_runtime(&mut session, &mut output)
+            .unwrap();
+        assert!(
+            !String::from_utf8(output.clone())
+                .unwrap()
+                .contains("synthetic-private-canary")
+        );
+        output.clear();
+        server
+            .handle_request(
+                ViewerRequest::RequestWorldFeed {
+                    cursor: None,
+                    limit: 50,
+                },
+                &mut session,
+                &mut output,
+            )
+            .unwrap();
+        let ViewerResponse::WorldFeed { feed } = serde_json::from_slice(&output).unwrap() else {
+            panic!("expected feed")
+        };
+        assert!(feed.events.is_empty());
+        assert_eq!(feed.status, crate::viewer::WorldFeedStatus::Unavailable);
+        assert!(
+            !String::from_utf8(output)
+                .unwrap()
+                .contains("synthetic-private-canary")
         );
     }
 }

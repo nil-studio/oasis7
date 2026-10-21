@@ -15,9 +15,55 @@ pub fn release_security_policy_for_storage_profile(
     }
 }
 
+#[derive(Clone, Default)]
+pub struct DevLocalParticipantConfig {
+    pub authority: Option<oasis7_runtime::DevLocalParticipantAuthority>,
+    #[cfg(feature = "node-libp2p")]
+    pub(crate) verified_origin: Option<VerifiedDevLocalParticipantOrigin>,
+    pub startup: Option<oasis7_client_api::world_service::SignedReadRequest<
+        oasis7_runtime::service_admission::participant_policy::DevLocalParticipantPolicyAuthorizationV1,
+    >>,
+}
+
+/// Created only after Host verifies the original node-signed preview origin.
+/// This cannot be decoded from a client or an administrator JSON request.
+#[cfg(feature = "node-libp2p")]
+#[derive(Clone)]
+pub(crate) struct VerifiedDevLocalParticipantOrigin {
+    identity: oasis7_client_api::world_service::WorldIdentity,
+}
+#[cfg(feature = "node-libp2p")]
+impl VerifiedDevLocalParticipantOrigin {
+    pub(crate) fn identity(&self) -> &oasis7_client_api::world_service::WorldIdentity {
+        &self.identity
+    }
+}
+#[cfg(feature = "node-libp2p")]
+impl DevLocalParticipantConfig {
+    pub(crate) fn set_verified_origin(
+        &mut self,
+        identity: oasis7_client_api::world_service::WorldIdentity,
+    ) -> Result<(), String> {
+        identity.validate().map_err(|e| e.to_string())?;
+        let signed = self
+            .startup
+            .as_ref()
+            .ok_or("origin binding requires the explicit signed startup policy")?;
+        if self.authority.is_none()
+            || signed.request.policy.world_id != identity.world_id
+            || signed.request.policy.genesis_digest != identity.genesis_digest
+        {
+            return Err("verified origin differs from signed local participant policy".into());
+        }
+        self.verified_origin = Some(VerifiedDevLocalParticipantOrigin { identity });
+        Ok(())
+    }
+}
+
 /// Values needed by an execution driver; interpreting the host profile is separate.
 pub struct ExecutionDriverConfig {
     pub release_security_policy: ReleaseSecurityPolicy,
+    pub devlocal_participant: DevLocalParticipantConfig,
     pub hot_window_heights: u64,
     pub checkpoint_interval_heights: u64,
     pub checkpoint_keep_latest: usize,
@@ -27,10 +73,37 @@ impl From<&StorageProfileConfig> for ExecutionDriverConfig {
     fn from(profile: &StorageProfileConfig) -> Self {
         Self {
             release_security_policy: release_security_policy_for_storage_profile(profile.profile),
+            devlocal_participant: DevLocalParticipantConfig::default(),
             hot_window_heights: profile.execution_hot_head_heights,
             checkpoint_interval_heights: profile.execution_checkpoint_interval,
             checkpoint_keep_latest: profile.execution_checkpoint_keep as usize,
         }
+    }
+}
+
+/// The local pin is supplied before history validation and tail replay.
+#[cfg(feature = "node-libp2p")]
+pub(crate) fn restore_execution_world(
+    snapshot: oasis7_runtime::Snapshot,
+    journal: oasis7_runtime::Journal,
+    release: ReleaseSecurityPolicy,
+    authority: Option<&oasis7_runtime::DevLocalParticipantAuthority>,
+) -> Result<oasis7_runtime::World, oasis7_runtime::WorldError> {
+    if let Some(authority) = authority {
+        if authority.release_security_policy() != &release {
+            return Err(oasis7_runtime::WorldError::DistributedValidationFailed {
+                reason: "local participant recovery release context mismatch".into(),
+            });
+        }
+        oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+            snapshot,
+            journal,
+            authority.clone(),
+        )
+    } else {
+        oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+            snapshot, journal, release,
+        )
     }
 }
 

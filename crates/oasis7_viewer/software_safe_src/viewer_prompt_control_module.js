@@ -199,7 +199,7 @@ export function createViewerPromptControlModule({
 
   function handleAck(ack) {
     const pending = state.lastPromptFeedback;
-    if (!pending || (ack?.request_id != null && ack.request_id !== pending.requestId) || ack?.agent_id !== pending.agentId) return;
+    if (!pending || (pending.requestAuthNonce != null && ack?.request_auth_nonce !== pending.requestAuthNonce) || (ack?.request_id != null && ack.request_id !== pending.requestId) || ack?.agent_id !== pending.agentId) return;
     clearPendingPromptControlAckTimer();
     const feedback = state.lastPromptFeedback || createSemanticFeedback("prompt", "prompt_ack", ack?.agent_id || null);
     const operation = String(ack?.operation || (ack?.preview ? "preview" : "apply"));
@@ -254,6 +254,10 @@ export function createViewerPromptControlModule({
   }
 
   function handleError(error) {
+    const pending = state.lastPromptFeedback;
+    if (!pending || (pending.requestAuthNonce != null && error?.request_auth_nonce !== pending.requestAuthNonce)
+      || (error?.agent_id != null && error.agent_id !== pending.agentId)
+      || (pending.requestId != null && error?.request_id !== pending.requestId)) return;
     clearPendingPromptControlAckTimer();
     const controlLost = String(error?.code || error?.reason_code || "").trim().toLowerCase() === "agent_control_forbidden"
       || String(error?.code || error?.reason_code || "").trim().toLowerCase() === "control_lost";
