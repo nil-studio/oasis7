@@ -350,7 +350,7 @@ def diagnose(args):
             bqrs = args.output / f"{name}-{q}.bqrs"
             run([cli, "query", "run", str(query / (q + ".ql")), "--database=" + str(database),
                  "--output=" + str(bqrs), "--threads=2", "--ram=2048",
-                 "--search-path=" + str(search_root)], source,
+                 "--additional-packs=" + str(search_root)], source,
                 args.output / f"{name}-{q}.log", args.deadline, 60, args.output, env)
             run([cli, "bqrs", "decode", str(bqrs), "--format=csv", "--output=" + str(args.output / f"{name}-{q}.csv")],
                 source, args.output / f"{name}-{q}-decode.log", args.deadline, 20, args.output, env)

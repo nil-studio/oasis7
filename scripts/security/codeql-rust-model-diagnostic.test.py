@@ -127,6 +127,11 @@ class BundlePackIdentity(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
                 D.bundle_search_root(cli)
 
+    def test_locked_query_uses_additional_packs(self):
+        source = Path(D.__file__).read_text()
+        self.assertIn('"--additional-packs=" + str(search_root)', source)
+        self.assertNotIn('"--search-path=" + str(search_root)', source)
+
     def test_absent_or_ambiguous_library_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             cli = Path(temp) / "codeql"
