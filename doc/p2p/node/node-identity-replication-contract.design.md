@@ -16,7 +16,7 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
-| [professional_acceptance: nir-bootstrap](node-identity-replication-contract.prd.md#nir-bootstrap) | disabled不建key；missing可localdev ensure；malformed/conflict/unwritable失败无invalid overwrite | [des-nir-bootstrap](#des-nir-bootstrap) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
+| [professional_acceptance: nir-bootstrap](node-identity-replication-contract.prd.md#nir-bootstrap)；Trace refs: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e | disabled 不建 key；合法 missing-key ensure／显式 init 至多发布同一身份；崩溃重试不替换已绑定身份，异常配置明确失败。 | [des-nir-bootstrap](#des-nir-bootstrap) | Runtime / Node / filesystem platform / QA | 产品适用性：N/A；reason=本机初始化的专业持久性要求；scope=密钥、锁、初始化绑定及恢复，不包含 world 恢复／custody／admission。 |
 | [professional_acceptance: nir-signer-binding](node-identity-replication-contract.prd.md#nir-signer-binding) | 配置map完整normalized32-byte，无unknown，signature先于binding，缺失/mismatch拒绝 | [des-nir-signer](#des-nir-signer) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明；局部 Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 |
 | [professional_acceptance: nir-ingest-order](node-identity-replication-contract.prd.md#nir-ingest-order) | network injection只路由；world/topic隔离不混状态 | [des-nir-isolation](#des-nir-isolation) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: nir-ingest-order](node-identity-replication-contract.prd.md#nir-ingest-order) | apply/persist成功才peer/committed observation；failure不假推进 | [des-nir-ingest](#des-nir-ingest) | runtime/node/net/distfs与QA；相关外部authority | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
@@ -38,15 +38,35 @@ runtime/P2P拥有机制；ops拥有同窗口部署事实；QA拥有组合证据�
 | 本专题现行规则 | 配对PRD与保留旧章节的有界接口/失败合同 | 可选map未启用部署不能被说全节点binding；persist-failure/crash atomicity尚需node oracle；ops/root全链恢复外部。 | 本次source阅读，未运行behavior tests；具体测试定义存在不等于覆盖或通过 |
 | 跨节点组合能力 | local documented contract，历史完成是provenance | 依赖root/runtime/ops/consumer与full同candidate验证 | 运行/部署/发行未验证；不能由文档推导 |
 
+身份初始化另以源码 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e` 为当前差距基线：[node_keypair_config.rs](../../../crates/oasis7_chain_runtime/src/host/node_keypair_config.rs) 的 `ConfigFileLock` 以 create-new 锁文件互斥，依靠 Drop 删除；SIGKILL／断电可能留下锁并使重试超时。配置 helper 直接写目标文件，不能保证写入中断后仍为完整密钥。[node lifecycle model](../../../crates/oasis7_chain_runtime/src/host/node_lifecycle/model.rs) 保留初始化意图与身份绑定，但不能据此推导底层密钥已原子发布。下面的 OS 锁、持久临时文件、原子发布与崩溃恢复都是后继目标，本次没有运行故障测试。
+
 ## 4. 边界与结构
 
 config bootstrap只本地dev；consensus/governance/custody各自authority。NodeRuntime持有network handle和guard/state，network仅运输，ops读取runtime status不重定义truth。FileReplicationRecord必须world/topic/source/signature/ordering适用。
 
 ### des-nir-bootstrap
 
-disabled不建key；missing可localdev ensure；malformed/conflict/unwritable失败无invalid overwrite。
+Trace refs: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e；唯一专业声明：[nir-bootstrap](node-identity-replication-contract.prd.md#nir-bootstrap)。
 
-本条只规定启用前 local/dev identity 的读取与可选创建；disabled 不创建，非法已有身份不得覆盖。normal signature、binding 与恢复拒绝分别见后续独立条款。Product N/A；reason=local/dev bootstrap 不构成产品 custody 或 validator admission；scope=当前 config path 与 missing/malformed/conflict/unwritable 的专业边界。
+本条负责 local/dev 启用前可选 ensure 和显式 `node init` 的本机身份事务；disabled 不创建，非法已有身份不得覆盖。formal authority／validator／governance signer 的受信配置不参与自动补 key。Product N/A；reason=本机初始化不构成玩家世界恢复、生产 custody 或 validator admission；scope=当前私有配置、锁、密钥发布、初始化绑定与重试。
+
+**互斥与输入。**在经过 owner/mode/no-follow 检查的固定配置目录中取得 OS 生命周期锁，持有至身份验证／创建和绑定完成。锁文件是固定锁载体而不是“存在即占用”的永久标记；不能 unlink/recreate 一个仍可能被持有的锁 inode，也不能根据超时、PID 文本或本次进程看不到旧 PID 就夺锁。进程退出由 OS 释放锁；平台／文件系统不能提供所需锁、原子发布或同步语义时明确拒绝该模式。超时只报告当前 busy／blocked，不生成新密钥。现有 malformed/conflict/unwritable 与 symlink 拒绝保持。
+
+**准备与发布。**先持久保存原 init identity、目标路径和配置摘要；意图不包含私钥。不存在已发布合法密钥时，在同目录以私有权限、排他创建的临时文件写完整 keypair/config，核验公私钥匹配与原配置字段，再同步文件。临时材料及公钥指纹关联原 init 意图；完整的同意图材料必须复用。只有原子发布成功并同步父目录后才把密钥视为已发布，然后持久保存 node binding 与 complete 状态，再返回公钥／PeerId 和成功。
+
+专用 key 文件使用“不覆盖既有目标”的原子发布；local/dev 在已有合法 config 中补缺失 key 时，持锁核对原文件身份／摘要后原子替换完整新 config，保留其他配置，不用原地 truncate/write。已经存在的有效 key 不生成替代值；已有非法 key 明确失败。普通 ensure 原有的合法 private-only 补公钥行为若保留，也必须从同一 private key 派生，不能生成新的 private key。
+
+**恢复判定。**重试先取得同一锁、读取原意图、检查已发布 key 和绑定，再决定下一步；不根据日志中“完成”字样决定身份。各持久文件采用完整写入、文件同步、原子发布和目录同步，不能要求多个文件天然原子。发布后目录同步失败属于结果未知／待恢复：保留原意图与材料并核验目标，不能删除目标重来。
+
+| 观察到的状态 | 恢复动作 | 禁止行为 |
+| --- | --- | --- |
+| 原意图存在，目标缺失，未形成完整临时 key | 验证临时路径归属，隔离不完整材料；按原意图继续首次准备，尚无已发布身份 | 不把不完整文件当可用 key，不输出可用于授权的公钥 |
+| 原意图和完整临时 key 一致，目标缺失 | 重验后发布同一 key；新建意图不能接管该材料 | 不另生成第二份 key 或读取未知所有者的临时文件 |
+| 完整 key 已发布，binding／complete 未写完 | 与原意图核对，重建同一公钥／PeerId 的缺失绑定并持久完成 | 不因元数据落后而换 key；不在身份冲突时补写绑定 |
+| key、binding 与完成记录一致 | 重验后幂等返回同一身份 | 不以重跑作为 rotation |
+| key 损坏、多个候选冲突、binding 不匹配或原意图不可确认 | 保留现场并返回 recovery-required／blocked 及不含 secret 的诊断 | 不静默修复／覆盖，不删除未知文件，不宣称成功 |
+
+以上恢复名词是设计语义，不声明已有 CLI 新枚举。初始化恢复只完成本机身份，不自动加入治理集合、重签 grant、转移 signer 或启动网络。旧 lock 格式迁移必须在能证明没有并发旧版写者后进行；新旧锁协议混跑不具有本设计保证。
 
 ### des-nir-signer
 
@@ -93,6 +113,7 @@ config path/keypair和optional validator_signer_public_keys由本地config提供
 | producer → consumer | 输入身份/版本 | 顺序与幂等 | success / error | 兼容与资源边界 |
 | --- | --- | --- | --- | --- |
 | config/network/DistFS → NodeRuntime | 原PRD列明identity/hash/version，不复制schema | 上述flow及DES验证顺序；local幂等不推导global exactly-once | 完成相应validation/apply/persist/publish后才声明该结果；失败不伪进展 | 原policy/defaults及旧data兼容；不加未知deadline/阈值 |
+| local init／ensure → identity loader | 原 init identity、固定配置摘要、已发布公钥指纹；私钥仅在私有文件 | 同一 OS 锁下持久准备→原子发布→绑定；重试复用已发布身份 | 完整读回及父目录同步后成功；冲突／未知结果 blocked 或待恢复 | 目标；已有合法 key 保留，不自动轮换；不兼容的锁／文件系统拒绝 |
 
 ## 7. 状态、事务与持久化
 
@@ -100,9 +121,13 @@ config path/keypair和optional validator_signer_public_keys由本地config提供
 
 accepted、applied、persisted、published必须分别具备各自证据；workflow done/文档active不属于运行状态。外部receipt/journal/state root生命周期和recovery由runtime authority；本地观察不能提供更强保证。
 
+身份事务的持久提交点是完整 key 的原子发布和父目录同步；可对外报告初始化完成还须 binding／complete 持久一致。多个文件的部分完成由[恢复表](#des-nir-bootstrap)解释，不依赖跨文件原子替换。OS 锁只防并发写，不代替 key 与目录 fsync；私有临时文件不是已发布身份，完整临时材料也不能在所属意图之外复用。
+
 ## 8. 部署、安全与运行约束
 
 secret不进入docs/inventory/monitor/artifacts；node/session/consensus/governance identity分开。可用local key不提供KMS/HSM/rotation/revoke/admission。注入不证明libp2p/NAT/公网或当前triad health；role从current runtime status/evidence窗口读取。
+
+当前 transport／consensus 的用途派生由 [signer_derivation.rs](../../../crates/oasis7_chain_runtime/src/host/signer_derivation.rs) 定义；不同域避免跨用途复用，但共用本机 root 仍有共同泄露风险，不能称为独立 custody。治理主体认证、实际成员采用及读取 grant 撤销分别由[安全治理设计](../blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-governance-authorization)、[成员应用](../blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-membership-application)和[读取授权](../blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)拥有；node key／PeerId 成功生成不能替代任何一种授权。
 
 设计只定义受控输入和失败条件；操作留在现行runbook。当前governed live网络raw-copy禁令和signed-V2边界只适用于该runbook环境，不否定历史/offline local事实。任何真实fleet/health/restore claim需固定inventory/manifest/package/config与同窗口证据，不从triad标签或本地成功推导。
 
@@ -119,6 +144,8 @@ secret不进入docs/inventory/monitor/artifacts；node/session/consensus/governa
 
 本文保留原path/旧章节anchors与历史ID，不替换task truth；添加的接受/DES只细化旧合同。新输入、消费者或语义变更需重新绑定/专业审读。package/config回退不能复原已删chain state或撤回committed效果；破坏性操作依原runbook与runtime恢复合同。
 
+已有合法 keypair 与其公钥／PeerId 必须原样保留；采用新初始化事务时只补可核对的意图／绑定，不重生成密钥。遗留半写、未知 lock 持有者或冲突 binding 不自动升级，先给出明确诊断。回退旧写者之前必须停止并发初始化；旧 create-new-lock/direct-write 实现不具备新 crash-safe 目标，不能以格式仍能读取宣称回退后保证不变。
+
 ## 11. 验证设计与可追溯性
 
 下表是可复用计划：existing test source、planned场景与executed evidence分开。每条只消费准确upstream/DES；执行时须同可比较candidate/config/入口/环境，local fixture不升级为真实网络。未定位完整测试写planned，owner为runtime/QA；缺证阻断该组合结论，不能从required局部降低root full。
@@ -127,7 +154,7 @@ secret不进入docs/inventory/monitor/artifacts；node/session/consensus/governa
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [professional_acceptance: nir-bootstrap](node-identity-replication-contract.prd.md#nir-bootstrap) | [des-nir-bootstrap](#des-nir-bootstrap) | disabled不建key；missing可localdev ensure；malformed/conflict/unwritable失败无invalid overwrite | [testing-manual S4/S9A](../../../testing-manual.md); testing-manual.md (`../../../testing-manual.md`)；S4 required配置场景：enabled/disabled/missing/invalid/path冲突/read-only；检查文件前后与明确diagnostic。node_keypair_config.rs (`../../../crates/oasis7_chain_runtime/src/host/node_keypair_config.rs`) 已有 concurrent_first_writers_share_one_generated_keypair、secure_config_dir_creates_a_mode_restricted_complete_keypair、secure_config_dir_rejects_a_symlinked_key_file 定义；disabled 入口及全部异常矩阵仍 planned。普通 ensure 的 private-only 补公钥/缺值生成与 secure helper 先验完整对不同，未核全调用点不能声称全调用方 secure 或直接判运行缺陷。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
+| [professional_acceptance: nir-bootstrap](node-identity-replication-contract.prd.md#nir-bootstrap)；Trace refs: O7-REQ-b39ac7bb-609b-4784-9a94-7ef48ad4280e | [des-nir-bootstrap](#des-nir-bootstrap) | disabled 不建 key；合法 ensure/init 唯一发布；异常配置与冲突不覆盖身份；持锁进程退出不留下永久占用，存活锁不可被超时夺取；临时写入／发布／目录同步／绑定中断后复用原身份或明确 blocked。 | [testing-manual](../../../testing-manual.md) S4 required：现有 concurrent_first_writers_share_one_generated_keypair、secure_config_dir_creates_a_mode_restricted_complete_keypair、secure_config_dir_rejects_a_symlinked_key_file 仅是局部基线；planned 补同候选 enabled/disabled/invalid/path/read-only 入口矩阵，分别核对普通 private-only 补公钥与 secure 完整性；增加进程级 SIGKILL、并发、短写/fsync/rename 故障注入及目标平台实际文件系统重开。断电持久性另用可控文件系统故障场景，普通模拟不代签。 | 实施 PR 记录候选/config、命令和诊断；每个故障边界的原 init identity、公钥／PeerId、文件状态前后、锁结果、重试结果及一次正常完成对照；不输出私钥或 key bytes。 | 当前已有测试定义不等于运行通过；OS 锁与原子发布目标未实现，本次未运行；产品 N/A，限本机身份，不证明网络 admission、custody 或 world／fleet 恢复。 |
 | [professional_acceptance: nir-signer-binding](node-identity-replication-contract.prd.md#nir-signer-binding) | [des-nir-signer](#des-nir-signer) | 配置map完整normalized32-byte，无unknown，signature先于binding，缺失/mismatch拒绝 | [testing-manual S4/S9A](../../../testing-manual.md); testing-manual S4/S9A (`../../../testing-manual.md`)；exact local test source `crates/oasis7_node/src/tests_hardening.rs`；existing config_rejects_duplicate_validator_signer_bindings、pos_engine_rejects_signed_mode_without_complete_validator_signer_bindings、pos_engine_rejects_signed_proposal_when_signer_binding_mismatches_validator；per-message完整矩阵planned。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明；局部 Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 |
 | [professional_acceptance: nir-ingest-order](node-identity-replication-contract.prd.md#nir-ingest-order) | [des-nir-isolation](#des-nir-isolation) | network injection只路由；world/topic隔离不混状态 | [testing-manual S4/S9A](../../../testing-manual.md); testing-manual S4/S9A (`../../../testing-manual.md`)；exact local test source `crates/oasis7_node/src/tests/non_sequencer_followers.rs`；existing runtime_network_replication_respects_topic_isolation、replication_network_handle_rejects_empty_topic；local fixture，多world/source鉴权完整负例planned。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |
 | [professional_acceptance: nir-ingest-order](node-identity-replication-contract.prd.md#nir-ingest-order) | [des-nir-ingest](#des-nir-ingest) | apply/persist成功才peer/committed observation；failure不假推进 | [testing-manual S4/S9A](../../../testing-manual.md); testing-manual S4/S9A (`../../../testing-manual.md`)；exact local test source `crates/oasis7_node/src/tests_network_gap_sync_execution_failures.rs`；existing successor_probe_does_not_advance_replication_cursor_when_execution_fails、gap_sync_does_not_advance_replication_cursor_when_execution_fails、out_of_order_replication_ingest_does_not_advance_contiguous_persisted_cursor；这些测试断言本地 committed/persisted cursor，不完整断言全部 peer observation；persist/crash oracle 仍 planned。 | 当次GitHub task Issue evidence、实际命令/exit code/log/artifact；实际source/integration/tested tree/config/environment/window在执行时绑定 | local test source≠执行通过；全拓扑/恢复/finality/release未证明 |

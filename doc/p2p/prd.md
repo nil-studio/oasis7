@@ -4,6 +4,8 @@
 
 Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；审读 source baseline：f9d5a552d9af04c1b1398262808198a58e560230（2026-09-26）。本文的 current 指冻结源所记专业合同；本次未独立验证实现、部署或测试通过。target 是规范目标，historical 是 MIG/CCG/TASK 与 dated evidence provenance。GitHub Issue/Project 维护实际任务与候选证据。新增稳定条款是原义务的细化入口；原章节/常量/命令/失败边界仍有效。
 
+能力边界按子范围读取：native formal controlled 提交、受保护 signer 接口、原输入恢复及有界只读 full-state sync 已有代码接线，范围见[持久节点手册](blockchain/persistent-world-node-lifecycle.runbook.md#正式合同层与准入边界)和[本机生命周期手册](blockchain/local-node-lifecycle.runbook.md)；真实独立故障域与完整部署验收仍须另证。下述正式 BFT、动态集合安装和长期 checkpoint 接续是待实现目标，不能用旧 prototype、文档采纳或上述有界能力代替。
+
 <a id="p2p-authority-profiles"></a>
 ### 版本化提交权威与同世界连续性（目标）
 
@@ -42,6 +44,8 @@ Owner role：runtime_engineer；canonical repository：eng-cc/oasis7；审读 so
 
 首次开放证据必须在副本写入中、正式证明/提交决定写入中、回应 committed 前分别注入故障，并实证单故障域恢复 root/receipt 对账与旧 writer 拒绝。普通单测不能替代实际故障域演练；本段是 target，不宣称现有 prototype 已满足。
 
+P/R 是两个持久化端点，不是两名 BFT 验证者；不同 role、key、地址或目录只证明逻辑区分。部署须给出与声明故障模型一致的实际主机、存储、回滚及密钥托管边界，并在 P、R 任一域真实失效后恢复所有已确认 CommitRef、root 与原请求结果。单域容灾保证是已确认结果不丢失，不承诺缺一端时继续写入：幸存材料先提供验证只读，双端持久条件、旧写者隔离、单调 floor 和合法接续重新成立后才可写。签名 provider 或 issuer witness 无法证明不可导出、不可回滚时，保持 `FENCING_UNPROVEN` / recovery blocked，不以本机 mock 代签。场景与证据主责见[故障域验收](design.md#des-p2p-controlled-fault-domain-acceptance-v1)。
+
 后继设计把这些义务具体落为 [原 candidate 恢复 v1](design.md#des-p2p-original-candidate-recovery-v1)、
 [正式激活与消费 v1](design.md#des-p2p-formal-controlled-authority-v1) 和
 [人工 epoch 接管 v1](design.md#des-p2p-controlled-epoch-takeover-v1)。完整 candidate 落盘前
@@ -50,8 +54,9 @@ admission 或替换身份；只有尚无固定决定的 pending 才按恢复后�
 人工接管先隔离旧进程签写权限，由创世预授权且限定原请求的恢复器排空旧 epoch，再封旧
 epoch 并激活唯一后继；恢复 issuer 不获任意业务或 BFT 回退权。
 正式证明需贯通普通 Describe、Submit、Lookup、ReadView 和 Changes，不能仅移除工程 scope。
-这些是未实施的目标协议及 [验收计划](design.md#val-p2p-controlled-authority-v1)，现有工程入口
-拒绝边界、planned 配置与实际部署 hold 保持有效。
+这些是规范协议及[验收计划](design.md#val-p2p-controlled-authority-v1)；已有本机代码接线的
+实际范围按上述手册核对，不能整体记为未实现，也不能由此判为部署通过。现有工程入口
+拒绝边界、未实施子范围与实际部署 hold 保持有效。
 
 <a id="p2p-authority-handoff"></a>
 ### 单权威到 BFT 的 H/H+1 交接（目标）
@@ -122,7 +127,13 @@ receipt 不是 authority commit proof；`bft` 下活动 validator 在投票前�
 
 上述关系不表示产品全部义务已覆盖、实现或验收；本条工程前置、目标协议及外部依赖仍按原文区分。
 
-目标 Propose→Prevote→Precommit→verified >2/3 active stake certificate；world/height/round/phase/roots/set 与去重签名绑定；锁定/解锁、anti-double-sign、timeout/new-round、set transition、partition/heal/restart 都须验证。当前 prototype 缺 QC/round/复验，不是当前能力。
+首个正式协议采用[系统设计指定的 Tendermint 算法与状态机](design.md#des-p2p-bft-round-lock-v1)，由 oasis7 拥有应用语义和实现；不要求外部进程或特定语言依赖。每个高度的治理活动集合固定，`W` 为其有效总 voting power，证书必须有 `floor(2W/3)+1` 的去重有效 precommit 权重；恰好 `2W/3` 不通过。安全条件为 Byzantine 权重严格小于 `W/3`，活性另依赖最终同步、可用的足额正确验证者及确定性执行材料。三等权验证者须三签，不能据三节点部署宣称可容忍一节点作恶或离线后继续提交；单机多个 key 也不增加独立故障域。
+
+proposal、prevote、precommit、nil vote 与证书绑定同一世界、chain/genesis、协议版本、高度、round、phase、活动集合和精确 block ID；block ID 承诺 parent、manifest 及有序输入、执行与状态 roots。进入新 round 不清除锁；仅规范中的已验证 prevote 证据允许改投，超时、节点重启、同高替换 proposal 或本地 slot 不授予该权限。签名决定须在对外释放前持久化，并与锁、round、有效值及恢复水位一致；坏盘、丢失或回滚签名状态必须停签。[签名恢复设计](design.md#des-p2p-bft-signing-recovery-v1)定义原字节重发、冲突拒签和复制实例的隔离。
+
+治理批准、已提交排程与本机 runtime 已采用分别可观察。首版同一世界至多一个尚未激活的集合转换：在 `h` 最终提交的更新固定于 `h+2` 生效，`h`、`h+1` 仍按旧集合，`h+2` 才按新集合计票；本机未完成安全安装只能停签，不延后全网边界或回退旧集合。注册、轮换、撤销和 stake 变更均走[集合转换](design.md#des-p2p-bft-validator-transition-v1)，本地配置不授予投票权。此规则仅用于 BFT 内部更新，与[controlled→BFT 的 H/H+1 profile 交接](#p2p-authority-handoff)分开。
+
+验收须覆盖足额签名真实性、阈值边界、重复/矛盾投票、锁与跨 round 证据、分区恢复、重启签名水位、成员转换及全部提交证明消费者。equivocation 证据不能增加权重，处罚不能在各节点本地改写当前集合。当前 stake-threshold prototype 和独立 finality verifier 不满足完整状态机、持久投票决定、动态集合安装及恢复组合；本条仍为正式 BFT 激活前的阻断条件。
 
 配对设计必须用该条款的独立条件建立承接/验证关系；本条不把文档合并解释为运行能力或组合通过。
 
@@ -140,6 +151,24 @@ receipt 不是 authority commit proof；`bft` 下活动 validator 在投票前�
 
 配对设计必须用该条款的独立条件建立承接/验证关系；本条不把文档合并解释为运行能力或组合通过。
 
+<a id="p2p-full-sync-read-only"></a>
+### 完整状态同步与只读资格
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；分别承接 [DCS-002](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002) 的恢复连续性、[DCS-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) 的角色边界及 [DCS-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 的可用性语义。
+
+完整状态同步固定外部认证的 C0、minimum 和同一目标 cut，验证合法提交链、manifest、snapshot/journal 与全部 retained material 闭包，再原子发布 verified read-only head。连接成功、head 较高、读授权或下载完整均不授予 writer/validator 权限；本机已保留的验证历史可读也不表示当前网络可服务。私有全状态的读取与撤权只服从[安全治理授权合同](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)，不以同步角色自授读权。
+
+<a id="p2p-full-sync-capacity-checkpoint"></a>
+### 长期同步容量与 checkpoint 接续（目标）
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；分别承接 [REQ-DCS-002](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-002) 的长期恢复连续性、[REQ-DCS-003](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) 的可重建与 archive 条件，以及 [REQ-DCS-005](../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 的容量受阻与可用性语义。
+
+正式完整同步须声明版本化支持规模：历史页数、证明与 manifest 字节、对象/retained-tree 数量、单轮总字节、重开耗时预算及保留策略，并在达到限制前暴露用量、剩余额度、checkpoint age 和 lag。合法历史增长触及限制时保留最后 verified read-only cut，显式报告 stale/catching-up、容量 blocker 或 `HistoryUnavailable`，不能升级 current/serve/vote，也不能删除唯一审计历史或降低 minimum。
+
+后继 checkpoint 只能由原 C0 的合法认证链和完整材料闭包推导；需受保护的持久最低水位或独立认证的外部更新证据支持冷恢复。单机可回滚 pointer、普通 provider 签名和更高 height 均不能成为新信任根。安装与 GC 须保证中断不降水位，只有新 checkpoint 可独立重开、canonical replay/root 验证及冗余 archive 可重建后，才回收可重建的热历史。协议及验收见[容量与接续设计](design.md#des-p2p-full-sync-checkpoint-capacity-v1)。
+
+当前完整同步已有有界历史页链与只读角色；observer/watch 的 inline 历史限制、full-state page chain 的容量限制及调用方是否自动续页须分别披露。分页 API 本身不证明长期接续、任意规模历史或重开 SLO 已完成。
+
 <a id="p2p-target-role-isolation"></a>
 ### 目标角色与权威隔离
 
@@ -149,7 +178,7 @@ receipt 不是 authority commit proof；`bft` 下活动 validator 在投票前�
 
 上述关系不表示产品全部义务已覆盖、实现或验收；本条工程前置、目标协议及外部依赖仍按原文区分。
 
-world-state registry 的有效 membership/stake/signer 是 validator 投票真值；受保护 validator 与公开 sentry/relay/full/state-sync/archive/RPC/proof 服务隔离；服务只供应可验证材料。公网 IP 不是通用参与前提；validator 治理准入与服务本地 role/reachability policy 分开。
+world-state registry 的有效 membership/stake/signer 经[确定高度的集合转换](design.md#des-p2p-bft-validator-transition-v1)成为 validator 投票真值；治理视图有效不等同 runtime 已安装。受保护 validator 与公开 sentry/relay/full/state-sync/archive/RPC/proof 服务隔离；服务只供应可验证材料。公网 IP 不是通用参与前提；validator 治理准入与服务本地 role/reachability policy 分开。
 
 配对设计必须用该条款的独立条件建立承接/验证关系；本条不把文档合并解释为运行能力或组合通过。
 
