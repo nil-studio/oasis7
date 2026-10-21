@@ -20,6 +20,8 @@ gh workflow run ecs-packages.yml --ref main
 
 成功后下载 `oasis7-ecs-linux-x64` artifact，里面包含版本化 `.tar.gz` 和外部 `.sha256`。先用 `sha256sum -c <包名>.sha256` 校验归档，再解压到新版本目录并执行 `sha256sum -c SHA256SUMS`。`BUILDINFO` 的 source 必须等于本次 run 的 SHA。包内 `bin/` 是三个服务程序，`web-dist/` 是可直接发布的完整 Viewer Web 根目录（包含可选 WASM），`manifest.json` 记录来源 / profile / 平台。
 
+正式游戏 Skill 随 ECS 包固定到同一个 source SHA：组装直接读取该提交下 `skills/oasis7-play/` 的受跟踪 Markdown 对象，拒绝符号链接及未发布的相对引用，不吸收工作区改动或未跟踪文件。输出为 `web-dist/skills/oasis7-play/`（含引用及 `manifest.json`）、`web-dist/skills/index.html` 和随包 `deployment/ecs-skill-release.py`。Skill 清单记录 source、每个源文件的 SHA-256 / 字节长度，清单及发现页本身由整包 `SHA256SUMS` 覆盖。不得把旧 `site/skills/oasis7.md` 覆盖到此路径。
+
 这是服务端目录包，不是旧 Testnet `.deb` 的替代安装器；旧安装脚本若只接收 `.deb`，不能直接传入此归档。配置三个程序及 Web 根目录路径后沿下文切换。包不含世界、密钥、systemd unit 或自动初始化 / 公网开放操作，始终复用本机现有配置。维护工具单独沿已有兼容版本保留，按需更新。
 
 需要桌面发行包时才使用原 `testnet-packages.yml`。`dev` 仅用于开发调试，不能用其吞吐表现判断 ECS 是否达标。
@@ -59,8 +61,53 @@ systemctl show <player-service> -p ActiveState -p SubState -p MainPID
 
 版本路径修改采用本机已有的服务配置 / 部署脚本；本手册不假设所有 ECS 都有同一个升级命令。首次接管机器时确认一次路径即可，后续复用。
 
+### 同版本发布游戏 Skill
+
+每次 player 升级和回滚均执行本步骤，使用实际运行的完整 ECS release；发布成功是本次部署验收的一部分。不要保留另一提交的手工静态 Skill，也不要单独从 main 获取文档覆盖运行版本。
+
+首次接管 Nginx 时，在对应 HTTPS `server` 内加入一个明确的托管 include；路径可按本机约定选择，例如：
+
+```nginx
+include /etc/nginx/snippets/oasis7-skills.conf;
+```
+
+首次创建该普通文件为空（不要清空已有配置），移除先前手工维护的 `/skills/` 精确 location，避免重复路由。保留现有 Origin / 安全响应头 / API allowlist。在同一 `server` 的现有 `add_header` 层级增加发现头，避免在子 location 覆盖已有安全头：
+
+```nginx
+add_header Link '</skills/oasis7-play/SKILL.md>; rel="describedby"; type="text/markdown"' always;
+```
+
+先备份站点配置，执行 `nginx -t` 和 reload，失败恢复原配置；此 bootstrap 只做一次。后续发布工具只修改该 include，不改主站点、API、服务环境、权限开关或世界。HTTPS `server` 的 `/skills/` 路由只归此 include 管理；不能被另一 location 或其他 include 遮蔽。
+
+切换服务并核对新进程后，释放外层维护锁，再执行随包工具（工具会非阻塞获取同一维护锁；不要在持有它的父进程中嵌套调用）：
+
+```bash
+release=/opt/oasis7-preview/releases/<verified-release>
+source_sha=<full-deployed-commit-sha>
+sudo python3 "$release/deployment/ecs-skill-release.py" activate \
+  --release "$release" --expected-source "$source_sha" \
+  --origin https://<public-host> \
+  --player-service <player-service> \
+  --nginx-include /etc/nginx/snippets/oasis7-skills.conf \
+  --lock-file /run/lock/oasis7-preview-deploy.lock
+```
+
+命令先验证 release / Skill 的 source、整包校验和中的发布文件和各源文件哈希，再核对正在运行的 launcher 字节与此 release 相同。选择另一个版本、缺文件、篡改清单、未接入的 include 或锁被占用都会停止，不重启游戏服务。发布文件必须为 root 所有、目录可遍历、文件可读，且不能是符号链接。
+
+工具将精确路径 alias 到此 release 的文件，稳定 URL 使用 `no-cache`；仅 GET / HEAD。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保留相对路径；`/skills/` 和 `/skills/oasis7-play/` 转至发现页，旧 `/skills/oasis7.md` 转至正式入口。它不开放任意文件目录或 API。写入使用原子替换，旧 include 保存在同目录 `.previous`；随后 `nginx -t`、reload 并从公网逐字节核对 Skill、全部引用、清单和发现页。任一步失败都恢复旧 include、检查并 reload；回滚失败保留实际错误，不能宣称发布成功。失败期间不把旧 Skill 视为新游戏版本验收通过。
+
+独立复核可运行只读命令：
+
+```bash
+python3 "$release/deployment/ecs-skill-release.py" verify \
+  --release "$release" --expected-source "$source_sha" --origin https://<public-host>
+```
+
+同时检查原入口跳转、HEAD 空正文、POST 405、未知文件 404 以及主页发现头。回滚游戏时，用已校验的旧 release 重跑 `activate`，使页面和游戏一起回退；旧包若无本工具，使用原部署备份恢复对应静态发布配置并核对哈希，不能复用新版本 Skill。生成包和发布 Skill 不代表 Runtime 冷入场、游戏权限或真实试玩已通过。
+
 ## 4. 马上验证
 
+- 确认上述 Skill 同版本发布和公网校验成功；失败时本次部署尚未完成，不以首页 HTTP 200 代替。
 - 最多 15 秒确认 launcher / Viewer 实际新进程启动，运行的文件哈希匹配候选。只更新 player 时确认 chain 未重启；更新 chain 时确认新链进程及其哈希。
 - 做一次真实签名世界读取，核对原 world ID、genesis、服务公钥和读身份。端口打开、HTTP 200 或 `--version` 不能替代这个检查。
 - 连续观察完整 60 秒，至少看到 3 次有效世界推进；只有最初快照不算推进。不反复发送初始快照请求凑数。
