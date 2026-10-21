@@ -449,6 +449,8 @@ main{padding:16px 24px}
  .work-fact{padding:8px;gap:8px}
 }
 
+.chapter-outline{grid-template-columns:minmax(0,1fr)}
+.chapter-outline ul,.chapter-outline li{min-width:0}
 .chapter-outline ul{list-style:none;margin:0;padding:0}
 .chapter-outline li>ul{margin-left:12px;padding-left:10px;border-left:1px solid #354256}
 .chapter-outline .chapter-row{display:flex;align-items:start;gap:4px;min-width:0}
