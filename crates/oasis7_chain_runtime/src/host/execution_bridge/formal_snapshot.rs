@@ -95,10 +95,10 @@ pub(super) fn append(
         oasis7_runtime::resolve_snapshot_artifact_with_depth(&base_ref, &|hash| {
             capture::object(frozen, hash).map(<[u8]>::to_vec)
         })?;
-    if super::snapshot_to_cbor(&base_snapshot)? != super::snapshot_to_cbor(&before)? {
+    if super::snapshot_to_cbor(&base_snapshot)? != super::snapshot_to_cbor(before)? {
         return Err("Snapshot delta producer base differs from signed Frozen prestate".into());
     }
-    if super::snapshot_to_cbor(&before)? == raw_after {
+    if super::snapshot_to_cbor(before)? == raw_after {
         return Ok(base_ref);
     }
     if depth < PRODUCER_MAX_SNAPSHOT_DELTA_DEPTH {

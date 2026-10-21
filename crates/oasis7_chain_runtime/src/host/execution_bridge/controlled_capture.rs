@@ -195,7 +195,7 @@ pub(super) fn validate_snapshot_continuity(
     expected.chain_resource_manifest = incoming.chain_resource_manifest;
     expected.latest_chain_resource_delta = incoming.latest_chain_resource_delta;
     if super::snapshot_to_cbor(&expected)? != next.before_snapshot
-        || super::journal_to_cbor(&world.journal())? != next.before_journal
+        || super::journal_to_cbor(world.journal())? != next.before_journal
     {
         return Err("history typed world/journal prefix mismatch".into());
     }
@@ -213,7 +213,7 @@ pub(super) fn prepare(
         context: context.clone(),
         release_security_policy: world.release_security_policy().clone(),
         before_snapshot: super::snapshot_to_cbor(&world.snapshot())?,
-        before_journal: super::journal_to_cbor(&world.journal())?,
+        before_journal: super::journal_to_cbor(world.journal())?,
     })
 }
 

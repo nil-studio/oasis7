@@ -345,9 +345,9 @@ fn validate_transition_inner(
         .map_err(|error| error.to_string())?;
     let restored_worlds = if let Some((actual_before, actual_after)) = formal_worlds {
         if super::snapshot_to_cbor(&actual_before.snapshot())? != before_snapshot_bytes
-            || super::journal_to_cbor(&actual_before.journal())? != before_journal_bytes
+            || super::journal_to_cbor(actual_before.journal())? != before_journal_bytes
             || super::snapshot_to_cbor(&actual_after.snapshot())? != after_snapshot_bytes
-            || super::journal_to_cbor(&actual_after.journal())? != after_journal_bytes
+            || super::journal_to_cbor(actual_after.journal())? != after_journal_bytes
         {
             return Err("formal actual Worlds differ from serialized transition bytes".into());
         }

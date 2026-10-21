@@ -104,7 +104,7 @@ pub(super) fn persist_initial(
         .map_err(|error| format!("{error:?}"))?;
     let identity = world_service_read::identity(&driver.world_dir, &binding.world_id)?;
     let snapshot_bytes = super::snapshot_to_cbor(&driver.execution_world.snapshot())?;
-    let journal_bytes = super::journal_to_cbor(&driver.execution_world.journal())?;
+    let journal_bytes = super::journal_to_cbor(driver.execution_world.journal())?;
     let snapshot_ref = blake3_hex(&snapshot_bytes);
     let journal_ref = blake3_hex(&journal_bytes);
     driver

@@ -361,7 +361,7 @@ fn reexecute(
         resource_hash.clone(),
         resource_hash,
     ))?;
-    let actual_journal = super::journal_to_cbor(&world.journal())?;
+    let actual_journal = super::journal_to_cbor(world.journal())?;
     if actual_snapshot != snapshot_bytes || actual_journal != journal_bytes {
         return Err("real reexecution snapshot/journal/result mismatch".into());
     }

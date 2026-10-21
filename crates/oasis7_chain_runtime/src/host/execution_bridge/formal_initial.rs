@@ -233,7 +233,7 @@ impl InitialWorldClosure {
         let state_root = insert(&mut objects, snapshot_bytes, vec![]);
         let journal = insert(
             &mut objects,
-            super::journal_to_cbor(&world.journal())?,
+            super::journal_to_cbor(world.journal())?,
             vec![],
         );
         let business_contract = bootstrap.is_some();

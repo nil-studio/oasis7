@@ -630,9 +630,9 @@ pub(super) fn candidate_with_business_reader(
         .map(|transition| verify_durable_set_transition_arm(transition, authority, parent))
         .transpose()?;
     let before_bytes = super::snapshot_to_cbor(&before_world.snapshot())?;
-    let before_journal_bytes = super::journal_to_cbor(&before_world.journal())?;
+    let before_journal_bytes = super::journal_to_cbor(before_world.journal())?;
     let after_bytes = super::snapshot_to_cbor(&after_world.snapshot())?;
-    let after_journal_bytes = super::journal_to_cbor(&after_world.journal())?;
+    let after_journal_bytes = super::journal_to_cbor(after_world.journal())?;
     let previous_block = continuation
         .predecessor_execution_block_hash
         .as_deref()
