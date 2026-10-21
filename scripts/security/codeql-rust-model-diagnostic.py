@@ -303,6 +303,7 @@ def main():
     mode.add_argument("--real-peer-projection", action="store_true")
     mode.add_argument("--production-macro-database", action="store_true")
     mode.add_argument("--inspect-evaluator-evidence", action="store_true")
+    mode.add_argument("--compile-anchored-parent", action="store_true")
     parser.add_argument("--evaluator-cost-probes", action="store_true")
     parser.add_argument("--evaluator-batch", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
@@ -391,12 +392,13 @@ def diagnose(args):
     search_root = os.pathsep.join(p["root"] for p in inventory)
     peer_mode = None
     query_texts = {"Macros": MACROS, "Calls": CALLS, "Closures": CLOSURES}
-    if args.real_peer_projection or args.production_macro_database:
-        helper = Path(__file__).with_name("codeql-rust-production-macros.py" if args.production_macro_database else "codeql-rust-peer-inputs.py")
+    if args.real_peer_projection or args.production_macro_database or args.compile_anchored_parent:
+        helper = Path(__file__).with_name("codeql-rust-production-macros.py" if args.production_macro_database or args.compile_anchored_parent else "codeql-rust-peer-inputs.py")
         specification = importlib.util.spec_from_file_location("real_peer_inputs", helper)
         peer_mode = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(peer_mode)
-        query_texts = peer_mode.COST_QUERIES if args.evaluator_cost_probes else peer_mode.QUERIES
+        query_texts = (peer_mode.ANCHOR_COMPILE_QUERIES if args.compile_anchored_parent else
+                       peer_mode.COST_QUERIES if args.evaluator_cost_probes else peer_mode.QUERIES)
         write(args.output / "real-peer-helper-sha256.txt", hashlib.sha256(helper.read_bytes()).hexdigest() + "\n")
     names = tuple(query_texts)
     for name, text in query_texts.items():
@@ -447,6 +449,23 @@ def diagnose(args):
         "cache": str(cache), "shared_compile_seconds": 360,
         "queries": {name: hashlib.sha256((query / (name + ".ql")).read_bytes()).hexdigest()
                     for name in names}}, indent=2) + "\n")
+    if args.compile_anchored_parent:
+        if "--[no-]dump-ra" not in help_text:
+            raise RuntimeError("exact CLI missing RA dump option")
+        if args.deadline - time.monotonic() < 450:
+            raise RuntimeError("insufficient original budget for shared360 plus90 reserve")
+        run([cli, "query", "compile", "--keep-going", "--dump-ra",
+             "--compilation-cache=" + str(cache), "--no-default-compilation-cache",
+             "--common-caches=" + str(args.work / "common-caches"),
+             "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
+             *[str(query / (name + ".ql")) for name in names]], args.work,
+            args.output / "anchored-parent-compile-ra.log", args.deadline - 90, 360, args.output, env)
+        write(args.output / "anchored-parent-result.json", json.dumps({
+            "disposition": "COMPILE_PLAN_REQUIRES_INDEPENDENT_REVIEW", "database_downloads": 0,
+            "extractions": 0, "query_evaluations": 0, "coverage": "NOT_ESTABLISHED",
+            "original_and_candidate": {name: hashlib.sha256((query / (name + ".ql")).read_bytes()).hexdigest()
+                                       for name in names}}, indent=2)+"\n")
+        return
     run([cli, "query", "compile", "--keep-going", "--compilation-cache=" + str(cache),
          "--additional-packs=" + str(search_root), "--threads=2", "--ram=3072",
          *[str(query / (name + ".ql")) for name in names]],

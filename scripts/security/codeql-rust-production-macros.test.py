@@ -299,6 +299,41 @@ class Guards(unittest.TestCase):
             self.assertEqual(len(calls), 3)
             self.assertTrue((out/"batch-framing.json").is_file())
 
+    def test_anchored_recursion_preserves_star_keys_zero_and_generated_nodes(self):
+        # Concrete finite-graph LFP proof control, distinct from QL optimizer evidence.
+        parents = {"generated": {"root"}, "leaf": {"generated"}, "self": {"self"},
+                   "orphanA": {"orphanB"}, "orphanB": {"orphanA"}}
+        roots = {"positive": {"root", "self"}, "negative": {"absent"}, "multi": {"leaf", "root"}}
+        nodes = set(parents) | {p for ps in parents.values() for p in ps} | {"absent"}
+        for key, bases in roots.items():
+            lfp = set(bases)
+            while True:
+                nxt = lfp | {n for n in nodes if parents.get(n, set()) & lfp}
+                if nxt == lfp: break
+                lfp = nxt
+            reference = set()
+            for node in nodes:
+                seen = set(); pending = [node]
+                while pending:
+                    current = pending.pop()
+                    if current in seen: continue
+                    seen.add(current); pending.extend(parents.get(current, set()))
+                if seen & bases: reference.add(node)
+            self.assertEqual(lfp & nodes, reference, key)
+        self.assertEqual(m.ANCHOR_COMPILE_QUERIES["MacroFlowOriginal"], m.QUERIES["MacroFlow"])
+        candidate = m.ANCHOR_COMPILE_QUERIES["MacroFlowAnchored"]
+        self.assertEqual(candidate.count("targetDescendant(file, line, path, n.asExpr())"), 2)
+        self.assertIn("or targetDescendant(file, line, path, node.getParentNode())", candidate)
+        self.assertNotIn("node.getLocation()", candidate)
+
+    def test_compile_mode_returns_before_any_database_or_fixture(self):
+        driver = Path(__file__).with_name("codeql-rust-model-diagnostic.py").read_text()
+        branch = driver.split("    if args.compile_anchored_parent:\n",1)[1].split("    if peer_mode is not None:",1)[0]
+        self.assertIn('"--dump-ra"', branch)
+        self.assertIn('"query_evaluations": 0', branch)
+        self.assertIn("        return", branch)
+        self.assertNotIn('"--dump-dil"', branch)
+
     def test_actual_driver_and_workflow_token_boundary(self):
         driver = Path(__file__).with_name("codeql-rust-model-diagnostic.py").read_text()
         self.assertLess(driver.index('env.pop("GH_TOKEN", None)'), driver.index('run([cli, "version"'))
@@ -306,9 +341,9 @@ class Guards(unittest.TestCase):
         self.assertIn('mode.add_argument("--production-macro-database"', driver)
         workflow = Path(".github/workflows/rust.yml").read_text()
         job = workflow.split("  codeql-rust-model-diagnostic:",1)[1].split("\n  select:",1)[0]
-        self.assertIn("security-events: read", job)
+        self.assertNotIn("security-events:", job)
         self.assertNotIn("actions: read", job)
-        self.assertIn("--production-macro-database --evaluator-batch", job)
-        self.assertIn("GH_TOKEN: ${{ github.token }}", job)
+        self.assertIn("--compile-anchored-parent", job)
+        self.assertNotIn("GH_TOKEN:", job)
 
 if __name__ == "__main__": unittest.main()

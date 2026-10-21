@@ -783,9 +783,9 @@ run_cargo() {
         self.assertNotIn('secrets.', WORKFLOW)
         diagnostic = JOBS["codeql-rust-model-diagnostic"]
         self.assertNotIn('GH_TOKEN:', WORKFLOW.replace(diagnostic, ""))
-        self.assertEqual(diagnostic.count('GH_TOKEN:'), 1)
-        self.assertIn('GH_TOKEN: ${{ github.token }}', diagnostic)
-        self.assertIn('security-events: read', diagnostic)
+        self.assertEqual(diagnostic.count('GH_TOKEN:'), 0)
+        self.assertNotIn('GH_TOKEN:', diagnostic)
+        self.assertNotIn('security-events:', diagnostic)
         self.assertNotIn('actions: read', diagnostic)
         self.assertIn("inputs.run_mode == 'codeql_rust_model_diagnostic'", diagnostic)
         self.assertNotIn('scripts/pm/', WORKFLOW)

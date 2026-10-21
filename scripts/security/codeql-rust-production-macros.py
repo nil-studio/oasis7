@@ -84,6 +84,35 @@ select file.getRelativePath(), "linux-closure-parameter-use", present
 '''}
 
 
+
+def anchored_macroflow():
+    original = QUERIES["MacroFlow"]
+    imports = "import rust\nimport codeql.rust.dataflow.DataFlow\n"
+    selected = """predicate selectedExpansion(File file, int line, string path, AstNode root) {
+  exists(MacroCall mc |
+    mc.getLocation().getFile() = file and
+    mc.getLocation().getStartLine() = line and
+    mc.getPath().toString().matches("%" + path + "%") and
+    root = mc.getMacroCallExpansion())
+}
+predicate targetDescendant(File file, int line, string path, AstNode node) {
+  selectedExpansion(file, line, path, node)
+  or targetDescendant(file, line, path, node.getParentNode())
+}
+"""
+    old = """exists(MacroCall mc, DataFlow::Node n |
+ mc.getLocation().getFile() = file and
+ mc.getLocation().getStartLine() = line and mc.getPath().toString().matches("%" + path + "%") and
+ mc.getMacroCallExpansion() = n.asExpr().getParentNode*())"""
+    if original.count(old) != 2:
+        raise RuntimeError("frozen MacroFlow positive/negative shape changed")
+    return original.replace(imports, imports + selected, 1).replace(old,
+        "exists(DataFlow::Node n | targetDescendant(file, line, path, n.asExpr()))")
+
+
+ANCHOR_COMPILE_QUERIES = {"MacroFlowOriginal": QUERIES["MacroFlow"],
+                          "MacroFlowAnchored": anchored_macroflow()}
+
 COST_QUERIES = {
     "Engine": "select 1\n",
     "ExactFile": '''import rust
