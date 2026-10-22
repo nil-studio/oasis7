@@ -16,6 +16,10 @@ use std::{
 };
 use zeroize::Zeroizing;
 const MAX_REQUEST: usize = 32768;
+// Native runtime/client distributions can exceed the small-input bound. Hash
+// these artifacts incrementally; never retain executable bytes in memory.
+const MAX_BINARY_ARTIFACT_BYTES: usize = 512 * 1024 * 1024;
+const MAX_PINNED_INPUT_BYTES: usize = 128 * 1024 * 1024;
 const MAX_RESPONSE: usize = 12 * 1024 * 1024 + 65536;
 const MAGIC: &[u8; 8] = b"O7TOOL01";
 const AAD: &[u8] = b"oasis7/local-tool-request-budget/v1";
@@ -90,7 +94,15 @@ fn trusted_ancestors(path: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-fn file(path: &Path, private: bool, limit: usize) -> Result<Vec<u8>, String> {
+fn valid_file_metadata(m: &std::fs::Metadata, private: bool, limit: usize) -> bool {
+    m.is_file()
+        && m.nlink() == 1
+        && m.uid() == unsafe { geteuid() }
+        && m.mode() & 0o022 == 0
+        && (!private || m.mode() & 0o777 == 0o600)
+        && m.len() <= limit as u64
+}
+fn artifact_file(path: &Path, private: bool, limit: usize) -> Result<std::fs::File, String> {
     trusted_ancestors(path)?;
     let m = std::fs::symlink_metadata(path).map_err(|_| "broker artifact unavailable")?;
     if !path.is_absolute()
@@ -98,18 +110,23 @@ fn file(path: &Path, private: bool, limit: usize) -> Result<Vec<u8>, String> {
             .canonicalize()
             .map_err(|_| "broker artifact path unavailable")?
             != path
-        || !m.is_file()
-        || m.nlink() != 1
-        || m.uid() != unsafe { geteuid() }
-        || m.mode() & 0o022 != 0
-        || (private && m.mode() & 0o777 != 0o600)
-        || m.len() > limit as u64
+        || !valid_file_metadata(&m, private, limit)
     {
         return Err("broker artifact permissions, path or size invalid".into());
     }
+    let file = std::fs::File::open(path).map_err(|_| "broker artifact unavailable")?;
+    let opened = file.metadata().map_err(|_| "broker artifact unavailable")?;
+    if opened.dev() != m.dev()
+        || opened.ino() != m.ino()
+        || !valid_file_metadata(&opened, private, limit)
+    {
+        return Err("broker artifact permissions, path or size changed".into());
+    }
+    Ok(file)
+}
+fn file(path: &Path, private: bool, limit: usize) -> Result<Vec<u8>, String> {
     let mut b = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|_| "broker artifact unavailable")?
+    artifact_file(path, private, limit)?
         .take(limit as u64 + 1)
         .read_to_end(&mut b)
         .map_err(|_| "broker artifact unreadable")?;
@@ -122,11 +139,38 @@ unsafe extern "C" {
     fn geteuid() -> u32;
 }
 fn pinned(a: &PinnedArtifact, private: bool) -> Result<Vec<u8>, String> {
-    let b = file(&a.path, private, 128 * 1024 * 1024)?;
+    let b = file(&a.path, private, MAX_PINNED_INPUT_BYTES)?;
     if a.sha256.len() != 64 || hex::encode(Sha256::digest(&b)) != a.sha256 {
         return Err("blocked: broker pinned artifact hash mismatch".into());
     }
     Ok(b)
+}
+fn pinned_binary(a: &PinnedArtifact) -> Result<(), String> {
+    let mut input = artifact_file(&a.path, false, MAX_BINARY_ARTIFACT_BYTES)?
+        .take(MAX_BINARY_ARTIFACT_BYTES as u64 + 1);
+    if a.sha256.len() != 64 {
+        return Err("blocked: broker pinned artifact hash mismatch".into());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut total = 0usize;
+    loop {
+        let count = input
+            .read(&mut buffer)
+            .map_err(|_| "broker artifact unreadable")?;
+        if count == 0 {
+            break;
+        }
+        total += count;
+        if total > MAX_BINARY_ARTIFACT_BYTES {
+            return Err("broker artifact too large".into());
+        }
+        hash.update(&buffer[..count]);
+    }
+    if hex::encode(hash.finalize()) != a.sha256 {
+        return Err("blocked: broker pinned artifact hash mismatch".into());
+    }
+    Ok(())
 }
 fn private_dir(p: &Path) -> Result<(), String> {
     let _ = store::open_root(p)?;
@@ -178,8 +222,8 @@ impl BrokerConfig {
             return Err("blocked: source attestation differs from profile".into());
         }
         pinned(&self.skill, false)?;
-        pinned(&self.client_binary, false)?;
-        pinned(&self.runtime_binary, false)?;
+        pinned_binary(&self.client_binary)?;
+        pinned_binary(&self.runtime_binary)?;
         let mut all = vec![(self.socket_directory.clone(), false)];
         for (name, r) in &self.resources {
             if !id(name) || r.max_tool_requests == 0 || r.max_tool_requests > 100000 {
