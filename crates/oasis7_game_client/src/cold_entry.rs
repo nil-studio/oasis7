@@ -16,6 +16,8 @@ use std::{
 use zeroize::Zeroizing;
 #[path = "cold_entry_run.rs"]
 mod execution;
+#[cfg(test)]
+pub(crate) use execution::participant_result;
 #[path = "cold_entry_login.rs"]
 mod login;
 #[cfg(test)]

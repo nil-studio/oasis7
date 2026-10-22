@@ -86,11 +86,12 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
         .unwrap();
     let world = c.world.clone();
     let server = thread::spawn(move || {
-        let mut original = None;
+        let mut original: Option<SignedReadRequest<GameParticipantRegisterV1>> = None;
         let mut committed = None;
         let mut authorizations = 0;
         let mut lookup_count = 0;
-        for _ in 0..15 {
+        let mut owner_views = 0;
+        for _ in 0..27 {
             let (mut socket, _) = listener.accept().unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(3)))
@@ -133,6 +134,26 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
                 json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
             } else if path.ends_with("/capabilities") {
                 json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
+            } else if path.ends_with("/participant/owner-view") {
+                owner_views += 1;
+                if owner_views == 1 {
+                    // Settlement exists, but a failed canonical read must not
+                    // become ownership confirmation by the orchestration.
+                    json!({"api_version":2,"ok":true,"world_response":null})
+                } else {
+                    let owner = &original.as_ref().unwrap().request;
+                    let commit = json!({"world":world,"binding":{"provider_world_id":"world","branch_id":"main","finality_ref":"test","reorg_generation":0,"governing_manifest_ref":"test","authority_generation":1,"permission_generation":1},"position":1,"execution_block_hash":"test-block","state_root_ref":"test-root"});
+                    let scope = body["read"]["request"]["scope_id"].clone();
+                    let view = json!({"contract_version":1,"version":{"commit":commit,"projection_revision":"owner-v1","visibility_scope":scope},"logical_tick":1,"continuation":{"stream_id":"owners","scope_id":scope,"era":0,"sequence":1,"commit":commit},"view":{"canonical_agent_owner":{"agent_id":"agent","player_id":"binding","public_key":owner.owner_public_key,"world_id":"world","reorg_epoch":0,"canonical_authority":{"branch_id":"main","agent_identity_generation":1},"current_intent_id":null},"game_task_control":null}});
+                    let signed = ws::sign_service_response(
+                        VIEW_JSON_PATH,
+                        ws::request_digest(VIEW_JSON_PATH, &body["read"]).unwrap(),
+                        view,
+                        &hex::encode([77; 32]),
+                    )
+                    .unwrap();
+                    json!({"api_version":2,"ok":true,"world_response":signed})
+                }
             } else if path.ends_with("/participant/authorize") {
                 let owner: SignedReadRequest<GameParticipantRegisterV1> =
                     serde_json::from_value(body).unwrap();
@@ -211,7 +232,8 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
             .unwrap();
             socket.write_all(&body).unwrap();
         }
-        assert_eq!(authorizations, 2);
+        assert_eq!(authorizations, 4);
+        assert_eq!(owner_views, 2);
         assert_eq!(lookup_count, 2);
     });
     assert!(client.register("original-op", "login").is_err());
@@ -224,5 +246,29 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
     assert_eq!(result.agent_id.as_deref(), Some("agent"));
     assert_eq!(result.next_action, "verify_canonical_owner_view");
     assert_ne!(result.state, "confirmed");
+    // Feed the actual signed SDK settlement through the cold-entry transition,
+    // then perform its real HTTP canonical read. The old confirmed-only guard
+    // stopped before this read and could never finish participant admission.
+    let error = crate::cold_entry::participant_result(&result, "original-op", || {
+        restarted.current_owner("original-op", "login").map(|_| ())
+    })
+    .unwrap_err();
+    assert!(error.contains("owner view response malformed"));
+    assert_eq!(
+        restarted.status("original-op").unwrap().agent_id.as_deref(),
+        Some("agent")
+    );
+    assert!(
+        crate::cold_entry::participant_result(&result, "original-op", || {
+            let current = restarted.current_owner("original-op", "login")?;
+            assert_eq!(current.receipt.account_id, "account");
+            assert_eq!(current.owner.agent_id, "agent");
+            assert_eq!(current.owner.public_key, current.receipt.owner_public_key);
+            assert_eq!(current.owner.world_id, "world");
+            Ok(())
+        })
+        .unwrap()
+        .is_none()
+    );
     server.join().unwrap();
 }

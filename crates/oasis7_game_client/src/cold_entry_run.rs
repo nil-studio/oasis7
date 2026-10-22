@@ -176,15 +176,11 @@ pub(super) fn execute(
                 ));
             }
         };
-        if progress.state != "confirmed" {
-            return Ok(stopped(
-                STAGES[2],
-                &ops[2],
-                &progress.state,
-                &progress.next_action,
-            ));
+        if let Some(stop) = participant_result(&progress, &ops[2], || {
+            client.current_owner(&ops[2], &ops[1]).map(|_| ())
+        })? {
+            return Ok(stop);
         }
-        client.current_owner(&ops[2], &ops[1])?;
         finish(store, &ops[2])?;
     }
     let current = client.current_owner(&ops[2], &ops[1])?;
@@ -361,6 +357,27 @@ pub(super) fn execute(
     Ok(
         json!({"stage":"complete","state":"confirmed","executor_config":p.executor_config_directory.join(export_name),"next_action":"explicit_validated_runtime_profile_required","runtime_started":false}),
     )
+}
+// Participant settlement deliberately remains pending until a fresh canonical
+// owner observation succeeds. Other pending/unknown results must retain the
+// exact original and must never advance by consulting an unrelated owner view.
+pub(crate) fn participant_result(
+    progress: &crate::identity_client::ParticipantProgress,
+    operation: &str,
+    canonical_owner: impl FnOnce() -> Result<(), String>,
+) -> Result<Option<Value>, String> {
+    if progress.state != "confirmed"
+        && !(progress.state == "pending" && progress.next_action == "verify_canonical_owner_view")
+    {
+        return Ok(Some(stopped(
+            STAGES[2],
+            operation,
+            &progress.state,
+            &progress.next_action,
+        )));
+    }
+    canonical_owner()?;
+    Ok(None)
 }
 fn owner_result(
     result: Result<crate::identity_client::EntryOwnerProgress, String>,

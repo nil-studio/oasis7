@@ -473,3 +473,31 @@ fn lost_login_cookie_requires_explicit_fresh_id_and_resumes_same_new_original() 
     assert_eq!(selected.pending, None);
     assert_eq!(business, immutable.operations);
 }
+
+#[test]
+fn participant_pending_or_unknown_requires_original_reconciliation_before_canonical_read() {
+    use crate::identity_client::ParticipantProgress;
+    for (state, next) in [
+        ("pending", "query_original"),
+        ("unknown", "query_original"),
+        ("unknown", "verify_canonical_owner_view"),
+        ("blocked", "inspect_original_rejection"),
+    ] {
+        let progress = ParticipantProgress {
+            stage: "participant_binding".into(),
+            state: state.into(),
+            operation_id: "original".into(),
+            account_id: "account".into(),
+            agent_id: Some("agent".into()),
+            next_action: next.into(),
+        };
+        let stopped = execution::participant_result(&progress, "original", || {
+            panic!("unsettled original must not consult canonical owner")
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(stopped["state"], state);
+        assert_eq!(stopped["next_action"], next);
+        assert_eq!(stopped["operation_id"], "original");
+    }
+}
