@@ -87,9 +87,14 @@ Do not replace an unknown attempt to force success.
 
 At completion the client rechecks current canonical owner/task, the complete
 published goal and the active independent executor. Only then does it publish
-`executor.json` inside the fixed executor configuration directory. It contains
-resource references and the current fence, no signer seed, cookie or private
-goal text. Local `status` is historical progress, not current world permission.
+`executor.json` inside the fixed executor configuration directory. A new export contains
+resource references, the current fence and explicit `authority_mode: "native_executor_v1"`,
+no signer seed, cookie or private goal text. Its native context can legitimately
+return `capabilities: null` with [typed native authority](task-context.md).
+An already completed legacy export is retained byte-for-byte in provider mode
+when its full canonical configuration still matches; resuming never upgrades its
+mode or changes its broker artifact hash. Any other fence or configuration change
+blocks automatic replacement. Local `status` is historical progress, not current world permission.
 Its non-secret `participant_operation_id` and `active_login_operation_id` refer to
 the saved original participant and selected login for trusted `entry-owner` CLI
 management (including explicit delegation revocation); these references are not

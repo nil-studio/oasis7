@@ -103,6 +103,7 @@ fn check(
         .unwrap()
         .subject_public_key;
     let client = Client {
+        authority_mode: None,
         remote: crate::WorldServiceTaskClient::new(config).unwrap(),
         world: WorldIdentity {
             world_id: "world".into(),

@@ -319,6 +319,7 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
             let proof = sign_read_request(
                 TASK_CONTEXT_PREPARE_PATH,
                 TaskContextPrepareV1 {
+            authority_mode: None,
                     schema_revision: 1,
                     fence: GameTaskFenceV1::from_control(&control),
                     client_operation_id: format!("logistics-delivery-context-{attempt}"),

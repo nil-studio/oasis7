@@ -29,6 +29,14 @@ Agent owner 维护 Runtime 驱动和版本兼容；Runtime owner 验证 task/exe
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [adapter-skill](#adapter-skill) | agent_engineer / liveops_community | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 机器冷入场、必要确认停点、owner/executor 隔离和原阶段恢复 | [adapter-autonomous-entry](#adapter-autonomous-entry) | identity / agent_engineer / runtime_engineer | 不扩张默认 GameRequest 权限，不表示公开入口已开放 |
 
+### 显式 task context 权威模式与恢复
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。可信本地 executor 配置可显式设置 `authority_mode: "native_executor_v1"`；新冷入场导出必须包含此选择。省略字段维持既有 provider 模式及 schema revision 1 的 wire、签名和 commitment，不把缺少 provider invocation 当作切换依据。native 使用 revision 2，选择写入 prepare/snapshot 请求、context identity 和 commitment；服务端回复必须恰好包含相应一种 typed authority。
+
+native authority 仅证明当前完整 task fence、独立 executor delegation、真实权限 root、业务预算、读取 tick 和有界 lease，不提供 provider module catalog。driver 只能使用所选模式的能力；native 不能借 provider 的 module invocation，provider 也不能消费 native authority 充当其 module 授权。broker 从已固定哈希的 executor 配置读取模式，不接受模型工具参数覆盖。
+
+operation 原件在网络前持久化。重试及重启复用原 schema、mode、nonce、关联和签名；原件与当前配置模式冲突时阻断并要求显式核对，不重签、换 operation 或捕获 provider 错误后降级。已存在的 provider 原件省略 mode，继续按原模式恢复；只有 settled 后才可明确选择新模式创建新 context。模式选择不证明 Runtime 已运行，也不扩大 owner 权限。
+
 ## 3. 当前状态、目标状态与差距
 
 | 对象 | 基线证据 | 目标与差距 |

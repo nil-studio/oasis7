@@ -6,7 +6,7 @@ pub use client_build::BuildQuoteOutcome;
 use crate::operation_store::{ClientStateKind, ClientStateV1, OperationStore as PrivateGoalStore};
 use crate::private_key_file::read_private_key_file;
 use crate::{WorldServiceClientConfig, WorldServiceTaskClient as RemoteWorldServiceClient};
-use oasis7_agent_api::game::GameTaskFenceV1;
+use oasis7_agent_api::game::{GameTaskFenceV1, TaskContextAuthorityModeV1};
 use oasis7_agent_api::world_action as crate_action;
 use oasis7_client_api::world_service::{
     task_context::*,
@@ -27,6 +27,8 @@ use zeroize::Zeroizing;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DeviceConfig {
+    #[serde(default)]
+    authority_mode: Option<TaskContextAuthorityModeV1>,
     endpoint: String,
     world_id: String,
     genesis_digest: String,
@@ -36,6 +38,7 @@ struct DeviceConfig {
     state_directory: PathBuf,
 }
 pub struct Client {
+    pub(crate) authority_mode: Option<TaskContextAuthorityModeV1>,
     pub remote: RemoteWorldServiceClient,
     pub world: WorldIdentity,
     pub agent: String,
@@ -49,6 +52,8 @@ pub struct Client {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutorDeviceConfig {
+    #[serde(default)]
+    pub authority_mode: Option<TaskContextAuthorityModeV1>,
     pub identity: crate::identity_client::IdentityClientConfig,
     pub login_operation: String,
     pub executor_vault_directory: PathBuf,
@@ -112,6 +117,7 @@ impl Client {
         )
         .map_err(|_| "executor gateway configuration rejected")?;
         Ok(Self {
+            authority_mode: config.authority_mode,
             remote,
             world,
             agent,
@@ -167,6 +173,7 @@ impl Client {
         })
         .map_err(|_| "client configuration rejected")?;
         Ok(Self {
+            authority_mode: config.authority_mode,
             remote,
             world,
             agent: config.agent_id,
@@ -462,7 +469,10 @@ impl Client {
             let proof = self.sign(
                 TASK_CONTEXT_PREPARE_PATH,
                 TaskContextPrepareV1 {
-                    schema_revision: 1,
+                    schema_revision: TaskContextAuthorityModeV1::schema_revision(
+                        self.authority_mode,
+                    ),
+                    authority_mode: self.authority_mode,
                     fence: self.task_fence()?,
                     client_operation_id: operation.to_owned(),
                     client_nonce: hex::encode(nonce.as_slice()),
@@ -477,7 +487,8 @@ impl Client {
         let ClientStateV1::ContextPrepare(proof) = record else {
             return Err("client preparation recovery required".into());
         };
-        if proof.subject_public_key != self.public_key
+        if proof.request.authority_mode != self.authority_mode
+            || proof.subject_public_key != self.public_key
             || proof.request.client_operation_id != operation
             || proof.request.fence.world_id != self.world.world_id
             || proof.request.fence.genesis_digest != self.world.genesis_digest
@@ -543,6 +554,18 @@ impl Client {
         operation: &str,
     ) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
         if let Some(request) = self.cached_intent(ClientStateKind::Prefix, operation)? {
+            let WorldServicePayloadV1::Scheduler(signed) = &request.signed_payload else {
+                return Err("invalid cached context prefix".into());
+            };
+            let SchedulerOperationV1::TaskProviderPrefix { context } = &signed.request.operation
+            else {
+                return Err("invalid cached context prefix".into());
+            };
+            if context.authority_mode != self.authority_mode {
+                return Err(
+                    "cached context authority mode differs; recover original results".into(),
+                );
+            }
             return Ok(request);
         }
         let original = self.original_prepare(operation)?;
@@ -567,6 +590,9 @@ impl Client {
         let SchedulerOperationV1::TaskProviderPrefix { context } = signed.request.operation else {
             return Err("invalid cached context prefix".into());
         };
+        if context.authority_mode != self.authority_mode {
+            return Err("cached context authority mode differs; recover original results".into());
+        }
         self.sign(
             TASK_CONTEXT_READ_PATH,
             TaskContextGetV1 {

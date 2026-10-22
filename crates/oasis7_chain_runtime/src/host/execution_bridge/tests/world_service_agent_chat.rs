@@ -27,6 +27,15 @@ pub(super) fn driver_fixture_without_provider() -> (
 ) {
     fixture(false, false)
 }
+pub(super) fn driver_fixture_without_provider_with_unrelated_provider() -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture_with_controller(true, false, true, None)
+}
 fn fixture(
     verified_authority: bool,
     provider_fixture: bool,
@@ -37,7 +46,7 @@ fn fixture(
     String,
     String,
 ) {
-    fixture_with_controller(verified_authority, provider_fixture, None)
+    fixture_with_controller(verified_authority, provider_fixture, false, None)
 }
 pub(super) fn driver_fixture_with_controller_registry(
     registry: oasis7_runtime::GovernanceMainTokenControllerRegistry,
@@ -48,11 +57,12 @@ pub(super) fn driver_fixture_with_controller_registry(
     String,
     String,
 ) {
-    fixture_with_controller(false, false, Some(registry))
+    fixture_with_controller(false, false, false, Some(registry))
 }
 fn fixture_with_controller(
     verified_authority: bool,
     provider_fixture: bool,
+    other_provider: bool,
     controller: Option<oasis7_runtime::GovernanceMainTokenControllerRegistry>,
 ) -> (
     PathBuf,
@@ -80,6 +90,12 @@ fn fixture_with_controller(
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
+    if other_provider {
+        world.submit_action(Action::RegisterAgent {
+            agent_id: "other-agent".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        });
+    }
     world.step().unwrap();
     world.submit_action(Action::ClaimStarterOc {
         agent_id: "agent-a".into(),
@@ -109,6 +125,11 @@ fn fixture_with_controller(
     if provider_fixture {
         world
             .install_test_provider_capability_fixture_without_cognition_balance("agent-a")
+            .unwrap();
+    }
+    if other_provider {
+        world
+            .install_test_provider_capability_fixture_without_cognition_balance("other-agent")
             .unwrap();
     }
     if verified_authority {

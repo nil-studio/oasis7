@@ -1,0 +1,36 @@
+{
+  "request": {
+    "schema_revision": 1,
+    "fence": {
+      "world_id": "w1",
+      "genesis_digest": "fixture-genesis-v1",
+      "branch_id": "main",
+      "reorg_epoch": "0",
+      "agent_id": "agent-a",
+      "owner_binding": "owner-a",
+      "owner_generation": "1",
+      "owner_public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+      "task_id": "game-task-blake3:9bfb173160ed0555affc0dec34b9e1f562ea27b05a7cc01507bb1754e2fb05fc",
+      "task_revision": "3",
+      "task_status": "active",
+      "latest_goal_revision": "1",
+      "active_goal_revision": "1",
+      "active_goal_reference": {
+        "goal_revision": "1",
+        "goal_ref": "fabd2c62d228ae660b281acaaf628d9630c9f58046610496b041c8a0a00b2287",
+        "prepare_operation_id": "context-goal",
+        "publish_operation_id": "context-publish",
+        "activation_committed_height": "4"
+      },
+      "executor_epoch": "1",
+      "executor_binding": {
+        "executor_id": "context-executor",
+        "executor_public_key": "772c8a442b7db06e166cfbc1ccbcbcde6f3eba76a4e98ef3ffc519502237d6ef",
+        "delegation_generation": "1",
+        "executor_epoch": "1"
+      }
+    }
+  },
+  "subject_public_key": "772c8a442b7db06e166cfbc1ccbcbcde6f3eba76a4e98ef3ffc519502237d6ef",
+  "signature_hex": "0233aab01cb20050aa750acdde6e4d87feccf1f7975766919449ceb6f942ae2db550fa0b6f56d27dc5a5996dab98e4ddeddeea0b061478c67b2c426820c0d607"
+}

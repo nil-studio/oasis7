@@ -36,6 +36,7 @@ fn persisted_acceptance_retains_original_ack_across_restart_and_identity_conflic
         genesis_digest: "genesis".into(),
     };
     let client = || Client {
+        authority_mode: None,
         remote: crate::WorldServiceTaskClient::new(crate::WorldServiceClientConfig {
             endpoint: "http://127.0.0.1:1".into(),
             trusted_service_public_key: public.clone(),

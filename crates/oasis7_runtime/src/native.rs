@@ -414,6 +414,7 @@ pub use governance_membership::{RuntimeMembershipApplicationView, WorldGovernanc
 pub mod chain_resource;
 
 pub(crate) mod service_context;
+mod native_task_context;
 
 pub mod cognition_disposition;
 

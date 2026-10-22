@@ -24,9 +24,26 @@ struct ActiveContextReadFixture {
     fence: GameTaskFenceV1,
 }
 
-fn active_context_read_fixture() -> ActiveContextReadFixture {
-    let (dir, mut driver, world, owner, owner_public) =
-        super::canonical_agent_chat::driver_fixture_with_verified_authority();
+fn active_context_read_fixture(native: bool) -> ActiveContextReadFixture {
+    let (dir, mut driver, world, owner, owner_public) = if native {
+        super::canonical_agent_chat::driver_fixture_without_provider()
+    } else {
+        super::canonical_agent_chat::driver_fixture_with_verified_authority()
+    };
+    if native {
+        assert!(
+            driver
+                .execution_world
+                .capability_invocation_contexts()
+                .is_empty()
+        );
+        assert!(
+            driver
+                .execution_world
+                .canonical_agent_service_context("agent-a")
+                .is_err()
+        );
+    }
     let create = game_task_tests::create(&world, &owner, "context-read-task");
     commit(&mut driver, 3, create);
     let control = game_task::current_control(&driver.execution_world, "agent-a")
@@ -145,7 +162,9 @@ fn active_context_read_fixture() -> ActiveContextReadFixture {
     let prepare = sign_read_request(
         TASK_CONTEXT_PREPARE_PATH,
         TaskContextPrepareV1 {
-            schema_revision: 1,
+            authority_mode: native
+                .then_some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
+            schema_revision: if native { 2 } else { 1 },
             fence: fence.clone(),
             client_operation_id: "context-read-prepare".into(),
             client_nonce: "b2".repeat(32),
@@ -240,7 +259,7 @@ fn advance_driver_past_context_deadline(
 
 #[test]
 fn private_task_context_read_retries_same_get_after_benign_head_advance_but_rejects_stop() {
-    let mut fixture = active_context_read_fixture();
+    let mut fixture = active_context_read_fixture(false);
     let original_get_bytes = serde_json::to_vec(&fixture.get).unwrap();
     let pin = || {
         super::super::world_service_read::pin(
@@ -368,7 +387,7 @@ fn private_task_context_read_retries_same_get_after_benign_head_advance_but_reje
 
 #[test]
 fn private_task_context_read_rejects_goal_revision_advanced_before_delivery() {
-    let mut fixture = active_context_read_fixture();
+    let mut fixture = active_context_read_fixture(false);
     let before = super::super::world_service_read::pin(
         &fixture.dir.join("records"),
         &fixture.dir.join("store"),
@@ -467,7 +486,7 @@ fn private_task_context_read_rejects_goal_revision_advanced_before_delivery() {
 
 #[test]
 fn private_task_context_read_reports_expiry_at_capture_and_delivery() {
-    let mut initial = active_context_read_fixture();
+    let mut initial = active_context_read_fixture(false);
     advance_past_context_deadline(&mut initial);
     let (status, body, stage) = http_with_diagnostic_hook(
         &initial.dir,
@@ -484,7 +503,7 @@ fn private_task_context_read_reports_expiry_at_capture_and_delivery() {
     assert!(body.get("payload").is_none());
     assert_eq!(stage, Some("initial_capture_expired"));
 
-    let mut delivery = active_context_read_fixture();
+    let mut delivery = active_context_read_fixture(false);
     let starting_height = super::super::world_service_read::pin(
         &delivery.dir.join("records"),
         &delivery.dir.join("store"),
@@ -522,7 +541,7 @@ fn private_task_context_read_reports_expiry_at_capture_and_delivery() {
 
 #[test]
 fn private_task_context_http_service_emits_stage_without_tracing_subscriber() {
-    let mut fixture = active_context_read_fixture();
+    let mut fixture = active_context_read_fixture(false);
     advance_past_context_deadline(&mut fixture);
     let get = fixture.get.clone();
     let result = consumer(
@@ -540,4 +559,112 @@ fn private_task_context_http_service_emits_stage_without_tracing_subscriber() {
             message,
         }) if message == "private goal request rejected"
     ));
+}
+
+#[test]
+fn private_task_context_native_read_rejects_authority_definition_change_before_delivery() {
+    let mut fixture = active_context_read_fixture(true);
+    let original = serde_json::to_vec(&fixture.get).unwrap();
+    let root = fixture
+        .driver
+        .execution_world
+        .native_task_authorization_root("agent-a")
+        .unwrap();
+    let before = super::super::world_service_read::pin(
+        &fixture.dir.join("records"),
+        &fixture.dir.join("store"),
+        &fixture.world,
+        None,
+    )
+    .unwrap();
+    let (status, body, stage) = http_with_diagnostic_hook(
+        &fixture.dir,
+        &fixture.runtime,
+        &fixture.signer,
+        Some(&fixture.store),
+        TASK_CONTEXT_READ_PATH,
+        &fixture.get,
+        "",
+        || {
+            let source = fixture
+                .driver
+                .execution_world
+                .current_agent_owner("agent-a")
+                .unwrap();
+            fixture
+                .driver
+                .execution_world
+                .install_test_native_delegation_grant(
+                    oasis7_agent_api::world_quote::AgentDelegationGrantV1 {
+                        grant_id: "native-delivery-budget".into(),
+                        source_id: source.source_id,
+                        issuer_id: source.player_id.clone(),
+                        owner_id: source.player_id,
+                        organization_id: None,
+                        agent_id: "agent-a".into(),
+                        object_id: "agent-a".into(),
+                        action_kinds: vec!["MoveAgent".into()],
+                        revision: 1,
+                        period_id: "native-delivery".into(),
+                        valid_from_tick: 0,
+                        valid_until_tick: 1000,
+                        limit_units: 10,
+                        resource_kind: "electricity".into(),
+                        revoked: false,
+                    },
+                )
+                .unwrap();
+            let height = before.commit.position + 1;
+            fixture
+                .driver
+                .on_commit(NodeExecutionCommitContext {
+                    world_id: "w1".into(),
+                    node_id: "node-a".into(),
+                    proposer_id: "node-a".into(),
+                    height,
+                    slot: height,
+                    epoch: 0,
+                    node_block_hash: format!("node-h{height}"),
+                    action_root: compute_consensus_action_root(&[]).unwrap(),
+                    committed_actions: vec![],
+                    committed_at_unix_ms: height as i64 * 1000,
+                })
+                .unwrap();
+        },
+    );
+    assert_ne!(
+        root,
+        fixture
+            .driver
+            .execution_world
+            .native_task_authorization_root("agent-a")
+            .unwrap()
+    );
+    assert_eq!(
+        GameTaskFenceV1::from_control(
+            &game_task::current_control(&fixture.driver.execution_world, "agent-a")
+                .unwrap()
+                .unwrap()
+        ),
+        fixture.fence
+    );
+    assert_eq!(status, 409);
+    assert_eq!(body["error"], "private_goal_conflict");
+    assert_eq!(stage, Some("delivery_capture_validation_failed"));
+    assert!(body.get("payload").is_none());
+    assert_eq!(serde_json::to_vec(&fixture.get).unwrap(), original);
+    let (status, body) = http_with_hook(
+        &fixture.dir,
+        &fixture.runtime,
+        &fixture.signer,
+        Some(&fixture.store),
+        TASK_CONTEXT_READ_PATH,
+        &fixture.get,
+        "",
+        || {},
+    );
+    assert_eq!(status, 409);
+    assert!(body.get("payload").is_none());
+    drop(fixture.driver);
+    fs::remove_dir_all(fixture.dir).unwrap();
 }

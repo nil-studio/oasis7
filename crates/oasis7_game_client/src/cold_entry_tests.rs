@@ -537,3 +537,67 @@ fn completed_historical_status_exposes_only_original_owner_cli_references() {
     assert_eq!(status(&reopened, &immutable).unwrap(), result);
     assert_eq!(immutable.operations, original);
 }
+
+#[test]
+fn completed_executor_export_preserves_exact_legacy_provider_bytes_on_restart() {
+    let (_root, plan) = fixture("https://identity.example".into());
+    let snapshot: oasis7_client_api::world_service::task_context::GoalExecutionSnapshotV1 =
+        serde_json::from_slice(include_bytes!(
+            "../testdata/task-context/native-snapshot.json"
+        ))
+        .unwrap();
+    snapshot.validate().unwrap();
+    let fence = oasis7_agent_api::game::GameTaskFenceV1::from_control(&snapshot.control);
+    let native = json!({"identity":plan.entry.identity,"login_operation":"login",
+        "executor_vault_directory":plan.executor_vault_directory,
+        "service_public_key":plan.entry.trusted_world_service_key,
+        "state_directory":plan.executor_state_directory,
+        "fence":fence,
+        "authority_mode":"native_executor_v1"});
+    let mut legacy = native.clone();
+    legacy.as_object_mut().unwrap().remove("authority_mode");
+    let original = serde_json::to_vec_pretty(&legacy).unwrap();
+    {
+        let directory = private_storage::open_root(&plan.executor_config_directory).unwrap();
+        assert!(
+            private_storage::publish_immutable(&directory, "executor.json", &original).unwrap()
+        );
+    }
+    for _restart in 0..2 {
+        execution::publish_executor_config(
+            &plan.executor_config_directory,
+            "executor.json",
+            &native,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(plan.executor_config_directory.join("executor.json")).unwrap(),
+            original
+        );
+    }
+    let mut changed = native.clone();
+    changed["fence"]["owner_generation"] = json!((fence.owner_generation.0 + 1).to_string());
+    assert!(
+        execution::publish_executor_config(
+            &plan.executor_config_directory,
+            "executor.json",
+            &changed
+        )
+        .is_err()
+    );
+    assert_eq!(
+        std::fs::read(plan.executor_config_directory.join("executor.json")).unwrap(),
+        original
+    );
+    execution::publish_executor_config(
+        &plan.executor_config_directory,
+        "new-executor.json",
+        &native,
+    )
+    .unwrap();
+    let fresh: Value = serde_json::from_slice(
+        &std::fs::read(plan.executor_config_directory.join("new-executor.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fresh["authority_mode"], "native_executor_v1");
+}

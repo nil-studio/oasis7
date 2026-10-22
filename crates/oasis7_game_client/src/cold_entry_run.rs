@@ -335,28 +335,48 @@ pub(super) fn execute(
     }
     start(store, &ops[9])?;
     let task = validate_goal(&client, p, ops, &keys, true)?;
-    let config = json!({"identity":p.entry.identity,"login_operation":ops[1],"executor_vault_directory":p.executor_vault_directory,
+    let config = json!({"authority_mode":"native_executor_v1","identity":p.entry.identity,"login_operation":ops[1],"executor_vault_directory":p.executor_vault_directory,
         "service_public_key":p.entry.trusted_world_service_key,"fence":GameTaskFenceV1::from_control(&task),"state_directory":p.executor_state_directory});
-    let directory = private_storage::open_root(&p.executor_config_directory)?;
     let export_name = if ops[1] == immutable.operations[1] {
         "executor.json".to_owned()
     } else {
         format!("executor-{}.json", ops[1])
     };
-    let bytes =
-        serde_json::to_vec_pretty(&config).map_err(|_| "executor config encoding failed")?;
-    if !private_storage::publish_immutable(&directory, &export_name, &bytes)?
-        && private_storage::read_private(&directory, &export_name, 65536)? != bytes
-    {
-        return Err(
-            "action_required: original exported executor fence changed; no automatic replacement"
-                .into(),
-        );
-    }
+    publish_executor_config(&p.executor_config_directory, &export_name, &config)?;
     finish(store, &ops[9])?;
     Ok(
         json!({"stage":"complete","state":"confirmed","executor_config":p.executor_config_directory.join(export_name),"next_action":"explicit_validated_runtime_profile_required","runtime_started":false}),
     )
+}
+// A completed legacy handoff keeps its exact immutable provider bytes. This
+// compatibility read never rewrites a broker artifact or upgrades its mode.
+pub(super) fn publish_executor_config(
+    path: &std::path::Path,
+    name: &str,
+    config: &Value,
+) -> Result<(), String> {
+    let directory = private_storage::open_root(path)?;
+    let bytes = serde_json::to_vec_pretty(config).map_err(|_| "executor config encoding failed")?;
+    if private_storage::publish_immutable(&directory, name, &bytes)? {
+        return Ok(());
+    }
+    let original = private_storage::read_private(&directory, name, 65536)?;
+    if original == bytes {
+        return Ok(());
+    }
+    let mut legacy = config.clone();
+    let object = legacy
+        .as_object_mut()
+        .ok_or("invalid executor configuration")?;
+    if object.remove("authority_mode") != Some(json!("native_executor_v1")) {
+        return Err("invalid executor authority mode".into());
+    }
+    if original
+        == serde_json::to_vec_pretty(&legacy).map_err(|_| "executor config encoding failed")?
+    {
+        return Ok(());
+    }
+    Err("action_required: original exported executor fence or authority mode changed; no automatic replacement".into())
 }
 // Participant settlement deliberately remains pending until a fresh canonical
 // owner observation succeeds. Other pending/unknown results must retain the

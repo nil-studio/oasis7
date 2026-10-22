@@ -65,6 +65,8 @@ fn public_task_context_has_only_commitments_and_complete_active_fence() {
         executor_epoch: DecimalU64(1),
     });
     let context = TaskContextIdentityV1 {
+        authority_mode: None,
+        native_authorization_root: None,
         schema_revision: 1,
         fence: GameTaskFenceV1::from_control(&control),
         agent_session_id: "session".into(),
@@ -78,6 +80,20 @@ fn public_task_context_has_only_commitments_and_complete_active_fence() {
         valid_until_tick: DecimalU64(50),
     };
     context.validate().unwrap();
+    assert!(
+        serde_json::to_value(&context)
+            .unwrap()
+            .get("authority_mode")
+            .is_none()
+    );
+    let mut native = context.clone();
+    native.authority_mode = Some(TaskContextAuthorityModeV1::NativeExecutorV1);
+    native.native_authorization_root = Some(format!("blake3:{}", "44".repeat(32)));
+    native.schema_revision = 2;
+    native.validate().unwrap();
+    native.schema_revision = 1;
+    assert!(native.validate().is_err());
+
     context.validate_capture_deadline(34).unwrap();
     assert!(context.validate_capture_deadline(33).is_err());
     assert!(context.validate_capture_deadline(51).is_err());

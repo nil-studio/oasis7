@@ -17,6 +17,8 @@ use std::{
 mod governance;
 #[path = "participant_starter.rs"]
 mod starter;
+#[path = "participant_owner_view.rs"]
+mod owner_view;
 #[path = "participant_transport.rs"]
 mod transport;
 fn namespace() -> GameIdentityNamespaceV1 {
@@ -248,6 +250,7 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             "first admitted response is deliberately lost"
         );
         let receipt_a = settled(&a, &root, &identity, "account-a", "register-a", &key_a);
+        owner_view::exercise(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
         assert!(dropped.load(Ordering::SeqCst));
         let again = a
             .submit(request(

@@ -141,6 +141,13 @@ fn broker_rejects_owner_raw_options_hash_changes_aliases_and_unsupported_profile
         vec!["owner"],
         vec!["identity-operation-id"],
         vec!["describe", "--config", "/tmp/x"],
+        vec![
+            "context",
+            "--operation",
+            "native",
+            "--authority-mode",
+            "native_executor_v1",
+        ],
         vec!["lookup", "--kind", "prefix", "--kind", "action"],
         vec!["move", "--signer-file", "/tmp/key"],
     ] {
