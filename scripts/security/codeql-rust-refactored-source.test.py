@@ -136,6 +136,26 @@ class Guards(unittest.TestCase):
         for labels in [[],['missing'],['derive-ast','derive-ast']]:
             with self.assertRaises(RuntimeError):m.partition_query(text,labels)
 
+    def test_ast_only_is_exact_reviewed_partition_and_files(self):
+        root=Path('/owned/source');original=m.partition_queries(root);actual=m.ast_only_queries(root)
+        self.assertEqual(list(actual),['PeerAst','Files'])
+        self.assertEqual(actual['PeerAst'],original['PeerAst'])
+        self.assertEqual(actual['Files'],m.queries(root)['Files'])
+        self.assertNotIn('DataFlow::Node',actual['PeerAst'])
+        self.assertIn('present = 0 and not witness(label)',actual['PeerAst'])
+
+    def test_ast_positive_zero_duplicate_missing_are_not_pass(self):
+        self.assertEqual(m.check_metrics([['derive-ast','1']],'PeerAst'),{'derive-ast':1})
+        for rows in [[],[['derive-ast','0']],[['derive-ast','1'],['derive-ast','1']],
+                     [['derive-ast','1'],['derive-df','1']]]:
+            with self.assertRaises(RuntimeError):m.check_metrics(rows,'PeerAst')
+
+    def test_files_exact_context_rejects_foreign_missing_duplicate(self):
+        wanted={'/source/driver.rs','/source/protocol.rs','/source/candidate/adapter.rs'}
+        rows=[[x,x] for x in sorted(wanted)];m.check_files(rows,wanted)
+        for bad in [rows[:-1],rows+rows[:1],rows+[['/source/legacy/adapter.rs','foreign']]]:
+            with self.assertRaises(RuntimeError):m.check_files(bad,wanted)
+
     def test_partition_compile_early_return_never_materializes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);source=root/'source';source.mkdir()

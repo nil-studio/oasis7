@@ -302,6 +302,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--refactored-source-model", action="store_true")
     mode.add_argument("--refactored-partition-plans", action="store_true")
+    mode.add_argument("--refactored-ast-only", action="store_true")
     parser.add_argument("--business-source", type=Path)
     mode.add_argument("--real-peer-projection", action="store_true")
     mode.add_argument("--production-macro-database", action="store_true")
@@ -360,7 +361,7 @@ def diagnose(args):
     version = json.loads((args.output / "codeql-version.json").read_text())
     if version["version"] != "2.27.2":
         raise RuntimeError("unexpected CodeQL version")
-    if args.refactored_source_model or args.refactored_partition_plans:
+    if args.refactored_source_model or args.refactored_partition_plans or args.refactored_ast_only:
         if args.business_source is None:
             raise RuntimeError("refactored source mode requires exact business checkout")
         import types

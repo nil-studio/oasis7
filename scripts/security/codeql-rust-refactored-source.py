@@ -183,6 +183,7 @@ predicate witness(string label) {
 
 EXPECTED = {
     "Peer": {"derive-ast":1,"derive-df":1,"closure-flow":1},
+    "PeerAst": {"derive-ast":1},
     "Driver": {k:(0 if k in ("wrong-branch","wrong-state") else 1) for k in
         ("cli-flow","request-binding","response-binding","message-binding","request-assert",
          "response-assert","message-server-assert","message-client-assert","wrong-branch",
@@ -323,6 +324,17 @@ def partition_queries(root):
     }
 
 
+def ast_only_queries(root):
+    texts = partition_queries(root)
+    return {name: texts[name] for name in ('PeerAst', 'Files')}
+
+
+def check_files(rows, wanted):
+    actual = [row[0] for row in rows]
+    if set(actual) != wanted or len(actual) != len(set(actual)):
+        raise RuntimeError('public File witness missing/duplicate')
+
+
 def execute(driver, production, args, env):
     source=args.business_source.resolve();out=args.output;work=args.work;cli=str(args.codeql)
     save=lambda name,value:production.evidence_write(out/name,(json.dumps(value,indent=2)+'\n').encode(),out)
@@ -341,7 +353,8 @@ def execute(driver, production, args, env):
         query=out/'refactored-queries';query.mkdir(exist_ok=False)
         production.evidence_write(query/'qlpack.yml',b'name: oasis7/rust-model-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.23\n',out)
         compile_only = getattr(args, 'refactored_partition_plans', False)
-        texts=partition_queries(source) if compile_only else queries(source)
+        ast_only = getattr(args, 'refactored_ast_only', False)
+        texts=partition_queries(source) if compile_only else ast_only_queries(source) if ast_only else queries(source)
         for name,text in texts.items(): production.evidence_write(query/(name+'.ql'),text.encode(),out)
         packs=os.pathsep.join(str(args.codeql.parent/'qlpacks/codeql'/name/version) for name,version in driver.LIBRARY_VERSIONS.items())
         run=driver.run
@@ -362,7 +375,7 @@ def execute(driver, production, args, env):
             save('partition-compile-only.json',{'status':'COMPILED_PLAN_REQUIRES_REVIEW','db_downloads':0,'extractions':0,'evaluations':0,'queries':list(texts),'shared_compile_seconds':360,'meaning':'Complete successful compiler stdout is evidence for independent plan closure review, not runtime or coverage PASS.'})
             return
         run([cli,'query','compile','--keep-going','--compilation-cache='+str(cache),'--no-default-compilation-cache','--common-caches='+str(common),'--additional-packs='+packs,'--threads=2','--ram=3072',*[str(query/(name+'.ql')) for name in texts]],work,out/'refactored-compile.log',args.deadline-90,240,out,env)
-        for context in ('candidate','legacy','image'):
+        for context in (('candidate',) if ast_only else ('candidate','legacy','image')):
             if args.deadline-time.monotonic()<450: raise RuntimeError('NOT_REACHED insufficient total context budget: '+context)
             if shutil.disk_usage(work).free<4*1024**3: raise RuntimeError('insufficient owned data space')
             relative=BASE+'/'+context if context!='image' else IMAGE
@@ -391,7 +404,7 @@ def execute(driver, production, args, env):
             selected=[DRIVER,BASE+'/common/src/protocol.rs',BASE+'/'+context+'/src/adapter.rs'] if context!='image' else [IMAGE+'/src/lib.rs',IMAGE+'/src/host.rs',EXPECT,IMAGE+'/src/host/executable_image/mod.rs',IMAGE+'/src/host/executable_image/replacement_tests.rs',IMAGE+'/src/host/executable_image/replacement_tests/fixture.rs']
             save(context+'-archived-source.json',verify_archive(database,selected,before,lambda value:save(context+'-archive-index.json',value)))
             suffix=context.capitalize()
-            names=('Peer'+suffix,'Driver','Calls'+suffix,'Files') if context!='image' else ('Image','MacObservation','Files')
+            names=('PeerAst','Files') if ast_only else ('Peer'+suffix,'Driver','Calls'+suffix,'Files') if context!='image' else ('Image','MacObservation','Files')
             logs=out/(context+'-model.log')
             # Keep partial evaluator events in the existing bounded stdout pipe.
             run([cli,'database','run-queries',str(database),*[str(query/(n+'.ql')) for n in names],'--additional-packs='+packs,'--compilation-cache='+str(cache),'--no-default-compilation-cache','--common-caches='+str(common),'--max-disk-cache=1024','--threads=2','--ram=3072','--evaluator-log=/dev/stderr','--evaluator-log-minify','--verbosity=progress'],source,logs,args.deadline-90,180,out,extract_env,DATA_LIMIT)
@@ -403,15 +416,14 @@ def execute(driver, production, args, env):
                 run([cli,'bqrs','decode',str(candidates[0]),'--format=csv','--output='+str(result)],source,out/(context+'-'+name+'-decode.log'),args.deadline-90,20,out,env)
                 if driver.output_bytes(out)>63*1024**2: raise RuntimeError('result evidence cap')
                 with result.open() as stream: tables[name]=list(csv.reader(stream))[1:]
-                category='Peer' if name.startswith('Peer') else name
+                category='Peer' if name.startswith('Peer') and name!='PeerAst' else name
                 if category in EXPECTED: check_metrics(tables[name],category)
             wanted={str(source/DRIVER),str(source/BASE/'common/src/protocol.rs'),str(source/BASE/context/'src/adapter.rs')} if context!='image' else {str(source/EXPECT)}
-            actual_files=[r[0] for r in tables['Files']]
-            if set(actual_files)!=wanted or len(actual_files)!=len(set(actual_files)): raise RuntimeError('public File witness missing/duplicate')
-            if context!='image':
+            check_files(tables['Files'],wanted)
+            if context!='image' and not ast_only:
                 rows=tables['Calls'+suffix]
                 if len(rows)!=1 or rows[0][0]!=str(source/BASE/context/'src/adapter.rs') or not Path(rows[0][3]).is_relative_to(libp2p_root): raise RuntimeError('static call context mismatch')
-            save(context+'-model-result.json',{'public_witnesses':'PASS','full_repository_coverage':'NOT_CLAIMED','source':SOURCE,'database':str(database),'metrics':{n:dict(tables[n]) for n in names if n in EXPECTED or n.startswith('Peer')},'inactive_mac_observation':tables.get('MacObservation'),'cross_trait_interprocedural_flow':'NOT_CLAIMED'})
+            save(context+'-model-result.json',{'public_witnesses':'PARTIAL_AST_ONLY' if ast_only else 'PASS','full_repository_coverage':'HOLD' if ast_only else 'NOT_CLAIMED','dataflow_and_static_calls':'NOT_MEASURED' if ast_only else 'see exact metrics','other_contexts':'legacy/image NOT_REACHED' if ast_only else 'see context receipts','source':SOURCE,'database':str(database),'metrics':{n:dict(tables[n]) for n in names if n in EXPECTED or n.startswith('Peer')},'inactive_mac_observation':tables.get('MacObservation'),'cross_trait_interprocedural_flow':'NOT_CLAIMED'})
     except BaseException as exc:
         primary=exc
         raise
