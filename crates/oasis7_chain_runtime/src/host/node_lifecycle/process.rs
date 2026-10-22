@@ -69,11 +69,21 @@ impl Drop for ObserverWorkerStop {
 
 // Transient admission fence shared with immutable management bindings. The
 // lifetime process lock is separate: a running receiver must still admit stop.
-pub(super) fn admission_lock(data: &Path) -> Result<File, String> {
+pub(crate) struct AdmissionLock(File);
+impl Drop for AdmissionLock {
+    fn drop(&mut self) {
+        // close alone leaves flock held by a concurrently forked child until
+        // exec. This fence belongs only to the writer's critical section, so
+        // release its shared lock description before closing our descriptor.
+        // The lifetime ownership lock below intentionally has no such unlock.
+        let _ = self.0.unlock();
+    }
+}
+pub(super) fn admission_lock(data: &Path) -> Result<AdmissionLock, String> {
     let file = io::private_file(&data.join("action-admission.lock"))?;
     file.try_lock()
         .map_err(|_| "native action admission writer busy".to_string())?;
-    Ok(file)
+    Ok(AdmissionLock(file))
 }
 pub(super) fn lock(data: &Path) -> Result<File, String> {
     let path = data.join("process.lock");
