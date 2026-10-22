@@ -300,6 +300,8 @@ def main():
     parser.add_argument("--codeql", type=Path, required=True)
     parser.add_argument("--inspect-packs-only", action="store_true")
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--refactored-source-model", action="store_true")
+    parser.add_argument("--business-source", type=Path)
     mode.add_argument("--real-peer-projection", action="store_true")
     mode.add_argument("--production-macro-database", action="store_true")
     mode.add_argument("--inspect-evaluator-evidence", action="store_true")
@@ -357,6 +359,24 @@ def diagnose(args):
     version = json.loads((args.output / "codeql-version.json").read_text())
     if version["version"] != "2.27.2":
         raise RuntimeError("unexpected CodeQL version")
+    if args.refactored_source_model:
+        if args.business_source is None:
+            raise RuntimeError("refactored source mode requires exact business checkout")
+        import types
+        loaded = []
+        for label, filename in (("production", "codeql-rust-production-macros.py"),
+                                ("refactored", "codeql-rust-refactored-source.py")):
+            spec = importlib.util.spec_from_file_location(label, Path(__file__).with_name(filename))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            loaded.append(module)
+        for toolchain in ("1.96.0", "1.98.1"):
+            run(["rustup", "run", toolchain, "rustc", "-vV"], args.work,
+                args.output / f"rustc-{toolchain}.log", args.deadline, 20, args.output, env)
+        driver = types.SimpleNamespace(run=run, LIBRARY_VERSIONS=LIBRARY_VERSIONS,
+            verify_library_path=verify_library_path, output_bytes=output_bytes)
+        loaded[1].execute(driver, loaded[0], args, env)
+        return
     if args.isolated_ast_stage or args.inspect_isolated_location_plans or args.inspect_isolated_macro_plan:
         import types
         modules = []

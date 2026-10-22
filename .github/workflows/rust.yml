@@ -53,14 +53,21 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Freeze diagnostic deadline before preparation
+        shell: bash
+        run: echo "MODEL_DEADLINE=$(( $(date +%s) + 1080 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 49b25e1ab631ffb433bce88709fa5601720cfc17
+          path: model-source
           persist-credentials: false
       - name: Freeze diagnostic identity and deadline
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          echo "MODEL_DEADLINE=$(( $(date +%s) + 1080 ))" >> "$GITHUB_ENV"
           mkdir "$RUNNER_TEMP/rust-model-tools"
           printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/rust-model-tools/source.txt"
       - name: Set up immutable Rust CodeQL bundle
@@ -73,10 +80,11 @@ jobs:
           timeout 120 tar --zstd -xf "$RUNNER_TEMP/rust-model-tools/bundle.tar.zst" -C "$RUNNER_TEMP/rust-model-tools"
           timeout 180 rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           timeout 180 rustup toolchain install 1.98.1 --profile minimal
-      - name: Compile isolated macro grouping plan
+      - name: Verify refactored real-source public models
         run: |
           python3 scripts/security/codeql-rust-model-diagnostic.py \
-            --inspect-isolated-macro-plan \
+            --refactored-source-model \
+            --business-source "$GITHUB_WORKSPACE/model-source" \
             --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
             --output "$RUNNER_TEMP/rust-model-evidence" \
             --work "$RUNNER_TEMP/rust-model-databases" \
