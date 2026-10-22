@@ -22,7 +22,7 @@ impl FormalNodeWriter for FakeWriter {
     fn committed_read_cut(&self) -> Result<(World, VerifiedFormalReadAnchorV1), String> {
         self.committed_cut
             .clone()
-            .ok_or("fixture has no qualified read cut".into())
+            .ok_or("formal writer does not expose a verified committed read cut".into())
     }
     fn world(&self) -> &World {
         &self.world
