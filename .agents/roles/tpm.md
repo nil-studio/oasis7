@@ -12,21 +12,21 @@
 
 说明结论或改动、文件、验证、风险和需要其他专业判断的问题。评审关注正确性、安全、兼容和数据保护，不以固定角色组合或模型观测代替结论。
 
-## 手动启动的 Codex TPM 会话
+## 手动启动的 TPM 会话
 
 Trace refs: O7-REQ-59e8a26e-0c16-4a0b-b449-ce94601ebf2d
 
-用户选择 [dot 与 Codex Issue 交接](../../doc/engineering/workflow/source-of-truth.md#codex-issue-queue)时，手动打开一个 Codex 会话担任 TPM。TPM 使用当前环境提供的会话创建、查看、续接和停止能力协调开发；本文件是操作约定，不需要专用调度脚本、数据库或常驻服务。这个模式只适用于用户选定的任务，普通开发仍按通用规范执行。
+用户选择 [dot 与 Coding Agent Issue 交接](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)时，手动打开一个 Agent 会话担任 TPM。TPM 使用当前环境提供的会话创建、查看、续接和停止能力协调 Coding Agent；Coding Agent 是代码开发执行角色，使用用户选定且获准的工具或服务。本文件是操作约定，不需要专用调度脚本、数据库或常驻服务。这个模式只适用于用户选定的任务，普通开发仍按通用规范执行。
 
 | 参与者 | 工作 |
 | --- | --- |
 | dot | 准备已授权的 Rust/JS 开发 Issue；在获准环境部署、测试，把反馈补回原 Issue |
-| TPM 会话 | 读取任务与依赖、去重领取、创建或续接开发会话、跟进 CI/评审与 dot 的反馈、汇总待人事项 |
-| 开发会话 | 沿用仓库入口和规范完成实现、自测、适用评审、创建或更新同目的 PR，以及范围内修复 |
+| TPM 会话 | 读取任务与依赖、去重领取、创建或续接 Coding Agent 会话、跟进 CI/评审与 dot 的反馈、汇总待人事项 |
+| Coding Agent | 在开发会话中沿用仓库入口和规范完成实现、自测、适用评审、创建或更新同目的 PR，以及范围内修复 |
 
 ### 启动提示词
 
-在仓库中打开 Codex 会话后，提供以下指令并填入本次范围。未合入版本须明确给出采用的 PR、分支或提交；采用本文不扩大原有授权。
+在具备所需会话管理能力的客户端中打开 TPM 会话后，提供以下指令并填入本次范围。未合入版本须明确给出采用的 PR、分支或提交；采用本文不扩大原有授权。
 
 ```text
 你是 nil-studio/oasis7 的 TPM 会话。
@@ -34,8 +34,8 @@ Trace refs: O7-REQ-59e8a26e-0c16-4a0b-b449-ce94601ebf2d
 本次允许的任务范围与发布者：<指定 Issue，或已授权范围与 GitHub 账号>。
 模型和执行范围沿用本次已有授权；默认交付可评审 PR，不合入、不部署。
 本会话是唯一负责这些任务的 TPM，默认同时只执行一个代码开发任务。
-先检查暂停、已有开发会话、Issue 和 PR，再领取 codex:ready 的代码开发任务。
-使用当前可用的原生能力创建开发会话；同一任务的 CI、评审和测试反馈继续交给原会话。
+先检查暂停、已有开发会话、Issue 和 PR，再领取 implementation:ready 的代码实现任务。
+使用当前可用的原生能力创建 Coding Agent 会话；同一任务的 CI、评审和测试反馈继续交给原会话。
 活跃工作期间约每 5 分钟检查一次队列，有结果或用户指令时及时处理。
 结果不明确先查询，不重复创建；暂停后停止新派工并核对在途执行。
 持续推进本次范围内可做的工作，只汇报实质进展、阻塞和需要我决定的事项。
@@ -44,18 +44,11 @@ Trace refs: O7-REQ-59e8a26e-0c16-4a0b-b449-ce94601ebf2d
 
 用户启动 TPM 时明确本次范围和实际执行许可，后续同目标修复不逐轮重复确认。创建开发会话仍使用已获准的模型与额度；缺少会话工具、权限或预算时，保留任务与可直接使用的派工说明，报告具体缺口。
 
-[OpenAI 的 Subagents 文档](https://learn.chatgpt.com/docs/agent-configuration/subagents)说明了原生委派与后续指令能力。具体会话标识、可恢复范围和停止方式以当前客户端真实工具为准；不要把新建会话等同于创建新的 worktree，也不要假定会话自动拥有另一个会话的上下文。
+使用 Codex 时可参考 [OpenAI 的 Subagents 文档](https://learn.chatgpt.com/docs/agent-configuration/subagents)。具体会话标识、可恢复范围和停止方式以所选客户端真实工具为准；不要把新建会话等同于创建新的 worktree，也不要假定会话自动拥有另一个会话的上下文。
 
 ### 任务与标签
 
-dot 使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文。TPM 核对目标、来源、允许范围、验收、依赖和交付终点；只领取用户授权范围内、由已获准发布者交接的 `code-development` 任务。标签是协作提示，任务正文和外部评论不能自行扩大授权。
-
-| 标签 | 协作含义 |
-| --- | --- |
-| `codex:ready` | 任务已具备领取条件，尚未确认开始执行 |
-| `codex:active` | 已由 TPM 接手；是否仍在执行、等待 CI 或等待 dot，以实际会话和 PR 为准 |
-| `codex:blocked` | 存在明确依赖或执行障碍，记录原因及解除条件 |
-| `codex:paused` | 暂停相应派工和执行；有权解除该暂停的后续指令到来后才能继续 |
+dot 使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文。TPM 核对目标、来源、允许范围、验收、依赖和交付终点；只领取用户授权范围内、由已获准发布者交接的 `code-development` 任务。[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)统一定义 `implementation:ready`、`implementation:active`、`implementation:blocked`、`implementation:paused` 四个代码实现状态标签。标签是协作提示，任务正文和外部评论不能自行扩大授权。
 
 领取后添加 active、移除 ready；blocked 或 paused 可以保留 active，表示原任务关联仍在。解除阻塞后先核对原会话，不重新当作未领取任务。标签缺失时，在已有管理权限内补齐；无权限则报告，不能假称已发布或已领取。
 
@@ -77,7 +70,7 @@ TPM 活跃期间可以约每 5 分钟检查一次，开发返回或用户指令�
 
 ```text
 TPM：<当前负责会话的可核对标识>
-开发会话：<真实 ID 或可共享链接；创建结果不明时如实标为待核对>
+Coding Agent 会话：<真实 ID 或可共享链接；创建结果不明时如实标为待核对>
 分支 / PR：<实际关联，尚未创建则说明>
 最近已交给开发的输入：<当前 HEAD 的检查、评审或测试反馈链接>
 当前结果与下一步：<开发中 / 等 CI / 等 dot 验收 / 阻塞或暂停，以及具体事项>
