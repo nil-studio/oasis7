@@ -1,4 +1,5 @@
 use super::peer_discovery_observations::DiscoveryObservations;
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -6,7 +7,6 @@ use libp2p::core::connection::ConnectedPoint;
 use libp2p::rendezvous;
 use libp2p::swarm::ConnectionId;
 use libp2p::{Multiaddr, PeerId};
-use oasis7_proto::distributed_dht::SignedPeerRecord;
 
 use super::reachability::refresh_active_transport_snapshot;
 use super::runtime_loop::{enforce_peer_manager_quarantine, refresh_peer_manager_healths};
@@ -267,7 +267,7 @@ pub(super) fn clear_disconnected_peer_state(
 )]
 pub(super) fn refresh_peer_manager_views(
     swarm: &mut libp2p::Swarm<Behaviour>,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     discovery_observations: &DiscoveryObservations,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     admitted_active_peers: &HashSet<PeerId>,
@@ -374,6 +374,7 @@ mod tests {
         flavor: TransportSessionFlavor,
     ) -> TransportPath {
         TransportPath {
+            record_lease: None,
             peer_id,
             addr: addr.parse().expect("multiaddr"),
             kind,

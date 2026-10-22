@@ -1,3 +1,4 @@
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -5,7 +6,7 @@ use libp2p::identity::Keypair;
 use libp2p::request_response;
 use libp2p::swarm::Swarm;
 use libp2p::{Multiaddr, PeerId};
-use oasis7_proto::distributed_dht::{PeerRecord, SignedPeerRecord};
+use oasis7_proto::distributed_dht::PeerRecord;
 use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
 use crate::error::WorldError;
@@ -94,7 +95,7 @@ pub(super) fn dispatch_inbound_request(
     listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
     reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
     allow_loopback_external_addrs_for_testing: bool,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
 ) {
     let dispatch_now_ms = now_ms();
     record_request_inbound(

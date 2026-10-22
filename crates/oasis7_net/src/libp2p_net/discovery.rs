@@ -1,3 +1,4 @@
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -26,7 +27,7 @@ use super::peer_record::{
     build_configured_peer_record, put_record_query, validate_discovered_peer_record,
 };
 use super::reachability::Libp2pReachabilitySnapshot;
-use super::swarm_behaviour::{Behaviour, split_peer_id};
+use super::swarm_behaviour::Behaviour;
 use super::traffic_metrics::{SharedLibp2pTrafficMetrics, record_request_outbound};
 use super::transport_paths::{
     TransportPath, dial_transport_path, peer_record_transport_paths,
@@ -104,7 +105,7 @@ pub(super) fn handle_routing_updated(
     swarm: &mut Swarm<Behaviour>,
     pending_dht: &mut HashMap<kad::QueryId, PendingDhtQuery>,
     pending_discovery_peer_records: &mut HashSet<PeerId>,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     peer: PeerId,
     addresses_debug: String,
     local_peer_id: PeerId,
@@ -303,7 +304,7 @@ pub(super) fn maybe_queue_discovery_peer_record(
     swarm: &mut Swarm<Behaviour>,
     pending_dht: &mut HashMap<kad::QueryId, PendingDhtQuery>,
     pending_discovery_peer_records: &mut HashSet<PeerId>,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     peer_id: PeerId,
     local_peer_id: PeerId,
     world_id: &str,
@@ -535,7 +536,7 @@ pub(super) fn handle_rendezvous_discovered(
     cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
     traffic_metrics: &SharedLibp2pTrafficMetrics,
     connected_peers: &[PeerId],
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     local_peer_id: PeerId,
     template: Option<&PeerRecord>,
     max_error_messages: usize,
@@ -589,7 +590,7 @@ pub(super) fn handle_rendezvous_discovered(
 )]
 pub(super) fn process_discovered_peer_record(
     swarm: &mut Swarm<Behaviour>,
-    discovered_peer_records: &mut HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
@@ -609,22 +610,23 @@ pub(super) fn process_discovered_peer_record(
     })?;
     let allow_single_source_bootstrap_dial = static_bootstrap_peer_ids.contains(&peer_id);
     let transport_paths = peer_record_transport_paths(&record)?;
+    let lease = discovered_peer_records.prepare(peer_id, &record)?;
     discovery_observations.record(&record, ingress, super::now_ms())?;
     discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
-    for path in &transport_paths {
-        let (_, kad_addr) = split_peer_id(path.addr.clone());
-        swarm
-            .behaviour_mut()
-            .kademlia
-            .add_address(&peer_id, kad_addr);
-    }
+    discovered_peer_records.install(peer_id, record, lease.clone());
+    let transport_paths: Vec<_> = transport_paths
+        .into_iter()
+        .map(|mut path| {
+            path.record_lease = Some(lease.clone());
+            path
+        })
+        .collect();
     sync_known_transport_paths(
         known_transport_paths,
         failed_transport_path_labels,
         peer_id,
         transport_paths.clone(),
     );
-    discovered_peer_records.insert(peer_id, record);
     let peer_healths = recompute_peer_manager_healths(
         discovered_peer_records,
         discovery_observations,
@@ -682,7 +684,7 @@ pub(super) fn handle_request_response_request(
     listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
     reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
     allow_loopback_external_addrs_for_testing: bool,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
 ) -> Result<Vec<u8>, WorldError> {
     match request.protocol.as_str() {
         RR_GET_LOCAL_PEER_RECORD => {
@@ -698,6 +700,7 @@ pub(super) fn handle_request_response_request(
                 reachability,
                 allow_loopback_external_addrs_for_testing,
             )?;
+            discovered_peer_records.clock().check(&record.record)?;
             to_canonical_cbor(&record)
         }
         RR_GET_CACHED_PEER_RECORD => {
@@ -765,7 +768,7 @@ pub(super) fn handle_peer_record_response(
         PendingPeerRecordRequest,
     >,
     pending_dht: &mut HashMap<kad::QueryId, PendingDhtQuery>,
-    discovered_peer_records: &mut HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
@@ -1056,6 +1059,11 @@ pub(super) fn republish_cached_peer_record(
 pub(super) fn decode_optional_peer_record_response(
     payload: &[u8],
 ) -> Result<Option<SignedPeerRecord>, WorldError> {
+    if payload.len() > super::peer_record::MAX_SIGNED_PEER_RECORD_BYTES {
+        return Err(WorldError::NetworkProtocolUnavailable {
+            protocol: "peer record payload capacity exceeded".into(),
+        });
+    }
     if let Ok(error) = serde_cbor::from_slice::<ErrorResponse>(payload) {
         if error.code == DistributedErrorCode::ErrNotFound {
             return Ok(None);

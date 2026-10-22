@@ -1640,3 +1640,18 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network:
 The net suite includes a three-node loopback TCP flow: B publishes a record without a bootstrap tag, A configures B as a local seed, and C requests B's record through A's real cached-record RR endpoint. C verifies B's original signature and does not inherit A's seed trust. Local regression cases cover forged source/operator/ASN claims, repeated or changed payloads, configuration removal, actual DHT upstream selection, observation bounds and clock regression. Recordless and self-claimed observer sessions remain subject to path/unknown-domain budgets, including mixed signed/recordless sets; source-only degradation does not falsely upgrade health or disconnect every otherwise admissible session.
 
 This proves the existing wire's local trust boundary, not full record freshness, sequence/tombstone persistence, authenticated operator/ASN mappings, rendezvous ID provenance, restart anti-rollback, public-network independence, BFT or deployment readiness. Unknown control domains intentionally remain degraded and share conservative quotas. Normal required CI must cover the final candidate and downstream node status/filtering consumers.
+
+
+<a id="discovery-record-v1-time-policy"></a>
+### Discovery record v1 time policy
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [time policy and compatibility](doc/p2p/network/mainnet-private-reachability-architecture.design.md#当前-v1-时间策略).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_proto -p oasis7_net --lib` and downstream `oasis7_node` libp2p replication tests. The signed schema/domain remain v1: malformed TTL, overflow and negative publication are rejected structurally; network use enforces expiry, fixed 30-second future allowance and a per-network process-local clock. Existing v1 inputs receive no exemption. Tests cover:
+
+- `peer_record_signed_expiry_is_checked_and_bounded` and `peer_record_time::tests`: TTL/future/exact-expiry boundaries, wall rollback recovery, monotonic expiry and retransmission without deadline extension.
+- `peer_record_store::tests`: automatic inbound Kademlia storage and every get/replication iterator validate original signature, matching key, size and deadline; unrelated DHT objects/providers retain behavior; metadata stays bounded during churn.
+- `peer_record_lifecycle_tests`: expired records stop cached responses and dedupe, queued record paths fail before dial, failed ingress preserves accepted payload, and expiry keeps established sessions subject to original capability restrictions and actual path/unknown-domain quotas.
+- Existing three-node TCP forwarding and role/recordless-budget regressions remain in the same net suite. DHT result selection and final handoff recheck current time. Three-node TCP also verifies cached expiry and idle health degradation within the one-second refresh tick while authenticated connections survive.
+
+These tests do not prove absolute wall-clock trust, restart/whole-machine rollback protection, persistent sequence/tombstones, aggregate discovery-round budgets, real public-network independence or deployment readiness. Explicit static bootstrap addresses have a separate local configuration lifetime; remote record addresses never inherit it. Signed-record TTL expiration does not revoke governance, validator authority or authenticated sessions. Do not replace signed timestamps with receiver time or extend expiry by the future-skew allowance.

@@ -113,6 +113,14 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接 [PRD 生命周�
 
 有效期结束针对发现记录，不自动撤销已认证的活动会话。既有会话继续受会话身份、当前角色、peer health、路径及资源策略约束；不能凭过期记录新建路径、承诺多样性或获得新权限。DHT/rendezvous 故障不触发全量断连，出现实际身份/角色撤销或已证明攻击时按对应策略隔离。
 
+### 当前 v1 时间策略
+
+现有 `oasis7-peer-record-v1` 保持原始 schema 和签名域，采用固定 `v1-time-policy-1`：`published_at_ms >= 0`、`0 < ttl_ms <= 3_600_000`，检查到期加法溢出，允许最多 `30_000ms` 未来偏差，`now >= expiry` 拒绝。偏差仅允许发布者时钟略快，不延长签名声明的 expiry；旧版不满足这些约束的记录也拒绝，不静默修改时间字段或重新签名。这个兼容收紧不是 sequence 协议升级。
+
+每个网络实例显式持有本机 wall-clock 高水位；已观察到倒退或不可用时间时暂停依赖 fresh 的接纳、缓存响应及发现拨号，只有 wall-clock 追上已观察高水位才恢复。接纳时另以单调时钟锁定剩余生存期，同一原始载荷重复到达只保留更早的截止点。缓存与排队路径在使用时重新检查 wall-clock 和单调截止点，已过期记录不能因倒退或重试恢复。此状态为进程内防护，不证明系统时间绝对可信，也不覆盖重启或恶意整机回滚；持久可信时间和 sequence 高水位仍由后续版本承接。
+
+空闲事件循环也以不超过一秒的 tick 刷新过期发现的健康投影；真正缓存响应与拨号仍逐次即时检查。发现缓存最多 1024 条、单条 signed payload 最多 16 KiB；先回收失效且无活动会话的记录，到限拒绝新候选，不驱逐活动会话以腾空间。有效记录和活动会话元数据分开使用：过期声明不得响应、贡献来源或新拨号；既有会话继续按已认证链路及当前权限/路径配额服务，其能力声明只作为原会话的限制依据。静态配置地址拥有独立生命周期，不因同 peer 的记录过期被撤销；远端新地址不得借静态 seed 身份变为永久路径。记录派生地址不永久灌入 Kademlia 路由表，避免后台自动重拨绕过 record 截止点。DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他 DHT 对象的期限不受本条改变。
+
 ### 版本兼容与交付顺序
 
 1. 先在不改变现有签名含义的前提下分离本地来源观察，并对当前已签名的时间字段落实 TTL/时钟/缓存检查；既有记录缓存不得被原地补 source 或 sequence。
@@ -131,7 +139,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接 [PRD 生命周�
 
 来源不足的健康状态与已建立会话的传输准入分开：允许符合实际路径及 unknown 域预算的既有会话继续获取材料，健康仍降级。每个会话都计入路径、relay、operator/ASN 分母与桶；无 record 或远端自报 `observer_light` 不能豁免这些预算。候选按稳定 peer ID 顺序准入，配额拒绝进入 quarantine，不以缺 record 提前跳过统计。该策略改变旧版依赖自述标签的 healthy 结果及 observer 配额豁免；没有新增 wire 字段或重签旧记录。
 
-[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs)仍为既有 wire，包含 `published_at_ms/ttl_ms` 而没有 sequence。完整 TTL／未来偏差、观察到期与时钟可信度、首次观察与配置版本、rendezvous ID-only 来源链、持久 sequence/tombstone/高水位、候选总缓存与累计发现轮次预算和跨重启迁移仍待实现；本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
+[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs)仍为既有 wire，包含 `published_at_ms/ttl_ms` 而没有 sequence。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。持久可信时间、首次观察与配置版本、rendezvous ID-only 来源链、持久 sequence/tombstone/高水位、累计发现轮次预算、有余量的抖动刷新和跨重启迁移仍待实现；本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
 
 ## Peer Reachability Contract Normalization
 本节是 2026-06-15 iroh-inspired follow-up 的设计落点。借鉴点只限于 identity-first address boundary、显式 selected path 与 reachability evidence；不引入 iroh 依赖，不替换 libp2p，也不采用 iroh relay/DNS/Pkarr 默认。
@@ -292,8 +300,8 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 无公网入站的 validator core 通过 sentry/relay 参与；转发、存储和 observer 不获得共识 signer 或私有控制权限 | [设计条款](#节点角色模型) | P2P 角色策略、validator governance；QA/ops 同拓扑验证 | 不覆盖公开 validator 准入、完整 pruning/archive 及用户模式 UI |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 公网 IP 不是通用参与前提；保持 direct、hole-punched、relay 顺序及 delayed-sync 的 lane 限制 | [设计条款](#路径选择与传输策略) | runtime path selector；operator 维护允许的部署 profile | 不保证任意 NAT pair 可直连，不由 relay reservation 推导公网可达 |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | peer manager 根据既有 source/operator/ASN/subnet/relay-domain 与 budget 规则隔离异常 peer，远端不得覆盖本地 admission | [设计条款](#anti-eclipse-anti-spam-基线) | P2P peer manager；QA fail-signature cases | 不证明跨重启 banlist、经济安全或完整抗攻击能力 |
-| [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 来源独立性由本机实际观察及可核验控制域依据建立；seed 例外不改签名、不授予世界或角色权威 | [发现来源证据与签名不变性](#discovery-evidence-boundary) | net ingress/peer manager；本地 seed policy 与受信 operator/ASN 依据 | 已接入不变签名、本地 seed 与 DHT/RR 观察、未知域健康和会话预算；受信控制域映射、完整时效与生命周期仍待实现，不覆盖完整抗 Sybil |
-| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | TTL/时钟/序号/撤销在接纳、缓存、转发及拨号入口一致；水位重启不降、缓存有界、版本迁移不改旧签名 | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | proto wire；net 验证与缓存；chain-runtime 发布持久化；受信时钟/本机存储 | 新 sequence wire、完整时效接纳及迁移待实现；不把普通本地存储当硬件防回滚或 validator 防双签机制 |
+| [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 来源独立性由本机实际观察及可核验控制域依据建立；seed 例外不改签名、不授予世界或角色权威 | [发现来源证据与签名不变性](#discovery-evidence-boundary) | net ingress/peer manager；本地 seed policy 与受信 operator/ASN 依据 | 已接入不变签名、本地 seed 与 DHT/RR 观察、未知域健康和会话预算；受信控制域映射、持久时间与完整生命周期仍待实现，不覆盖完整抗 Sybil |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | TTL/时钟/序号/撤销在接纳、缓存、转发及拨号入口一致；水位重启不降、缓存有界、版本迁移不改旧签名 | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | proto wire；net 验证与缓存；chain-runtime 发布持久化；受信时钟/本机存储 | 现有 v1 时效接纳／缓存／转发／拨号已接线；新 sequence wire 和持久迁移待实现；不把普通本地存储当硬件防回滚或 validator 防双签机制 |
 
 ### 11.1 验证映射表
 

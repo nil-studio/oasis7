@@ -26,6 +26,7 @@ mod discovery_peer_record_failure_tests;
 mod discovery_peer_record_tests;
 mod peer_health_refresh_tests;
 mod peer_manager_observer_tests;
+mod peer_record_lifecycle_tests;
 mod peer_record_tests;
 mod rendezvous_ttl_tests;
 mod request_peer_filter_tests;
@@ -100,7 +101,12 @@ fn dht_get_providers_collects_results() {
     let expected: HashSet<String> = providers.iter().map(|peer| peer.to_string()).collect();
     let result =
         kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders { key, providers }));
-    handle_dht_progress(&mut pending, result, true);
+    handle_dht_progress(
+        &mut pending,
+        result,
+        true,
+        &super::peer_record_time::DiscoveryClock::default(),
+    );
     let records = receiver
         .recv()
         .expect("command response")
@@ -159,7 +165,12 @@ fn dht_get_world_head_decodes_record() {
         error: None,
     };
     let result = kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(peer_record)));
-    handle_dht_progress(&mut pending, result, true);
+    handle_dht_progress(
+        &mut pending,
+        result,
+        true,
+        &super::peer_record_time::DiscoveryClock::default(),
+    );
     let loaded = receiver
         .recv()
         .expect("command response")
@@ -195,7 +206,12 @@ fn dht_get_membership_directory_decodes_record() {
         error: None,
     };
     let result = kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(peer_record)));
-    handle_dht_progress(&mut pending, result, true);
+    handle_dht_progress(
+        &mut pending,
+        result,
+        true,
+        &super::peer_record_time::DiscoveryClock::default(),
+    );
 
     let loaded = receiver
         .recv()
@@ -223,7 +239,7 @@ fn dht_get_peer_record_decodes_and_verifies_record() {
             capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
             source_operator: None,
             source_asn: None,
-            published_at_ms: 77,
+            published_at_ms: now_ms(),
             ttl_ms: 60_000,
         },
         &keypair,
@@ -246,7 +262,12 @@ fn dht_get_peer_record_decodes_and_verifies_record() {
         error: None,
     };
     let result = kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(peer_record)));
-    handle_dht_progress(&mut pending, result, true);
+    handle_dht_progress(
+        &mut pending,
+        result,
+        true,
+        &super::peer_record_time::DiscoveryClock::default(),
+    );
 
     let loaded = receiver
         .recv()
@@ -628,7 +649,7 @@ fn filter_request_peers_by_lane_prefers_capable_peer_records() {
     let sync_only_peer_key = Keypair::generate_ed25519();
     let blob_peer_id = PeerId::from(blob_peer_key.public());
     let sync_only_peer_id = PeerId::from(sync_only_peer_key.public());
-    let mut discovered = HashMap::new();
+    let mut discovered = PeerRecordCache::default();
     discovered.insert(
         blob_peer_id,
         sign_peer_record(
@@ -647,7 +668,7 @@ fn filter_request_peers_by_lane_prefers_capable_peer_records() {
                 capability_lanes: vec![NetworkLane::BlobState, NetworkLane::Control],
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 1,
+                published_at_ms: now_ms(),
                 ttl_ms: 60_000,
             },
             &blob_peer_key,
@@ -672,7 +693,7 @@ fn filter_request_peers_by_lane_prefers_capable_peer_records() {
                 capability_lanes: vec![NetworkLane::Sync, NetworkLane::Control],
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 1,
+                published_at_ms: now_ms(),
                 ttl_ms: 60_000,
             },
             &sync_only_peer_key,
@@ -695,7 +716,7 @@ fn filter_request_peers_by_lane_excludes_unknown_peers_when_capable_record_exist
     let unknown_peer_key = Keypair::generate_ed25519();
     let blob_peer_id = PeerId::from(blob_peer_key.public());
     let unknown_peer_id = PeerId::from(unknown_peer_key.public());
-    let mut discovered = HashMap::new();
+    let mut discovered = PeerRecordCache::default();
     discovered.insert(
         blob_peer_id,
         sign_peer_record(
@@ -714,7 +735,7 @@ fn filter_request_peers_by_lane_excludes_unknown_peers_when_capable_record_exist
                 capability_lanes: vec![NetworkLane::BlobState, NetworkLane::Control],
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 1,
+                published_at_ms: now_ms(),
                 ttl_ms: 60_000,
             },
             &blob_peer_key,
@@ -737,7 +758,7 @@ fn filter_request_peers_by_lane_falls_back_to_unknown_peers_when_no_records_matc
     let unknown_peer_key = Keypair::generate_ed25519();
     let sync_only_peer_id = PeerId::from(sync_only_peer_key.public());
     let unknown_peer_id = PeerId::from(unknown_peer_key.public());
-    let mut discovered = HashMap::new();
+    let mut discovered = PeerRecordCache::default();
     discovered.insert(
         sync_only_peer_id,
         sign_peer_record(
@@ -756,7 +777,7 @@ fn filter_request_peers_by_lane_falls_back_to_unknown_peers_when_no_records_matc
                 capability_lanes: vec![NetworkLane::Sync, NetworkLane::Control],
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 1,
+                published_at_ms: now_ms(),
                 ttl_ms: 60_000,
             },
             &sync_only_peer_key,
@@ -777,7 +798,7 @@ fn filter_request_peers_by_lane_falls_back_to_unknown_peers_when_no_records_matc
 fn filter_request_peers_by_lane_returns_empty_when_all_known_peers_lack_capability() {
     let sync_only_peer_key = Keypair::generate_ed25519();
     let sync_only_peer_id = PeerId::from(sync_only_peer_key.public());
-    let mut discovered = HashMap::new();
+    let mut discovered = PeerRecordCache::default();
     discovered.insert(
         sync_only_peer_id,
         sign_peer_record(
@@ -796,7 +817,7 @@ fn filter_request_peers_by_lane_returns_empty_when_all_known_peers_lack_capabili
                 capability_lanes: vec![NetworkLane::Sync, NetworkLane::Control],
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 1,
+                published_at_ms: now_ms(),
                 ttl_ms: 60_000,
             },
             &sync_only_peer_key,

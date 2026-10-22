@@ -18,6 +18,8 @@ use super::reachability::{
 };
 use super::{Behaviour, CommandResponseSender};
 
+pub(super) const MAX_SIGNED_PEER_RECORD_BYTES: usize = 16 * 1024;
+
 #[expect(
     clippy::too_many_arguments,
     reason = "Peer-record publication keeps signing and response state explicit to preserve wire ordering"
@@ -92,6 +94,11 @@ pub(super) fn validate_discovered_peer_record(
 }
 
 pub(super) fn decode_peer_record(bytes: &[u8]) -> Result<SignedPeerRecord, WorldError> {
+    if bytes.len() > MAX_SIGNED_PEER_RECORD_BYTES {
+        return Err(WorldError::NetworkProtocolUnavailable {
+            protocol: "peer record payload capacity exceeded".into(),
+        });
+    }
     let record: SignedPeerRecord = serde_cbor::from_slice(bytes)?;
     verify_signed_peer_record(&record)?;
     Ok(record)
@@ -231,12 +238,28 @@ pub(super) fn put_record_query(
     payload: Vec<u8>,
 ) -> Result<kad::QueryId, WorldError> {
     let dht_key = RecordKey::new(&key);
-    let record = kad::Record {
+    let mut record = kad::Record {
         key: dht_key,
         value: payload,
         publisher: None,
         expires: None,
     };
+    if super::peer_record_store::PeerRecordStore::peer_record_key(&record.key) {
+        let signed = decode_peer_record(&record.value)?;
+        let expected_key = dht_peer_record_key(&signed.record.world_id, &signed.record.peer_id);
+        if record.key != RecordKey::new(&expected_key) {
+            return Err(WorldError::NetworkProtocolUnavailable {
+                protocol: "peer record DHT key mismatch".into(),
+            });
+        }
+        let lease = swarm
+            .behaviour_mut()
+            .kademlia
+            .store_mut()
+            .clock()
+            .check(&signed.record)?;
+        record.expires = Some(lease.deadline());
+    }
     swarm
         .behaviour_mut()
         .kademlia

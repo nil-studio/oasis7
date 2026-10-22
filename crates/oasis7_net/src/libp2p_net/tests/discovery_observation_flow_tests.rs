@@ -92,8 +92,11 @@ fn discovery_observation_three_node_tcp_cache_keeps_signature_and_local_seed_bou
 fn discovery_observation_dht_retains_only_the_selected_records_actual_upstream() {
     let publisher = Keypair::generate_ed25519();
     let peer_id = PeerId::from(publisher.public());
-    let signed =
-        signed_discovery_peer_record(&publisher, vec![crate::dht::PeerDiscoverySource::Dht], 1);
+    let signed = signed_discovery_peer_record(
+        &publisher,
+        vec![crate::dht::PeerDiscoverySource::Dht],
+        crate::libp2p_net::now_ms(),
+    );
     let upstream = PeerId::random();
     let mut pending = PendingDhtQuery::DiscoverPeerRecord {
         peer_id,
@@ -113,19 +116,25 @@ fn discovery_observation_dht_retains_only_the_selected_records_actual_upstream()
         })))
     };
     assert!(matches!(
-        handle_dht_progress(&mut pending, found(&signed, Some(upstream)), false),
+        handle_dht_progress(
+            &mut pending,
+            found(&signed, Some(upstream)),
+            false,
+            &super::super::peer_record_time::DiscoveryClock::default()
+        ),
         DhtProgressAction::None
     ));
     let unrelated = signed_discovery_peer_record(
         &Keypair::generate_ed25519(),
         vec![crate::dht::PeerDiscoverySource::Dht],
-        1,
+        crate::libp2p_net::now_ms(),
     );
     // A later well-signed response for the wrong target cannot replace either record or upstream.
     let result = handle_dht_progress(
         &mut pending,
         found(&unrelated, Some(PeerId::random())),
         true,
+        &super::super::peer_record_time::DiscoveryClock::default(),
     );
     let DhtProgressAction::DiscoverPeerRecord {
         upstream: observed,

@@ -19,13 +19,13 @@ fn assert_mismatched_peer_record_response_is_rejected(
     let payload = to_canonical_cbor(&super::signed_discovery_peer_record(
         &wrong_peer_key,
         vec![crate::dht::PeerDiscoverySource::Dht],
-        1,
+        crate::libp2p_net::now_ms(),
     ))
     .expect("encode mismatched signed peer record");
     let local_peer_id = PeerId::random();
     let mut pending_peer_record_requests = HashMap::new();
     let mut pending_dht = HashMap::new();
-    let mut discovered_peer_records = HashMap::new();
+    let mut discovered_peer_records = PeerRecordCache::default();
     let mut known_transport_paths = HashMap::new();
     let mut last_dialed_transport_paths = HashMap::new();
     let active_transport_paths = HashMap::new();
@@ -187,7 +187,7 @@ fn connected_peer_record_failure_prefers_target_owned_dht_route_over_cache_proxy
     let local_peer_id = PeerId::random();
     let mut pending_dht = HashMap::new();
     let mut pending_discovery_peer_records = HashSet::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     super::super::discovery::maybe_queue_discovery_peer_record(
         &mut swarm,
         &mut pending_dht,

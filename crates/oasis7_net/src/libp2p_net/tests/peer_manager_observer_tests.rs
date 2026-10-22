@@ -24,7 +24,7 @@ fn sample_record_with_role(
             capability_lanes: node_role.default_capability_lanes(),
             source_operator: None,
             source_asn: None,
-            published_at_ms: 0,
+            published_at_ms: crate::libp2p_net::now_ms(),
             ttl_ms: 60_000,
         },
         identity_public_key_protobuf_hex: "abcd".to_string(),
@@ -48,7 +48,7 @@ fn recompute_counts_claimed_observer_light_toward_subnet_share_limits() {
         PeerDiscoverySource::StaticBootstrap,
         PeerDiscoverySource::Dht,
     ];
-    let discovered = HashMap::from([
+    let discovered = PeerRecordCache::from([
         (
             peers[0],
             sample_record_with_role(
@@ -129,7 +129,7 @@ fn recompute_counts_claimed_observer_light_toward_subnet_share_limits() {
 fn recompute_does_not_trust_observer_light_claimed_discovery_sources() {
     let provider = PeerId::random();
     let observer = PeerId::random();
-    let discovered = HashMap::from([
+    let discovered = PeerRecordCache::from([
         (
             provider,
             sample_record_with_role(
@@ -194,7 +194,7 @@ fn recompute_still_blocks_provider_subnet_concentration() {
         PeerDiscoverySource::StaticBootstrap,
         PeerDiscoverySource::Dht,
     ];
-    let discovered = HashMap::from(peers.map(|peer| {
+    let discovered = PeerRecordCache::from(peers.map(|peer| {
         (
             peer,
             sample_record_with_role(peer, PeerNodeRole::FullStorage, discovery_sources.clone()),

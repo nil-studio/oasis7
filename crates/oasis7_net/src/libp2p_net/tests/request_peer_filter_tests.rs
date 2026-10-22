@@ -222,7 +222,7 @@ fn request_filtering_keeps_unknown_bootstrap_fallback_after_hard_blocked_capable
     let capable_key = Keypair::generate_ed25519();
     let capable_peer = PeerId::from(capable_key.public());
     let bootstrap_peer = PeerId::random();
-    let mut discovered = HashMap::new();
+    let mut discovered = PeerRecordCache::default();
     discovered.insert(
         capable_peer,
         sign_peer_record(
@@ -241,7 +241,7 @@ fn request_filtering_keeps_unknown_bootstrap_fallback_after_hard_blocked_capable
                 capability_lanes: vec![NetworkLane::BlobState, NetworkLane::Control],
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 1,
+                published_at_ms: crate::libp2p_net::now_ms(),
                 ttl_ms: 60_000,
             },
             &capable_key,

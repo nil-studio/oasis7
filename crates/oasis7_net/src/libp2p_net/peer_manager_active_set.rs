@@ -1,3 +1,4 @@
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{BTreeSet, HashMap};
 
 use libp2p::PeerId;
@@ -23,7 +24,7 @@ pub(super) struct ActivePeerSetStats {
 
 impl ActivePeerSetStats {
     pub(super) fn new(
-        discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+        discovered_peer_records: &PeerRecordCache,
         observations: &DiscoveryObservations,
         active_transport_paths: &HashMap<PeerId, TransportPath>,
     ) -> Self {

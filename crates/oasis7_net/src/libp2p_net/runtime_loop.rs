@@ -1,4 +1,5 @@
 use super::peer_discovery_observations::DiscoveryObservations;
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -185,7 +186,7 @@ pub(super) struct CommandStateRefs<'a> {
     pub pending_dht: &'a mut HashMap<kad::QueryId, PendingDhtQuery>,
     pub peers: &'a mut Vec<PeerId>,
     pub provider_keys: &'a mut HashMap<String, i64>,
-    pub discovered_peer_records: &'a HashMap<PeerId, SignedPeerRecord>,
+    pub discovered_peer_records: &'a PeerRecordCache,
     pub peer_healths_by_id: &'a HashMap<PeerId, PeerManagerPeerHealth>,
     pub pending_cached_discovery_peers: &'a mut HashSet<PeerId>,
     pub cached_discovery_peer_cooldowns: &'a mut HashMap<PeerId, i64>,
@@ -199,7 +200,7 @@ pub(super) struct CommandStateRefs<'a> {
 
 pub(super) fn should_backfill_peer_discovery(
     peers: &[PeerId],
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     local_peer_id: PeerId,
 ) -> bool {
     if peers.is_empty() {
@@ -262,7 +263,7 @@ fn request_peer_is_connected_or_active(
 pub(super) fn filter_request_peers_by_lane(
     peers: Vec<PeerId>,
     protocol: &str,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
 ) -> Vec<PeerId> {
     let Some(lane) = classify_network_protocol(protocol) else {
         return peers;
@@ -270,7 +271,7 @@ pub(super) fn filter_request_peers_by_lane(
     let mut capable_record_peers = Vec::new();
     let mut unknown_record_peers = Vec::new();
     for peer_id in peers.iter().copied() {
-        match discovered_peer_records.get(&peer_id) {
+        match discovered_peer_records.session_record(&peer_id) {
             Some(record) if record.record.supports_lane(lane) => capable_record_peers.push(peer_id),
             Some(_) => {}
             None => unknown_record_peers.push(peer_id),
@@ -387,7 +388,7 @@ fn active_transport_paths_for_peers(
     reason = "Peer-manager refresh keeps mutable state references explicit to preserve quarantine ordering"
 )]
 pub(super) fn refresh_peer_manager_healths(
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     discovery_observations: &DiscoveryObservations,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     previously_admitted_active_peers: &HashSet<PeerId>,

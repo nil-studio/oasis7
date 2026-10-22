@@ -5,10 +5,7 @@ use libp2p::core::transport::OrTransport;
 use libp2p::dcutr;
 use libp2p::gossipsub::{self, MessageAuthenticity};
 use libp2p::identity::Keypair;
-use libp2p::kad::{
-    self,
-    store::{MemoryStore, MemoryStoreConfig},
-};
+use libp2p::kad::{self, store::MemoryStoreConfig};
 use libp2p::multiaddr::Protocol;
 use libp2p::noise;
 use libp2p::relay;
@@ -21,6 +18,7 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, Transport as _};
 use oasis7_proto::distributed::RR_PROTOCOL_PREFIX;
 use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
+use super::peer_record_store::PeerRecordStore;
 use super::wire_bytes::{InstrumentedStreamMuxer, SharedLibp2pWireByteCounters};
 
 pub(super) const KAD_MAX_PROVIDED_KEYS: usize = 65_536;
@@ -33,7 +31,7 @@ pub(super) const KAD_MAX_PROVIDED_KEYS: usize = 65_536;
 pub(super) struct Behaviour {
     pub(super) gossipsub: gossipsub::Behaviour,
     pub(super) request_response: request_response::cbor::Behaviour<NetworkRequest, NetworkResponse>,
-    pub(super) kademlia: kad::Behaviour<MemoryStore>,
+    pub(super) kademlia: kad::Behaviour<PeerRecordStore>,
     pub(super) autonat: Toggle<autonat::Behaviour>,
     pub(super) relay_client: relay::client::Behaviour,
     pub(super) dcutr: dcutr::Behaviour,
@@ -131,7 +129,7 @@ pub(super) fn build_swarm(
         max_provided_keys: KAD_MAX_PROVIDED_KEYS,
         ..MemoryStoreConfig::default()
     };
-    let store = MemoryStore::with_config(peer_id, store_config);
+    let store = PeerRecordStore::with_config(peer_id, store_config);
     let kademlia = kad::Behaviour::new(peer_id, store);
     let (relay_transport, relay_client) = relay::client::new(peer_id);
 

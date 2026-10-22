@@ -339,7 +339,7 @@ fn dht_get_peer_record_decodes_and_verifies_record() {
             capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
             source_operator: None,
             source_asn: None,
-            published_at_ms: 77,
+            published_at_ms: crate::libp2p_net::now_ms(),
             ttl_ms: 60_000,
         },
         &keypair,
@@ -362,7 +362,12 @@ fn dht_get_peer_record_decodes_and_verifies_record() {
             expires: None,
         },
     })));
-    handle_dht_progress(&mut pending, result, true);
+    handle_dht_progress(
+        &mut pending,
+        result,
+        true,
+        &super::super::peer_record_time::DiscoveryClock::default(),
+    );
     let PendingDhtQuery::GetPeerRecord { record, .. } = pending else {
         panic!("unexpected query state");
     };
@@ -398,7 +403,12 @@ fn dht_get_peer_record_rejects_signed_record_for_requested_target_mismatch() {
             expires: None,
         },
     })));
-    handle_dht_progress(&mut pending, result, true);
+    handle_dht_progress(
+        &mut pending,
+        result,
+        true,
+        &super::super::peer_record_time::DiscoveryClock::default(),
+    );
     let response = receiver.recv().expect("command response");
     assert!(response.is_err(), "mismatched record must fail closed");
     let PendingDhtQuery::GetPeerRecord { record, .. } = pending else {
