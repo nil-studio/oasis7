@@ -77,8 +77,14 @@ pub(super) fn exercise(mut runtime: FormalLiveRuntime, config_path: &Path) -> Re
         .stop()
         .map_err(|e| format!("stop retained Node: {e:?}"))?;
     drop(node_owner);
-    if FormalLiveRuntime::open_with_native_history(config_path).is_ok() {
-        return Err("stopped Node released lease while effect signer still lived".into());
+    let error = match FormalLiveRuntime::open_with_native_history(config_path) {
+        Err(error) => error,
+        Ok(_) => return Err("stopped Node released lease while effect signer still lived".into()),
+    };
+    if !error.contains("runtime identity already in use") {
+        return Err(format!(
+            "retained effect signer rejected for unrelated reason: {error}"
+        ));
     }
     release_send
         .send(())
@@ -92,8 +98,16 @@ pub(super) fn exercise(mut runtime: FormalLiveRuntime, config_path: &Path) -> Re
     drop(restored);
     // After release, changing the data directory still fails the durable
     // binding rather than starting a second lineage under the same root key.
-    if FormalLiveRuntime::open_with_native_history(&duplicate_path).is_ok() {
-        return Err("released identity accepted a conflicting data-directory binding".into());
+    let error = match FormalLiveRuntime::open_with_native_history(&duplicate_path) {
+        Err(error) => error,
+        Ok(_) => {
+            return Err("released identity accepted a conflicting data-directory binding".into());
+        }
+    };
+    if !error.contains("runtime identity binding conflict") {
+        return Err(format!(
+            "changed data directory rejected for unrelated reason: {error}"
+        ));
     }
     Ok(())
 }
