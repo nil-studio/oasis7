@@ -130,10 +130,18 @@ class ProcessReadbackTests(unittest.TestCase):
             self.assertEqual(cleanup.inspect_process_use(pathlib.Path('/tmp'))['state'], 'clear_observed')
             self.assertEqual(scan.call_count, 2)
 
-    def test_new_process_after_second_round_is_unknown(self):
+    def test_new_process_after_second_round_is_covered_before_clear(self):
+        snapshots = [{202: (202, 1, 'R')}, {203: (203, 1, 'R')}, {204: (204, 1, 'R')}, {204: (204, 1, 'R')}]
+        with patch.object(cleanup, 'visible_target_holders', return_value=None), patch.object(cleanup, 'snapshot_processes', side_effect=snapshots), patch.object(cleanup, 'read_open_files', side_effect=lambda pending, *args: (set(pending), set())) as scan:
+            self.assertEqual(cleanup.inspect_process_use(pathlib.Path('/tmp'))['state'], 'clear_observed')
+            self.assertEqual(scan.call_count, 3)
+
+    def test_continuous_process_churn_exhausts_budget(self):
         snapshots = [{202: (202, 1, 'R')}, {203: (203, 1, 'R')}, {204: (204, 1, 'R')}]
-        with patch.object(cleanup, 'visible_target_holders', return_value=None), patch.object(cleanup, 'snapshot_processes', side_effect=snapshots), patch.object(cleanup, 'read_open_files', return_value=({202, 203}, set())):
-            self.assertEqual(cleanup.inspect_process_use(pathlib.Path('/tmp'))['state'], 'unknown')
+        with patch.object(cleanup, 'visible_target_holders', return_value=None), patch.object(cleanup, 'snapshot_processes', side_effect=snapshots), patch.object(cleanup, 'read_open_files', side_effect=lambda pending, *args: (set(pending), set())), patch.object(cleanup.time, 'monotonic', side_effect=[0, 1, 30]):
+            observed = cleanup.inspect_process_use(pathlib.Path('/tmp'))
+            self.assertEqual(observed['state'], 'unknown')
+            self.assertIn('budget exhausted', observed['reason'])
 
     def test_permission_error_never_means_gone(self):
         with patch.object(cleanup.pathlib.Path, 'read_text', side_effect=OSError('unreadable')), patch.object(cleanup.ctypes, 'CDLL', side_effect=OSError('unreadable')), patch.object(cleanup.os, 'kill', side_effect=PermissionError(1, 'denied')):
@@ -227,6 +235,10 @@ class ProcessReadbackTests(unittest.TestCase):
             self.assertEqual(cleanup.process_identity(202), (202, 99, 'S'))
         with patch.object(cleanup, '_native_process_identity', side_effect=ValueError('short')), patch.object(cleanup.os, 'kill', return_value=None), patch.object(cleanup.time, 'sleep'), self.assertRaisesRegex(cleanup.CleanupError, 'alive but native identity unreadable'):
             cleanup.process_identity(202)
+
+    def test_longer_native_exit_window_requires_esrch_or_fresh_identity(self):
+        with patch.object(cleanup, '_native_process_identity', side_effect=[ValueError('short')] * 4 + [(202, 99, 'S')]), patch.object(cleanup.os, 'kill', return_value=None), patch.object(cleanup.time, 'sleep'):
+            self.assertEqual(cleanup.process_identity(202), (202, 99, 'S'))
 
     def test_timeout_is_unknown(self):
         with patch.object(cleanup, 'snapshot_processes', side_effect=cleanup.CleanupError('timeout')):
