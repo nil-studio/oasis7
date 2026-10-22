@@ -21,13 +21,26 @@ struct CachedRecord {
 pub(super) struct PeerRecordCache {
     records: HashMap<PeerId, CachedRecord>,
     clock: DiscoveryClock,
+    dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
 }
 
 impl PeerRecordCache {
+    #[cfg(test)]
     pub(super) fn new(clock: DiscoveryClock) -> Self {
         Self {
             records: HashMap::new(),
             clock,
+            dial_policy: Default::default(),
+        }
+    }
+    pub(super) fn with_dial_policy(
+        clock: DiscoveryClock,
+        dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+    ) -> Self {
+        Self {
+            records: HashMap::new(),
+            clock,
+            dial_policy,
         }
     }
     pub(super) fn clock(&self) -> &DiscoveryClock {
@@ -78,6 +91,13 @@ impl PeerRecordCache {
         Ok(lease)
     }
     pub(super) fn install(&mut self, peer: PeerId, signed: SignedPeerRecord, lease: RecordLease) {
+        if let Ok(paths) = super::transport_paths::peer_record_transport_paths(&signed) {
+            let _ = self.dial_policy.install(
+                peer,
+                paths.into_iter().map(|path| path.addr),
+                lease.clone(),
+            );
+        }
         self.records.insert(
             peer,
             CachedRecord {

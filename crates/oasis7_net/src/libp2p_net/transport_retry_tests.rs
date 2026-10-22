@@ -57,7 +57,7 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
                 crate::dht::PeerDiscoverySource::Rendezvous,
             ], crate::libp2p_net::now_ms());
         let peer_id = PeerId::from(peer_key.public());
-        let mut discovered_peer_records = PeerRecordCache::default();
+        let mut discovered_peer_records = PeerRecordCache::with_dial_policy(swarm.behaviour_mut().kademlia.store_mut().clock().clone(), swarm.behaviour().discovery_dial_policy());
         let mut known_transport_paths = HashMap::new();
         let mut last_dialed_transport_paths = HashMap::new();
         let active_transport_paths = HashMap::new();
@@ -91,6 +91,9 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
             super::wire_bytes::init_shared_wire_byte_counters(),
         );
 
+        let mut discovered_peer_records = PeerRecordCache::with_dial_policy(retry_swarm.behaviour_mut().kademlia.store_mut().clock().clone(), retry_swarm.behaviour().discovery_dial_policy());
+        let lease = discovered_peer_records.prepare(peer_id, &record).unwrap();
+        discovered_peer_records.install(peer_id, record.clone(), lease);
         super::discovery::process_discovered_peer_record(
             &mut retry_swarm,
             &mut discovered_peer_records,

@@ -28,7 +28,10 @@ fn process_discovered_peer_record_dials_only_locally_configured_seed() {
                 crate::libp2p_net::now_ms(),
             );
             let peer_id = PeerId::from(peer_key.public());
-            let mut discovered_peer_records = PeerRecordCache::default();
+            let mut discovered_peer_records = PeerRecordCache::with_dial_policy(
+                swarm.behaviour_mut().kademlia.store_mut().clock().clone(),
+                swarm.behaviour().discovery_dial_policy(),
+            );
             let mut known_transport_paths = HashMap::new();
             let mut last_dialed_transport_paths = HashMap::new();
             let active_transport_paths = HashMap::new();

@@ -17,6 +17,8 @@ mod peer_manager;
 mod peer_manager_active_set;
 mod peer_record;
 mod peer_record_cache;
+mod peer_record_dial_gate;
+mod peer_record_protocol_dial;
 mod peer_record_store;
 mod peer_record_time;
 use peer_record_cache::PeerRecordCache;
@@ -191,7 +193,9 @@ impl Libp2pNetwork {
             let mut pending_dht: HashMap<kad::QueryId, PendingDhtQuery> = HashMap::new();
             let mut peers: Vec<PeerId> = Vec::new();
             let mut provider_keys: HashMap<String, i64> = HashMap::new();
-            let mut discovered_peer_records = PeerRecordCache::new(swarm.behaviour_mut().kademlia.store_mut().clock().clone());
+            let dial_policy = swarm.behaviour().discovery_dial_policy();
+            dial_policy.set_configured(&config_clone.bootstrap_peers);
+            let mut discovered_peer_records = PeerRecordCache::with_dial_policy(swarm.behaviour_mut().kademlia.store_mut().clock().clone(), dial_policy);
             let (mut known_transport_paths, mut failed_transport_path_labels, static_bootstrap_peer_ids) =
                 bootstrap_transport_path_state(&config_clone.bootstrap_peers);
             let mut discovery_observations = peer_discovery_observations::DiscoveryObservations::default();
@@ -860,7 +864,7 @@ impl Libp2pNetwork {
                                         now_ms(),
                                         LIFECYCLE_EVENT_ERROR_COOLDOWN_MS,
                                     );
-                                    let (refreshed_active_path, dialed_addr) =
+                                    let (refreshed_active_path, _dialed_addr) =
                                         record_established_connection(
                                             &known_transport_paths,
                                             &mut active_transport_paths,
@@ -872,12 +876,6 @@ impl Libp2pNetwork {
                                             connection_id,
                                             &endpoint,
                                         );
-                                    if let Some(address) = dialed_addr {
-                                        swarm
-                                            .behaviour_mut()
-                                            .kademlia
-                                            .add_address(&peer_id, address);
-                                    }
                                     log_active_transport_path(
                                         &event_errors,
                                         &mut lifecycle_event_errors_at_ms,

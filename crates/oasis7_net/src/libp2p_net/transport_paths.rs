@@ -11,7 +11,7 @@ use oasis7_proto::distributed_dht::{
 use oasis7_proto::distributed_net::NetworkLane;
 
 use super::swarm_behaviour::{
-    Behaviour, dial_addr_with_optional_peer_id, ensure_peer_id, split_peer_id,
+    Behaviour, dial_addr_with_optional_peer_id, dial_record_addr, ensure_peer_id, split_peer_id,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -375,10 +375,13 @@ pub(super) fn dial_transport_path(
     if let Some(lease) = &path.record_lease {
         lease.validate()?;
     }
-    dial_addr_with_optional_peer_id(swarm, path.addr.clone()).map_err(|err| {
-        WorldError::NetworkProtocolUnavailable {
-            protocol: format!("transport dial failed: {err}"),
-        }
+    let result = if path.record_lease.is_some() {
+        dial_record_addr(swarm, path.addr.clone())
+    } else {
+        dial_addr_with_optional_peer_id(swarm, path.addr.clone())
+    };
+    result.map_err(|err| WorldError::NetworkProtocolUnavailable {
+        protocol: format!("transport dial failed: {err}"),
     })?;
     last_dialed_transport_paths.insert(path.peer_id, path);
     Ok(())

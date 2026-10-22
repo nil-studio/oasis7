@@ -296,3 +296,96 @@ fn static_configuration_cannot_launder_another_port_record_lease() {
             .any(|path| path.addr == configured && path.record_lease.is_none())
     );
 }
+
+#[test]
+fn record_dial_does_not_install_permanent_kademlia_route() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _runtime_guard = runtime.enter();
+    let key = Keypair::generate_ed25519();
+    let signed = signed_discovery_peer_record(&key, vec![], now_ms());
+    let peer = PeerId::from(key.public());
+    let clock = DiscoveryClock::default();
+    let lease = clock.check(&signed.record).unwrap();
+    let mut swarm = build_swarm(
+        &Keypair::generate_ed25519(),
+        false,
+        false,
+        Duration::from_secs(30),
+        super::super::wire_bytes::init_shared_wire_byte_counters(),
+    );
+    let path = peer_record_transport_paths(&signed).unwrap().remove(0);
+    assert!(swarm.behaviour().discovery_dial_policy().install(
+        peer,
+        vec![path.addr.clone()],
+        lease
+    ));
+    super::super::swarm_behaviour::dial_record_addr(&mut swarm, path.addr).unwrap();
+    assert!(
+        !swarm
+            .behaviour_mut()
+            .kademlia
+            .kbuckets()
+            .any(|bucket| bucket
+                .iter()
+                .any(|entry| *entry.node.key.preimage() == peer)),
+        "record dial must not install a permanent route"
+    );
+}
+
+#[test]
+fn final_resolution_rejects_expired_record_even_when_kad_retains_the_address() {
+    use libp2p::swarm::{ConnectionId, NetworkBehaviour};
+    let key = Keypair::generate_ed25519();
+    let signed = signed_discovery_peer_record(&key, vec![], now_ms());
+    let peer = PeerId::from(key.public());
+    let clock = DiscoveryClock::default();
+    let lease = clock.check(&signed.record).unwrap();
+    let mut swarm = build_swarm(
+        &Keypair::generate_ed25519(),
+        false,
+        false,
+        Duration::from_secs(30),
+        super::super::wire_bytes::init_shared_wire_byte_counters(),
+    );
+    let path = peer_record_transport_paths(&signed).unwrap().remove(0);
+    assert!(swarm.behaviour().discovery_dial_policy().install(
+        peer,
+        vec![path.addr.clone()],
+        lease
+    ));
+    swarm
+        .behaviour_mut()
+        .kademlia
+        .add_address(&peer, path.addr.clone());
+    assert!(
+        !swarm
+            .behaviour_mut()
+            .handle_pending_outbound_connection(
+                ConnectionId::new_unchecked(44),
+                Some(peer),
+                &[],
+                libp2p::core::Endpoint::Dialer
+            )
+            .unwrap()
+            .is_empty()
+    );
+    clock
+        .observe(signed.record.expires_at_ms().unwrap(), Instant::now())
+        .unwrap();
+    assert!(
+        swarm
+            .behaviour_mut()
+            .handle_pending_outbound_connection(
+                ConnectionId::new_unchecked(45),
+                Some(peer),
+                &[],
+                libp2p::core::Endpoint::Dialer
+            )
+            .unwrap()
+            .is_empty()
+    );
+    assert!(super::super::swarm_behaviour::dial_record_addr(&mut swarm, path.addr).is_err());
+}
