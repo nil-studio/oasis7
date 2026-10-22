@@ -1,3 +1,6 @@
+use super::discovery_budget::{
+    MAX_COOLDOWN_ENTRIES, MAX_DISCOVERY_IDS, MAX_DISCOVERY_LIST_BYTES, MAX_PROXY_ATTEMPTS,
+};
 use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -163,6 +166,10 @@ fn peer_record_request_in_cooldown(
     peer_id: PeerId,
     now_ms: i64,
 ) -> bool {
+    cooldowns.retain(|_, retry_at| *retry_at > now_ms);
+    if !cooldowns.contains_key(&peer_id) && cooldowns.len() >= MAX_COOLDOWN_ENTRIES {
+        return true;
+    }
     match cooldowns.get(&peer_id).copied() {
         Some(retry_at_ms) if retry_at_ms > now_ms => true,
         Some(_) => {
@@ -204,11 +211,15 @@ pub(super) fn start_peer_discovery_query(
     {
         return false;
     }
+    if !swarm.behaviour_mut().discovery_budget.admit() {
+        return false;
+    }
     let key = dht_peer_discovery_key(template.world_id.as_str());
     let query_id = swarm
         .behaviour_mut()
         .kademlia
         .get_providers(RecordKey::new(&key));
+    swarm.behaviour_mut().discovery_budget.track_dht(query_id);
     pending_dht.insert(
         query_id,
         PendingDhtQuery::DiscoverPeers {
@@ -316,12 +327,16 @@ pub(super) fn maybe_queue_discovery_peer_record(
     {
         return;
     }
+    if !swarm.behaviour_mut().discovery_budget.admit() {
+        return;
+    }
     let key = dht_peer_record_key(world_id, peer_id.to_string().as_str());
     let query_id = swarm
         .behaviour_mut()
         .kademlia
         .get_record(RecordKey::new(&key));
     pending_discovery_peer_records.insert(peer_id);
+    swarm.behaviour_mut().discovery_budget.track_dht(query_id);
     pending_dht.insert(
         query_id,
         PendingDhtQuery::DiscoverPeerRecord {
@@ -357,6 +372,9 @@ pub(super) fn maybe_request_connected_peer_record(
     {
         return false;
     }
+    if !swarm.behaviour_mut().discovery_budget.admit() {
+        return false;
+    }
     record_request_outbound(traffic_metrics, RR_GET_LOCAL_PEER_RECORD, 0);
     let request_id = swarm.behaviour_mut().request_response.send_request(
         &peer_id,
@@ -367,6 +385,10 @@ pub(super) fn maybe_request_connected_peer_record(
     );
     pending_connected_peer_records.insert(peer_id);
     note_peer_record_request_cooldown(connected_peer_record_cooldowns, peer_id, now_ms);
+    swarm
+        .behaviour_mut()
+        .discovery_budget
+        .track_request(request_id);
     pending_peer_record_requests.insert(
         request_id,
         PendingPeerRecordRequest::ConnectedPeerRecord {
@@ -401,6 +423,18 @@ fn request_cached_peer_record_via(
     {
         return false;
     }
+    let now_ms = super::now_ms();
+    cached_peer_record_cooldowns.retain(|_, until| *until > now_ms);
+    if (tried_proxies.is_empty()
+        && peer_record_request_in_cooldown(cached_peer_record_cooldowns, peer_id, now_ms))
+        || tried_proxies.len() >= MAX_PROXY_ATTEMPTS
+        || tried_proxies.contains(&ask_peer)
+        || (!cached_peer_record_cooldowns.contains_key(&peer_id)
+            && cached_peer_record_cooldowns.len() >= MAX_COOLDOWN_ENTRIES)
+        || !swarm.behaviour_mut().discovery_budget.admit()
+    {
+        return false;
+    }
     if !tried_proxies.contains(&ask_peer) {
         tried_proxies.push(ask_peer);
     }
@@ -418,6 +452,10 @@ fn request_cached_peer_record_via(
     );
     pending_cached_peer_records.insert(peer_id);
     note_peer_record_request_cooldown(cached_peer_record_cooldowns, peer_id, super::now_ms());
+    swarm
+        .behaviour_mut()
+        .discovery_budget
+        .track_request(request_id);
     pending_peer_record_requests.insert(
         request_id,
         PendingPeerRecordRequest::CachedPeerRecord {
@@ -501,6 +539,9 @@ pub(super) fn maybe_request_cached_discovery_peers(
     {
         return false;
     }
+    if !swarm.behaviour_mut().discovery_budget.admit() {
+        return false;
+    }
     record_request_outbound(traffic_metrics, RR_GET_CACHED_DISCOVERY_PEERS, 0);
     let request_id = swarm.behaviour_mut().request_response.send_request(
         &peer_id,
@@ -511,6 +552,10 @@ pub(super) fn maybe_request_cached_discovery_peers(
     );
     pending_cached_discovery_peers.insert(peer_id);
     note_peer_record_request_cooldown(cached_discovery_peer_cooldowns, peer_id, now_ms);
+    swarm
+        .behaviour_mut()
+        .discovery_budget
+        .track_request(request_id);
     pending_peer_record_requests.insert(
         request_id,
         PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id },
@@ -722,7 +767,7 @@ pub(super) fn handle_request_response_request(
             to_canonical_cbor(record)
         }
         RR_GET_CACHED_DISCOVERY_PEERS => {
-            let peers: Vec<String> = discovered_peer_records
+            let mut peers: Vec<String> = discovered_peer_records
                 .values()
                 .filter(|record| {
                     peer_record_template
@@ -734,6 +779,9 @@ pub(super) fn handle_request_response_request(
                 })
                 .map(|record| record.record.peer_id.clone())
                 .collect();
+            peers.sort();
+            peers.dedup();
+            peers.truncate(MAX_DISCOVERY_IDS);
             to_canonical_cbor(&peers)
         }
         _ => {
@@ -905,27 +953,24 @@ pub(super) fn handle_peer_record_response(
                 peer_id,
                 tried_proxies,
             } = kind
-            {
-                if let Some(next_ask_peer) = select_cached_peer_record_proxy(
+                && let Some(next_ask_peer) = select_cached_peer_record_proxy(
                     connected_peers,
                     peer_id,
                     local_peer_id,
                     tried_proxies.as_slice(),
-                ) {
-                    let _ = request_cached_peer_record_via(
-                        swarm,
-                        pending_peer_record_requests,
-                        pending_cached_peer_records,
-                        cached_peer_record_cooldowns,
-                        traffic_metrics,
-                        next_ask_peer,
-                        peer_id,
-                        local_peer_id,
-                        tried_proxies,
-                    );
-                } else {
-                    cached_peer_record_cooldowns.remove(&peer_id);
-                }
+                )
+            {
+                let _ = request_cached_peer_record_via(
+                    swarm,
+                    pending_peer_record_requests,
+                    pending_cached_peer_records,
+                    cached_peer_record_cooldowns,
+                    traffic_metrics,
+                    next_ask_peer,
+                    peer_id,
+                    local_peer_id,
+                    tried_proxies,
+                );
             }
         }
         Err(err) => {
@@ -956,11 +1001,11 @@ pub(super) fn handle_peer_record_outbound_failure(
         PendingPeerRecordRequest,
     >,
     pending_connected_peer_records: &mut HashSet<PeerId>,
-    connected_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
+    _connected_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
     pending_cached_peer_records: &mut HashSet<PeerId>,
     cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
     pending_cached_discovery_peers: &mut HashSet<PeerId>,
-    cached_discovery_peer_cooldowns: &mut HashMap<PeerId, i64>,
+    _cached_discovery_peer_cooldowns: &mut HashMap<PeerId, i64>,
     connected_peers: &[PeerId],
     traffic_metrics: &SharedLibp2pTrafficMetrics,
     local_peer_id: PeerId,
@@ -976,8 +1021,8 @@ pub(super) fn handle_peer_record_outbound_failure(
             peer_id,
             target_owned_route_expected,
         } => {
-            connected_peer_record_cooldowns.remove(&peer_id);
-            cached_peer_record_cooldowns.remove(&peer_id);
+            // Preserve cooldown after failure.
+            // Failure must not reset the target cooldown.
             if !target_owned_route_expected {
                 let _ = maybe_request_cached_peer_record(
                     swarm,
@@ -996,7 +1041,7 @@ pub(super) fn handle_peer_record_outbound_failure(
             tried_proxies,
             ..
         } => {
-            cached_peer_record_cooldowns.remove(&peer_id);
+            // Failure must not reset the target cooldown.
             if let Some(next_ask_peer) = select_cached_peer_record_proxy(
                 connected_peers,
                 peer_id,
@@ -1016,8 +1061,8 @@ pub(super) fn handle_peer_record_outbound_failure(
                 );
             }
         }
-        PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id } => {
-            cached_discovery_peer_cooldowns.remove(&peer_id);
+        PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id: _ } => {
+            // Preserve cooldown after failure.
         }
     }
 }
@@ -1051,7 +1096,19 @@ pub(super) fn republish_cached_peer_record(
         record.record.peer_id.as_str(),
     );
     let payload = to_canonical_cbor(record)?;
-    let query_id = put_record_query(swarm, key, payload)?;
+    if !swarm.behaviour_mut().discovery_budget.admit() {
+        return Err(WorldError::NetworkProtocolUnavailable {
+            protocol: "discovery work budget exhausted".into(),
+        });
+    }
+    let query_id = match put_record_query(swarm, key, payload) {
+        Ok(id) => id,
+        Err(error) => {
+            swarm.behaviour_mut().discovery_budget.finish_unscheduled();
+            return Err(error);
+        }
+    };
+    swarm.behaviour_mut().discovery_budget.track_dht(query_id);
     pending_dht.insert(query_id, PendingDhtQuery::PutPeerRecord { response: None });
     Ok(())
 }
@@ -1080,7 +1137,12 @@ pub(super) fn decode_optional_peer_record_response(
 pub(super) fn decode_cached_discovery_peers_response(
     payload: &[u8],
 ) -> Result<Vec<PeerId>, WorldError> {
-    let peer_ids: Vec<String> = serde_cbor::from_slice(payload)?;
+    if payload.len() > MAX_DISCOVERY_LIST_BYTES {
+        return Err(WorldError::NetworkProtocolUnavailable {
+            protocol: "cached discovery list byte limit exceeded".into(),
+        });
+    }
+    let peer_ids = super::discovery_list::decode(payload)?;
     let mut decoded = Vec::with_capacity(peer_ids.len());
     for peer_id in peer_ids {
         let peer_id =
@@ -1089,7 +1151,9 @@ pub(super) fn decode_cached_discovery_peers_response(
                 .map_err(|_| WorldError::NetworkProtocolUnavailable {
                     protocol: "cached discovery peer_id must be valid".to_string(),
                 })?;
-        decoded.push(peer_id);
+        if !decoded.contains(&peer_id) {
+            decoded.push(peer_id);
+        }
     }
     Ok(decoded)
 }
@@ -1105,3 +1169,7 @@ pub(super) fn rendezvous_namespace(
         protocol: "rendezvous namespace must be <= 255 bytes".to_string(),
     })
 }
+
+#[cfg(test)]
+#[path = "discovery_budget_tests.rs"]
+mod budget_tests;

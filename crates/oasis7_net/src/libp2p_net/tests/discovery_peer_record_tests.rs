@@ -653,7 +653,7 @@ fn start_peer_discovery_query_respects_pending_query_and_cooldown() {
 }
 
 #[test]
-fn clear_disconnected_peer_state_removes_peer_record_cooldowns() {
+fn clear_disconnected_peer_state_preserves_peer_record_cooldowns() {
     let mut swarm = super::super::swarm_behaviour::build_swarm(
         &Keypair::generate_ed25519(),
         false,
@@ -739,9 +739,9 @@ fn clear_disconnected_peer_state_removes_peer_record_cooldowns() {
     );
 
     assert!(!quarantined);
-    assert!(!connected_peer_record_cooldowns.contains_key(&target_peer_id));
-    assert!(!cached_peer_record_cooldowns.contains_key(&target_peer_id));
-    assert!(!cached_discovery_peer_cooldowns.contains_key(&target_peer_id));
+    assert!(connected_peer_record_cooldowns.contains_key(&target_peer_id));
+    assert!(cached_peer_record_cooldowns.contains_key(&target_peer_id));
+    assert!(cached_discovery_peer_cooldowns.contains_key(&target_peer_id));
     assert!(!peers.contains(&target_peer_id));
     assert!(!admitted_active_peers.contains(&target_peer_id));
     assert!(
@@ -761,7 +761,7 @@ fn clear_disconnected_peer_state_removes_peer_record_cooldowns() {
         local_peer_id,
         false,
     );
-    assert!(connected_requested);
+    assert!(!connected_requested);
     pending_peer_record_requests.clear();
     pending_connected_peer_records.clear();
 
@@ -775,7 +775,7 @@ fn clear_disconnected_peer_state_removes_peer_record_cooldowns() {
         target_peer_id,
         local_peer_id,
     );
-    assert!(cached_requested);
+    assert!(!cached_requested);
     pending_peer_record_requests.clear();
     pending_cached_peer_records.clear();
 
@@ -788,7 +788,7 @@ fn clear_disconnected_peer_state_removes_peer_record_cooldowns() {
         target_peer_id,
         local_peer_id,
     );
-    assert!(cached_discovery_requested);
+    assert!(!cached_discovery_requested);
 }
 
 #[test]
@@ -969,7 +969,7 @@ fn cached_peer_record_outbound_failure_retries_via_another_connected_peer() {
 }
 
 #[test]
-fn cached_peer_record_outbound_failure_clears_cooldown_when_proxy_sweep_is_exhausted() {
+fn cached_peer_record_outbound_failure_preserves_cooldown_when_proxy_sweep_is_exhausted() {
     let mut swarm = super::super::swarm_behaviour::build_swarm(
         &Keypair::generate_ed25519(),
         false,
@@ -1011,7 +1011,7 @@ fn cached_peer_record_outbound_failure_clears_cooldown_when_proxy_sweep_is_exhau
 
     assert!(pending_peer_record_requests.is_empty());
     assert!(!pending_cached_peer_records.contains(&target_peer_id));
-    assert!(!cached_peer_record_cooldowns.contains_key(&target_peer_id));
+    assert!(cached_peer_record_cooldowns.contains_key(&target_peer_id));
 }
 
 #[test]

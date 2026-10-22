@@ -45,6 +45,7 @@ pub(super) struct InnerBehaviour {
 /// cache addresses internally, but those caches cannot extend signed leases.
 pub(super) struct Behaviour {
     inner: InnerBehaviour,
+    pub(super) discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     dial_policy: DiscoveryDialPolicy,
     protocol_dials: ProtocolDialOrigins,
     automatic_dials: std::collections::HashSet<libp2p::swarm::ConnectionId>,
@@ -54,6 +55,7 @@ impl Behaviour {
     fn new(inner: InnerBehaviour, protocol_dials: ProtocolDialOrigins) -> Self {
         Self {
             inner,
+            discovery_budget: Default::default(),
             dial_policy: DiscoveryDialPolicy::default(),
             protocol_dials,
             automatic_dials: Default::default(),
