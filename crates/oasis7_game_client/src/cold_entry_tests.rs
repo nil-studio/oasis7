@@ -244,10 +244,10 @@ fn partial_initialization_is_explicitly_blocked_and_never_rekeys() {
             .collect(),
     };
     store.put_original(SCOPE, PLAN, "plan", &immutable).unwrap();
-    assert_eq!(
-        status(&store, &immutable).unwrap()["state"],
-        "action_required"
-    );
+    let partial = status(&store, &immutable).unwrap();
+    assert_eq!(partial["state"], "action_required");
+    assert!(partial.get("participant_operation_id").is_none());
+    assert!(partial.get("active_login_operation_id").is_none());
     assert!(execution::verify_keys(&store, &plan, PASSWORD).is_err());
     assert!(!plan.entry.identity.state_directory.exists());
 }
@@ -462,6 +462,10 @@ fn lost_login_cookie_requires_explicit_fresh_id_and_resumes_same_new_original() 
     drop(client);
     let first = login::fresh_login(&store, &immutable, PASSWORD, &fresh).unwrap();
     assert_eq!(first["state"], "unknown");
+    let pending_status = status(&store, &immutable).unwrap();
+    assert_eq!(pending_status["participant_operation_id"], business[2]);
+    assert_eq!(pending_status["active_login_operation_id"], old);
+    assert_eq!(pending_status["operation_id"], fresh);
     let blocked = execution::execute(&store, &immutable, PASSWORD).unwrap();
     assert_eq!(blocked["stage"], "login_refresh");
     assert_eq!(blocked["state"], "action_required");
@@ -472,6 +476,9 @@ fn lost_login_cookie_requires_explicit_fresh_id_and_resumes_same_new_original() 
     assert_eq!(selected.active, fresh);
     assert_eq!(selected.pending, None);
     assert_eq!(business, immutable.operations);
+    let refreshed_status = status(&store, &immutable).unwrap();
+    assert_eq!(refreshed_status["participant_operation_id"], business[2]);
+    assert_eq!(refreshed_status["active_login_operation_id"], fresh);
 }
 
 #[test]
@@ -500,4 +507,33 @@ fn participant_pending_or_unknown_requires_original_reconciliation_before_canoni
         assert_eq!(stopped["next_action"], next);
         assert_eq!(stopped["operation_id"], "original");
     }
+}
+
+#[test]
+fn completed_historical_status_exposes_only_original_owner_cli_references() {
+    let (_d, plan) = fixture("https://identity.example".into());
+    initialize_vaults(plan.clone(), PASSWORD).unwrap();
+    let (store, immutable) = open(&plan.orchestration_directory, PASSWORD).unwrap();
+    // This is a local history projection, deliberately not world certification.
+    // Reconstruct persisted completed history without any network authority.
+    for operation in &immutable.operations {
+        store
+            .put_original(SCOPE, operation, "confirmed", &true)
+            .unwrap();
+    }
+    let result = status(&store, &immutable).unwrap();
+    assert_eq!(
+        result,
+        json!({
+            "stage":"complete", "state":"historically_confirmed",
+            "next_action":"fresh_canonical_revalidation_required_before_executor_use",
+            "participant_operation_id": immutable.operations[2],
+            "active_login_operation_id": immutable.operations[1],
+        })
+    );
+    let original = immutable.operations.clone();
+    drop(store);
+    let (reopened, immutable) = open(&plan.orchestration_directory, PASSWORD).unwrap();
+    assert_eq!(status(&reopened, &immutable).unwrap(), result);
+    assert_eq!(immutable.operations, original);
 }

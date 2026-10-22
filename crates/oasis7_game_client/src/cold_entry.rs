@@ -259,10 +259,18 @@ fn status(store: &OwnerControlStore, immutable: &ImmutablePlan) -> Result<Value,
             json!({"stage":"initialization","state":"action_required","next_action":"recover_original_partial_initialization_no_automatic_key_generation"}),
         );
     }
-    if let Some(pending) = login::selection(store, immutable)?.pending {
-        return Ok(
+    let selection = login::selection(store, immutable)?;
+    // Non-secret references let the trusted companion reconcile/control this
+    // original participant. They confer no session or current world authority.
+    let with_owner_references = |mut progress: Value| {
+        progress["participant_operation_id"] = json!(immutable.operations[2]);
+        progress["active_login_operation_id"] = json!(selection.active);
+        progress
+    };
+    if let Some(pending) = &selection.pending {
+        return Ok(with_owner_references(
             json!({"stage":"login_refresh","state":"action_required","operation_id":pending,"next_action":"explicit_fresh_login_same_operation"}),
-        );
+        ));
     }
     for (i, stage) in STAGES.iter().enumerate() {
         if store.read_original::<bool>(SCOPE, &immutable.operations[i], "confirmed")? != Some(true)
@@ -270,14 +278,14 @@ fn status(store: &OwnerControlStore, immutable: &ImmutablePlan) -> Result<Value,
             let started =
                 store.read_original::<bool>(SCOPE, &immutable.operations[i], "started")?
                     == Some(true);
-            return Ok(
+            return Ok(with_owner_references(
                 json!({"stage":stage,"state":if started{"unknown"}else{"not_started"},"operation_id":immutable.operations[i],"next_action":if started{"query_original_with_same_plan"}else{"explicit_cold_entry_run"}}),
-            );
+            ));
         }
     }
-    Ok(
+    Ok(with_owner_references(
         json!({"stage":"complete","state":"historically_confirmed","next_action":"fresh_canonical_revalidation_required_before_executor_use"}),
-    )
+    ))
 }
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let ordinary = args.len() == 4

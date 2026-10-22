@@ -90,6 +90,11 @@ published goal and the active independent executor. Only then does it publish
 `executor.json` inside the fixed executor configuration directory. It contains
 resource references and the current fence, no signer seed, cookie or private
 goal text. Local `status` is historical progress, not current world permission.
+Its non-secret `participant_operation_id` and `active_login_operation_id` refer to
+the saved original participant and selected login for trusted `entry-owner` CLI
+management (including explicit delegation revocation); these references are not
+credentials or proof of current authority, and a pending fresh login is never
+reported as active.
 Use the returned executor configuration only inside the trusted launcher; expose
 bounded game commands through the approved broker described in the main Skill.
 Actual Runtime OS isolation and provider/model budgets remain separately required.
