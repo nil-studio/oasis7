@@ -209,9 +209,9 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
     // The signed startup file may be removed after commit; retain the pin.
     let mut restore_only = control;
     restore_only.startup = None;
-    let twice = NodeRuntimeExecutionDriver::new_with_participant_control(
+    let mut twice = NodeRuntimeExecutionDriver::new_with_participant_control(
         state,
-        world,
+        world.clone(),
         records.clone(),
         store.clone(),
         &StorageProfileConfig::default(),
@@ -242,6 +242,57 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
             .genesis_ref
             .as_deref(),
         Some(identity.genesis_digest.as_str())
+    );
+    let bootstrap =
+        super::super::super::local_bootstrap::derive_service_execution_bootstrap_with_context(
+            &world,
+            &records,
+            &store,
+            &identity.world_id,
+            &context,
+        )
+        .expect(
+            "a committed DevLocal policy must bootstrap with the explicit trusted host context",
+        );
+    assert!(
+        super::super::super::local_bootstrap::derive_service_execution_bootstrap(
+            &world,
+            &records,
+            &store,
+            &identity.world_id,
+        )
+        .is_err(),
+        "missing operator context must not restore an activated world"
+    );
+    let wrong_authority = oasis7_runtime::DevLocalParticipantAuthority::new(
+        oasis7_proto::storage_profile::StorageProfile::DevLocal,
+        &ReleaseSecurityPolicy::default(),
+        sign_read_request("fixture", (), &hex::encode([99; 32]))
+            .unwrap()
+            .subject_public_key,
+    )
+    .unwrap();
+    let wrong_context = super::super::super::world_service_read::RestoreContext::new(
+        ReleaseSecurityPolicy::default(),
+        Some(wrong_authority),
+    )
+    .unwrap();
+    assert!(
+        super::super::super::local_bootstrap::derive_service_execution_bootstrap_with_context(
+            &world,
+            &records,
+            &store,
+            &identity.world_id,
+            &wrong_context,
+        )
+        .is_err(),
+        "a different operator pin must fail closed"
+    );
+    twice.apply_local_execution_bootstrap(&bootstrap).unwrap();
+    assert_eq!(bootstrap.height, pinned.record.height);
+    assert_eq!(
+        Some(bootstrap.consensus_block_hash.as_str()),
+        pinned.record.node_block_hash.as_deref()
     );
     let _ = fs::remove_dir_all(dir);
 }
@@ -387,16 +438,30 @@ fn devlocal_host_rejects_unsigned_formal_admission_and_conflicted_recovery_witho
     // retain the DevLocal/formal authority boundary at recovery: an established
     // formal membership cannot be imported as DevLocal authority either.
     let mut conflicted = before.clone();
-    conflicted.state.governance_validator_admissions.insert("candidate.fixture".into(), oasis7_runtime::GovernanceValidatorAdmissionRecord {
-        candidate_id: "candidate.fixture".into(), node_id: "validator.fixture".into(),
-        finality_signer_public_key: hex::encode(SigningKey::from_bytes(&[93; 32]).verifying_key().to_bytes()),
-        stake: 25, operator_owner: "ops.team".into(), public_manifest_hash: "manifest:candidate.fixture".into(),
-        ..Default::default()
-    });
+    conflicted.state.governance_validator_admissions.insert(
+        "candidate.fixture".into(),
+        oasis7_runtime::GovernanceValidatorAdmissionRecord {
+            candidate_id: "candidate.fixture".into(),
+            node_id: "validator.fixture".into(),
+            finality_signer_public_key: hex::encode(
+                SigningKey::from_bytes(&[93; 32]).verifying_key().to_bytes(),
+            ),
+            stake: 25,
+            operator_owner: "ops.team".into(),
+            public_manifest_hash: "manifest:candidate.fixture".into(),
+            ..Default::default()
+        },
+    );
     let error = oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
-        conflicted, driver.execution_world.journal().clone(), driver.devlocal_participant.authority.clone().unwrap(),
-    ).expect_err("formal membership cannot recover under DevLocal authority");
-    assert!(format!("{error:?}").contains("DevLocal") || format!("{error:?}").contains("local participant"));
+        conflicted,
+        driver.execution_world.journal().clone(),
+        driver.devlocal_participant.authority.clone().unwrap(),
+    )
+    .expect_err("formal membership cannot recover under DevLocal authority");
+    assert!(
+        format!("{error:?}").contains("DevLocal")
+            || format!("{error:?}").contains("local participant")
+    );
     // The forbidden action is not retained as a hidden pending side effect.
     commit(&mut driver).unwrap();
     let _ = fs::remove_dir_all(dir);

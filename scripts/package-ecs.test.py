@@ -829,5 +829,15 @@ class SkillReleaseTests(unittest.TestCase):
         self.assertEqual(include.read_bytes(), b"old")
 
 
+def load_tests(loader, tests, pattern):
+    """Keep the production-restart guard in the standard packaging CI entry."""
+    restart_spec = importlib.util.spec_from_file_location(
+        "ecs_cold_entry_restart_tests", ROOT / "scripts/package-ecs-cold-entry-restart.test.py")
+    restart = importlib.util.module_from_spec(restart_spec)
+    restart_spec.loader.exec_module(restart)
+    tests.addTests(loader.loadTestsFromModule(restart))
+    return tests
+
+
 if __name__ == "__main__":
     unittest.main()

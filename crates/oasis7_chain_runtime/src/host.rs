@@ -592,11 +592,15 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         .exists()
         && paths.execution_records_dir.join("latest.json").exists()
     {
-        Some(execution_bridge::derive_service_execution_bootstrap(
+        Some(execution_bridge::derive_service_execution_bootstrap_with_context(
             &paths.execution_world_dir,
             &paths.execution_records_dir,
             &paths.storage_root,
             &options.world_id,
+            &execution_bridge::world_service_read::RestoreContext::new(
+                release_security_policy.clone(),
+                participant_control.authority.clone(),
+            )?,
         )?)
     } else {
         local_execution_bootstrap
