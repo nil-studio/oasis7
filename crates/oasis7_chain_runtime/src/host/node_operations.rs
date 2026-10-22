@@ -207,3 +207,7 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
     );
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+#[path = "node_operations/admission_tests.rs"]
+mod admission_tests;

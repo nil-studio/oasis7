@@ -366,6 +366,6 @@ pub(crate) fn admission_absent(config_path: &Path, action_id: &str) -> Result<bo
 }
 
 #[cfg(test)]
-pub(crate) fn test_admission_lock(data: &Path) -> Result<std::fs::File, String> {
+pub(crate) fn test_admission_lock(data: &Path) -> Result<process::AdmissionLock, String> {
     process::admission_lock(data)
 }

@@ -69,11 +69,21 @@ impl Drop for ObserverWorkerStop {
 
 // Transient admission fence shared with immutable management bindings. The
 // lifetime process lock is separate: a running receiver must still admit stop.
-pub(super) fn admission_lock(data: &Path) -> Result<File, String> {
+pub(crate) struct AdmissionLock(File);
+impl Drop for AdmissionLock {
+    fn drop(&mut self) {
+        // close alone leaves flock held by a concurrently forked child until
+        // exec. This fence belongs only to the writer's critical section, so
+        // release its shared lock description before closing our descriptor.
+        // The lifetime ownership lock below intentionally has no such unlock.
+        let _ = self.0.unlock();
+    }
+}
+pub(super) fn admission_lock(data: &Path) -> Result<AdmissionLock, String> {
     let file = io::private_file(&data.join("action-admission.lock"))?;
     file.try_lock()
         .map_err(|_| "native action admission writer busy".to_string())?;
-    Ok(file)
+    Ok(AdmissionLock(file))
 }
 pub(super) fn lock(data: &Path) -> Result<File, String> {
     let path = data.join("process.lock");
@@ -128,8 +138,10 @@ fn control(data: &Path, instance: &Instance, operation: &str) -> Result<Instance
         generation: instance.generation,
         config_digest: instance.config_digest.clone(),
     };
-    write_line(&mut socket, &request)?;
-    let response: ControlResponse = read_line(&mut socket)?;
+    write_line(&mut socket, &request)
+        .map_err(|error| format!("control {operation} request failed: {error}"))?;
+    let response: ControlResponse = read_line(&mut socket)
+        .map_err(|error| format!("control {operation} response failed: {error}"))?;
     if response.instance.incarnation != instance.incarnation
         || response.instance.generation != instance.generation
         || response.instance.config_digest != instance.config_digest
@@ -145,13 +157,25 @@ fn write_line<T: Serialize>(stream: &mut UnixStream, value: &T) -> Result<(), St
         return Err("control message limit".into());
     }
     bytes.push(b'\n');
-    stream.write_all(&bytes).map_err(|e| e.to_string())
+    stream.write_all(&bytes).map_err(|error| {
+        format!(
+            "control write: kind={:?} os_code={:?}",
+            error.kind(),
+            error.raw_os_error()
+        )
+    })
 }
 fn read_line<T: serde::de::DeserializeOwned>(stream: &mut UnixStream) -> Result<T, String> {
     let mut bytes = Vec::new();
     std::io::Read::take(BufReader::new(stream), (MAX_CONTROL + 1) as u64)
         .read_until(b'\n', &mut bytes)
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| {
+            format!(
+                "control read: kind={:?} os_code={:?}",
+                error.kind(),
+                error.raw_os_error()
+            )
+        })?;
     if bytes.len() > MAX_CONTROL || bytes.last() != Some(&b'\n') {
         return Err("incomplete or oversized control message".into());
     }
