@@ -19,7 +19,7 @@
 ## 按主题进入
 - 私有机器、环境与操作资料工具：从 [产品需求](private-context/private-context.prd.md) 进入，格式、离线历史与恢复见 [系统设计](private-context/private-context.design.md)
 - 想了解项目长期/短期目标、目前进度、近期变化和待关注事项：从[项目状态](command-center/README.md)进入，关键部署与设计边界见[架构索引](command-center/architecture/README.md)，日常维护见[持续更新流程](command-center/command-center.manual.md)
-- 想开发指挥客户端：从[产品设计](command-center/command-center.prd.md)进入，组件、接入和恢复合同见[系统设计](command-center/command-center.design.md)
+- 想开发云端指挥中心或本地辅助端：从[产品设计](command-center/command-center.prd.md)进入，职责拆分、云端个人记录、来源接入与恢复合同见[系统设计](command-center/command-center.design.md)
 - 文档治理、入口减重、存量维护成本、目录职责与 redirect 规则：统一从 `doc/engineering/doc-governance/README.md` 分流
 - 环境分层、云上清单、仓库健康巡检与季度复核：统一从 `doc/engineering/governance/README.md` 分流
 - Rust 体量治理、结构切片约束与 required gate：统一从 `doc/engineering/rust-governance/README.md` 分流

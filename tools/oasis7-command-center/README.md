@@ -1,6 +1,8 @@
 # Oasis7 Command Center
 
-macOS desktop implementation of [PR #4518](https://github.com/eng-cc/oasis7/pull/4518), following the [product contract](../../doc/engineering/command-center/command-center.prd.md) and [system design](../../doc/engineering/command-center/command-center.design.md).
+This directory contains the macOS implementation introduced by [PR #4518](https://github.com/eng-cc/oasis7/pull/4518). The [product contract](../../doc/engineering/command-center/command-center.prd.md) and [system design](../../doc/engineering/command-center/command-center.design.md) define a cloud command center and a local companion. This README describes the code and commands in this directory; it does not establish that the cloud responsibilities have been implemented here.
+
+The local companion owns device and worktree bindings, uncommitted document previews, private context stores, packaged CLI tools and signer operations. The Sites application owns cloud personal records and the cross-device work views. Remote pages open in the system browser and never inherit Tauri IPC. The local SQLite behavior documented below is the current implementation boundary, not a second cloud writer or an automatic upload contract; implementation evidence is tracked from [the system design](../../doc/engineering/command-center/command-center.design.md#cc-current-implementation).
 
 This application provides a local daily-work foundation: document/Git reading, Chinese search, a shared work list and detail, explicit goal relations, personal questions, durable decisions and reading history, plus bounded read-only GitHub REST access. Codex work remains in its original tool; the App provides external navigation and does not observe or control its runtime.
 

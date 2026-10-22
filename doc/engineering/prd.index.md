@@ -13,7 +13,7 @@
 | 专题 PRD | 专题设计文档 | 任务与证据入口 |
 | --- | --- | --- |
 | [私有资料产品需求](private-context/private-context.prd.md)（PRD-ENGINEERING-035） | [私有资料系统设计](private-context/private-context.design.md) | PR、实际 CI 与评审记录（Issue 按需） |
-| [指挥客户端产品设计](command-center/command-center.prd.md)（PRD-ENGINEERING-034） | [系统设计](command-center/command-center.design.md)；[文档树设计](command-center/document-tree.design.md)；[持续更新流程](command-center/command-center.manual.md) | [项目状态](command-center/README.md)与[架构索引](command-center/architecture/README.md)提供派生导航；交付事实仍在 PR、实际 CI 与评审记录（Issue 按需） |
+| [指挥中心产品设计](command-center/command-center.prd.md)（PRD-ENGINEERING-034） | [系统设计](command-center/command-center.design.md)；[文档树设计](command-center/document-tree.design.md)；[本机工具设计](command-center/local-tools.design.md)；[持续更新流程](command-center/command-center.manual.md) | 云端四视图与个人空间、本地设备能力分别承接；[项目状态](command-center/README.md)与[架构索引](command-center/architecture/README.md)提供派生导航，交付事实仍在 PR、实际 CI 与评审记录（Issue 按需） |
 | `doc/engineering/doc-governance/doc-structure-standard.prd.md` | `doc/engineering/doc-governance/doc-structure-standard.design.md`；`documentation-governance.manual.md`（how-to） | PR、实际 CI 与评审记录（Issue 按需） |
 | `doc/engineering/doc-governance/product-documentation-standard.prd.md` | `doc/engineering/doc-governance/product-documentation-standard.design.md`；`product-documentation-standard.templates.md` | PR、实际 CI 与评审记录（Issue 按需） |
 | 产品文档全量治理（standalone execution design） | `doc/engineering/doc-governance/product-documentation-full-corpus-governance.design.md` | PR、实际 CI 与评审记录（Issue 按需） |
