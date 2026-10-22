@@ -143,7 +143,7 @@ class BuildAndBundles(unittest.TestCase):
         required = next(args for name, args, _ in ordinary if name == 'required')
         required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
         self.assertCountEqual(required_packages, [
-            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_client_cli', 'oasis7_launcher_backend',
+            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
             'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
             'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_observability',
             'oasis7_hosted_access', 'oasis7_letai_credit_adapter', 'oasis7_launcher_config',
