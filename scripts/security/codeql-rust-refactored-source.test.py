@@ -46,6 +46,37 @@ class Guards(unittest.TestCase):
             with zipfile.ZipFile(db/'src.zip','w') as z:
                 z.writestr('one/'+m.EXPECT,b'source');z.writestr('two/'+m.EXPECT,b'source')
             with self.assertRaises(RuntimeError):m.verify_archive(db,[m.EXPECT],{m.EXPECT:'0'*64})
+    def test_archive_report_precedes_all_selected_failures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            db=Path(temporary);reports=[]
+            with zipfile.ZipFile(db/'src.zip','w') as z:
+                z.writestr('one/duplicate.rs',b'source');z.writestr('two/duplicate.rs',b'source')
+                z.writestr('one/large.rs',b'x'*(8*1024**2+1))
+            with self.assertRaisesRegex(RuntimeError,'missing.rs'):
+                m.verify_archive(db,['missing.rs','duplicate.rs','large.rs'],{},reports.append)
+            self.assertEqual(len(reports),1)
+            self.assertEqual(reports[0]['selected']['missing.rs']['reasons'],['zero matches'])
+            self.assertEqual(reports[0]['selected']['duplicate.rs']['reasons'],['multiple matches'])
+            self.assertEqual(reports[0]['selected']['large.rs']['reasons'],['selected member oversize'])
+            self.assertEqual(len(reports[0]['entries']),3)
+
+    def test_collection_only_current_adapter_and_common(self):
+        for context in ('candidate','legacy'):
+            files=[m.BASE+'/'+context+'/src/'+name for name in ('main.rs','adapter.rs')]
+            files += [m.BASE+'/common/src/'+name for name in ('lib.rs','driver.rs','protocol.rs','driver/tests.rs')]
+            with patch.object(m.subprocess,'check_output',return_value=('\0'.join(files)+'\0').encode()):
+                filters,actual=m.collection(Path('/source'),context)
+            self.assertEqual(set(actual),set(files))
+            self.assertEqual(filters.splitlines(),['include:'+m.BASE+'/'+context+'/**','include:'+m.BASE+'/common/**'])
+            self.assertNotIn('legacy' if context=='candidate' else 'candidate',filters)
+
+    def test_image_collection_uses_real_independent_inventory(self):
+        files=[m.IMAGE+'/build.rs',m.EXPECT]
+        with patch.object(m.subprocess,'check_output',return_value=('\0'.join(files)+'\0').encode()):
+            filters,actual=m.collection(Path('/source'),'image')
+        self.assertEqual(filters,'include:'+m.IMAGE+'/**')
+        self.assertEqual(set(actual),set(files))
+
     def test_full_metadata_missing_resolve_rejected(self):
         with self.assertRaises(RuntimeError):m.verify_metadata({'resolve':None},Path('/source'),'candidate')
     def test_query_target_identity_and_generated_nodes_preserved(self):

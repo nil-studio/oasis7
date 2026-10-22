@@ -202,7 +202,7 @@ def check_metrics(rows, name):
 
 
 def protected(source):
-    names = subprocess.check_output(["git","ls-files","-z","--",BASE,IMAGE+"/src",IMAGE+"/Cargo.toml","Cargo.toml","Cargo.lock","vendor-libp2p-swarm-0.48.0"],cwd=source).decode().split("\0")
+    names = subprocess.check_output(["git","ls-files","-z","--",BASE,IMAGE,"Cargo.toml","Cargo.lock","vendor-libp2p-swarm-0.48.0"],cwd=source).decode().split("\0")
     result = {}
     for name in filter(None,names):
         p=source/name
@@ -242,18 +242,48 @@ def verify_metadata(value, source, context):
     return None
 
 
-def verify_archive(database, selected, before):
+def verify_archive(database, selected, before, report=None):
     found={}
     with zipfile.ZipFile(database/'src.zip') as archive:
         entries=archive.infolist()
-        if len(entries)>65536 or sum(i.file_size for i in entries)>8*1024**3: raise RuntimeError('source archive cap')
+        if len(entries)>65536 or sum(i.file_size for i in entries)>8*1024**3:
+            if report: report({'entry_count':len(entries),'expanded_bytes':sum(i.file_size for i in entries),'error':'archive cap'})
+            raise RuntimeError('source archive cap')
+        observations={}
         for name in selected:
             matches=[i for i in entries if i.filename.endswith('/'+name)]
-            if len(matches)!=1 or matches[0].file_size>8*1024**2: raise RuntimeError('source archive identity ambiguous')
-            actual=hashlib.sha256(archive.read(matches[0])).hexdigest()
-            if actual!=before[name]: raise RuntimeError('archive source differs')
+            reasons=[]
+            if not matches: reasons.append('zero matches')
+            if len(matches)>1: reasons.append('multiple matches')
+            if any(i.file_size>8*1024**2 for i in matches): reasons.append('selected member oversize')
+            observations[name]={'matches':[{'filename':i.filename,'bytes':i.file_size} for i in matches],
+                                'match_count':len(matches),'reasons':reasons}
+        # Save every selected observation before rejecting any individual item.
+        if report: report({'archive_bytes':(database/'src.zip').stat().st_size,
+            'entry_count':len(entries),'expanded_bytes':sum(i.file_size for i in entries),
+            'entries':[{'filename':i.filename,'bytes':i.file_size,'compressed_bytes':i.compress_size} for i in entries],
+            'selected':observations})
+        for name in selected:
+            observation=observations[name]
+            if observation['reasons']:
+                raise RuntimeError('source archive identity: '+name+' '+repr(observation))
+            actual=hashlib.sha256(archive.read(observation['matches'][0]['filename'])).hexdigest()
+            if actual!=before[name]: raise RuntimeError('archive source differs: '+name)
             found[name]=actual
     return found
+
+
+def collection(source, context):
+    relative=BASE+'/'+context if context!='image' else IMAGE
+    directories=[relative,BASE+'/common'] if context!='image' else [relative]
+    names=subprocess.check_output(['git','ls-files','-z','--',*directories],cwd=source).decode().split('\0')
+    files=sorted(name for name in names if name.endswith('.rs'))
+    if not files or len(files)!=len(set(files)):
+        raise RuntimeError('empty/duplicate initial source collection')
+    if context!='image' and len(files)!=6:
+        raise RuntimeError('frozen peer initial collection changed')
+    filters='\n'.join('include:'+directory+'/**' for directory in directories)
+    return filters,files
 
 
 def execute(driver, production, args, env):
@@ -296,17 +326,23 @@ def execute(driver, production, args, env):
             objects=[json.loads(line) for line in meta.read_text().splitlines() if line.startswith('{')]
             if len(objects)!=1: raise RuntimeError('ambiguous Cargo metadata JSON')
             libp2p_root=verify_metadata(objects[0],source,context)
-            extract_env=dict(env,CARGO_NET_OFFLINE='true',CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS='true',CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=json.dumps([str(source/BASE/'common')] if context!='image' else []))
-            save(context+'-context.json',{'business_source':SOURCE,'source_root':str(folder),'libp2p_root':str(libp2p_root) if libp2p_root else None,'extractor_env':{k:v for k,v in extract_env.items() if k.startswith('CODEQL_EXTRACTOR_RUST_')},'scope':'real crate within complete immutable checkout'})
+            index_filters,initial_files=collection(source,context)
+            extract_env=dict(env,CARGO_NET_OFFLINE='true',LGTM_INDEX_FILTERS=index_filters,CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS='true',CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=json.dumps([str(source/BASE/'common')] if context!='image' else []))
+            save(context+'-context.json',{'business_source':SOURCE,'source_root':str(source),'initial_files':{name:before[name] for name in initial_files},'index_filters':index_filters,'libp2p_root':str(libp2p_root) if libp2p_root else None,'extractor_env':{k:v for k,v in extract_env.items() if k.startswith('CODEQL_EXTRACTOR_RUST_')},'scope':'real crate within complete immutable checkout'})
             database=work/(context+'-db')
-            run([cli,'database','create',str(database),'--language=rust','--build-mode=none','--source-root='+str(folder),'--threads=2','--ram=3072'],source,out/(context+'-extract.log'),args.deadline-90,180,out,extract_env,DATA_LIMIT)
+            run([cli,'database','create',str(database),'--language=rust','--build-mode=none','--source-root='+str(source),'--threads=2','--ram=3072'],source,out/(context+'-extract.log'),args.deadline-90,180,out,extract_env,DATA_LIMIT)
             extract_text=(out/(context+'-extract.log')).read_text()
+            if 'number of inputs: '+str(len(initial_files))+',' not in extract_text:
+                raise RuntimeError('actual initial collection count differs')
+            required_manifests=[str(folder/'Cargo.toml')]+([str(source/BASE/'common/Cargo.toml')] if context!='image' else [])
+            if any(manifest not in extract_text for manifest in required_manifests):
+                raise RuntimeError('actual found Cargo context unverified')
             if 'cargo_all_targets: true' not in extract_text or 'cargo_features: []' not in extract_text:
                 raise RuntimeError('actual extractor feature/target configuration unverified')
             if context!='image' and str(source/BASE/'common') not in extract_text:
                 raise RuntimeError('actual extra include configuration unverified')
             selected=[DRIVER,BASE+'/common/src/protocol.rs',BASE+'/'+context+'/src/adapter.rs'] if context!='image' else [IMAGE+'/src/lib.rs',IMAGE+'/src/host.rs',EXPECT,IMAGE+'/src/host/executable_image/mod.rs',IMAGE+'/src/host/executable_image/replacement_tests.rs',IMAGE+'/src/host/executable_image/replacement_tests/fixture.rs']
-            save(context+'-archived-source.json',verify_archive(database,selected,before))
+            save(context+'-archived-source.json',verify_archive(database,selected,before,lambda value:save(context+'-archive-index.json',value)))
             suffix=context.capitalize()
             names=('Peer'+suffix,'Driver','Calls'+suffix,'Files') if context!='image' else ('Image','MacObservation','Files')
             logs=out/(context+'-model.log')
