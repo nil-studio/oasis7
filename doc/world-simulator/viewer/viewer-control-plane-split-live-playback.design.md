@@ -16,7 +16,7 @@
 
 `oasis7_viewer_codec` 依赖 `oasis7(default-features=false)`、`oasis7_proto` 与请求合同 owner `oasis7_client_api`，持有具体 `ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>` 的非泛型 JSON writer、字符串包装和请求解析入口。Viewer runtime 依赖 codec，并 re-export 同一响应类型，保留既有公开路径和 native/WASM 条件类型。具体 archive 类型仍归 `oasis7::simulator`；codec 不拆分 archive 或空间投影，也不启用新的 Runtime/Node features。
 
-普通和带原请求 nonce 的 flatten envelope 编码均在 codec 中生成；nonce 为 None 时省略。writer 参数为 `&mut dyn Write`，字符串包装复用该入口。codec 不做权限判断、不拥有 socket，不写 newline 或 flush。Runtime live 在原权限/可见性选择与 Event 清理后，把响应直接流式写入受限 Outbox writer；完整帧仍由上层 newline 与 flush 提交。单帧、单轮、帧数、partial frame、deadline 和错误映射保持原合同；不能先生成无界缓冲再交给 Outbox。
+普通和带原请求 nonce 的 flatten envelope 编码均在 codec 中生成；nonce 为 None 时省略。流式 writer 参数为 `&mut dyn Write`；普通响应与字符串包装共用私有非泛型入口，并在入口处分派到动态 writer 或 `Vec<u8>` 两种固定实例。两种实例均留在 codec 库内，以避免字符串逐片段虚分派的实测退化；不向上层导出泛型序列化树。此取舍增加 codec 内部代码生成，须一并测量冷构建与运行时成本，不能声称只有一个 writer 实例。codec 不做权限判断、不拥有 socket，不写 newline 或 flush。Runtime live 在原权限/可见性选择与 Event 清理后，把响应直接流式写入受限 Outbox writer；完整帧仍由上层 newline 与 flush 提交。单帧、单轮、帧数、partial frame、deadline 和错误映射保持原合同；不能先生成无界缓冲再交给 Outbox。
 
 编译复用验收使用同配置 ECS 三 binary 测量：冷构建、no-op、Viewer 编排 touch 与 codec 输入 touch 分别记录真实 Cargo unit、Fresh/rebuilt、timings 和资源。新增包或搬迁代码不代表已证明加速；构建和运行时成本的当前候选结果放在实际 PR/CI。
 

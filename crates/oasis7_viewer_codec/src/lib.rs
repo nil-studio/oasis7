@@ -13,6 +13,23 @@ pub type ViewerResponse = proto::ViewerResponse<
     oasis7::simulator::WorldTime,
 >;
 
+// Dispatch once at the concrete boundary. Both fixed serializer instances are
+// owned by this crate; no generic serializer implementation is exported upward.
+enum JsonWriter<'a> {
+    Stream(&'a mut dyn Write),
+    Buffer(&'a mut Vec<u8>),
+}
+
+fn encode_response(
+    writer: JsonWriter<'_>,
+    response: &ViewerResponse,
+) -> Result<(), serde_json::Error> {
+    match writer {
+        JsonWriter::Stream(writer) => serde_json::to_writer(writer, response),
+        JsonWriter::Buffer(writer) => serde_json::to_writer(writer, response),
+    }
+}
+
 /// Encode one selected response without framing or flushing.
 ///
 /// # Errors
@@ -21,7 +38,7 @@ pub fn write_response_json(
     writer: &mut dyn Write,
     response: &ViewerResponse,
 ) -> Result<(), serde_json::Error> {
-    serde_json::to_writer(writer, response)
+    encode_response(JsonWriter::Stream(writer), response)
 }
 
 #[derive(serde::Serialize)]
@@ -58,8 +75,8 @@ pub fn write_correlated_response_json(
 /// # Panics
 /// Panics if the JSON serializer emits invalid UTF-8 (which `serde_json` guarantees against).
 pub fn response_to_json(response: &ViewerResponse) -> Result<String, serde_json::Error> {
-    let mut bytes = Vec::new();
-    write_response_json(&mut bytes, response)?;
+    let mut bytes = Vec::with_capacity(128);
+    encode_response(JsonWriter::Buffer(&mut bytes), response)?;
     // serde_json always emits UTF-8, just as serde_json::to_string does.
     Ok(String::from_utf8(bytes).expect("JSON encoding is UTF-8"))
 }
