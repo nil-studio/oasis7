@@ -55,7 +55,7 @@ mod dev_cli;
 mod development_runtime;
 #[path = "host/distfs_probe_runtime.rs"]
 mod distfs_probe_runtime;
-#[path = "host/executable_image.rs"]
+#[path = "host/executable_image/mod.rs"]
 mod executable_image;
 #[cfg(not(test))]
 #[allow(dead_code)]

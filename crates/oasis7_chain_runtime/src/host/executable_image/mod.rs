@@ -5,7 +5,6 @@ use std::fs::{File, Metadata};
 use std::os::unix::fs::MetadataExt;
 
 #[cfg(test)]
-#[path = "executable_image_tests.rs"]
 mod replacement_tests;
 
 pub(super) fn open_loaded_image() -> Result<File, String> {

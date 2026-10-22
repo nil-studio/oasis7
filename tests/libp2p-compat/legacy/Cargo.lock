@@ -1940,6 +1940,13 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "libp2p",
+ "oasis7-libp2p-compat-protocol",
+]
+
+[[package]]
+name = "oasis7-libp2p-compat-protocol"
+version = "0.1.0"
+dependencies = [
  "tokio",
 ]
 

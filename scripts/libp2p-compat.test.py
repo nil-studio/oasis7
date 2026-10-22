@@ -9,6 +9,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 env = dict(os.environ)
 env.pop("RUSTC_WRAPPER", None)
+# Exercise the shared protocol once, within the legacy graph's already locked dependencies.
+subprocess.run(["cargo", "test", "--manifest-path",
+                str(ROOT / "tests/libp2p-compat/legacy/Cargo.toml"), "--locked",
+                "-p", "oasis7-libp2p-compat-protocol"], env=env, check=True)
 binaries = {}
 for mode in ("legacy", "candidate"):
     fixture = ROOT / "tests/libp2p-compat" / mode
