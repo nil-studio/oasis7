@@ -1,6 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Check both source and Clippy configuration invalidation with real incremental state.
+if [[ "${1:-}" == "--real-clippy" ]]; then
+  python3 - "$ROOT_DIR" <<'PYTHON'
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+root = Path(sys.argv[1])
+with tempfile.TemporaryDirectory(prefix="oasis7-clippy-proof-") as directory:
+    repo = Path(directory) / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    (repo / "Cargo.toml").write_text('[package]\nname="clippy_proof"\nversion="0.1.0"\nedition="2021"\n')
+    source = repo / "src/lib.rs"
+    source.write_text('pub fn identity(foo: u32) -> u32 { foo }\n')
+    config = repo / "clippy.toml"
+    config.write_text('disallowed-names = []\n')
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    for filename in ("cargo-dev.sh", "cargo-cache.py", "find-python-with-module.sh"):
+        shutil.copy2(root / "scripts" / filename, repo / "scripts" / filename)
+    env = dict(os.environ, CI="", OASIS7_CARGO_DEV_MODE="lean", OASIS7_CARGO_SCCACHE="0")
+    args = [str(repo / "scripts/cargo-dev.sh"), "clippy", "--offline", "--", "-D", "clippy::disallowed_names"]
+    def run(expected):
+        result = subprocess.run(args, cwd=repo, env=env, capture_output=True, text=True)
+        if (result.returncode == 0) != expected:
+            raise RuntimeError(result.stderr)
+        return result.stderr
+    run(True)
+    config.write_text('disallowed-names = ["foo"]\n')
+    diagnostic = run(False)
+    assert "disallowed" in diagnostic, diagnostic
+    source.write_text('pub fn identity(value: u32) -> u32 { value }\n')
+    run(True)
+    source.write_text('pub fn identity(foo: u32) -> u32 { foo }\n')
+    diagnostic = run(False)
+    assert "disallowed" in diagnostic, diagnostic
+    print("cargo-dev real Clippy proof: configuration and source changes detected")
+PYTHON
+  exit 0
+fi
 # Optional real compiler proof: requires installed sccache and cached itoa.
 if [[ "${1:-}" == "--real" ]]; then
   python3 - "$ROOT_DIR" <<'PYTHON'
@@ -66,7 +109,7 @@ exit 0
 EOF
 cat >"$FIXTURE/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "wrapper=${RUSTC_WRAPPER:-unset}" "incremental=${CARGO_INCREMENTAL:-unset}" "target=${CARGO_TARGET_DIR:-unset}" "dev-debug=${CARGO_PROFILE_DEV_DEBUG:-unset}" "test-debug=${CARGO_PROFILE_TEST_DEBUG:-unset}" "$@"
+printf '%s\n' "wrapper=${RUSTC_WRAPPER:-unset}" "incremental=${CARGO_INCREMENTAL:-unset}" "target=${CARGO_TARGET_DIR:-unset}" "dev-debug=${CARGO_PROFILE_DEV_DEBUG:-unset}" "test-debug=${CARGO_PROFILE_TEST_DEBUG:-unset}" "workspace-wrapper=${RUSTC_WORKSPACE_WRAPPER:-unset}" "$@"
 EOF
 chmod +x "$FIXTURE/bin/"*
 cd "$FIXTURE/repo"
@@ -90,15 +133,15 @@ for sccache in 0 1; do
   [[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=1"* && "$result" == *"target=$expected_target"* && "$result" == *"dev-debug=0"* && "$result" == *"test-debug=0"* ]] || { echo "lean check must use incremental compilation without sccache: $result" >&2; exit 1; }
   [[ "$result" == *$'check\n-p\nexample\n--all-targets' ]] || { echo "unexpected check arguments: $result" >&2; exit 1; }
 done
-result="$(./scripts/cargo-dev.sh clippy)"
-[[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=0"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+result="$(RUSTC_WORKSPACE_WRAPPER=clippy-wrapper ./scripts/cargo-dev.sh clippy)"
+[[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=1"* && "$result" == *"workspace-wrapper=clippy-wrapper"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 for mode in build check; do
   result="$(OASIS7_CARGO_DEV_MODE=debug ./scripts/cargo-dev.sh "$mode")"
   [[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=1"* && "$result" == *"dev-debug=2"* && "$result" == *"test-debug=2"* ]] || exit 1
 done
 for setting in 'CI=1' 'CI=true' 'OASIS7_CARGO_SCCACHE=0'; do
   result="$(env "$setting" ./scripts/cargo-dev.sh build)"
-  [[ "$result" == *"wrapper=unset"* && "$result" != *"target=unset"* && "$result" == *"incremental=$([[ "$setting" == CI=* ]] && echo 1 || echo 0)"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+  [[ "$result" == *"wrapper=unset"* && "$result" != *"target=unset"* && "$result" == *"incremental=1"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 done
 for ci in 1 true; do
   result="$(CI="$ci" CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=1 CARGO_PROFILE_TEST_DEBUG=2 ./scripts/cargo-dev.sh check)"
@@ -111,6 +154,25 @@ command() {
 }
 export -f command
 result="$(./scripts/cargo-dev.sh build)"
-[[ "$result" == *"wrapper=unset"* && "$result" != *"target=unset"* && "$result" == *"incremental=0"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+[[ "$result" == *"wrapper=unset"* && "$result" != *"target=unset"* && "$result" == *"incremental=1"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 unset -f command
+# Formal/custom profiles preserve the caller environment and never use sccache.
+for mode in check clippy build test run; do
+  for profile in '--release' '-r' '--profile=release' '--profile=ecs' '--profile packaging'; do
+    result="$(CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=1 ./scripts/cargo-dev.sh "$mode" $profile)"
+    [[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=0"* && "$result" == *"dev-debug=1"* ]] || { echo "formal profile overridden: $result" >&2; exit 1; }
+  done
+  for profile in '--profile=dev' '--profile test'; do
+    result="$(OASIS7_CARGO_SCCACHE=0 ./scripts/cargo-dev.sh "$mode" $profile)"
+    [[ "$result" == *"incremental=1"* && "$result" == *"dev-debug=0"* ]] || exit 1
+  done
+  result="$(OASIS7_CARGO_SCCACHE=0 ./scripts/cargo-dev.sh "$mode" -- --release --profile=ecs)"
+  [[ "$result" == *"incremental=1"* && "$result" == *"dev-debug=0"* ]] || exit 1
+done
+# Cargo failures (including a failing compiler wrapper) must not trigger retry.
+printf '#!/usr/bin/env bash\nexec "$RUSTC_WRAPPER" rustc -vV\n' > "$FIXTURE/bin/cargo"
+printf '#!/usr/bin/env bash\necho called >> "$WRAPPER_CALLS"\nexit 47\n' > "$FIXTURE/bin/sccache"
+export WRAPPER_CALLS="$FIXTURE/wrapper-calls"
+if ./scripts/cargo-dev.sh build; then exit 1; else [[ "$?" == 47 ]] || exit 1; fi
+[[ "$(wc -l < "$WRAPPER_CALLS" | tr -d " ")" == 1 ]] || exit 1
 echo "cargo-dev-sccache.test: OK"

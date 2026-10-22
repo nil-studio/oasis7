@@ -353,7 +353,7 @@ export TEST_ROUTE_EXPIRES_AT_UNIX_MS="$(printf '%s' "${ROUTE_RESPONSE}" | jq -r 
 公开 transfer submit API 的请求体必须包含签名字段，不要用未签名 `curl` 伪造链上入账。默认使用 repo-owned signed transfer client：
 
 ```bash
-env -u RUSTC_WRAPPER cargo run -p oasis7_client_cli --bin oasis7_chain_transfer_submit_client -- \
+env -u RUSTC_WRAPPER cargo run -p oasis7_protocol_tools --bin oasis7_chain_transfer_submit_client -- \
   submit \
   --keys-file ~/Documents/keys/test_keys.txt \
   --persona happy_path \

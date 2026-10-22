@@ -4,7 +4,7 @@ use crate::{
     protocol::{Conversation, Message, Tool, ToolCall},
     transport::{ModelTransport, validate_input},
 };
-use oasis7_agent_harness::{
+use oasis7_agent_api::{
     ModelProvider, ModelProviderError, ModelProviderHistory, ModelProviderRequest,
     ModelProviderResponse, ModelProviderToolCall, ModelProviderToolResult, ModelProviderTrace,
     ModelProviderTurn, ModelProviderUsage,

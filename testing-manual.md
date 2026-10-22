@@ -41,7 +41,7 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 - 若当前是在同一 repo family 的多个 git worktree 之间做本地迭代，开发态 `cargo check/test/run/build` 默认优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。每个 worktree 按自身 source identity 使用稳定、隔离的 target namespace；同一 worktree 内可复用缓存，divergent worktree 不得互选 artifacts。通过 `./scripts/new-task-worktree.sh` 创建的新 task worktree 会把 git-ignored `target` 链接到该 worktree 的 namespace，使直接 cargo 与 wrapper 在同一 worktree 内复用同一开发态缓存。
 - 本地 smoke / playtest / prewarm / regression / drill / longrun 脚本若只是为了开发反馈，应优先 source `scripts/cargo-dev-lib.sh` 并调用 `oasis7_cargo_dev ...` / `oasis7_cargo_dev_debug_bin_dir`，从而与手工 `cargo-dev.sh` 使用同一个当前-worktree target；`CI=1`、`OASIS7_CARGO_DEV_SHARED=0` 或 `OASIS7_FORCE_RAW_CARGO=1` 会回退到原始 cargo target 解析。
 - 该入口只服务开发态缓存复用，不替代本手册中的正式验收命令；手册里的 canonical 验收命令仍显式写原始 `env -u RUSTC_WRAPPER cargo ...`。
-- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它、通过参数传递 target（避免 `CARGO_TARGET_DIR` 污染缓存键）并关闭该调用的 Rust incremental。本地 lean 模式统一设置 dev/test debug=0，其中直接调用 `cargo-dev.sh check ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run`、`clippy` 与其他命令保持 incremental=0，未安装或禁用 sccache 时也相同。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。wrapper 首次本地调用会为缺失的 `target` 建立当前 namespace 链接；已有工作区可执行 `./scripts/cargo-dev.sh --prepare-target`，之后直接 Cargo 也复用该目录。已有普通目录须确认未使用并清理后再准备，脚本不会自动删除它。Windows 缺少符号链接权限时，普通 wrapper 调用仍通过参数使用共享缓存；`--prepare-target` 则报告失败，直接 Cargo 的链接复用需先启用符号链接权限。
+- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它、通过参数传递 target（避免 `CARGO_TARGET_DIR` 污染缓存键）并关闭该调用的 Rust incremental。本地 lean 模式统一设置 dev/test debug=0，普通 dev/test profile 下 `cargo-dev.sh check/clippy ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run` 先选择实际缓存方式：启用 sccache 时 incremental=0，未安装或显式禁用时 incremental=1。Clippy 保留自身的 `RUSTC_WORKSPACE_WRAPPER`，不保证与 check 完整共用增量产物。显式 `--release/-r` 和非 dev/test 的 `--profile` 不使用自动 sccache，也不覆盖调用者的 profile/incremental 环境；`--` 后的参数不参与 profile 解析。sccache 执行失败直接返回错误，不切换模式重试。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check/clippy` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。wrapper 首次本地调用会为缺失的 `target` 建立当前 namespace 链接；已有工作区可执行 `./scripts/cargo-dev.sh --prepare-target`，之后直接 Cargo 也复用该目录。已有普通目录须确认未使用并清理后再准备，脚本不会自动删除它。Windows 缺少符号链接权限时，普通 wrapper 调用仍通过参数使用共享缓存；`--prepare-target` 则报告失败，直接 Cargo 的链接复用需先启用符号链接权限。
 - 本地存储验收分阶段运行：先完成所需编译（可用 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --no-run --locked`），再运行 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --locked`；时限测试执行期间不要在其他 worktree 并行编译或施加资源压力。Cargo 的构建锁不保证测试运行期间独占主机资源。压力实验单独记录负载与实际截止结果，不通过延长测试 RPC 期限消除失败。依赖释放锁后立即重开的用例在独立测试进程运行，防止并行 libtest 的其他 spawn/fork 短暂继承锁描述符；子进程失败、超时和清理失败仍算失败。
 - 磁盘有限时保留少量固定路径开发 worktree，串行任务在确认干净、独占且已保留未推送工作的工作区用 `git switch -c codex/<task> <base>` 切换独立分支；仅并行任务新建 worktree。不要编辑 main 或主工作区。`new-task-worktree.sh --with-harness` 是完整预热的显式选项，普通后端或文档任务不需要它。
 - 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或用户指定的外部工作区，首次本地编译前先运行 `./scripts/cargo-dev.sh --prepare-target`。入口选择规则见开发规范。
@@ -146,7 +146,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
   - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
   - profile 计划版本为 1；空、未知、重复 profile、未知版本或 full 计划漏项均拒绝。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/未知输入及非包规则继续保守全量。每个 profile 的命令成功后才输出完成标记，任何失败退出仍由原 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
   - planner 始终声明 `required_gate_baseline`：这是 required-gate 的普适治理/契约 authority，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。
-  - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7 --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
+  - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
   - 调用 `run_full_required_superset`、`rust_baseline` 及下列 full 测试；函数名不代表当前已覆盖 `required` 的每个子检查。
@@ -351,6 +351,8 @@ Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要
 ./scripts/cargo-dev-lib.test.sh
 # 可选真实跨路径缓存验证（需要 sccache 和本地已下载的 itoa）
 ./scripts/cargo-dev-sccache.test.sh --real
+# 真实增量 Clippy：源码 lint 与 clippy.toml 变化都必须重新生效
+./scripts/cargo-dev-sccache.test.sh --real-clippy
 ./scripts/check-rust-file-size.sh
 env -u RUSTC_WRAPPER cargo fmt --all -- --check
 ```
@@ -706,7 +708,7 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenario_specs_match_ids -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenarios_are_stable -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_demo_runs_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture
 ```
 - 配套文档：`doc/world-simulator/scenario/scenario-files.prd.md` 的“场景测试覆盖矩阵”。
 
@@ -1384,7 +1386,7 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 ## TODO（待收口）
 - [x] TODO-1：修正 S7 场景矩阵回归命令的覆盖口径。
   - 处理结果（2026-03-05）：S7 的 `oasis7_init_demo_runs_` 已切换到 `test_tier_full` 执行档位。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
+  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
 
 - [x] TODO-2：修复 S5 Pixel World Bridge（Bevy）测试编译阻塞。
   - 处理结果（2026-02-21）：当前 `pixel_world_bridge` lib 测试已恢复可编译可执行，并纳入 `scripts/ci-tests.sh` 的 full support-crate shard。
@@ -1656,3 +1658,7 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_proto -p oasis7_net --l
 - Existing three-node TCP forwarding and role/recordless-budget regressions remain in the same net suite. DHT result selection and final handoff recheck current time. Three-node TCP also verifies cached expiry and idle health degradation within the one-second refresh tick while authenticated connections survive.
 
 These tests do not prove absolute wall-clock trust, restart/whole-machine rollback protection, persistent sequence/tombstones, aggregate discovery-round budgets, real public-network independence or deployment readiness. Explicit static bootstrap addresses have a separate local configuration lifetime; remote record addresses never inherit it. Signed-record TTL expiration does not revoke governance, validator authority or authenticated sessions. Do not replace signed timestamps with receiver time or extend expiry by the future-skew allowance.
+
+### 轻量工具构建边界
+
+协议 CLI `oasis7_chain_transfer_submit_client` 与 `oasis7_rollback_strict_audit_evidence` 由 `oasis7_protocol_tools` 唯一拥有，生产 normal/build 依赖只有 Client API/Proto、签名和 HTTP 等工具依赖，不引入 Runtime/Wasmtime；真实 Runtime 签名互操作保留为 dev 测试。`oasis7_init_demo` 与场景 integration tests 由已有 `oasis7_simulator` 拥有。三个 binary 的名称与命令行合同保持不变，内部 Cargo 调用使用新 package。其他 Ops 工具继续保留原默认 Wasmtime 与 tier 语义。required/full 同时选择新协议工具包，场景回归使用 Simulator owner。

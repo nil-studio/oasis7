@@ -124,9 +124,9 @@
 - `oasis7_init_demo`：命令行示例，按场景生成世界并输出统计摘要。
 
 ### 使用示例
-- 运行示例工具：`env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_init_demo -- minimal`
-- 查看场景列表：`env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_init_demo -- --help`
-- 运行自定义场景文件：`env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_init_demo -- --scenario-file path/to/scenario.json`
+- 运行示例工具：`env -u RUSTC_WRAPPER cargo run -p oasis7_simulator --bin oasis7_init_demo -- minimal`
+- 查看场景列表：`env -u RUSTC_WRAPPER cargo run -p oasis7_simulator --bin oasis7_init_demo -- --help`
+- 运行自定义场景文件：`env -u RUSTC_WRAPPER cargo run -p oasis7_simulator --bin oasis7_init_demo -- --scenario-file path/to/scenario.json`
 - 示例输出包含每个地点的资源摘要（electricity/hardware/data）。
 - 示例输出包含每个 Agent 的资源摘要（electricity/hardware/data）。
 - 示例输出包含估算的小行星带碎片数量（asteroid_fragment_fragments）。

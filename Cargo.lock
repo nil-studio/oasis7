@@ -6597,6 +6597,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "oasis7_protocol_tools"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "oasis7",
+ "oasis7_client_api",
+ "oasis7_proto",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oasis7_provider_local_bridge"
 version = "0.1.0"
 dependencies = [

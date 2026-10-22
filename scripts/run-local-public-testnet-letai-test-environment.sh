@@ -684,7 +684,7 @@ build_bins() {
   fi
   log "building local binaries"
   "$ROOT_DIR/scripts/cargo-dev.sh" build \
-    -p oasis7_client_cli -p oasis7_newapi_bridge_service -p oasis7_provider_local_bridge -p oasis7_viewer_runtime \
+    -p oasis7_protocol_tools -p oasis7_newapi_bridge_service -p oasis7_provider_local_bridge -p oasis7_viewer_runtime \
     --bin oasis7_newapi_bridge_service \
     --bin oasis7_chain_transfer_submit_client \
     --bin oasis7_provider_local_bridge \

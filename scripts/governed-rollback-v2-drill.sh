@@ -9,7 +9,7 @@ run_test() {
 }
 
 env -u RUSTC_WRAPPER cargo test -p oasis7_proto viewer_v2_hello_ack_advertises_signed_rollback_capability -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7_ops_tools --bin oasis7_rollback_strict_audit_evidence -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_protocol_tools --bin oasis7_rollback_strict_audit_evidence -- --nocapture
 run_test runtime_authoritative_recovery_requires_v2_negotiated_signed_rollback_capability
 run_test rollback_receipt_freezes_full_signed_identity_and_evidence
 run_test runtime_authoritative_recovery_receipt_is_immutable_after_later_progress

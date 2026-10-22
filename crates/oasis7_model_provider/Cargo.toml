@@ -6,7 +6,7 @@ license = "MIT"
 description = "Session-scoped model consumption and explicit legacy simulator compatibility"
 
 [dependencies]
-oasis7_agent_harness = { path = "../oasis7_agent_harness" }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
 async-openai = { version = "0.42.1", default-features = false, features = ["responses", "rustls", "middleware"] }
 eventsource-stream = "0.2.3"
 futures-util = "0.3"
@@ -19,5 +19,6 @@ getrandom = "0.4"
 hex = "0.4"
 zeroize = "1"
 
-[dev-dependencies]
-oasis7_agent_api = { path = "../oasis7_agent_api" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+oasis7_agent_harness = { path = "../oasis7_agent_harness" }
