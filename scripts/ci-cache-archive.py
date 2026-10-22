@@ -202,5 +202,3 @@ def upload_bound(archive, root=None):
     stored = bounded_tar + (bounded_tar >> 5) + (bounded_tar >> 7) + (bounded_tar >> 11) + 7
     return dict(outer_tar_bytes=total, outer_tar_bound_bytes=bounded_tar,
                 upload_bound_bytes=max(zstd, fixed + 18, stored + 18))
-
-
