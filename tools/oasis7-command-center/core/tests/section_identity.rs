@@ -12,7 +12,7 @@ fn git(root: &Path, args: &[&str]) {
     );
 }
 #[test]
-fn persisted_goal_links_survive_insert_and_reorder_but_not_rename_or_ambiguity() {
+fn section_reading_history_survives_insert_reorder_rename_and_ambiguity() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     std::fs::create_dir(&root).unwrap();
@@ -37,8 +37,6 @@ fn persisted_goal_links_survive_insert_and_reorder_but_not_rename_or_ambiguity()
         .find(|s| s.title == "Goal")
         .unwrap()
         .clone();
-    core.associate_work("https://github.com/o/r/pull/1", vec![goal.id.clone()])
-        .unwrap();
     core.record_reading(&goal.id, &goal.revision, goal.line)
         .unwrap();
     std::fs::write(
@@ -64,10 +62,6 @@ fn persisted_goal_links_survive_insert_and_reorder_but_not_rename_or_ambiguity()
     .unwrap();
     let renamed = core.refresh().unwrap();
     assert!(!renamed.sections.iter().any(|s| s.id == goal.id));
-    assert_eq!(
-        renamed.associations[0].goal_section_ids,
-        vec![goal.id.clone()]
-    );
     assert_eq!(
         core.read_version(&goal.id, &goal.revision)
             .unwrap()
@@ -97,10 +91,6 @@ fn persisted_goal_links_survive_insert_and_reorder_but_not_rename_or_ambiguity()
     );
     drop(core);
     let reopened = CommandCenter::open(&db).unwrap();
-    assert_eq!(
-        reopened.snapshot().associations[0].goal_section_ids,
-        vec![goal.id.clone()]
-    );
     assert!(
         reopened
             .read_version(&goal.id, &goal.revision)

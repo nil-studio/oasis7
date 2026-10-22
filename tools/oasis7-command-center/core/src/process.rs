@@ -7,13 +7,7 @@ use std::{
 };
 /// Fixed argument arrays only; bounded streams are drained concurrently to avoid pipe deadlocks.
 pub fn run(program: &str, args: &[&str], cwd: &Path) -> Result<Vec<u8>> {
-    run_for(program, args, cwd, Duration::from_secs(10))
-}
-pub fn run_for(program: &str, args: &[&str], cwd: &Path, budget: Duration) -> Result<Vec<u8>> {
-    let budget = budget.min(Duration::from_secs(10));
-    if budget.is_zero() {
-        return Err(Error::Invalid("source deadline exhausted".into()));
-    }
+    let budget = Duration::from_secs(10);
     let mut command = Command::new(program);
     command
         .args(args)
@@ -74,20 +68,7 @@ pub fn run_for(program: &str, args: &[&str], cwd: &Path, budget: Duration) -> Re
         .recv_timeout(budget.saturating_sub(start.elapsed()))
         .map_err(|_| Error::Invalid("source reader timeout".into()))??;
     if !status.success() {
-        let mut message: String = String::from_utf8_lossy(&errors).chars().take(500).collect();
-        // Only a bounded numeric HTTP retry header may leave stdout on failure.
-        if bytes.starts_with(b"HTTP/") {
-            let headers = String::from_utf8_lossy(&bytes);
-            if let Some(seconds) = headers.split("\r\n\r\n").next().and_then(|h| {
-                h.lines().find_map(|line| {
-                    line.split_once(':')
-                        .filter(|(key, _)| key.eq_ignore_ascii_case("retry-after"))
-                        .and_then(|(_, v)| v.trim().parse::<u32>().ok())
-                })
-            }) {
-                message.push_str(&format!(" retry-after-seconds:{seconds}"));
-            }
-        }
+        let message: String = String::from_utf8_lossy(&errors).chars().take(500).collect();
         return Err(Error::Invalid(message));
     }
     if bytes.len() >= 8 * 1024 * 1024 {

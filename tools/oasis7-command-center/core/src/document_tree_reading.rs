@@ -1,4 +1,4 @@
-//! Independently versioned personal tree reading records. Never part of Snapshot.
+//! Independently versioned device tree reading records. Never part of Snapshot.
 use crate::{
     CommandCenter, Error, Result, context, document_inventory::DocumentInventoryQuery, index, now,
     save,
@@ -205,7 +205,7 @@ impl CommandCenter {
         let raw: Option<String> = self
             .db
             .query_row(
-                "SELECT value FROM personal WHERE key=?1",
+                "SELECT value FROM device WHERE key=?1",
                 [storage_key(&key)],
                 |r| r.get(0),
             )
@@ -223,7 +223,7 @@ impl CommandCenter {
         result.status = record_status(&raw).into();
         if result.status != "ready" {
             result.notice = Some(format!(
-                "tree reading record {}; reset this view to recover; other personal records are unchanged",
+                "tree reading record {}; reset this view to recover; other device records are unchanged",
                 result.status
             ));
             return Ok(result);
@@ -289,7 +289,7 @@ impl CommandCenter {
         let key = storage_key(&request.key);
         let tx = self.db.unchecked_transaction()?;
         let existing: Option<String> = tx
-            .query_row("SELECT value FROM personal WHERE key=?1", [&key], |r| {
+            .query_row("SELECT value FROM device WHERE key=?1", [&key], |r| {
                 r.get(0)
             })
             .optional()?;
@@ -321,7 +321,7 @@ impl CommandCenter {
         let pointer_key = last_key(&scope);
         let old_pointer: Option<String> = tx
             .query_row(
-                "SELECT value FROM personal WHERE key=?1",
+                "SELECT value FROM device WHERE key=?1",
                 [&pointer_key],
                 |r| r.get(0),
             )
@@ -335,8 +335,8 @@ impl CommandCenter {
                     .into(),
             ));
         }
-        save(&tx, "personal", &key, &record)?;
-        save(&tx, "personal", &pointer_key, &pointer)?;
+        save(&tx, "device", &key, &record)?;
+        save(&tx, "device", &pointer_key, &pointer)?;
         tx.commit()?;
         self.load_document_tree_reading(request.key)
     }
@@ -346,13 +346,13 @@ impl CommandCenter {
     ) -> Result<DocumentTreeReadingLoadResult> {
         self.check_tree_reading_key(&key)?;
         let tx = self.db.unchecked_transaction()?;
-        tx.execute("DELETE FROM personal WHERE key=?1", [storage_key(&key)])?;
+        tx.execute("DELETE FROM device WHERE key=?1", [storage_key(&key)])?;
         // An explicit recovery also removes an unreadable shared pointer, never a
-        // valid pointer for the other view or any unrelated personal data.
+        // valid pointer for the other view or any unrelated device data.
         let pointer_key = last_key(&scope_of(&key));
         let pointer: Option<String> = tx
             .query_row(
-                "SELECT value FROM personal WHERE key=?1",
+                "SELECT value FROM device WHERE key=?1",
                 [&pointer_key],
                 |r| r.get(0),
             )
@@ -360,7 +360,7 @@ impl CommandCenter {
         if pointer.as_ref().is_some_and(|raw| {
             record_status(raw) != "ready" || serde_json::from_str::<LastViewRecord>(raw).is_err()
         }) {
-            tx.execute("DELETE FROM personal WHERE key=?1", [&pointer_key])?;
+            tx.execute("DELETE FROM device WHERE key=?1", [&pointer_key])?;
         }
         tx.commit()?;
         self.load_document_tree_reading(key)
@@ -373,7 +373,7 @@ impl CommandCenter {
         let raw: Option<String> = self
             .db
             .query_row(
-                "SELECT value FROM personal WHERE key=?1",
+                "SELECT value FROM device WHERE key=?1",
                 [last_key(&scope)],
                 |r| r.get(0),
             )

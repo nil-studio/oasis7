@@ -13,6 +13,8 @@
 
 云端与本地通过准确的来源/工作引用和普通浏览器导航关联。远程 Sites 页面在系统浏览器打开，不加载进拥有 Tauri IPC 的本机 WebView；没有设备配对、云端命令队列、localhost 代理或资料自动上传。导航只提供上下文，本机重新核对设备、环境、工作树及操作权限；工具操作与结果仍由本机原接口拥有。
 
+本机首页只保留“本机工具”和“工作树预览”。工作树入口显示真实选择的本机项目、HEAD 与 dirty 状态，文档预览只读取有界 tracked 工作树材料；这些内容不通过导航发送到云端。本机移除 GitHub 来源读取、统一工作投影及个人问题/决定/关系写入口，旧个人表和历史原样保留，不在此转换、上传或删除。预览偏好与阅读版本使用设备命名空间，与旧个人记录分离；重建缓存不能改写旧个人数据。云端工作上下文、安全往返及正式数据切换仍按各自主责合同独立实现和验证。
+
 Apple 代码签名和管理员助手集成仍按用户的既有暂停决定保持关闭，包括 SMAppService／认证 XPC／Authorization Services、signer 初装、密钥与 policy/grant 管理、受保护加密密钥导入导出和 signer 备份计划恢复。已有兼容安装的普通 caller 不受该暂停影响。通用自动更新、其他 purpose UI、远程安装和动态插件不属于本设计开放能力；不得用 shell/sudo 或云端代理绕过限制。
 
 <a id="DES-CC-TOOLS-001"></a>
@@ -141,7 +143,7 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-001](#DES-CC-TOOLS-001) | 独立库、CAS、元数据、快照及 CLI | [context tests](../../../tools/oasis7-command-center/core/tests/context.rs) 数据隔离和条件保存；context snapshot/CLI 回归；真实 App 新建与重开 | 实现 PR source/build/机器和实际结果 | 未执行原生场景不得计通过 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-002](#DES-CC-TOOLS-002) | 同一请求 prepare/submit/inspect 和公钥验签 | [signer 授权反例](../../../crates/oasis7_local_signer/tests/qa_m0_negative.rs) 精确 purpose/context/hash；detached 单元测试验证 envelope；tools 输入反例和已有专用 signer 回读 | 实现 PR request/job 和真实结果 | 无测试安装时不证明 worker 实际提交；管理员用户暂停 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-003](#DES-CC-TOOLS-003) | 幂等、冻结、未知效果、口令句柄 | [tools jobs测试](../../../tools/oasis7-command-center/core/src/tools/jobs/tests.rs)覆盖事务/冻结/查询可用性；原生退出单元测试 | 实现 PR 故障与退出回放 | 强退不保证后台继续 |
-| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 私有资料隔离、旧标记保留且不投影 | [工作投影兼容测试](../../../tools/oasis7-command-center/core/tests/work_projection.rs)核对旧库保留、隐私排除与不重放 | 实现 PR 兼容结果 | 不证明外部工具的使用与输出 |
+| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 私有资料隔离、旧标记保留且不投影 | [旧记录与隐私回归](../../../tools/oasis7-command-center/core/tests/retired_runtime.rs)核对旧库保留、隐私排除与不重放 | 实现 PR 兼容结果 | 不证明外部工具的使用与输出 |
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 浏览器与本机能力隔离、精确导航、明确导出范围、分离口令、签名不造授权及无隐式上传 | 沿[云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)核对正常/恶意定位、错误设备/工作树、缺处理程序、退出登录、云端失联与本机 unknown 操作，检查网络/URL/日志无合成私有 canary且远程页面无 Tauri IPC；补 LocalTools UI 场景验证切换条目不改整库、导出不借恢复口令、取消清理、缺 grant/context 拒绝；真实同包 App 核对导出/恢复及原操作结果 | 实现 PR 的浏览器/App source/build、身份、场景与实际结果 | 单端 fixture 不证明跨端隐私、原生文件对话框、实际 signer 或恢复成功；签名仍需已有获准测试安装 |
 | Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 就地反馈、独立错误、键盘返回及未知操作核对 | 扩展 [LocalTools UI tests](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)：字段失败、后台结果、迟到响应、未知冻结与其他工具可用；真实 App 键盘及长表单错误定位 | 实现 PR 原生窗口、操作与卡点 | 源码/DOM 检查不证明实际可访问体验或耗时 |
 

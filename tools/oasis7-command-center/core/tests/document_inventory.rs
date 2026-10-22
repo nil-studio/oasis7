@@ -241,7 +241,7 @@ fn absent_corrupt_or_future_inventory_does_not_break_old_snapshot_and_can_be_reb
         );
         let legacy: oasis7_command_center_core::domain::Snapshot = serde_json::from_str(
             &db.query_row::<String, _, _>(
-                "SELECT value FROM cache WHERE key='snapshot'",
+                "SELECT value FROM cache WHERE key='device_snapshot_v1'",
                 [],
                 |r| r.get(0),
             )
@@ -302,9 +302,11 @@ fn legacy_writer_refreshing_empty_files_cannot_make_old_inventory_look_current()
     assert!(core.snapshot().sections.is_empty());
     let db = rusqlite::Connection::open(tmp.path().join("db")).unwrap();
     let raw: String = db
-        .query_row("SELECT value FROM cache WHERE key='snapshot'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM cache WHERE key='device_snapshot_v1'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     let mut snapshot: serde_json::Value = serde_json::from_str(&raw).unwrap();
     // An older writer updates only its known Snapshot key, leaving the new cache key untouched.
@@ -315,7 +317,7 @@ fn legacy_writer_refreshing_empty_files_cannot_make_old_inventory_look_current()
         .find(|s| s["kind"] == "local")
         .unwrap()["generation"] = "999".into();
     db.execute(
-        "UPDATE cache SET value=?1 WHERE key='snapshot'",
+        "UPDATE cache SET value=?1 WHERE key='device_snapshot_v1'",
         [snapshot.to_string()],
     )
     .unwrap();
