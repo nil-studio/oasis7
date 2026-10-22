@@ -24,13 +24,13 @@
 
 ## 开发任务、部署与验证的交接
 
-Rust/JS 代码开发通过 GitHub Issue 交给 Codex 端领取，dot 不直接调用 Codex。先检索同目标的 Issue/PR；已有任务就补充原项。使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文，写明代码类型、目标、来源与允许范围、验收、依赖、交付终点；来源引用真实设计、代码和失败版本，不把猜测写成已确认根因。
+Rust/JS 代码开发通过 GitHub Issue 交给用户手动启动的 Codex TPM 会话领取，dot 不直接调用 Codex。先检索同目标的 Issue/PR；已有任务就补充原项。使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文，写明代码类型、目标、来源与允许范围、验收、依赖、交付终点；来源引用真实设计、代码和失败版本，不把猜测写成已确认根因。
 
-内容和授权满足[队列约定](../../scripts/ci-codex-queue/README.md)后才添加 `codex:ready`。依赖未满足保留阻塞，用户暂停使用 `codex:paused`；不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和关联，启动状态以 Codex 端实际会话记录为准。普通 PR 仍可不使用 Issue，本入口不增加全仓准入条件。
+内容和授权满足 [TPM 工作约定](../roles/tpm.md#手动启动的-codex-tpm-会话)后才添加 `codex:ready`。依赖未满足保留阻塞，用户暂停使用 `codex:paused`；不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和关联，领取与派发由 TPM 完成，启动状态以真实开发会话为准。普通 PR 仍可不使用 Issue，本入口不增加全仓准入条件。
 
 Codex 开发会话承担实现、自测、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联整体任务，避免代码合入提前关闭仍待部署或真实验收的 Issue。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；确认需要代码修复时把反馈补回原 Issue，供同一 Codex 线程继续。dot 不把普通 CI 通过当作环境已部署或体验已验收。
 
-合入后确认需代码修复时，反馈首行用 `/codex fix <完整 source-head-sha>`，后接复现与证据；纯部署进度不发修复指令。验收全部满足后用 `/codex accept <完整 source-head-sha>` 声明确切受测版本，再按已有权限关闭 Issue。两者都以实际 PR 源 HEAD 为准，不把旧构建结果沿用到新候选。
+合入后确认需代码修复时，用普通文字明确说明需要修复，附准确 source/build、环境、复现和证据；TPM 核对后续接原开发会话，纯部署进度不当作新代码任务。验收全部满足后记录确切受测版本、结果与未覆盖范围，再按已有权限关闭 Issue。不要求专用命令语法，也不把旧构建结果沿用到新候选。
 
 已授权的文档及其他可直接处理工作，仍按独立分支/worktree 入口执行，不编辑 main。仅通过 GitHub 连接修改文本时，不假称已运行本地测试。专业协作按复杂度和风险选择；其他外部执行遵守 [AUTONOMY.md](AUTONOMY.md)，不把自身检查标为独立评审。交接只传必要上下文和来源，私有环境、凭据及用户对话不复制到公开 Issue。
 

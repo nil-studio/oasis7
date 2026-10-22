@@ -413,7 +413,6 @@ run_workflow_governance_baseline_contract_tests() {
   run bash ./scripts/worktree-gc-report.test.sh
   run python3 ./scripts/resource-cleanup-executor.test.py
   run python3 ./scripts/pr-review-threads.test.py
-  run python3 -m unittest discover -s scripts/ci-codex-queue -p 'test_*.py'
 }
 
 run_workflow_governance_operational_contract_tests() {

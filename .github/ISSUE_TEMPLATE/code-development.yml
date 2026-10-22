@@ -1,5 +1,5 @@
 name: 代码开发任务
-description: 由 dot 或已授权发布者准备，交给 Codex 端领取的明确开发任务。
+description: 由 dot 或已授权发布者准备，交给 Codex TPM 会话领取并派发的开发任务。
 title: "[Code] "
 body:
   - type: markdown
@@ -11,7 +11,7 @@ body:
     id: task_type
     attributes:
       label: 任务类型
-      description: 正文中的 code-development 是队列识别标记。
+      description: code-development 供 TPM 筛选代码开发任务；领取与派工由实际会话完成。
       options:
         - code-development / Rust
         - code-development / JavaScript / TypeScript
