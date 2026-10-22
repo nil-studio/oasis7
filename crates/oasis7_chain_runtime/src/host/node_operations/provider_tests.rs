@@ -463,6 +463,52 @@ fn durable_agent_recovers_lost_reply_by_query_without_repeating_native_stop() {
 }
 
 #[test]
+fn durable_agent_releases_writer_while_forked_child_retains_descriptor() {
+    use super::super::admission_tests::InheritedDescriptors;
+    struct ForkingRunner {
+        inner: FakeAgentRunner,
+        inherited: Option<InheritedDescriptors>,
+    }
+    impl SystemdRunner for ForkingRunner {
+        fn validate_unit(&mut self, target: &AgentTargetV1) -> Result<(), String> {
+            self.inner.validate_unit(target)
+        }
+        fn active(&mut self, unit: &str) -> Result<bool, String> {
+            self.inner.active(unit)
+        }
+        fn effect(&mut self, request: &AgentRequestV1) -> Result<(), String> {
+            self.inner.effect(request)?;
+            self.inherited = Some(InheritedDescriptors::fork());
+            Ok(())
+        }
+    }
+    let (_fixture, config, handle, current) =
+        super::super::super::node_lifecycle::tests::operation_fixture();
+    let (_, mut request) = local_stop_request(&config, &current);
+    let mut runner = ForkingRunner {
+        inner: FakeAgentRunner {
+            active: true,
+            effect_count: 0,
+        },
+        inherited: None,
+    };
+    request.mode = AgentModeV1::Apply;
+    let first = Agent::with_runner(request.clone(), &mut runner).unwrap().unwrap();
+    let child_retained_descriptors = runner.inherited.as_ref().unwrap().is_waiting();
+    request.mode = AgentModeV1::Query;
+    let recovered = Agent::with_runner(request, &mut runner);
+    drop(runner.inherited.take());
+    handle.join().unwrap().unwrap();
+    assert!(child_retained_descriptors);
+    let recovered = recovered
+        .expect("completed agent writer must release its lock before another child execs")
+        .unwrap();
+    assert_eq!(recovered.outcome, RemoteOutcomeV1::Stopped);
+    assert_eq!(recovered.action_id, first.action_id);
+    assert_eq!(runner.inner.effect_count, 1);
+}
+
+#[test]
 fn durable_agent_rejects_stale_generation_before_effect_or_intent() {
     let (_fixture, config, handle, current) =
         super::super::super::node_lifecycle::tests::operation_fixture();

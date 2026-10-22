@@ -5,10 +5,7 @@ use super::{
     result::OperationResultV1,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::File,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,7 +16,7 @@ struct Data {
 pub(super) struct Store {
     path: PathBuf,
     data: Data,
-    _ownership: File,
+    _ownership: io::WriterLock,
 }
 impl Store {
     pub fn open(root: &Path) -> Result<Self, String> {
@@ -28,8 +25,7 @@ impl Store {
         }
         io::private_dir(root)?;
         let ownership = io::private_file(&root.join("store.lock"))?;
-        ownership
-            .try_lock()
+        let ownership = io::WriterLock::try_lock(ownership)
             .map_err(|_| "operation store busy; another executor owns the domain")?;
         let path = root.join("operations.json");
         let data: Data = if path.exists() {
