@@ -21,7 +21,8 @@ SELECTION = '''                if let Some(file) = file.as_path().map(<_ as AsRe
                     extractor.archiver.archive(file);
                 }
 '''
-FIXTURE = ('''mod archive;
+FIXTURE = ('''fn main() -> anyhow::Result<()> {
+mod archive;
         self.extract(&RustAnalyzer::from(err), file, source_kind);
     extractor.emit_extraction_diagnostics(start, &cfg)
             let semantics = Semantics::new(db);
@@ -173,6 +174,8 @@ class ObservationTests(unittest.TestCase):
         rows,logs=self.logs();initial=['candidate/src/adapter.rs','common/src/driver.rs'];manifests=['candidate/Cargo.toml','common/Cargo.toml']
         result=self.observe.parse_inventory(logs,initial,manifests)
         self.assertEqual(result['status'],'OBSERVED_ZERO_OMISSION_CLASSIFICATION')
+        with_startup=logs+[('stderr','OASIS7_INVENTORY_STARTUP {"process_id":123,"phase":"main_entry"}')]
+        self.assertEqual(self.observe.parse_inventory(with_startup,initial,manifests)['status'],'OBSERVED_ZERO_OMISSION_CLASSIFICATION')
         self.assertFalse(result['safe_exclusion']);self.assertFalse(result['closure_proven'])
         import json
         duplicate=logs+[('stderr','INFO OASIS7_INVENTORY '+json.dumps(rows[0]))]
@@ -216,12 +219,32 @@ class ObservationTests(unittest.TestCase):
         self.assertIn("runtime.digest(source/'rust/extractor/src/toolchain.rs')",text)
         self.assertIn('build_end-time.monotonic()',text)
         self.assertNotIn("'run-queries'",text)
-        self.assertNotIn("'cargo','test'",text)
+        self.assertIn("'inventory::tests::logging_target_contract','--','--exact'",text)
 
 class DatabaseLogTests(unittest.TestCase):
     def helper(self):
         spec=importlib.util.spec_from_file_location('observe_logs',Path(__file__).with_name('codeql_rust_inventory_observe.py'))
         helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper);return helper
+
+    def test_startup_is_typed_not_a_classification_row(self):
+        helper=self.helper()
+        good='OASIS7_INVENTORY_STARTUP {"process_id":1,"phase":"main_entry"}'
+        result=helper.parse_inventory([('stderr',good)],[],[])
+        self.assertEqual(result['unknown_framing'],[])
+        self.assertEqual(result['startup_markers'],[{'process_id':1,'phase':'main_entry'}])
+        self.assertEqual(result['rows'],[])
+        bad=helper.parse_inventory([('stderr',good.replace('main_entry','unknown'))],[],[])
+        self.assertEqual(len(bad['unknown_framing']),1)
+
+    def test_exact_one_logging_test_is_required(self):
+        helper=self.helper()
+        text='running 1 test\ntest inventory::tests::logging_target_contract ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n'
+        helper.verify_logging_test(text)
+        for invalid in (text.replace('running 1 test','running 0 tests'),text.replace('logging_target_contract','different'),text.replace('1 passed; 0 failed','0 passed; 1 failed')):
+            with self.assertRaises(RuntimeError):helper.verify_logging_test(invalid)
+        source=Path(helper.__file__).read_text()
+        self.assertLess(source.index('verify_logging_test((out/'),source.index("database=work/'candidate-inventory-db'"))
+        self.assertIn("'--bin','codeql-rust'",source)
 
     def test_unsafe_zero_exit_and_unknown_receipts_do_not_collect(self):
         helper=self.helper()

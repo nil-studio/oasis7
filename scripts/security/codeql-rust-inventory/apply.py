@@ -12,6 +12,9 @@ def patch_main(data):
         raise RuntimeError('pinned extractor main differs')
     text = data.decode()
     changes = [
+        ('fn main() -> anyhow::Result<()> {\n',
+         'fn main() -> anyhow::Result<()> {\n'
+         '    eprintln!("OASIS7_INVENTORY_STARTUP {{\\\"process_id\\\":{},\\\"phase\\\":\\\"main_entry\\\"}}", std::process::id());\n'),
         ('mod archive;\n', 'mod archive;\nmod inventory;\n'),
         ('        self.extract(&RustAnalyzer::from(err), file, source_kind);',
          '        inventory::without_semantics(file, source_kind == SourceKind::Library, err.reason);\n'

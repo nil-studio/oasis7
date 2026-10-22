@@ -36,17 +36,17 @@ impl Inventory {
     pub fn new(sema: &Semantics<'_, RootDatabase>, manifest: &str) -> Self {
         let start = Instant::now();
         // Pure log before any inventory RA query: absence of a file row is not absence of a hook.
-        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"crate_list_start"}));
+        tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"crate_list_start"}));
         let db = sema.db;
         let mut result = Self { manifest: manifest.chars().take(1024).collect(), owners: HashMap::new(), includes: HashMap::new(),
             map_incomplete: manifest.chars().count()>1024, rows: 0, dropped_rows: 0, initial_observations: 0,
             vfs_observations: 0, selected_library_observations: 0, elapsed: Default::default() };
         // These calls can force lazy RA queries. Their time is observation cost, not extraction benefit.
         let crates = Crate::all(db);
-        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"crate_list_done","elapsed_micros":start.elapsed().as_micros(),"crates":crates.len()}));
+        tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"crate_list_done","elapsed_micros":start.elapsed().as_micros(),"crates":crates.len()}));
         for (index, krate) in crates.into_iter().enumerate() {
             let phase_start = Instant::now();
-            if index < 128 { tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"modules_start","crate_index":index})); }
+            if index < 128 { tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"modules_start","crate_index":index})); }
             for module in krate.modules(db) {
                 let origin = module.definition_source_file_id(db);
                 let context = json!({"crate":format!("{krate:?}"), "module":format!("{module:?}"),
@@ -60,7 +60,7 @@ impl Inventory {
                     result.map_incomplete = true;
                 }
             }
-            if index < 128 { tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"modules_done_include_start","crate_index":index,"elapsed_micros":phase_start.elapsed().as_micros()})); }
+            if index < 128 { tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"modules_done_include_start","crate_index":index,"elapsed_micros":phase_start.elapsed().as_micros()})); }
             for &(call, included) in ra_ap_hir_def::include_macro_invoc(db, krate.base()) {
                 if !bounded_push(&mut result.includes, included.file_id(db),
                     json!({"crate":format!("{krate:?}"),"macro_call":format!("{call:?}")})) {
@@ -68,7 +68,7 @@ impl Inventory {
                 }
             }
         }
-        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"inventory_new_done","elapsed_micros":start.elapsed().as_micros(),"per_crate_log_limit":128}));
+        tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"inventory_new_done","elapsed_micros":start.elapsed().as_micros(),"per_crate_log_limit":128}));
         result.elapsed += start.elapsed();
         result
     }
@@ -100,7 +100,7 @@ impl Inventory {
         let path = physical.to_string_lossy();
         let bounded_path: String = path.chars().take(1024).collect();
         incomplete |= path.chars().count() > 1024 || vfs_path.len() > 1024;
-        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"file","manifest":self.manifest,
+        tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"file","manifest":self.manifest,
             "phase":phase,"path":bounded_path,"file_id":format!("{file_id:?}"),
             "vfs_path":vfs_path.chars().take(1024).collect::<String>(),
             "already_processed":already_processed,"is_library":is_library,
@@ -113,7 +113,7 @@ impl Inventory {
     }
 
     pub fn finish(self) {
-        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"summary","manifest":self.manifest,
+        tracing::info!(target: "codeql_extractor", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"summary","manifest":self.manifest,
             "rows":self.rows,"dropped_rows":self.dropped_rows,"map_incomplete":self.map_incomplete,
             "initial_observations":self.initial_observations,"vfs_observations":self.vfs_observations,
             "selected_library_observations":self.selected_library_observations,
@@ -126,6 +126,33 @@ impl Inventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn logging_target_contract() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+        #[derive(Clone)]
+        struct Buffer(Arc<Mutex<Vec<u8>>>);
+        impl Write for Buffer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes); Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        }
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time().with_ansi(false)
+            .with_env_filter(tracing_subscriber::EnvFilter::new("single_arch_extractor=info,codeql_extractor=info"))
+            .with_writer(move || Buffer(writer.clone())).finish();
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: "codeql_inventory", "UNKNOWN_TARGET_MUST_NOT_APPEAR");
+            tracing::info!(target: "codeql_extractor", "ALLOWED_INVENTORY_TARGET");
+        });
+        let text = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(text.contains("ALLOWED_INVENTORY_TARGET"));
+        assert!(!text.contains("UNKNOWN_TARGET_MUST_NOT_APPEAR"));
+    }
+
     #[test]
     fn context_bound_does_not_become_an_exclusion() {
         let mut map = HashMap::new();

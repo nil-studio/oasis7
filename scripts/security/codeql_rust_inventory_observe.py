@@ -80,10 +80,18 @@ def copy_bundle(original,candidate,manifest,end,guard):
 
 
 def parse_inventory(logs,initial,wanted_manifests):
-    rows=[];unknown=[];ansi=re.compile(r'\x1b\[[0-9;]*m')
+    rows=[];unknown=[];startups=[];ansi=re.compile(r'\x1b\[[0-9;]*m')
     for label,text in logs:
         for number,line in enumerate(text.splitlines(),1):
             clean=ansi.sub('',line)
+            if 'OASIS7_INVENTORY_STARTUP' in clean:
+                match=re.search(r'OASIS7_INVENTORY_STARTUP (\{.*\})$',clean)
+                try:
+                    marker=json.loads(match[1]) if match else None
+                    if not isinstance(marker,dict) or set(marker)!= {'process_id','phase'} or type(marker['process_id']) is not int or marker['process_id']<=0 or marker['phase']!='main_entry':raise ValueError('bad startup')
+                    startups.append(marker)
+                except (ValueError,TypeError):unknown.append({'stream':label,'line':number,'reason':'unknown startup marker'})
+                continue
             if 'OASIS7_INVENTORY_PHASE' in clean:continue
             if 'OASIS7_INVENTORY' not in clean:continue
             match=re.search(r'\bINFO\s+OASIS7_INVENTORY (\{.*\})$',clean)
@@ -142,7 +150,7 @@ def parse_inventory(logs,initial,wanted_manifests):
         any(row.get('dropped_rows',0) or row.get('map_incomplete',False) or row.get('observation_incomplete',False) for row in rows))
     if not rows:incomplete=True
     return {'status':'OBSERVED_INCOMPLETE' if incomplete else 'OBSERVED_ZERO_OMISSION_CLASSIFICATION',
-        'unknown_framing':unknown,'duplicate_context_rows':duplicates,'initial_covered':sorted(covered),
+        'startup_markers':startups,'unknown_framing':unknown,'duplicate_context_rows':duplicates,'initial_covered':sorted(covered),
         'initial_expected':sorted(initial),'manifest_contexts':sorted(manifests),
         'reconciliations':reconciliations,'context_summaries_cover_all_rows':context_coverage,
         'counter_evidence_scope':'observer row/counter self-consistency; not independently measured extraction-call counts',
@@ -151,6 +159,14 @@ def parse_inventory(logs,initial,wanted_manifests):
         'category_counts':{category:sum(r.get('category')==category for r in rows)
             for category in sorted({r['category'] for r in rows if 'category'in r})},
         'rows':rows,'extraction_action':'UNCHANGED','safe_exclusion':False,'closure_proven':False}
+
+
+def verify_logging_test(text):
+    name='inventory::tests::logging_target_contract'
+    if (not re.search(r'^running 1 test$',text,re.M) or
+        not re.search(r'^test '+re.escape(name)+r' \.\.\. ok$',text,re.M) or
+        not re.search(r'^test result: ok[.] 1 passed; 0 failed; 0 ignored; 0 measured; [0-9]+ filtered out;',text,re.M)):
+        raise RuntimeError('logging contract exact one-test execution unverified')
 
 
 def safe_log_collection(result):
@@ -253,6 +269,14 @@ def execute(args,env,end,out,work,source,business,run,overlay,source_snapshot,gu
         runtime.save(out/'instrumented-source-before.json',before_source,out)
         run(['rustup','run','nightly-2026-09-03','cargo','build','--locked','-p','codeql-rust','--bin','codeql-rust','--jobs','2'],
             'instrumented-binary-build',max(0,build_end-time.monotonic()))
+        terminal['test_binary_attempts']=1
+        terminal['test_binary_executions']='UNKNOWN'
+        terminal['test_binary_scope']='inventory::tests::logging_target_contract ONLY'
+        run(['rustup','run','nightly-2026-09-03','cargo','test','--locked','--jobs','2','-p','codeql-rust','--bin','codeql-rust',
+            'inventory::tests::logging_target_contract','--','--exact'],
+            'inventory-logging-contract-test',max(0,build_end-time.monotonic()))
+        verify_logging_test((out/'inventory-logging-contract-test.log').read_text())
+        terminal['test_binary_executions']=1
         instrumented=work/'instrumented-bin/codeql-rust';copy_regular(built,instrumented,end-90,copy_guard)
         (work/'instrumented-bundle').mkdir(exist_ok=False)
         copied=work/'instrumented-bundle/codeql';copy_bundle(official,copied,original_manifest,end-90,copy_guard)
@@ -283,12 +307,12 @@ def execute(args,env,end,out,work,source,business,run,overlay,source_snapshot,gu
         runtime.save(out/'terminal-size-admission.json',runtime.admit_terminal_snapshots(before_source,protected),out)
         runtime.save(out/'context.json',{'business':BUSINESS,'initial_files':{name:protected[name] for name in initial},
             'filters':filters,'libp2p_root':str(libp2p),'project_toolchain':'1.96.0','analysis_toolchain':'1.99.0',
-            'build_toolchain':'nightly-2026-09-03','logging_verbosity':'info','inventory':'1'},out)
+            'build_toolchain':'nightly-2026-09-03','logging_verbosity':'info','rust_log':'single_arch_extractor=info,codeql_extractor=info','inventory':'1'},out)
         common=work/'codeql-common-cache';common.mkdir()
         run([cli,'database','create','--help','-v'],'create-help',20)
         if '--common-caches' not in (out/'create-help.log').read_text():raise RuntimeError('owned common cache option unsupported')
         if end-time.monotonic()<270:raise RuntimeError('NOT_REACHED no extraction180+receipt90 window')
-        extract_env=dict(metadata_env,CARGO_NET_OFFLINE='true',OASIS7_RUST_INVENTORY='1',
+        extract_env=dict(metadata_env,RUST_LOG='single_arch_extractor=info,codeql_extractor=info',CARGO_NET_OFFLINE='true',OASIS7_RUST_INVENTORY='1',
             LGTM_INDEX_FILTERS=filters,CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS='true',
             CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES=json.dumps([str(business/model.BASE/'common')]),
             CODEQL_EXTRACTOR_RUST_OPTION_LOGGING_VERBOSITY='info')
