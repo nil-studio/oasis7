@@ -635,6 +635,43 @@ global.getComputedStyle = () => ({visibility:'visible', display:'block'});
             result = subprocess.run(['node', '-e', script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, str(candidate) + result.stderr)
 
+    def test_release_web_fixture_starts_only_after_complete_stack_build(self):
+        source = (ROOT / 'scripts/viewer-software-safe-step-regression.sh').read_text()
+        match = re.search(r'^prepare_release_web_stack\(\) \{\n.*?^\}', source, re.M | re.S)
+        self.assertIsNotNone(match, 'release Web startup must finish builds before starting fixture')
+        self.assertIn('    prepare_release_web_stack\n', source)
+        script = r"""set -euo pipefail
+out_dir=/unused
+ab_log=/dev/null
+BOOTSTRAP_USES_BUNDLE="${CASE_BUNDLE:-0}"
+unset OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD
+log_note() { :; }
+record() { echo "$1" >> "$TRACE_LOG"; [[ "$FAIL_PHASE" != "$1" ]]; }
+release_web_fixture_build_viewer() { record viewer; }
+release_web_fixture_build() { record fixture; }
+oasis7_cargo_dev() {
+  for binary in oasis7_llm_provider_probe oasis7_game_launcher oasis7_viewer_live; do
+    [[ "$*" == *"--bin $binary"* ]] || return 49
+  done
+  record stack
+}
+release_web_fixture_start() { record start; }
+""" + match.group() + '\nprepare_release_web_stack\nif [[ "$BOOTSTRAP_USES_BUNDLE" == 1 ]]; then [[ -z "${OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD+x}" ]]; else [[ "$OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD" == 1 ]]; fi'
+        with tempfile.TemporaryDirectory() as directory:
+            for phase, calls in (('', ['viewer', 'fixture', 'stack', 'start']),
+                                 ('viewer', ['viewer']), ('fixture', ['viewer', 'fixture']),
+                                 ('stack', ['viewer', 'fixture', 'stack'])):
+                trace = Path(directory) / (phase + 'trace')
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                    env=dict(os.environ, TRACE_LOG=str(trace), FAIL_PHASE=phase))
+                self.assertEqual(result.returncode == 0, phase == '', result.stderr)
+                self.assertEqual(trace.read_text().splitlines(), calls)
+            trace = Path(directory) / 'bundle-trace'
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                env=dict(os.environ, TRACE_LOG=str(trace), FAIL_PHASE='', CASE_BUNDLE='1'))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(trace.read_text().splitlines(), ['viewer', 'fixture', 'start'])
+
     def test_full_tail_keeps_strict_wasmtime_profile_and_fixture_viewer(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()

@@ -468,17 +468,20 @@ if ! OASIS7_CARGO_DEV_REPO_ROOT="$repo_root" oasis7_cargo_dev build -p oasis7_la
   exit 1
 fi
 
+launcher_binary="$(oasis7_cargo_dev_debug_bin_dir "$repo_root")/oasis7_game_launcher"
+if [[ ! -x "$launcher_binary" && -x "$launcher_binary.exe" ]]; then launcher_binary+=".exe"; fi
+[[ -x "$launcher_binary" ]] || { echo "error: actual built launcher executable missing: $launcher_binary" >&2; exit 1; }
 release_web_fixture_start "$out_dir"
 
-echo "+ oasis7_cargo_dev run -p oasis7_launcher_backend --bin oasis7_game_launcher -- ${live_args[*]}"
+echo "+ $launcher_binary ${live_args[*]}"
 {
   echo
-  echo "+ oasis7_cargo_dev run -p oasis7_launcher_backend --bin oasis7_game_launcher -- ${live_args[*]}"
+  echo "+ $launcher_binary ${live_args[*]}"
 } >>"$launcher_log"
 for launcher_env_default in "${launcher_env_defaults[@]}"; do
   export "$launcher_env_default"
 done
-OASIS7_CARGO_DEV_REPO_ROOT="$repo_root" oasis7_cargo_dev run -p oasis7_launcher_backend --bin oasis7_game_launcher -- "${live_args[@]}" >>"$launcher_log" 2>&1 &
+"$launcher_binary" "${live_args[@]}" >>"$launcher_log" 2>&1 &
 launcher_pid=$!
 
 if ! wait_for_port "$web_bind_host" "$web_bind_port" 240; then
