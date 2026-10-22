@@ -7,6 +7,22 @@ source "$repo_root/scripts/cargo-dev-lib.sh"
 source "$repo_root/scripts/release-web-fixture-lib.sh"
 source "$repo_root/scripts/agent-browser-lib.sh"
 
+prepare_release_web_stack() {
+  release_web_fixture_build_viewer "$out_dir/viewer-build.log" || return $?
+  release_web_fixture_build "$out_dir/fixture-build.json" || return $?
+  if [[ "$BOOTSTRAP_USES_BUNDLE" -ne 1 ]]; then
+    log_note build_release_web_stack
+    # Match run-launcher-stack --chain-disable's complete source build before
+    # starting the bounded fixture, rather than compiling inside its deadline.
+    oasis7_cargo_dev build -p oasis7_provider_tools -p oasis7_launcher_backend -p oasis7_viewer_runtime \
+      --bin oasis7_llm_provider_probe --bin oasis7_game_launcher --bin oasis7_viewer_live >>"$ab_log" 2>&1 || return $?
+  fi
+  release_web_fixture_start "$out_dir" || return $?
+  if [[ "$BOOTSTRAP_USES_BUNDLE" -ne 1 ]]; then
+    export OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD=1
+  fi
+}
+
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/viewer-software-safe-step-regression.sh [options] [run-launcher-stack options...]
@@ -420,9 +436,7 @@ trap cleanup EXIT INT TERM
 
 if [[ -z "$GAME_URL" ]]; then
   if [[ "$RELEASE_WEB_FIXTURE" -eq 1 ]]; then
-    release_web_fixture_build_viewer "$out_dir/viewer-build.log"
-    release_web_fixture_build "$out_dir/fixture-build.json"
-    release_web_fixture_start "$out_dir"
+    prepare_release_web_stack
     STACK_ARGS+=(--chain-disable)
     if [[ "$AGENT_ID" == "starter-agent-0" ]]; then AGENT_ID="agent-a"; fi
   fi
@@ -436,7 +450,7 @@ if [[ -z "$GAME_URL" ]]; then
     echo
   } | tee -a "$ab_log" >/dev/null
 
-  if [[ "$BOOTSTRAP_USES_BUNDLE" -ne 1 ]]; then
+  if [[ "$BOOTSTRAP_USES_BUNDLE" -ne 1 && "$RELEASE_WEB_FIXTURE" -ne 1 ]]; then
     log_note build_oasis7_viewer_live
     oasis7_cargo_dev build -p oasis7_viewer_runtime --bin oasis7_viewer_live >>"$ab_log" 2>&1
   fi

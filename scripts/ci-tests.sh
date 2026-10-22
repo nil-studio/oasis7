@@ -707,7 +707,7 @@ run_full_support_tier_tests() {
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
   run_oasis7_viewer_software_safe_build
-  run_oasis7_package_tests wasmtime --lib --bins
+  run_oasis7_test_tier_with_viewer wasmtime --lib --bins
 }
 
 run_shared_native_cache_builds() {
