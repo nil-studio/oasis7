@@ -400,6 +400,7 @@ impl ParticipantClient {
             owner,
             admission,
             read,
+            response_profile: None,
         };
         Ok((request, receipt))
     }
@@ -409,7 +410,9 @@ impl ParticipantClient {
         login: &str,
         operation: ws::entry_control::EntryOwnerOperationV1,
     ) -> Result<Value, String> {
-        let (access, _) = self.access(participant_operation, login)?;
+        let (mut access, _) = self.access(participant_operation, login)?;
+        access.response_profile =
+            Some(ws::participant_discovery::ParticipantOwnerViewProfileV1::OwnerControlV1);
         let request = ws::entry_control::EntryOwnerControlRequestV1 { access, operation };
         let digest = ws::request_digest("entry-owner-transport-original", &request)?;
         let request: ws::entry_control::EntryOwnerControlRequestV1 = self.owner.put_original(
@@ -433,33 +436,29 @@ impl ParticipantClient {
         operation: &str,
         login: &str,
     ) -> Result<ParticipantOwnerObservation, String> {
-        let (request, receipt) = self.access(operation, login)?;
+        let (mut request, receipt) = self.access(operation, login)?;
+        request.response_profile =
+            Some(ws::participant_discovery::ParticipantOwnerViewProfileV1::OwnerControlV1);
         let reply = self.authorized_call(
             login,
             "/participant/owner-view",
             &serde_json::to_value(&request).map_err(|_| "owner view request encoding failed")?,
         )?;
-        let response: SignedServiceResponse<ReadWorldViewResponse<Value>> =
-            serde_json::from_value(reply["world_response"].clone())
-                .map_err(|_| "owner view response malformed")?;
+        let response: SignedServiceResponse<
+            ws::participant_discovery::ParticipantOwnerControlResponseV1,
+        > = serde_json::from_value(reply["world_response"].clone())
+            .map_err(|_| "owner view response malformed")?;
         ws::verify_service_response(
-            VIEW_JSON_PATH,
-            &ws::request_digest(VIEW_JSON_PATH, &request.read)?,
+            ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH,
+            &ws::request_digest(
+                ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH,
+                &request,
+            )?,
             &response,
             &self.config.trusted_world_service_key,
         )?;
-        response
-            .payload
-            .validate(&request.read.request)
-            .map_err(|e| e.to_string())?;
-        if response.payload.execution_evidence_scope.is_some()
-            || response.payload.formal_profile.is_some()
-        {
-            return Err("entry owner view requires ordinary signed service profile; do not downgrade formal proof trust".into());
-        }
-        let fence: oasis7_proto::viewer::CanonicalAgentOwnerFenceV1 =
-            serde_json::from_value(response.payload.view["canonical_agent_owner"].clone())
-                .map_err(|_| "canonical owner unavailable")?;
+        response.payload.validate(&request)?;
+        let fence = response.payload.view.canonical_agent_owner;
         let binding = &response.payload.version.commit.binding;
         if fence.agent_id != receipt.agent_id
             || fence.public_key != receipt.owner_public_key
@@ -471,9 +470,7 @@ impl ParticipantClient {
         {
             return Err("canonical owner observation differs from binding".into());
         }
-        let task: Option<GameTaskControlV1> =
-            serde_json::from_value(response.payload.view["game_task_control"].clone())
-                .map_err(|_| "task control malformed")?;
+        let task = response.payload.view.game_task_control;
         if task.as_ref().is_some_and(|t| {
             t.agent_id != fence.agent_id
                 || t.owner_public_key != fence.public_key

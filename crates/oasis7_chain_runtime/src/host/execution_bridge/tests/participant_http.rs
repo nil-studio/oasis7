@@ -207,6 +207,7 @@ impl Drop for Stop<'_> {
 fn participant_real_http_execution_two_accounts_lost_response_closed_policy_restart() {
     let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
     let original_agent = driver.execution_world.state().agents["agent-a"].clone();
+    owner_view::enlarge_public_fixture(&mut driver.execution_world);
     starter::fund_fixture_reserve(&mut driver.execution_world);
     governance::install(&mut driver.execution_world, &identity, 1, true);
     empty_commit(&mut driver);

@@ -1,5 +1,7 @@
 //! Nonsecret policy discovery; account bindings are never included.
 use super::*;
+#[path = "world_service_participant_owner_control.rs"]
+mod owner_control;
 pub(super) use oasis7_client_api::world_service::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH;
 pub(super) use oasis7_client_api::world_service::participant_discovery::PARTICIPANT_POLICY_PATH;
 pub(super) use oasis7_client_api::world_service::participant_discovery::PARTICIPANT_STARTER_ELIGIBILITY_PATH;
@@ -81,6 +83,9 @@ pub(super) fn owner_view(
         || request.read.request.observation_nonce.is_none()
     {
         return Err("participant owner read scope mismatch".into());
+    }
+    if request.response_profile.is_some() {
+        return owner_control::read(service, &request);
     }
     // This second pin is intentional: the normal read path rechecks current
     // owner authority at delivery rather than trusting the first snapshot.

@@ -91,7 +91,7 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
         let mut authorizations = 0;
         let mut lookup_count = 0;
         let mut owner_views = 0;
-        for _ in 0..27 {
+        for _ in 0..33 {
             let (mut socket, _) = listener.accept().unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(3)))
@@ -143,16 +143,40 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
                 } else {
                     let owner = &original.as_ref().unwrap().request;
                     let commit = json!({"world":world,"binding":{"provider_world_id":"world","branch_id":"main","finality_ref":"test","reorg_generation":0,"governing_manifest_ref":"test","authority_generation":1,"permission_generation":1},"position":1,"execution_block_hash":"test-block","state_root_ref":"test-root"});
-                    let scope = body["read"]["request"]["scope_id"].clone();
-                    let view = json!({"contract_version":1,"version":{"commit":commit,"projection_revision":"owner-v1","visibility_scope":scope},"logical_tick":1,"continuation":{"stream_id":"owners","scope_id":scope,"era":0,"sequence":1,"commit":commit},"view":{"canonical_agent_owner":{"agent_id":"agent","player_id":"binding","public_key":owner.owner_public_key,"world_id":"world","reorg_epoch":0,"canonical_authority":{"branch_id":"main","agent_identity_generation":1},"current_intent_id":null},"game_task_control":null}});
-                    let signed = ws::sign_service_response(
-                        VIEW_JSON_PATH,
-                        ws::request_digest(VIEW_JSON_PATH, &body["read"]).unwrap(),
+                    let request: ws::participant_discovery::ParticipantOwnerViewRequestV1 =
+                        serde_json::from_value(body.clone()).unwrap();
+                    assert_eq!(request.response_profile, Some(ws::participant_discovery::ParticipantOwnerViewProfileV1::OwnerControlV1));
+                    let view: ws::participant_discovery::ParticipantOwnerControlViewV1 = serde_json::from_value(json!({"canonical_agent_owner":{"agent_id":"agent","player_id":"binding","public_key":owner.owner_public_key,"world_id":"world","reorg_epoch":0,"canonical_authority":{"branch_id":"main","agent_identity_generation":1},"current_intent_id":null},"game_task_control":null})).unwrap();
+                    let response = ws::participant_discovery::ParticipantOwnerControlResponseV1 {
+                        schema_revision: 1,
+                        world: world.clone(),
+                        version: ProjectionVersion {
+                            commit: serde_json::from_value(commit).unwrap(),
+                            projection_revision: ws::request_digest("projection", &view).unwrap(),
+                            visibility_scope: request.read.request.scope_id.clone(),
+                        },
+                        logical_tick: 1,
                         view,
+                    };
+                    response.validate(&request).unwrap();
+                    let signed = ws::sign_service_response(
+                        ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH,
+                        ws::request_digest(
+                            ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH,
+                            &request,
+                        )
+                        .unwrap(),
+                        response,
                         &hex::encode([77; 32]),
                     )
                     .unwrap();
-                    json!({"api_version":2,"ok":true,"world_response":signed})
+                    if owner_views == 3 {
+                        // A legacy full view cannot bypass the existing 64KiB
+                        // client bound merely because the caller requested compact.
+                        json!({"api_version":2,"ok":true,"world_response":signed,"legacy_history":"x".repeat(70000)})
+                    } else {
+                        json!({"api_version":2,"ok":true,"world_response":signed})
+                    }
                 }
             } else if path.ends_with("/participant/authorize") {
                 let owner: SignedReadRequest<GameParticipantRegisterV1> =
@@ -230,10 +254,13 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
                 body.len()
             )
             .unwrap();
-            socket.write_all(&body).unwrap();
+            let written = socket.write_all(&body);
+            if body.len() <= 65536 {
+                written.unwrap();
+            }
         }
-        assert_eq!(authorizations, 4);
-        assert_eq!(owner_views, 2);
+        assert_eq!(authorizations, 5);
+        assert_eq!(owner_views, 3);
         assert_eq!(lookup_count, 2);
     });
     assert!(client.register("original-op", "login").is_err());
@@ -269,6 +296,13 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
         })
         .unwrap()
         .is_none()
+    );
+    assert!(
+        restarted
+            .current_owner("original-op", "login")
+            .err()
+            .unwrap()
+            .contains("identity response exceeds bound")
     );
     server.join().unwrap();
 }

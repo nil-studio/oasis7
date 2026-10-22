@@ -1,7 +1,8 @@
 //! A fresh committed participant has owner read authority before any provider session.
 use super::*;
 use oasis7_client_api::world_service::participant_discovery::{
-    PARTICIPANT_OWNER_VIEW_PATH, ParticipantOwnerViewRequestV1,
+    PARTICIPANT_OWNER_VIEW_PATH, ParticipantOwnerControlResponseV1, ParticipantOwnerViewProfileV1,
+    ParticipantOwnerViewRequestV1,
 };
 use oasis7_client_api::world_service::{
     ReadWorldViewRequest, ReadWorldViewResponse, SignedServiceResponse, VIEW_JSON_PATH,
@@ -39,6 +40,7 @@ pub(super) fn exercise(
         owner,
         admission,
         read,
+        response_profile: None,
     };
     let response = reqwest::blocking::Client::builder()
         .no_proxy()
@@ -61,7 +63,13 @@ pub(super) fn exercise(
         200,
         "a canonical participant owner read must not require provider provisioning: {projection_error:?}"
     );
-    let signed: SignedServiceResponse<ReadWorldViewResponse<Value>> = response.json().unwrap();
+    let legacy_bytes = response.bytes().unwrap();
+    assert!(
+        legacy_bytes.len() > 606_260,
+        "fixture must reproduce oversized legacy owner observation"
+    );
+    let signed: SignedServiceResponse<ReadWorldViewResponse<Value>> =
+        serde_json::from_slice(&legacy_bytes).unwrap();
     oasis7_client_api::world_service::verify_service_response(
         VIEW_JSON_PATH,
         &oasis7_client_api::world_service::request_digest(VIEW_JSON_PATH, &request.read).unwrap(),
@@ -76,6 +84,54 @@ pub(super) fn exercise(
     );
     assert!(signed.payload.view["agent_context"].is_null());
     assert!(signed.payload.view["game_task_control"].is_null());
+    let mut compact_request = request.clone();
+    compact_request.response_profile = Some(ParticipantOwnerViewProfileV1::OwnerControlV1);
+    let compact_bytes = reqwest::blocking::Client::new()
+        .post(format!("{endpoint}{PARTICIPANT_OWNER_VIEW_PATH}"))
+        .json(&compact_request)
+        .send()
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .bytes()
+        .unwrap();
+    assert!(compact_bytes.len() < 65_536);
+    let compact: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
+        serde_json::from_slice(&compact_bytes).unwrap();
+    let digest = oasis7_client_api::world_service::request_digest(
+        PARTICIPANT_OWNER_VIEW_PATH,
+        &compact_request,
+    )
+    .unwrap();
+    oasis7_client_api::world_service::verify_service_response(
+        PARTICIPANT_OWNER_VIEW_PATH,
+        &digest,
+        &compact,
+        &signer.public_key_hex,
+    )
+    .unwrap();
+    compact.payload.validate(&compact_request).unwrap();
+    assert_eq!(
+        compact.payload.view.canonical_agent_owner.agent_id,
+        receipt.agent_id
+    );
+    assert!(compact.payload.view.game_task_control.is_none());
+    let mut wrong = compact_request.clone();
+    wrong.read.request.observation_nonce = Some("aa".repeat(32));
+    let wrong_digest =
+        oasis7_client_api::world_service::request_digest(PARTICIPANT_OWNER_VIEW_PATH, &wrong)
+            .unwrap();
+    assert!(
+        oasis7_client_api::world_service::verify_service_response(
+            PARTICIPANT_OWNER_VIEW_PATH,
+            &wrong_digest,
+            &compact,
+            &signer.public_key_hex
+        )
+        .is_err()
+    );
+    wrong.read.request.world.world_id = "other-world".into();
+    assert!(compact.payload.validate(&wrong).is_err());
     let pinned = pin(root, identity);
     assert!(pinned.world.capability_invocation_contexts().is_empty());
     assert!(
@@ -85,4 +141,19 @@ pub(super) fn exercise(
             .is_err(),
         "provider execution remains strict"
     );
+}
+
+/// Real public catalog state, committed through the normal fixture driver.
+pub(super) fn enlarge_public_fixture(world: &mut RuntimeWorld) {
+    for index in 0..4000 {
+        world
+            .upsert_material_profile(
+                serde_json::from_value(serde_json::json!({
+                    "kind":format!("unrelated-material-{index:04}"),"tier":1,
+                    "category":"public-fixture-catalog", "stack_limit":1000,
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+    }
 }

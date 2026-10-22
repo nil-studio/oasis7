@@ -52,27 +52,16 @@ impl IdentityService {
                 consume_quota(tx, "entry-owner", &account.account_id, now, 60_000, 120)?;
                 audit(tx, &account, "entry_owner_request", now)
             })?;
-            let reply = entry.forward_bound(
-                PARTICIPANT_OWNER_VIEW_PATH,
-                VIEW_JSON_PATH,
+            let reply = entry.forward_owner_view(&request.access)?;
+            let (owner, task, commit) = owner_observation(
                 &request.access,
-                &request.access.read,
+                &reply,
+                matches!(&request.operation, EntryOwnerOperationV1::LookupExecutor(_)),
             )?;
-            let response: SignedServiceResponse<ReadWorldViewResponse<Value>> =
-                serde_json::from_value(reply["world_response"].clone())
-                    .map_err(|_| reject("owner_control_unavailable"))?;
-            response
-                .payload
-                .validate(&request.access.read.request)
-                .map_err(|_| reject("owner_control_unavailable"))?;
-            let owner: oasis7_proto::viewer::CanonicalAgentOwnerFenceV1 =
-                serde_json::from_value(response.payload.view["canonical_agent_owner"].clone())
-                    .map_err(|_| reject("owner_control_unavailable"))?;
             if owner.public_key != request.access.owner.subject_public_key
                 || owner.world_id != entry.trust.world.world_id
-                || owner.canonical_authority.branch_id
-                    != response.payload.version.commit.binding.branch_id
-                || owner.reorg_epoch != response.payload.version.commit.binding.reorg_generation
+                || owner.canonical_authority.branch_id != commit.binding.branch_id
+                || owner.reorg_epoch != commit.binding.reorg_generation
             {
                 return Err(reject("owner_control_context_mismatch"));
             }
@@ -124,10 +113,10 @@ impl IdentityService {
                     q.request
                         .validate()
                         .map_err(|_| reject("invalid_request"))?;
-                    let control: GameTaskControlV1 =
-                        serde_json::from_value(response.payload.view["game_task_control"].clone())
-                            .map_err(|_| reject("owner_control_context_mismatch"))?;
-                    let fence = GameTaskFenceV1::from_control(&control);
+                    let control = task
+                        .as_ref()
+                        .ok_or_else(|| reject("owner_control_context_mismatch"))?;
+                    let fence = GameTaskFenceV1::from_control(control);
                     if fence.agent_id != owner.agent_id
                         || fence.world_id != entry.trust.world.world_id
                         || fence.genesis_digest != entry.trust.world.genesis_digest
@@ -198,6 +187,58 @@ impl IdentityService {
             self.session(sid, super::now_ms())?;
             Ok(value)
         }))
+    }
+}
+fn owner_observation(
+    request: &ParticipantOwnerViewRequestV1,
+    reply: &Value,
+    needs_task: bool,
+) -> Result<
+    (
+        oasis7_proto::viewer::CanonicalAgentOwnerFenceV1,
+        Option<GameTaskControlV1>,
+        CommitRef,
+    ),
+    StoreError,
+> {
+    match request.response_profile {
+        Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
+            let response: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
+                serde_json::from_value(reply["world_response"].clone())
+                    .map_err(|_| reject("owner_control_unavailable"))?;
+            response
+                .payload
+                .validate(request)
+                .map_err(|_| reject("owner_control_unavailable"))?;
+            Ok((
+                response.payload.view.canonical_agent_owner,
+                response.payload.view.game_task_control,
+                response.payload.version.commit,
+            ))
+        }
+        None => {
+            let response: SignedServiceResponse<ReadWorldViewResponse<Value>> =
+                serde_json::from_value(reply["world_response"].clone())
+                    .map_err(|_| reject("owner_control_unavailable"))?;
+            response
+                .payload
+                .validate(&request.read.request)
+                .map_err(|_| reject("owner_control_unavailable"))?;
+            let owner =
+                serde_json::from_value(response.payload.view["canonical_agent_owner"].clone())
+                    .map_err(|_| reject("owner_control_unavailable"))?;
+            // Legacy operations other than executor lookup never consumed task
+            // projection fields. Preserve that contract for absent profile.
+            let task = if needs_task {
+                Some(
+                    serde_json::from_value(response.payload.view["game_task_control"].clone())
+                        .map_err(|_| reject("owner_control_context_mismatch"))?,
+                )
+            } else {
+                None
+            };
+            Ok((owner, task, response.payload.version.commit))
+        }
     }
 }
 fn validate_payload(
