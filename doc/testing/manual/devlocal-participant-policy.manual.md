@@ -2,7 +2,7 @@
 
 适用：已有、可验证原始身份的隔离 DevLocal 世界，需要支持从新身份账号开始的 participant / owner / executor 接入。正式网络仍走治理授权；本流程不生成治理提案、finality 证明或 Runtime 验收。官方客户端和外部 Agent 使用同一接入协议。
 
-工具随相同源码版本的 `oasis7_chain_runtime` 和 `oasis7_game_launcher` 提供。发行包存在这些命令不表示某台 ECS 已配置或验收；[ECS 部署手册](single-ecs-preview-deploy.manual.md)负责切换、代理与上线验收。冷入场实际二进制集成见 [smoke 操作说明](../../../scripts/cold-entry-live-smoke.md)，该 fixture 只能用于新隔离目录，不能对已有世界运行初始化器。
+工具随相同源码版本的 `oasis7_chain_runtime` 和 `oasis7_game_launcher` 提供。发行包存在这些命令不表示某台 ECS 已配置或验收；[ECS 部署手册](single-ecs-preview-deploy.manual.md)负责切换、代理与上线验收。冷入场实际二进制集成见 [smoke 操作说明](../../../scripts/package-ecs-cold-entry-smoke.md)，该 fixture 只能用于新隔离目录，不能对已有世界运行初始化器。
 
 ## 1. 固定信任配置并冻结两侧写入
 

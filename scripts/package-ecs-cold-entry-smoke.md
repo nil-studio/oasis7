@@ -1,6 +1,6 @@
 # Actual-service cold entry integration smoke
 
-`cold-entry-live-smoke.py` is a Linux-only, bounded integration driver. It runs
+`package-ecs-cold-entry-smoke.py` is a Linux-only, bounded integration driver. It runs
 actual fixture setup, Chain Runtime, Launcher IdentityService and Game Client
 binaries. It does not implement a world handler, issue signed replies, precreate
 participants or start a model Runtime. Passing this test is not OpenClaw/Codex
@@ -11,7 +11,7 @@ revision as the ECS bundle and run on Linux:
 
 ```sh
 env -u RUSTC_WRAPPER cargo build -p oasis7_game_client --example cold_entry_probe
-python3 scripts/cold-entry-live-smoke.py \
+python3 scripts/package-ecs-cold-entry-smoke.py \
   --bundle /absolute/verified/ecs-release \
   --probe-binary /absolute/target/debug/examples/cold_entry_probe \
   --evidence-directory /absolute/private/new-evidence \
@@ -36,7 +36,7 @@ population audit.
 Alternatively, run using a private fixture file assembled for the exact built revision:
 
 ```sh
-python3 scripts/cold-entry-live-smoke.py \
+python3 scripts/package-ecs-cold-entry-smoke.py \
   --fixture /absolute/private/fixture.json \
   --evidence-directory /absolute/private/new-evidence \
   --timeout-seconds 300

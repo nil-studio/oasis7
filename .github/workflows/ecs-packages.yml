@@ -316,7 +316,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openssl libx11-6 libxi6 libxcursor1 libxrandr2 libxinerama1 libasound2t64 libudev1
           chmod 700 output/cold-entry-probe/cold_entry_probe
-          python3 scripts/cold-entry-live-smoke.py \
+          python3 scripts/package-ecs-cold-entry-smoke.py \
             --bundle "$GITHUB_WORKSPACE/output/ecs" \
             --probe-binary "$GITHUB_WORKSPACE/output/cold-entry-probe/cold_entry_probe" \
             --evidence-directory "$RUNNER_TEMP/ecs-cold-entry-live" --timeout-seconds 600

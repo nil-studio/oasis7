@@ -1,4 +1,4 @@
-"""Concrete isolated actual-binary DevLocal fixture for cold-entry-live-smoke."""
+"""Concrete isolated actual-binary DevLocal fixture for package-ecs-cold-entry-smoke."""
 import http.client
 import json
 import os

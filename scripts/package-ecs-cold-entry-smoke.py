@@ -2,9 +2,10 @@
 """Linux-only actual-service cold entry smoke; never a model Runtime playtest.
 
 The private fixture describes actual binary argv, not synthetic HTTP responses.
-See cold-entry-live-smoke.md. No command is executed through a shell.
+See package-ecs-cold-entry-smoke.md. No command is executed through a shell.
 """
 import argparse
+import importlib.util
 import http.client
 import http.server
 import json
@@ -191,8 +192,10 @@ def main():
     if args.fixture and (not args.fixture.is_absolute() or args.fixture.stat().st_mode & 0o077):
         parser.error("fixture must be an absolute private 0600 file")
     if args.bundle:
-        from cold_entry_live_fixture import port
-        fixture = {"identity_upstream": ["127.0.0.1", port()]}
+        spec = importlib.util.spec_from_file_location("ecs_cold_entry_fixture", Path(__file__).with_name("package-ecs-cold-entry-fixture.py"))
+        fixture_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture_module)
+        fixture = {"identity_upstream": ["127.0.0.1", fixture_module.port()]}
     else:
         fixture = json.loads(args.fixture.read_text())
     upstream = fixture.get("identity_upstream")
@@ -222,8 +225,7 @@ def main():
         server = forwarder(smoke, tuple(fixture["identity_upstream"]))
         smoke.variables["origin"] = "https://localhost:" + str(server.server_port)
         if args.bundle:
-            from cold_entry_live_fixture import fixture as build_fixture
-            fixture.update(build_fixture(smoke, args.bundle, str(args.probe_binary.resolve())))
+            fixture.update(fixture_module.fixture(smoke, args.bundle, str(args.probe_binary.resolve())))
             smoke.fixture = fixture
         smoke.env.update(smoke.expand(fixture.get("environment", {})))
         smoke.env["SSL_CERT_FILE"] = str(smoke.root / "server.crt")

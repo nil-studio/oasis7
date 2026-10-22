@@ -21,6 +21,18 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_cold_entry_packaging_tools_parse_and_expose_bounded_help(self):
+        for name in ("package-ecs-cold-entry-smoke.py", "package-ecs-cold-entry-fixture.py"):
+            path = ROOT / "scripts" / name
+            compile(path.read_bytes(), str(path), "exec")
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/package-ecs-cold-entry-smoke.py"), "--help"],
+            text=True, capture_output=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for option in ("--bundle", "--probe-binary", "--evidence-directory", "--timeout-seconds"):
+            self.assertIn(option, result.stdout)
+
     def test_actual_cold_entry_gates_bundle_and_probe_stays_out_of_delivery(self):
         workflow = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
         native = workflow.split("  native:\n", 1)[1].split("  native-trusted:\n", 1)[0]
@@ -39,7 +51,7 @@ class PackageTests(unittest.TestCase):
         self.assertLess(downloaded, verified)
         self.assertLess(verified, published)
         smoke = package[verified:].split("      - name: Upload public cold entry verification receipt", 1)[0]
-        self.assertIn('scripts/cold-entry-live-smoke.py', smoke)
+        self.assertIn('scripts/package-ecs-cold-entry-smoke.py', smoke)
         self.assertIn('--bundle "$GITHUB_WORKSPACE/output/ecs"', smoke)
         self.assertIn('--probe-binary "$GITHUB_WORKSPACE/output/cold-entry-probe/cold_entry_probe"', smoke)
         self.assertNotIn("continue-on-error", smoke)
