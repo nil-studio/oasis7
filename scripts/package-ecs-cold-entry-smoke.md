@@ -25,10 +25,15 @@ DevLocal `prepare`/`finalize --prepared` commands. It then starts the actual
 services with that authorization. The authorized second startup removes the
 bootstrap replication listener: DevLocal authority requires the isolated
 single-node path and rejects even an explicit loopback replication listener.
-Initial zero resource counts come directly
-from the real offline prepare output; fresh discovery must match that world's
-identity before any client vault is initialized. The probe verifies the new
-participant resource through SDK reads and commits one move to `(1,0,0)` with
+The real initializer seeds one unrelated Agent. Its offline prepare output must
+contain exactly integer counts `agents: 1`, `tasks: 0`, `goals: 0`, `grants: 0`.
+Fresh discovery must match the world, service and identity pins and explicitly
+enable all four entry phases. The new cold-entry subject's orchestration,
+identity, owner and executor directories must still be absent before any client
+vault is initialized. Failed readiness attempts cannot retain a success state.
+Discovery readiness is bounded by 60 attempts at one-second intervals and the existing overall
+deadline; first policy installation may need a real world slot to commit.
+The probe verifies the new participant resource through SDK reads and commits one move to `(1,0,0)` with
 one durable original operation; reruns query the same action. Counts in the
 canonical probe are scoped to the newly registered participant, not a global
 population audit.

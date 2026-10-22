@@ -311,6 +311,64 @@ def forwarder(smoke, address):
     return server
 
 
+def read_initial_discovery(smoke, fixture):
+    import urllib.request
+    request = urllib.request.Request(smoke.variables["origin"] + "/api/public/hosted-account/v2/entry/discovery")
+    with urllib.request.urlopen(request, context=ssl.create_default_context(cafile=str(smoke.root / "root.crt")),
+                                timeout=min(3, smoke.remaining())) as response:
+        payload = response.read(65537)
+    if len(payload) > 65536:
+        raise RuntimeError("bounded discovery exceeded")
+    return json.loads(payload)
+
+
+def wait_initial_resources(smoke, fixture, read_discovery):
+    servers = smoke.children[-len(fixture["server_commands"]):] if fixture["server_commands"] else []
+
+    def require_live_servers():
+        if any(child.poll() is not None for child in servers):
+            raise RuntimeError("actual server exited before baseline verification")
+
+    for _ in range(60):
+        smoke.remaining()
+        require_live_servers()
+        try:
+            if "initial_prepared" in fixture:
+                discovery = read_discovery(smoke, fixture)
+                entry = fixture["plan_template"]["entry"]
+                identity = entry["identity"]
+                if (not isinstance(discovery, dict) or discovery.get("world") != entry["world"]
+                        or discovery.get("world_service_public_key") != entry["trusted_world_service_key"]
+                        or discovery.get("identity") != {"service_id": identity["identity_service_id"],
+                            "environment_id": identity["environment_id"], "instance_epoch": entry["identity_instance_epoch"]}
+                        or not isinstance(discovery.get("phase_capabilities"), dict)
+                        or not all(discovery["phase_capabilities"].get(phase) is True for phase in
+                            ("machine_registration", "participant_registration", "owner_control", "executor_control"))):
+                    raise RuntimeError("actual entry service not ready")
+                prepared = json.loads(Path(fixture["initial_prepared"]).read_text())
+                initial = prepared.get("resource_counts")
+                expected = {"agents": 1, "tasks": 0, "goals": 0, "grants": 0}
+                if (type(initial) is not dict or set(initial) != set(expected)
+                        or any(type(initial[key]) is not int or initial[key] != value for key, value in expected.items())):
+                    raise RuntimeError("actual prepared world must match seeded fixture baseline")
+            else:
+                # External fixture contract remains an actual zero-resource probe.
+                initial = smoke.probe("initial_probe", {"agents": 0, "tasks": 0, "goals": 0, "grants": 0})
+        except (RuntimeError, OSError, ValueError):
+            time.sleep(min(1, smoke.remaining()))
+            continue
+        require_live_servers()
+        return initial
+    raise RuntimeError("fresh actual services did not become ready")
+
+
+def require_fresh_subject_paths(plan):
+    paths = [plan[key] for key in ("orchestration_directory", "executor_vault_directory", "executor_state_directory", "executor_config_directory")]
+    paths += [plan["entry"]["identity"]["state_directory"], plan["entry"]["owner_state_directory"]]
+    if any(Path(path).exists() or Path(path).is_symlink() for path in paths):
+        raise RuntimeError("cold entry subject directories must not exist before initialization")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path)
@@ -375,33 +433,10 @@ def main():
         for argv in fixture["server_commands"]:
             smoke.command(argv, start=True)
         smoke.stage = "zero_resource_discovery"
-        initial = None
-        for _ in range(30):
-            try:
-                if "initial_prepared" in fixture:
-                    import urllib.request
-                    request = urllib.request.Request(smoke.variables["origin"] + "/api/public/hosted-account/v2/entry/discovery")
-                    with urllib.request.urlopen(request, context=ssl.create_default_context(cafile=str(smoke.root / "root.crt")), timeout=3) as response:
-                        payload = response.read(65537)
-                        if len(payload) > 65536:
-                            raise RuntimeError("bounded discovery exceeded")
-                        discovery = json.loads(payload)
-                    if discovery.get("world") != fixture["plan_template"]["entry"]["world"] or not all(discovery.get("phase_capabilities", {}).get(phase) for phase in ("machine_registration", "participant_registration", "owner_control", "executor_control")):
-                        raise RuntimeError("actual entry service not ready")
-                    prepared = json.loads(Path(fixture["initial_prepared"]).read_text())
-                    initial = prepared.get("resource_counts")
-                    if initial != {"agents": 0, "tasks": 0, "goals": 0, "grants": 0}:
-                        raise RuntimeError("actual prepared world must contain zero entry resources")
-                else:
-                    initial = smoke.probe("initial_probe", {"agents": 0, "tasks": 0, "goals": 0, "grants": 0})
-                break
-            except (RuntimeError, OSError, ValueError):
-                time.sleep(min(0.5, smoke.remaining()))
-        if any(child.poll() is not None for child in smoke.children[-len(fixture["server_commands"]):]):
-            raise RuntimeError("actual server exited before baseline verification")
-        if initial is None:
-            raise RuntimeError("fresh actual services did not become ready")
+        initial = wait_initial_resources(smoke, fixture, read_initial_discovery)
         plan = smoke.expand(fixture["plan_template"])
+        if "initial_prepared" in fixture:
+            require_fresh_subject_paths(plan)
         path = smoke.root / "plan.json"
         path.write_text(json.dumps(plan))
         os.chmod(path, 0o600)

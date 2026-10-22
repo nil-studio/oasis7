@@ -245,6 +245,107 @@ class PackageTests(unittest.TestCase):
                         self.assertTrue(all(call.args == (argv,) and call.kwargs == {"private": True}
                                             for call in command.call_args_list))
 
+    def initial_resources_fixture(self, directory, counts):
+        spec = importlib.util.spec_from_file_location("ecs_initial_resources", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        root = Path(directory)
+        prepared = root / "prepared.json"; prepared.write_text(json.dumps({"resource_counts": counts}))
+        entry = {"world": {"world_id": "world", "genesis_digest": "genesis"}, "trusted_world_service_key": "service",
+                 "identity": {"identity_service_id": "identity", "environment_id": "test"}, "identity_instance_epoch": "1"}
+        fixture = {"initial_prepared": str(prepared), "server_commands": [["actual-server"]], "plan_template": {"entry": entry}}
+        discovery = {"world": entry["world"], "world_service_public_key": "service",
+                     "identity": {"service_id": "identity", "environment_id": "test", "instance_epoch": "1"},
+                     "phase_capabilities": dict.fromkeys(("machine_registration", "participant_registration", "owner_control", "executor_control"), True)}
+        smoke = module.Smoke({}, root, 1000); smoke.remaining = Mock(return_value=100)
+        smoke.children = [Mock()]; smoke.children[0].poll.return_value = None
+        return module, smoke, fixture, discovery
+
+    def test_initial_seeded_baseline_succeeds_only_after_ready_discovery(self):
+        with tempfile.TemporaryDirectory() as d:
+            counts = {"agents": 1, "tasks": 0, "goals": 0, "grants": 0}
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, counts)
+            unavailable = {**ready, "phase_capabilities": {}}
+            reader = Mock(side_effect=[unavailable, ready])
+            with patch.object(m.time, "sleep"):
+                self.assertEqual(m.wait_initial_resources(smoke, fixture, reader), counts)
+            self.assertEqual(reader.call_count, 2)
+
+    def test_initial_bad_baseline_cannot_survive_later_discovery_failures(self):
+        with tempfile.TemporaryDirectory() as d:
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, {"agents": 2, "tasks": 0, "goals": 0, "grants": 0})
+            reader = Mock(side_effect=[ready] + [{**ready, "phase_capabilities": {}}] * 59)
+            with patch.object(m.time, "sleep"), self.assertRaises(RuntimeError):
+                m.wait_initial_resources(smoke, fixture, reader)
+
+    def test_initial_seeded_baseline_rejects_wrong_counts_and_boolean_types(self):
+        good = {"agents": 1, "tasks": 0, "goals": 0, "grants": 0}
+        bad = [{}, {**good, "agents": 0}, {**good, "extra": 0}]
+        for key in good:
+            bad += [{**good, key: value} for value in (True, False, 0.0, "0", 2)]
+        with tempfile.TemporaryDirectory() as d:
+            for counts in bad:
+                m, smoke, fixture, ready = self.initial_resources_fixture(d, counts)
+                with self.subTest(counts=counts), patch.object(m.time, "sleep"), self.assertRaises(RuntimeError):
+                    m.wait_initial_resources(smoke, fixture, Mock(return_value=ready))
+
+    def test_initial_discovery_requires_exact_phase_booleans_and_all_trust_pins(self):
+        with tempfile.TemporaryDirectory() as d:
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, {"agents": 1, "tasks": 0, "goals": 0, "grants": 0})
+            bad = [{**ready, "world": {}}, {**ready, "world_service_public_key": "wrong"}, {**ready, "identity": {}}]
+            for phase in ready["phase_capabilities"]:
+                bad += [{**ready, "phase_capabilities": {**ready["phase_capabilities"], phase: value}} for value in (False, 1, "true", None)]
+            for discovery in bad:
+                with self.subTest(discovery=discovery), patch.object(m.time, "sleep"), self.assertRaises(RuntimeError):
+                    m.wait_initial_resources(smoke, fixture, Mock(return_value=discovery))
+
+    def test_initial_server_exit_blocks_even_with_valid_seeded_baseline(self):
+        with tempfile.TemporaryDirectory() as d:
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, {"agents": 1, "tasks": 0, "goals": 0, "grants": 0})
+            smoke.children[0].poll.return_value = 1
+            with patch.object(m.time, "sleep"), self.assertRaisesRegex(RuntimeError, "server exited"):
+                m.wait_initial_resources(smoke, fixture, Mock(return_value=ready))
+
+    def test_initial_fallback_probe_keeps_zero_resource_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, {})
+            del fixture["initial_prepared"]
+            zero = {"agents": 0, "tasks": 0, "goals": 0, "grants": 0}
+            smoke.probe = Mock(return_value=zero)
+            self.assertEqual(m.wait_initial_resources(smoke, fixture, Mock()), zero)
+            smoke.probe.assert_called_once_with("initial_probe", zero)
+
+    def test_initial_discovery_waits_for_first_policy_slot_within_bound(self):
+        with tempfile.TemporaryDirectory() as d:
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, {"agents": 1, "tasks": 0, "goals": 0, "grants": 0})
+            for ready_at in (15, 999):
+                now = [0.0]; calls = [0]
+                def reader(*args):
+                    calls[0] += 1
+                    return ready if now[0] >= ready_at else {**ready, "phase_capabilities": {}}
+                with patch.object(m.time, "sleep", side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)):
+                    if ready_at == 15:
+                        self.assertEqual(m.wait_initial_resources(smoke, fixture, reader)["agents"], 1)
+                        self.assertEqual(now[0], 15)
+                    else:
+                        with self.assertRaises(RuntimeError):m.wait_initial_resources(smoke, fixture, reader)
+                        self.assertEqual(calls[0], 60); self.assertEqual(now[0], 60)
+
+    def test_initial_subject_paths_must_all_remain_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            m, smoke, fixture, ready = self.initial_resources_fixture(d, {})
+            root = Path(d)
+            keys = ("orchestration_directory", "executor_vault_directory", "executor_state_directory", "executor_config_directory")
+            plan = {key: str(root / key) for key in keys}
+            plan["entry"] = {"identity": {"state_directory": str(root / "identity")}, "owner_state_directory": str(root / "owner")}
+            m.require_fresh_subject_paths(plan)
+            paths = [Path(plan[key]) for key in keys] + [root / "identity", root / "owner"]
+            for path in paths:
+                path.mkdir()
+                with self.assertRaises(RuntimeError):m.require_fresh_subject_paths(plan)
+                path.rmdir()
+            paths[0].symlink_to(root / "absent-target")
+            with self.assertRaises(RuntimeError):m.require_fresh_subject_paths(plan)
+
     def test_smoke_cleanup_does_not_signal_reaped_process_group_numbers(self):
         import time
         module_spec = importlib.util.spec_from_file_location(
