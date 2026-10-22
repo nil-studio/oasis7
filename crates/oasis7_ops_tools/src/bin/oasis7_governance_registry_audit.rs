@@ -497,7 +497,7 @@ fn print_help() {
 mod tests {
     use super::{CliOptions, build_audit_report, parse_options, validate_audit_report};
     use oasis7_runtime::{
-        Action, GovernanceExecutionPolicy, GovernanceFinalitySignerRegistry,
+        GovernanceExecutionPolicy, GovernanceFinalitySignerRegistry,
         GovernanceMainTokenControllerRegistry, GovernanceThresholdSignerPolicy,
         RollbackAuthorityRecord, RollbackAuthorityRegistry, RollbackAuthorityRole,
     };
@@ -999,28 +999,40 @@ mod tests {
                 ]),
             })
             .expect("set controller registry");
-        world.submit_action(Action::SubmitGovernanceValidatorAdmission {
-            controller_account_id: "msig.genesis.v1".to_string(),
-            candidate_id: "candidate-c".to_string(),
-            node_id: "validator-c".to_string(),
-            finality_signer_public_key:
-                "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
-            stake: 25,
-            operator_owner: "ops.team".to_string(),
-            public_manifest_hash: "manifest-c".to_string(),
-        });
-        world.step().expect("submit validator admission");
-        world.submit_action(Action::ApproveGovernanceValidatorAdmission {
-            controller_account_id: "msig.genesis.v1".to_string(),
-            candidate_id: "candidate-c".to_string(),
-        });
-        world.step().expect("approve validator admission");
-        world.submit_action(Action::ActivateGovernanceValidatorAdmission {
-            controller_account_id: "msig.genesis.v1".to_string(),
-            candidate_id: "candidate-c".to_string(),
-            activation_epoch: 0,
-        });
-        world.step().expect("activate validator admission");
+        // This audit/projection fixture starts with established historical membership.
+        // It does not submit a new admission or bypass the command authorization path.
+        let mut snapshot = world.snapshot();
+        snapshot.state.governance_validator_admissions.insert(
+            "candidate-c".to_string(),
+            oasis7_runtime::GovernanceValidatorAdmissionRecord {
+                candidate_id: "candidate-c".to_string(),
+                node_id: "validator-c".to_string(),
+                finality_signer_public_key:
+                    "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+                stake: 25,
+                operator_owner: "ops.team".to_string(),
+                public_manifest_hash: "manifest-c".to_string(),
+                requested_at_epoch: 0,
+                last_transition_tick: 0,
+                approved_at_epoch: Some(0),
+                activation_epoch: Some(0),
+                status: oasis7_runtime::GovernanceValidatorAdmissionStatus::Active,
+                revoked_at_epoch: None,
+                revocation_reason: None,
+            },
+        );
+        snapshot.state.node_identity_bindings.insert(
+            "validator-c".to_string(),
+            "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        );
+        snapshot.state.node_main_token_account_bindings.insert(
+            "validator-c".to_string(),
+            oasis7_runtime::main_token_account_id_from_node_public_key(
+                "3333333333333333333333333333333333333333333333333333333333333333",
+            ),
+        );
+        let world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
+            .expect("restore established membership fixture");
         world.save_to_dir(&world_dir).expect("save world");
         std::fs::write(
             &manifest_path,
