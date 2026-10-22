@@ -199,14 +199,14 @@ pub(super) fn execute(
                 Some("claimed") => {
                     // If a previous attempt signed a claim, reconcile that exact
                     // original even when the canonical eligibility now says claimed.
-                    if client.owner_operation_status(&ops[2], &ops[3])?.state != "not_started" {
-                        if let Some(stop) = owner_result(
+                    if client.owner_operation_status(&ops[2], &ops[3])?.state != "not_started"
+                        && let Some(stop) = owner_result(
                             client.claim_starter(&ops[2], &ops[1], &ops[3]),
                             STAGES[3],
                             &ops[3],
-                        ) {
-                            return Ok(stop);
-                        }
+                        )
+                    {
+                        return Ok(stop);
                     }
                 }
                 Some("eligible") => {

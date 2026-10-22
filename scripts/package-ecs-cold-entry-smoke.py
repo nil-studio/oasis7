@@ -29,6 +29,7 @@ class Smoke:
         self.variables = {"root": str(root)}
         self.faults = []
         self.lock = threading.Lock()
+        self.stage = "initialization"
 
     def remaining(self):
         value = self.deadline - time.monotonic()
@@ -214,6 +215,7 @@ def main():
     smoke = Smoke(fixture, args.evidence_directory.resolve(), time.monotonic() + args.timeout_seconds)
     server = None
     try:
+        smoke.stage = "temporary_tls"
         cert = smoke.command(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
                               "-keyout", "${root}/server.key", "-out", "${root}/server.crt", "-days", "1",
                               "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
@@ -225,6 +227,7 @@ def main():
         server = forwarder(smoke, tuple(fixture["identity_upstream"]))
         smoke.variables["origin"] = "https://localhost:" + str(server.server_port)
         if args.bundle:
+            smoke.stage = "actual_fixture_setup"
             fixture.update(fixture_module.fixture(smoke, args.bundle, str(args.probe_binary.resolve())))
             smoke.fixture = fixture
         smoke.env.update(smoke.expand(fixture.get("environment", {})))
@@ -240,8 +243,10 @@ def main():
         for argv in fixture["setup_commands"]:
             if smoke.command(argv)[0]:
                 raise RuntimeError("actual fixture setup failed; inspect private process log")
+        smoke.stage = "authorized_service_startup"
         for argv in fixture["server_commands"]:
             smoke.command(argv, start=True)
+        smoke.stage = "zero_resource_discovery"
         initial = None
         for _ in range(30):
             try:
@@ -273,12 +278,14 @@ def main():
         path.write_text(json.dumps(plan))
         os.chmod(path, 0o600)
         client = fixture["client_binary"]
+        smoke.stage = "cold_entry_init"
         if smoke.command([client, "cold-entry", "init", "--plan", str(path)], private=True)[0]:
             raise RuntimeError("actual cold entry initialization failed")
         smoke.faults = [{"path": "/api/public/hosted-account/v2/machine-registration/complete", "hit": False},
                         {"path": fixture["binding_response_path"], "hit": False, "bind_only": True}]
         directory = plan["orchestration_directory"]
         completed = False
+        smoke.stage = "cold_entry_response_loss_recovery"
         for _ in range(30):
             code, output = smoke.command([client, "cold-entry", "run", "--directory", directory], private=True)
             if not code:
@@ -291,11 +298,14 @@ def main():
             time.sleep(min(0.2, smoke.remaining()))
         if not completed or not all(f["hit"] for f in smoke.faults):
             raise RuntimeError("cold entry or required real response-loss recovery incomplete")
+        smoke.stage = "canonical_sdk_action"
         before = smoke.probe("canonical_probe", {"canonical_verified": True, "agents": 1, "tasks": 1,
                             "goals": 1, "active_executors": 1, "sdk_task_context_verified": True,
                             "action_committed": True})
+        smoke.stage = "completed_workflow_restart"
         if smoke.command([client, "cold-entry", "run", "--directory", directory], private=True)[0]:
             raise RuntimeError("completed workflow restart failed")
+        smoke.stage = "canonical_original_recheck"
         after = smoke.probe("canonical_probe", {"canonical_verified": True, "agents": 1, "tasks": 1,
                            "goals": 1, "active_executors": 1, "sdk_task_context_verified": True,
                            "action_committed": True})
@@ -306,8 +316,11 @@ def main():
                    "model_runtime_playtest": False, "response_losses_recovered": 2,
                    "canonical_originals_unchanged": True}
         (smoke.root / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        smoke.stage = "passed"
         print(json.dumps(receipt))
     finally:
+        if smoke.stage != "passed":
+            print(json.dumps({"state": "failed", "failure_stage": smoke.stage, "private_details_omitted": True}), file=sys.stderr)
         if server:
             server.shutdown()
             server.server_close()

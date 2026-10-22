@@ -150,6 +150,13 @@ fn preflight_binds_every_pin_and_requires_no_unpublished_runtime_claim() {
         *wrong.pointer_mut(path).unwrap() = json!("different");
         assert!(validate_discovery(&plan, &wrong).is_err());
     }
+    // Discovery epochs are canonical decimal strings. A JSON number must not
+    // become acceptable merely because its numeric value matches the pin.
+    for epoch in [json!(1), json!("01"), json!("+1"), json!("1 "), Value::Null] {
+        let mut wrong = view.clone();
+        wrong["identity"]["instance_epoch"] = epoch;
+        assert!(validate_discovery(&plan, &wrong).is_err());
+    }
     for capability in [
         "machine_registration",
         "participant_registration",

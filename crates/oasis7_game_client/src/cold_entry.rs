@@ -134,12 +134,13 @@ fn preflight(plan: &ColdEntryPlan) -> Result<(), String> {
 }
 fn validate_discovery(plan: &ColdEntryPlan, value: &Value) -> Result<(), String> {
     require_enabled(value)?;
+    let expected_epoch = plan.entry.identity_instance_epoch.0.to_string();
     if value["identity"]["service_id"] != plan.entry.identity.identity_service_id
         || value["identity"]["environment_id"] != plan.entry.identity.environment_id
         || value["world"]
             != serde_json::to_value(&plan.entry.world).map_err(|_| "world trust encoding failed")?
         || value["world_service_public_key"] != plan.entry.trusted_world_service_key
-        || value["identity"]["instance_epoch"] != plan.entry.identity_instance_epoch.0.to_string()
+        || value["identity"]["instance_epoch"].as_str() != Some(expected_epoch.as_str())
     {
         return Err("cold entry world, service pin or identity epoch mismatch".into());
     }

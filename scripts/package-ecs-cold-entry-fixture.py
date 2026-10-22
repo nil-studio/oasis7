@@ -46,6 +46,13 @@ def fixture(smoke, bundle, probe_binary):
     keys = root / "node-keys"
     keys.mkdir(mode=0o700)
     def command(argv):
+        phases = {"provision-identity", "initialize-preview-world", "devlocal-participant", "--identity-snapshot-export"}
+        if len(argv) > 1 and argv[1] in phases:
+            smoke.stage = "fixture_" + argv[1].lstrip("-").replace("-", "_")
+            if argv[1] == "devlocal-participant" and len(argv) > 2 and argv[2] in {"prepare", "finalize"}:
+                smoke.stage += "_" + argv[2]
+        else:
+            smoke.stage = "fixture_tls_key_generation"
         if smoke.command(argv)[0]:
             raise RuntimeError("actual fixture setup command failed; inspect private process log")
     command([chain, "provision-identity", "--config-dir", str(keys), "--node-id", "cold-entry-smoke"])
@@ -88,6 +95,7 @@ def fixture(smoke, bundle, probe_binary):
         "--live-bind", "127.0.0.1:" + str(live), "--web-bind", "127.0.0.1:" + str(web),
         "--viewer-host", "127.0.0.1", "--viewer-port", str(viewer),
         "--viewer-static-dir", str(bundle / "web-dist"), "--no-auto-play", "--no-open-browser"]
+    smoke.stage = "fixture_identity_database_bootstrap"
     original_servers = [smoke.command(chain_args, start=True), smoke.command(launcher_args, start=True)]
     ready = False
     for _ in range(60):
