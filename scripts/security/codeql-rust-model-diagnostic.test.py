@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local process/transport and official-input contract tests; no CodeQL execution."""
+import hashlib
 import importlib.util
 import json
 import os
@@ -157,6 +158,55 @@ class Runtime(unittest.TestCase):
             value=r.stage_observation(path);self.assertEqual(len(value['completed_once_per_event']),1)
             self.assertEqual(value['completed_once_per_event'][0]['elapsed_ns'],10)
             path.write_text('not-json');self.assertEqual(r.stage_observation(path)['status'],'UNKNOWN_SCHEMA')
+
+
+class TNodeCopyGuards(unittest.TestCase):
+    def test_exact_reversible_scheduling_only_patch(self):
+        import codeql_rust_tnode_plan as plan
+        original=b'prefix\n'+plan.OLD+b'\n  TPatNode(Pat p) { p.hasEnclosingCfgScope() }\n'
+        with patch.object(plan,'NODE_SHA',hashlib.sha256(original).hexdigest()):
+            candidate=plan.patched_node(original)
+            self.assertEqual(candidate.replace(plan.NEW,plan.OLD),original)
+            self.assertIn(b'TPatNode(Pat p) { p.hasEnclosingCfgScope() }',candidate)
+            with self.assertRaises(RuntimeError):plan.patched_node(original+b'drift')
+        duplicated=original+plan.OLD
+        with patch.object(plan,'NODE_SHA',hashlib.sha256(duplicated).hexdigest()):
+            with self.assertRaises(RuntimeError):plan.patched_node(duplicated)
+
+    def test_cached_named_source_is_not_a_cache_directory(self):
+        import codeql_rust_tnode_plan as plan
+        for name in ['codeql/rust/internal/CachedStages.qll','CachedThing.qll','NamedCachedStages.qll']:
+            self.assertFalse(plan.precompiled_or_cache(Path(name)))
+        for name in ['query-cache/result','codeql/internal.qlx','common-cache/stale.bqrs']:
+            self.assertTrue(plan.precompiled_or_cache(Path(name)))
+        self.assertTrue(plan.supports_dump_ra('  --[no-]dump-ra  Print RA'))
+        self.assertTrue(plan.supports_dump_ra('--dump-ra'))
+        self.assertFalse(plan.supports_dump_ra('--dump-dil'))
+
+    def test_library_inventory_rejects_symlink(self):
+        import codeql_rust_tnode_plan as plan
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'source.qll').write_text('source')
+            self.assertEqual(len(plan.inventory({'library':{'root':str(root)}})),1)
+            (root/'alias').symlink_to(root/'source.qll')
+            with self.assertRaises(RuntimeError):plan.inventory({'library':{'root':str(root)}})
+
+    def test_final_verification_and_receipt_failure_do_not_mask_primary(self):
+        import codeql_rust_tnode_plan as plan
+        with patch.object(plan,'inventory',side_effect=RuntimeError('inventory failure')), patch.object(plan.runtime,'save',side_effect=OSError('receipt failure')):
+            plan.verify_after({}, {}, Path('.'), RuntimeError('original compile failure'))
+            with self.assertRaisesRegex(RuntimeError,'inventory failure'):
+                plan.verify_after({}, {}, Path('.'), None)
+
+    def test_compile_mode_is_before_toolchain_and_business_execution(self):
+        source=(Path(__file__).with_name('codeql-rust-model-diagnostic.py')).read_text()
+        branch=source.index("if args.probe == 'tnode-compile-plan':")
+        self.assertLess(branch,source.index("for toolchain in ('1.96.0', '1.98.1')"))
+        self.assertLess(source.index("return",branch),source.index('model.execute(args'))
+        import codeql_rust_tnode_plan as plan
+        text=Path(plan.__file__).read_text()
+        self.assertNotIn("'database',",text)
+        self.assertNotIn("'cargo',",text)
 
 
 class OfficialInputs(unittest.TestCase):

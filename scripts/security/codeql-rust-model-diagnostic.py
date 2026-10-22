@@ -82,7 +82,7 @@ def main():
     parser.add_argument('--codeql', type=Path, required=True)
     parser.add_argument('--bundle-version', choices=BUNDLES, default='2.27.2')
     parser.add_argument('--business-source', type=Path, required=True)
-    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full'), default='node-only')
+    parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'tnode-compile-plan'), default='node-only')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True, help='fixed first-preparation Unix deadline, at most1080s ahead')
@@ -110,6 +110,13 @@ def main():
             raise RuntimeError('actual CLI version differs from selected bundle')
         closure = bundle_closure(args.codeql.parent, args.bundle_version)
         runtime.save(args.output / 'bundle-library-closure.json', closure, args.output)
+        if args.probe == 'tnode-compile-plan':
+            import codeql_rust_tnode_plan
+            spec = importlib.util.spec_from_file_location('refactored', Path(__file__).with_name('codeql-rust-refactored-source.py'))
+            model = importlib.util.module_from_spec(spec); spec.loader.exec_module(model)
+            codeql_rust_tnode_plan.execute(args, env, closure, verify_library_path, model)
+            terminal['status'] = 'COMPILE_PLAN_REQUIRES_INDEPENDENT_REVIEW'
+            return
         for toolchain in ('1.96.0', '1.98.1'):
             runtime.run(['rustup', 'run', toolchain, 'rustc', '-vV'], args.work,
                         args.output / ('rustc-' + toolchain + '.log'), args.deadline-90, 20, args.output, env)

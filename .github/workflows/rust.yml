@@ -19,7 +19,7 @@ on:
         description: "Candidate public-model diagnostic partition"
         type: choice
         default: node-only
-        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full]
+        options: [node-only, endpoints, peer-df, driver-non-target, driver-target, calls, full, tnode-compile-plan]
       model_bundle_version:
         description: "Complete official CodeQL bundle"
         type: choice
