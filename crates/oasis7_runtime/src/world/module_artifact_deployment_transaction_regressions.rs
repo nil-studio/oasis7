@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 
 fn dispatch(world: &mut World, action: Action) -> Result<bool, WorldError> {
     world.try_apply_runtime_module_action(&ActionEnvelope {
-        committed_recipe_origin: None,
+        governance_authorization: None,
+            committed_recipe_origin: None,
         id: 990,
         action,
     })

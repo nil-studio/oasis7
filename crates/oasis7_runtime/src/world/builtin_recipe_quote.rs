@@ -55,6 +55,7 @@ impl World {
         let body = preview_world.action_to_event(&ActionEnvelope {
             id: 0,
             action: action.clone(),
+            governance_authorization: None,
             committed_recipe_origin: None,
         })?;
         authorization.cost_units =

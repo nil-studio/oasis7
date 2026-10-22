@@ -66,6 +66,20 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
 
 低调试配置不会清除已有大体积产物；本地普通 `target` 也不会被自动搬移或删除。报告预算无法满足时列出剩余占用与保护原因，不把未知目录视为可释放空间。
 
+### ECS 缓存与完整 native 构建测量
+
+ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。达到代数或容量上限应报告跳过，不自动删其他缓存或提高额度。
+
+手动执行 `ECS Server Package`，启用 `measure_builds` 并提供明确的 `measurement_baseline`，可同时取得正常完整包和独立的 full native/no-op/Viewer 改动对照。选择相同 jobs（串行归因选 1），保留 `ecs-build-metrics` 与 `oasis7-ecs-linux-x64` 两类产物。前者测量三个生产 binary 的完整 native 闭包，后者另验证 Web/native 组合与 package source/hash；不能互相代签。
+
+已有所需 Git revisions 和 Linux x64/Rust 1.96.0 环境时，可直接执行：
+
+```bash
+python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-ref <current-sha> --jobs 1 --out-dir <external-new-report-directory>
+```
+
+脚本在自有临时 worktree/target 中预取锁定依赖，依次执行 seed、同命令 no-op 和固定 Viewer 注释变更重建。报告目录必须在 checkout 外，不能清空开发 target 造冷样本。核对来源、patch、profile/features/flags、Fresh/rebuilt 及实际重建闭包；比较不同功能修订时注明混杂因素。真实跨 run 加速仍需可信 main producer 保存成功和独立 consumer 恢复后的实际编译/包身份，PR 分支始终只读。具体测量协议见[性能设计](doc/testing/performance/compile-metrics-v2-warm-check.design.md#113-executable-ecs-native-build-and-viewer-experiment)。
+
 ## 当前实现分布（2026-02-18 基线）
 
 ### 应用主链（world + runtime + simulator + viewer 协议）
@@ -429,6 +443,32 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7_net --features runtime_bridge --lib
 ```
+
+#### 本机身份发布回归（NIR bootstrap）
+
+针对普通启动 ensure 与专用身份 helper 的本机持久化修改，运行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p node_keypair_config -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p local_node_init_retains_identity_and_never_creates_world_or_authority -- --nocapture
+```
+
+`node_keypair_config::transaction::tests` 使用当前 test executable 的独立子进程，在锁持有、意图、候选文件、准备、发布与完成边界 SIGKILL；逐次重开核对同一公钥、锁 inode、原配置及候选／完成状态。另覆盖发布后注入错误、损坏候选／目标冲突拒绝、private-only 补公钥、完整旧身份迁移与原件丢失阻断、旧锁离线迁移边界。`process_worker` 是该套件的子进程入口，独立执行不构成场景覆盖。临时环境变量只在 `cfg(test)` 中生效，不提供生产故障开关，不输出私钥。
+
+迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；本机 canonical Cargo 通过 `target` 符号链接启动 test executable 时，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
+
+正式 v2 运行期身份租约还须验证：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p node_keypair_config::runtime_lease -- --nocapture
+env -u RUSTC_WRAPPER cargo build -p oasis7_distfs --bin oasis7_durability_endpoint
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop -- --ignored --nocapture
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_signer_handoff_stops_exact_owner_and_qualifies_successor -- --ignored --nocapture
+```
+
+局部租约组核对锁 inode、SIGKILL、身份域与目录归属两个不可覆盖绑定的部分发布／同步失败恢复、错域／复制旧目录记录／不同 key 接管、损坏／超大记录和私钥诊断脱敏。真实正式运行时场景使用已签名初始锚与实际 P/R 子进程，验证同身份不同 writer 目录的重复启动被拒绝；外层运行时退出而实际 Node 仍被持有时租约不释放，全部执行所有者停止后原身份可重新打开，也可登记尚无身份归属记录的新 writer 目录。另执行已有合法 signer handoff：同 Node 身份切换新 writer 目录时，仍须通过签名恢复权限、精确旧 owner 停止和受保护 epoch 检查，不能让身份域绑定误拒绝合法连续性，也不能由目录登记授予权限。已有目录的路径／身份冲突仍拒绝。正常 CI 的 ignored 不算该进程场景通过，须记录明确非零执行与退出码。该场景证明本地实际调用链，不证明跨机 bare-key 排重、真实物理故障域或断电持久性；legacy／DevLocal 不由此获得新权限或运行保证。
+
+这些测试证明实际覆盖的进程恢复与调用路径，不证明断电、整机旧备份回滚或全初始化绑定事务。目标文件系统断电／fsync 错误、完整 CLI enabled/disabled/read-only 组合及其未覆盖项仍按[身份设计](doc/p2p/node/node-identity-replication-contract.design.md#des-nir-bootstrap)记录；不得用单元通过代签。
 
 <a name="s4b：governance-registry-drill（l4-前置-l4）"></a>
 
@@ -1565,3 +1605,23 @@ R3/R4 用正常、有明确 empty-world 状态、缺 manifest、未 committed �
 ### Node reward host observation boundary
 
 Node snapshot / filesystem reward observations are owned by the Chain reward host. Run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p,test_tier_required node_points` to execute the snapshot proof-hint/storage-count unit tests and the multi-node points closure regression. These tests retain their existing feature tier; the core package no longer owns the Node host adapter or its network feature.
+
+
+### Governed validator admission authentication (controlled profile v2)
+
+Refs #4975; Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`.
+
+Run canonical commands from the candidate worktree after `./scripts/cargo-dev.sh --prepare-target`:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api governance_authorization -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib governance_auth -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features governance_authorization -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features governance_validator_admission -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features governance_registry_publication_transaction_regressions -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p governance_authorization_tests -- --nocapture
+```
+
+The host suite uses actual signed profile-v2 activation and qualified parent verification, exercises all four commands, parent/world/policy/signature/action failures, threshold and atomic nonce behavior, and real NodeRuntime-to-driver ingress preflight. Node scheduling tests use an explicit oracle to test stale/duplicate queue filtering and progress; runtime transition tests use synthetic parent tokens and do not prove qualification. No Wasm modules execute in these selected governance tests; do not treat an unfiltered `--no-default-features` crate run as the full Wasmtime acceptance tier. Run normal required CI for the final candidate.
+
+Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.

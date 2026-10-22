@@ -1,3 +1,4 @@
+mod governance;
 use super::body_projection::AgentMapProjection;
 pub use super::body_projection::BodyOverlay;
 use super::formal_retention_projection::{base_field_count, serialize_prefix};
@@ -451,7 +452,12 @@ where
         ..
     } = state;
 
+    let authorization_nonces = governance_registry_overlay
+        .map_or(&state.governance_authorization_nonces, |o| {
+            &o.authorization_nonces
+        });
     let field_count = base_field_count(95, state, module_instance_overlay)
+        + usize::from(!authorization_nonces.is_empty())
         + usize::from(
             !state.agent_claim_acquisition_sequences.is_empty()
                 || agent_claim_economic_overlay
@@ -1162,34 +1168,6 @@ where
             &state.system_order_pool_budgets,
         )?;
     }
-    output.serialize_field(
-        "node_identity_bindings",
-        governance_registry_overlay.map_or(&state.node_identity_bindings, |o| &o.identity_bindings),
-    )?;
-    output.serialize_field(
-        "node_main_token_account_bindings",
-        governance_registry_overlay.map_or(&state.node_main_token_account_bindings, |o| {
-            &o.account_bindings
-        }),
-    )?;
-    output.serialize_field(
-        "governance_finality_signer_registry",
-        &state.governance_finality_signer_registry,
-    )?;
-    output.serialize_field(
-        "governance_validator_admissions",
-        governance_registry_overlay
-            .map_or(&state.governance_validator_admissions, |o| &o.admissions),
-    )?;
-    output.serialize_field(
-        "governance_main_token_controller_registry",
-        governance_registry_overlay.map_or(&state.governance_main_token_controller_registry, |o| {
-            &o.controller_registry
-        }),
-    )?;
-    output.serialize_field(
-        "reward_signature_governance_policy",
-        &state.reward_signature_governance_policy,
-    )?;
+    governance::serialize_fields(&mut output, state, governance_registry_overlay)?;
     output.end()
 }

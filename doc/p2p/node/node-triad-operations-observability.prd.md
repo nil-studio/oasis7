@@ -64,6 +64,8 @@ health/NRestarts 和同窗推进。报告、工具回归和现场部署分开交
 <a id="ops-report-contract"></a>
 ## 报告准确性与新鲜度验收
 
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节采集新鲜度子范围承接 [REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005)。技术报告不能把历史成功投影为当前消费者可用性；完整消费者服务闸门仍由对应 authority 判定。
+
 - OPS-AC-1：真实 single-node traffic envelope 的 bytes/window/reset/last_error 能进入 merged Markdown；未知 schema、available=false 或缺文件显式不可用，不静默填 0。仅支持的旧平铺格式可走显式 adapter。
 - OPS-AC-2：最新 attempt、最近成功及窗口截止分别表达。成功后持续失败不能沿用旧成功窗口宣称当前完整覆盖；离线重算使用明确 as-of，不强制套用当前墙钟，也不抹掉有界历史成功。
 - OPS-AC-3：p99 使用实际采样窗口和明确算法；128 个样本中 127×100ms＋1×1000ms 的 nearest-rank p99 为 100ms，max 为 1000ms。样本不足不能以 max 冒充已满足完整窗口的 p99。
@@ -71,6 +73,22 @@ health/NRestarts 和同窗推进。报告、工具回归和现场部署分开交
 
 以上只定义当前使用这些工具时的正确输出。JSON、Markdown 与终端的事实和窗口保持一致；现场全 fleet 健康、
 对外恢复、只读可用和指定写服务恢复各需其适用证据，不能用单节点/validator pair 健康相互替代。
+
+<a id="ops-profile-readiness"></a>
+## 按实际角色解释节点就绪
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；局部承接 [REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 与 [AC-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#ac-dcs-005) 的节点观测义务。
+
+目标报告分开表达进程存活、当次采集、最后成功、已验证读取和投票/追加资格。实际 profile、world/chain、实例与构建身份必须来自受支持的同窗状态；旧标签、PID、HTTP 200 或缺省值不替代。未知 schema、缺必需字段、时钟异常及陈旧样本均显示具体不可判定原因。没有适用字段的旧 profile 显式标为 unsupported 或该字段不适用，不以空值制造绿色。
+
+| 实际角色 | 必须保留的诊断语义 | 不能据此推导 |
+| --- | --- | --- |
+| 公开投影 observer | 已验证投影位置/根、最后观察时间、追赶差距、证明阻断 | 已装载完整私有 World 或拥有写权 |
+| 全状态只读节点 | 已验证且实际装载的 cut/root、head lag、grant 到期/撤销状态、authority epoch、来源、历史/状态容量与恢复耗时 | 当前 validator membership、投票或 archive 保证 |
+| controlled writer / P/R | 最近 Qualified 提交及其年龄、双端持久与保护服务状态、epoch/fencing、未决原请求和写入阻断 | 单端故障仍可继续写入或已实现 BFT |
+| BFT validator 目标 | 治理决定/排程位置/实际采用的 set digest 分离，round/height、最近签名与提交、签名持久化和投票阻断 | 配置了 validator 名称或读取同步就等于投票就绪 |
+
+OPS-AC-5：相同进程存活样本分别注入 grant 失效、成员未采用、签名持久化失败、单持久端不可用、容量到限与采集陈旧，报告必须保留对应角色的阻断；恢复只在 producer 的适用证据真实更新后显示。实现这些字段需要对应 runtime producer 与适配链支持；本文不把现有 triad 工具声明为任意拓扑监控平台，也不新增自动重启或外部告警服务。
 
 ## 验证与恢复边界
 

@@ -1,6 +1,6 @@
 # 指挥面板架构索引
 
-> 当前客户端范围见[产品要求](../command-center.prd.md)和[系统设计](../command-center.design.md)：本地文档/Git、GitHub PR、个人记录、本机工具与原工具外部入口。检查详情在 GitHub 查看；本文的项目摘要与历史记录不替代主责合同。
+> 指挥中心的职责与目标见[产品要求](../command-center.prd.md)和[系统设计](../command-center.design.md)：云端承载四个主视图、已提交来源与个人空间，本地承载工作树、私有资料及原生工具。来源事实与个人记录各守原义；实际实现和可用性由对应交付证据说明。
 
 
 这里集中列出做项目决策时需要记住的架构边界、实现入口和部署核验缺口。它是主责文档与交付事实的派生导航；具体约束、变更理由和验收仍在链接的原文中维护。
@@ -82,13 +82,13 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 **设计状态：** 本组是当前主责文档声明的路线与目标合同；正式 profile、完整事务和灾备目标不能因为已有前置切片而标为已验收。
 
-2026-10-12 局部设计增量（实现边界核对至 `main@e01e29064517f4bf375767a19a09802335828249`）：[原候选恢复 v1](../../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 要求执行前完整材料持久化、先核对原决定再隔离重放；[正式受控权威 v1](../../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 与 [epoch 接管](../../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 集中定义激活、普通消费者和存储/签名隔离。均为待实现目标，现有工程 scope 不因本次文档收敛取得正式权威；实际部署和故障域证据未刷新。
+2026-10-21 节点生命周期局部核对（源码 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`）：[产品角色与状态路径](../../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)区分公开读取、获授权完整只读、受控写者与目标 BFT。[治理与实际成员应用](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-membership-application)、[读取撤销](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)、[发现证据](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)、[完整恢复与 checkpoint](../../../p2p/design.md#des-p2p-full-sync-checkpoint-capacity-v1)及[监控新鲜度](../../../p2p/node/node-triad-operations-observability.design.md#report-freshness)补齐目标约束和负例。当前实现与目标逐项分列，设计覆盖不代表新保证已实现；本段没有新部署或故障域证据，不刷新其他主题的核验时间。
 
 **已有实现：**
 
-- ARCH-04：本地 journal、双端持久协议、受控历史重执行、activation/bootstrap 等前置持续落地；完整正式激活、消费者接线和 BFT 验收尚未闭合。
+- ARCH-04：正式受控 writer、公开投影和获授权完整只读同步已有[实现入口](../../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)；完整消费者、真实恢复与 BFT 验收尚未闭合。新 BFT 轮次/锁定/持久签名合同见[目标设计](../../../p2p/design.md#des-p2p-bft-round-lock-v1)，不能由现有 PoS 原型代签。
 - ARCH-05：已有有序动作、roots、execution records、checkpoint/replay 及多种 prepare/publish 路径；[当前实现边界](../../../world-runtime/design.md#5-current-implementation-boundary-and-target-gap)仍明确整体能力为 partial。
-- ARCH-06：局部双端持久证明不等于正式 CommitRef，若干原子发布切片不等于整个 World 的根事务；同机双目录不能证明独立故障域。
+- ARCH-06：正式受控路径已有 qualified cut、保护服务与原请求恢复的实现切片，详见[当前实现边界](../../../p2p/design.md#des-p2p-formal-controlled-authority-v1)；同机双目录不能证明独立故障域。真实 P/R 故障、旧写者隔离和原结果恢复按[故障域验收](../../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)分别取证，受控路径不承诺 BFT 分区期间继续写入。
 - ARCH-07：已有 execution bridge v3、CAS、sidecar、retention/GC/replay 的实现合同；[本地恢复边界](../../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-accept-service-boundary)不证明分布式可得性或完整灾备。
 
 ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入[当前存储实现](../../../world-runtime/runtime/formal-world-storage-efficiency.design.md#current-storage-implementation)，覆盖共享压缩、事务物理代、独立闭包读回与 attempt 回收、完整增量、Merkle v2、任务控制冷链和原生工件。新世界直接创建新物理表示；codec 不改变逻辑身份、独立持久条件或服务权限。已验证版本有局部容量和同机恢复证据；后续按[手动专项入口](../../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)逐场景核对网络模型、资源预算与所选规模，具体运行不外推生产延迟。当前无部署节点，真实双故障域和更大规模未完成验收；其他架构及环境基线不变。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选把 attempt 双端释放确认为可恢复阶段，接通有预算的默认物理维护，避免每页重复全 selector 恢复扫描，并保留原有共享布局。候选完整目录盘点包含 native、P/R、attempt、旧代和 checkpoint；短样本不证明净节省，规模与部署验收仍有缺口。
@@ -165,22 +165,11 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |
-| ARCH-11 · 客户端自身 | 独立 macOS Tauri 2 + Rust + Solid/TypeScript + SQLite；文档/Git/PR 保留事实所有权，Codex 只提供明确外部定位，不接入运行时 | 改技术栈、引入云端/常驻 supervisor、共享团队状态、公开分发、扩版本或自动执行 | [技术栈](../command-center.design.md#43-具体技术栈)、[基础切片](../command-center.design.md#110-首个基础实现切片)、[外部接续边界](../command-center.design.md#DES-CC-012)、[操作说明](../../../../tools/oasis7-command-center/README.md#verification) |
+| ARCH-11 · 云端与本地 | Sites 网页与后端承担四视图、已提交文档/GitHub 事实和云端个人记录；本地 Tauri/Rust 辅助端承担工作树、私有资料、CLI 与 signer。浏览器与本机 IPC 分离，精确导航不构成执行或上传授权 | 改 Site 身份/访问范围、记录归属、来源授权、数据格式或本机能力边界 | [职责与身份](../command-center.design.md#DES-CC-001)、[云端个人空间](../command-center.design.md#DES-CC-017)、[本机工具](../local-tools.design.md) |
 
-当前客户端的工作详情、来源阅读、个人记录与外部入口沿[系统设计](../command-center.design.md#cc-visual-composition)组织。已交付能力和剩余差距分别从主责设计与实际实现 PR 核对。
+本主题于 2026-10-22 核对文档职责。最终产品与系统合同覆盖云端日常工作闭环、本机独立能力和两端导航；**本次文档更新没有修改或部署应用，不证明拆分已实现**。实际来源基线、已有能力及未验证范围集中见[实现核对](../command-center.design.md#cc-current-implementation)；历史原生结果仍限定于[日常验证记录](../daily-work-verification.manual.md)的构建、环境和场景。
 
-**已有实现与验证：**
-
-- [PR #4533](https://github.com/eng-cc/oasis7/pull/4533)：桌面基础、四视图、SQLite、真实 worktree 和有限 GitHub 窗口；记录了 macOS arm64 本地打包与原生交互验证。
-- [PR #4572](https://github.com/eng-cc/oasis7/pull/4572)：读取显式规范后继、保留历史版本和来源理由；记录了原生界面与重启恢复验证。
-- 首页的[来源阅读入口](../../../../tools/oasis7-command-center/ui/src/SummarySources.tsx)与已交付四区工作投影并存，原 #4848 的用户任务范围见[验证记录](../daily-work-verification.manual.md)。新布局需把来源全文和诊断放到明确下钻路径；现有原生记录不代签该视觉改造。
-- 生命周期解析将原始声明和文档类别分开，可选派生字段兼容旧阅读版本；详见[专题设计](../document-tree.design.md#DES-CC-TREE-001)。类别不推导实现状态，目录生命周期、类型和显式配对缺口筛选沿已发布清单投影，不改变源声明。
-- 2026-10-15 候选源码核对：[文件清单](../../../../tools/oasis7-command-center/core/src/document_inventory.rs)沿现有有界扫描保留逐文件读取/遗漏记录，使用独立版本化 cache key，与章节/搜索同事务发布；原 Snapshot shape 和数据库 schema 版本不变。有限 DTO 查询核对项目、来源版本/代次、章节摘要及分页筛选，规范视图可查阅缺口。独立树快照/attempt、固定提交及关系投影仍待实施，见[实施范围](../document-tree.design.md#111-验证映射表)；真实宿主与交互验证范围归实现 PR。
-- 个人决定、阅读记录和本机工具操作与可重建缓存分开；阅读恢复只恢复界面位置，工具未知结果沿原操作身份核对。
-
-**本机工具摘要（局部核对于 2026-10-14）：** [PR #4624](https://github.com/eng-cc/oasis7/pull/4624) 已合入；内置资料、同构建可选 CLI、既有兼容 signer 的文件签名的专业合同见[普通本机工具设计](../local-tools.design.md)。资料 root 与普通索引的隐私隔离约束传播，资料保存不产生签名授权；实际安装、准备请求和 worker 提交分别核对。
-
-候选 App 的建库、保存冲突和 CLI 安装观察只证明 PR 中记录的原候选/机器范围，不证明用户固定安装、部署、真实 signer 提交、公证或公共分发。管理员桥与 Apple 签名集成的暂停继续有效，本机用户 signer 绑定与真实签名提交仍未验收；过程记录见 [PR #4624](https://github.com/eng-cc/oasis7/pull/4624)，验收边界见[验收映射](../local-tools.design.md#11-验收与验证)。本次不刷新其他架构或环境状态。
+本机 context、CLI 和既有 signer 继续遵守[工具安全合同](../local-tools.design.md)：本机资料不进入云端普通记录，未知操作按原身份核对，Apple 签名及管理员集成的用户暂停保持有效。云端个人记录可导出恢复，不代表整机资料、工具账本或凭据可上传。
 
 ## 下次刷新时
 
@@ -191,4 +180,4 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 ### 文档全局树阅读设计
 
-2026-10-13：基于 `main@b7e21b23bf0edfe86f302bb7186aab77e57b26c3` 源码核对，[文档树设计](../document-tree.design.md)采用既有 Rust 索引与有限 DTO，分离导航树和显式配对关系，快照绑定来源版本并保留部分覆盖。四产品域与专业域分别展示，读取不启动模型或写源文档。当前目录及产品/专业导航投影的实现边界见[专题设计](../document-tree.design.md#111-验证映射表)；两树展开与个人阅读恢复沿独立版本记录提供；独立树快照和固定提交仍待实施，实际桌面验证范围归实现 PR。
+[文档树合同](../document-tree.design.md)统一产品树、专业系统树、目录与明确配对关系的解释。云端读取固定提交，按可信身份保存个人阅读位置；本地工作树预览仅在设备范围索引并保存本机位置。快照与覆盖、部分读取和失效关系各自可见，来源刷新不改变条款权威或个人决定。两端验收分别核对真实浏览器与适用的原生交互，旧本地索引证据不代签云端完整文档树。

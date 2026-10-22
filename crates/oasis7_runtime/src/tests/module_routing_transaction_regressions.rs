@@ -132,7 +132,8 @@ fn route_state_output(state: u8) -> ModuleOutput {
 
 fn route_action() -> ActionEnvelope {
     ActionEnvelope {
-        committed_recipe_origin: None,
+        governance_authorization: None,
+            committed_recipe_origin: None,
         id: 71,
         action: Action::RegisterAgent {
             agent_id: "route-target".to_string(),
@@ -143,7 +144,8 @@ fn route_action() -> ActionEnvelope {
 
 fn nonmatching_route_action() -> ActionEnvelope {
     ActionEnvelope {
-        committed_recipe_origin: None,
+        governance_authorization: None,
+            committed_recipe_origin: None,
         id: 72,
         action: Action::QueryObservation {
             agent_id: "route-target".to_string(),

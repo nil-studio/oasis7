@@ -325,6 +325,12 @@ pub struct NodeExecutionCheckpointInstallContext {
 }
 
 pub trait NodeExecutionHook: Send {
+    /// Check governance against the current immutable qualified parent before enqueueing.
+    /// Unsupported hooks fail closed; execution must verify again at commit time.
+    fn validate_governance_action_payload(&self, _payload_cbor: &[u8]) -> Result<(), String> {
+        Err("execution hook governance authorization preflight unsupported".into())
+    }
+
     /// Advance one storage maintenance page without producing a business tick.
     /// NodeRuntime exposes this only after its worker has completely stopped.
     /// Completion requires a full scan with no pending work or errors.

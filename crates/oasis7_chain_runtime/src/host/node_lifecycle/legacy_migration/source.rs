@@ -343,7 +343,7 @@ pub(super) fn plan(source_path: &Path, destination: &Path, id: &str) -> Result<P
             .ok_or("world name")?
             .to_string_lossy()
     ));
-    let files = tree::inventory(&components, Some(&lock_path))?;
+    let mut files = tree::inventory(&components, Some(&lock_path))?;
     let mut mapped = BTreeMap::new();
     for (flag, path) in &paths {
         let parent = components
@@ -351,6 +351,29 @@ pub(super) fn plan(source_path: &Path, destination: &Path, id: &str) -> Result<P
             .find(|c| path.starts_with(&c.source))
             .ok_or("component mapping missing")?;
         mapped.insert(flag.clone(), relocated_path(destination, parent, path)?);
+    }
+    if let Some((metadata, bytes)) = node_keypair_config::relocated_publication_metadata(
+        &paths["--config"],
+        &mapped["--config"],
+    )? {
+        if let Some(entry) = files.iter_mut().find(|entry| entry.source == metadata) {
+            entry.publication_metadata = Some(bytes);
+        } else {
+            let mut target = mapped["--config"].as_os_str().to_owned();
+            target.push(".identity-v2.json");
+            let target = PathBuf::from(target)
+                .strip_prefix(destination)
+                .map_err(|e| e.to_string())?
+                .to_path_buf();
+            let mut entry = tree::file_entry(&metadata, target.clone())?;
+            entry.publication_metadata = Some(bytes);
+            files.push(entry);
+            components.push(Component {
+                name: "identity-publication".into(),
+                source: metadata,
+                target,
+            });
+        }
     }
     let launch_argv = replace_paths(&argv, &mapped)?;
     let mut external = Vec::new();

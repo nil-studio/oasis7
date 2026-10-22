@@ -280,7 +280,7 @@ fn devlocal_host_rejects_effective_policy_and_profile_mismatch_before_disk_acces
 }
 
 #[test]
-fn devlocal_host_rejects_real_poststep_formal_admission_without_publishing() {
+fn devlocal_host_rejects_unsigned_formal_admission_and_conflicted_recovery_without_publishing() {
     use oasis7_runtime::{
         GovernanceMainTokenControllerRegistry, GovernanceThresholdSignerPolicy,
         MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
@@ -363,7 +363,7 @@ fn devlocal_host_rejects_real_poststep_formal_admission_without_publishing() {
         })
         .unwrap_err();
     assert!(
-        error.contains("DevLocal") || error.contains("local participant"),
+        error.contains("governance authorization mismatch"),
         "{error}"
     );
     assert_eq!(driver.execution_world.snapshot(), before);
@@ -383,6 +383,20 @@ fn devlocal_host_rejects_real_poststep_formal_admission_without_publishing() {
         !super::super::super::checkpoint::execution_bridge_record_path(&driver.records_dir, height)
             .exists()
     );
+    // Authentication now rejects this request before stepping. Independently
+    // retain the DevLocal/formal authority boundary at recovery: an established
+    // formal membership cannot be imported as DevLocal authority either.
+    let mut conflicted = before.clone();
+    conflicted.state.governance_validator_admissions.insert("candidate.fixture".into(), oasis7_runtime::GovernanceValidatorAdmissionRecord {
+        candidate_id: "candidate.fixture".into(), node_id: "validator.fixture".into(),
+        finality_signer_public_key: hex::encode(SigningKey::from_bytes(&[93; 32]).verifying_key().to_bytes()),
+        stake: 25, operator_owner: "ops.team".into(), public_manifest_hash: "manifest:candidate.fixture".into(),
+        ..Default::default()
+    });
+    let error = oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+        conflicted, driver.execution_world.journal().clone(), driver.devlocal_participant.authority.clone().unwrap(),
+    ).expect_err("formal membership cannot recover under DevLocal authority");
+    assert!(format!("{error:?}").contains("DevLocal") || format!("{error:?}").contains("local participant"));
     // The forbidden action is not retained as a hidden pending side effect.
     commit(&mut driver).unwrap();
     let _ = fs::remove_dir_all(dir);

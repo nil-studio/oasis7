@@ -46,20 +46,20 @@
 - Critical User Flows:
   1. Flow-P2P-PRA-001: `private validator boot -> outbound connect to bootstrap/sentry -> reachability service classifies self as private -> reserve relay or attach sentry -> advertise signed peer record without exposing home IP -> join consensus/control lanes`
   2. Flow-P2P-PRA-002: `private full/storage node boot -> attempt direct reachability -> hole punch succeeds则升级 direct path；失败则保留 relay path -> sync plane 仍可追块/追状态 -> gossip 只按本角色订阅必要 topic`
-  3. Flow-P2P-PRA-003: `public node receives peer record -> verify chain/domain/signature -> apply diversity policy -> assign gossip/sync/data lanes -> monitor peer score and path quality -> re-route on relay loss or direct-path recovery`
+  3. Flow-P2P-PRA-003: `public node receives peer record -> verify domain/signature/version/time/sequence -> preserve signed payload and record local discovery evidence separately -> apply diversity policy -> assign gossip/sync/data lanes -> monitor peer score and path quality -> re-route on relay loss or direct-path recovery`
   4. Flow-P2P-PRA-004: `bootstrap poisoning / eclipse suspicion -> peer manager detects discovery-source集中、ASN集中或 relay abuse -> downgrade suspicious peers -> force rebootstrap from independent anchors -> emit block signal for release gate`
   5. Flow-P2P-PRA-005: `new user boots node -> system probes public IP / NAT / port reachability / hole-punch viability -> system picks default user mode -> internal deployment_mode + node_role are derived -> if result implies public entry responsibility, UI asks for explicit confirmation before advertising that surface`
 - Functional Specification Matrix:
 
 | 功能点 | 字段定义 | 动作行为 | 状态转换 | 计算/判定规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| Peer identity 与 record | `peer_id/node_identity_key/chain_id/role_mask/reachability_class/public_addrs/relay_addrs/capability_lanes/source_operator/source_asn/ttl/signature` | 节点发布带有效期的签名 peer record，并显式声明可服务的 traffic lanes 与 diversity 元数据 | `draft -> published -> refreshed -> expired/revoked` | record 必须链内域分离签名，过期或域不匹配即拒绝；未声明某 lane 的 peer 不应被优先选为该 lane provider | 只有节点身份持有者可发布；consensus signer 不直接暴露 |
+| Peer identity 与 record | `peer_id/node_identity_key/network_domain/role_mask/reachability_class/public_addrs/relay_addrs/capability_lanes/source_operator/source_asn/published_at/ttl/sequence/signature` | 节点发布有版本、有效期和单调序号的签名 peer record；接收端保持签名载荷不变，独立维护本地观察与重放水位 | `draft -> published -> refreshed -> expired/revoked` | 域、签名、时间、序号、大小和数量边界全部通过才更新候选；同序号异载荷冲突，过期或回退拒绝；这是目标合同，当前 wire 缺少 sequence | 只有节点身份持有者可发布；operator/ASN 等来源自述不证明独立性，consensus signer 不直接暴露 |
 | Peer reachability contract | `peer_id/deployment_mode/node_role/reachability_class/capability_lanes/ranked_paths/publish_policy/source_evidence/claim_boundary` | 从 signed peer record、transport path observation 与 network-tier policy 归一化出单一 reachability view，供 selection/status/matrix 投影 | `unresolved -> normalized -> selected -> stale/quarantined` | path label、rank 与 claim boundary 必须来自同一 contract；matrix/status 只能投影，不得重新定义 canonical reachability | 本地 peer manager 强制执行；远端声明不可覆盖本地 role/publish policy |
 | Reachability service | `observed_addr/autonat_status/hole_punch_status/relay_reservation/path_quality` | 探测 direct、尝试打洞、预留 relay、维护路径排序 | `unknown -> direct/private/relay_only -> degraded/recovered` | direct 优先于 punched，punched 优先于 relay；不能打洞时自动降级 relay | 节点本地决策；relay 只提供转发，不授予签名权限 |
-| Discovery fabric | `bootnodes/dht_namespace/rendezvous_topic/peer_record_cache/source_diversity` | 从 bootnode、DHT、rendezvous 与静态 allowlist 聚合候选 peer | `seeded -> converging -> healthy/degraded` | 至少保留两类独立 discovery source；单源集中不得视为 healthy | bootnode/relay 可公开；validator core 可只做 consumer |
+| Discovery fabric | `bootnodes/dht_namespace/rendezvous_topic/peer_record_cache/observed_sources/source_independence` | 从 bootnode、DHT、rendezvous 与静态 allowlist 聚合候选 peer，并保存由本机记录的来源证据 | `seeded -> converging -> healthy/degraded` | 至少两类本机实际观察到且控制域独立的 source 才满足多源健康要求；远端自述、同一来源转发和未知独立性不能凑数 | 静态 seed 例外只来自本机受信配置；bootnode/relay 提供发现材料，不授予世界信任锚或验证者权限 |
 | Transport abstraction | `transport_id/directness/security/mux/qos_class/max_streams` | 在 direct、hole-punched、relay 路径上复用统一流接口 | `dialing -> established -> draining -> closed` | QUIC 为主、TCP/Noise 为回退；UDP 只可作为加速，不得成为唯一真值链路 | transport key 可轮换；长期 signer 不进入 transport session |
 | User-visible deployment mode | `user_mode/auto_detect_result/allow_public_entry/high_value_node/override_source` | 给用户展示 `自动加入 / 私有安全 / 公网入口` 简化模式，并映射到正式角色语义 | `auto_detected -> proposed -> confirmed/enforced` | 默认必须自动选择；只有检测结果涉及 `public entry` 或高价值角色暴露面时才要求显式确认；普通路径不要求用户先理解底层正式角色 | 普通用户只能选简化模式；高级用户才可覆盖内部 role/deployment 配置 |
-| Role policy | `deployment_mode/node_role/sentry_set/relay_budget/exposed_surface` | 根据角色限制订阅、入站、转发与公开面 | `declared -> admitted -> enforced` | validator_hidden 至少配 2 条独立 ingress path；observer 不得请求 validator-private RPC | 角色由 operator 配置并被 peer manager 强制执行 |
+| Role policy | `deployment_mode/node_role/sentry_set/relay_budget/exposed_surface` | 根据角色限制订阅、入站、转发与公开面 | `declared -> admitted -> enforced` | validator_hidden 至少配 2 条独立 ingress path；observer 不得请求 validator-private RPC | operator 配置的是本地 P2P 角色策略，由 peer manager 强制执行；治理 validator 授权仍由其有效 registry 决定 |
 | Traffic lanes | `lane_id/topic_or_stream/qos/peer_subset/replay_policy` | 分离 gossip、sync、blob/state、control 流量 | `registered -> active -> throttled/quarantined` | consensus lane 优先低抖动；blob/state lane 独立限速，不得拖垮 finality | 不同角色只开放最小必要 lane |
 | Peer manager / anti-eclipse | `score/source_asn/source_operator/subnet_bucket/relay_dependence/misbehavior` | 评分、淘汰、重连、路径切换与 quarantine | `candidate -> active -> suspect -> blocked` | 同一 operator、同一 ASN、同一 `/24`、同一 relay-domain 占比超过阈值即降权或阻断，`blocked` 必须留下可审计工件 | 安全策略由本地 peer manager 执行，不能由远端覆盖 |
 - Acceptance Criteria:
@@ -70,7 +70,7 @@
   - AC-5: 本专题必须明确写出 reachability 顺序：`direct -> hole-punched -> relay`，以及 `AutoNAT / hole punching / relay reservation` 三者的关系。
   - AC-6: 本专题必须明确写出 `gossip plane / sync plane / blob-state plane / control plane` 分离，且不同链型只替换上层适配器。
   - AC-7: 本专题必须明确写出主链适配器边界，至少覆盖 `mesh gossip`、`committee direct`、`tree broadcast` 与 `blob availability` 四类数据面模式。
-  - AC-8: 本专题必须明确写出 anti-eclipse / anti-spam 基线，包括 discovery-source 多样性、ASN/subnet/operator 多样性、relay budget 与 path quarantine。
+  - AC-8: 本专题必须明确写出 anti-eclipse / anti-spam 基线，包括 discovery-source 多样性、ASN/subnet/operator 多样性、relay budget 与 path quarantine；本地观察、远端自述与独立控制域证据必须分开，伪造多个来源标签不能使单源拓扑变为 healthy。
   - AC-9: 本专题必须明确写出 key boundary：transport/session key、node identity key、consensus signer、governance signer 彼此分离；relay、browser 和 public control plane 不得持有长期 signer 真值。
   - AC-10: 对应 GitHub Issue / GitHub Project 必须把实现拆成 identity、transport、reachability、role policy、traffic lanes、shared-network validation 等 workstreams，而不是只停留在概念描述。
   - AC-11: `doc/p2p/prd.md`、GitHub Issue / GitHub Project、`doc/p2p/prd.index.md` 与 `doc/p2p/README.md` 必须接入本专题，形成模块级追踪链。
@@ -79,6 +79,8 @@
   - AC-14: 本专题必须补齐 `peer reachability contract normalization` 的字段语义、输入/输出边界和非目标：不引入 iroh 依赖、不替换 libp2p `Multiaddr`、不把 relay/DNS/Pkarr 默认带入 oasis7。
   - AC-15: 本专题和 `testing-manual.md` 必须冻结 path-behavior matrix taxonomy，且把 `proxy != physical NAT/CGNAT proof` 写成 gate 约束；任何 public_testnet / shared_devnet claim 都必须说明 evidence class 与 claim boundary。
   - AC-16: 本专题必须说明 status observability enhancement 只暴露 bounded operator summary，例如 selected path kind/age、path transition counters、relay/direct/hole-punched mix、recent fallback reason 和 reachability confidence；若字段尚未由 runtime 实现，project 文档必须以待办 workstream 标注。
+  - AC-17: 本地 seed 命中、来源归类、评分和路径归一化不得改动任何已签名字段；原发布者经缓存节点转发给第三节点后仍能按同一签名载荷验签。缓存命中不能绕过过期或撤销检查。
+  - AC-18: peer record 生命周期须覆盖 TTL、未来时钟容差、乱序/重复/冲突序号、撤销、重启和版本迁移；候选缓存、来源观察、拨号重试和防回退状态有明确容量与回收条件。到限时显式降级，不以清空保护状态或重复赋予完整重试预算恢复 healthy。
 - Non-Goals:
   - 不在本专题内绑定单一网络库实现，不把 “libp2p / 自研 / 混合” 之一提前冻结成唯一方案。
   - 不把当前目标降级成“能连起来就行”的家宽补丁；本专题讨论的是公共主链级目标态。
@@ -86,6 +88,38 @@
   - 不把本专题的 P2P substrate / reachability green 结果单独提升为链上大世界状态底座的 S9A `module_full`、`integration_required` 或 `release_full`。
   - 不把 browser wallet、production signer custody 或 shared-network 实跑证据在此专题内冒充已实现。
   - 不要求普通用户直接配置 `validator_core / sentry / relay / full_storage / observer_light` 原始角色枚举。
+
+<a id="discovery-evidence-boundary"></a>
+### 2.1 发现证据与引导信任边界
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) 的公开服务与权威隔离，细化 PRD-P2P-024-E、AC-8、AC-17。
+
+节点应能向 operator 解释“为何相信来源确有独立性”，不能只展示 peer 签名过的标签。远端 `discovery_sources/source_operator/source_asn` 保留为声明；本机收到记录的通道、上游节点、受信 seed 配置成员事实和实际路径另存为观察。只有具备可核验依据的 operator/ASN/relay 控制域才能贡献相应多样性；未知身份归入保守的未知组，不按任意自报名称拆成独立组。已知同一控制者提供的 bootnode 和 DHT 路径仍视为相关来源。没有足够证据时报告 degraded/unknown，并按有界本地 bootstrap 策略获取更多候选；不得伪造来源满足 healthy。
+
+发现成功、Noise/libp2p 身份认证、seed allowlist 与同步 provider 可达均不建立 world/chain/genesis 信任锚，也不授予治理或共识权限。同步和共识仍分别执行 [同世界恢复链](../prd.md#p2p-target-recovery-trust-chain) 与 [角色权威隔离](../prd.md#p2p-target-role-isolation)。本地签名记录缓存只转发原签名载荷；本地 seed 标记不得写回远端已签名对象。
+
+- 系统设计状态：已覆盖。
+- 系统设计依据：[发现来源证据与签名不变性](mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)。
+- 实现状态：部分实现。
+- 实现依据：2026-10-21 对 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e` 的源码核对见 [当前实现边界](mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)；已有签名与网络域核对、集中度及 quarantine 接线，来源证据隔离尚未闭合。
+- 验证依据：本次为文档审查，未运行网络行为测试；现有 P2PARCH-5/6/7 验证范围与待补的负例分列于配对设计的验证映射，不作为新增合同已通过的证据。
+- 剩余范围：实现本地观察与远端声明分离、独立性依据、静态 seed 权限和无损缓存转发；不由本节承诺公共网络完整抗 Sybil/anti-eclipse 或 validator 授权。
+
+<a id="peer-record-lifecycle"></a>
+### 2.2 Peer record 新鲜度、重放与容量
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) 的可验证服务材料与隔离边界，细化 AC-17、AC-18 和 NFR-P2P-PRA-5。
+
+节点必须在发现入口、缓存命中、转发和实际拨号选择时检查记录仍在允许的有效期内，并拒绝已知的序号回退、同序异内容和撤销记录。发布端持久保存递增序号与原签名载荷；正常重启及重试不得回退或为同一次发布生成不同内容。接收端保留覆盖可重放窗口的防回退水位，缺少安全回收依据时宁可拒绝新增候选。过期记录不再作为拨号路径或多样性依据，刷新失败有明确退化原因；已有通过身份认证的会话按其独立会话/角色策略处理，单一发现系统故障不触发全量断连。
+
+新版本记录的启用、旧版本的限时兼容和退役必须由受信网络配置明确规定；不能替旧记录合成 sequence、修改签名字段或用旧版本覆盖已接纳的新版本。所有来源共享有界的缓存、查询和重试预算，容量状态进入既有 status summary；同一逻辑发现轮次或速率窗口内，更换 provider、来源标签或重建工作项不重置累计预算。
+
+- 系统设计状态：已覆盖。
+- 系统设计依据：[Peer record 接纳、刷新与版本迁移](mainnet-private-reachability-architecture.design.md#peer-record-lifecycle)。
+- 实现状态：部分实现。
+- 实现依据：2026-10-21 对 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e` 的 [当前实现边界](mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary) 核对；当前有 `published_at_ms/ttl_ms` 与签名核对，但缺少本合同的时效接纳、sequence wire 和持久水位。
+- 验证依据：本次未运行网络行为测试；过期、时钟、乱序、重启、兼容及高 churn 用例在配对设计中定义为后续实现验收。
+- 剩余范围：落实版本化 wire、发布序号持久化、接收水位及有界回收，验证缓存命中/转发/拨号全入口一致；节点身份密钥失陷或本机受信存储被恶意回滚不由 peer record TTL 单独解决。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用。
@@ -118,7 +152,7 @@
   - NFR-P2P-PRA-2: 网络健康目标必须要求节点在启动后 `60s` 内收敛到足够的 discovery 视图；`public/hybrid` 节点至少看到 `8` 个候选 peer，`private/validator_hidden` 节点至少建立 `4` 条有效工作路径。
   - NFR-P2P-PRA-3: relay fallback 的控制面时延中位数不得超过同区域 direct path 的 `2x`；若超过，系统必须将该 relay-domain 标记为降级。
   - NFR-P2P-PRA-4: active peer set 中，来自同一 operator、同一 ASN 或同一 `/24` 的占比默认不得超过 `25%`；超限必须降权或阻断。
-  - NFR-P2P-PRA-5: signed peer record 的默认 TTL 不得超过 `1h`，reachability 状态变化后必须支持快速 refresh/revoke。
+  - NFR-P2P-PRA-5: signed peer record 的 TTL 必须为正且不得超过 `1h`，reachability 状态变化后必须支持快速 refresh/revoke；发布与接收均执行该上限，并以版本化策略规定允许的未来时钟偏差，时间不可信不能直接判 fresh。
   - NFR-P2P-PRA-6: transport/session key、node identity key 与 consensus/governance signer 必须逻辑隔离；任何 relay 或 browser surface 泄露 transport key 都不得等价为节点治理权或出块权泄露。
   - NFR-P2P-PRA-7: gossip、sync、blob/state、control 四条 lane 必须支持独立的 rate limit、peer subset 和 quarantine 规则。
   - NFR-P2P-PRA-8: 默认安装/启动路径中，用户在不打开高级设置的情况下不应被迫选择底层正式角色；系统必须在 `60s` 内完成一次自动探测并给出默认用户模式。
@@ -154,6 +188,7 @@
 | PRD-P2P-024-C | P2PARCH-2/3 | `test_tier_required + test_tier_full` | validator_hidden、sentry、relay、full-storage、observer 角色矩阵与权限回归 | operator 部署与安全边界 |
 | PRD-P2P-024-D | P2PARCH-2/3/6 | `test_tier_required + test_tier_full` | AutoNAT / hole punch / relay fallback / relay exhaustion / path failover 套件 | 私网节点可达性与恢复 |
 | PRD-P2P-024-E | P2PARCH-5/6/7 | `test_tier_required + test_tier_full` | `P2PARCH-5` 负责 peer-manager/diversity/block artifact substrate 与定向 required 验证；`P2PARCH-6/7` 负责 anti-eclipse、mixed-topology、shared-network 与 chaos/release-train 证据 | public-chain-grade claims gate |
+| PRD-P2P-024-E / AC-17、AC-18 | 本次文档 PR；实现任务尚未形成验收记录 | 目标为 `test_tier_required`，上线另核同窗口证据 | 伪多源与未知 operator/ASN、三节点原签名转发、TTL/时钟边界、序号回退/冲突/重启、版本降级及容量耗尽；准确用例与现有 test source 见配对设计验证映射 | discovery admission、缓存转发、peer selection；现有 matrix 通过不代签这些新增负例 |
 | PRD-P2P-024-F | P2PARCH-8/9 | `test_tier_required + test_tier_full` | 用户可见部署模式、自动探测默认值、高风险职责确认与高级设置覆盖 | 部署 UX 与 role policy 可用性 |
 - Decision Log:
 

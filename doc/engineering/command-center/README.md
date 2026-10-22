@@ -1,6 +1,6 @@
 # oasis7 项目状态与指挥入口
 
-> 当前客户端范围见[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)：本地文档/Git、GitHub PR、个人记录、本机工具与原工具外部入口。检查详情在 GitHub 查看；本文的项目摘要与历史记录不替代主责合同。
+> 指挥中心的职责与目标见[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)：云端承载四个主视图、已提交来源与个人空间，本地承载工作树、私有资料及原生工具。来源事实与个人记录各守原义；实际实现和可用性由对应交付证据说明。
 
 
 本页帮助项目负责人在五分钟内看清长期方向、当前主线、已交付变化和需要关注的边界。
@@ -14,8 +14,14 @@
 | --- | --- |
 | 下次如何持续更新 | [持续更新流程](command-center.manual.md) |
 | 整体分层、部署、存储、权限与恢复 | [顶层架构索引](architecture/README.md) |
-| 指挥客户端的产品目标与技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
+| 云端指挥中心与本地辅助端的产品及技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
 | 如何运行和操作已有客户端 | [客户端使用说明](../../../tools/oasis7-command-center/README.md) |
+
+<a id="cc-status-cloud-local"></a>
+
+### 指挥中心自身的职责边界
+
+2026-10-22 文档核对：云端负责跨设备四视图、统一工作与依据、已提交规范、个人问题/决定/关联及阅读偏好；本地负责工作树、未提交预览、私有资料与原生工具。数据归属及安全导航见[系统设计](command-center.design.md#DES-CC-001)。本次只修订合同，现有应用及真实浏览器可用性未因此完成验收；已有实现和证据边界见[核对入口](command-center.design.md#cc-current-implementation)，实施与数据切换由[迁移 Issue #4983](https://github.com/nil-studio/oasis7/issues/4983)跟踪。不改变本页其他项目目标或部署状态的核验时间。
 
 <a id="cc-status-baseline"></a>
 
@@ -79,12 +85,11 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 ### 1. 持久单权威与同世界恢复
 
-已有 manifest、journal/replica、离线 activation verifier、受保护本地工程执行等前置交付。
-正式 initial activation 与普通消费者接线、不完整候选崩溃恢复、独立故障域保留/恢复、旧写者隔离和人工交接仍待完成。
-下一步先在已有代码与验证范围内收口缺口；正式 profile 的实际部署仍暂缓、开放验收尚未完成，不能把本地双目录当成独立硬件故障域。
-来源：[基础设施当前阶段](../../product/world-infrastructure/prd.md#world-infrastructure-current-stage)、[#4363 历史条件](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
+2026-10-21 节点生命周期局部核对，源码基线 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`：正式受控 writer、原请求恢复、公开投影与完整只读同步已有实现入口，准确支持范围见[节点能力与操作入口](../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)和[持久世界实施边界](../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)。这些代码和历史局部验证不等于真实独立故障域、完整消费者恢复或正式开放已验收；本轮没有部署、恢复演练或新运行结果。
 
-2026-10-12 目标设计收敛：[原候选恢复](../../p2p/design.md#des-p2p-original-candidate-recovery-v1) 固定执行前完整材料与原请求重放；[正式权威 v1](../../p2p/design.md#des-p2p-formal-controlled-authority-v1) 和 [epoch 接管](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1) 明确激活、普通证明消费者及旧写者隔离顺序。下一步按这些主责合同实现与验证；现有工程证明、离线 verifier 和本地双目录仍不足以完成正式开放。
+本次文档把[部署角色与状态路径](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)、[全状态恢复及容量](../../p2p/design.md#des-p2p-full-sync-checkpoint-capacity-v1)、[授权与撤销](../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)、[发现来源与记录生命周期](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)和[监控新鲜度](../../p2p/node/node-triad-operations-observability.design.md#report-freshness)接回主责合同。新增持久防回退、撤销完成及故障验收规则仍待实现；后续按[受控故障域验收](../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)证明原世界与已确认结果保留，不能以同机双目录代替独立硬件故障域。
+
+正式 profile 的实际部署仍暂缓；开放条件继续由[基础设施当前阶段](../../product/world-infrastructure/prd.md#world-infrastructure-current-stage)持有。[#4363](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)只保留为历史来源，本段不刷新其他主线或环境的核验时间。
 
 存储实现边界核对（2026-10-19）：[PR #4870](https://github.com/nil-studio/oasis7/pull/4870) 已合入原字节共享压缩、分批物理代与安全回收、完整 Snapshot 增量、Merkle v2、任务控制冷链及原生工件闭包，所测版本的同机进程恢复与长历史检查通过。固定小规模对象命名空间样本有空间收益及读取成本，准确版本和分布见实施 PR。后续验证由[手动存储专项 CI](../../world-runtime/runtime/formal-world-storage-efficiency.manual.md#lws-manual-ci)组织核心存储、同机网络故障模型和可选容量档位，运行是否通过以各次完整结果为准。当前无部署节点，S6 真实独立双故障域、更大规模及其他未测指标不因代码合入或某轮 CI 绿色取得验收；本段不刷新其他主线或环境基线。 [PR #4891](https://github.com/nil-studio/oasis7/pull/4891) 当前候选补双端 pin 释放恢复、有预算的默认物理维护与分页收敛，并测同一正式 writer 完整目录维护前后的净占用；短样本仍净增长，不能将对象表示收益当作完整节点节省，最终验收及长跑结果以该 PR 为准。
 
@@ -116,8 +121,8 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ### 5. BFT 与同世界交接
 
-顶层合同允许 BFT 与受控单权威路径并行研发，先验证同一历史，再按 H/H+1 交接转移写权。
-独立验证者协议、持久证书与同世界交接尚未验收；它不自动成为已满足条件的受控单权威试玩前置。
+顶层合同允许 BFT 与受控单权威路径并行研发，先验证同一历史，再按 H/H+1 交接转移写权。2026-10-21 局部设计补齐[轮次与锁定](../../p2p/design.md#des-p2p-bft-round-lock-v1)、[崩溃后签名安全](../../p2p/design.md#des-p2p-bft-signing-recovery-v1)和[BFT 成员生效](../../p2p/design.md#des-p2p-bft-validator-transition-v1)；BFT 内部的 h+2 成员应用与 profile 间 H/H+1 交接分别成立。
+当前 PoS 原型不能据此取得正式 BFT 保证，独立验证者协议、持久证书与同世界交接尚未验收；该目标不自动成为已满足条件的受控单权威试玩前置。
 来源：[基础设施路线图](../../product/world-infrastructure/prd.md#4-路线图)、[#4363 历史记录](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
 
 ### 6. 外部游戏 Runtime 的 owner 目标控制前置

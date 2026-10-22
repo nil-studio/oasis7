@@ -1,5 +1,6 @@
 use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadBody, decode_consensus_action_payload_envelope,
+    ConsensusActionAuthEnvelope, ConsensusActionPayloadBody,
+    decode_consensus_action_payload_envelope,
 };
 use oasis7_node::{
     NodeExecutionCommitContext, decode_replicated_execution_input_action,
@@ -17,7 +18,11 @@ pub(super) fn decode_committed_actions(
     context: &NodeExecutionCommitContext,
 ) -> Result<
     (
-        Vec<(RuntimeAction, Option<oasis7_runtime::CommittedRecipeOrigin>)>,
+        Vec<(
+            RuntimeAction,
+            Option<oasis7_runtime::CommittedRecipeOrigin>,
+            Option<oasis7_runtime::GovernanceAuthorizationV1>,
+        )>,
         Vec<(SimulatorAction, ActionSubmitter)>,
         Option<Vec<ProviderBackedBootstrapAuthorityV1>>,
         Vec<(
@@ -71,34 +76,67 @@ pub(super) fn decode_committed_actions(
             continue;
         }
         match decode_consensus_action_payload_envelope(action.payload_cbor.as_slice()) {
-            Ok(envelope) => match envelope.body {
-                ConsensusActionPayloadBody::WorldServiceIntent { request } => {
-                    service_intents.push((action.action_id, request));
+            Ok(envelope) => {
+                let governance_authorization = match envelope.auth {
+                    Some(ConsensusActionAuthEnvelope::GovernanceAction(proof)) => Some(proof),
+                    _ => None,
+                };
+                let admission = matches!(
+                    &envelope.body,
+                    ConsensusActionPayloadBody::RuntimeAction {
+                        action: RuntimeAction::SubmitGovernanceValidatorAdmission { .. }
+                            | RuntimeAction::ApproveGovernanceValidatorAdmission { .. }
+                            | RuntimeAction::ActivateGovernanceValidatorAdmission { .. }
+                            | RuntimeAction::RevokeGovernanceValidatorAdmission { .. }
+                    }
+                );
+                if admission != governance_authorization.is_some() {
+                    return Err(
+                        "committed validator admission governance authorization mismatch".into(),
+                    );
                 }
-                ConsensusActionPayloadBody::RuntimeAction { action: decoded } => {
-                    if let RuntimeAction::WorldServiceIntent { request } = decoded {
-                        let request = serde_json::from_value(request).map_err(|error| {
-                            format!("invalid registered world-service intent: {error}")
-                        })?;
-                        service_intents.push((action.action_id, request));
-                    } else {
-                        let origin = envelope.gameplay_submission_origin.map(|submission| {
-                            oasis7_runtime::CommittedRecipeOrigin {
-                                submission,
-                                consensus_action_id: action.action_id,
-                                consensus_submitter_player_id: action.submitter_player_id.clone(),
-                                action_payload_hash: action.payload_hash.clone(),
-                                committed_height: context.height,
-                                action_root: context.action_root.clone(),
-                            }
-                        });
-                        decoded_runtime_actions.push((decoded, origin));
+                if let Some(proof) = governance_authorization.as_ref() {
+                    proof.validate()?;
+                    if proof.signatures.is_empty() || envelope.gameplay_submission_origin.is_some()
+                    {
+                        return Err("invalid committed governance authorization metadata".into());
                     }
                 }
-                ConsensusActionPayloadBody::SimulatorAction { action, submitter } => {
-                    decoded_simulator_actions.push((action, submitter));
+                match envelope.body {
+                    ConsensusActionPayloadBody::WorldServiceIntent { request } => {
+                        service_intents.push((action.action_id, request));
+                    }
+                    ConsensusActionPayloadBody::RuntimeAction { action: decoded } => {
+                        if let RuntimeAction::WorldServiceIntent { request } = decoded {
+                            let request = serde_json::from_value(request).map_err(|error| {
+                                format!("invalid registered world-service intent: {error}")
+                            })?;
+                            service_intents.push((action.action_id, request));
+                        } else {
+                            let origin = envelope.gameplay_submission_origin.map(|submission| {
+                                oasis7_runtime::CommittedRecipeOrigin {
+                                    submission,
+                                    consensus_action_id: action.action_id,
+                                    consensus_submitter_player_id: action
+                                        .submitter_player_id
+                                        .clone(),
+                                    action_payload_hash: action.payload_hash.clone(),
+                                    committed_height: context.height,
+                                    action_root: context.action_root.clone(),
+                                }
+                            });
+                            decoded_runtime_actions.push((
+                                decoded,
+                                origin,
+                                governance_authorization,
+                            ));
+                        }
+                    }
+                    ConsensusActionPayloadBody::SimulatorAction { action, submitter } => {
+                        decoded_simulator_actions.push((action, submitter));
+                    }
                 }
-            },
+            }
             Err(err) => {
                 return Err(format!(
                     "execution driver decode committed action failed action_id={} err={}",

@@ -173,7 +173,7 @@ impl World {
             && nonce_record.outcome_hash == receipt.canonical_result_hash
     }
 
-    pub(super) fn replay_from(&mut self, start_index: usize) -> Result<(), WorldError> {
+    pub(super) fn replay_from_inner(&mut self, start_index: usize) -> Result<(), WorldError> {
         let start_index = start_index.min(self.journal.events.len());
         let events: Vec<WorldEvent> = self.journal.events[start_index..].to_vec();
         let mut replaying_tick: Option<WorldTime> = None;
@@ -366,6 +366,7 @@ impl World {
         &self,
         envelope: &ActionEnvelope,
     ) -> Result<WorldEventBody, WorldError> {
+        self.validate_governance_action_authorization(envelope)?;
         let action_id = envelope.id;
         if let Err(reason) = self.safe_alternative_action_guard(envelope) {
             return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
@@ -525,7 +526,8 @@ impl World {
                         logistics_route_ids: vec![],
                         logistics_path_ids: vec![],
                     },
-                    committed_recipe_origin: envelope.committed_recipe_origin.clone(),
+                    governance_authorization: None,
+            committed_recipe_origin: envelope.committed_recipe_origin.clone(),
                 })?;
                 if let WorldEventBody::Domain(DomainEvent::RecipeStarted {
                     emergency_power_obligation,
@@ -669,7 +671,7 @@ impl World {
             | Action::OpenEconomicContract { .. }
             | Action::AcceptEconomicContract { .. }
             | Action::SettleEconomicContract { .. } => {
-                self.action_to_event_policy_contract(action_id, &envelope.action)
+                self.action_to_event_policy_contract(action_id, &envelope.action, envelope.governance_authorization.as_ref())
             }
             Action::EmitResourceTransfer { .. }
             | Action::CollectData { .. }

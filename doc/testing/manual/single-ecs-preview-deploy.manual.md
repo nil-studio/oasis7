@@ -61,6 +61,49 @@ systemctl show <player-service> -p ActiveState -p SubState -p MainPID
 
 版本路径修改采用本机已有的服务配置 / 部署脚本；本手册不假设所有 ECS 都有同一个升级命令。首次接管机器时确认一次路径即可，后续复用。
 
+### 公网 API 路由核对
+
+沿用旧 Nginx 配置不代表白名单完整。首次接管及每次升级后，核对当前 Viewer 实际使用的公开接口与公网代理一致；接口以所部署提交的 [公开端点合同](../../../crates/oasis7_hosted_access/src/lib.rs)和 [HTTP 处理器](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/static_http.rs)为依据。端点合同用于核对，不是可直接全部放行的 Nginx 清单；各路径仍须按本机部署模式、认证和请求方法逐项配置。
+
+`hosted_public_join` Viewer 会查询 `/api/public/player-session/admission`。在现有 HTTPS `server` 内添加以下精确路由，替换本机实际的 launcher 静态 HTTP 监听端口（示例 `4173`）；该端口不是 Runtime WebSocket 或 chain status 端口。已有相同路由时核对并更新，不能重复添加：
+
+```nginx
+location = /api/public/player-session/admission {
+    if ($request_method !~ "^(GET|HEAD)$") { return 405; }
+    proxy_pass http://127.0.0.1:4173;
+    proxy_set_header Host $host;
+    proxy_set_header Origin $http_origin;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_cache off;
+    proxy_read_timeout 60s;
+}
+```
+
+该片段依赖现有站点的可信 Host、Origin 拒绝规则及安全响应头，不能作为独立安全配置使用。保留 `/api/` 的默认拒绝规则；不要用整个 `/api/` 或 `/api/public/` 的泛代理修复遗漏，不顺带开放 `issue`、`refresh` 或管理接口。准入查询返回席位、限流和 Runtime 探测状态，不签发凭据；查询会触发现有 presence 校准和过期席位清理。它也不代表世界 participant / owner / executor 授权已建立。
+
+修改前备份实际站点配置，在同一维护锁内修改，执行 `nginx -t` 成功后才 reload；语法检查、reload 或公网验证失败时恢复备份并重新检查 / reload。不重启世界服务来修复代理路由。
+
+在 ECS 上分别检查本机和公网，两个响应均须为 JSON，`ok=true`、`deployment_mode=hosted_public_join` 且 `admission.runtime_probe_status=ok`；动态计数和时间戳不要求逐字节相等：
+
+```bash
+curl --fail --silent --show-error --max-time 15 http://127.0.0.1:4173/api/public/player-session/admission
+curl --fail --silent --show-error --max-time 15 https://<public-host>/api/public/player-session/admission
+```
+
+| 公网检查 | 预期 |
+| --- | --- |
+| GET 准入查询 | 200，JSON 字段符合上述要求 |
+| HEAD 同一路径 | 200，空正文 |
+| POST 同一路径 | 405 |
+| GET 同一路径追加 `/unexpected` | 404 |
+| GET `/api/public/player-session/issue` | 404，保留既有默认拒绝 |
+| GET 准入查询，携带非本站 Origin | 403 |
+
+本机 200 而公网返回 Nginx HTML 404 时，先检查请求命中的 `server` 和精确 location / include；不是世界准入策略缺失的证据。本机也失败时，再检查 launcher 路由、监听端口和日志。公网返回 JSON 但 Runtime 探测非 `ok` 时，排查后端与 Runtime 的连接，不通过扩大代理白名单或关闭认证解决。刷新实际页面，核对该请求不再失败；首页 200、Skill 校验和本机接口成功均不能替代公网 API 验证。
+
 ### 同版本发布游戏 Skill
 
 每次 player 升级和回滚均执行本步骤，使用实际运行的完整 ECS release；发布成功是本次部署验收的一部分。不要保留另一提交的手工静态 Skill，也不要单独从 main 获取文档覆盖运行版本。
@@ -128,6 +171,7 @@ python3 "$release/deployment/ecs-skill-release.py" verify \
 
 ## 4. 马上验证
 
+- 完成上述公网 API 路由核对，准入查询及拒绝边界检查通过；发现 API 404 时先定位来源并处理，不把它当作配置世界授权的理由。
 - 确认上述 Skill 同版本发布和公网校验成功；失败时本次部署尚未完成，不以首页 HTTP 200 代替。
 - 最多 15 秒确认 launcher / Viewer 实际新进程启动，运行的文件哈希匹配候选。只更新 player 时确认 chain 未重启；更新 chain 时确认新链进程及其哈希。
 - 做一次真实签名世界读取，核对原 world ID、genesis、服务公钥和读身份。端口打开、HTTP 200 或 `--version` 不能替代这个检查。
@@ -150,4 +194,8 @@ trace session ID 默认每次启动变化。验证它属于当前 launcher 的 P
 
 ### ECS workspace cache validation
 
-Retain actual trusted main native producer and compatible consumer run/job links, requested/restored keys, cache-hit, Cargo unit Fresh/rebuilt, transfer durations, and raw/compressed bytes. Inspect cache reports in `ecs-native-timings`; a cache miss or rejection must still perform the full native build. Exercise added, removed and renamed source inputs for conservative invalidation. Limits are 6 GiB staging, 6 GiB remote main family and two compatible generations; inventory failures or exhausted limits skip saving. Also inspect the live repository quota (positive integer GB converted conservatively to decimal bytes), observed usage across all refs/families and projected bytes in the cache report; missing quota or insufficient repository capacity skips saving without changing settings or deleting caches. Concurrent writers can change capacity after this point-in-time guard, so it does not reserve space atomically. Record pending remote evidence explicitly rather than treating local tests as cross-run reuse proof.
+Retain actual trusted main native producer and compatible consumer run/job links, requested/restored keys, cache-hit, Cargo unit Fresh/rebuilt, transfer durations, and raw/compressed bytes. Inspect cache reports in `ecs-native-timings`; a cache miss or rejection must still perform the full native build. Exercise added, removed and renamed source inputs for conservative invalidation. Limits are 6 GiB logical staging, 6 GiB remote main family and two compatible generations; inventory failures or exhausted limits skip saving.
+
+Inspect the live quota, configured and effective budgets, capacity basis, complete usage across all refs/families, measured archive bytes and conservative outer upload bound. A live positive integer quota is converted conservatively to decimal bytes. Only recognized quota-access denial without rate limiting may use an explicitly configured, independently verified repository budget; the report must still identify the live quota as unknown. Other quota failures, an absent verified fallback or insufficient capacity skip saving without changing settings or deleting caches. See the [capacity policy and configuration source](../ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache). Concurrent writers and later dependency-cache post-job saves can change capacity after this point-in-time guard, so it does not reserve space atomically.
+
+Candidate native jobs run archive/capacity preview with `save=false`. Confirm actual trusted main uploads through the separate `observe-save` report and a subsequent compatible consumer; preview, a successful action or local tests alone do not establish cross-run reuse. Record pending remote evidence explicitly.

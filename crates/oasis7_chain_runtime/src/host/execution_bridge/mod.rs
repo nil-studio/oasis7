@@ -10,6 +10,7 @@ mod controlled_live_history;
 mod controlled_live_package;
 mod driver_startup_recovery;
 mod execution_hash;
+mod governance_authorization;
 #[cfg(unix)]
 mod formal_attempt_lifecycle;
 mod formal_business_package;
@@ -32,6 +33,8 @@ mod product_validation_intent;
 mod provider_bootstrap;
 mod world_service_execution;
 pub(crate) mod world_service_read;
+#[cfg(all(test, unix))]
+mod governance_authorization_tests;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionBridgeState {

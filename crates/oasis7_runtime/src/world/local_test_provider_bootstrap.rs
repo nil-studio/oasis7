@@ -329,6 +329,7 @@ impl World {
     fn apply_local_test_main_token_action(&mut self, action: Action) -> Result<(), WorldError> {
         let action_id = self.allocate_next_action_id();
         let envelope = ActionEnvelope {
+            governance_authorization: None,
             committed_recipe_origin: None,
             id: action_id,
             action,

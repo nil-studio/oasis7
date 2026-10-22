@@ -22,6 +22,7 @@ impl World {
             .ok_or("starter owner unavailable")?;
         let envelope = ActionEnvelope {
             id: self.next_action_id,
+            governance_authorization: None,
             committed_recipe_origin: None,
             action: Action::ClaimStarterOc {
                 agent_id: agent.into(),
@@ -62,6 +63,7 @@ impl World {
         let id = candidate.allocate_next_action_id();
         let envelope = ActionEnvelope {
             id,
+            governance_authorization: None,
             committed_recipe_origin: None,
             action: Action::ClaimStarterOc {
                 agent_id: r.agent_id.clone(),

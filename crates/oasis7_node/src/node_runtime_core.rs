@@ -63,6 +63,7 @@ struct LocalConsensusActionPayloadEnvelope {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 enum LocalConsensusActionAuthEnvelope {
     MainTokenAction(LocalMainTokenActionAuthProof),
+    GovernanceAction(JsonValue),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -394,6 +395,7 @@ impl NodeRuntime {
             });
         }
         validate_consensus_action_payload_auth(&self.config, payload_cbor.as_slice())?;
+        governance_auth::preflight(self, payload_cbor.as_slice())?;
         let action = NodeConsensusAction::from_payload(
             action_id,
             self.config.player_id.clone(),
@@ -520,37 +522,6 @@ impl NodeRuntime {
         pending.push(announce);
         Ok(())
     }
-}
-
-fn validate_consensus_action_payload_auth(
-    config: &NodeConfig,
-    payload_cbor: &[u8],
-) -> Result<(), NodeError> {
-    let envelope = decode_local_consensus_action_payload_envelope(payload_cbor).map_err(|err| {
-        NodeError::Consensus {
-            reason: format!("decode consensus action payload auth envelope failed: {err}"),
-        }
-    })?;
-    let LocalConsensusActionPayloadBody::RuntimeAction { action } = &envelope.body else {
-        return Ok(());
-    };
-    if !local_main_token_action_auth_required(action) {
-        return Ok(());
-    }
-    let Some(LocalConsensusActionAuthEnvelope::MainTokenAction(proof)) = envelope.auth.as_ref()
-    else {
-        return Err(NodeError::Consensus {
-            reason: format!(
-                "missing_main_token_auth for runtime action {}",
-                local_runtime_action_kind(action).unwrap_or("unknown")
-            ),
-        });
-    };
-    verify_local_main_token_action_auth(action, proof, &config.main_token_controller_binding)
-        .map_err(|err| NodeError::Consensus {
-            reason: format!("main token action auth rejected: {err}"),
-        })?;
-    Ok(())
 }
 
 fn decode_local_consensus_action_payload_envelope(
@@ -1198,3 +1169,18 @@ fn node_feedback_error(err: ProtoWorldError) -> NodeError {
         reason: format!("feedback operation failed: {err:?}"),
     }
 }
+
+#[cfg(test)]
+#[path = "node_runtime_governance_auth_tests.rs"]
+mod governance_auth_tests;
+
+#[path = "node_runtime_governance_auth.rs"]
+mod governance_auth;
+
+/// Canonical-order nonce selection is performed only after the execution
+/// hook has rechecked the payload against the current qualified parent.
+pub(super) fn governance_payload_nonce(payload: &[u8]) -> Result<Option<(String, u64)>, NodeError> {
+    governance_auth::payload_nonce(payload)
+}
+
+use governance_auth::validate_consensus_action_payload_auth;
