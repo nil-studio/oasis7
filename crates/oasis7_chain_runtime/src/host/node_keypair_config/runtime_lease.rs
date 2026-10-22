@@ -1,5 +1,6 @@
 //! Runtime identity ownership is an OS lease, not a PID or an authority grant.
 use super::*;
+#[cfg(unix)]
 use crate::node_lifecycle::local_io as io;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
