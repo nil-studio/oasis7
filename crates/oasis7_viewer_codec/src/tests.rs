@@ -171,12 +171,28 @@ fn buffered_writer_preserves_bytes_across_capacity_and_large_chunk_boundaries() 
         .collect();
     messages.push("雪🙂\n".repeat(2500));
     for message in messages {
-        let response = ViewerResponse::Error { message };
-        let expected = serde_json::to_vec(&response).unwrap();
-        let mut writer = NoFlush(Vec::new());
-        write_buffered_response_json(&mut writer, &response).unwrap();
-        assert_eq!(writer.0, expected);
-        assert_eq!(response_to_json(&response).unwrap().as_bytes(), expected);
+        for response in [
+            ViewerResponse::Error {
+                message: message.clone(),
+            },
+            ViewerResponse::Event {
+                event: WorldEvent {
+                    id: 7,
+                    time: 3,
+                    kind: WorldEventKind::RuntimeEvent {
+                        kind: message,
+                        domain_kind: None,
+                    },
+                    runtime_event: None,
+                },
+            },
+        ] {
+            let expected = serde_json::to_vec(&response).unwrap();
+            let mut writer = NoFlush(Vec::new());
+            write_buffered_response_json(&mut writer, &response).unwrap();
+            assert_eq!(writer.0, expected);
+            assert_eq!(response_to_json(&response).unwrap().as_bytes(), expected);
+        }
     }
 }
 
@@ -213,25 +229,41 @@ fn buffered_partial_errors_do_not_retry_pending_bytes_or_flush() {
     // Small responses fail while draining the final tail. Escapes force many
     // small writes, failing an internal full-buffer drain rather than a bypass.
     for (message, budget) in [("x".repeat(80), 8), ("\n".repeat(10000), 257)] {
-        let response = ViewerResponse::Error { message };
-        let expected = serde_json::to_vec(&response).unwrap();
-        for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::BrokenPipe] {
-            let mut writer = FaultWriter {
-                bytes: Vec::new(),
-                remaining: budget,
-                failed: false,
-                calls_after_error: 0,
-                flushes: 0,
-                kind,
-            };
-            let error = write_buffered_response_json(&mut writer, &response).unwrap_err();
-            assert_eq!(error.classify(), serde_json::error::Category::Io);
-            assert_eq!(error.io_error_kind(), Some(kind));
-            assert_eq!(error.to_string(), "injected failure");
-            assert_eq!(writer.bytes, expected[..budget]);
-            assert!(writer.failed);
-            assert_eq!(writer.calls_after_error, 0);
-            assert_eq!(writer.flushes, 0);
+        for response in [
+            ViewerResponse::Error {
+                message: message.clone(),
+            },
+            ViewerResponse::Event {
+                event: WorldEvent {
+                    id: 7,
+                    time: 3,
+                    kind: WorldEventKind::RuntimeEvent {
+                        kind: message,
+                        domain_kind: None,
+                    },
+                    runtime_event: None,
+                },
+            },
+        ] {
+            let expected = serde_json::to_vec(&response).unwrap();
+            for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::BrokenPipe] {
+                let mut writer = FaultWriter {
+                    bytes: Vec::new(),
+                    remaining: budget,
+                    failed: false,
+                    calls_after_error: 0,
+                    flushes: 0,
+                    kind,
+                };
+                let error = write_buffered_response_json(&mut writer, &response).unwrap_err();
+                assert_eq!(error.classify(), serde_json::error::Category::Io);
+                assert_eq!(error.io_error_kind(), Some(kind));
+                assert_eq!(error.to_string(), "injected failure");
+                assert_eq!(writer.bytes, expected[..budget]);
+                assert!(writer.failed);
+                assert_eq!(writer.calls_after_error, 0);
+                assert_eq!(writer.flushes, 0);
+            }
         }
     }
 }
