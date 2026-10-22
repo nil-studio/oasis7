@@ -42,7 +42,8 @@ COLD_ENTRY_ENUMS = {
 FAILURE_STAGES = frozenset((
     "initialization", "temporary_tls", "actual_fixture_setup", "authorized_service_startup",
     "zero_resource_discovery", "cold_entry_init", "cold_entry_response_loss_recovery",
-    "canonical_sdk_action", "completed_workflow_restart", "canonical_original_recheck"))
+    "committed_policy_chain_process_restart", "canonical_sdk_action",
+    "completed_workflow_restart", "canonical_original_recheck"))
 
 
 def safe_enum(value, allowed):

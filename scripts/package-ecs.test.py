@@ -47,6 +47,9 @@ class PackageTests(unittest.TestCase):
                                           "attempts", "last_result", "response_loss"})
             self.assertNotIn(secret, json.dumps(receipt))
             self.assertEqual(json.loads((Path(directory) / "receipt.json").read_text()), receipt)
+            smoke.stage = "committed_policy_chain_process_restart"
+            self.assertEqual(smoke.write_failure_receipt()["failure_stage"],
+                             "committed_policy_chain_process_restart")
             for code, output in [(0, json.dumps({"stage": secret, "state": secret,
                                                  "next_action": secret}).encode()),
                                  (1, json.dumps({"stage": "complete", "state": "confirmed",
