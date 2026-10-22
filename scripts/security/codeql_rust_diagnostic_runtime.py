@@ -60,6 +60,7 @@ class GroupSamples:
         self.peak_rss = 0
         self.samples = 0
         self.errors = 0
+        self.skipped_identity_observations = 0
         self.supported = proc.is_dir()
 
     def sample(self):
@@ -94,17 +95,18 @@ class GroupSamples:
                     self.errors += 1
                     continue  # discard stat+io tuple if identity changed across either read
                 key = f'{pid}:{start}:{self.pgid}'
+                rss += resident
+                cpu += ticks
+                accepted += 1
                 if key not in self.identities and len(self.identities) >= 256:
-                    raise RuntimeError('owned resource identity bound exceeded')
+                    self.skipped_identity_observations += 1
+                    continue  # diagnostic saturation is not an extraction safety failure
                 old = self.identities.setdefault(key, {'pid': pid, 'start_ticks': start,
                     'pgid': self.pgid, 'cpu_ticks_observed_max': 0, 'io_observed_max': {}})
                 old['io_validity'] = 'OBSERVED' if io_valid or old.get('io_validity') == 'OBSERVED' else 'UNKNOWN'
                 old['cpu_ticks_observed_max'] = max(old['cpu_ticks_observed_max'], ticks)
                 for name, value in counters.items():
                     old['io_observed_max'][name] = max(old['io_observed_max'].get(name, 0), value)
-                rss += resident
-                cpu += ticks
-                accepted += 1
             except (OSError, ValueError, IndexError):
                 # Exiting processes are normal; record observation limitations.
                 self.errors += 1
@@ -119,11 +121,14 @@ class GroupSamples:
         return {'status': 'OBSERVED' if self.identities else 'UNAVAILABLE_NO_IDENTITIES',
             'sample_period_seconds': .2, 'samples': self.samples, 'read_errors': self.errors,
             'clock_ticks_per_second': os.sysconf('SC_CLK_TCK'),
-            'counter_validity': 'OBSERVED_PARTIAL_SAMPLING' if self.identities else 'UNKNOWN',
-            'observed_group_own_cpu_seconds': sum(p['cpu_ticks_observed_max'] for p in self.identities.values()) / os.sysconf('SC_CLK_TCK') if self.identities else None,
+            'counter_validity': 'INCOMPLETE_IDENTITY_SATURATION' if self.skipped_identity_observations else ('OBSERVED_PARTIAL_SAMPLING' if self.identities else 'UNKNOWN'),
+            'skipped_identity_observations': self.skipped_identity_observations,
+            'identity_history_limit': 256,
+            'observed_tracked_identity_cpu_seconds': sum(p['cpu_ticks_observed_max'] for p in self.identities.values()) / os.sysconf('SC_CLK_TCK') if self.identities else None,
+            'observed_group_own_cpu_seconds': sum(p['cpu_ticks_observed_max'] for p in self.identities.values()) / os.sysconf('SC_CLK_TCK') if self.identities and not self.skipped_identity_observations else None,
             'observed_peak_group_rss_bytes': self.peak_rss if self.identities else None,
             'processes': list(self.identities.values()),
-            'limits': 'Sampled PGID+start-tick identities; may miss short-lived/final work. '
+            'limits': 'Saturation omits untracked identity cumulative CPU/I/O; skipped count is observations, not unique processes. Tracked CPU is a subset, never a complete total. Sampled PGID+start-tick identities; may miss short-lived/final work. '
                       'RSS is sampled aggregate, not true peak/hard limit. I/O counters are '
                       'per-process observations, not additive physical device traffic.'}
 

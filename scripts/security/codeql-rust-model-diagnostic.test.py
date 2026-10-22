@@ -120,6 +120,29 @@ class Runtime(unittest.TestCase):
             self.assertEqual(sampler.result()['counter_validity'],'UNKNOWN')
         self.assertIsNone(r.GroupSamples(42,Path('/nonexistent/diagnostic-proc')).result()['observed_peak_group_rss_bytes'])
 
+    def test_257_identity_saturation_is_incomplete_not_process_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);folder=root/'123';folder.mkdir()
+            sampler=r.GroupSamples(42,root)
+            def write(start,cpu,pgid=42):
+                fields=['0']*22;fields[0]='R';fields[2]=str(pgid);fields[11]=str(cpu);fields[19]=str(start);fields[21]='2'
+                (folder/'stat').write_text('123 (worker) '+' '.join(fields))
+                (folder/'io').write_text('read_bytes: 7\n')
+            for start in range(257):
+                write(start,1);sampler.sample()
+            value=sampler.result()
+            self.assertEqual(len(value['processes']),256)
+            self.assertEqual(value['skipped_identity_observations'],1)
+            self.assertEqual(value['counter_validity'],'INCOMPLETE_IDENTITY_SATURATION')
+            self.assertIsNone(value['observed_group_own_cpu_seconds'])
+            self.assertGreater(value['observed_tracked_identity_cpu_seconds'],0)
+            write(0,99);sampler.sample()
+            self.assertEqual(sampler.identities['123:0:42']['cpu_ticks_observed_max'],99)
+            write(999,999,77);sampler.sample()
+            self.assertEqual(len(sampler.identities),256)
+            self.assertEqual(sampler.skipped_identity_observations,1)
+            self.assertEqual(sampler.result()['observed_peak_group_rss_bytes'],2*os.sysconf('SC_PAGE_SIZE'))
+
     def test_terminal_reserve_frozen_size_admission(self):
         value=r.admit_terminal_snapshots({'source':'f'*64},{'library':'e'*64})
         self.assertLessEqual(value['required_bytes'],r.CAP-r.WRITE_CAP)
