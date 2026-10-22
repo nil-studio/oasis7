@@ -63,6 +63,7 @@ pub(crate) mod tests;
 /// Opened, but not yet running, formal Node. Construction performs all trust,
 /// policy, endpoint and bootstrap checks before starting an ingress listener.
 pub(crate) struct FormalLiveRuntime {
+    _identity_lease: Arc<super::node_keypair_config::RuntimeIdentityLease>,
     validated: ValidatedFormalLiveConfigV1,
     active_authority: VerifiedAuthorityV1,
     world: WorldIdentity,
@@ -141,6 +142,7 @@ impl FormalLiveRuntime {
     pub(crate) fn open_from_validated_with_native_history(
         validated: ValidatedFormalLiveConfigV1,
     ) -> Result<Self, String> {
+        let identity_lease = acquire_runtime_identity(&validated)?;
         let timing = OpenTiming::new();
         let _open = timing.stage("open_total");
         let initial = timing.stage("history_resolver_and_startup_anchor");
@@ -157,6 +159,7 @@ impl FormalLiveRuntime {
             business_reader,
             Some(startup),
             &timing,
+            identity_lease,
         )
     }
 
@@ -166,6 +169,7 @@ impl FormalLiveRuntime {
         business_reader: Arc<RemoteBusinessIndexReader>,
         startup: Option<super::formal_live_history::FormalLiveStartupAnchorV1>,
         timing: &OpenTiming,
+        identity_lease: Arc<super::node_keypair_config::RuntimeIdentityLease>,
     ) -> Result<Self, String> {
         validate_loaded_execution_policy(&validated)?;
         // Seed only content-addressed bytes from the exact configured initial
@@ -368,7 +372,10 @@ impl FormalLiveRuntime {
                     published.clone(),
                     history.clone(),
                 )?;
-            (Some(delivery), sink)
+            (
+                Some(delivery.with_identity_lease(Arc::clone(&identity_lease))),
+                sink,
+            )
         } else {
             (None, published.clone())
         };
@@ -380,6 +387,7 @@ impl FormalLiveRuntime {
             )?,
         );
         let hook = FormalNodeHook::new(writer)?
+            .with_identity_lease(Arc::clone(&identity_lease))
             .with_durable_set_arm(Arc::clone(&durable_set_arm), Arc::clone(&admission_gate))?
             .with_publication_sink(sink)?;
         let node_config = local_single_authority_node_config(&node_id, &world.world_id)?;
@@ -394,6 +402,7 @@ impl FormalLiveRuntime {
         runtime = runtime.with_execution_hook(hook);
 
         Ok(Self {
+            _identity_lease: identity_lease,
             validated,
             active_authority,
             world,
@@ -890,6 +899,70 @@ fn writer_endpoint(
 #[cfg(not(all(test, unix)))]
 fn writer_endpoint(endpoint: RemoteFormalEndpoint, _: EndpointRole) -> RemoteFormalEndpoint {
     endpoint
+}
+
+fn acquire_runtime_identity(
+    validated: &ValidatedFormalLiveConfigV1,
+) -> Result<Arc<super::node_keypair_config::RuntimeIdentityLease>, String> {
+    use super::node_keypair_config::{RuntimeIdentityBindingV1, acquire_runtime_identity_lease};
+    if validated.anchor.authority().definition().profile_version != 2 {
+        return Err("runtime identity lease requires controlled profile v2".into());
+    }
+    // Check original paths before canonicalization so an alias cannot cause
+    // public binding writes before a later key reread rejects the alias.
+    super::controlled_live_config::require_private_owned(
+        &validated.config.node_keypair_directory,
+        true,
+    )?;
+    super::controlled_live_config::require_private_owned(&validated.config.writer_directory, true)?;
+    super::controlled_live_config::require_private_owned(
+        &validated
+            .config
+            .node_keypair_directory
+            .join(super::node_keypair_config::PROVISIONED_NODE_KEYPAIR_FILE),
+        false,
+    )?;
+    let key_path = std::fs::canonicalize(
+        validated
+            .config
+            .node_keypair_directory
+            .join(super::node_keypair_config::PROVISIONED_NODE_KEYPAIR_FILE),
+    )
+    .map_err(|error| format!("canonical node identity path: {error}"))?;
+    let derived = super::derive_node_libp2p_identity_keypair_config(
+        &validated.config.node_id,
+        &validated.node_keypair,
+    )?;
+    let peer_id = oasis7_node::derive_libp2p_identity_keypair(&derived.private_key_hex)
+        .map_err(|error| format!("derive formal node peer identity: {error:?}"))?
+        .public()
+        .to_peer_id()
+        .to_string();
+    let world = &validated.anchor.head().record().world;
+    let binding = RuntimeIdentityBindingV1 {
+        version: 1,
+        key_path: key_path.clone(),
+        data_directory: std::fs::canonicalize(&validated.config.writer_directory)
+            .map_err(|error| format!("canonical formal writer directory: {error}"))?,
+        node_id: validated.config.node_id.clone(),
+        root_public_key: validated.node_keypair.public_key_hex.clone(),
+        peer_id,
+        world_id: world.world_id.clone(),
+        chain_id: world.chain_id.clone(),
+        genesis_digest: world.genesis_digest.clone(),
+        profile: "controlled-v2".into(),
+    };
+    let lease = acquire_runtime_identity_lease(&key_path, &binding)?;
+    let (current, _) = super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
+        &validated.config.node_keypair_directory,
+    )
+    .map_err(|_| "formal node identity verification failed after lease acquisition")?;
+    if current.public_key_hex != validated.node_keypair.public_key_hex
+        || current.private_key_hex != validated.node_keypair.private_key_hex
+    {
+        return Err("formal node identity changed after configuration validation".into());
+    }
+    Ok(Arc::new(lease))
 }
 
 fn local_single_authority_node_config(node_id: &str, world_id: &str) -> Result<NodeConfig, String> {

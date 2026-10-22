@@ -58,14 +58,16 @@ mod effect_tests;
 #[path = "formal_live_first_agent_test_effect.rs"]
 mod first_agent_test_effect;
 use crate::formal_read_fixtures as fixtures;
-#[path = "formal_live_protected_full_node_storage_tests.rs"]
-mod full_node_storage_tests;
 #[path = "formal_live_controlled_stop_tests.rs"]
 mod controlled_stop_tests;
+#[path = "formal_live_protected_full_node_storage_tests.rs"]
+mod full_node_storage_tests;
 #[path = "formal_live_protected_healthy_fault_process_tests.rs"]
 mod healthy_fault_tests;
 #[path = "formal_live_healthy_operation_process_tests.rs"]
 mod healthy_operation_tests;
+#[path = "formal_live_runtime_identity_tests.rs"]
+mod identity_runtime_tests;
 #[path = "formal_live_protected_long_history_tests.rs"]
 mod long_history_tests;
 #[path = "formal_live_protected_process_oracle.rs"]
@@ -132,6 +134,19 @@ fn protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner(
         .name("formal-controlled-stop".into())
         .stack_size(32 * 1024 * 1024)
         .spawn(|| run_protected_runtime_round_trip(false, Some("controlled_stop_budget")))
+        .unwrap()
+        .join()
+        .unwrap()
+        .unwrap();
+}
+
+#[test]
+#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; loopback custody oracle is a simulation"]
+fn protected_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop() {
+    std::thread::Builder::new()
+        .name("formal-runtime-identity".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| run_protected_runtime_round_trip(false, Some("identity_runtime_lease")))
         .unwrap()
         .join()
         .unwrap()
@@ -557,6 +572,9 @@ fn run_protected_runtime_fixture(
     if let Some(scenario) = effect_scenario {
         scenario.decorate_config(&mut runtime_config)?;
     }
+    if crash_phase == Some("identity_runtime_lease") {
+        runtime_config["effect_delivery"] = serde_json::json!({"routes": []});
+    }
     oracle_support::write_private(
         &runtime_config_path,
         &serde_json::to_vec(&runtime_config).map_err(|error| error.to_string())?,
@@ -672,6 +690,9 @@ fn run_protected_runtime_fixture(
         None
     } else {
         let mut runtime = FormalLiveRuntime::open_with_native_history(&runtime_config_path)?;
+        if crash_phase == Some("identity_runtime_lease") {
+            return identity_runtime_tests::exercise(runtime, &runtime_config_path);
+        }
         if crash_phase == Some("controlled_stop_budget") {
             return controlled_stop_tests::exercise(runtime);
         }

@@ -379,7 +379,7 @@ fn create_parent(path: &Path) -> Result<(), String> {
 }
 
 #[cfg(unix)]
-fn trusted_parent(path: &Path) -> Result<(), String> {
+pub(super) fn trusted_parent(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
     // SAFETY: geteuid only reads the identity of the current process.
     let uid = unsafe { libc::geteuid() };

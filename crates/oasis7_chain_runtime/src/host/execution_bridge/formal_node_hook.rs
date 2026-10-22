@@ -223,6 +223,7 @@ pub(crate) trait FormalPublicationSink: Send + Sync {
 /// writer's typed accessor for the signed InitialInput closure; this adapter
 /// never accepts raw bootstrap values or invents Node counters and hashes.
 pub(crate) struct FormalNodeHook<W: FormalNodeWriter> {
+    _identity_lease: Option<Arc<crate::node_keypair_config::RuntimeIdentityLease>>,
     writer: W,
     consumed_terminal: Option<ConsumedTerminal>,
     publication_sink: Option<Arc<dyn FormalPublicationSink>>,
@@ -236,8 +237,17 @@ struct ConsumedTerminal {
 }
 
 impl<W: FormalNodeWriter> FormalNodeHook<W> {
+    pub(crate) fn with_identity_lease(
+        mut self,
+        lease: Arc<crate::node_keypair_config::RuntimeIdentityLease>,
+    ) -> Self {
+        self._identity_lease = Some(lease);
+        self
+    }
+
     pub(crate) fn new(writer: W) -> Result<Self, String> {
         let hook = Self {
+            _identity_lease: None,
             writer,
             consumed_terminal: None,
             publication_sink: None,
