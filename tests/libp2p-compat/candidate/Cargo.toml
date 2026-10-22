@@ -5,10 +5,10 @@ edition = "2024"
 [workspace]
 [[bin]]
 name = "peer"
-path = "../peer.rs"
+path = "src/main.rs"
 [dependencies]
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca", default-features = false, features = ["cbor", "gossipsub", "macros", "noise", "request-response", "tcp", "quic", "tokio", "yamux"] }
 futures = "0.3"
-tokio = { version = "1", features = ["rt", "time"] }
+oasis7-libp2p-compat-protocol = { path = "../common" }
 [patch."https://github.com/libp2p/rust-libp2p"]
 libp2p-swarm = { path = "../../../vendor-libp2p-swarm-0.48.0" }
