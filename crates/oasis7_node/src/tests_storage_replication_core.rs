@@ -687,7 +687,7 @@ fn latest_persisted_height_does_not_read_unrelated_historical_payloads() {
         .join("replication_commit_messages")
         .join("00000000000000000001.json");
     let permissions = fs::metadata(&historical).expect("metadata").permissions();
-    fs::set_permissions(&historical, fs::Permissions::from_mode(0)).expect("deny old payload read");
+    fs::set_permissions(&historical, fs::Permissions::from_mode(0o0)).expect("deny old payload read");
     // Root bypasses Unix file permissions; this fixture requires an unprivileged runner.
     if fs::read(&historical).is_ok() {
         fs::set_permissions(&historical, permissions).expect("restore permissions");
@@ -706,7 +706,7 @@ fn latest_persisted_height_does_not_read_unrelated_historical_payloads() {
     let permissions = fs::metadata(&newest)
         .expect("newest metadata")
         .permissions();
-    fs::set_permissions(&newest, fs::Permissions::from_mode(0)).expect("deny newest read");
+    fs::set_permissions(&newest, fs::Permissions::from_mode(0o0)).expect("deny newest read");
     let inaccessible_head = runtime.latest_persisted_commit_height(world_id);
     fs::set_permissions(&newest, permissions).expect("restore newest permissions");
     let _ = fs::remove_dir_all(&dir);

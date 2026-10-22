@@ -5,6 +5,7 @@ use libp2p::PeerId;
 use libp2p::multiaddr::Protocol;
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, SignedPeerRecord};
 
+use super::peer_discovery_observations::DiscoveryObservations;
 use super::peer_manager_active_set::ActivePeerSetStats;
 use super::transport_paths::{TransportPath, TransportPathKind};
 
@@ -21,6 +22,7 @@ pub enum PeerManagerHealthStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PeerManagerHealthIssue {
     MissingPeerRecord,
+    DiscoveryIndependenceUnverified,
     SingleSourceDiscovery {
         observed_sources: usize,
         required_sources: usize,
@@ -90,30 +92,17 @@ pub struct PeerManagerBlockArtifact {
     pub last_cleared_at_ms: Option<i64>,
 }
 
-pub(super) fn retain_static_bootstrap_provenance(
-    record: &mut SignedPeerRecord,
-    peer_id: PeerId,
-    static_bootstrap_peer_ids: &HashSet<PeerId>,
-) {
-    if static_bootstrap_peer_ids.contains(&peer_id)
-        && !record
-            .record
-            .discovery_sources
-            .contains(&PeerDiscoverySource::StaticBootstrap)
-    {
-        record
-            .record
-            .discovery_sources
-            .push(PeerDiscoverySource::StaticBootstrap);
-    }
-}
-
 pub(super) fn recompute_peer_manager_healths(
     discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    observations: &DiscoveryObservations,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     policy: &PeerManagerPolicy,
 ) -> HashMap<PeerId, PeerManagerPeerHealth> {
-    let active_set_stats = ActivePeerSetStats::new(discovered_peer_records, active_transport_paths);
+    let active_set_stats = ActivePeerSetStats::new(
+        discovered_peer_records,
+        observations,
+        active_transport_paths,
+    );
     let insufficient_active_discovery_sources = active_set_stats.active_peer_count > 0
         && active_set_stats.active_discovery_sources.len() < policy.min_active_discovery_sources;
     let relay_budget_exceeded = exceeds_share_limit(
@@ -136,12 +125,11 @@ pub(super) fn recompute_peer_manager_healths(
         let mut hard_block = false;
         let mut soft_block = false;
         let discovery_sources = record
-            .map(|record| record.record.discovery_sources.clone())
+            .map(|record| observations.observed_sources(record))
             .unwrap_or_default();
-        let source_operator = record
-            .and_then(|entry| normalized_source_label(entry.record.source_operator.as_deref()));
-        let source_asn =
-            record.and_then(|entry| normalized_source_label(entry.record.source_asn.as_deref()));
+        // Claims remain available in the signed record, never as attributed topology.
+        let source_operator = None;
+        let source_asn = None;
 
         if record.is_none() {
             issues.push(PeerManagerHealthIssue::MissingPeerRecord);
@@ -150,11 +138,19 @@ pub(super) fn recompute_peer_manager_healths(
             } else {
                 hard_block = true;
             }
-        } else if discovery_sources.len() < policy.min_peer_discovery_sources {
+        } else if record.is_some_and(|record| {
+            observations.trusted_source_labels(record).len() < policy.min_peer_discovery_sources
+        }) {
             issues.push(PeerManagerHealthIssue::SingleSourceDiscovery {
-                observed_sources: discovery_sources.len(),
+                observed_sources: record
+                    .map(|record| observations.trusted_source_labels(record).len())
+                    .unwrap_or(0),
                 required_sources: policy.min_peer_discovery_sources,
             });
+        }
+
+        if record.is_some_and(|record| !observations.is_static_bootstrap(record)) {
+            issues.push(PeerManagerHealthIssue::DiscoveryIndependenceUnverified);
         }
 
         if let Some(active_path) = active_path {
@@ -257,7 +253,8 @@ pub(super) fn recompute_peer_manager_healths(
                     }
                 }
             }
-            if let Some(source_operator) = source_operator.clone() {
+            {
+                let source_operator = "unknown".to_string();
                 let bucket_count = active_set_stats
                     .operator_counts
                     .get(source_operator.as_str())
@@ -294,7 +291,8 @@ pub(super) fn recompute_peer_manager_healths(
                     });
                 }
             }
-            if let Some(source_asn) = source_asn.clone() {
+            {
+                let source_asn = "unknown".to_string();
                 let bucket_count = active_set_stats
                     .asn_counts
                     .get(source_asn.as_str())
@@ -360,6 +358,24 @@ pub(super) fn recompute_peer_manager_healths(
     healths
 }
 
+pub(super) fn peer_health_is_record_exchange_pending(health: &PeerManagerPeerHealth) -> bool {
+    !health.issues.is_empty()
+        && health
+            .issues
+            .iter()
+            .all(peer_health_issue_is_record_exchange_pending)
+}
+
+pub(super) fn peer_health_issue_is_record_exchange_pending(issue: &PeerManagerHealthIssue) -> bool {
+    matches!(
+        issue,
+        PeerManagerHealthIssue::MissingPeerRecord
+            | PeerManagerHealthIssue::DiscoveryIndependenceUnverified
+            | PeerManagerHealthIssue::InsufficientActiveDiscoverySources { .. }
+            | PeerManagerHealthIssue::SingleSourceDiscovery { .. }
+    )
+}
+
 pub(super) fn exceeds_share_limit(count: usize, total: usize, limit_per_mille: u16) -> bool {
     if total == 0 {
         return false;
@@ -396,17 +412,12 @@ pub(super) fn relay_domain(path: &TransportPath) -> Option<String> {
     })
 }
 
-pub(super) fn normalized_source_label(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase())
-}
-
 fn ipv4_bucket(ip: Ipv4Addr) -> String {
     let octets = ip.octets();
     format!("{}.{}.{}", octets[0], octets[1], octets[2])
 }
 
+#[cfg(test)]
 pub(super) fn discovery_source_label(source: PeerDiscoverySource) -> &'static str {
     match source {
         PeerDiscoverySource::StaticBootstrap => "static_bootstrap",
@@ -514,8 +525,12 @@ mod tests {
             ),
         ]);
 
-        let healths =
-            recompute_peer_manager_healths(&discovered, &active, &PeerManagerPolicy::default());
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &PeerManagerPolicy::default(),
+        );
         for peer in [peer_a, peer_b] {
             let health = healths.get(&peer).expect("health");
             assert_eq!(health.status, PeerManagerHealthStatus::Suspect);
@@ -575,7 +590,12 @@ mod tests {
             min_active_peers_for_share_limits: 0,
             ..PeerManagerPolicy::default()
         };
-        let healths = recompute_peer_manager_healths(&discovered, &active, &policy);
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &policy,
+        );
         assert!(healths[&peer_a].issues.iter().any(|issue| matches!(
             issue,
             PeerManagerHealthIssue::Ipv4SubnetConcentration { subnet, .. } if subnet == "192.168.10"
@@ -584,7 +604,7 @@ mod tests {
             issue,
             PeerManagerHealthIssue::Ipv4SubnetConcentration { subnet, .. } if subnet == "192.168.10"
         )));
-        assert_eq!(healths[&peer_c].status, PeerManagerHealthStatus::Active);
+        assert_eq!(healths[&peer_c].status, PeerManagerHealthStatus::Blocked);
     }
 
     #[test]
@@ -628,10 +648,14 @@ mod tests {
             ),
         ]);
 
-        let healths =
-            recompute_peer_manager_healths(&discovered, &active, &PeerManagerPolicy::default());
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &PeerManagerPolicy::default(),
+        );
         for peer in [peer_a, peer_b, peer_c] {
-            assert_eq!(healths[&peer].status, PeerManagerHealthStatus::Active);
+            assert_eq!(healths[&peer].status, PeerManagerHealthStatus::Suspect);
         }
     }
 
@@ -714,12 +738,22 @@ mod tests {
             ..PeerManagerPolicy::default()
         };
 
-        let healths_three = recompute_peer_manager_healths(&discovered, &active_three, &policy);
+        let healths_three = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active_three,
+            &policy,
+        );
         for peer in peers.iter().take(3) {
-            assert_eq!(healths_three[peer].status, PeerManagerHealthStatus::Active);
+            assert_eq!(healths_three[peer].status, PeerManagerHealthStatus::Suspect);
         }
 
-        let healths_four = recompute_peer_manager_healths(&discovered, &active_four, &policy);
+        let healths_four = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active_four,
+            &policy,
+        );
         for peer in peers {
             assert_eq!(healths_four[&peer].status, PeerManagerHealthStatus::Blocked);
             assert!(healths_four[&peer].issues.iter().any(|issue| matches!(
@@ -781,7 +815,12 @@ mod tests {
             min_active_peers_for_share_limits: 0,
             ..PeerManagerPolicy::default()
         };
-        let healths = recompute_peer_manager_healths(&discovered, &active, &policy);
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &policy,
+        );
         for peer in [peer_a, peer_b] {
             assert!(
                 !healths[&peer].issues.iter().any(|issue| matches!(
@@ -843,7 +882,12 @@ mod tests {
             min_active_peers_for_share_limits: 0,
             ..PeerManagerPolicy::default()
         };
-        let healths = recompute_peer_manager_healths(&discovered, &active, &policy);
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &policy,
+        );
         for peer in [peer_a, peer_b] {
             let health = &healths[&peer];
             assert_eq!(health.status, PeerManagerHealthStatus::Blocked);
@@ -858,11 +902,11 @@ mod tests {
                 PeerManagerHealthIssue::RelayDomainConcentration { relay_domain, .. } if relay_domain == "relay-a.example"
             )));
         }
-        assert_eq!(healths[&peer_c].status, PeerManagerHealthStatus::Active);
+        assert_eq!(healths[&peer_c].status, PeerManagerHealthStatus::Blocked);
     }
 
     #[test]
-    fn recompute_keeps_inactive_discovered_peer_as_candidate() {
+    fn recompute_keeps_unobserved_remote_claims_degraded() {
         let peer = PeerId::random();
         let discovered = HashMap::from([(
             peer,
@@ -877,12 +921,17 @@ mod tests {
 
         let healths = recompute_peer_manager_healths(
             &discovered,
+            &DiscoveryObservations::default(),
             &HashMap::new(),
             &PeerManagerPolicy::default(),
         );
         let health = healths.get(&peer).expect("health");
-        assert_eq!(health.status, PeerManagerHealthStatus::Candidate);
-        assert!(health.issues.is_empty());
+        assert_eq!(health.status, PeerManagerHealthStatus::Suspect);
+        assert!(
+            health
+                .issues
+                .contains(&PeerManagerHealthIssue::DiscoveryIndependenceUnverified)
+        );
     }
 
     #[test]
@@ -895,6 +944,7 @@ mod tests {
 
         let healths = recompute_peer_manager_healths(
             &discovered,
+            &DiscoveryObservations::default(),
             &HashMap::new(),
             &PeerManagerPolicy::default(),
         );
@@ -959,28 +1009,33 @@ mod tests {
             min_active_peers_for_share_limits: 0,
             ..PeerManagerPolicy::default()
         };
-        let healths = recompute_peer_manager_healths(&discovered, &active, &policy);
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &policy,
+        );
         for peer in [peer_a, peer_b] {
             let health = &healths[&peer];
             assert_eq!(health.status, PeerManagerHealthStatus::Blocked);
-            assert_eq!(health.source_operator.as_deref(), Some("operator-a"));
-            assert_eq!(health.source_asn.as_deref(), Some("as64500"));
+            assert_eq!(health.source_operator, None);
+            assert_eq!(health.source_asn, None);
             assert!(health.issues.iter().any(|issue| matches!(
                 issue,
                 PeerManagerHealthIssue::OperatorConcentration { source_operator, .. }
-                    if source_operator == "operator-a"
+                    if source_operator == "unknown"
             )));
             assert!(health.issues.iter().any(|issue| matches!(
                 issue,
                 PeerManagerHealthIssue::AsnConcentration { source_asn, .. }
-                    if source_asn == "as64500"
+                    if source_asn == "unknown"
             )));
         }
-        assert_eq!(healths[&peer_c].status, PeerManagerHealthStatus::Active);
+        assert_eq!(healths[&peer_c].status, PeerManagerHealthStatus::Blocked);
     }
 
     #[test]
-    fn recompute_blocks_operator_and_asn_concentration_at_exact_half_share() {
+    fn recompute_cannot_evade_unknown_control_domain_by_self_claimed_labels() {
         let peer_a = PeerId::random();
         let peer_b = PeerId::random();
         let peer_c = PeerId::random();
@@ -1042,13 +1097,57 @@ mod tests {
             ),
         ]);
 
-        let healths =
-            recompute_peer_manager_healths(&discovered, &active, &PeerManagerPolicy::default());
+        let healths = recompute_peer_manager_healths(
+            &discovered,
+            &DiscoveryObservations::default(),
+            &active,
+            &PeerManagerPolicy::default(),
+        );
         for peer in [peer_a, peer_b] {
             assert_eq!(healths[&peer].status, PeerManagerHealthStatus::Blocked);
         }
         for peer in [peer_c, peer_d] {
-            assert_eq!(healths[&peer].status, PeerManagerHealthStatus::Active);
+            assert_eq!(healths[&peer].status, PeerManagerHealthStatus::Blocked);
         }
+    }
+    #[test]
+    fn recompute_does_not_upgrade_unverified_discovery_with_zero_source_thresholds() {
+        let peer = PeerId::random();
+        let record = sample_record(
+            peer,
+            vec![
+                PeerDiscoverySource::StaticBootstrap,
+                PeerDiscoverySource::Dht,
+            ],
+        );
+        let records = HashMap::from([(peer, record)]);
+        let paths = HashMap::from([(
+            peer,
+            transport_path(
+                peer,
+                "/ip4/10.0.0.1/udp/4101/quic-v1",
+                TransportPathKind::Direct,
+            ),
+        )]);
+        let policy = PeerManagerPolicy {
+            min_peer_discovery_sources: 0,
+            min_active_discovery_sources: 0,
+            ..PeerManagerPolicy::default()
+        };
+        let health = recompute_peer_manager_healths(
+            &records,
+            &DiscoveryObservations::default(),
+            &paths,
+            &policy,
+        )
+        .remove(&peer)
+        .unwrap();
+        assert_eq!(health.status, PeerManagerHealthStatus::Suspect);
+        assert!(
+            health
+                .issues
+                .contains(&PeerManagerHealthIssue::DiscoveryIndependenceUnverified)
+        );
+        assert!(health.discovery_sources.is_empty());
     }
 }

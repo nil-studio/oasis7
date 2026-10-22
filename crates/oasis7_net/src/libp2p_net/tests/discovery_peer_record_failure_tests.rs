@@ -1,3 +1,4 @@
+use super::super::peer_discovery_observations::DiscoveryObservations;
 use super::*;
 use crate::util::to_canonical_cbor;
 
@@ -60,6 +61,7 @@ fn assert_mismatched_peer_record_response_is_rejected(
         &mut pending_peer_record_requests,
         &mut pending_dht,
         &mut discovered_peer_records,
+        &mut DiscoveryObservations::default(),
         &mut known_transport_paths,
         &mut last_dialed_transport_paths,
         &active_transport_paths,
@@ -200,6 +202,7 @@ fn connected_peer_record_failure_prefers_target_owned_dht_route_over_cache_proxy
         query,
         super::super::kad_queries::PendingDhtQuery::DiscoverPeerRecord {
             peer_id,
+            upstream: None,
             ..
         } if *peer_id == target_peer_id
     )));

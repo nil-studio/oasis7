@@ -1625,3 +1625,18 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 The host suite uses actual signed profile-v2 activation and qualified parent verification, exercises all four commands, parent/world/policy/signature/action failures, threshold and atomic nonce behavior, and real NodeRuntime-to-driver ingress preflight. Node scheduling tests use an explicit oracle to test stale/duplicate queue filtering and progress; runtime transition tests use synthetic parent tokens and do not prove qualification. No Wasm modules execute in these selected governance tests; do not treat an unfiltered `--no-default-features` crate run as the full Wasmtime acceptance tier. Run normal required CI for the final candidate.
 
 Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.
+
+
+<a id="discovery-observation-local-trust-boundary"></a>
+## Discovery observations and local bootstrap trust
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3. Contract: [discovery evidence boundary](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary), including its [current implementation limits](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary).
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network::peer_selection_tests
+```
+
+The net suite includes a three-node loopback TCP flow: B publishes a record without a bootstrap tag, A configures B as a local seed, and C requests B's record through A's real cached-record RR endpoint. C verifies B's original signature and does not inherit A's seed trust. Local regression cases cover forged source/operator/ASN claims, repeated or changed payloads, configuration removal, actual DHT upstream selection, observation bounds and clock regression. Recordless and self-claimed observer sessions remain subject to path/unknown-domain budgets, including mixed signed/recordless sets; source-only degradation does not falsely upgrade health or disconnect every otherwise admissible session.
+
+This proves the existing wire's local trust boundary, not full record freshness, sequence/tombstone persistence, authenticated operator/ASN mappings, rendezvous ID provenance, restart anti-rollback, public-network independence, BFT or deployment readiness. Unknown control domains intentionally remain degraded and share conservative quotas. Normal required CI must cover the final candidate and downstream node status/filtering consumers.

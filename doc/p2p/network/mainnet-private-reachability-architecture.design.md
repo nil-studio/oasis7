@@ -9,7 +9,7 @@
 
 专业 owner 为 P2P/runtime；消费者为 node、chain adapters、operator status 与 QA matrix。配对 [PRD §2](mainnet-private-reachability-architecture.prd.md#2-user-experience-functionality) 定义部署模式、角色、路径和用户模式义务。本设计以下承接聚焦既有 substrate；用户模式 UI、显式确认与端到端产品可用性不由这些条款单独证明。
 
-本轮补齐 discovery 证据来源、签名不变性及 peer record 生命周期的目标合同与验收边界，仅修改文档，不改变当前 wire、阈值或运行行为。实现落点中的日期结论保留其历史范围；新增合同的当前实现差距见 [当前实现边界](#discovery-peer-record-implementation-boundary)。原章节锚点继续保留。
+本文定义 discovery 证据来源、签名不变性及 peer record 生命周期的目标合同与验收边界。实现落点中的日期结论保留其历史范围；已接入能力及剩余差距见 [当前实现边界](#discovery-peer-record-implementation-boundary)。原章节锚点继续保留。
 
 ## 设计目标
 - 把“没有公网 IP 的节点如何成为主链级网络一等公民”从部署特例提升成框架层能力。
@@ -70,7 +70,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接 [PRD 发现证�
 | 数据 | producer / owner | consumer 与边界 |
 | --- | --- | --- |
 | 原始 signed record、签名载荷 digest | 节点身份密钥持有者；proto 拥有版本化 wire，net 验签 | cache/peer exchange 保留原载荷与签名。解析后的视图只读；补标签、排序、默认 lane 和路径归一化放到派生视图，不能改变转发时的签名含义 |
-| `DiscoveryObservation`（内部模型，待实现） | net 的实际接收/查询/静态配置入口 | 按网络域、peer ID、record digest 关联接收通道、上游 peer、首次/末次观察时间和本地配置版本；本地静态 seed 成员事实另按网络域与 peer ID 保存，不因换 record 丢失 |
+| `DiscoveryObservations`（内部模型，部分实现） | net 的实际接收/查询/静态配置入口 | 按网络域、peer ID、record digest 关联接收通道、上游 peer、首次/末次观察时间和本地配置版本；本地静态 seed 成员事实另按网络域与 peer ID 保存，不因换 record 丢失 |
 | operator/ASN/relay 控制域依据 | 本地策略认可的配置/登记依据及实际路径观察 | peer manager 使用带来源、有效期和 `claimed/verified/unknown` 状态的归类；远端字符串只进入 claimed，不得覆盖 verified 或生成独立组 |
 | peer health 与来源摘要 | peer manager 消费上述模型 | selection/status/QA 读取同一结果；不从 status 反写来源，也不允许 peer exchange 把别人的本地观察转成自己的 verified 事实 |
 
@@ -123,7 +123,15 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接 [PRD 生命周�
 <a id="discovery-peer-record-implementation-boundary"></a>
 ### 当前实现边界
 
-2026-10-21 的只读核对基线为 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`，入口是 chain-runtime 的 libp2p discovery。已有 [签名/peer ID/网络域验证](../../../crates/oasis7_net/src/libp2p_net/peer_record.rs)、[peer health 计算](../../../crates/oasis7_net/src/libp2p_net/peer_manager_active_set.rs) 和 quarantine 接线。当前 [PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs) 包含 `published_at_ms/ttl_ms`，但没有 sequence；接纳链尚未执行本节时效/防回退合同。[默认发布模板](../../../crates/oasis7_chain_runtime/src/host.rs) 写入来源标签，health 读取远端声明；[本地 seed provenance helper](../../../crates/oasis7_net/src/libp2p_net/peer_manager.rs) 仍会向已验签对象的 `discovery_sources` 添加标签，[发现缓存](../../../crates/oasis7_net/src/libp2p_net/discovery.rs) 再保存/转发该对象。故历史 substrate milestone 不等于已完成本节的新来源证据、签名不变性和生命周期义务。本次无代码改动，也未执行这些行为验收。
+[接收链](../../../crates/oasis7_net/src/libp2p_net/discovery.rs)保留发布者的 `SignedPeerRecord`，缓存、DHT republish 和 RR 转发均不添加本地来源标签。[本地观察](../../../crates/oasis7_net/src/libp2p_net/peer_discovery_observations.rs)按原 signed payload 精确关联 DHT 实际响应上游、直接 record-exchange 对端或缓存代理对端，去重保存末次观察时间；同一 peer 的新 payload 不继承旧观察。本地 seed 身份仅来自当前 bootstrap 配置，配置移除后例外消失，不从远端 `StaticBootstrap` 自述或代理节点的信任状态继承。
+
+本地观察最多保存 1024 个 peer、每个 payload 最多 8 个 ingress，单条序列化 signed payload 最多 16 KiB；到限驱逐最旧观察（不提高剩余记录信任），超大记录或已跟踪 peer 的观察时钟回退拒绝接纳且不替换原记录。该容量是本地观察预算，不是整个发现候选、连接和持久防回退状态的完整容量保证。
+
+[健康与集合准入](../../../crates/oasis7_net/src/libp2p_net/peer_manager_active_set.rs)不把远端 `discovery_sources/source_operator/source_asn` 当可信独立来源。实际通道可显示为本地观察，但没有可核验控制域依据的通道／上游不计独立来源，并输出 `DiscoveryIndependenceUnverified`；当前没有受信 operator/ASN 映射，公开归属字段为 unknown，集中度统一计入 unknown 桶。仅受信 seed 配置可贡献一类 bootstrap 来源；多个 seed 不自动证明多个控制域。即使来源计数阈值设为零，未知独立性的记录也不显示 healthy。
+
+来源不足的健康状态与已建立会话的传输准入分开：允许符合实际路径及 unknown 域预算的既有会话继续获取材料，健康仍降级。每个会话都计入路径、relay、operator/ASN 分母与桶；无 record 或远端自报 `observer_light` 不能豁免这些预算。候选按稳定 peer ID 顺序准入，配额拒绝进入 quarantine，不以缺 record 提前跳过统计。该策略改变旧版依赖自述标签的 healthy 结果及 observer 配额豁免；没有新增 wire 字段或重签旧记录。
+
+[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs)仍为既有 wire，包含 `published_at_ms/ttl_ms` 而没有 sequence。完整 TTL／未来偏差、观察到期与时钟可信度、首次观察与配置版本、rendezvous ID-only 来源链、持久 sequence/tombstone/高水位、候选总缓存与累计发现轮次预算和跨重启迁移仍待实现；本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
 
 ## Peer Reachability Contract Normalization
 本节是 2026-06-15 iroh-inspired follow-up 的设计落点。借鉴点只限于 identity-first address boundary、显式 selected path 与 reachability evidence；不引入 iroh 依赖，不替换 libp2p，也不采用 iroh relay/DNS/Pkarr 默认。
@@ -284,7 +292,7 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 无公网入站的 validator core 通过 sentry/relay 参与；转发、存储和 observer 不获得共识 signer 或私有控制权限 | [设计条款](#节点角色模型) | P2P 角色策略、validator governance；QA/ops 同拓扑验证 | 不覆盖公开 validator 准入、完整 pruning/archive 及用户模式 UI |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 公网 IP 不是通用参与前提；保持 direct、hole-punched、relay 顺序及 delayed-sync 的 lane 限制 | [设计条款](#路径选择与传输策略) | runtime path selector；operator 维护允许的部署 profile | 不保证任意 NAT pair 可直连，不由 relay reservation 推导公网可达 |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | peer manager 根据既有 source/operator/ASN/subnet/relay-domain 与 budget 规则隔离异常 peer，远端不得覆盖本地 admission | [设计条款](#anti-eclipse-anti-spam-基线) | P2P peer manager；QA fail-signature cases | 不证明跨重启 banlist、经济安全或完整抗攻击能力 |
-| [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 来源独立性由本机实际观察及可核验控制域依据建立；seed 例外不改签名、不授予世界或角色权威 | [发现来源证据与签名不变性](#discovery-evidence-boundary) | net ingress/peer manager；本地 seed policy 与受信 operator/ASN 依据 | 目标实现待交付；无依据的公共网络身份不声称已证明独立，不覆盖完整抗 Sybil |
+| [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 来源独立性由本机实际观察及可核验控制域依据建立；seed 例外不改签名、不授予世界或角色权威 | [发现来源证据与签名不变性](#discovery-evidence-boundary) | net ingress/peer manager；本地 seed policy 与受信 operator/ASN 依据 | 已接入不变签名、本地 seed 与 DHT/RR 观察、未知域健康和会话预算；受信控制域映射、完整时效与生命周期仍待实现，不覆盖完整抗 Sybil |
 | [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | TTL/时钟/序号/撤销在接纳、缓存、转发及拨号入口一致；水位重启不降、缓存有界、版本迁移不改旧签名 | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | proto wire；net 验证与缓存；chain-runtime 发布持久化；受信时钟/本机存储 | 新 sequence wire、完整时效接纳及迁移待实现；不把普通本地存储当硬件防回滚或 validator 防双签机制 |
 
 ### 11.1 验证映射表
@@ -294,7 +302,7 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | [设计条款](#节点角色模型) | 无公网入站的 validator core 通过 sentry/relay 参与；转发、存储和 observer 不获得共识 signer 或私有控制权限 | [testing-manual S9B](../../../testing-manual.md#testing-p2p-mixed-topology-matrix)；在同一 source/config 上执行 `./scripts/p2p-mixed-topology-matrix.sh --tier required`，核对 private/validator_hidden/relay_only 的 exact role/lane policy cases；不证明 validator 已经由 sentry/relay 实际连接或 signer 安全，仍需适用 real-env/dedicated 证据；full proxy 与 dedicated lab 分开判定 | required/full summary、case evidence class 与失败签名 | 不覆盖公开 validator 准入、完整 pruning/archive 及用户模式 UI；本轮未运行行为测试 |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | [设计条款](#路径选择与传输策略) | 公网 IP 不是通用参与前提；保持 direct、hole-punched、relay 顺序及 delayed-sync 的 lane 限制 | [testing-manual S9B](../../../testing-manual.md#testing-p2p-mixed-topology-matrix)；required path-failover cases 核对 route sequence；full 依 S9B 选择 proxy/real-env，物理 NAT 覆盖须另有 dedicated lab | matrix summary 的 path_expectation、expected_route 与 claim_boundary | 不保证任意 NAT pair 可直连，不由 relay reservation 推导公网可达；本轮未运行行为测试 |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | [设计条款](#anti-eclipse-anti-spam-基线) | peer manager 根据既有 source/operator/ASN/subnet/relay-domain 与 budget 规则隔离异常 peer，远端不得覆盖本地 admission | [testing-manual S9B](../../../testing-manual.md#testing-p2p-mixed-topology-matrix)；同候选 required bootstrap-poisoning、relay-exhaustion 与角色边界 cases；核对 suspect record 的 dial dedupe、预算与集中度判定；required 不证明 live 隔离执行或公网抗攻击 | case stdout/stderr/log、测试断言与 summary | 不证明跨重启 banlist、经济安全或完整抗攻击能力；本轮未运行行为测试 |
-| [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary) | [发现来源证据与签名不变性](#discovery-evidence-boundary) | 自述不能成为独立来源；本地 seed 标记不能改变原签名或被第三节点继承 | planned：在现有 [discovery record 测试文件](../../../crates/oasis7_net/src/libp2p_net/tests/discovery_peer_record_tests.rs) 增补 PRA-EVIDENCE-01～03；同一实现候选使用固定配置和可控时钟，执行 net 单元及三节点 record-exchange 合同测试，分别核对 cache、转发、selection 结果 | 原签名载荷 digest、第三方验签结果、实际来源分组及 degraded reason；记录 source/config/test ID | 新场景待实现，本次未运行；现有 required/proxy matrix 不证明来源独立性或此三节点路径 |
+| [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary) | [发现来源证据与签名不变性](#discovery-evidence-boundary) | 自述不能成为独立来源；本地 seed 标记不能改变原签名或被第三节点继承 | 已实现签名不变与本地信任切片：按 [验证手册](../../../testing-manual.md#discovery-observation-local-trust-boundary) 执行；后续按同一手册补齐 PRA-EVIDENCE-01～03 的剩余条件；同一实现候选使用固定配置和可控时钟，执行 net 单元及三节点 record-exchange 合同测试，分别核对 cache、转发、selection 结果 | 原签名载荷 digest、第三方验签结果、实际来源分组及 degraded reason；记录 source/config/test ID | 三节点 loopback TCP 覆盖原签名经缓存转发及 seed 不继承；控制域映射、观察到期和完整 PRA-EVIDENCE-03 仍待实现，不证明公网来源独立性 |
 | [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle) | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | 所有入口拒绝过期、回退、冲突及降级；持久水位与缓存容量安全，失败不污染旧记录 | planned：在现有 [peer record 测试文件](../../../crates/oasis7_net/src/libp2p_net/tests/peer_record_tests.rs) 增补 PRA-RECORD-01～05；同一 proto/net/chain-runtime 候选使用确定性时钟、崩溃注入和超过配置上限的高 churn 输入，实际 TCP record-exchange 另核排队后到期 | 每入口拒绝/接纳状态、旧 digest/水位不变、重开后序号、缓存/字节/重试峰值；明确预算及 wire 版本 | 新 wire 与场景待实现，本次未运行；不声称真实公网时钟、恶意主机回滚或无限规模支持 |
 
 <a id="discovery-peer-record-validation"></a>
