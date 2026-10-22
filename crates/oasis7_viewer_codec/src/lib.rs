@@ -28,7 +28,7 @@ fn encode_buffered_response(
 }
 
 /// Encode through an 8 KiB buffer for transports with a concrete buffered writer.
-/// Event responses use the direct entry to avoid copying large string bodies.
+/// Event responses use the direct entry to avoid measured buffering overhead.
 /// The caller still owns framing and transport flushing. Runtime Outbox callers
 /// must keep using the direct streaming entry.
 ///
@@ -39,8 +39,8 @@ pub fn write_buffered_response_json(
     writer: &mut dyn Write,
     response: &ViewerResponse,
 ) -> Result<(), serde_json::Error> {
-    // Event bodies often contain large contiguous strings. Passing them through
-    // another buffer adds copying without amortizing the original transport IO.
+    // Linux measurements show additional buffering regresses large Events.
+    // Reuse direct encoding; the caller still owns its transport buffer.
     if matches!(response, ViewerResponse::Event { .. }) {
         return write_response_json(writer, response);
     }
