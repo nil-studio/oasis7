@@ -97,7 +97,7 @@ class Smoke:
             self.record_cold_entry_result(code, output)
             if self.last_result["state"] in ("blocked", "action_required"):
                 raise RuntimeError("cold entry requires explicit authorized action")
-            if self.last_result["stage"] == "complete":
+            if self.last_result["stage"] == "complete" and self.last_result["state"] == "confirmed":
                 return
             self.wait_recovery(backoff)
             backoff = min(4, backoff * 2)
@@ -421,8 +421,7 @@ def main():
                             "goals": 1, "active_executors": 1, "sdk_task_context_verified": True,
                             "action_committed": True})
         smoke.stage = "completed_workflow_restart"
-        if smoke.command([client, "cold-entry", "run", "--directory", directory], private=True)[0]:
-            raise RuntimeError("completed workflow restart failed")
+        smoke.recover_cold_entry([client, "cold-entry", "run", "--directory", directory])
         smoke.stage = "canonical_original_recheck"
         after = smoke.probe("canonical_probe", {"canonical_verified": True, "agents": 1, "tasks": 1,
                            "goals": 1, "active_executors": 1, "sdk_task_context_verified": True,

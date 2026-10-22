@@ -208,6 +208,43 @@ class PackageTests(unittest.TestCase):
                     command.assert_called_once_with(argv, private=True)
                     sleep.assert_not_called()
 
+    def test_completed_restart_requires_confirmed_and_preserves_retry_after(self):
+        spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_restart_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            for deadline in (50, 200):
+                now = [0.0]
+                argv = ["client", "cold-entry", "run", "--directory", "original-vault"]
+                with patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+                        patch.object(module.time, "sleep", side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)):
+                    smoke = module.Smoke({}, Path(directory), deadline)
+                    smoke.stage = "completed_workflow_restart"
+                    responses = iter([
+                        (1, b"private CLI error"),
+                        (0, b'{"stage":"complete","state":"unknown"}'),
+                        (0, b'{"stage":"complete","state":"confirmed"}'),
+                    ])
+
+                    def reply(*args, **kwargs):
+                        if smoke.attempts == 1:
+                            smoke.observe_retry_after(429, "60")
+                        return next(responses)
+
+                    with patch.object(smoke, "command", side_effect=reply) as command:
+                        if deadline == 50:
+                            with self.assertRaises(RuntimeError):
+                                smoke.recover_cold_entry(argv)
+                            self.assertEqual(command.call_count, 1)
+                        else:
+                            smoke.recover_cold_entry(argv)
+                            self.assertEqual(command.call_count, 3)
+                            self.assertGreaterEqual(now[0], 62)
+                            self.assertEqual(smoke.last_result["state"], "confirmed")
+                        self.assertTrue(all(call.args == (argv,) and call.kwargs == {"private": True}
+                                            for call in command.call_args_list))
+
     def test_smoke_cleanup_does_not_signal_reaped_process_group_numbers(self):
         import time
         module_spec = importlib.util.spec_from_file_location(

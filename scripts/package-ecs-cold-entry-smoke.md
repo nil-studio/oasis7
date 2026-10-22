@@ -106,6 +106,9 @@ operation identities. The flow must reach complete, prove both losses occurred,
 and retain the canonical identities after another completed-workflow restart.
 No synthetic success response is produced.
 
+Both initial entry and the completed-workflow restart require an explicit
+`complete` stage with `confirmed` state; a zero exit code with an unknown state
+does not pass. Both use the same original command and recovery rules below.
 Recovery is bounded by the existing overall deadline, rather than a fixed number
 of rapid CLI restarts. Pending and unknown results retain the original vaults and
 operations and use bounded backoff. The trusted forwarding server observes actual
