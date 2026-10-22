@@ -24,6 +24,56 @@ fn safe_blocker_class(blocker: Option<&str>) -> &'static str {
     if blocker.starts_with("LOCAL_ADMISSION_REJECTED: stale stop target") {
         return "stale_target";
     }
+    for (prefix, class) in [
+        (
+            "control query request failed:",
+            "control_query_write_failed",
+        ),
+        (
+            "control query response failed: control read: kind=WouldBlock",
+            "control_query_read_would_block",
+        ),
+        (
+            "control query response failed: control read: kind=TimedOut",
+            "control_query_read_timed_out",
+        ),
+        (
+            "control query response failed:",
+            "control_query_response_failed",
+        ),
+        (
+            "native action admission writer busy",
+            "admission_writer_busy",
+        ),
+        ("stop target instance missing", "target_missing"),
+        (
+            "stop target changed before locked admission",
+            "target_changed_under_lock",
+        ),
+        (
+            "stop action identity reused with a different target",
+            "action_target_conflict",
+        ),
+        (
+            "local action identity payload/instance conflict",
+            "action_payload_conflict",
+        ),
+        (
+            "control reply belongs to a different local instance",
+            "control_instance_mismatch",
+        ),
+        (
+            "stop receiver action not durably admitted",
+            "native_receipt_not_durable",
+        ),
+    ] {
+        if blocker
+            .strip_prefix("LOCAL_ADMISSION_REJECTED: ")
+            .is_some_and(|detail| detail.starts_with(prefix))
+        {
+            return class;
+        }
+    }
     if blocker.starts_with("LOCAL_ADMISSION_REJECTED:") {
         return "local_admission_rejected_other";
     }
@@ -36,10 +86,44 @@ fn safe_blocker_class(blocker: Option<&str>) -> &'static str {
 fn safe_stage(stage: &str) -> &'static str {
     match stage {
         "prepared" => "prepared",
+        "draining" => "draining",
+        "starting" => "starting",
         "stop_verified" => "stop_verified",
         "maintenance_stopped" => "maintenance_stopped",
         "local_process_stopped" => "local_process_stopped",
         _ => "other",
+    }
+}
+
+#[test]
+fn stop_failure_diagnostics_keep_phase_and_redact_untrusted_details() {
+    assert_eq!(safe_stage("draining"), "draining");
+    for (detail, expected) in [
+        (
+            "control query response failed: control read: kind=WouldBlock os_code=Some(11)",
+            "control_query_read_would_block",
+        ),
+        (
+            "control query response failed: control read: kind=TimedOut os_code=Some(60)",
+            "control_query_read_timed_out",
+        ),
+        (
+            "control query response failed: incomplete or oversized control message",
+            "control_query_response_failed",
+        ),
+        (
+            "native action admission writer busy",
+            "admission_writer_busy",
+        ),
+        (
+            "/private/sensitive/config.json: secret",
+            "local_admission_rejected_other",
+        ),
+    ] {
+        assert_eq!(
+            safe_blocker_class(Some(&format!("LOCAL_ADMISSION_REJECTED: {detail}"))),
+            expected
+        );
     }
 }
 

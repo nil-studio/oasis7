@@ -128,8 +128,10 @@ fn control(data: &Path, instance: &Instance, operation: &str) -> Result<Instance
         generation: instance.generation,
         config_digest: instance.config_digest.clone(),
     };
-    write_line(&mut socket, &request)?;
-    let response: ControlResponse = read_line(&mut socket)?;
+    write_line(&mut socket, &request)
+        .map_err(|error| format!("control {operation} request failed: {error}"))?;
+    let response: ControlResponse = read_line(&mut socket)
+        .map_err(|error| format!("control {operation} response failed: {error}"))?;
     if response.instance.incarnation != instance.incarnation
         || response.instance.generation != instance.generation
         || response.instance.config_digest != instance.config_digest
@@ -145,13 +147,25 @@ fn write_line<T: Serialize>(stream: &mut UnixStream, value: &T) -> Result<(), St
         return Err("control message limit".into());
     }
     bytes.push(b'\n');
-    stream.write_all(&bytes).map_err(|e| e.to_string())
+    stream.write_all(&bytes).map_err(|error| {
+        format!(
+            "control write: kind={:?} os_code={:?}",
+            error.kind(),
+            error.raw_os_error()
+        )
+    })
 }
 fn read_line<T: serde::de::DeserializeOwned>(stream: &mut UnixStream) -> Result<T, String> {
     let mut bytes = Vec::new();
     std::io::Read::take(BufReader::new(stream), (MAX_CONTROL + 1) as u64)
         .read_until(b'\n', &mut bytes)
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| {
+            format!(
+                "control read: kind={:?} os_code={:?}",
+                error.kind(),
+                error.raw_os_error()
+            )
+        })?;
     if bytes.len() > MAX_CONTROL || bytes.last() != Some(&b'\n') {
         return Err("incomplete or oversized control message".into());
     }
