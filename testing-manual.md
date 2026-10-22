@@ -1594,3 +1594,23 @@ R3/R4 用正常、有明确 empty-world 状态、缺 manifest、未 committed �
 ### Node reward host observation boundary
 
 Node snapshot / filesystem reward observations are owned by the Chain reward host. Run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p,test_tier_required node_points` to execute the snapshot proof-hint/storage-count unit tests and the multi-node points closure regression. These tests retain their existing feature tier; the core package no longer owns the Node host adapter or its network feature.
+
+
+### Governed validator admission authentication (controlled profile v2)
+
+Refs #4975; Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`.
+
+Run canonical commands from the candidate worktree after `./scripts/cargo-dev.sh --prepare-target`:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api governance_authorization -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib governance_auth -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features governance_authorization -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features governance_validator_admission -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --no-default-features governance_registry_publication_transaction_regressions -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p governance_authorization_tests -- --nocapture
+```
+
+The host suite uses actual signed profile-v2 activation and qualified parent verification, exercises all four commands, parent/world/policy/signature/action failures, threshold and atomic nonce behavior, and real NodeRuntime-to-driver ingress preflight. Node scheduling tests use an explicit oracle to test stale/duplicate queue filtering and progress; runtime transition tests use synthetic parent tokens and do not prove qualification. No Wasm modules execute in these selected governance tests; do not treat an unfiltered `--no-default-features` crate run as the full Wasmtime acceptance tier. Run normal required CI for the final candidate.
+
+Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.

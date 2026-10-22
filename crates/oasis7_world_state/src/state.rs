@@ -291,9 +291,8 @@ pub struct LogisticsSettlementReceiptV1 {
 /// Durable disposition for a product-validation failure after a recipe has
 /// already sunk its committed inputs and electricity.
 ///
-/// The action id is the stable identity. Keeping the exact consumed/lost
-/// payload makes replay of the blocker idempotent while allowing a conflicting
-/// same-id event to fail closed.
+/// The stable action id makes identical blocker replay idempotent and rejects
+/// conflicting consumed/lost payloads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FactoryProductionFailureDispositionV1 {
     pub action_id: ActionId,
@@ -314,9 +313,8 @@ pub struct FactoryProductionFailureDispositionV1 {
 
 /// Comparable one-time receipt for an immediate material transfer.
 ///
-/// The transfer action id is the stable identity. Keeping the settled payload
-/// alongside it lets replay treat an exact duplicate as a no-op while rejecting
-/// a same-id event whose material effect was tampered with.
+/// The stable transfer action id makes identical settlement replay idempotent
+/// and rejects conflicting material effects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaterialTransferReceiptV1 {
     pub transfer_id: ActionId,
@@ -759,6 +757,9 @@ pub struct WorldState {
     pub governance_validator_admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
     #[serde(default)]
     pub governance_main_token_controller_registry: Option<GovernanceMainTokenControllerRegistry>,
+    /// Successful controller nonces commit atomically with governance effects.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub governance_authorization_nonces: BTreeMap<String, u64>,
     #[serde(default)]
     pub reward_signature_governance_policy: RewardSignatureGovernancePolicy,
 }

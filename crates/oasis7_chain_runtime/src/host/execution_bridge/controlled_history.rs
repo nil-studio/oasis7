@@ -322,7 +322,8 @@ fn reexecute(
     if !simulator.is_empty() || bootstrap.is_some() || !service_intents.is_empty() {
         return Err("unsupported replay operation".into());
     }
-    for (action, origin) in actions {
+    for (action, origin, authorization) in actions {
+        if authorization.is_some() { return Err("governance is not a recipe capture replay operation".into()); }
         world
             .submit_recipe_action_with_origin(action, origin.ok_or("missing replay origin")?)
             .map_err(|e| format!("replay submit: {e:?}"))?;

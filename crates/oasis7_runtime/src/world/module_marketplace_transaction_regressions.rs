@@ -137,6 +137,7 @@ fn assert_match_tail_unchanged(list: bool) {
     };
     let error = world
         .try_apply_runtime_module_action(&ActionEnvelope {
+            governance_authorization: None,
             committed_recipe_origin: None,
             id: 950,
             action,
@@ -193,7 +194,8 @@ fn check_roots(world: &World, baseline: crate::Snapshot) {
 
 fn market_action(list: bool) -> ActionEnvelope {
     ActionEnvelope {
-        committed_recipe_origin: None,
+        governance_authorization: None,
+            committed_recipe_origin: None,
         id: 951,
         action: if list {
             Action::ListModuleArtifactForSale {

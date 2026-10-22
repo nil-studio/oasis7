@@ -49,7 +49,8 @@ impl World {
             owner_binding:key,owner_generation:DecimalU64(1),client_operation_id:r.client_operation_id.clone(),business_digest:business_digest(r)?,registered_tick:DecimalU64(self.state.time), imported:false };
         let mut candidate = self.clone();
         let action_id = candidate.allocate_next_action_id();
-        let envelope = ActionEnvelope { id:action_id, committed_recipe_origin:None,
+        let envelope = ActionEnvelope { id:action_id, governance_authorization: None,
+            committed_recipe_origin:None,
             action:Action::RegisterAgent { agent_id:agent_id.clone(),pos:oasis7_agent_api::world_action::GeoPos::new(0,0,0) } };
         let event = candidate.action_to_event(&envelope).map_err(|e| format!("{e:?}"))?;
         if !matches!(&event,WorldEventBody::Domain(DomainEvent::AgentRegistered {agent_id: registered,..}) if registered == &agent_id) {

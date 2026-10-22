@@ -1,11 +1,13 @@
 //! Canonical typed world action contract shared by clients and execution adapters.
 mod action;
 mod geometry;
+mod governance_authorization;
 mod ledger;
 mod main_token;
 mod support;
 pub use action::*;
 pub use geometry::GeoPos;
+pub use governance_authorization::*;
 pub use ledger::MaterialLedgerId;
 pub use main_token::*;
 pub use support::*;

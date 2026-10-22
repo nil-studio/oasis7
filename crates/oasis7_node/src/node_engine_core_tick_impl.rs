@@ -240,6 +240,9 @@ impl PosNodeEngine {
                 && (observed_tick.tick_phase == self.proposal_tick_phase
                     || recovered_from_skipped_slots)
             {
+                with_execution_hook(&mut execution_hook, |hook| {
+                    self.discard_invalid_governance_actions(hook.map(|hook| &*hook));
+                });
                 self.propose_next_head(node_id, world_id, now_ms)?
             } else {
                 self.idle_pending_decision()?

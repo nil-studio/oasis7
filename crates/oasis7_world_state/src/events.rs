@@ -113,6 +113,8 @@ impl CommittedRecipeOrigin {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActionEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governance_authorization: Option<oasis7_agent_api::world_action::GovernanceAuthorizationV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub committed_recipe_origin: Option<CommittedRecipeOrigin>,
     pub id: ActionId,
     pub action: Action,

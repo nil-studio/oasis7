@@ -620,7 +620,8 @@ impl World {
                     failure_detail: failure_detail.clone(),
                 };
                 let validation_event = self.action_to_event(&ActionEnvelope {
-                    committed_recipe_origin: None,
+                    governance_authorization: None,
+            committed_recipe_origin: None,
                     id: job.job_id,
                     action: Action::ValidateProduct {
                         requester_agent_id: job.requester_agent_id.clone(),

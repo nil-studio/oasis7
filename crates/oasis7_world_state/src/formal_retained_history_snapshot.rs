@@ -6,6 +6,8 @@ const MAX_ANCHORED_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
 /// fields prevent APIs from manufacturing trust with a raw digest.
 #[derive(Debug, Clone)]
 pub struct VerifiedFormalRetainedHistoryParentV1 {
+    head: Option<oasis7_formal_protocol::controlled_authority::formal::FormalHeadRefV1>,
+    controller_registry: Option<crate::GovernanceMainTokenControllerRegistry>,
     root: FormalRetainedHistoryRootV1,
     effect_world:
         Option<oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1>,
@@ -39,6 +41,8 @@ impl VerifiedFormalRetainedHistoryParentV1 {
             .ok_or("qualified parent snapshot has no retained-history descriptor")?;
         root.validate()?;
         Ok(Self {
+            head: Some(anchor.head().head()),
+            controller_registry: envelope.state.governance_main_token_controller_registry,
             root,
             effect_world: Some(anchor.head().record().world.clone()),
             after_snapshot_root: actual_snapshot_root,
@@ -58,6 +62,16 @@ impl VerifiedFormalRetainedHistoryParentV1 {
         &self,
     ) -> Option<&oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1> {
         self.effect_world.as_ref()
+    }
+    /// Exact canonical position and record identity from the qualified anchor.
+    /// Execution height and logical tick are not canonical commit positions.
+    pub fn head(
+        &self,
+    ) -> Option<&oasis7_formal_protocol::controlled_authority::formal::FormalHeadRefV1> {
+        self.head.as_ref()
+    }
+    pub fn controller_registry(&self) -> Option<&crate::GovernanceMainTokenControllerRegistry> {
+        self.controller_registry.as_ref()
     }
     pub fn logical_tick(&self) -> Option<u64> {
         self.logical_tick
@@ -108,8 +122,25 @@ impl VerifiedFormalRetainedHistoryParentV1 {
 
 #[cfg(any(test, feature = "test-support"))]
 impl VerifiedFormalRetainedHistoryParentV1 {
+    /// Synthetic token for execution tests only; this does not test qualification.
+    pub fn for_test_governance_snapshot(
+        root: FormalRetainedHistoryRootV1,
+        snapshot_cbor: &[u8],
+        world: oasis7_formal_protocol::controlled_authority::formal::FormalWorldIdentityV1,
+        head: oasis7_formal_protocol::controlled_authority::formal::FormalHeadRefV1,
+    ) -> Self {
+        let envelope: SnapshotRetentionEnvelopeV1 = serde_cbor::from_slice(snapshot_cbor).unwrap();
+        let mut parent = Self::for_test_snapshot_at_tick(root, snapshot_cbor, envelope.state.time);
+        parent.effect_world = Some(world);
+        parent.head = Some(head);
+        parent.controller_registry = envelope.state.governance_main_token_controller_registry;
+        parent
+    }
+
     pub fn for_test(root: FormalRetainedHistoryRootV1) -> Self {
         Self {
+            head: None,
+            controller_registry: None,
             effect_world: None,
             after_snapshot_root: "0".repeat(64),
             logical_tick: None,
@@ -125,6 +156,8 @@ impl VerifiedFormalRetainedHistoryParentV1 {
         tick: u64,
     ) -> Self {
         Self {
+            head: None,
+            controller_registry: None,
             effect_world: None,
             after_snapshot_root: blake3::hash(snapshot_cbor).to_hex().to_string(),
             root,
@@ -144,6 +177,8 @@ impl VerifiedFormalRetainedHistoryParentV1 {
 
     pub fn for_test_snapshot(root: FormalRetainedHistoryRootV1, snapshot_cbor: &[u8]) -> Self {
         Self {
+            head: None,
+            controller_registry: None,
             effect_world: None,
             after_snapshot_root: blake3::hash(snapshot_cbor).to_hex().to_string(),
             logical_tick: None,
@@ -176,4 +211,6 @@ struct SnapshotRetentionStateEnvelopeV1 {
     time: u64,
     #[serde(default)]
     retained_history_root: Option<FormalRetainedHistoryRootV1>,
+    #[serde(default)]
+    governance_main_token_controller_registry: Option<crate::GovernanceMainTokenControllerRegistry>,
 }

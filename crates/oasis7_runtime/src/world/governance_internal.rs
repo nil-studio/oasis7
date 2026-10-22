@@ -585,6 +585,14 @@ impl World {
         &mut self,
         event: &GovernanceEvent,
     ) -> Result<(), WorldError> {
+        if matches!(event, GovernanceEvent::ValidatorAdmissionSubmitted { .. }
+            | GovernanceEvent::ValidatorAdmissionApproved { .. }
+            | GovernanceEvent::ValidatorAdmissionActivated { .. }
+            | GovernanceEvent::ValidatorAdmissionRevoked { .. }) {
+            let prepared = self.prepare_governance_registry_event(event)?;
+            prepared.install(&mut self.state);
+            return Ok(());
+        }
         match event {
             GovernanceEvent::Proposed {
                 proposal_id,
@@ -837,6 +845,7 @@ impl World {
                     .insert(target_agent_id, next_profile);
             }
             GovernanceEvent::ValidatorAdmissionSubmitted {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 node_id,
@@ -856,6 +865,7 @@ impl World {
                 *requested_at_epoch,
             )?,
             GovernanceEvent::ValidatorAdmissionApproved {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 approved_at_epoch,
@@ -865,6 +875,7 @@ impl World {
                 *approved_at_epoch,
             )?,
             GovernanceEvent::ValidatorAdmissionActivated {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 activation_epoch,
@@ -874,6 +885,7 @@ impl World {
                 *activation_epoch,
             )?,
             GovernanceEvent::ValidatorAdmissionRevoked {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 node_id,

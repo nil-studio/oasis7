@@ -947,7 +947,8 @@ fn committed_recipe_origin_preserves_exact_consensus_context_and_runtime_id_allo
     };
     let (mut decoded, _, _, _) =
         super::super::driver_replicated_input::decode_committed_actions(&context).unwrap();
-    let (action, origin) = decoded.pop().unwrap();
+    let (action, origin, authorization) = decoded.pop().unwrap();
+    assert!(authorization.is_none());
     let origin = origin.expect("new verified metadata");
     assert_eq!(origin.consensus_action_id, 2);
     assert_eq!(origin.action_payload_hash, committed.payload_hash);

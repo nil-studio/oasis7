@@ -358,6 +358,8 @@ pub enum GovernanceEvent {
         next_admin_account_ids: Vec<String>,
     },
     ValidatorAdmissionSubmitted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authorization: Option<oasis7_agent_api::world_action::GovernanceAuthorizedActionV1>,
         controller_account_id: String,
         candidate_id: String,
         node_id: String,
@@ -369,16 +371,22 @@ pub enum GovernanceEvent {
         requested_at_epoch: u64,
     },
     ValidatorAdmissionApproved {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authorization: Option<oasis7_agent_api::world_action::GovernanceAuthorizedActionV1>,
         controller_account_id: String,
         candidate_id: String,
         approved_at_epoch: u64,
     },
     ValidatorAdmissionActivated {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authorization: Option<oasis7_agent_api::world_action::GovernanceAuthorizedActionV1>,
         controller_account_id: String,
         candidate_id: String,
         activation_epoch: u64,
     },
     ValidatorAdmissionRevoked {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        authorization: Option<oasis7_agent_api::world_action::GovernanceAuthorizedActionV1>,
         controller_account_id: String,
         candidate_id: String,
         node_id: String,
