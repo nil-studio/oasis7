@@ -21,6 +21,21 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_cli_helper_imports_do_not_add_cache_source_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            for name in ("package-ecs.py", "package-ecs-skills.py"):
+                shutil.copyfile(ROOT / "scripts" / name, scripts / name)
+            env = dict(os.environ)
+            env.pop("PYTHONDONTWRITEBYTECODE", None)
+            result = subprocess.run([sys.executable, str(scripts / "package-ecs.py"), "--help"],
+                                    cwd=root, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(set(path.name for path in scripts.iterdir()),
+                             {"package-ecs.py", "package-ecs-skills.py"})
+
     @unittest.skipUnless(sys.platform == "linux" and Path("/usr/bin/time").is_file(), "Linux ECS resource collection")
     def test_compile_step_preserves_build_status_and_stops_monitor(self):
         workflow = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
@@ -135,7 +150,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)
         for section in (text.split("  web:\n", 1)[1].split("  native:", 1)[0], text.split("  native:\n", 1)[1].split("  native-trusted:", 1)[0]):
             self.assertNotIn("needs:", section)
-        self.assertEqual(text.count("ref: ${{ github.sha }}"), 3)
+        self.assertEqual(text.count("ref: ${{ github.sha }}"), 4)
 
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 spec = importlib.util.spec_from_file_location('maintenance', Path(__file__).with_name('ci-cache-maintenance.py'))
 maintenance = importlib.util.module_from_spec(spec)
@@ -382,7 +383,40 @@ class ApiTests(unittest.TestCase):
         with self.assertRaisesRegex(maintenance.MaintenanceError, 'budget'):
             api.request('GET', '/actions/caches')
 
+    def test_http_diagnostics_expose_only_validated_fields(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', 'secret-token')
+        error = HTTPError('https://example.com/secret-url', 403, 'secret-reason', {
+            'X-Accepted-GitHub-Permissions': 'actions=read',
+            'X-GitHub-Request-Id': 'ABCD:1234:5678',
+            'X-RateLimit-Remaining': '123',
+            'Authorization': 'secret-token',
+            'Set-Cookie': 'secret-cookie',
+        }, io.BytesIO(b'{"message":"Resource not accessible by integration","secret":"secret-body"}'))
+        api.opener.open = Mock(side_effect=error)
+        with self.assertRaises(maintenance.MaintenanceApiError) as caught:
+            api.request('GET', '/actions/cache/storage-limit')
+        failure = caught.exception
+        self.assertEqual(failure.status, 403)
+        self.assertFalse(failure.rate_limited)
+        self.assertEqual(failure.diagnostics, dict(http_status=403, accepted_permissions='actions=read',
+                         request_id='ABCD:1234:5678', rate_limit_remaining=123, category='integration_access'))
+        self.assertNotIn('secret', str(failure) + json.dumps(failure.diagnostics))
 
+    def test_http_diagnostics_distinguish_rate_limits_and_reject_injected_headers(self):
+        for headers, body in [({'X-RateLimit-Remaining': '0'}, b'{}'),
+                              ({'Retry-After': '30'}, b'{}'),
+                              ({'Retry-After': '0'}, b'{}'),
+                              ({'Retry-After': 'Wed, 21 Oct 2026 10:00:00 GMT'}, b'{}'),
+                              ({}, b'{"message":"API rate limit exceeded for secret-user"}')]:
+            with self.subTest(headers=headers, body=body):
+                error = HTTPError('secret-url', 403, 'secret', dict(headers,
+                    **{'X-Accepted-GitHub-Permissions': 'actions=read\nsecret',
+                       'X-GitHub-Request-Id': 'secret-token'}), io.BytesIO(body))
+                failure = maintenance.MaintenanceApiError('GET', error)
+                self.assertTrue(failure.rate_limited)
+                self.assertNotIn('accepted_permissions', failure.diagnostics)
+                self.assertNotIn('request_id', failure.diagnostics)
+                self.assertNotIn('secret', str(failure) + json.dumps(failure.diagnostics))
 class TrustTests(unittest.TestCase):
     def environment(self):
         return {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': 'nil-studio/oasis7',

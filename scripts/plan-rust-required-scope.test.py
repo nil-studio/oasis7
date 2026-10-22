@@ -72,6 +72,19 @@ class Selection(unittest.TestCase):
     def plan(self, head=None):
         return selector.select(self.config, self.base, head or self.commit())
 
+    def test_libp2p_compatibility_packages_and_driver_select_network_tests(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('tests/libp2p-compat/common/src/protocol.rs',
+                     'tests/libp2p-compat/candidate/src/main.rs',
+                     'tests/libp2p-compat/legacy/src/main.rs',
+                     'scripts/libp2p-compat.test.py'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'compatibility input')
+                plan = selector.select(config, case_base, self.commit())
+                self.assertIn('net', plan['groups'])
+                self.assertEqual(plan['scope'], 'targeted')
+
     def native_generated_fixture(self, register=True):
         # Retain the real producer and its three OUT_DIR consumers. A workspace
         # without these sources failed to reproduce the docs-only over-selection.

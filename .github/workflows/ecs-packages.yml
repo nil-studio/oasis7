@@ -10,6 +10,14 @@ on:
         required: true
         default: '2'
         options: ['1', '2']
+      measure_builds:
+        description: Compare full native builds and a Viewer source change (manual, read-only)
+        type: boolean
+        default: false
+      measurement_baseline:
+        description: Immutable baseline SHA or ref, required when measure_builds is enabled
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -21,6 +29,9 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUST_TOOLCHAIN: 1.96.0
+  # Verified at /nil-studio/oasis7/actions/caches on 2026-10-21: 10 GB.
+  # An explicit conservative budget, never a fabricated live API response.
+  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '10000000000'
 
 jobs:
   web:
@@ -74,6 +85,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Preflight ECS workspace cache capacity
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-ecs-cache.py preflight --report "$RUNNER_TEMP/ecs-cache-preflight.json"
       - name: Install Rust and system libraries
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
@@ -99,12 +115,19 @@ jobs:
         if: steps.ecs-cache-identity.outputs.key != ''
         continue-on-error: true
         with:
-          path: ${{ runner.temp }}/ecs-workspace-cache
+          path: ${{ runner.temp }}/ecs-workspace-cache/workspace-units.tar.gz
           key: ${{ steps.ecs-cache-identity.outputs.key }}
           restore-keys: ${{ steps.ecs-cache-identity.outputs.prefix }}
       - name: Validate ECS workspace cache
         continue-on-error: true
-        run: python3 scripts/ci-ecs-cache.py restore --cache "$RUNNER_TEMP/ecs-workspace-cache" --report "$RUNNER_TEMP/ecs-cache-restore.json"
+        env:
+          ECS_REQUESTED_KEY: ${{ steps.ecs-cache-identity.outputs.key }}
+          ECS_MATCHED_KEY: ${{ steps.ecs-workspace-cache.outputs.cache-matched-key }}
+          ECS_CACHE_HIT: ${{ steps.ecs-workspace-cache.outputs.cache-hit }}
+        run: |
+          python3 scripts/ci-ecs-cache.py restore --cache "$RUNNER_TEMP/ecs-workspace-cache" \
+            --report "$RUNNER_TEMP/ecs-cache-restore.json" --requested-key "$ECS_REQUESTED_KEY" \
+            --matched-key "$ECS_MATCHED_KEY" --cache-hit "$ECS_CACHE_HIT"
       - name: Compile three ECS binaries
         shell: bash
         env:
@@ -130,11 +153,41 @@ jobs:
             python3 scripts/package-ecs.py native --out "$RUNNER_TEMP/ecs-native" --cache-state "$RUNNER_TEMP/ecs-cache-state.json"
       - name: Stage ECS workspace cache
         id: ecs-cache-stage
-        if: github.job == 'native-trusted'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci-ecs-cache.py stage --cache "$RUNNER_TEMP/ecs-workspace-cache" --state "$RUNNER_TEMP/ecs-cache-state.json" --report "$RUNNER_TEMP/ecs-cache-stage.json"
+          ECS_CACHE_PREVIEW: ${{ github.job != 'native-trusted' }}
+        shell: bash
+        run: |
+          args=()
+          if [[ "$ECS_CACHE_PREVIEW" == 'true' ]]; then
+            args+=(--preview)
+          fi
+          python3 scripts/ci-ecs-cache.py stage "${args[@]}" \
+            --cache "$RUNNER_TEMP/ecs-workspace-cache" --state "$RUNNER_TEMP/ecs-cache-state.json" \
+            --report "$RUNNER_TEMP/ecs-cache-stage.json"
+      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        id: ecs-cache-save
+        if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/ecs-workspace-cache/workspace-units.tar.gz
+          key: ${{ steps.ecs-cache-identity.outputs.key }}
+      - name: Confirm ECS workspace cache save
+        if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true' && steps.ecs-cache-save.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ECS_CACHE_KEY: ${{ steps.ecs-cache-identity.outputs.key }}
+        run: python3 scripts/ci-ecs-cache.py observe-save --key "$ECS_CACHE_KEY" --report "$RUNNER_TEMP/ecs-cache-save.json"
+      - run: |
+          mkdir -p output
+          tar -C "$RUNNER_TEMP/ecs-native" -czf output/native.tar.gz .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-native-stage
+          path: output/native.tar.gz
+          if-no-files-found: error
       - name: Upload native Cargo timings
         if: always()
         continue-on-error: true
@@ -147,20 +200,6 @@ jobs:
             ${{ runner.temp }}/ecs-cache-*.json
             ${{ runner.temp }}/ecs-units.json
           if-no-files-found: ignore
-      - run: |
-          mkdir -p output
-          tar -C "$RUNNER_TEMP/ecs-native" -czf output/native.tar.gz .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ecs-native-stage
-          path: output/native.tar.gz
-          if-no-files-found: error
-      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4
-        if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true'
-        continue-on-error: true
-        with:
-          path: ${{ runner.temp }}/ecs-workspace-cache
-          key: ${{ steps.ecs-cache-identity.outputs.key }}
 
   native-trusted:
     concurrency:
@@ -171,6 +210,55 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps: *native-steps
+
+  build-metrics:
+    if: inputs.measure_builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    cache-mode: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Resolve explicit measurement baseline
+        id: baseline
+        shell: bash
+        env:
+          BASELINE_REF: ${{ inputs.measurement_baseline }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BASELINE_REF" || "$BASELINE_REF" == -* ]]; then
+            echo '::error::measure_builds requires an explicit measurement_baseline'
+            exit 2
+          fi
+          git fetch --no-tags --depth=1 origin -- "$BASELINE_REF"
+          printf 'sha=%s\n' "$(git rev-parse --verify 'FETCH_HEAD^{commit}')" >> "$GITHUB_OUTPUT"
+      - name: Install measurement toolchain and system libraries
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Measure full native build and Viewer source change
+        shell: bash
+        env:
+          BASELINE_SHA: ${{ steps.baseline.outputs.sha }}
+          CARGO_BUILD_JOBS: ${{ inputs.native_build_jobs || '2' }}
+          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+        run: |
+          python3 scripts/ci-ecs-build-metrics.py \
+            --baseline-ref "$BASELINE_SHA" --current-ref "$GITHUB_SHA" \
+            --jobs "$CARGO_BUILD_JOBS" --work-dir "$RUNNER_TEMP" \
+            --out-dir "$RUNNER_TEMP/ecs-build-metrics"
+      - name: Upload controlled build measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-build-metrics
+          path: ${{ runner.temp }}/ecs-build-metrics/
+          if-no-files-found: warn
 
   package:
     needs: [web, native, native-trusted]

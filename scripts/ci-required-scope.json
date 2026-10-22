@@ -84,7 +84,9 @@
       "python"
     ],
     "codex_agent_config_validation": [],
-    "compile_metrics": [],
+    "compile_metrics": [
+      "rust_toolchain"
+    ],
     "site_quality": [],
     "doc_checker_contracts": [
       "python",
@@ -285,6 +287,16 @@
     ]
   },
   "rules": [
+    {
+      "match": [
+        "tests/libp2p-compat/**",
+        "scripts/libp2p-compat.test.py"
+      ],
+      "groups": [
+        "net"
+      ],
+      "reason": "libp2p_compatibility_protocols"
+    },
     {
       "match": [
         "doc/**",

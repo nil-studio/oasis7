@@ -47,6 +47,50 @@ class MaintenanceError(ValueError):
     """No further mutations are safe with the available evidence."""
 
 
+class MaintenanceApiError(MaintenanceError):
+    """An HTTP failure with bounded, non-secret diagnostics for cache callers."""
+
+    def __init__(self, method, error):
+        self.status = error.code
+        self.diagnostics = {'http_status': error.code}
+        headers = error.headers or {}
+        allowed = {
+            'X-Accepted-GitHub-Permissions': ('accepted_permissions',
+                r'[a-z][a-z0-9_-]*=(?:read|write)(?:[,;] ?[a-z][a-z0-9_-]*=(?:read|write))*'),
+            'X-GitHub-Request-Id': ('request_id', r'[A-Fa-f0-9:]{1,128}'),
+        }
+        for header, (name, pattern) in allowed.items():
+            value = headers.get(header, '')
+            if isinstance(value, str) and len(value) <= 512 and re.fullmatch(pattern, value, re.ASCII):
+                self.diagnostics[name] = value
+        for header, name in (('X-RateLimit-Remaining', 'rate_limit_remaining'),
+                             ('X-RateLimit-Reset', 'rate_limit_reset'),
+                             ('Retry-After', 'retry_after_seconds')):
+            value = headers.get(header, '')
+            if isinstance(value, str) and re.fullmatch(r'[0-9]{1,16}', value, re.ASCII):
+                self.diagnostics[name] = int(value)
+        # Classify known errors without publishing arbitrary response text, URLs,
+        # credentials, header values or exception messages.
+        category = 'unknown'
+        try:
+            body = error.read(16 * 1024 + 1)
+            value = json.loads(body) if len(body) <= 16 * 1024 else None
+            message = value.get('message') if isinstance(value, dict) else None
+            if message == 'Resource not accessible by integration':
+                category = 'integration_access'
+            elif message == 'Resource not accessible by personal access token':
+                category = 'personal_token_access'
+            elif isinstance(message, str) and 'rate limit' in message.lower():
+                category = 'rate_limit'
+        except (OSError, ValueError):
+            pass
+        self.diagnostics['category'] = category
+        self.rate_limited = (error.code == 429 or category == 'rate_limit'
+                             or self.diagnostics.get('rate_limit_remaining') == 0
+                             or headers.get('Retry-After') is not None)
+        super().__init__(f'cache API {method} returned HTTP {error.code}')
+
+
 def timestamp(value):
     try:
         parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -285,7 +329,7 @@ class GitHubApi:
         except HTTPError as error:
             if method == 'DELETE' and error.code == 404:
                 return False
-            raise MaintenanceError(f'cache API {method} returned HTTP {error.code}') from None
+            raise MaintenanceApiError(method, error) from None
         except (URLError, OSError, ValueError) as error:
             if isinstance(error, MaintenanceError):
                 raise

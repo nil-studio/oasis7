@@ -8,6 +8,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+
+# The native cache scans all source inputs. Helpers must not create producer-only
+# __pycache__ files before cache_begin that a clean consumer cannot restore.
+sys.dont_write_bytecode = True
 
 BINS = ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_viewer_live")
 ROOT = Path(__file__).resolve().parent.parent
