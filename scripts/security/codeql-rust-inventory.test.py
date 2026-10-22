@@ -134,4 +134,88 @@ class CheckBoundaryTests(unittest.TestCase):
                         safety_check=lambda:(_ for _ in ()).throw(RuntimeError('space guard')))
                 spawn.assert_not_called()
 
+class ObservationTests(unittest.TestCase):
+    def setUp(self):
+        import codeql_rust_inventory_observe as observe
+        self.observe=observe
+
+    def test_bundle_copy_has_only_expected_binary_content_difference(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);original=root/'original';original.mkdir()
+            target=original/self.observe.EXTRACTOR;target.parent.mkdir(parents=True);target.write_bytes(b'official');target.chmod(0o755)
+            (original/'lib.qll').write_text('unchanged')
+            (original/'alias').symlink_to('lib.qll')
+            before=self.observe.tree_manifest(original)
+            copied=root/'copy'
+            self.observe.copy_bundle(original,copied,before,__import__('time').monotonic()+10,lambda:None)
+            self.assertEqual(before,self.observe.tree_manifest(copied))
+            (copied/self.observe.EXTRACTOR).write_bytes(b'candidate')
+            self.observe.verify_replacement(before,self.observe.tree_manifest(copied),hashlib.sha256(b'candidate').hexdigest())
+            (copied/'lib.qll').write_text('drift')
+            with self.assertRaises(RuntimeError):self.observe.verify_replacement(before,self.observe.tree_manifest(copied),hashlib.sha256(b'candidate').hexdigest())
+            (original/'escape').symlink_to(root/'foreign')
+            (root/'foreign').write_text('foreign')
+            with self.assertRaises(RuntimeError):self.observe.tree_manifest(original)
+
+    def logs(self):
+        import json
+        rows=[]
+        for manifest,path in [('candidate/Cargo.toml','candidate/src/adapter.rs'),('common/Cargo.toml','common/src/driver.rs')]:
+            rows.append({'kind':'file','process_id':123,'manifest':manifest,'path':path,'phase':'initial',
+                'selected_library':False,'extraction_action':'UNCHANGED','category':'KEEP_EXPLICIT_INPUT','observation_incomplete':False})
+            rows.append({'kind':'summary','process_id':123,'manifest':manifest,'rows':1,'initial_observations':1,
+                'vfs_observations':0,'selected_library_observations':0,'dropped_rows':0,'map_incomplete':False,'extraction_action':'UNCHANGED'})
+        rows.append({'kind':'without_semantics_summary','process_id':123,'observations':0,'dropped_rows':0,'extraction_action':'UNCHANGED'})
+        return rows,[('stdout','\n'.join('[build-stdout] \x1b[32m INFO\x1b[0m OASIS7_INVENTORY '+json.dumps(r) for r in rows))]
+
+    def test_context_reconciliation_and_unknown_never_exclude(self):
+        rows,logs=self.logs();initial=['candidate/src/adapter.rs','common/src/driver.rs'];manifests=['candidate/Cargo.toml','common/Cargo.toml']
+        result=self.observe.parse_inventory(logs,initial,manifests)
+        self.assertEqual(result['status'],'OBSERVED_ZERO_OMISSION_CLASSIFICATION')
+        self.assertFalse(result['safe_exclusion']);self.assertFalse(result['closure_proven'])
+        import json
+        duplicate=logs+[('stderr','INFO OASIS7_INVENTORY '+json.dumps(rows[0]))]
+        self.assertEqual(self.observe.parse_inventory(duplicate,initial,manifests)['status'],'OBSERVED_INCOMPLETE')
+        bad=logs+[('stderr','UNKNOWN OASIS7_INVENTORY not-json')]
+        self.assertEqual(self.observe.parse_inventory(bad,initial,manifests)['status'],'OBSERVED_INCOMPLETE')
+        self.assertEqual(self.observe.parse_inventory(logs,initial+['missing'],manifests)['status'],'OBSERVED_INCOMPLETE')
+
+    def test_orphan_context_and_fallback_process_are_incomplete(self):
+        import json
+        rows,_=self.logs()
+        extra=dict(rows[0],manifest='orphan/Cargo.toml')
+        initial=['candidate/src/adapter.rs','common/src/driver.rs']
+        manifests=['candidate/Cargo.toml','common/Cargo.toml']
+        for additional in [extra,dict(rows[0],process_id=456),
+            dict(rows[1],process_id=456,rows=0,initial_observations=0,vfs_observations=0,selected_library_observations=0),
+            {'kind':'without_semantics','process_id':456,'path':'unknown.rs','library':True,
+             'category':'KEEP_UNKNOWN_NO_SEMANTICS','observation_incomplete':False,'extraction_action':'UNCHANGED'}]:
+            logs=[('stdout','\n'.join('INFO OASIS7_INVENTORY '+json.dumps(r) for r in rows+[additional]))]
+            self.assertEqual(self.observe.parse_inventory(logs,initial,manifests)['status'],'OBSERVED_INCOMPLETE')
+        no_fallback_summary=[r for r in rows if r['kind']!='without_semantics_summary']
+        logs=[('stdout','\n'.join('INFO OASIS7_INVENTORY '+json.dumps(r) for r in no_fallback_summary))]
+        self.assertEqual(self.observe.parse_inventory(logs,initial,manifests)['status'],'OBSERVED_INCOMPLETE')
+
+    def test_truncated_or_unreconciled_summary_is_incomplete(self):
+        import json
+        rows,_=self.logs();rows[1]['rows']=99
+        logs=[('stdout','\n'.join('INFO OASIS7_INVENTORY '+json.dumps(r) for r in rows))]
+        self.assertEqual(self.observe.parse_inventory(logs,['candidate/src/adapter.rs','common/src/driver.rs'],['candidate/Cargo.toml','common/Cargo.toml'])['status'],'OBSERVED_INCOMPLETE')
+        rows[1]['rows']=1;rows[1]['dropped_rows']=4
+        logs=[('stdout','\n'.join('INFO OASIS7_INVENTORY '+json.dumps(r) for r in rows))]
+        self.assertEqual(self.observe.parse_inventory(logs,['candidate/src/adapter.rs','common/src/driver.rs'],['candidate/Cargo.toml','common/Cargo.toml'])['status'],'OBSERVED_INCOMPLETE')
+
+    def test_manifest_and_stable_analysis_are_separate_from_build(self):
+        source=(ROOT/'inventory.rs').read_text()
+        self.assertIn('"manifest":self.manifest',source)
+        self.assertIn('"process_id":std::process::id()',source)
+        text=Path(self.observe.__file__).read_text()
+        self.assertIn("RUSTUP_TOOLCHAIN='1.96.0'",text)
+        self.assertIn("'1.99.0'",text)
+        self.assertIn("runtime.digest(source/'rust/extractor/src/toolchain.rs')",text)
+        self.assertIn('build_end-time.monotonic()',text)
+        self.assertNotIn("'run-queries'",text)
+        self.assertNotIn("'cargo','test'",text)
+
 if __name__=='__main__':unittest.main()

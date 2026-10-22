@@ -21,7 +21,7 @@ def patch_main(data):
         ('            let semantics = Semantics::new(db);\n',
          '            let semantics = Semantics::new(db);\n'
          '            let mut inventory = (env::var("OASIS7_RUST_INVENTORY").as_deref() == Ok("1"))\n'
-         '                .then(|| inventory::Inventory::new(&semantics));\n'),
+         '                .then(|| inventory::Inventory::new(&semantics, manifest.manifest_path().as_str()));\n'),
         ('            for file in files {\n                match extractor.load_source',
          '            for file in files {\n'
          '                if let Some(observer) = inventory.as_mut() {\n'

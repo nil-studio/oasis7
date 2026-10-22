@@ -14,7 +14,7 @@ on:
         required: true
         default: full
         type: choice
-        options: [full, newapi_bridge_package, codeql_rust_model_diagnostic, codeql_rust_inventory_check]
+        options: [full, newapi_bridge_package, codeql_rust_model_diagnostic, codeql_rust_inventory_check, codeql_rust_inventory_observe]
       model_probe:
         description: "Candidate public-model diagnostic partition"
         type: choice
@@ -122,7 +122,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
   codeql-rust-inventory-check:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'codeql_rust_inventory_check'
+    if: github.event_name == 'workflow_dispatch' && (inputs.run_mode == 'codeql_rust_inventory_check' || inputs.run_mode == 'codeql_rust_inventory_observe')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -133,9 +133,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Check isolated observation-only extractor overlay
+      - name: Check or observe isolated zero-omission extractor overlay
+        env:
+          INVENTORY_MODE: ${{ inputs.run_mode }}
         run: |
-          python3 scripts/security/codeql-rust-inventory-check.py \
+          case "$INVENTORY_MODE" in
+            codeql_rust_inventory_check) action=check ;;
+            codeql_rust_inventory_observe) action=observe ;;
+            *) exit 1 ;;
+          esac
+          python3 scripts/security/codeql-rust-inventory-check.py --action "$action" \
             --output "$RUNNER_TEMP/rust-inventory-evidence" \
             --work "$RUNNER_TEMP/rust-inventory-data" --deadline "$INVENTORY_DEADLINE"
       - name: Check inventory evidence budget

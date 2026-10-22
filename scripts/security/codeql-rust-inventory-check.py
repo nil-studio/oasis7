@@ -101,8 +101,8 @@ def execute(args):
     source = work/'source'; source.mkdir()
     before = None
     primary = None
-    def run(argv,name,timeout,cwd=source):
-        return runtime.run(argv,cwd,out/(name+'.log'),end-90,timeout,out,env,
+    def run(argv,name,timeout,cwd=source,env_override=None):
+        return runtime.run(argv,cwd,out/(name+'.log'),end-90,timeout,out,env if env_override is None else env_override,
             file_limit=runtime.DATA_LIMIT,safety_check=lambda:owned_data_guard(work))
     try:
         setup_end = min(end-90,time.monotonic()+120)
@@ -120,17 +120,28 @@ def execute(args):
             raise RuntimeError('source checkout identity differs')
         if runtime.digest(source/'Cargo.lock') != LOCK_SHA or runtime.digest(source/'MODULE.bazel') != MODULE_SHA:
             raise RuntimeError('official workspace lock/build toolchain identity differs')
+        action=getattr(args,'action','check')
+        observation=business=None
+        if action=='observe':
+            import codeql_rust_inventory_observe as observation
+            business=observation.prepare_business(run,work,setup_end)
+            run(['git','show',SOURCE+':rust/ql/lib/rust.dbscheme'],'source-schema',max(0,setup_end-time.monotonic()))
         runtime.save(out/'build-inputs.json',{'source':SOURCE,'lock_sha256':LOCK_SHA,'module_sha256':MODULE_SHA,
             'toolchain':TOOLCHAIN,'cargo_package':'codeql-rust','workspace_members':MEMBERS,
-            'check_jobs':2,'debug_info':0,'cargo_memory_hint':'UNSUPPORTED; sampled RSS is observation, no hard cap','source_fetch_budget_seconds':120,
-            'toolchain_budget_seconds':120,'check_budget_seconds':720,'total_seconds':1080,
+            'action':action,'check_jobs':2,'debug_info':0,'cargo_memory_hint':'UNSUPPORTED; sampled RSS is observation, no hard cap','source_fetch_budget_seconds':120,
+            'toolchain_budget_seconds':120,'check_budget_seconds':720 if action=='check' else None,'binary_build_shared_seconds':360 if action=='observe' else None,'total_seconds':1080,
             'receipt_reserve_seconds':90,'data_limit': '8GiB periodic allocated observation;1GiB per file',
             'evidence_limit_bytes':runtime.CAP},out)
-        run(['rustup','toolchain','install',TOOLCHAIN,'--profile','minimal'],'install-toolchain',120)
+        toolchain_end=min(end-90,time.monotonic()+120)
+        run(['rustup','toolchain','install',TOOLCHAIN,'--profile','minimal'],'install-toolchain',max(0,toolchain_end-time.monotonic()))
         run(['rustup','run',TOOLCHAIN,'rustc','-vV'],'rustc',10)
         (source/'.oasis7-owned-inventory-source').touch()
         spec=importlib.util.spec_from_file_location('overlay',Path(__file__).with_name('codeql-rust-inventory')/'apply.py')
         overlay=importlib.util.module_from_spec(spec);spec.loader.exec_module(overlay)
+        if action=='observe':
+            observation.execute(args,env,end,out,work,source,business,run,overlay,source_snapshot,
+                lambda:owned_data_guard(work),terminal,toolchain_end)
+            return
         runtime.save(out/'overlay.json',overlay.apply(source),out)
         before = source_snapshot(source)
         runtime.save(out/'terminal-size-admission.json',runtime.admit_terminal_snapshots(before,{}),out)
@@ -168,6 +179,7 @@ def execute(args):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--action',choices=('check','observe'),default='check')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--work',type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)

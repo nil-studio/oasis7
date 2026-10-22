@@ -2,7 +2,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use ra_ap_base_db::SourceDatabase;
 use ra_ap_hir::{Crate, Semantics};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_vfs::{FileId, Vfs};
@@ -13,6 +12,7 @@ const ROW_LIMIT: usize = 4_096;
 const CONTEXT_LIMIT: usize = 16;
 
 pub struct Inventory {
+    manifest: String,
     owners: HashMap<FileId, Vec<Value>>,
     includes: HashMap<FileId, Vec<Value>>,
     map_incomplete: bool,
@@ -33,11 +33,11 @@ fn bounded_push(map: &mut HashMap<FileId, Vec<Value>>, key: FileId, value: Value
 }
 
 impl Inventory {
-    pub fn new(sema: &Semantics<'_, RootDatabase>) -> Self {
+    pub fn new(sema: &Semantics<'_, RootDatabase>, manifest: &str) -> Self {
         let start = Instant::now();
         let db = sema.db;
-        let mut result = Self { owners: HashMap::new(), includes: HashMap::new(),
-            map_incomplete: false, rows: 0, dropped_rows: 0, initial_observations: 0,
+        let mut result = Self { manifest: manifest.chars().take(1024).collect(), owners: HashMap::new(), includes: HashMap::new(),
+            map_incomplete: manifest.chars().count()>1024, rows: 0, dropped_rows: 0, initial_observations: 0,
             vfs_observations: 0, selected_library_observations: 0, elapsed: Default::default() };
         // These calls can force lazy RA queries. Their time is observation cost, not extraction benefit.
         for krate in Crate::all(db) {
@@ -92,7 +92,7 @@ impl Inventory {
         let path = physical.to_string_lossy();
         let bounded_path: String = path.chars().take(1024).collect();
         incomplete |= path.chars().count() > 1024 || vfs_path.len() > 1024;
-        tracing::info!(target: "codeql_inventory", "{}", json!({"kind":"file",
+        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"file","manifest":self.manifest,
             "phase":phase,"path":bounded_path,"file_id":format!("{file_id:?}"),
             "vfs_path":vfs_path.chars().take(1024).collect::<String>(),
             "already_processed":already_processed,"is_library":is_library,
@@ -105,11 +105,12 @@ impl Inventory {
     }
 
     pub fn finish(self) {
-        tracing::info!(target: "codeql_inventory", "{}", json!({"kind":"summary",
+        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"summary","manifest":self.manifest,
             "rows":self.rows,"dropped_rows":self.dropped_rows,"map_incomplete":self.map_incomplete,
             "initial_observations":self.initial_observations,"vfs_observations":self.vfs_observations,
             "selected_library_observations":self.selected_library_observations,
-            "hook_elapsed_micros":self.elapsed.as_micros(),"extraction_action":"UNCHANGED",
+            "hook_elapsed_micros":self.elapsed.as_micros(),
+            "hook_elapsed_scope":"new and file observe only; excludes summary and fallback logging","extraction_action":"UNCHANGED",
             "closure_proven":false,"performance_comparison":"INVALID_INSTRUMENTED_LAZY_QUERIES"}));
     }
 }
@@ -135,7 +136,7 @@ pub fn without_semantics(path: &std::path::Path, library: bool, reason: &str) {
     let index = FALLBACK_OBSERVED.fetch_add(1, Ordering::Relaxed);
     if index >= ROW_LIMIT { FALLBACK_DROPPED.fetch_add(1, Ordering::Relaxed); return; }
     let text = path.to_string_lossy();
-    tracing::info!(target:"codeql_inventory", "{}", json!({"kind":"without_semantics",
+    tracing::info!(target:"codeql_inventory", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"without_semantics","manifest":"UNKNOWN_WITHOUT_SEMANTICS",
         "path":text.chars().take(1024).collect::<String>(), "library":library,
         "reason":reason, "category":if library && reason.is_empty() { "KEEP_BUILTIN" }
             else { "KEEP_UNKNOWN_NO_SEMANTICS" }, "extraction_action":"UNCHANGED",
@@ -144,7 +145,7 @@ pub fn without_semantics(path: &std::path::Path, library: bool, reason: &str) {
 
 pub fn finish_fallback() {
     if std::env::var("OASIS7_RUST_INVENTORY").as_deref() != Ok("1") { return; }
-    tracing::info!(target:"codeql_inventory", "{}", json!({"kind":"without_semantics_summary",
+    tracing::info!(target:"codeql_inventory", "OASIS7_INVENTORY {}", json!({"process_id":std::process::id(),"kind":"without_semantics_summary",
         "observations":FALLBACK_OBSERVED.load(Ordering::Relaxed),
         "dropped_rows":FALLBACK_DROPPED.load(Ordering::Relaxed),
         "extraction_action":"UNCHANGED","closure_proven":false}));
