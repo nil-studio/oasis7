@@ -1,3 +1,4 @@
+use super::peer_discovery_observations::DiscoveryObservations;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -267,6 +268,7 @@ pub(super) fn clear_disconnected_peer_state(
 pub(super) fn refresh_peer_manager_views(
     swarm: &mut libp2p::Swarm<Behaviour>,
     discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovery_observations: &DiscoveryObservations,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     admitted_active_peers: &HashSet<PeerId>,
     peer_manager_policy: &PeerManagerPolicy,
@@ -284,6 +286,7 @@ pub(super) fn refresh_peer_manager_views(
     let (peer_healths_by_id, quarantined_active_peers, admitted_active_peers) =
         refresh_peer_manager_healths(
             discovered_peer_records,
+            discovery_observations,
             active_transport_paths,
             admitted_active_peers,
             peer_manager_policy,

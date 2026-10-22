@@ -72,6 +72,7 @@ pub(super) enum PendingDhtQuery {
     },
     DiscoverPeerRecord {
         peer_id: PeerId,
+        upstream: Option<PeerId>,
         record: Option<SignedPeerRecord>,
         error: Option<WorldError>,
     },
@@ -97,6 +98,7 @@ pub(super) enum DhtProgressAction {
     DiscoveryError(WorldError),
     DiscoverPeerRecord {
         peer_id: PeerId,
+        upstream: Option<PeerId>,
         result: Box<Result<Option<SignedPeerRecord>, WorldError>>,
     },
 }
@@ -368,13 +370,17 @@ pub(super) fn handle_dht_progress(
         }
         PendingDhtQuery::DiscoverPeerRecord {
             peer_id,
+            upstream,
             record,
             error,
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(found))) => {
-                    match decode_peer_record(&found.record.value) {
-                        Ok(decoded) => *record = Some(decoded),
+                    match decode_peer_record_for_target(&found.record.value, *peer_id) {
+                        Ok(decoded) => {
+                            *record = Some(decoded);
+                            *upstream = found.peer;
+                        }
                         Err(err) => *error = Some(err),
                     }
                 }
@@ -401,6 +407,7 @@ pub(super) fn handle_dht_progress(
                 };
                 return DhtProgressAction::DiscoverPeerRecord {
                     peer_id: *peer_id,
+                    upstream: *upstream,
                     result: Box::new(result),
                 };
             }

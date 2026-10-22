@@ -850,6 +850,9 @@ fn replication_peer_health_status_label(status: oasis7_net::PeerManagerHealthSta
 
 fn replication_peer_health_issue_label(issue: oasis7_net::PeerManagerHealthIssue) -> String {
     match issue {
+        oasis7_net::PeerManagerHealthIssue::DiscoveryIndependenceUnverified => {
+            "discovery_independence_unverified".to_string()
+        }
         oasis7_net::PeerManagerHealthIssue::MissingPeerRecord => "missing_peer_record".to_string(),
         oasis7_net::PeerManagerHealthIssue::SingleSourceDiscovery {
             observed_sources,
@@ -1021,6 +1024,7 @@ fn issue_is_soft_bootstrap_constraint(issue: &PeerManagerHealthIssue) -> bool {
     matches!(
         issue,
         PeerManagerHealthIssue::MissingPeerRecord
+            | PeerManagerHealthIssue::DiscoveryIndependenceUnverified
             | PeerManagerHealthIssue::InsufficientActiveDiscoverySources { .. }
             | PeerManagerHealthIssue::SingleSourceDiscovery { .. }
     )

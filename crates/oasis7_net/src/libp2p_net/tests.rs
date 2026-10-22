@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 mod active_set_candidate_tests;
 mod admissible_request_peers_tests;
 mod discovery_dial_tests;
+mod discovery_observation_flow_tests;
 mod discovery_peer_record_failure_tests;
 mod discovery_peer_record_tests;
 mod peer_health_refresh_tests;

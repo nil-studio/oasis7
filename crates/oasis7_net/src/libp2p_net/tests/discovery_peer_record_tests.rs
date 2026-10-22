@@ -1,3 +1,4 @@
+use super::super::peer_discovery_observations::{DiscoveryIngress, DiscoveryObservations};
 use super::*;
 use crate::util::to_canonical_cbor;
 
@@ -139,6 +140,7 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
             vec![crate::dht::PeerDiscoverySource::Dht],
             1,
         );
+        let original_payload = to_canonical_cbor(&suspect_record).unwrap();
         let upgraded_record = super::signed_discovery_peer_record(
             &peer_key,
             vec![
@@ -157,6 +159,7 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
         super::super::discovery::process_discovered_peer_record(
             &mut swarm,
             &mut discovered_peer_records,
+            &mut DiscoveryObservations::default(),
             &mut known_transport_paths,
             &mut last_dialed_transport_paths,
             &active_transport_paths,
@@ -165,10 +168,20 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
             &PeerManagerPolicy::default(),
             &static_bootstrap_peer_ids,
             suspect_record,
+            DiscoveryIngress::Dht {
+                upstream: Some(PeerId::random()),
+            },
         )
         .expect("process suspect peer record");
 
         assert!(discovered_peer_records.contains_key(&peer_id));
+        let cached = &discovered_peer_records[&peer_id];
+        assert_eq!(
+            to_canonical_cbor(cached).unwrap(),
+            original_payload,
+            "local seed provenance must not rewrite the signed payload"
+        );
+        peer_record::verify_signed_peer_record(cached).unwrap();
         assert!(last_dialed_transport_paths.contains_key(&peer_id));
         let suspect_dialed_path = last_dialed_transport_paths
             .get(&peer_id)
@@ -178,6 +191,7 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
         super::super::discovery::process_discovered_peer_record(
             &mut swarm,
             &mut discovered_peer_records,
+            &mut DiscoveryObservations::default(),
             &mut known_transport_paths,
             &mut last_dialed_transport_paths,
             &active_transport_paths,
@@ -186,6 +200,9 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
             &PeerManagerPolicy::default(),
             &static_bootstrap_peer_ids,
             upgraded_record,
+            DiscoveryIngress::Dht {
+                upstream: Some(PeerId::random()),
+            },
         )
         .expect("process upgraded peer record");
 
@@ -204,10 +221,7 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
             .map(|source| peer_manager::discovery_source_label(*source))
             .collect();
         upgraded_source_labels.sort_unstable();
-        assert_eq!(
-            upgraded_source_labels,
-            ["dht", "rendezvous", "static_bootstrap"]
-        );
+        assert_eq!(upgraded_source_labels, ["dht", "rendezvous"]);
         assert_eq!(
             upgraded_sources.len(),
             upgraded_source_labels.len(),
@@ -241,6 +255,7 @@ fn process_discovered_peer_record_keeps_dht_only_suspect_peer_non_dialable() {
     super::super::discovery::process_discovered_peer_record(
         &mut swarm,
         &mut discovered_peer_records,
+        &mut DiscoveryObservations::default(),
         &mut known_transport_paths,
         &mut last_dialed_transport_paths,
         &active_transport_paths,
@@ -249,6 +264,9 @@ fn process_discovered_peer_record_keeps_dht_only_suspect_peer_non_dialable() {
         &PeerManagerPolicy::default(),
         &HashSet::new(),
         suspect_record,
+        DiscoveryIngress::Dht {
+            upstream: Some(PeerId::random()),
+        },
     )
     .expect("process dht-only suspect peer record");
 
@@ -282,6 +300,7 @@ fn process_discovered_peer_record_rejects_invalid_static_peer_record() {
     let err = super::super::discovery::process_discovered_peer_record(
         &mut swarm,
         &mut discovered_peer_records,
+        &mut DiscoveryObservations::default(),
         &mut known_transport_paths,
         &mut last_dialed_transport_paths,
         &active_transport_paths,
@@ -290,6 +309,9 @@ fn process_discovered_peer_record_rejects_invalid_static_peer_record() {
         &PeerManagerPolicy::default(),
         &HashSet::from([peer_id]),
         invalid_record,
+        DiscoveryIngress::Dht {
+            upstream: Some(PeerId::random()),
+        },
     )
     .expect_err("invalid signed peer record must remain rejected");
 
@@ -845,6 +867,7 @@ fn cached_peer_record_not_found_retries_via_another_connected_peer() {
         &mut pending_peer_record_requests,
         &mut pending_dht,
         &mut discovered_peer_records,
+        &mut DiscoveryObservations::default(),
         &mut known_transport_paths,
         &mut last_dialed_transport_paths,
         &active_transport_paths,
@@ -1033,6 +1056,7 @@ fn cached_peer_record_not_found_stops_after_all_connected_proxies_are_tried() {
         &mut pending_peer_record_requests,
         &mut pending_dht,
         &mut discovered_peer_records,
+        &mut DiscoveryObservations::default(),
         &mut known_transport_paths,
         &mut last_dialed_transport_paths,
         &active_transport_paths,

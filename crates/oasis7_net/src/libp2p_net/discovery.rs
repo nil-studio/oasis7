@@ -18,9 +18,9 @@ use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord, SignedPeerR
 use oasis7_proto::distributed_net::NetworkRequest;
 
 use super::kad_queries::PendingDhtQuery;
+use super::peer_discovery_observations::{DiscoveryIngress, DiscoveryObservations};
 use super::peer_manager::{
     PeerManagerHealthStatus, PeerManagerPolicy, recompute_peer_manager_healths,
-    retain_static_bootstrap_provenance,
 };
 use super::peer_record::{
     build_configured_peer_record, put_record_query, validate_discovered_peer_record,
@@ -325,6 +325,7 @@ pub(super) fn maybe_queue_discovery_peer_record(
         query_id,
         PendingDhtQuery::DiscoverPeerRecord {
             peer_id,
+            upstream: None,
             record: None,
             error: None,
         },
@@ -589,6 +590,7 @@ pub(super) fn handle_rendezvous_discovered(
 pub(super) fn process_discovered_peer_record(
     swarm: &mut Swarm<Behaviour>,
     discovered_peer_records: &mut HashMap<PeerId, SignedPeerRecord>,
+    discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
@@ -596,7 +598,8 @@ pub(super) fn process_discovered_peer_record(
     template: Option<&PeerRecord>,
     peer_manager_policy: &PeerManagerPolicy,
     static_bootstrap_peer_ids: &HashSet<PeerId>,
-    mut record: SignedPeerRecord,
+    record: SignedPeerRecord,
+    ingress: DiscoveryIngress,
 ) -> Result<(), WorldError> {
     validate_discovered_peer_record(&record, template)?;
     let peer_id = record.record.peer_id.parse::<PeerId>().map_err(|_| {
@@ -604,13 +607,10 @@ pub(super) fn process_discovered_peer_record(
             protocol: "peer record peer_id must be valid".to_string(),
         }
     })?;
-    retain_static_bootstrap_provenance(&mut record, peer_id, static_bootstrap_peer_ids);
-    let allow_single_source_bootstrap_dial = record
-        .record
-        .discovery_sources
-        .iter()
-        .any(|source| matches!(source, PeerDiscoverySource::StaticBootstrap));
+    let allow_single_source_bootstrap_dial = static_bootstrap_peer_ids.contains(&peer_id);
     let transport_paths = peer_record_transport_paths(&record)?;
+    discovery_observations.record(&record, ingress, super::now_ms())?;
+    discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
     for path in &transport_paths {
         let (_, kad_addr) = split_peer_id(path.addr.clone());
         swarm
@@ -627,6 +627,7 @@ pub(super) fn process_discovered_peer_record(
     discovered_peer_records.insert(peer_id, record);
     let peer_healths = recompute_peer_manager_healths(
         discovered_peer_records,
+        discovery_observations,
         active_transport_paths,
         peer_manager_policy,
     );
@@ -765,6 +766,7 @@ pub(super) fn handle_peer_record_response(
     >,
     pending_dht: &mut HashMap<kad::QueryId, PendingDhtQuery>,
     discovered_peer_records: &mut HashMap<PeerId, SignedPeerRecord>,
+    discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
@@ -856,6 +858,7 @@ pub(super) fn handle_peer_record_response(
             } else if let Err(err) = process_discovered_peer_record(
                 swarm,
                 discovered_peer_records,
+                discovery_observations,
                 known_transport_paths,
                 last_dialed_transport_paths,
                 active_transport_paths,
@@ -864,6 +867,19 @@ pub(super) fn handle_peer_record_response(
                 peer_manager_policy,
                 static_bootstrap_peer_ids,
                 record.clone(),
+                match &kind {
+                    PendingPeerRecordRequest::ConnectedPeerRecord { peer_id, .. } => {
+                        DiscoveryIngress::Direct { peer: *peer_id }
+                    }
+                    PendingPeerRecordRequest::CachedPeerRecord { ask_peer, .. } => {
+                        DiscoveryIngress::PeerExchange {
+                            upstream: *ask_peer,
+                        }
+                    }
+                    PendingPeerRecordRequest::CachedDiscoveryPeers { .. } => {
+                        unreachable!("ID-only response handled above")
+                    }
+                },
             ) {
                 push_bounded_clone(
                     event_errors,

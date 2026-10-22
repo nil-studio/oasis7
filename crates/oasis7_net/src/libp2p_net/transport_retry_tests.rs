@@ -1,3 +1,4 @@
+use super::peer_discovery_observations::{DiscoveryIngress, DiscoveryObservations};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -66,14 +67,18 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
         super::discovery::process_discovered_peer_record(
             &mut swarm,
             &mut discovered_peer_records,
+            &mut DiscoveryObservations::default(),
             &mut known_transport_paths,
             &mut last_dialed_transport_paths,
             &active_transport_paths,
             &mut failed_transport_path_labels,
             None,
             &PeerManagerPolicy::default(),
-            &HashSet::new(),
+            &HashSet::from([peer_id]),
             record.clone(),
+            DiscoveryIngress::Dht {
+                upstream: Some(peer_id),
+            },
         )
         .expect("first discovery dial");
         assert!(last_dialed_transport_paths.contains_key(&peer_id));
@@ -90,14 +95,18 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
         super::discovery::process_discovered_peer_record(
             &mut retry_swarm,
             &mut discovered_peer_records,
+            &mut DiscoveryObservations::default(),
             &mut known_transport_paths,
             &mut last_dialed_transport_paths,
             &active_transport_paths,
             &mut failed_transport_path_labels,
             None,
             &PeerManagerPolicy::default(),
-            &HashSet::new(),
+            &HashSet::from([peer_id]),
             record,
+            DiscoveryIngress::Dht {
+                upstream: Some(peer_id),
+            },
         )
         .expect("rediscovery must retry dial");
 
