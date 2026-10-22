@@ -123,6 +123,25 @@ codegen-units = 16
         self.write('crates/oasis7_world_state/src/lib.rs', 'pub fn value() -> u32 { 3 }\n')
         self.current = self.commit('fixture current')
 
+    def test_codec_is_fresh_for_orchestration_and_invalidated_for_own_input(self):
+        self.package('oasis7_viewer_codec', ['oasis7_world_service'],
+                     'pub fn value() -> u32 { oasis7_world_service::value() }\n')
+        manifest = self.repo / 'crates/oasis7_viewer_runtime/Cargo.toml'
+        manifest.write_text(manifest.read_text().replace(
+            '[dependencies]\n',
+            '[dependencies]\noasis7_viewer_codec = { path = "../oasis7_viewer_codec" }\n'))
+        self.write(METRICS.VIEWER_PATH,
+                   'pub fn value() -> u32 { oasis7_viewer_codec::value() }\n')
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.repo,
+                       env=self.env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.current = self.commit('extract codec')
+        self.run_measurement()
+        report = json.loads((self.out / 'report.json').read_text())
+        current = report['results']['current']['phases']
+        self.assertTrue(current['viewer_touch']['lower_libraries']['oasis7_viewer_codec']['all_fresh'])
+        self.assertGreater(current['codec_touch']['local_crates']['oasis7_viewer_codec']['rebuilt'], 0)
+        self.assertGreater(current['codec_touch']['local_crates']['oasis7_viewer_runtime']['rebuilt'], 0)
+
     def tearDown(self):
         self.temporary.cleanup()
 

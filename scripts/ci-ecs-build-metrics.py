@@ -16,6 +16,7 @@ import platform
 import shutil
 import signal
 import stat
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,7 @@ ROOTS = {
 }
 VIEWER_PATH = 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_view_source.rs'
 PATCH_BYTES = b'\n// ECS build measurement: deterministic Viewer source-only invalidation.\n'
+CODEC_PATH = 'crates/oasis7_viewer_codec/src/lib.rs'
 PHASES = ('seed', 'no_op', 'viewer_touch')
 LOWER_LIBRARIES = ('oasis7_world_state', 'oasis7_world_projection', 'oasis7_runtime',
                    'oasis7_world_service', 'oasis7_game_client')
@@ -265,7 +267,7 @@ def read_artifacts(path, fixture):
             counts = per_crate.setdefault(unit['local_package'], {'fresh': 0, 'rebuilt': 0})
             counts['fresh' if unit['fresh'] else 'rebuilt'] += 1
     lower = {}
-    for name in LOWER_LIBRARIES:
+    for name in (*LOWER_LIBRARIES, 'oasis7_viewer_codec'):
         matched = [u for u in units if u['local_package'] == name and 'lib' in u['target']['kind']]
         lower[name] = {'observed_units': len(matched),
                        'all_fresh': all(u['fresh'] for u in matched) if matched else None}
@@ -345,8 +347,18 @@ def measure_build(fixture, phase, out, expected_source):
             raise MeasurementError('same-source no-op unexpectedly rebuilt Cargo units')
         viewer_units = [u for u in result['units'] if u['local_package'] == 'oasis7_viewer_runtime'
                         and 'lib' in u['target']['kind']]
-        if phase == 'viewer_touch' and not any(not u['fresh'] for u in viewer_units):
+        if phase.startswith('viewer_touch') and not any(not u['fresh'] for u in viewer_units):
             raise MeasurementError('Viewer source mutation did not rebuild the Viewer library')
+        codec_units = [u for u in result['units'] if u['local_package'] == 'oasis7_viewer_codec'
+                       and 'lib' in u['target']['kind']]
+        codec_exists = (fixture['checkout'] / CODEC_PATH).is_file()
+        if codec_exists and not codec_units:
+            raise MeasurementError('new codec is missing from the production Cargo unit set')
+        if phase.startswith('viewer_touch') and codec_exists and not all(u['fresh'] for u in codec_units):
+            raise MeasurementError('Viewer orchestration touch unexpectedly rebuilt the codec')
+        if phase == 'codec_touch' and (not codec_units or all(u['fresh'] for u in codec_units)
+                                       or all(u['fresh'] for u in viewer_units)):
+            raise MeasurementError('codec touch did not invalidate codec and Viewer consumer')
         if (timings / 'cargo-timing.html').is_symlink() or not (timings / 'cargo-timing.html').is_file():
             raise MeasurementError('Cargo did not preserve its requested timing HTML')
         result['success'] = True
@@ -380,18 +392,18 @@ def measure_build(fixture, phase, out, expected_source):
 
 
 @contextmanager
-def viewer_mutation(checkout, out):
-    path = checkout / VIEWER_PATH
+def viewer_mutation(checkout, out, source_path=VIEWER_PATH):
+    path = checkout / source_path
     original, info = path.read_bytes(), path.stat()
     before = source_fingerprint(checkout)
     try:
         path.write_bytes(original + PATCH_BYTES)
         patch = subprocess.check_output(['git', 'diff', '--no-ext-diff', '--no-textconv', '--binary',
-                                         '--', VIEWER_PATH], cwd=checkout)
+                                         '--', source_path], cwd=checkout)
         if not patch:
             raise MeasurementError('Viewer mutation produced no source diff')
         (out / 'viewer.patch').write_bytes(patch)
-        mutation = {'kind': 'append_rust_comment_v1', 'path': VIEWER_PATH,
+        mutation = {'kind': 'append_rust_comment_v1', 'path': source_path,
                     'patch_sha256': hashlib.sha256(patch).hexdigest(),
                     'mutation_bytes_sha256': hashlib.sha256(PATCH_BYTES).hexdigest(),
                     'before_sha256': hashlib.sha256(original).hexdigest(), 'after_sha256': digest(path),
@@ -474,8 +486,46 @@ def measure(args):
                     record['mutation'] = mutation
                     record['phases']['viewer_touch'] = measure_build(
                         fixture, 'viewer_touch', out / label / 'viewer_touch', mutation['source_fingerprint'])
+                for sample in range(2, getattr(args, 'viewer_touch_samples', 1) + 1):
+                    sample_out = out / label / f'viewer_touch_{sample}'
+                    sample_out.mkdir()
+                    with viewer_mutation(fixture['checkout'], sample_out) as mutation:
+                        record['phases'][f'viewer_touch_{sample}'] = measure_build(
+                            fixture, f'viewer_touch_{sample}', sample_out / 'build',
+                            mutation['source_fingerprint'])
+                if (fixture['checkout'] / CODEC_PATH).is_file():
+                    codec_out = out / label / 'codec_mutation'
+                    codec_out.mkdir()
+                    with viewer_mutation(fixture['checkout'], codec_out, CODEC_PATH) as mutation:
+                        record['codec_mutation'] = mutation
+                        record['phases']['codec_touch'] = measure_build(
+                            fixture, 'codec_touch', out / label / 'codec_touch',
+                            mutation['source_fingerprint'])
+                cost_source = fixture['checkout'] / 'crates/oasis7_viewer_codec/examples/codec_cost.rs'
+                if cost_source.is_file():
+                    # Retain all production roots so feature unification matches the timed build.
+                    command = [*build_command(), '-p', 'oasis7_viewer_codec', '--example', 'codec_cost']
+                    with (out / label / 'codec-cost-build.jsonl').open('w') as log:
+                        subprocess.run(command, cwd=fixture['checkout'], env=fixture['env'],
+                                       stdout=log, check=True)
+                    executable = fixture['target'] / 'ecs/examples/codec_cost'
+                    with (out / label / 'codec-cost.json').open('w') as log:
+                        subprocess.run(['/usr/bin/time', '-v', '-o',
+                                        str(out / label / 'codec-cost-resources.txt'), str(executable)],
+                                       cwd=fixture['checkout'], env=fixture['env'], stdout=log, check=True)
+                    record['codec_cost'] = {'samples': 'codec-cost.json',
+                                            'resources': 'codec-cost-resources.txt',
+                                            'binary_sha256': digest(executable)}
             finally:
                 record['source_restored'] = source_fingerprint(fixture['checkout']) == before
+        for record in report['results'].values():
+            samples = [phase['wall_seconds'] for name, phase in record['phases'].items()
+                       if name.startswith('viewer_touch')]
+            record['viewer_touch_summary'] = {
+                'samples': len(samples), 'execution_order_seconds': samples,
+                'median_seconds': statistics.median(samples),
+                'min_seconds': min(samples), 'max_seconds': max(samples),
+            }
         report['comparison'] = compare(report['results'])
         report['success'] = True
     except BaseException as error:
@@ -531,6 +581,7 @@ def main():
     parser.add_argument('--baseline-ref', required=True)
     parser.add_argument('--out-dir', type=Path, required=True)
     parser.add_argument('--work-dir', type=Path, help='external temporary parent; defaults to system temp')
+    parser.add_argument('--viewer-touch-samples', type=int, choices=range(1, 6), default=1)
     parser.add_argument('--jobs', type=int, choices=(1, 2), default=1)
     args = parser.parse_args()
     def interrupted(signum, _frame):
