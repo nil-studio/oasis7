@@ -15,6 +15,12 @@ description: Use when reporting oasis7 verification or completion.
 
 报告 ready 前检查适用评审及阻断项，报告代码完成前确认 PR 实际 merged 和提交。明确的部署、多 PR 和管理义务尚未完成时列出剩余工作。
 
+## 按消费者拆开结论
+
+对交互/恢复改动，分别说明渲染、请求受理、原请求权威结果、业务效果与刷新后恢复的实际证据；没有覆盖的层级保持未知。cognition 的 committed 不自动证明制造等业务成功，近期窗口没有结果也不证明失败。检查与具体负例见 [场景参考](../systematic-debugging/references/skills-research-checks.md)。
+
+核对 CI 时以当前 source HEAD 的实际 required 检查和测试选择为准；局部测试、full 套件或某个绿色 workflow 都不能替代尚未核对的独立必要检查。测试合并树时保留实际 base/event/tested tree；不因 main 前进机械重跑，也不把旧组合冒称新组合。复用现有 PR/CI 证据，不新增验证回执。
+
 ## Related methods
 
 - [executing-project-tasks](../executing-project-tasks/SKILL.md)

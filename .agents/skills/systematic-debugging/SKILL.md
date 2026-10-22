@@ -17,6 +17,12 @@ description: Use when diagnosing an oasis7 bug, failed test, or regression.
 
 复杂问题按需请求领域协作，给出复现、上下文、写入范围和期望结果；不依赖流程身份。重复失败时修正假设，不堆叠猜测补丁。
 
+## 按症状选择最短反馈环
+
+序列化/恢复问题先比较固定 fixture 或原始事件回放；跨实现或宿主差异考虑差分；边界组合考虑性质测试；明确的历史回归考虑 bisect。选择能对原症状判红且成本最低的一条，不要求把这些方法全跑一遍。先保留原失败，不能用新世界、新请求或重启后的正常状态替代它。
+
+预期值取自适用合同、独立手算样例或固定权威原件，不调用被测投影/关联函数再生成 expected。对请求恢复同时检查原身份、真实业务效果与失败路径；日志用于定位，不代签权威结果。具体按需案例见 [反馈环与恢复检查](references/skills-research-checks.md)。
+
 ## Related methods
 
 - [executing-project-tasks](../executing-project-tasks/SKILL.md)

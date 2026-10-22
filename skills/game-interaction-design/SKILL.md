@@ -44,6 +44,12 @@ Do not use this skill when:
    - blocked/error copy intent, not final marketing text
    - acceptance evidence: real interaction smoke, screenshot/video, DOM/browser evidence, or explicit unverified risk
 
+## Recovery-State Review
+
+For the affected journey, distinguish transport acknowledgement, canonical request result, and business outcome. An unknown result needs a way to inspect the original request, not a generic retry that creates a new intent. A cognition commit is not proof that a manufacturing action succeeded; a result missing from a recent window is not proof of failure. Use the applicable contract rather than inventing status names or promises.
+
+Exercise the relevant empty, unbound, pending, unknown, rejected and read-only recovery states. Check that copy explains what is known, whether an effect is confirmed, and the permitted next step. Include keyboard focus after errors/dismissal, status/error association, long text, narrow viewports and zoom where affected. A screenshot does not prove keyboard or screen-reader behavior, and Web evidence does not validate native controls. See the [bounded scenario reference](../../.agents/skills/systematic-debugging/references/skills-research-checks.md) for examples and source boundaries; it adds no mandatory full-matrix run.
+
 ## Source Map
 
 Read `references/source-map.md` when adapting this skill, citing external rationale, or deciding whether a new checklist item belongs here.
