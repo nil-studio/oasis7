@@ -142,7 +142,8 @@ fn protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner(
 
 #[test]
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; loopback custody oracle is a simulation"]
-fn protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop() {
+fn protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop()
+{
     std::thread::Builder::new()
         .name("formal-runtime-identity".into())
         .stack_size(32 * 1024 * 1024)
@@ -660,6 +661,7 @@ fn run_protected_runtime_fixture(
                 | "healthy_fault_writer_lock"
                 | "healthy_fault_old_owner_sigkill"
                 | "controlled_stop_budget"
+                | "identity_runtime_lease"
         )
     {
         return crash_tests::run_crash_recovery(
