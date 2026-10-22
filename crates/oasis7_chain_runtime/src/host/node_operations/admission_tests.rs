@@ -84,7 +84,10 @@ fn stop_admission_releases_writer_even_while_forked_child_retains_descriptor() {
     let inherited = InheritedDescriptors::fork();
     drop(admission);
     let result = actions::stop(&binding.data_dir, &record.action_id("stop"), &current, 1000);
-    let cleanup = receiver.finish(result.is_err());
+    let stop_completed = result
+        .as_ref()
+        .is_ok_and(|record| matches!(record.target.state.as_str(), "stopped" | "failed"));
+    let cleanup = receiver.finish(!stop_completed);
     let child_retained_descriptors =
         unsafe { libc::waitpid(inherited.pid, std::ptr::null_mut(), libc::WNOHANG) == 0 };
     drop(inherited);
