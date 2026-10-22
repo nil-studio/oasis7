@@ -66,6 +66,11 @@
         "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner",
         "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
+        "name": "formal_live_runtime::tests::protected_process_tests::protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop",
+        "ignored": true
       }
     ],
     "world-history": [

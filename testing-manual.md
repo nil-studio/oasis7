@@ -462,7 +462,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p node_keypair_config::runtime_lease -- --nocapture
 env -u RUSTC_WRAPPER cargo build -p oasis7_distfs --bin oasis7_durability_endpoint
-OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop -- --ignored --nocapture
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop -- --ignored --nocapture
 ```
 
 局部租约组核对锁 inode、SIGKILL、两个不可覆盖绑定的部分发布／同步失败恢复、错域／错目录／不同 key 接管、损坏／超大记录和私钥诊断脱敏。真实正式运行时场景使用已签名初始锚与实际 P/R 子进程，验证同身份不同 writer 目录的重复启动被拒绝；外层运行时退出而实际 Node 仍被持有时租约不释放，全部执行所有者停止后原身份可重新打开，持久目录冲突仍拒绝。正常 CI 的 ignored 不算该进程场景通过，须记录明确非零执行与退出码。该场景证明本地实际调用链，不证明跨机 bare-key 排重、真实物理故障域或断电持久性；legacy／DevLocal 不由此获得新权限或运行保证。
