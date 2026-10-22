@@ -761,7 +761,7 @@ fn send_response(
     writer: &mut BufWriter<TcpStream>,
     response: &ViewerResponse,
 ) -> Result<(), ViewerServerError> {
-    oasis7_viewer_codec::write_response_json(&mut *writer, response)?;
+    oasis7_viewer_codec::write_buffered_response_json(&mut *writer, response)?;
     writer.write_all(b"\n")?;
     writer.flush()?;
     Ok(())

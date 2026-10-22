@@ -32,6 +32,10 @@ fn legacy_stream(writer: &mut dyn Write, response: &ViewerResponse) {
 fn sample(label: &str, response: &ViewerResponse, iterations: usize) -> serde_json::Value {
     let expected = serde_json::to_vec(response).unwrap();
     assert_eq!(response_to_json(response).unwrap().as_bytes(), expected);
+    let string_capacities = serde_json::json!({
+        "legacy": serde_json::to_string(response).unwrap().capacity(),
+        "codec": response_to_json(response).unwrap().capacity(),
+    });
     let mut rows = Vec::new();
     // Alternate execution order to expose rather than hide order/warmup effects.
     for round in 0..6 {
@@ -63,10 +67,30 @@ fn sample(label: &str, response: &ViewerResponse, iterations: usize) -> serde_js
             }
             rows.push(serde_json::json!({"round":round, "codec":codec,
                 "mode":"string", "nanoseconds":start.elapsed().as_nanos()}));
+            let mut buffered = std::io::BufWriter::new(ObservedWriter::default());
+            let start = Instant::now();
+            for _ in 0..iterations {
+                if codec {
+                    oasis7_viewer_codec::write_buffered_response_json(
+                        &mut buffered,
+                        black_box(response),
+                    )
+                    .unwrap();
+                } else {
+                    serde_json::to_writer(&mut buffered, black_box(response)).unwrap();
+                }
+                buffered.flush().unwrap();
+            }
+            rows.push(serde_json::json!({"round":round, "codec":codec,
+                "mode":"buffered", "nanoseconds":start.elapsed().as_nanos()}));
+            assert_eq!(
+                black_box(buffered.get_ref().bytes),
+                expected.len() * iterations
+            );
         }
     }
     serde_json::json!({"label":label, "encoded_bytes":expected.len(),
-        "iterations_per_sample":iterations, "samples":rows})
+        "iterations_per_sample":iterations, "string_capacity_bytes":string_capacities, "samples":rows})
 }
 
 fn main() {

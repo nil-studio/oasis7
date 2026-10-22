@@ -13,21 +13,36 @@ pub type ViewerResponse = proto::ViewerResponse<
     oasis7::simulator::WorldTime,
 >;
 
-// Dispatch once at the concrete boundary. Both fixed serializer instances are
-// owned by this crate; no generic serializer implementation is exported upward.
-enum JsonWriter<'a> {
-    Stream(&'a mut dyn Write),
-    Buffer(&'a mut Vec<u8>),
+// Both capacities use the same fixed serializer instance. Taking the buffer
+// apart before propagating errors prevents BufWriter's Drop from retrying IO.
+fn encode_buffered_response(
+    writer: &mut dyn Write,
+    response: &ViewerResponse,
+    capacity: usize,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut buffered = std::io::BufWriter::with_capacity(capacity, writer);
+    let result = serde_json::to_writer(&mut buffered, response);
+    let (_, pending) = buffered.into_parts();
+    result?;
+    pending.map_err(|error| serde_json::Error::io(std::io::Error::other(error)))
 }
 
-fn encode_response(
-    writer: JsonWriter<'_>,
+/// Encode through an 8 KiB buffer for transports with a concrete buffered writer.
+/// The caller still owns framing and transport flushing. Runtime Outbox callers
+/// must keep using the direct streaming entry.
+///
+/// # Errors
+/// Returns serialization or writer errors. On a returned error, pending buffered
+/// bytes are discarded without retrying the writer or flushing the transport.
+pub fn write_buffered_response_json(
+    writer: &mut dyn Write,
     response: &ViewerResponse,
 ) -> Result<(), serde_json::Error> {
-    match writer {
-        JsonWriter::Stream(writer) => serde_json::to_writer(writer, response),
-        JsonWriter::Buffer(writer) => serde_json::to_writer(writer, response),
+    let pending = encode_buffered_response(writer, response, 8192)?;
+    if !pending.is_empty() {
+        writer.write_all(&pending).map_err(serde_json::Error::io)?;
     }
+    Ok(())
 }
 
 /// Encode one selected response without framing or flushing.
@@ -38,7 +53,7 @@ pub fn write_response_json(
     writer: &mut dyn Write,
     response: &ViewerResponse,
 ) -> Result<(), serde_json::Error> {
-    encode_response(JsonWriter::Stream(writer), response)
+    serde_json::to_writer(writer, response)
 }
 
 #[derive(serde::Serialize)]
@@ -75,8 +90,15 @@ pub fn write_correlated_response_json(
 /// # Panics
 /// Panics if the JSON serializer emits invalid UTF-8 (which `serde_json` guarantees against).
 pub fn response_to_json(response: &ViewerResponse) -> Result<String, serde_json::Error> {
-    let mut bytes = Vec::with_capacity(128);
-    encode_response(JsonWriter::Buffer(&mut bytes), response)?;
+    let mut bytes = Vec::new();
+    // Reuse the pending 1 KiB allocation for small responses; larger responses
+    // are emitted incrementally into bytes, with only this bounded extra buffer.
+    let pending = encode_buffered_response(&mut bytes, response, 1024)?;
+    if bytes.is_empty() {
+        bytes = pending;
+    } else {
+        bytes.extend_from_slice(&pending);
+    }
     // serde_json always emits UTF-8, just as serde_json::to_string does.
     Ok(String::from_utf8(bytes).expect("JSON encoding is UTF-8"))
 }
