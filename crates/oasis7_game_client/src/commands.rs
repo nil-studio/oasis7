@@ -7,6 +7,10 @@ const HELP: &str = "oasis7_game_client --config <device.json> <command> [options
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
     #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "cold-entry") {
+        return crate::cold_entry::run(&args);
+    }
+    #[cfg(unix)]
     if args
         .first()
         .is_some_and(|v| ["broker-serve", "broker-profile", "broker-call"].contains(&v.as_str()))
@@ -35,6 +39,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         println!("{}", crate::identity_cli::HELP);
         #[cfg(unix)]
         println!("{}", crate::participant_cli::HELP);
+        #[cfg(unix)]
+        println!("{}", crate::cold_entry::HELP);
         #[cfg(unix)]
         println!("{}", crate::runtime_broker_cli::HELP);
         return Ok(());

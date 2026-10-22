@@ -426,7 +426,9 @@
         "scripts/build-game-launcher-bundle*",
         "scripts/testnet-packages-linux*",
         "scripts/testnet-packages-windows*",
-        "scripts/fixtures/oasis7-governance-root*"
+        "scripts/fixtures/oasis7-governance-root*",
+        "scripts/cold-entry-*",
+        "scripts/cold_entry_live_*"
       ],
       "groups": [
         "operational_contracts"

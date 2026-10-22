@@ -206,14 +206,14 @@ owner gateway 仅接受明确的 task、goal、delegation、executor bind/stop/r
 <a id="api-autonomous-entry"></a>
 ### 5.1.1 目标补充：合法机器主体的冷入场 bootstrap
 
-Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。本节是待实现组合，不改变上文已实施切片、私有 loopback、`import_only` 或 prepared-world 的现状边界。
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。本节定义完整冷入场组合；分阶段 SDK 已有实现，可信客户端编排与部署运营入口按本节补齐。代码、公开配置与真实 Runtime 验收分别判定，不改变私有 loopback、`import_only` 或 prepared-world 的权限边界。
 
 **身份与 authority。** 稳定参与主体（账号及其有效凭据）不是世界内 Agent，也不是 executor 实例；三者不是新增经济角色。身份 authority 负责账号/凭据挑战与撤销，admission authority 负责世界准入/配额，现有注册/绑定 authority 负责 canonical 主体到 Agent 关系，世界 Runtime 继续拥有 owner、delegation、task、goal、fence 和 receipt。Game API/SDK 只编排并验证各阶段回执，不建立一份可覆盖它们的 bootstrap 权限账本。
 
 | 阶段 | 目标接口/结果语义 | 生效与失败边界 |
 | --- | --- | --- |
 | 可信发现 | 由受信发行入口发现 API major/schema、身份服务与世界信任绑定、可用注册方式、准入规则、费用/必要确认及入口能力 | 公共 discovery 不需要已有 Agent；不能由未受信响应更换信任根、签任意 challenge 或泄露凭据。capability 未启用则明确 unavailable，不尝试私有路径。 |
-| 注册/登录 | 复用身份服务的 register/login challenge、finish、原 operation 查询；机器 profile 扩展[原生凭据合同](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#native)，使用受保护密钥与 purpose 限定的 PoP | 挑战绑定身份服务、环境/audience、用途、账号上下文（适用时）、公钥、原 operation、nonce 与有效期，原子消费。原生 register 是尚待实施的能力，不把现有 import_only login/bind 当注册。站点反滥用、注册开关/配额、凭据和必要用户核验均保留。 |
+| 注册/登录 | 复用身份服务的 register/login challenge、finish、原 operation 查询；机器 profile 扩展[原生凭据合同](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#native)，使用受保护密钥与 purpose 限定的 PoP | 挑战绑定身份服务、环境/audience、用途、账号上下文（适用时）、公钥、原 operation、nonce 与有效期，原子消费。原生 register 使用已实现的独立机器注册挑战，不把 import_only login/bind 当注册。站点反滥用、注册开关/配额、凭据和必要用户核验均保留。 |
 | 世界准入 | 认证后的主体请求目标世界准入，返回有期限和范围的 admission 引用或明确拒绝/待确认 | 账号登录成功不占用或证明世界资格；world/chain/genesis、branch/身份版本与准入依据分别验证。费用未获许可、不满足准入或容量时不能创建可控半成品。 |
 | 自身 Agent | 沿[逐账号注册/绑定](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)查询/恢复原绑定，合法新主体才执行正常首次注册/绑定 | 同主体/世界并发唯一性、原注册 operation 与 canonical 归属在现有可恢复提交边界确认；不重建世界，不使用全局 starter ID，也不将初始绑定替换为额外经济 ClaimAgent。 |
 | owner 与 starter | 回读当前 identity generation、owner 来源和必要 starter eligibility/receipt；资源帮助与经济 claim 仍走各自主责 | 绑定或 hosted session ACK 不是 canonical owner。当前 owner 依赖的 journaled identity/claim 及 starter 来源必须成立；[窄 eligibility 读权](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-chat-005)不授予私有 goal/grant 权。未知事实保持 unavailable/blocked，正余额不跳过独立 owner 前提。 |
@@ -225,6 +225,8 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](.
 首次发送任何可能提交的阶段请求前，受保护的客户端/owner 控制面 outbox 必须持久保存可恢复的原 canonical 请求正文、原签名证明、nonce、operation ID、payload digest 与底层 correlation；适用于注册、准入、角色绑定、必要 starter、task、goal、delegation 及 executor 绑定。非秘密进度摘要只保存阶段与引用，完整 outbox 原件、签名证明和认证材料不进入模型上下文；目标正文不进入公开元数据或公共审计，但经当前 audience/fence 验证的有效目标仍按 context 合同交付受权 executor；长期私钥不存入该 outbox。按既有客户端安全存储规则保护原件，只有被授权的恢复用途可读。重启后查询或重放原请求，不重签改变内容/nonce，不借一次性证明重新签发会话；原件遗失时仅用受支持的重新认证和权威回查恢复，不能确认原结果则安全阻塞，不重新注册或创建替代角色。
 
 跨身份与世界阶段不假设一个分布式原子事务。注册已完成但准入失败时保留原账号/回执，后续恢复同一主体；注册/绑定/领取/task/goal/grant 各自在自身 authority 里幂等，任何未知阶段先查询原请求，未确认失败不能换 nonce/ID 重新产生效果。同键异内容拒绝；重启、重放和清缓存不恢复已消费资格。发现凭据撤销、world/history 或 owner 变化时停止受影响的新副作用并按当前权限回查，不把旧 receipt 当新授权。
+
+**DevLocal 运营准备。** 现有世界使用独立的只读采集、身份一致快照与签发装配工具；运营者停止相关 writer、保存原备份，固定真实 world/genesis/branch/reorg、registry 与 legacy owner 摘要，以及同一身份 namespace/epoch 的完整账号/绑定快照。分页、来源或一致性不足时不生成 complete 声明；SQLite 一致快照不冒充其他后端保证。已有主体迁移条目仍要求实际 owner 签名，不能从账号表推导 owner 私钥或用空映射替代未知历史。issuer 对真实 manifest 签名，operator 对安装或更新域签名；装配先在内存候选中完整验证，输出仅为私密授权文件，不持久化世界。安装沿既有 chain 参数进入正常 canonical commit，正式网络不消费本地运营授权。未配置完成的 ECS discovery 保持真实 unavailable；只发布已评审的精确身份网关路径，不公开 WorldService 私有监听。
 
 **公开入口的发布边界。** 不能直接对外暴露现有 private-goal/private-task loopback 监听、operator 私钥或管理 API。公开 bootstrap 与后续 goal/context/action 需要已评审的 TLS、可信服务身份、session/PoP、CSRF/Origin（适用客户端）、最小权限、持久限流/配额、资源上限和撤销重验；私有正文仍通过受保护内容通道交付，不进入 public discovery 或世界公开日志。人类 WebAuthn/导入凭据原有校验不因机器 profile 被放宽；注册协议扩展及凭据保护按身份主责单独实施与验收。未满足时仅公布未启用能力并安全阻塞。
 

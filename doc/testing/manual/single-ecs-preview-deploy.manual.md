@@ -14,15 +14,15 @@
 gh workflow run ecs-packages.yml --ref main
 ```
 
-该入口固定本次选定 ref 的完整 SHA，Web 与原生在不同 runner 并行；只编译 `oasis7_chain_runtime`、`oasis7_game_launcher`、`oasis7_viewer_live`，不生成桌面安装器、client launcher、独立 web launcher 或维护工具。原生使用 `ecs` profile（release 优化级别 3、关闭跨 crate LTO、codegen-units 16），优先缩短构建时间；Cargo 并发默认 2。冷构建仍需编译核心运行时依赖，实际耗时以 run 为准；部署前重新核对真实世界推进 / 吞吐，不沿用其他 profile 的性能结论。完整发行包的 `packaging` 配置不变。候选分支仅恢复缓存，main 同版本工作流才写入独立原生缓存。
+该入口固定本次选定 ref 的完整 SHA，Web 与原生在不同 runner 并行；编译 `oasis7_chain_runtime`、`oasis7_game_launcher`、`oasis7_viewer_live` 和用于可信冷入场 / 外部执行的 `oasis7_game_client`，不生成桌面安装器、client launcher、独立 web launcher 或维护工具。原生使用 `ecs` profile（release 优化级别 3、关闭跨 crate LTO、codegen-units 16），优先缩短构建时间；Cargo 并发默认 2。冷构建仍需编译核心运行时依赖，实际耗时以 run 为准；部署前重新核对真实世界推进 / 吞吐，不沿用其他 profile 的性能结论。完整发行包的 `packaging` 配置不变。候选分支仅恢复缓存，main 同版本工作流才写入独立原生缓存。
 
 需要验证并发收益或回退单并发时，手动入口的 `native_build_jobs` 可选 `1` / `2`，CLI 追加 `-f native_build_jobs=1`。同一 SHA 分别运行两个值，并核对缓存恢复 key、Cargo fresh / dirty 数量和 runner 条件。`ecs-native-timings` artifact 包含 Cargo timing HTML、`ecs-time.txt`（耗时 / CPU / 最大单进程 RSS）和 `ecs-resources.json`（每秒采样的可用内存、swap、适用的 cgroup 内存 / OOM 计数）。并行总内存压力以可用内存与 cgroup 观测共同判断；缺失字段为未知，cgroup 历史峰值不可当作本次独占峰值。记录失败样本及条件差异，实测结论留在 PR / run。
 
-成功后下载 `oasis7-ecs-linux-x64` artifact，里面包含版本化 `.tar.gz` 和外部 `.sha256`。先用 `sha256sum -c <包名>.sha256` 校验归档，再解压到新版本目录并执行 `sha256sum -c SHA256SUMS`。`BUILDINFO` 的 source 必须等于本次 run 的 SHA。包内 `bin/` 是三个服务程序，`web-dist/` 是可直接发布的完整 Viewer Web 根目录（包含可选 WASM），`manifest.json` 记录来源 / profile / 平台。
+成功后下载 `oasis7-ecs-linux-x64` artifact，里面包含版本化 `.tar.gz` 和外部 `.sha256`。先用 `sha256sum -c <包名>.sha256` 校验归档，再解压到新版本目录并执行 `sha256sum -c SHA256SUMS`。`BUILDINFO` 的 source 必须等于本次 run 的 SHA。包内 `bin/` 包含三个服务程序及同版本 `oasis7_game_client`（不会自动启动客户端或 Runtime），`web-dist/` 是可直接发布的完整 Viewer Web 根目录（包含可选 WASM），`manifest.json` 记录来源 / profile / 平台。
 
 正式游戏 Skill 随 ECS 包固定到同一个 source SHA：组装直接读取该提交下 `skills/oasis7-play/` 的受跟踪 Markdown 对象，拒绝符号链接及未发布的相对引用，不吸收工作区改动或未跟踪文件。输出为 `web-dist/skills/oasis7-play/`（含引用及 `manifest.json`）、`web-dist/skills/index.html` 和随包 `deployment/ecs-skill-release.py`。Skill 清单记录 source、每个源文件的 SHA-256 / 字节长度，清单及发现页本身由整包 `SHA256SUMS` 覆盖。不得把旧 `site/skills/oasis7.md` 覆盖到此路径。
 
-这是服务端目录包，不是旧 Testnet `.deb` 的替代安装器；旧安装脚本若只接收 `.deb`，不能直接传入此归档。配置三个程序及 Web 根目录路径后沿下文切换。包不含世界、密钥、systemd unit 或自动初始化 / 公网开放操作，始终复用本机现有配置。维护工具单独沿已有兼容版本保留，按需更新。
+这是服务端目录包，不是旧 Testnet `.deb` 的替代安装器；旧安装脚本若只接收 `.deb`，不能直接传入此归档。配置三个服务程序及 Web 根目录路径后沿下文切换，`oasis7_game_client` 作为可信外部接入客户端使用。包不含世界、密钥、systemd unit 或自动初始化 / 公网开放操作，始终复用本机现有配置。包内 chain 的 `devlocal-participant prepare/finalize` 与 launcher 的 `--identity-snapshot-export` 是同版本内置命令；其他独立维护工具仍按需保留兼容版本。
 
 需要桌面发行包时才使用原 `testnet-packages.yml`。`dev` 仅用于开发调试，不能用其吞吐表现判断 ECS 是否达标。
 
@@ -161,7 +161,7 @@ python3 "$release/deployment/ecs-skill-release.py" verify \
 
 公钥 pin 是本机运营者的信任配置，不从客户端请求、策略文件或公网 discovery 自动接受。策略文件是 `SignedReadRequest<DevLocalParticipantPolicyAuthorizationV1>`；其 `request` 包含完整 `policy` 和 issuer 签名的 `manifest`。外层签名主体必须匹配 operator pin，首次策略使用 `participant_devlocal_policy_install_v1` domain，更新使用 `participant_devlocal_policy_update_v1`；内层 manifest 使用 `participant_migration_manifest_v1`。该文件保存签名材料，不保存私钥；必须是 canonical 绝对路径的普通文件、无符号链接、单链接、当前服务用户所有、权限 `0600`，且不超过 1 MiB。
 
-签发前由可信运营者工具读取原世界前态，计算 `participant_registry_digest()` 和 `participant_legacy_owner_state_digest()`，填入对应策略与迁移证明；核对原 world / genesis、分支、前代策略、完整 identity snapshot 和已有 owner 的迁移签名。当前手册不提供自动签发或迁移采集命令；不能把空映射、猜测的摘要或测试签名当成现有世界授权材料。保留原世界目录、身份、资产和绑定，不运行新世界初始化器。
+签发使用同版本内置的只读 `devlocal-participant prepare`、真实 SQLite `--identity-snapshot-export` 和 `finalize --prepared`；完整配置、操作顺序和拒绝边界见 [DevLocal participant 政策签发与安装](devlocal-participant-policy.manual.md)。全程冻结世界与身份两侧写入，工具核对独立 pin、原始签名身份、完整 identity snapshot、真实 registry / legacy owner 前态和已有 owner 迁移签名；只输出签名授权材料，由下述原 chain 正常提交。不能把空映射、猜测的摘要或测试签名当成现有世界授权材料。保留原世界目录、身份、资产和绑定，不运行新世界初始化器。原 Preview 即使使用 loopback `--replication-network-listen` 也与本地 operator 授权冲突，须按隔离配置显式移除并核对，不能只追加政策参数。
 
 旧 Preview 若在后续提交中丢失 resource manifest 的 `genesis_ref`，同时提供 `--devlocal-participant-origin-root /var/lib/oasis7-preview/<existing-root>`，其中 `world/` 必须就是当前 execution world。节点使用原 node key 派生的独立 service 公钥验证原 `initialization-receipt.json` 签名及 `genesis/initial-artifact.json` 的原 digest，核对当前 identity 文件，再与 operator 签署的 policy/world/genesis 和 issuer 前态证明绑定；仅补回缺失的原引用，不替换已有非空 genesis。该绑定与策略在同一 canonical candidate 中提交，失败不落盘；不能只凭普通 identity JSON 或 policy 自报生成创世身份。缺原签名收据、原 artifact 或原 node key 时保持阻塞。旧收据可用于这个有限身份核验，不代表缺失的初始 publication archive 已补齐，也不放宽正式恢复流程。
 

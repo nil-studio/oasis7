@@ -21,6 +21,8 @@
 <a id="api-cold-entry"></a>
 ### 场景 api-cold-entry
 
+客户端编排回归须覆盖完整新主体步骤，并在注册或绑定响应丢失后重启恢复；不能手工写入 `login-session`、Agent、task、goal 或 grant 作为该路径的起点。真实 IdentityService 与 WorldService/commit loop 的组合验证与客户端合成 HTTP 回包测试分别记录。验证成功出口时重新读取当前 canonical task/goal/executor fence；不以本地阶段日志代替当前权限。DevLocal 运营工具另验证一致快照、错 namespace/epoch、前态变化、签名缺失和失败无世界写入。普通客户端组合通过不自动宣布任一真实 Runtime 已验收。
+
 - Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；产品 [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)，系统 [bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)与[客户端编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)。
 - 层/环境：普通网络客户端合同/持久故障注入为 `test_tier_required`；每个声明支持的真实 Runtime/profile 的独立冷入场为 `test_tier_full`。仅使用获准隔离世界和有界预算，不操作公开部署或真实账号。
 - 给定：世界已经正常存在；新机器主体没有预置游戏 Agent、task、goal 或执行 grant（合法身份/准入证明不在此禁止之列）。输入仅含可信 Skill/发现入口、获准凭据获取/必要确认通道及预算；记录预置清单，不给 operator 权限、隐藏世界答案或人工代建路径。正常身份准入资格与必要人类核验可以由测试环境合法提供，不能代做待测产品步骤。

@@ -431,3 +431,6 @@ pub mod tablestore;
 #[cfg(test)]
 #[path = "store/tests.rs"]
 mod tests;
+
+#[path = "store/snapshot.rs"]
+pub mod snapshot;

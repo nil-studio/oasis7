@@ -68,11 +68,17 @@ Runtime 可以在一次本地推理中调用多个只读工具；等待、阻塞
 <a id="adapter-autonomous-entry"></a>
 ### 5.1.1 自主入场编排与 owner 控制隔离
 
-Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。这是待实现的客户端扩展，不表明当前 worker/Skill 已支持冷入场。
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。可信客户端 `cold-entry` 编排按本节实现，操作入口见正式 Skill 的 `references/cold-entry.md`；executor worker 不承担 owner 操作，真实 Runtime 与公开部署支持仍须按各自证据判定。
 
 SDK/CLI/Skill 从[公开 bootstrap 合同](external-agent-game-api.design.md#api-autonomous-entry)发现实际能力，按阶段完成或恢复认证、准入、角色、canonical owner/必要 starter、task/goal、delegation/executor。机械步骤可连续执行，必要的人类确认、凭据仪式和费用批准返回 action_required 并等待；不把没有批准当默认同意，也不要求 operator 先写好 Agent/task/grant。每阶段首次发送前按 API bootstrap 合同将原 canonical 正文/签名证明/nonce/correlation 写入受保护 outbox，非秘密阶段摘要只存引用；响应未知时恢复原阶段，不重建账号或重新领取资源。
 
 owner 控制是独立受保护的控制通道，不加入默认 GameRequest 工具 allowlist。自身参与主体的 owner 操作只在明确覆盖的资源/用途/费用与确认规则内自动化；长期 owner/登录凭据不可进入模型 Prompt、默认 executor 工具、报告或游戏服务。登录身份 key、owner 控制 key、delegate key 的用途与资格分别验证；不把同一进程或自报“自己的角色”当作权限。owner signer 仅接受独立控制面发起且满足既定 owner policy 的窄命令；普通 executor 工具不能选择 owner 角色、调用该 signer 或以模型输出建立 policy。owner signer 必须核对原业务意图、世界/Agent/task、domain、授权范围和当前资格，拒绝任意签名字节或来自游戏内容的提权指令。
+
+可信 CLI 提供独立的冷入场编排入口，消费本地明确批准的单一参与主体配置，不进入 executor broker 的命令白名单。配置固定 identity 服务/环境/epoch、world/genesis/service key、独立 identity/owner/executor 目录、完整私有目标、starter 选择与独立 executor 标识；首次初始化和联网执行分开。执行前从公开发现核对实际 participant/owner/executor 能力和所有信任 pin；能力缺失时在注册和创建 vault 前停止，不将未发布 Runtime profile 解释成已验收组合。
+
+编排沿用现有身份和 owner SDK 的受保护原操作存储：每阶段使用稳定且不同的 operation ID，配置与私有目标绑定到原编排，重启不能因修改配置或丢失状态而重新创建身份、替换原请求、换 executor 或增加额度。逐阶段确认 identity、participant、必要 starter、task、goal publication、delegation 和 executor binding；pending/unknown/rejected/action_required 立即停止本次推进并保留原阶段，不将 HTTP 成功当 canonical 成功。恢复相同阶段先查询原请求。已有完整角色/任务必须核对原归属与 fence，不自动接管他人资源或重复领取。
+
+完成后重新读取当前 canonical owner、目标和 task fence，只有固定独立 executor 的 Active binding 与原目标一致时，才输出供可信 launcher 使用的 executor 配置；输出不含 owner/登录私钥或私有目标。该配置与后续受限工具/profile 的发布仍遵守独立登录、owner、delegate 隔离及不可重置预算规则。客户端编排完成不等于 Runtime 已启动或公开支持验收完成；discovery 的完整支持声明须有对应真实组合证据，不能仅由开关或自报 profile 推导。
 
 executor 仍使用独立短范围凭据和真实 delegation，复用原控制/决策循环。Runtime 同时处理自有和受托资源时，按主体/world/Agent/task 隔离会话、signer、目标、预算、pending 和私有上下文；切换资源必须显式绑定，不能默认继承最近一次 owner 会话。撤销一份委托只停止其对应工具出站；全局凭据撤销则按实际作用域停止。CLI 的发现、注册/登录、入场、恢复、目标和绑定能力只是同一 API 的客户端，不得获得 operator 或直写世界权限。
 

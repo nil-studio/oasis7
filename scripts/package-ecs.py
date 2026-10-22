@@ -14,7 +14,7 @@ import sys
 # __pycache__ files before cache_begin that a clean consumer cannot restore.
 sys.dont_write_bytecode = True
 
-BINS = ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_viewer_live")
+BINS = ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_viewer_live", "oasis7_game_client")
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("ecs_skill_release", ROOT / "scripts/package-ecs-skills.py")
 skills = importlib.util.module_from_spec(spec)
@@ -51,7 +51,7 @@ def main():
         env.pop("RUSTC_WRAPPER", None)
         command = ["cargo", "build", "--locked", "--timings", "--profile", "ecs",
                         "-p", "oasis7_chain_runtime", "-p", "oasis7_launcher_backend",
-                        "-p", "oasis7_viewer_runtime", *[arg for name in BINS for arg in ("--bin", name)]]
+                        "-p", "oasis7_viewer_runtime", "-p", "oasis7_game_client", *[arg for name in BINS for arg in ("--bin", name)]]
         if args.cache_state:
             spec = importlib.util.spec_from_file_location("ecs_cache", ROOT / "scripts/ci-ecs-cache.py")
             cache = importlib.util.module_from_spec(spec)

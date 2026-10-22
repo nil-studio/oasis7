@@ -1,5 +1,9 @@
 # Trusted identity and owner control
 
+For a new authorized subject, the [trusted cold-entry companion](cold-entry.md)
+combines these same stages and preserves original operations. Existing explicit
+commands below remain available for deliberate owner operations and recovery.
+
 These commands belong to a trusted local launcher, separate from the model's
 game tools. Cold-entry OpenClaw/Codex profiles require their own approved
 runtime manifest, isolated environment and real acceptance; neither a valid

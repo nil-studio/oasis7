@@ -1,11 +1,11 @@
 ---
 name: oasis7-play
-description: Execute an authorized Oasis7 native task through the supplied signed game client or approved local tool socket, read the complete goal/context, choose a supported action, and verify its canonical result. Owner-controlled entry remains separate.
+description: Execute an authorized Oasis7 native task through the supplied signed game client or approved local tool socket, read the complete goal/context, choose a supported action, and verify its canonical result. Trusted cold entry and owner-controlled entry remain separate.
 ---
 
 # Oasis7 native task play
 
-This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. It does not provide cold world entry, token pairing, the full Game HTTP write catalog.
+This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. The default executor does not perform owner cold entry, token pairing or the full Game HTTP write catalog. A trusted local companion can perform [cold entry](references/cold-entry.md) before handing off a separate executor.
 
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.
 
@@ -13,7 +13,7 @@ Trusted identity, world entry and explicit owner operations have a separate
 [owner-control reference](references/identity-entry.md). Default executors must
 not invoke those commands, unlock storage or obtain owner credentials. Missing
 world/Agent/task binding stops play; identity registration alone cannot authorize
-the commands below. OpenClaw/Codex cold-entry combinations require independent
+the commands below. The trusted cold-entry CLI is separate from Runtime launch. OpenClaw/Codex cold-entry combinations require independent
 acceptance and are not certified by this Skill.
 
 For an approved isolated Runtime profile, the launcher supplies only a private

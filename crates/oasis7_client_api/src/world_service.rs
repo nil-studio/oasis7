@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod entry_control;
 pub mod entry_executor;
 pub mod participant_discovery;
+pub mod participant_identity_snapshot;
 
 pub const WORLD_SERVICE_CONTRACT_VERSION: u32 = 1;
 

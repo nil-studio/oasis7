@@ -21,6 +21,35 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_actual_cold_entry_gates_bundle_and_probe_stays_out_of_delivery(self):
+        workflow = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
+        native = workflow.split("  native:\n", 1)[1].split("  native-trusted:\n", 1)[0]
+        probe = native.split("      - name: Compile actual cold entry integration probe\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("cargo build --locked --profile ecs -p oasis7_game_client --example cold_entry_probe", probe)
+        self.assertNotIn("continue-on-error", probe)
+        self.assertIn("ref: ${{ github.sha }}", native)
+        self.assertIn("name: ecs-cold-entry-probe-stage", native)
+        self.assertNotIn("cold_entry_probe", ecs.BINS)
+        package = workflow.split("  package:\n", 1)[1]
+        assembled = package.index("python3 scripts/package-ecs.py assemble")
+        downloaded = package.index("name: ecs-cold-entry-probe-stage")
+        verified = package.index("name: Verify assembled bundle through actual cold entry services")
+        published = package.index("name: oasis7-ecs-linux-x64")
+        self.assertLess(assembled, downloaded)
+        self.assertLess(downloaded, verified)
+        self.assertLess(verified, published)
+        smoke = package[verified:].split("      - name: Upload public cold entry verification receipt", 1)[0]
+        self.assertIn('scripts/cold-entry-live-smoke.py', smoke)
+        self.assertIn('--bundle "$GITHUB_WORKSPACE/output/ecs"', smoke)
+        self.assertIn('--probe-binary "$GITHUB_WORKSPACE/output/cold-entry-probe/cold_entry_probe"', smoke)
+        self.assertNotIn("continue-on-error", smoke)
+        self.assertNotIn("if:", smoke)
+        self.assertNotIn("|| true", smoke)
+        self.assertIn("ref: ${{ github.sha }}", package)
+
+    def test_bundle_delivers_cold_entry_client_with_the_server_revision(self):
+        self.assertIn("oasis7_game_client", ecs.BINS)
+
     def test_cli_helper_imports_do_not_add_cache_source_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -39,7 +68,7 @@ class PackageTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux" and Path("/usr/bin/time").is_file(), "Linux ECS resource collection")
     def test_compile_step_preserves_build_status_and_stops_monitor(self):
         workflow = (ROOT / ".github/workflows/ecs-packages.yml").read_text()
-        step = workflow.split("      - name: Compile three ECS binaries\n", 1)[1].split("      - name:", 1)[0]
+        step = workflow.split("      - name: Compile ECS service and game client binaries\n", 1)[1].split("      - name:", 1)[0]
         script = textwrap.dedent(step.split("        run: |\n", 1)[1])
         # Execute the actual workflow shell with a short build fixture. A failed
         # observer must neither fail a good build nor hide a failed build.
@@ -87,7 +116,7 @@ class PackageTests(unittest.TestCase):
                     ecs.main()
                 command = cargo.call_args.args[0]
                 self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "--bin"], list(ecs.BINS))
-                self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-p"], ["oasis7_chain_runtime", "oasis7_launcher_backend", "oasis7_viewer_runtime"])
+                self.assertEqual([command[i + 1] for i, arg in enumerate(command) if arg == "-p"], ["oasis7_chain_runtime", "oasis7_launcher_backend", "oasis7_viewer_runtime", "oasis7_game_client"])
                 self.assertNotIn("RUSTC_WRAPPER", cargo.call_args.kwargs["env"])
                 self.assertEqual(command[command.index("--profile") + 1], "ecs")
                 self.assertIn("--timings", command)
