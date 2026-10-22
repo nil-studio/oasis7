@@ -230,6 +230,8 @@ fn execute(expired: bool) -> World {
     let fence = GameTaskFenceV1::from_control(&control);
     let request = continuous_commit_request(&world);
     let context = TaskContextIdentityV1 {
+            authority_mode: None,
+            native_authorization_root: None,
         schema_revision: 1,
         fence: fence.clone(),
         valid_until_tick: DecimalU64(world.state().time + 5),

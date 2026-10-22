@@ -91,6 +91,7 @@ fn starter_context_live_conflict_fails_closed_then_expiry_aborts_and_reprepares(
         let first_proof = sign_read_request(
             TASK_CONTEXT_PREPARE_PATH,
             TaskContextPrepareV1 {
+            authority_mode: None,
                 schema_revision: 1,
                 fence: GameTaskFenceV1::from_control(&initial_control),
                 client_operation_id: "starter-expiry-live-conflict".into(),
@@ -310,6 +311,7 @@ fn prepare_prefixed_context<F: Fn() -> GameTaskFenceV1>(
         let proof = sign_read_request(
             TASK_CONTEXT_PREPARE_PATH,
             TaskContextPrepareV1 {
+            authority_mode: None,
                 schema_revision: 1,
                 fence: current_fence(),
                 client_operation_id: format!("{operation_prefix}-{attempt}"),

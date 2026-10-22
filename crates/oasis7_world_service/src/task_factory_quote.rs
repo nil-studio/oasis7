@@ -20,6 +20,8 @@ mod tests {
             .unwrap()
             .subject_public_key;
         let context = TaskContextIdentityV1 {
+            authority_mode: None,
+            native_authorization_root: None,
             schema_revision: 1,
             fence: GameTaskFenceV1 {
                 world_id: "world".into(),

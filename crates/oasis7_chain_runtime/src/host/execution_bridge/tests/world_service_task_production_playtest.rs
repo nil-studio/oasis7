@@ -470,6 +470,7 @@ fn private_task_production_signed_quote_first_product_and_restart() {
             let proof = sign_read_request(
                 TASK_CONTEXT_PREPARE_PATH,
                 TaskContextPrepareV1 {
+            authority_mode: None,
                     schema_revision: 1,
                     fence: GameTaskFenceV1::from_control(&control),
                     client_operation_id: format!("production-delivery-context-{attempt}"),

@@ -556,3 +556,6 @@ pub mod legacy_profile;
 pub mod runtime_broker;
 #[cfg(unix)]
 mod runtime_broker_cli;
+
+#[cfg(unix)]
+mod cold_entry;

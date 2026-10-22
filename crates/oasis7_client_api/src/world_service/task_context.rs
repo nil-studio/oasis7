@@ -4,13 +4,17 @@ use super::private_goal::{PreparedGoalReceiptV1, verify_owner_signature_strict};
 use super::*;
 use crate::world_service_wire::*;
 use oasis7_agent_api::game::{
-    DecimalU64, GameTaskControlV1, GameTaskFenceV1, TaskContextIdentityV1,
+    DecimalU64, GameTaskControlV1, GameTaskFenceV1, TaskContextAuthorityModeV1,
+    TaskContextIdentityV1,
 };
 use oasis7_agent_api::{
     world_cognition::RuntimeCognitionBaseBindingV1, world_context::WorldServiceAgentContext,
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
+#[path = "task_native_authority.rs"]
+mod native;
+pub use native::{NativeTaskAuthorityV1, TaskAuthorityRef};
 pub const TASK_CONTEXT_PREPARE_PATH: &str = "/v1/world/private-task/context-prepare";
 pub const TASK_CONTEXT_READ_DELIVERY_DRIFT: &str = "task_context_read_delivery_drift";
 pub const TASK_CONTEXT_READ_PATH: &str = "/v1/world/private-task/context-read";
@@ -21,6 +25,8 @@ pub const TASK_CONTEXT_LEASE_TICKS: u64 = oasis7_agent_api::game::TASK_CONTEXT_M
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskContextPrepareV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_mode: Option<TaskContextAuthorityModeV1>,
     pub schema_revision: u32,
     pub fence: GameTaskFenceV1,
     pub client_operation_id: String,
@@ -36,6 +42,8 @@ pub struct TaskContextGetV1 {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskGoalSnapshotRequestV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_mode: Option<TaskContextAuthorityModeV1>,
     pub schema_revision: u32,
     pub fence: GameTaskFenceV1,
 }
@@ -49,7 +57,10 @@ pub struct GoalExecutionSnapshotV1 {
     pub active_goal: PreparedGoalReceiptV1,
     pub actor_observation_schema: String,
     pub actor_observation: serde_json::Value,
-    pub provider_authority: WorldServiceAgentContext,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_authority: Option<WorldServiceAgentContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_authority: Option<NativeTaskAuthorityV1>,
     pub runtime_binding: oasis7_agent_api::RuntimeBindingV1,
     pub captured_base_binding: RuntimeCognitionBaseBindingV1,
 }
@@ -77,7 +88,10 @@ pub struct CapturedTaskContextV1<C = UnsupportedWireVariant, S = TaskSchedulerIn
 pub struct TaskPublicContextV1 {
     pub read_commit: CommitRef,
     pub captured_base_binding: RuntimeCognitionBaseBindingV1,
-    pub provider_authority: WorldServiceAgentContext,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_authority: Option<WorldServiceAgentContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_authority: Option<NativeTaskAuthorityV1>,
     pub actor_observation: serde_json::Value,
 }
 impl TaskPublicContextV1 {
@@ -88,30 +102,23 @@ impl TaskPublicContextV1 {
             .map_err(|e| e.to_string())?;
         let f = &identity.fence;
         let b = &self.captured_base_binding;
-        let authority = &self.provider_authority;
-        let catalog = &authority.capability_catalog;
-        let invocation = &authority.capability_invocation_context;
-        catalog
-            .validate()
-            .map_err(|_| "invalid current task catalog")?;
-        if self.read_commit.world.world_id != f.world_id
+        let authority = self.authority()?;
+        authority.validate_for(f, b)?;
+        if self
+            .native_authority
+            .as_ref()
+            .map(|n| &n.native_authorization_root)
+            != identity.native_authorization_root.as_ref()
+        {
+            return Err("native task authority definition changed".into());
+        }
+        if authority.mode() != identity.authority_mode
+            || self.read_commit.world.world_id != f.world_id
             || self.read_commit.world.genesis_digest != f.genesis_digest
             || self.read_commit.binding.branch_id != f.branch_id
             || self.read_commit.binding.reorg_generation != f.reorg_epoch.0
-            || b.world_id != f.world_id
-            || b.branch_id != f.branch_id
-            || b.reorg_epoch != f.reorg_epoch.0
             || b.base_tick > identity.valid_until_tick.0
-            || authority.agent_id != f.agent_id
             || !self.actor_observation.is_object()
-            || catalog.world_id != f.world_id
-            || catalog.branch_id != f.branch_id
-            || catalog.logical_tick != b.base_tick
-            || !matches!(&catalog.subject,oasis7_wasm_abi::CapabilitySubject::Agent{agent_id,owner_binding,generation} if agent_id==&f.agent_id&&owner_binding==&f.owner_binding&&*generation==f.owner_generation.0)
-            || invocation.catalog_snapshot_id != catalog.snapshot_id
-            || invocation.subject != catalog.subject
-            || invocation.presenter != catalog.presenter
-            || invocation.audience != catalog.audience
         {
             return Err("current task public context differs from task fence".into());
         }
@@ -188,16 +195,11 @@ impl<
             || current.read_commit.position < self.capture_commit.position
             || current.read_commit.binding.branch_id != context.fence.branch_id
             || current.read_commit.binding.reorg_generation != context.fence.reorg_epoch.0
-            || current.provider_authority.agent_id != context.fence.agent_id
+            || current.authority()?.agent_id() != context.fence.agent_id
             || !current.actor_observation.is_object()
         {
             return Err("current task public context mismatch".into());
         }
-        current
-            .provider_authority
-            .capability_catalog
-            .validate()
-            .map_err(|_| "invalid current capability catalog")?;
         Ok(())
     }
 }
@@ -220,7 +222,9 @@ fn salt(value: &str) -> Result<[u8; 32], String> {
 pub fn verify_prepare(request: &SignedReadRequest<TaskContextPrepareV1>) -> Result<(), String> {
     let r = &request.request;
     r.fence.validate()?;
-    if r.schema_revision != 1 || !identity(&r.client_operation_id) || salt(&r.client_nonce).is_err()
+    if r.schema_revision != TaskContextAuthorityModeV1::schema_revision(r.authority_mode)
+        || !identity(&r.client_operation_id)
+        || salt(&r.client_nonce).is_err()
     {
         return Err("invalid task context preparation".into());
     }
@@ -263,7 +267,9 @@ pub fn verify_snapshot_request(
     request: &SignedReadRequest<TaskGoalSnapshotRequestV1>,
 ) -> Result<(), String> {
     request.request.fence.validate()?;
-    if request.request.schema_revision != 1 {
+    if request.request.schema_revision
+        != TaskContextAuthorityModeV1::schema_revision(request.request.authority_mode)
+    {
         return Err("invalid goal execution snapshot request".into());
     }
     verify_owner_signature_strict(
@@ -298,7 +304,8 @@ impl GoalExecutionSnapshotV1 {
         )?;
         let proof = &self.active_goal.owner_proof.request;
         let binding = &self.runtime_binding;
-        if self.schema_revision != 1
+        if self.schema_revision
+            != TaskContextAuthorityModeV1::schema_revision(self.authority_mode()?)
             || self.actor_observation_schema != "world-agent-state/v1"
             || !self.actor_observation.is_object()
             || self.read_commit.world.world_id != c.world_id
@@ -336,35 +343,15 @@ impl GoalExecutionSnapshotV1 {
             || self.captured_base_binding.reorg_epoch != c.reorg_epoch.0
             || self.captured_base_binding.base_tick != binding.base_tick
             || self.captured_base_binding.base_world_hash != binding.base_world_hash.0
-            || self.provider_authority.agent_id != c.agent_id
+            || self.authority()?.agent_id() != c.agent_id
         {
             return Err("goal execution snapshot binding mismatch".into());
         }
         self.active_goal
             .validate_publish(&publish)
             .map_err(|e| e.to_string())?;
-        self.provider_authority
-            .capability_catalog
-            .validate()
-            .map_err(|_| "invalid task capability catalog")?;
-        let catalog = &self.provider_authority.capability_catalog;
-        if catalog.world_id != c.world_id
-            || catalog.branch_id != c.branch_id
-            || catalog.logical_tick != binding.base_tick
-            || !matches!(&catalog.subject,oasis7_wasm_abi::CapabilitySubject::Agent{agent_id,owner_binding,generation} if agent_id==&c.agent_id&&owner_binding==&c.owner_binding&&*generation==c.owner_generation.0)
-            || self
-                .provider_authority
-                .capability_invocation_context
-                .catalog_snapshot_id
-                != catalog.snapshot_id
-            || self
-                .provider_authority
-                .capability_invocation_context
-                .subject
-                != catalog.subject
-        {
-            return Err("task provider authority differs from snapshot".into());
-        }
+        self.authority()?
+            .validate_for(&f, &self.captured_base_binding)?;
         Ok(())
     }
 }
@@ -398,7 +385,15 @@ impl PreparedTaskContextV1 {
         verify_prepare(&self.prepare_proof)?;
         self.snapshot.validate()?;
         self.identity.validate()?;
-        if self.schema_revision != 1
+        if self.schema_revision != self.snapshot.schema_revision
+            || self.identity.authority_mode != self.prepare_proof.request.authority_mode
+            || self.identity.authority_mode != self.snapshot.authority_mode()?
+            || self.identity.native_authorization_root.as_ref()
+                != self
+                    .snapshot
+                    .native_authority
+                    .as_ref()
+                    .map(|n| &n.native_authorization_root)
             || self.identity.fence != self.prepare_proof.request.fence
             || self.identity.fence != GameTaskFenceV1::from_control(&self.snapshot.control)
             || self.identity.valid_until_tick != self.valid_until_tick
@@ -411,12 +406,7 @@ impl PreparedTaskContextV1 {
                 .base_tick
                 .checked_add(TASK_CONTEXT_LEASE_TICKS)
                 .is_none_or(|limit| self.valid_until_tick.0 > limit)
-            || self.valid_until_tick.0
-                > self
-                    .snapshot
-                    .provider_authority
-                    .capability_catalog
-                    .valid_until_tick
+            || self.valid_until_tick.0 > self.snapshot.authority_valid_until_tick()?
             || self.identity.request_commitment
                 != self.commitment("oasis7/private-task-request/v1")?
             || self.identity.context_commitment
@@ -495,13 +485,18 @@ pub fn context_deadline(base_tick: u64, grant_until: u64) -> Result<DecimalU64, 
 pub fn task_cognition_intent_from_public_context(
     context: &oasis7_agent_api::game::TaskContextIdentityV1,
     binding: oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1,
-    authority: &WorldServiceAgentContext,
+    authority: TaskAuthorityRef<'_>,
     actor_observation: &serde_json::Value,
     action: oasis7_agent_api::world_action::Action,
 ) -> Result<CognitionIntentV1, String> {
     context.validate()?;
     binding.validate().map_err(|e| e.to_string())?;
-    if authority.agent_id != context.fence.agent_id
+    authority.validate_for(&context.fence, &binding)?;
+    if authority.native_authorization_root() != context.native_authorization_root.as_deref() {
+        return Err("native task action authority definition changed".into());
+    }
+    if authority.mode() != context.authority_mode
+        || authority.agent_id() != context.fence.agent_id
         || binding.world_id != context.fence.world_id
         || binding.branch_id != context.fence.branch_id
         || binding.reorg_epoch != context.fence.reorg_epoch.0
@@ -518,8 +513,8 @@ pub fn task_cognition_intent_from_public_context(
         request_digest: context.request_commitment.clone(),
         observation_digest: request_digest("game-task-public-observation/v1", actor_observation)?,
         context_digest: context.context_commitment.clone(),
-        capability_snapshot_hash: authority.capability_snapshot_hash.clone(),
-        authority_context_hash: authority.authority_context_hash.clone(),
+        capability_snapshot_hash: authority.hashes().1.to_owned(),
+        authority_context_hash: authority.hashes().2.to_owned(),
         captured_base_binding: binding,
     };
     let mut response_artifact = oasis7_agent_api::world_cognition::RuntimeCognitionResponseArtifactV1 {
@@ -570,7 +565,7 @@ pub fn cognition_intent<C, S>(
     task_cognition_intent_from_public_context(
         &captured.prepared.identity,
         current.captured_base_binding.clone(),
-        &current.provider_authority,
+        current.authority()?,
         &current.actor_observation,
         action,
     )
@@ -648,3 +643,7 @@ mod tests {
         assert!(context_deadline(10, 9).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "task_native_authority_tests.rs"]
+mod native_authority_tests;

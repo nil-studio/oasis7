@@ -131,6 +131,7 @@ fn executor_rotation_recovers_immutable_original_with_current_authority() {
     let proof = sign_read_request(
         TASK_CONTEXT_PREPARE_PATH,
         TaskContextPrepareV1 {
+            authority_mode: None,
             schema_revision: 1,
             fence: fence.clone(),
             client_operation_id: "context-operation".into(),

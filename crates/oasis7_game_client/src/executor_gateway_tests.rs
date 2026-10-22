@@ -35,6 +35,8 @@ fn historical_prefix(fence: GameTaskFenceV1, private: &str) -> WorldServicePaylo
         },
         operation: SchedulerOperationV1::TaskProviderPrefix {
             context: oasis7_agent_api::game::TaskContextIdentityV1 {
+                authority_mode: None,
+                native_authorization_root: None,
                 schema_revision: 1,
                 fence,
                 agent_session_id: "old-a-session".into(),
@@ -110,6 +112,7 @@ fn current_delegate_b_can_only_lookup_a_verified_original_from_old_delegate_a_sa
     let old_prepare = ws::sign_read_request(
         TASK_CONTEXT_PREPARE_PATH,
         TaskContextPrepareV1 {
+            authority_mode: None,
             schema_revision: 1,
             fence: old.clone(),
             client_operation_id: "old-prepare".into(),
@@ -354,6 +357,7 @@ fn native_client_uses_real_gateway_without_exposing_seed_and_rejects_wrong_domai
         fixture(format!("http://{}", listener.local_addr().unwrap()));
     let client = crate::device_client::Client::from_authenticated_config(
         crate::device_client::ExecutorDeviceConfig {
+            authority_mode: None,
             identity,
             login_operation: "login".into(),
             executor_vault_directory: vault,
@@ -474,6 +478,7 @@ fn vault_is_resource_bound_and_owner_routes_and_other_task_fences_fail_before_ne
     let proof = ws::sign_read_request(
         TASK_CONTEXT_PREPARE_PATH,
         TaskContextPrepareV1 {
+            authority_mode: None,
             schema_revision: 1,
             fence: other.clone(),
             client_operation_id: "prepare".into(),
@@ -509,6 +514,7 @@ fn authenticated_device_retains_exact_private_original_after_restart_and_rejects
  {
     let (root, identity, vault, fence) = fixture("https://identity.invalid".into());
     let config = || crate::device_client::ExecutorDeviceConfig {
+        authority_mode: None,
         identity: identity.clone(),
         login_operation: "login".into(),
         executor_vault_directory: vault.clone(),
@@ -516,6 +522,25 @@ fn authenticated_device_retains_exact_private_original_after_restart_and_rejects
         fence: fence.clone(),
         state_directory: root.0.join("operation-state"),
     };
+    let legacy_json = json!({
+        "identity":identity,"login_operation":"login","executor_vault_directory":vault,
+        "service_public_key":service_key(),"fence":fence,"state_directory":root.0.join("operation-state")
+    });
+    let legacy: crate::device_client::ExecutorDeviceConfig =
+        serde_json::from_value(legacy_json.clone()).unwrap();
+    assert!(legacy.authority_mode.is_none());
+    let mut explicit = legacy_json;
+    explicit["authority_mode"] = json!("native_executor_v1");
+    let explicit_config: crate::device_client::ExecutorDeviceConfig =
+        serde_json::from_value(explicit.clone()).unwrap();
+    assert_eq!(
+        explicit_config.authority_mode,
+        Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1)
+    );
+    explicit["authority_mode"] = json!("fallback");
+    assert!(
+        serde_json::from_value::<crate::device_client::ExecutorDeviceConfig>(explicit).is_err()
+    );
     let client =
         crate::device_client::Client::from_authenticated_config(config(), PASSWORD).unwrap();
     assert!(client.key_hex.is_empty());
@@ -524,6 +549,7 @@ fn authenticated_device_retains_exact_private_original_after_restart_and_rejects
         .sign(
             TASK_CONTEXT_PREPARE_PATH,
             TaskContextPrepareV1 {
+                authority_mode: None,
                 schema_revision: 1,
                 fence: fence.clone(),
                 client_operation_id: "original-prepare".into(),
@@ -541,11 +567,53 @@ fn authenticated_device_retains_exact_private_original_after_restart_and_rejects
         )
         .unwrap();
     let before = serde_json::to_value(&proof).unwrap();
+    assert!(before["request"].get("authority_mode").is_none());
+    let original_bytes = serde_json::to_vec(&proof).unwrap();
+    let original_cbor = serde_cbor::to_vec(&proof).unwrap();
+    let original_digest = ws::request_digest(TASK_CONTEXT_PREPARE_PATH, &proof).unwrap();
     drop(client);
     let restarted =
         crate::device_client::Client::from_authenticated_config(config(), PASSWORD).unwrap();
     let recovered = restarted.original_prepare("original-prepare").unwrap();
     assert_eq!(before, serde_json::to_value(&recovered).unwrap());
+    assert_eq!(original_bytes, serde_json::to_vec(&recovered).unwrap());
+    assert_eq!(original_cbor, serde_cbor::to_vec(&recovered).unwrap());
+    assert_eq!(
+        original_digest,
+        ws::request_digest(TASK_CONTEXT_PREPARE_PATH, &recovered).unwrap()
+    );
+    let mut native = config();
+    native.authority_mode =
+        Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1);
+    let native = crate::device_client::Client::from_authenticated_config(native, PASSWORD).unwrap();
+    assert!(native.original_prepare("original-prepare").is_err());
+    let mut native_request = recovered.request.clone();
+    native_request.authority_mode =
+        Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1);
+    native_request.schema_revision = 2;
+    native_request.client_operation_id = "native-prepare".into();
+    let native_proof = native
+        .sign(TASK_CONTEXT_PREPARE_PATH, native_request)
+        .unwrap();
+    verify_prepare(&native_proof).unwrap();
+    native
+        .state
+        .put_client_state(
+            ClientStateKind::Prepare,
+            "native-prepare",
+            &ClientStateV1::ContextPrepare(Box::new(native_proof.clone())),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_cbor::to_vec(&native.original_prepare("native-prepare").unwrap()).unwrap(),
+        serde_cbor::to_vec(&native_proof).unwrap()
+    );
+    assert!(restarted.original_prepare("native-prepare").is_err());
+    assert_eq!(
+        before,
+        serde_json::to_value(restarted.original_prepare("original-prepare").unwrap()).unwrap()
+    );
+    drop(native);
     let mut moved = config();
     moved.state_directory = root.0.join("other-operation-state");
     assert!(crate::device_client::Client::from_authenticated_config(moved, PASSWORD).is_err());
@@ -594,6 +662,7 @@ fn private_gateway_verifies_original_typed_cbor_not_normalized_json_payload() {
         .sign_native_request(
             TASK_CONTEXT_PREPARE_PATH,
             TaskContextPrepareV1 {
+                authority_mode: None,
                 schema_revision: 1,
                 fence,
                 client_operation_id: "typed-prepare".into(),

@@ -698,6 +698,32 @@ impl World {
         Ok(receipts)
     }
 
+    /// Stable native authority definitions. Spending and receipts are deliberately
+    /// excluded: a committed action must still be able to settle its outcome.
+    pub fn native_task_authorization_root(&self, agent_id: &str) -> Result<String, WorldError> {
+        self.verify_capability_authorization_root()?;
+        let ledger = self.delegation_ledger()?;
+        let grants: Vec<_> = ledger
+            .grants
+            .values()
+            .filter(|g| g.agent_id == agent_id)
+            .collect();
+        for grant in &grants {
+            self.validate_grant_source(grant)?;
+        }
+        let controls: Vec<_> = ledger
+            .controls
+            .values()
+            .filter(|r| r.control.agent_id == agent_id)
+            .map(|r| (&r.owner_id, &r.control, &r.disposition))
+            .collect();
+        crate::service_admission::request_digest(
+            "native-task-authorization/v1",
+            &(agent_id, grants, controls),
+        )
+        .map_err(|_| denied("native_authority_digest_unavailable"))
+    }
+
     pub fn agent_delegation_authorizations(
         &self,
         agent_id: &str,

@@ -408,3 +408,268 @@ fn effective_host_config_flows_into_current_and_historical_service_reads() {
         &oasis7_runtime::ReleaseSecurityPolicy::default()
     );
 }
+
+#[test]
+fn offline_current_uses_canonical_head_not_stale_world_cache_or_latest_pointer() {
+    let mut fixture = Fixture::new();
+    let old = fixture.pin(1).unwrap().commit;
+    let original_cache = fs::read(fixture.root.join("world/snapshot.json")).unwrap();
+    fixture
+        .driver
+        .execution_world
+        .submit_action(Action::RegisterAgent {
+            agent_id: "canonical-only-agent".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        });
+    fixture.commit(2);
+    let expected = fixture.pin(2).unwrap().commit;
+    fs::write(fixture.root.join("world/snapshot.json"), &original_cache).unwrap();
+    fs::copy(
+        fixture.record_path(1),
+        fixture.root.join("records/latest.json"),
+    )
+    .unwrap();
+    let context = RestoreContext::default();
+    let pinned = pin_offline_current_with_context(
+        &fixture.root.join("records"),
+        &fixture.root.join("store"),
+        &fixture.identity,
+        Some(&expected),
+        &context,
+    )
+    .unwrap();
+    assert!(
+        pinned
+            .world
+            .state()
+            .agents
+            .contains_key("canonical-only-agent")
+    );
+    assert_eq!(pinned.commit, expected);
+    assert_eq!(
+        fs::read(fixture.root.join("world/snapshot.json")).unwrap(),
+        original_cache
+    );
+    assert!(
+        pin_offline_current_with_context(
+            &fixture.root.join("records"),
+            &fixture.root.join("store"),
+            &fixture.identity,
+            Some(&old),
+            &context
+        )
+        .is_err()
+    );
+    assert_eq!(
+        pin_offline_current_with_context(
+            &fixture.root.join("records"),
+            &fixture.root.join("store"),
+            &fixture.identity,
+            None,
+            &context
+        )
+        .unwrap()
+        .commit,
+        expected
+    );
+}
+
+#[test]
+fn offline_current_refuses_bad_newest_record_and_no_numbered_history() {
+    let fixture = Fixture::new();
+    let expected = fixture.pin(1).unwrap().commit;
+    let records = fixture.root.join("records");
+    let store = fixture.root.join("store");
+    fs::write(fixture.record_path(2), b"bad newest record").unwrap();
+    // Ordinary recovery keeps its existing ability to find an older valid
+    // prefix. Offline administration must not confuse that with current head.
+    assert_eq!(
+        pin_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            None,
+            &RestoreContext::default()
+        )
+        .unwrap()
+        .commit,
+        expected
+    );
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            Some(&expected),
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            None,
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+    fs::remove_file(fixture.record_path(2)).unwrap();
+    fs::remove_file(fixture.record_path(1)).unwrap();
+    assert!(records.join("latest.json").exists());
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            None,
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn offline_current_refuses_wrong_complete_head_and_missing_or_corrupt_cas() {
+    let fixture = Fixture::new();
+    let expected = fixture.pin(1).unwrap().commit;
+    let records = fixture.root.join("records");
+    let store = fixture.root.join("store");
+    for variant in 0..4 {
+        let mut wrong = expected.clone();
+        match variant {
+            0 => wrong.world.genesis_digest.push('x'),
+            1 => wrong.binding.branch_id.push('x'),
+            2 => wrong.execution_block_hash.push('x'),
+            _ => wrong.state_root_ref.push('x'),
+        }
+        assert!(
+            pin_offline_current_with_context(
+                &records,
+                &store,
+                &fixture.identity,
+                Some(&wrong),
+                &RestoreContext::default()
+            )
+            .is_err()
+        );
+    }
+    let record = fixture.record(1);
+    for reference in [
+        record.snapshot_ref.unwrap(),
+        record.journal_ref.unwrap(),
+        record.world_head_proof_ref.unwrap(),
+    ] {
+        let path = store.join("blobs").join(format!("{reference}.blob"));
+        let original = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(
+            pin_offline_current_with_context(
+                &records,
+                &store,
+                &fixture.identity,
+                Some(&expected),
+                &RestoreContext::default()
+            )
+            .is_err()
+        );
+        fs::write(&path, b"bad CAS").unwrap();
+        assert!(
+            pin_offline_current_with_context(
+                &records,
+                &store,
+                &fixture.identity,
+                None,
+                &RestoreContext::default()
+            )
+            .is_err()
+        );
+        fs::write(&path, original).unwrap();
+    }
+}
+
+#[test]
+fn offline_current_treats_newer_latest_as_missing_tail_evidence_only() {
+    let mut fixture = Fixture::new();
+    fixture.commit(2);
+    let expected = fixture.pin(2).unwrap().commit;
+    let records = fixture.root.join("records");
+    let store = fixture.root.join("store");
+    fs::remove_file(fixture.record_path(2)).unwrap();
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            None,
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            Some(&expected),
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+    // A synchronized removal of both caches/tail cannot be inferred without a
+    // trusted external floor: prepare still refuses the original expected head.
+    fs::copy(fixture.record_path(1), records.join("latest.json")).unwrap();
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            Some(&expected),
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+    assert_eq!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            None,
+            &RestoreContext::default()
+        )
+        .unwrap()
+        .commit
+        .position,
+        1
+    );
+    fs::write(records.join("latest.json"), b"malformed latest").unwrap();
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &store,
+            &fixture.identity,
+            None,
+            &RestoreContext::default()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn offline_current_rejects_valid_older_record_under_newer_numbered_filename() {
+    let fixture = Fixture::new();
+    let records = fixture.root.join("records");
+    fs::copy(fixture.record_path(1), fixture.record_path(2)).unwrap();
+    assert!(
+        pin_offline_current_with_context(
+            &records,
+            &fixture.root.join("store"),
+            &fixture.identity,
+            None,
+            &RestoreContext::default(),
+        )
+        .is_err(),
+        "valid older record cannot impersonate the highest numbered head"
+    );
+}

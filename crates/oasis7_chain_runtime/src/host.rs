@@ -51,6 +51,8 @@ mod controlled_live_config;
 mod controlled_live_runtime;
 #[path = "host/dev_cli.rs"]
 mod dev_cli;
+#[path = "host/devlocal_participant_cli.rs"]
+mod devlocal_participant_cli;
 #[path = "host/development_runtime.rs"]
 mod development_runtime;
 #[path = "host/distfs_probe_runtime.rs"]

@@ -147,6 +147,13 @@ impl IdentityStore {
 /// purpose and directory. Never usable as the login or delegated executor key.
 pub struct OwnerControlStore(IdentityStore);
 impl OwnerControlStore {
+    /// Serialize a trusted local workflow using the same private no-link
+    /// namespace and random outbox key as immutable originals. Hold the returned
+    /// file for the complete transaction, including network reconciliation.
+    pub fn lock_workflow(&self) -> Result<std::fs::File, String> {
+        storage::lock_record(&self.0.directory, self.0.key(), "owner-workflow-lock")
+            .map(|(file, _)| file)
+    }
     pub fn create(root: &Path, passphrase: &[u8]) -> Result<Self, String> {
         IdentityStore::create_for(
             root,

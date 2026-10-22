@@ -8,6 +8,21 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_JSON: u64 = 4 * 1024 * 1024;
 
+pub(crate) struct WriterLock(File);
+impl WriterLock {
+    pub(crate) fn try_lock(file: File) -> Result<Self, std::fs::TryLockError> {
+        file.try_lock()?;
+        Ok(Self(file))
+    }
+}
+impl Drop for WriterLock {
+    fn drop(&mut self) {
+        // A forked child can retain the description before exec. End this
+        // writer's critical section explicitly; process lifetime locks differ.
+        let _ = self.0.unlock();
+    }
+}
+
 pub(crate) fn reject_symlinks(path: &Path) -> Result<(), String> {
     let mut current = PathBuf::new();
     for component in path.components() {

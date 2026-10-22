@@ -5,6 +5,9 @@ fn fixture() -> (World, String) {
     fixture_with_formal_history(false)
 }
 fn fixture_with_formal_history(formal: bool) -> (World, String) {
+    fixture_with_initial_finality(formal, None)
+}
+fn fixture_with_initial_finality(formal: bool, finality_hash: Option<String>) -> (World, String) {
     let private = hex::encode([71u8; 32]);
     let public = sign_read_request("fixture", (), &private)
         .unwrap()
@@ -71,9 +74,21 @@ fn fixture_with_formal_history(formal: bool) -> (World, String) {
     world
         .install_capability_agent_identity("agent", "owner", 1)
         .unwrap();
+    let provider_fixture = finality_hash.is_some();
     world
-        .bind_cognition_runtime("world", "main", 0, None, "pending", 0)
+        .bind_cognition_runtime("world", "main", 0, finality_hash, "pending", 0)
         .unwrap();
+    if provider_fixture {
+        world.submit_action(Action::RegisterAgent {
+            agent_id: "other-agent".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        });
+        world.step().unwrap();
+        world
+            .install_test_provider_capability_fixture_without_cognition_balance("other-agent")
+            .unwrap();
+        assert!(world.promote_cognition_runtime_finality().unwrap());
+    }
     (world, private)
 }
 fn request(private: &str, id: &str) -> SubmitIntentRequest<WorldServicePayloadV1> {

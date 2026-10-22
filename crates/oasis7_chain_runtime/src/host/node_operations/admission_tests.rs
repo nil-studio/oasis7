@@ -11,19 +11,21 @@ use std::{
     os::{fd::AsRawFd, unix::net::UnixStream},
 };
 
-struct InheritedDescriptors {
+pub(super) struct InheritedDescriptors {
     pid: libc::pid_t,
     release: UnixStream,
 }
 impl InheritedDescriptors {
-    fn fork() -> Self {
+    pub(super) fn fork() -> Self {
         let (release, wait) = UnixStream::pair().unwrap();
-        // Only async-signal-safe libc calls run in the forked child. Holding
+        // SAFETY: Only async-signal-safe libc calls run in the forked child. Holding
         // before exec models another test's concurrent Command::spawn without
         // relying on scheduler timing or changing the normal test concurrency.
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0, "fork failed");
         if pid == 0 {
+            // SAFETY: The socket and stack buffer are valid; read and _exit
+            // are async-signal-safe and no Rust destructors run in the child.
             unsafe {
                 let mut byte = 0_u8;
                 libc::read(wait.as_raw_fd(), (&mut byte as *mut u8).cast(), 1);
@@ -32,6 +34,11 @@ impl InheritedDescriptors {
         }
         Self { pid, release }
     }
+
+    pub(super) fn is_waiting(&self) -> bool {
+        // SAFETY: This is our unreaped child; WNOHANG permits a null status pointer.
+        unsafe { libc::waitpid(self.pid, std::ptr::null_mut(), libc::WNOHANG) == 0 }
+    }
 }
 impl Drop for InheritedDescriptors {
     fn drop(&mut self) {
@@ -39,6 +46,7 @@ impl Drop for InheritedDescriptors {
         // temporarily inherited another copy of this endpoint.
         let _ = self.release.shutdown(Shutdown::Both);
         loop {
+            // SAFETY: Reap only our child; a null status pointer is permitted.
             let result = unsafe { libc::waitpid(self.pid, std::ptr::null_mut(), 0) };
             if result >= 0
                 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
@@ -47,6 +55,34 @@ impl Drop for InheritedDescriptors {
             }
         }
     }
+}
+
+#[test]
+fn operation_store_releases_writer_while_forked_child_retains_descriptor() {
+    let root = std::fs::canonicalize(std::env::temp_dir())
+        .unwrap()
+        .join(format!(
+            "oasis7-operation-store-fork-{}",
+            super::super::node_lifecycle::local_io::random_id().unwrap()
+        ));
+    let store = Store::open(&root).unwrap();
+    assert!(Store::open(&root).is_err());
+    let inherited = InheritedDescriptors::fork();
+    drop(store);
+    let child_retained_descriptors = inherited.is_waiting();
+    let reopened = Store::open(&root);
+    let reopened_ok = reopened.is_ok();
+    let exclusive_before_child_exit = Store::open(&root).is_err();
+    drop(inherited);
+    let exclusive_after_child_exit = Store::open(&root).is_err();
+    drop(reopened);
+    std::fs::remove_dir_all(&root).unwrap();
+    assert!(child_retained_descriptors);
+    assert!(
+        reopened_ok,
+        "finished store writer must release its lock before another child execs"
+    );
+    assert!(exclusive_before_child_exit && exclusive_after_child_exit);
 }
 
 #[test]
