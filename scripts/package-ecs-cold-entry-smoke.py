@@ -21,6 +21,33 @@ import threading
 import time
 
 
+# Public diagnostics accept exact known control enums, never arbitrary CLI text.
+COLD_ENTRY_ENUMS = {
+    "stage": frozenset(("registration", "login", "participant", "starter", "task",
+                        "goal_prepare", "goal_publish", "delegation", "executor_bind",
+                        "complete", "login_refresh")),
+    "state": frozenset(("not_started", "pending", "confirmed", "action_required", "blocked", "unknown")),
+    "next_action": frozenset((
+        "explicit_fresh_login_same_operation", "explicit_fresh_login",
+        "reconcile_original_login_or_explicit_fresh_login", "reconcile_original_registration",
+        "query_original_participant", "read_canonical_starter_eligibility",
+        "inspect_canonical_starter_eligibility", "reconcile_original_goal_prepare",
+        "query_original_owner_operation", "query_original", "inspect_original_rejection",
+        "verify_canonical_owner_view", "await_authorized_registration",
+        "revalidate_session_and_query_original", "replay_original", "resume_original",
+        "explicit_start", "login", "world_admission",
+        "explicit_validated_runtime_profile_required")),
+}
+FAILURE_STAGES = frozenset((
+    "initialization", "temporary_tls", "actual_fixture_setup", "authorized_service_startup",
+    "zero_resource_discovery", "cold_entry_init", "cold_entry_response_loss_recovery",
+    "canonical_sdk_action", "completed_workflow_restart", "canonical_original_recheck"))
+
+
+def safe_enum(value, allowed):
+    return value if isinstance(value, str) and value in allowed else "unavailable"
+
+
 class Smoke:
     def __init__(self, fixture, root, deadline):
         self.fixture, self.root, self.deadline = fixture, root, deadline
@@ -31,6 +58,75 @@ class Smoke:
         self.faults = []
         self.lock = threading.Lock()
         self.stage = "initialization"
+        self.retry_not_before = 0.0
+        self.attempts = 0
+        self.last_result = {"rc": None, **{key: "unavailable" for key in COLD_ENTRY_ENUMS}}
+
+    def observe_retry_after(self, status, header):
+        if status != 429:
+            return
+        # IdentityService's fixed 429 contract is Retry-After: 60. Missing or
+        # malformed delta-seconds must not turn throttling into a fast retry.
+        seconds = 60
+        if isinstance(header, str):
+            value = header.strip()
+            if value and value.isascii() and value.isdecimal():
+                seconds = int(value) if len(value) <= 10 else float("inf")
+        with self.lock:
+            self.retry_not_before = max(self.retry_not_before, time.monotonic() + seconds)
+
+    def wait_recovery(self, backoff):
+        target = time.monotonic() + backoff
+        while True:
+            with self.lock:
+                target = max(target, self.retry_not_before)
+            if target >= self.deadline:
+                raise RuntimeError("cold entry retry exceeds smoke deadline")
+            delay = target - time.monotonic()
+            if delay <= 0:
+                break
+            time.sleep(min(60, delay))
+        self.remaining()
+
+    def recover_cold_entry(self, argv):
+        backoff = 1
+        while True:
+            self.wait_recovery(0)
+            self.begin_cold_entry_attempt()
+            code, output = self.command(argv, private=True)
+            self.record_cold_entry_result(code, output)
+            if self.last_result["state"] in ("blocked", "action_required"):
+                raise RuntimeError("cold entry requires explicit authorized action")
+            if self.last_result["stage"] == "complete":
+                return
+            self.wait_recovery(backoff)
+            backoff = min(4, backoff * 2)
+
+    def begin_cold_entry_attempt(self):
+        self.attempts += 1
+        self.last_result = {"rc": None, **{key: "unavailable" for key in COLD_ENTRY_ENUMS}}
+
+    def record_cold_entry_result(self, code, output):
+        parsed = {}
+        if code == 0:
+            try:
+                value = json.loads(output)
+                if isinstance(value, dict):
+                    parsed = value
+            except (ValueError, UnicodeError):
+                pass
+        self.last_result = {"rc": code if type(code) is int and -255 <= code <= 255 else None,
+                            **{key: safe_enum(parsed.get(key), allowed)
+                               for key, allowed in COLD_ENTRY_ENUMS.items()}}
+
+    def write_failure_receipt(self):
+        receipt = {"state": "failed", "failure_stage": safe_enum(self.stage, FAILURE_STAGES),
+                   "private_details_omitted": True, "attempts": self.attempts,
+                   "last_result": dict(self.last_result),
+                   "response_loss": {name: len(self.faults) > index and self.faults[index].get("hit") is True
+                                     for index, name in enumerate(("registration", "executor_bind"))}}
+        (self.root / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        return receipt
 
     def remaining(self):
         value = self.deadline - time.monotonic()
@@ -166,6 +262,7 @@ def forwarder(smoke, address):
                 headers["Host"] = self.headers.get("Host", "localhost")
                 connection.request(self.command, self.path, body, headers)
                 response = connection.getresponse()
+                smoke.observe_retry_after(response.status, response.getheader("Retry-After"))
                 payload = response.read(2 * 1024 * 1024 + 1)
                 if len(payload) > 2 * 1024 * 1024:
                     raise ValueError("bounded response required")
@@ -315,20 +412,10 @@ def main():
         smoke.faults = [{"path": "/api/public/hosted-account/v2/machine-registration/complete", "hit": False},
                         {"path": fixture["binding_response_path"], "hit": False, "bind_only": True}]
         directory = plan["orchestration_directory"]
-        completed = False
         smoke.stage = "cold_entry_response_loss_recovery"
-        for _ in range(30):
-            code, output = smoke.command([client, "cold-entry", "run", "--directory", directory], private=True)
-            if not code:
-                try:
-                    completed = json.loads(output).get("stage") == "complete"
-                except ValueError:
-                    pass
-            if completed:
-                break
-            time.sleep(min(0.2, smoke.remaining()))
-        if not completed or not all(f["hit"] for f in smoke.faults):
-            raise RuntimeError("cold entry or required real response-loss recovery incomplete")
+        smoke.recover_cold_entry([client, "cold-entry", "run", "--directory", directory])
+        if not all(f["hit"] for f in smoke.faults):
+            raise RuntimeError("cold entry required real response-loss recovery incomplete")
         smoke.stage = "canonical_sdk_action"
         before = smoke.probe("canonical_probe", {"canonical_verified": True, "agents": 1, "tasks": 1,
                             "goals": 1, "active_executors": 1, "sdk_task_context_verified": True,
@@ -350,12 +437,18 @@ def main():
         smoke.stage = "passed"
         print(json.dumps(receipt))
     finally:
-        if smoke.stage != "passed":
-            print(json.dumps({"state": "failed", "failure_stage": smoke.stage, "private_details_omitted": True}), file=sys.stderr)
-        if server:
-            server.shutdown()
-            server.server_close()
-        smoke.close()
+        try:
+            if smoke.stage != "passed":
+                print(json.dumps(smoke.write_failure_receipt()), file=sys.stderr)
+        finally:
+            try:
+                if server:
+                    try:
+                        server.shutdown()
+                    finally:
+                        server.server_close()
+            finally:
+                smoke.close()
 
 
 if __name__ == "__main__":

@@ -33,6 +33,14 @@ one durable original operation; reruns query the same action. Counts in the
 canonical probe are scoped to the newly registered participant, not a global
 population audit.
 
+The fixture also enables the formal loopback private goal/context service with
+`OASIS7_PRIVATE_GOAL_DIR` and `OASIS7_PRIVATE_GOAL_KEY_FILE`. Its independent
+0700 namespace is outside the preview world's public world/records/CAS roots;
+the key is a fresh, exclusive 0600 file containing exactly 32 random bytes.
+This configures encrypted storage only: no goal, task, provider or signed response
+is created in advance. Without both settings those private routes stay disabled,
+and a public gateway's unknown response cannot count as goal preparation.
+
 Alternatively, run using a private fixture file assembled for the exact built revision:
 
 ```sh
@@ -83,6 +91,12 @@ These commands must query and validate actual canonical services. They may not
 print constants or issue test-authority signatures. The final probe runs twice:
 its action must use one durable original operation, reconcile its committed
 receipt and avoid creating a second action on retry.
+The SDK's bounded submit polling can return an uncommitted outcome at a slot
+boundary. The probe may continue read-only lookup of that same signed original
+within its own shared wall-clock budget; this neither extends the context's
+logical lease nor permits a replacement operation. Only a verified committed
+result advances the probe. Terminal rejection, expiry or unavailable history
+must fail with fixed outcome categories rather than an ambiguous success claim.
 
 The forwarding server terminates actual temporary CA TLS and forwards each
 request unchanged to the actual HTTP service. It discards one successful actual
@@ -91,6 +105,17 @@ response. It then restarts the Game Client command with the same vault and
 operation identities. The flow must reach complete, prove both losses occurred,
 and retain the canonical identities after another completed-workflow restart.
 No synthetic success response is produced.
+
+Recovery is bounded by the existing overall deadline, rather than a fixed number
+of rapid CLI restarts. Pending and unknown results retain the original vaults and
+operations and use bounded backoff. The trusted forwarding server observes actual
+HTTP 429 responses and their delta-seconds `Retry-After`; the next attempt must
+wait at least that long. Missing or invalid values use the identity service's
+60-second cooldown. A cooldown beyond the remaining deadline fails without a
+new request. Non-429 headers cannot control this wait. Explicit blocked or
+action-required results fail for operator inspection; the driver never supplies
+fresh-login consent. An HTTP 202 is an unknown result, not evidence of a prepared
+goal or committed operation. Service limits and world slot timing remain unchanged.
 
 TLS verification remains enabled. The temporary CA is passed only through the
 child `SSL_CERT_FILE` environment, supported by the Linux native-certificate
@@ -104,7 +129,10 @@ Cleanup skips already reaped leader PIDs because their numeric IDs may have
 been reused. CI job containment or an operator-owned systemd cgroup must contain
 unexpected orphan descendants; verify that containment separately. The receipt
 does not certify complete descendant cleanup. A
-`receipt.json` is written only after all actual verification commands succeed.
+`receipt.json` records success only after all actual verification commands succeed.
+On failure it contains only fixed diagnostic enums, exit code, attempt count and
+the two response-loss flags; arbitrary CLI text and private response material are
+excluded. Failure receipt write errors must not prevent process cleanup.
 Fixture source revision, actual binary digests and canonical proof details belong
 in the probe evidence, not an unverified claim in this driver. CI selection is
 owned by the main task; the script does not alter workflow or test selection.
@@ -116,3 +144,5 @@ and only publishes the production package after smoke success. The probe binary
 is not included in the production bundle. Only `receipt.json` is uploaded as
 public verification evidence; private fixture stores, keys, goals and process
 logs remain in the ephemeral runner workspace.
+The sanitized receipt is also uploaded after a failed smoke; package publication
+continues to require smoke success.

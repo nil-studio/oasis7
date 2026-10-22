@@ -47,6 +47,22 @@ def hosted_startup_isolation(root):
     }
 
 
+
+def private_goal_storage_environment(root):
+    """Provision one private encrypted-store namespace, never reuse or overwrite."""
+    root = Path(root).resolve(strict=True)
+    directory = root / "private-goal-store"
+    keyfile = root / "private-goal-key.bin"
+    directory.mkdir(mode=0o700)
+    descriptor = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(secrets.token_bytes(32))
+        output.flush()
+        os.fsync(output.fileno())
+    return {"OASIS7_PRIVATE_GOAL_DIR": str(directory),
+            "OASIS7_PRIVATE_GOAL_KEY_FILE": str(keyfile)}
+
+
 def fixture(smoke, bundle, probe_binary):
     root = smoke.root
     bundle = Path(bundle).resolve()
@@ -105,6 +121,10 @@ def fixture(smoke, bundle, probe_binary):
         if line.strip() and not line.lstrip().startswith("#"):
             key, raw = line.removeprefix("export ").split("=", 1)
             smoke.env[key] = shlex.split(raw)[0] if shlex.split(raw) else ""
+    # Private goals and task contexts use the formal opt-in store. Keep these
+    # sibling paths outside preview world/records/CAS, and reuse the same key
+    # for the bootstrap and authorized real-service starts.
+    smoke.env.update(private_goal_storage_environment(root))
     chain_args = [chain, "--node-id", "cold-entry-smoke", "--world-id", world["world_id"],
         "--config", str(keys / "node-keypair.toml"), "--runtime-root", str(world_root / "node"),
         "--execution-world-dir", str(world_root / "world"), "--execution-records-dir", str(world_root / "records"),

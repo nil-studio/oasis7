@@ -311,6 +311,7 @@ jobs:
           name: ecs-cold-entry-probe-stage
           path: output/cold-entry-probe
       - name: Verify assembled bundle through actual cold entry services
+        id: cold_entry_smoke
         timeout-minutes: 15
         run: |
           sudo apt-get update
@@ -321,6 +322,7 @@ jobs:
             --probe-binary "$GITHUB_WORKSPACE/output/cold-entry-probe/cold_entry_probe" \
             --evidence-directory "$RUNNER_TEMP/ecs-cold-entry-live" --timeout-seconds 600
       - name: Upload public cold entry verification receipt
+        if: always() && steps.cold_entry_smoke.outcome != 'skipped'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ecs-cold-entry-verification

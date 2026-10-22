@@ -12,7 +12,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("ecs", ROOT / "scripts/package-ecs.py")
@@ -21,6 +21,193 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_smoke_failure_receipt_projects_only_fixed_safe_values(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_diagnostics_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = smoke_module.Smoke({}, Path(directory), time.monotonic() + 10)
+            smoke.stage = "cold_entry_response_loss_recovery"
+            smoke.faults = [{"hit": True}, {"hit": False}]
+            secret = "/private/secret-account-operation-body"
+            smoke.begin_cold_entry_attempt()
+            smoke.record_cold_entry_result(0, json.dumps({
+                "stage": "executor_bind", "state": "unknown",
+                "next_action": "query_original_owner_operation",
+                "operation_id": secret, "error": secret}).encode())
+            receipt = smoke.write_failure_receipt()
+            self.assertEqual(receipt["last_result"], {
+                "rc": 0, "stage": "executor_bind", "state": "unknown",
+                "next_action": "query_original_owner_operation"})
+            self.assertEqual(receipt["attempts"], 1)
+            self.assertEqual(receipt["response_loss"], {"registration": True, "executor_bind": False})
+            self.assertEqual(set(receipt), {"state", "failure_stage", "private_details_omitted",
+                                          "attempts", "last_result", "response_loss"})
+            self.assertNotIn(secret, json.dumps(receipt))
+            self.assertEqual(json.loads((Path(directory) / "receipt.json").read_text()), receipt)
+            for code, output in [(0, json.dumps({"stage": secret, "state": secret,
+                                                 "next_action": secret}).encode()),
+                                 (1, json.dumps({"stage": "complete", "state": "confirmed",
+                                                 "next_action": secret}).encode()),
+                                 (0, b'private diagnostic\n{"stage":"complete"}'),
+                                 (0, b'[]'), (0, b'{"stage":[]}')]:
+                smoke.record_cold_entry_result(code, output)
+                result = smoke.write_failure_receipt()
+                self.assertEqual(result["last_result"], {
+                    "rc": code, "stage": "unavailable", "state": "unavailable",
+                    "next_action": "unavailable"})
+                self.assertNotIn(secret, json.dumps(result))
+
+    def test_smoke_failure_receipt_resets_stale_result_and_counts_attempts(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_attempts_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = smoke_module.Smoke({}, Path(directory), time.monotonic() + 10)
+            for _ in range(30):
+                smoke.begin_cold_entry_attempt()
+                smoke.record_cold_entry_result(0, b'{"stage":"login","state":"action_required",'
+                                                   b'"next_action":"explicit_fresh_login"}')
+            receipt = smoke.write_failure_receipt()
+            self.assertEqual(receipt["attempts"], 30)
+            self.assertEqual(receipt["last_result"]["state"], "action_required")
+            self.assertEqual(receipt["response_loss"], {"registration": False, "executor_bind": False})
+            # A command that times out before returning cannot inherit prior progress.
+            smoke.begin_cold_entry_attempt()
+            smoke.stage = "/private/arbitrary-stage"
+            receipt = smoke.write_failure_receipt()
+            self.assertEqual(receipt["failure_stage"], "unavailable")
+            self.assertEqual(receipt["last_result"], {
+                "rc": None, "stage": "unavailable", "state": "unavailable", "next_action": "unavailable"})
+
+    def test_smoke_main_writes_sanitized_failure_receipt_before_cleanup(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_finally_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture.json"
+            fixture.write_text(json.dumps({
+                "client_binary": "unused", "setup_commands": [], "server_commands": [["unused"]],
+                "plan_template": {}, "identity_upstream": ["127.0.0.1", 12345],
+                "initial_probe": [], "canonical_probe": [],
+                "binding_response_path": "/api/public/hosted-account/v2/entry-owner/control"}))
+            fixture.chmod(0o600)
+            evidence = root / "evidence"
+            output = io.StringIO()
+            with patch.object(sys, "argv", ["smoke", "--fixture", str(fixture),
+                                            "--evidence-directory", str(evidence)]), \
+                    patch.object(sys, "platform", "linux"), \
+                    patch.object(smoke_module.os, "umask"), \
+                    patch.object(smoke_module, "generate_tls", side_effect=RuntimeError("private secret")), \
+                    patch.object(sys, "stderr", output):
+                with self.assertRaises(RuntimeError):
+                    smoke_module.main()
+            receipt = json.loads((evidence / "receipt.json").read_text())
+            self.assertEqual(json.loads(output.getvalue()), receipt)
+            self.assertEqual(receipt["failure_stage"], "temporary_tls")
+            self.assertNotIn("private secret", json.dumps(receipt))
+
+    def test_smoke_cleanup_survives_receipt_print_and_server_errors(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_cleanup_errors_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        for failure in ("receipt", "print", "shutdown", "server_close"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fixture = root / "fixture.json"
+                fixture.write_text(json.dumps({
+                    "client_binary": "unused", "setup_commands": [], "server_commands": [["unused"]],
+                    "plan_template": {}, "identity_upstream": ["127.0.0.1", 12345],
+                    "initial_probe": [], "canonical_probe": [],
+                    "binding_response_path": "/api/public/hosted-account/v2/entry-owner/control"}))
+                fixture.chmod(0o600)
+                server = Mock(server_port=12345)
+                if failure in ("shutdown", "server_close"):
+                    getattr(server, failure).side_effect = OSError("injected cleanup I/O failure")
+                with patch.object(sys, "argv", ["smoke", "--fixture", str(fixture),
+                                                "--evidence-directory", str(root / "evidence")]), \
+                        patch.object(sys, "platform", "linux"), patch.object(smoke_module.os, "umask"), \
+                        patch.object(smoke_module, "generate_tls"), \
+                        patch.object(smoke_module, "forwarder", return_value=server), \
+                        patch.object(smoke_module.Smoke, "command", side_effect=RuntimeError("setup failed")), \
+                        patch.object(smoke_module.Smoke, "close") as close, \
+                        patch.object(smoke_module.Smoke, "write_failure_receipt", **(
+                            {"side_effect": OSError("receipt I/O failed")} if failure == "receipt"
+                            else {"return_value": {"state": "failed"}})), \
+                        patch("builtins.print", **(
+                            {"side_effect": OSError("print I/O failed")} if failure == "print" else {})):
+                    with self.assertRaises(OSError):
+                        smoke_module.main()
+                    server.shutdown.assert_called_once_with()
+                    server.server_close.assert_called_once_with()
+                    close.assert_called_once_with()
+
+    def test_smoke_recovery_obeys_server_backoff_and_deadline(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_backoff_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            now = [100.0]
+            with patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+                    patch.object(module.time, "sleep", side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)) as sleep:
+                smoke = module.Smoke({}, Path(directory), 300)
+                smoke.observe_retry_after(200, "120")
+                smoke.wait_recovery(1)
+                self.assertEqual(now[0], 101)
+                smoke.observe_retry_after(429, "60")
+                smoke.observe_retry_after(429, "1")
+                smoke.wait_recovery(1)
+                self.assertEqual(now[0], 161)
+                smoke.observe_retry_after(429, "invalid/private-header")
+                smoke.deadline = 200
+                sleep.reset_mock()
+                with self.assertRaises(RuntimeError):
+                    smoke.wait_recovery(1)
+                sleep.assert_not_called()
+                smoke.deadline = 400
+                smoke.wait_recovery(1)
+                self.assertEqual(now[0], 221)
+                smoke.observe_retry_after(429, None)
+                smoke.wait_recovery(4)
+                self.assertEqual(now[0], 281)
+
+    def test_smoke_recovery_reuses_original_command_and_stops_owner_actions(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_recovery_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            now = [0.0]
+            argv = ["client", "cold-entry", "run", "--directory", "original-vault"]
+            with patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+                    patch.object(module.time, "sleep", side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)) as sleep:
+                smoke = module.Smoke({}, Path(directory), 200)
+                responses = [(0, b'{"stage":"task","state":"unknown"}')] * 31
+                responses.append((0, b'{"stage":"complete","state":"confirmed"}'))
+                with patch.object(smoke, "command", side_effect=responses) as command:
+                    smoke.recover_cold_entry(argv)
+                self.assertEqual(smoke.attempts, 32)
+                self.assertTrue(all(call.args == (argv,) and call.kwargs == {"private": True}
+                                    for call in command.call_args_list))
+                self.assertEqual([call.args[0] for call in sleep.call_args_list[:4]], [1, 2, 4, 4])
+                for state in ("blocked", "action_required"):
+                    smoke = module.Smoke({}, Path(directory), 300)
+                    sleep.reset_mock()
+                    with patch.object(smoke, "command", return_value=(0, json.dumps({
+                            "stage": "login", "state": state}).encode())) as command:
+                        with self.assertRaises(RuntimeError):
+                            smoke.recover_cold_entry(argv)
+                    command.assert_called_once_with(argv, private=True)
+                    sleep.assert_not_called()
+
     def test_smoke_cleanup_does_not_signal_reaped_process_group_numbers(self):
         import time
         module_spec = importlib.util.spec_from_file_location(
@@ -81,6 +268,39 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(headers["Cookie"], "fixture-cookie")
         with self.assertRaises(ValueError):
             smoke.trusted_forward_headers(incoming, "invalid-ip")
+
+    def test_fixture_private_goal_storage_is_private_independent_and_exclusive(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_fixture_goal_storage_test", ROOT / "scripts/package-ecs-cold-entry-fixture.py")
+        fixture = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(fixture)
+        with tempfile.TemporaryDirectory() as directory:
+            material = []
+            for name in ("fixture-a", "fixture-b"):
+                root = Path(directory) / name
+                root.mkdir(mode=0o700)
+                public_root = root / "preview"
+                public_root.mkdir(mode=0o700)
+                environment = fixture.private_goal_storage_environment(root)
+                self.assertEqual(set(environment), {"OASIS7_PRIVATE_GOAL_DIR", "OASIS7_PRIVATE_GOAL_KEY_FILE"})
+                store = Path(environment["OASIS7_PRIVATE_GOAL_DIR"])
+                key = Path(environment["OASIS7_PRIVATE_GOAL_KEY_FILE"])
+                self.assertTrue(store.is_dir())
+                self.assertTrue(key.is_file())
+                self.assertFalse(store.is_symlink())
+                self.assertFalse(key.is_symlink())
+                self.assertEqual(store.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(key.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(len(key.read_bytes()), 32)
+                for path in (store, key):
+                    self.assertEqual(path.parent.resolve(), root.resolve())
+                    self.assertNotIn(public_root.resolve(), path.resolve().parents)
+                original = key.read_bytes()
+                with self.assertRaises(FileExistsError):
+                    fixture.private_goal_storage_environment(root)
+                self.assertTrue(key.read_bytes() == original)
+                material.append(original)
+            self.assertTrue(material[0] != material[1])
 
     def test_fixture_identity_http_does_not_target_runtime_websocket(self):
         module_spec = importlib.util.spec_from_file_location(

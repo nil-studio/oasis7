@@ -3,7 +3,10 @@ use oasis7_agent_api::{
     game::GameTaskStatusV1,
     world_action::{Action, GeoPos},
 };
-use oasis7_client_api::world_service::IntentOutcome;
+use oasis7_client_api::world_service::{
+    IntentOutcome, IntentResponse, SubmitIntentRequest, WorldServiceErrorKind,
+};
+use oasis7_client_api::world_service_wire::WorldServicePayloadV1;
 use oasis7_client_storage::identity_store::OwnerControlStore;
 use oasis7_game_client::{
     device_client::Client,
@@ -11,12 +14,20 @@ use oasis7_game_client::{
     operation_store::ClientStateKind,
 };
 use serde_json::{Value, json};
-use std::{io::Read, path::Path};
+use std::{
+    io::Read,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 fn check(value: bool, message: &str) -> Result<(), String> {
     if value { Ok(()) } else { Err(message.into()) }
 }
 fn run() -> Result<Value, String> {
+    // Shared new-call budget includes owner prework and both original intents.
+    // Existing SDK polling reserves eight seconds; a bounded I/O already in
+    // flight may add about five seconds, staying below the 60-second watchdog.
+    let deadline = Instant::now() + Duration::from_secs(45);
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.len() != 2 {
         return Err("cold_entry_probe <orchestration-directory> <executor.json>".into());
@@ -44,6 +55,7 @@ fn run() -> Result<Value, String> {
             .map_err(|_| "invalid original participant config")?;
     let participant = ParticipantClient::new(config, &password)?;
     let current = participant.current_owner(op(2)?, op(1)?)?;
+    require_time(deadline, Duration::ZERO)?;
     let task = current.task.ok_or("canonical task unavailable")?;
     check(
         current.receipt.client_operation_id == op(2)?,
@@ -58,6 +70,7 @@ fn run() -> Result<Value, String> {
         "task not active",
     )?;
     let goal = participant.read_current_goal(op(2)?, op(1)?)?;
+    require_time(deadline, Duration::ZERO)?;
     let active = goal.active_goal.ok_or("canonical private goal missing")?;
     check(
         active.owner_proof.request.client_operation_id == op(5)?,
@@ -91,6 +104,7 @@ fn run() -> Result<Value, String> {
         bound.state == "confirmed",
         "bind original is not canonically confirmed",
     )?;
+    require_time(deadline, Duration::ZERO)?;
     let client = Client::open_authenticated(Path::new(&args[1]), &password)?;
     let fence = client.task_fence()?;
     check(
@@ -100,31 +114,44 @@ fn run() -> Result<Value, String> {
     let operation = "cold-entry-live-smoke-one-move-v1";
     let original = client.cached_intent(ClientStateKind::Action, operation)?;
     let result = if let Some(original) = original {
-        client.lookup(&original)?
+        recover_original(&client, &original, None, deadline, "action")?
     } else {
-        let prefix = client.prefix(operation)?;
-        let prefix_result = client.submit_and_poll(&prefix)?;
-        check(
-            matches!(prefix_result.outcome, IntentOutcome::Committed { .. }),
-            "context prefix not committed",
-        )?;
+        let cached_prefix = client.cached_intent(ClientStateKind::Prefix, operation)?;
+        let (prefix, first) = if let Some(original) = cached_prefix {
+            (original, None)
+        } else {
+            require_time(deadline, Duration::from_secs(8))?;
+            let original = client.prefix(operation)?;
+            require_time(deadline, Duration::from_secs(8))?;
+            let response = client.submit_and_poll(&original).ok();
+            (original, response)
+        };
+        recover_original(&client, &prefix, first, deadline, "context_prefix")?;
         let context = client.captured(operation)?;
+        // submit_action performs one more bounded context read before its
+        // single send and existing eight-second polling window.
+        require_time(deadline, Duration::from_secs(13))?;
         check(
             context.prepared.prepare_proof.request.fence.task_id == task.task_id,
             "private context resource mismatch",
         )?;
-        client.submit_action(
+        let submitted = client.submit_action(
             operation,
             Action::MoveAgent {
                 agent_id: task.agent_id.clone(),
                 to: GeoPos::new(1, 0, 0),
             },
-        )?
+        );
+        let original = client
+            .cached_intent(ClientStateKind::Action, operation)?
+            .ok_or("original action unavailable; retain original operation")?;
+        recover_original(&client, &original, submitted.ok(), deadline, "action")?
     };
     check(
         matches!(result.outcome, IntentOutcome::Committed { .. }),
         "actual action not canonically committed",
     )?;
+    require_time(deadline, Duration::ZERO)?;
     let after = client.public_view()?;
     check(
         after
@@ -153,5 +180,130 @@ fn main() {
             eprintln!("{error}");
             std::process::exit(1);
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ProbeOutcome {
+    Committed,
+    Recover(&'static str),
+    Terminal(&'static str),
+}
+fn classify_outcome<T>(outcome: &IntentOutcome<T>) -> ProbeOutcome {
+    match outcome {
+        IntentOutcome::Committed { .. } => ProbeOutcome::Committed,
+        IntentOutcome::Received { .. } => ProbeOutcome::Recover("received"),
+        IntentOutcome::Pending => ProbeOutcome::Recover("pending"),
+        IntentOutcome::Unknown => ProbeOutcome::Recover("unknown"),
+        IntentOutcome::Expired => ProbeOutcome::Terminal("expired"),
+        IntentOutcome::HistoryUnavailable => ProbeOutcome::Terminal("history_unavailable"),
+        IntentOutcome::Rejected { reason } => ProbeOutcome::Terminal(match reason {
+            WorldServiceErrorKind::UnsupportedContract => "rejected:unsupported_contract",
+            WorldServiceErrorKind::UnsupportedCapability => "rejected:unsupported_capability",
+            WorldServiceErrorKind::Unauthorized => "rejected:unauthorized",
+            WorldServiceErrorKind::Conflict => "rejected:conflict",
+            WorldServiceErrorKind::Unavailable => "rejected:unavailable",
+            WorldServiceErrorKind::AssuranceUnavailable => "rejected:assurance_unavailable",
+            WorldServiceErrorKind::ReadNotCaughtUp => "rejected:read_not_caught_up",
+            WorldServiceErrorKind::HistoryUnavailable => "rejected:history_unavailable",
+            WorldServiceErrorKind::CursorExpired => "rejected:cursor_expired",
+            WorldServiceErrorKind::ResyncRequired => "rejected:resync_required",
+        }),
+    }
+}
+fn require_time(deadline: Instant, reserve: Duration) -> Result<(), String> {
+    if deadline.saturating_duration_since(Instant::now()) <= reserve {
+        Err("probe recovery deadline exhausted; retain original operation".into())
+    } else {
+        Ok(())
+    }
+}
+fn recover_original(
+    client: &Client,
+    original: &SubmitIntentRequest<WorldServicePayloadV1>,
+    mut response: Option<IntentResponse<Value>>,
+    deadline: Instant,
+    phase: &'static str,
+) -> Result<IntentResponse<Value>, String> {
+    let mut last = "unobserved";
+    loop {
+        if let Some(observed) = response.take() {
+            match classify_outcome(&observed.outcome) {
+                ProbeOutcome::Committed => return Ok(observed),
+                ProbeOutcome::Terminal(category) => {
+                    return Err(format!("{phase} {category}; retain original operation"));
+                }
+                ProbeOutcome::Recover(category) => last = category,
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "{phase} recovery deadline exhausted outcome={last}; retain original operation"
+            ));
+        }
+        // Only fixed categories escape this probe; response bodies/proofs and
+        // transport diagnostics remain private. Never resubmit or re-sign here.
+        response = Some(client.lookup_typed(original).map_err(|error| {
+            let category = match error {
+                oasis7_game_client::WorldServiceClientError::Configuration(_) => "configuration",
+                oasis7_game_client::WorldServiceClientError::Transport(_) => "transport",
+                oasis7_game_client::WorldServiceClientError::Assurance(_) => "assurance",
+                oasis7_game_client::WorldServiceClientError::Rejected { .. } => "http_rejected",
+                oasis7_game_client::WorldServiceClientError::Cooldown { .. } => "cooldown",
+            };
+            format!("{phase} query {category}; retain original operation")
+        })?);
+        if response.as_ref().is_some_and(|value| {
+            matches!(classify_outcome(&value.outcome), ProbeOutcome::Recover(_))
+        }) {
+            std::thread::sleep(
+                Duration::from_millis(500).min(deadline.saturating_duration_since(Instant::now())),
+            );
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pending_received_unknown_require_original_read_recovery() {
+        for outcome in [
+            IntentOutcome::<()>::Pending,
+            IntentOutcome::Unknown,
+            IntentOutcome::Received {
+                durability: oasis7_client_api::world_service::AdmissionDurability::Volatile,
+            },
+            IntentOutcome::Received {
+                durability: oasis7_client_api::world_service::AdmissionDurability::Durable,
+            },
+        ] {
+            assert!(matches!(
+                classify_outcome(&outcome),
+                ProbeOutcome::Recover(_)
+            ));
+        }
+    }
+    #[test]
+    fn shared_deadline_is_not_renewed_for_later_phase() {
+        let deadline = Instant::now();
+        assert!(require_time(deadline, Duration::ZERO).is_err());
+        assert!(require_time(deadline + Duration::from_secs(9), Duration::from_secs(13)).is_err());
+    }
+    #[test]
+    fn terminal_outcomes_keep_safe_distinct_categories() {
+        assert_eq!(
+            classify_outcome(&IntentOutcome::<()>::Expired),
+            ProbeOutcome::Terminal("expired")
+        );
+        assert_eq!(
+            classify_outcome(&IntentOutcome::<()>::HistoryUnavailable),
+            ProbeOutcome::Terminal("history_unavailable")
+        );
+        assert_eq!(
+            classify_outcome(&IntentOutcome::<()>::Rejected {
+                reason: oasis7_client_api::world_service::WorldServiceErrorKind::Conflict
+            }),
+            ProbeOutcome::Terminal("rejected:conflict")
+        );
     }
 }
