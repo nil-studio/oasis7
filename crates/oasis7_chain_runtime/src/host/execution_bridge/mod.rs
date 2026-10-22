@@ -10,6 +10,7 @@ mod controlled_live_history;
 mod controlled_live_package;
 mod driver_startup_recovery;
 mod execution_hash;
+mod governance_authorization;
 #[cfg(unix)]
 mod formal_attempt_lifecycle;
 mod formal_business_package;

@@ -32,6 +32,14 @@ fn qualified_world() -> World {
     qualified_world_with_threshold(1)
 }
 fn qualified_world_with_threshold(threshold: u16) -> World {
+    qualified_world_and_anchor_with_threshold(threshold).0
+}
+pub(super) fn qualified_world_and_anchor() -> (World, VerifiedFormalReadAnchorV1) {
+    qualified_world_and_anchor_with_threshold(1)
+}
+fn qualified_world_and_anchor_with_threshold(
+    threshold: u16,
+) -> (World, VerifiedFormalReadAnchorV1) {
     let (mut world, mut trust, template, _) = fixtures::actual_world_initial_fixture();
     world
         .set_governance_main_token_controller_registry(GovernanceMainTokenControllerRegistry {
@@ -93,13 +101,14 @@ fn qualified_world_with_threshold(threshold: u16) -> World {
     let parent =
         VerifiedFormalRetainedHistoryParentV1::verify(&anchor, &to_cbor(&snapshot).unwrap())
             .unwrap();
-    World::from_verified_formal_snapshot(
+    let world = World::from_verified_formal_snapshot(
         snapshot,
         world.journal().clone(),
         parent,
         Arc::new(EmptyNodes),
     )
-    .unwrap()
+    .unwrap();
+    (world, anchor)
 }
 
 fn action(candidate: &str) -> Action {

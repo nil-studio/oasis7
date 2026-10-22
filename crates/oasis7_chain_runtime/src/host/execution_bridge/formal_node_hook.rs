@@ -617,6 +617,11 @@ fn result_for_continuation(
 }
 
 impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
+    fn validate_governance_action_payload(&self, payload_cbor: &[u8]) -> Result<(), String> {
+        let (world, _) = self.writer.committed_read_cut()?;
+        super::governance_authorization::validate_payload(&world, payload_cbor)
+    }
+
     fn advance_stopped_storage_maintenance(&mut self) -> Result<bool, String> {
         self.writer.advance_storage_maintenance_result()
     }

@@ -1,10 +1,13 @@
 use super::*;
+#[path = "formal_node_hook_governance_tests.rs"]
+mod governance_tests;
 
 const WORLD_ID: &str = "formal-node-hook-fixture";
 
 #[derive(Clone)]
 struct FakeWriter {
     world: World,
+    committed_cut: Option<(World, VerifiedFormalReadAnchorV1)>,
     head: CurrentHeadEvidence,
     head_error: Option<String>,
     next_head: Option<CurrentHeadEvidence>,
@@ -16,6 +19,11 @@ struct FakeWriter {
 }
 
 impl FormalNodeWriter for FakeWriter {
+    fn committed_read_cut(&self) -> Result<(World, VerifiedFormalReadAnchorV1), String> {
+        self.committed_cut
+            .clone()
+            .ok_or("fixture has no qualified read cut".into())
+    }
     fn world(&self) -> &World {
         &self.world
     }
@@ -224,6 +232,7 @@ fn writer(
 ) -> FakeWriter {
     FakeWriter {
         world,
+        committed_cut: None,
         head,
         head_error: None,
         next_head: None,
