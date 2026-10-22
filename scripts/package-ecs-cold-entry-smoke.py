@@ -6,6 +6,7 @@ See package-ecs-cold-entry-smoke.md. No command is executed through a shell.
 """
 import argparse
 import importlib.util
+import ipaddress
 import http.client
 import http.server
 import json
@@ -85,6 +86,10 @@ class Smoke:
 
     def close(self):
         for child in reversed(self.children):
+            # A reaped leader's numeric PID may now identify another group.
+            # Never poll/reap an unknown leader immediately before signalling.
+            if child.returncode is not None:
+                continue
             try:
                 os.killpg(child.pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -97,6 +102,41 @@ class Smoke:
                 except subprocess.TimeoutExpired:
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait()
+
+
+def generate_tls(smoke):
+    """Actual one-day CA and distinct server leaf; no CA-as-end-entity shortcut."""
+    extension = smoke.root / "server.ext"
+    extension.write_text("basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n")
+    os.chmod(extension, 0o600)
+    commands = [
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256",
+         "-keyout", "${root}/root.key", "-out", "${root}/root.crt", "-days", "1",
+         "-subj", "/CN=Oasis7 isolated cold entry fixture CA", "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+         "-addext", "keyUsage=critical,keyCertSign,cRLSign"],
+        ["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes", "-sha256",
+         "-keyout", "${root}/server.key", "-out", "${root}/server.csr", "-subj", "/CN=localhost"],
+        ["openssl", "x509", "-req", "-in", "${root}/server.csr", "-CA", "${root}/root.crt",
+         "-CAkey", "${root}/root.key", "-CAcreateserial", "-out", "${root}/server.crt",
+         "-days", "1", "-sha256", "-extfile", "${root}/server.ext"],
+        ["openssl", "verify", "-purpose", "sslserver", "-CAfile", "${root}/root.crt", "${root}/server.crt"],
+    ]
+    for command in commands:
+        if smoke.command(command)[0]:
+            raise RuntimeError("temporary CA and server leaf generation failed")
+    for name in ("root.key", "server.key"):
+        os.chmod(smoke.root / name, 0o600)
+    smoke.env["SSL_CERT_FILE"] = str(smoke.root / "root.crt")
+
+
+def trusted_forward_headers(incoming, client_address):
+    """Fixture TLS termination supplies one actual peer IP, never a caller claim."""
+    real_ip = str(ipaddress.ip_address(client_address))
+    headers = {key: value for key, value in incoming.items()
+               if key.lower() not in ("connection", "transfer-encoding", "x-real-ip", "x-forwarded-proto")}
+    headers["X-Real-IP"] = real_ip
+    headers["X-Forwarded-Proto"] = "https"
+    return headers
 
 
 def forwarder(smoke, address):
@@ -122,10 +162,8 @@ def forwarder(smoke, address):
                     raise ValueError("bounded request required")
                 body = self.rfile.read(length)
                 connection = http.client.HTTPConnection(*address, timeout=min(15, smoke.remaining()))
-                headers = {key: value for key, value in self.headers.items()
-                           if key.lower() not in ("host", "connection", "transfer-encoding")}
+                headers = trusted_forward_headers(self.headers, self.client_address[0])
                 headers["Host"] = self.headers.get("Host", "localhost")
-                headers["X-Forwarded-Proto"] = "https"
                 connection.request(self.command, self.path, body, headers)
                 response = connection.getresponse()
                 payload = response.read(2 * 1024 * 1024 + 1)
@@ -216,14 +254,7 @@ def main():
     server = None
     try:
         smoke.stage = "temporary_tls"
-        cert = smoke.command(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-                              "-keyout", "${root}/server.key", "-out", "${root}/server.crt", "-days", "1",
-                              "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
-                              "-addext", "basicConstraints=critical,CA:TRUE"])
-        if cert[0]:
-            raise RuntimeError("temporary TLS certificate generation failed")
-        os.chmod(smoke.root / "server.key", 0o600)
-        smoke.env["SSL_CERT_FILE"] = str(smoke.root / "server.crt")
+        generate_tls(smoke)
         server = forwarder(smoke, tuple(fixture["identity_upstream"]))
         smoke.variables["origin"] = "https://localhost:" + str(server.server_port)
         if args.bundle:
@@ -231,7 +262,7 @@ def main():
             fixture.update(fixture_module.fixture(smoke, args.bundle, str(args.probe_binary.resolve())))
             smoke.fixture = fixture
         smoke.env.update(smoke.expand(fixture.get("environment", {})))
-        smoke.env["SSL_CERT_FILE"] = str(smoke.root / "server.crt")
+        smoke.env["SSL_CERT_FILE"] = str(smoke.root / "root.crt")
         for relative, content in fixture.get("private_files", {}).items():
             target = smoke.root / relative
             if Path(relative).is_absolute() or ".." in Path(relative).parts:
@@ -253,7 +284,7 @@ def main():
                 if "initial_prepared" in fixture:
                     import urllib.request
                     request = urllib.request.Request(smoke.variables["origin"] + "/api/public/hosted-account/v2/entry/discovery")
-                    with urllib.request.urlopen(request, context=ssl.create_default_context(cafile=str(smoke.root / "server.crt")), timeout=3) as response:
+                    with urllib.request.urlopen(request, context=ssl.create_default_context(cafile=str(smoke.root / "root.crt")), timeout=3) as response:
                         payload = response.read(65537)
                         if len(payload) > 65536:
                             raise RuntimeError("bounded discovery exceeded")

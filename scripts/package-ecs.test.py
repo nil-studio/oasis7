@@ -21,6 +21,103 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_smoke_cleanup_does_not_signal_reaped_process_group_numbers(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_cleanup_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = smoke_module.Smoke({}, Path(directory), time.monotonic() + 10)
+            result, _ = smoke.command([sys.executable, "-c", "pass"])
+            self.assertEqual(result, 0)
+            self.assertTrue(all(child.returncode is not None for child in smoke.children))
+            with patch.object(smoke_module.os, "killpg") as signal_group:
+                smoke.close()
+                signal_group.assert_not_called()
+
+    @unittest.skipUnless(shutil.which("openssl"), "actual TLS fixture requires OpenSSL")
+    def test_fixture_uses_signed_server_leaf_and_independent_ca(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_tls_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            smoke = smoke_module.Smoke({}, root, time.monotonic() + 30)
+            try:
+                smoke_module.generate_tls(smoke)
+                self.assertEqual(smoke.env["SSL_CERT_FILE"], str(root / "root.crt"))
+                leaf = subprocess.check_output(["openssl", "x509", "-in", str(root / "server.crt"), "-noout", "-text"], text=True)
+                self.assertIn("CA:FALSE", leaf)
+                self.assertIn("TLS Web Server Authentication", leaf)
+                self.assertIn("DNS:localhost", leaf)
+                subprocess.run(["openssl", "verify", "-purpose", "sslserver", "-CAfile", str(root / "root.crt"), str(root / "server.crt")], check=True, capture_output=True)
+                self.assertNotEqual((root / "root.crt").read_bytes(), (root / "server.crt").read_bytes())
+                for name in ("root.key", "server.key"):
+                    self.assertEqual((root / name).stat().st_mode & 0o777, 0o600)
+            finally:
+                smoke.close()
+
+    def test_fixture_tls_proxy_supplies_one_actual_identity_source_ip(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_headers_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke)
+        from email.message import Message
+        incoming = Message()
+        for key, value in (("X-Real-IP", "203.0.113.9"), ("x-real-ip", "198.51.100.9"),
+                           ("x-forwarded-proto", "http"), ("Host", "localhost:12345"),
+                           ("Origin", "https://localhost:12345"), ("Cookie", "fixture-cookie")):
+            incoming[key] = value
+        headers = smoke.trusted_forward_headers(incoming, "127.0.0.1")
+        self.assertEqual([(key, value) for key, value in headers.items() if key.lower() == "x-real-ip"],
+                         [("X-Real-IP", "127.0.0.1")])
+        self.assertEqual([(key, value) for key, value in headers.items() if key.lower() == "x-forwarded-proto"],
+                         [("X-Forwarded-Proto", "https")])
+        self.assertEqual(headers["Origin"], "https://localhost:12345")
+        self.assertEqual(headers["Host"], "localhost:12345")
+        self.assertEqual(headers["Cookie"], "fixture-cookie")
+        with self.assertRaises(ValueError):
+            smoke.trusted_forward_headers(incoming, "invalid-ip")
+
+    def test_fixture_identity_http_does_not_target_runtime_websocket(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_fixture_ports_test", ROOT / "scripts/package-ecs-cold-entry-fixture.py")
+        fixture = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(fixture)
+        args = fixture.launcher_transport_args(4173, 5023, 5011)
+        options = dict(zip(args[::2], args[1::2]))
+        self.assertEqual(options["--viewer-port"], "4173")
+        self.assertEqual(options["--viewer-host"], "127.0.0.1")
+        self.assertEqual(options["--web-bind"], "127.0.0.1:5011")
+        self.assertEqual(options["--live-bind"], "127.0.0.1:5023")
+        for ports in ((4173, 5023, 4173), (0, 5023, 5011), (4173, 5023, 65536)):
+            with self.assertRaises(ValueError):
+                fixture.launcher_transport_args(*ports)
+
+    def test_actual_fixture_isolates_required_hosted_issuer_and_ledgers(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_fixture_test", ROOT / "scripts/package-ecs-cold-entry-fixture.py")
+        fixture = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(fixture)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment = fixture.hosted_startup_isolation(root)
+            key = root / "hosted-registration-issuer.key"
+            self.assertEqual(len(key.read_bytes()), 32)
+            self.assertEqual(key.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(environment["OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY"], key.read_bytes().hex())
+            paths = [Path(environment[name]) for name in (
+                "OASIS7_HOSTED_REGISTRATION_REPLAY_LEDGER_PATH", "OASIS7_HOSTED_PLAYER_SESSION_LEDGER_PATH")]
+            self.assertEqual(len(set(paths)), 2)
+            self.assertTrue(all(path.parent == root and not path.exists() for path in paths))
+            self.assertNotIn("OASIS7_HOSTED_ACCOUNT_STORE_PATH", environment)
+            with self.assertRaises(FileExistsError):
+                fixture.hosted_startup_isolation(root)
+            self.assertEqual(environment["OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY"], key.read_bytes().hex())
+
     def test_cold_entry_packaging_tools_parse_and_expose_bounded_help(self):
         for name in ("package-ecs-cold-entry-smoke.py", "package-ecs-cold-entry-fixture.py"):
             path = ROOT / "scripts" / name

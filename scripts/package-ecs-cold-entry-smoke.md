@@ -99,7 +99,11 @@ trust loaders cannot be assumed to honor this isolated trust configuration.
 System certificate stores are never changed. `openssl` and Python 3 are needed.
 
 The tool has an overall deadline (30–900 seconds), a 60-second per-command bound,
-request/response size bounds and process-group termination on every exit. A
+request/response size bounds and bounded termination of tracked process groups.
+Cleanup skips already reaped leader PIDs because their numeric IDs may have
+been reused. CI job containment or an operator-owned systemd cgroup must contain
+unexpected orphan descendants; verify that containment separately. The receipt
+does not certify complete descendant cleanup. A
 `receipt.json` is written only after all actual verification commands succeed.
 Fixture source revision, actual binary digests and canonical proof details belong
 in the probe evidence, not an unverified claim in this driver. CI selection is

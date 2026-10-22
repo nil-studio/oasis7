@@ -24,6 +24,29 @@ def port():
         return listener.getsockname()[1]
 
 
+def launcher_transport_args(identity_http_port, runtime_tcp_port, runtime_websocket_port):
+    """Identity HTTP uses viewer-port; web-bind belongs to runtime WebSocket."""
+    ports = (identity_http_port, runtime_tcp_port, runtime_websocket_port)
+    if len(set(ports)) != 3 or any(not isinstance(value, int) or not 1 <= value <= 65535 for value in ports):
+        raise ValueError("distinct actual fixture transport ports required")
+    return ["--live-bind", "127.0.0.1:" + str(runtime_tcp_port),
+            "--web-bind", "127.0.0.1:" + str(runtime_websocket_port),
+            "--viewer-host", "127.0.0.1", "--viewer-port", str(identity_http_port)]
+
+
+def hosted_startup_isolation(root):
+    """Independent fixture-only legacy issuer; never a participant policy key."""
+    issuer = root / "hosted-registration-issuer.key"
+    with issuer.open("xb") as output:
+        output.write(secrets.token_bytes(32))
+    os.chmod(issuer, 0o600)
+    return {
+        "OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY": issuer.read_bytes().hex(),
+        "OASIS7_HOSTED_REGISTRATION_REPLAY_LEDGER_PATH": str(root / "hosted-registration-replay.json"),
+        "OASIS7_HOSTED_PLAYER_SESSION_LEDGER_PATH": str(root / "hosted-player-sessions.json"),
+    }
+
+
 def fixture(smoke, bundle, probe_binary):
     root = smoke.root
     bundle = Path(bundle).resolve()
@@ -33,15 +56,15 @@ def fixture(smoke, bundle, probe_binary):
     for binary in (chain, launcher, client, probe_binary, str(bundle / "bin/oasis7_viewer_live")):
         if not Path(binary).is_file():
             raise RuntimeError("built actual fixture binary unavailable")
-    web = smoke.fixture["identity_upstream"][1]
-    ports = {web, int(smoke.variables["origin"].rsplit(":", 1)[1])}
+    identity_http_port = smoke.fixture["identity_upstream"][1]
+    ports = {identity_http_port, int(smoke.variables["origin"].rsplit(":", 1)[1])}
     allocated = []
     while len(allocated) < 3:
         candidate = port()
         if candidate not in ports:
             ports.add(candidate)
             allocated.append(candidate)
-    chain_port, live, viewer = allocated
+    chain_port, runtime_tcp_port, runtime_websocket_port = allocated
     world_root = root / "preview"
     keys = root / "node-keys"
     keys.mkdir(mode=0o700)
@@ -74,6 +97,7 @@ def fixture(smoke, bundle, probe_binary):
         "OASIS7_HOSTED_IDENTITY_TRUST_LOOPBACK_PROXY": "1", "OASIS7_HOSTED_PARTICIPANT_ENTRY_ENABLED": "0",
         "OASIS7_VIEWER_LIVE_BIN": str(bundle / "bin/oasis7_viewer_live"),
     }
+    environment.update(hosted_startup_isolation(root))
     smoke.env.update(environment)
     # Reuse genuine initializer-produced consumer credentials without printing.
     import shlex
@@ -92,16 +116,15 @@ def fixture(smoke, bundle, probe_binary):
     launcher_args = [launcher, "--deployment-mode", "hosted_public_join", "--chain-disable",
         "--chain-world-id", world["world_id"], "--chain-status-bind", "127.0.0.1:" + str(chain_port),
         "--chain-execution-world-dir", str(world_root / "world"), "--chain-link-policy", "enforcing",
-        "--live-bind", "127.0.0.1:" + str(live), "--web-bind", "127.0.0.1:" + str(web),
-        "--viewer-host", "127.0.0.1", "--viewer-port", str(viewer),
         "--viewer-static-dir", str(bundle / "web-dist"), "--no-auto-play", "--no-open-browser"]
+    launcher_args += launcher_transport_args(identity_http_port, runtime_tcp_port, runtime_websocket_port)
     smoke.stage = "fixture_identity_database_bootstrap"
     original_servers = [smoke.command(chain_args, start=True), smoke.command(launcher_args, start=True)]
     ready = False
     for _ in range(60):
         try:
             connection = http.client.HTTPSConnection("localhost", int(origin.rsplit(":", 1)[1]),
-                context=ssl.create_default_context(cafile=str(root / "server.crt")), timeout=2)
+                context=ssl.create_default_context(cafile=str(root / "root.crt")), timeout=2)
             connection.request("GET", "/api/public/hosted-account/v2/capabilities")
             response = connection.getresponse()
             ready = response.status == 200 and json.loads(response.read())["ok"] is True
