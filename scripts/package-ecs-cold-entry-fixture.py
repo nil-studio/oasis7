@@ -88,8 +88,8 @@ def fixture(smoke, bundle, probe_binary):
         phases = {"provision-identity", "initialize-preview-world", "devlocal-participant", "--identity-snapshot-export"}
         if len(argv) > 1 and argv[1] in phases:
             smoke.stage = "fixture_" + argv[1].lstrip("-").replace("-", "_")
-            if argv[1] == "devlocal-participant" and len(argv) > 2 and argv[2] in {"prepare", "finalize"}:
-                smoke.stage += "_" + argv[2]
+            if argv[1] == "devlocal-participant" and len(argv) > 2 and argv[2] in {"inspect-head", "prepare", "finalize"}:
+                smoke.stage += "_" + argv[2].replace("-", "_")
         else:
             smoke.stage = "fixture_tls_key_generation"
         if smoke.command(argv)[0]:
@@ -173,8 +173,13 @@ def fixture(smoke, bundle, probe_binary):
         key_public.append((root / (role + ".pub")).read_bytes()[-32:].hex())
     issuer, operator = key_public
     config = {"world": world, "world_directory": str(world_root / "world"), "origin_root": str(world_root),
+        "execution_records_directory": str(world_root / "records"), "storage_root": str(world_root / "store"),
         "node_id": "cold-entry-smoke", "node_key_directory": str(keys), "service_public_key": service,
         "operator_public_key": operator, "identity_namespace": namespace, "world_identity_scope": "cold-entry-fixture-scope"}
+    source = write(root, "tool-source.json", config)
+    head = root / "canonical-head.json"
+    command([chain, "devlocal-participant", "inspect-head", "--config", source, "--output", str(head)])
+    config["expected_head"] = json.loads(head.read_text())
     tool = write(root, "tool.json", config)
     command([chain, "devlocal-participant", "prepare", "--config", tool, "--output", str(root / "prepared.json")])
     export = write(root, "export-request.json", {"identity_namespace": {"identity_service_id": namespace["service_id"], "environment_id": namespace["environment_id"]},

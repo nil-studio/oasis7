@@ -649,11 +649,12 @@ fn capability_response(
         ],
         "module_capability_catalog":agent_context.as_ref().map(|context| &context.capability_catalog),
         "native_delegation_authorizations":grants,
+        "native_action_validation":if authorizations.is_empty() { "needs_native_context_confirmation" } else { "grant_scoped" },
         "native_authorization_count":authorizations.len(),
         "native_authorizations_truncated":authorizations.len()>128,
         "outcomes":["executor_aborted","provider_failed","transport_exhausted","context_expired"],
         "context_expired_requires":"first creation requires committed original prefix, no competing action/outcome, current Active complete task fence and strictly expired lease; existing outcome recovers its exact original; wait for committed outcome before new context",
-        "scope":"local native proposal forms are distinct from module commands and native action/object electricity grants; current grants do not guarantee admission"
+        "scope":"local native proposal forms are distinct from module commands and native action/object electricity grants; business-grant validation mode and current grants do not guarantee action admission"
     })
 }
 pub fn print(value: &impl Serialize) -> Result<(), String> {

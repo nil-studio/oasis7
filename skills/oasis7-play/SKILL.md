@@ -96,6 +96,19 @@ The movement CLI proposal is movement of the configured Agent to three signed i6
 <client> --config <device.json> lookup --context <context-id> --kind action
 ```
 
+Signer/task authority is distinct from business action/object electricity grants.
+Capabilities' empty grant list reports `needs_native_context_confirmation` because
+legacy observations can omit that field. The complete verified native context's
+required grant list confirms `default_action_validation` when empty; any grant,
+including revoked or expired entries, means `grant_scoped`. This is not action
+approval. Empty grants
+alone do not deny movement; current task/signer fences and ordinary world rules,
+governance, destination and resource checks still apply. A raw Agent `resources`
+map is not an OC balance. Authorization `cost_units: 0` is not an action quote.
+The Runtime's Move quote is zero only in the delegation-electricity domain; do
+not infer zero total costs or bypass a goal's evidence/budget requirements. See
+[typed context authority](references/task-context.md) for these separate boundaries.
+
 Choose coordinates yourself to satisfy the actual goal. The runtime still checks authority, capability admission, current task/goal/executor fences, base binding and available resources. A submitted or pending request is not a successful world effect. Inspect the canonical outcome and action receipt, and read a new context to check the resulting position when another decision is needed.
 
 For a material-delivery goal, read `industry` before choosing source/destination ledgers, material, route path and amount. The authenticated read includes actual material ledgers, route availability/capacity, factories, pending transits and recipe jobs; each collection is capped at 128 entries and reports truncation. Do not treat omitted entries as absent. This command is an observation, not a signed cost quote.

@@ -1,7 +1,7 @@
 //! Offline DevLocal authorization assembly; never saves a World.
 use oasis7_agent_api::game::{DecimalU64, GameIdentityNamespaceV1};
 use oasis7_client_api::world_service::{
-    SignedReadRequest, WorldIdentity, participant_identity_snapshot::IdentitySnapshot,
+    CommitRef, SignedReadRequest, WorldIdentity, participant_identity_snapshot::IdentitySnapshot,
     sign_read_request,
 };
 use oasis7_runtime::{ChainResourceDerivationContext, DevLocalParticipantAuthority, World};
@@ -11,6 +11,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+#[cfg(test)]
 #[path = "devlocal_participant_cli_copy.rs"]
 mod copy;
 #[path = "devlocal_participant_cli_files.rs"]
@@ -19,12 +20,20 @@ mod files;
 #[path = "devlocal_participant_cli_tests.rs"]
 mod tests;
 
+#[cfg(not(test))]
+use super::execution_bridge::world_service_read;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+use super::execution_bridge_real_tests::real_execution_bridge::world_service_read;
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
     world: WorldIdentity,
     world_directory: PathBuf,
     origin_root: PathBuf,
+    execution_records_directory: PathBuf,
+    storage_root: PathBuf,
+    expected_head: CommitRef,
     node_id: String,
     node_key_directory: PathBuf,
     service_public_key: String,
@@ -33,10 +42,45 @@ struct Config {
     world_identity_scope: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InspectConfig {
+    world: WorldIdentity,
+    world_directory: PathBuf,
+    origin_root: PathBuf,
+    execution_records_directory: PathBuf,
+    storage_root: PathBuf,
+    node_id: String,
+    node_key_directory: PathBuf,
+    service_public_key: String,
+    operator_public_key: String,
+    identity_namespace: GameIdentityNamespaceV1,
+    world_identity_scope: String,
+}
+
+impl From<&Config> for InspectConfig {
+    fn from(config: &Config) -> Self {
+        Self {
+            world: config.world.clone(),
+            world_directory: config.world_directory.clone(),
+            origin_root: config.origin_root.clone(),
+            execution_records_directory: config.execution_records_directory.clone(),
+            storage_root: config.storage_root.clone(),
+            node_id: config.node_id.clone(),
+            node_key_directory: config.node_key_directory.clone(),
+            service_public_key: config.service_public_key.clone(),
+            operator_public_key: config.operator_public_key.clone(),
+            identity_namespace: config.identity_namespace.clone(),
+            world_identity_scope: config.world_identity_scope.clone(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Prepared {
     schema_revision: u32,
+    canonical_commit: CommitRef,
     world: WorldIdentity,
     branch_id: String,
     reorg_epoch: u64,
@@ -55,12 +99,12 @@ struct ResourceCounts {
     grants: usize,
 }
 
-const HELP: &str = "devlocal-participant prepare --config <private-config> --output <new-private-prestate> | finalize --config <private-config> --prepared <private-prestate> --identity-snapshot <consistent-export> --policy <private-policy> --entries <owner-signed-entries> --issuer-key <private-raw32> --operator-key <private-raw32> --output <new-private-authorization>\nStop world and identity writers and retain their backups. Reads and validates the original world under its writer lock; only publishes authorization material. Installation uses existing DevLocal startup flags and normal canonical commit. No governance/finality or Runtime acceptance is created.";
+const HELP: &str = "devlocal-participant inspect-head --config <private-source-config> --output <new-private-commit> | prepare --config <private-config> --output <new-private-prestate> | finalize --config <private-config> --prepared <private-prestate> --identity-snapshot <consistent-export> --policy <private-policy> --entries <owner-signed-entries> --issuer-key <private-raw32> --operator-key <private-raw32> --output <new-private-authorization>\nStop world and identity writers and retain their backups. Reads and validates the original world under its writer lock; only publishes validated head or authorization material. Installation uses existing DevLocal startup flags and normal canonical commit. No governance/finality or Runtime acceptance is created.";
 
 pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), String> {
     let command = args.next().ok_or(HELP)?;
     let allowed: &[&str] = match command {
-        "prepare" => &["--config", "--output"],
+        "prepare" | "inspect-head" => &["--config", "--output"],
         "finalize" => &[
             "--config",
             "--prepared",
@@ -83,13 +127,28 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             return Err(HELP.into());
         }
     }
+    if command == "inspect-head" {
+        let config: InspectConfig = files::read(Path::new(options["--config"]))?;
+        validate_source(&config)?;
+        validate_output(&config, Path::new(options["--output"]))?;
+        let _lock =
+            super::world_writer_lock::acquire_live_world_writer_lock(&config.world_directory)?;
+        let (_, commit) = load_world(&config, None)?;
+        files::publish(Path::new(options["--output"]), &commit)?;
+        println!(
+            "{{\"state\":\"canonical_head_validated\",\"world_written\":false,\"authorization_created\":false}}"
+        );
+        return Ok(());
+    }
     let config: Config = files::read(Path::new(options["--config"]))?;
     validate_config(&config)?;
+    let source = InspectConfig::from(&config);
+    validate_output(&source, Path::new(options["--output"]))?;
     // Same exclusion mechanism as the live execution host. It cannot inspect a
     // running writer and then race a second writer before taking its snapshot.
     let _lock = super::world_writer_lock::acquire_live_world_writer_lock(&config.world_directory)?;
-    let mut world = load_world(&config)?;
-    let prepared = prepare(&world, &config.world)?;
+    let (mut world, canonical_commit) = load_world(&source, Some(&config.expected_head))?;
+    let prepared = prepare(&world, &config.world, &canonical_commit)?;
     let output = Path::new(options["--output"]);
     if command == "prepare" {
         files::publish(output, &prepared)?;
@@ -122,7 +181,44 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     Ok(())
 }
 
+fn validate_output(config: &InspectConfig, output: &Path) -> Result<(), String> {
+    let parent = output.parent().ok_or("offline output parent unavailable")?;
+    files::canonical(parent)?;
+    let name = output
+        .file_name()
+        .ok_or("offline output filename unavailable")?;
+    let resolved = parent.join(name);
+    if !output.is_absolute() || resolved != output {
+        return Err("offline output must have a canonical parent and filename".into());
+    }
+    if [
+        &config.origin_root,
+        &config.world_directory,
+        &config.execution_records_directory,
+        &config.storage_root,
+        &config.node_key_directory,
+    ]
+    .into_iter()
+    .any(|source| resolved.starts_with(source))
+    {
+        return Err(
+            "offline output must remain outside original world, history and identity sources"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn validate_config(config: &Config) -> Result<(), String> {
+    validate_source(&InspectConfig::from(config))?;
+    config.expected_head.validate().map_err(|e| e.to_string())?;
+    if config.expected_head.world != config.world {
+        return Err("trusted canonical head world differs from configured world".into());
+    }
+    Ok(())
+}
+
+fn validate_source(config: &InspectConfig) -> Result<(), String> {
     config.world.validate().map_err(|e| e.to_string())?;
     if config.node_id.trim().is_empty()
         || config.world_identity_scope.trim().is_empty()
@@ -136,6 +232,8 @@ fn validate_config(config: &Config) -> Result<(), String> {
         &config.world_directory,
         &config.origin_root,
         &config.node_key_directory,
+        &config.execution_records_directory,
+        &config.storage_root,
     ] {
         files::canonical(path)?;
     }
@@ -155,7 +253,10 @@ fn authority(pin: &str) -> Result<DevLocalParticipantAuthority, String> {
     .map_err(|e| format!("{e:?}"))
 }
 
-fn load_world(config: &Config) -> Result<World, String> {
+fn load_world(
+    config: &InspectConfig,
+    expected: Option<&CommitRef>,
+) -> Result<(World, CommitRef), String> {
     let (keypair, _) = super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
         &config.node_key_directory,
     )?;
@@ -173,21 +274,19 @@ fn load_world(config: &Config) -> Result<World, String> {
         return Err("original signed world identity differs from configured world".into());
     }
     let auth = authority(&config.operator_public_key)?;
-    let scratch =
-        copy::isolated_copy(&config.world_directory, config.node_key_directory.as_path())?;
-    let loaded = oasis7::runtime_host::world::load_from_dir_with_devlocal_participant_authority(
-        &scratch.path,
-        auth.clone(),
-    )
-    .map_err(|e| format!("world restore failed: {e:?}"))?;
-    // Loading the copy can recover cognition or write sidecar audit there.
-    // Drop its persistence attachment before any authorization validation.
-    let world = oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
-        loaded.snapshot(),
-        loaded.journal().clone(),
-        auth.clone(),
-    )
-    .map_err(|e| format!("detached restore failed: {e:?}"))?;
+    let context = world_service_read::RestoreContext::new(
+        oasis7_runtime::ReleaseSecurityPolicy::default(),
+        Some(auth.clone()),
+    )?;
+    let pinned = world_service_read::pin_offline_current_with_context(
+        &config.execution_records_directory,
+        &config.storage_root,
+        &config.world,
+        expected,
+        &context,
+    )?;
+    let canonical_commit = pinned.commit;
+    let world = pinned.world;
     let m = world.chain_resource_manifest();
     if m.world_id != config.world.world_id
         || m.genesis_ref
@@ -197,7 +296,7 @@ fn load_world(config: &Config) -> Result<World, String> {
         return Err("current world identity differs from authenticated original".into());
     }
     if m.genesis_ref.is_some() {
-        return Ok(world);
+        return Ok((world, canonical_commit));
     }
     // Detached derivation only, identical to the live host's verified-origin
     // path. Neither this snapshot nor the validation candidate is persisted.
@@ -219,10 +318,18 @@ fn load_world(config: &Config) -> Result<World, String> {
         world.journal().clone(),
         auth,
     )
+    .map(|world| (world, canonical_commit))
     .map_err(|e| format!("origin candidate rejected: {e:?}"))
 }
 
-fn prepare(world: &World, identity: &WorldIdentity) -> Result<Prepared, String> {
+fn prepare(
+    world: &World,
+    identity: &WorldIdentity,
+    canonical_commit: &CommitRef,
+) -> Result<Prepared, String> {
+    if canonical_commit.world != *identity {
+        return Err("canonical prepare world differs from trusted identity".into());
+    }
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|e| format!("{e:?}"))?;
@@ -250,7 +357,8 @@ fn prepare(world: &World, identity: &WorldIdentity) -> Result<Prepared, String> 
             .count(),
     };
     Ok(Prepared {
-        schema_revision: 1,
+        schema_revision: 2,
+        canonical_commit: canonical_commit.clone(),
         world: identity.clone(),
         branch_id: binding.branch_id,
         reorg_epoch: binding.reorg_epoch,
@@ -273,6 +381,9 @@ fn assemble(
     operator: &[u8; 32],
 ) -> Result<SignedReadRequest<DevLocalParticipantPolicyAuthorizationV1>, String> {
     snapshot.verify().map_err(|e| e.to_string())?;
+    if prepared.schema_revision != 2 || prepared.canonical_commit != config.expected_head {
+        return Err("prepared canonical commit differs from trusted current head".into());
+    }
     let namespace = GameIdentityNamespaceV1 {
         service_id: snapshot.identity_namespace.identity_service_id.clone(),
         environment_id: snapshot.identity_namespace.environment_id.clone(),

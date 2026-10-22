@@ -138,3 +138,102 @@ mod action_tests {
         assert_eq!(value["truncated"], true);
     }
 }
+
+#[cfg(test)]
+mod native_capability_tests {
+    use super::*;
+    use oasis7_agent_api::world_quote::{AgentDelegationAuthorizationV1, AgentDelegationGrantV1};
+
+    fn grant(revoked: bool, valid_until_tick: u64) -> AgentDelegationAuthorizationV1 {
+        AgentDelegationAuthorizationV1 {
+            grant: AgentDelegationGrantV1 {
+                grant_id: "grant-a".into(),
+                source_id: "source".into(),
+                issuer_id: "issuer".into(),
+                owner_id: "owner".into(),
+                organization_id: None,
+                agent_id: "agent-a".into(),
+                object_id: "agent-a".into(),
+                action_kinds: vec!["MoveAgent".into()],
+                revision: 1,
+                period_id: "period".into(),
+                valid_from_tick: 0,
+                valid_until_tick,
+                limit_units: 7,
+                resource_kind: "electricity".into(),
+                revoked,
+            },
+            cost_units: 0,
+            spent_units: 0,
+            remaining_units: 7,
+        }
+    }
+    fn response(grants: &[AgentDelegationAuthorizationV1]) -> Value {
+        let (_, fixture) = crate::verified_task_view::tests::fixture("agent:agent-a");
+        capability_response(&fixture.version, 4, grants, &None, &None)
+    }
+    #[test]
+    fn native_capabilities_empty_business_grants_require_native_context_confirmation() {
+        let result = response(&[]);
+        assert_eq!(
+            result["native_action_validation"],
+            "needs_native_context_confirmation"
+        );
+        assert_eq!(result["native_authorization_count"], 0);
+        assert_eq!(result["native_authorizations_truncated"], false);
+        assert_eq!(result["native_delegation_authorizations"], json!([]));
+        assert!(result["module_capability_catalog"].is_null());
+        assert!(
+            result["proposal_forms"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|p| p["admission_required"] == true)
+        );
+    }
+    #[test]
+    fn legacy_observation_omitting_business_grants_needs_context_confirmation() {
+        let legacy: oasis7_client_api::world_read_observation::WorldReadObservationV1 = serde_json::from_value(json!({
+            "state":{"time":4,"agents":{}},"runtime_binding":null,"agent_context":null,
+            "scheduler_wakes":[],"continuations":[],"cognition_leases":[],"continuation_contexts":{},"events":[]
+        })).unwrap();
+        assert!(legacy.native_delegation_authorizations.is_empty());
+        let result = response(&legacy.native_delegation_authorizations);
+        assert_eq!(
+            result["native_action_validation"],
+            "needs_native_context_confirmation"
+        );
+    }
+    #[test]
+    fn native_capabilities_revoked_and_expired_grants_still_scope_validation() {
+        for (authorization, status) in [(grant(true, 100), "revoked"), (grant(false, 3), "expired")]
+        {
+            let result = response(&[authorization]);
+            assert_eq!(result["native_action_validation"], "grant_scoped");
+            assert_eq!(result["native_authorization_count"], 1);
+            assert_eq!(
+                result["native_delegation_authorizations"][0]["status"],
+                status
+            );
+            assert_eq!(
+                result["native_delegation_authorizations"][0]["admission_required"],
+                true
+            );
+        }
+    }
+    #[test]
+    fn native_capabilities_mode_uses_full_unfiltered_list_and_preserves_display_bound() {
+        let mut grants = vec![grant(true, 3); 129];
+        grants[128] = grant(false, 100);
+        let result = response(&grants);
+        assert_eq!(result["native_action_validation"], "grant_scoped");
+        assert_eq!(result["native_authorization_count"], 129);
+        assert_eq!(result["native_authorizations_truncated"], true);
+        let displayed = result["native_delegation_authorizations"]
+            .as_array()
+            .unwrap();
+        assert_eq!(displayed.len(), 128);
+        assert!(displayed.iter().all(|g| g["status"] == "revoked"));
+        assert!(result["module_capability_catalog"].is_null());
+    }
+}

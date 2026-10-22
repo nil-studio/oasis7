@@ -8,7 +8,7 @@
 
 持有部署维护锁，先停 launcher / Viewer、身份维护任务和其他身份写入者，再停 chain 及其他世界写入者，核实进程退出，保留世界、identity SQLite（含 WAL）、原 node key、unit 和环境配置的可恢复备份。直到签发及 canonical 安装完成，不恢复身份写入。chain 工具另持有与 live host 相同的世界 writer lock；它不能替代身份写入者停写，也不能证明其他进程已遵守部署锁。
 
-使用实际运行用户创建私密工作目录 `0700`；输入文件和私钥须普通、单链接、无符号链接、属当前有效 UID、`0600`，路径 canonical 且绝对。输出文件必须尚不存在；不要覆盖原证据。不同服务属主时通过受控私密交接复制必要材料，按消费方有效 UID 设置属主 / 权限，保留原件。
+使用实际运行用户创建私密工作目录 `0700`；输入文件和私钥须普通、单链接、无符号链接、属当前有效 UID、`0600`，路径 canonical 且绝对。输出文件必须尚不存在；不要覆盖原证据。 inspect-head / prepare / finalize 的输出必须位于原 origin/world、records、CAS 和 node key 源树之外；使用 canonical 私密兄弟证据目录，不能把新输出放入 records 伪造编号文件或污染原世界。不同服务属主时通过受控私密交接复制必要材料，按消费方有效 UID 设置属主 / 权限，保留原件。
 
 从可信部署记录独立取得原 world ID、genesis、node ID / node key 目录和 service 公钥，以及运营者 operator pin。issuer 公钥必须是身份服务实际 issuer 对应公钥。不能从待签 policy、公网 discovery 或客户端输入自动接受这些 pin；运营者与 issuer 的私钥仅通过私密文件输入，不能写入 argv、聊天或日志。
 
@@ -21,6 +21,9 @@
   "world": {"world_id": "<existing world ID>", "genesis_digest": "<original digest>"},
   "world_directory": "/absolute/existing-root/world",
   "origin_root": "/absolute/existing-root",
+  "execution_records_directory": "/absolute/original-records",
+  "storage_root": "/absolute/original-CAS",
+  "expected_head": "<inspect-head 输出的完整 CommitRef 对象；此占位字符串必须替换为对象>",
   "node_id": "<original node ID>",
   "node_key_directory": "/absolute/existing-node-config",
   "service_public_key": "<independently pinned 64hex>",
@@ -36,13 +39,25 @@
 
 `origin_root/world` 必须就是 `world_directory`。工具使用原 node key 派生的 service key 检查 pin，再验证原 `initialization-receipt.json`、`genesis/initial-artifact.json` 及当前世界身份。缺任一原始依据时停止；不能重签 genesis 或仅凭普通 identity JSON 恢复信任。
 
+先创建 `source-config.json`，字段与上述配置相同但不含 `expected_head`（多余字段拒绝）。使用可信原 node/world 身份及原启动参数中的显式 records/CAS，只读验证完整 head proof 后发布新私密 CommitRef：
+
+```bash
+<release>/bin/oasis7_chain_runtime devlocal-participant inspect-head \
+  --config /absolute/private/source-config.json \
+  --output /absolute/private/canonical-head.json
+```
+
+将输出的完整对象加入 `operator-config.json` 的 `expected_head`，不从 cache 或方便指针抄 head。inspect-head 不生成授权、不写世界或历史。然后执行：
+
 ```bash
 <release>/bin/oasis7_chain_runtime devlocal-participant prepare \
   --config /absolute/private/operator-config.json \
   --output /absolute/private/prepared.json
 ```
 
-工具在 writer lock 下把原世界复制到私密 scratch，以正常 restore 读取，再脱离持久化附件计算真实 world / branch / reorg、registry / legacy owner / snapshot 摘要及 Agent / task / goal / active grant 计数。恢复产生的 cognition / audit 写入仅在 scratch；不会保存原世界。旧 Preview 仅缺 `genesis_ref` 时，使用已验证的原始身份在内存候选补回引用；不会替换已有非空 genesis。
+工具在原世界 writer lock 下，从显式原 execution records / CAS 路径核对最高编号的 immutable record、snapshot / journal / head proof，并复用正常 WorldService 的权限感知 canonical restore。在同一停写窗口先用 `inspect-head` 获取正常 canonical proof reader 验证的完整 `CommitRef`，受控加入配置的 `expected_head`；后续 prepare/finalize 必须精确匹配该 head。离线 proof 不是伪 WorldService 签名；在线签名读只独立核对同世界/service 和不回退下界，不要求 read→stop 时序猜 head。不要从 world cache、bridge state 或 latest convenience pointer 抄 head，不能只比较高度。最高记录损坏、缺失 CAS/proof、head 不符或无编号记录均拒绝；无记录 bootstrap 当前明确不支持，不降级到旧缓存。 `latest` 只用于拒绝“方便指针宣称比最高编号更新但 tail 缺失”的降级反证，旧 `latest` 不阻止读取更高真实记录。若 tail 与方便指针被同步删除、且没有外部可信观察下界，离线检查不能推断已消失的历史；必须独立核对保全的在线签名观察，不得宣称自动识别所有删除。
+
+`Prepared` schema revision 2 保存完整 `canonical_commit`，并计算真实 world / branch / reorg、registry / legacy owner / snapshot 摘要及 Agent / task / goal / active signer grant 计数。finalize 重新 canonical pin 并逐项比较，任何变化均重新取得可信 head 和前态；不得仅改摘要。普通 world 目录和 bridge state 是缓存，不能证明现有世界为空或撤销已完成。canonical restore 只在脱离持久化的内存候选工作，不保存原世界、cache、records 或 CAS。旧 Preview 仅缺 `genesis_ref` 时，使用已验证原始身份在内存候选补回，不替换已有非空 genesis。
 
 ## 3. 导出真实身份快照，收集 owner 迁移签名
 

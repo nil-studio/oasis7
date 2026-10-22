@@ -1,3 +1,5 @@
+#[path = "native_context_display.rs"]
+mod native_context_display;
 use crate::device_client::{Client, pending, print};
 use crate::operation_store::ClientStateKind;
 use oasis7_client_api::world_service::*;
@@ -138,7 +140,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             }
             let captured = client.captured(operation)?;
             let prepared = &captured.prepared;
-            print(&json!({
+            let display = json!({
                 "api_revision":1,"context":prepared.identity,
                 "goal":{"revision":prepared.snapshot.control.active_goal_revision,"content":prepared.snapshot.active_goal.owner_proof.request.content},
                 "actor_observation_schema":prepared.snapshot.actor_observation_schema,
@@ -149,7 +151,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 "current_read_commit":captured.current_public_context.read_commit,
                 "prepare_operation_id":operation,
                 "action_correlation_identity":prepared.identity.decision_request_id
-            }))
+            });
+            print(&native_context_display::annotate_verified_native_context(
+                display,
+                captured.current_public_context.native_authority.as_ref(),
+            ))
         }
         "world-rule-key" => {
             let request_id = required("--request")?;
