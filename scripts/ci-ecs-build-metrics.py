@@ -431,10 +431,15 @@ def compare(results):
             for key in ('features', 'profile'):
                 if now['binaries'][binary][key] != old['binaries'][binary][key]:
                     raise MeasurementError('comparison root binary feature/profile mismatch')
-        delta = now['wall_seconds'] - old['wall_seconds']
-        rows.append({'phase': phase, 'current_seconds': now['wall_seconds'],
-                     'baseline_seconds': old['wall_seconds'], 'delta_seconds': delta,
-                     'percent': delta * 100 / old['wall_seconds'] if old['wall_seconds'] else None})
+        now_seconds, old_seconds = now['wall_seconds'], old['wall_seconds']
+        if phase == 'viewer_touch':
+            now_seconds = current.get('viewer_touch_summary', {}).get('median_seconds', now_seconds)
+            old_seconds = baseline.get('viewer_touch_summary', {}).get('median_seconds', old_seconds)
+        delta = now_seconds - old_seconds
+        rows.append({'phase': phase, 'statistic': 'median' if phase == 'viewer_touch' else 'single',
+                     'current_seconds': now_seconds, 'baseline_seconds': old_seconds,
+                     'delta_seconds': delta,
+                     'percent': delta * 100 / old_seconds if old_seconds else None})
     return rows
 
 

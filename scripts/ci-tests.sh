@@ -169,7 +169,7 @@ run_oasis7_test_tier_with_viewer() {
 }
 
 run_oasis7_required_tier_tests() {
-  run_cargo check -p oasis7_agent_api -p oasis7_simulator --target wasm32-unknown-unknown --locked
+  run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --target wasm32-unknown-unknown --locked
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
     run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary
     return

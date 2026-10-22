@@ -1,11 +1,33 @@
 //! Opt-in same-process comparison of legacy concrete serde and the codec boundary.
 use std::hint::black_box;
+use std::io::Write;
 use std::time::Instant;
 
 use oasis7::simulator::{Agent, WorldEvent, WorldEventKind, WorldKernel};
 use oasis7_viewer_codec::{
     ViewerRequest, ViewerResponse, request_from_json, response_to_json, write_response_json,
 };
+
+#[derive(Default)]
+struct ObservedWriter {
+    bytes: usize,
+}
+impl Write for ObservedWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let bytes = black_box(bytes);
+        self.bytes += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// Match the pre-extraction runtime-live erased writer, not a concrete optimized-away Sink.
+#[inline(never)]
+fn legacy_stream(writer: &mut dyn Write, response: &ViewerResponse) {
+    serde_json::to_writer(writer, response).unwrap();
+}
 
 fn sample(label: &str, response: &ViewerResponse, iterations: usize) -> serde_json::Value {
     let expected = serde_json::to_vec(response).unwrap();
@@ -18,16 +40,19 @@ fn sample(label: &str, response: &ViewerResponse, iterations: usize) -> serde_js
         } else {
             [true, false]
         } {
+            let mut writer = ObservedWriter::default();
             let start = Instant::now();
             for _ in 0..iterations {
                 if codec {
-                    write_response_json(&mut std::io::sink(), black_box(response)).unwrap();
+                    write_response_json(&mut writer, black_box(response)).unwrap();
                 } else {
-                    serde_json::to_writer(std::io::sink(), black_box(response)).unwrap();
+                    legacy_stream(&mut writer, black_box(response));
                 }
             }
+            let elapsed = start.elapsed().as_nanos();
+            assert_eq!(black_box(writer.bytes), expected.len() * iterations);
             rows.push(serde_json::json!({"round":round, "codec":codec,
-                "mode":"stream", "nanoseconds":start.elapsed().as_nanos()}));
+                "mode":"stream", "nanoseconds":elapsed}));
             let start = Instant::now();
             for _ in 0..iterations {
                 black_box(if codec {
