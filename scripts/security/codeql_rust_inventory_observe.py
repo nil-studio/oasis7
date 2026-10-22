@@ -84,6 +84,7 @@ def parse_inventory(logs,initial,wanted_manifests):
     for label,text in logs:
         for number,line in enumerate(text.splitlines(),1):
             clean=ansi.sub('',line)
+            if 'OASIS7_INVENTORY_PHASE' in clean:continue
             if 'OASIS7_INVENTORY' not in clean:continue
             match=re.search(r'\bINFO\s+OASIS7_INVENTORY (\{.*\})$',clean)
             if not match:
@@ -150,6 +151,48 @@ def parse_inventory(logs,initial,wanted_manifests):
         'category_counts':{category:sum(r.get('category')==category for r in rows)
             for category in sorted({r['category'] for r in rows if 'category'in r})},
         'rows':rows,'extraction_action':'UNCHANGED','safe_exclusion':False,'closure_proven':False}
+
+
+def safe_log_collection(result):
+    if not isinstance(result,dict) or not all(k in result for k in ('exit','error','failure_kind','cleanup_errors','evidence_errors')):return False
+    if result['cleanup_errors']!=[] or result['evidence_errors']!=[]:return False
+    return (result['exit']==0 and result['error'] is None and result['failure_kind'] is None) or (result['failure_kind']=='timeout' and isinstance(result['error'],str) and result['error'].startswith('TimeoutError('))
+
+
+def collect_database_logs(database,out):
+    """After safe process cleanup only; no subprocess, no DB/cache upload."""
+    root=database/'log'; receipt={'status':'INCOMPLETE','files':[]}
+    if not root.exists():
+        receipt['reason']='owned database log directory absent'
+        runtime.save(out/'database-log-collection.json',receipt,out);return
+    identity=root.lstat()
+    if not stat.S_ISDIR(identity.st_mode) or root.is_symlink():raise RuntimeError('unsafe database log root')
+    destination=out/'database-logs';destination.mkdir(exist_ok=False)
+    count=0
+    def walk_error(exc):raise exc
+    for folder,dirs,files in os.walk(root,followlinks=False,onerror=walk_error):
+        for name in dirs:
+            if (Path(folder)/name).is_symlink():raise RuntimeError('database log directory symlink')
+        for name in sorted(files):
+            count+=1
+            path=Path(folder)/name;relative=path.relative_to(root);before=path.lstat()
+            if count>64 or len('database-logs/'+str(relative))>160:raise RuntimeError('database log count/path limit')
+            if not stat.S_ISREG(before.st_mode):raise RuntimeError('nonregular database log')
+            target=destination/relative;target.parent.mkdir(parents=True,exist_ok=True)
+            with path.open('rb') as source,target.open('xb') as sink:
+                opened=os.fstat(source.fileno())
+                if (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino):raise RuntimeError('database log identity changed')
+                for chunk in iter(lambda:source.read(65536),b''):
+                    if runtime.output_bytes(out)+len(chunk)>runtime.WRITE_CAP:raise RuntimeError('combined evidence budget exceeded before log write')
+                    sink.write(chunk);sink.flush()
+                after=os.fstat(source.fileno())
+            fresh=path.lstat()
+            if (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns)!=(before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns) or (fresh.st_dev,fresh.st_ino)!=(before.st_dev,before.st_ino):raise RuntimeError('database log changed during collection')
+            receipt['files'].append({'path':str(relative),'bytes':after.st_size,'sha256':runtime.digest(target)})
+    fresh=root.lstat()
+    if (fresh.st_dev,fresh.st_ino)!=(identity.st_dev,identity.st_ino):raise RuntimeError('database log root changed')
+    receipt['status']='COLLECTED_COMPLETE_DIRECTORY_SNAPSHOT'
+    runtime.save(out/'database-log-collection.json',receipt,out)
 
 
 def prepare_business(run,work,source_end):
@@ -251,9 +294,25 @@ def execute(args,env,end,out,work,source,business,run,overlay,source_snapshot,gu
             CODEQL_EXTRACTOR_RUST_OPTION_LOGGING_VERBOSITY='info')
         database=work/'candidate-inventory-db'
         terminal.update(database_create_attempts=1,extractor_executions='INTERNAL_CHILDREN_NOT_INDEPENDENTLY_COUNTED',extractions=1)
-        run([cli,'database','create',str(database),'--language=rust','--build-mode=none','--source-root='+str(business),
-            '--threads=2','--ram=3072','--common-caches='+str(common)],'inventory-extract',180,cwd=business,env_override=extract_env)
-        stdout=(out/'inventory-extract.log').read_text();stderr=(out/'inventory-extract.log.stderr').read_text();text=stdout+stderr
+        extract_primary=None
+        try:
+            run([cli,'database','create',str(database),'--language=rust','--build-mode=none','--source-root='+str(business),
+                '--threads=2','--ram=3072','--common-caches='+str(common)],'inventory-extract',180,cwd=business,env_override=extract_env)
+        except BaseException as exc:
+            extract_primary=exc;raise
+        finally:
+            try:
+                result_path=out/'inventory-extract.log.result.json'
+                result=json.loads(result_path.read_text()) if result_path.is_file() else None
+                safe=safe_log_collection(result)
+                if safe:collect_database_logs(database,out)
+                else:runtime.save(out/'database-log-collection.json',{'status':'NOT_COLLECTED_UNSAFE_OR_UNKNOWN'},out)
+            except BaseException as exc:
+                terminal['database_log_collection_error']=repr(exc)[:512]
+                if extract_primary is None:raise
+        stdout=(out/'inventory-extract.log').read_text();stderr=(out/'inventory-extract.log.stderr').read_text()
+        internal=[(str(p.relative_to(out)),p.read_text(errors='replace')) for p in (out/'database-logs').rglob('*') if p.is_file()]
+        text=stdout+stderr+''.join(value for _,value in internal)
         if 'number of inputs: '+str(len(initial))+',' not in text or 'cargo_all_targets: true' not in text or 'cargo_features: []' not in text or 'extract_dependencies_as_source: false' not in text or 'force_library_mode: false' not in text:
             raise RuntimeError('actual complete real context configuration unverified')
         if 'project Rust toolchain: 1.96.0' not in text or '1.99.0-' not in text:
@@ -267,7 +326,7 @@ def execute(args,env,end,out,work,source,business,run,overlay,source_snapshot,gu
         if not any(part.startswith('1.99.0-') for part in toolchains) or any(part.startswith(('1.98.','nightly')) for part in toolchains):
             raise RuntimeError('analysis sysroot archive identity differs')
         runtime.save(out/'analysis-archive-toolchains.json',sorted(toolchains),out)
-        observed=parse_inventory([('stdout',stdout),('stderr',stderr)],
+        observed=parse_inventory([('stdout',stdout),('stderr',stderr)]+internal,
             [str(business/name) for name in initial],[str(folder/'Cargo.toml'),str(business/model.BASE/'common/Cargo.toml')])
         runtime.save(out/'inventory-classification.json',observed,out)
         terminal.update(status=observed['status'],extraction_action='UNCHANGED',safe_exclusion=False)

@@ -35,12 +35,18 @@ fn bounded_push(map: &mut HashMap<FileId, Vec<Value>>, key: FileId, value: Value
 impl Inventory {
     pub fn new(sema: &Semantics<'_, RootDatabase>, manifest: &str) -> Self {
         let start = Instant::now();
+        // Pure log before any inventory RA query: absence of a file row is not absence of a hook.
+        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"crate_list_start"}));
         let db = sema.db;
         let mut result = Self { manifest: manifest.chars().take(1024).collect(), owners: HashMap::new(), includes: HashMap::new(),
             map_incomplete: manifest.chars().count()>1024, rows: 0, dropped_rows: 0, initial_observations: 0,
             vfs_observations: 0, selected_library_observations: 0, elapsed: Default::default() };
         // These calls can force lazy RA queries. Their time is observation cost, not extraction benefit.
-        for krate in Crate::all(db) {
+        let crates = Crate::all(db);
+        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"crate_list_done","elapsed_micros":start.elapsed().as_micros(),"crates":crates.len()}));
+        for (index, krate) in crates.into_iter().enumerate() {
+            let phase_start = Instant::now();
+            if index < 128 { tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"modules_start","crate_index":index})); }
             for module in krate.modules(db) {
                 let origin = module.definition_source_file_id(db);
                 let context = json!({"crate":format!("{krate:?}"), "module":format!("{module:?}"),
@@ -54,6 +60,7 @@ impl Inventory {
                     result.map_incomplete = true;
                 }
             }
+            if index < 128 { tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"modules_done_include_start","crate_index":index,"elapsed_micros":phase_start.elapsed().as_micros()})); }
             for &(call, included) in ra_ap_hir_def::include_macro_invoc(db, krate.base()) {
                 if !bounded_push(&mut result.includes, included.file_id(db),
                     json!({"crate":format!("{krate:?}"),"macro_call":format!("{call:?}")})) {
@@ -61,6 +68,7 @@ impl Inventory {
                 }
             }
         }
+        tracing::info!(target: "codeql_inventory", "OASIS7_INVENTORY_PHASE {}", json!({"process_id":std::process::id(),"manifest":manifest,"phase":"inventory_new_done","elapsed_micros":start.elapsed().as_micros(),"per_crate_log_limit":128}));
         result.elapsed += start.elapsed();
         result
     }

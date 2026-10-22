@@ -218,4 +218,46 @@ class ObservationTests(unittest.TestCase):
         self.assertNotIn("'run-queries'",text)
         self.assertNotIn("'cargo','test'",text)
 
+class DatabaseLogTests(unittest.TestCase):
+    def helper(self):
+        spec=importlib.util.spec_from_file_location('observe_logs',Path(__file__).with_name('codeql_rust_inventory_observe.py'))
+        helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper);return helper
+
+    def test_unsafe_zero_exit_and_unknown_receipts_do_not_collect(self):
+        helper=self.helper()
+        good={'exit':0,'error':None,'failure_kind':None,'cleanup_errors':[],'evidence_errors':[]}
+        self.assertTrue(helper.safe_log_collection(good))
+        self.assertFalse(helper.safe_log_collection(dict(good,error='cap',failure_kind='unsafe')))
+        self.assertFalse(helper.safe_log_collection({}))
+        self.assertFalse(helper.safe_log_collection(None))
+        self.assertFalse(helper.safe_log_collection(dict(good,cleanup_errors=['unknown'])))
+        self.assertTrue(helper.safe_log_collection(dict(good,exit=143,error="TimeoutError('deadline')",failure_kind='timeout')))
+
+    def test_internal_logs_preserved_and_symlinks_rejected(self):
+        helper=self.helper()
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);db=root/'db';(db/'log').mkdir(parents=True);out=root/'out';out.mkdir()
+            (db/'log/extractor.log').write_text('partial phase start')
+            helper.collect_database_logs(db,out)
+            self.assertEqual((out/'database-logs/extractor.log').read_text(),'partial phase start')
+            import json
+            self.assertEqual(json.loads((out/'database-log-collection.json').read_text())['status'],'COLLECTED_COMPLETE_DIRECTORY_SNAPSHOT')
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);db=root/'db';(db/'log').mkdir(parents=True);out=root/'out';out.mkdir()
+            (db/'log/foreign').symlink_to('/etc/passwd')
+            with self.assertRaises(RuntimeError):helper.collect_database_logs(db,out)
+
+    def test_log_cap_is_prewrite_and_phase_precedes_semantics(self):
+        helper=self.helper()
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);db=root/'db';(db/'log').mkdir(parents=True);out=root/'out';out.mkdir()
+            (db/'log/extractor.log').write_bytes(b'x'*32)
+            with patch.object(helper.runtime,'WRITE_CAP',16):
+                with self.assertRaises(RuntimeError):helper.collect_database_logs(db,out)
+            self.assertEqual((out/'database-logs/extractor.log').stat().st_size,0)
+        source=(ROOT/'inventory.rs').read_text()
+        self.assertLess(source.index('crate_list_start'),source.index('Crate::all(db)'))
+        self.assertLess(source.index('modules_start'),source.index('krate.modules(db)'))
+        self.assertLess(source.index('modules_done_include_start'),source.index('include_macro_invoc(db'))
+
 if __name__=='__main__':unittest.main()
