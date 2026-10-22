@@ -29,21 +29,17 @@ pub(super) struct LocalPeerRecordRepublisher<'a> {
 }
 
 impl LocalPeerRecordRepublisher<'_> {
-    pub(super) fn new<'a>(
-        keypair: &'a Keypair,
-        peer_record_template: Option<&'a PeerRecord>,
-        listening_addrs: &'a Arc<Mutex<Vec<Multiaddr>>>,
-        reachability: &'a Arc<Mutex<Libp2pReachabilitySnapshot>>,
-        event_error_sink: (&'a Arc<Mutex<Vec<String>>>, usize),
-        allow_loopback_external_addrs_for_testing: bool,
+    pub(super) fn from_context<'a>(
+        ctx: &super::runtime_loop::CommandContext<'a>,
     ) -> LocalPeerRecordRepublisher<'a> {
         LocalPeerRecordRepublisher {
-            keypair,
-            peer_record_template,
-            listening_addrs,
-            reachability,
-            event_error_sink,
-            allow_loopback_external_addrs_for_testing,
+            keypair: ctx.keypair,
+            peer_record_template: ctx.peer_record_template,
+            listening_addrs: ctx.event_listening_addrs,
+            reachability: ctx.event_reachability,
+            event_error_sink: (ctx.event_errors, ctx.max_error_messages),
+            allow_loopback_external_addrs_for_testing: ctx
+                .allow_loopback_external_addrs_for_testing,
         }
     }
 

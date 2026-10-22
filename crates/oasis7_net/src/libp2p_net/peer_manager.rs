@@ -1,9 +1,12 @@
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 
 use libp2p::PeerId;
 use libp2p::multiaddr::Protocol;
-use oasis7_proto::distributed_dht::{PeerDiscoverySource, SignedPeerRecord};
+use oasis7_proto::distributed_dht::PeerDiscoverySource;
+#[cfg(test)]
+use oasis7_proto::distributed_dht::SignedPeerRecord;
 
 use super::peer_discovery_observations::DiscoveryObservations;
 use super::peer_manager_active_set::ActivePeerSetStats;
@@ -93,7 +96,7 @@ pub struct PeerManagerBlockArtifact {
 }
 
 pub(super) fn recompute_peer_manager_healths(
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
     observations: &DiscoveryObservations,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     policy: &PeerManagerPolicy,
@@ -460,7 +463,7 @@ mod tests {
                 capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
                 source_operator: None,
                 source_asn: None,
-                published_at_ms: 0,
+                published_at_ms: super::super::now_ms(),
                 ttl_ms: 60_000,
             },
             identity_public_key_protobuf_hex: "abcd".to_string(),
@@ -471,6 +474,7 @@ mod tests {
     fn transport_path(peer_id: PeerId, addr: &str, kind: TransportPathKind) -> TransportPath {
         let addr: Multiaddr = addr.parse().expect("multiaddr");
         TransportPath {
+            record_lease: None,
             peer_id,
             addr,
             kind,
@@ -496,7 +500,7 @@ mod tests {
     fn recompute_marks_single_source_active_set_as_suspect() {
         let peer_a = PeerId::random();
         let peer_b = PeerId::random();
-        let discovered = HashMap::from([
+        let discovered = PeerRecordCache::from([
             (
                 peer_a,
                 sample_record(peer_a, vec![PeerDiscoverySource::StaticBootstrap]),
@@ -554,7 +558,7 @@ mod tests {
             PeerDiscoverySource::StaticBootstrap,
             PeerDiscoverySource::Dht,
         ];
-        let discovered = HashMap::from([
+        let discovered = PeerRecordCache::from([
             (peer_a, sample_record(peer_a, discovery_sources.clone())),
             (peer_b, sample_record(peer_b, discovery_sources.clone())),
             (peer_c, sample_record(peer_c, discovery_sources)),
@@ -616,7 +620,7 @@ mod tests {
             PeerDiscoverySource::StaticBootstrap,
             PeerDiscoverySource::Dht,
         ];
-        let discovered = HashMap::from([
+        let discovered = PeerRecordCache::from([
             (peer_a, sample_record(peer_a, discovery_sources.clone())),
             (peer_b, sample_record(peer_b, discovery_sources.clone())),
             (peer_c, sample_record(peer_c, discovery_sources)),
@@ -671,8 +675,9 @@ mod tests {
             PeerDiscoverySource::StaticBootstrap,
             PeerDiscoverySource::Dht,
         ];
-        let discovered =
-            HashMap::from(peers.map(|peer| (peer, sample_record(peer, discovery_sources.clone()))));
+        let discovered = PeerRecordCache::from(
+            peers.map(|peer| (peer, sample_record(peer, discovery_sources.clone()))),
+        );
         let active_three = HashMap::from([
             (
                 peers[0],
@@ -770,7 +775,7 @@ mod tests {
     fn recompute_ignores_loopback_subnet_concentration() {
         let peer_a = PeerId::random();
         let peer_b = PeerId::random();
-        let discovered = HashMap::from([
+        let discovered = PeerRecordCache::from([
             (
                 peer_a,
                 sample_record(
@@ -842,7 +847,7 @@ mod tests {
             PeerDiscoverySource::StaticBootstrap,
             PeerDiscoverySource::Dht,
         ];
-        let discovered = HashMap::from([
+        let discovered = PeerRecordCache::from([
             (peer_a, sample_record(peer_a, discovery_sources.clone())),
             (peer_b, sample_record(peer_b, discovery_sources.clone())),
             (peer_c, sample_record(peer_c, discovery_sources)),
@@ -908,7 +913,7 @@ mod tests {
     #[test]
     fn recompute_keeps_unobserved_remote_claims_degraded() {
         let peer = PeerId::random();
-        let discovered = HashMap::from([(
+        let discovered = PeerRecordCache::from([(
             peer,
             sample_record(
                 peer,
@@ -937,7 +942,7 @@ mod tests {
     #[test]
     fn recompute_marks_single_source_discovered_peer_as_suspect_before_activation() {
         let peer = PeerId::random();
-        let discovered = HashMap::from([(
+        let discovered = PeerRecordCache::from([(
             peer,
             sample_record(peer, vec![PeerDiscoverySource::StaticBootstrap]),
         )]);
@@ -977,7 +982,7 @@ mod tests {
         record_c.record.source_operator = Some("operator-b".to_string());
         record_c.record.source_asn = Some("AS64501".to_string());
         let discovered =
-            HashMap::from([(peer_a, record_a), (peer_b, record_b), (peer_c, record_c)]);
+            PeerRecordCache::from([(peer_a, record_a), (peer_b, record_b), (peer_c, record_c)]);
         let active = HashMap::from([
             (
                 peer_a,
@@ -1056,7 +1061,7 @@ mod tests {
         let mut record_d = sample_record(peer_d, discovery_sources);
         record_d.record.source_operator = Some("operator-c".to_string());
         record_d.record.source_asn = Some("AS64502".to_string());
-        let discovered = HashMap::from([
+        let discovered = PeerRecordCache::from([
             (peer_a, record_a),
             (peer_b, record_b),
             (peer_c, record_c),
@@ -1120,7 +1125,7 @@ mod tests {
                 PeerDiscoverySource::Dht,
             ],
         );
-        let records = HashMap::from([(peer, record)]);
+        let records = PeerRecordCache::from([(peer, record)]);
         let paths = HashMap::from([(
             peer,
             transport_path(

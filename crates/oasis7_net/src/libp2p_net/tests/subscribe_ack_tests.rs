@@ -1,3 +1,4 @@
+use crate::libp2p_net::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -38,7 +39,7 @@ fn handle_command_subscribe_acknowledges_success() {
     let mut pending_dht = HashMap::new();
     let mut peers = Vec::new();
     let mut provider_keys = HashMap::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peer_healths_by_id = HashMap::new();
     let mut pending_cached_discovery_peers = HashSet::new();
     let mut cached_discovery_peer_cooldowns = HashMap::new();
@@ -186,7 +187,7 @@ fn handle_command_request_uses_swarm_connections_when_runtime_peers_are_empty() 
     let mut pending_dht = HashMap::new();
     let mut peers = Vec::new();
     let mut provider_keys = HashMap::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peer_healths_by_id = HashMap::new();
     let mut pending_cached_discovery_peers = HashSet::new();
     let mut cached_discovery_peer_cooldowns = HashMap::new();
@@ -282,7 +283,7 @@ fn handle_command_request_uses_active_transport_peer_when_snapshots_are_empty() 
     let mut pending_dht = HashMap::new();
     let mut peers = Vec::new();
     let mut provider_keys = HashMap::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peer_healths_by_id = HashMap::from([(
         active_peer,
         PeerManagerPeerHealth {
@@ -399,7 +400,7 @@ fn handle_command_request_to_peer_accepts_active_transport_peer() {
     let mut pending_dht = HashMap::new();
     let mut peers = Vec::new();
     let mut provider_keys = HashMap::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peer_healths_by_id = HashMap::from([(
         active_peer,
         PeerManagerPeerHealth {

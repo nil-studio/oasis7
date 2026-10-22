@@ -5,7 +5,8 @@ use libp2p::PeerId;
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, SignedPeerRecord};
 
 const MAX_RECORD_OBSERVATIONS: usize = 1024;
-const MAX_SIGNED_PAYLOAD_BYTES: usize = 16 * 1024;
+const MAX_SIGNED_PAYLOAD_BYTES: usize =
+    crate::libp2p_net::peer_record::MAX_SIGNED_PEER_RECORD_BYTES;
 const MAX_INGRESSES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

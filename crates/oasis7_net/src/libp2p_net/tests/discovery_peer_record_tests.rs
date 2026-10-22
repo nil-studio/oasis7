@@ -16,7 +16,7 @@ fn routing_update_defers_bootstrap_peer_record_until_connection_exists() {
     );
     let mut pending_dht = HashMap::new();
     let mut pending_discovery_peer_records = HashSet::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let template = PeerRecord {
         peer_id: local_peer_id.to_string(),
         node_id: "local-node".to_string(),
@@ -87,7 +87,7 @@ fn routing_update_skips_peer_record_for_unconnected_non_bootstrap_peer() {
     );
     let mut pending_dht = HashMap::new();
     let mut pending_discovery_peer_records = HashSet::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peers = Vec::new();
     let mut pending_peer_record_requests = HashMap::new();
     let mut pending_connected_peer_records = HashSet::new();
@@ -138,7 +138,7 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
         let suspect_record = super::signed_discovery_peer_record(
             &peer_key,
             vec![crate::dht::PeerDiscoverySource::Dht],
-            1,
+            crate::libp2p_net::now_ms(),
         );
         let original_payload = to_canonical_cbor(&suspect_record).unwrap();
         let upgraded_record = super::signed_discovery_peer_record(
@@ -147,9 +147,12 @@ fn process_discovered_peer_record_retains_local_static_bootstrap_provenance() {
                 crate::dht::PeerDiscoverySource::Dht,
                 crate::dht::PeerDiscoverySource::Rendezvous,
             ],
-            2,
+            crate::libp2p_net::now_ms(),
         );
-        let mut discovered_peer_records = HashMap::new();
+        let mut discovered_peer_records = PeerRecordCache::with_dial_policy(
+            swarm.behaviour_mut().kademlia.store_mut().clock().clone(),
+            swarm.behaviour().discovery_dial_policy(),
+        );
         let mut known_transport_paths = HashMap::new();
         let mut last_dialed_transport_paths = HashMap::new();
         let active_transport_paths = HashMap::new();
@@ -244,9 +247,9 @@ fn process_discovered_peer_record_keeps_dht_only_suspect_peer_non_dialable() {
     let suspect_record = super::signed_discovery_peer_record(
         &peer_key,
         vec![crate::dht::PeerDiscoverySource::Dht],
-        1,
+        crate::libp2p_net::now_ms(),
     );
-    let mut discovered_peer_records = HashMap::new();
+    let mut discovered_peer_records = PeerRecordCache::default();
     let mut known_transport_paths = HashMap::new();
     let mut last_dialed_transport_paths = HashMap::new();
     let active_transport_paths = HashMap::new();
@@ -288,10 +291,10 @@ fn process_discovered_peer_record_rejects_invalid_static_peer_record() {
     let mut invalid_record = super::signed_discovery_peer_record(
         &peer_key,
         vec![crate::dht::PeerDiscoverySource::Dht],
-        1,
+        crate::libp2p_net::now_ms(),
     );
     invalid_record.record.world_id = "tampered-world".to_string();
-    let mut discovered_peer_records = HashMap::new();
+    let mut discovered_peer_records = PeerRecordCache::default();
     let mut known_transport_paths = HashMap::new();
     let mut last_dialed_transport_paths = HashMap::new();
     let active_transport_paths = HashMap::new();
@@ -335,12 +338,12 @@ fn maybe_queue_discovery_peer_record_skips_peer_with_cached_record() {
     let unknown_peer_id = PeerId::random();
     let mut pending_dht = HashMap::new();
     let mut pending_discovery_peer_records = HashSet::new();
-    let discovered_peer_records = HashMap::from([(
+    let discovered_peer_records = PeerRecordCache::from([(
         known_peer_id,
         super::signed_discovery_peer_record(
             &known_peer_key,
             vec![crate::dht::PeerDiscoverySource::Dht],
-            1,
+            crate::libp2p_net::now_ms(),
         ),
     )]);
 
@@ -594,7 +597,7 @@ fn start_peer_discovery_query_respects_pending_query_and_cooldown() {
     let template = super::signed_discovery_peer_record(
         &Keypair::generate_ed25519(),
         vec![crate::dht::PeerDiscoverySource::Dht],
-        1,
+        crate::libp2p_net::now_ms(),
     )
     .record;
     let mut pending_dht = HashMap::new();
@@ -798,7 +801,7 @@ fn cached_peer_record_request_handler_reports_not_found_on_cache_miss() {
     let keypair = Keypair::generate_ed25519();
     let listening_addrs = Arc::new(Mutex::new(Vec::new()));
     let reachability = Arc::new(Mutex::new(Libp2pReachabilitySnapshot::default()));
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
 
     let err = super::super::discovery::handle_request_response_request(
         &request,
@@ -843,7 +846,7 @@ fn cached_peer_record_not_found_retries_via_another_connected_peer() {
     .expect("encode error response");
     let mut pending_peer_record_requests = HashMap::new();
     let mut pending_dht = HashMap::new();
-    let mut discovered_peer_records = HashMap::new();
+    let mut discovered_peer_records = PeerRecordCache::default();
     let mut known_transport_paths = HashMap::new();
     let mut last_dialed_transport_paths = HashMap::new();
     let active_transport_paths = HashMap::new();
@@ -1032,7 +1035,7 @@ fn cached_peer_record_not_found_stops_after_all_connected_proxies_are_tried() {
     .expect("encode error response");
     let mut pending_peer_record_requests = HashMap::new();
     let mut pending_dht = HashMap::new();
-    let mut discovered_peer_records = HashMap::new();
+    let mut discovered_peer_records = PeerRecordCache::default();
     let mut known_transport_paths = HashMap::new();
     let mut last_dialed_transport_paths = HashMap::new();
     let active_transport_paths = HashMap::new();

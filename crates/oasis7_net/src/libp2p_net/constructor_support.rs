@@ -72,3 +72,21 @@ pub(super) fn enqueue_initial_bootstrap_dials(
         }
     }
 }
+
+pub(super) fn listen_on_configured_addresses(
+    swarm: &mut libp2p::Swarm<Behaviour>,
+    addresses: Vec<Multiaddr>,
+    errors: &Arc<Mutex<Vec<String>>>,
+    max_errors: usize,
+) {
+    for addr in addresses {
+        if let Err(err) = swarm.listen_on(addr) {
+            push_bounded_clone(
+                errors,
+                format!("libp2p listen failed: {err}"),
+                max_errors,
+                "lock errors",
+            );
+        }
+    }
+}
