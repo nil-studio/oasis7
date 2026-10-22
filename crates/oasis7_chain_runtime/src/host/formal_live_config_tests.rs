@@ -1,10 +1,5 @@
 use super::*;
-use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, os::unix::fs::PermissionsExt, path::Path};
 
 use crate::formal_read_fixtures as fixtures;
 
@@ -12,14 +7,8 @@ struct TempRoot(PathBuf);
 impl TempRoot {
     fn new(label: &str) -> Self {
         let base = std::env::temp_dir().canonicalize().unwrap();
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = base.join(format!(
-            "oasis7-formal-live-{label}-{}-{unique}",
-            std::process::id()
-        ));
+        let unique = crate::node_lifecycle::local_io::random_id().unwrap();
+        let path = base.join(format!("oasis7-formal-live-{label}-{unique}"));
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         Self(path)

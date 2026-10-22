@@ -48,6 +48,7 @@ fn governance_authorization_formal_node_hook_uses_qualified_committed_cut() {
     );
     backing.committed_cut = Some((world, anchor));
     let hook = FormalNodeHook {
+        _identity_lease: None,
         writer: backing,
         consumed_terminal: None,
         publication_sink: None,

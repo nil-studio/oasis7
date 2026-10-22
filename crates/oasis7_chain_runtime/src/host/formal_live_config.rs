@@ -187,6 +187,16 @@ impl FormalLiveConfigV1 {
             MAX_NODE_KEYPAIR_BYTES,
         )?;
         let node_keypair = parse_node_keypair(&node_keypair_bytes)?;
+        let (published_keypair, _) =
+            super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
+                &config.node_keypair_directory,
+            )
+            .map_err(|_| "formal node identity publication verification failed")?;
+        if published_keypair.public_key_hex != node_keypair.public_key_hex
+            || published_keypair.private_key_hex != node_keypair.private_key_hex
+        {
+            return Err("formal node identity changed while loading configuration".into());
+        }
 
         let writer_key =
             super::controlled_live_config::read_existing_signing_key(&config.writer_key_file)?;
@@ -369,7 +379,7 @@ fn parse_node_keypair(
 ) -> Result<super::node_keypair_config::NodeKeypairConfig, String> {
     let content = std::str::from_utf8(bytes).map_err(|_| "node keypair TOML is not UTF-8")?;
     let table: toml::Value =
-        toml::from_str(content).map_err(|error| format!("node keypair TOML: {error}"))?;
+        toml::from_str(content).map_err(|_| "node keypair TOML is malformed")?;
     let node = table
         .get(super::node_keypair_config::NODE_TABLE_KEY)
         .and_then(toml::Value::as_table)

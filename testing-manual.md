@@ -457,6 +457,17 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 
 迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；本机 canonical Cargo 通过 `target` 符号链接启动 test executable 时，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
 
+正式 v2 运行期身份租约还须验证：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p node_keypair_config::runtime_lease -- --nocapture
+env -u RUSTC_WRAPPER cargo build -p oasis7_distfs --bin oasis7_durability_endpoint
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop -- --ignored --nocapture
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_signer_handoff_stops_exact_owner_and_qualifies_successor -- --ignored --nocapture
+```
+
+局部租约组核对锁 inode、SIGKILL、身份域与目录归属两个不可覆盖绑定的部分发布／同步失败恢复、错域／复制旧目录记录／不同 key 接管、损坏／超大记录和私钥诊断脱敏。真实正式运行时场景使用已签名初始锚与实际 P/R 子进程，验证同身份不同 writer 目录的重复启动被拒绝；外层运行时退出而实际 Node 仍被持有时租约不释放，全部执行所有者停止后原身份可重新打开，也可登记尚无身份归属记录的新 writer 目录。另执行已有合法 signer handoff：同 Node 身份切换新 writer 目录时，仍须通过签名恢复权限、精确旧 owner 停止和受保护 epoch 检查，不能让身份域绑定误拒绝合法连续性，也不能由目录登记授予权限。已有目录的路径／身份冲突仍拒绝。正常 CI 的 ignored 不算该进程场景通过，须记录明确非零执行与退出码。该场景证明本地实际调用链，不证明跨机 bare-key 排重、真实物理故障域或断电持久性；legacy／DevLocal 不由此获得新权限或运行保证。
+
 这些测试证明实际覆盖的进程恢复与调用路径，不证明断电、整机旧备份回滚或全初始化绑定事务。目标文件系统断电／fsync 错误、完整 CLI enabled/disabled/read-only 组合及其未覆盖项仍按[身份设计](doc/p2p/node/node-identity-replication-contract.design.md#des-nir-bootstrap)记录；不得用单元通过代签。
 
 <a name="s4b：governance-registry-drill（l4-前置-l4）"></a>

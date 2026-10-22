@@ -7,6 +7,12 @@ use ed25519_dalek::SigningKey;
 #[path = "node_keypair_config/transaction.rs"]
 mod transaction;
 
+#[path = "node_keypair_config/runtime_lease.rs"]
+mod runtime_lease;
+pub(crate) use runtime_lease::{
+    RuntimeIdentityBindingV1, RuntimeIdentityLease, acquire_runtime_identity_lease,
+};
+
 pub(super) const NODE_TABLE_KEY: &str = "node";
 pub(super) const NODE_PRIVATE_KEY_FIELD: &str = "private_key";
 pub(super) const NODE_PUBLIC_KEY_FIELD: &str = "public_key";

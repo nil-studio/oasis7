@@ -59,6 +59,9 @@ impl FormalPublicationSink for QualifiedOutboxPublicationSink {
 }
 
 pub(crate) struct FormalEffectDeliveryRuntime {
+    #[cfg(test)]
+    test_worker_barrier: Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>,
+    identity_lease: Option<Arc<super::node_keypair_config::RuntimeIdentityLease>>,
     transport: Arc<FormalEffectDeliveryTransport>,
     latest: Arc<Mutex<Option<QualifiedEffectOutboxV1>>>,
     stopping: Arc<AtomicBool>,
@@ -67,6 +70,21 @@ pub(crate) struct FormalEffectDeliveryRuntime {
 }
 
 impl FormalEffectDeliveryRuntime {
+    #[cfg(test)]
+    pub(crate) fn set_test_worker_barrier(
+        &mut self,
+        entered: mpsc::SyncSender<()>,
+        release: mpsc::Receiver<()>,
+    ) {
+        self.test_worker_barrier = Some((entered, release));
+    }
+    pub(crate) fn with_identity_lease(
+        mut self,
+        lease: Arc<super::node_keypair_config::RuntimeIdentityLease>,
+    ) -> Self {
+        self.identity_lease = Some(lease);
+        self
+    }
     pub(crate) fn open(
         config: &FormalEffectDeliveryConfigV1,
         writer_directory: &Path,
@@ -91,6 +109,9 @@ impl FormalEffectDeliveryRuntime {
         });
         Ok((
             Self {
+                #[cfg(test)]
+                test_worker_barrier: None,
+                identity_lease: None,
                 transport,
                 latest,
                 stopping: Arc::new(AtomicBool::new(false)),
@@ -109,10 +130,19 @@ impl FormalEffectDeliveryRuntime {
         let stopping = self.stopping.clone();
         let latest = self.latest.clone();
         let transport = self.transport.clone();
+        let identity_lease = self.identity_lease.clone();
+        #[cfg(test)]
+        let test_worker_barrier = self.test_worker_barrier.take();
         let (send, receive) = mpsc::sync_channel(1);
         let worker = thread::Builder::new()
             .name("oasis7-qualified-effects".into())
             .spawn(move || {
+                let _identity_lease = identity_lease;
+                #[cfg(test)]
+                if let Some((entered, release)) = test_worker_barrier {
+                    let _ = entered.send(());
+                    let _ = release.recv_timeout(Duration::from_secs(30));
+                }
                 while !stopping.load(Ordering::Acquire) {
                     let outbox = match latest.lock() {
                         Ok(latest) => latest.clone(),
