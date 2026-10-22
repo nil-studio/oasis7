@@ -1,6 +1,6 @@
 # oasis7 项目状态与指挥入口
 
-> 当前客户端范围见[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)：本地文档/Git、GitHub PR、个人记录、本机工具与原工具外部入口。检查详情在 GitHub 查看；本文的项目摘要与历史记录不替代主责合同。
+> 指挥中心的职责与目标见[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)：云端承载四个主视图、已提交来源与个人空间，本地承载工作树、私有资料及原生工具。来源事实与个人记录各守原义；实际实现和可用性由对应交付证据说明。
 
 
 本页帮助项目负责人在五分钟内看清长期方向、当前主线、已交付变化和需要关注的边界。
@@ -14,8 +14,14 @@
 | --- | --- |
 | 下次如何持续更新 | [持续更新流程](command-center.manual.md) |
 | 整体分层、部署、存储、权限与恢复 | [顶层架构索引](architecture/README.md) |
-| 指挥客户端的产品目标与技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
+| 云端指挥中心与本地辅助端的产品及技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
 | 如何运行和操作已有客户端 | [客户端使用说明](../../../tools/oasis7-command-center/README.md) |
+
+<a id="cc-status-cloud-local"></a>
+
+### 指挥中心自身的职责边界
+
+2026-10-22 文档核对：云端负责跨设备四视图、统一工作与依据、已提交规范、个人问题/决定/关联及阅读偏好；本地负责工作树、未提交预览、私有资料与原生工具。数据归属及安全导航见[系统设计](command-center.design.md#DES-CC-001)。本次只修订合同，现有应用及真实浏览器可用性未因此完成验收；已有实现和证据边界见[核对入口](command-center.design.md#cc-current-implementation)，实施与数据切换由[迁移 Issue #4983](https://github.com/nil-studio/oasis7/issues/4983)跟踪。不改变本页其他项目目标或部署状态的核验时间。
 
 <a id="cc-status-baseline"></a>
 

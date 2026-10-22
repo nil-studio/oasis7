@@ -24,7 +24,7 @@
 - Git、PR、实际 CI 和评审记录：承载交付事实；Issue/Project 按需要跟踪复杂工作的依赖和进度。
 - `doc-governance/*`：定义 `doc/` 文档树的组织规范、默认阅读面减重规则与早期文档治理收口。
 - `rust-governance/*`：定义 Rust 文件体量、长期零扫描与语义化结构拆分契约；不维护冻结基线或一次性 burn-down 台账。
-- `command-center/*`：开发指挥客户端专题；[产品设计](command-center/command-center.prd.md) 拥有用户行为与验收，[系统设计](command-center/command-center.design.md) 拥有桌面宿主、Rust 核心、数据来源、会话接入和恢复合同，通用流程仍由 workflow source of truth 主责。
+- `command-center/*`：开发指挥中心专题；[产品设计](command-center/command-center.prd.md) 拥有云端与本地的用户行为和验收，[系统设计](command-center/command-center.design.md) 拥有 Sites 网页、云端后端与个人数据、本地宿主及工具、来源身份、安全导航和恢复合同，通用流程仍由 workflow source of truth 主责。
 - 历史 PRD 审读/治理台账：保留在 Git history logs；当前新增/变更文档追踪由模块入口与 doc governance 规则承接。
 
 ### 3.2 工程治理执行链路
