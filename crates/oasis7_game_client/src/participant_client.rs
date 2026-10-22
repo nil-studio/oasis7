@@ -592,6 +592,10 @@ impl ParticipantClient {
             IntentOutcome::Received { .. } => {
                 result.state = "pending".into();
             }
+            IntentOutcome::HistoryUnavailable => {
+                result.state = "blocked".into();
+                result.next_action = "restore_original_history".into();
+            }
             IntentOutcome::Rejected { .. } | IntentOutcome::Expired => {
                 result.state = "blocked".into();
                 result.next_action = "inspect_original_rejection".into();
