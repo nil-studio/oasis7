@@ -289,6 +289,16 @@
   "rules": [
     {
       "match": [
+        "tests/libp2p-compat/**",
+        "scripts/libp2p-compat.test.py"
+      ],
+      "groups": [
+        "net"
+      ],
+      "reason": "libp2p_compatibility_protocols"
+    },
+    {
+      "match": [
         "doc/**",
         "AGENTS.md",
         "*.md",
