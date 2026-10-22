@@ -540,6 +540,37 @@ run_cargo() {
                     self.assertTrue(any(call.startswith('TEST|') and '--features test_tier_full,wasmtime,viewer_live_integration' in call
                                         for call in failure_calls))
 
+    def test_full_support_supplies_feature_matched_viewer_and_stops_on_build_failure(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = ('run_full_support_tier_tests', 'run_oasis7_package_tests',
+                 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer')
+        functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                     for name in names]
+        support = functions[0]
+        dependencies = set(re.findall(r'^  (run_[a-z0-9_]+)', support, re.M)) - set(names)
+        with tempfile.TemporaryDirectory() as temporary:
+            viewer = Path(temporary) / 'oasis7_viewer_live'
+            viewer.write_text('controlled artifact for runner wiring only')
+            viewer.chmod(0o755)
+            script = "set -euo pipefail\nci_python=python3\n"
+            script += "\n".join(name + '() { :; }' for name in dependencies) + "\n"
+            script += r"""
+run_cargo() {
+  if [[ "$1" == build ]]; then
+    [[ "${FAIL_BUILD:-}" != 1 ]] || return 47
+    printf '{"reason":"compiler-artifact","target":{"name":"oasis7_viewer_live"},"executable":"%s"}\n' "$VIEWER_BIN"
+  else
+    [[ -n "${PRE2_VIEWER_BINARY:-}" && "$PRE2_VIEWER_BINARY" == "$VIEWER_BIN" ]] || return 48
+    [[ "$*" == *"--lib --bins --features wasmtime" ]] || return 49
+  fi
+}
+"""
+            script += "\n".join(functions) + "\nrun_full_support_tier_tests\n"
+            for fail_build, expected in (('0', 0), ('1', 47)):
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                    env=dict(os.environ, PRE2_VIEWER_BINARY='', VIEWER_BIN=str(viewer), FAIL_BUILD=fail_build))
+                self.assertEqual(result.returncode, expected, result.stderr)
+
     def test_full_tail_keeps_strict_wasmtime_profile_and_fixture_viewer(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()

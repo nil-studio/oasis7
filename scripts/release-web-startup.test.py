@@ -88,6 +88,12 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('unknown option: --scenario', result.stderr)
 
+    def test_primary_rejects_non_loopback_test_login_listener(self):
+        result = subprocess.run(['bash', str(ROOT / 'scripts/viewer-primary-web-entry-regression.sh'),
+            '--viewer-host', '0.0.0.0'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('requires a loopback viewer host', result.stderr)
+
     def test_default_artifact_build_failure_prevents_process_start(self):
         self.check_primary_artifact_build(custom=False)
 
@@ -157,6 +163,64 @@ class StartupTests(unittest.TestCase):
             script = 'global.window={__AW_TEST__:{getState:()=>('+json.dumps(candidate)+')}}; process.exit(('+predicate+') === '+str(field is None).lower()+' ? 0 : 1)'
             result = subprocess.run(['node', '-e', script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_primary_login_requires_guest_gate_and_visible_backend_issued_session(self):
+        source = (ROOT / 'scripts/viewer-primary-web-entry-regression.sh').read_text()
+        function = 'enter_primary_player_surface() {' + source.split(
+            'enter_primary_player_surface() {', 1)[1].split('\n}', 1)[0] + '\n}'
+        script = r"""set -euo pipefail
+out_dir=/unused
+assert_eval_true() {
+  if [[ "$2" == *'authSource'* ]]; then
+    echo issued >> "$TRACE_LOG"
+    [[ "$FAIL_PHASE" != issued ]]
+  else
+    echo guest >> "$TRACE_LOG"
+    [[ "$FAIL_PHASE" != guest ]]
+  fi
+}
+capture_screenshot_best_effort() { :; }
+ab_cmd() {
+  [[ "$2" == click && "$3" == '[data-auth-action="test-login"]' ]] || return 42
+  echo click >> "$TRACE_LOG"
+  [[ "$FAIL_PHASE" != click ]]
+}
+""" + function.replace('>>"$out_dir/test-login.log" 2>&1', '') + '\nenter_primary_player_surface owned default'
+        with tempfile.TemporaryDirectory() as directory:
+            for phase, calls in (('', ['guest', 'click', 'issued']), ('guest', ['guest']),
+                                 ('click', ['guest', 'click']), ('issued', ['guest', 'click', 'issued'])):
+                trace = pathlib.Path(directory) / (phase + 'trace')
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                    env=dict(os.environ, TRACE_LOG=str(trace), FAIL_PHASE=phase))
+                self.assertEqual(result.returncode == 0, phase == '', result.stderr)
+                self.assertEqual(trace.read_text().splitlines(), calls)
+
+    def test_primary_flow_requires_visible_unique_action_context_and_receipt(self):
+        source = (ROOT / 'scripts/viewer-primary-web-entry-regression.sh').read_text()
+        self.assertTrue('primary_entry_surface_predicate()' in source, 'primary flow predicate missing')
+        function = source.split('primary_entry_surface_predicate() {', 1)[1]
+        expression = function.split("<<'JS'\n", 1)[1].split('\nJS', 1)[0]
+        valid = dict(root=True, actions=1, context=True, receipt=True,
+                     visible=True, href='#command', text='Inspect current blocker')
+        variants = [(valid, True)]
+        for field, value in (('root', False), ('actions', 0), ('actions', 2),
+                             ('context', False), ('receipt', False), ('visible', False),
+                             ('href', ''), ('text', '')):
+            variants.append((dict(valid, **{field: value}), False))
+        for candidate, expected in variants:
+            script = 'const state=' + json.dumps(candidate) + ';\n' + r"""
+const node = () => ({textContent:state.text, getClientRects:()=>state.visible?[{}]:[],
+  getAttribute:()=>state.href});
+const root = node();
+root.querySelectorAll = () => Array.from({length:state.actions}, node);
+root.querySelector = selector => selector.includes('supporting-context')
+  ? (state.context ? node() : null) : (state.receipt ? node() : null);
+global.document = {querySelector:()=>state.root ? root : null};
+global.getComputedStyle = () => ({visibility:'visible', display:'block'});
+"""
+            script += 'if ((' + expression + ') !== ' + str(expected).lower() + ') process.exit(1);'
+            result = subprocess.run(['node', '-e', script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, str(candidate) + result.stderr)
 
     def test_owned_http_404_interrupts_readiness_deadline(self):
         class NotFound(http.server.BaseHTTPRequestHandler):

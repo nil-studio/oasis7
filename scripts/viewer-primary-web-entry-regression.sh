@@ -218,6 +218,42 @@ assert_eval_true() {
   return 1
 }
 
+# Validate the current Player HUD, rather than a retired introductory heading.
+primary_entry_surface_predicate() {
+  cat <<'JS'
+(() => {
+  const visible = element => Boolean(element && element.getClientRects().length
+    && getComputedStyle(element).display !== "none"
+    && getComputedStyle(element).visibility !== "hidden");
+  const area = document.querySelector('[data-viewer-decision-area="true"]');
+  const actions = area?.querySelectorAll('[data-primary-action="true"]');
+  const action = actions?.length === 1 ? actions[0] : null;
+  const context = area?.querySelector('[data-shell-region="supporting-context"]');
+  const receipt = area?.querySelector('[data-viewer-overlay="receipt"]');
+  return Boolean([area, action, context, receipt].every(visible)
+    && [action, context, receipt].every(element => element.textContent.trim())
+    && action.getAttribute("href")?.trim());
+})()
+JS
+}
+
+enter_primary_player_surface() {
+  local session=$1 label=$2
+  assert_eval_true "$session" '(() => {
+    const gate = document.querySelector("[data-viewer-fixture-state=hosted_login_gate]");
+    return window.__AW_TEST__.getState().authReady === false && Boolean(gate?.getClientRects().length);
+  })()' 15000 || { echo "error: $label missing guest login gate" >&2; return 1; }
+  capture_screenshot_best_effort "$session" "$out_dir/$label-login.png" "$out_dir/$label-login.screenshot.log" "$label guest login" >/dev/null
+  # Exercise the existing loopback-only backend issuer through its visible UI.
+  ab_cmd "$session" click '[data-auth-action="test-login"]' >>"$out_dir/test-login.log" 2>&1 || return 1
+  assert_eval_true "$session" '(() => {
+    const state = window.__AW_TEST__.getState();
+    return state.authReady === true && state.authSource === "hosted_player_issue+browser_local_device_session"
+      && state.authTier === "player_session" && Boolean(state.authPlayerId)
+      && !document.querySelector("[data-viewer-fixture-state=hosted_login_gate]");
+  })()' 15000 || { json_to_file "$(ab_state "$session")" "$out_dir/$label-login-failed-state.json"; echo "error: $label QA session was not issued through test login" >&2; return 1; }
+}
+
 assert_body_contains() {
   local body_path=$1
   local expected=$2
@@ -339,6 +375,11 @@ done
 
 ab_require
 
+case "$viewer_host" in
+  127.0.0.1|localhost|::1|'[::1]') ;;
+  *) echo "error: primary entry QA test login requires a loopback viewer host" >&2; exit 2 ;;
+esac
+
 if [[ "$web_bind" != *:* ]]; then
   echo "error: --web-bind must be in <host:port> format" >&2
   exit 2
@@ -374,6 +415,7 @@ while IFS= read -r env_default; do
   launcher_env_defaults+=("$env_default")
 done < <(oasis7_hosted_login_gate_env_defaults "$hosted_account_store_path")
 launcher_env_defaults+=(
+  "OASIS7_HOSTED_TEST_LOGIN_ENABLED=1"
   "OASIS7_HOSTED_PLAYER_SESSION_LEDGER_PATH=$out_dir/hosted-player-sessions.json"
   "OASIS7_HOSTED_REGISTRATION_REPLAY_LEDGER_PATH=$out_dir/hosted-registration-replay.json"
 )
@@ -448,7 +490,7 @@ if ! wait_for_http "http://${viewer_host}:${viewer_port}/" 240; then
   exit 1
 fi
 
-base_query="ws=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "ws://${web_bind}")&test_api=1"
+base_query="ws=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "ws://${web_bind}")&test_api=1&hosted_test_login=1"
 default_url="http://${viewer_host}:${viewer_port}/?${base_query}"
 auto_url="http://${viewer_host}:${viewer_port}/?${base_query}&render_mode=auto"
 default_session="${run_id}-default"
@@ -457,7 +499,10 @@ auto_session="${run_id}-auto"
 ab_open "$default_session" "$headed" "$default_url" >/dev/null
 ab_cmd "$default_session" wait --load networkidle >/dev/null 2>&1 || true
 wait_for_api "$default_session" 60000 || { echo "error: default route missing __AW_TEST__" >&2; exit 1; }
-default_state=$(wait_for_connected "$default_session" 30000) || { echo "error: default route did not connect" >&2; exit 1; }
+default_state=$(wait_for_connected "$default_session" 30000) || { json_to_file "$default_state" "$default_state_path"; ab_cmd "$default_session" get text body >"$default_body_path"; echo "error: default route did not connect; inspect $default_state_path" >&2; exit 1; }
+enter_primary_player_surface "$default_session" default
+# Preserve the post-login public state alongside the visible HUD proof.
+default_state=$(ab_state "$default_session")
 json_to_file "$default_state" "$default_state_path"
 ab_cmd "$default_session" get text body >"$default_body_path"
 default_screenshot_status=$(capture_screenshot_best_effort "$default_session" "$default_screenshot_path" "$default_screenshot_log_path" "default entry")
@@ -466,7 +511,10 @@ default_url_final=$(normalize_eval_token "$(ab_cmd "$default_session" get url)")
 [[ "$(state_render_mode "$default_state")" == "viewer" ]] || { echo "error: default route did not land in viewer" >&2; exit 1; }
 [[ "$(state_reason "$default_state")" == "direct_viewer_entry" ]] || { echo "error: default route reason mismatch: $(state_reason "$default_state")" >&2; exit 1; }
 [[ "$default_url_final" == "http://${viewer_host}:${viewer_port}/"* ]] || { echo "error: default route escaped viewer host: $default_url_final" >&2; exit 1; }
-assert_body_contains "$default_body_path" "STANDARD USER FLOW" "default route"
+assert_eval_true "$default_session" "$(primary_entry_surface_predicate)" 15000 || {
+  echo "error: default route missing visible Player HUD action/context/receipt" >&2
+  exit 1
+}
 assert_body_contains "$default_body_path" "NEXT MOVE" "default route"
 assert_body_contains "$default_body_path" "PLAYER LEVERAGE" "default route"
 assert_body_contains "$default_body_path" "OBJECTIVE" "default route"
@@ -475,7 +523,9 @@ assert_body_contains "$default_body_path" "ACTION RECEIPT" "default route"
 ab_open "$auto_session" "$headed" "$auto_url" >/dev/null
 ab_cmd "$auto_session" wait --load networkidle >/dev/null 2>&1 || true
 wait_for_api "$auto_session" 60000 || { echo "error: auto route missing __AW_TEST__" >&2; exit 1; }
-auto_state=$(wait_for_connected "$auto_session" 30000) || { echo "error: auto route did not connect" >&2; exit 1; }
+auto_state=$(wait_for_connected "$auto_session" 30000) || { json_to_file "$auto_state" "$auto_state_path"; ab_cmd "$auto_session" get text body >"$auto_body_path"; echo "error: auto route did not connect; inspect $auto_state_path" >&2; exit 1; }
+enter_primary_player_surface "$auto_session" auto
+auto_state=$(ab_state "$auto_session")
 json_to_file "$auto_state" "$auto_state_path"
 ab_cmd "$auto_session" get text body >"$auto_body_path"
 auto_screenshot_status=$(capture_screenshot_best_effort "$auto_session" "$auto_screenshot_path" "$auto_screenshot_log_path" "auto entry")
@@ -484,6 +534,10 @@ auto_url_final=$(normalize_eval_token "$(ab_cmd "$auto_session" get url)")
 [[ "$(state_render_mode "$auto_state")" == "viewer" ]] || { echo "error: auto route did not land in viewer" >&2; exit 1; }
 [[ "$(state_reason "$auto_state")" == "direct_viewer_entry" ]] || { echo "error: auto route reason mismatch: $(state_reason "$auto_state")" >&2; exit 1; }
 [[ "$auto_url_final" == "http://${viewer_host}:${viewer_port}/"* ]] || { echo "error: auto route escaped viewer host: $auto_url_final" >&2; exit 1; }
+assert_eval_true "$auto_session" "$(primary_entry_surface_predicate)" 15000 || {
+  echo "error: auto route missing visible Player HUD action/context/receipt" >&2
+  exit 1
+}
 
 python3 - "$summary_json_path" <<'PY' "$default_state_path" "$auto_state_path" "$default_url_final" "$auto_url_final" "$default_screenshot_path" "$auto_screenshot_path" "$default_screenshot_status" "$auto_screenshot_status" "$default_screenshot_log_path" "$auto_screenshot_log_path"
 import json
