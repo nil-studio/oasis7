@@ -1,6 +1,6 @@
 import type { DocumentInventoryQuery, DocumentInventoryPage, DocumentDirectoryQuery, DocumentDirectoryPage, DocumentSemanticTreeQuery, DocumentSemanticTreePage, DocumentTreeReadingKey, DocumentTreeReadingSaveRequest, DocumentTreeReadingLoadResult, DocumentTreeReadingScope, DocumentTreeLastView } from './generated/core';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { DecisionDraft, DecisionRecord, DocumentSection, GitHubSnapshot, Preferences, Snapshot, WorkAssociation } from './types';
+import type { DocumentSection, Preferences, Snapshot } from './types';
 export const connected = () => isTauri();
 function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (!connected()) return Promise.reject(new Error('浏览器预览未接入桌面核心。请从 App 打开真实项目。'));
@@ -8,12 +8,6 @@ function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T
 }
 // Explicit finite commands: no arbitrary method, shell, SQL or filesystem proxy.
 export const bridge = {
-  cancelSourceReads: () => call<void>('cancel_source_reads'),
-  addWorktreeReference: (path: string, expectedRevision: number) => call<import('./generated/core').DailyWorkState>('add_worktree_reference', {path,expectedRevision}),
-  readGithubWindow: (page: number|null, number: number|null, ghPath: string|null) => call<GitHubSnapshot>('read_github_window', {page,number,ghPath}),
-  dailyWork: () => call<import('./generated/core').DailyWorkState>('query_daily_work'),
-  saveDailyWork: (request: import('./generated/core').DailyWorkRequest) => call<import('./generated/core').DailyWorkState>('save_daily_work', {request}),
-  workProjection: () => call<import('./generated/core').WorkProjection>('query_work_projection'),
   documentDirectory: (query: DocumentDirectoryQuery) => call<DocumentDirectoryPage>('query_document_directory', { query }),
   documentSemanticTree: (query: DocumentSemanticTreeQuery) => call<DocumentSemanticTreePage>('query_document_semantic_tree', { query }),
   loadDocumentTreeReading: (key: DocumentTreeReadingKey) => call<DocumentTreeReadingLoadResult>('load_document_tree_reading', {key}),
@@ -26,17 +20,11 @@ export const bridge = {
   chooseProject: () => call<Snapshot | null>('choose_project'),
   refresh: () => call<Snapshot>('refresh_source'),
   search: (query: string) => call<DocumentSection[]>('search_rules', { query, limit: 100 }),
-  decisionHistory: (id:string) => call<DecisionRecord[]>('query_decision_history',{id}),
-  replaceDecision: (draft:DecisionDraft,previousId:string) => call<DecisionRecord>('replace_decision',{draft,previousId}),
-  saveDecision: (draft: DecisionDraft) => call<DecisionRecord>('save_decision_draft', { draft }),
   savePreferences: (preferences: Preferences) => call<void>('save_preference', { preferences }),
   recordReading: (s: DocumentSection) => call<void>('read_source', { sectionId: s.id, revision: s.revision, line: s.line }),
   rebuildCache: () => call<Snapshot>('rebuild_cache'),
-  github: () => call<GitHubSnapshot>('get_github_snapshot'),
-  refreshGithub: (ghPath: string | null) => call<GitHubSnapshot>('refresh_github', { ghPath }),
   openSource: (target: string) => call<void>('open_source_target', { target }),
   readVersion: (sectionId: string, revision: string) => call<DocumentSection | null>('read_version', { sectionId, revision }),
-  associateWork: (workUrl: string, goalSectionIds: string[]) => call<WorkAssociation>('associate_work', { workUrl, goalSectionIds }),
 };
 export function errorMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') return error.message;

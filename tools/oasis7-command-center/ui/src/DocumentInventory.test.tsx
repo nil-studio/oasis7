@@ -15,7 +15,7 @@ const file = (path = 'doc/design.md', extra: Partial<IndexedDocument> = {}): Ind
 const snapshot = (id = 'project', generation = '1'): Snapshot => ({
   project: { id, path: '/repo', head: 'head', branch: 'main', gitCommonDir: '/repo/.git', environment: 'local' },
   sources: [{ kind: 'local', generation, state: 'partial', lastAttempt: '1', lastSuccess: '1', sourceRevision: 'head', coverage: '', error: null }],
-  sections: [section], decisions: [], preferences: { projectPath: '/repo', query: '', view: 'rules' }, associations: [], readingPositions: [], git: {status:'',worktrees:''},
+  sections: [section],  preferences: { projectPath: '/repo', query: '', view: 'rules' },  readingPositions: [], git: {status:'',worktrees:''},
 });
 const page = (files = [file()], extra: Partial<DocumentInventoryPage> = {}): DocumentInventoryPage => ({
   schemaVersion: 1, projectId: 'project', snapshotId: 'snapshot', baselineOid: 'head', generatedAt: '1',
@@ -133,7 +133,7 @@ it('opens only the exact resolved pairing chapter and preserves its origin acros
   expect(screen.getByText(/第 8 行 · doc\/target.md#contract/).closest('details')).not.toHaveAttribute('open');
   fireEvent.click(open);
   expect(showSource).toHaveBeenCalledWith(target, open);
-  setState({...state(),decisions:[]});
+  setState({...state(),sections:[...state().sections]});
   await Promise.resolve();
   expect(screen.getByRole('button', {name:'打开配对章节：配对章节'})).toBe(open);
   expect(api.documentInventory).toHaveBeenCalledTimes(1);
@@ -323,5 +323,5 @@ it('opens content immediately, skips a heading-only chapter and preserves local 
  renderInventory(()=><DocumentInventory snapshot={state()} showSource={showSource}/>);fireEvent.click(await screen.findByRole('button',{name:'设计文档'}));
  await waitFor(()=>expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第一条'));expect(showSource).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'第二条 · 第 20 行'}));expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第二条');
- setState({...state(),decisions:[]});expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第二条');
+ setState({...state(),sections:[...state().sections]});expect(screen.getByRole('article',{name:'文档正文'})).toHaveTextContent('正文第二条');
 });

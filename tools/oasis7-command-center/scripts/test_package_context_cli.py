@@ -178,6 +178,20 @@ if mode == 'failed':
         self.assertEqual(registered, granted, 'the main window needs each finite app permission')
         self.assertEqual(capability['windows'], ['main'])
 
+    def test_local_companion_cannot_write_cloud_personal_records_or_read_github(self):
+        host = SCRIPT.parent.parent / 'src-tauri'
+        manifest = (host / 'build.rs').read_text()
+        for retired in ('query_daily_work', 'save_daily_work', 'query_work_projection',
+                        'save_decision_draft', 'replace_decision', 'associate_work',
+                        'query_decision_history', 'refresh_github', 'get_github_snapshot',
+                        'read_github_window', 'add_worktree_reference'):
+            self.assertNotIn('"' + retired + '"', manifest)
+        capability = json.loads((host / 'capabilities/main.json').read_text())
+        self.assertNotIn('remote', capability, 'remote pages must never receive local IPC')
+        config = json.loads((host / 'tauri.conf.json').read_text())
+        self.assertEqual(config['app']['security']['capabilities'], ['main'])
+        self.assertNotIn('https:', config['app']['security']['csp'])
+
     def test_requested_desktop_target_is_shared_with_cli_and_catalog(self):
         target = 'x86_64-apple-darwin'
         for args in (['--target', target], ['--target=' + target], ['-t', target], ['-t' + target]):
