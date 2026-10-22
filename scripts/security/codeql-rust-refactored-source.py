@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -286,6 +287,42 @@ def collection(source, context):
     return filters,files
 
 
+def partition_query(text, selected):
+    """Keep original top-level witness clauses; partition only their finite label domain."""
+    label_match = re.search(r'string labels\(\) \{ result = \[(.*?)\] \}', text, re.S)
+    labels = re.findall(r'"([^"]+)"', label_match.group(1))
+    if not selected or len(selected) != len(set(selected)) or not set(selected) <= set(labels):
+        raise RuntimeError('invalid witness partition')
+    start = text.index('predicate witness(string label) {\n') + len('predicate witness(string label) {\n')
+    end = text.index('\n}\n', start)
+    clauses = re.split(r'\n  or (?=label = ")', text[start:end])
+    keyed = {}
+    for clause in clauses:
+        match = re.match(r'\s*label = "([^"]+)"', clause)
+        if match is None or match.group(1) in keyed:
+            raise RuntimeError('unrecognized witness clause')
+        keyed[match.group(1)] = clause
+    if set(keyed) != set(labels):
+        raise RuntimeError('witness labels do not cover clauses')
+    body = '  ' + '\n  or '.join(keyed[name].lstrip() for name in labels if name in selected)
+    result = text[:start] + body + text[end:]
+    return result[:label_match.start(1)] + ','.join(qstr(x) for x in labels if x in selected) + result[label_match.end(1):]
+
+
+def partition_queries(root):
+    original = queries(root)
+    targets = ['typed-request-call', 'typed-response-call', 'typed-publish-call']
+    driver_labels = re.findall(r'"([^"]+)"', re.search(r'string labels\(\) \{ result = \[(.*?)\] \}', original['Driver'], re.S).group(1))
+    return {
+        'PeerAst': partition_query(original['PeerCandidate'], ['derive-ast']),
+        'PeerDf': partition_query(original['PeerCandidate'], ['derive-df', 'closure-flow']),
+        'DriverNonTarget': partition_query(original['Driver'], [x for x in driver_labels if x not in targets]),
+        'DriverTarget': partition_query(original['Driver'], targets),
+        'CallsCandidate': original['CallsCandidate'],
+        'Files': original['Files'],
+    }
+
+
 def execute(driver, production, args, env):
     source=args.business_source.resolve();out=args.output;work=args.work;cli=str(args.codeql)
     save=lambda name,value:production.evidence_write(out/name,(json.dumps(value,indent=2)+'\n').encode(),out)
@@ -303,7 +340,8 @@ def execute(driver, production, args, env):
         # A source pack is new and unlocked, never a copied compiled-pack lock.
         query=out/'refactored-queries';query.mkdir(exist_ok=False)
         production.evidence_write(query/'qlpack.yml',b'name: oasis7/rust-model-diagnostic\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.23\n',out)
-        texts=queries(source)
+        compile_only = getattr(args, 'refactored_partition_plans', False)
+        texts=partition_queries(source) if compile_only else queries(source)
         for name,text in texts.items(): production.evidence_write(query/(name+'.ql'),text.encode(),out)
         packs=os.pathsep.join(str(args.codeql.parent/'qlpacks/codeql'/name/version) for name,version in driver.LIBRARY_VERSIONS.items())
         run=driver.run
@@ -313,8 +351,17 @@ def execute(driver, production, args, env):
             driver.verify_library_path(json.loads(log.read_text()),args.codeql.parent,query,name)
         cache=work/'refactored-query-cache';cache.mkdir(exist_ok=False)
         common=work/'refactored-common-cache';common.mkdir(exist_ok=False)
-        run([cli,'query','compile','--keep-going','--compilation-cache='+str(cache),'--no-default-compilation-cache','--common-caches='+str(common),'--additional-packs='+packs,'--threads=2','--ram=3072',*[str(query/(name+'.ql')) for name in texts]],work,out/'refactored-compile.log',args.deadline-90,240,out,env)
         save('refactored-query-inputs.json',{name:hashlib.sha256(text.encode()).hexdigest() for name,text in texts.items()})
+        if compile_only:
+            if args.deadline-time.monotonic()<450:
+                raise RuntimeError('NOT_REACHED insufficient fixed compile-plan budget')
+            run([cli,'query','compile','--help','-v'],work,out/'partition-compile-help.log',args.deadline-90,20,out,env)
+            if '--[no-]dump-ra' not in (out/'partition-compile-help.log').read_text():
+                raise RuntimeError('exact CLI does not advertise dump-ra')
+            run([cli,'query','compile','--keep-going','--dump-ra','--compilation-cache='+str(cache),'--no-default-compilation-cache','--common-caches='+str(common),'--additional-packs='+packs,'--threads=2','--ram=3072',*[str(query/(name+'.ql')) for name in texts]],work,out/'partition-compile-ra.log',args.deadline-90,360,out,env)
+            save('partition-compile-only.json',{'status':'COMPILED_PLAN_REQUIRES_REVIEW','db_downloads':0,'extractions':0,'evaluations':0,'queries':list(texts),'shared_compile_seconds':360,'meaning':'Complete successful compiler stdout is evidence for independent plan closure review, not runtime or coverage PASS.'})
+            return
+        run([cli,'query','compile','--keep-going','--compilation-cache='+str(cache),'--no-default-compilation-cache','--common-caches='+str(common),'--additional-packs='+packs,'--threads=2','--ram=3072',*[str(query/(name+'.ql')) for name in texts]],work,out/'refactored-compile.log',args.deadline-90,240,out,env)
         for context in ('candidate','legacy','image'):
             if args.deadline-time.monotonic()<450: raise RuntimeError('NOT_REACHED insufficient total context budget: '+context)
             if shutil.disk_usage(work).free<4*1024**3: raise RuntimeError('insufficient owned data space')

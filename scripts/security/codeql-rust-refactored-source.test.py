@@ -111,6 +111,56 @@ class Guards(unittest.TestCase):
                 self.assertTrue((output/'refactored-protected-after.json').is_file())
                 self.assertTrue((output/'refactored-official-after.json').is_file())
 
+    def test_partition_formula_union_and_zero_rows_exact(self):
+        original=m.queries(Path('/owned/source'));parts=m.partition_queries(Path('/owned/source'))
+        def clauses(text):
+            body=text.split('predicate witness(string label) {\n',1)[1].split('\n}\n',1)[0]
+            return {m.re.match(r'\s*label = "([^"]+)"',x).group(1):x.strip()
+                    for x in m.re.split(r'\n  or (?=label = ")',body)}
+        for name,children in [('PeerCandidate',['PeerAst','PeerDf']),('Driver',['DriverNonTarget','DriverTarget'])]:
+            merged={}
+            for child in children:
+                for key,value in clauses(parts[child]).items():
+                    self.assertNotIn(key,merged);merged[key]=value
+                self.assertIn('present = 0 and not witness(label)',parts[child])
+            self.assertEqual(merged,clauses(original[name]))
+        self.assertEqual(parts['CallsCandidate'],original['CallsCandidate'])
+        self.assertEqual(parts['Files'],original['Files'])
+        self.assertEqual(len(clauses(parts['DriverNonTarget'])),13)
+        self.assertEqual(len(clauses(parts['DriverTarget'])),3)
+        self.assertIn('wrong-branch',clauses(parts['DriverNonTarget']))
+        self.assertIn('wrong-state',clauses(parts['DriverNonTarget']))
+
+    def test_invalid_partition_rejected(self):
+        text=m.queries(Path('/owned/source'))['PeerCandidate']
+        for labels in [[],['missing'],['derive-ast','derive-ast']]:
+            with self.assertRaises(RuntimeError):m.partition_query(text,labels)
+
+    def test_partition_compile_early_return_never_materializes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=root/'source';source.mkdir()
+            output=root/'evidence';output.mkdir();work=root/'work';work.mkdir()
+            cli=root/'tools/codeql';official=cli.parent/'qlpacks/codeql/rust-all/0.2.23'
+            official.mkdir(parents=True);(official/'f.qll').write_text('official')
+            args=types.SimpleNamespace(business_source=source,output=output,work=work,
+                codeql=cli,deadline=time.monotonic()+1080,refactored_partition_plans=True)
+            calls=[]
+            def run(argv,cwd,log,*rest):
+                calls.append(argv)
+                if '--help' in argv:log.write_text('--[no-]dump-ra')
+                elif argv[1:3]==['resolve','library-path']:log.write_text('{}')
+                else:log.write_text('mock compiler stdout; not actual QL evidence')
+            driver=types.SimpleNamespace(LIBRARY_VERSIONS={'rust-all':'0.2.23'},run=run,verify_library_path=Mock())
+            production=types.SimpleNamespace(evidence_write=lambda path,data,artifact_root:path.write_bytes(data))
+            with patch.object(m,'protected',return_value={}),patch.object(m.subprocess,'check_output',side_effect=[m.SOURCE+'\n',b'',b'']):
+                m.execute(driver,production,args,{})
+            self.assertEqual(len(calls),8)
+            self.assertTrue(all(argv[1] in ('resolve','query') for argv in calls))
+            self.assertEqual(calls[-1][1:3],['query','compile'])
+            self.assertIn('--dump-ra',calls[-1])
+            self.assertEqual(len([x for x in calls[-1] if x.endswith('.ql')]),6)
+            self.assertTrue((output/'partition-compile-only.json').is_file())
+
     def test_exact_new_source_anchors(self):
         root=P.resolve().parents[2]
         anchors={m.DRIVER:{23:'async fn run',40:'Event::Request',44:'Event::Response',52:'Event::Gossip',64:'if !server'},

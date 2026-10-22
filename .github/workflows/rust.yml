@@ -83,7 +83,7 @@ jobs:
       - name: Verify refactored real-source public models
         run: |
           python3 scripts/security/codeql-rust-model-diagnostic.py \
-            --refactored-source-model \
+            --refactored-partition-plans \
             --business-source "$GITHUB_WORKSPACE/model-source" \
             --codeql "$RUNNER_TEMP/rust-model-tools/codeql/codeql" \
             --output "$RUNNER_TEMP/rust-model-evidence" \
