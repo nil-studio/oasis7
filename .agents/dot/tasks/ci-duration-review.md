@@ -48,6 +48,8 @@
 
 ## 卡点必须有 Issue 承接
 
+沿用 [WORKFLOW 的问题闭环](../WORKFLOW.md#confirmed-problem-followthrough)；以下保留本任务的卡点判据、证据字段与执行者分工，不扩大写入或持续执行授权。
+
 每个有证据的合入卡点都由本 subagent 在 `eng-cc/oasis7` 创建或关联 Issue，不能仅在报告中建议建单。已观测到阻塞但根因尚不明确时可以建立“待定位”的卡点 Issue，区分事实和假设；单独命中筛查阈值、数据不足或没有实际问题不制造 Issue。报告重点展示前 3 项，其余已确认卡点保留 Issue 索引，不因摘要上限丢失跟踪。
 
 写入按 [HEARTBEAT.md](../HEARTBEAT.md) 的 Issue 协调与结果核实执行。先检索并读取相关 open/closed Issue，按必要检查、症状/根因和影响范围查重，不只按标题或当日日期判断。同一卡点跨日期复用同一未解决 Issue，只补充新的 PR/run 证据；只有关闭记录且存在新复发证据时新建关联复发项，不擅自重新打开历史 Issue。主 Agent 不代写。
