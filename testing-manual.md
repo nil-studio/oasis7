@@ -1656,3 +1656,19 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_proto -p oasis7_net --l
 - Existing three-node TCP forwarding and role/recordless-budget regressions remain in the same net suite. DHT result selection and final handoff recheck current time. Three-node TCP also verifies cached expiry and idle health degradation within the one-second refresh tick while authenticated connections survive.
 
 These tests do not prove absolute wall-clock trust, restart/whole-machine rollback protection, persistent sequence/tombstones, aggregate discovery-round budgets, real public-network independence or deployment readiness. Explicit static bootstrap addresses have a separate local configuration lifetime; remote record addresses never inherit it. Signed-record TTL expiration does not revoke governance, validator authority or authenticated sessions. Do not replace signed timestamps with receiver time or extend expiry by the future-skew allowance.
+
+
+<a id="discovery-work-budget"></a>
+### Discovery work budget
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [shared discovery policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Use controlled monotonic instants for rolling-window boundaries and actual Swarm scheduling entrypoints for fanout and retry tests:
+
+- Exhaust the combined 32 in-flight slots across automatic discovery work; a new peer/source must create no extra pending work or request traffic. Release only terminal operations; rate tokens remain consumed.
+- Complete 128 operations in a rolling 60-second window, switch sources and reconstruct requests, then verify refusal until the oldest start leaves the window. Moving wall time must not refill the budget.
+- Feed oversized, over-count and duplicate cached ID lists; reject beyond 16 KiB or 128 items before fanout, and schedule duplicates once. Cap cumulative DHT provider results and server output at 128 IDs.
+- Traverse cache misses and outbound failures across proxies; stop after four attempts for the target chain and retain global consumption. Exercise cooldown saturation and expiry reclamation without exceeding 1024 entries per RR category (3072 total across three maps).
+- Retain the real three-node TCP signed-record forwarding/expiry flows and downstream status/filtering tests as positive-path coverage. Budget exhaustion must not itself disconnect authenticated sessions or grant source/role trust.
+
+Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, rendezvous protocol operations, application-driven operations and protocol-internal messages retain their own limits. New network instances start a new budget; no restart-resistant quota is claimed.

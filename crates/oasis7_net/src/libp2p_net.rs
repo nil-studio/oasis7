@@ -8,6 +8,8 @@ mod config;
 mod connection_lifecycle;
 mod constructor_support;
 mod discovery;
+mod discovery_budget;
+mod discovery_list;
 mod drop_support;
 pub(crate) mod error_mapping;
 mod inbound_dispatch;
@@ -54,6 +56,7 @@ use discovery::{
     peer_record_matches_target, peer_record_world_id, process_discovered_peer_record,
     publish_discovery_provider, start_peer_discovery_query,
 };
+pub use discovery_budget::DiscoveryWorkMetricsSnapshot;
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use inbound_dispatch::dispatch_inbound_request;
 use kad_queries::{DhtProgressAction, PendingDhtQuery, handle_dht_progress};
@@ -271,6 +274,7 @@ impl Libp2pNetwork {
                     };
                 }
                 loop {
+                    discovery_budget::publish_metrics(&swarm, &event_traffic_metrics);
                     if discovered_peer_records.prune(&active_transport_paths) {
                         (peer_healths_by_id, quarantined_active_peers, admitted_active_peers) = refresh_peer_manager_views(
                             &mut swarm, &discovered_peer_records, &discovery_observations,
@@ -357,6 +361,7 @@ impl Libp2pNetwork {
                                                 }
                                                 request_response::Message::Response { request_id, response } => {
                                                     if let Some(kind) = pending_peer_record_requests.remove(&request_id) {
+                                                        swarm.behaviour_mut().discovery_budget.finish_request(request_id);
                                                         record_response_inbound(
                                                             &event_traffic_metrics,
                                                             kind.protocol_label(),
@@ -419,6 +424,7 @@ impl Libp2pNetwork {
                                         }
                                         request_response::Event::OutboundFailure { request_id, peer, error, .. } => {
                                             if let Some(kind) = pending_peer_record_requests.remove(&request_id) {
+                                                        swarm.behaviour_mut().discovery_budget.finish_request(request_id);
                                                 handle_peer_record_outbound_failure(
                                                     &mut swarm,
                                                     kind,
@@ -463,6 +469,7 @@ impl Libp2pNetwork {
                                                 DhtProgressAction::None
                                             };
                                             if step.last {
+                                                swarm.behaviour_mut().discovery_budget.finish_dht(id);
                                                 pending_dht.remove(&id);
                                             }
                                             match action {

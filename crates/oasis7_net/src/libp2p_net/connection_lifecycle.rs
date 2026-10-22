@@ -228,9 +228,9 @@ pub(super) fn clear_disconnected_peer_state(
     pending_quarantine_disconnects: &mut HashSet<PeerId>,
     active_transport_paths: &mut HashMap<PeerId, TransportPath>,
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
-    connected_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
-    cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
-    cached_discovery_peer_cooldowns: &mut HashMap<PeerId, i64>,
+    _connected_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
+    _cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
+    _cached_discovery_peer_cooldowns: &mut HashMap<PeerId, i64>,
     pending_rendezvous_registers: &mut HashSet<PeerId>,
     pending_rendezvous_discovers: &mut HashSet<PeerId>,
     registered_rendezvous_nodes: &mut HashSet<PeerId>,
@@ -247,9 +247,8 @@ pub(super) fn clear_disconnected_peer_state(
         active_transport_paths.remove(&peer_id);
         last_dialed_transport_paths.remove(&peer_id);
     }
-    connected_peer_record_cooldowns.remove(&peer_id);
-    cached_peer_record_cooldowns.remove(&peer_id);
-    cached_discovery_peer_cooldowns.remove(&peer_id);
+    // Reconnection must not reset a live discovery target cooldown.
+    // Expired entries are pruned by the bounded admission path.
     pending_rendezvous_registers.remove(&peer_id);
     pending_rendezvous_discovers.remove(&peer_id);
     registered_rendezvous_nodes.remove(&peer_id);

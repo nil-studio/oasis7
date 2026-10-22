@@ -154,7 +154,7 @@ fn connected_peer_record_outbound_failure_falls_back_via_another_connected_peer(
     );
 
     assert!(!pending_connected_peer_records.contains(&target_peer_id));
-    assert!(!connected_peer_record_cooldowns.contains_key(&target_peer_id));
+    assert!(connected_peer_record_cooldowns.contains_key(&target_peer_id));
     assert!(pending_cached_peer_records.contains(&target_peer_id));
     assert!(cached_peer_record_cooldowns.contains_key(&target_peer_id));
     let retried = pending_peer_record_requests

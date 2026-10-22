@@ -24,6 +24,7 @@ mod discovery_dial_tests;
 mod discovery_observation_flow_tests;
 mod discovery_peer_record_failure_tests;
 mod discovery_peer_record_tests;
+mod discovery_work_budget_tests;
 mod peer_health_refresh_tests;
 mod peer_manager_observer_tests;
 mod peer_record_lifecycle_tests;
