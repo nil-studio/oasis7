@@ -1,3 +1,5 @@
+#[path = "node_engine_governance_auth.rs"]
+mod governance_auth;
 use super::*;
 use crate::node_engine_slashing::{build_validator_stake_proof_chain, evidence_hash};
 use crate::node_engine_transfer_filter::should_drop_transfer_action_before_proposal;

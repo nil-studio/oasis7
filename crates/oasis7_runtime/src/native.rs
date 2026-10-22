@@ -438,3 +438,5 @@ pub use world::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};
 pub mod world_rules;
 
 pub use world::ResolvedAgentOwnerV1;
+
+pub use oasis7_agent_api::world_action::GovernanceAuthorizationV1;

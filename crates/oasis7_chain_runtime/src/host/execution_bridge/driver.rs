@@ -351,6 +351,27 @@ impl NodeRuntimeExecutionDriver {
 }
 
 impl NodeExecutionHook for NodeRuntimeExecutionDriver {
+    fn validate_governance_action_payload(&self, payload_cbor: &[u8]) -> Result<(), String> {
+        use oasis7::consensus_action_payload::{
+            ConsensusActionAuthEnvelope, ConsensusActionPayloadBody,
+            decode_consensus_action_payload_envelope,
+        };
+        let envelope = decode_consensus_action_payload_envelope(payload_cbor)
+            .map_err(|error| format!("decode governance preflight payload: {error}"))?;
+        if envelope.gameplay_submission_origin.is_some() {
+            return Err("governance authorization cannot carry gameplay origin".into());
+        }
+        let ConsensusActionPayloadBody::RuntimeAction { action } = envelope.body else {
+            return Err("governance authorization requires a runtime action".into());
+        };
+        let Some(ConsensusActionAuthEnvelope::GovernanceAction(proof)) = envelope.auth else {
+            return Err("governance authorization proof missing".into());
+        };
+        self.execution_world
+            .verify_governance_action_for_next_commit(&action, &proof)
+            .map_err(|error| format!("governance preflight denied: {error:?}"))
+    }
+
     fn on_commit(
         &mut self,
         context: NodeExecutionCommitContext,
@@ -681,8 +702,10 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         ));
         let runtime_step_started_at = Instant::now();
         if !resume_after_product_validation_intent {
-            for (action, origin) in decoded_runtime_actions {
-                if let Some(origin) = origin {
+            for (action, origin, governance_authorization) in decoded_runtime_actions {
+                if let Some(proof) = governance_authorization {
+                    self.execution_world.submit_governance_action(action, proof);
+                } else if let Some(origin) = origin {
                     rollback_on_error!(
                         self.execution_world
                             .submit_recipe_action_with_origin(action, origin)

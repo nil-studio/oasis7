@@ -401,6 +401,7 @@ impl World {
         self.state.time = self.state.time.saturating_add(1);
         let _ = self.process_factory_depreciation()?;
         while let Some(envelope) = self.pending_actions.pop_front() {
+            self.validate_governance_action_authorization(&envelope)?;
             if let Err(reason) = self.safe_alternative_action_guard(&envelope) {
                 self.append_action_accepted_event(&envelope)?;
                 let event_id = self.append_event(
@@ -607,6 +608,7 @@ impl World {
         }
         if !resume_after_product_validation_intent {
             while let Some(envelope) = self.pending_actions.pop_front() {
+            self.validate_governance_action_authorization(&envelope)?;
                 if let Err(reason) = self.safe_alternative_action_guard(&envelope) {
                     self.append_action_accepted_event(&envelope)?;
                     let event_id = self.append_event(
@@ -690,7 +692,8 @@ impl World {
                         Some(CausedBy::Action(envelope.id)),
                     )?;
                     action_envelope = ActionEnvelope {
-                        committed_recipe_origin: None,
+                        governance_authorization: None,
+            committed_recipe_origin: None,
                         id: envelope.id,
                         action: override_action,
                     };

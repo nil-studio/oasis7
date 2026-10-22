@@ -202,6 +202,7 @@ fn module_route_encodes_action_input_as_cbor() {
     apply_module_manifest(&mut world, module_manifest);
 
     let envelope = ActionEnvelope {
+        governance_authorization: None,
         committed_recipe_origin: None,
         id: 1,
         action: Action::RegisterAgent {

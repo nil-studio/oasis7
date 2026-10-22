@@ -86,6 +86,9 @@ mod governance_proposal_status_publication_transaction_regressions;
 mod governance_publication;
 mod governance_quote;
 pub(crate) mod governance_registry_publication;
+mod governance_authorization;
+#[cfg(test)]
+pub(crate) mod governance_authorization_test_support;
 #[cfg(test)]
 mod governance_registry_publication_transaction_regressions;
 #[cfg(test)]
@@ -479,6 +482,8 @@ pub struct World {
     formal_archived_tick_consensus_count: u64,
     #[serde(skip)]
     formal_execution_tick: Option<(super::RuntimeCommittedTickContext, bool)>,
+    #[serde(skip)]
+    governance_replaying: bool,
     #[serde(default = "default_tick_consensus_authority_source")]
     tick_consensus_authority_source: String,
     #[serde(default)]
@@ -643,6 +648,7 @@ impl World {
             tick_consensus_records: Vec::new(),
             formal_archived_tick_consensus_count: 0,
             formal_execution_tick: None,
+            governance_replaying: false,
             tick_consensus_authority_source: default_tick_consensus_authority_source(),
             tick_consensus_rejection_audit_events: Vec::new(),
             governance_execution_policy: GovernanceExecutionPolicy::default(),

@@ -12,6 +12,21 @@ impl World {
         action_id
     }
 
+    /// Queue a controller-signed governance command. Authorization is evaluated
+    /// against the qualified parent during execution, not at enqueue time.
+    pub fn submit_governance_action(
+        &mut self,
+        action: Action,
+        authorization: oasis7_agent_api::world_action::GovernanceAuthorizationV1,
+    ) -> ActionId {
+        let id = self.allocate_next_action_id();
+        self.pending_actions.push_back(ActionEnvelope {
+            id, action, governance_authorization: Some(authorization), committed_recipe_origin: None,
+        });
+        self.enforce_pending_action_limit();
+        id
+    }
+
     /// Queue committed correlation metadata without changing action authorization.
     pub fn submit_recipe_action_with_origin(
         &mut self,
@@ -35,6 +50,7 @@ impl World {
         self.pending_actions.push_back(ActionEnvelope {
             id: action_id,
             action,
+            governance_authorization: None,
             committed_recipe_origin: Some(origin),
         });
         self.enforce_pending_action_limit();
@@ -46,6 +62,7 @@ impl World {
     /// to the ActionEnvelope that the step actually executes.
     pub(super) fn submit_action_with_id(&mut self, action_id: ActionId, action: Action) {
         self.pending_actions.push_back(ActionEnvelope {
+            governance_authorization: None,
             committed_recipe_origin: None,
             id: action_id,
             action,

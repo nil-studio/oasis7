@@ -88,6 +88,7 @@ fn run() -> Result<(), String> {
         }),
     };
     let action = ActionEnvelope {
+        governance_authorization: None,
         committed_recipe_origin: None,
         id: 1,
         action: Action::RegisterAgent {

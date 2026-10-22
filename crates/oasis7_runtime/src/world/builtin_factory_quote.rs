@@ -50,6 +50,7 @@ impl World {
         let body = clone.action_to_event(&ActionEnvelope {
             id: 0,
             action: action.clone(),
+            governance_authorization: None,
             committed_recipe_origin: None,
         })?;
         let power = self

@@ -81,6 +81,7 @@ mod tests {
             .pending_actions
             .push(crate::runtime::ActionEnvelope {
                 id: 1,
+                governance_authorization: None,
                 committed_recipe_origin: None,
                 action: Action::WorldServiceIntent { request: private },
             });

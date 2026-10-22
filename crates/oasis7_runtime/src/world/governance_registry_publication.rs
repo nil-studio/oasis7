@@ -9,6 +9,7 @@ impl World {
         &self,
         event: &GovernanceEvent,
     ) -> Result<PreparedGovernanceRegistryEvent, WorldError> {
+        let authorization_nonces = self.prepare_governance_event_authorization(event)?;
         let mut controller_registry = self.state.governance_main_token_controller_registry.clone();
         let mut admissions = self.state.governance_validator_admissions.clone();
         let mut identity_bindings = self.state.node_identity_bindings.clone();
@@ -58,6 +59,7 @@ impl World {
                 );
             }
             GovernanceEvent::ValidatorAdmissionSubmitted {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 node_id,
@@ -141,6 +143,7 @@ impl World {
                 admissions.insert(record.candidate_id.clone(), record);
             }
             GovernanceEvent::ValidatorAdmissionApproved {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 approved_at_epoch,
@@ -170,6 +173,7 @@ impl World {
                 record.last_transition_tick = self.state.time;
             }
             GovernanceEvent::ValidatorAdmissionActivated {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 activation_epoch,
@@ -210,6 +214,7 @@ impl World {
                 )?;
             }
             GovernanceEvent::ValidatorAdmissionRevoked {
+                authorization: _,
                 controller_account_id,
                 candidate_id,
                 node_id,
@@ -289,6 +294,7 @@ impl World {
         }
         Ok(PreparedGovernanceRegistryEvent {
             event: event.clone(),
+            authorization_nonces,
             controller_registry,
             admissions,
             identity_bindings,

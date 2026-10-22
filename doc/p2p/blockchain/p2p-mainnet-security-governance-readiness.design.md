@@ -73,6 +73,18 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接[专业治理授
 
 公开候选申请如被允许，使用独立的无权威申请权限；批准、排程激活、轮换、撤销仍需要上述 controller policy。rotation 把旧／新 signer、节点与生效边界绑定在同一治理决定中。缺 proof、错误世界／parent／policy、threshold 不足、重复 signer、过期、nonce 冲突或 proof/action 不一致均 fail closed；unknown outcome 按原 action identity 查询，不生成第二个治理效果。
 
+#### 当前受控 profile-v2 实现范围（#4975）
+
+四类 validator admission 使用 `ConsensusActionAuthEnvelope::GovernanceAction`，签名协议为 `GovernanceAuthorizationV1`。固定 CBOR tuple 的域为 `oasis7.governance.authorization.v1`，覆盖版本、world/chain/genesis、精确 parent canonical position/record ID/Snapshot root、完整 controller registry 摘要、controller、nonce、有效 canonical position 范围和完整原始 typed Action；签名表不进入自身签名载荷。signer 和 threshold 只从已验证 parent Snapshot 中的 registry 取得，重复 signer wire key、非规范十六进制与超限 proof 被拒绝。受控位置来自 qualified parent 的 `position + 1`，不使用执行 height 或 local tick。
+
+NodeRuntime 在入队前通过默认拒绝的 execution hook 调用真实 driver/World 验证；本地提案前重验已排队动作，并按 canonical action ID 顺序过滤过期 parent、重复或递减的 controller nonce，释放对应队列预算。正式执行与复制接收保留 typed proof，并在 World 再验。整个候选一直使用私有 verified parent 对象保存的原 controller registry；当前 World 中的新 registry 不能给同批动作补授权。成功效果、controller nonce 高水位和状态根投影由同一个 prepared publication 安装；失败不得消费 nonce 或发布治理效果。
+
+治理事件保留 `GovernanceAuthorizedActionV1` 中的原始动作和 proof；发布／重放重新计算确定性事件，防止规范化字段、推导撤销对象或 epoch 被换掉。旧 Snapshot 的空 nonce map 与旧 ActionEnvelope 的缺失 proof 字段保持原有编码；新治理动作缺 proof 一律拒绝。历史无签名事件只兼容显式 replay 的旧前缀，首个有签名治理事件后不再接受无签名后缀。有签名 tail 必须附着原来的 qualified parent；普通无信任 `from_snapshot` 不能借 proof 自报的 parent 恢复授权，缺原 parent 时停下并走 verified formal Snapshot 恢复。跨多个 parent 的原始 journal tail 自动重放尚未实现，不能把单一 parent 的重放测试当成完整历史恢复验收。
+
+这是受控 profile-v2 的认证切片：旧读者不理解新增 auth variant，必须先升级 verifier/runtime，再启用有签名治理提交；没有把旧 raw Action 或旧无签名历史改写为已认证决定。profile-v1、BFT admission、policy/key rotation、组件实际安装 ACK 和全入口公开服务验证仍是 #4975 的后续义务；本切片不新增公开 HTTP/CLI 提交端点，也不开放新的写权限。测试区分真实签名 qualified anchor 的 host 集成与仅检查执行顺序的 synthetic parent 单测，不声称实机独立故障域或部署验收。
+
+源码：[签名合约](../../../crates/oasis7_agent_api/src/world_action/governance_authorization.rs)、[World 验证与重放](../../../crates/oasis7_runtime/src/world/governance_authorization.rs)、[提案前重检](../../../crates/oasis7_node/src/node_engine_governance_auth.rs)、[执行解码](../../../crates/oasis7_chain_runtime/src/host/execution_bridge/driver_replicated_input.rs)。Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`。
+
 <a id="readiness-membership-application"></a>
 ### 成员应用、撤销与轮换目标
 
@@ -162,7 +174,7 @@ production custody、rotation/revocation/audit、真实 registry activation、ce
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | registry-first 与 validator activation 保留治理 authority，不从 local/config 或服务角色取得写权。 | [registry 隔离](#readiness-registry-isolation) | governance / runtime / QA | 仅 registry 优先级与 activation 子范围；服务暴露面、完整 BFT/rotation 证明未覆盖。 |
-| [治理授权专业要求](p2p-mainnet-security-governance-readiness.prd.md#readiness-governance-authorization)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 四类 admission 及 rotation 的外部输入按固定 committed policy、完整动作与 nonce 验权，拒绝 batch 自授权。 | [治理主体认证](#readiness-governance-authorization) | Runtime / Node / governance policy owner / QA | 目标；当前字段比较不构成闭环；不把未发现公开入口解释为已证明公网漏洞或全入口安全。 |
+| [治理授权专业要求](p2p-mainnet-security-governance-readiness.prd.md#readiness-governance-authorization)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 四类 admission 及 rotation 的外部输入按固定 committed policy、完整动作与 nonce 验权，拒绝 batch 自授权。 | [治理主体认证](#readiness-governance-authorization) | Runtime / Node / governance policy owner / QA | 受控 profile-v2 已接入签名 admission、固定 parent policy 和原子 nonce；BFT、rotation、组件 ACK、多 parent 历史恢复与公开服务全入口证明仍未完成。 |
 | [成员应用专业要求](p2p-mainnet-security-governance-readiness.prd.md#readiness-membership-application)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | h 提交、h+2 生效与组件持久安装一致，轮换／撤销边界后不继续旧 signer／stake。 | [成员应用](#readiness-membership-application) | P2P [集合转换](../design.md#des-p2p-bft-validator-transition-v1) / runtime / signer / ops / QA | 目标；不实现共识算法，不把 current applied None 当空集合；不覆盖单权威到 BFT 升级。 |
 | [私有读取授权专业要求](p2p-mainnet-security-governance-readiness.prd.md#readiness-full-sync-read-authorization)；Trace refs: O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8 | 每次放行验证源端代际、role 和有界新鲜度；撤销完成覆盖全部 provider 的应用／实际隔离／lease 到期。 | [读取授权与撤销](#readiness-full-sync-read-authorization) | Initial activation issuer / full-sync providers / client / ops / QA | 目标；不收回已放行字节，不授予 writer/validator/archive 能力，v1 无立即撤销保证。 |
 | [资产与密码学基线](p2p-mainnet-security-governance-readiness.prd.md#资产与密码学基线) | 客户端先签名并阻止缺失/partial bootstrap；API 与 shared runtime 必须验签及 nonce 约束。 | [授权与创世](#readiness-auth-genesis) | client launcher / runtime / QA | 产品适用性：N/A；理由：本行承接专业资产授权合同，未建立独立玩家经济或发行承诺；范围：signed transfer 边界。native/wasm 与 shared-layer 完整联测仍需补实际证据。 |

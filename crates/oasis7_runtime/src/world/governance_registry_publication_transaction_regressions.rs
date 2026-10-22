@@ -9,6 +9,8 @@ const NODE: &str = "validator.fixture";
 const PUBLIC_KEY: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 
 fn seed_controller_registry(world: &mut World) {
+    // These fixtures exercise the explicitly retained unsigned historical prefix.
+    world.governance_replaying = true;
     world
         .set_governance_main_token_controller_registry(GovernanceMainTokenControllerRegistry {
             genesis_controller_account_id: CONTROLLER.into(),
@@ -55,6 +57,7 @@ fn seed_controller_registry(world: &mut World) {
 
 fn submitted(candidate_id: &str, node_id: &str, public_key: &str) -> GovernanceEvent {
     GovernanceEvent::ValidatorAdmissionSubmitted {
+        authorization: None,
         controller_account_id: CONTROLLER.into(),
         candidate_id: candidate_id.into(),
         node_id: node_id.into(),
@@ -68,6 +71,7 @@ fn submitted(candidate_id: &str, node_id: &str, public_key: &str) -> GovernanceE
 
 fn approved(candidate_id: &str) -> GovernanceEvent {
     GovernanceEvent::ValidatorAdmissionApproved {
+        authorization: None,
         controller_account_id: CONTROLLER.into(),
         candidate_id: candidate_id.into(),
         approved_at_epoch: 0,
@@ -76,6 +80,7 @@ fn approved(candidate_id: &str) -> GovernanceEvent {
 
 fn activated(candidate_id: &str) -> GovernanceEvent {
     GovernanceEvent::ValidatorAdmissionActivated {
+        authorization: None,
         controller_account_id: CONTROLLER.into(),
         candidate_id: candidate_id.into(),
         activation_epoch: 0,
@@ -84,6 +89,7 @@ fn activated(candidate_id: &str) -> GovernanceEvent {
 
 fn revoked(candidate_id: &str, node_id: &str) -> GovernanceEvent {
     GovernanceEvent::ValidatorAdmissionRevoked {
+        authorization: None,
         controller_account_id: CONTROLLER.into(),
         candidate_id: candidate_id.into(),
         node_id: node_id.into(),

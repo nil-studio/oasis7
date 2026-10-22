@@ -101,7 +101,7 @@ pub(super) fn supported_origin(
     actions
         .into_iter()
         .next()
-        .and_then(|(_, origin)| origin)
+        .and_then(|(_, origin, authorization)| authorization.is_none().then_some(origin).flatten())
         .ok_or_else(|| "legacy request has no verified ingress origin".into())
 }
 

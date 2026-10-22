@@ -36,6 +36,7 @@ pub struct ConsensusActionPayloadEnvelope {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ConsensusActionAuthEnvelope {
     MainTokenAction(MainTokenActionAuthProof),
+    GovernanceAction(runtime::GovernanceAuthorizationV1),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
