@@ -1386,7 +1386,7 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 ## TODO（待收口）
 - [x] TODO-1：修正 S7 场景矩阵回归命令的覆盖口径。
   - 处理结果（2026-03-05）：S7 的 `oasis7_init_demo_runs_` 已切换到 `test_tier_full` 执行档位。
-  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
+  - 验收记录：`env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_demo_runs_ -- --nocapture` 命中多场景用例（非 1 条）。
 
 - [x] TODO-2：修复 S5 Pixel World Bridge（Bevy）测试编译阻塞。
   - 处理结果（2026-02-21）：当前 `pixel_world_bridge` lib 测试已恢复可编译可执行，并纳入 `scripts/ci-tests.sh` 的 full support-crate shard。
