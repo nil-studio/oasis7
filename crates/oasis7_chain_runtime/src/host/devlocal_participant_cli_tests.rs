@@ -180,6 +180,7 @@ fn tamper_wrong_namespace_signer_and_stale_predecessor_leave_world_unchanged() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn private_material_no_link_bounds_and_immutable_output() {
     use std::os::unix::fs::{PermissionsExt, symlink};
@@ -208,6 +209,7 @@ fn private_material_no_link_bounds_and_immutable_output() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn actual_restore_writes_stay_in_private_copy_and_source_bytes_remain_identical() {
     use std::os::unix::fs::{PermissionsExt, symlink};
@@ -298,6 +300,7 @@ fn canonical_source_configuration_and_prepared_head_are_mandatory() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn offline_outputs_cannot_pollute_source_trees_but_private_siblings_are_allowed() {
     use std::os::unix::fs::symlink;

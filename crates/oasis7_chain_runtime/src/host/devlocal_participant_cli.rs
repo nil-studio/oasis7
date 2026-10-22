@@ -22,7 +22,7 @@ mod tests;
 
 #[cfg(not(test))]
 use super::execution_bridge::world_service_read;
-#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[cfg(test)]
 use super::execution_bridge_real_tests::real_execution_bridge::world_service_read;
 
 #[derive(Clone, Serialize, Deserialize)]
