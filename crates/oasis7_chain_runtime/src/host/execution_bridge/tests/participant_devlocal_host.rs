@@ -395,7 +395,7 @@ fn devlocal_host_rejects_unsigned_formal_admission_and_conflicted_recovery_witho
     });
     let error = oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
         conflicted, driver.execution_world.journal().clone(), driver.devlocal_participant.authority.clone().unwrap(),
-    ).err().expect("formal membership cannot recover under DevLocal authority");
+    ).expect_err("formal membership cannot recover under DevLocal authority");
     assert!(format!("{error:?}").contains("DevLocal") || format!("{error:?}").contains("local participant"));
     // The forbidden action is not retained as a hidden pending side effect.
     commit(&mut driver).unwrap();
