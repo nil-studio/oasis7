@@ -68,4 +68,4 @@
 
 Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；要求声明见[开发流程规范](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)。
 
-`resource-cleanup-executor.py` 复用现有 path/branch/HEAD、交付、材料与进程检查，在显式 `--allow-submodules` 下增加递归 gitlink 与模块 Git 数据核对。只有当前 worktree 私有的模块数据可随它删除；已反初始化的数据仍检查本地历史。预览只读取，执行前重新核对后先非强制 deinit，再单次 force remove，最后按原 ref 事务删除 topic 分支。子模块数据或进程可见性不明即保留，失败不会回退到 rm 或双重 force。验证用临时真实 Git 仓库覆盖干净成功、未提交/未推送及并发拒绝路径。
+`resource-cleanup-executor.py` 复用现有 path/branch/HEAD、交付、材料与进程检查，在显式 `--allow-submodules` 下增加递归 gitlink 与模块 Git 数据核对。只有当前 worktree 私有的模块数据可随它删除；已反初始化的数据仍检查本地历史。预览只读取，执行前重新核对后先非强制 deinit，再单次 force remove，最后按原 ref 事务删除 topic 分支。进程 census 在同一 30 秒绝对预算内持续核验新增或 PID 复用的原生身份，覆盖收敛后才允许清理；原生身份暂时不可读最多短暂重试约 1 秒（仍受总预算限制），只有 ESRCH 才认定退出，持续不可读、覆盖不全或超时均保留。子模块数据或进程可见性不明即保留，失败不会回退到 rm 或双重 force。验证用临时真实 Git 仓库覆盖干净成功、未提交/未推送及并发拒绝路径。
