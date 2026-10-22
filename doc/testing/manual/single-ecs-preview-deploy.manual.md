@@ -137,7 +137,7 @@ sudo python3 "$release/deployment/ecs-skill-release.py" activate \
 
 命令先验证 release / Skill 的 source、整包校验和中的发布文件和各源文件哈希，再核对正在运行的 launcher 字节与此 release 相同。选择另一个版本、缺文件、篡改清单、未接入的 include 或锁被占用都会停止，不重启游戏服务。发布文件必须为 root 所有、目录可遍历、文件可读，且不能是符号链接。
 
-工具将精确路径 alias 到此 release 的文件，稳定 URL 使用 `no-cache`；仅 GET / HEAD。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保留相对路径；`/skills/` 和 `/skills/oasis7-play/` 转至发现页，旧 `/skills/oasis7.md` 转至正式入口。它不开放任意文件目录或 API。写入使用原子替换，旧 include 保存在同目录 `.previous`；随后 `nginx -t`、reload 并从公网逐字节核对 Skill、全部引用、清单和发现页。任一步失败都恢复旧 include、检查并 reload；回滚失败保留实际错误，不能宣称发布成功。失败期间不把旧 Skill 视为新游戏版本验收通过。
+工具将精确路径 alias 到此 release 的文件，稳定 URL 使用 `no-cache`；仅 GET / HEAD。正式入口为 `/skills/oasis7-play/SKILL.md`，引用保留相对路径；`/skills/` 和 `/skills/oasis7-play/` 转至发现页，旧 `/skills/oasis7.md` 转至正式入口。它不开放任意文件目录或 API。写入使用原子替换，旧 include 保存在同目录 `.previous`；随后 `nginx -t`、reload 并从公网逐字节核对 Skill、全部引用、清单和发现页。reload 返回时旧 worker 可能仍在响应，因此激活验证最多等待 20 秒收敛；仅对版本字节不匹配或 HTTP 502 / 503 / 504 重试，每次重新验证整套文件，不能拼接多次局部成功。重定向、其他 HTTP 错误或 TLS / 连接错误立即失败，慢响应同样受总时限约束；独立 `verify` 命令仍单次严格校验。任一步失败都恢复旧 include、检查并 reload；回滚失败保留实际错误，不能宣称发布成功。失败期间不把旧 Skill 视为新游戏版本验收通过。
 
 独立复核可运行只读命令：
 

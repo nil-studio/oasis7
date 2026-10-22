@@ -25,7 +25,8 @@ pub(super) fn refresh_live_task_read_evidence(
     world: &oasis7_runtime::World,
     hot: u64,
 ) -> Result<ValidatedTaskRetention, String> {
-    task_evidence::refresh(records, store, world, hot)
+    let context = task_evidence::trusted_restore_context(world)?;
+    task_evidence::refresh(records, store, world, hot, &context)
 }
 
 /// Opaque evidence that task retention was fully validated and synchronized

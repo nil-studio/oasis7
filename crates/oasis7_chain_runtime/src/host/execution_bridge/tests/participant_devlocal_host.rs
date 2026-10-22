@@ -288,6 +288,49 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
         .is_err(),
         "a different operator pin must fail closed"
     );
+    // Retention's historical reader must restore an activated cut with the host pin.
+    let historical = super::super::super::checkpoint::task_evidence::pin_task_history(
+        &records,
+        &LocalCasStore::new(&store),
+        &identity,
+        pinned.record.height,
+        &context,
+    )
+    .expect("DevLocal task retention must preserve the trusted host restore context");
+    assert_eq!(historical.commit, pinned.commit);
+    for denied in [
+        &super::super::super::world_service_read::RestoreContext::default(),
+        &wrong_context,
+    ] {
+        assert!(
+            super::super::super::checkpoint::task_evidence::pin_task_history(
+                &records,
+                &LocalCasStore::new(&store),
+                &identity,
+                pinned.record.height,
+                denied,
+            )
+            .is_err(),
+            "missing or wrong operator pin cannot read activated task history"
+        );
+    }
+    let hardened = super::super::super::world_service_read::RestoreContext::new(
+        ReleaseSecurityPolicy::production_hardened(),
+        None,
+    )
+    .unwrap();
+    assert!(
+        super::super::super::checkpoint::task_evidence::pin_task_history(
+            &records,
+            &LocalCasStore::new(&store),
+            &identity,
+            pinned.record.height,
+            &hardened,
+        )
+        .is_err(),
+        "hardened release cannot reinterpret DevLocal task history"
+    );
+
     twice.apply_local_execution_bootstrap(&bootstrap).unwrap();
     assert_eq!(bootstrap.height, pinned.record.height);
     assert_eq!(
@@ -582,4 +625,88 @@ fn devlocal_host_null_genesis_requires_verified_origin_and_commits_original_bind
         Some(identity.genesis_digest.as_str())
     );
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn devlocal_host_live_goal_retention_revalidates_new_and_previous_cuts() {
+    use oasis7::world_service::game_task;
+    let (dir, mut driver, identity, owner, _) =
+        canonical_agent_chat::driver_fixture_without_provider();
+    let control = config(&driver.execution_world, &identity);
+    driver.execution_world = driver
+        .execution_world
+        .clone()
+        .with_devlocal_participant_authority(control.authority.clone().unwrap())
+        .unwrap();
+    driver.devlocal_participant = control;
+    commit(&mut driver).unwrap();
+    super::commit(
+        &mut driver,
+        4,
+        game_task_tests::create(&identity, &owner, "retained-devlocal-task"),
+    );
+    let task = game_task::current_control(&driver.execution_world, "agent-a")
+        .unwrap()
+        .unwrap();
+    let payload = WorldServicePayloadV1::GameGoalPublish(
+        sign_read_request(
+            GAME_GOAL_PUBLISH_DOMAIN,
+            GameGoalPublishV1 {
+                api_rev: 1,
+                world_id: identity.world_id.clone(),
+                genesis_digest: identity.genesis_digest.clone(),
+                task_id: task.task_id.clone(),
+                agent_id: task.agent_id.clone(),
+                owner_public_key: task.owner_public_key.clone(),
+                owner_binding: task.owner_binding.clone(),
+                owner_generation: task.owner_generation,
+                branch_id: task.branch_id.clone(),
+                reorg_epoch: task.reorg_epoch,
+                expected_task_revision: task.task_revision,
+                expected_latest_goal_revision: task.latest_goal_revision,
+                goal_revision: DecimalU64(1),
+                client_operation_id: "retained-devlocal-publish".into(),
+                prepare_operation_id: "prepared-retained-devlocal-publish".into(),
+                goal_ref: "ab".repeat(32),
+            },
+            &owner,
+        )
+        .unwrap(),
+    );
+    let publication = request(&identity, payload);
+    super::commit(&mut driver, 5, publication.clone());
+    let result = game_task_tests::recorded(&driver, &publication);
+    assert!(result.rejected.is_none(), "{result:?}");
+    let scope = "execution_bridge_live_tasks_v1";
+    // Force first-selection validation even though post-commit maintenance may
+    // already have created this derived cache shard. Removing a GC hint grants no authority.
+    driver
+        .execution_store
+        .remove_pin_scope_shard(scope, "record-00000000000000000005")
+        .unwrap();
+    super::super::super::checkpoint::refresh_live_task_read_evidence(
+        &driver.records_dir,
+        &driver.execution_store,
+        &driver.execution_world,
+        2,
+    )
+    .expect("new DevLocal live-goal cut must be verified and pinned");
+    assert_eq!(
+        driver.execution_store.list_pin_scope_shards(scope).unwrap(),
+        vec!["record-00000000000000000005"]
+    );
+    super::super::super::checkpoint::refresh_live_task_read_evidence(
+        &driver.records_dir,
+        &driver.execution_store,
+        &driver.execution_world,
+        2,
+    )
+    .expect("previous DevLocal live-goal cut must be restored with the same Host context");
+    commit(&mut driver).unwrap();
+    assert!(
+        !driver.retention_reconcile_pending,
+        "ordinary driver retention must not remain degraded"
+    );
+    drop(driver);
+    fs::remove_dir_all(dir).unwrap();
 }

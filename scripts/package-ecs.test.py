@@ -795,6 +795,111 @@ class SkillReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ecs.skills.verify(public, origin)
 
+    @unittest.skipUnless(os.name == "posix", "ECS wall-clock deadline requires POSIX")
+    def test_reload_verification_restarts_the_complete_set_after_old_worker(self):
+        public = self.checked()
+        paths = list(public)
+        calls = []
+        now = [0.0]
+        class Response(io.BytesIO):
+            status = 200
+        def fetch(url, timeout):
+            path = url.removeprefix("https://game.invalid")
+            calls.append(path)
+            body = b"old worker" if len(calls) == 2 else public[path].read_bytes()
+            response = Response(body)
+            response.url = url
+            return response
+        opener = unittest.mock.Mock()
+        opener.open.side_effect = fetch
+        with patch("urllib.request.build_opener", return_value=opener), patch.object(ecs.skills.time, "monotonic", side_effect=lambda: now[0]), patch.object(ecs.skills.time, "sleep", side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)):
+            ecs.skills.verify(public, "https://game.invalid", after_reload=True)
+        self.assertEqual(calls, paths[:2] + paths)
+        self.assertGreater(now[0], 0)
+        self.assertLessEqual(now[0], 20)
+
+    @unittest.skipUnless(os.name == "posix", "ECS wall-clock deadline requires POSIX")
+    def test_reload_verification_expires_without_accepting_partial_matches(self):
+        public = self.checked()
+        now = [0.0]
+        class Response(io.BytesIO):
+            status = 200
+        def fetch(url, timeout):
+            response = Response(b"old worker")
+            response.url = url
+            return response
+        opener = unittest.mock.Mock()
+        opener.open.side_effect = fetch
+        with patch("urllib.request.build_opener", return_value=opener), patch.object(ecs.skills.time, "monotonic", side_effect=lambda: now[0]), patch.object(ecs.skills.time, "sleep", side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)):
+            with self.assertRaises(TimeoutError):
+                ecs.skills.verify(public, "https://game.invalid", after_reload=True)
+        self.assertEqual(now[0], 20)
+
+    @unittest.skipUnless(os.name == "posix", "ECS wall-clock deadline requires POSIX")
+    def test_reload_deadline_interrupts_a_slow_body_and_restores_signal(self):
+        public = self.checked()
+        completed = []
+        previous = ecs.skills.signal.getsignal(ecs.skills.signal.SIGALRM)
+        class Response(io.BytesIO):
+            status = 200
+            url = "https://game.invalid/skills/index.html"
+            def read(self, size):
+                ecs.skills.time.sleep(2)
+                completed.append(True)
+                return super().read(size)
+        opener = unittest.mock.Mock()
+        opener.open.return_value = Response(b"old worker")
+        with patch("urllib.request.build_opener", return_value=opener), patch.object(ecs.skills, "RELOAD_VERIFY_SECONDS", 0.03):
+            with self.assertRaises(TimeoutError):
+                ecs.skills.verify(public, "https://game.invalid", after_reload=True)
+        self.assertEqual(completed, [])
+        self.assertEqual(ecs.skills.signal.getsignal(ecs.skills.signal.SIGALRM), previous)
+        self.assertEqual(ecs.skills.signal.getitimer(ecs.skills.signal.ITIMER_REAL), (0, 0))
+
+    @unittest.skipUnless(os.name == "posix", "ECS wall-clock deadline requires POSIX")
+    def test_reload_does_not_retry_terminal_http_or_transport_errors(self):
+        public = self.checked()
+        errors = [ecs.skills.urllib.error.HTTPError("https://game.invalid", code, "failure", {}, None)
+                  for code in (301, 302, 403, 404)]
+        errors.append(ecs.skills.urllib.error.URLError("certificate verification failed"))
+        for error in errors:
+            with self.subTest(error=error):
+                opener = unittest.mock.Mock()
+                opener.open.side_effect = error
+                with patch("urllib.request.build_opener", return_value=opener), patch.object(ecs.skills.time, "sleep") as sleep:
+                    with self.assertRaises(type(error)):
+                        ecs.skills.verify(public, "https://game.invalid", after_reload=True)
+                    sleep.assert_not_called()
+                self.assertEqual(opener.open.call_count, 1)
+
+    @unittest.skipUnless(os.name == "posix", "ECS wall-clock deadline requires POSIX")
+    def test_reload_retries_only_transient_http_then_verifies_all_files(self):
+        public = self.checked()
+        class Response(io.BytesIO):
+            status = 200
+        for code in (502, 503, 504):
+            calls = []
+            def fetch(url, timeout):
+                calls.append(url)
+                if len(calls) == 1:
+                    raise ecs.skills.urllib.error.HTTPError(url, code, "reload", {}, None)
+                response = Response(public[url.removeprefix("https://game.invalid")].read_bytes())
+                response.url = url
+                return response
+            opener = unittest.mock.Mock()
+            opener.open.side_effect = fetch
+            with self.subTest(code=code), patch("urllib.request.build_opener", return_value=opener), patch.object(ecs.skills.time, "sleep"):
+                ecs.skills.verify(public, "https://game.invalid", after_reload=True)
+            self.assertEqual(calls[1:], ["https://game.invalid" + path for path in public])
+
+    @unittest.skipUnless(os.name == "posix", "ECS wall-clock deadline requires POSIX")
+    def test_reload_does_not_replace_an_existing_timer(self):
+        with patch.object(ecs.skills.signal, "getitimer", return_value=(5, 0)), patch.object(ecs.skills.signal, "signal") as signal_handler, patch.object(ecs.skills.signal, "setitimer") as timer:
+            with self.assertRaisesRegex(ValueError, "unused POSIX"):
+                ecs.skills.verify(self.checked(), "https://game.invalid", after_reload=True)
+            signal_handler.assert_not_called()
+            timer.assert_not_called()
+
     @unittest.skipUnless(os.name == "posix", "ECS deployment requires flock and /proc")
     def test_failed_publication_restores_previous_nginx_include(self):
         include = self.root / "skills.conf"
