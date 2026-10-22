@@ -116,6 +116,8 @@
 
 ## 6. 身份服务绑定、精确代理与接入验收
 
+完整冷入场还需要 chain 的正式私有目标 / task-context 存储，不能只开启 identity 的三个接入开关。在 chain 服务环境同时配置 `OASIS7_PRIVATE_GOAL_DIR` 和 `OASIS7_PRIVATE_GOAL_KEY_FILE`：目录为独立 `0700` 私密命名空间，位于公开 world / records / CAS 根之外；密钥是属运行用户、无符号链接、单链接、`0600` 的精确 32 字节随机原始文件，不能用 64hex 文本，也不能复用 issuer / operator seed。保持实际监听为 loopback，通过已鉴权的 owner / executor gateway 使用，禁止把私有路由直接代理到公网。两项缺失时私有端点默认关闭；gateway 的 `202` / unknown 不证明目标已经准备成功，不能靠重新生成 operation 或目标来恢复。存储、原密钥和验证记录须独立备份，重启恢复沿用原件，不为排障换钥或清空私有存储。合同见[私有目标准备与回读](../../world-simulator/llm/external-agent-game-api.design.md)。
+
 canonical 安装后，身份服务复用原 namespace / RP / epoch 和 SQLite，再配置实际值：`OASIS7_HOSTED_PARTICIPANT_ENTRY_ENABLED=1`、`OASIS7_HOSTED_OWNER_CONTROL_ENABLED=1`、`OASIS7_HOSTED_EXECUTOR_CONTROL_ENABLED=1`。机器注册还需已有 identity v2、account registration 与 `OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED=1`。`OASIS7_HOSTED_PARTICIPANT_ENTRY_TRUST` 是 `{endpoint, service_public_key, world:{world_id,genesis_digest}}`，endpoint 必须为实际 chain service 的精确 loopback HTTP origin（不能是公开站点或带路径 URL）；`OASIS7_HOSTED_PARTICIPANT_ISSUER_PRIVATE_KEY` 通过私密服务环境配置提供原 issuer seed 的 64hex，必须对应政策 issuer 公钥（与 finalize 的 raw32 文件为同一密钥的不同表示）。不要打印环境变量。
 
 现有 HTTPS 站点须逐条配置以下 **完整前缀 `/api/public/hosted-account/v2` + 后缀** 的精确 location，转发至实际 launcher 静态 HTTP listener；保留可信 Host / Origin、真实源地址与安全响应头、CSRF / Cookie 处理及默认 `/api/` 拒绝。沿用 [部署手册的代理头及拒绝检查](single-ecs-preview-deploy.manual.md#公网-api-路由核对)，不要放行整个 prefix，更不要公开 chain loopback `/v1/world/*`。
