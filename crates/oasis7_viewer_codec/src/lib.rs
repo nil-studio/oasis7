@@ -56,7 +56,7 @@ pub fn write_correlated_response_json(
 /// Returns any JSON encoding error.
 ///
 /// # Panics
-/// Panics if the JSON serializer emits invalid UTF-8 (which serde_json guarantees against).
+/// Panics if the JSON serializer emits invalid UTF-8 (which `serde_json` guarantees against).
 pub fn response_to_json(response: &ViewerResponse) -> Result<String, serde_json::Error> {
     let mut bytes = Vec::new();
     write_response_json(&mut bytes, response)?;

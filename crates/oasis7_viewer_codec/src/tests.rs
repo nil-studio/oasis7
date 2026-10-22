@@ -16,7 +16,7 @@ fn typed_error() -> ViewerResponse {
 #[test]
 fn concrete_writer_and_string_preserve_legacy_compact_bytes() {
     let snapshot = WorldKernel::new().snapshot();
-    let responses = [
+    let responses = vec![
         ViewerResponse::Snapshot {
             snapshot: snapshot.clone(),
         },
@@ -40,7 +40,8 @@ fn concrete_writer_and_string_preserve_legacy_compact_bytes() {
         )
         .unwrap(),
         typed_error(),
-    ];
+    ]
+    .into_boxed_slice();
     for response in responses {
         let expected = serde_json::to_vec(&response).unwrap();
         let mut actual = Vec::new();
