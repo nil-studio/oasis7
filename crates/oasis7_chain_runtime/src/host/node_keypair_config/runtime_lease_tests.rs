@@ -57,12 +57,12 @@ fn durable_binding_reopens_without_private_material_and_arc_retains_lifetime_loc
     let f = Fixture::new();
     let lease = Arc::new(f.acquire().unwrap());
     assert_eq!(
-        io::read::<RuntimeIdentityBindingV1>(&transaction::sidecar(
+        io::read::<RuntimeIdentityDomainV1>(&transaction::sidecar(
             &f.binding.key_path,
             KEY_BINDING
         ))
         .unwrap(),
-        f.binding
+        RuntimeIdentityDomainV1::from(&f.binding)
     );
     let retained = lease.clone();
     drop(lease);
@@ -80,7 +80,7 @@ fn domain_data_key_and_peer_conflicts_never_replace_original_records() {
     drop(f.acquire().unwrap());
     let path = transaction::sidecar(&f.binding.key_path, KEY_BINDING);
     let original = fs::read(&path).unwrap();
-    for index in 0..8 {
+    for index in 0..7 {
         let mut changed = f.binding.clone();
         match index {
             0 => changed.world_id.push('x'),
@@ -89,10 +89,6 @@ fn domain_data_key_and_peer_conflicts_never_replace_original_records() {
             3 => changed.node_id.push('x'),
             4 => changed.peer_id.push('x'),
             5 => changed.root_public_key = "ef".repeat(32),
-            6 => {
-                changed.data_directory = f.root.join("other");
-                io::private_dir(&changed.data_directory).unwrap();
-            }
             _ => changed.profile = "bft".into(),
         }
         assert!(acquire_runtime_identity_lease(&changed.key_path, &changed).is_err());
@@ -108,6 +104,44 @@ fn domain_data_key_and_peer_conflicts_never_replace_original_records() {
     assert!(!transaction::sidecar(&changed.key_path, KEY_BINDING).exists());
     drop(live_original);
     assert!(acquire_runtime_identity_lease(&changed.key_path, &changed).is_err());
+}
+
+#[test]
+fn stopped_identity_enrolls_empty_writer_but_live_or_copied_directory_is_rejected() {
+    let f = Fixture::new();
+    let original = f.acquire().unwrap();
+    let key_path = transaction::sidecar(&f.binding.key_path, KEY_BINDING);
+    let key_bytes = fs::read(&key_path).unwrap();
+    let original_directory = f.binding.data_directory.join(DIRECTORY_BINDING);
+    let original_bytes = fs::read(&original_directory).unwrap();
+    let mut successor = f.binding.clone();
+    successor.data_directory = f.root.join("successor-writer");
+    io::private_dir(&successor.data_directory).unwrap();
+    assert!(
+        acquire_runtime_identity_lease(&successor.key_path, &successor)
+            .unwrap_err()
+            .contains("already in use")
+    );
+    assert!(!successor.data_directory.join(DIRECTORY_BINDING).exists());
+    drop(original);
+    drop(acquire_runtime_identity_lease(&successor.key_path, &successor).unwrap());
+    assert_eq!(fs::read(&key_path).unwrap(), key_bytes);
+    assert_eq!(fs::read(&original_directory).unwrap(), original_bytes);
+    assert_eq!(
+        io::read::<RuntimeIdentityBindingV1>(&successor.data_directory.join(DIRECTORY_BINDING))
+            .unwrap(),
+        successor
+    );
+    let mut copied = f.binding.clone();
+    copied.data_directory = f.root.join("copied-writer");
+    io::private_dir(&copied.data_directory).unwrap();
+    io::write(&copied.data_directory.join(DIRECTORY_BINDING), &f.binding).unwrap();
+    assert!(
+        acquire_runtime_identity_lease(&copied.key_path, &copied)
+            .unwrap_err()
+            .contains("binding conflict")
+    );
+    drop(f.acquire().unwrap());
 }
 
 #[test]
@@ -153,7 +187,7 @@ fn one_published_record_recovers_same_binding_after_interruption() {
     let f = Fixture::new();
     publish(
         &transaction::sidecar(&f.binding.key_path, KEY_BINDING),
-        &f.binding,
+        &RuntimeIdentityDomainV1::from(&f.binding),
     )
     .unwrap();
     let _lease = f.acquire().unwrap();
@@ -224,12 +258,12 @@ fn retry_completes_binding_after_link_succeeded_but_directory_sync_failed() {
     let _lease = f.acquire().unwrap();
     assert_eq!(fs::read(&path).unwrap(), original);
     assert_eq!(
-        io::read::<RuntimeIdentityBindingV1>(&transaction::sidecar(
+        io::read::<RuntimeIdentityDomainV1>(&transaction::sidecar(
             &f.binding.key_path,
             KEY_BINDING
         ))
         .unwrap(),
-        f.binding
+        RuntimeIdentityDomainV1::from(&f.binding)
     );
     assert!(f.binding.data_directory.join(DIRECTORY_BINDING).exists());
 }

@@ -27,6 +27,38 @@ pub(crate) struct RuntimeIdentityBindingV1 {
     pub profile: String,
 }
 
+/// The root identity is bound to its domain, independently of which stopped
+/// writer directory a qualified restore or signer handoff will next open.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeIdentityDomainV1 {
+    version: u32,
+    key_path: PathBuf,
+    node_id: String,
+    root_public_key: String,
+    peer_id: String,
+    world_id: String,
+    chain_id: String,
+    genesis_digest: String,
+    profile: String,
+}
+
+impl From<&RuntimeIdentityBindingV1> for RuntimeIdentityDomainV1 {
+    fn from(binding: &RuntimeIdentityBindingV1) -> Self {
+        Self {
+            version: binding.version,
+            key_path: binding.key_path.clone(),
+            node_id: binding.node_id.clone(),
+            root_public_key: binding.root_public_key.clone(),
+            peer_id: binding.peer_id.clone(),
+            world_id: binding.world_id.clone(),
+            chain_id: binding.chain_id.clone(),
+            genesis_digest: binding.genesis_digest.clone(),
+            profile: binding.profile.clone(),
+        }
+    }
+}
+
 /// Retain this value (or an Arc) in the real worker until it has fully stopped.
 /// File ownership releases locks on exit, including SIGKILL; lock inodes remain.
 #[derive(Debug)]
@@ -92,10 +124,11 @@ pub(crate) fn acquire_runtime_identity_lease(
         let key_record = transaction::sidecar(key_path, KEY_BINDING);
         let directory_record = binding.data_directory.join(DIRECTORY_BINDING);
         // Check BOTH before writing either; conflicts never alter original records.
-        let key_missing = inspect(&key_record, binding)?;
+        let domain = RuntimeIdentityDomainV1::from(binding);
+        let key_missing = inspect(&key_record, &domain)?;
         let directory_missing = inspect(&directory_record, binding)?;
         if key_missing {
-            publish(&key_record, binding)?;
+            publish(&key_record, &domain)?;
         }
         if directory_missing {
             publish(&directory_record, binding)?;
@@ -169,7 +202,10 @@ fn lock(path: &Path) -> Result<File, String> {
 }
 
 #[cfg(unix)]
-fn inspect(path: &Path, binding: &RuntimeIdentityBindingV1) -> Result<bool, String> {
+fn inspect<T: serde::de::DeserializeOwned + PartialEq>(
+    path: &Path,
+    binding: &T,
+) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(true),
         Err(error) => return Err(error.to_string()),
@@ -185,7 +221,7 @@ fn inspect(path: &Path, binding: &RuntimeIdentityBindingV1) -> Result<bool, Stri
         }
     }
     crate::controlled_live_config::require_private_owned(path, false)?;
-    let stored: RuntimeIdentityBindingV1 = io::read(path)
+    let stored: T = io::read(path)
         .map_err(|_| "corrupt runtime identity binding; restore original binding".to_string())?;
     if &stored != binding {
         return Err("runtime identity binding conflict; restore original identity/domain or migrate offline".into());
@@ -200,7 +236,7 @@ fn inspect(path: &Path, binding: &RuntimeIdentityBindingV1) -> Result<bool, Stri
 }
 
 #[cfg(unix)]
-fn publish(path: &Path, binding: &RuntimeIdentityBindingV1) -> Result<(), String> {
+fn publish<T: Serialize>(path: &Path, binding: &T) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let parent = path.parent().ok_or("runtime binding parent missing")?;

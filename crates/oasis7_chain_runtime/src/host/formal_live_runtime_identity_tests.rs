@@ -96,18 +96,13 @@ pub(super) fn exercise(mut runtime: FormalLiveRuntime, config_path: &Path) -> Re
         return Err("restarted formal runtime replaced original identity".into());
     }
     drop(restored);
-    // After release, changing the data directory still fails the durable
-    // binding rather than starting a second lineage under the same root key.
-    let error = match FormalLiveRuntime::open_with_native_history(&duplicate_path) {
-        Err(error) => error,
-        Ok(_) => {
-            return Err("released identity accepted a conflicting data-directory binding".into());
-        }
-    };
-    if !error.contains("runtime identity binding conflict") {
-        return Err(format!(
-            "changed data directory rejected for unrelated reason: {error}"
-        ));
+    // Once every signer owner has stopped, the same immutable identity/domain
+    // can restore into a new empty writer directory. The actual formal writer
+    // must still verify the protected current state and authority.
+    let replacement = FormalLiveRuntime::open_with_native_history(&duplicate_path)?;
+    if replacement.validated.node_keypair.public_key_hex != original_key {
+        return Err("new writer directory replaced original root identity".into());
     }
+    drop(replacement);
     Ok(())
 }
