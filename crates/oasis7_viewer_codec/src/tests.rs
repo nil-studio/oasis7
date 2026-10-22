@@ -171,7 +171,7 @@ fn buffered_writer_preserves_bytes_across_capacity_and_large_chunk_boundaries() 
         .collect();
     messages.push("雪🙂\n".repeat(2500));
     for message in messages {
-        for response in [
+        for response in vec![
             ViewerResponse::Error {
                 message: message.clone(),
             },
@@ -186,7 +186,9 @@ fn buffered_writer_preserves_bytes_across_capacity_and_large_chunk_boundaries() 
                     runtime_event: None,
                 },
             },
-        ] {
+        ]
+        .into_boxed_slice()
+        {
             let expected = serde_json::to_vec(&response).unwrap();
             let mut writer = NoFlush(Vec::new());
             write_buffered_response_json(&mut writer, &response).unwrap();
@@ -229,7 +231,7 @@ fn buffered_partial_errors_do_not_retry_pending_bytes_or_flush() {
     // Small responses fail while draining the final tail. Escapes force many
     // small writes, failing an internal full-buffer drain rather than a bypass.
     for (message, budget) in [("x".repeat(80), 8), ("\n".repeat(10000), 257)] {
-        for response in [
+        for response in vec![
             ViewerResponse::Error {
                 message: message.clone(),
             },
@@ -244,7 +246,9 @@ fn buffered_partial_errors_do_not_retry_pending_bytes_or_flush() {
                     runtime_event: None,
                 },
             },
-        ] {
+        ]
+        .into_boxed_slice()
+        {
             let expected = serde_json::to_vec(&response).unwrap();
             for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::BrokenPipe] {
                 let mut writer = FaultWriter {
