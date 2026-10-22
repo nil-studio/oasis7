@@ -153,6 +153,7 @@ jobs:
             python3 scripts/package-ecs.py native --out "$RUNNER_TEMP/ecs-native" --cache-state "$RUNNER_TEMP/ecs-cache-state.json"
       - name: Stage ECS workspace cache
         id: ecs-cache-stage
+        if: github.job != 'native-trusted' || steps.ecs-workspace-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -174,7 +175,11 @@ jobs:
           path: ${{ runner.temp }}/ecs-workspace-cache/workspace-units.tar.gz
           key: ${{ steps.ecs-cache-identity.outputs.key }}
       - name: Confirm ECS workspace cache save
-        if: github.job == 'native-trusted' && steps.ecs-cache-stage.outputs.save == 'true' && steps.ecs-cache-save.outcome == 'success'
+        id: ecs-cache-observe
+        if: >-
+          github.job == 'native-trusted' &&
+          ((steps.ecs-cache-stage.outputs.save == 'true' && steps.ecs-cache-save.outcome == 'success') ||
+           steps.ecs-workspace-cache.outputs.cache-hit == 'true')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -202,6 +207,9 @@ jobs:
           if-no-files-found: ignore
 
   native-trusted:
+    outputs:
+      cache_key: ${{ steps.ecs-cache-identity.outputs.key }}
+      cache_confirmed: ${{ steps.ecs-cache-observe.outputs.saved_confirmed }}
     concurrency:
       group: ecs-workspace-cache-main-writer
       cancel-in-progress: false
@@ -210,6 +218,31 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps: *native-steps
+
+  cache-maintenance:
+    needs: native-trusted
+    if: >-
+      needs.native-trusted.result == 'success' && needs.native-trusted.outputs.cache_confirmed == 'true' &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && github.event_name == 'workflow_dispatch'
+    cache-mode: none
+    permissions:
+      contents: read
+      actions: write
+    concurrency:
+      group: ci-cache-maintenance-main
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Report storage and retain confirmed ECS generations
+        env:
+          CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+          CURRENT_CACHE_KEY: ${{ needs.native-trusted.outputs.cache_key }}
+        run: python3 scripts/ci-cache-maintenance.py --apply --current-key "$CURRENT_CACHE_KEY"
 
   build-metrics:
     if: inputs.measure_builds
