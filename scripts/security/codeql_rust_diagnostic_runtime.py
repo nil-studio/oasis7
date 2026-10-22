@@ -143,7 +143,7 @@ class PhaseError(RuntimeError):
         return self.result['failure_kind'] == 'timeout' and not self.result['cleanup_errors'] and not self.result.get('evidence_errors')
 
 
-def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None):
+def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, safety_check=None):
     """Separate stdout/stderr/evaluator FIFO; all evidence writes pass the shared cap."""
     start = time.monotonic()
     deadline = min(end, start + timeout)
@@ -159,6 +159,8 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
     sample = None
     streams = {}
     try:
+        if safety_check is not None:
+            safety_check()
         if deadline <= start:
             raise TimeoutError('diagnostic phase deadline exhausted before spawn')
         if len(json.dumps(argv).encode()) > 16*1024:
@@ -190,7 +192,11 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
         samples = output.with_name(output.name + '.samples.jsonl').open('xb')
         files.append(samples)
         last_sample = 0
+        last_safety = 0
         while True:
+            if safety_check is not None and time.monotonic() - last_safety >= 2:
+                safety_check()
+                last_safety = time.monotonic()
             if time.monotonic() >= deadline:
                 raise TimeoutError('diagnostic phase deadline exhausted')
             if time.monotonic() - last_sample >= .2:

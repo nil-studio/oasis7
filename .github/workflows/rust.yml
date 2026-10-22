@@ -14,7 +14,7 @@ on:
         required: true
         default: full
         type: choice
-        options: [full, newapi_bridge_package, codeql_rust_model_diagnostic]
+        options: [full, newapi_bridge_package, codeql_rust_model_diagnostic, codeql_rust_inventory_check]
       model_probe:
         description: "Candidate public-model diagnostic partition"
         type: choice
@@ -121,6 +121,48 @@ jobs:
           path: ${{ runner.temp }}/rust-model-evidence
           retention-days: 14
           if-no-files-found: error
+  codeql-rust-inventory-check:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'codeql_rust_inventory_check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Freeze inventory check deadline before preparation
+        run: echo "INVENTORY_DEADLINE=$(( $(date +%s) + 1080 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check isolated observation-only extractor overlay
+        run: |
+          python3 scripts/security/codeql-rust-inventory-check.py \
+            --output "$RUNNER_TEMP/rust-inventory-evidence" \
+            --work "$RUNNER_TEMP/rust-inventory-data" --deadline "$INVENTORY_DEADLINE"
+      - name: Check inventory evidence budget
+        id: inventory-budget
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import pathlib, stat
+          root = pathlib.Path('${{ runner.temp }}/rust-inventory-evidence')
+          total = 0
+          for path in root.rglob('*'):
+              mode = path.lstat().st_mode
+              if stat.S_ISDIR(mode):
+                  continue
+              if not stat.S_ISREG(mode):
+                  raise SystemExit('nonregular evidence')
+              total += path.stat().st_size
+          if total > 64 * 1024**2:
+              raise SystemExit('combined evidence cap exceeded')
+          PYTHON
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always() && steps.inventory-budget.outcome == 'success'
+        with:
+          name: rust-inventory-check-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-inventory-evidence
+          retention-days: 14
+
   select:
     if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'
     runs-on: ubuntu-24.04
