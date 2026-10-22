@@ -5,7 +5,7 @@
 - owner_role：`runtime_engineer`；产品归 `producer_system_designer`，来源接入与外部接续归 `agent_engineer`
 - module：`engineering`
 - 上游：[指挥客户端产品设计](command-center.prd.md)、[PRD-ENGINEERING-034](../prd.md#PRD-ENGINEERING-034)
-- 审读基线：`nil-studio/oasis7@5afc19c1beec77ff63833c73726d38c66c6d3ff2`；Sites v2 源码基线 `cc079455e5505e727442294d3c8e77d7f348fb00`；两者的实现范围分别记录，不互相代签验收
+- 审读基线：`nil-studio/oasis7@cfaf2783ec1829b09961d32a7284e573b2c81632`；Sites v2 源码基线 `cc079455e5505e727442294d3c8e77d7f348fb00`；两者的实现范围分别记录，不互相代签验收
 - last_reviewed_at：2026-10-22
 - 初始设计与评审来源：[PR #4518](https://github.com/eng-cc/oasis7/pull/4518)；架构选择与复核条件见 §12
 
@@ -13,7 +13,7 @@
 
 ## 1. 问题、目标与非目标
 
-指挥中心的主要入口是 ChatGPT Sites 浏览器工作台。Worker 在服务器端读取 GitHub 已提交文档、PR 与有界 CI 摘要，生成总览、工作、规范与决定、待我处理四个一致视图；D1 是个人决定、问题、显式关系、阅读位置和偏好的单一写入权威。用户在另一台设备登录同一 Site、选择同一项目与环境后，读取同一批已保存个人记录，不依赖某台开发机在线。
+指挥中心的主要入口是 ChatGPT Sites 浏览器工作台。Worker 在服务器端读取 GitHub 已提交文档、Issue/PR 与有界 CI 摘要，生成总览、工作、规范与决定、待我处理四个一致视图；D1 是个人决定、问题、显式关系、阅读位置和偏好的单一写入权威。用户在另一台设备登录同一 Site、选择同一项目与环境后，读取同一批已保存个人记录，不依赖某台开发机在线。
 
 GitHub、正式文档和原工具继续拥有其来源事实。云端工作台只读来源并保存个人记录；开发执行仍在原 Codex，CI 详细日志、重跑与其他写操作仍在原 GitHub。只读 CI 摘要必须保留准确工作/检查身份、tested commit、事件时间与覆盖，不能由“已合入”或“检查成功”推导部署、验收或目标完成。
 
@@ -30,7 +30,7 @@ GitHub、正式文档和原工具继续拥有其来源事实。云端工作台�
 | 上游条款 | 独立义务与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖 |
 | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-6e70287f-a156-4544-997d-5c1752e5efde；[REQ-CC-001](command-center.prd.md#REQ-CC-001) | 云端核心工作台、稳定项目与环境身份；产品适用性：N/A；reason=工程工作台合同；scope=云端核心工作台、稳定项目与环境身份 | [DES-CC-001](#DES-CC-001) | 浏览器/Worker及来源adapter | 不依赖本机在线，不把路径或分支当云端项目身份 |
-| Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；[REQ-CC-002](command-center.prd.md#REQ-CC-002) | 来源版本、覆盖、时间、失败与局部可用；产品适用性：N/A；reason=工程工作台合同；scope=来源版本、覆盖、时间、失败与局部可用 | [DES-CC-002](#DES-CC-002) | 来源provider及读取adapter | 来源不可读不等于空；不推断部署或验收 |
+| Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；[REQ-CC-002](command-center.prd.md#REQ-CC-002) | 来源版本、覆盖、时间、失败及独立授权摘要；产品适用性：N/A；reason=工程工作台合同；scope=公开来源读取、摘要归纳与局部可用 | [DES-CC-002](#DES-CC-002) | 来源provider、读取adapter及已授权ChatGPT任务 | 普通刷新不调用模型；归纳不证明部署或验收 |
 | Trace refs: O7-REQ-d5a6d2dd-86a5-4a70-811c-ee57927dfa1d；[REQ-CC-003](command-center.prd.md#REQ-CC-003) | 目标、适用验收与有依据的进度；产品适用性：N/A；reason=工程工作台合同；scope=目标、适用验收与有依据的进度 | [DES-CC-003](#DES-CC-003) | 主责文档/验收owner | 不以PR数量或无分母百分比证明完成 |
 | Trace refs: O7-REQ-eb004bfb-41c7-4e8f-aa5b-1f52cec6cf08；[REQ-CC-004](command-center.prd.md#REQ-CC-004) | 规范后继、个人决定、确认及替代历史；产品适用性：N/A；reason=工程工作台合同；scope=规范后继、个人决定、确认及替代历史 | [DES-CC-004](#DES-CC-004) | 文档authority与个人记录服务 | 个人确认不修改正式文档，不继承已失效的确认 |
 | Trace refs: O7-REQ-a6126ad0-2f2d-47ad-a504-5e9ceff92cff；[REQ-CC-005](command-center.prd.md#REQ-CC-005) | 同一原工作身份的列表、详情与逐字段证据；产品适用性：N/A；reason=工程工作台合同；scope=同一原工作身份的列表、详情与逐字段证据 | [DES-CC-005](#DES-CC-005) | GitHub/原工具和共享投影 | 不另建接管开发执行的任务主表 |
@@ -61,6 +61,7 @@ GitHub、正式文档和原工具继续拥有其来源事实。云端工作台�
 | 阅读与文档树 | 本机已有工作位置、树偏好、显式产品/专业树与配对；固定提交、完整覆盖及独立树成功快照的剩余义务见[文档树设计](document-tree.design.md) | 云端需按已提交版本提供完整非本地阅读和跨设备恢复，本地未提交预览仍留本机 |
 | 本机工具 | 具有独立工具合同和部分实现；首装、签名、暂停功能及实测范围见[本机工具设计](local-tools.design.md) | 继续验证真实本机能力、安全退出及往返；不因云端入口存在而证明签名、分发或设备执行可用 |
 | 身份、事务与发布 | Sites 提供同 Site 稳定用户 ID、Worker/D1 与平台登录；服务凭据没有访客身份或连接器 consent；D1 schema migration 先于 Worker 上传 | owner/scope 授权、跨设备竞争、撤权缓存、导出恢复及新旧 Worker/schema 兼容须在真实 Site 单独验证，不能从本地 SQLite 测试推导 |
+| 交付聚合与独立摘要 | 本节固定实现证据不足以证明原 Issue 反馈、跨视图目标/结果聚合与独立后台摘要任务的完整行为 | 实现及验证由独立 Site 源码、实际任务配置和运行结果证明；合同补全不代表后台任务已启用或摘要已验证 |
 
 历史构建与交互结果独立保存在[验证记录](daily-work-verification.manual.md)，只证明原版本和环境。本文的文档检查、源码审读或平台能力说明不构成全部产品 AC 已通过的声明；完整迁移与发布以实际 PR、固定构建、云端/本机验证结果为准。实施次序、数据切换与验收进度统一由[迁移 Issue #4983](https://github.com/nil-studio/oasis7/issues/4983)跟踪。
 
@@ -76,8 +77,9 @@ Trace refs: O7-REQ-6e70287f-a156-4544-997d-5c1752e5efde；承接[REQ-CC-001](com
 | --- | --- | --- |
 | Sites 浏览器 UI | 四视图、文档树、统一工作详情、个人编辑、阅读与导航 | 调用同源受限 API；本地状态只是最后成功快照或未提交草稿，不能宣称已云端保存 |
 | Worker 应用层 | 可信身份核对、project/environment/scope 授权、来源读取、共享投影、个人事务和导出恢复 | 不执行本机命令；不接受客户端 owner、任意 URL、任意 SQL 或来源文本指令 |
-| D1 | 个人记录/不可变修订/幂等结果；与之隔离的可重建来源缓存 | 个人数据单一写主库；源缓存重建不修改个人数据；数据库提交后才返回保存成功 |
-| GitHub/原工具 | 正式文档、PR/CI 及各自实际执行事实 | 云端通过受限 HTTPS adapter 读取；写操作与执行返回原工具 |
+| 独立摘要任务 | 按用户明确请求单次或定期归纳已授权公开来源，提交带依据的交付摘要 | 复用已有 ChatGPT 任务能力；不由普通刷新触发，不读取个人数据或启动开发执行 |
+| D1 | 个人记录/不可变修订/幂等结果；与之隔离的可重建来源与摘要缓存 | 个人数据单一写主库；缓存重建不修改个人数据；数据库提交后才返回保存成功 |
+| GitHub/原工具 | 正式文档、Issue/PR/CI 及各自实际执行事实 | 云端通过受限 HTTPS adapter 读取；写操作与执行返回原工具 |
 | 本机 Tauri/Rust 辅助端 | 设备/工作树/CLI/signer、本地未提交和私有资料、工具操作账本 | 使用本机有限 IPC；云端核心页面在系统浏览器打开，远程页面不取得 Tauri IPC 权限 |
 
 云端 `Project` 由稳定项目 ID 与经核实的 provider/host/repository ID 标识，仓库名称和 URL 是可更新属性。用户显式选择 `environmentId` 与 `scopeId`；环境是阅读与个人记录的适用上下文，不证明该环境已部署、在线或可执行。不同项目、环境或阅读 scope 不因同名、同分支或同 remote 自动合并；改变查询窗口不改变个人记录归属。
@@ -91,8 +93,8 @@ Trace refs: O7-REQ-6e70287f-a156-4544-997d-5c1752e5efde；承接[REQ-CC-001](com
 | 落点 | 最终职责 |
 | --- | --- |
 | Site UI / 同源 API | AppShell、四视图、工作详情、文档阅读、来源检查与有限个人操作入口；页面不自算另一套完成/关注状态 |
-| Worker 来源 adapter | 固定 provider/repository 的 HTTPS 文档/PR/CI 读取，提交版本、coverage、分页、超时和失败；不决定目标完成 |
-| Worker 领域与投影 | Goal/Rule/WorkRef、显式关系、问题和决定的语义；一次组合 Home/Work/Attention 投影 |
+| Worker 来源 adapter | 固定 provider/repository 的 HTTPS 文档/Issue/PR/CI 读取，含原 Issue 实质反馈；保留版本、coverage、分页、超时和失败，不决定目标完成 |
+| Worker 领域与投影 | Goal/Rule/WorkRef、显式关系、问题和决定的语义；校验并读取摘要缓存，一次组合 Home/Work/Attention 投影 |
 | Worker 个人存储层 | scope 授权、CAS/幂等、不可变修订、阅读偏好、原子导出/恢复与错误合同 |
 | `tools/oasis7-command-center/core/src/` | 本机文档/Git/工具读取及本机操作；保留适用的原始工具存储与兼容，不再作为云端个人数据第二写主库 |
 | `tools/oasis7-command-center/src-tauri/`、`ui/` | 目录选择、菜单栏、有限系统导航、可信本机界面和工具退出保护 |
@@ -123,6 +125,8 @@ Trace refs: O7-REQ-a6126ad0-2f2d-47ad-a504-5e9ceff92cff；承接[REQ-CC-005](com
 
 `query_work_projection` 是领域查询合同，由 Worker 从已发布来源生成 `WorkProjection`，保留授权后的 project/environment/scope、source coverage、逐字段 `SourceFact`、`viewRevision` 与 `personalRevision`。`WorkItem` 是原工作身份的派生阅读对象，不是开发任务主表；页面通过原 `WorkRef` 定位同一详情。
 
+目标与交付结果由同一投影聚合，首页“最近交付”和工作列表/详情消费相同条目、依据与摘要 revision，不各自归纳或只渲染 PR/Issue 标题。聚合保留原 Goal/WorkRef 与明确关系；一个目标下可有多个结果，一个结果可服务多个目标，不能因汇总另建任务身份。缺少可用模型摘要时，保留明确的源结果、原反馈和缺口，不把查询或缓存重建变成模型调用。
+
 目标呈现组合当前有效的个人关系、移除标记与明确来源关系；同一工作在首页、列表、详情使用一致结果。保存个人记录后只重算已取得来源，不因查询重新拉取全仓或扫描本机。来源与个人记录可分开更新，投影公布实际输入 revision 集合，不伪称远端原子时刻。
 
 原文与来源详情复用授权范围内的已提交内容/缓存，保留原版本、覆盖与返回位置。缺少原版本时保留引用及具体缺口，由用户沿有界来源入口补读；来源详情失败只影响该面板。云端来源缓存和投影不得夹带本机私有正文、路径或未提交内容。
@@ -149,7 +153,11 @@ Trace refs: O7-REQ-eb004bfb-41c7-4e8f-aa5b-1f52cec6cf08；承接 [REQ-CC-004](co
 
 云端来源 adapter 经注册项目的固定 HTTPS provider/仓库读取。允许的方法、端点、分页、路径、目标主机与重定向均受 allowlist 约束，不接受任意 URL 代理。公开 GitHub 来源可无访客凭据读取；需要额外权限的来源只有在实际授权路径可用时接入，不以平台 service bearer 冒充个人连接器 consent。
 
+已授权的独立 ChatGPT 任务也可通过已连接 GitHub 读取固定公开仓库，把原始响应交由同一来源 adapter 处理。受限入口校验整批响应的固定路径、仓库/对象身份、格式、字节与请求预算；保留读取通路、逐响应实际观测时间及覆盖，Site 接收时间另记。已接收的相同响应可随缺页补齐复用，但旧批次、较旧路径窗口及冲突内容不得覆盖较新的已发布输入；缺失或失败范围保留最近成功来源和缺口，不把未提供响应当作成功空。连接器凭据与授权不进入 Site，Site 服务凭据只用于本站入口；该通路不取得访客个人身份，不读取非公开来源，也不以换运输方式绕过原来源权限。
+
 PR 保留 host/repository ID/number、HEAD、状态及原 URL；CI 摘要另外保留 workflow/check/run 身份、关联 PR/branch、head/tested commit、实际状态和事件时间。只在可核实对应工作的准确提交时展示为该版本的检查结果；SHA 不匹配、检查未完成、取消、跳过、旧结果及读取范围不全分别显示。详细日志、重跑和其他写入使用原 GitHub 入口，读到成功检查不构成目标验收或部署证明。
+
+Issue 保留原仓库、对象 ID/number、状态、正文及所读评论的准确 ID/URL、作者、事件/编辑时间和内容摘要。Issue API 中带 PR 身份的对象归入 PR，不能重复当作 Issue。采用 dot 交接时，从原 Issue 的[实质反馈](../../../.agents/dot/REPORTING.md#issue-delivery-summary)取得结果、验证与版本、未满足项、下一步及依据；普通评论、执行者汇报和 GitHub 状态保留各自性质。正文或评论编辑后即使 URL、PR HEAD 未变，也产生新的来源 revision；评论分页不完整时保留覆盖缺口。
 
 列表、显式后续页和已知对象补读使用同一来源身份。截断、未读取、成功空、无权限、404 与真正可核实的删除分别保留；对象缺席不能推导不存在、未合入或关系失效。来源诊断只显示连接、账号/服务来源、范围、补读入口与错误；PR 在统一工作列表/详情呈现，不产生另一套 PR 选择状态。
 
@@ -191,6 +199,22 @@ Trace refs: O7-REQ-27fc12f8-6b47-40ad-aa40-3ce36744516f；承接[REQ-CC-009](com
 
 架构索引从事项进入原有主责条款，分别展示设计边界、已有实现与实际部署证据。显式后继沿当前已读文档的完整路径与章节定位，缺失、歧义或不安全目标保留具体诊断；索引条目不能仅凭文档 active 或引用关系成为权限、写入权、部署就绪或完成证明。历史清单保留原采样日期，未知环境状态不补造实时拓扑。
 
+<a id="cc-delivery-summary-job"></a>
+
+#### 独立交付摘要任务
+
+Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6、O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6；承接 [REQ-CC-002](command-center.prd.md#REQ-CC-002)、[REQ-CC-013](command-center.prd.md#REQ-CC-013)。
+
+普通来源刷新只做确定性读取和快照发布，不运行模型。用户明确请求一次或定期归纳时，由已有 ChatGPT 任务能力独立执行摘要工作；计划、启停和实际执行状态归该任务入口，Site 保存准确关联和最近结果，不另建调度系统，也不把它等同 dot 的 TPM/Coding Agent 派工。用户未请求、任务停用或当前能力不可用时，页面和来源刷新不能代为启用、补跑或声称正在归纳。
+
+每次归纳固定已发布的公开来源快照及覆盖范围，包括当前目标条款、Issue/PR 正文与所读反馈、准确验证依据、窗口和更早未决对象。独立任务可先按 §5.2 经已连接 GitHub 更新公开来源，再回读发布版本进行归纳；来源提交与模型摘要各自遵守版本和失败边界，不使页面或普通刷新取得模型调用能力。模型只消费这些资料，来源文字不得成为新的执行指令或读取授权。摘要逐项说明目的/目标、交付结果、验证与受测版本、仍未满足、下一步和依据；保留源事实、Agent 汇报、模型归纳及建议的区别。每项结论可回到准确 WorkRef、原条款/评论或检查记录，缺失字段与未读依据保持未知，不能从合入、关闭或 CI 成功推导整体完成。
+
+结果通过受限摘要写入 API 保存为 `SummaryCache`，绑定项目/环境/公开来源范围、格式版本、生成时间、输入 revision 集合与内容摘要、查询窗口/coverage、所引用对象和摘要 revision。Worker 校验服务身份、允许来源、字段与大小限制、引用闭包和预期版本；模型给出的正文按不可信展示数据处理，不接受任意 SQL、URL 代理或动作指令。该写入不改变来源、正式目标或个人数据，不写 GitHub，也不取得访客身份、个人连接器或本机能力。
+
+发布使用 CAS，同时核对预期摘要 revision 与当前已发布输入的版本/内容摘要及 coverage；正文、评论编辑也参与输入指纹，不能只比 PR HEAD 或生成时间。并发旧任务、输入已更新或同一提交标识下内容不同的结果拒绝覆盖，返回具体冲突供授权任务重新读取；重复同一提交及内容返回原结果，未知写入先核对而非换标识重复发布。来源后续读取确认编辑、删除或新版本时，使受影响旧结论标为 `stale` 并保留其原依据；尚未读到的远端变化不能声称已检测。
+
+部分输入仅可发布明确覆盖的条目，未读或失败范围保留旧结果及缺口，不以空归纳清掉已有未决工作；整体失败保留最近成功摘要，不切换成功指针。来源状态、任务失败、生成时间与事实核验时间分别展示。缓存可从已授权来源重建，清理或格式不兼容时回退到可读事实和原反馈；需要再次模型归纳仍沿独立任务授权，缓存缺失不触发模型。摘要缓存不是个人记录主库或不可变验收档案。
+
 <a id="DES-CC-013"></a>
 
 ### 5.6 首页判断投影
@@ -203,9 +227,11 @@ Worker 应用层在既有来源快照之上生成 `HomeProjection`，四个区�
 
 首页 grid 子项和内部 grid 单元允许收缩（min-width:0、minmax(0,1fr)），标题、链接及版本使用可换行样式，不以 overflow:hidden 隐藏必要内容。各卡片独立按内容高度排布，避免近期成果拉伸重点产生大块空白。摘要冲突按章节身份与 revision 分组，组内按完整声明去重并保留全部不同 WorkRef；默认折叠，展开显示原声明与每个对应 PR 入口。公共核验边界只出现一次，聚合不修改源状态或个人待办。
 
-重点排序输入只有主责显式阶段顺序、用户已保存置顶及组内来源顺序；缺少优先级时保留并列。下一步引用现有主责或个人选择，分析建议单独带性质且不改变源关系。近期结果按明确 PR/交付身份聚合，保留事件时间和比较基线。待处理投影复用原请求身份和 §5.3 的已处理结果；人工关注、事实缺口和普通提醒分组，观察不全不生成虚构请求。
+重点排序输入只有主责显式阶段顺序、用户已保存置顶及组内来源顺序；缺少优先级时保留并列。下一步引用现有主责或个人选择，分析建议单独带性质且不改变源关系。近期结果按目标、明确原工作/交付关系聚合，保留事件时间和比较基线；明确属于同一交付结果的原 Issue 反馈、关联 PR 与验证不各算一个完成目标，不同真实结果仍分别保留。待处理投影复用原请求身份和 §5.3 的已处理结果；人工关注、事实缺口和普通提醒分组，观察不全不生成虚构请求。
 
 默认“近七日”为用户时区的今天及前六个自然日，显示具体日期、时区和“今天截至本次观察”。查询固定 timezone、asOf 与换算后的 UTC 半开区间，夏令时按日历边界处理，不能直接减 7×24 小时；用户改变窗口或时区仅重算投影。成果按源 eventAt 倒序，相同时以稳定事件身份排序；按原 WorkRef/事件身份归并重复观察，同一 PR 的提交/检查在其交付结果下展开，不叠加为多个已完成目标。不同真实事件保留各自时间，未知 eventAt 单列“本次观察到，事件时间未知”，不用 fetchedAt/lastReadAt 补造；“自上次查看”只有明确同范围阅读基线时才单独可用。
+
+窗口仅过滤近期事件，不截断当前义务：已知仍有效的更早未决 Issue、尚未满足的交付/验收条件及其准确 WorkRef 在独立“更早未决”集合保留，并沿同一有界来源入口补读。已取消或不再计划的工作只作历史来源，不因旧反馈恢复其义务。未读取的历史只标覆盖未知，不能声称列全；没有新事件的未决项不重写 eventAt 混入近期时间线，长期目标未实现也不自动变成阻塞。
 
 阅读基线保存实际展示的 WorkRef/事件集合、窗口/cursor、源/view revision 与用户阅读时间；观察到来源和用户已读分别记录。首页只展示三项时不能用一个 `new Date()` 把未展示的分页/截断窗口全标已读；进入其他页后只提交该已展示范围的阅读记录。来源覆盖改变而无法比较时说明缺口，仍可看固定日期成果，不生成完整“自上次查看变化”的保证。
 
@@ -216,7 +242,7 @@ Worker 应用层在既有来源快照之上生成 `HomeProjection`，四个区�
 | 需要我处理 | §5.3 的仍需用户回答事项与数量，事实缺口和知悉信息分组 | 没有个人问题项可以为空；来源不可用显示该范围未知，不能显示“全部处理完” |
 | 返回工作 | 已确认工作关系、用户近期进入位置和未发送草稿存在性 | 不包含私有正文、秘密或私有线程；没有历史时给可读工作入口，不创建空任务 |
 
-`HomeProjection`、`WorkDetailProjection` 和 `AttentionProjection` 从同一已提交来源集合及个人记录 revision 生成，并发布共同 `viewRevision`。各区返回自己的可用/部分/旧结果和缺口，来源集合并非原子远端时刻；一处失败不清空其他区。投影缓存键包括 schema、Site/owner/project/environment/scope、实际阅读基线、来源 revision 集合、个人记录 revision 和比较窗口，缓存缺失可重算。一次保存/处理成功使相关投影失效；旧计算结果提交前须核对全部输入 revision，不能重新引入已处理问题。
+`HomeProjection`、`WorkProjection/WorkDetailProjection` 和 `AttentionProjection` 从同一已提交来源集合、适用 `SummaryCache` revision 及个人记录 revision 生成，并发布共同 `viewRevision`。各区返回自己的可用/部分/旧结果和缺口，来源集合并非原子远端时刻；一处失败不清空其他区。投影缓存键包括 schema、Site/owner/project/environment/scope、实际阅读基线、来源与摘要 revision 集合、个人记录 revision 和比较窗口，缓存缺失可确定性重算。一次保存/处理成功使相关投影失效；旧计算结果提交前须核对全部输入 revision，不能重新引入已处理问题或已失效摘要。
 
 项目选择和连接配置只在首次打开或用户展开时占据主要空间；身份、SHA 和诊断按需展开，当前判断受影响的具体缺口直接显示。查询先校验可信身份和 scope，再返回该身份下的最后成功投影及分区状态，并独立校准来源；身份未核实、过期或切换时不展示旧个人快照，不保存到未核实项目。后台全量扫描不作为每次 `query_view` 的前置。
 
@@ -242,7 +268,7 @@ Worker 应用层以 §6.2 的 WorkItem 原来源身份构造[统一工作详情]
 
 ### 6.1 来源合同与错误
 
-Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；承接 [REQ-CC-002](command-center.prd.md#REQ-CC-002) 的适用义务。
+Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；承接 [REQ-CC-002](command-center.prd.md#REQ-CC-002) 的适用义务。独立摘要的任务、缓存与条件发布合同见[独立摘要任务](#cc-delivery-summary-job)。
 
 关键对象包含 `SourceRef`：provider/主机、经核实的仓库及访问上下文、环境、对象身份、可得 revision、事实性质与 coverage。事实性质区分源事实、Agent 汇报、模型归纳、用户选择和待核实关联；未取得的字段保持未知。[产品来源状态](command-center.prd.md#cc-source-states)由领域层统一产生，不由各页面或客户端时间猜测。
 
@@ -261,8 +287,8 @@ Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；承接 [REQ-CC-002](co
 | 字段 authority | 可更新的字段 | 不得顺带推出 |
 | --- | --- | --- |
 | 当前主责文档/明确验收条款 | 目标、适用条件、规范效力与显式下一步 | PR/CI 现状、实际部署或验收通过 |
-| 派生状态摘要 | 其原核验窗口内的说明与判断，保留摘要性质 | 新拉取即为当前事实，或据摘要修改正式要求 |
-| GitHub | 对应 PR HEAD、PR/CI 对象状态、准确提交及真实事件 | 未读页没有工作，合入/检查成功等于部署、测试覆盖完整或目标完成 |
+| 派生状态摘要 / 模型交付摘要 | 原输入与核验窗口内的说明与判断，保留事实性质、引用及生成时间 | 新拉取/新生成即重新验证事实，或据摘要修改正式要求 |
+| GitHub | 对应 Issue/PR 身份与状态、正文/评论版本、准确提交和检查事件 | 评论汇报自动成为验证事实，未读页没有工作，合入/关闭/检查成功等于部署或目标完成 |
 | 本机 Git / 原运行时回执 | 原工作树或 instance/thread/turn/request 的实际观察及操作结果 | 云端已拥有本机事实、所有外部任务结束或产品验收 |
 | 用户明确选择/确认 | 置顶、个人计划、关系与有依据的核实结论 | 改写源状态、接管会话、授予新权限或更新正式条款 |
 
@@ -284,13 +310,14 @@ Trace refs: O7-REQ-d5a6d2dd-86a5-4a70-811c-ee57927dfa1d；承接[REQ-CC-003](com
 | --- | --- |
 | Goal / Milestone | 引用当前主责条款、长期/当前阶段及显式关系；身份沿源文档/条款，不按首页卡片另发目标 ID |
 | Rule / DocumentSection | 仓库/阅读范围、路径、条款 ID 或稳定章节定位、commit/content hash、适用范围及后继；标题/行号变化不自动替换历史依据 |
-| WorkRef / WorkItem | WorkRef 为来源命名空间与原对象身份：GitHub host/repository ID/PR 或 Issue number，或明确原会话 SessionKey。WorkItem 是目的、目标、PR/CI 事实与定位的派生组合，PR 无 Issue 仍独立成立 |
+| WorkRef / WorkItem | WorkRef 为来源命名空间与原对象身份：GitHub host/repository ID/PR 或 Issue number，或明确原会话 SessionKey。IssueWorkRef 与 PRWorkRef 使用不同对象类型；WorkItem 是目的、目标、结果/未决项、Issue/PR/CI 事实与定位的派生组合，PR 无 Issue 仍独立成立 |
 | EvidenceLink | 真实源对象/版本、适用 AC/范围及结果性质；URL 只证明链接存在，相关性与结论核实另行记录 |
 | DecisionRecord / DecisionRevision | 稳定决定 ID、不可变内容/理由/适用范围/正式条款引用、实际确认及替代历史；具体转移见 §7.4 |
 | AttentionItem | 稳定个人问题 ID、原 WorkRef、原因、回答/处理结果、显式状态及历史；不替代 GitHub Issue，不从普通提醒自动创建 |
 | RelationRecord | 双方稳定身份、种类、范围、源依据版本、提出/确认来源、revision、解析状态和移除标记；见 §7.5 |
 | ReadingState / Preference | 云端已提交来源的阅读版本/位置、实际已读集合、导航/展开/显示/时区偏好，按 owner/project/environment/scope 保存；本地未提交阅读状态留在独立本机 namespace |
 | 状态摘要 / 架构索引 | 普通仓库文档及稳定章节，保留派生性质、原基线/核验时间/范围，不新建目标或任务身份 |
+| SummaryCache | 授权公开来源的可重建交付归纳，保留原 Goal/WorkRef、逐结论 EvidenceLink、输入指纹、覆盖、生成时间与 revision；不是新的任务或事实 authority |
 | 原工具入口 | 工具/来源命名空间、环境及用户明确保存的定位；只证明可打开或可复制，不带实时执行权 |
 
 同一工作可服务多个目标；建议依赖不自动成为阻塞。验证比例只有适用集合、分母和结果可核实时显示；文档 active、PR merged、检查结果、外部汇报、部署和验收各说明自身事实。同分支、同标题或相同文本不合并工作；没有 PR 的明确外部工作保持原身份，有明确关系后才关联。
@@ -303,7 +330,7 @@ Trace refs: O7-REQ-d5a6d2dd-86a5-4a70-811c-ee57927dfa1d；承接[REQ-CC-003](com
 
 Trace refs: O7-REQ-a6126ad0-2f2d-47ad-a504-5e9ceff92cff；承接[REQ-CC-005](command-center.prd.md#REQ-CC-005)。
 
-PR 采用 host/repository ID/number；外部工作保留用户明确记录的 namespace/project/environment/thread 定位。WorkItem 组合 purpose、result、remaining、source URL、准确检查引用及明确目标关系，不将本机分支当云端主键。查询只组合当前已授权项目/环境/阅读范围的来源工作和明确外部定位；定位本身不带运行状态。
+`PRWorkRef` 与 `IssueWorkRef` 分别保留 GitHub host/repository ID/对象类型/number；二者不因相同编号、标题或关联关系互换。Issue 评论以原 IssueWorkRef 加评论 ID/URL 定位证据，不另建工作。外部工作保留用户明确记录的 namespace/project/environment/thread 定位。WorkItem 组合 purpose、goal、result、verification/testedVersion、remaining、nextAction、source URL、准确检查/反馈引用及明确目标关系，不将本机分支当云端主键。缺字段保留未知，各字段的原事实与归纳性质按 §6.1 表达；查询只组合当前已授权项目/环境/阅读范围的来源工作和明确外部定位，定位本身不带运行状态。
 
 同一工作可以保留多个准确原工具入口，每个入口标明实际目标与动作。精确 GitHub HTTPS 地址可在浏览器打开；`codex://threads/<UUID>` 只在用户点击且严格校验 UUID、无附加路径/query/fragment 后交由受支持的本机协议处理。浏览器不支持或原工具未安装时显示可复制定位，不猜测其他 scheme、不回退到 shell，也不声称系统接受导航等于已进入正确会话。
 
@@ -319,12 +346,13 @@ Trace refs: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55；承接[REQ-CC-007](com
 | --- | --- | --- |
 | 读取投影/文档/来源详情 | 已授权 project/environment/scope、不可变引用、查询范围和 cursor | 返回实际来源/个人 revision、coverage 与分区状态；不隐式全仓扫描或补取任意路径 |
 | 有界刷新/补读 | 已核实来源配置、来源键、attempt generation | 原子发布该来源成功结果；失败保留旧数据，不修改个人记录 |
+| 独立摘要提交/核对 | 已授权受限服务身份、公开来源 scope、输入指纹、摘要格式、提交标识与 expectedRevision | 按独立摘要合同校验依据及 CAS；旧输入/并发返回冲突，重复提交核对原结果，不运行来源指令或写个人数据 |
 | 个人创建/修改/确认/移除 | 可信 owner、scope、稳定对象 ID、mutation ID、payload fingerprint、expectedRevision | 数据库原子提交后返回对象及新 revision；旧版本或同幂等键不同内容为 409 |
 | 个人列表/历史/偏好 | 同一 owner 与完整 scope、明确分页/版本 | 所有查询和 join 具有相同授权边界；404 不泄露其他 owner 的存在性 |
 | 导出/恢复 | 可信 owner、选定 scope、snapshot/schema 版本；恢复另有显式目标确认 | 一致导出或有界明确拒绝；恢复先校验且原子提交，不按文件内账户字段授予归属 |
 | 精确导航 | 验证后的工具/来源身份与 allowlist 定位，用户明确点击 | 只报告导航接受/拒绝与复制后备，不隐含读设备、执行命令或授予连接器权限 |
 
-个人写请求必须通过可信 Site origin/同源防伪校验，跨源请求不能仅靠带有用户头放行。共享公开来源刷新可由平台验证的 service bearer 调用且没有访客身份；无 Origin 的服务请求只适用于明确允许的公开来源操作，带 Origin 时仍须匹配 Site origin。服务身份不能访问个人列表、历史、导出、恢复或个人连接器，也不能伪造 owner。请求运行时不得接受任意 SQL、DDL、shell、全磁盘读取或任意 URL 转发。
+个人写请求必须通过可信 Site origin/同源防伪校验，跨源请求不能仅靠带有用户头放行。共享公开来源刷新与单独获准的摘要缓存写入可由平台验证的 service bearer 调用且没有访客身份；无 Origin 的服务请求只适用于明确允许的公开来源操作，带 Origin 时仍须匹配 Site origin。摘要服务权限只覆盖所选公开来源快照及相应摘要缓存，不因服务凭据存在自动获得其他操作。服务身份不能访问个人列表、历史、导出、恢复或个人连接器，也不能伪造 owner。请求运行时不得接受任意 SQL、DDL、shell、全磁盘读取或任意 URL 转发。
 
 本机辅助端仍以有限 IPC 完成目录/本机文档/Git、工具与系统导航，Rust 再校验路径/身份/能力。远程 Site 页面在默认系统浏览器打开，不加载到拥有本机 IPC 权限的远程 WebView；无需为此自建 OAuth、设备配对或桥接服务器。本机 route 只在本机解析为允许的导航目标，不能包含可执行命令、shell 参数、凭据或上传指令。
 
@@ -352,7 +380,7 @@ Trace refs: O7-REQ-a0a5fd88-9df3-47ba-a778-ceae9c330949；承接[REQ-CC-011](com
 
 | 数据组 | 权威与内容 | 提交/恢复边界 |
 | --- | --- | --- |
-| 可重建来源 | GitHub/原工具为原始 authority；D1 保存已提交文档、索引、PR/CI 与投影缓存 | 小结果原子发布；大树/正文先写不可变候选分块，核对完整清单/摘要后以 CAS 原子切换 current pointer；失败保留旧快照，仅清理无引用候选 |
+| 可重建来源与摘要 | GitHub/原工具为原始 authority；D1 保存已提交文档、索引、Issue/PR/CI、独立摘要与投影缓存 | 小结果原子发布；大树/正文先写不可变候选分块，核对完整清单/摘要后以 CAS 原子切换 current pointer；模型摘要另核输入指纹与预期 revision；失败保留旧快照，仅清理无引用候选 |
 | 云端个人记录 | D1 为唯一写主库：决定、问题、关系、定位、已读版本/位置及偏好 | 同一 scope 的当前指针、不可变修订、幂等结果和 personalRevision 同事务提交；来源缓存重建不改个人记录 |
 | 本机工具/材料 | 独立本机存储：资料、未提交预览及位置、ToolJobs、原 operation/job 与未知结果 | 本机合同独立恢复及退出核对；不与 D1 双写，不因云端不可用重建个人数据第二主库 |
 
@@ -368,7 +396,9 @@ Trace refs: O7-REQ-a0a5fd88-9df3-47ba-a778-ceae9c330949；承接[REQ-CC-011](com
 
 Worker 的来源请求、解析、分页、D1 操作和发布保持有界并发、字节及期限；取消/切换 scope 后不得让旧响应覆盖当前页面。来源读取在数据库事务外完成，事务只处理校验后的小型提交或指针切换，不能占着事务等待外部 HTTP。大文档/树按清单分块，不假定完整仓库可装入一次 Worker 请求或单个 D1 行。
 
-同源重复读取、冷却中或满额返回具体拒绝/下一次可尝试时间，不创建隐式无限队列。浏览器可在前台恢复或用户点击时有界校准；用户也可明确配置关页后继续的来源刷新，由 Sites linked automation 或既有受控调度触发同一有界 Worker 来源入口，不在应用内另造开发执行调度器。后台任务只读取已配置范围内的公开 GitHub 来源并更新可重建缓存，不访问个人记录/连接器，不写仓库、不运行模型任务，也不扫描或上传本机资料。
+同源重复读取、冷却中或满额返回具体拒绝/下一次可尝试时间，不创建隐式无限队列。浏览器可在前台恢复或用户点击时有界校准；用户也可明确配置关页后继续的来源刷新，由 Sites linked automation 或既有受控调度触发同一有界 Worker 来源入口，不在应用内另造开发执行调度器。后台来源刷新任务只读取已配置范围内的公开 GitHub 来源并更新可重建缓存，不访问个人记录/连接器，不写仓库、不运行模型任务，也不扫描或上传本机资料。
+
+上述限制适用于来源刷新；[独立摘要任务](#cc-delivery-summary-job)具有自己的明确请求、运行状态及有限模型预算，不能作为每次刷新、轮询或缓存命中的附带步骤。摘要执行在已有 ChatGPT 任务能力内，Worker 只承担有界快照读取、校验和缓存提交，不用长时模型调用占用来源刷新事务。摘要失败不阻塞确定性来源刷新、既有事实阅读或个人保存。
 
 后台刷新的配置由站点配置者通过平台关联 automation 或既有调度的受控管理入口维护，明确 project/source scope、频率、时区、启停状态与授权服务凭据；凭据只在平台/服务端保存。调度器拥有触发计划和实际执行状态，Worker 拥有每次来源读取的尝试、成功、错误与发布版本。Site 保存准确关联标识并展示“未配置/启用/停用/状态未知”、最近尝试、最近成功与当前异常，不能以页面偏好或缓存时间猜测调度正在运行。配置/停用入口必须连接该实际管理能力，只有取得其成功回执才显示已生效；权限撤销、关联失效或执行不可查询时显示具体限制。
 
@@ -438,7 +468,7 @@ Trace refs: O7-REQ-eb004bfb-41c7-4e8f-aa5b-1f52cec6cf08；承接[REQ-CC-004](com
 
 平台管理浏览器登录；应用不保存用户密码、OAuth token 或自制登录 cookie。公开 GitHub 读取无需访客 token，受限来源只沿实际支持的授权路径接入；service bearer 仅保存在部署/调用端，不能写入前端、URL、日志或个人记录，不能用于个人连接器代理。本机 Git/gh、signer 与操作凭据留在原工具，不上传到 Sites。
 
-仓库文档、PR 内容和日志都是展示数据，不能触发命令、权限扩大或任意 URL 请求。Markdown 原始 HTML 禁用，代码/高亮转义，默认不自动加载远程图片；外链协议和目标按对应导航合同校验。CSP 限制实际需要的资源，不因文档含脚本而放宽。云端日志只记脱敏的 scope/operation 标识、类别、计数和耗时，不默认记录个人正文、完整提示词、transcript、token 或导出内容。
+仓库文档、Issue/PR 正文与评论、日志及模型摘要都是不可信展示数据，不能触发命令、权限扩大或任意 URL 请求；摘要任务也不得把来源中的指令当作用户授权。Markdown 原始 HTML 禁用，代码/高亮转义，默认不自动加载远程图片；外链协议和目标按对应导航合同校验。CSP 限制实际需要的资源，不因文档含脚本而放宽。云端日志只记脱敏的 scope/operation 标识、类别、计数和耗时，不默认记录个人正文、完整提示词、transcript、token 或导出内容。
 
 本机生产 WebView 只加载打包静态资源，Node/npm 只用于构建测试；Tauri capabilities/CSP 与 Rust 双重限制，app commands 纳入明确清单。Finder 启动不假定继承交互 shell PATH、代理或 SSH agent，允许显式选择并显示实际 Git/gh 路径及版本，不执行 shell 初始化脚本修复环境。远程云端页面只能打开系统浏览器，不能取得本机命令、SQL、全盘或协议透传能力。
 
@@ -570,10 +600,10 @@ schema 演进必须让旧 Worker 与新 schema 在发布窗口仍可安全共存
 | 上游条款 | 本设计条款 | 独立义务与适用条件 | 验证方法与适用入口 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-6e70287f-a156-4544-997d-5c1752e5efde；[REQ-CC-001](command-center.prd.md#REQ-CC-001) | [DES-CC-001](#DES-CC-001) | 云端核心工作台、稳定项目与环境身份 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/core/tests/foundation.rs)仅证明其本机范围，云端另测：真实Site登录后选择两项目/环境，关闭重开及另一设备恢复；分别断开本机和GitHub；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 只能证明实测Site/浏览器；不证明本机工具可用 |
-| Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；[REQ-CC-002](command-center.prd.md#REQ-CC-002) | [DES-CC-002](#DES-CC-002) | 来源版本、覆盖、时间、失败与局部可用 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：固定源版本，注入成功空、403/404、限额、部分页、旧结果及摘要/PR冲突；核对每字段依据和coverage；固定候选与实际身份/来源配置，按 §11.2 分层；配置与停用受控后台刷新、关页继续、服务身份失效及调度状态未知时核对实际回执与旧快照 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | fake来源不证明真实API权限或全量覆盖 |
-| Trace refs: O7-REQ-d5a6d2dd-86a5-4a70-811c-ee57927dfa1d；[REQ-CC-003](command-center.prd.md#REQ-CC-003) | [DES-CC-003](#DES-CC-003) | 目标、适用验收与有依据的进度 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：当前阶段条款修订、多目标工作、有/无明确验收分母；核对首页/列表/详情一致且不以merged或CI代验收；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 人工主责判断与未读验收证据不能由投影推断 |
+| Trace refs: O7-REQ-2d1f3577-785e-40ac-8d25-ba0d414511f6；[REQ-CC-002](command-center.prd.md#REQ-CC-002) | [DES-CC-002](#DES-CC-002) | 来源版本、覆盖、时间、失败及独立授权摘要 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；固定候选/来源，注入空、403/404、限额、部分页与旧摘要冲突；分别配置/停用来源刷新和摘要任务，验证普通刷新无模型调用、公开源服务无个人访问；覆盖连接器输入的错误仓库/路径、缺页补齐、实际读时刻、同包重试及迟到冲突；编辑同 URL 评论、改变输入、并发旧摘要与重复提交，核对 stale、CAS、回执、失败保留及覆盖；按 §11.2 分层 | PR 的源码/构建/schema、任务实际配置、场景、命令或动作及结果 | fake来源不证明真实API权限、任务后台执行或全量覆盖 |
+| Trace refs: O7-REQ-d5a6d2dd-86a5-4a70-811c-ee57927dfa1d；[REQ-CC-003](command-center.prd.md#REQ-CC-003) | [DES-CC-003](#DES-CC-003) | 目标、适用验收与有依据的进度 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；固定候选与实际来源，覆盖当前目标修订、多目标/多PR同一结果、无验收分母及近期窗口外仍有效未决；核对结果、受测版本/结果、剩余条件、下一步与逐项依据，不以merged/closed/CI代验收；按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 人工主责判断与未读验收证据不能由投影推断 |
 | Trace refs: O7-REQ-eb004bfb-41c7-4e8f-aa5b-1f52cec6cf08；[REQ-CC-004](command-center.prd.md#REQ-CC-004) | [DES-CC-004](#DES-CC-004) | 规范后继、个人决定、确认及替代历史 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：两设备竞争确认；确认后分别修改内容/理由/范围/文档引用；核对新修订待确认、旧确认不可变及替代循环拒绝；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 不能由个人确认证明正式文档已更新 |
-| Trace refs: O7-REQ-a6126ad0-2f2d-47ad-a504-5e9ceff92cff；[REQ-CC-005](command-center.prd.md#REQ-CC-005) | [DES-CC-005](#DES-CC-005) | 同一原工作身份的列表、详情与逐字段证据 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：无Issue的PR、无PR明确会话、同分支不同工作、多入口同WorkRef；匹配/不匹配tested commit检查；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 原Codex实时状态与执行不在工作台证明范围 |
+| Trace refs: O7-REQ-a6126ad0-2f2d-47ad-a504-5e9ceff92cff；[REQ-CC-005](command-center.prd.md#REQ-CC-005) | [DES-CC-005](#DES-CC-005) | 同一原工作身份的列表、详情与逐字段证据 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；固定候选与来源，覆盖无Issue的PR、Issue原反馈与多个关联PR、Issue/PR相同编号不同类型、无PR明确会话及多入口同WorkRef；匹配/不匹配tested commit检查；核对原评论导航与跨视图摘要一致，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 原Codex实时状态与执行不在工作台证明范围 |
 | Trace refs: O7-REQ-649217d9-4c9c-43fb-898e-4fd3606a0bf5；[REQ-CC-006](command-center.prd.md#REQ-CC-006) | [DES-CC-006](#DES-CC-006) | 个人问题保存、回答、关闭及返回原工作 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：新建/回答/关闭/重开、重复重试、原工作不在窗口、来源读取失败；核对问题数与原工作返回；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 来源缺口不能替代真实用户问题 |
 | Trace refs: O7-REQ-417e1bc6-1dac-4b80-891a-cef1f770bf55；[REQ-CC-007](command-center.prd.md#REQ-CC-007) | [DES-CC-007](#DES-CC-007) | 准确外部定位、用户触发及受限本机导航 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：合法/畸形codex UUID、附加query/fragment、非allowlist URL、缺协议处理器；真实浏览器点击与本机打开；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 导航接受不证明进入会话或执行成功 |
 | Trace refs: O7-REQ-2866f4e6-092d-49e8-b8b3-782db0f16763；[REQ-CC-008](command-center.prd.md#REQ-CC-008) | [DES-CC-008](#DES-CC-008) | 旧记录保留、隐私隔离与版本恢复 | [旧记录与隐私回归](../../../tools/oasis7-command-center/core/tests/retired_runtime.rs)核对本机原记录保留；云端仍须独立验证：旧格式/未来格式/私有标记/旧runtime样本、幂等导入与冲突、回退读取；核对旧数据保留且不重放；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 未知旧格式不声明可编辑；恢复不撤销外部副作用 |
@@ -581,7 +611,7 @@ schema 演进必须让旧 Worker 与新 schema 在发布窗口仍可安全共存
 | Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | [DES-CC-010](#DES-CC-010) | 中文、信息层级、缩放、键盘与阅读 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/ui/src/AppDocumentReading.test.tsx)仅证明其本机范围，云端另测：中文两字查询/IME/长文档、100/150/200%与窄屏、键盘焦点和返回；真实云端浏览器及适用本机App；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | VoiceOver不在验收范围；mock不代签真实布局 |
 | Trace refs: O7-REQ-a0a5fd88-9df3-47ba-a778-ceae9c330949；[REQ-CC-011](command-center.prd.md#REQ-CC-011) | [DES-CC-011](#DES-CC-011) | 个人数据、内容安全、凭据和撤权边界 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/core/tests/foundation.rs)仅证明其本机范围，云端另测：未登录、伪造owner、跨scope ID、服务bearer访问个人接口、账号撤权与旧缓存、恶意Markdown和URL；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 不承诺收回用户已下载的离线副本 |
 | Trace refs: O7-REQ-240b3b67-49ff-4ac1-9ae8-112619efd09c；[REQ-CC-012](command-center.prd.md#REQ-CC-012) | [DES-CC-012](#DES-CC-012) | 云端核心与独立来源、离线局部可用 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/core/tests/foundation.rs)仅证明其本机范围，云端另测：GitHub/D1/网络独立失效；已有快照与空库分别观察；离线编辑重连后显式CAS保存且无自动重放；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 离线不保证草稿跨关页恢复或云端写入 |
-| Trace refs: O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6；[REQ-CC-013](command-center.prd.md#REQ-CC-013) | [DES-CC-013](#DES-CC-013) | 首页重点、成果、个人问题与返回 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：四区共享revision、七自然日/DST/跨时区、缺eventAt、只显示三项与未读分页；核对范围和排序；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 没有完整来源/基线不能声明全部近期变化 |
+| Trace refs: O7-REQ-ce7b612a-3316-4c40-9009-c0d295ff0ed6；[REQ-CC-013](command-center.prd.md#REQ-CC-013) | [DES-CC-013](#DES-CC-013) | 首页重点、成果、个人问题与返回 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；固定候选与来源，覆盖四区/工作详情共享来源和摘要revision、七自然日/DST/跨时区、缺eventAt、更早未决与未读分页；核对范围、聚合去重与排序；缓存缺失/任务失败不启动模型或清空已有事实，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 没有完整来源/基线不能声明全部近期变化 |
 | Trace refs: O7-REQ-fdf061f8-ebdf-46e3-91a5-a2311e2bcb93；[REQ-CC-014](command-center.prd.md#REQ-CC-014) | [DES-CC-014](#DES-CC-014) | 关系复用、失效修复与原工作接续 | [云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)；云端须独立验证：明确关系/普通链接/建议、移除后重读、条款改名/失效/歧义、两设备同时修复；核对历史与投影；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 关系不证明依赖、完成或权限 |
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-015](#DES-CC-015) | 本机工具、私有资料、signer及工作往返 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)仅证明其本机范围，云端另测：真实本机工具及已有signer普通调用、私有材料、未知job退出、浏览器往返；检查无配对/命令/上传通路；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 云端通过不证明本机签名/首装或暂停能力开放 |
 | Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；[REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-016](#DES-CC-016) | 完整文档树、明确配对、覆盖与阅读恢复 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/ui/src/AppDocumentReading.test.tsx)仅证明其本机范围，云端另测：同commit完整树/正文/配对、分页/分块中断、指针竞争、引用逃逸、缺原版本、阅读位置恢复；按专题树验证；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 明确不覆盖云端读取本地untracked/私有全文 |
