@@ -7,7 +7,7 @@
 //! callbacks.
 
 /// Shared portable model-selection default; transport stays native.
-pub const DEFAULT_LLM_MODEL: &str = "gpt-5.4-mini";
+pub use oasis7_agent_api::DEFAULT_LLM_MODEL;
 
 mod actor;
 mod authority;

@@ -220,7 +220,7 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         || admit_crash
         || capture_crash
         || wait_rejected;
-    let fixture = Fixture::with_clock_options(true, wake || ordinary_wait, wake && !drift);
+    let fixture = application_fixture(wake, drift, ordinary_wait);
     let app_dir = temp_dir("qa-world-service-application");
     fs::create_dir_all(&app_dir).unwrap();
     if matches!(
@@ -1101,4 +1101,25 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         }
     }
     fs::remove_dir_all(app_dir).unwrap();
+}
+
+fn application_fixture(wake: bool, drift: bool, ordinary_wait: bool) -> Fixture {
+    // Ordinary and final-budget Wait clocks enforce the same non-time-state
+    // invariant as the standalone wake clock. Keep automatic crises out of
+    // their initial canonical fixture, without changing the deliberate drift case.
+    Fixture::with_clock_options(true, wake || ordinary_wait, (wake && !drift) || ordinary_wait)
+}
+
+#[test]
+fn ordinary_wait_clock_preserves_gameplay_across_automatic_crisis_tick() {
+    let fixture = application_fixture(false, false, true);
+    let mut driver = fixture.driver.lock().unwrap();
+    let mut before = serde_json::to_value(driver.execution_world.state()).unwrap();
+    before["time"] = serde_json::json!(0);
+    for _ in 0..16 {
+        commit_request(&mut driver, 0, None);
+    }
+    let mut after = serde_json::to_value(driver.execution_world.state()).unwrap();
+    after["time"] = serde_json::json!(0);
+    assert_eq!(before, after, "ordinary Wait fixture clock must preserve gameplay");
 }

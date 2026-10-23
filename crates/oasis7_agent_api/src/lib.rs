@@ -75,3 +75,13 @@ pub use cognition::{
 
 pub mod legacy_economy;
 pub mod legacy_scheduler;
+
+/// Shared portable model-selection default; transport stays in the provider.
+pub const DEFAULT_LLM_MODEL: &str = "gpt-5.4-mini";
+
+mod model_provider;
+pub use model_provider::{
+    ModelProvider, ModelProviderError, ModelProviderHistory, ModelProviderRequest,
+    ModelProviderResponse, ModelProviderTool, ModelProviderToolCall, ModelProviderToolResult,
+    ModelProviderTrace, ModelProviderTraceEntry, ModelProviderTurn, ModelProviderUsage,
+};

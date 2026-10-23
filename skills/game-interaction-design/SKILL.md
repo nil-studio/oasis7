@@ -44,11 +44,29 @@ Do not use this skill when:
    - blocked/error copy intent, not final marketing text
    - acceptance evidence: real interaction smoke, screenshot/video, DOM/browser evidence, or explicit unverified risk
 
-## Recovery-State Review
+## State Feedback and Recovery
 
-For the affected journey, distinguish transport acknowledgement, canonical request result, and business outcome. An unknown result needs a way to inspect the original request, not a generic retry that creates a new intent. A cognition commit is not proof that a manufacturing action succeeded; a result missing from a recent window is not proof of failure. Use the applicable contract rather than inventing status names or promises.
+Map feedback to the applicable runtime/API contract, not to invented status names. Distinguish transport acknowledgement, canonical request result, and business outcome. For the affected journey, use these questions to find missing states:
 
-Exercise the relevant empty, unbound, pending, unknown, rejected and read-only recovery states. Check that copy explains what is known, whether an effect is confirmed, and the permitted next step. Include keyboard focus after errors/dismissal, status/error association, long text, narrow viewports and zoom where affected. A screenshot does not prove keyboard or screen-reader behavior, and Web evidence does not validate native controls. See the [bounded scenario reference](../../.agents/skills/systematic-debugging/references/skills-research-checks.md) for examples and source boundaries; it adds no mandatory full-matrix run.
+| Observed fact | Required clarity and permitted action | Invalid inference |
+| --- | --- | --- |
+| Transport acknowledgement / volatile Received | The transport responded; durable outcome is not yet confirmed | Game pending, task created, or business success |
+| Contract-confirmed pending / accepted | Which layer accepted the request and what to wait for or query | Committed or delivered |
+| Unknown / disconnected before final result | The outcome is unconfirmed; inspect the original request within current read authorization | Failed, or safe to submit a new intent |
+| Explicit rejected / failed | The known reason, affected scope, and permitted next step | An invented server cause or automatic permission expansion |
+| Read-only recovery | What can be read and what still cannot be done | Service or write readiness |
+| Empty / unbound / filtered view | Whether there is no content, no binding, no matching result, or a read/permission problem | A read failure means an empty world or lost progress |
+
+An unknown operation must not be turned into a generic retry that creates a new identity. Follow the original contract for lookup or safe resubmission; recovery does not renew an expired grant. A cognition commit does not prove manufacturing success, and a missing recent-window entry does not prove failure. Use [request-recovery checks](../../testing-manual.md#request-recovery-regression) for the affected boundary, without treating every row as a mandatory matrix for every UI edit.
+
+Write error and blocked-state copy around what is known, what it affects, and the allowed next action. Preserve recoverable player input; do not expose raw exceptions, secrets, or private payloads. Only promise an action that the current authority and implementation allow.
+
+## Check the Affected Journey
+
+- Exercise relevant repeat clicks, interruption, refresh/re-entry, error followed by correction, and Close/Cancel paths. Verify that a late response cannot overwrite a newer selection or result, and that repeated actions do not create unintended duplicate effects.
+- Navigate by keyboard through the changed controls; check visible focus, focus after errors/dismissal, an understandable control name, and association between fields and errors. Check state announcements with actual assistive technology before claiming screen-reader support.
+- Check long text, narrow viewports, 200% zoom, and target reachability where affected. Distinguish viewport simulation from real touch/device testing; use platform-appropriate input guidance rather than assuming Web behavior validates native controls.
+- Compare displayed state with the original request and authoritative business outcome. Record actual version, state and viewport under the existing verification rules for that surface: S6 for Web, and the applicable native/launcher entry for those surfaces. Screenshots alone do not validate input, recovery, or world effects.
 
 ## Source Map
 

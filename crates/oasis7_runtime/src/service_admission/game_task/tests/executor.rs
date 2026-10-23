@@ -31,7 +31,11 @@ fn delegated(world: &mut World, owner: &str, generation: u64, nonce: u64, delega
         .unwrap();
 }
 fn boot() -> (World, String, String, GameTaskControlV1) {
-    let (mut world, owner) = fixture();
+    boot_with_fixture(fixture())
+}
+fn boot_with_fixture(
+    (mut world, owner): (World, String),
+) -> (World, String, String, GameTaskControlV1) {
     let create = result(&world, request(&owner, "create"));
     let initial = create_control(&create.request).unwrap();
     world.record_world_service_result(create).unwrap();
@@ -241,6 +245,8 @@ fn validated_history_selects_only_one_accepted_task_provider_prefix() {
     let control = current_control(&world, "agent").unwrap().unwrap();
     let base = world.current_cognition_base_binding().unwrap();
     let context = TaskContextIdentityV1 {
+        authority_mode: None,
+        native_authorization_root: None,
         schema_revision: 1,
         fence: GameTaskFenceV1::from_control(&control),
         agent_session_id: "session-prefix".into(),
@@ -487,4 +493,186 @@ fn game_executor_cold_revision_chain_accepts_next_control() {
             .0,
         41
     );
+}
+
+#[test]
+fn native_task_authority_needs_real_executor_but_no_provider_context() {
+    let (mut world, owner, delegate, initial) = boot();
+    assert!(world.capability_invocation_contexts().is_empty());
+    let before = world.snapshot();
+    assert!(
+        world
+            .canonical_native_task_authority(&GameTaskFenceV1::from_control(&initial))
+            .is_err()
+    );
+    assert_eq!(world.snapshot(), before);
+    let binding = execute(
+        &world,
+        executor_request(
+            &owner,
+            &initial,
+            "native-bind",
+            bind(&delegate, 1, "native-executor"),
+        ),
+        &[],
+        3,
+    );
+    world.record_world_service_result(binding).unwrap();
+    let current = current_control(&world, "agent").unwrap().unwrap();
+    let fence = GameTaskFenceV1::from_control(&current);
+    let authority = world.canonical_native_task_authority(&fence).unwrap();
+    assert!(world.canonical_agent_service_context("agent").is_err());
+    authority
+        .validate_for(&fence, &world.current_cognition_base_binding().unwrap())
+        .unwrap();
+    assert_eq!(authority.valid_until_tick, world.state().time + 16);
+    assert!(world.capability_invocation_contexts().is_empty());
+    // A bare native World has no provider-bound global capability lane. The
+    // task lane must nevertheless compare the actual action authority hashes.
+    let context = TaskContextIdentityV1 {
+        authority_mode: Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
+        native_authorization_root: Some(authority.native_authorization_root.clone()),
+        schema_revision: 2,
+        fence: fence.clone(),
+        agent_session_id: "native-session".into(),
+        agent_turn_id: "native-turn".into(),
+        decision_request_id: "native-decision".into(),
+        retry_seq: 1,
+        transport_attempt: 1,
+        request_commitment: format!("blake3:{}", "11".repeat(32)),
+        context_commitment: format!("blake3:{}", "22".repeat(32)),
+        provider_invocation_commitment: format!("blake3:{}", "33".repeat(32)),
+        valid_until_tick: DecimalU64(authority.valid_until_tick),
+    };
+    let mut prefix_world = world.clone();
+    prefix_world
+        .record_world_service_result(task_provider_prefix_result(
+            &world,
+            &context,
+            &delegate,
+            "native-prefix",
+            4,
+            None,
+        ))
+        .unwrap();
+    let mut intent =
+        oasis7_client_api::world_service::task_context::task_cognition_intent_from_public_context(
+            &context,
+            world.current_cognition_base_binding().unwrap(),
+            oasis7_client_api::world_service::task_context::TaskAuthorityRef::Native(&authority),
+            &serde_json::to_value(world.state().agents.get("agent").unwrap()).unwrap(),
+            Action::MoveAgent {
+                agent_id: "agent".into(),
+                to: oasis7_agent_api::world_action::GeoPos::new(1, 0, 0),
+            },
+        )
+        .unwrap();
+    intent.request.capability_snapshot_hash = format!("blake3:{}", "99".repeat(32));
+    let error = validate_task_commit_context(
+        &prefix_world,
+        &intent.request,
+        &fence,
+        &authority.signer_delegation.delegate_public_key,
+        &[],
+    )
+    .unwrap_err();
+    assert_eq!(error, "native task action authority root changed");
+    let mut changed_world = world.clone();
+    let source = changed_world.current_agent_owner("agent").unwrap();
+    changed_world
+        .install_test_native_delegation_grant(
+            oasis7_agent_api::world_quote::AgentDelegationGrantV1 {
+                grant_id: "native-task-budget".into(),
+                source_id: source.source_id,
+                issuer_id: source.player_id.clone(),
+                owner_id: source.player_id,
+                organization_id: None,
+                agent_id: "agent".into(),
+                object_id: "agent".into(),
+                action_kinds: vec!["MoveAgent".into()],
+                revision: 1,
+                period_id: "native-context".into(),
+                valid_from_tick: 0,
+                valid_until_tick: 1000,
+                limit_units: 10,
+                resource_kind: "electricity".into(),
+                revoked: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        validate_task_context_identity(
+            &changed_world,
+            &context,
+            &authority.signer_delegation.delegate_public_key,
+            1,
+            &[]
+        )
+        .unwrap_err(),
+        "native task authority definition changed"
+    );
+    let mut damaged = authority.clone();
+    damaged.signer_delegation.revoked = true;
+    assert!(
+        damaged
+            .validate_for(&fence, &world.current_cognition_base_binding().unwrap())
+            .is_err()
+    );
+    // A provider for a different Agent must not select a provider for this executor.
+    world.submit_action(Action::RegisterAgent {
+        agent_id: "other-agent".into(),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+    });
+    world.step().unwrap();
+    world
+        .install_test_provider_capability_fixture_without_cognition_balance("other-agent")
+        .unwrap();
+    assert!(!world.capability_invocation_contexts().is_empty());
+    assert!(world.canonical_agent_service_context("agent").is_err());
+    // A finalized authority paired with the original pending Runtime binding is
+    // a contradictory World, even when that provider belongs to another Agent.
+    assert_eq!(
+        world.canonical_native_task_authority(&fence).unwrap_err(),
+        "reorg_invalidated"
+    );
+    let stopped = execute(
+        &world,
+        executor_request(
+            &owner,
+            &current,
+            "native-stop",
+            GameExecutorOperationV1::Stop,
+        ),
+        &[],
+        4,
+    );
+    world.record_world_service_result(stopped).unwrap();
+    assert!(world.canonical_native_task_authority(&fence).is_err());
+}
+
+#[test]
+fn native_task_authority_accepts_consistent_finality_with_unrelated_provider() {
+    let (mut world, owner, delegate, initial) = boot_with_fixture(fixture_with_initial_finality(
+        false,
+        Some(format!(
+            "blake3:{}",
+            blake3::hash(b"native-unrelated-provider-finality")
+        )),
+    ));
+    let binding = execute(
+        &world,
+        executor_request(
+            &owner,
+            &initial,
+            "native-coexist-bind",
+            bind(&delegate, 1, "native-coexist-executor"),
+        ),
+        &[],
+        3,
+    );
+    world.record_world_service_result(binding).unwrap();
+    let fence = GameTaskFenceV1::from_control(&current_control(&world, "agent").unwrap().unwrap());
+    assert!(world.canonical_agent_service_context("agent").is_err());
+    assert!(world.canonical_agent_service_context("other-agent").is_ok());
+    world.canonical_native_task_authority(&fence).unwrap();
 }

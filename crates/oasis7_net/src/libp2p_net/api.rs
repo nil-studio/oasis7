@@ -1,6 +1,7 @@
+use super::peer_manager::peer_health_issue_is_record_exchange_pending;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use libp2p::{Multiaddr, PeerId};
@@ -19,11 +20,31 @@ use oasis7_proto::distributed_dht::{
 use oasis7_proto::distributed_net::{NetworkMessage, NetworkSubscription};
 
 use super::{
-    Command, Libp2pNetwork, Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot,
-    PeerManagerBlockArtifact, PeerManagerHealthIssue, PeerManagerHealthStatus,
-    PeerManagerPeerHealth, snapshot_clone, snapshot_traffic_metrics,
+    Command, Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot, PeerManagerBlockArtifact,
+    PeerManagerHealthIssue, PeerManagerHealthStatus, PeerManagerPeerHealth, snapshot_clone,
+    snapshot_traffic_metrics,
 };
 
+use super::traffic_metrics::SharedLibp2pTrafficMetrics;
+use super::wire_bytes::SharedLibp2pWireByteCounters;
+
+#[derive(Clone)]
+pub struct Libp2pNetwork {
+    pub(super) peer_id: PeerId,
+    pub(super) keypair: libp2p::identity::Keypair,
+    pub(super) command_tx: futures::channel::mpsc::Sender<Command>,
+    pub(super) inbox: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
+    pub(super) published: Arc<Mutex<Vec<NetworkMessage>>>,
+    pub(super) listening_addrs: Arc<Mutex<Vec<Multiaddr>>>,
+    pub(super) connected_peers: Arc<Mutex<HashSet<PeerId>>>,
+    pub(super) errors: Arc<Mutex<Vec<String>>>,
+    pub(super) peer_healths: Arc<Mutex<HashMap<String, PeerManagerPeerHealth>>>,
+    pub(super) peer_block_artifacts: Arc<Mutex<HashMap<String, PeerManagerBlockArtifact>>>,
+    pub(super) reachability: Arc<Mutex<Libp2pReachabilitySnapshot>>,
+    pub(super) traffic_metrics: SharedLibp2pTrafficMetrics,
+    pub(super) wire_byte_counters: SharedLibp2pWireByteCounters,
+    pub(super) _shutdown_guard: Arc<super::drop_support::ShutdownGuard>,
+}
 const LIBP2P_COMMAND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl Libp2pNetwork {
@@ -153,15 +174,6 @@ fn peer_health_is_soft_deprioritized(health: &PeerManagerPeerHealth) -> bool {
             .issues
             .iter()
             .any(|issue| matches!(issue, PeerManagerHealthIssue::MissingPeerRecord))
-}
-
-fn peer_health_issue_is_record_exchange_pending(issue: &PeerManagerHealthIssue) -> bool {
-    matches!(
-        issue,
-        PeerManagerHealthIssue::MissingPeerRecord
-            | PeerManagerHealthIssue::InsufficientActiveDiscoverySources { .. }
-            | PeerManagerHealthIssue::SingleSourceDiscovery { .. }
-    )
 }
 
 fn blocked_and_soft_deprioritized_peers(

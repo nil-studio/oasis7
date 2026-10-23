@@ -218,7 +218,8 @@ fn legacy_private_index_is_hidden_without_destroying_reading_history() {
     assert!(reopened.document_inventory(inventory_query).is_err());
     assert_eq!(
         connection
-            .query_row("SELECT COUNT(*) FROM history", [], |r| r.get::<_, u64>(0))
+            .query_row("SELECT COUNT(*) FROM device_history", [], |r| r
+                .get::<_, u64>(0))
             .unwrap(),
         1
     );

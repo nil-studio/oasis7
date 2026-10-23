@@ -510,7 +510,7 @@ run_cargo() {
             calls = log.read_text().splitlines()
             self.assertEqual(sum(call.startswith('BUILD|') for call in calls), 2)
             self.assertEqual(sum(call.startswith('TEST|') for call in calls), 2)
-            self.assertIn('CHECK|check -p oasis7_agent_api -p oasis7_simulator --target wasm32-unknown-unknown --locked', calls)
+            self.assertIn('CHECK|check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked', calls)
             self.assertTrue(all('-p oasis7_simulator' in call for call in calls if call.startswith('TEST|')))
             for feature in ('test_tier_required', 'test_tier_full,wasmtime,viewer_live_integration'):
                 build_index = next((index for index, call in enumerate(calls)
@@ -539,6 +539,138 @@ run_cargo() {
                 else:
                     self.assertTrue(any(call.startswith('TEST|') and '--features test_tier_full,wasmtime,viewer_live_integration' in call
                                         for call in failure_calls))
+
+    def test_full_support_supplies_feature_matched_viewer_and_stops_on_build_failure(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = ('run_full_support_tier_tests', 'run_oasis7_package_tests',
+                 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer')
+        functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                     for name in names]
+        support = functions[0]
+        dependencies = set(re.findall(r'^  (run_[a-z0-9_]+)', support, re.M)) - set(names)
+        with tempfile.TemporaryDirectory() as temporary:
+            viewer = Path(temporary) / 'oasis7_viewer_live'
+            viewer.write_text('controlled artifact for runner wiring only')
+            viewer.chmod(0o755)
+            script = "set -euo pipefail\nci_python=python3\n"
+            script += "\n".join(name + '() { :; }' for name in dependencies) + "\n"
+            script += r"""
+run_cargo() {
+  if [[ "$1" == build ]]; then
+    [[ "${FAIL_BUILD:-}" != 1 ]] || return 47
+    printf '{"reason":"compiler-artifact","target":{"name":"oasis7_viewer_live"},"executable":"%s"}\n' "$VIEWER_BIN"
+  else
+    [[ -n "${PRE2_VIEWER_BINARY:-}" && "$PRE2_VIEWER_BINARY" == "$VIEWER_BIN" ]] || return 48
+    [[ "$*" == *"--lib --bins --features wasmtime" ]] || return 49
+  fi
+}
+"""
+            script += "\n".join(functions) + "\nrun_full_support_tier_tests\n"
+            for fail_build, expected in (('0', 0), ('1', 47)):
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                    env=dict(os.environ, PRE2_VIEWER_BINARY='', VIEWER_BIN=str(viewer), FAIL_BUILD=fail_build))
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_primary_rejects_non_loopback_test_login_listener(self):
+        result = subprocess.run(['bash', str(ROOT / 'scripts/viewer-primary-web-entry-regression.sh'),
+            '--viewer-host', '0.0.0.0'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('requires a loopback viewer host', result.stderr)
+
+    def test_primary_login_requires_guest_gate_and_visible_backend_issued_session(self):
+        source = (ROOT / 'scripts/viewer-primary-web-entry-regression.sh').read_text()
+        function = 'enter_primary_player_surface() {' + source.split(
+            'enter_primary_player_surface() {', 1)[1].split('\n}', 1)[0] + '\n}'
+        script = r"""set -euo pipefail
+out_dir=/unused
+assert_eval_true() {
+  if [[ "$2" == *'authSource'* ]]; then
+    echo issued >> "$TRACE_LOG"
+    [[ "$FAIL_PHASE" != issued ]]
+  else
+    echo guest >> "$TRACE_LOG"
+    [[ "$FAIL_PHASE" != guest ]]
+  fi
+}
+capture_screenshot_best_effort() { :; }
+ab_cmd() {
+  [[ "$2" == click && "$3" == '[data-auth-action="test-login"]' ]] || return 42
+  echo click >> "$TRACE_LOG"
+  [[ "$FAIL_PHASE" != click ]]
+}
+""" + function.replace('>>"$out_dir/test-login.log" 2>&1', '') + '\nenter_primary_player_surface owned default'
+        with tempfile.TemporaryDirectory() as directory:
+            for phase, calls in (('', ['guest', 'click', 'issued']), ('guest', ['guest']),
+                                 ('click', ['guest', 'click']), ('issued', ['guest', 'click', 'issued'])):
+                trace = Path(directory) / (phase + 'trace')
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                    env=dict(os.environ, TRACE_LOG=str(trace), FAIL_PHASE=phase))
+                self.assertEqual(result.returncode == 0, phase == '', result.stderr)
+                self.assertEqual(trace.read_text().splitlines(), calls)
+
+    def test_primary_flow_requires_visible_unique_action_context_and_receipt(self):
+        source = (ROOT / 'scripts/viewer-primary-web-entry-regression.sh').read_text()
+        self.assertTrue('primary_entry_surface_predicate()' in source, 'primary flow predicate missing')
+        function = source.split('primary_entry_surface_predicate() {', 1)[1]
+        expression = function.split("<<'JS'\n", 1)[1].split('\nJS', 1)[0]
+        valid = dict(root=True, actions=1, context=True, receipt=True,
+                     visible=True, href='#command', text='Inspect current blocker')
+        variants = [(valid, True)]
+        for field, value in (('root', False), ('actions', 0), ('actions', 2),
+                             ('context', False), ('receipt', False), ('visible', False),
+                             ('href', ''), ('text', '')):
+            variants.append((dict(valid, **{field: value}), False))
+        for candidate, expected in variants:
+            script = 'const state=' + json.dumps(candidate) + ';\n' + r"""
+const node = () => ({textContent:state.text, getClientRects:()=>state.visible?[{}]:[],
+  getAttribute:()=>state.href});
+const root = node();
+root.querySelectorAll = () => Array.from({length:state.actions}, node);
+root.querySelector = selector => selector.includes('supporting-context')
+  ? (state.context ? node() : null) : (state.receipt ? node() : null);
+global.document = {querySelector:()=>state.root ? root : null};
+global.getComputedStyle = () => ({visibility:'visible', display:'block'});
+"""
+            script += 'if ((' + expression + ') !== ' + str(expected).lower() + ') process.exit(1);'
+            result = subprocess.run(['node', '-e', script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, str(candidate) + result.stderr)
+
+    def test_release_web_fixture_starts_only_after_complete_stack_build(self):
+        source = (ROOT / 'scripts/viewer-software-safe-step-regression.sh').read_text()
+        match = re.search(r'^prepare_release_web_stack\(\) \{\n.*?^\}', source, re.M | re.S)
+        self.assertIsNotNone(match, 'release Web startup must finish builds before starting fixture')
+        self.assertIn('    prepare_release_web_stack\n', source)
+        script = r"""set -euo pipefail
+out_dir=/unused
+ab_log=/dev/null
+BOOTSTRAP_USES_BUNDLE="${CASE_BUNDLE:-0}"
+unset OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD
+log_note() { :; }
+record() { echo "$1" >> "$TRACE_LOG"; [[ "$FAIL_PHASE" != "$1" ]]; }
+release_web_fixture_build_viewer() { record viewer; }
+release_web_fixture_build() { record fixture; }
+oasis7_cargo_dev() {
+  for binary in oasis7_llm_provider_probe oasis7_game_launcher oasis7_viewer_live; do
+    [[ "$*" == *"--bin $binary"* ]] || return 49
+  done
+  record stack
+}
+release_web_fixture_start() { record start; }
+""" + match.group() + '\nprepare_release_web_stack\nif [[ "$BOOTSTRAP_USES_BUNDLE" == 1 ]]; then [[ -z "${OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD+x}" ]]; else [[ "$OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD" == 1 ]]; fi'
+        with tempfile.TemporaryDirectory() as directory:
+            for phase, calls in (('', ['viewer', 'fixture', 'stack', 'start']),
+                                 ('viewer', ['viewer']), ('fixture', ['viewer', 'fixture']),
+                                 ('stack', ['viewer', 'fixture', 'stack'])):
+                trace = Path(directory) / (phase + 'trace')
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                    env=dict(os.environ, TRACE_LOG=str(trace), FAIL_PHASE=phase))
+                self.assertEqual(result.returncode == 0, phase == '', result.stderr)
+                self.assertEqual(trace.read_text().splitlines(), calls)
+            trace = Path(directory) / 'bundle-trace'
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                env=dict(os.environ, TRACE_LOG=str(trace), FAIL_PHASE='', CASE_BUNDLE='1'))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(trace.read_text().splitlines(), ['viewer', 'fixture', 'start'])
 
     def test_full_tail_keeps_strict_wasmtime_profile_and_fixture_viewer(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()

@@ -1,3 +1,5 @@
+use crate::libp2p_net::peer_record_cache::PeerRecordCache;
+use super::peer_discovery_observations::{DiscoveryIngress, DiscoveryObservations};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -53,11 +55,9 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
             vec![
                 crate::dht::PeerDiscoverySource::Dht,
                 crate::dht::PeerDiscoverySource::Rendezvous,
-            ],
-            1,
-        );
+            ], crate::libp2p_net::now_ms());
         let peer_id = PeerId::from(peer_key.public());
-        let mut discovered_peer_records = HashMap::new();
+        let mut discovered_peer_records = PeerRecordCache::with_dial_policy(swarm.behaviour_mut().kademlia.store_mut().clock().clone(), swarm.behaviour().discovery_dial_policy());
         let mut known_transport_paths = HashMap::new();
         let mut last_dialed_transport_paths = HashMap::new();
         let active_transport_paths = HashMap::new();
@@ -66,14 +66,18 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
         super::discovery::process_discovered_peer_record(
             &mut swarm,
             &mut discovered_peer_records,
+            &mut DiscoveryObservations::default(),
             &mut known_transport_paths,
             &mut last_dialed_transport_paths,
             &active_transport_paths,
             &mut failed_transport_path_labels,
             None,
             &PeerManagerPolicy::default(),
-            &HashSet::new(),
+            &HashSet::from([peer_id]),
             record.clone(),
+            DiscoveryIngress::Dht {
+                upstream: Some(peer_id),
+            },
         )
         .expect("first discovery dial");
         assert!(last_dialed_transport_paths.contains_key(&peer_id));
@@ -87,17 +91,24 @@ fn process_discovered_peer_record_retries_failed_candidate_dial_on_rediscovery()
             super::wire_bytes::init_shared_wire_byte_counters(),
         );
 
+        let mut discovered_peer_records = PeerRecordCache::with_dial_policy(retry_swarm.behaviour_mut().kademlia.store_mut().clock().clone(), retry_swarm.behaviour().discovery_dial_policy());
+        let lease = discovered_peer_records.prepare(peer_id, &record).unwrap();
+        discovered_peer_records.install(peer_id, record.clone(), lease);
         super::discovery::process_discovered_peer_record(
             &mut retry_swarm,
             &mut discovered_peer_records,
+            &mut DiscoveryObservations::default(),
             &mut known_transport_paths,
             &mut last_dialed_transport_paths,
             &active_transport_paths,
             &mut failed_transport_path_labels,
             None,
             &PeerManagerPolicy::default(),
-            &HashSet::new(),
+            &HashSet::from([peer_id]),
             record,
+            DiscoveryIngress::Dht {
+                upstream: Some(peer_id),
+            },
         )
         .expect("rediscovery must retry dial");
 
@@ -126,7 +137,7 @@ fn request_with_providers_does_not_fallback_outside_provider_subset() {
     let mut pending_dht = HashMap::new();
     let mut peers = vec![PeerId::random()];
     let mut provider_keys = HashMap::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peer_healths_by_id = HashMap::new();
     let mut pending_cached_discovery_peers = HashSet::new();
     let mut cached_discovery_peer_cooldowns = HashMap::new();
@@ -206,7 +217,7 @@ fn refresh_peer_discovery_respects_republish_and_query_budgets() {
     let keypair = Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(keypair.public());
     let template =
-        signed_discovery_peer_record(&keypair, vec![crate::dht::PeerDiscoverySource::Dht], 1)
+        signed_discovery_peer_record(&keypair, vec![crate::dht::PeerDiscoverySource::Dht], crate::libp2p_net::now_ms())
             .record;
     let provider_key =
         oasis7_proto::distributed::dht_peer_discovery_key(template.world_id.as_str());
@@ -226,7 +237,7 @@ fn refresh_peer_discovery_respects_republish_and_query_budgets() {
     let mut pending_dht = HashMap::new();
     let mut peers = Vec::new();
     let mut provider_keys = HashMap::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     let peer_healths_by_id = HashMap::new();
     let mut pending_cached_discovery_peers = HashSet::new();
     let mut cached_discovery_peer_cooldowns = HashMap::new();
@@ -362,7 +373,7 @@ fn refresh_peer_discovery_skips_backfill_when_connected_peers_are_already_known(
     let remote_keypair = Keypair::generate_ed25519();
     let remote_peer_id = PeerId::from(remote_keypair.public());
     let template =
-        signed_discovery_peer_record(&keypair, vec![crate::dht::PeerDiscoverySource::Dht], 1)
+        signed_discovery_peer_record(&keypair, vec![crate::dht::PeerDiscoverySource::Dht], crate::libp2p_net::now_ms())
             .record;
     let provider_key =
         oasis7_proto::distributed::dht_peer_discovery_key(template.world_id.as_str());
@@ -382,13 +393,11 @@ fn refresh_peer_discovery_skips_backfill_when_connected_peers_are_already_known(
     let mut pending_dht = HashMap::new();
     let mut peers = vec![remote_peer_id];
     let mut provider_keys = HashMap::from([(provider_key, 0)]);
-    let discovered_peer_records = HashMap::from([(
+    let discovered_peer_records = PeerRecordCache::from([(
         remote_peer_id,
         signed_discovery_peer_record(
             &remote_keypair,
-            vec![crate::dht::PeerDiscoverySource::Dht],
-            1,
-        ),
+            vec![crate::dht::PeerDiscoverySource::Dht], crate::libp2p_net::now_ms()),
     )]);
     let peer_healths_by_id = HashMap::new();
     let mut pending_cached_discovery_peers = HashSet::new();

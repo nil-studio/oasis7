@@ -11,11 +11,13 @@ OWNERS = {
     'oasis7_provider_local_bridge': ['oasis7_provider_local_bridge'],
     'oasis7_provider_tools': ['oasis7_llm_agent_demo', 'oasis7_llm_provider_probe', 'oasis7_provider_parity_bench'],
     'oasis7_launcher_backend': ['oasis7_game_launcher', 'oasis7_web_launcher'],
-    'oasis7_client_cli': ['oasis7_pure_api_client', 'oasis7_chain_transfer_submit_client'],
+    'oasis7_client_cli': ['oasis7_pure_api_client'],
+    'oasis7_protocol_tools': ['oasis7_chain_transfer_submit_client', 'oasis7_rollback_strict_audit_evidence'],
+    'oasis7_simulator': ['oasis7_init_demo'],
     'oasis7_viewer_runtime': ['oasis7_viewer_live', 'oasis7_viewer_server', 'oasis7_viewer_demo'],
     'oasis7_ops_tools': ['oasis7_generate_world_artifact', 'oasis7_governance_registry_audit',
-                        'oasis7_governance_registry_import', 'oasis7_init_demo',
-                        'oasis7_liveops_grant_cli', 'oasis7_rollback_strict_audit_evidence',
+                        'oasis7_governance_registry_import',
+                        'oasis7_liveops_grant_cli',
                         'oasis7_runtime_module_routing_perf', 'oasis7_testnet_faucet',
                         'oasis7_world_repair_rebuild'],
 }
@@ -65,6 +67,32 @@ class Ownership(unittest.TestCase):
         self.assertNotIn('oasis7', visited)
         self.assertNotIn('oasis7_node', visited)
         self.assertNotIn('oasis7_wasm_executor', visited)
+
+    def test_light_tool_and_provider_normal_build_dependency_boundaries(self):
+        for root, forbidden in (
+            ('oasis7_protocol_tools', {'oasis7', 'oasis7_runtime', 'oasis7_node', 'oasis7_wasm_executor', 'wasmtime'}),
+            ('oasis7_simulator', {'oasis7', 'oasis7_ops_tools', 'oasis7_runtime', 'wasmtime'}),
+            ('oasis7_model_provider', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_client_api', 'oasis7'}),
+            ('oasis7_agent_api', {'oasis7_agent_harness', 'oasis7_game_client', 'oasis7_model_provider', 'oasis7'}),
+        ):
+            pending, visited = [root], set()
+            while pending:
+                package = pending.pop()
+                if package in visited:
+                    continue
+                visited.add(package)
+                data = manifest(package)
+                tables = [data.get(kind, {}) for kind in ('dependencies', 'build-dependencies')]
+                for target in data.get('target', {}).values():
+                    tables.extend(target.get(kind, {}) for kind in ('dependencies', 'build-dependencies'))
+                for table in tables:
+                    self.assertTrue(forbidden.isdisjoint(table), (root, package, forbidden.intersection(table)))
+                    for name, dependency in table.items():
+                        if isinstance(dependency, dict) and 'path' in dependency:
+                            pending.append(dependency.get('package', name))
+        tools = manifest('oasis7_protocol_tools')
+        self.assertEqual(tools['features']['default'], [])
+        self.assertIn('oasis7', tools['dev-dependencies'])
 
     def test_client_production_does_not_enable_world_execution_features(self):
         data = manifest('oasis7_client_cli')

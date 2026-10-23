@@ -5,13 +5,17 @@
 - owner_role：`runtime_engineer`
 - module：`engineering`
 - 上游：[指挥客户端产品设计](command-center.prd.md)、[系统设计](command-center.design.md)
-- last_reviewed_at：2026-10-17
+- last_reviewed_at：2026-10-22
 
-## 1. 目标和当前范围
+## 1. 目标、职责与能力边界
 
-在现有 macOS 指挥中心增加“本机工具”，使用普通用户 Rust 宿主复用 context 资料库，管理同包 CLI，接入已有兼容 signer。用户提供的 2026-10-12 本机工具设计是完整目标；本文记录当前实现合同及实际剩余范围，不将目标写成完成事实。
+本机工具属于指挥中心的本地辅助端。普通用户 Rust 宿主拥有设备与工作树绑定、context 私有资料库、同包 CLI、兼容 signer 及工具操作记录；这些能力可在云端不可用时独立使用。云端网页承担日常四视图和云端个人空间，不承载本机工具执行、私有资料正文、口令、密钥或工具账本。
 
-用户于 2026-10-12 明确暂停 Apple 代码签名和管理员助手工作，待背景讨论后继续。因此 SMAppService／认证 XPC／Authorization Services、signer 初装、密钥与 policy/grant 管理、受保护加密密钥导入导出和 signer 备份计划恢复均未开放。当前 Mac 未检测到可用 Apple 代码签名身份；此观察不等于所有 Mac 均不支持。已有兼容安装的普通 caller 不受该暂停影响。通用升级、自动更新、其他 purpose UI、远程安装和动态插件仍不在首版范围。
+云端与本地通过准确的来源/工作引用和普通浏览器导航关联。远程 Sites 页面在系统浏览器打开，不加载进拥有 Tauri IPC 的本机 WebView；没有设备配对、云端命令队列、localhost 代理或资料自动上传。导航只提供上下文，本机重新核对设备、环境、工作树及操作权限；工具操作与结果仍由本机原接口拥有。
+
+本机首页只保留“本机工具”和“工作树预览”。工作树入口显示真实选择的本机项目、HEAD 与 dirty 状态，文档预览只读取有界 tracked 工作树材料；这些内容不通过导航发送到云端。本机移除 GitHub 来源读取、统一工作投影及个人问题/决定/关系写入口，旧个人表和历史原样保留，不在此转换、上传或删除。预览偏好与阅读版本使用设备命名空间，与旧个人记录分离；重建缓存不能改写旧个人数据。云端工作上下文、安全往返及正式数据切换仍按各自主责合同独立实现和验证。
+
+Apple 代码签名和管理员助手集成仍按用户的既有暂停决定保持关闭，包括 SMAppService／认证 XPC／Authorization Services、signer 初装、密钥与 policy/grant 管理、受保护加密密钥导入导出和 signer 备份计划恢复。已有兼容安装的普通 caller 不受该暂停影响。通用自动更新、其他 purpose UI、远程安装和动态插件不属于本设计开放能力；不得用 shell/sudo 或云端代理绕过限制。
 
 <a id="DES-CC-TOOLS-001"></a>
 
@@ -74,7 +78,7 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 
 ## 6. 按任务组织工具入口与结果反馈
 
-本节是目标交互合同。`main@0ec10379419b0aaedb9d16157b81c92f4e6e3495` 的 [LocalTools](../../../tools/oasis7-command-center/ui/src/LocalTools.tsx) 已提供基础表单和操作回读；任务入口、独立口令表单、就地反馈及完整往返尚未完成。本节复用 §2–5 的接口、ToolJobs、私有隔离和退出规则，不建立第二套工具授权或操作账本。
+本节复用 §2–5 的接口、ToolJobs、私有隔离和退出规则，定义本地辅助端的工具交互；工具可从本地入口独立打开，也可接续已校验的工作定位。实际能力与验收按 §11 的证据范围判断，不建立第二套工具授权或操作账本。
 
 ### 6.1 入口、能力与操作范围
 
@@ -82,7 +86,7 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 
 本机工具首页按“资料”“备份与恢复”“签名与验签”“CLI”提供任务入口，先说明可完成的结果、当前可用性及一个下一动作；仅打开选中任务的表单。未连接、读取失败、不兼容和用户暂停分别显示，按每项任务的真实前提开放动作：建库/连接不要求已有绑定，新机器恢复不要求旧库可读，安装同包 CLI 不要求已有 CLI，独立验签不要求安装或连接 signer。暂停能力保留原因及原合同入口，不展示可提交的配置表单；已有兼容 signer 的普通 caller 仍可使用。
 
-从统一工作详情进入时，传入原工作引用、明确执行环境及返回位置；这些只是导航上下文，不携带授权或推导签名输入。工具表单从宿主读取当前真实绑定与能力，不能以页面缓存启用动作。退出工具返回原工作和筛选；普通详情最多显示获准公开的操作类型、状态及核对入口，不复制私有库名、路径、条目、口令、完整请求或派生正文。私有资料与签名结果仍在其原受控入口阅读。
+从统一工作详情进入时，传入原工作引用、明确执行环境及返回位置；这些只是导航上下文，不携带授权或推导签名输入。工具表单从宿主读取当前真实绑定与能力，不能以页面缓存启用动作。本机受控详情最多显示该范围允许的操作类型、状态及核对入口，不复制私有库名、路径、条目、口令、完整请求或派生正文。返回云端只恢复原工作与阅读位置，不自动回传工具状态或结果；用户明确录入的非秘密个人陈述保持其来源性质，不能充当工具已核实事实。私有资料与签名结果仍在其原受控入口阅读。
 
 | 用户任务 | 提交前可见的选择与核对 | 操作结果与下一入口 |
 | --- | --- | --- |
@@ -95,9 +99,19 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 
 导出与恢复口令分别绑定当前窗口、操作及用途。表单只申请自己的短时句柄，不读取另一任务的输入；取消、完成、过期或离开该口令步骤时清除对应 UI 临时值和未消费句柄，重新进入重新输入。已消费句柄与正在执行的原任务按 §2–4 处理；清除 UI 不取消、回滚或重发操作。口令不进入普通草稿、返回栈、错误样本或日志。
 
-首个导入入口只接收用户明确选择的完整 SignContext JSON，复用 [SignContext](../../../crates/oasis7_local_signer/src/protocol.rs) 的严格字段与校验，不另创请求格式。文件读取沿 [file CLI](../../../crates/oasis7_local_signer/src/file_cli.rs) 的普通文件、身份、摘要与 64 KiB 预算；预览固定读取到的原文及摘要，内容改变须重新导入。job、signer、grant 和源文件仍由用户分别明确选定；已准备请求通过原 operation/Job 的恢复入口打开，不从任意 JSON 导入成已准备或已授权状态。前端逐字段显示来源、缺失和校验结果；后端仍对完整输入、实际文件、安装和原请求重新校验。缺 job、grant、purpose/context 等输入时指出具体缺口，不生成示例授权、不从工作目标推导，也不将 JSON 解析成功等同 worker 授权。
+签名上下文导入只接收用户明确选择的完整 SignContext JSON，复用 [SignContext](../../../crates/oasis7_local_signer/src/protocol.rs) 的严格字段与校验，不另创请求格式。文件读取沿 [file CLI](../../../crates/oasis7_local_signer/src/file_cli.rs) 的普通文件、身份、摘要与 64 KiB 预算；预览固定读取到的原文及摘要，内容改变须重新导入。job、signer、grant 和源文件仍由用户分别明确选定；已准备请求通过原 operation/Job 的恢复入口打开，不从任意 JSON 导入成已准备或已授权状态。前端逐字段显示来源、缺失和校验结果；后端仍对完整输入、实际文件、安装和原请求重新校验。缺 job、grant、purpose/context 等输入时指出具体缺口，不生成示例授权、不从工作目标推导，也不将 JSON 解析成功等同 worker 授权。
 
-### 6.2 每次操作的反馈与恢复
+### 6.2 云端与本机往返
+
+从本机打开云端时，只使用用户已配置的站点来源和非秘密的项目/环境/WorkRef 定位；访问仍由浏览器登录与云端授权决定，不把本机 UID、邮箱或 URL 中的 owner 当作云端身份。不得把本机绝对路径、私有库名、条目、口令、签名输入、操作句柄或凭据写进 URL、referrer、云端个人记录及普通诊断。
+
+云端只能打开已支持且严格校验的原工具定位；`codex://threads/<UUID>` 沿总体设计的限定格式处理，不能附加命令、任意路径或自动执行参数。本机工作树引用由设备上的既有绑定解析，云端传入的标签不能替代实际目录与仓库身份。目标不可用、不匹配或无本机处理程序时，保留原工作并提供安全复制/手动选择入口，不回退到 shell、任意 URL fetch 或不受控本地服务。
+
+打开浏览器、复制定位或操作系统接受导航，只证明导航动作发生；不能标成会话恢复、工具执行、签名完成或云端记录已保存。从工具返回时只恢复所选工作与阅读位置；不上传私有操作结果。关闭云端标签页、退出登录或云端失联不会取消本机工具；本机退出仍按 ToolHost 的真实运行/unknown 状态核对。
+
+<a id="62-每次操作的反馈与恢复"></a>
+
+### 6.3 每次操作的反馈与恢复
 
 每个任务表单拥有自己的提交状态、字段错误、结果区域和原 operation 引用。主要按钮只描述当前可执行步骤；不可用时就地给出实际原因与修复入口。错误留在发起位置附近，定位相关字段；异步结果通过可访问状态区域通知，不抢用户正在编辑的焦点。用户显式查看结果或返回时，才定位相关操作、结果或原触发控件。成功结果先用用户可理解的结论和下一动作表达，原始 JSON、完整摘要与协议字段在诊断详情按需展开。
 
@@ -129,10 +143,10 @@ context 的 `application` 应用接口共享显式资料 root、完整原文校�
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-001](#DES-CC-TOOLS-001) | 独立库、CAS、元数据、快照及 CLI | [context tests](../../../tools/oasis7-command-center/core/tests/context.rs) 数据隔离和条件保存；context snapshot/CLI 回归；真实 App 新建与重开 | 实现 PR source/build/机器和实际结果 | 未执行原生场景不得计通过 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-002](#DES-CC-TOOLS-002) | 同一请求 prepare/submit/inspect 和公钥验签 | [signer 授权反例](../../../crates/oasis7_local_signer/tests/qa_m0_negative.rs) 精确 purpose/context/hash；detached 单元测试验证 envelope；tools 输入反例和已有专用 signer 回读 | 实现 PR request/job 和真实结果 | 无测试安装时不证明 worker 实际提交；管理员用户暂停 |
 | [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-003](#DES-CC-TOOLS-003) | 幂等、冻结、未知效果、口令句柄 | [tools jobs测试](../../../tools/oasis7-command-center/core/src/tools/jobs/tests.rs)覆盖事务/冻结/查询可用性；原生退出单元测试 | 实现 PR 故障与退出回放 | 强退不保证后台继续 |
-| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 私有资料隔离、旧标记保留且不投影 | [工作投影兼容测试](../../../tools/oasis7-command-center/core/tests/work_projection.rs)核对旧库保留、隐私排除与不重放 | 实现 PR 兼容结果 | 不证明外部工具的使用与输出 |
-| Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 明确导出范围、分离口令、签名不造授权、工具往返和私有隔离 | 扩展 [LocalTools UI tests](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)：切换条目不改为整库、导出不借恢复口令、取消清理、缺 grant/context 拒绝；真实同包 macOS App 从工作进入工具后返回，核对导出/恢复及原操作结果 | 实现 PR source/build、场景、实际结果 | UI fixture 不证明原生文件对话框、实际 signer 或恢复成功；签名仍需已有获准测试安装 |
+| [REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-004](#DES-CC-TOOLS-004) | 私有资料隔离、旧标记保留且不投影 | [旧记录与隐私回归](../../../tools/oasis7-command-center/core/tests/retired_runtime.rs)核对旧库保留、隐私排除与不重放 | 实现 PR 兼容结果 | 不证明外部工具的使用与输出 |
+| Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 浏览器与本机能力隔离、精确导航、明确导出范围、分离口令、签名不造授权及无隐式上传 | 沿[云端与本机边界验证](command-center.manual.md#cc-cloud-local-verification)核对正常/恶意定位、错误设备/工作树、缺处理程序、退出登录、云端失联与本机 unknown 操作，检查网络/URL/日志无合成私有 canary且远程页面无 Tauri IPC；补 LocalTools UI 场景验证切换条目不改整库、导出不借恢复口令、取消清理、缺 grant/context 拒绝；真实同包 App 核对导出/恢复及原操作结果 | 实现 PR 的浏览器/App source/build、身份、场景与实际结果 | 单端 fixture 不证明跨端隐私、原生文件对话框、实际 signer 或恢复成功；签名仍需已有获准测试安装 |
 | Trace refs: O7-REQ-76d54ed7-4028-460a-b22b-37a9088ad245；[REQ-CC-010](command-center.prd.md#REQ-CC-010) | [DES-CC-TOOLS-005](#DES-CC-TOOLS-005) | 就地反馈、独立错误、键盘返回及未知操作核对 | 扩展 [LocalTools UI tests](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)：字段失败、后台结果、迟到响应、未知冻结与其他工具可用；真实 App 键盘及长表单错误定位 | 实现 PR 原生窗口、操作与卡点 | 源码/DOM 检查不证明实际可访问体验或耗时 |
 
-### 2026-10-18 日常闭环候选核对
+### 实现与证据范围
 
-本 issue 范围的任务入口/默认主题与诊断层级已在候选 `52dd4aed915ce5ca75e00ddff6ba5e1918ebdec6` 实现，实际来源、自动化和原生证明见[日常闭环验证](daily-work-verification.manual.md)。真实 IME 已获用户于 2026-10-18 人工确认，来源及构建范围见上述验证记录；不由 UI fixture、AX 或源码代签。未据此扩大专题其他尚未开放的范围、外部控制权、Apple 签名或管理员安装。
+已有本机实现与原生验证见[日常闭环验证](daily-work-verification.manual.md)中固定的 source/build、环境和场景；旧结果不证明云端往返、所有本机工具或暂停中的安装能力已经可用。部署与迁移执行在相应 Issue/PR 记录，不在本设计逐轮追加。

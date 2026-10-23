@@ -3,17 +3,27 @@ use std::{
     sync::{Arc, Mutex},
 };
 mod api;
+pub use api::Libp2pNetwork;
 mod config;
 mod connection_lifecycle;
 mod constructor_support;
 mod discovery;
+mod discovery_budget;
+mod discovery_list;
 mod drop_support;
 pub(crate) mod error_mapping;
 mod inbound_dispatch;
 mod kad_queries;
+mod peer_discovery_observations;
 mod peer_manager;
 mod peer_manager_active_set;
 mod peer_record;
+mod peer_record_cache;
+mod peer_record_dial_gate;
+mod peer_record_protocol_dial;
+mod peer_record_store;
+mod peer_record_time;
+use peer_record_cache::PeerRecordCache;
 mod peer_record_republish;
 mod reachability;
 mod response_budget;
@@ -46,6 +56,7 @@ use discovery::{
     peer_record_matches_target, peer_record_world_id, process_discovered_peer_record,
     publish_discovery_provider, start_peer_discovery_query,
 };
+pub use discovery_budget::DiscoveryWorkMetricsSnapshot;
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use inbound_dispatch::dispatch_inbound_request;
 use kad_queries::{DhtProgressAction, PendingDhtQuery, handle_dht_progress};
@@ -109,24 +120,7 @@ use utils::{
     push_bounded_clone, push_bounded_string_with_keyed_cooldown, should_republish,
     try_send_command,
 };
-use wire_bytes::{SharedLibp2pWireByteCounters, init_shared_wire_byte_counters};
-#[derive(Clone)]
-pub struct Libp2pNetwork {
-    peer_id: PeerId,
-    keypair: Keypair,
-    command_tx: mpsc::Sender<Command>,
-    inbox: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
-    published: Arc<Mutex<Vec<NetworkMessage>>>,
-    listening_addrs: Arc<Mutex<Vec<Multiaddr>>>,
-    connected_peers: Arc<Mutex<HashSet<PeerId>>>,
-    errors: Arc<Mutex<Vec<String>>>,
-    peer_healths: Arc<Mutex<HashMap<String, PeerManagerPeerHealth>>>,
-    peer_block_artifacts: Arc<Mutex<HashMap<String, PeerManagerBlockArtifact>>>,
-    reachability: Arc<Mutex<Libp2pReachabilitySnapshot>>,
-    traffic_metrics: SharedLibp2pTrafficMetrics,
-    wire_byte_counters: SharedLibp2pWireByteCounters,
-    _shutdown_guard: Arc<drop_support::ShutdownGuard>,
-}
+use wire_bytes::init_shared_wire_byte_counters;
 impl Libp2pNetwork {
     pub fn new(config: Libp2pNetworkConfig) -> Self {
         let keypair = config
@@ -202,9 +196,13 @@ impl Libp2pNetwork {
             let mut pending_dht: HashMap<kad::QueryId, PendingDhtQuery> = HashMap::new();
             let mut peers: Vec<PeerId> = Vec::new();
             let mut provider_keys: HashMap<String, i64> = HashMap::new();
-            let mut discovered_peer_records: HashMap<PeerId, SignedPeerRecord> = HashMap::new();
+            let dial_policy = swarm.behaviour().discovery_dial_policy();
+            dial_policy.set_configured(&config_clone.bootstrap_peers);
+            let mut discovered_peer_records = PeerRecordCache::with_dial_policy(swarm.behaviour_mut().kademlia.store_mut().clock().clone(), dial_policy);
             let (mut known_transport_paths, mut failed_transport_path_labels, static_bootstrap_peer_ids) =
                 bootstrap_transport_path_state(&config_clone.bootstrap_peers);
+            let mut discovery_observations = peer_discovery_observations::DiscoveryObservations::default();
+            discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
             let mut last_dialed_transport_paths: HashMap<PeerId, TransportPath> = HashMap::new();
             let mut active_transport_paths: HashMap<PeerId, TransportPath> = HashMap::new();
             let mut established_transport_paths_by_connection: HashMap<
@@ -234,24 +232,17 @@ impl Libp2pNetwork {
             let mut rendezvous_cookies: HashMap<PeerId, rendezvous::Cookie> = HashMap::new();
             let mut peer_record_last_published_at_ms = None;
             let mut peer_discovery_query_last_started_at_ms = None;
-            let bootstrap_redial_interval_ms = config_clone.bootstrap_redial_interval_ms;
             let republish_interval_ms = config_clone.republish_interval_ms;
-            let discovery_query_interval_ms = config_clone.discovery_query_interval_ms;
             let discovery_query_cooldown_ms = config_clone.discovery_query_cooldown_ms;
-            for addr in config_clone.listen_addrs {
-                if let Err(err) = swarm.listen_on(addr) {
-                    let msg = format!("libp2p listen failed: {err}");
-                    push_bounded_clone(&event_errors, msg, max_error_messages, "lock errors");
-                }
-            }
+            constructor_support::listen_on_configured_addresses(&mut swarm, config_clone.listen_addrs, &event_errors, max_error_messages);
             schedule_periodic_republish(republish_tx, republish_interval_ms);
             if peer_record_template.is_some() {
-                schedule_periodic_discovery_refresh(discovery_tx, discovery_query_interval_ms);
+                schedule_periodic_discovery_refresh(discovery_tx, config_clone.discovery_query_interval_ms);
             }
             schedule_bootstrap_redial(
                 bootstrap_redial_tx,
                 bootstrap_redial_peers,
-                bootstrap_redial_interval_ms,
+                config_clone.bootstrap_redial_interval_ms,
             );
                 let mut command_rx = command_rx;
                 let command_ctx = CommandContext {
@@ -270,14 +261,8 @@ impl Libp2pNetwork {
                     allow_loopback_external_addrs_for_testing: config_clone
                         .allow_loopback_external_addrs_for_testing,
                 };
-                let peer_record_republisher = LocalPeerRecordRepublisher::new(
-                    &keypair_clone,
-                    peer_record_template.as_ref(),
-                    &event_listening_addrs,
-                    &event_reachability,
-                    (&event_errors, max_error_messages),
-                    config_clone.allow_loopback_external_addrs_for_testing,
-                );
+                let peer_record_republisher = LocalPeerRecordRepublisher::from_context(&command_ctx);
+                let mut record_expiry_tick = runtime_support::discovery_expiry_tick();
                 macro_rules! republish_local_peer_record {
                     () => {
                         peer_record_republisher.republish(
@@ -289,7 +274,18 @@ impl Libp2pNetwork {
                     };
                 }
                 loop {
+                    discovery_budget::publish_metrics(&swarm, &event_traffic_metrics);
+                    if discovered_peer_records.prune(&active_transport_paths) {
+                        (peer_healths_by_id, quarantined_active_peers, admitted_active_peers) = refresh_peer_manager_views(
+                            &mut swarm, &discovered_peer_records, &discovery_observations,
+                            &active_transport_paths, &admitted_active_peers, &config_clone.peer_manager_policy,
+                            &event_peer_healths, &event_peer_block_artifacts, &mut pending_quarantine_disconnects,
+                            &event_errors, max_error_messages, &event_reachability,
+                        );
+                    }
+                    transport_paths::prune_expired_record_paths(&mut known_transport_paths, &mut failed_transport_path_labels, &config_clone.bootstrap_peers);
                     futures::select! {
+                        () = record_expiry_tick => { record_expiry_tick = runtime_support::discovery_expiry_tick(); },
                         completed = completed_response_rx.next().fuse() => if let Some(completed) = completed {
                             response_workers.complete(completed, &mut fetch_blob_response_budget, now_ms(), &event_traffic_metrics, &mut swarm, &event_errors, max_error_messages);
                         },
@@ -365,6 +361,7 @@ impl Libp2pNetwork {
                                                 }
                                                 request_response::Message::Response { request_id, response } => {
                                                     if let Some(kind) = pending_peer_record_requests.remove(&request_id) {
+                                                        swarm.behaviour_mut().discovery_budget.finish_request(request_id);
                                                         record_response_inbound(
                                                             &event_traffic_metrics,
                                                             kind.protocol_label(),
@@ -377,6 +374,7 @@ impl Libp2pNetwork {
                                                             &mut pending_peer_record_requests,
                                                             &mut pending_dht,
                                                             &mut discovered_peer_records,
+                                                                &mut discovery_observations,
                                                             &mut known_transport_paths,
                                                             &mut last_dialed_transport_paths,
                                                             &active_transport_paths,
@@ -402,6 +400,7 @@ impl Libp2pNetwork {
                                                         ) = refresh_peer_manager_views(
                                                             &mut swarm,
                                                             &discovered_peer_records,
+                                                            &discovery_observations,
                                                             &active_transport_paths,
                                                             &admitted_active_peers,
                                                             &config_clone.peer_manager_policy,
@@ -425,6 +424,7 @@ impl Libp2pNetwork {
                                         }
                                         request_response::Event::OutboundFailure { request_id, peer, error, .. } => {
                                             if let Some(kind) = pending_peer_record_requests.remove(&request_id) {
+                                                        swarm.behaviour_mut().discovery_budget.finish_request(request_id);
                                                 handle_peer_record_outbound_failure(
                                                     &mut swarm,
                                                     kind,
@@ -464,11 +464,12 @@ impl Libp2pNetwork {
                                     match event {
                                         kad::Event::OutboundQueryProgressed { id, result, step, .. } => {
                                             let action = if let Some(pending) = pending_dht.get_mut(&id) {
-                                                handle_dht_progress(pending, result, step.last)
+                                                handle_dht_progress(pending, result, step.last, discovered_peer_records.clock())
                                             } else {
                                                 DhtProgressAction::None
                                             };
                                             if step.last {
+                                                swarm.behaviour_mut().discovery_budget.finish_dht(id);
                                                 pending_dht.remove(&id);
                                             }
                                             match action {
@@ -506,7 +507,7 @@ impl Libp2pNetwork {
                                                         "lock errors",
                                                     );
                                                 }
-                                                DhtProgressAction::DiscoverPeerRecord { peer_id, result } => {
+                                                DhtProgressAction::DiscoverPeerRecord { peer_id, upstream, result } => {
                                                     pending_discovery_peer_records.remove(&peer_id);
                                                     match *result {
                                                         Ok(Some(record)) => {
@@ -530,6 +531,7 @@ impl Libp2pNetwork {
                                                             } else if let Err(err) = process_discovered_peer_record(
                                                                 &mut swarm,
                                                                 &mut discovered_peer_records,
+                                                                &mut discovery_observations,
                                                                 &mut known_transport_paths,
                                                                 &mut last_dialed_transport_paths,
                                                                 &active_transport_paths,
@@ -538,6 +540,7 @@ impl Libp2pNetwork {
                                                                 &config_clone.peer_manager_policy,
                                                                 &static_bootstrap_peer_ids,
                                                                 record,
+                                                                peer_discovery_observations::DiscoveryIngress::Dht { upstream },
                                                             ) {
                                                                 push_bounded_clone(
                                                                     &event_errors,
@@ -563,6 +566,7 @@ impl Libp2pNetwork {
                                                                 ) = refresh_peer_manager_views(
                                                                     &mut swarm,
                                                                     &discovered_peer_records,
+                                                            &discovery_observations,
                                                                     &active_transport_paths,
                                                                     &admitted_active_peers,
                                                                     &config_clone.peer_manager_policy,
@@ -867,7 +871,7 @@ impl Libp2pNetwork {
                                         now_ms(),
                                         LIFECYCLE_EVENT_ERROR_COOLDOWN_MS,
                                     );
-                                    let (refreshed_active_path, dialed_addr) =
+                                    let (refreshed_active_path, _dialed_addr) =
                                         record_established_connection(
                                             &known_transport_paths,
                                             &mut active_transport_paths,
@@ -879,12 +883,6 @@ impl Libp2pNetwork {
                                             connection_id,
                                             &endpoint,
                                         );
-                                    if let Some(address) = dialed_addr {
-                                        swarm
-                                            .behaviour_mut()
-                                            .kademlia
-                                            .add_address(&peer_id, address);
-                                    }
                                     log_active_transport_path(
                                         &event_errors,
                                         &mut lifecycle_event_errors_at_ms,
@@ -986,6 +984,7 @@ impl Libp2pNetwork {
                                     ) = refresh_peer_manager_views(
                                         &mut swarm,
                                         &discovered_peer_records,
+                                                            &discovery_observations,
                                         &active_transport_paths,
                                         &admitted_active_peers,
                                         &config_clone.peer_manager_policy,
@@ -1093,6 +1092,7 @@ impl Libp2pNetwork {
                                     ) = refresh_peer_manager_views(
                                         &mut swarm,
                                         &discovered_peer_records,
+                                                            &discovery_observations,
                                         &active_transport_paths,
                                         &admitted_active_peers,
                                         &config_clone.peer_manager_policy,

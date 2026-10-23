@@ -10,6 +10,12 @@
 
 所有场景记录 source HEAD、测试合并树（若有）、世界/玩法版本、Runtime/driver/Skill/API/Viewer build、平台、许可和测试开始结束状态。保留脱敏请求、操作 ID、world receipt、故障点、控制版本及实际结果；不保存密码、token、私有推理链或其他任务数据。只清理本轮创建的进程/任务/世界目录，不改线上世界或他人会话。
 
+## 显式 context 模式与原件恢复
+
+Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。冷入场导出的 executor 配置应明确包含 `"authority_mode":"native_executor_v1"`；旧配置省略字段仍使用 provider，不能将 provider 失败视为 native 准入。核对实际签名 prepare/snapshot 请求及 context identity 的 revision/mode，并验证回复恰好一种 authority。native 输出无 module catalog，必须检查真实 task fence、delegation、预算和 lease；配置标记本身不算认证成功。
+
+保留 provider 旧原件的 JSON/CBOR、签名和 digest 作为兼容对照；重启后原 bytes 与 nonce 不变。对同一 operation 改 mode 必须在提交前拒绝，恢复旧 mode 后仍读取同一原件。native/provider 混合 authority、错误 revision、错误 fence、失效 delegation 和过期 context 都应失败。broker 模型请求不能传 mode；更改可信配置会改变固定哈希及持久预算 profile 绑定，不能用修改配置重置额度。unknown 仍先查询原操作，不能更换模式重提。
+
 ## 统一准备与判定
 
 既有 API/协作场景创建两个 owner、两个独立 executor、一 Agent 一任务，使用明确的授权额度与可回读 world root；api-cold-entry 的被测新主体不适用这些预置，改用该场景的无角色/任务/执行 grant 起点，合法身份获取与准入资格可预先获准但产品步骤不能代做。fixture 名称由实现 PR 注册。所有正常与负例均读取实际前后状态和持久回执，禁止仅验证 HTTP 200 或执行器自报。超时、取消和无响应先核对原操作。
@@ -20,6 +26,8 @@
 
 <a id="api-cold-entry"></a>
 ### 场景 api-cold-entry
+
+客户端编排回归须覆盖完整新主体步骤，并在注册或绑定响应丢失后重启恢复；不能手工写入 `login-session`、Agent、task、goal 或 grant 作为该路径的起点。真实 IdentityService 与 WorldService/commit loop 的组合验证与客户端合成 HTTP 回包测试分别记录。验证成功出口时重新读取当前 canonical task/goal/executor fence；不以本地阶段日志代替当前权限。DevLocal 运营工具另验证一致快照、错 namespace/epoch、前态变化、签名缺失和失败无世界写入。普通客户端组合通过不自动宣布任一真实 Runtime 已验收。
 
 - Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；产品 [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)，系统 [bootstrap](../../world-simulator/llm/external-agent-game-api.design.md#api-autonomous-entry)与[客户端编排](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-autonomous-entry)。
 - 层/环境：普通网络客户端合同/持久故障注入为 `test_tier_required`；每个声明支持的真实 Runtime/profile 的独立冷入场为 `test_tier_full`。仅使用获准隔离世界和有界预算，不操作公开部署或真实账号。

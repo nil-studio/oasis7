@@ -1,11 +1,13 @@
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{BTreeSet, HashMap};
 
 use libp2p::PeerId;
-use oasis7_proto::distributed_dht::{PeerNodeRole, SignedPeerRecord};
+use oasis7_proto::distributed_dht::SignedPeerRecord;
 
+use super::peer_discovery_observations::DiscoveryObservations;
 use super::peer_manager::{
-    PeerManagerHealthStatus, PeerManagerPolicy, discovery_source_label, exceeds_share_limit,
-    ipv4_subnet_bucket, meets_or_exceeds_share_limit, normalized_source_label, relay_domain,
+    PeerManagerHealthStatus, PeerManagerPolicy, exceeds_share_limit, ipv4_subnet_bucket,
+    meets_or_exceeds_share_limit, relay_domain,
 };
 use super::transport_paths::{TransportPath, TransportPathKind};
 
@@ -22,7 +24,8 @@ pub(super) struct ActivePeerSetStats {
 
 impl ActivePeerSetStats {
     pub(super) fn new(
-        discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+        discovered_peer_records: &PeerRecordCache,
+        observations: &DiscoveryObservations,
         active_transport_paths: &HashMap<PeerId, TransportPath>,
     ) -> Self {
         let mut stats = Self::default();
@@ -30,16 +33,9 @@ impl ActivePeerSetStats {
         for (peer_id, active_path) in active_transport_paths {
             let record = discovered_peer_records.get(peer_id);
             if let Some(record) = record {
-                stats.note_record_discovery_sources(record);
+                stats.note_record_discovery_sources(record, observations);
             }
-            if !peer_record_counts_toward_share_limits(record) {
-                continue;
-            }
-            stats.active_peer_count = stats.active_peer_count.saturating_add(1);
-            stats.note_active_path(active_path);
-            if let Some(record) = record {
-                stats.note_record_share_limits(record);
-            }
+            stats.add_unverified_peer(active_path);
         }
 
         stats
@@ -48,33 +44,36 @@ impl ActivePeerSetStats {
     pub(super) fn add_admitted_peer(
         &mut self,
         record: &SignedPeerRecord,
+        observations: &DiscoveryObservations,
         active_path: &TransportPath,
     ) {
-        self.note_record_discovery_sources(record);
-        if !peer_record_counts_toward_share_limits(Some(record)) {
-            return;
-        }
+        self.note_record_discovery_sources(record, observations);
+        self.add_unverified_peer(active_path);
+    }
+
+    /// No local authorization currently permits a role-based budget exemption.
+    /// Missing records and self-claimed observer roles therefore use the same unknown bucket.
+    pub(super) fn add_unverified_peer(&mut self, active_path: &TransportPath) {
         self.active_peer_count = self.active_peer_count.saturating_add(1);
         self.note_active_path(active_path);
-        self.note_record_share_limits(record);
+        self.note_unknown_control_domain();
     }
 
-    fn note_record_discovery_sources(&mut self, record: &SignedPeerRecord) {
-        for source in &record.record.discovery_sources {
-            self.active_discovery_sources
-                .insert(discovery_source_label(*source));
-        }
+    fn note_record_discovery_sources(
+        &mut self,
+        record: &SignedPeerRecord,
+        observations: &DiscoveryObservations,
+    ) {
+        self.active_discovery_sources
+            .extend(observations.trusted_source_labels(record));
     }
 
-    fn note_record_share_limits(&mut self, record: &SignedPeerRecord) {
-        if let Some(source_operator) =
-            normalized_source_label(record.record.source_operator.as_deref())
-        {
-            *self.operator_counts.entry(source_operator).or_default() += 1;
-        }
-        if let Some(source_asn) = normalized_source_label(record.record.source_asn.as_deref()) {
-            *self.asn_counts.entry(source_asn).or_default() += 1;
-        }
+    fn note_unknown_control_domain(&mut self) {
+        *self
+            .operator_counts
+            .entry("unknown".to_string())
+            .or_default() += 1;
+        *self.asn_counts.entry("unknown".to_string()).or_default() += 1;
     }
 
     fn note_active_path(&mut self, active_path: &TransportPath) {
@@ -93,6 +92,7 @@ impl ActivePeerSetStats {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ActivePeerCandidate {
     pub discovery_source_labels: BTreeSet<&'static str>,
+    pub discovery_independence_verified: bool,
     pub ipv4_subnet_bucket: Option<String>,
     pub relay_domain: Option<String>,
     pub source_operator: Option<String>,
@@ -104,43 +104,76 @@ pub(super) struct ActivePeerCandidate {
 impl ActivePeerCandidate {
     pub(super) fn from_record_and_path(
         record: &SignedPeerRecord,
+        observations: &DiscoveryObservations,
         active_path: &TransportPath,
     ) -> Self {
         Self {
-            discovery_source_labels: record
-                .record
-                .discovery_sources
-                .iter()
-                .map(|source| discovery_source_label(*source))
-                .collect(),
+            discovery_source_labels: observations.trusted_source_labels(record),
+            discovery_independence_verified: observations.is_static_bootstrap(record),
             ipv4_subnet_bucket: ipv4_subnet_bucket(active_path),
             relay_domain: relay_domain(active_path),
-            source_operator: normalized_source_label(record.record.source_operator.as_deref()),
-            source_asn: normalized_source_label(record.record.source_asn.as_deref()),
+            source_operator: Some("unknown".to_string()),
+            source_asn: Some("unknown".to_string()),
             relay_reserved: matches!(active_path.kind, TransportPathKind::RelayReserved),
-            counts_toward_share_limits: peer_record_counts_toward_share_limits(Some(record)),
+            counts_toward_share_limits: true,
+        }
+    }
+
+    pub(super) fn from_unverified_path(active_path: &TransportPath) -> Self {
+        Self {
+            discovery_source_labels: BTreeSet::new(),
+            discovery_independence_verified: false,
+            ipv4_subnet_bucket: ipv4_subnet_bucket(active_path),
+            relay_domain: relay_domain(active_path),
+            source_operator: Some("unknown".to_string()),
+            source_asn: Some("unknown".to_string()),
+            relay_reserved: matches!(active_path.kind, TransportPathKind::RelayReserved),
+            counts_toward_share_limits: true,
         }
     }
 }
 
+#[cfg(test)]
 pub(super) fn candidate_status_with_active_set(
     candidate: &ActivePeerCandidate,
     active_set_stats: &ActivePeerSetStats,
     policy: &PeerManagerPolicy,
+) -> PeerManagerHealthStatus {
+    candidate_status(candidate, active_set_stats, policy, true)
+}
+
+/// Already established sessions may acquire bootstrap material while discovery remains degraded.
+/// This never exempts the session from topology and unknown-control-domain budgets.
+pub(super) fn candidate_transport_admission_status(
+    candidate: &ActivePeerCandidate,
+    active_set_stats: &ActivePeerSetStats,
+    policy: &PeerManagerPolicy,
+) -> PeerManagerHealthStatus {
+    candidate_status(candidate, active_set_stats, policy, false)
+}
+
+fn candidate_status(
+    candidate: &ActivePeerCandidate,
+    active_set_stats: &ActivePeerSetStats,
+    policy: &PeerManagerPolicy,
+    require_discovery: bool,
 ) -> PeerManagerHealthStatus {
     let projected_active_peer_count = if candidate.counts_toward_share_limits {
         active_set_stats.active_peer_count.saturating_add(1)
     } else {
         active_set_stats.active_peer_count
     };
-    let mut has_issue = candidate.discovery_source_labels.len() < policy.min_peer_discovery_sources;
+    let mut has_issue = require_discovery
+        && (!candidate.discovery_independence_verified
+            || candidate.discovery_source_labels.len() < policy.min_peer_discovery_sources);
     let mut hard_block = false;
 
     let projected_active_discovery_sources = active_set_stats
         .active_discovery_sources
         .union(&candidate.discovery_source_labels)
         .count();
-    if projected_active_peer_count > 0
+    if require_discovery
+        && projected_active_peer_count > 0
         && projected_active_discovery_sources < policy.min_active_discovery_sources
     {
         has_issue = true;
@@ -412,11 +445,4 @@ pub(super) fn candidate_would_degrade_admitted_peers(
     }
 
     false
-}
-
-fn peer_record_counts_toward_share_limits(record: Option<&SignedPeerRecord>) -> bool {
-    !matches!(
-        record.and_then(|record| record.record.parsed_node_role().ok()),
-        Some(PeerNodeRole::ObserverLight)
-    )
 }

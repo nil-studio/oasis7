@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "d56d23115fc3d4920077bee83ad7ee61c2909dad915bbdc31b5f0710795760f7",
+    "content_sha256": "1b9395b0fe6d450850c162d4fd6b427328df296468efd7aec8bf53eca2362ab3",
     "current_authority": "doc/world-runtime/prd.md",
     "decision_owner": "runtime_engineer",
     "disposition": "retain_current_controlled_runbook",
-    "note": "current replay rollback recovery SOP; procedures do not prove recovery safety or release currently passes Scoped historical-reference repair: retain the original commit and evidence meaning while linking the verified immutable Git blob for the retired source. This changes source lookup only, with no new gameplay, release or execution acceptance. Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance.",
+    "note": "current replay rollback recovery SOP; procedures do not prove recovery safety or release currently passes Scoped historical-reference repair: retain the original commit and evidence meaning while linking the verified immutable Git blob for the retired source. This changes source lookup only, with no new gameplay, release or execution acceptance. Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance. Scoped review for #5004: preserve authority, historical evidence and CLI behavior while updating executable ownership and dependency boundaries; no deployment or gameplay acceptance is claimed.",
     "path": "doc/game/gameplay/gameplay-longrun-p0-replay-rollback-runbook-2026-03-06.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

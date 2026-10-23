@@ -741,7 +741,7 @@ fn read_requests(stream: TcpStream, tx: mpsc::Sender<ViewerRequest>) {
                 if trimmed.is_empty() {
                     continue;
                 }
-                match serde_json::from_str::<ViewerRequest>(trimmed) {
+                match oasis7_viewer_codec::request_from_json(trimmed) {
                     Ok(request) => {
                         if tx.send(request).is_err() {
                             break;
@@ -761,7 +761,7 @@ fn send_response(
     writer: &mut BufWriter<TcpStream>,
     response: &ViewerResponse,
 ) -> Result<(), ViewerServerError> {
-    serde_json::to_writer(&mut *writer, response)?;
+    oasis7_viewer_codec::write_buffered_response_json(&mut *writer, response)?;
     writer.write_all(b"\n")?;
     writer.flush()?;
     Ok(())

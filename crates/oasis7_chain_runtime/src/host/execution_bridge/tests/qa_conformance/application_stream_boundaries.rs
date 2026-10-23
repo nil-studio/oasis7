@@ -177,15 +177,51 @@ impl Session {
         self.snapshot(Duration::from_secs(3))
     }
     pub(super) fn close(
-        self,
+        mut self,
     ) -> Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError> {
-        self.reader
-            .get_ref()
-            .shutdown(std::net::Shutdown::Both)
-            .unwrap();
-        self.worker.join().unwrap()
+        // EOF stops new requests while the peer finishes already queued writes.
+        // Keep reading until its EOF; a bidirectional shutdown races those writes.
+        drop(self.accepted_probe);
+        self.reader.get_ref().shutdown(std::net::Shutdown::Write)?;
+        self.reader.get_ref().set_read_timeout(Some(Duration::from_secs(2)))?;
+        let drained = std::io::copy(&mut self.reader, &mut std::io::sink());
+        if drained.is_err() {
+            let _ = self.reader.get_ref().shutdown(std::net::Shutdown::Both);
+        }
+        let served = self.worker.join().unwrap();
+        drained?;
+        served
     }
 }
+#[test]
+fn real_tcp_session_close_drains_responses_queued_before_eof() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let (mut accepted, _) = listener.accept().unwrap();
+    accepted.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    accepted.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+    let accepted_probe = accepted.try_clone().unwrap();
+    let worker = thread::spawn(move || {
+        let mut requests = Vec::new();
+        accepted.read_to_end(&mut requests)?;
+        // Force the response to follow the client's write EOF. Closing both
+        // directions discards this legitimate queued response and breaks writes.
+        accepted.write_all(&vec![b'x'; 1024 * 1024])?;
+        Ok(())
+    });
+    let session = Session {
+        reader: BufReader::new(socket),
+        partial_line: String::new(),
+        diagnostic: false,
+        created: Instant::now(),
+        connection: 0,
+        accepted_probe,
+        worker,
+    };
+    assert!(session.close().is_ok(), "queued response must drain before read shutdown");
+}
+
 pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     let root = std::path::PathBuf::from(std::env::var("PRE2_METADATA_DIR").unwrap());
     application_fresh::preflight(client, &root);

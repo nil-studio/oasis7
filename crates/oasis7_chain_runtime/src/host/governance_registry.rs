@@ -232,11 +232,34 @@ fn import_network_tier_governance_bootstrap(
     Ok(true)
 }
 
+#[cfg(test)]
 pub(super) fn apply_world_governance_registry_overrides(
-    mut config: NodeConfig,
+    config: NodeConfig,
     execution_world_dir: &Path,
 ) -> Result<NodeConfig, String> {
-    let world = super::execution_bridge::load_execution_world(execution_world_dir)?;
+    apply_world_governance_registry_overrides_with_context(
+        config,
+        execution_world_dir,
+        &oasis7_runtime::ReleaseSecurityPolicy::production_hardened(),
+        None,
+    )
+}
+
+pub(super) fn apply_world_governance_registry_overrides_with_context(
+    mut config: NodeConfig,
+    execution_world_dir: &Path,
+    release_policy: &oasis7_runtime::ReleaseSecurityPolicy,
+    authority: Option<&oasis7_runtime::DevLocalParticipantAuthority>,
+) -> Result<NodeConfig, String> {
+    #[cfg(not(test))]
+    use super::execution_bridge::load_execution_world_with_context;
+    #[cfg(test)]
+    use super::execution_bridge_real_tests::real_execution_bridge::load_execution_world_with_context;
+    let world = load_execution_world_with_context(
+        execution_world_dir,
+        release_policy.clone(),
+        authority,
+    )?;
     if let Some(registry) = world
         .resolve_governance_effective_finality_signer_registry()
         .map_err(|err| {

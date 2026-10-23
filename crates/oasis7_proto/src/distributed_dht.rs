@@ -269,7 +269,21 @@ impl PeerRecord {
         PeerNodeRole::parse_wire(self.node_role.as_str())
     }
 
+    /// Checked absolute expiry under the current v1 wire time policy.
+    pub fn expires_at_ms(&self) -> Result<i64, String> {
+        if self.published_at_ms < 0 {
+            return Err("peer record published_at_ms must be nonnegative".to_string());
+        }
+        if !(1..=3_600_000).contains(&self.ttl_ms) {
+            return Err("peer record ttl_ms must be in 1..=3600000".to_string());
+        }
+        self.published_at_ms
+            .checked_add(self.ttl_ms)
+            .ok_or_else(|| "peer record expiry overflows i64".to_string())
+    }
+
     pub fn validate_policy(&self) -> Result<(), String> {
+        self.expires_at_ms()?;
         let node_role = self.parsed_node_role()?;
         node_role.validate_deployment_mode(self.deployment_mode)?;
         if matches!(
@@ -610,5 +624,39 @@ mod tests {
             ttl_ms: 1_000,
         };
         assert!(record.validate_policy().is_err());
+    }
+    #[test]
+    fn peer_record_signed_expiry_is_checked_and_bounded() {
+        let mut record = {
+            PeerRecord {
+                peer_id: "peer".into(),
+                node_id: "node".into(),
+                world_id: "world".into(),
+                network_id: "network".into(),
+                node_role: "observer_light".into(),
+                deployment_mode: PeerDeploymentMode::Private,
+                reachability_class: PeerReachabilityClass::Private,
+                direct_addrs: vec![],
+                hole_punch_addrs: vec![],
+                relay_addrs: vec![],
+                discovery_sources: vec![],
+                capability_lanes: vec![],
+                source_operator: None,
+                source_asn: None,
+                published_at_ms: 1_000,
+                ttl_ms: 1,
+            }
+        };
+        assert_eq!(record.expires_at_ms().unwrap(), 1_001);
+        for (published, ttl) in [(-1, 1), (0, 0), (0, -1), (0, 3_600_001), (i64::MAX, 1)] {
+            record.published_at_ms = published;
+            record.ttl_ms = ttl;
+            assert!(record.expires_at_ms().is_err());
+            assert!(record.validate_policy().is_err());
+        }
+        record.published_at_ms = 0;
+        record.ttl_ms = 3_600_000;
+        assert_eq!(record.expires_at_ms().unwrap(), 3_600_000);
+        assert!(record.validate_policy().is_ok());
     }
 }

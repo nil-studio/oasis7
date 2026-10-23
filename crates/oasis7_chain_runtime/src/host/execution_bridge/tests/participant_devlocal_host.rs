@@ -162,7 +162,60 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
         )
         .exists()
     );
+    let before_policy_snapshot = driver.execution_world.snapshot();
     commit(&mut driver).unwrap();
+    // Exercise the actual Host governance read after policy commit, before driver restore.
+    crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+        oasis7_node::NodeConfig::new("node-a", "w1", oasis7_node::NodeRole::Sequencer).unwrap(),
+        &driver.world_dir,
+        &ReleaseSecurityPolicy::default(),
+        control.authority.as_ref(),
+    ).expect("Host governance override must restore activated DevLocal policy with trusted context");
+    let node_config = || oasis7_node::NodeConfig::new("node-a", "w1", oasis7_node::NodeRole::Sequencer).unwrap();
+    let read_governance = |policy: &ReleaseSecurityPolicy, authority| {
+        crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(), &driver.world_dir, policy, authority,
+        )
+    };
+    assert!(read_governance(&ReleaseSecurityPolicy::default(), None).is_err());
+    let wrong_authority = oasis7_runtime::DevLocalParticipantAuthority::new(
+        oasis7_proto::storage_profile::StorageProfile::DevLocal,
+        &ReleaseSecurityPolicy::default(),
+        hex::encode(ed25519_dalek::SigningKey::from_bytes(&[73; 32]).verifying_key().to_bytes()),
+    ).unwrap();
+    assert!(read_governance(&ReleaseSecurityPolicy::default(), Some(&wrong_authority)).is_err());
+    assert!(read_governance(&ReleaseSecurityPolicy::production_hardened(), None).is_err());
+    assert!(read_governance(&ReleaseSecurityPolicy::production_hardened(), control.authority.as_ref()).is_err());
+    // Normal persisted snapshot and pre-policy snapshot plus signed journal tail
+    // must pass the same governance read, without reconstructing trust from either.
+    for (label, snapshot) in [
+        ("snapshot", driver.execution_world.snapshot()),
+        ("journal-tail", before_policy_snapshot),
+    ] {
+        let path = dir.join(format!("governance-{label}"));
+        fs::create_dir(&path).unwrap();
+        snapshot.save_json(path.join("snapshot.json")).unwrap();
+        driver.execution_world.journal().save_json(path.join("journal.json")).unwrap();
+        crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(), &path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
+        ).unwrap_or_else(|error| panic!("governance restore {label}: {error}"));
+        assert!(crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(), &path, &ReleaseSecurityPolicy::default(), None,
+        ).is_err());
+    }
+    let formal_path = dir.join("governance-conflicting-formal-authority");
+    fs::create_dir(&formal_path).unwrap();
+    let mut formal_snapshot = driver.execution_world.snapshot();
+    formal_snapshot.state.governance_finality_signer_registry = Some(Default::default());
+    formal_snapshot.save_json(formal_path.join("snapshot.json")).unwrap();
+    driver.execution_world.journal().save_json(formal_path.join("journal.json")).unwrap();
+    let formal_error = match crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+        node_config(), &formal_path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("mixed formal authority must remain rejected"),
+    };
+    assert!(formal_error.contains("DevLocal participant authority conflicts with effective world authority"), "{formal_error}");
     let registry = driver
         .execution_world
         .participant_registry_digest()
@@ -209,9 +262,9 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
     // The signed startup file may be removed after commit; retain the pin.
     let mut restore_only = control;
     restore_only.startup = None;
-    let twice = NodeRuntimeExecutionDriver::new_with_participant_control(
+    let mut twice = NodeRuntimeExecutionDriver::new_with_participant_control(
         state,
-        world,
+        world.clone(),
         records.clone(),
         store.clone(),
         &StorageProfileConfig::default(),
@@ -242,6 +295,100 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
             .genesis_ref
             .as_deref(),
         Some(identity.genesis_digest.as_str())
+    );
+    let bootstrap =
+        super::super::super::local_bootstrap::derive_service_execution_bootstrap_with_context(
+            &world,
+            &records,
+            &store,
+            &identity.world_id,
+            &context,
+        )
+        .expect(
+            "a committed DevLocal policy must bootstrap with the explicit trusted host context",
+        );
+    assert!(
+        super::super::super::local_bootstrap::derive_service_execution_bootstrap(
+            &world,
+            &records,
+            &store,
+            &identity.world_id,
+        )
+        .is_err(),
+        "missing operator context must not restore an activated world"
+    );
+    let wrong_authority = oasis7_runtime::DevLocalParticipantAuthority::new(
+        oasis7_proto::storage_profile::StorageProfile::DevLocal,
+        &ReleaseSecurityPolicy::default(),
+        sign_read_request("fixture", (), &hex::encode([99; 32]))
+            .unwrap()
+            .subject_public_key,
+    )
+    .unwrap();
+    let wrong_context = super::super::super::world_service_read::RestoreContext::new(
+        ReleaseSecurityPolicy::default(),
+        Some(wrong_authority),
+    )
+    .unwrap();
+    assert!(
+        super::super::super::local_bootstrap::derive_service_execution_bootstrap_with_context(
+            &world,
+            &records,
+            &store,
+            &identity.world_id,
+            &wrong_context,
+        )
+        .is_err(),
+        "a different operator pin must fail closed"
+    );
+    // Retention's historical reader must restore an activated cut with the host pin.
+    let historical = super::super::super::checkpoint::task_evidence::pin_task_history(
+        &records,
+        &LocalCasStore::new(&store),
+        &identity,
+        pinned.record.height,
+        &context,
+    )
+    .expect("DevLocal task retention must preserve the trusted host restore context");
+    assert_eq!(historical.commit, pinned.commit);
+    for denied in [
+        &super::super::super::world_service_read::RestoreContext::default(),
+        &wrong_context,
+    ] {
+        assert!(
+            super::super::super::checkpoint::task_evidence::pin_task_history(
+                &records,
+                &LocalCasStore::new(&store),
+                &identity,
+                pinned.record.height,
+                denied,
+            )
+            .is_err(),
+            "missing or wrong operator pin cannot read activated task history"
+        );
+    }
+    let hardened = super::super::super::world_service_read::RestoreContext::new(
+        ReleaseSecurityPolicy::production_hardened(),
+        None,
+    )
+    .unwrap();
+    assert!(
+        super::super::super::checkpoint::task_evidence::pin_task_history(
+            &records,
+            &LocalCasStore::new(&store),
+            &identity,
+            pinned.record.height,
+            &hardened,
+        )
+        .is_err(),
+        "hardened release cannot reinterpret DevLocal task history"
+    );
+
+    twice.apply_local_execution_bootstrap(&bootstrap).unwrap();
+    assert_eq!(bootstrap.height, pinned.record.height);
+    assert_eq!(
+        Some(bootstrap.consensus_block_hash.as_str()),
+        pinned.record.node_block_hash.as_deref()
     );
     let _ = fs::remove_dir_all(dir);
 }
@@ -387,16 +534,30 @@ fn devlocal_host_rejects_unsigned_formal_admission_and_conflicted_recovery_witho
     // retain the DevLocal/formal authority boundary at recovery: an established
     // formal membership cannot be imported as DevLocal authority either.
     let mut conflicted = before.clone();
-    conflicted.state.governance_validator_admissions.insert("candidate.fixture".into(), oasis7_runtime::GovernanceValidatorAdmissionRecord {
-        candidate_id: "candidate.fixture".into(), node_id: "validator.fixture".into(),
-        finality_signer_public_key: hex::encode(SigningKey::from_bytes(&[93; 32]).verifying_key().to_bytes()),
-        stake: 25, operator_owner: "ops.team".into(), public_manifest_hash: "manifest:candidate.fixture".into(),
-        ..Default::default()
-    });
+    conflicted.state.governance_validator_admissions.insert(
+        "candidate.fixture".into(),
+        oasis7_runtime::GovernanceValidatorAdmissionRecord {
+            candidate_id: "candidate.fixture".into(),
+            node_id: "validator.fixture".into(),
+            finality_signer_public_key: hex::encode(
+                SigningKey::from_bytes(&[93; 32]).verifying_key().to_bytes(),
+            ),
+            stake: 25,
+            operator_owner: "ops.team".into(),
+            public_manifest_hash: "manifest:candidate.fixture".into(),
+            ..Default::default()
+        },
+    );
     let error = oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
-        conflicted, driver.execution_world.journal().clone(), driver.devlocal_participant.authority.clone().unwrap(),
-    ).expect_err("formal membership cannot recover under DevLocal authority");
-    assert!(format!("{error:?}").contains("DevLocal") || format!("{error:?}").contains("local participant"));
+        conflicted,
+        driver.execution_world.journal().clone(),
+        driver.devlocal_participant.authority.clone().unwrap(),
+    )
+    .expect_err("formal membership cannot recover under DevLocal authority");
+    assert!(
+        format!("{error:?}").contains("DevLocal")
+            || format!("{error:?}").contains("local participant")
+    );
     // The forbidden action is not retained as a hidden pending side effect.
     commit(&mut driver).unwrap();
     let _ = fs::remove_dir_all(dir);
@@ -517,4 +678,88 @@ fn devlocal_host_null_genesis_requires_verified_origin_and_commits_original_bind
         Some(identity.genesis_digest.as_str())
     );
     let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn devlocal_host_live_goal_retention_revalidates_new_and_previous_cuts() {
+    use oasis7::world_service::game_task;
+    let (dir, mut driver, identity, owner, _) =
+        canonical_agent_chat::driver_fixture_without_provider();
+    let control = config(&driver.execution_world, &identity);
+    driver.execution_world = driver
+        .execution_world
+        .clone()
+        .with_devlocal_participant_authority(control.authority.clone().unwrap())
+        .unwrap();
+    driver.devlocal_participant = control;
+    commit(&mut driver).unwrap();
+    super::commit(
+        &mut driver,
+        4,
+        game_task_tests::create(&identity, &owner, "retained-devlocal-task"),
+    );
+    let task = game_task::current_control(&driver.execution_world, "agent-a")
+        .unwrap()
+        .unwrap();
+    let payload = WorldServicePayloadV1::GameGoalPublish(
+        sign_read_request(
+            GAME_GOAL_PUBLISH_DOMAIN,
+            GameGoalPublishV1 {
+                api_rev: 1,
+                world_id: identity.world_id.clone(),
+                genesis_digest: identity.genesis_digest.clone(),
+                task_id: task.task_id.clone(),
+                agent_id: task.agent_id.clone(),
+                owner_public_key: task.owner_public_key.clone(),
+                owner_binding: task.owner_binding.clone(),
+                owner_generation: task.owner_generation,
+                branch_id: task.branch_id.clone(),
+                reorg_epoch: task.reorg_epoch,
+                expected_task_revision: task.task_revision,
+                expected_latest_goal_revision: task.latest_goal_revision,
+                goal_revision: DecimalU64(1),
+                client_operation_id: "retained-devlocal-publish".into(),
+                prepare_operation_id: "prepared-retained-devlocal-publish".into(),
+                goal_ref: "ab".repeat(32),
+            },
+            &owner,
+        )
+        .unwrap(),
+    );
+    let publication = request(&identity, payload);
+    super::commit(&mut driver, 5, publication.clone());
+    let result = game_task_tests::recorded(&driver, &publication);
+    assert!(result.rejected.is_none(), "{result:?}");
+    let scope = "execution_bridge_live_tasks_v1";
+    // Force first-selection validation even though post-commit maintenance may
+    // already have created this derived cache shard. Removing a GC hint grants no authority.
+    driver
+        .execution_store
+        .remove_pin_scope_shard(scope, "record-00000000000000000005")
+        .unwrap();
+    super::super::super::checkpoint::refresh_live_task_read_evidence(
+        &driver.records_dir,
+        &driver.execution_store,
+        &driver.execution_world,
+        2,
+    )
+    .expect("new DevLocal live-goal cut must be verified and pinned");
+    assert_eq!(
+        driver.execution_store.list_pin_scope_shards(scope).unwrap(),
+        vec!["record-00000000000000000005"]
+    );
+    super::super::super::checkpoint::refresh_live_task_read_evidence(
+        &driver.records_dir,
+        &driver.execution_store,
+        &driver.execution_world,
+        2,
+    )
+    .expect("previous DevLocal live-goal cut must be restored with the same Host context");
+    commit(&mut driver).unwrap();
+    assert!(
+        !driver.retention_reconcile_pending,
+        "ordinary driver retention must not remain degraded"
+    );
+    drop(driver);
+    fs::remove_dir_all(dir).unwrap();
 }

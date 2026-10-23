@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/testing/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "56148ac5600d1883edcd7db96f5511935e0625cad940a71e3691df7255afd8a4",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "manual",
+    "path": "doc/testing/manual/identity-snapshot-export.manual.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "testing-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "qa_engineer",
+    "structural_owner": "qa_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

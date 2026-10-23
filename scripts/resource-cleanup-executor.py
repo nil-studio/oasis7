@@ -53,7 +53,7 @@ def _native_process_identity(pid):
 
 def process_identity(pid, deadline=None):
     """Native start identity; only ESRCH proves an unreadable process gone."""
-    for attempt in range(3):
+    for attempt in range(100):
         if deadline is not None and time.monotonic() >= deadline:
             raise CleanupError('process inspection budget exhausted')
         try:
@@ -65,7 +65,7 @@ def process_identity(pid, deadline=None):
                 if exc.errno == errno.ESRCH:
                     return None
                 raise CleanupError(f'PID {pid}: identity unreadable ({exc.strerror})') from exc
-            if attempt < 2:
+            if attempt < 99:
                 # An exiting process can briefly answer kill(0) after native
                 # identity has vanished. Re-read native start identity so PID
                 # reuse produces fresh evidence; never infer exit from name.
@@ -214,7 +214,9 @@ def inspect_process_use(path):
     try:
         current = {pid: value[:2] for pid, value in snapshot_processes(deadline).items()}
         evidence = {}
-        for _ in range(2):
+        # Reconcile newly started processes within the same absolute budget.
+        # A fixed number of rounds mistakes ordinary churn for permanent unknown use.
+        while True:
             holder = visible_target_holders(path, deadline)
             if holder is not None:
                 return {'state': 'busy', 'reason': f'visible PID {holder} holds target cwd/file'}
@@ -233,8 +235,6 @@ def inspect_process_use(path):
                 raise CleanupError('process inspection budget exhausted')
             if all(evidence.get(pid) == identity for pid, identity in current.items()):
                 return {'state': 'clear_observed', 'reason': 'no use observed among current-user processes or visible all-user target holders'}
-        missing = [str(pid) for pid, identity in current.items() if evidence.get(pid) != identity]
-        raise CleanupError('uncovered live process identities: ' + ', '.join(missing))
     except CleanupError as exc:
         return {'state': 'unknown', 'reason': str(exc)}
 

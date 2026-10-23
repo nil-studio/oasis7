@@ -1,19 +1,4 @@
 // Generated from Rust DTOs by cargo run -p oasis7-command-center-core --example export_types
-export type WorkNavigation = { selected: WorkRef | null, filter: string, expanded: boolean, scrollTop: number, returnView: string, draft: string, draftPurpose: string, draftScope: string, detailScrollTop: number, retainDraft: boolean, startIntentId: string | null, lastReadAt: string | null, pinned: Array<WorkRef>, recentWork?: Array<WorkRef>, };
-export type WorkRelation = { id: string, work: WorkRef, sectionId: string, sourceRevision: string, confirmedAt: string, removedAt: string | null, previous: Array<string>, };
-export type WorkAttention = { id: string, work: WorkRef, question: string, state: string, sourceRevision: string, statement: string, updatedAt: string, history: Array<string>, };
-export type ExternalWork = { id: string, title: string, work: WorkRef, locator: string, sourceUrl: string | null, recordedAt: string, };
-export type WorktreeReference = { projectId: string, path: string, environment: string, head: string, verifiedAt: string, };
-export type DailyWorkState = { schemaVersion: number, projectId: string, environment: string, revision: number, navigation: WorkNavigation, relations: Array<WorkRelation>, attention: Array<WorkAttention>, external: Array<ExternalWork>, worktrees: Array<WorktreeReference>, legacyDigest: string, legacyChanged: boolean, };
-export type DailyWorkAction = { "kind": "navigate", navigation: WorkNavigation, } | { "kind": "relate", work: WorkRef, sectionId: string, replaceId: string | null, } | { "kind": "removeRelation", id: string, } | { "kind": "attention", item: WorkAttention, } | { "kind": "external", item: ExternalWork, } | { "kind": "removeExternal", id: string, } | { "kind": "removeWorktree", projectId: string, } | { "kind": "acceptLegacy", };
-export type DailyWorkRequest = { projectId: string, environment: string, expectedRevision: number, action: DailyWorkAction, };
-export type WorkRef = { "kind": "pullRequest", host: string, repository: string, number: string, } | { "kind": "session", namespace: string, projectId: string, environment: string, threadId: string, };
-export type SourceFact = { source: WorkRef, revision: string | null, verifiedAt: string | null, eventAt: string | null, readAt: string, coverage: string, };
-export type FactCell = { value: string, evidence: SourceFact, };
-export type WorkGoal = { sectionId: string, title: string | null, revision: string | null, confirmedAt: string, };
-export type WorkItem = { reference: WorkRef, purpose: FactCell, result: FactCell, remaining: string, sourceUrl: string | null, goals: Array<WorkGoal>, };
-export type WorkSource = { kind: string, state: string, coverage: string, verifiedAt: string | null, error: string | null, };
-export type WorkProjection = { viewRevision?: string, personalRevision?: number | null, schemaVersion: number, projectId: string, environment: string, readAt: string, sources: Array<WorkSource>, items: Array<WorkItem>, };
 export type ContextBinding = { id: string, bindingVersion: number, root: string, storeId: string, projectId: string, registeredProjectId: string, name: string, directoryIdentity: string, };
 export type ContextEntry = { id: string, revision: string, rawText: string, metadataJson: string, verificationState: string, };
 export type ContextSummary = { id: string, title: string, kind: string, environment: string, state: string, revision: string, verification_state: string, summary: string, };
@@ -171,12 +156,6 @@ matchingFiles: number,
  */
 hiddenHistoryFiles: number, lifecycleFilter: string, kindFilter: string, pairingFilter: string, totalChildren: number, entries: Array<DocumentDirectoryEntry>, nextCursor: string | null, };
 export type Preferences = { projectPath: string | null, view: string, query: string, };
-export type DecisionDraft = { id: string | null, content: string, reason: string, scope: string, relatedSection: string | null, confirmed: boolean, };
-export type DecisionRecord = { supersedes?: string, id: string, content: string, reason: string, scope: string, relatedSection: string | null, state: string, confirmedAt: string | null, formalUpdate: string, implementationSync: string, };
 export type ReadingPosition = { sectionId: string, revision: string, line: number, };
 export type GitSnapshot = { status: string, worktrees: string, };
-export type WorkAssociation = { workUrl: string, goalSectionIds: Array<string>, confirmedAt: string, };
-export type Snapshot = { associations: Array<WorkAssociation>, project: Project | null, sources: Array<SourceStatus>, sections: Array<DocumentSection>, decisions: Array<DecisionRecord>, preferences: Preferences, readingPositions: Array<ReadingPosition>, git: GitSnapshot, };
-export type GitHubSnapshot = { state: string, repository: string | null, account: string | null, observedAt: string | null, lastAttempt: string | null, coverage: string, error: string | null, pulls: Array<PullRequest>, };
-export type PullRequest = { id: string, title: string, url: string, state: string, headOid: string, reviewDecision: string | null, metadata?: PullMetadata, };
-export type PullMetadata = { observedAt: string, mergedAt: string | null, updatedAt: string | null, body: string, };
+export type Snapshot = { project: Project | null, sources: Array<SourceStatus>, sections: Array<DocumentSection>, preferences: Preferences, readingPositions: Array<ReadingPosition>, git: GitSnapshot, };

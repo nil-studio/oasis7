@@ -1,3 +1,4 @@
+use super::super::peer_discovery_observations::DiscoveryObservations;
 use super::*;
 use crate::util::to_canonical_cbor;
 
@@ -18,13 +19,13 @@ fn assert_mismatched_peer_record_response_is_rejected(
     let payload = to_canonical_cbor(&super::signed_discovery_peer_record(
         &wrong_peer_key,
         vec![crate::dht::PeerDiscoverySource::Dht],
-        1,
+        crate::libp2p_net::now_ms(),
     ))
     .expect("encode mismatched signed peer record");
     let local_peer_id = PeerId::random();
     let mut pending_peer_record_requests = HashMap::new();
     let mut pending_dht = HashMap::new();
-    let mut discovered_peer_records = HashMap::new();
+    let mut discovered_peer_records = PeerRecordCache::default();
     let mut known_transport_paths = HashMap::new();
     let mut last_dialed_transport_paths = HashMap::new();
     let active_transport_paths = HashMap::new();
@@ -60,6 +61,7 @@ fn assert_mismatched_peer_record_response_is_rejected(
         &mut pending_peer_record_requests,
         &mut pending_dht,
         &mut discovered_peer_records,
+        &mut DiscoveryObservations::default(),
         &mut known_transport_paths,
         &mut last_dialed_transport_paths,
         &active_transport_paths,
@@ -152,7 +154,7 @@ fn connected_peer_record_outbound_failure_falls_back_via_another_connected_peer(
     );
 
     assert!(!pending_connected_peer_records.contains(&target_peer_id));
-    assert!(!connected_peer_record_cooldowns.contains_key(&target_peer_id));
+    assert!(connected_peer_record_cooldowns.contains_key(&target_peer_id));
     assert!(pending_cached_peer_records.contains(&target_peer_id));
     assert!(cached_peer_record_cooldowns.contains_key(&target_peer_id));
     let retried = pending_peer_record_requests
@@ -185,7 +187,7 @@ fn connected_peer_record_failure_prefers_target_owned_dht_route_over_cache_proxy
     let local_peer_id = PeerId::random();
     let mut pending_dht = HashMap::new();
     let mut pending_discovery_peer_records = HashSet::new();
-    let discovered_peer_records = HashMap::new();
+    let discovered_peer_records = PeerRecordCache::default();
     super::super::discovery::maybe_queue_discovery_peer_record(
         &mut swarm,
         &mut pending_dht,
@@ -200,6 +202,7 @@ fn connected_peer_record_failure_prefers_target_owned_dht_route_over_cache_proxy
         query,
         super::super::kad_queries::PendingDhtQuery::DiscoverPeerRecord {
             peer_id,
+            upstream: None,
             ..
         } if *peer_id == target_peer_id
     )));

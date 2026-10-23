@@ -151,6 +151,34 @@ fn absent_or_disabled_owner_gateway_and_invalid_session_fail_closed() {
 }
 #[test]
 fn independent_revocation_during_owner_observation_prevents_mutation_delivery() {
+    revoked_owner_observation(None, false, false);
+    revoked_owner_observation(
+        Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
+        false,
+        false,
+    );
+}
+#[test]
+fn compact_owner_observation_rejects_legacy_signature_domain() {
+    revoked_owner_observation(
+        Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
+        true,
+        false,
+    );
+}
+#[test]
+fn compact_owner_observation_binds_full_access_wrapper() {
+    revoked_owner_observation(
+        Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
+        false,
+        true,
+    );
+}
+fn revoked_owner_observation(
+    profile: Option<ParticipantOwnerViewProfileV1>,
+    wrong_domain: bool,
+    wrong_wrapper: bool,
+) {
     use super::super::model::AccountRecord;
     use super::super::participant_entry::{EntryTrust, ParticipantEntry};
     use std::{
@@ -259,6 +287,7 @@ fn independent_revocation_during_owner_observation_prevents_mutation_delivery() 
             owner: original,
             admission,
             read,
+            response_profile: profile,
         },
         operation: EntryOwnerOperationV1::Submit(SubmitIntentRequest {
             contract_version: 1,
@@ -330,15 +359,57 @@ fn independent_revocation_during_owner_observation_prevents_mutation_delivery() 
                 sequence: 0,
                 commit,
             },
-            view: serde_json::json!({"canonical_agent_owner":fence}),
+            view: serde_json::json!({"canonical_agent_owner":fence.clone()}),
         };
-        let signed = sign_service_response(
-            VIEW_JSON_PATH,
-            request_digest(VIEW_JSON_PATH, &access.read).unwrap(),
-            view,
-            &server_key,
-        )
-        .unwrap();
+        assert_eq!(access.response_profile, profile);
+        let signed = if profile.is_some() {
+            let compact = ParticipantOwnerControlViewV1 {
+                canonical_agent_owner: fence,
+                game_task_control: None,
+            };
+            let response = ParticipantOwnerControlResponseV1 {
+                schema_revision: 1,
+                world: world(),
+                version: ProjectionVersion {
+                    commit: view.version.commit.clone(),
+                    projection_revision: request_digest("projection", &compact).unwrap(),
+                    visibility_scope: "agent:agent-a".into(),
+                },
+                logical_tick: 1,
+                view: compact,
+            };
+            response.validate(&access).unwrap();
+            let path = if wrong_domain {
+                VIEW_JSON_PATH
+            } else {
+                PARTICIPANT_OWNER_VIEW_PATH
+            };
+            serde_json::to_value(
+                sign_service_response(
+                    path,
+                    if wrong_wrapper {
+                        request_digest(path, &access.read).unwrap()
+                    } else {
+                        request_digest(path, &access).unwrap()
+                    },
+                    response,
+                    &server_key,
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        } else {
+            serde_json::to_value(
+                sign_service_response(
+                    VIEW_JSON_PATH,
+                    request_digest(VIEW_JSON_PATH, &access.read).unwrap(),
+                    view,
+                    &server_key,
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
         let mut store = super::super::store::IdentityStore::open(&path, ns, rp).unwrap();
         store
             .transaction(|tx| {
@@ -393,5 +464,9 @@ fn independent_revocation_during_owner_observation_prevents_mutation_delivery() 
         .unwrap();
     done.send(()).unwrap();
     server.join().unwrap();
-    assert!(matches!(result,Err(StoreError::Rejected(code)) if code=="session_expired"));
+    if wrong_domain || wrong_wrapper {
+        assert!(matches!(result, Err(StoreError::OutcomeUnknown)));
+    } else {
+        assert!(matches!(result,Err(StoreError::Rejected(code)) if code=="session_expired"));
+    }
 }

@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "531e2b25d12dded34acd77c46dc420853ef4339c3bf7ced0eda95d807b0ea03d",
+    "content_sha256": "34f15c021eb7c14a2fdeaf1832fb20b973e16f5450c849e47d615a46ad5014c9",
     "current_authority": "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_current_procedure",
-    "note": "Reviewed explicit local execution-root setup for direct Viewer attachment; existing environment authority retained Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance.",
+    "note": "Reviewed explicit local execution-root setup for direct Viewer attachment; existing environment authority retained Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance. Scoped review for #5004: preserve authority, historical evidence and CLI behavior while updating executable ownership and dependency boundaries; no deployment or gameplay acceptance is claimed.",
     "path": "doc/testing/manual/local-public-testnet-letai-test-environment-2026-06-23.manual.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

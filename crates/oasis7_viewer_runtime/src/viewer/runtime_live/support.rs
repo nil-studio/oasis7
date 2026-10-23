@@ -475,21 +475,8 @@ pub(super) fn send_correlated_response(
     response: &ViewerResponse,
     request_auth_nonce: Option<u64>,
 ) -> Result<(), ViewerRuntimeLiveServerError> {
-    #[derive(serde::Serialize)]
-    struct CorrelatedResponse<'a> {
-        #[serde(flatten)]
-        response: &'a ViewerResponse,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        request_auth_nonce: Option<u64>,
-    }
-    serde_json::to_writer(
-        &mut *writer,
-        &CorrelatedResponse {
-            response,
-            request_auth_nonce,
-        },
-    )
-    .map_err(|err| ViewerRuntimeLiveServerError::Serde(err.to_string()))?;
+    oasis7_viewer_codec::write_correlated_response_json(writer, response, request_auth_nonce)
+        .map_err(|err| ViewerRuntimeLiveServerError::Serde(err.to_string()))?;
     writer.write_all(b"\n")?;
     writer.flush()?;
     Ok(())
@@ -534,7 +521,7 @@ pub(super) fn send_response(
     } else {
         response
     };
-    serde_json::to_writer(&mut *writer, response)
+    oasis7_viewer_codec::write_response_json(&mut *writer, response)
         .map_err(|err| ViewerRuntimeLiveServerError::Serde(err.to_string()))?;
     writer.write_all(b"\n")?;
     writer.flush()?;

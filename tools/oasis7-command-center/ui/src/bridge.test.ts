@@ -3,15 +3,10 @@ const mock = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => true, invoke: mock.invoke }));
 import { bridge } from './bridge';
 beforeEach(() => mock.invoke.mockReset());
-it('binds decisions and historical reads to finite camelCase IPC commands', async () => {
-  mock.invoke.mockResolvedValue(undefined);
-  const draft = {id:null,content:'决定',reason:'理由',scope:'工程',relatedSection:'doc/core/prd.md#3',confirmed:true};
-  await bridge.saveDecision(draft);
-  expect(mock.invoke).toHaveBeenLastCalledWith('save_decision_draft', {draft});
-  await bridge.readVersion('doc/core/prd.md#3','saved-sha');
-  expect(mock.invoke).toHaveBeenLastCalledWith('read_version', {sectionId:'doc/core/prd.md#3',revision:'saved-sha'});
-  await bridge.associateWork('https://github.com/eng-cc/oasis7/pull/1',['goal-a','goal-b']);
-  expect(mock.invoke).toHaveBeenLastCalledWith('associate_work', {workUrl:'https://github.com/eng-cc/oasis7/pull/1',goalSectionIds:['goal-a','goal-b']});
+it('reads saved document revisions through finite commands', async () => {
+ await bridge.readVersion('doc/core/prd.md#3','saved-sha');
+ expect(mock.invoke).toHaveBeenLastCalledWith('read_version', {sectionId:'doc/core/prd.md#3',revision:'saved-sha'});
+ for (const command of ['github','refreshGithub','readGithubWindow','dailyWork','saveDailyWork','workProjection','saveDecision','replaceDecision','associateWork']) expect(bridge).not.toHaveProperty(command);
 });
 it('opens a saved original Codex thread through navigation only',async()=>{
  const target='codex://threads/019ea241-685c-79b3-a0b0-97ac2aa9f7e2';await bridge.openSource(target);

@@ -1,0 +1,304 @@
+{
+  "schema_revision": 1,
+  "control": {
+    "schema_revision": 1,
+    "task_id": "game-task-blake3:9bfb173160ed0555affc0dec34b9e1f562ea27b05a7cc01507bb1754e2fb05fc",
+    "world_id": "w1",
+    "genesis_digest": "fixture-genesis-v1",
+    "branch_id": "main",
+    "reorg_epoch": "0",
+    "agent_id": "agent-a",
+    "owner_binding": "owner-a",
+    "owner_generation": "1",
+    "owner_public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+    "task_revision": "3",
+    "task_status": "active",
+    "latest_goal_revision": "1",
+    "active_goal_revision": "1",
+    "active_goal_reference": {
+      "goal_revision": "1",
+      "goal_ref": "fabd2c62d228ae660b281acaaf628d9630c9f58046610496b041c8a0a00b2287",
+      "prepare_operation_id": "context-goal",
+      "publish_operation_id": "context-publish",
+      "activation_committed_height": "4"
+    },
+    "executor_epoch": "1",
+    "executor_id": "context-executor",
+    "executor_binding": {
+      "executor_id": "context-executor",
+      "executor_public_key": "772c8a442b7db06e166cfbc1ccbcbcde6f3eba76a4e98ef3ffc519502237d6ef",
+      "delegation_generation": "1",
+      "executor_epoch": "1"
+    },
+    "created_operation_id": "context-task"
+  },
+  "read_commit": {
+    "world": {
+      "world_id": "w1",
+      "genesis_digest": "fixture-genesis-v1"
+    },
+    "binding": {
+      "provider_world_id": "w1",
+      "branch_id": "main",
+      "finality_ref": "blake3:f90700d4abf0667688fc921f505f945dc493ef2e4c4be295df784c875c24626c",
+      "reorg_generation": 0,
+      "governing_manifest_ref": "blake3:6bb35bcd3204a154856806164c90b28d106523e8de7ea03a289ef2209bf2acf2",
+      "authority_generation": 0,
+      "permission_generation": 0
+    },
+    "position": 40,
+    "execution_block_hash": "719de7efff53ab7227b4a75225174781a7d27285a05e876cf56dda7cfea9a8a8",
+    "state_root_ref": "3fecb9ac8a5b80630eb66154e5a74db5eb712309b281f9d8b30b184fb2bbc72e"
+  },
+  "activation_commit": {
+    "world": {
+      "world_id": "w1",
+      "genesis_digest": "fixture-genesis-v1"
+    },
+    "binding": {
+      "provider_world_id": "w1",
+      "branch_id": "main",
+      "finality_ref": "blake3:f90700d4abf0667688fc921f505f945dc493ef2e4c4be295df784c875c24626c",
+      "reorg_generation": 0,
+      "governing_manifest_ref": "blake3:6bb35bcd3204a154856806164c90b28d106523e8de7ea03a289ef2209bf2acf2",
+      "authority_generation": 0,
+      "permission_generation": 0
+    },
+    "position": 4,
+    "execution_block_hash": "0e0b74d9cdd0de8bd00a5fd94fb29321f993022294da86feaf48daf46aa4c1f8",
+    "state_root_ref": "e094ac71c9c9af01ff819a71b33f83321be9abce2a89fabf3661136eec69243e"
+  },
+  "active_goal": {
+    "schema_revision": 1,
+    "goal_ref": "fabd2c62d228ae660b281acaaf628d9630c9f58046610496b041c8a0a00b2287",
+    "reference_salt": "23741481b34c5174474aa8cccedfce13c2806233dd79f91858ce75a6764cde95",
+    "owner_proof": {
+      "request": {
+        "api_rev": 1,
+        "world_id": "w1",
+        "genesis_digest": "fixture-genesis-v1",
+        "task_id": "game-task-blake3:9bfb173160ed0555affc0dec34b9e1f562ea27b05a7cc01507bb1754e2fb05fc",
+        "agent_id": "agent-a",
+        "owner_public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "owner_binding": "owner-a",
+        "owner_generation": "1",
+        "branch_id": "main",
+        "reorg_epoch": "0",
+        "expected_task_revision": "1",
+        "expected_latest_goal_revision": "0",
+        "goal_revision": "1",
+        "client_operation_id": "context-goal",
+        "client_nonce": "abababababababababababababababababababababababababababababababab",
+        "goal_digest": "blake3:860e17d485ad2cf5328c0098f31f8918111bf559cb4aea8f96dac4930477056b",
+        "content": {
+          "goal_text": "完整任务正文xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "soft_constraints": [
+            "actual full constraint"
+          ]
+        }
+      },
+      "subject_public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+      "signature_hex": "a480b050741c489cad7ea8f2042defe7637f371648310e62847287daa3293c18423b15758bd892072cfcee87131201925bb6c661c28b692f8bc2384fb4866904"
+    }
+  },
+  "actor_observation_schema": "world-agent-state/v1",
+  "actor_observation": {
+    "activity": {
+      "status": "idle",
+      "updated_at": 1
+    },
+    "last_active": 2,
+    "mailbox": [
+      {
+        "data": {
+          "agent_id": "agent-a",
+          "pos": {
+            "x_cm": 0,
+            "y_cm": 0,
+            "z_cm": 0
+          },
+          "registration_contract_version": 1
+        },
+        "type": "AgentRegistered"
+      },
+      {
+        "data": {
+          "agent_id": "agent-a",
+          "amount": 100000000,
+          "claimed_at": 2,
+          "player_id": "owner-a",
+          "public_key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c"
+        },
+        "type": "StarterOcClaimed"
+      }
+    ],
+    "state": {
+      "agent_id": "agent-a",
+      "body": {
+        "height_cm": 100,
+        "kind": "humanoid"
+      },
+      "body_state": {
+        "cargo_entries": [],
+        "expansion_level": 0,
+        "frame_kind": "standard_frame",
+        "slot_capacity": 7,
+        "slots": [
+          {
+            "installed_module": "m1.power.radiation_harvest",
+            "locked": false,
+            "slot_id": "slot-1",
+            "slot_type": "power"
+          },
+          {
+            "installed_module": "m1.power.storage",
+            "locked": false,
+            "slot_id": "slot-2",
+            "slot_type": "power"
+          },
+          {
+            "installed_module": "m1.sensor.basic",
+            "locked": false,
+            "slot_id": "slot-3",
+            "slot_type": "sensor"
+          },
+          {
+            "installed_module": "m1.mobility.basic",
+            "locked": false,
+            "slot_id": "slot-4",
+            "slot_type": "mobility"
+          },
+          {
+            "installed_module": "m1.memory.core",
+            "locked": false,
+            "slot_id": "slot-5",
+            "slot_type": "cognitive"
+          },
+          {
+            "installed_module": "m1.storage.cargo",
+            "locked": false,
+            "slot_id": "slot-6",
+            "slot_type": "cargo"
+          },
+          {
+            "locked": false,
+            "slot_id": "slot-7",
+            "slot_type": "universal"
+          }
+        ]
+      },
+      "body_view": {
+        "cross_section_cm2": 0,
+        "mass_kg": 0,
+        "radius_cm": 0,
+        "thrust_limit": 0
+      },
+      "pos": {
+        "x_cm": 0,
+        "y_cm": 0,
+        "z_cm": 0
+      },
+      "resources": {
+        "amounts": {}
+      }
+    }
+  },
+  "provider_authority": {
+    "agent_id": "agent-a",
+    "capability_authorization_root": "b00ef1ff286e7eb9d4ba127a1350f3c277a4024b004e676e270cbe82e8b31933",
+    "capability_snapshot_hash": "blake3:c3db4825c3204607d6bc30dad36d843400af63b958dcc949c25b5a9f6674b2d9",
+    "authority_context_hash": "blake3:6715778ed8084c3a451b79fd0fe95af859a8df0c072b342d7189ee7ce0b0f2c6",
+    "capability_catalog": {
+      "snapshot_id": "c5648f8dd08962212d20148e82a94e7290d9c45778f29d32671f16ace9a61007",
+      "world_id": "w1",
+      "world_head": 18,
+      "branch_id": "main",
+      "finality_epoch": 0,
+      "logical_tick": 2,
+      "module_registry_hash": "c72952fd844f89e0cfcb6c73d9baee406cd59e23f75133e0c958f7a2e20f044a",
+      "policy_hash": "46251334423dd29b52b82bb8d0048ea5712a6dfbd3555063db21f076a70f021c",
+      "revocation_epoch": 0,
+      "subject": {
+        "kind": "agent",
+        "agent_id": "agent-a",
+        "owner_binding": "owner-a",
+        "generation": 1
+      },
+      "presenter": {
+        "presenter_id": "runtime-test-provider:agent-a",
+        "presenter_kind": "provider",
+        "session_id": "runtime-test-session:agent-a"
+      },
+      "audience": {
+        "world_id": "w1",
+        "branch_id": "main",
+        "finality_epoch": 0,
+        "target_kind": "world"
+      },
+      "entries": [
+        {
+          "module_id": "module.runtime.provider-fixture",
+          "module_version": "1.0.0",
+          "namespace": "provider",
+          "command": "observe",
+          "schema_version": 1,
+          "schema_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_payload_bytes": 1024,
+          "eligible_grant_ids": [
+            "292a26d65b3fec9b04e3660f6c3f010ddb86feff760377be283fbad65e4f461d"
+          ]
+        }
+      ],
+      "valid_until_tick": 102
+    },
+    "capability_invocation_context": {
+      "grant_id": "292a26d65b3fec9b04e3660f6c3f010ddb86feff760377be283fbad65e4f461d",
+      "subject": {
+        "kind": "agent",
+        "agent_id": "agent-a",
+        "owner_binding": "owner-a",
+        "generation": 1
+      },
+      "presenter": {
+        "presenter_id": "runtime-test-provider:agent-a",
+        "presenter_kind": "provider",
+        "session_id": "runtime-test-session:agent-a"
+      },
+      "audience": {
+        "world_id": "w1",
+        "branch_id": "main",
+        "finality_epoch": 0,
+        "target_kind": "world"
+      },
+      "catalog_snapshot_id": "c5648f8dd08962212d20148e82a94e7290d9c45778f29d32671f16ace9a61007",
+      "module_id": "module.runtime.provider-fixture",
+      "module_version": "1.0.0",
+      "response_nonce": "runtime-live:agent-a:2:0"
+    },
+    "payer_binding": {
+      "owner_binding": "owner-a"
+    }
+  },
+  "runtime_binding": {
+    "world_id": "w1",
+    "branch_id": "main",
+    "finality_epoch": 0,
+    "finality_block_hash": "blake3:c781b5bd782e97555788592b3012710ace4029789a57d646a69ad871be4e0e49",
+    "finality_status": "verified",
+    "base_tick": 2,
+    "base_world_hash": "blake3:f9bacf43f14e3d1a6c7cd41260dbefdd91a600ce07070dceef01ea012587328d",
+    "reorg_epoch": 0,
+    "runtime_manifest_hash": "blake3:6bb35bcd3204a154856806164c90b28d106523e8de7ea03a289ef2209bf2acf2"
+  },
+  "captured_base_binding": {
+    "world_id": "w1",
+    "branch_id": "main",
+    "finality_epoch": 0,
+    "finality_block_hash": "blake3:c781b5bd782e97555788592b3012710ace4029789a57d646a69ad871be4e0e49",
+    "finality_status": "verified",
+    "base_tick": 2,
+    "base_world_hash": "blake3:f9bacf43f14e3d1a6c7cd41260dbefdd91a600ce07070dceef01ea012587328d",
+    "reorg_epoch": 0,
+    "runtime_manifest_hash": "blake3:6bb35bcd3204a154856806164c90b28d106523e8de7ea03a289ef2209bf2acf2"
+  }
+}

@@ -2,15 +2,14 @@ import { cleanup,fireEvent,render,screen,waitFor } from '@solidjs/testing-librar
 import { afterEach,beforeEach,expect,it,vi } from 'vitest';
 import App from './App';
 import type { Snapshot,DocumentSection } from './types';
-const api=vi.hoisted(()=>({search:vi.fn(),savePreferences:vi.fn(),snapshot:vi.fn(),github:vi.fn(),documentInventory:vi.fn(),documentSemanticTree:vi.fn(),loadDocumentTreeLastView:vi.fn(),loadDocumentTreeReading:vi.fn(),saveDocumentTreeReading:vi.fn(),recordReading:vi.fn(),readVersion:vi.fn()}));
+const api=vi.hoisted(()=>({search:vi.fn(),savePreferences:vi.fn(),snapshot:vi.fn(),documentInventory:vi.fn(),documentSemanticTree:vi.fn(),loadDocumentTreeLastView:vi.fn(),loadDocumentTreeReading:vi.fn(),saveDocumentTreeReading:vi.fn(),recordReading:vi.fn(),readVersion:vi.fn()}));
 vi.mock('./bridge',()=>({bridge:api,connected:()=>true,errorMessage:String,observedTime:()=>'',statusLabel:String,acceptsEnter:()=>false}));
-vi.mock('./WorkOverview',()=>({default:()=>null}));
 vi.mock('./LocalTools',()=>({default:()=>null}));
 const section:DocumentSection={id:'explicit',path:'doc/product/module/prd.md',title:'恢复章节',revision:'rev',committedRevision:'head',dirty:false,content:Array.from({length:80},(_,i)=>`原文第 ${i+1} 行`).join('\n'),line:1,factKind:'sourceFact',lifecycle:null};
 const route=[{path:section.path,sourcePath:'doc/product/README.md',destination:section.path,group:null,duplicateIndex:0,duplicateCount:1}];
-const data=(sections=[section]):Snapshot=>({project:{id:'project',path:'/repo',head:'head',branch:'main',gitCommonDir:'/repo/.git',environment:'local'},sources:[{kind:'local',generation:'1',state:'ready',lastAttempt:'1',lastSuccess:'1',sourceRevision:'head',coverage:'',error:null}],sections,decisions:[],preferences:{projectPath:'/repo',query:'',view:'rules'},associations:[],readingPositions:[],git:{status:'',worktrees:''}});
+const data=(sections=[section]):Snapshot=>({project:{id:'project',path:'/repo',head:'head',branch:'main',gitCommonDir:'/repo/.git',environment:'local'},sources:[{kind:'local',generation:'1',state:'ready',lastAttempt:'1',lastSuccess:'1',sourceRevision:'head',coverage:'',error:null}],sections,preferences:{projectPath:'/repo',query:'',view:'rules'},readingPositions:[],git:{status:'',worktrees:''}});
 function setup(deleted=false){
-  api.snapshot.mockResolvedValue(data(deleted?[]:[section]));api.github.mockResolvedValue({state:'unconnected',pulls:[]});
+  api.snapshot.mockResolvedValue(data(deleted?[]:[section]));
   api.documentInventory.mockResolvedValue({schemaVersion:1,projectId:'project',snapshotId:'snapshot',baselineOid:'head',generatedAt:'1',candidates:1,read:1,omitted:0,readBytes:10,totalMatches:0,partial:false,stale:false,error:null,files:[],nextCursor:null});
   api.loadDocumentTreeLastView.mockResolvedValue({status:'ready',view:'product',notice:null});
   const file={fileKey:'file',path:section.path,title:'模块需求',kind:'prd',state:deleted?'deleted':'read',reason:deleted?'deleted':null,revision:deleted?null:'rev',bytes:10,dirty:false,lifecycle:null,identity:null,pairings:null,upstream:null,allocations:null,navigation:null};
@@ -44,7 +43,11 @@ it('returns to the original external entry after following a body link to an unl
   api.loadDocumentTreeLastView.mockResolvedValue({status:'missing',view:null,notice:null});
   api.loadDocumentTreeReading.mockResolvedValue({status:'missing',state:null,notice:null,resolvedSectionId:null});
   render(()=><App/>);
-  const entry=await screen.findByRole('button',{name:'恢复章节'});
+  await screen.findByText('oasis7 · 本地项目');
+  api.search.mockResolvedValue([first]);
+  fireEvent.input(screen.getByLabelText('搜索规范、标题、路径或条款 ID'),{target:{value:'恢复'}});
+  fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));
+  const entry=await screen.findByRole('button',{name:/恢复章节/});
   entry.focus();fireEvent.click(entry);
   const link=await screen.findByRole('button',{name:'打开后继正文'});
   await waitFor(()=>expect(screen.getByLabelText('来源章节原文')).toHaveTextContent('打开后继正文'));
@@ -78,4 +81,15 @@ it('labels results with the submitted query and ignores responses after clearing
  const input=screen.getByLabelText('搜索规范、标题、路径或条款 ID');fireEvent.input(input,{target:{value:'恢复'}});fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));await screen.findByText('查询：恢复');
  fireEvent.input(input,{target:{value:'新查询'}});expect(screen.getByText('查询：恢复')).toBeInTheDocument();expect(screen.queryByText('查询：新查询')).not.toBeInTheDocument();
  let resolve!:(value:DocumentSection[])=>void;api.search.mockImplementation(()=>new Promise(r=>{resolve=r;}));fireEvent.click(screen.getByRole('button',{name:/^搜索$/}));fireEvent.click(screen.getByRole('button',{name:'返回当前视图'}));resolve([section]);await Promise.resolve();await Promise.resolve();expect(screen.queryByLabelText('文档检索结果')).not.toBeInTheDocument();
+});
+
+it('opens the local tools home and offers only local document preview navigation',async()=>{
+ const value=data();value.preferences.view='direction';api.snapshot.mockResolvedValue(value);
+ render(()=><App/>);await screen.findByText('oasis7 · 本地项目');
+ expect(screen.getByRole('heading',{level:2,name:'本机工具'})).toBeInTheDocument();
+ const navigation=screen.getByRole('navigation',{name:'主视图'});
+ expect(Array.from(navigation.querySelectorAll('button')).map(button=>button.textContent)).toEqual(['本机工具','本地文档预览']);
+ expect(screen.queryByText('方向与进度')).not.toBeInTheDocument();expect(screen.queryByText('记录个人决定')).not.toBeInTheDocument();expect(screen.queryByText('GitHub')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'本地文档预览'}));await screen.findByRole('article',{name:'文档正文'});
+ expect(api.savePreferences).toHaveBeenCalledWith({projectPath:'/repo',view:'documents',query:''});
 });

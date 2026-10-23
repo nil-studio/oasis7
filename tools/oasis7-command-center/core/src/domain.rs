@@ -63,32 +63,6 @@ pub struct Preferences {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct DecisionDraft {
-    pub id: Option<String>,
-    pub content: String,
-    pub reason: String,
-    pub scope: String,
-    pub related_section: Option<String>,
-    pub confirmed: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct DecisionRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub supersedes: Option<String>,
-    pub id: String,
-    pub content: String,
-    pub reason: String,
-    pub scope: String,
-    pub related_section: Option<String>,
-    pub state: String,
-    pub confirmed_at: Option<String>,
-    pub formal_update: String,
-    pub implementation_sync: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct ReadingPosition {
     pub section_id: String,
     pub revision: String,
@@ -103,21 +77,10 @@ pub struct GitSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
-    #[serde(default)]
-    pub associations: Vec<WorkAssociation>,
     pub project: Option<Project>,
     pub sources: Vec<SourceStatus>,
     pub sections: Vec<DocumentSection>,
-    pub decisions: Vec<DecisionRecord>,
     pub preferences: Preferences,
     pub reading_positions: Vec<ReadingPosition>,
     pub git: GitSnapshot,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkAssociation {
-    pub work_url: String,
-    pub goal_section_ids: Vec<String>,
-    pub confirmed_at: String,
 }

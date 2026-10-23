@@ -41,6 +41,8 @@ fn old_executor_original(owner: &str, seed: u8) -> WorldServicePayloadV1 {
         },
         operation: SchedulerOperationV1::TaskProviderPrefix {
             context: TaskContextIdentityV1 {
+                authority_mode: None,
+                native_authorization_root: None,
                 schema_revision: 1,
                 fence,
                 agent_session_id: "session".into(),
@@ -575,4 +577,80 @@ fn restart_retains_original_fence_and_wire_before_any_network_and_isolates_vault
     assert!(!String::from_utf8_lossy(&bytes).contains("synthetic owner control"));
     drop(restarted);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn owner_signed_history_unavailable_blocks_and_preserves_original_without_submit() {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_root, c, client) =
+        super::super::tests::history_client(format!("http://{}", listener.local_addr().unwrap()));
+    let server = super::super::tests::history_server(listener, c.world.clone(), true);
+    assert_eq!(
+        client.register("participant", "login").unwrap().next_action,
+        "verify_canonical_owner_view"
+    );
+    let payload = WorldServicePayloadV1::GameTaskCreate(
+        ws::sign_read_request(
+            GAME_TASK_CREATE_DOMAIN,
+            GameTaskCreateV1 {
+                api_rev: 1,
+                client_operation_id: "history-task".into(),
+                world_id: "world".into(),
+                genesis_digest: "genesis".into(),
+                branch_id: "main".into(),
+                reorg_epoch: DecimalU64(0),
+                agent_id: "agent".into(),
+                owner_binding: "binding".into(),
+                owner_generation: DecimalU64(1),
+            },
+            &client.owner_private(),
+        )
+        .unwrap(),
+    );
+    let original = client
+        .save_intent("participant", "history-task", "agent", None, 1, payload)
+        .unwrap();
+    let first = client
+        .create_task("participant", "login", "history-task")
+        .unwrap();
+    let before: Value = client
+        .owner
+        .read_original(
+            &original.resource_scope,
+            "history-task",
+            "owner-wire-original",
+        )
+        .unwrap()
+        .unwrap();
+    let second = client
+        .create_task("participant", "login", "history-task")
+        .unwrap();
+    let after: Value = client
+        .owner
+        .read_original(
+            &original.resource_scope,
+            "history-task",
+            "owner-wire-original",
+        )
+        .unwrap()
+        .unwrap();
+    server.join().unwrap();
+    assert_eq!(before, after);
+    for progress in [first, second] {
+        assert_eq!(progress.state, "blocked");
+        assert_eq!(progress.next_action, "restore_original_history");
+        assert!(progress.canonical_commit.is_none());
+    }
+    assert!(
+        client
+            .owner
+            .read_original::<IntentResponse<Value>>(
+                &original.resource_scope,
+                "history-task",
+                "owner-settlement"
+            )
+            .unwrap()
+            .is_none()
+    );
 }

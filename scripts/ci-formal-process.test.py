@@ -86,7 +86,7 @@ class Coverage(unittest.TestCase):
         suites = artifacts.resolve_suites(self.config, self.binaries)
         cases = [(e['binary'], e['name']) for entries in suites.values() for e in entries if 'binary' in e]
         self.assertEqual(len(cases), len(set(cases)))
-        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 25)
+        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 26)
         self.assertEqual(sum('script' in e for entries in suites.values() for e in entries), 2)
 
     def test_rename_duplicate_and_new_unassigned_acceptance_fail(self):
@@ -143,9 +143,9 @@ class BuildAndBundles(unittest.TestCase):
         required = next(args for name, args, _ in ordinary if name == 'required')
         required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
         self.assertCountEqual(required_packages, [
-            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_client_cli', 'oasis7_launcher_backend',
+            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
             'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
-            'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_observability',
+            'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_viewer_codec', 'oasis7_observability',
             'oasis7_hosted_access', 'oasis7_letai_credit_adapter', 'oasis7_launcher_config',
             'oasis7_wasm_materializer', 'oasis7_game_client', 'oasis7_cas', 'oasis7_formal_protocol',
         ])

@@ -41,7 +41,7 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 - 若当前是在同一 repo family 的多个 git worktree 之间做本地迭代，开发态 `cargo check/test/run/build` 默认优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。每个 worktree 按自身 source identity 使用稳定、隔离的 target namespace；同一 worktree 内可复用缓存，divergent worktree 不得互选 artifacts。通过 `./scripts/new-task-worktree.sh` 创建的新 task worktree 会把 git-ignored `target` 链接到该 worktree 的 namespace，使直接 cargo 与 wrapper 在同一 worktree 内复用同一开发态缓存。
 - 本地 smoke / playtest / prewarm / regression / drill / longrun 脚本若只是为了开发反馈，应优先 source `scripts/cargo-dev-lib.sh` 并调用 `oasis7_cargo_dev ...` / `oasis7_cargo_dev_debug_bin_dir`，从而与手工 `cargo-dev.sh` 使用同一个当前-worktree target；`CI=1`、`OASIS7_CARGO_DEV_SHARED=0` 或 `OASIS7_FORCE_RAW_CARGO=1` 会回退到原始 cargo target 解析。
 - 该入口只服务开发态缓存复用，不替代本手册中的正式验收命令；手册里的 canonical 验收命令仍显式写原始 `env -u RUSTC_WRAPPER cargo ...`。
-- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它、通过参数传递 target（避免 `CARGO_TARGET_DIR` 污染缓存键）并关闭该调用的 Rust incremental。本地 lean 模式统一设置 dev/test debug=0，其中直接调用 `cargo-dev.sh check ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run`、`clippy` 与其他命令保持 incremental=0，未安装或禁用 sccache 时也相同。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。wrapper 首次本地调用会为缺失的 `target` 建立当前 namespace 链接；已有工作区可执行 `./scripts/cargo-dev.sh --prepare-target`，之后直接 Cargo 也复用该目录。已有普通目录须确认未使用并清理后再准备，脚本不会自动删除它。Windows 缺少符号链接权限时，普通 wrapper 调用仍通过参数使用共享缓存；`--prepare-target` 则报告失败，直接 Cargo 的链接复用需先启用符号链接权限。
+- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它、通过参数传递 target（避免 `CARGO_TARGET_DIR` 污染缓存键）并关闭该调用的 Rust incremental。本地 lean 模式统一设置 dev/test debug=0，普通 dev/test profile 下 `cargo-dev.sh check/clippy ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run` 先选择实际缓存方式：启用 sccache 时 incremental=0，未安装或显式禁用时 incremental=1。Clippy 保留自身的 `RUSTC_WORKSPACE_WRAPPER`，不保证与 check 完整共用增量产物。显式 `--release/-r` 和非 dev/test 的 `--profile` 不使用自动 sccache，也不覆盖调用者的 profile/incremental 环境；`--` 后的参数不参与 profile 解析。sccache 执行失败直接返回错误，不切换模式重试。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check/clippy` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。wrapper 首次本地调用会为缺失的 `target` 建立当前 namespace 链接；已有工作区可执行 `./scripts/cargo-dev.sh --prepare-target`，之后直接 Cargo 也复用该目录。已有普通目录须确认未使用并清理后再准备，脚本不会自动删除它。Windows 缺少符号链接权限时，普通 wrapper 调用仍通过参数使用共享缓存；`--prepare-target` 则报告失败，直接 Cargo 的链接复用需先启用符号链接权限。
 - 本地存储验收分阶段运行：先完成所需编译（可用 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --no-run --locked`），再运行 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --locked`；时限测试执行期间不要在其他 worktree 并行编译或施加资源压力。Cargo 的构建锁不保证测试运行期间独占主机资源。压力实验单独记录负载与实际截止结果，不通过延长测试 RPC 期限消除失败。依赖释放锁后立即重开的用例在独立测试进程运行，防止并行 libtest 的其他 spawn/fork 短暂继承锁描述符；子进程失败、超时和清理失败仍算失败。
 - 磁盘有限时保留少量固定路径开发 worktree，串行任务在确认干净、独占且已保留未推送工作的工作区用 `git switch -c codex/<task> <base>` 切换独立分支；仅并行任务新建 worktree。不要编辑 main 或主工作区。`new-task-worktree.sh --with-harness` 是完整预热的显式选项，普通后端或文档任务不需要它。
 - 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或用户指定的外部工作区，首次本地编译前先运行 `./scripts/cargo-dev.sh --prepare-target`。入口选择规则见开发规范。
@@ -146,7 +146,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
   - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
   - profile 计划版本为 1；空、未知、重复 profile、未知版本或 full 计划漏项均拒绝。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/未知输入及非包规则继续保守全量。每个 profile 的命令成功后才输出完成标记，任何失败退出仍由原 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
   - planner 始终声明 `required_gate_baseline`：这是 required-gate 的普适治理/契约 authority，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。
-  - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7 --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
+  - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
   - 调用 `run_full_required_superset`、`rust_baseline` 及下列 full 测试；函数名不代表当前已覆盖 `required` 的每个子检查。
@@ -254,6 +254,34 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 7. playability / player continue claim：自动化只能证明“没坏/可回归”；`L4A`、`L4B`、`L5` 按 claim 强度升级，不得互相替代。
 8. release candidate：默认完整 release gate；任何 `--skip-*` 都必须写明原因，并在 summary 里保留 claim boundary。带 skip 的结果只能支撑剩余已执行步骤，不能支撑被跳过层级的 release claim。
 
+<a id="regression-oracle"></a>
+### 回归用例：公共行为与独立预期值
+
+用例先写清触发输入/状态、真实观察点和合同预期，再选择能稳定检出缺陷的最小接缝。优先经受影响的公共入口走到消费者结果，而不是对私有函数调用次数或内部对象形状做镜像断言；一次只覆盖一个清楚行为，先观察因原症状失败，再修复并验证受影响边界。
+
+- 预期值来自适用合同中的明确样例、独立手算或可核对的权威原件。不要调用被测 decoder、projection 或关联函数生成 expected，再与自身比较。
+- 最小纵向闭环要经过本次真正要验证的接线、状态持久化或授权边界。mock 可以隔离不可控外部依赖，但不能替代正在验证的边界；只有 fixture/mock 的结果不宣称真实服务、网络或 Runtime 已通过。
+- 按受影响行为复用或补充能区分正确与错误实现的正/负例。例如 cognition committed、业务 receipt rejected 时，断言候选已提交与业务已拒绝、未成功分别成立；仅断言 HTTP 200 或 committed 应不足以判成功。对原 world/request/适用 fence 做不匹配变体，核对相关校验拒绝及合同规定的无副作用结果。
+- 行为稳定时，不让测试绑定无关内部拆分；重构后应继续由同一公共行为断言保护。已有用例能检出缺陷就复用，不为方法补一套同义测试。
+
+<a id="request-recovery-regression"></a>
+### 原请求与恢复路径的定向回归
+
+只选择本次修改涉及的场景，并先确认当前实现与适用合同。API 身份、幂等作用域、错误码及保留边界以 [Game API 设计](doc/world-simulator/llm/external-agent-game-api.design.md)和[外部 Runtime 验证手册](doc/testing/manual/external-agent-runtime-contract-validation.manual.md)为准；下表是用例选型，不新增接口、统一 TTL、数据库方案或 exactly-once 承诺。尚未实现的路径保持 planned/未覆盖。
+
+| 受影响场景 | 输入或故障位置 | 观察与判据 |
+| --- | --- | --- |
+| 同意图重复 / 并发 | 在合同允许重投的入口，保留完整原身份与原 payload 重投或并发到达 | 返回原结果或明确未决，权威业务效果不重复；不能只数响应次数 |
+| 同标识异内容 | 在合同定义的同身份范围改变 payload；另保留不同合法意图作正例 | 冲突/拒绝而非误回另一意图的成功；合法不同意图不被误合并 |
+| 效果后、响应前断连或崩溃 | 原请求已发出，调用方缺最终响应，再恢复 | 先查原请求；仅在该合同已确认允许安全重投时保留原签名/nonce/payload/correlation 重投，否则只回查并报告阻塞；不换 ID、world 或 Context 绕过未决 |
+| pending / unknown / 存储暂不可读 | 返回未决、无法读回或原证据不足 | 保持未确认并遵循该合同的新写限制；不把无响应/读取失败当业务失败，不制造竞争写 |
+| 到期、Stop 或撤权 | 分别尝试原结果回读与新副作用 | 读取仍检查当前读授权；旧 grant/fence 不因恢复复活，新写按当前合同拒绝或停止 |
+| recent window / 历史保留边界 | 结果退出近期窗口，或原历史材料不可得 | 窗口缺项不证明失败；沿支持路径查原结果或当前资源，区分 HistoryUnavailable 与 Unknown，不用新请求填补失去的历史 |
+
+恢复验证应分别回答“旧请求有没有重复”“原结果能否读回”“恢复后能否继续服务”。若本次结论包含恢复后可服务，按适用的 [V-RECOVERY / J1、J2 正向继续要求](doc/testing/prd.md#qa-infrastructure-scene-families)选择实际层级：在原未决已按合同处理、当前 authority/fence/权限/资源及预算允许后执行获准的新意图，核对权威效果与后续推进；不能用只读恢复、root 相等或效果至多一次代替正向结果。不相关的接口/UI 修改不因此扩成完整基础设施恢复验收。
+
+判定记录沿用实际 PR/Task 与所选套件的原证据，标清执行/未执行和环境边界。故障注入只在授权隔离环境进行；固定 fixture 验证不代签真实 Runtime、浏览器或部署恢复。
+
 ### Rust required 范围预览
 
 ```bash
@@ -351,6 +379,8 @@ Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要
 ./scripts/cargo-dev-lib.test.sh
 # 可选真实跨路径缓存验证（需要 sccache 和本地已下载的 itoa）
 ./scripts/cargo-dev-sccache.test.sh --real
+# 真实增量 Clippy：源码 lint 与 clippy.toml 变化都必须重新生效
+./scripts/cargo-dev-sccache.test.sh --real-clippy
 ./scripts/check-rust-file-size.sh
 env -u RUSTC_WRAPPER cargo fmt --all -- --check
 ```
@@ -456,6 +486,17 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 `node_keypair_config::transaction::tests` 使用当前 test executable 的独立子进程，在锁持有、意图、候选文件、准备、发布与完成边界 SIGKILL；逐次重开核对同一公钥、锁 inode、原配置及候选／完成状态。另覆盖发布后注入错误、损坏候选／目标冲突拒绝、private-only 补公钥、完整旧身份迁移与原件丢失阻断、旧锁离线迁移边界。`process_worker` 是该套件的子进程入口，独立执行不构成场景覆盖。临时环境变量只在 `cfg(test)` 中生效，不提供生产故障开关，不输出私钥。
 
 迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；本机 canonical Cargo 通过 `target` 符号链接启动 test executable 时，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
+
+正式 v2 运行期身份租约还须验证：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-features --features node-libp2p node_keypair_config::runtime_lease -- --nocapture
+env -u RUSTC_WRAPPER cargo build -p oasis7_distfs --bin oasis7_durability_endpoint
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop -- --ignored --nocapture
+OASIS7_FORMAL_ENDPOINT_TEST_BIN=<absolute physical path to oasis7_durability_endpoint> env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_signer_handoff_stops_exact_owner_and_qualifies_successor -- --ignored --nocapture
+```
+
+局部租约组核对锁 inode、SIGKILL、身份域与目录归属两个不可覆盖绑定的部分发布／同步失败恢复、错域／复制旧目录记录／不同 key 接管、损坏／超大记录和私钥诊断脱敏。真实正式运行时场景使用已签名初始锚与实际 P/R 子进程，验证同身份不同 writer 目录的重复启动被拒绝；外层运行时退出而实际 Node 仍被持有时租约不释放，全部执行所有者停止后原身份可重新打开，也可登记尚无身份归属记录的新 writer 目录。另执行已有合法 signer handoff：同 Node 身份切换新 writer 目录时，仍须通过签名恢复权限、精确旧 owner 停止和受保护 epoch 检查，不能让身份域绑定误拒绝合法连续性，也不能由目录登记授予权限。已有目录的路径／身份冲突仍拒绝。正常 CI 的 ignored 不算该进程场景通过，须记录明确非零执行与退出码。该场景证明本地实际调用链，不证明跨机 bare-key 排重、真实物理故障域或断电持久性；legacy／DevLocal 不由此获得新权限或运行保证。
 
 这些测试证明实际覆盖的进程恢复与调用路径，不证明断电、整机旧备份回滚或全初始化绑定事务。目标文件系统断电／fsync 错误、完整 CLI enabled/disabled/read-only 组合及其未覆盖项仍按[身份设计](doc/p2p/node/node-identity-replication-contract.design.md#des-nir-bootstrap)记录；不得用单元通过代签。
 
@@ -695,7 +736,7 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenario_specs_match_ids -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenarios_are_stable -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full oasis7_init_demo_runs_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture
 ```
 - 配套文档：`doc/world-simulator/scenario/scenario-files.prd.md` 的“场景测试覆盖矩阵”。
 
@@ -1614,3 +1655,54 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 The host suite uses actual signed profile-v2 activation and qualified parent verification, exercises all four commands, parent/world/policy/signature/action failures, threshold and atomic nonce behavior, and real NodeRuntime-to-driver ingress preflight. Node scheduling tests use an explicit oracle to test stale/duplicate queue filtering and progress; runtime transition tests use synthetic parent tokens and do not prove qualification. No Wasm modules execute in these selected governance tests; do not treat an unfiltered `--no-default-features` crate run as the full Wasmtime acceptance tier. Run normal required CI for the final candidate.
 
 Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.
+
+
+<a id="discovery-observation-local-trust-boundary"></a>
+## Discovery observations and local bootstrap trust
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3. Contract: [discovery evidence boundary](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary), including its [current implementation limits](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary).
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network::peer_selection_tests
+```
+
+The net suite includes a three-node loopback TCP flow: B publishes a record without a bootstrap tag, A configures B as a local seed, and C requests B's record through A's real cached-record RR endpoint. C verifies B's original signature and does not inherit A's seed trust. Local regression cases cover forged source/operator/ASN claims, repeated or changed payloads, configuration removal, actual DHT upstream selection, observation bounds and clock regression. Recordless and self-claimed observer sessions remain subject to path/unknown-domain budgets, including mixed signed/recordless sets; source-only degradation does not falsely upgrade health or disconnect every otherwise admissible session.
+
+This proves the existing wire's local trust boundary, not full record freshness, sequence/tombstone persistence, authenticated operator/ASN mappings, rendezvous ID provenance, restart anti-rollback, public-network independence, BFT or deployment readiness. Unknown control domains intentionally remain degraded and share conservative quotas. Normal required CI must cover the final candidate and downstream node status/filtering consumers.
+
+
+<a id="discovery-record-v1-time-policy"></a>
+### Discovery record v1 time policy
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [time policy and compatibility](doc/p2p/network/mainnet-private-reachability-architecture.design.md#当前-v1-时间策略).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_proto -p oasis7_net --lib` and downstream `oasis7_node` libp2p replication tests. The signed schema/domain remain v1: malformed TTL, overflow and negative publication are rejected structurally; network use enforces expiry, fixed 30-second future allowance and a per-network process-local clock. Existing v1 inputs receive no exemption. Tests cover:
+
+- `peer_record_signed_expiry_is_checked_and_bounded` and `peer_record_time::tests`: TTL/future/exact-expiry boundaries, wall rollback recovery, monotonic expiry and retransmission without deadline extension.
+- `peer_record_store::tests`: automatic inbound Kademlia storage and every get/replication iterator validate original signature, matching key, size and deadline; unrelated DHT objects/providers retain behavior; metadata stays bounded during churn.
+- `peer_record_lifecycle_tests`: expired records stop cached responses and dedupe, queued record paths fail before dial, failed ingress preserves accepted payload, and expiry keeps established sessions subject to original capability restrictions and actual path/unknown-domain quotas.
+- `peer_record_dial_gate::tests`, `swarm_behaviour::dial_gate_tests` and the final-resolution lifecycle cases check live/configured exact addresses against cached Kademlia routes and automatic original DialOpts, keep explicit local caller dials separate, and prevent record dials from populating permanent routing entries. Unknown automatic intermediate routes are deferred until a live record or exact configuration is available. `peer_record_protocol_dial::tests` and the origin-aware outer behaviour test preserve single-attempt DCUtR/AutoNAT/relay protocol-owned original targets in both roles, consume the source ID once, and still reject stale augmented routing alternatives. These protocol operations do not install permanent address grants or renew the parent candidate TTL.
+- Existing three-node TCP forwarding and role/recordless-budget regressions remain in the same net suite. DHT result selection and final handoff recheck current time. Three-node TCP also verifies cached expiry and idle health degradation within the one-second refresh tick while authenticated connections survive.
+
+These tests do not prove absolute wall-clock trust, restart/whole-machine rollback protection, persistent sequence/tombstones, aggregate discovery-round budgets, real public-network independence or deployment readiness. Explicit static bootstrap addresses have a separate local configuration lifetime; remote record addresses never inherit it. Signed-record TTL expiration does not revoke governance, validator authority or authenticated sessions. Do not replace signed timestamps with receiver time or extend expiry by the future-skew allowance.
+
+### 轻量工具构建边界
+
+协议 CLI `oasis7_chain_transfer_submit_client` 与 `oasis7_rollback_strict_audit_evidence` 由 `oasis7_protocol_tools` 唯一拥有，生产 normal/build 依赖只有 Client API/Proto、签名和 HTTP 等工具依赖，不引入 Runtime/Wasmtime；真实 Runtime 签名互操作保留为 dev 测试。`oasis7_init_demo` 与场景 integration tests 由已有 `oasis7_simulator` 拥有。三个 binary 的名称与命令行合同保持不变，内部 Cargo 调用使用新 package。其他 Ops 工具继续保留原默认 Wasmtime 与 tier 语义。required/full 同时选择新协议工具包，场景回归使用 Simulator owner。
+
+
+<a id="discovery-work-budget"></a>
+### Discovery work budget
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [shared discovery policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Use controlled monotonic instants for rolling-window boundaries and actual Swarm scheduling entrypoints for fanout and retry tests:
+
+- Exhaust the combined 32 in-flight slots across automatic discovery work; a new peer/source must create no extra pending work or request traffic. Release only terminal operations; rate tokens remain consumed.
+- Complete 128 operations in a rolling 60-second window, switch sources and reconstruct requests, then verify refusal until the oldest start leaves the window. Moving wall time must not refill the budget.
+- Feed oversized, over-count and duplicate cached ID lists; reject beyond 16 KiB or 128 items before fanout, and schedule duplicates once. Cap cumulative DHT provider results and server output at 128 IDs.
+- Traverse cache misses and outbound failures across proxies; stop after four attempts for the target chain and retain global consumption. Exercise cooldown saturation and expiry reclamation without exceeding 1024 entries per RR category (3072 total across three maps).
+- Retain the real three-node TCP signed-record forwarding/expiry flows and downstream status/filtering tests as positive-path coverage. Budget exhaustion must not itself disconnect authenticated sessions or grant source/role trust.
+
+Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, rendezvous protocol operations, application-driven operations and protocol-internal messages retain their own limits. New network instances start a new budget; no restart-resistant quota is claimed.

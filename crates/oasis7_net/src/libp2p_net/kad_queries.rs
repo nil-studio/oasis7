@@ -15,8 +15,10 @@ use super::peer_record::decode_peer_record;
 fn decode_peer_record_for_target(
     payload: &[u8],
     requested_peer_id: PeerId,
+    clock: &super::peer_record_time::DiscoveryClock,
 ) -> Result<SignedPeerRecord, WorldError> {
     let decoded = decode_peer_record(payload)?;
+    clock.check(&decoded.record)?;
     let record_peer_id = decoded.record.peer_id.parse::<PeerId>().map_err(|_| {
         WorldError::NetworkProtocolUnavailable {
             protocol: "kad peer record peer_id must be valid".to_string(),
@@ -72,6 +74,7 @@ pub(super) enum PendingDhtQuery {
     },
     DiscoverPeerRecord {
         peer_id: PeerId,
+        upstream: Option<PeerId>,
         record: Option<SignedPeerRecord>,
         error: Option<WorldError>,
     },
@@ -97,6 +100,7 @@ pub(super) enum DhtProgressAction {
     DiscoveryError(WorldError),
     DiscoverPeerRecord {
         peer_id: PeerId,
+        upstream: Option<PeerId>,
         result: Box<Result<Option<SignedPeerRecord>, WorldError>>,
     },
 }
@@ -105,6 +109,7 @@ pub(super) fn handle_dht_progress(
     pending: &mut PendingDhtQuery,
     result: kad::QueryResult,
     is_last: bool,
+    clock: &super::peer_record_time::DiscoveryClock,
 ) -> DhtProgressAction {
     match pending {
         PendingDhtQuery::PublishProvider { response } => {
@@ -308,7 +313,7 @@ pub(super) fn handle_dht_progress(
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(found))) => {
-                    match decode_peer_record_for_target(&found.record.value, *peer_id) {
+                    match decode_peer_record_for_target(&found.record.value, *peer_id, clock) {
                         Ok(decoded) => *record = Some(decoded),
                         Err(err) => *error = Some(err),
                     }
@@ -327,8 +332,8 @@ pub(super) fn handle_dht_progress(
                 _ => {}
             }
             if is_last {
-                let outcome = if record.is_some() {
-                    Ok(record.clone())
+                let outcome = if let Some(selected) = record.as_ref() {
+                    clock.check(&selected.record).map(|_| record.clone())
                 } else if let Some(err) = error.take() {
                     Err(err)
                 } else {
@@ -345,7 +350,12 @@ pub(super) fn handle_dht_progress(
                     providers: found,
                     ..
                 })) => {
-                    peers.extend(found);
+                    for peer in found {
+                        if peers.len() >= super::discovery_budget::MAX_DISCOVERY_IDS {
+                            break;
+                        }
+                        peers.insert(peer);
+                    }
                 }
                 kad::QueryResult::GetProviders(Ok(
                     kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
@@ -368,13 +378,17 @@ pub(super) fn handle_dht_progress(
         }
         PendingDhtQuery::DiscoverPeerRecord {
             peer_id,
+            upstream,
             record,
             error,
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(found))) => {
-                    match decode_peer_record(&found.record.value) {
-                        Ok(decoded) => *record = Some(decoded),
+                    match decode_peer_record_for_target(&found.record.value, *peer_id, clock) {
+                        Ok(decoded) => {
+                            *record = Some(decoded);
+                            *upstream = found.peer;
+                        }
                         Err(err) => *error = Some(err),
                     }
                 }
@@ -392,8 +406,8 @@ pub(super) fn handle_dht_progress(
                 _ => {}
             }
             if is_last {
-                let result = if record.is_some() {
-                    Ok(record.clone())
+                let result = if let Some(selected) = record.as_ref() {
+                    clock.check(&selected.record).map(|_| record.clone())
                 } else if let Some(err) = error.take() {
                     Err(err)
                 } else {
@@ -401,6 +415,7 @@ pub(super) fn handle_dht_progress(
                 };
                 return DhtProgressAction::DiscoverPeerRecord {
                     peer_id: *peer_id,
+                    upstream: *upstream,
                     result: Box::new(result),
                 };
             }

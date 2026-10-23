@@ -123,6 +123,38 @@ codegen-units = 16
         self.write('crates/oasis7_world_state/src/lib.rs', 'pub fn value() -> u32 { 3 }\n')
         self.current = self.commit('fixture current')
 
+    def test_codec_is_fresh_for_orchestration_and_invalidated_for_own_input(self):
+        self.package('oasis7_viewer_codec', ['oasis7_world_service'],
+                     'pub fn value() -> u32 { oasis7_world_service::value() }\n')
+        manifest = self.repo / 'crates/oasis7_viewer_runtime/Cargo.toml'
+        manifest.write_text(manifest.read_text().replace(
+            '[dependencies]\n',
+            '[dependencies]\noasis7_viewer_codec = { path = "../oasis7_viewer_codec" }\n'))
+        self.write(METRICS.VIEWER_PATH,
+                   'pub fn value() -> u32 { oasis7_viewer_codec::value() }\n')
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.repo,
+                       env=self.env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.current = self.commit('extract codec')
+        self.run_measurement(samples=3)
+        report = json.loads((self.out / 'report.json').read_text())
+        current = report['results']['current']['phases']
+        self.assertTrue(current['viewer_touch']['lower_libraries']['oasis7_viewer_codec']['all_fresh'])
+        self.assertGreater(current['codec_touch']['local_crates']['oasis7_viewer_codec']['rebuilt'], 0)
+        self.assertGreater(current['codec_touch']['local_crates']['oasis7_viewer_runtime']['rebuilt'], 0)
+        for label in ('current', 'baseline'):
+            record = report['results'][label]
+            order = [record['phases'][name]['wall_seconds']
+                     for name in ('viewer_touch', 'viewer_touch_2', 'viewer_touch_3')]
+            summary = record['viewer_touch_summary']
+            self.assertEqual(summary['samples'], 3)
+            self.assertEqual(summary['execution_order_seconds'], order)
+            self.assertEqual(summary['median_seconds'], sorted(order)[1])
+            self.assertEqual(summary['min_seconds'], min(order))
+            self.assertEqual(summary['max_seconds'], max(order))
+        for name in ('viewer_touch_2', 'viewer_touch_3'):
+            self.assertTrue(current[name]['lower_libraries']['oasis7_viewer_codec']['all_fresh'])
+        self.assert_isolated_cleanup()
+
     def tearDown(self):
         self.temporary.cleanup()
 
@@ -156,8 +188,9 @@ codegen-units = 16
                 '--baseline-ref', baseline or self.baseline, '--current-ref', self.current,
                 '--out-dir', str(out or self.out), '--work-dir', str(self.work), '--jobs', '1']
 
-    def run_measurement(self, *, expected=0, baseline=None, out=None):
-        result = subprocess.run(self.measurement_command(baseline, out), env=self.env, text=True, stdout=subprocess.PIPE,
+    def run_measurement(self, *, expected=0, baseline=None, out=None, samples=1):
+        command = self.measurement_command(baseline, out) + ['--viewer-touch-samples', str(samples)]
+        result = subprocess.run(command, env=self.env, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=120)
         self.assertEqual(result.returncode, expected, result.stdout + '\n' + result.stderr)
         return result

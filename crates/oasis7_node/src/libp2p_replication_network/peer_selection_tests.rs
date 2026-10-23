@@ -394,3 +394,27 @@ fn libp2p_replication_network_request_with_providers_honors_provider_subset() {
         .expect("provider-restricted request should reach ok peer");
     assert_eq!(ok_only, b"node-ok".to_vec());
 }
+
+#[test]
+fn unverified_discovery_is_visible_but_does_not_hard_block_admissible_transport() {
+    let peer = PeerId::random();
+    let issue = PeerManagerHealthIssue::DiscoveryIndependenceUnverified;
+    assert_eq!(
+        replication_peer_health_issue_label(issue.clone()),
+        "discovery_independence_unverified"
+    );
+    let health = PeerManagerPeerHealth {
+        peer_id: peer.to_string(),
+        status: PeerManagerHealthStatus::Suspect,
+        issues: vec![issue],
+        discovery_sources: Vec::new(),
+        active_path_kind: Some("direct".into()),
+        source_operator: None,
+        source_asn: None,
+    };
+    assert!(!peer_is_request_blocked(&health));
+    assert_eq!(
+        connected_or_active_transport_peers(vec![peer], &[health]),
+        vec![peer]
+    );
+}

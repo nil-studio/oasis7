@@ -154,7 +154,7 @@ PY_VIEWER
 run_oasis7_package_tests() {
   local features="$1"
   shift
-  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
 }
 
 run_oasis7_test_tier_with_viewer() {
@@ -169,7 +169,7 @@ run_oasis7_test_tier_with_viewer() {
 }
 
 run_oasis7_required_tier_tests() {
-  run_cargo check -p oasis7_agent_api -p oasis7_simulator --target wasm32-unknown-unknown --locked
+  run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
     run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary
     return
@@ -178,11 +178,11 @@ run_oasis7_required_tier_tests() {
 }
 
 run_scenario_regression_tests() {
-  run_cargo test -p oasis7_ops_tools --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_
+  run_cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_
 }
 
 run_oasis7_required_tier_clippy() {
-  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
+  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
 }
 
 run_oasis7_full_tier_tests() {
@@ -419,6 +419,8 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-plan.test.py
   run python3 ./scripts/security/codeql-workflow.test.py
   run python3 ./scripts/security/codeql-rust-coverage.test.py
+  run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
+  run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-health.test.py
   run python3 ./scripts/security/codeql-upload-association.test.py
   run python3 ./scripts/security/codeql-acceptance.test.py
@@ -705,7 +707,7 @@ run_full_support_tier_tests() {
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
   run_oasis7_viewer_software_safe_build
-  run_oasis7_package_tests wasmtime --lib --bins
+  run_oasis7_test_tier_with_viewer wasmtime --lib --bins
 }
 
 run_shared_native_cache_builds() {

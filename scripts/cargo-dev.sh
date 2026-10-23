@@ -14,7 +14,7 @@ Default behavior:
   worktree source root
 - Stores shared targets under `<repo-parent>/.oasis7-cache/cargo-target/`
 - Uses a lean dev/test profile (debug=0) for local commands
-- Enables incremental compilation for lean check; other lean commands disable it
+- Enables incremental for local check/clippy and builds without sccache
 - Uses installed sccache for build/test/run in lean mode
 - Set OASIS7_CARGO_DEV_MODE=debug for full debug info and incremental builds
 - Keeps each worktree target isolated while sccache shares compiler results
@@ -242,14 +242,43 @@ fi
 
 MODE="${OASIS7_CARGO_DEV_MODE:-lean}"
 case "$MODE" in lean|debug) ;; *) echo "error: OASIS7_CARGO_DEV_MODE must be lean or debug" >&2; exit 2 ;; esac
+# Resolve Cargo profile only before the program/test argument separator.
+CARGO_PROFILE=dev
+EXPECT_PROFILE=0
+for ARG in "$@"; do
+  if [[ "$EXPECT_PROFILE" == 1 ]]; then
+    CARGO_PROFILE="$ARG"
+    EXPECT_PROFILE=0
+    continue
+  fi
+  case "$ARG" in
+    --) break ;;
+    --release|-r) CARGO_PROFILE=release ;;
+    --profile) EXPECT_PROFILE=1 ;;
+    --profile=*) CARGO_PROFILE="${ARG#--profile=}" ;;
+  esac
+done
+LOCAL_DEV=0
+if [[ "${CI:-}" != "1" && "${CI:-}" != "true" && "$EXPECT_PROFILE" == 0 ]]; then
+  case "$CARGO_PROFILE" in dev|test) LOCAL_DEV=1 ;; esac
+fi
+SCCACHE_BIN=""
+if [[ "$LOCAL_DEV" == 1 && "$MODE" == lean && "${OASIS7_CARGO_SCCACHE:-1}" != 0 ]]; then
+  case "${1:-}" in
+    build|test|run) SCCACHE_BIN="$(command -v sccache || true)" ;;
+  esac
+fi
 PROFILE_ENV=()
-if [[ "${CI:-}" != "1" && "${CI:-}" != "true" ]]; then
-  if [[ "$MODE" == "debug" ]]; then
+if [[ "$LOCAL_DEV" == 1 ]]; then
+  if [[ "$MODE" == debug ]]; then
     PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=2 CARGO_PROFILE_TEST_DEBUG=2 CARGO_INCREMENTAL=1)
-  elif [[ "${1:-}" == "check" ]]; then
-    PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=1)
   else
-    PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0)
+    INCREMENTAL=0
+    case "${1:-}" in
+      check|clippy) INCREMENTAL=1 ;;
+      build|test|run) [[ -n "$SCCACHE_BIN" ]] || INCREMENTAL=1 ;;
+    esac
+    PROFILE_ENV=(CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL="$INCREMENTAL")
   fi
 fi
 # Lease covers compilation and cargo-run children; cache GC uses the same lock.
@@ -264,16 +293,10 @@ fi
 # sccache. Formal CI/release entrypoints retain their raw Cargo path.
 # Do not inherit an arbitrary compiler wrapper.
 CARGO_ENV=(env -u RUSTC_WRAPPER ${PROFILE_ENV[@]+"${PROFILE_ENV[@]}"} CARGO_TARGET_DIR="$TARGET_DIR")
-case "${1:-}" in
-  build|test|run)
-    if [[ "$MODE" == "lean" && "${OASIS7_CARGO_SCCACHE:-1}" != "0" && "${CI:-}" != "1" && "${CI:-}" != "true" ]] &&
-       SCCACHE_BIN="$(command -v sccache)"; then
-      # Cargo hashes CARGO_TARGET_DIR in sccache Rust keys. Pass the target
-      # as an argument so registry dependencies can hit across worktrees.
-      exec "${CARGO_LEASE[@]}" env -u RUSTC_WRAPPER -u CARGO_TARGET_DIR RUSTC_WRAPPER="$SCCACHE_BIN" \
-        ${PROFILE_ENV[@]+"${PROFILE_ENV[@]}"} \
-        "$CARGO_BIN" "$1" --target-dir "$TARGET_DIR" "${@:2}"
-    fi
-    ;;
-esac
+if [[ -n "$SCCACHE_BIN" ]]; then
+  # Pass target as an argument to preserve cross-worktree registry cache keys.
+  exec "${CARGO_LEASE[@]}" env -u RUSTC_WRAPPER -u CARGO_TARGET_DIR RUSTC_WRAPPER="$SCCACHE_BIN" \
+    ${PROFILE_ENV[@]+"${PROFILE_ENV[@]}"} \
+    "$CARGO_BIN" "$1" --target-dir "$TARGET_DIR" "${@:2}"
+fi
 exec "${CARGO_LEASE[@]}" "${CARGO_ENV[@]}" "$CARGO_BIN" "$@"

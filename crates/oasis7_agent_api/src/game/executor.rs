@@ -167,10 +167,26 @@ impl GameExecutorControlV1 {
     }
 }
 
+/// Explicit native selection; absence preserves the original provider wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskContextAuthorityModeV1 {
+    NativeExecutorV1,
+}
+impl TaskContextAuthorityModeV1 {
+    pub fn schema_revision(mode: Option<Self>) -> u32 {
+        if mode.is_some() { 2 } else { 1 }
+    }
+}
+
 /// Only salted commitments and public metadata; never raw private input digests.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskContextIdentityV1 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_mode: Option<TaskContextAuthorityModeV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_authorization_root: Option<String>,
     pub schema_revision: u32,
     pub fence: GameTaskFenceV1,
     pub agent_session_id: String,
@@ -199,7 +215,12 @@ impl TaskContextIdentityV1 {
 
     pub fn validate(&self) -> Result<(), String> {
         self.fence.validate()?;
-        if self.schema_revision != 1
+        if self.schema_revision != TaskContextAuthorityModeV1::schema_revision(self.authority_mode)
+            || match (&self.authority_mode, &self.native_authorization_root) {
+                (None, None) => false,
+                (Some(_), Some(root)) => !commitment(root),
+                _ => true,
+            }
             || self.retry_seq == 0
             || self.transport_attempt == 0
             || self.transport_attempt > u64::from(u16::MAX)

@@ -12,6 +12,14 @@
 5. **观测层**：`logicalTime` 与 `eventSeq` 分别表达已观察的逻辑时间和事件顺序；`tick` 仅为前者的兼容 alias。控制请求、重连计时器与空 mailbox 不得合成任一观测增量。
 6. **PromptControl authority 层**：增强 PromptControl 通过 negotiated capability 暴露 request identity、authoritative result、control-loss precedence、race/idempotency 与 runtime-instance application scope；它不改变 playback/live profile，也不新增 persistence/sync。
 
+## 具体协议编解码边界
+
+`oasis7_viewer_codec` 依赖 `oasis7(default-features=false)`、`oasis7_proto` 与请求合同 owner `oasis7_client_api`，持有具体 `ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>` 的非泛型 JSON writer、字符串包装和请求解析入口。Viewer runtime 依赖 codec，并 re-export 同一响应类型，保留既有公开路径和 native/WASM 条件类型。具体 archive 类型仍归 `oasis7::simulator`；codec 不拆分 archive 或空间投影，也不启用新的 Runtime/Node features。
+
+普通和带原请求 nonce 的 flatten envelope 编码均在 codec 中生成；nonce 为 None 时省略。公开 writer 参数保持 `&mut dyn Write`。Runtime live 使用直接编码入口；Offline TCP 使用 codec 内的 8 KiB 有界缓冲入口；Event 响应复用直写入口，避开 Linux 大 Event 实测的额外缓冲开销；具体开销机制未归因，字符串包装复用同一缓冲 serializer、请求 1 KiB 缓冲，并在未排出块时直接复用尾部 Vec。这避免原具体 BufWriter 和 Vec 路径逐片段虚分派的实测退化。普通响应有两种固定 writer 实例（动态 writer 与 `BufWriter<&mut dyn Write>`），均留在 codec 库内，不向上层导出泛型序列化树；实例数量取舍须一并测量冷构建与运行时成本。小字符串保留容量可由原 128 B 增至 1 KiB；Offline 临时增加 8 KiB 缓冲。返回编码或 writer 错误前拆开缓冲，丢弃未写尾部，不在 codec 内重试写入；此保证不扩展到 panic 路径。codec 不做权限判断、不拥有 socket，不写 newline 或 flush。Runtime live 在原权限/可见性选择与 Event 清理后，把响应直接流式写入受限 Outbox writer；完整帧仍由上层 newline 与 flush 提交。单帧、单轮、帧数、partial frame、deadline 和错误映射保持原合同；不能先生成无界缓冲再交给 Outbox。
+
+编译复用验收使用同配置 ECS 三 binary 测量：冷构建、no-op、Viewer 编排 touch 与 codec 输入 touch 分别记录真实 Cargo unit、Fresh/rebuilt、timings 和资源。新增包或搬迁代码不代表已证明加速；构建和运行时成本的当前候选结果放在实际 PR/CI。
+
 ## PromptControl system contract
 
 配对 PRD 的六个锚点是本 PromptControl system contract 的技术合同入口：[`authority contract`](viewer-control-plane-split-live-playback.prd.md#prompt-control-authority-contract)、[`request identity`](viewer-control-plane-split-live-playback.prd.md#prompt-control-request-identity)、[`result status`](viewer-control-plane-split-live-playback.prd.md#prompt-control-result-status)、[`control-loss precedence`](viewer-control-plane-split-live-playback.prd.md#prompt-control-control-loss-precedence)、[`race and idempotency`](viewer-control-plane-split-live-playback.prd.md#prompt-control-race-and-idempotency)、[`application scope`](viewer-control-plane-split-live-playback.prd.md#prompt-control-application-scope)。PRD 锚点优先于本设计中的说明；产品承诺仍由 [`Agent 对话与 Prompt 控制`](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md) 负责。

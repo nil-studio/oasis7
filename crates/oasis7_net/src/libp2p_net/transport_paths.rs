@@ -11,7 +11,7 @@ use oasis7_proto::distributed_dht::{
 use oasis7_proto::distributed_net::NetworkLane;
 
 use super::swarm_behaviour::{
-    Behaviour, dial_addr_with_optional_peer_id, ensure_peer_id, split_peer_id,
+    Behaviour, dial_addr_with_optional_peer_id, dial_record_addr, ensure_peer_id, split_peer_id,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -62,6 +62,7 @@ pub(super) enum TransportMuxer {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TransportPath {
+    pub(super) record_lease: Option<super::peer_record_time::RecordLease>,
     pub(super) peer_id: PeerId,
     pub(super) addr: Multiaddr,
     pub(super) kind: TransportPathKind,
@@ -199,10 +200,14 @@ pub(super) fn sync_static_bootstrap_transport_paths(
         let Some(peer_id) = split_peer_id(addr.clone()).0 else {
             continue;
         };
-        let path = active_transport_path_from_endpoint(known_transport_paths, peer_id, addr);
+        // Configuration authorizes this exact address, never an endpoint-family
+        // match to a signed record at another port.
+        let path = active_transport_path_from_endpoint(&HashMap::new(), peer_id, addr);
         let label = path.label();
         let paths = known_transport_paths.entry(peer_id).or_default();
-        if paths.iter().any(|known| known.label() == label) {
+        if let Some(known) = paths.iter_mut().find(|known| known.label() == label) {
+            // Only this exact locally configured address has a non-record lifetime.
+            known.record_lease = None;
             continue;
         }
         failed_transport_path_labels.remove(&label);
@@ -264,6 +269,7 @@ pub(super) fn active_transport_path_from_endpoint(
     }
 
     TransportPath {
+        record_lease: None,
         peer_id,
         addr: normalized,
         kind: infer_transport_path_kind(&normalized_without_peer_id),
@@ -366,10 +372,16 @@ pub(super) fn dial_transport_path(
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
     path: TransportPath,
 ) -> Result<(), WorldError> {
-    dial_addr_with_optional_peer_id(swarm, path.addr.clone()).map_err(|err| {
-        WorldError::NetworkProtocolUnavailable {
-            protocol: format!("transport dial failed: {err}"),
-        }
+    if let Some(lease) = &path.record_lease {
+        lease.validate()?;
+    }
+    let result = if path.record_lease.is_some() {
+        dial_record_addr(swarm, path.addr.clone())
+    } else {
+        dial_addr_with_optional_peer_id(swarm, path.addr.clone())
+    };
+    result.map_err(|err| WorldError::NetworkProtocolUnavailable {
+        protocol: format!("transport dial failed: {err}"),
     })?;
     last_dialed_transport_paths.insert(path.peer_id, path);
     Ok(())
@@ -454,6 +466,7 @@ fn extend_paths<'a>(
         }
         let addr_without_peer_id = split_peer_id(addr.clone()).1;
         paths.push(TransportPath {
+            record_lease: None,
             peer_id,
             addr,
             kind,
@@ -508,4 +521,25 @@ fn infer_transport_muxer(kind: TransportPathKind, addr: &Multiaddr) -> Transport
             TransportMuxer::Yamux
         }
     }
+}
+
+pub(super) fn prune_expired_record_paths(
+    known: &mut HashMap<PeerId, Vec<TransportPath>>,
+    failed_labels: &mut HashSet<String>,
+    bootstrap: &[Multiaddr],
+) {
+    for paths in known.values_mut() {
+        paths.retain(|path| {
+            let live = path
+                .record_lease
+                .as_ref()
+                .is_none_or(|lease| lease.is_valid());
+            if !live {
+                failed_labels.remove(&path.label());
+            }
+            live
+        });
+    }
+    known.retain(|_, paths| !paths.is_empty());
+    sync_static_bootstrap_transport_paths(known, failed_labels, bootstrap);
 }

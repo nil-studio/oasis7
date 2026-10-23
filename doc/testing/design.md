@@ -45,6 +45,10 @@
 - `scripts/prepare-playability-l4-review.sh`：在一个 worktree 固定 L4 packet、role/persona cards、L4B card、可选校准 notes、summary 与命令。
 - `scripts/run-playability-l4b-agent.sh`：现有 L4 driver 与采样入口；其构建、登录编排及结果判定缺口见 [L4 工具链设计](#l4-toolchain-design)，不能仅凭脚本名称认定已完成具身 agent 试玩。
 
+### Release Web fixture 生命周期
+
+发行 Web QA 的 source 路径先构建 visual-test Web、signed fixture executable，以及 `run-launcher-stack.sh --chain-disable` 消费的 provider probe、launcher 和 Viewer。全部成功后才启动 fixture 的有界运行窗口，再由 stack 复用本次构建的同候选可执行文件；任何构建失败都不启动 fixture。该顺序将冷构建与运行/交互超时分开，不延长 fixture 期限、不修改正式认证，也不将缓存中未知来源的 binary 当作构建证明。
+
 ## 5. 专题导航
 - CI 与覆盖进入 `ci/`
 - 线上/长时验证进入 `longrun/`

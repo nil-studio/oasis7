@@ -161,7 +161,7 @@ impl ViewerRuntimeLiveServer {
             let event_id = event.id;
             let mut event = event.clone();
             event.runtime_event = None;
-            serde_json::to_writer(&mut *writer, &ViewerResponse::Event { event })
+            oasis7_viewer_codec::write_response_json(writer, &ViewerResponse::Event { event })
                 .map_err(|error| ViewerRuntimeLiveServerError::Serde(error.to_string()))?;
             writer.write_all(b"\n")?;
             writer.flush()?;

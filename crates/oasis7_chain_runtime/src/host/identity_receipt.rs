@@ -10,6 +10,9 @@ use super::node_keypair_config;
 
 pub(super) fn dispatch<'a>(mut args: impl Iterator<Item = &'a str>) -> Option<Result<(), String>> {
     let command = args.next()?;
+    if command == "devlocal-participant" {
+        return Some(super::devlocal_participant_cli::run(args));
+    }
     if command == "initialize-preview-world" {
         return Some(super::preview_world_init::run(args));
     }

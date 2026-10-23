@@ -1,6 +1,6 @@
 # oasis7 项目状态与指挥入口
 
-> 当前客户端范围见[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)：本地文档/Git、GitHub PR、个人记录、本机工具与原工具外部入口。检查详情在 GitHub 查看；本文的项目摘要与历史记录不替代主责合同。
+> 指挥中心的职责与目标见[产品要求](command-center.prd.md)和[系统设计](command-center.design.md)：云端承载四个主视图、已提交来源与个人空间，本地承载工作树、私有资料及原生工具。来源事实与个人记录各守原义；实际实现和可用性由对应交付证据说明。
 
 
 本页帮助项目负责人在五分钟内看清长期方向、当前主线、已交付变化和需要关注的边界。
@@ -14,8 +14,14 @@
 | --- | --- |
 | 下次如何持续更新 | [持续更新流程](command-center.manual.md) |
 | 整体分层、部署、存储、权限与恢复 | [顶层架构索引](architecture/README.md) |
-| 指挥客户端的产品目标与技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
+| 云端指挥中心与本地辅助端的产品及技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
 | 如何运行和操作已有客户端 | [客户端使用说明](../../../tools/oasis7-command-center/README.md) |
+
+<a id="cc-status-cloud-local"></a>
+
+### 指挥中心自身的职责边界
+
+2026-10-22 文档核对：云端负责跨设备四视图、统一工作与依据、已提交规范、个人问题/决定/关联及阅读偏好；本地负责工作树、未提交预览、私有资料与原生工具。数据归属及安全导航见[系统设计](command-center.design.md#DES-CC-001)。本次只修订合同，现有应用及真实浏览器可用性未因此完成验收；已有实现和证据边界见[核对入口](command-center.design.md#cc-current-implementation)，实施与数据切换由[迁移 Issue #4983](https://github.com/nil-studio/oasis7/issues/4983)跟踪。不改变本页其他项目目标或部署状态的核验时间。
 
 <a id="cc-status-baseline"></a>
 
@@ -81,7 +87,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 2026-10-21 节点生命周期局部核对，源码基线 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`：正式受控 writer、原请求恢复、公开投影与完整只读同步已有实现入口，准确支持范围见[节点能力与操作入口](../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)和[持久世界实施边界](../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)。这些代码和历史局部验证不等于真实独立故障域、完整消费者恢复或正式开放已验收；本轮没有部署、恢复演练或新运行结果。
 
-本次文档把[部署角色与状态路径](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)、[全状态恢复及容量](../../p2p/design.md#des-p2p-full-sync-checkpoint-capacity-v1)、[授权与撤销](../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)、[发现来源与记录生命周期](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)和[监控新鲜度](../../p2p/node/node-triad-operations-observability.design.md#report-freshness)接回主责合同。新增持久防回退、撤销完成及故障验收规则仍待实现；后续按[受控故障域验收](../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)证明原世界与已确认结果保留，不能以同机双目录代替独立硬件故障域。
+本次文档把[部署角色与状态路径](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)、[全状态恢复及容量](../../p2p/design.md#des-p2p-full-sync-checkpoint-capacity-v1)、[授权与撤销](../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)、[发现来源与记录生命周期](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)和[监控新鲜度](../../p2p/node/node-triad-operations-observability.design.md#report-freshness)接回主责合同。发现来源的本地实现候选已分存原签名与本地 seed/DHT/RR 观察，未知控制域保持降级并计入会话配额；[实现边界](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)已接入 v1 TTL／未来偏差、进程内时钟与转发／拨号租约候选，自动拨号现收敛到有效记录或精确本机配置，未知中间路由等待新依据。2026-10-22 本次发现工作预算候选按[共享策略](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget)收紧自动 DHT／RR 的并发、速率窗口与代理重试；仍保留持久可信时间、序号、rendezvous 协议总预算和受信归属映射缺口，候选不代表部署。新增持久防回退、撤销完成及故障验收规则仍待实现；后续按[受控故障域验收](../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)证明原世界与已确认结果保留，不能以同机双目录代替独立硬件故障域。
 
 正式 profile 的实际部署仍暂缓；开放条件继续由[基础设施当前阶段](../../product/world-infrastructure/prd.md#world-infrastructure-current-stage)持有。[#4363](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)只保留为历史来源，本段不刷新其他主线或环境的核验时间。
 

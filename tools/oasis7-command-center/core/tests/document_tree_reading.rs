@@ -106,7 +106,7 @@ fn state() -> DocumentTreeReadingState {
     }
 }
 fn saved_raw(db: &rusqlite::Connection, key: &DocumentTreeReadingKey) -> (String, String) {
-    db.query_row("SELECT key,value FROM personal WHERE key LIKE 'document_tree_reading_v1:%' AND json_extract(value,'$.key.view')=?1", [&key.view], |r| Ok((r.get(0)?,r.get(1)?))).unwrap()
+    db.query_row("SELECT key,value FROM device WHERE key LIKE 'document_tree_reading_v1:%' AND json_extract(value,'$.key.view')=?1", [&key.view], |r| Ok((r.get(0)?,r.get(1)?))).unwrap()
 }
 #[test]
 fn reading_record_survives_restart_new_head_and_source_line_drift_without_snapshot_changes() {
@@ -133,12 +133,14 @@ fn reading_record_survives_restart_new_head_and_source_line_drift_without_snapsh
     let key = key(&core, &query);
     let db = rusqlite::Connection::open(tmp.path().join("db")).unwrap();
     let before: String = db
-        .query_row("SELECT value FROM cache WHERE key='snapshot'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM cache WHERE key='device_snapshot_v1'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     db.execute(
-        "INSERT INTO personal(key,value) VALUES('unrelated-personal-record','opaque')",
+        "INSERT INTO device(key,value) VALUES('unrelated-personal-record','opaque')",
         [],
     )
     .unwrap();
@@ -153,9 +155,11 @@ fn reading_record_survives_restart_new_head_and_source_line_drift_without_snapsh
         Some(chapter.id.as_str())
     );
     let after: String = db
-        .query_row("SELECT value FROM cache WHERE key='snapshot'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM cache WHERE key='device_snapshot_v1'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(before, after);
     drop(core);
@@ -195,7 +199,7 @@ fn reading_record_survives_restart_new_head_and_source_line_drift_without_snapsh
     assert_eq!(pointer.view.as_deref(), Some("professional"));
     let untouched: String = db
         .query_row(
-            "SELECT value FROM personal WHERE key='unrelated-personal-record'",
+            "SELECT value FROM device WHERE key='unrelated-personal-record'",
             [],
             |r| r.get(0),
         )
@@ -256,19 +260,21 @@ fn corrupt_future_and_failed_transactions_preserve_other_records_and_can_be_rese
     .unwrap();
     let db = rusqlite::Connection::open(tmp.path().join("db")).unwrap();
     let (stored_key, _) = saved_raw(&db, &key);
-    db.execute("INSERT INTO personal(key,value) VALUES('other','keep')", [])
+    db.execute("INSERT INTO device(key,value) VALUES('other','keep')", [])
         .unwrap();
     let before: String = db
-        .query_row("SELECT value FROM cache WHERE key='snapshot'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM cache WHERE key='device_snapshot_v1'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     for (raw, status) in [
         ("{broken", "corrupt"),
         ("{\"schemaVersion\":2}", "unsupported"),
     ] {
         db.execute(
-            "UPDATE personal SET value=?1 WHERE key=?2",
+            "UPDATE device SET value=?1 WHERE key=?2",
             [raw, &stored_key],
         )
         .unwrap();
@@ -278,7 +284,7 @@ fn corrupt_future_and_failed_transactions_preserve_other_records_and_can_be_rese
         );
         let untouched: String = db
             .query_row(
-                "SELECT value FROM personal WHERE key=?1",
+                "SELECT value FROM device WHERE key=?1",
                 [&stored_key],
                 |r| r.get(0),
             )
@@ -308,12 +314,12 @@ fn corrupt_future_and_failed_transactions_preserve_other_records_and_can_be_rese
     let (stored_key, saved) = saved_raw(&db, &key);
     let pointer: String = db
         .query_row(
-            "SELECT value FROM personal WHERE key LIKE 'document_tree_last_view_v1:%'",
+            "SELECT value FROM device WHERE key LIKE 'document_tree_last_view_v1:%'",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    db.execute_batch("CREATE TRIGGER reject_pointer BEFORE INSERT ON personal WHEN new.key LIKE 'document_tree_last_view_v1:%' BEGIN SELECT RAISE(ABORT,'injected pointer failure'); END;").unwrap();
+    db.execute_batch("CREATE TRIGGER reject_pointer BEFORE INSERT ON device WHEN new.key LIKE 'document_tree_last_view_v1:%' BEGIN SELECT RAISE(ABORT,'injected pointer failure'); END;").unwrap();
     let mut changed = state();
     changed.tree_scroll_top = 999.0;
     assert!(
@@ -325,7 +331,7 @@ fn corrupt_future_and_failed_transactions_preserve_other_records_and_can_be_rese
     );
     let rolled_back: String = db
         .query_row(
-            "SELECT value FROM personal WHERE key=?1",
+            "SELECT value FROM device WHERE key=?1",
             [&stored_key],
             |r| r.get(0),
         )
@@ -333,20 +339,22 @@ fn corrupt_future_and_failed_transactions_preserve_other_records_and_can_be_rese
     assert_eq!(saved, rolled_back);
     let old_pointer: String = db
         .query_row(
-            "SELECT value FROM personal WHERE key LIKE 'document_tree_last_view_v1:%'",
+            "SELECT value FROM device WHERE key LIKE 'document_tree_last_view_v1:%'",
             [],
             |r| r.get(0),
         )
         .unwrap();
     assert_eq!(pointer, old_pointer);
     let after: String = db
-        .query_row("SELECT value FROM cache WHERE key='snapshot'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM cache WHERE key='device_snapshot_v1'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(before, after);
     let other: String = db
-        .query_row("SELECT value FROM personal WHERE key='other'", [], |r| {
+        .query_row("SELECT value FROM device WHERE key='other'", [], |r| {
             r.get(0)
         })
         .unwrap();
@@ -406,7 +414,7 @@ fn view_isolation_validation_and_future_pointer_recovery_are_bounded() {
         .is_err()
     );
     let db = rusqlite::Connection::open(tmp.path().join("db")).unwrap();
-    db.execute("UPDATE personal SET value='{\"schemaVersion\":99}' WHERE key LIKE 'document_tree_last_view_v1:%'", []).unwrap();
+    db.execute("UPDATE device SET value='{\"schemaVersion\":99}' WHERE key LIKE 'document_tree_last_view_v1:%'", []).unwrap();
     let scope = DocumentTreeReadingScope {
         schema_version: 1,
         project_id: product.project_id.clone(),

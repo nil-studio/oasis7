@@ -1,3 +1,5 @@
+use super::peer_discovery_observations::DiscoveryObservations;
+use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -5,7 +7,6 @@ use libp2p::core::connection::ConnectedPoint;
 use libp2p::rendezvous;
 use libp2p::swarm::ConnectionId;
 use libp2p::{Multiaddr, PeerId};
-use oasis7_proto::distributed_dht::SignedPeerRecord;
 
 use super::reachability::refresh_active_transport_snapshot;
 use super::runtime_loop::{enforce_peer_manager_quarantine, refresh_peer_manager_healths};
@@ -227,9 +228,9 @@ pub(super) fn clear_disconnected_peer_state(
     pending_quarantine_disconnects: &mut HashSet<PeerId>,
     active_transport_paths: &mut HashMap<PeerId, TransportPath>,
     last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
-    connected_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
-    cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
-    cached_discovery_peer_cooldowns: &mut HashMap<PeerId, i64>,
+    _connected_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
+    _cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
+    _cached_discovery_peer_cooldowns: &mut HashMap<PeerId, i64>,
     pending_rendezvous_registers: &mut HashSet<PeerId>,
     pending_rendezvous_discovers: &mut HashSet<PeerId>,
     registered_rendezvous_nodes: &mut HashSet<PeerId>,
@@ -246,9 +247,8 @@ pub(super) fn clear_disconnected_peer_state(
         active_transport_paths.remove(&peer_id);
         last_dialed_transport_paths.remove(&peer_id);
     }
-    connected_peer_record_cooldowns.remove(&peer_id);
-    cached_peer_record_cooldowns.remove(&peer_id);
-    cached_discovery_peer_cooldowns.remove(&peer_id);
+    // Reconnection must not reset a live discovery target cooldown.
+    // Expired entries are pruned by the bounded admission path.
     pending_rendezvous_registers.remove(&peer_id);
     pending_rendezvous_discovers.remove(&peer_id);
     registered_rendezvous_nodes.remove(&peer_id);
@@ -266,7 +266,8 @@ pub(super) fn clear_disconnected_peer_state(
 )]
 pub(super) fn refresh_peer_manager_views(
     swarm: &mut libp2p::Swarm<Behaviour>,
-    discovered_peer_records: &HashMap<PeerId, SignedPeerRecord>,
+    discovered_peer_records: &PeerRecordCache,
+    discovery_observations: &DiscoveryObservations,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     admitted_active_peers: &HashSet<PeerId>,
     peer_manager_policy: &PeerManagerPolicy,
@@ -284,6 +285,7 @@ pub(super) fn refresh_peer_manager_views(
     let (peer_healths_by_id, quarantined_active_peers, admitted_active_peers) =
         refresh_peer_manager_healths(
             discovered_peer_records,
+            discovery_observations,
             active_transport_paths,
             admitted_active_peers,
             peer_manager_policy,
@@ -371,6 +373,7 @@ mod tests {
         flavor: TransportSessionFlavor,
     ) -> TransportPath {
         TransportPath {
+            record_lease: None,
             peer_id,
             addr: addr.parse().expect("multiaddr"),
             kind,

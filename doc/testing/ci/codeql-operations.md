@@ -83,6 +83,22 @@ archive 下载上限 1 MiB、超时 30 秒，并校验平台 `sha256` digest；Z
 
 CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI 声明及生效保护决定。必需安全检查未成功时不得合入，不通过本地解释改写远端结果。
 
+## Rust 公共模型性能诊断
+
+本入口用于已授权的候选源码测量，遵循[有界公共模型性能诊断](codeql-integration.design.md#72-rust)，不执行安全查询集、不上传 SARIF、不修改批次设置或 required policy。源码与诊断程序分别固定 OID；每轮开始前记录探针要区分的假设、预期观察和停止条件，保留旧失败，不自动重试。
+
+`scripts/security/codeql-rust-model-diagnostic.py --help` 列出实际参数。`--probe` 仅选择 `node-only`、`endpoints`、`peer-df`、`driver-non-target`、`driver-target`、`calls` 或 `full`。先用最小前置探针确定公共 Node、调用解析和局部流的成本边界；已有宏 AST 成功证据不要求每轮重做。`endpoints` 的存在性结果辅助解释 wrong-branch/wrong-state 等负例，不能取代原负例。`full` 仍须完整标签 union、全部正负期望和精确 Files 身份通过。
+
+每个分区单独记录开始/结束、退出码、BQRS/解码表、指标判定和缓存状态，成功后立即解码；后续超时保留此前结果并标明完整批次未通过。一次模型阶段的所有求值、预热及解码共同受原 180 秒截止控制，全轮最多 1080 秒；多个独立轮次的局部结果不能拼成原完整批次的预算内成功。日志汇总优先使用官方 `generate log-summary`，共享阶段去重后的 wall 时间也不是 CPU 时间。
+
+资源样本必须说明进程身份、采样间隔、观测峰值与真实峰值的区别，以及退出时的缺口；采样不到不能记作零。纯结构化 evaluator 日志、progress、tuple 信息、官方摘要、遥测和结果共受 64 MiB 限制。证据空间不足或身份/清理异常时终止后续子进程，保存具体失败；不删除旧证据、不循环探测空间、不通过丢弃失败原文伪装满足限制。
+
+官方版本对照固定同一业务源码、Cargo 图、实际 Rust 工具链和提取配置，各用完整官方 bundle 与独立新数据库、缓存。先比较相同探针；新版能完成后，再做原完整公共见证验证。提取缺失而变快不算改善。若 Node-only 已呈现同一昂贵前置、新版受控对照仍未完成且成本仍集中在官方共享阶段，结束没有新机制的本地改写，准备上游材料：源码/manifest/lock/vendor 身份、bundle/pack 摘要、完整 QL 与期望、原始日志和官方摘要、资源样本、终态及可重建命令。上游公开提交另需授权。
+
+性能问题解决与 Rust 启用是两项验收：本入口即使完整 candidate 通过，也不代签 legacy、Linux image、全仓覆盖及运营验收。具体运行身份、结果和未知项写对应 PR/Issue，不在本手册追加运行历史。
+
+诊断由 Rust workflow 的 `workflow_dispatch` / `run_mode=codeql_rust_model_diagnostic` 显式触发，`model_probe` 选择上述探针，`model_bundle_version` 只接受固定 allowlist 中的 `2.27.2` 或 `2.27.3`，默认旧版；本地入口对应 `--bundle-version`。完整 bundle URL/摘要及解析包闭包随选择绑定，不能混用新版 CLI 和旧版库，也不接受任意下载 URL。派发前冻结诊断 source SHA 与业务 checkout SHA，读回唯一 run 后沿该身份观察，不重复派发。
+
 ## Hosted 验收与回退
 
 授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。

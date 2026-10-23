@@ -368,6 +368,7 @@ mod tests {
 
     fn path(kind: TransportPathKind) -> TransportPath {
         TransportPath {
+            record_lease: None,
             peer_id: PeerId::random(),
             addr: "/ip4/127.0.0.1/tcp/4001".parse().expect("transport addr"),
             kind,

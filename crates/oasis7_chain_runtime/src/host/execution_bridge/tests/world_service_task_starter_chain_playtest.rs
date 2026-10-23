@@ -273,6 +273,7 @@ fn private_task_starter_chain_build_feed_first_product_and_restart() {
                 let proof = sign_read_request(
                     TASK_CONTEXT_PREPARE_PATH,
                     TaskContextPrepareV1 {
+            authority_mode: None,
                         schema_revision: 1,
                         fence: GameTaskFenceV1::from_control(&control),
                         client_operation_id: format!("starter-chain-{stage}-{attempt}"),
