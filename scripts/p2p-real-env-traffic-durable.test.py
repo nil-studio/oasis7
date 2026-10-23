@@ -2,6 +2,7 @@
 """Actual traffic wrapper lifecycle with offline curl and SSH fixtures."""
 import contextlib
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -53,6 +54,50 @@ def canonical(root, expected=0, out=None):
 
 
 class TrafficDurableTests(unittest.TestCase):
+    def test_actual_legacy_wrapper_upgrades_in_place_without_adopting_old_success(self):
+        # Byte-for-byte predecessor from 74ffd31be78e34165378783f42cfe2fc0814880f,
+        # retained for shallow CI checkouts; digest guards the extracted source.
+        legacy = SCRIPTS/'p2p-real-env-traffic-monitor.legacy-fixture.sh'
+        self.assertEqual(hashlib.sha256(legacy.read_bytes()).hexdigest(), '9e64781288421107bf71d9493c9d8a34d4efe5ca93fc0cfd2caf38a5c886843e')
+        with traffic_fixture() as (root,env,command):
+            wrapper=root/'scripts/p2p-real-env-traffic-monitor.sh'
+            current=wrapper.read_bytes()
+            wrapper.write_bytes(legacy.read_bytes())
+            complete(command,env)
+            out=root/'out'
+            legacy_runs=list((out/'runs').iterdir())
+            self.assertEqual(len(legacy_runs),1)
+            self.assertRegex(legacy_runs[0].name,r'^[0-9]{8}-[0-9]{6}$')
+            legacy_evidence={str(path.relative_to(out)):path.read_bytes() for path in legacy_runs[0].rglob('*') if path.is_file()}
+            old_history=(out/'history.ndjson').read_bytes()
+            self.assertEqual(len(old_history.splitlines()),3)
+            self.assertFalse((out/'attempt_state.json').exists())
+            wrapper.write_bytes(current)
+            process,release=self.start_paused(root,env,command)
+            try:
+                pending=canonical(root,1)
+                self.assertEqual(pending['attempt']['sequence'],1)
+                self.assertEqual(pending['attempt']['result'],'pending')
+                self.assertIsNone(pending['last_success'])
+                self.assertEqual((out/'history.ndjson').read_bytes(),old_history)
+                release.touch()
+                output=process.communicate(timeout=10)
+                self.assertEqual(process.returncode,0,output)
+            finally:
+                self.stop_process(process)
+            first=canonical(root)
+            self.assertEqual(first['attempt']['sequence'],1)
+            self.assertEqual(first['last_success']['sequence'],1)
+            self.assertEqual(first['run_id'],'1-'+first['attempt']['attempt_id'])
+            self.assertEqual(len((out/'history.ndjson').read_bytes().splitlines()),6)
+            complete(command,env)
+            second=canonical(root)
+            self.assertEqual(second['attempt']['sequence'],2)
+            self.assertEqual(second['last_success']['sequence'],2)
+            self.assertEqual(len((out/'history.ndjson').read_bytes().splitlines()),9)
+            for relative,payload in legacy_evidence.items():
+                self.assertEqual((out/relative).read_bytes(),payload)
+
     def test_invalid_cli_never_writes(self):
         with traffic_fixture() as (root, env, command):
             for invalid in (['--samples','0'],['--samples','bad','--samples','1'],['--samples','2147483648'],['--samples','١'],['--samples'],['--out-dir',''],['--as-of-unix-ms','0'],['--max-sample-age-secs','-1'],['--top-n','1.5'],['--unknown','x']):

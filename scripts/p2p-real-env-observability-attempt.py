@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Durable observability, host, snapshot and traffic collection ordering. Read this canonical state, not an unvalidated cache."""
 import argparse
+from datetime import datetime
+import re
 from contextlib import contextmanager
 try:
     import fcntl
@@ -198,6 +200,78 @@ def validate_collector(value, collector):
         raise AttemptError('collector profile mismatch')
 
 
+
+def legacy_traffic_run(root, directory):
+    """Recognize the old timestamp namespace without adopting any old success."""
+    if not re.fullmatch(r'[0-9]{8}-[0-9]{6}', directory.name):
+        raise AttemptError('unrecognized legacy traffic run name')
+    try:
+        datetime.strptime(directory.name, '%Y%m%d-%H%M%S')
+    except ValueError as error:
+        raise AttemptError('invalid legacy traffic run timestamp') from error
+    required = {'config.json', 'summary.json', 'summary.md', 'samples.ndjson', 'raw'}
+    if not directory.is_dir() or {path.name for path in directory.iterdir()} != required:
+        raise AttemptError('legacy traffic run artifacts incomplete or mixed')
+    forbidden = {ANCHOR, STATE, LOCK, 'publication', 'terminal_result.json', 'history_receipt.json', 'report'}
+    for path in (directory.parent, directory, *directory.rglob('*')):
+        reject_symlinks(path)
+        metadata = path.stat()
+        if (metadata.st_uid != os.getuid() or metadata.st_mode & 0o022
+                or not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode))
+                or (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink != 1)
+                or path.name in forbidden):
+            raise AttemptError('unsafe or versioned legacy traffic artifact')
+    if not (directory / 'raw').is_dir() or any(not (directory / name).is_file() for name in required - {'raw'}):
+        raise AttemptError('invalid legacy traffic artifact types')
+    config, summary = read_json(directory / 'config.json'), read_json(directory / 'summary.json')
+    config_fields = {'run_id', 'run_dir', 'history_path', 'latest_summary_json', 'latest_summary_md',
+                     'samples', 'interval_secs', 'window_minutes', 'history_retention_minutes', 'top_n',
+                     'ssh_timeout_secs', 'summary_only', 'nodes'}
+    if not isinstance(config, dict) or set(config) != config_fields or not isinstance(summary, dict):
+        raise AttemptError('unrecognized legacy traffic configuration')
+    def absolute(value):
+        if not isinstance(value, str) or not value:
+            raise AttemptError('invalid legacy traffic path')
+        return Path(os.path.abspath(Path(__file__).parent.parent / value))
+    summary_fields = {'ok', 'schema_version', 'as_of_unix_ms', 'freshness_policy', 'generated_at', 'history_path',
+                      'history_retention_minutes', 'history_record_count_before_prune', 'history_record_count',
+                      'history_pruned_count', 'window_minutes_requested', 'top_n', 'run_id', 'run_dir', 'nodes', 'aggregate'}
+    if (set(summary) != summary_fields or config['run_id'] != directory.name or absolute(config['run_dir']) != directory
+            or summary.get('run_id') != config['run_id'] or summary.get('run_dir') != config['run_dir']
+            or absolute(config['latest_summary_json']) != root / 'latest_summary.json'
+            or absolute(config['latest_summary_md']) != root / 'latest_summary.md'
+            or not isinstance(config['history_path'], str) or not config['history_path']
+            or summary.get('history_path') != config['history_path']
+            or summary.get('schema_version') != 2 or summary.get('ok') is not True
+            or not isinstance(summary.get('nodes'), dict) or set(summary['nodes']) != {'local_node', 'sequencer_ecs', 'storage_ecs'}
+            or any(not isinstance(node, dict) for node in summary['nodes'].values())
+            or not isinstance(summary.get('aggregate'), dict)
+            or any(type(summary.get(key)) is not int or summary[key] < 0 for key in
+                   ('as_of_unix_ms', 'history_record_count_before_prune', 'history_record_count', 'history_pruned_count'))
+            or summary.get('history_retention_minutes') != config['history_retention_minutes']
+            or summary.get('window_minutes_requested') != config['window_minutes'] or summary.get('top_n') != config['top_n']
+            or not isinstance(summary.get('freshness_policy'), dict) or not isinstance(summary.get('generated_at'), str)
+            or any(key in summary for key in ('collection', 'collection_attempt', 'attempt', 'latest_attempt',
+                                               'last_success', 'canonical_state'))
+            or type(config['summary_only']) is not bool
+            or any(type(config[key]) is not int or config[key] <= 0 for key in
+                   ('samples', 'interval_secs', 'window_minutes', 'history_retention_minutes', 'top_n', 'ssh_timeout_secs'))):
+        raise AttemptError('legacy traffic configuration or summary identity mismatch')
+    nodes = config['nodes']
+    if not isinstance(nodes, dict) or set(nodes) != {'local_node', 'sequencer_ecs', 'storage_ecs'}:
+        raise AttemptError('invalid legacy traffic requested inventory')
+    for label, node in nodes.items():
+        expected = {'mode', 'status_url'} | (set() if label == 'local_node' else {'target'})
+        if (not isinstance(node, dict) or set(node) != expected
+                or node['mode'] != ('local' if label == 'local_node' else 'remote')
+                or any(not isinstance(value, str) or not value for value in node.values())):
+            raise AttemptError('invalid legacy traffic node configuration')
+    try:
+        (directory / 'summary.md').read_text(encoding='utf-8')
+    except UnicodeError as error:
+        raise AttemptError('invalid legacy traffic markdown encoding') from error
+    return {name: digest((directory / name).read_bytes()) for name in ('config.json', 'summary.json', 'summary.md')}
+
 def load_state(root, collector='observability'):
     anchor, state_path = root / ANCHOR, root / STATE
     if not anchor.exists() or not state_path.exists():
@@ -216,14 +290,28 @@ def load_state(root, collector='observability'):
     validate_collector(state, collector)
     runs = root / 'runs'
     reject_symlinks(runs)
+    legacy_runs = initialized.get('legacy_runs', {})
+    if not isinstance(legacy_runs, dict) or (legacy_runs and collector != 'traffic'):
+        raise AttemptError('invalid legacy run registry')
+    if any(not isinstance(name, str) or not re.fullmatch(r'[0-9]{8}-[0-9]{6}', name)
+           or not isinstance(reference, dict) or set(reference) != {'config.json', 'summary.json', 'summary.md'}
+           or any(not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{64}', value) for value in reference.values())
+           for name, reference in legacy_runs.items()):
+        raise AttemptError('invalid legacy run registry entry')
     if runs.exists():
         for directory in runs.iterdir():
+            if directory.name in legacy_runs:
+                if legacy_traffic_run(root, directory) != legacy_runs[directory.name]:
+                    raise AttemptError('registered legacy traffic metadata changed')
+                continue
             try:
                 sequence = int(directory.name.split('-', 1)[0])
             except ValueError as error:
                 raise AttemptError('invalid retained run sequence evidence') from error
             if sequence > state['last_sequence']:
                 raise AttemptError('retained run evidence exceeds persisted sequence')
+    if any(not (runs / name).exists() for name in legacy_runs):
+        raise AttemptError('registered legacy traffic run missing')
     attempt = state.get('latest_attempt')
     if state['last_sequence']:
         if (not isinstance(attempt, dict) or attempt.get('sequence') != state['last_sequence']
@@ -345,12 +433,16 @@ def begin(root, arguments, collector='observability'):
                 old = read_json(legacy)
                 if isinstance(old, dict) and ('attempt' in old or 'latest_attempt' in old):
                     raise AttemptError('versioned artifacts exist without sequence anchor')
-            if (root / 'runs').exists() and any((root / 'runs').iterdir()):
-                raise AttemptError('run artifacts exist without sequence anchor')
+            legacy_runs = {}
+            if (root / 'runs').exists():
+                for directory in (root / 'runs').iterdir():
+                    if collector != 'traffic':
+                        raise AttemptError('run artifacts exist without sequence anchor')
+                    legacy_runs[directory.name] = legacy_traffic_run(root, directory)
             store_id = str(uuid.uuid4())
             metadata = (root / LOCK).stat()
             atomic_write(root / ANCHOR, encoded({'schema_version': 1, 'collector': collector, 'store_id': store_id,
-                         'high_water_sequence': 0, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino,
+                         'high_water_sequence': 0, 'legacy_runs': legacy_runs, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino,
                          'token': check.lock_token}}))
             atomic_write(root / STATE, encoded({'schema_version': 1, 'collector': collector, 'store_id': store_id,
                          'last_sequence': 0, 'latest_attempt': None, 'last_success': None}))

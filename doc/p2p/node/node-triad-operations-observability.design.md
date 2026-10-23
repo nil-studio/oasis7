@@ -185,6 +185,8 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节承接 [OPS-AC-5
 
 Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节承接 [OPS-AC-5](node-triad-operations-observability.prd.md#ops-profile-readiness) 的 traffic 尝试与历史发布义务。`p2p-real-env-traffic-monitor.sh` 使用同一发布 helper 的具体 `traffic` 类型，与 observability／host／snapshot 的锚、状态和尝试隔离；旧无类型协议仍只认作 observability。序号高水位、稳定锁、generation／摘要、条件终态与 last-success 规则复用既有机制，不增加第二套尝试排序。
 
+兼容初始化保留旧 traffic 的 `runs/YYYYMMDD-HHMMSS` 原位，不搬动或改写旧证据和其中的 run_dir；它与新协议十二位序号加 UUID 的命名空间不重叠。只有首次 traffic 初始化、锚和状态均不存在时，才可识别严格旧时间戳目录：旧 config／summary 的 run ID、目录及 triad 配置相符，缺少新协议字段／publication／terminal 工件，树中没有符号链接或不安全文件。初始化锚持久记录接受的旧目录名和配置／报告摘要；后续高水位扫描只跳过这些匹配记录，不把任意新出现的时间戳名当旧格式。未知、损坏、不完整或混入孤立版本化尝试的 runs 仍阻断。旧 latest 不能变成新协议 last-success，首个 pending 序号仍为 1。该识别只用于命名空间兼容，不授予旧工件当前健康或新协议验证资格。
+
 所有 CLI 取值、每次重复选项、summary-only／as-of 组合及历史源前置在输出与探测前验证；历史路径校验复用只读 `history-validate --collector traffic`；整数使用有界 ASCII 十进制并规范前导零，显式 as-of 不能在未来。随后 `begin --collector traffic` 持久写 pending 并预留唯一 `runs/<sequence>-<attempt-id>`，才启动 HTTP／SSH 或输出工件。指纹绑定实际入口、归约器、新鲜度 helper、发布 helper 和配置摘要；复用历史内容在历史事务中单独记录摘要，不以指纹阶段反复读取可变大文件作为事务证明。
 
 各 run 保留 `config.json`、自己的 `samples.ndjson`、不可变 `history.ndjson` 归约输入和 `report/latest_summary.json|md` 源报告；旧同 run `summary.json|md` 可保留为兼容材料。配置明确原 history_path、该 run 的 history_input_path 与 summary_only。traffic schema 2 增加 collection：mode 为 live 或 history_replay，node_labels 为固定 triad，samples_per_node 记录请求，expected_sample_count／attempted_count／failed_sample_count／complete 明确本次执行。live 完整性与该 run 的配置及唯一 label／sample-index、fetch 结果核对；回放的预期／实际／失败采样数均为 0，complete 仅表示归约执行，不表示进行过实时采样或取得当前就绪。源报告还须与预留 run、模式、输入快照和策略相符；有效失败源保留新鲜度、历史与节点诊断，错误身份或未知／矛盾结构不采纳。

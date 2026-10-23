@@ -474,6 +474,86 @@ else:
         self.assertEqual(len(history.read_text().splitlines()), 3)
         with self.assertRaises(helper.AttemptError): helper.read(self.out, collector='host')
 
+    def legacy_traffic_fixture(self, root):
+        run = root / 'runs' / '20261023-120102'
+        (run / 'raw' / 'local_node').mkdir(parents=True)
+        config = {'run_id': run.name, 'run_dir': str(run), 'history_path': str(root / 'history.ndjson'),
+            'latest_summary_json': str(root / 'latest_summary.json'), 'latest_summary_md': str(root / 'latest_summary.md'),
+            'samples': 1, 'interval_secs': 1, 'window_minutes': 10, 'history_retention_minutes': 120,
+            'top_n': 5, 'ssh_timeout_secs': 8, 'summary_only': False, 'nodes': {
+                'local_node': {'mode': 'local', 'status_url': 'fixture'},
+                'sequencer_ecs': {'mode': 'remote', 'status_url': 'fixture', 'target': 'fixture'},
+                'storage_ecs': {'mode': 'remote', 'status_url': 'fixture', 'target': 'fixture'}}}
+        summary = {'schema_version': 2, 'run_id': run.name, 'run_dir': str(run),
+            'history_path': config['history_path'], 'nodes': {label: {} for label in config['nodes']}, 'aggregate': {}, 'ok': True,
+            'as_of_unix_ms': 1, 'freshness_policy': {}, 'generated_at': 'fixture', 'history_retention_minutes': 120,
+            'history_record_count_before_prune': 0, 'history_record_count': 0, 'history_pruned_count': 0,
+            'window_minutes_requested': 10, 'top_n': 5}
+        (run / 'config.json').write_text(json.dumps(config))
+        (run / 'summary.json').write_text(json.dumps(summary))
+        (run / 'summary.md').write_text('# legacy')
+        (run / 'samples.ndjson').write_text('')
+        (root / 'latest_summary.json').write_text(json.dumps(summary))
+        return run
+
+    def test_traffic_legacy_timestamp_upgrade_preserves_evidence_without_adopting_success(self):
+        helper = self.helper()
+        legacy = self.legacy_traffic_fixture(self.out)
+        before = {str(path.relative_to(legacy)): path.read_bytes() for path in legacy.rglob('*') if path.is_file()}
+        reserved = helper.begin(self.out, [], collector='traffic')
+        self.assertEqual(reserved['sequence'], 1)
+        report, _, code = helper.read(self.out, collector='traffic')
+        self.assertEqual(code, 1)
+        self.assertIsNone(report['last_success'])
+        self.assertEqual(before, {str(path.relative_to(legacy)): path.read_bytes() for path in legacy.rglob('*') if path.is_file()})
+        self.assertEqual(helper.begin(self.out, [], collector='traffic')['sequence'], 2)
+
+    def test_registered_legacy_traffic_metadata_cannot_change_or_expand(self):
+        helper = self.helper()
+        for mutation in ('config', 'summary', 'markdown', 'extra_timestamp', 'missing_run', 'registry'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                legacy = self.legacy_traffic_fixture(root)
+                helper.begin(root, [], collector='traffic')
+                if mutation in ('config', 'summary', 'markdown'):
+                    (legacy / {'config': 'config.json', 'summary': 'summary.json', 'markdown': 'summary.md'}[mutation]).write_text('{}')
+                if mutation == 'extra_timestamp':
+                    other = root / 'runs' / '20261023-120103'
+                    shutil.copytree(legacy, other)
+                if mutation == 'missing_run': shutil.rmtree(legacy)
+                if mutation == 'registry':
+                    anchor = json.loads((root / helper.ANCHOR).read_text())
+                    anchor['legacy_runs']['../outside'] = anchor['legacy_runs'].pop(legacy.name)
+                    (root / helper.ANCHOR).write_text(json.dumps(anchor))
+                for operation in (lambda: helper.read(root, collector='traffic'),
+                                  lambda: helper.begin(root, [], collector='traffic')):
+                    with self.assertRaises(helper.AttemptError): operation()
+
+    def test_traffic_legacy_upgrade_rejects_unknown_damaged_or_versioned_evidence(self):
+        helper = self.helper()
+        for mutation in ('unknown_name', 'bad_date', 'wrong_config', 'wrong_summary', 'new_config',
+                         'publication', 'terminal', 'symlink', 'unsafe', 'versioned_orphan'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                legacy = self.legacy_traffic_fixture(root)
+                if mutation == 'unknown_name': legacy.rename(legacy.with_name('unknown'))
+                if mutation == 'bad_date': legacy.rename(legacy.with_name('20261323-120102'))
+                if mutation in ('wrong_config', 'new_config'):
+                    config = json.loads((legacy / 'config.json').read_text())
+                    config['run_id' if mutation == 'wrong_config' else 'history_input_path'] = 'wrong'
+                    (legacy / 'config.json').write_text(json.dumps(config))
+                if mutation == 'wrong_summary':
+                    value = json.loads((legacy / 'summary.json').read_text()); value['run_dir'] = 'wrong'
+                    (legacy / 'summary.json').write_text(json.dumps(value))
+                if mutation == 'publication': (legacy / 'publication').mkdir()
+                if mutation == 'terminal': (legacy / 'terminal_result.json').write_text('{}')
+                if mutation == 'symlink': (legacy / 'raw' / 'alias').symlink_to(legacy / 'config.json')
+                if mutation == 'unsafe': (legacy / 'summary.md').chmod(0o666)
+                if mutation == 'versioned_orphan': (root / 'runs' / '000000000001-00000000-0000-0000-0000-000000000000').mkdir()
+                with self.assertRaises(helper.AttemptError): helper.begin(root, [], collector='traffic')
+                self.assertFalse((root / helper.ANCHOR).exists())
+                self.assertFalse((root / helper.STATE).exists())
+
     def traffic_fixture(self, helper, root, history, replay=False, captured=1):
         reserved = helper.begin(root, [], collector='traffic')
         run = Path(reserved['run_dir'])
