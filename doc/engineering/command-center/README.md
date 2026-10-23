@@ -189,7 +189,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 局部核对基线为 `main@822f6b49d1a5fb2b866b6c6902ffc8ed024d043b`（2026-10-18）。[PR #4881](https://github.com/nil-studio/oasis7/pull/4881) 已交付首页四区、共享工作详情、关联修复、决定同步与历史、原工具定位、一次明确发起和有界来源读取；[PR #4885](https://github.com/nil-studio/oasis7/pull/4885) 按用户人工 IME 确认收口 [#4848](https://github.com/nil-studio/oasis7/issues/4848)。原生任务、受控协议及构建范围见[验证记录](daily-work-verification.manual.md)，其结果不代表后续设计已实现。
 
-当前改造目标是降低文字与操作的同时暴露量，使用户从清晰的重点、成果、待答和已有工作进入同一详情。默认信息层级、图形表达、阅读密度和任务验收由[中文与清晰阅读要求](command-center.prd.md#REQ-CC-010)及[首页要求](command-center.prd.md#REQ-CC-013)拥有；[系统设计](command-center.design.md#cc-visual-composition)落实布局、组件和投影边界。现行决定只保存个人内容、理由、范围、正式文档关联及确认/替代历史；统一工作列表承接PR，来源区只管理连接、账号、读取范围与错误。实际功能及未证明范围以[当前系统设计](command-center.design.md#cc-current-implementation)为准，旧版交付结论保留原范围。
+当前云端主题于 2026-10-23 按 `main@8c0eeaefe3fb7cb39a74f514919b02f81de4c815` 文档和 [Sites v6 实现反馈](https://github.com/nil-studio/oasis7/issues/4983#issuecomment-6343356855)核对：个人空间、原文阅读和任务交付摘要已有实现，后续重点是[可信结论与证据缺口](command-center.design.md#cc-delivery-conclusion-boundaries)、[稳定目标及工作接续](command-center.design.md#cc-stable-goal-identity)、[文档持续更新](document-tree.design.md#cc-document-snapshot-update)和[真实任务健康](command-center.design.md#cc-update-health)。默认信息层级仍由[阅读要求](command-center.prd.md#REQ-CC-010)及[首页要求](command-center.prd.md#REQ-CC-013)拥有；现行个人决定、统一工作详情和来源诊断边界不变。实现及未证明范围集中见[当前系统设计](command-center.design.md#cc-current-implementation)，真实登录、双设备及正式迁移继续由 [#4983](https://github.com/nil-studio/oasis7/issues/4983)核验；合同补充不表示新增行为已实现，旧版交付结论保留原范围。
 
 本段只刷新客户端主题；VoiceOver 保持用户明确排除，Apple 签名/管理员集成的已有暂停继续有效，未增加模型、部署或其他环境验证事实。
 
