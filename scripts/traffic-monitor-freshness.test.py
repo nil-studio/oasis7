@@ -185,7 +185,7 @@ class FreshnessTests(unittest.TestCase):
     def test_collectors_record_invalid_http_success_and_completion_per_node(self):
         scripts = Path(__file__).parent
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             binaries = root / 'bin'
             binaries.mkdir()
             stubs = {
@@ -237,7 +237,7 @@ class FreshnessTests(unittest.TestCase):
 
     def test_wrapper_historical_replay_never_collects_or_changes_history(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             binaries = root / 'bin'
             binaries.mkdir()
             for name in ['curl', 'ssh']:

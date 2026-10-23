@@ -642,6 +642,34 @@ def summarize_wasm(raw_status: dict, wasm_summary: dict) -> dict:
     }
 
 
+def traffic_collection_complete(traffic: dict) -> bool:
+    collection = traffic.get("collection")
+    if collection is None and "collection_attempt" not in traffic:
+        return True  # Legacy reports rely on their existing freshness checks.
+    if not isinstance(collection, dict) or traffic.get("schema_version") != 2:
+        return False
+    attempt = traffic.get("collection_attempt")
+    if attempt is not None and (not isinstance(attempt, dict) or attempt.get("collector") != "traffic"
+                                or attempt.get("result") != "success"):
+        return False
+    labels = collection.get("node_labels")
+    nodes = traffic.get("nodes")
+    if (not isinstance(labels, list) or not all(isinstance(label, str) for label in labels)
+            or len(labels) != len(NODE_LABELS) or set(labels) != set(NODE_LABELS)
+            or not isinstance(nodes, dict) or set(nodes) != set(NODE_LABELS)
+            or any(not isinstance(node, dict) for node in nodes.values())
+            or collection.get("complete") is not True):
+        return False
+    fields = ("samples_per_node", "expected_sample_count", "attempted_count", "failed_sample_count")
+    if any(type(collection.get(key)) is not int for key in fields) or collection["samples_per_node"] <= 0:
+        return False
+    if collection.get("mode") not in ("live", "history_replay"):
+        return False
+    expected = len(NODE_LABELS) * collection["samples_per_node"] if collection["mode"] == "live" else 0
+    return (collection["expected_sample_count"] == collection["attempted_count"] == expected
+            and collection["failed_sample_count"] == 0)
+
+
 def reevaluate_traffic(traffic: dict, as_of: int) -> dict:
     """Retain historical counters; never refresh evidence by report generation time."""
     traffic = deepcopy(traffic)
@@ -651,8 +679,15 @@ def reevaluate_traffic(traffic: dict, as_of: int) -> dict:
                     and positive(policy.get("max_sample_gap_ms")))
     stamp = lambda value: value if type(value) is int and value >= 0 else None
     child_as_of = stamp(traffic.get("as_of_unix_ms"))
-    schema_ok = traffic.get("schema_version") == 2 and valid_policy
-    for node in (traffic.get("nodes") or {}).values():
+    collection_complete = traffic_collection_complete(traffic)
+    collection = traffic.get("collection")
+    live_measurement = collection is None or (isinstance(collection, dict) and collection.get("mode") == "live")
+    if not isinstance(traffic.get("nodes"), dict):
+        traffic["nodes"] = {}
+    schema_ok = traffic.get("schema_version") == 2 and valid_policy and collection_complete
+    for label, node in traffic["nodes"].items():
+        if not isinstance(node, dict):
+            node = traffic["nodes"][label] = {}
         prior = node.get("freshness") or {}
         attempt = node.get("latest_attempt") or {}
         success = node.get("last_success") or {}
@@ -708,7 +743,7 @@ def reevaluate_traffic(traffic: dict, as_of: int) -> dict:
                              "producer": {"state": producer_state, "observed_at_unix_ms": observed,
                                           "age_ms": producer_age}, "reasons": unique_sorted(reasons)}
         node["current_measurement_available"] = (state == "fresh" and producer_state == "fresh"
-                                                  and current_window and node.get("available") is True)
+                                                  and current_window and node.get("available") is True and live_measurement)
         node["available"] = node["current_measurement_available"]
     traffic["report_as_of_unix_ms"] = as_of
     traffic["current_measurement_available"] = bool(traffic.get("nodes")) and all(
@@ -1275,6 +1310,11 @@ def derive_node_summary(label: str, snapshot: dict, host: dict, traffic: dict, r
 
 
 def render_markdown(summary: dict) -> list[str]:
+    traffic = summary.get("traffic") or {}
+    collection = traffic.get("collection")
+    collection_mode = "legacy" if collection is None else "unknown"
+    if isinstance(collection, dict):
+        collection_mode = collection.get("mode", "unknown")
     lines = [
         "# P2P Real Env Observability Summary",
         "",
@@ -1285,6 +1325,7 @@ def render_markdown(summary: dict) -> list[str]:
         f"- Overall verdict: `{summary['overall']['status']}`",
         f"- Overall alerts: `{', '.join(summary['overall'].get('alerts') or ['(none)'])}`",
         f"- Optimization candidates: `{fmt_num(len(summary.get('optimization_candidates') or []))}`",
+        f"- Traffic collection: mode=`{collection_mode}` complete=`{traffic.get('collection_complete')}`",
         f"- Traffic total payload: `{fmt_bytes(((summary.get('traffic') or {}).get('aggregate') or {}).get('total_payload_bytes'))}`",
         "",
     ]
@@ -1398,7 +1439,10 @@ def main():
     }
 
     host_complete = host_collection_complete(host)
+    traffic_complete = traffic_collection_complete(traffic)
     overall_alerts = []
+    if not traffic_complete:
+        overall_alerts.append("traffic_collection_incomplete")
     if not host_complete:
         overall_alerts.append("host_collection_incomplete" if host.get("schema_version") == 2 else "host_schema_unknown")
     if snapshot.get("claim_status") != "pass_candidate":
@@ -1416,7 +1460,7 @@ def main():
 
     any_module_alerts = any(node.get("alerts") for node in nodes.values())
     overall_status = "pass_candidate"
-    if snapshot.get("claim_status") != "pass_candidate" or not host_complete:
+    if snapshot.get("claim_status") != "pass_candidate" or not host_complete or not traffic_complete:
         overall_status = "blocked"
     elif host.get("aggregate", {}).get("alerted_node_count", 0) > 0:
         overall_status = "pass_with_resource_alerts"
@@ -1462,6 +1506,8 @@ def main():
         },
         "traffic": {
             "schema_version": traffic.get("schema_version"),
+            "collection_complete": traffic_complete,
+            "collection": traffic.get("collection"),
             "as_of_unix_ms": traffic.get("as_of_unix_ms"),
             "freshness_policy": traffic.get("freshness_policy"),
             "current_measurement_available": traffic.get("current_measurement_available", False),

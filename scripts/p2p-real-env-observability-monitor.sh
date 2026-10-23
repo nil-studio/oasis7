@@ -266,7 +266,13 @@ run_stage traffic ./scripts/p2p-real-env-traffic-monitor.sh \
   --out-dir "$traffic_root" \
   ${traffic_args[@]+"${traffic_args[@]}"}
 
-traffic_summary="$traffic_root/latest_summary.json"
+if [[ -e "$traffic_root/.observability-initialized" || -L "$traffic_root/.observability-initialized" || -e "$traffic_root/attempt_state.json" || -L "$traffic_root/attempt_state.json" ]]; then
+  traffic_summary="$traffic_root/canonical_summary.json"
+  run_stage traffic python3 "$attempt_helper" read --collector traffic --out-dir "$traffic_root" >"$traffic_summary"
+else
+  # Legacy children are supported only inside this unique outer run.
+  traffic_summary="$traffic_root/latest_summary.json"
+fi
 
 for label in local_node sequencer_ecs storage_ecs; do
   sample_source_dir="$snapshot_run_dir/nodes/$label/samples"
