@@ -1,6 +1,6 @@
 # Rust 工程契约系统设计
 
-- 状态：`active`，目标设计；新增检查器、继承配置与生成流程均需后续实施。
+- 状态：`active`；Workspace 与架构机制按切片实施，signed-read 首个开发期生成入口见[产物合同](#artifact-contract)。
 - 主责：engineering 维护者；架构和 wire/profile 语义由原 crate、Runtime 与接口 owner 拥有。
 - 专业需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)（`PRD-ENGINEERING-036`）。
 - 实施验收：[验证手册](rust-engineering-contracts.manual.md)，新增工具就绪后按实际候选执行。
@@ -167,7 +167,7 @@ Bootstrap `ReadWorldViewRequest.fixed_commit` 可缺省或为 null，实际 hand
 
 每个 profile 登记名称、唯一权威输入、导出根及具体泛型实例、target/features、API/schema/协议版本、生成配置和格式版本、生成工具/依赖锁、受管文件相对路径。profile 不以 Cargo 包版本替代 wire 版本；`UnsupportedWireVariant` 等不可构造分支必须表达为不可构造，不降级为任意值。
 
-首切片每个 profile 一个受管目录，输出集合至少为 `types.ts`、`schema.json` 和 `manifest.json`；确需拆分 schema 时由清单穷举。具体仓库目录随生成器实施确定，先按[CI 接入约束](#runtime-constraints)核对可信基线中的路径归属；本文不声称这些产物已存在。手工 OpenAPI 与受管目录分开，所有生成文件标明编辑入口。人工消费者、overlay 和 golden fixtures 不被写模式删除。
+首切片每个 profile 一个受管目录，输出集合至少为 `types.ts`、`schema.json` 和 `manifest.json`；确需拆分 schema 时由清单穷举。首切片的[生成器与 profile](../../../crates/oasis7_agent_api/protocol_codegen/README.md)及 `generated/` 受管目录位于 `crates/oasis7_agent_api/protocol_codegen/`，由既有 Cargo owner 覆盖；[独立 TS 消费样例](../../../crates/oasis7_agent_api/protocol_conformance/README.md)与生成工具分开维护。新增 profile 仍按[CI 接入约束](#runtime-constraints)核对可信路径归属。手工 OpenAPI 与受管目录分开，所有生成文件标明编辑入口。人工消费者、overlay 和 golden fixtures 不被写模式删除。
 
 Manifest 至少包含格式版本、profile、wire 版本、导出根、相关输入的相对路径与内容摘要、生成工具/配置/锁定依赖摘要及各输出摘要；摘要算法固定为 SHA-256，manifest 不把自身摘要纳入递归计算。生成字节采用 UTF-8/LF、固定排序、稳定命名和确定的格式化工具，不含时间戳、绝对路径或整仓 HEAD。实际执行的源码 SHA 与环境留在 CI/PR 证据，不能让无关文档提交造成协议重生成。
 
@@ -189,7 +189,7 @@ Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b、O7-REQ-7d6cef7f-9419-4
 | 字段与枚举 | `rename`、tag、flatten、default、skip、缺失/null、未知字段/状态处理均保持所属 profile | 不从 Rust `Option` 简化推出“总可省略”；不认识的 custom serde 使用显式 adapter 与 fixture，否则失败 |
 | 签名与摘要 | World Service canonical CBOR 的 domain/value 结构、cognition digest、projection canonical JSON 各有原 owner | 不互换 JSON/CBOR canonicalizer，不改 domain、字段表示或原始投影；先验证完整值，再投影窄类型 |
 
-当前人工 OpenAPI 的 `DecimalU64` 仅用 pattern 与 `maxLength=20` 约束字符串，上界只在 description 中，尚不足以让标准 schema 校验拒绝 `18446744073709551616`。首切片须先由接口 owner 将与原 Rust codec 一致的上界补成源 OpenAPI 中的标准 JSON Schema 可机读约束，再派生类型与 schema；生成器不从自然语言 description 猜测范围，也不另设可独立修改的上界真源。盘点首切片已知的同语义字段，包括 task-control 的内联整数正则，引用同一精确约束并保留正整数等字段收窄；不向动态 unknown JSON 推断类型。生成 schema 和 TS 运行时校验都须接受 `u64::MAX`、拒绝其加一，并以原 codec/golden 独立核对；源合同修正的 schema revision 与消费者兼容性仍由接口 owner 按原规则判断。
+人工 OpenAPI 的 `DecimalU64` 使用标准 JSON Schema pattern 表达规范十进制及精确上界，已知 task-control、GoalReference 和 ExecutorBinding 字段引用同一约束并保留正整数等局部收窄。生成器不从 description 猜测范围，也不维护第二份上界；动态 unknown JSON 不据此推断类型。生成 schema 和 TS 校验须接受 `u64::MAX`、拒绝其加一，并以原 codec/golden 独立核对。相对于原来的 pattern/20 位长度规则，这是机器接受范围的收窄，read schema revision 从 4 升到 5，API revision 保持 1；Rust JSON/CBOR codec 和五条 GET 不变。声明只接受 schema revision 4 的旧消费者应明确拒绝 revision 5，升级后重新验证；本次首次建立 TS 基线，没有旧 TS 版本可执行双向矩阵。
 
 签名与规范编码依据为 [World Service authority](../../../crates/oasis7_client_api/src/world_service/authority.rs)、[canonical CBOR](../../../crates/oasis7_wasm_abi/src/canonical_cbor.rs) 和[投影承诺](../../../crates/oasis7_client_api/src/formal_projection.rs)。生成物只描述合同，不重新实现权限或世界规则。新增字段/枚举并不天然兼容，严格未知字段、版本协商和签名域均须双向验证。
 
@@ -276,7 +276,7 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 | 生成与运行分离 | 开发期工具、显式 profile、提交完整产物，运行时无生成依赖 | 增加开发期工具维护；engineering 与接口 owner 在新增 profile/consumer 时评估输入闭包和依赖成本 |
 | 三类证据独立 | 漂移、wire/兼容、服务语义分别验证，禁止以一种成功代替其他 | 测试按受影响合同选择；协议 owner 在编码/消费者变更时复核兼容方向 |
 
-实施前仍需确定两个局部事项，均不改变上述合同：engineering 维护者确定 binary、规则文件与产物目录，并按[可信基线路径约束](#runtime-constraints)安排首次 CI 登记和接入；接口 owner 根据 TS 协议一致性样例和 CI 资源确定 profile 的有限容量上限与运行时校验实现，带上限/超限样例后才能启用该 profile。未登记的 Viewer/World Service 导出根不属于首版承诺。
+首个 HTTP profile 使用独立 Python 3.12 标准库工具，生成/check 入口及冲突恢复见[生成器说明](../../../crates/oasis7_agent_api/protocol_codegen/README.md)；导出根、有限容量/深度/超时及目标配置由 [profile.json](../../../crates/oasis7_agent_api/protocol_codegen/profile.json)登记，实际输入与输出摘要归生成 manifest。TS 消费者使用独立锁定的 TypeScript/Ajv 工具，验证方法见[手册](rust-engineering-contracts.manual.md#protocol-generation)。本节采纳这些稳定入口与职责，不代签一次运行或部署结果；未登记的 Rust components、Viewer/World Service 导出根仍不属于首版承诺。
 
 长期风险包括规则漂移、feature 合并造成误报、custom serde 与 schema 不一致、精确整数在 JS 处理中丢失，以及严格消费者拒绝新增字段。对应控制是原 owner 的单一依据、按真实配置解析、显式 adapter/fixture、lossless 边界和双向兼容验证；无法证明的部分继续显示缺口，不降级为静默成功。
 

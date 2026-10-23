@@ -267,6 +267,15 @@ pub fn derive_correlation_with_legacy<
         }
         WorldServicePayloadV1::Scheduler(signed) => {
             verify_read_request("scheduler", signed)?;
+            if signed.request.task_prefix_binding_revision > 1
+                || (signed.request.task_prefix_binding_revision != 0
+                    && !matches!(
+                        &signed.request.operation,
+                        SchedulerOperationV1::TaskProviderPrefix { .. }
+                    ))
+            {
+                return Err("unsupported scheduler task prefix binding revision".into());
+            }
             if let SchedulerOperationV1::TaskProviderPrefix { context }
             | SchedulerOperationV1::TaskProviderFailure { context, .. } =
                 &signed.request.operation

@@ -19,6 +19,7 @@ fn historical_prefix(fence: GameTaskFenceV1, private: &str) -> WorldServicePaylo
         .delegation_generation
         .0;
     let request: TaskSchedulerIntentV1 = SchedulerIntentV1 {
+        task_prefix_binding_revision: 0,
         agent_id: fence.agent_id.clone(),
         request_id: "old-a-prefix".into(),
         delegation_generation: generation,

@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DRIVER = (ROOT / 'scripts/ci-tests.sh').read_text()
+CONTRACT_FUNCTION = DRIVER.split('run_signed_read_protocol_contract_tests() {', 1)[1].split('\n}', 1)[0]
 FUNCTION = DRIVER.split('run_selected_workspace_support() {', 1)[1].split(
     '\nrun_rustsec_advisory_check()', 1)[0]
 
@@ -63,13 +64,17 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
-    def invoke(self, profiles, fail=False):
+    def invoke(self, profiles, fail=False, fail_protocol=False):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"
+run() { echo "contract $*"; }
 run_cargo() { echo "cargo $*"; }
 run_cargo_clippy() { echo "clippy $*"; }
 run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
 '''
+        script += 'run_signed_read_protocol_contract_tests() {' + CONTRACT_FUNCTION + '\n}\n'
+        if fail_protocol:
+            script += 'run() { echo "contract $*"; return 19; }\n'
         if fail:
             script += 'run_cargo() { return 17; }\n'
         script += 'run_selected_workspace_support() {' + FUNCTION
@@ -149,6 +154,25 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
                 result = self.invoke(value)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn('cargo test', result.stdout)
+
+    def test_agent_api_runs_protocol_contract_before_cargo(self):
+        result = self.invoke('["oasis7_agent_api"]')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('protocol_codegen/generate.py check', result.stdout)
+        self.assertIn('unittest discover -s crates/oasis7_agent_api/protocol_codegen', result.stdout)
+        self.assertIn('npm ci --prefix crates/oasis7_agent_api/protocol_conformance --ignore-scripts', result.stdout)
+        self.assertIn('npm test --prefix crates/oasis7_agent_api/protocol_conformance', result.stdout)
+        self.assertLess(result.stdout.index('protocol_codegen/generate.py check'),
+                        result.stdout.index('clippy -p oasis7_agent_api'))
+        other = self.invoke('["oasis7_agent_harness"]')
+        self.assertNotIn('contract ', other.stdout)
+
+    def test_protocol_failure_stops_profile_before_cargo(self):
+        result = self.invoke('["oasis7_agent_api"]', fail_protocol=True)
+        self.assertEqual(result.returncode, 19, result.stderr)
+        self.assertNotIn('clippy ', result.stdout)
+        self.assertNotIn('cargo test', result.stdout)
+        self.assertNotIn('support profile completed', result.stdout)
 
     def test_failure_is_not_completed(self):
         result = self.invoke('["oasis7_agent_api"]', fail=True)

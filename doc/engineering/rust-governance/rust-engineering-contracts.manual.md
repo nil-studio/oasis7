@@ -2,7 +2,7 @@
 
 - 适用需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)。
 - 技术依据：[Rust 工程契约系统设计](rust-engineering-contracts.design.md)。
-- 本文是未来实施切片的验收操作计划；不表示新检查器、生成器、lint 继承或下列自动测试已存在，也不记录一次运行通过。
+- Workspace 与架构章节是后续切片的验收操作计划；signed-read 章节提供首个开发期工具的实际入口。方法和工具存在不代表一次运行通过，实际结果仍归对应 PR/CI。
 - 通用验证范围、开发缓存与正式命令沿用 [testing-manual.md](../../../testing-manual.md) 和[开发流程规范](../workflow/source-of-truth.md)，不新增 gate、审批或强制任务。
 
 ## 执行前置与结果归属
@@ -91,6 +91,28 @@ CI 在检查前显式运行 `cargo fetch --locked` 准备依赖；检查器本�
 4. 核对普通文档改动仍按原 scope 处理；共享控制变化保留原扩大覆盖策略。选择器 fixture 通过不能替代实际运行的依赖检查。
 
 通过条件：失败和缺口分类准确、既有选择与汇总正确消费新检查结果；不新增同名成功状态、跳过必要任务或自行改变合入权限。
+
+### Signed-read bootstrap 开发期入口
+
+首版 profile 位于 [profile.json](../../../crates/oasis7_agent_api/protocol_codegen/profile.json)，人工 OpenAPI 仍是唯一 HTTP 输入。使用 Python 3.12 标准库，Node 22；TS/Ajv 依赖由消费样例的 package-lock.json 锁定。根目录执行：
+
+```bash
+python3.12 crates/oasis7_agent_api/protocol_codegen/generate.py write
+python3.12 crates/oasis7_agent_api/protocol_codegen/generate.py check
+python3.12 -m unittest discover -s crates/oasis7_agent_api/protocol_codegen -p 'test_*.py'
+npm ci --prefix crates/oasis7_agent_api/protocol_conformance --ignore-scripts
+PYTHON=python3.12 npm test --prefix crates/oasis7_agent_api/protocol_conformance
+```
+
+`write` 只更新 `protocol_codegen/generated/` 的完整集合；`check` 是提交及打包前置，不更新源、消费者或 handler fixture。多文件 rename 中断后先确认没有 writer 占用，再按[生成器说明](../../../crates/oasis7_agent_api/protocol_codegen/README.md)恢复；不能发布未通过 check 的集合。容量及递归上限由 profile 记录，CLI 超时上限 10 秒；测试故障在临时副本执行。
+
+真实 handler fixtures 由 `oasis7_viewer_runtime` 的 `signed_read_protocol_handler_fixtures` 测试逐项对照，需显式更新时执行：
+
+```bash
+env -u RUSTC_WRAPPER OASIS7_UPDATE_PROTOCOL_FIXTURES=1 cargo test -p oasis7_viewer_runtime --lib signed_read_protocol_handler_fixtures
+```
+
+上述命令按唯一测试名过滤；测试的完整模块名以 `cargo test -- --list` 为准。更新后撤去环境变量重新运行，确认 committed fixture 与实际 handler 一致，再执行 TS 样例。原 `game_wire`、`wire_contracts` 和 parser/handler 拒绝测试分别留结果；生成通过不代替 wire、安全或世界效果验证。首次 TS 没有旧版本，只建立当前基线。
 
 <a id="protocol-generation"></a>
 ## RG-P01 / RG-P02：确定生成、只读检查与完整集合

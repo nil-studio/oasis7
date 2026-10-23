@@ -629,6 +629,7 @@ fn retention_history_validates_rejected_unrelated_records_before_filtering() {
         sign_read_request(
             "scheduler",
             SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent".into(),
                 request_id: "rejected-unrelated".into(),
                 delegation_generation: 1,
@@ -703,6 +704,7 @@ fn world_snapshot_restore_rejects_corrupt_non_task_result_identity() {
         sign_read_request(
             "scheduler",
             SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent".into(),
                 request_id: "restore-corrupt-non-task".into(),
                 delegation_generation: 1,

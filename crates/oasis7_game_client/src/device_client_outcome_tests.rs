@@ -43,6 +43,7 @@ fn fixture() -> (Client, PathBuf, WorldServicePayloadV1) {
         authority::sign_read_request(
             "scheduler",
             SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "a".into(),
                 request_id: "request".into(),
                 delegation_generation: 1,

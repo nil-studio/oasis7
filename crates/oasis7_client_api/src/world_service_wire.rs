@@ -55,8 +55,16 @@ pub struct SchedulerIntentV1<O = TaskSchedulerOperationV1> {
     pub agent_id: String,
     pub request_id: String,
     pub delegation_generation: u64,
+    /// Zero preserves historical exact-base semantics and signed wire bytes.
+    /// One selects the bounded task-prefix lease; it is valid only for TaskProviderPrefix.
+    #[serde(default, skip_serializing_if = "is_zero_revision")]
+    pub task_prefix_binding_revision: u16,
     pub captured_base_binding: oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1,
     pub operation: O,
+}
+
+fn is_zero_revision(value: &u16) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
