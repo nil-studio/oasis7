@@ -1732,6 +1732,15 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
 
 
+<a id="snapshot-durable-attempt"></a>
+### 独立 snapshot 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[snapshot 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#snapshot-durable-attempt)。执行 `bash scripts/p2p-real-env-triad-snapshot.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`；实际入口回归为 `scripts/p2p-real-env-snapshot-durable.test.py`，应接入普通运维合同选测入口。
+
+- 实际 snapshot 入口通过隔离 HTTP／SSH／服务替身验证 pending 先于探测、SIGKILL、同钟独占与 A 慢于 B pending／失败；不能只测 helper。
+- 核对错误输入不写入不采样、显式节点清单／样本计数、失败后恢复和 last-success；预发布／终态故障、锁／锚／状态缺失及摘要损坏均不能返回旧成功。三类 collector 类型不可互用，旧无类型外层状态保持兼容。
+- 实际外层读取 versioned snapshot canonical 结果，仅用验证通过的同 run raw status／WASM 样本；损坏协议或悬空链接不触发 legacy fallback。另保留受支持旧 child 的隔离兼容回归。该证据不证明 traffic、角色权威、全存储物理回滚或真实环境恢复。
+
 <a id="host-durable-attempt"></a>
 ### 独立 host 持久尝试：离线验证
 

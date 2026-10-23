@@ -209,12 +209,29 @@ run_stage snapshot ./scripts/p2p-real-env-triad-snapshot.sh \
   --out-dir "$snapshot_root" \
   ${snapshot_args[@]+"${snapshot_args[@]}"}
 
-snapshot_run_dir="$(find "$snapshot_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-if [[ -z "$snapshot_run_dir" ]]; then
+if [[ -e "$snapshot_root/.observability-initialized" || -L "$snapshot_root/.observability-initialized" || -e "$snapshot_root/attempt_state.json" || -L "$snapshot_root/attempt_state.json" ]]; then
+  snapshot_summary="$snapshot_root/canonical_summary.json"
   snapshot_run_dir="$snapshot_root/unavailable"
-  errors+=(--error snapshot:1)
+  if python3 "$attempt_helper" read --collector snapshot --out-dir "$snapshot_root" >"$snapshot_summary"; then
+    snapshot_run_dir=$(python3 - "$snapshot_summary" <<'PYRUN'
+import json, sys
+value = json.load(open(sys.argv[1]))
+print(value.get('run_dir', ''))
+PYRUN
+)
+    if [[ -z "$snapshot_run_dir" ]]; then snapshot_run_dir="$snapshot_root/unavailable"; fi
+  else
+    errors+=(--error snapshot:1)
+  fi
+else
+  # Older child implementations are supported only within this isolated outer run.
+  snapshot_run_dir="$(find "$snapshot_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+  if [[ -z "$snapshot_run_dir" ]]; then
+    snapshot_run_dir="$snapshot_root/unavailable"
+    errors+=(--error snapshot:1)
+  fi
+  snapshot_summary="$snapshot_run_dir/summary.json"
 fi
-snapshot_summary="$snapshot_run_dir/summary.json"
 local_status_json="$snapshot_run_dir/nodes/local_node/status.json"
 sequencer_status_json="$snapshot_run_dir/nodes/sequencer_ecs/status.json"
 storage_status_json="$snapshot_run_dir/nodes/storage_ecs/status.json"

@@ -90,7 +90,7 @@ PATH="$bin_dir:$PATH" ./scripts/p2p-real-env-triad-snapshot.sh \
   --storage-public-status-url http://storage/status \
   --storage-public-health-url http://storage/healthz
 
-run_dir="$(find "$tmp_root/out" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+run_dir="$tmp_root/out/$(jq -r '.latest_attempt.run_directory' "$tmp_root/out/attempt_state.json")"
 summary_json="$run_dir/summary.json"
 
 jq -e '
@@ -117,7 +117,7 @@ PATH="$bin_dir:$PATH" ./scripts/p2p-real-env-triad-snapshot.sh \
   --node "label=extra_alpha,mode=local,service=oasis7-extra-alpha.service,status_url=http://local/status,health_url=http://local/healthz,env_file=$tmp_root/missing-alpha.env" \
   --node "label=extra_beta,mode=remote,target=root@127.0.0.3,service=oasis7-extra-beta.service,status_url=http://127.0.0.1:3/status,health_url=http://127.0.0.1:3/healthz,public_status_url=http://storage/status,public_health_url=http://storage/healthz,env_file=/tmp/beta.env"
 
-explicit_run_dir="$(find "$tmp_root/out-explicit" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+explicit_run_dir="$tmp_root/out-explicit/$(jq -r '.latest_attempt.run_directory' "$tmp_root/out-explicit/attempt_state.json")"
 explicit_summary_json="$explicit_run_dir/summary.json"
 
 jq -e '
@@ -143,7 +143,7 @@ PATH="$bin_dir:$PATH" ./scripts/p2p-real-env-triad-snapshot.sh \
   --world-id fallback-test \
   --node "label=custom_only,mode=local,service=oasis7-inactive.service,status_url=http://local/status,health_url=http://local/healthz,env_file=$tmp_root/missing-custom.env"
 
-single_explicit_run_dir="$(find "$tmp_root/out-single-explicit" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+single_explicit_run_dir="$tmp_root/out-single-explicit/$(jq -r '.latest_attempt.run_directory' "$tmp_root/out-single-explicit/attempt_state.json")"
 single_explicit_summary_json="$single_explicit_run_dir/summary.json"
 
 jq -e '
@@ -167,3 +167,5 @@ if PATH="$bin_dir:$PATH" ./scripts/p2p-real-env-triad-snapshot.sh \
   exit 1
 fi
 grep -q 'duplicate --node label' "$tmp_root/duplicate.err"
+
+python3 ./scripts/p2p-real-env-snapshot-durable.test.py
