@@ -370,9 +370,10 @@ def main():
                 terminal['status']='FAILED'
                 if primary is None:raise RuntimeError('post-assessment identity changed')
         except BaseException as exc:
+            terminal['status']='FAILED'
             terminal['identity_error']=repr(exc)[:1024]
             if primary is None:primary=exc
-        try:save(out/('capacity-'+args.phase+'-terminal.json'),terminal,out)
+        try:runtime.save(out/('capacity-'+args.phase+'-terminal.json'),terminal,out,terminal=True)
         except BaseException:
             if primary is None:raise
         if primary is not None and terminal.get('error') is None:raise primary

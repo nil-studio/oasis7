@@ -69,6 +69,53 @@ class Capacity(unittest.TestCase):
             (source/'regular.rs').unlink()
             with self.assertRaises(RuntimeError):m.snapshot(source)
 
+    def test_primary_failure_terminal_uses_reserved_evidence_tail(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);out=root/'evidence'
+            argv=['capacity','prepare','--codeql',str(root/'tools/codeql'),'--source',str(root/'source'),
+                '--database',str(root/'db'),'--output',str(out),'--work',str(root/'work'),'--sarif',str(root/'sarif'),
+                '--deadline',str(time.time()+120)]
+            old=(m.runtime.CAP,m.runtime.WRITE_CAP)
+            def fail_resources(_):
+                m.runtime.CAP=4096;m.runtime.WRITE_CAP=256
+                (out/'prior-evidence').write_bytes(b'x'*256)
+                raise RuntimeError('preserve original failure')
+            try:
+                with patch.object(sys,'argv',argv),patch.object(m,'resources',side_effect=fail_resources):
+                    with self.assertRaisesRegex(RuntimeError,'preserve original failure'):m.main()
+                terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
+                self.assertIn('preserve original failure',terminal['error'])
+                self.assertEqual(terminal['status'],'FAILED')
+                self.assertLess(sum(p.stat().st_size for p in out.iterdir()),4096)
+            finally:m.runtime.CAP,m.runtime.WRITE_CAP=old
+
+    def test_real_finally_identity_failure_is_failed_and_preserves_primary(self):
+        import ast
+        from types import SimpleNamespace
+        tree=ast.parse(P.read_text());main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        guarded=next(n for n in main.body if isinstance(n,ast.Try) and n.finalbody)
+        code=compile(ast.fix_missing_locations(ast.Module(body=guarded.finalbody,type_ignores=[])),str(P),'exec')
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp)
+            for outcome in (RuntimeError('identity read failed'),{'source':'CHANGED'}):
+                terminal={'status':'CAPACITY_COMPLETED'}
+                namespace={'args':SimpleNamespace(deadline=time.time()+60,phase='finish',codeql=out/'codeql'),'out':out,'source':out,
+                    'terminal':terminal,'primary':None,'time':time,'after_identity':lambda *_:None,'runtime':m.runtime}
+                def identity(*_):
+                    if isinstance(outcome,Exception):raise outcome
+                    return outcome
+                namespace['after_identity']=identity
+                with self.assertRaises(RuntimeError):exec(code,namespace)
+                self.assertEqual(json.loads((out/'capacity-finish-terminal.json').read_text())['status'],'FAILED')
+            original=RuntimeError('original query error')
+            namespace.update(primary=original,terminal={'status':'FAILED','error':repr(original)},after_identity=lambda *_:(_ for _ in ()).throw(RuntimeError('secondary identity')))
+            def active_primary():
+                try:raise original
+                finally:exec(code,namespace)
+            with self.assertRaises(RuntimeError) as caught:active_primary()
+            self.assertIs(caught.exception,original)
+            self.assertIn('original query error',json.loads((out/'capacity-finish-terminal.json').read_text())['error'])
+
     def test_capacity_pack_binding_rejects_foreign_library(self):
         query=Path('/owned/query');closure={'codeql/rust-all':{'root':'/bundle/rust'}}
         value={'libraryPath':['/owned/query','/bundle/rust'],'dbscheme':'/bundle/rust/rust.dbscheme','compilationCache':[],'relativeName':'oasis7/rust-capacity/Image.ql','qlPackName':'oasis7/rust-capacity'}
