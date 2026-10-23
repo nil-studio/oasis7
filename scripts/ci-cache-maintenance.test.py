@@ -188,6 +188,97 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(report['after']['total_bytes'], 1_120_000_000)
 
 
+class WorkspaceRetentionTests(unittest.TestCase):
+    @staticmethod
+    def entry(number, name='ecs', compatibility='a', **changes):
+        prefix = {'ecs': 'ecs-workspace-v2', 'ordinary': 'ordinary-workspace-v1',
+                  'formal': 'formal-workspace-v3'}[name]
+        return cache(number, key=f'{prefix}-{compatibility * 64}-{number:040x}', **changes)
+
+    def test_confirmed_third_ecs_generation_keeps_current_and_recovery(self):
+        entries = [self.entry(i) for i in (1, 2, 3)]
+        report = maintenance.maintain(api_with(entries, entries, entries[1:]),
+                                      entries[-1]['key'], START, apply=True)
+        self.assertEqual(report['status'], 'completed')
+        self.assertEqual(report['deleted_ids'], [1])
+        self.assertEqual(report['plan']['protected_ids'], [2, 3])
+
+    def test_multiple_explicit_families_preserve_every_unanchored_family(self):
+        formal = [cache(1), self.entry(2, 'formal'), self.entry(3, 'formal')]
+        ordinary = [self.entry(i, 'ordinary', size=100) for i in (4, 5, 6)]
+        ecs = [self.entry(i) for i in (7, 8, 9)]
+        entries = [*formal, *ordinary, *ecs]
+        keys = [formal[-1]['key'], ordinary[-1]['key']]
+        plan = maintenance.plan_retention(entries, keys, START)
+        self.assertEqual({item['id'] for item in plan['delete']}, {1, 4})
+        self.assertEqual(set(plan['families']), {'formal', 'ordinary'})
+        self.assertTrue({2, 3, 5, 6}.issubset(plan['protected_ids']))
+
+    def test_each_anchor_must_be_complete_unique_and_stable(self):
+        formal = self.entry(3, 'formal')
+        ordinary = self.entry(6, 'ordinary')
+        entries = [self.entry(1, 'formal'), formal, ordinary]
+        keys = [formal['key'], ordinary['key']]
+        for second in (entries[:-1], [*entries[:-1], dict(ordinary, size_in_bytes=0)],
+                       [*entries, dict(ordinary, id=60, version='other')],
+                       [*entries[:-1], dict(ordinary, id=60)]):
+            with self.subTest(second=second):
+                api = api_with(entries, second)
+                result = maintenance.maintain(api, keys, START, apply=True)
+                self.assertEqual(result['status'], 'skipped')
+                api.delete_cache.assert_not_called()
+
+    def test_ambiguous_same_family_anchors_are_rejected(self):
+        entries = [self.entry(i) for i in (1, 2, 3)]
+        with self.assertRaises(maintenance.MaintenanceError):
+            maintenance.plan_retention(entries, [entry['key'] for entry in entries], START)
+
+    def test_duplicate_same_anchor_is_idempotent_and_empty_anchors_are_report_only(self):
+        entries = [self.entry(i) for i in (1, 2, 3)]
+        key = entries[-1]['key']
+        plan = maintenance.plan_retention(entries, [key, key], START)
+        self.assertEqual(plan['current_keys'], [key])
+        self.assertEqual(plan['current_key'], key)
+        api = api_with(entries)
+        report = maintenance.maintain(api, [])
+        self.assertEqual(report['status'], 'dry-run')
+        self.assertIsNone(report['plan'])
+        self.assertEqual(report['before']['total_bytes'], sum(entry['size_in_bytes'] for entry in entries))
+        api.list_active_runs.assert_not_called()
+        api.delete_cache.assert_not_called()
+        self.assertEqual(maintenance.maintain(api, [], START, apply=True)['status'], 'skipped')
+        api.delete_cache.assert_not_called()
+
+    def test_legacy_ecs_migration_preserves_activity_unknown_schemas_and_other_refs(self):
+        old = self.entry(1)
+        old['key'] = old['key'].replace('ecs-workspace-v2-', 'ecs-workspace-v1-')
+        entries = [old, dict(old, id=10, last_accessed_at=START), dict(old, id=11, size_in_bytes=0),
+                   dict(old, id=12, ref='refs/pull/1/merge'), dict(old, id=13, key=old['key'] + '-extra'),
+                   self.entry(2), self.entry(3)]
+        plan = maintenance.plan_retention(entries, entries[-1]['key'], START)
+        self.assertEqual([entry['id'] for entry in plan['delete']], [1])
+        self.assertEqual(plan['protected_ids'], [2, 3, 10, 11])
+
+    def test_each_family_retains_its_budget_and_protected_excess(self):
+        entries = [self.entry(1, 'ordinary', size=600_000_000),
+                   self.entry(2, 'ordinary', size=600_000_000), self.entry(3, size=1)]
+        plan = maintenance.plan_retention(entries, [entries[1]['key'], entries[2]['key']], START)
+        self.assertEqual(plan['families']['ordinary']['max_bytes'], 1024 ** 3)
+        self.assertEqual(plan['families']['ecs']['max_bytes'], 6 * 1024 ** 3)
+        self.assertEqual(plan['protected_over_budget_bytes'], 1_200_000_000 - 1024 ** 3)
+        self.assertEqual(plan['delete'], [])
+
+    def test_revalidation_across_families_can_only_shrink_candidates(self):
+        first = [*(self.entry(i, 'formal') for i in (1, 2, 3)),
+                 *(self.entry(i, 'ordinary', size=100) for i in (4, 5, 6))]
+        second = [dict(first[0], last_accessed_at=START), *first[1:],
+                  self.entry(7, 'ordinary', compatibility='b', size=100)]
+        api = api_with(first, second, [entry for entry in second if entry['id'] != 4])
+        result = maintenance.maintain(api, [first[2]['key'], first[5]['key']], START, apply=True)
+        self.assertEqual(result['deleted_ids'], [4])
+        api.delete_cache.assert_called_once_with(4)
+
+
 class RetiredNamespaceTests(unittest.TestCase):
     migrations = {
         'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
@@ -421,6 +512,7 @@ class TrustTests(unittest.TestCase):
     def environment(self):
         return {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': 'nil-studio/oasis7',
                 'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': f'{3:040x}',
+                'GITHUB_WORKFLOW_SHA': f'{3:040x}',
                 'GITHUB_EVENT_NAME': 'push', 'GITHUB_RUN_ID': '42',
                 'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main'}
 
@@ -443,7 +535,8 @@ class TrustTests(unittest.TestCase):
     def test_pr_tag_local_and_wrong_sha_are_rejected_before_any_api_call(self):
         for override in ({'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_REF': 'refs/tags/v1.0.0'},
                          {'GITHUB_ACTIONS': 'false'}, {'GITHUB_EVENT_NAME': 'pull_request'},
-                         {'GITHUB_SHA': f'{4:040x}'}, {'GITHUB_WORKFLOW_REF': 'other/repo/f.yml@main'}):
+                         {'GITHUB_SHA': f'{4:040x}'}, {'GITHUB_WORKFLOW_SHA': ''},
+                         {'GITHUB_WORKFLOW_SHA': f'{4:040x}'}, {'GITHUB_WORKFLOW_REF': 'other/repo/f.yml@main'}):
             with self.subTest(override=override):
                 api = Mock(repository='nil-studio/oasis7')
                 with self.assertRaises(maintenance.MaintenanceError):
@@ -463,6 +556,54 @@ class TrustTests(unittest.TestCase):
                 else:
                     with self.assertRaises(maintenance.MaintenanceError):
                         maintenance.trusted_run_start(api, env, cache(3)['key'])
+
+    def test_rust_accepts_explicit_formal_and_ordinary_but_not_ecs(self):
+        api = Mock(repository='nil-studio/oasis7')
+        keys = [WorkspaceRetentionTests.entry(3, name)['key'] for name in ('formal', 'ordinary')]
+        for event in ('push', 'schedule'):
+            api.request.return_value = dict(self.run_metadata(), event=event)
+            env = dict(self.environment(), GITHUB_EVENT_NAME=event)
+            self.assertEqual(maintenance.trusted_run_start(api, env, keys), START)
+        for invalid in ([*keys, WorkspaceRetentionTests.entry(3)['key']],
+                        [keys[0], WorkspaceRetentionTests.entry(4, 'ordinary')['key']]):
+            api.reset_mock()
+            with self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, self.environment(), invalid)
+            api.request.assert_not_called()
+
+    def test_ecs_dispatch_is_scoped_to_ecs_family_and_rest_workflow_identity(self):
+        api = Mock(repository='nil-studio/oasis7')
+        env = dict(self.environment(), GITHUB_EVENT_NAME='workflow_dispatch',
+                   GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/ecs-packages.yml@refs/heads/main')
+        api.request.return_value = dict(self.run_metadata(), event='workflow_dispatch',
+                                        path='.github/workflows/ecs-packages.yml')
+        key = WorkspaceRetentionTests.entry(3)['key']
+        self.assertEqual(maintenance.trusted_run_start(api, env, key), START)
+        for keys, overrides in (([cache(3)['key']], {}), ([key], {'GITHUB_EVENT_NAME': 'push'}),
+                                ([key], {'GITHUB_EVENT_NAME': 'schedule'})):
+            api.reset_mock()
+            with self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, dict(env, **overrides), keys)
+            api.request.assert_not_called()
+        api.request.return_value = dict(self.run_metadata(), event='workflow_dispatch')
+        with self.assertRaises(maintenance.MaintenanceError):
+            maintenance.trusted_run_start(api, env, key)
+
+    def test_cli_passes_repeated_anchors_without_choosing_a_latest_key(self):
+        entries = [WorkspaceRetentionTests.entry(3, name) for name in ('formal', 'ordinary')]
+        entries[1]['id'] = 4
+        api = api_with(entries)
+        api.repository = 'nil-studio/oasis7'
+        api.request.return_value = self.run_metadata()
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(maintenance, 'GitHubApi', return_value=api), \
+                patch('sys.stdout', new_callable=io.StringIO) as output:
+            self.assertEqual(maintenance.main(['--current-key', entries[0]['key'],
+                                                '--current-key', entries[1]['key']]), 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(set(result['plan']['families']), {'formal', 'ordinary'})
+        self.assertEqual(result['plan']['unanchored_families'], ['ecs'])
+        api.delete_cache.assert_not_called()
 
     def test_api_failure_is_advisory_and_writes_a_summary(self):
         with tempfile.TemporaryDirectory() as temporary:

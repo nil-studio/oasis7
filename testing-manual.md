@@ -68,7 +68,7 @@ python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
 
 ### ECS 缓存与完整 native 构建测量
 
-ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。达到代数或容量上限应报告跳过，不自动删其他缓存或提高额度。
+ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。两代为保留目标；容量足够时先保存第三代，再由独立维护确认当前条目并回收未保护旧代。容量不足应报告跳过，不能先删恢复点腾空间或提高额度。精确命中的成功 producer 也重新确认条目并触发维护。
 
 手动执行 `ECS Server Package`，启用 `measure_builds` 并提供明确的 `measurement_baseline`，可同时取得正常完整包和独立的 full native/no-op/Viewer 改动对照。选择相同 jobs（串行归因选 1），保留 `ecs-build-metrics` 与 `oasis7-ecs-linux-x64` 两类产物。前者测量三个生产 binary 的完整 native 闭包，后者另验证 Web/native 组合与 package source/hash；不能互相代签。
 
@@ -186,7 +186,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 ### CI 工具缓存与 local-signer 验证
 
 - Viewer 的 `viewer-js-required`、`viewer-performance-report` 只恢复当前 Cargo.lock 版本的 wasm-bindgen CLI 目录；key 包含 OS、架构、Rust 版本和两个安装 helper 的 hash，不使用宽松恢复。精确命中必须验证目录内 binary，损坏命中直接失败；冷目录以 `--ensure-cache --print-bin` 安装并验证。普通 PR 不保存该工具缓存。
-- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 大缓存身份保持 `ci-full-regression-trusted-v2`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
+- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存身份为 `ci-shared-native-trusted-v3`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
 - fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
 - CI 控制改动的 PR 仍由可信 base selector 选择全部适用组。候选 selector 的精确路由仅在合入后成为可信规则，required-gate 的组集合与失败判定保留。
@@ -206,6 +206,13 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 优化回归核对全部完整用例在逻辑 suite 与物理 shard 中恰好一次，保留长历史 70 次及健康集合 40 次连续操作。比较 producer、分包原始/压缩 bytes、下载、实际测试、重开/冷查/stop 各阶段；记录缓存来源、是否命中及 8 GiB 保存预算结果。fixture 和本地计数器只能证明对应机制，整体耗时改善须用实际 runner 结果另证。
 - workspace 缓存回归使用真实小型 Cargo workspace：分开保存依赖与本地编译单位，在相同绝对路径重建 checkout 后恢复，核对 Cargo JSON 的 fresh 和实际程序输出。修改源码、build.rs 观察的未跟踪输入、权限或刻意保留旧 mtime 的输入须正常重编；新增/删除输入、损坏、symlink、路径穿越和不完整缓存须安全回到冷路径。核对 build-script 编译与执行两类目录均完整，原始 fingerprint 不被修改。真实 producer 另记录完整 target 与所选 workspace 的逻辑/硬链接去重 bytes、目录归因、8 GiB 保存结果及两类缓存的恢复耗时；本地 fixture 不代签 main writer 已保存或后续 hosted reader 已复用。
 - `output/formal-process/results.jsonl` 记录每个命令的开始时间、耗时、退出码、超时、测试数和清理状态。只上传此安全摘要；详细输出查看 job 日志，失败世界目录不自动上传。缺摘要、缺产物和构建失败须从 Actions 失败步骤诊断，不能计为通过。
+
+### Workspace 缓存容量和滚动验收
+
+- 本地合同：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/ci-cache-policy.test.py`、`python3 scripts/ci-workspace-cache.test.py`、`python3 scripts/ci-ecs-cache.test.py`、`python3 scripts/ci-cache-maintenance.test.py`、`python3 scripts/ci-workflow.test.py`。实际 Cargo fixture 需要 Rust；缺少工具链时明确记录跳过，不能用 synthetic JSON 计数代签真实 fresh。
+- 普通构建 library-only fixture 须证明库和完整构建脚本可复用、普通 binary/test harness 不入缓存且正常重建；四个 feature variants 与测试产物不变。新增/删除输入、损坏或路径不安全继续 miss；源码内容变化仍由 Cargo 重编。检查本地与第三方 fresh/rebuilt 分组，含恢复、验证和打包成本。
+- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。两代加足够容量允许临时第三代；无容量、库存不全、未确认 current 或族归属不符须零删除。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- hosted 分别核对首次 main 保存、后续兼容 reader 的实际 fresh 和第三代回收后的库存；新格式首次冷构建、超限跳过与保护集超额均如实报告，不承诺尚未测量的耗时收益。
 
 <a id="ci-dependency-installation-validation"></a>
 ### CI 依赖安装与 Release 工具缓存核验
@@ -253,6 +260,34 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 6. builtin wasm / module release / hash：先跑对应 scope planner 与 module-set evidence；发布或跨 runner claim 才进入 release evidence 对账。
 7. playability / player continue claim：自动化只能证明“没坏/可回归”；`L4A`、`L4B`、`L5` 按 claim 强度升级，不得互相替代。
 8. release candidate：默认完整 release gate；任何 `--skip-*` 都必须写明原因，并在 summary 里保留 claim boundary。带 skip 的结果只能支撑剩余已执行步骤，不能支撑被跳过层级的 release claim。
+
+<a id="regression-oracle"></a>
+### 回归用例：公共行为与独立预期值
+
+用例先写清触发输入/状态、真实观察点和合同预期，再选择能稳定检出缺陷的最小接缝。优先经受影响的公共入口走到消费者结果，而不是对私有函数调用次数或内部对象形状做镜像断言；一次只覆盖一个清楚行为，先观察因原症状失败，再修复并验证受影响边界。
+
+- 预期值来自适用合同中的明确样例、独立手算或可核对的权威原件。不要调用被测 decoder、projection 或关联函数生成 expected，再与自身比较。
+- 最小纵向闭环要经过本次真正要验证的接线、状态持久化或授权边界。mock 可以隔离不可控外部依赖，但不能替代正在验证的边界；只有 fixture/mock 的结果不宣称真实服务、网络或 Runtime 已通过。
+- 按受影响行为复用或补充能区分正确与错误实现的正/负例。例如 cognition committed、业务 receipt rejected 时，断言候选已提交与业务已拒绝、未成功分别成立；仅断言 HTTP 200 或 committed 应不足以判成功。对原 world/request/适用 fence 做不匹配变体，核对相关校验拒绝及合同规定的无副作用结果。
+- 行为稳定时，不让测试绑定无关内部拆分；重构后应继续由同一公共行为断言保护。已有用例能检出缺陷就复用，不为方法补一套同义测试。
+
+<a id="request-recovery-regression"></a>
+### 原请求与恢复路径的定向回归
+
+只选择本次修改涉及的场景，并先确认当前实现与适用合同。API 身份、幂等作用域、错误码及保留边界以 [Game API 设计](doc/world-simulator/llm/external-agent-game-api.design.md)和[外部 Runtime 验证手册](doc/testing/manual/external-agent-runtime-contract-validation.manual.md)为准；下表是用例选型，不新增接口、统一 TTL、数据库方案或 exactly-once 承诺。尚未实现的路径保持 planned/未覆盖。
+
+| 受影响场景 | 输入或故障位置 | 观察与判据 |
+| --- | --- | --- |
+| 同意图重复 / 并发 | 在合同允许重投的入口，保留完整原身份与原 payload 重投或并发到达 | 返回原结果或明确未决，权威业务效果不重复；不能只数响应次数 |
+| 同标识异内容 | 在合同定义的同身份范围改变 payload；另保留不同合法意图作正例 | 冲突/拒绝而非误回另一意图的成功；合法不同意图不被误合并 |
+| 效果后、响应前断连或崩溃 | 原请求已发出，调用方缺最终响应，再恢复 | 先查原请求；仅在该合同已确认允许安全重投时保留原签名/nonce/payload/correlation 重投，否则只回查并报告阻塞；不换 ID、world 或 Context 绕过未决 |
+| pending / unknown / 存储暂不可读 | 返回未决、无法读回或原证据不足 | 保持未确认并遵循该合同的新写限制；不把无响应/读取失败当业务失败，不制造竞争写 |
+| 到期、Stop 或撤权 | 分别尝试原结果回读与新副作用 | 读取仍检查当前读授权；旧 grant/fence 不因恢复复活，新写按当前合同拒绝或停止 |
+| recent window / 历史保留边界 | 结果退出近期窗口，或原历史材料不可得 | 窗口缺项不证明失败；沿支持路径查原结果或当前资源，区分 HistoryUnavailable 与 Unknown，不用新请求填补失去的历史 |
+
+恢复验证应分别回答“旧请求有没有重复”“原结果能否读回”“恢复后能否继续服务”。若本次结论包含恢复后可服务，按适用的 [V-RECOVERY / J1、J2 正向继续要求](doc/testing/prd.md#qa-infrastructure-scene-families)选择实际层级：在原未决已按合同处理、当前 authority/fence/权限/资源及预算允许后执行获准的新意图，核对权威效果与后续推进；不能用只读恢复、root 相等或效果至多一次代替正向结果。不相关的接口/UI 修改不因此扩成完整基础设施恢复验收。
+
+判定记录沿用实际 PR/Task 与所选套件的原证据，标清执行/未执行和环境边界。故障注入只在授权隔离环境进行；固定 fixture 验证不代签真实 Runtime、浏览器或部署恢复。
 
 ### Rust required 范围预览
 
