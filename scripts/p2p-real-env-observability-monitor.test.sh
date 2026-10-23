@@ -115,3 +115,5 @@ assert summary["overall"]["optimization_candidate_count"] >= 3
 PY
 
 python3 ./scripts/p2p-real-env-observability-freshness.test.py
+
+python3 ./scripts/p2p-real-env-observability-attempt.test.py

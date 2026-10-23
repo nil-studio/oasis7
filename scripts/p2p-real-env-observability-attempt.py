@@ -1,0 +1,444 @@
+#!/usr/bin/env python3
+"""Durable outer-run ordering. Read this canonical state, not an unvalidated cache."""
+import argparse
+from contextlib import contextmanager
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+STATE = 'attempt_state.json'
+ANCHOR = '.observability-initialized'
+LOCK = '.observability-attempt.lock'
+_ACTIVE_GUARD = None
+
+
+class AttemptError(Exception):
+    pass
+
+
+def encoded(value):
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + '\n').encode()
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def reject_symlinks(path):
+    for part in [path, *path.parents]:
+        if part.is_symlink():
+            raise AttemptError('symlink path is not supported')
+
+
+def durable_mkdir(path):
+    """Persist new directory bindings from ancestors down to the output root."""
+    reject_symlinks(path)
+    missing = []
+    cursor = path
+    while not cursor.exists():
+        missing.append(cursor)
+        cursor = cursor.parent
+    for directory in reversed(missing):
+        reject_symlinks(directory)
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            # Another initializer can create a parent before the lifecycle lock
+            # exists. Preserve it; normal owner/path checks still gate begin.
+            if not directory.is_dir() or directory.is_symlink():
+                raise AttemptError('directory creation raced with a different path type')
+        sync_directory(directory)
+        sync_directory(directory.parent)
+    # Also persist a caller-created root's binding before creating protocol state.
+    if not missing:
+        sync_directory(path)
+        sync_directory(path.parent)
+
+
+def atomic_write(path, data):
+    if _ACTIVE_GUARD:
+        _ACTIVE_GUARD()
+    reject_symlinks(path)
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if _ACTIVE_GUARD:
+            _ACTIVE_GUARD()
+        os.replace(temporary, path)
+        sync_directory(path.parent)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+@contextmanager
+def locked(root, create=False):
+    global _ACTIVE_GUARD
+    if fcntl is None:
+        raise AttemptError("POSIX lifecycle locking unavailable")
+    reject_symlinks(root)
+    if create:
+        durable_mkdir(root)
+    parent = os.open(root, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0))
+    descriptor = None
+    try:
+        initialized = (root / ANCHOR).exists() or (root / STATE).exists()
+        flags = os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
+        if not initialized:
+            flags |= os.O_CREAT
+        descriptor = os.open(root / LOCK, flags, 0o600)
+        def check():
+            reject_symlinks(root / LOCK)
+            for opened, named, directory in [(os.fstat(parent), root.stat(), True),
+                                              (os.fstat(descriptor), (root / LOCK).stat(), False)]:
+                if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+                    raise AttemptError('lock path identity changed')
+                if opened.st_uid != os.getuid() or opened.st_mode & 0o022:
+                    raise AttemptError('lock or output directory is not owner protected')
+                if not (stat.S_ISDIR(opened.st_mode) if directory else stat.S_ISREG(opened.st_mode)):
+                    raise AttemptError('invalid lock path type')
+                if not directory and stat.S_IMODE(opened.st_mode) != 0o600:
+                    raise AttemptError('lock permissions changed')
+            if (root / ANCHOR).exists():
+                anchor = read_json(root / ANCHOR)
+                if not isinstance(anchor, dict):
+                    raise AttemptError('invalid initialization anchor shape')
+                metadata = os.fstat(descriptor)
+                if anchor.get('lock_identity') != {'device': metadata.st_dev, 'inode': metadata.st_ino}:
+                    raise AttemptError('persistent lock identity changed')
+        check()
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        check()
+        _ACTIVE_GUARD = check
+        yield check
+        check()
+    finally:
+        _ACTIVE_GUARD = None
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def read_json(path):
+    reject_symlinks(path)
+    try:
+        return json.loads(path.read_bytes())
+    except (OSError, ValueError, TypeError) as error:
+        raise AttemptError('state or artifact unavailable') from error
+
+
+def validate_attempt_identity(attempt):
+    if (not isinstance(attempt, dict) or type(attempt.get('sequence')) is not int
+            or attempt['sequence'] <= 0 or attempt.get('result') not in ('pending', 'success', 'failed')):
+        raise AttemptError('invalid attempt sequence or result')
+    try:
+        uuid.UUID(attempt['attempt_id'])
+        uuid.UUID(attempt['generation'])
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        raise AttemptError('invalid attempt identity') from error
+    expected = 'runs/' + str(attempt['sequence']).zfill(12) + '-' + attempt['attempt_id']
+    scope = attempt.get('scope_fingerprint')
+    if (attempt.get('run_directory') != expected or not isinstance(scope, str) or len(scope) != 64
+            or any(character not in '0123456789abcdef' for character in scope)):
+        raise AttemptError('attempt directory or scope identity invalid')
+
+
+def load_state(root):
+    anchor, state_path = root / ANCHOR, root / STATE
+    if not anchor.exists() or not state_path.exists():
+        raise AttemptError('initialization anchor or sequence state missing')
+    initialized = read_json(anchor)
+    state = read_json(state_path)
+    if (not isinstance(state, dict) or state.get('schema_version') != 1
+            or not isinstance(initialized, dict) or initialized.get('schema_version') != 1
+            or initialized.get('store_id') != state.get('store_id')
+            or initialized.get('high_water_sequence') != state.get('last_sequence')
+            or not isinstance(state.get('store_id'), str)
+            or type(state.get('last_sequence')) is not int or state['last_sequence'] < 0
+            or 'last_success' not in state):
+        raise AttemptError('invalid sequence state')
+    runs = root / 'runs'
+    reject_symlinks(runs)
+    if runs.exists():
+        for directory in runs.iterdir():
+            try:
+                sequence = int(directory.name.split('-', 1)[0])
+            except ValueError as error:
+                raise AttemptError('invalid retained run sequence evidence') from error
+            if sequence > state['last_sequence']:
+                raise AttemptError('retained run evidence exceeds persisted sequence')
+    attempt = state.get('latest_attempt')
+    if state['last_sequence']:
+        if (not isinstance(attempt, dict) or attempt.get('sequence') != state['last_sequence']
+                or attempt.get('result') not in ('pending', 'success', 'failed')
+                or not isinstance(attempt.get('attempt_id'), str)
+                or not isinstance(attempt.get('scope_fingerprint'), str)):
+            raise AttemptError('invalid latest attempt state')
+    elif attempt is not None:
+        raise AttemptError('invalid initial attempt state')
+    if attempt:
+        validate_attempt_identity(attempt)
+    success = state['last_success']
+    if success is not None and (not isinstance(success, dict) or success.get('result') != 'success'
+            or type(success.get('sequence')) is not int or not 0 < success['sequence'] <= state['last_sequence']
+            or not isinstance(success.get('publication'), dict)):
+        raise AttemptError('invalid last-success reference')
+    if success is not None:
+        validate_attempt_identity(success)
+        if success['publication'].get('generation') != success['generation']:
+            raise AttemptError('last-success generation mismatch')
+    if attempt and attempt['result'] == 'success':
+        if (success is None or success['sequence'] != attempt['sequence']
+                or success.get('attempt_id') != attempt['attempt_id']):
+            raise AttemptError('successful state lacks matching last-success reference')
+    elif success is not None and success['sequence'] >= state['last_sequence']:
+        raise AttemptError('historical success is not older than latest attempt')
+    return state
+
+
+def scope_fingerprint(args):
+    sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-observability-monitor.sh').resolve())]
+    candidate = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent.parent,
+                               capture_output=True, text=True)
+    material = {'candidate': candidate.stdout.strip() if candidate.returncode == 0 else 'unknown',
+                'arguments': args, 'code': {path: digest(Path(path).read_bytes()) for path in sources}}
+    # Bind file inputs by content too, without persisting their paths or contents.
+    material['files'] = [digest(Path(arg).read_bytes()) for arg in args if Path(arg).is_file()]
+    return digest(encoded(material))
+
+
+def report_for(attempt, last_success, source=None):
+    report = dict(source or {})
+    report['collection_attempt'] = dict(attempt)
+    report['attempt'] = dict(attempt)
+    report['latest_attempt'] = dict(attempt)
+    report['last_success'] = last_success
+    report['collection_attempt']['execution_succeeded'] = attempt['result'] == 'success'
+    if attempt['result'] != 'success':
+        report['current_measurement_available'] = False
+    if attempt['result'] != 'success':
+        report['overall'] = {'status': 'blocked', 'alerts': [attempt.get('error') or 'attempt_pending']}
+    return report
+
+
+def publish(root, state, attempt, report, markdown):
+    directory = root / attempt['run_directory'] / 'publication' / attempt['generation']
+    reject_symlinks(directory)
+    directory.mkdir(parents=True, exist_ok=False)
+    sync_directory(directory.parent)
+    sync_directory(directory.parent.parent)
+    json_bytes = encoded(report)
+    md_bytes = markdown.encode()
+    atomic_write(directory / 'summary.json', json_bytes)
+    atomic_write(directory / 'summary.md', md_bytes)
+    reference = {'generation': attempt['generation'], 'json_path': str((directory / 'summary.json').relative_to(root)),
+                 'md_path': str((directory / 'summary.md').relative_to(root)),
+                 'json_sha256': digest(json_bytes), 'md_sha256': digest(md_bytes)}
+    # These are compatibility caches. Canonical readers validate both against state.
+    atomic_write(root / 'latest_summary.json', json_bytes)
+    atomic_write(root / 'latest_summary.md', md_bytes)
+    return reference
+
+
+def begin(root, arguments):
+    with locked(root, create=True) as check:
+        reject_symlinks(root / 'runs')
+        if not (root / ANCHOR).exists() and not (root / STATE).exists():
+            legacy = root / 'latest_summary.json'
+            if legacy.exists():
+                old = read_json(legacy)
+                if isinstance(old, dict) and ('attempt' in old or 'latest_attempt' in old):
+                    raise AttemptError('versioned artifacts exist without sequence anchor')
+            if (root / 'runs').exists() and any((root / 'runs').iterdir()):
+                raise AttemptError('run artifacts exist without sequence anchor')
+            store_id = str(uuid.uuid4())
+            metadata = (root / LOCK).stat()
+            atomic_write(root / ANCHOR, encoded({'schema_version': 1, 'store_id': store_id,
+                         'high_water_sequence': 0, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino}}))
+            atomic_write(root / STATE, encoded({'schema_version': 1, 'store_id': store_id,
+                         'last_sequence': 0, 'latest_attempt': None, 'last_success': None}))
+        state = load_state(root)
+        attempt_id = str(uuid.uuid4())
+        sequence = state['last_sequence'] + 1
+        attempt = {'sequence': sequence, 'attempt_id': attempt_id, 'result': 'pending',
+                   'scope_fingerprint': scope_fingerprint(arguments), 'started_at_unix_ms': time.time_ns() // 1_000_000,
+                   'generation': str(uuid.uuid4()), 'run_directory': 'runs/' + str(sequence).zfill(12) + '-' + attempt_id}
+        directory = root / attempt['run_directory']
+        reject_symlinks(directory)
+        anchor = read_json(root / ANCHOR)
+        anchor['high_water_sequence'] = sequence
+        atomic_write(root / ANCHOR, encoded(anchor))
+        directory = root / attempt['run_directory']
+        reject_symlinks(directory)
+        directory.mkdir(parents=True, exist_ok=False)
+        sync_directory(directory.parent)
+        # Reserve the sequence durably before any compatibility publication.
+        state.update(last_sequence=sequence, latest_attempt=attempt, publication=None)
+        check()
+        atomic_write(root / STATE, encoded(state))
+        report = report_for(attempt, state.get('last_success'))
+        reference = publish(root, state, attempt, report, '# Observability attempt pending\n')
+        state['publication'] = reference
+        check()
+        atomic_write(root / STATE, encoded(state))
+        return dict(attempt, run_dir=str(directory))
+
+
+def finish(root, sequence, attempt_id, errors):
+    with locked(root) as check:
+        state = load_state(root)
+        latest = state['latest_attempt']
+        own_directory = root / ('runs/' + str(sequence).zfill(12) + '-' + attempt_id)
+        source = None
+        source_markdown = None
+        if not errors:
+            try:
+                source = read_json(own_directory / 'report' / 'latest_summary.json')
+                if (not isinstance(source, dict) or not isinstance(source.get('overall'), dict)
+                        or source.get('run_id') != str(sequence) + '-' + attempt_id
+                        or source.get('run_dir') != str(own_directory)):
+                    raise AttemptError('summary source is not associated with reserved run')
+                source_markdown = (own_directory / 'report' / 'latest_summary.md').read_text(encoding='utf-8')
+            except (AttemptError, OSError, UnicodeError):
+                errors = [{'stage': 'summary', 'exit_code': 1, 'error': 'summary_failed'}]
+        own_result = {'sequence': sequence, 'attempt_id': attempt_id,
+                      'result': 'failed' if errors else 'success', 'errors': errors}
+        # Superseded attempts may only leave their own completion evidence.
+        result_path = own_directory / 'terminal_result.json'
+        if result_path.exists():
+            if read_json(result_path) != own_result:
+                raise AttemptError('immutable terminal evidence differs')
+        else:
+            atomic_write(result_path, encoded(own_result))
+        if latest['sequence'] != sequence or latest['attempt_id'] != attempt_id or latest['result'] != 'pending':
+            return 3
+        attempt = dict(latest, result=own_result['result'], errors=errors,
+                       error=errors[0]['error'] if errors else None,
+                       finished_at_unix_ms=time.time_ns() // 1_000_000, generation=str(uuid.uuid4()))
+        previous_success = state.get('last_success')
+        report = report_for(attempt, previous_success, source)
+        markdown = '# Observability attempt ' + attempt['result'] + '\n'
+        if not errors:
+            markdown += source_markdown
+        else:
+            markdown += '\nCollectors failed: ' + ', '.join(row['stage'] for row in errors) + '\n'
+        # Canonical state remains pending until both report artifacts are durable.
+        reference = publish(root, state, attempt, report, markdown)
+        if not errors:
+            state['last_success'] = dict(attempt, publication=reference)
+        state.update(latest_attempt=attempt, publication=reference)
+        check()
+        atomic_write(root / STATE, encoded(state))
+        return 1 if errors else 0
+
+
+def validated_artifacts(root, attempt, reference, check_cache=False):
+    if not isinstance(reference, dict) or reference.get('generation') != attempt.get('generation'):
+        raise AttemptError('canonical generation unavailable')
+    artifacts = {}
+    for kind in ('json', 'md'):
+        expected = attempt['run_directory'] + '/publication/' + attempt['generation'] + '/summary.' + kind
+        if reference.get(kind + '_path') != expected:
+            raise AttemptError('artifact is not associated with its attempt generation')
+        path = root / expected
+        reject_symlinks(path)
+        payload = path.read_bytes()
+        if digest(payload) != reference.get(kind + '_sha256'):
+            raise AttemptError('canonical artifact digest mismatch')
+        if check_cache and (root / ('latest_summary.' + kind)).read_bytes() != payload:
+            raise AttemptError('latest artifact does not match canonical generation')
+        artifacts[kind] = payload
+    return artifacts
+
+
+def read(root):
+    with locked(root):
+        state = load_state(root)
+        attempt = state['latest_attempt']
+        if not attempt:
+            raise AttemptError('no attempt available')
+        artifacts = validated_artifacts(root, attempt, state.get('publication'), check_cache=True)
+        if state.get('last_success'):
+            success = state['last_success']
+            historical = validated_artifacts(root, success, success['publication'])
+            expected = {key: value for key, value in success.items() if key != 'publication'}
+            if json.loads(historical['json']).get('attempt') != expected:
+                raise AttemptError('last-success report identity mismatch')
+        report = json.loads(artifacts['json'])
+        if report.get('attempt') != attempt:
+            raise AttemptError('report attempt identity mismatch')
+        report['last_success'] = state.get('last_success')
+        report['canonical_state'] = {'path': str(root / STATE), 'generation': attempt['generation'], 'validated': True,
+                                     'validation_scope': 'attempt_order_and_artifact_integrity',
+                                     'read_at_unix_ms': time.time_ns() // 1_000_000}
+        markdown = ('# Canonically validated observability attempt\n\n'
+                    + '- Sequence: `' + str(attempt['sequence']) + '`; result: `' + attempt['result'] + '`\n'
+                    + '- Generation: `' + attempt['generation'] + '`\n'
+                    + '- Last successful sequence: `' + str((state.get('last_success') or {}).get('sequence')) + '`\n\n'
+                    + artifacts['md'].decode())
+        return report, markdown, 0 if attempt['result'] == 'success' else 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('command', choices=('begin', 'finish', 'read'))
+    parser.add_argument('--out-dir', required=True)
+    parser.add_argument('--sequence', type=int)
+    parser.add_argument('--attempt-id')
+    parser.add_argument('--scope-arg', action='append', default=[])
+    parser.add_argument('--error', action='append', default=[])
+    parser.add_argument('--format', choices=('json', 'markdown'), default='json')
+    args = parser.parse_args()
+    try:
+        root = Path(os.path.abspath(args.out_dir)).resolve(strict=False)
+        if args.command == 'begin':
+            print(json.dumps(begin(root, args.scope_arg)))
+            return 0
+        if args.command == 'finish':
+            if not args.sequence or not args.attempt_id:
+                parser.error('finish needs sequence and attempt-id')
+            uuid.UUID(args.attempt_id)
+            errors = []
+            for value in args.error:
+                stage, code = value.split(':', 1)
+                if stage not in ('snapshot', 'host', 'traffic', 'wasm_local_node', 'wasm_sequencer_ecs', 'wasm_storage_ecs', 'summary'):
+                    raise AttemptError('unsupported collector stage')
+                errors.append({'stage': stage, 'exit_code': int(code), 'error': 'summary_failed' if stage == 'summary' else 'collector_failed'})
+            return finish(root, args.sequence, args.attempt_id, errors)
+        report, markdown, code = read(root)
+        print(json.dumps(report) if args.format == 'json' else markdown, end='\n')
+        return code
+    except (AttemptError, OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
+        if args.command == 'read':
+            unknown = {'current_measurement_available': False, 'attempt': {'result': 'unknown'},
+                       'latest_attempt': {'result': 'unknown'},
+                       'overall': {'status': 'unknown', 'alerts': ['state_unavailable']}}
+            print(json.dumps(unknown) if args.format == 'json' else '# Observability state unavailable\n\nCurrent measurement unavailable; latest attempt unknown.')
+        print('observability attempt: state or publication unavailable', file=sys.stderr)
+        return 2
+
+
+if __name__ == '__main__':
+    sys.exit(main())

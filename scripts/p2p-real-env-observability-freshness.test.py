@@ -20,7 +20,7 @@ class MergeFreshnessTests(unittest.TestCase):
                         node_id='n', world_id='w', status_observed_at_unix_ms=t, traffic={})
                    for label in ('local_node', 'sequencer_ecs', 'storage_ecs') for t in (0, 60_000)]
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / 'history.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in records))
             subprocess.run([sys.executable, str(ROOT / 'scripts/traffic-monitor-summary.py'),
                             '--layout', 'triad', '--history-path', str(root / 'history.jsonl'),
@@ -31,7 +31,7 @@ class MergeFreshnessTests(unittest.TestCase):
 
     def merge(self, traffic, as_of):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / 'traffic.json').write_text(json.dumps(traffic))
             (root / 'empty.json').write_text('{}')
             (root / 'snapshot.json').write_text('{"claim_status":"pass_candidate"}')
@@ -119,10 +119,11 @@ class MergeFreshnessTests(unittest.TestCase):
 
     def test_outer_routes_freshness_only_to_traffic_and_report(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             scripts = root / 'scripts'
             scripts.mkdir()
             shutil.copy(ROOT / 'scripts/p2p-real-env-observability-monitor.sh', scripts)
+            shutil.copy(ROOT / 'scripts/p2p-real-env-observability-attempt.py', scripts)
             (scripts / 'p2p-real-env-observability-summary.py').symlink_to(ROOT / 'scripts/p2p-real-env-observability-summary.py')
             stub = root / 'stub.py'
             stub.write_text("""import json,sys,shutil
@@ -186,7 +187,12 @@ else:
             self.assertEqual(args[args.index('--history-path') + 1], str(history))
             for flag, value in (('--as-of-unix-ms', '60000'), ('--max-sample-age-secs', '31'), ('--max-sample-gap-secs', '17')):
                 self.assertEqual(args[args.index(flag) + 1], value)
-            self.assertEqual(json.loads((root / 'out/latest_summary.json').read_text())['as_of_unix_ms'], 60000)
+            report = json.loads((root / 'out/latest_summary.json').read_text())
+            self.assertEqual(report['as_of_unix_ms'], 60000)
+            self.assertEqual(report['attempt']['result'], 'success')
+            self.assertIsInstance(report['overall'], dict)
+            self.assertEqual(report['run_id'], str(report['attempt']['sequence']) + '-' + report['attempt']['attempt_id'])
+            self.assertEqual(Path(report['run_dir']), root / 'out' / report['attempt']['run_directory'])
 
     def test_producer_unknown_and_legacy_never_green(self):
         traffic = self.traffic()
