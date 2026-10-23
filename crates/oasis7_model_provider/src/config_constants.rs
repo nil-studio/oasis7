@@ -43,4 +43,4 @@ pub const TOML_LLM_AGENT_OVERRIDES_TABLE: &str = "agent_overrides";
 pub const ENV_LLM_SHORT_TERM_GOAL_AGENT_PREFIX: &str = "OASIS7_LLM_SHORT_TERM_GOAL_";
 pub const ENV_LLM_LONG_TERM_GOAL_AGENT_PREFIX: &str = "OASIS7_LLM_LONG_TERM_GOAL_";
 
-pub use oasis7_agent_harness::DEFAULT_LLM_MODEL;
+pub use oasis7_agent_api::DEFAULT_LLM_MODEL;

@@ -1,4 +1,4 @@
-use oasis7_agent_harness::{ModelProvider, ModelProviderRequest, ModelProviderTurn};
+use oasis7_agent_api::{ModelProvider, ModelProviderRequest, ModelProviderTurn};
 use oasis7_model_provider::{
     CompletionToolProfile, LlmCompletionRequest, ModelProviderConfig, OpenAiChatCompletionClient,
 };

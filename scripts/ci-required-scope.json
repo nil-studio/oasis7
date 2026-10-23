@@ -246,6 +246,9 @@
     "oasis7_newapi_bridge_service": [
       "oasis7_required"
     ],
+    "oasis7_protocol_tools": [
+      "oasis7_required"
+    ],
     "oasis7_ops_tools": [
       "oasis7_required"
     ],
@@ -388,7 +391,7 @@
         "doc/world-simulator/scenario/**",
         "crates/oasis7_simulator/scenarios/**",
         "crates/oasis7/src/simulator/scenario.rs",
-        "crates/oasis7_ops_tools/tests/oasis7_init_demo.rs"
+        "crates/oasis7_simulator/tests/oasis7_init_demo.rs"
       ],
       "groups": [
         "scenario_regression"

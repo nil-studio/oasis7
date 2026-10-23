@@ -1,9 +1,9 @@
 //! Real Runner + session adapter + protocol encoder; transport is unpaid scripted I/O.
 use super::*;
+use oasis7_agent_api::ModelProviderHistory;
 use oasis7_agent_harness::{
-    ModelProviderHistory, NativeTaskContext, NativeTaskControl, NativeTaskHost, NativeTaskRecovery,
-    NativeTaskRunConfig, NativeTaskRunner, NativeTaskStopReason, NativeTaskTool,
-    NativeTaskToolResult,
+    NativeTaskContext, NativeTaskControl, NativeTaskHost, NativeTaskRecovery, NativeTaskRunConfig,
+    NativeTaskRunner, NativeTaskStopReason, NativeTaskTool, NativeTaskToolResult,
 };
 use std::sync::{
     Mutex,

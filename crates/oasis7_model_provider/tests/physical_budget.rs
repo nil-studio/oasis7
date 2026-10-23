@@ -1,6 +1,8 @@
 //! Local HTTP conformance for physical-call accounting. No paid endpoint is used.
-use oasis7_agent_harness::{
+use oasis7_agent_api::{
     ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
+};
+use oasis7_agent_harness::{
     NativeTaskContext, NativeTaskControl, NativeTaskHost, NativeTaskRecovery, NativeTaskRunConfig,
     NativeTaskRunner, NativeTaskStopReason, NativeTaskTool, NativeTaskToolResult,
 };

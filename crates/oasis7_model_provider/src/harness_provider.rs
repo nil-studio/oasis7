@@ -1,5 +1,5 @@
 use super::*;
-use oasis7_agent_harness::{
+use oasis7_agent_api::{
     ModelProvider, ModelProviderError, ModelProviderRequest, ModelProviderResponse,
     ModelProviderTool, ModelProviderTrace, ModelProviderTurn, ModelProviderUsage,
 };

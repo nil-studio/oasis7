@@ -195,7 +195,7 @@ rtk curl -sS http://127.0.0.1:19083/v1/chain/status | jq '{
 
 ```bash
 rtk ./scripts/cargo-dev.sh build \
-  -p oasis7_client_cli -p oasis7_newapi_bridge_service \
+  -p oasis7_protocol_tools -p oasis7_newapi_bridge_service \
   --bin oasis7_newapi_bridge_service \
   --bin oasis7_chain_transfer_submit_client
 ```

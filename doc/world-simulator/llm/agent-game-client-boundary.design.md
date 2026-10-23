@@ -271,3 +271,9 @@ AGC 是本设计的**计划场景 ID**，并非已有测试名称或通过报告
 ### 权威状态与服务投影数据边界
 
 具体权威状态、事件和恢复快照由 `oasis7_world_state` 唯一声明；该库不依赖执行器。服务读取 DTO 与具体 codec/验证适配由 `oasis7_world_projection` 拥有，复用 Game Client 的既有证明验证核心，不复制 finality、scope 或 replay 策略。Game Client 的独立读模型不反向依赖这两个库。Service 保留当前 World 认证、权限裁剪、DTO 构造和业务结果发布；投影 DTO 本身既不授予读取权，也不能用于恢复世界。具体职责见 [Runtime 设计](../../world-runtime/design.md#状态与服务投影的编译边界)。
+
+### Provider 契约的依赖方向
+
+Trace refs: O7-REQ-ad3ea59c-596c-4c50-8da8-fe47608c6f01；承接 [DES-AGC-001](#des-agc-001) 的单向依赖边界；类型身份与序列化由 API 合同测试及 Harness 兼容导出测试验证。
+
+`oasis7_agent_api` 唯一声明 ModelProvider trait、请求/响应/错误、history/trace/tool-call 值类型及默认模型常量。Harness 原公开路径 re-export 同一声明，保持类型身份、Serde 和默认方法语义；`oasis7_model_provider` 直接依赖 API，不通过正常或 build 依赖引入 Harness、NativeTask、SDK 或 Game Client。NativeTask 执行、HTTP 适配、配置和执行授权仍属于原实现层；API 不反向依赖实现。
