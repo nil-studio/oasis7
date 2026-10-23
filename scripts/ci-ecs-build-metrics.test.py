@@ -178,12 +178,7 @@ codegen-units = 16
         manifest.write_text(manifest.read_text().replace(
             '[dependencies]\n',
             '[dependencies]\noasis7_viewer_codec = { path = "../oasis7_viewer_codec" }\n'))
-        # Ensure all three production roots really consume this owner.
-        manifest = self.repo / 'crates/oasis7_game_client/Cargo.toml'
-        manifest.write_text(manifest.read_text() +
-                            '\n[dependencies]\noasis7_world_state = { path = "../oasis7_world_state" }\n')
-        self.write('crates/oasis7_game_client/src/lib.rs',
-                   'pub fn value() -> u32 { oasis7_world_state::value() }\n')
+        # Match production: the isolated Launcher/GameClient do not consume WorldState.
         self.write('crates/oasis7_world_state/src/lib.rs',
                    'mod codec; pub fn value() -> u32 { codec::value() }\n')
         self.write(METRICS.RUNTIME_EVENT_CODEC_PATH, 'pub fn value() -> u32 { 3 }\n')
@@ -202,7 +197,9 @@ codegen-units = 16
             for name in ('oasis7_world_state', 'oasis7_runtime',
                          'oasis7_viewer_codec', 'oasis7_viewer_runtime'):
                 self.assertGreater(touched['local_crates'][name]['rebuilt'], 0)
-            self.assertTrue(all(not binary['fresh'] for binary in touched['binaries'].values()))
+            for name in ('oasis7_chain_runtime', 'oasis7_viewer_live'):
+                self.assertFalse(touched['binaries'][name]['fresh'])
+            self.assertTrue(touched['binaries']['oasis7_game_launcher']['fresh'])
             self.assertIn('codec_touch', record['phases'])
             for phase in ('seed', 'viewer_touch'):
                 abi = record['phases'][phase]['runtime_event_codec_abi']

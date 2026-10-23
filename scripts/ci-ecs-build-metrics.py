@@ -396,8 +396,11 @@ def measure_build(fixture, phase, out, expected_source):
                            and 'lib' in u['target']['kind']]
                 if not matched or any(u['fresh'] for u in matched):
                     raise MeasurementError('Runtime Event codec touch did not invalidate ' + name)
-            if any(binary['fresh'] for binary in result['binaries'].values()):
-                raise MeasurementError('Runtime Event codec touch did not invalidate all production binaries')
+            # Launcher/GameClient are isolated from WorldState. Validate the
+            # actual native consumers while still observing all three roots.
+            for name in ('oasis7_chain_runtime', 'oasis7_viewer_live'):
+                if result['binaries'][name]['fresh']:
+                    raise MeasurementError('Runtime Event codec touch did not invalidate ' + name)
         if (timings / 'cargo-timing.html').is_symlink() or not (timings / 'cargo-timing.html').is_file():
             raise MeasurementError('Cargo did not preserve its requested timing HTML')
         result['success'] = True
