@@ -74,6 +74,7 @@ feature 是叠加关系。共享基线只含所有相关消费者确实共同需
 - 只继承原有的 `edition=2024`、`license=MIT`；不集中 version/MSRV/publish，也不补原先缺失的发布属性。Model Provider description、Client API/Proto lib path 和 SDK crate-type 保持成员所有。
 - 本批已有的 `hex`、`serde`（含原有 derive）、`serde_json`、`serde_cbor` 继承根版本；SDK 仍在成员声明 optional，`wire` 才激活三个 serde 依赖。Agent API/Client API 的 `sha2=0.11` 继承，Game Client 的 `sha2=0.10` 保留显式多版本。
 - `reqwest=0.13.4` 仅共享版本和 `default-features=false`；Game Client 与 Model Provider 分别显式保留 blocking/json/rustls，不把 features 提升到根。其他依赖、kind、target cfg、alias 与 features 不动。
+- SDK manifest 同时属于 37 个正式内置模块的本地源码闭包；[构建身份合同](../../p2p/consensus/builtin-wasm-identity-consensus.design.md)按原始 manifest 字节取摘要。配置等价不表示 source identity 不变：通过现有 canonical sync 重建并刷新 m1/m4/m5 identity，核对 WASM 字节摘要与 recipe 的 build_manifest_hash 保持，不放宽 source/receipt 检查，也不发布或改写世界状态。
 - `workspace.lints.clippy` 显式承接已采纳组的默认本地级别：correctness 为 deny、suspicious 为 warn；CI 的 `-D warnings -D clippy::correctness -D clippy::suspicious` 保留升级差异。不增加 pedantic/unsafe/unwrap 等规则，也不新增局部例外。
 
 共性 lint 使用 `workspace.lints`，成员通过 `[lints] workspace = true` 加入；独立 workspace 不跨根隐式继承。先承接已经采纳的规则，本地与 CI 共享定义，CI 继续按现有命令升级 warnings。新增禁止 API、锁跨 await 等规则须说明具体风险、生产/测试/平台适用性；不顺带全仓禁止 `unwrap`、`expect` 或 `unsafe`。局部例外采用最小范围和技术理由，不能以关闭继承或 blanket allow 绕过共同规则，也不要求为每个例外另建任务。

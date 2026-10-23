@@ -30,6 +30,8 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 6. 核对 Model Provider 的默认 feature、Launcher native/wasm 差异、WASM SDK 的可选 wire，以及本次触及的 formal producer/host feature 别名；不能仅用 lockfile 无 diff 判定等价。
 7. 核对受影响的原始 manifest 消费者，包括安全来源检查、CI 规划、构建与打包脚本；显式和继承配置均保留原断言与失败条件。若迁移 libp2p，验证[现有来源检查](../../../scripts/libp2p-security-source.test.py)仍检查有效 git/rev、成员 optional/平台条件。保留 manifest 变化的现有共享控制覆盖，不以纯去重规避 CI 或保证缓存命中。
 
+8. 本批 SDK 还被根 workspace 外的 37 个正式内置模块使用；按 `builtin_module_manifest_map.txt` 与 m1/m4/m5 module id 清单核对独立 lock 和 host/wasm 生产/测试图。manifest 原始字节变化会改变 [source identity](../../p2p/consensus/builtin-wasm-identity-consensus.design.md)，须在获准本地开发环境以 `OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev scripts/sync-m1-builtin-wasm-artifacts.sh` 及对应 m4/m5 入口生成真实 receipt/identity，再分别运行 `--check`。配置等价切片核对三套 `.sha256` 清单和 build_manifest_hash 保持；仅 source_hash 与派生 identity_hash 更新。不手改摘要、复用旧 receipt 或关闭检查消除漂移；该同步不授予生产发布权限。
+
 通过条件：所选配置没有非预期 package/source/version/kind/feature 变化，真实构建与适用测试一致。离线缓存、工具链或解析失败属于未完成；通过正常环境准备补齐后重跑，不静默去掉 `--offline`/`--locked` 或更新锁文件。
 本场景不证明性能提升。若主张编译收益，另复用现有 compile metrics，并固定 profile、jobs、target 与缓存条件。
 
