@@ -321,6 +321,135 @@ else:
         self.assertFalse(marker.exists())
         self.assertFalse(self.canonical(2)['current_measurement_available'])
 
+    def test_replacement_lock_with_reused_device_and_inode_still_blocks(self):
+        self.complete(self.start())
+        lock = self.out / '.observability-attempt.lock'
+        anchor = self.out / '.observability-initialized'
+        value = json.loads(anchor.read_text())
+        lock.unlink()
+        lock.touch(mode=0o600)
+        # Model immediate inode reuse deterministically: only the recorded device
+        # and inode are made indistinguishable, preserving the old lock token.
+        metadata = lock.stat()
+        value['lock_identity']['device'] = metadata.st_dev
+        value['lock_identity']['inode'] = metadata.st_ino
+        anchor.write_text(json.dumps(value))
+        marker = self.root / 'reused-inode-must-not-collect'
+        self.complete(self.start(dict(self.env, ATTEMPT_TEST_MARKER=str(marker))), 2)
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.canonical(2)['attempt']['result'], 'unknown')
+
+    def test_bound_lock_content_cannot_change_in_place(self):
+        self.complete(self.start())
+        lock = self.out / '.observability-attempt.lock'
+        original = lock.read_bytes()
+        identity = (lock.stat().st_dev, lock.stat().st_ino)
+        for payload in [b'', b'partial-token', (str(__import__('uuid').uuid4()) + '\n').encode()]:
+            lock.write_bytes(payload)
+            self.assertEqual((lock.stat().st_dev, lock.stat().st_ino), identity)
+            marker = self.root / 'changed-token-must-not-collect'
+            self.complete(self.start(dict(self.env, ATTEMPT_TEST_MARKER=str(marker))), 2)
+            self.assertFalse(marker.exists())
+            self.assertEqual(self.canonical(2)['attempt']['result'], 'unknown')
+            self.assertEqual(lock.read_bytes(), payload, 'bound lock must not be silently reinitialized')
+        lock.write_bytes(original)
+        self.assertEqual(self.canonical()['attempt']['result'], 'success')
+
+    def test_copied_token_on_different_lock_inode_is_still_rejected(self):
+        self.complete(self.start())
+        lock = self.out / '.observability-attempt.lock'
+        token = lock.read_bytes()
+        original_inode = lock.stat().st_ino
+        lock.rename(self.out / 'retained-original-lock')
+        lock.touch(mode=0o600)
+        lock.write_bytes(token)
+        self.assertNotEqual(lock.stat().st_ino, original_inode)
+        marker = self.root / 'copied-token-must-not-collect'
+        self.complete(self.start(dict(self.env, ATTEMPT_TEST_MARKER=str(marker))), 2)
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.canonical(2)['attempt']['result'], 'unknown')
+
+    def test_pre_anchor_lock_initialization_preserves_valid_token_and_refuses_partial(self):
+        helper = self.helper()
+        root = self.root / 'pre-anchor'
+        root.mkdir()
+        lock = root / helper.LOCK
+        lock.touch(mode=0o600)
+        reserved = helper.begin(root, [])
+        token = lock.read_bytes()
+        self.assertEqual(len(token), 37)
+        anchor = json.loads((root / helper.ANCHOR).read_text())
+        self.assertEqual(anchor['lock_identity']['token'], token.decode().strip())
+        self.assertEqual(reserved['sequence'], 1)
+        # Full pre-anchor token after a crash can be re-synced without changing it.
+        orphan = self.root / 'full-token-before-anchor'
+        orphan.mkdir()
+        (orphan / helper.LOCK).touch(mode=0o600)
+        (orphan / helper.LOCK).write_bytes(token)
+        helper.begin(orphan, [])
+        self.assertEqual((orphan / helper.LOCK).read_bytes(), token)
+        broken = self.root / 'partial-token-before-anchor'
+        broken.mkdir()
+        (broken / helper.LOCK).touch(mode=0o600)
+        (broken / helper.LOCK).write_bytes(b'partial')
+        with self.assertRaises(helper.AttemptError):
+            helper.begin(broken, [])
+        self.assertFalse((broken / helper.ANCHOR).exists())
+        self.assertFalse((broken / helper.STATE).exists())
+        self.assertEqual((broken / helper.LOCK).read_bytes(), b'partial')
+
+    def test_anchor_without_token_cannot_migrate_or_collect(self):
+        self.complete(self.start())
+        anchor = self.out / '.observability-initialized'
+        value = json.loads(anchor.read_text())
+        value['lock_identity'].pop('token')
+        anchor.write_text(json.dumps(value))
+        marker = self.root / 'legacy-anchor-must-not-collect'
+        self.complete(self.start(dict(self.env, ATTEMPT_TEST_MARKER=str(marker))), 2)
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.canonical(2)['attempt']['result'], 'unknown')
+
+    def test_concurrent_initializers_keep_one_token_and_distinct_reservations(self):
+        marker = self.root / 'concurrent-started'
+        release = self.root / 'concurrent-release'
+        env = dict(self.env, ATTEMPT_TEST_MARKER=str(marker), ATTEMPT_TEST_BLOCK=str(release))
+        first, second = self.start(env), self.start(env)
+        self.wait_file(marker)
+        deadline = time.monotonic() + 5
+        state_path = self.out / 'attempt_state.json'
+        while time.monotonic() < deadline:
+            if state_path.exists() and json.loads(state_path.read_text())['last_sequence'] == 2:
+                break
+            time.sleep(.01)
+        self.assertEqual(json.loads(state_path.read_text())['last_sequence'], 2)
+        token = (self.out / '.observability-attempt.lock').read_bytes()
+        self.assertEqual(json.loads((self.out / '.observability-initialized').read_text())['lock_identity']['token'], token.decode().strip())
+        release.touch()
+        for child in (first, second):
+            child.communicate(timeout=10)
+        self.assertEqual(sorted([first.returncode, second.returncode]), [0, 3])
+        self.assertEqual((self.out / '.observability-attempt.lock').read_bytes(), token)
+        self.assertEqual(self.canonical()['attempt']['sequence'], 2)
+
+    def test_canonical_read_of_uninitialized_root_never_creates_or_initializes_lock(self):
+        self.out.mkdir()
+        sentinel = self.out / 'sentinel'
+        sentinel.write_bytes(b'unchanged')
+        before = {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in self.out.iterdir()}
+        root_mtime = self.out.stat().st_mtime_ns
+        self.assertEqual(self.canonical(2)['attempt']['result'], 'unknown')
+        self.assertFalse((self.out / '.observability-attempt.lock').exists())
+        self.assertEqual(self.out.stat().st_mtime_ns, root_mtime)
+        self.assertEqual({path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in self.out.iterdir()}, before)
+        lock = self.out / '.observability-attempt.lock'
+        lock.touch(mode=0o600)
+        before = {path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in self.out.iterdir()}
+        root_mtime = self.out.stat().st_mtime_ns
+        self.assertEqual(self.canonical(2)['attempt']['result'], 'unknown')
+        self.assertEqual(lock.read_bytes(), b'')
+        self.assertEqual(self.out.stat().st_mtime_ns, root_mtime)
+        self.assertEqual({path.name: (path.read_bytes(), path.stat().st_mtime_ns) for path in self.out.iterdir()}, before)
+
     def test_old_other_run_summary_is_not_successful_completion(self):
         marker, release = self.root / 'wrong-run-started', self.root / 'wrong-run-release'
         child = self.start(dict(self.env, ATTEMPT_TEST_MARKER=str(marker), ATTEMPT_TEST_BLOCK=str(release)))

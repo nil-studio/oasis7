@@ -1738,7 +1738,7 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[持久尝试
 
 - 正向：正常采集／归约、带 blocked 模块的执行完成、失败后的新尝试，核对 JSON／Markdown、严格递增序号与独立 last-success。
 - 并发／恢复：固定墙钟并发不覆盖 run，旧 A 晚于 B 的失败或 pending 完成不更新 latest；B 预发布后 SIGKILL 留下 pending，不能回退旧成功。
-- 持久化：分别使预发布、终态工件及状态提交失败，核对采集未提前启动或 canonical read 保持 pending／unknown；损坏或缺失初始化锚／序号状态禁止自动重置。
+- 持久化：分别使预发布、终态工件及状态提交失败，核对采集未提前启动或 canonical read 保持 pending／unknown；损坏或缺失初始化锚／序号状态禁止自动重置；锁丢失、替换、inode 复用或持久随机标识损坏时阻止采集。
 - 消费：验证读取核对 generation、工件摘要、状态可读性；不匹配时非零诊断，不改变历史文件，也不把缓存物化工件当实时状态。
 - 这些测试仅使用隔离本地 stub，不证明真实 SSH、授权撤销、BFT／P/R、物理故障域或单独 collector 的持久尝试。
 

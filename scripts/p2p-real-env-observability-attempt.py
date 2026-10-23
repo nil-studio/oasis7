@@ -93,6 +93,21 @@ def atomic_write(path, data):
             os.unlink(temporary)
 
 
+def read_lock_token(descriptor):
+    payload = os.pread(descriptor, 65, 0)
+    if not payload:
+        return None
+    if len(payload) != 37 or not payload.endswith(b'\n'):
+        raise AttemptError('persistent lock token is incomplete or invalid')
+    try:
+        token = payload[:-1].decode('ascii')
+        if str(uuid.UUID(token)) != token:
+            raise ValueError('noncanonical lock token')
+    except (ValueError, UnicodeError) as error:
+        raise AttemptError('persistent lock token is invalid') from error
+    return token
+
+
 @contextmanager
 def locked(root, create=False):
     global _ACTIVE_GUARD
@@ -106,10 +121,10 @@ def locked(root, create=False):
     try:
         initialized = (root / ANCHOR).exists() or (root / STATE).exists()
         flags = os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
-        if not initialized:
+        if create and not initialized:
             flags |= os.O_CREAT
         descriptor = os.open(root / LOCK, flags, 0o600)
-        def check():
+        def check(validate_anchor=True):
             reject_symlinks(root / LOCK)
             for opened, named, directory in [(os.fstat(parent), root.stat(), True),
                                               (os.fstat(descriptor), (root / LOCK).stat(), False)]:
@@ -121,15 +136,27 @@ def locked(root, create=False):
                     raise AttemptError('invalid lock path type')
                 if not directory and stat.S_IMODE(opened.st_mode) != 0o600:
                     raise AttemptError('lock permissions changed')
-            if (root / ANCHOR).exists():
+            if validate_anchor and (root / ANCHOR).exists():
                 anchor = read_json(root / ANCHOR)
                 if not isinstance(anchor, dict):
                     raise AttemptError('invalid initialization anchor shape')
                 metadata = os.fstat(descriptor)
-                if anchor.get('lock_identity') != {'device': metadata.st_dev, 'inode': metadata.st_ino}:
+                if anchor.get('lock_identity') != {'device': metadata.st_dev, 'inode': metadata.st_ino,
+                                                   'token': read_lock_token(descriptor)}:
                     raise AttemptError('persistent lock identity changed')
-        check()
+        check(validate_anchor=False)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if create and not (root / ANCHOR).exists() and not (root / STATE).exists():
+            token = read_lock_token(descriptor)
+            if token is None:
+                payload = (str(uuid.uuid4()) + '\n').encode('ascii')
+                if os.write(descriptor, payload) != len(payload):
+                    raise AttemptError('persistent lock token write was incomplete')
+            # A fully written pre-anchor token may survive a crash. Re-sync it
+            # before initialization; never overwrite a nonempty partial token.
+            os.fsync(descriptor)
+            sync_directory(root)
+        check.lock_token = read_lock_token(descriptor)
         check()
         _ACTIVE_GUARD = check
         yield check
@@ -276,7 +303,8 @@ def begin(root, arguments):
             store_id = str(uuid.uuid4())
             metadata = (root / LOCK).stat()
             atomic_write(root / ANCHOR, encoded({'schema_version': 1, 'store_id': store_id,
-                         'high_water_sequence': 0, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino}}))
+                         'high_water_sequence': 0, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino,
+                         'token': check.lock_token}}))
             atomic_write(root / STATE, encoded({'schema_version': 1, 'store_id': store_id,
                          'last_sequence': 0, 'latest_attempt': None, 'last_success': None}))
         state = load_state(root)
