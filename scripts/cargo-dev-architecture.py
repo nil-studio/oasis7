@@ -54,7 +54,7 @@ def validate(config):
             if not isinstance(identity, dict) or 'name' not in identity or set(identity) - {'name', 'version', 'source'}:
                 raise InspectionError('invalid package identity')
         for kinds in (rule['kinds'], rule['declaration_kinds']):
-            if not kinds or not set(kinds) <= {'normal', 'build', 'dev'}:
+            if not isinstance(kinds, list) or not set(kinds) <= {'normal', 'build', 'dev'}:
                 raise InspectionError('invalid edge kinds')
         if set(rule['kinds']) != {'normal', 'build'}:
             raise InspectionError('production graph must contain exactly normal/build kinds')
@@ -235,7 +235,17 @@ def inspect(root, config, builds=True, selected=None):
     for package in packages:
         package['_resolved_deps'] = resolve.get(package['id'], [])
     members = [p for p in packages if p['id'] in metadata['workspace_members']]
-    evidence = {'source_sha': run(root, ['git', 'rev-parse', 'HEAD']).strip(),
+    tested_head = run(root, ['git', 'rev-parse', 'HEAD']).strip()
+    event = {}
+    if (os.environ.get('GITHUB_EVENT_PATH') and os.environ.get('GITHUB_WORKSPACE')
+            and root == Path(os.environ['GITHUB_WORKSPACE']).resolve()):
+        event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+    pull_request = event.get('pull_request', {})
+    evidence = {'source_sha': pull_request.get('head', {}).get('sha', tested_head),
+                'tested_head': tested_head,
+                'tested_tree': run(root, ['git', 'rev-parse', 'HEAD^{tree}']).strip(),
+                'base_sha': pull_request.get('base', {}).get('sha'),
+                'tracked_changes': bool(run(root, ['git', 'status', '--porcelain', '--untracked-files=no']).strip()),
                 'lock_sha256': hashlib.sha256(lock.read_bytes()).hexdigest(),
                 'tool_version': VERSION, 'rule_revision': config['revision'],
                 'rules_sha256': hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
@@ -254,7 +264,8 @@ def inspect(root, config, builds=True, selected=None):
                 raise InspectionError(f'root identity missing/ambiguous: {identity}')
             package = roots[0]
             context = {'rule': rule['key'], 'root': package['id'], 'upstream': rule['upstream'],
-                       'allows': rule['allows'], 'exceptions': rule['exceptions']}
+                       'allows': rule['allows'], 'exceptions': rule['exceptions'],
+                       'declaration_kinds': rule['declaration_kinds']}
             missing_profiles = set(rule['required_profiles']) - {p['id'] for p in rule['profiles']}
             for profile_id in sorted(missing_profiles):
                 results.append(dict(context, status='coverage_gap', reason='required profile not registered',

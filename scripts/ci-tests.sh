@@ -748,6 +748,9 @@ run_full_required_superset() {
 }
 
 run_rust_baseline() {
+  # Explicit preparation for the locked offline architecture inspector. A
+  # restored cache is optional and cannot stand in for dependency availability.
+  run_cargo fetch --locked
   run python3 ./scripts/cargo-dev-architecture.py
   run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   run_rustsec_advisory_check

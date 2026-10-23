@@ -66,6 +66,10 @@ Windows/wasm 的条件解析、host build 与 target 分离由真实最小 Cargo
 现有可信 scope 的 `scripts/cargo-dev*` 已覆盖这些工具/规则路径；具体匹配追加 `rust_baseline` 执行真实图，
 `cargo_tooling_contracts` 执行反例。Cargo/lock/toolchain 继续通过既有共享控制与 Rust baseline 触发，
 required/full 使用既有汇总，旧 Launcher 检查保留。
+Launcher 的 `declaration_kinds=[]` 明确表示只投影旧脚本的激活图约束；报告保留该字段，
+不把外国 target 或未激活的声明当作 host 图违规。其余规则继续检查全部适用的直接声明。
+CI 在检查前显式运行 `cargo fetch --locked` 准备依赖；检查器本身始终离线、锁定，
+缓存不完整时返回 inspection_error，不自动改为在线解析或更新 lockfile。
 
 1. 检查器就绪后，用真实最小 Cargo workspace 构造夹具，固定依赖和 lock；分别测试直接依赖、中转传递依赖、build 依赖、optional feature、平台限定边、`package=` 别名及 workspace 继承。
 2. 先运行合法图，再仅引入一个违规边；以实际 Cargo 解析结果检查 rule key、root、kind、host/target、features、source 和可定位路径。声明违规与激活闭包违规分开核对。

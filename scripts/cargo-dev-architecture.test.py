@@ -190,6 +190,14 @@ class CargoBoundaries(unittest.TestCase):
         with self.assertRaises(checker.InspectionError):
             checker.tree_nodes('not a graph', [])
 
+    def test_legacy_host_scope_does_not_ban_foreign_target_declaration(self):
+        self.package('root', "[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nforbidden={path=\"../forbidden\"}\n")
+        self.rule['forbidden'][0]['version'] = '0.1.0'
+        self.rule['declaration_kinds'] = []  # Explicit legacy activated-graph scope.
+        self.assertFalse(self.violations(self.inspect()))
+        self.package('root', '[dependencies]\nforbidden={path="../forbidden"}\n')
+        self.assertTrue(self.violations(self.inspect()))
+
     def test_unregistered_required_profile_is_gap(self):
         self.rule['required_profiles'].append('required-wasm')
         self.assertTrue(any(r['status'] == 'coverage_gap' for r in self.inspect()['results']))
