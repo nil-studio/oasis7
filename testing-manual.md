@@ -1694,3 +1694,20 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 - `discovery_query_interval_ms <= 0` disables periodic network refresh while the expiry tick continues. Short TTLs may expire before a successful refresh because tick, cooldown and budget constraints remain authoritative.
 
 This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
+
+
+<a id="traffic-freshness-v2"></a>
+### Traffic observation freshness
+
+Trace refs: `O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b`; [schema 2 policy](doc/p2p/node/node-triad-operations-observability.design.md#traffic-freshness-v2).
+
+Use offline collector stubs and the actual reducer→merged JSON/Markdown chain. Run `bash scripts/traffic-monitor-summary.test.sh` and `bash scripts/p2p-real-env-observability-monitor.test.sh`, plus their freshness regression suites. Validate shell syntax and Python modules. Do not contact historic fleet hosts for these tests.
+
+- Success at 00:00/00:10 followed by failures through 00:30 must retain latest failure and last success separately. At as-of 00:30 the last ten minutes are not a full current window.
+- Cover all failures, recovery, normal dense full-window samples, two sparse endpoints, exact age/gap boundaries, reset or changed identity, malformed/future/regressing timestamps and per-node capture completion times.
+- A new successful capture of an old producer observation keeps producer age stale; missing observation stays unknown. Neither report generation nor HTTP 200 establishes freshness.
+- Explicit historical as-of excludes later successes/failures and leaves original history bytes unchanged. All nodes share the selected boundary; replay is distinct from a current-health claim.
+- Merge an actually generated child report, then advance report as-of. Formerly fresh metadata must become stale/uncovered; old or unknown schema warns. JSON and Markdown retain matching attempt, age, source-window and bounded error semantics.
+- Route age/gap/as-of options only to supported consumers; invalid values fail before collection. Stub invalid/empty JSON must produce failed history rather than vanish. Outer historical replay requires `--traffic-history-path` with as-of and invokes the real traffic child in summary-only mode without mutating history; host/snapshot remain current evidence.
+
+These checks do not prove persistent pending/terminal publication, SIGKILL safety of the whole collector lifecycle, profile readiness, producer authorization, real SSH/physical fault domains, trusted clocks or deployment health. Existing single-node attachment/report consumers outside the merged triad path retain their documented scope.

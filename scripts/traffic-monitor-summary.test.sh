@@ -22,6 +22,7 @@ JSONL
 
 python3 ./scripts/traffic-monitor-summary.py \
   --layout triad \
+  --as-of-unix-ms 1600000 \
   --history-path "$history" \
   --summary-json "$summary_json" \
   --summary-md "$summary_md" \
@@ -62,3 +63,5 @@ assert "interface_counter_missing=`1`" in markdown
 assert "interface_counter_missing_nodes=`sequencer_ecs`" in markdown
 assert "missing=`sequencer_ecs, storage_ecs`" in markdown
 PY
+
+python3 ./scripts/traffic-monitor-freshness.test.py

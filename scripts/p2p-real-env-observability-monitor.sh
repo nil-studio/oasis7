@@ -21,6 +21,10 @@ Options:
   --traffic-samples <n>            traffic sample count (default: 3)
   --traffic-interval-secs <n>      traffic interval seconds (default: 20)
   --window-minutes <n>             traffic window minutes (default: 10)
+  --as-of-unix-ms <n>              traffic/report cutoff; requires --traffic-history-path
+  --traffic-history-path <path>    existing traffic history for read-only historical traffic
+  --max-sample-age-secs <n>        traffic freshness limit (default: 60)
+  --max-sample-gap-secs <n>        traffic coverage gap limit (default: 60)
   --ssh-timeout-secs <n>           SSH connect timeout (default: 8)
   --out-dir <path>                 output root (default: .tmp/p2p_real_env_observability)
 
@@ -38,9 +42,31 @@ ssh_timeout_secs=8
 out_root=".tmp/p2p_real_env_observability"
 
 pass_through_args=()
+traffic_freshness_args=()
+report_freshness_args=()
+traffic_history_path=""
+historical_as_of=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --traffic-history-path)
+      [[ $# -ge 2 && -n "$2" ]] || { echo "$1 requires an existing history path" >&2; exit 2; }
+      traffic_history_path=$2
+      shift 2
+      ;;
+    --as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "$1 requires a non-negative integer" >&2; exit 2; }
+      if [[ "$1" != --as-of-unix-ms && "$2" -eq 0 ]]; then
+        echo "$1 must be positive" >&2
+        exit 2
+      fi
+      traffic_freshness_args+=("$1" "$2")
+      if [[ "$1" == --as-of-unix-ms ]]; then
+        report_freshness_args+=("$1" "$2")
+        historical_as_of=$2
+      fi
+      shift 2
+      ;;
     --samples)
       samples=${2:-}
       shift 2
@@ -84,6 +110,22 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$historical_as_of" ]]; then
+  python3 - "$historical_as_of" <<'PYTIME'
+import sys
+import time
+if int(sys.argv[1]) > time.time_ns() // 1_000_000:
+    raise SystemExit("--as-of-unix-ms must not be later than current UTC time")
+PYTIME
+fi
+if [[ -n "$historical_as_of" || -n "$traffic_history_path" ]]; then
+  if [[ -z "$historical_as_of" || ! -f "$traffic_history_path" ]]; then
+    echo "--as-of-unix-ms and --traffic-history-path <existing file> are required together; only traffic is historical, snapshot/host still collect current data" >&2
+    exit 2
+  fi
+  traffic_freshness_args+=(--summary-only --history-path "$traffic_history_path")
+fi
 
 run_id=$(date +"%Y%m%d-%H%M%S")
 run_dir="$out_root/$run_id"
@@ -129,6 +171,7 @@ host_run_dir="$(find "$host_root" -mindepth 1 -maxdepth 1 -type d | sort | tail 
 host_summary="$host_run_dir/summary.json"
 
 ./scripts/p2p-real-env-traffic-monitor.sh \
+  ${traffic_freshness_args[@]+"${traffic_freshness_args[@]}"} \
   --samples "$traffic_samples" \
   --interval-secs "$traffic_interval_secs" \
   --window-minutes "$window_minutes" \
@@ -156,6 +199,7 @@ for label in local_node sequencer_ecs storage_ecs; do
 done
 
 python3 ./scripts/p2p-real-env-observability-summary.py \
+  ${report_freshness_args[@]+"${report_freshness_args[@]}"} \
   --snapshot-summary "$snapshot_summary" \
   --host-summary "$host_summary" \
   --traffic-summary "$traffic_summary" \

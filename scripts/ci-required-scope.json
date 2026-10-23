@@ -422,6 +422,9 @@
     {
       "match": [
         "scripts/oasis7-runtime-finality-*",
+        "scripts/oasis7-node-traffic-monitor.sh",
+        "scripts/traffic-monitor-*",
+        "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
         "scripts/run-local-letai-game-test*",

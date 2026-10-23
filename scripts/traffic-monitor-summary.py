@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
-from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+
+from traffic_monitor_freshness import analyze, now_ms, timestamp
 
 
 def parse_args():
@@ -22,58 +23,41 @@ def parse_args():
     parser.add_argument("--window-minutes", type=int, required=True)
     parser.add_argument("--history-retention-minutes", type=int, required=True)
     parser.add_argument("--top-n", type=int, required=True)
+    parser.add_argument("--as-of-unix-ms", type=int)
+    parser.add_argument("--max-sample-age-secs", type=int, default=60)
+    parser.add_argument("--max-sample-gap-secs", type=int, default=60)
     parser.add_argument("--run-id")
     parser.add_argument("--run-dir")
     parser.add_argument("--label", action="append", default=[])
-    return parser.parse_args()
+    args = parser.parse_args()
+    for name in ('window_minutes', 'history_retention_minutes', 'top_n', 'max_sample_age_secs', 'max_sample_gap_secs'):
+        if getattr(args, name) <= 0:
+            parser.error(name + ' must be positive')
+    if args.as_of_unix_ms is not None:
+        if args.as_of_unix_ms < 0:
+            parser.error('as_of_unix_ms must be nonnegative')
+        if args.as_of_unix_ms > now_ms():
+            parser.error('as_of_unix_ms cannot exceed current UTC time')
+    return args
 
 
 def record_ts_ms(record):
-    value = record.get("captured_at_unix_ms")
-    if value is None:
-        return None
-    return int(value)
+    return timestamp(record.get('captured_at_unix_ms'))
 
 
-def history_cutoff_ms(latest_ts_ms, retention_minutes):
-    return latest_ts_ms - retention_minutes * 60 * 1000
-
-
-def prune_and_load_records(path, retention_minutes):
-    records = deque()
-    latest_ts_ms = None
-    total_records = 0
-
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            record = json.loads(line)
-            total_records += 1
-            ts_ms = record_ts_ms(record)
-            if ts_ms is None:
-                records.append(record)
-                continue
-            if latest_ts_ms is None or ts_ms > latest_ts_ms:
-                latest_ts_ms = ts_ms
-            records.append(record)
-            cutoff_ms = history_cutoff_ms(latest_ts_ms, retention_minutes)
-            while records:
-                oldest_ts_ms = record_ts_ms(records[0])
-                if oldest_ts_ms is None or oldest_ts_ms >= cutoff_ms:
-                    break
-                records.popleft()
-
-    pruned_records = list(records)
-    if len(pruned_records) != total_records:
-        temp_path = path.with_name(path.name + ".tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            for record in pruned_records:
-                handle.write(json.dumps(record, ensure_ascii=False))
-                handle.write("\n")
-        temp_path.replace(path)
-    return pruned_records, total_records
+def prune_and_load_records(path, retention_minutes, as_of=None, historical=False):
+    records = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+    total = len(records)
+    if historical:
+        return records, total
+    cutoff = (now_ms() if as_of is None else as_of) - retention_minutes * 60_000
+    # Filter every row rather than deque prefixes; preserve append order for clock diagnostics.
+    retained = [row for row in records if record_ts_ms(row) is None or record_ts_ms(row) >= cutoff]
+    if len(retained) != total:
+        temporary = path.with_name(path.name + '.tmp')
+        temporary.write_text(''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in retained), encoding='utf-8')
+        temporary.replace(path)
+    return retained, total
 
 
 def clamp_delta(current, baseline):
@@ -559,7 +543,19 @@ def aggregate_lane_summaries(lane_name, lanes, top_n):
     return aggregate
 
 
-def summarize_record_set(records, window_minutes, top_n):
+def summarize_record_set(records, window_minutes, top_n, as_of=None, max_age=60_000, max_gap=60_000, historical=False):
+    as_of = now_ms() if as_of is None else as_of
+    metadata, segment, visible = analyze(records, as_of, window_minutes, max_age, max_gap, historical)
+    result = summarize_historical_record_set(segment, window_minutes, top_n, as_of)
+    result['sample_count_total'] = len(visible)
+    result['sample_count_successful'] = sum(row.get('status_fetch_ok') is True for row in visible)
+    result.setdefault('window', {}).update(metadata.pop('window'))
+    result.update(metadata)
+    result['latest_fetch_error'] = result['latest_attempt']['error']
+    return result
+
+
+def summarize_historical_record_set(records, window_minutes, top_n, as_of):
     successful = [record for record in records if record.get("status_fetch_ok") is True]
     if not successful:
         latest_any = records[-1] if records else None
@@ -571,7 +567,7 @@ def summarize_record_set(records, window_minutes, top_n):
         }
 
     latest = successful[-1]
-    window_start_ms = int(latest["captured_at_unix_ms"]) - window_minutes * 60 * 1000
+    window_start_ms = as_of - window_minutes * 60 * 1000
     in_window = [
         record for record in successful if int(record["captured_at_unix_ms"]) >= window_start_ms
     ]
@@ -968,6 +964,14 @@ def render_network_distribution_block(title, entries):
     return lines
 
 
+def render_freshness(node):
+    freshness = node['freshness']
+    producer = freshness['producer']
+    return [f"- As of: `{node['as_of_unix_ms']}`; collector `{freshness['state']}`; latest attempt `{node['latest_attempt']['result']}`; sample age ms `{freshness['sample_age_ms']}`",
+            f"- Producer observation: `{producer['state']}`; observed at `{producer['observed_at_unix_ms']}`; age ms `{producer['age_ms']}`",
+            f"- Freshness reasons: `{', '.join(freshness['reasons']) or 'none'}`"]
+
+
 def render_single_node_markdown(summary, history_path, generated_at):
     lines = [
         "# Oasis7 Node Traffic Monitor Summary",
@@ -983,12 +987,15 @@ def render_single_node_markdown(summary, history_path, generated_at):
     ]
 
     node = summary["node"]
-    if not node.get("available"):
+    lines.extend(render_freshness(node))
+    if not node.get("historical_data_available"):
         lines.append(
-            f"- No successful samples yet. latest_fetch_error=`{node.get('latest_fetch_error')}`"
+            f"- Current collector unavailable; historical_data_available=`{node.get('historical_data_available')}`. latest_fetch_error=`{node.get('latest_fetch_error')}`"
         )
         return lines
 
+    if not node["available"]:
+        lines.append("- Historical diagnostics below are from the last successful sample; current measurement is unavailable.")
     window = node["window"]
     latest = node["latest"]
     consensus = node["consensus"]
@@ -1198,13 +1205,16 @@ def render_triad_markdown(summary, history_path, generated_at, labels):
     for label in labels:
         node = summary["nodes"][label]
         lines.append(f"## {label}")
-        if not node.get("available"):
+        lines.extend(render_freshness(node))
+        if not node.get("historical_data_available"):
             lines.append(
-                f"- No successful samples yet. latest_fetch_error=`{node.get('latest_fetch_error')}`"
+                f"- Current collector unavailable; historical_data_available=`{node.get('historical_data_available')}`. latest_fetch_error=`{node.get('latest_fetch_error')}`"
             )
             lines.append("")
             continue
 
+        if not node["available"]:
+            lines.append("- Historical diagnostics below are from the last successful sample; current measurement is unavailable.")
         window = node["window"]
         latest = node["latest"]
         consensus = node["consensus"]
@@ -1287,15 +1297,19 @@ def main():
     history_path = Path(args.history_path)
     summary_json_path = Path(args.summary_json)
     summary_md_path = Path(args.summary_md)
+    as_of = now_ms() if args.as_of_unix_ms is None else args.as_of_unix_ms
     generated_at = datetime.now(tz=timezone.utc).isoformat()
 
     records, total_records = prune_and_load_records(
-        history_path, args.history_retention_minutes
+        history_path, args.history_retention_minutes, as_of, args.as_of_unix_ms is not None
     )
     history_pruned_count = max(0, total_records - len(records))
 
     common = {
         "ok": True,
+        "schema_version": 2,
+        "as_of_unix_ms": as_of,
+        "freshness_policy": {"version": 1, "max_sample_age_ms": args.max_sample_age_secs * 1000, "max_sample_gap_ms": args.max_sample_gap_secs * 1000},
         "generated_at": generated_at,
         "history_path": str(history_path),
         "history_retention_minutes": args.history_retention_minutes,
@@ -1308,7 +1322,7 @@ def main():
 
     if args.layout == "single-node":
         summary = dict(common)
-        summary["node"] = summarize_record_set(records, args.window_minutes, args.top_n)
+        summary["node"] = summarize_record_set(records, args.window_minutes, args.top_n, as_of, args.max_sample_age_secs * 1000, args.max_sample_gap_secs * 1000, args.as_of_unix_ms is not None)
         markdown_lines = render_single_node_markdown(summary, history_path, generated_at)
     else:
         labels = args.label or ["local_node", "sequencer_ecs", "storage_ecs"]
@@ -1324,7 +1338,7 @@ def main():
         summary["nodes"] = {}
         for label in labels:
             summary["nodes"][label] = summarize_record_set(
-                records_by_label[label], args.window_minutes, args.top_n
+                records_by_label[label], args.window_minutes, args.top_n, as_of, args.max_sample_age_secs * 1000, args.max_sample_gap_secs * 1000, args.as_of_unix_ms is not None
             )
             summary["nodes"][label]["label"] = label
         summary["aggregate"] = summarize_triad_aggregate(summary["nodes"], args.top_n)

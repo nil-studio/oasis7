@@ -34,7 +34,7 @@
 - 当前 summary 的 `summarize_storage` 直接累加 `bytes_by_dir`，且将非 None/success 的 GC 状态均判作失败；与 OPS-AC-4 的目录并集、GC 多状态解释存在差距，仍需独立实现与正负例核验。
 - 剩余风险：目录碰撞、参数误传与早退可使本轮报告缺失或混入旧数据；未知 schema、过期窗口与 producer 错误不能用健康数值冲淡。源码审读不证明故障已修复，也不验证现场 fleet。
 
-2026-10-21 局部核对基线 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`：[traffic reducer](../../../scripts/traffic-monitor-summary.py) 的 `summarize_record_set` 先过滤失败样本，再从最后成功时间计算窗口，尚不满足下文新鲜度合同；现有编排的目录分配、统一传参和失败早退差距仍存在。此处更新这些源码差距，不刷新历史现场证据。按 profile 输出的授权/成员/签名状态是后继目标，不能从现有 summary 字段推断已经接线。
+流量归约候选按[当前新鲜度策略](#traffic-freshness-v2)保留最新失败和历史成功，以显式边界及年龄／缺口预算归约，并在合并时重新核验年龄。现有编排的目录分配、失败早退、持久尝试发布和 profile producer 差距仍存在；本节不刷新历史现场证据，不能从流量新鲜度字段推断授权、成员或签名状态已经接线。
 
 <a id="数据流"></a>
 ## 边界与数据流
@@ -90,6 +90,21 @@
 
 回归可使用离线 fixture/stub，但需走实际适配和汇总链；每项记录实际执行结果，不能以设计矩阵证明实现已修。
 真实采样与服务恢复声明仍按对应环境和当次授权独立验收。
+
+<a id="traffic-freshness-v2"></a>
+## 流量报告当前新鲜度策略
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节落实 [OPS-AC-2](node-triad-operations-observability.prd.md#ops-report-contract) 的流量采集／归约／合并子范围，不替代角色 producer、持久 pending 或 runtime admission。
+
+流量报告 schema 2 在一次归约中为全部选定节点固定一个 `as_of_unix_ms`。`--as-of-unix-ms` 可显式选择历史边界，省略时使用调用时的 UTC 墙钟；窗口终点保持该边界，不退回最后成功时间。`--max-sample-age-secs` 和 `--max-sample-gap-secs` 默认均为 60 秒，必须是正数；显式历史边界为非负整数，且不得晚于调用时的 UTC 墙钟；未来查询在写入或采集前拒绝。历史重算只消费截至边界的证据，不能为了此次回放修改历史文件或删除较晚样本。
+
+每节点分开输出 `latest_attempt`、`last_success` 和 `freshness`：采集成功／失败、错误类别、各自实际采集时点、采集年龄与最后成功年龄保留。HTTP 成功但空响应、无效 JSON 或不支持的 status 形状形成失败样本；三节点按各自采集完成时点记录，不共用串行请求前的旧时间。producer 的 `status_observed_at_unix_ms` 单独计算年龄；缺失、无效或未来观察为 unknown，旧观察仍为 stale，HTTP 200、报告生成或重新读文件不得刷新它。
+
+当前可采集性与历史数值分开。最新失败、陈旧、时钟不确定性不能以旧成功显示当前 available；仍保留历史成功身份／时点及合法计数信息。计数差只使用同实例、同域与相容 counter epoch 的成功材料，失败不产生零流量样本，也不填补覆盖。完整窗口必须同时满足左右边界、成功样本最大间隙、无采集失败／reset 和当前新鲜度；两个远隔端点不能仅凭跨度成为完整覆盖。乱序或倒退的采集时间不得被排序悄悄修复成健康；保留历史中仍存在该异常时持续 unknown，普通请求失败后恢复成功与时钟异常恢复不是同一承诺。
+
+合并报告使用一次固定的报告 as-of 重新核对采集和 producer 年龄，不能永久信任子报告曾经的 fresh 字符串。它保留子报告原窗口终点，明确区分报告边界与原采样窗口；较旧窗口超过缺口预算后不得继续显示当前完整。显式历史重算时，两层使用同一 `--as-of-unix-ms`；子报告晚于所选报告边界、身份不相容、缺少或未知 freshness schema 均保留 unknown／告警。JSON 与 Markdown 消费同一结果。外层 monitor 只把流量年龄／缺口参数传给流量采集器，把显式 as-of 同时传给流量与合并报告，不误传给 host／snapshot 工具。外层显式 as-of 必须配对 `--traffic-history-path`，以 summary-only 读取已有流量历史；缺少历史入口须在创建输出或采集前拒绝。该回放仅覆盖流量证据，host／snapshot 仍按当前采集解释，不宣称整个合并报告是历史现场快照。
+
+兼容收紧：旧报告仍可作为历史诊断读取，但没有 schema 2 新鲜度证据时不能表示当前健康；历史 CLI 调用需显式 as-of 才能重放旧窗口。该策略仍依赖采集和 producer 自报时钟，不证明绝对可信时间、远端身份认证、现场全 fleet 健康或角色就绪。持久尝试序号／pending、慢任务条件终态、collector 被 SIGKILL 的发布保护、独占 run 与其他已记录编排缺口仍待实现，不因本切片通过而提升支持声明。
 
 <a id="report-profile-readiness"></a>
 ## 按 profile 归一化就绪与阻断

@@ -15,6 +15,9 @@ traffic summaries from cumulative counters.
 Options:
   --samples <n>                    number of samples to collect this run (default: 3)
   --interval-secs <n>              sleep between samples (default: 20)
+  --as-of-unix-ms <n>              historical boundary (requires --summary-only; history read-only)
+  --max-sample-age-secs <n>         maximum collector/producer age (default: 60)
+  --max-sample-gap-secs <n>         maximum contiguous sample gap (default: 60)
   --window-minutes <n>             recent summary window in minutes (default: 10)
   --history-retention-minutes <n>  keep only recent history for summary+buffer
                                    (default: max(window+30, 120))
@@ -141,7 +144,7 @@ capture_network_interface() {
             }
           }
         }
-      ')
+      ') || true
     fi
     if [[ -n "$iface" ]] \
       && [[ -r "/sys/class/net/$iface/statistics/rx_bytes" ]] \
@@ -171,6 +174,12 @@ append_sample_record() {
   local mode=$2
   local status_url=$3
   local sample_dir="$run_dir/raw/$label/sample-$(printf '%03d' "$sample_index")"
+
+  local status_file="$sample_dir/status.json"
+  local captured_at
+  local captured_at_unix_ms
+  captured_at_unix_ms=$(python3 "$repo_root/scripts/traffic_monitor_freshness.py" "$status_file" --capture-time)
+  captured_at=$(date -Iseconds)
 
   jq -c -n \
     --arg run_id "$run_id" \
@@ -227,6 +236,9 @@ interval_secs=20
 window_minutes=10
 history_retention_minutes=""
 top_n=5
+max_sample_age_secs=60
+max_sample_gap_secs=60
+as_of_unix_ms=""
 ssh_timeout_secs=8
 out_root=".tmp/p2p_real_env_traffic_monitor"
 history_path=""
@@ -248,6 +260,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --interval-secs)
       interval_secs=${2:-}
+      shift 2
+      ;;
+    --as-of-unix-ms)
+      as_of_unix_ms=${2:-}
+      shift 2
+      ;;
+    --max-sample-age-secs)
+      max_sample_age_secs=${2:-}
+      shift 2
+      ;;
+    --max-sample-gap-secs)
+      max_sample_gap_secs=${2:-}
       shift 2
       ;;
     --window-minutes)
@@ -314,6 +338,17 @@ if (( summary_only == 0 )); then
   ensure_positive_int --samples "$samples"
   ensure_positive_int --interval-secs "$interval_secs"
 fi
+ensure_positive_int --max-sample-age-secs "$max_sample_age_secs"
+ensure_positive_int --max-sample-gap-secs "$max_sample_gap_secs"
+summary_clock_args=(--max-sample-age-secs "$max_sample_age_secs" --max-sample-gap-secs "$max_sample_gap_secs")
+if [[ -n "$as_of_unix_ms" ]]; then
+  if [[ ! "$as_of_unix_ms" =~ ^[0-9]+$ ]] || (( summary_only == 0 )); then
+    echo "--as-of-unix-ms requires a nonnegative integer and --summary-only" >&2
+    exit 2
+  fi
+  python3 "$repo_root/scripts/traffic_monitor_freshness.py" --validate-as-of "$as_of_unix_ms"
+  summary_clock_args+=(--as-of-unix-ms "$as_of_unix_ms")
+fi
 ensure_positive_int --window-minutes "$window_minutes"
 if [[ -n "$history_retention_minutes" ]]; then
   ensure_positive_int --history-retention-minutes "$history_retention_minutes"
@@ -330,6 +365,11 @@ if [[ -z "$history_path" ]]; then
   history_path="$out_root/history.ndjson"
 fi
 
+if (( summary_only == 1 )) && [[ ! -f "$history_path" ]]; then
+  echo "history file does not exist: $history_path" >&2
+  exit 2
+fi
+
 run_id=$(date +"%Y%m%d-%H%M%S")
 run_dir="$out_root/runs/$run_id"
 run_samples_ndjson="$run_dir/samples.ndjson"
@@ -343,7 +383,7 @@ summary_script="$repo_root/scripts/traffic-monitor-summary.py"
 mkdir -p "$run_dir/raw/local_node" "$run_dir/raw/sequencer_ecs" "$run_dir/raw/storage_ecs"
 mkdir -p "$(dirname "$history_path")"
 : > "$run_samples_ndjson"
-touch "$history_path"
+if (( summary_only == 0 )); then touch "$history_path"; fi
 [[ -f "$summary_script" ]] || {
   echo "missing summary helper: $summary_script" >&2
   exit 1
@@ -403,9 +443,7 @@ jq -n \
 
 if (( summary_only == 0 )); then
   for ((sample_index = 1; sample_index <= samples; sample_index++)); do
-    captured_at=$(date -Iseconds)
-    captured_at_unix_ms=$(( $(date +%s) * 1000 ))
-    echo "sample $sample_index/$samples @ $captured_at"
+    echo "sample $sample_index/$samples"
 
     capture_status local_node local "$local_status_url" "$sample_index"
     capture_network_interface local_node local "$sample_index"
@@ -439,6 +477,7 @@ python3 "$summary_script" \
   --summary-md "$latest_summary_md" \
   --window-minutes "$window_minutes" \
   --history-retention-minutes "$history_retention_minutes" \
+  "${summary_clock_args[@]}" \
   --top-n "$top_n" \
   --run-id "$run_id" \
   --run-dir "$run_dir" \
