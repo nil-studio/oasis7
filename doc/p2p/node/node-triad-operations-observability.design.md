@@ -96,7 +96,7 @@
 
 Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节落实 [OPS-AC-2](node-triad-operations-observability.prd.md#ops-report-contract) 的流量采集／归约／合并子范围，不替代角色 producer、持久 pending 或 runtime admission。
 
-流量报告 schema 2 在一次归约中为全部选定节点固定一个 `as_of_unix_ms`。`--as-of-unix-ms` 可显式选择历史边界，省略时使用调用时的 UTC 墙钟；窗口终点保持该边界，不退回最后成功时间。`--max-sample-age-secs` 和 `--max-sample-gap-secs` 默认均为 60 秒，必须是正数；显式历史边界为非负整数，且不得晚于调用时的 UTC 墙钟；未来查询在写入或采集前拒绝。历史重算只消费截至边界的证据，不能为了此次回放修改历史文件或删除较晚样本。
+流量报告 schema 2 在一次归约中为全部选定节点固定一个 `as_of_unix_ms`。`--as-of-unix-ms` 可显式选择历史边界，省略时使用调用时的 UTC 墙钟；窗口终点保持该边界，不退回最后成功时间。`--max-sample-age-secs` 默认 60 秒，`--max-sample-gap-secs` 默认 120 秒，均必须是正数；后者容纳单节点默认 60 秒睡眠及正常采集／归约开销，显式更小预算仍严格执行。显式历史边界为非负整数，且不得晚于调用时的 UTC 墙钟；未来查询在写入或采集前拒绝。历史重算只消费截至边界的证据，不能为了此次回放修改历史文件或删除较晚样本。`--summary-only` 无论是否指定 as-of 都通过独立 read-only-history 标志禁止修剪历史；省略 as-of 仍按当前时间判断新鲜度，不因此绕过未来证据检查。
 
 每节点分开输出 `latest_attempt`、`last_success` 和 `freshness`：采集成功／失败、错误类别、各自实际采集时点、采集年龄与最后成功年龄保留。HTTP 成功但空响应、无效 JSON 或不支持的 status 形状形成失败样本；三节点按各自采集完成时点记录，不共用串行请求前的旧时间。producer 的 `status_observed_at_unix_ms` 单独计算年龄；缺失、无效或未来观察为 unknown，旧观察仍为 stale，HTTP 200、报告生成或重新读文件不得刷新它。
 

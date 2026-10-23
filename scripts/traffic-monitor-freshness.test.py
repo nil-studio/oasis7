@@ -47,6 +47,17 @@ class FreshnessTests(unittest.TestCase):
         self.assertFalse(sparse['window']['full_window_covered'])
         self.assertEqual(sparse['window']['max_sample_gap_ms'], 600_000)
 
+    def test_default_gap_tolerates_healthy_60s_loop_plus_collection_cost(self):
+        rows = [record(minute) for minute in range(11)]
+        for index, row in enumerate(rows):
+            row['captured_at_unix_ms'] = index * 60_001
+            row['status_observed_at_unix_ms'] = index * 60_001
+        result = summary.summarize_record_set(rows, 10, 3, as_of=600_010)
+        self.assertTrue(result['window']['full_window_covered'])
+        self.assertEqual(result['window']['max_sample_gap_ms'], 60_001)
+        strict = summary.summarize_record_set(rows, 10, 3, as_of=600_010, max_gap=60_000)
+        self.assertFalse(strict['window']['full_window_covered'])
+
     def test_stale_capture_and_stale_http200_producer_independent(self):
         self.assertEqual(self.reduce([record(8)])['freshness']['state'], 'stale')
         row = record(10)
@@ -141,6 +152,26 @@ class FreshnessTests(unittest.TestCase):
             self.assertEqual(result['freshness_policy']['version'], 1)
             self.assertTrue(all(node['as_of_unix_ms'] == result['as_of_unix_ms'] for node in result['nodes'].values()))
 
+    def test_read_only_current_summary_still_rejects_future_capture_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            history = root / 'history'
+            future = record(0)
+            future['captured_at_unix_ms'] = __import__('time').time_ns() // 1_000_000 + 60_000
+            history.write_text(json.dumps(future) + '\n')
+            before = history.stat().st_mtime_ns
+            original = history.read_bytes()
+            completed = subprocess.run([sys.executable, str(Path(__file__).with_name('traffic-monitor-summary.py')),
+                '--layout', 'single-node', '--history-path', str(history), '--summary-json', str(root / 'json'),
+                '--summary-md', str(root / 'md'), '--window-minutes', '10', '--history-retention-minutes', '1',
+                '--top-n', '3', '--read-only-history'], capture_output=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+            result = json.loads((root / 'json').read_text())
+            self.assertFalse(result['node']['available'])
+            self.assertIn('future_capture_time', result['node']['freshness']['reasons'])
+            self.assertEqual(history.read_bytes(), original)
+            self.assertEqual(history.stat().st_mtime_ns, before)
+
     def test_production_retention_handles_out_of_order_without_healing_clock(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'history'
@@ -230,6 +261,18 @@ class FreshnessTests(unittest.TestCase):
                 self.assertEqual(result['as_of_unix_ms'], 600000)
                 node = result.get('node') or result['nodes']['local_node']
                 self.assertEqual(node['last_success']['captured_at_unix_ms'], 600000)
+                before = history.stat().st_mtime_ns
+                completed = subprocess.run(['bash', str(Path(__file__).with_name(script)),
+                    '--summary-only', '--history-retention-minutes', '1',
+                    '--history-path', str(history), '--out-dir', str(out)], env=env, capture_output=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+                self.assertNotIn(b'unexpected-network', completed.stderr)
+                self.assertEqual(history.read_bytes(), original)
+                self.assertEqual(history.stat().st_mtime_ns, before)
+                current = json.loads((out / 'latest_summary.json').read_text())
+                self.assertEqual(current['freshness_policy']['max_sample_gap_ms'], 120000)
+                self.assertEqual(current['freshness_policy']['max_sample_age_ms'], 60000)
+
 
     def test_invalid_options_fail_before_any_output_write(self):
         with tempfile.TemporaryDirectory() as directory:

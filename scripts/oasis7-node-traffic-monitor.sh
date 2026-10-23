@@ -25,7 +25,7 @@ Options:
   --interval-secs <n>              loop interval for --loop mode (default: 60)
   --as-of-unix-ms <n>              historical boundary (requires --summary-only; history read-only)
   --max-sample-age-secs <n>         maximum collector/producer age (default: 60)
-  --max-sample-gap-secs <n>         maximum contiguous sample gap (default: 60)
+  --max-sample-gap-secs <n>         maximum contiguous sample gap (default: 120)
   --window-minutes <n>             recent summary window in minutes (default: 10)
   --history-retention-minutes <n>  keep only recent history for summary+buffer
                                    (default: max(window+30, 120))
@@ -75,7 +75,7 @@ window_minutes=10
 history_retention_minutes=""
 top_n=5
 max_sample_age_secs=60
-max_sample_gap_secs=60
+max_sample_gap_secs=120
 as_of_unix_ms=""
 loop_mode=0
 summary_only=0
@@ -162,6 +162,9 @@ ensure_positive_int --interval-secs "$interval_secs"
 ensure_positive_int --max-sample-age-secs "$max_sample_age_secs"
 ensure_positive_int --max-sample-gap-secs "$max_sample_gap_secs"
 summary_clock_args=(--max-sample-age-secs "$max_sample_age_secs" --max-sample-gap-secs "$max_sample_gap_secs")
+if (( summary_only == 1 )); then
+  summary_clock_args+=(--read-only-history)
+fi
 if [[ -n "$as_of_unix_ms" ]]; then
   if [[ ! "$as_of_unix_ms" =~ ^[0-9]+$ ]] || (( summary_only == 0 )); then
     echo "--as-of-unix-ms requires a nonnegative integer and --summary-only" >&2

@@ -25,7 +25,8 @@ def parse_args():
     parser.add_argument("--top-n", type=int, required=True)
     parser.add_argument("--as-of-unix-ms", type=int)
     parser.add_argument("--max-sample-age-secs", type=int, default=60)
-    parser.add_argument("--max-sample-gap-secs", type=int, default=60)
+    parser.add_argument("--max-sample-gap-secs", type=int, default=120)
+    parser.add_argument("--read-only-history", action="store_true", help="read history without pruning or rewriting it")
     parser.add_argument("--run-id")
     parser.add_argument("--run-dir")
     parser.add_argument("--label", action="append", default=[])
@@ -45,10 +46,10 @@ def record_ts_ms(record):
     return timestamp(record.get('captured_at_unix_ms'))
 
 
-def prune_and_load_records(path, retention_minutes, as_of=None, historical=False):
+def prune_and_load_records(path, retention_minutes, as_of=None, historical=False, read_only=False):
     records = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
     total = len(records)
-    if historical:
+    if historical or read_only:
         return records, total
     cutoff = (now_ms() if as_of is None else as_of) - retention_minutes * 60_000
     # Filter every row rather than deque prefixes; preserve append order for clock diagnostics.
@@ -543,7 +544,7 @@ def aggregate_lane_summaries(lane_name, lanes, top_n):
     return aggregate
 
 
-def summarize_record_set(records, window_minutes, top_n, as_of=None, max_age=60_000, max_gap=60_000, historical=False):
+def summarize_record_set(records, window_minutes, top_n, as_of=None, max_age=60_000, max_gap=120_000, historical=False):
     as_of = now_ms() if as_of is None else as_of
     metadata, segment, visible = analyze(records, as_of, window_minutes, max_age, max_gap, historical)
     result = summarize_historical_record_set(segment, window_minutes, top_n, as_of)
@@ -1301,7 +1302,7 @@ def main():
     generated_at = datetime.now(tz=timezone.utc).isoformat()
 
     records, total_records = prune_and_load_records(
-        history_path, args.history_retention_minutes, as_of, args.as_of_unix_ms is not None
+        history_path, args.history_retention_minutes, as_of, args.as_of_unix_ms is not None, args.read_only_history
     )
     history_pruned_count = max(0, total_records - len(records))
 
