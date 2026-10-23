@@ -81,6 +81,7 @@ fn controlled_history_rejects_decodable_service_envelopes_without_dropping_them(
     let signed = sign_read_request(
         "scheduler",
         SchedulerIntentV1 {
+            task_prefix_binding_revision: 0,
             agent_id: "agent-0".into(),
             request_id: "service-history-boundary".into(),
             delegation_generation: 0,

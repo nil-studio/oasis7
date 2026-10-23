@@ -351,16 +351,20 @@ fn private_task_logistics_signed_transfer_once_restart_and_conflict() {
                     std::thread::sleep(Duration::from_millis(50));
                 }
             }
+            let prefix_intent = legacy_first_prefix(public_prefix(&prepared).unwrap(), attempt);
             let prefix = request(
                 &world,
                 WorldServicePayloadV1::Scheduler(
-                    sign_read_request("scheduler", public_prefix(&prepared).unwrap(), &delegate)
+                    sign_read_request("scheduler", prefix_intent, &delegate)
                         .unwrap(),
                 ),
             );
             match settle_cleanup_original(&client, &prefix, deadline, &mut categories) {
                 Ok(_) => {}
                 Err("canonical cleanup rejected") => {
+                    if attempt == 0 {
+                        assert_legacy_prefix_base_rejection(&pin().world, &prefix);
+                    }
                     retain_terminal_original(&client, &prefix, "prefix", &root, &mut attempts);
                     continue;
                 }

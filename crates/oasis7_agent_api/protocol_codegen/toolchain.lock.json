@@ -1,0 +1,9 @@
+{
+  "dependencies": {},
+  "generator": "python-stdlib",
+  "python_major_minor": [
+    3,
+    12
+  ],
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema"
+}

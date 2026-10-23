@@ -207,6 +207,7 @@ fn malformed_unscoped_and_owner_actor_requests_fail_before_upstream() {
 }
 fn scheduler(fence: GameTaskFenceV1) -> WorldServicePayloadV1 {
     let request: TaskSchedulerIntentV1 = SchedulerIntentV1 {
+        task_prefix_binding_revision: 0,
         agent_id: fence.agent_id.clone(),
         request_id: "original-prefix".into(),
         delegation_generation: fence
