@@ -162,7 +162,7 @@ pathlib.Path(os.environ['ROUTING_ARGV_LOG'], pathlib.Path(sys.argv[0]).name + '.
             self.assertEqual(list(self.log.iterdir()), [])
 
     def test_real_host_and_traffic_parsers_accept_configured_routes_offline(self):
-        for name in ['p2p-real-env-host-monitor.sh', 'p2p-real-env-host-summary.py',
+        for name in ['p2p-real-env-host-monitor.sh', 'p2p-real-env-host-summary.py', 'p2p-real-env-observability-attempt.py',
                      'p2p-real-env-traffic-monitor.sh', 'traffic-monitor-summary.py', 'traffic_monitor_freshness.py']:
             shutil.copy2(SCRIPTS / name, self.scripts)
         env_body = 'hostname=offline\ncpu_cores=1\nload1=0\nload5=0\nload15=0\nmem_total_bytes=1024\nmem_available_bytes=1024\n'
@@ -206,7 +206,7 @@ pathlib.Path(os.environ['ROUTING_ARGV_LOG'], pathlib.Path(sys.argv[0]).name + '.
         self.fixture.complete(self.fixture.start(env, arguments=args))
         report = self.fixture.canonical()
         run = self.fixture.out / report['attempt']['run_directory']
-        host = next((run / 'host').glob('*/summary.json'))
+        host = next((run / 'host').glob('runs/*/report/latest_summary.json'))
         host_summary = json.loads(host.read_text())
         self.assertEqual(host_summary['nodes']['local_node']['latest']['storage']['path'], '/offline/local space')
         traffic = json.loads((run / 'traffic' / 'latest_summary.json').read_text())

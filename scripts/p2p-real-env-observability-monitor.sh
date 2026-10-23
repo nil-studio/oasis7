@@ -226,12 +226,19 @@ run_stage host ./scripts/p2p-real-env-host-monitor.sh \
   --out-dir "$host_root" \
   ${host_args[@]+"${host_args[@]}"}
 
-host_run_dir="$(find "$host_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-if [[ -z "$host_run_dir" ]]; then
-  host_run_dir="$host_root/unavailable"
-  errors+=(--error host:1)
+if [[ -e "$host_root/.observability-initialized" || -L "$host_root/.observability-initialized" || -e "$host_root/attempt_state.json" || -L "$host_root/attempt_state.json" ]]; then
+  # Validate the child store; retain read failure and pass its fail-closed report.
+  host_summary="$host_root/canonical_summary.json"
+  run_stage host python3 "$attempt_helper" read --collector host --out-dir "$host_root" >"$host_summary"
+else
+  # Supported legacy children are scoped to this unique outer run only.
+  host_run_dir="$(find "$host_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+  if [[ -z "$host_run_dir" ]]; then
+    host_run_dir="$host_root/unavailable"
+    errors+=(--error host:1)
+  fi
+  host_summary="$host_run_dir/summary.json"
 fi
-host_summary="$host_run_dir/summary.json"
 
 run_stage traffic ./scripts/p2p-real-env-traffic-monitor.sh \
   ${traffic_freshness_args[@]+"${traffic_freshness_args[@]}"} \

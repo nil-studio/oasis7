@@ -1732,6 +1732,15 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
 
 
+<a id="host-durable-attempt"></a>
+### 独立 host 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[host 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#host-durable-attempt)。执行 `bash scripts/p2p-real-env-host-monitor.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`；实际入口套件为 `scripts/p2p-real-env-host-durable.test.py`。
+
+- 以实际 host wrapper 和隔离 probe／SSH 驱动正常采集、最新失败／恢复、pending 先于采样、SIGKILL、慢 A／新 B pending 或失败、同钟独占目录与 last-success 保留。
+- 预留／工件／状态提交失败不得提前采样或恢复旧成功；共享机制继续覆盖锁替换、序号／锚损坏、摘要与 generation 不匹配。分别核对 host 与 observability 类型不能交叉使用，旧无类型外层状态仍按原边界兼容。
+- 实际外层消费新 host canonical 读取结果，保留错误状态、节点诊断和非零退出；legacy child 仅在外层该次独占目录内兼容。验证不证明其他 collector、全存储物理回滚、真实 SSH 或角色就绪，也不刷新历史测量的年龄。
+
 <a id="host-failure-report"></a>
 ### Host 失败续采与报告：离线验证
 
