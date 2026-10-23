@@ -97,3 +97,12 @@ fn private_task_context_native_complete_with_unrelated_provider() {
         true,
     );
 }
+
+#[test]
+fn private_task_context_legacy_prefix_capture_read_and_restart_remain_verifiable() {
+    super::complete_context_scenario_with_revision(
+        Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
+        false,
+        0,
+    );
+}

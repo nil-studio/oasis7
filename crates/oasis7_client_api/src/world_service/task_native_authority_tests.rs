@@ -169,3 +169,104 @@ fn native_authority_codec_rejects_wrong_world_fence_signer_root_and_lease() {
     base.world_id = "other".into();
     assert!(native.validate_for(&native.fence, &base).is_err());
 }
+
+fn prefix_fixture() -> TaskSchedulerIntentV1 {
+    let (native, base) = native_fixture();
+    let identity = TaskContextIdentityV1 {
+        authority_mode: Some(TaskContextAuthorityModeV1::NativeExecutorV1),
+        native_authorization_root: Some(native.native_authorization_root),
+        schema_revision: 2,
+        fence: native.fence,
+        agent_session_id: "session".into(),
+        agent_turn_id: "turn".into(),
+        decision_request_id: "decision".into(),
+        retry_seq: 1,
+        transport_attempt: 1,
+        request_commitment: format!("blake3:{}", "a1".repeat(32)),
+        context_commitment: format!("blake3:{}", "a2".repeat(32)),
+        provider_invocation_commitment: format!("blake3:{}", "a3".repeat(32)),
+        valid_until_tick: DecimalU64(26),
+    };
+    SchedulerIntentV1 {
+        agent_id: "a".into(),
+        request_id: "decision".into(),
+        delegation_generation: 1,
+        task_prefix_binding_revision: 0,
+        captured_base_binding: base,
+        operation: SchedulerOperationV1::TaskProviderPrefix { context: identity },
+    }
+}
+#[test]
+fn historical_task_prefix_bytes_and_signature_survive_revision_default() {
+    #[derive(Serialize)]
+    struct Historical<'a> {
+        agent_id: &'a str,
+        request_id: &'a str,
+        delegation_generation: u64,
+        captured_base_binding: &'a RuntimeCognitionBaseBindingV1,
+        operation: &'a TaskSchedulerOperationV1,
+    }
+    let prefix = prefix_fixture();
+    let old = Historical {
+        agent_id: &prefix.agent_id,
+        request_id: &prefix.request_id,
+        delegation_generation: prefix.delegation_generation,
+        captured_base_binding: &prefix.captured_base_binding,
+        operation: &prefix.operation,
+    };
+    let old_json = serde_json::to_vec(&old).unwrap();
+    let decoded: TaskSchedulerIntentV1 = serde_json::from_slice(&old_json).unwrap();
+    assert_eq!(decoded.task_prefix_binding_revision, 0);
+    assert_eq!(old_json, serde_json::to_vec(&decoded).unwrap());
+    assert_eq!(
+        oasis7_wasm_abi::encode_canonical_cbor(&old).unwrap(),
+        oasis7_wasm_abi::encode_canonical_cbor(&decoded).unwrap()
+    );
+    let signed_old = sign_read_request("scheduler", old, &"17".repeat(32)).unwrap();
+    let signed_new = sign_read_request("scheduler", decoded, &"17".repeat(32)).unwrap();
+    assert_eq!(signed_old.signature_hex, signed_new.signature_hex);
+    let mut changed = signed_new.clone();
+    changed.request.task_prefix_binding_revision = 1;
+    assert!(
+        verify_owner_signature_strict(
+            "scheduler",
+            &changed.request,
+            &changed.subject_public_key,
+            &changed.signature_hex
+        )
+        .is_err()
+    );
+}
+#[test]
+fn scheduler_revision_is_signed_and_only_known_task_prefix_revision_is_valid() {
+    let world = WorldIdentity {
+        world_id: "w".into(),
+        genesis_digest: "g".into(),
+    };
+    for revision in [0, 1, 2, u16::MAX] {
+        let mut prefix = prefix_fixture();
+        prefix.task_prefix_binding_revision = revision;
+        for is_prefix in [true, false] {
+            let mut request = prefix.clone();
+            if !is_prefix {
+                let SchedulerOperationV1::TaskProviderPrefix { context } = request.operation else {
+                    unreachable!()
+                };
+                request.operation = SchedulerOperationV1::TaskProviderFailure {
+                    context,
+                    reason: "provider_failed".into(),
+                };
+            }
+            let payload: WorldServicePayloadV1 = WorldServicePayloadV1::Scheduler(
+                sign_read_request("scheduler", request, &"17".repeat(32)).unwrap(),
+            );
+            let result =
+                crate::world_service_correlation::derive_correlation(world.clone(), &payload);
+            assert_eq!(
+                result.is_ok(),
+                revision == 0 || (revision == 1 && is_prefix),
+                "revision {revision}, prefix {is_prefix}"
+            );
+        }
+    }
+}
