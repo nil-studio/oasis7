@@ -209,9 +209,12 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
     formal_snapshot.state.governance_finality_signer_registry = Some(Default::default());
     formal_snapshot.save_json(formal_path.join("snapshot.json")).unwrap();
     driver.execution_world.journal().save_json(formal_path.join("journal.json")).unwrap();
-    let formal_error = crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+    let formal_error = match crate::governance_registry::apply_world_governance_registry_overrides_with_context(
         node_config(), &formal_path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
-    ).err().expect("mixed formal authority must remain rejected");
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("mixed formal authority must remain rejected"),
+    };
     assert!(formal_error.contains("DevLocal participant authority conflicts with effective world authority"), "{formal_error}");
     let registry = driver
         .execution_world
