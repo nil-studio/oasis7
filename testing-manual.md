@@ -211,7 +211,8 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 - 本地合同：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/ci-cache-policy.test.py`、`python3 scripts/ci-workspace-cache.test.py`、`python3 scripts/ci-ecs-cache.test.py`、`python3 scripts/ci-cache-maintenance.test.py`、`python3 scripts/ci-workflow.test.py`。实际 Cargo fixture 需要 Rust；缺少工具链时明确记录跳过，不能用 synthetic JSON 计数代签真实 fresh。
 - 普通构建 library-only fixture 须证明库和完整构建脚本可复用、普通 binary/test harness 不入缓存且正常重建；四个 feature variants 与测试产物不变。新增/删除输入、损坏或路径不安全继续 miss；源码内容变化仍由 Cargo 重编。检查本地与第三方 fresh/rebuilt 分组，含恢复、验证和打包成本。
-- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。两代加足够容量允许临时第三代；无容量、库存不全、未确认 current 或族归属不符须零删除。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- compact archive 回归覆盖 zstd 与旧 gzip 往返、真实同 inode 去重、完整逻辑字节预算、损坏/截断/附加帧、非法别名和路径拒绝。使用实测 9,381,351,049 字节库存与有来源的大小样本回放 bootstrap、首次准入、后续恢复和第三代轮换；全族达到上限但仓库空间不足时必须拒绝，不能把单份上限当预留额度。
 - hosted 分别核对首次 main 保存、后续兼容 reader 的实际 fresh 和第三代回收后的库存；新格式首次冷构建、超限跳过与保护集超额均如实报告，不承诺尚未测量的耗时收益。
 
 <a id="ci-dependency-installation-validation"></a>

@@ -404,6 +404,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-workflow.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
   run python3 ./scripts/ci-cache-policy.test.py
+  run python3 ./scripts/ci-cache-archive.test.py
   run python3 ./scripts/ci-workspace-cache.test.py
   run python3 ./scripts/ci-rust-cache-toolchains.test.py
   run python3 ./scripts/ci-rust-cache-build.test.py

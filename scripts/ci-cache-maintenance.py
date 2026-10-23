@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Report cache storage and retire superseded trusted caches after confirmed saves.
+"""Report cache storage and safely retire trusted cache generations.
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
 No cache payload is restored here. Remote maintenance is advisory, defaults to
-read-only, and only deletes explicitly anchored main workspaces or migrated Rust namespaces.
+read-only, and only deletes explicitly anchored main workspaces, enumerated
+retired schema generations with recovery, or migrated Rust namespaces.
 """
 import argparse
 from collections import Counter, defaultdict
@@ -45,6 +46,12 @@ RETIRED_NAMESPACES = {
     'release-packages-web-wasm-trusted-v2': 'release-packages-web-wasm-trusted-v3',
     'oasis7-ecs-native-linux-packaging-v1': 'oasis7-ecs-native-linux-ecs-v2',
     'oasis7-ecs-native-linux-ecs-v1': 'oasis7-ecs-native-linux-ecs-v2',
+}
+# This list is intentionally explicit. A current format with a different
+# compiler/environment hash is never a bootstrap retirement candidate.
+RETIRED_WORKSPACE_SCHEMAS = {
+    'formal-v2': re.compile(policy.FORMAL_V2 + r'\Z', re.ASCII),
+    'ecs-v1': re.compile(r'ecs-workspace-v1-' + policy.SOURCE_SUFFIX + r'\Z', re.ASCII),
 }
 
 
@@ -207,6 +214,71 @@ def plan_namespace_retirement(entries, cutoff):
             'replacements': dict(replacements),
             'projected_bytes': managed_bytes - sum(entry['size_in_bytes'] for entry in deletions),
             'delete': deletions}
+
+
+def plan_retired_schemas(entries, cutoff):
+    groups = defaultdict(list)
+    for entry in entries:
+        if entry['ref'] == MAIN_REF and any(pattern.fullmatch(entry['key'])
+                                           for pattern in RETIRED_WORKSPACE_SCHEMAS.values()):
+            groups[compatibility(entry)].append(entry)
+    owned = [entry for group in groups.values() for entry in group]
+    key_counts = Counter(entry['key'] for entry in owned)
+    protected, recoveries, blocked, deletions = set(), [], [], []
+    for (prefix, version), group in sorted(groups.items()):
+        complete = [entry for entry in group if entry['size_in_bytes'] > 0]
+        created = [timestamp(entry['created_at']) for entry in complete]
+        reason = None
+        if any(key_counts[entry['key']] != 1 for entry in group):
+            reason = 'ambiguous exact cache key'
+        elif len(created) != len(set(created)):
+            reason = 'ambiguous generation timestamps'
+        elif not complete:
+            reason = 'no complete recovery snapshot'
+        if reason:
+            protected.update(entry['id'] for entry in group)
+            blocked.append({'prefix': prefix, 'version': version, 'reason': reason})
+            continue
+        # Select within a fully identified retired compatibility/version only.
+        # Creation order never chooses one environment group for elimination.
+        recovery = max(complete, key=lambda entry: timestamp(entry['created_at']))
+        recoveries.append(recovery)
+        for entry in group:
+            if entry['id'] == recovery['id'] or protected_by_activity(entry, cutoff):
+                protected.add(entry['id'])
+            else:
+                deletions.append(dict(entry, reason='older retired workspace schema generation',
+                                      recovery_id=recovery['id']))
+    managed_bytes = sum(entry['size_in_bytes'] for entry in owned)
+    return {'managed_bytes': managed_bytes, 'managed_count': len(owned),
+            'keep_per_compatibility': 1, 'protected_ids': sorted(protected),
+            'protected_bytes': sum(entry['size_in_bytes'] for entry in owned if entry['id'] in protected),
+            'recoveries': recoveries, 'recovery_ids': sorted(entry['id'] for entry in recoveries),
+            'blocked_groups': blocked,
+            'projected_bytes': managed_bytes - sum(entry['size_in_bytes'] for entry in deletions),
+            'delete': deletions}
+
+
+def plan_bootstrap(entries, run_started_at, *, active_runs=None):
+    """Prune only enumerated retired formats while every group keeps recovery."""
+    validate_inventory(entries)
+    active_runs = validate_active_runs([] if active_runs is None else active_runs)
+    protection_started_at = min([run_started_at, *(run['created_at'] for run in active_runs)], key=timestamp)
+    cutoff = timestamp(protection_started_at)
+    schemas = plan_retired_schemas(entries, cutoff)
+    # Bootstrap has a narrower allowlist than confirmed-save maintenance.
+    # Native Rust namespace retirement remains tied to the post-save path.
+    retired = plan_namespace_retirement([], cutoff)
+    deletions = sorted([*schemas['delete'], *retired['delete']],
+                       key=lambda entry: (timestamp(entry['created_at']), entry['id']))
+    return {field: schemas[field] for field in
+            ('managed_bytes', 'managed_count', 'protected_bytes', 'projected_bytes', 'protected_ids')} | {
+        'max_bytes': 0, 'protected_over_budget_bytes': 0,
+        'current_key': None, 'current_keys': [], 'families': {},
+        'unanchored_families': sorted(policy.FAMILIES),
+        'run_created_at': run_started_at, 'protection_started_at': protection_started_at,
+        'active_run_ids': sorted(run['id'] for run in active_runs),
+        'retired_schemas': schemas, 'retired_namespaces': retired, 'delete': deletions}
 
 
 def current_keys(value):
@@ -442,8 +514,10 @@ class GitHubApi:
         return self.request('DELETE', f'/actions/caches/{cache_id}')
 
 
-def trusted_run_start(api, environment, current_key):
-    keys = current_keys(current_key)
+def trusted_run_start(api, environment, current_key=None, *, bootstrap=False):
+    if bootstrap and current_key:
+        raise MaintenanceError('bootstrap cannot be combined with current workspace keys')
+    keys = [] if bootstrap else current_keys(current_key)
     sha = environment.get('GITHUB_SHA', '')
     event = environment.get('GITHUB_EVENT_NAME', '')
     run_id = environment.get('GITHUB_RUN_ID', '')
@@ -454,6 +528,8 @@ def trusted_run_start(api, environment, current_key):
         workflow, allowed_families, events = ECS_WORKFLOW_PATH, {'ecs'}, ('workflow_dispatch',)
     else:
         raise MaintenanceError('retention requires a trusted main Rust or ECS workflow')
+    if bootstrap and workflow != WORKFLOW_PATH:
+        raise MaintenanceError('bootstrap requires the trusted main Rust workflow')
     if (environment.get('GITHUB_ACTIONS') != 'true' or environment.get('GITHUB_REF') != MAIN_REF
             or environment.get('GITHUB_REPOSITORY') != api.repository
             or event not in events
@@ -481,33 +557,42 @@ def trusted_run_start(api, environment, current_key):
     return run['created_at']
 
 
-def empty_report(apply):
-    return {'mode': 'apply' if apply else 'dry-run', 'status': 'skipped',
+def empty_report(apply, *, bootstrap=False):
+    return {'mode': 'apply' if apply else 'dry-run', 'status': 'skipped', 'bootstrap': bootstrap,
             'policy': {'formal_max_bytes': FORMAL_MAX_BYTES, 'keep_generations': FORMAL_KEEP_GENERATIONS,
-                       'workspace_families': {name: {field: values[field] for field in
-                           ('max_bytes', 'staging_bytes', 'keep_generations')}
+                       'workspace_families': {name: {field: values.get(field) for field in
+                           ('max_upload_bytes', 'max_bytes', 'rotation_bytes', 'migration_bytes',
+                            'staging_bytes', 'keep_generations')}
                            for name, values in policy.FAMILIES.items()},
-                       'retired_namespaces': RETIRED_NAMESPACES},
+                       'retired_namespaces': RETIRED_NAMESPACES,
+                       'bootstrap_retired_schemas': sorted(RETIRED_WORKSPACE_SCHEMAS)},
             'before': None, 'after': None, 'plan': None, 'delete_candidates': [],
-            'stable_replacement_ids': {},
+            'stable_replacement_ids': {}, 'stable_recovery_ids': [],
             'deleted_ids': [], 'already_absent_ids': [], 'warnings': []}
 
 
-def maintain(api, current_key=None, run_started_at=None, *, apply=False):
-    report = empty_report(apply)
+def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstrap=False):
+    report = empty_report(apply, bootstrap=bootstrap)
     try:
-        if apply and (not current_key or not run_started_at):
-            raise MaintenanceError('apply requires a verified current key and workflow run boundary')
+        if bootstrap and current_key:
+            raise MaintenanceError('bootstrap cannot be combined with current workspace keys')
+        if apply and (not (current_key or bootstrap) or not run_started_at):
+            raise MaintenanceError('apply requires a verified current key or bootstrap mode and workflow run boundary')
+        def build_plan(entries):
+            active_runs = api.list_active_runs()
+            if bootstrap:
+                return plan_bootstrap(entries, run_started_at, active_runs=active_runs)
+            return plan_retention(entries, current_key, run_started_at, active_runs=active_runs)
         first = validate_inventory(api.list_caches())
         report['before'] = inventory_summary(first)
-        if current_key:
-            report['plan'] = plan_retention(first, current_key, run_started_at, active_runs=api.list_active_runs())
+        if current_key or bootstrap:
+            report['plan'] = build_plan(first)
         if not apply:
             report['status'] = 'dry-run'
             return report
         initial = {entry['id']: entry for entry in report['plan']['delete']}
-        second = api.list_caches()
-        latest_plan = plan_retention(second, current_key, run_started_at, active_runs=api.list_active_runs())
+        second = validate_inventory(api.list_caches())
+        latest_plan = build_plan(second)
         for key in report['plan']['current_keys']:
             first_current = next(entry for entry in first if managed(entry) and entry['key'] == key)
             second_current = next(entry for entry in second if managed(entry) and entry['key'] == key)
@@ -521,11 +606,18 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False):
             stable[namespace] = sorted(entry['id'] for entry in second_replacements.get(namespace, [])
                                        if immutable_identity(entry) in identities)
         report['stable_replacement_ids'] = stable
+        if bootstrap:
+            identities = {immutable_identity(entry) for entry in report['plan']['retired_schemas']['recoveries']}
+            report['stable_recovery_ids'] = sorted(entry['id'] for entry in latest_plan['retired_schemas']['recoveries']
+                                                   if immutable_identity(entry) in identities)
+            if set(report['plan']['retired_schemas']['recovery_ids']) - set(report['stable_recovery_ids']):
+                report['warnings'].append('retired workspace recovery changed between inventories; affected groups deferred')
         # Revalidation may only shrink the original mutation set. A recent read,
         # new cache or archive identity change cannot expand this invocation.
         candidates = [entry for entry in latest_plan['delete'] if entry['id'] in initial
                       and immutable_identity(entry) == immutable_identity(initial[entry['id']])
-                      and (not entry.get('replacement_family') or stable.get(entry['replacement_family']))]
+                      and (not entry.get('replacement_family') or stable.get(entry['replacement_family']))
+                      and (not entry.get('recovery_id') or entry['recovery_id'] in report['stable_recovery_ids'])]
         report['plan'] = latest_plan
         report['delete_candidates'] = candidates
         report['status'] = 'completed'
@@ -552,10 +644,15 @@ def render_summary(report):
     def cell(value):
         return html.escape(str(value)).replace('|', '&#124;').replace('\n', ' ')
 
-    lines = ['## CI cache storage', '', f"Mode: **{report['mode']}**; status: **{report['status']}**.", '',
-             'Each anchored main workspace family targets two current-compatible generations.',
-             'Current, previous compatible, concurrent and actively accessed caches take priority over these limits.',
-             'Retired Rust namespaces require a complete main replacement with the same identity in both inventories.', '']
+    lines = ['## CI cache storage', '', f"Mode: **{report['mode']}**; status: **{report['status']}**.", '']
+    if report.get('bootstrap'):
+        lines += ['Bootstrap only prunes enumerated retired workspace formats.',
+                  'Every full compatibility prefix and cache version retains its newest complete recovery snapshot.',
+                  'Current schemas and native Rust caches are preserved; ambiguous, concurrent and actively accessed entries are protected.', '']
+    else:
+        lines += ['Each anchored main workspace family targets two current-compatible generations.',
+                  'Current, previous compatible, concurrent and actively accessed caches take priority over these limits.',
+                  'Retired Rust namespaces require a complete main replacement with the same identity in both inventories.', '']
     for label in ('before', 'after'):
         inventory = report[label]
         if inventory is None:
@@ -570,16 +667,24 @@ def render_summary(report):
     if report['plan']:
         plan = report['plan']
         retired = plan['retired_namespaces']
-        lines += [f"Explicit current keys: {cell(plan['current_keys'])}.", '',
-                  f"Unanchored families (no workspace deletions): {cell(plan['unanchored_families'])}.", '',
-                  '| Anchored family | Byte target | Managed bytes | Protected bytes | Protected excess |',
-                  '| --- | ---: | ---: | ---: | ---: |']
-        for name, values in sorted(plan['families'].items()):
-            lines.append(f"| {cell(name)} | {values['max_bytes']:,} | {values['managed_bytes']:,} | "
-                         f"{values['protected_bytes']:,} | {values['protected_over_budget_bytes']:,} |")
-        lines += ['', f"Anchored workspace bytes at planning: {plan['managed_bytes']:,}; protected: {plan['protected_bytes']:,}; "
-                  f"protected excess: {plan['protected_over_budget_bytes']:,}.", '',
-                  f"Activity protection starts at {cell(plan['protection_started_at'])}; "
+        if report.get('bootstrap'):
+            schemas = plan['retired_schemas']
+            lines += [f"Retired workspace entries: {schemas['managed_count']:,}; "
+                      f"compressed bytes: {schemas['managed_bytes']:,}; protected bytes: {schemas['protected_bytes']:,}.", '',
+                      f"Recovery snapshot IDs: {cell(schemas['recovery_ids'])}; "
+                      f"stable in both inventories: {cell(report['stable_recovery_ids'])}.", '',
+                      f"Ambiguous or incomplete retired groups deferred: {len(schemas['blocked_groups'])}.", '']
+        else:
+            lines += [f"Explicit current keys: {cell(plan['current_keys'])}.", '',
+                      f"Unanchored families (no workspace deletions): {cell(plan['unanchored_families'])}.", '',
+                      '| Anchored family | Resident byte target | Managed bytes | Protected bytes | Protected excess |',
+                      '| --- | ---: | ---: | ---: | ---: |']
+            for name, values in sorted(plan['families'].items()):
+                lines.append(f"| {cell(name)} | {values['max_bytes']:,} | {values['managed_bytes']:,} | "
+                             f"{values['protected_bytes']:,} | {values['protected_over_budget_bytes']:,} |")
+            lines += ['', f"Anchored workspace bytes at planning: {plan['managed_bytes']:,}; protected: {plan['protected_bytes']:,}; "
+                      f"protected excess: {plan['protected_over_budget_bytes']:,}.", '']
+        lines += [f"Activity protection starts at {cell(plan['protection_started_at'])}; "
                   f"unfinished repository runs: {cell(plan['active_run_ids'])}.", '',
                   f"Retired namespaces: {retired['managed_count']:,} entries, {retired['managed_bytes']:,} compressed bytes; "
                   f"protected IDs: {cell(retired['protected_ids'])}; "
@@ -595,20 +700,25 @@ def render_summary(report):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--apply', action='store_true', help='delete only after trusted main run and saved-key verification')
+    parser.add_argument('--apply', action='store_true', help='delete only after trusted main run and recovery/anchor verification')
+    parser.add_argument('--bootstrap', action='store_true',
+                        help='retire redundant generations in known retired workspace formats without a new saved key')
     parser.add_argument('--current-key', action='append',
                         help='exact confirmed workspace key; repeat for distinct families; omit for inventory-only dry-run')
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY'))
     parser.add_argument('--summary', default=os.environ.get('GITHUB_STEP_SUMMARY'))
     args = parser.parse_args(argv)
-    report = empty_report(args.apply)
+    report = empty_report(args.apply, bootstrap=args.bootstrap)
     try:
+        if args.bootstrap and args.current_key:
+            raise MaintenanceError('bootstrap cannot be combined with current workspace keys')
         token = os.environ.get('CACHE_MAINTENANCE_TOKEN', '')
-        if args.apply and (not token or not args.current_key):
-            raise MaintenanceError('apply requires the scoped job token and exact saved key')
+        if args.apply and (not token or not (args.current_key or args.bootstrap)):
+            raise MaintenanceError('apply requires the scoped job token and an exact saved key or bootstrap mode')
         api = GitHubApi(args.repository, token)
-        cutoff = trusted_run_start(api, os.environ, args.current_key) if args.current_key else None
-        report = maintain(api, args.current_key, cutoff, apply=args.apply)
+        cutoff = (trusted_run_start(api, os.environ, args.current_key, bootstrap=args.bootstrap)
+                  if args.current_key or args.bootstrap else None)
+        report = maintain(api, args.current_key, cutoff, apply=args.apply, bootstrap=args.bootstrap)
     except MaintenanceError as error:
         report['warnings'].append(str(error))
     if args.summary:

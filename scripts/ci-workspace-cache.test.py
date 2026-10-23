@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -165,7 +166,30 @@ class Workspace(unittest.TestCase):
             self.assertFalse(report['save'])
             self.assertEqual(report['reason'], 'repository cache capacity gap')
             self.assertGreater(report['upload_bound_bytes'], report['archive_bytes'])
-            self.assertFalse((args.cache / cache.archive.ARCHIVE_NAME).exists())
+            self.assertFalse((args.cache / cache.ARCHIVE_NAME).exists())
+
+    def test_measured_ordinary_selection_fits_staging_without_hashing_or_copying(self):
+        # Ordinary producer 120263591919 measured this logical library-only
+        # byte count. A sparse file reproduces admission without allocating or
+        # pretending to compress the hosted payload.
+        observed_raw_bytes = 4_428_645_549
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            root, state, library = fixture(directory)
+            with library.open('wb') as stream:
+                stream.truncate(observed_raw_bytes - len(b'fingerprint'))
+            args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=state)
+            with patch.object(cache, 'ROOT', root), patch.object(cache, 'api_client') as remote, \
+                 patch.object(cache.units, '_cache_file') as hash_file, \
+                 patch.object(cache.units, '_cache_copy') as copy_files:
+                report = {}
+                cache.measure_cache(args, report)
+            self.assertEqual(report['raw_bytes'], observed_raw_bytes)
+            self.assertTrue(report['eligible'], report)
+            self.assertFalse(report['save'])
+            remote.assert_not_called()
+            hash_file.assert_not_called()
+            copy_files.assert_not_called()
 
     def test_stage_round_trip_and_restore_requires_compatible_key(self):
         for scope in ('ordinary', 'formal'):
@@ -179,6 +203,9 @@ class Workspace(unittest.TestCase):
                     report = {}
                     cache.stage_cache(args, 10_000_000_000, report)
                     self.assertTrue(report['save'], report)
+                    payload = args.cache / 'workspace-units.tar.zst'
+                    self.assertTrue(payload.is_file(), sorted(args.cache.iterdir()))
+                    self.assertEqual(payload.read_bytes()[:4], b'\x28\xb5\x2f\xfd')
                     expected = library.read_bytes()
                     shutil.rmtree(root / 'target')
                     args.requested_key, args.matched_key, args.cache_hit = key(scope, 'c'), key(scope), 'false'
@@ -207,6 +234,86 @@ class Workspace(unittest.TestCase):
             args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=state)
             with patch.object(cache, 'ROOT', root), self.assertRaises(ValueError):
                 cache.measure_cache(args, {})
+
+
+@unittest.skipUnless(all(shutil.which(tool) for tool in ('cargo', 'rustc', 'zstd')),
+                     'compact workspace smoke requires Cargo, rustc and zstd')
+class RealCargoCompact(unittest.TestCase):
+    def test_compatible_restore_is_fresh_and_changed_leaf_rebuilds(self):
+        for scope in ('ordinary', 'formal'):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                root = base / 'checkout'
+                sources = {
+                    'Cargo.toml': '[workspace]\nmembers=["base", "leaf"]\nresolver="2"\n'
+                                  '[profile.dev]\ndebug=0\nincremental=false\n',
+                    'base/Cargo.toml': '[package]\nname="compact_base"\nversion="0.1.0"\nedition="2021"\n',
+                    'base/src/lib.rs': 'pub fn value() -> u32 { 7 }\n',
+                    'base/build.rs': 'fn main() { println!("cargo:rerun-if-changed=src/lib.rs"); }\n',
+                    'leaf/Cargo.toml': '[package]\nname="compact_leaf"\nversion="0.1.0"\nedition="2021"\n'
+                                       '[dependencies]\ncompact_base={path="../base"}\n',
+                    'leaf/src/lib.rs': 'pub fn value() -> u32 { compact_base::value() }\n',
+                    'leaf/src/main.rs': 'fn main() { println!("{}", compact_leaf::value()); }\n',
+                }
+                for name, content in sources.items():
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content)
+                env = dict(os.environ, CARGO_INCREMENTAL='0')
+                for name in ('CARGO_TARGET_DIR', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'):
+                    env.pop(name, None)
+                subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, env=env,
+                               check=True, capture_output=True)
+
+                def build(state=None):
+                    result = subprocess.run(['cargo', 'build', '--workspace', '--offline', '--locked',
+                                             '--message-format=json'], cwd=root, env=env,
+                                            text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    messages = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+                    if state is not None:
+                        for message in messages:
+                            cache.units.cache_record(state, message)
+                        cache.units.cache_finish(state)
+                    value = subprocess.check_output([str(root / 'target/debug/compact_leaf')], text=True).strip()
+                    return [m for m in messages if m.get('reason') == 'compiler-artifact'], value
+
+                state = cache.units.cache_begin(root, selection='libraries' if scope == 'ordinary' else 'all')
+                cold_units, value = build(state)
+                self.assertEqual(value, '7')
+                self.assertTrue(all(not unit['fresh'] for unit in cold_units))
+                state_path = base / 'state.json'
+                state_path.write_text(json.dumps(state))
+                args = SimpleNamespace(scope=scope, state=state_path, cache=base / 'cache',
+                                       requested_key=key(scope, 'c'), matched_key=key(scope), cache_hit='false')
+                with patch.object(cache, 'ROOT', root), patch.object(cache, 'identity', return_value={'key': key(scope)}), \
+                     patch.object(cache, 'api_client', return_value=api()), \
+                     patch.dict(os.environ, environment(scope)):
+                    report = {}
+                    cache.stage_cache(args, 10_000_000_000, report)
+                    self.assertTrue(report['save'], report)
+                    self.assertEqual((args.cache / cache.ARCHIVE_NAME).read_bytes()[:4], b'\x28\xb5\x2f\xfd')
+                    for changed in (False, True):
+                        shutil.rmtree(root / 'target')
+                        for name in (*sources, 'Cargo.lock'):
+                            os.utime(root / name, None)
+                        if changed:
+                            leaf = root / 'leaf/src/lib.rs'
+                            leaf.write_text('pub fn value() -> u32 { compact_base::value() + 2 }\n')
+                            previous = state['inputs']['leaf/src/lib.rs']['mtime_ns']
+                            os.utime(leaf, ns=(previous, previous))
+                        restored = {}
+                        cache.restore_cache(args, restored)
+                        self.assertTrue(restored['restored'], restored)
+                        self.assertEqual(restored['changed_inputs'], int(changed))
+                        if scope == 'ordinary':
+                            self.assertFalse((root / 'target/debug/compact_leaf').exists())
+                        warm_units, value = build()
+                        self.assertEqual(value, '9' if changed else '7')
+                        for unit in warm_units:
+                            expected = not ((changed and unit['target']['name'] == 'compact_leaf')
+                                            or (scope == 'ordinary' and 'bin' in unit['target']['kind']))
+                            self.assertEqual(unit['fresh'], expected, unit)
 
 
 if __name__ == '__main__':

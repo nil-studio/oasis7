@@ -122,15 +122,20 @@ class EcsCacheTests(unittest.TestCase):
         # point before the replacement has been uploaded and confirmed.
         self.assertFalse(ecs.save_allowed([entry(1), entry(2)], KEY, 101,
                                          repository_limit_bytes=300))
-        self.assertFalse(ecs.save_allowed([entry(size_in_bytes=ecs.FAMILY_BYTES)], KEY, 1,
-                                         repository_limit_bytes=100 * 1024 ** 3))
+        self.assertTrue(ecs.save_allowed([entry(size_in_bytes=ecs.FAMILY_BYTES)], KEY, 1,
+                                        repository_limit_bytes=100 * 1024 ** 3))
+        self.assertFalse(ecs.save_allowed([entry(size_in_bytes=ecs.policy.FAMILIES['ecs']['rotation_bytes'])],
+                                         KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
         self.assertFalse(ecs.save_allowed([entry(key=KEY)], KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
         self.assertTrue(ecs.save_allowed([entry(ref='refs/heads/topic', size_in_bytes=ecs.FAMILY_BYTES),
             entry(2, key='formal-workspace-unrelated', size_in_bytes=ecs.FAMILY_BYTES)], KEY, 1,
             repository_limit_bytes=100 * 1024 ** 3))
         # The old ECS format still occupies the same bounded remote family.
-        self.assertFalse(ecs.save_allowed([entry(key=KEY.replace('v2-', 'v1-'), size_in_bytes=ecs.FAMILY_BYTES)],
-                                         KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
+        self.assertTrue(ecs.save_allowed([entry(key=KEY.replace('v2-', 'v1-'), size_in_bytes=ecs.FAMILY_BYTES)],
+                                        KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
+        self.assertFalse(ecs.save_allowed([entry(key=KEY.replace('v2-', 'v1-'),
+            size_in_bytes=ecs.policy.FAMILIES['ecs']['migration_bytes'])],
+            KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
 
     def test_unrelated_caches_exhaust_repository_quota(self):
         unrelated = entry(ref='refs/heads/topic', key='formal-workspace-unrelated', size_in_bytes=999)

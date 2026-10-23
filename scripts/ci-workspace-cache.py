@@ -34,6 +34,7 @@ def load(name, filename):
 
 units = load('workspace_units', 'ci-test-artifacts.py')
 archive = load('workspace_archive', 'ci-cache-archive.py')
+ARCHIVE_NAME = archive.COMPACT_ARCHIVE_NAME
 policy = load('workspace_policy', 'ci-cache-policy.py')
 maintenance = load('workspace_maintenance', 'ci-cache-maintenance.py')
 
@@ -124,15 +125,16 @@ def stage_cache(args, budget, report):
     cache = temporary(args.cache)
     state = measure_cache(args, report)
     if not report.get('eligible'):
+        report.setdefault('reason', 'workspace selection exceeds staging budget or is empty')
         return
     policy.capacity_context(maintenance, api_client(), budget, report)
     if not report['available_repository_bytes']:
         report.update(save=False, reason='repository cache capacity gap')
         return
     cache.mkdir(parents=True, exist_ok=True)
-    if any(path.name != archive.ARCHIVE_NAME or not path.is_file() or path.is_symlink() for path in cache.iterdir()):
+    if any(path.name != ARCHIVE_NAME or not path.is_file() or path.is_symlink() for path in cache.iterdir()):
         raise ValueError('workspace archive directory contains unexpected files')
-    payload = cache / archive.ARCHIVE_NAME
+    payload = cache / ARCHIVE_NAME
     payload.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix='workspace-stage-', dir=cache.parent) as directory:
         staged = Path(directory) / 'units'
@@ -140,7 +142,7 @@ def stage_cache(args, budget, report):
         report.update(result, save=False)
         if not result.get('save'):
             return
-        report.update(archive.pack_archive(staged, payload, maximum))
+        report.update(archive.pack_archive(staged, payload, maximum, compact=True))
     report.update(archive.upload_bound(payload, root=ROOT))
     # The preflight observation is not a reservation; staging can take minutes.
     entries = policy.capacity_context(maintenance, api_client(), budget, report)
@@ -161,10 +163,10 @@ def restore_cache(args, report):
         raise ValueError('workspace cache miss or incompatible action matched key')
     maximum = policy.FAMILIES[args.scope]['staging_bytes']
     cache = temporary(args.cache)
-    if not cache.is_dir() or set(path.name for path in cache.iterdir()) != {archive.ARCHIVE_NAME}:
+    if not cache.is_dir() or set(path.name for path in cache.iterdir()) != {ARCHIVE_NAME}:
         raise ValueError('workspace cache archive is missing or contains extra files')
     with tempfile.TemporaryDirectory(prefix='workspace-restore-', dir=cache.parent) as directory:
-        report.update(archive.unpack_archive(cache / archive.ARCHIVE_NAME, Path(directory), maximum))
+        report.update(archive.unpack_archive(cache / ARCHIVE_NAME, Path(directory), maximum))
         report.update(units.cache_restore(ROOT, Path(directory), maximum))
 
 

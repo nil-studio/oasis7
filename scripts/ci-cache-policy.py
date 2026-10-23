@@ -17,19 +17,32 @@ FAMILIES = {
         'current_pattern': re.compile(r'formal-workspace-v3-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'(?:' + FORMAL_V2 + r'|formal-workspace-v3-'
                                       + SOURCE_SUFFIX + r')\Z', re.ASCII),
-        'max_bytes': 2 * 1024 ** 3, 'staging_bytes': 8 * 1024 ** 3, 'keep_generations': 2,
+        'max_upload_bytes': 768 * 1024 ** 2, 'staging_bytes': 8 * 1024 ** 3,
+        'keep_generations': 2,
     },
     'ordinary': {
         'current_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
-        'max_bytes': 1024 ** 3, 'staging_bytes': 2 * 1024 ** 3, 'keep_generations': 2,
+        'max_upload_bytes': 768 * 1024 ** 2, 'staging_bytes': 6 * 1024 ** 3,
+        'keep_generations': 2,
     },
     'ecs': {
         'current_pattern': re.compile(r'ecs-workspace-v2-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'ecs-workspace-v[12]-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
-        'max_bytes': 6 * 1024 ** 3, 'staging_bytes': 6 * 1024 ** 3, 'keep_generations': 2,
+        'max_upload_bytes': 1024 ** 3, 'staging_bytes': 6 * 1024 ** 3,
+        'keep_generations': 2,
     },
 }
+for _specification in FAMILIES.values():
+    # A raw staging cap is not a cache-storage entitlement. Two retained
+    # uploads and a temporary third have distinct compressed-byte budgets;
+    # the full repository observation still decides every admission.
+    _specification['max_bytes'] = _specification['keep_generations'] * _specification['max_upload_bytes']
+    _specification['rotation_bytes'] = (_specification['keep_generations'] + 1) * _specification['max_upload_bytes']
+# Current ECS v2 can still have three old snapshots across compatibility groups.
+# The first adoption of a genuinely absent compatibility may bridge that state;
+# it never bypasses the per-upload or full repository budget and cannot delete.
+FAMILIES['ecs']['migration_bytes'] = 4 * 1024 ** 3
 
 
 def family_for_key(key):
@@ -99,6 +112,8 @@ def save_policy(entries, key, upload_bytes, repository_limit_bytes):
     family = [entry for entry in entries if entry['ref'] == MAIN_REF
               and family_for_key(entry['key']) == name]
     compatible = [entry for entry in family if entry['key'].rsplit('-', 1)[0] == key.rsplit('-', 1)[0]]
+    migration = name == 'ecs' and not compatible
+    family_limit = specification['migration_bytes'] if migration else specification['rotation_bytes']
     observed = sum(entry['size_in_bytes'] for entry in entries)
     projected = observed + upload_bytes
     report = dict(capacity_allowed=False, family=name,
@@ -106,7 +121,13 @@ def save_policy(entries, key, upload_bytes, repository_limit_bytes):
                   observed_repository_bytes=observed, projected_repository_bytes=projected,
                   new_payload_upload_bound_bytes=upload_bytes,
                   projected_family_bytes=sum(entry['size_in_bytes'] for entry in family) + upload_bytes,
-                  family_limit_bytes=specification['max_bytes'], compatible_generations=len(compatible),
+                  single_upload_limit_bytes=specification['max_upload_bytes'],
+                  family_resident_limit_bytes=specification['max_bytes'],
+                  family_rotation_limit_bytes=specification['rotation_bytes'],
+                  family_migration_limit_bytes=specification.get('migration_bytes'),
+                  family_limit_bytes=family_limit, migration_admission=migration,
+                  admission_basis='new ECS compatibility migration' if migration else 'normal family rotation',
+                  compatible_generations=len(compatible),
                   rotation_required=len(compatible) >= specification['keep_generations'],
                   compatible_cache_ids=sorted(entry['id'] for entry in compatible))
     if type(repository_limit_bytes) is not int or repository_limit_bytes <= 0:
@@ -115,8 +136,10 @@ def save_policy(entries, key, upload_bytes, repository_limit_bytes):
         report['reason'] = 'repository cache capacity gap'
     elif any(entry['key'] == key for entry in family):
         report['reason'] = 'existing immutable key'
-    elif report['projected_family_bytes'] > specification['max_bytes']:
-        report['reason'] = name + ' main family budget'
+    elif upload_bytes > specification['max_upload_bytes']:
+        report['reason'] = name + ' single upload budget'
+    elif report['projected_family_bytes'] > family_limit:
+        report['reason'] = name + ' main family rotation budget'
     else:
         # Two generations is the post-save retention target. Admit a temporary
         # third only when its complete upload fits both budgets; confirmed-save
