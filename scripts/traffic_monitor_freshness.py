@@ -18,13 +18,52 @@ def identity(record):
 
 
 def counter_reset(old, new):
-    def decreased(a, b):
-        if isinstance(a, dict) and isinstance(b, dict):
-            return any(decreased(a[key], b[key]) for key in a.keys() & b.keys()
-                       if key != 'observed_since_unix_ms')
-        return type(a) is int and type(b) is int and b < a
-    return decreased(old.get('traffic') or {}, new.get('traffic') or {}) or decreased(
-        old.get('network_interface') or {}, new.get('network_interface') or {})
+    # Only compare cumulative fields consumed by the traffic reducer. Producer
+    # snapshots also contain gauges (e.g. discovery_work.inflight/window_starts)
+    # and policy metadata; their normal decrease is not a counter incarnation.
+    def counters(record):
+        found = {}
+
+        def direction(entry, prefix, fields):
+            if not isinstance(entry, dict):
+                return
+            for side in ('inbound', 'outbound'):
+                values = entry.get(side)
+                if not isinstance(values, dict):
+                    continue
+                for field in fields:
+                    value = values.get(field)
+                    if type(value) is int:
+                        found[prefix + (side, field)] = value
+
+        traffic = record.get('traffic') or {}
+        for lane_name in ('udp_gossip', 'libp2p_replication'):
+            lane = traffic.get(lane_name) or {}
+            count = 'datagrams' if lane_name == 'udp_gossip' else 'messages'
+            fields = (count, 'payload_bytes')
+            direction(lane, (lane_name,), fields)
+            for group in ('totals', 'gossip', 'request', 'response'):
+                direction(lane.get(group), (lane_name, group), fields)
+            direction(lane.get('wire_totals'), (lane_name, 'wire_totals'), ('bytes',))
+            for group in ('by_kind', 'by_topic', 'by_protocol'):
+                for name, entry in (lane.get(group) or {}).items():
+                    direction(entry, (lane_name, group, name), fields)
+            control = lane.get('control_plane') or {}
+            value = control.get('total_events')
+            if type(value) is int:
+                found[(lane_name, 'control_plane', 'total_events')] = value
+            for name, value in (control.get('by_kind') or {}).items():
+                if type(value) is int:
+                    found[(lane_name, 'control_plane', 'by_kind', name)] = value
+            direction(control.get('wire_bytes'), (lane_name, 'control_plane', 'wire_bytes'), ('bytes',))
+        for field in ('rx_bytes', 'tx_bytes'):
+            value = (record.get('network_interface') or {}).get(field)
+            if type(value) is int:
+                found[('network_interface', field)] = value
+        return found
+
+    previous, current = counters(old), counters(new)
+    return any(current[key] < previous[key] for key in previous.keys() & current.keys())
 
 
 def analyze(records, as_of, window_minutes, max_age, max_gap, historical=False):

@@ -94,6 +94,25 @@ class FreshnessTests(unittest.TestCase):
         self.assertIn('counter_reset', result['freshness']['reasons'])
         self.assertEqual(result['window']['compatible_sample_count'], 1)
 
+    def test_live_discovery_gauges_can_drop_without_resetting_traffic_window(self):
+        rows = [record(minute) for minute in range(11)]
+        for index, row in enumerate(rows):
+            row['traffic'] = {'libp2p_replication': {
+                'observed_since_unix_ms': 1,
+                'scope': 'application_payload_with_substream_wire_bytes',
+                'totals': {'inbound': {'messages': index, 'payload_bytes': index * 100},
+                           'outbound': {'messages': index, 'payload_bytes': index * 100}},
+                'discovery_work': {'admitted': index, 'rejected_window': 0, 'rejected_inflight': 0,
+                    'inflight': 32 if index < 5 else 0, 'window_starts': 128 if index < 5 else 0,
+                    'max_window_starts': 128, 'window_ms': 60_000, 'max_inflight': 32,
+                    'max_proxy_attempts': 4, 'max_list_ids': 128, 'max_list_bytes': 16_384,
+                    'max_cooldown_entries': 1024}}}
+        result = self.reduce(rows)
+        self.assertTrue(result['window']['full_window_covered'])
+        self.assertNotIn('counter_reset', result['freshness']['reasons'])
+        self.assertEqual(result['window']['compatible_sample_count'], 11)
+        self.assertEqual(result['traffic']['libp2p_replication']['totals']['inbound']['payload_bytes'], 1000)
+
     def invoke(self, directory, records, layout='single-node', as_of=600_000):
         directory = Path(directory)
         history = directory / 'history.ndjson'
