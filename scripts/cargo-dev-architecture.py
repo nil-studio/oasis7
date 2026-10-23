@@ -358,9 +358,10 @@ def inspect(root, config, builds=True, selected=None, plan=None):
                     timings['graph_seconds'] += time.monotonic() - started
                     timings['graph_profiles'] += 1
                     graph_ok = len(results) == profile_start
-                    results.append(dict(scope, status='pass' if graph_ok else 'violation', view='closure'))
                     affected = sorted({p['name'] for p, _, _ in nodes if p['source'] is None} & inputs)
                     required = not targeted or bool(affected)
+                    results.append(dict(scope, status='pass' if graph_ok else 'violation', view='closure',
+                                        build_required=required, changed_inputs=affected))
                     if not builds:
                         results.append(dict(scope, status='coverage_gap', reason='graph inspected; target build not executed'))
                     elif not required:

@@ -298,6 +298,26 @@ class CargoBoundaries(unittest.TestCase):
         self.assertTrue(any(r['status'] == 'coverage_gap' for r in diagnostic['results']))
         self.assertEqual(checker.inspect(self.root, config, plan={})['timings']['build_profiles'], 3)
 
+    def test_trusted_selection_preserves_target_conditions_and_host_build_tools(self):
+        self.package('root', "[target.'cfg(windows)'.dependencies]\nmiddle={path=\"../middle\"}\n")
+        self.rule['forbidden'] = [dict(name='absent')]
+        self.rule['profiles'].append(dict(id='windows', target='x86_64-pc-windows-msvc',
+                                         default_features=False, features=[], mode='production'))
+        self.rule['required_profiles'].append('windows')
+        def report():
+            self.command('cargo', 'generate-lockfile', '--offline')
+            self.command('git', 'add', '.')
+            self.command('git', '-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture', 'commit', '-qm', 'inputs')
+            return checker.inspect(self.root, dict(revision=1, rules=[self.rule]), builds=False,
+                plan={'architecture': {'version': 1, 'mode': 'targeted', 'packages': ['middle'], 'tested': 'HEAD'}})
+        host_windows = 'windows' in self.command('rustc', '-vV')
+        required = {r['profile']['id']: r['build_required'] for r in report()['results'] if r.get('view') == 'closure'}
+        self.assertEqual(required, {'production': host_windows, 'windows': True})
+        self.package('root', '[build-dependencies]\nmiddle={path="../middle"}\n')
+        self.write('root/build.rs', 'fn main() {}')
+        required = {r['profile']['id']: r['build_required'] for r in report()['results'] if r.get('view') == 'closure'}
+        self.assertEqual(required, {'production': True, 'windows': True})
+
     def test_unregistered_required_profile_is_gap(self):
         self.rule['required_profiles'].append('required-wasm')
         self.assertTrue(any(r['status'] == 'coverage_gap' for r in self.inspect()['results']))
