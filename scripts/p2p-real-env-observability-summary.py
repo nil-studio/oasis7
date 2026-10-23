@@ -106,6 +106,31 @@ def determine_module_status(alerts: list[str], critical_alerts: set[str] | None 
     return "ok"
 
 
+def host_collection_complete(host: dict) -> bool:
+    if "schema_version" not in host:
+        return True  # Legacy summaries did not declare collection completeness.
+    if host.get("schema_version") != 2:
+        return False
+    aggregate = host.get("aggregate") or {}
+    expected = aggregate.get("expected_sample_count")
+    if (type(expected) is not int or expected <= 0 or expected % len(NODE_LABELS)
+            or aggregate.get("complete") is not True
+            or aggregate.get("attempted_count") != expected
+            or aggregate.get("failed_sample_count") != 0
+            or aggregate.get("failed_nodes") != []):
+        return False
+    for label in NODE_LABELS:
+        node = (host.get("nodes") or {}).get(label) or {}
+        if (node.get("sample_count") != expected // len(NODE_LABELS)
+                or node.get("success_sample_count") != node.get("sample_count")
+                or node.get("failed_sample_count") != 0
+                or node.get("available") is not True
+                or (node.get("latest_attempt") or {}).get("result") != "success"
+                or not node.get("latest")):
+            return False
+    return True
+
+
 def summarize_host_runtime(host_node: dict) -> dict:
     latest_host = host_node.get("latest") or {}
     latest_runtime = latest_host.get("runtime") or {}
@@ -114,13 +139,16 @@ def summarize_host_runtime(host_node: dict) -> dict:
     alerts = list(host_node.get("alerts") or [])
     if latest_service.get("active_state") not in (None, "active"):
         alerts.append("service_inactive")
-    if latest_runtime.get("pid") is None:
+    unavailable = host_node.get("available") is False
+    if unavailable:
+        alerts.append("host_sample_unavailable")
+    if not unavailable and latest_runtime.get("pid") is None:
         alerts.append("runtime_process_missing")
     alerts = unique_sorted(alerts)
     return {
         "status": determine_module_status(
             alerts,
-            critical_alerts={"service_inactive", "runtime_process_missing"},
+            critical_alerts={"service_inactive", "runtime_process_missing", "host_sample_unavailable"},
         ),
         "alerts": alerts,
         "hostname": latest_host.get("hostname"),
@@ -1190,6 +1218,7 @@ def derive_node_summary(label: str, snapshot: dict, host: dict, traffic: dict, r
             "last_errors": snapshot_node.get("last_errors") or [],
         },
         "host": {
+            **{key: host_node.get(key) for key in ("available", "latest_attempt", "last_success", "sample_count", "success_sample_count", "failed_sample_count")},
             "hostname": latest_host.get("hostname"),
             "cpu_cores": latest_host.get("cpu_cores"),
             "runtime_cpu_percent": latest_host.get("runtime_cpu_percent"),
@@ -1316,6 +1345,7 @@ def render_markdown(summary: dict) -> list[str]:
                 f"## {label}",
                 f"- role=`{node.get('role')}` node_id=`{node.get('node_id')}`",
                 f"- heights=`{fmt_num((node.get('snapshot') or {}).get('committed_height_first'))} -> {fmt_num((node.get('snapshot') or {}).get('committed_height_last'))}` known_peer_heads_max=`{fmt_num((node.get('snapshot') or {}).get('known_peer_heads_max'))}`",
+                f"- Host current available=`{(node.get('host') or {}).get('available')}` latest_attempt=`{json.dumps((node.get('host') or {}).get('latest_attempt'), ensure_ascii=False)}` last_success is historical=`{bool((node.get('host') or {}).get('last_success'))}`",
                 f"- runtime_cpu=`{fmt_percent((node.get('host') or {}).get('runtime_cpu_percent'))}` core_ratio=`{fmt_ratio_as_percent((node.get('host') or {}).get('runtime_cpu_core_ratio'))}` load1/core=`{fmt_num((node.get('host') or {}).get('load_per_core_ratio_1m'))}` mem_available=`{fmt_percent((node.get('host') or {}).get('mem_available_percent'))}` storage_used=`{fmt_percent((node.get('host') or {}).get('storage_used_percent'))}`",
                 f"- runtime_perf=`{(node.get('runtime_perf') or {}).get('health') or 'not_reported'}` bottleneck=`{(node.get('runtime_perf') or {}).get('bottleneck') or 'not_reported'}` decision_p95_ms=`{fmt_num((node.get('runtime_perf') or {}).get('decision_p95_ms'))}`",
                 f"- Traffic freshness: `{((node.get('traffic') or {}).get('freshness') or {}).get('state', 'unknown')}` producer=`{(((node.get('traffic') or {}).get('freshness') or {}).get('producer') or {}).get('state', 'unknown')}` current_measurement_available=`{(node.get('traffic') or {}).get('current_measurement_available', False)}`; counters below are historical window values",
@@ -1367,7 +1397,10 @@ def main():
         for label in NODE_LABELS
     }
 
+    host_complete = host_collection_complete(host)
     overall_alerts = []
+    if not host_complete:
+        overall_alerts.append("host_collection_incomplete" if host.get("schema_version") == 2 else "host_schema_unknown")
     if snapshot.get("claim_status") != "pass_candidate":
         overall_alerts.extend(snapshot.get("failure_signatures") or [])
     overall_alerts.extend(host.get("aggregate", {}).get("alerted_nodes") or [])
@@ -1383,7 +1416,7 @@ def main():
 
     any_module_alerts = any(node.get("alerts") for node in nodes.values())
     overall_status = "pass_candidate"
-    if snapshot.get("claim_status") != "pass_candidate":
+    if snapshot.get("claim_status") != "pass_candidate" or not host_complete:
         overall_status = "blocked"
     elif host.get("aggregate", {}).get("alerted_node_count", 0) > 0:
         overall_status = "pass_with_resource_alerts"
@@ -1423,6 +1456,8 @@ def main():
             "analysis": snapshot.get("analysis") or {},
         },
         "host": {
+            "schema_version": host.get("schema_version"),
+            "collection_complete": host_complete,
             "aggregate": host.get("aggregate") or {},
         },
         "traffic": {

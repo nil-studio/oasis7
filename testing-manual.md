@@ -1732,6 +1732,16 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
 
 
+<a id="host-failure-report"></a>
+### Host 失败续采与报告：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[失败样本](doc/p2p/node/node-triad-operations-observability.design.md#run-failure-report)。执行 `bash scripts/p2p-real-env-host-monitor.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`。
+
+- 实际 host 入口使用隔离 probe／SSH 替身，分别注入首个、后续、全部节点失败和成功后的失败／恢复；核对所有请求轮次仍执行，失败行准确保留 label、时点、序号与有界原因，JSON／Markdown 生成后非零退出。
+- 空响应、部分字段、无效数字及 shell 文本不得成为有效样本，也不得执行响应内容；节点间不串用变量或旧成功值。正常原 helper 输出须兼容，包括空值、空格及转义字符；不增加远端运行时依赖。
+- latest 失败保持 unavailable，last-success 独立保留；恢复不擦除本 run 的失败计数。真实 host reducer→merged report 和外层条件发布保留有效其他节点、历史与 snapshot blocked，未知 host schema 不转绿。
+- 既有 all-success／缺 storage 指标 fixture 保持兼容。stub 只证明本地调用链，不证明真实 SSH、物理故障域、独立 collector 的持久尝试或目录并发安全。
+
 <a id="observability-consumer-routing"></a>
 ### 外层三节点参数路由：离线验证
 

@@ -78,3 +78,5 @@ assert "storage_metrics_unavailable" in storage["alerts"]
 assert "storage_ecs" in summary["aggregate"]["alerted_nodes"]
 assert "storage_metrics_unavailable" in markdown
 PY
+
+python3 ./scripts/p2p-real-env-host-failure.test.py
