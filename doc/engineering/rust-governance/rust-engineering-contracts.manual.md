@@ -2,7 +2,7 @@
 
 - 适用需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)。
 - 技术依据：[Rust 工程契约系统设计](rust-engineering-contracts.design.md)。
-- 本文是未来实施切片的验收操作计划；不表示新检查器、生成器、lint 继承或下列自动测试已存在，也不记录一次运行通过。
+- 本文维护各实施切片的验收方法；Workspace 首批继承范围见系统设计，新架构检查器和协议生成器仍需实施。下列操作不表示均已有自动入口，也不记录一次运行通过。
 - 通用验证范围、开发缓存与正式命令沿用 [testing-manual.md](../../../testing-manual.md) 和[开发流程规范](../workflow/source-of-truth.md)，不新增 gate、审批或强制任务。
 
 ## 执行前置与结果归属
@@ -38,7 +38,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 
 1. 核对本次迁移成员显式采用 `[lints] workspace = true`，独立 workspace 保持自身配置；比较基线和候选共性规则，不把新增强规则当配置去重。
 2. 在相同 root/target/features 下分别运行本地 clippy 和 [CI 入口](../../../scripts/ci-tests.sh) 的实际 flags；当前 CI 使用 `-D warnings -D clippy::correctness -D clippy::suspicious`。记录诊断集合及级别差异，区分相同规则与 CI 告警升级。
-3. 在隔离测试夹具中引入能触发所选规则的真实代码，确认继承后本地可见且 CI 如预期失败；修正缺陷后复测。不得只用 stub 参数记录证明 lint 生效。
+3. 在隔离 checkout 的临时 example 中引入真实代码，使用成员的实际 `[lints] workspace=true`，不要复制一份规则冒充继承。可用 `Add` 实现内做减法触发 `clippy::suspicious_arithmetic_impl`（本地 warning、成功；CI error、失败），用变量自比较触发 `clippy::eq_op`（本地/CI 均 error、失败）。分别固定基线与候选的诊断 code/level/退出码；修正代码后两种入口均须成功，并删除临时 example。不得只用 stub 参数记录证明 lint 生效。
 4. 对确需例外的测试或平台范围，验证例外命中该范围，相同问题移入生产代码或例外外仍能检出；不采用关闭继承、全 crate blanket allow 或放宽现有 CI flags 的方式消除失败。
 
 通过条件：已迁移成员获得预期规则；局部例外有技术理由且不扩大范围。未迁移成员和未执行组合不记为完成；普通 clippy 通过不代表全 CI 已执行。

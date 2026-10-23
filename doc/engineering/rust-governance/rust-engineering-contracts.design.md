@@ -1,6 +1,6 @@
 # Rust 工程契约系统设计
 
-- 状态：`active`，目标设计；新增检查器、继承配置与生成流程均需后续实施。
+- 状态：`active`，分批实施的设计；首批 Workspace 继承范围见下文，架构检查器与协议生成流程仍需实施。
 - 主责：engineering 维护者；架构和 wire/profile 语义由原 crate、Runtime 与接口 owner 拥有。
 - 专业需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)（`PRD-ENGINEERING-036`）。
 - 实施验收：[验证手册](rust-engineering-contracts.manual.md)，新增工具就绪后按实际候选执行。
@@ -40,12 +40,12 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 <a id="baseline-gap"></a>
 ## 3. 当前状态、目标状态与差距
 
-以下“当前”指上述固定源码基线的静态核对，未声明本设计的生成器或通用边界检查已经运行。相对源文件链接用于当前维护，历史判断以固定提交中的同一路径为准。
+下表区分当前实现与目标；Workspace 首批继承范围随源码维护，其余历史静态判断以上述审读基线为准。生成器与通用边界检查不因配置迁移而视为已实现；运行结果在实际 PR/CI 记录。
 
 | 对象 | 当前实现与依据 | 目标状态 | 差距 |
 | --- | --- | --- | --- |
-| Workspace | [根 manifest](../../../Cargo.toml) 有少量共享依赖，没有统一 `workspace.package` / `workspace.lints`；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 分批迁移与等价检查，不能顺带修改 resolver/profiles/patch |
-| Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 规则继承与本地入口尚需实施；普通 clippy 不等于所有 CI 组合 |
+| Workspace | [根 manifest](../../../Cargo.toml) 集中共性依赖、`workspace.package` / `workspace.lints`，首批 6 个成员显式继承；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 其余成员尚未迁移；每批仍须等价检查，不修改 resolver/profiles/patch |
+| Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 首批继承保持 correctness=deny、suspicious=warn 的本地级别；CI 继续升级，普通 clippy 不等于所有 CI 组合 |
 | 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh) 使用 host、`--no-default-features` 的局部 `cargo tree` | 有作用域的规则、声明与解析闭包检查 | 现有检查没有显式 target/kind 矩阵，不证明所有组合 |
 | HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 4、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首切片从此 profile 生成 TS/JSON Schema，继续以实现验证 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
 | Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；未有本专题的完整生成闭环 |
@@ -68,6 +68,13 @@ feature 是叠加关系。共享基线只含所有相关消费者确实共同需
 配置表示也是现有工具的输入。迁移须核对直接读取 manifest 的安全检查、CI 规划、构建和打包消费者；例如 [libp2p 来源检查](../../../scripts/libp2p-security-source.test.py) 当前读取成员的 git/rev。触及这些输入时同步支持显式与继承配置，保留来源锁定、optional/平台条件及原失败断言；不能以 Cargo 图等价为由删除或弱化检查。manifest 变化继续触发现有共享控制覆盖，并可能使相关构建缓存失效，不能将配置去重视为免测或加速证明。
 
 <a id="lint-policy"></a>
+
+首批显式继承成员为 `oasis7_agent_api`、`oasis7_client_api`、`oasis7_proto`、`oasis7_wasm_sdk`、`oasis7_game_client`、`oasis7_model_provider`：
+
+- 只继承原有的 `edition=2024`、`license=MIT`；不集中 version/MSRV/publish，也不补原先缺失的发布属性。Model Provider description、Client API/Proto lib path 和 SDK crate-type 保持成员所有。
+- 本批已有的 `hex`、`serde`（含原有 derive）、`serde_json`、`serde_cbor` 继承根版本；SDK 仍在成员声明 optional，`wire` 才激活三个 serde 依赖。Agent API/Client API 的 `sha2=0.11` 继承，Game Client 的 `sha2=0.10` 保留显式多版本。
+- `reqwest=0.13.4` 仅共享版本和 `default-features=false`；Game Client 与 Model Provider 分别显式保留 blocking/json/rustls，不把 features 提升到根。其他依赖、kind、target cfg、alias 与 features 不动。
+- `workspace.lints.clippy` 显式承接已采纳组的默认本地级别：correctness 为 deny、suspicious 为 warn；CI 的 `-D warnings -D clippy::correctness -D clippy::suspicious` 保留升级差异。不增加 pedantic/unsafe/unwrap 等规则，也不新增局部例外。
 
 共性 lint 使用 `workspace.lints`，成员通过 `[lints] workspace = true` 加入；独立 workspace 不跨根隐式继承。先承接已经采纳的规则，本地与 CI 共享定义，CI 继续按现有命令升级 warnings。新增禁止 API、锁跨 await 等规则须说明具体风险、生产/测试/平台适用性；不顺带全仓禁止 `unwrap`、`expect` 或 `unsafe`。局部例外采用最小范围和技术理由，不能以关闭继承或 blanket allow 绕过共同规则，也不要求为每个例外另建任务。
 
