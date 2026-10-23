@@ -239,7 +239,7 @@ def inspect(root, config, builds=True, selected=None):
     event = {}
     if (os.environ.get('GITHUB_EVENT_PATH') and os.environ.get('GITHUB_WORKSPACE')
             and root == Path(os.environ['GITHUB_WORKSPACE']).resolve()):
-        event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+        event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
     pull_request = event.get('pull_request', {})
     evidence = {'source_sha': pull_request.get('head', {}).get('sha', tested_head),
                 'tested_head': tested_head,
@@ -253,7 +253,7 @@ def inspect(root, config, builds=True, selected=None):
     results = []
     for rule in config['rules']:
         upstream_path, anchor = rule['upstream'].split('#')
-        upstream = (root / upstream_path).read_text()
+        upstream = (root / upstream_path).read_text(encoding='utf-8')
         anchors = [re.sub(r'[^\w\- ]', '', line.lstrip('# ').strip()).lower().replace(' ', '-')
                    for line in upstream.splitlines() if line.startswith('#')]
         if anchor not in upstream and anchor not in anchors:
@@ -282,7 +282,7 @@ def inspect(root, config, builds=True, selected=None):
                     if (len(forbidden) == 1 or any(matches(forbidden, p) for p in candidates)):
                         results.append(dict(context, status='violation', view='declaration',
                                             forbidden=forbidden, edge=location(package, dep)))
-            manifest = tomllib.loads(Path(package['manifest_path']).read_text())
+            manifest = tomllib.loads(Path(package['manifest_path']).read_text(encoding='utf-8'))
             if rule.get('empty_default') and manifest.get('features', {}).get('default', []):
                 results.append(dict(context, status='violation', view='features', edge='features.default'))
             for key, values in manifest.get('features', {}).items():
@@ -352,7 +352,7 @@ def main():
     parser.add_argument('--profile', action='append', help='diagnostic subset; omitted profiles are coverage gaps')
     args = parser.parse_args()
     try:
-        config = json.loads(args.rules.read_text())
+        config = json.loads(args.rules.read_text(encoding='utf-8'))
         report = inspect(args.repo_root.resolve(), config, not args.graphs_only, args.profile)
     except (InspectionError, OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
         report = {'results': [{'status': 'inspection_error', 'reason': str(error)}]}
