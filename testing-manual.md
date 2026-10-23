@@ -1672,3 +1672,19 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 - Retain the real three-node TCP signed-record forwarding/expiry flows and downstream status/filtering tests as positive-path coverage. Budget exhaustion must not itself disconnect authenticated sessions or grant source/role trust.
 
 Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, rendezvous protocol operations, application-driven operations and protocol-internal messages retain their own limits. New network instances start a new budget; no restart-resistant quota is claimed.
+
+
+<a id="discovery-record-refresh"></a>
+### Discovery record before-expiry refresh
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [refresh policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-refresh).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Check deterministic monotonic schedule boundaries and actual Swarm scheduling/record-exchange paths:
+
+- Before original expiry, refresh becomes due within the fixed margin/jitter range. Different receiver randomness can spread starts; repeated identical signed payloads preserve the original lease, due time and retry lower bound. New accepted signed payloads get a new schedule.
+- A connected publisher returns a later freshly signed local record via the existing RR endpoint; the receiver verifies and installs that immutable payload. A disconnected candidate uses the explicit DHT refresh path without bypassing pending or shared work limits.
+- Each tick attempts at most four eligible candidates; denied/failed work is delayed by at least five monotonic seconds. Shared budget exhaustion, the existing 60-second RR cooldown and identical old DHT replies must not extend the record lease or create hot retries.
+- Refresh failure retains the old valid record/path until actual expiry and preserves independently authenticated sessions. At expiry the existing response/dial/health rules still apply.
+- `discovery_query_interval_ms <= 0` disables periodic network refresh while the expiry tick continues. Short TTLs may expire before a successful refresh because tick, cooldown and budget constraints remain authoritative.
+
+This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
