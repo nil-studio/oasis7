@@ -245,7 +245,12 @@ case "$MODE" in lean|debug) ;; *) echo "error: OASIS7_CARGO_DEV_MODE must be lea
 # Resolve Cargo profile only before the program/test argument separator.
 CARGO_PROFILE=dev
 EXPECT_PROFILE=0
+EXPECT_VALUE=0
 for ARG in "$@"; do
+  if [[ "$EXPECT_VALUE" == 1 ]]; then
+    EXPECT_VALUE=0
+    continue
+  fi
   if [[ "$EXPECT_PROFILE" == 1 ]]; then
     CARGO_PROFILE="$ARG"
     EXPECT_PROFILE=0
@@ -253,9 +258,28 @@ for ARG in "$@"; do
   fi
   case "$ARG" in
     --) break ;;
-    --release|-r) CARGO_PROFILE=release ;;
+    --release) CARGO_PROFILE=release ;;
     --profile) EXPECT_PROFILE=1 ;;
     --profile=*) CARGO_PROFILE="${ARG#--profile=}" ;;
+    -?*)
+      # Long options are not short clusters. Cargo validates unknown options.
+      [[ "$ARG" != --* ]] || continue
+      SHORT_OPTIONS="${ARG#-}"
+      while [[ -n "$SHORT_OPTIONS" ]]; do
+        SHORT_OPTION="${SHORT_OPTIONS:0:1}"
+        SHORT_OPTIONS="${SHORT_OPTIONS:1}"
+        case "$SHORT_OPTION" in
+          r) CARGO_PROFILE=release ;;
+          v|q|h) ;;
+          p|F|j|Z)
+            # The remaining characters (or next argv) belong to this value.
+            [[ -n "$SHORT_OPTIONS" ]] || EXPECT_VALUE=1
+            break
+            ;;
+          *) break ;;
+        esac
+      done
+      ;;
   esac
 done
 LOCAL_DEV=0
