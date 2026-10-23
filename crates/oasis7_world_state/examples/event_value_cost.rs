@@ -35,14 +35,9 @@ mod native {
     #[global_allocator]
     static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-    #[inline(never)]
-    fn legacy(event: &WorldEvent) -> Result<serde_json::Value, serde_json::Error> {
-        serde_json::to_value(event)
-    }
-
     fn sample(label: &str, event: &WorldEvent, iterations: u64) -> serde_json::Value {
         assert_eq!(
-            legacy(event).unwrap(),
+            serde_json::to_value(event).unwrap(),
             oasis7_world_state::codec::world_event_json_value(event).unwrap()
         );
         let mut rows = Vec::new();
@@ -59,7 +54,7 @@ mod native {
                     black_box(if codec {
                         oasis7_world_state::codec::world_event_json_value(black_box(event))
                     } else {
-                        legacy(black_box(event))
+                        serde_json::to_value(black_box(event))
                     })
                     .unwrap();
                 }
