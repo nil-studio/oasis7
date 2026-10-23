@@ -33,6 +33,7 @@ Options:
 USAGE
 }
 
+original_args=("$@")
 samples=4
 interval_secs=5
 traffic_samples=3
@@ -127,57 +128,82 @@ if [[ -n "$historical_as_of" || -n "$traffic_history_path" ]]; then
   traffic_freshness_args+=(--summary-only --history-path "$traffic_history_path")
 fi
 
-run_id=$(date +"%Y%m%d-%H%M%S")
-run_dir="$out_root/$run_id"
+python3 - "$samples" "$interval_secs" "$traffic_samples" "$traffic_interval_secs" "$window_minutes" "$ssh_timeout_secs" <<'PYVALIDATE'
+import sys
+if any(not value.isdecimal() or int(value) <= 0 for value in sys.argv[1:]):
+    raise SystemExit("collector counts, intervals and timeouts must be positive integers")
+PYVALIDATE
+
+attempt_helper="$repo_root/scripts/p2p-real-env-observability-attempt.py"
+scope_args=()
+for argument in "${original_args[@]+"${original_args[@]}"}"; do
+  scope_args+=("--scope-arg=$argument")
+done
+reservation=$(python3 "$attempt_helper" begin --out-dir "$out_root" ${scope_args[@]+"${scope_args[@]}"})
+sequence=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sequence"])')
+attempt_id=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["attempt_id"])')
+run_dir=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_dir"])')
+run_id="$sequence-$attempt_id"
+errors=()
+run_stage() {
+  local stage=$1
+  shift
+  local code
+  if "$@"; then
+    return 0
+  else
+    code=$?
+    errors+=(--error "$stage:$code")
+  fi
+}
+
 snapshot_root="$run_dir/snapshot"
 host_root="$run_dir/host"
 traffic_root="$run_dir/traffic"
 wasm_root="$run_dir/wasm"
 report_root="$run_dir/report"
-latest_summary_json="$out_root/latest_summary.json"
-latest_summary_md="$out_root/latest_summary.md"
 
 mkdir -p "$snapshot_root" "$host_root" "$traffic_root" "$wasm_root" "$report_root"
 
-./scripts/p2p-real-env-triad-snapshot.sh \
+run_stage snapshot ./scripts/p2p-real-env-triad-snapshot.sh \
   --samples "$samples" \
   --interval-secs "$interval_secs" \
   --ssh-timeout-secs "$ssh_timeout_secs" \
   --out-dir "$snapshot_root" \
-  "${pass_through_args[@]}"
+  ${pass_through_args[@]+"${pass_through_args[@]}"}
 
 snapshot_run_dir="$(find "$snapshot_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-[[ -n "$snapshot_run_dir" ]] || {
-  echo "failed to locate snapshot run dir under $snapshot_root" >&2
-  exit 1
-}
+if [[ -z "$snapshot_run_dir" ]]; then
+  snapshot_run_dir="$snapshot_root/unavailable"
+  errors+=(--error snapshot:1)
+fi
 snapshot_summary="$snapshot_run_dir/summary.json"
 local_status_json="$snapshot_run_dir/nodes/local_node/status.json"
 sequencer_status_json="$snapshot_run_dir/nodes/sequencer_ecs/status.json"
 storage_status_json="$snapshot_run_dir/nodes/storage_ecs/status.json"
 
-./scripts/p2p-real-env-host-monitor.sh \
+run_stage host ./scripts/p2p-real-env-host-monitor.sh \
   --samples "$samples" \
   --interval-secs "$interval_secs" \
   --ssh-timeout-secs "$ssh_timeout_secs" \
   --out-dir "$host_root" \
-  "${pass_through_args[@]}"
+  ${pass_through_args[@]+"${pass_through_args[@]}"}
 
 host_run_dir="$(find "$host_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-[[ -n "$host_run_dir" ]] || {
-  echo "failed to locate host run dir under $host_root" >&2
-  exit 1
-}
+if [[ -z "$host_run_dir" ]]; then
+  host_run_dir="$host_root/unavailable"
+  errors+=(--error host:1)
+fi
 host_summary="$host_run_dir/summary.json"
 
-./scripts/p2p-real-env-traffic-monitor.sh \
+run_stage traffic ./scripts/p2p-real-env-traffic-monitor.sh \
   ${traffic_freshness_args[@]+"${traffic_freshness_args[@]}"} \
   --samples "$traffic_samples" \
   --interval-secs "$traffic_interval_secs" \
   --window-minutes "$window_minutes" \
   --ssh-timeout-secs "$ssh_timeout_secs" \
   --out-dir "$traffic_root" \
-  "${pass_through_args[@]}"
+  ${pass_through_args[@]+"${pass_through_args[@]}"}
 
 traffic_summary="$traffic_root/latest_summary.json"
 
@@ -192,13 +218,13 @@ for label in local_node sequencer_ecs storage_ecs; do
     cp "$sample_status" "$wasm_input_dir/$(printf '%03d' "$index").json"
     index=$(( index + 1 ))
   done
-  bash ./scripts/oasis7-node-wasm-metrics-monitor.sh \
+  run_stage "wasm_$label" bash ./scripts/oasis7-node-wasm-metrics-monitor.sh \
     --status-sample-dir "$wasm_input_dir" \
     --node-label "$label" \
     --out-dir "$wasm_out_dir"
 done
 
-python3 ./scripts/p2p-real-env-observability-summary.py \
+run_stage summary python3 ./scripts/p2p-real-env-observability-summary.py \
   ${report_freshness_args[@]+"${report_freshness_args[@]}"} \
   --snapshot-summary "$snapshot_summary" \
   --host-summary "$host_summary" \
@@ -214,12 +240,10 @@ python3 ./scripts/p2p-real-env-observability-summary.py \
   --run-id "$run_id" \
   --run-dir "$run_dir"
 
-cp "$report_root/latest_summary.json" "$latest_summary_json"
-cp "$report_root/latest_summary.md" "$latest_summary_md"
-
-echo "p2p real-env observability monitor complete"
-echo "  run_dir: $run_dir"
-echo "  snapshot_summary: $snapshot_summary"
-echo "  host_summary: $host_summary"
-echo "  traffic_summary: $traffic_summary"
-echo "  report_summary: $report_root/latest_summary.json"
+if python3 "$attempt_helper" finish --out-dir "$out_root" --sequence "$sequence" --attempt-id "$attempt_id" ${errors[@]+"${errors[@]}"}; then
+  result=0
+else
+  result=$?
+fi
+printf 'observability attempt result=%s run_dir=%s\n' "$result" "$run_dir"
+exit "$result"
