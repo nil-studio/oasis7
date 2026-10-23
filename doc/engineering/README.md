@@ -22,7 +22,7 @@
 - 想开发云端指挥中心或本地辅助端：从[产品设计](command-center/command-center.prd.md)进入，职责拆分、云端个人记录、来源接入与恢复合同见[系统设计](command-center/command-center.design.md)
 - 文档治理、入口减重、存量维护成本、目录职责与 redirect 规则：统一从 `doc/engineering/doc-governance/README.md` 分流
 - 环境分层、云上清单、仓库健康巡检与季度复核：统一从 `doc/engineering/governance/README.md` 分流
-- Rust 体量治理、结构切片约束与 required gate：统一从 `doc/engineering/rust-governance/README.md` 分流
+- Rust 文件结构、Workspace 治理、架构边界与协议产物：统一从 [Rust 工程治理入口](rust-governance/README.md) 分流
 - 历史迁移、审读记录与文件级专题检索：从 `doc/engineering/prd.index.md` 下钻；当前运行型工程治理资料从 `doc/engineering/governance/README.md` 下钻
 
 ## 共享约定
