@@ -394,6 +394,10 @@ fn complete_context_scenario_with_revision(
     if prefix_revision == 1 {
         commit_empty_context_block(&mut driver, 41);
         assert!(driver.execution_world.state().time > prefix.captured_base_binding.base_tick);
+    } else {
+        // Legacy exact-base admission still needs contiguous commit history,
+        // but its intervening administrative block must preserve the base.
+        commit(&mut driver, 41, create.clone());
     }
     let public = serde_json::to_string(&prefix).unwrap();
     for secret in [
