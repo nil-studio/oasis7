@@ -2,7 +2,7 @@
   "record": {
     "authority_entry": "doc/world-simulator/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "6e4330f92570cd8db68c56544e84ac5bde8099d6212ef2d062f7592448d00f8c",
+    "content_sha256": "c91646d3edf5b78bfd8b41fbb98c3d5ba1aa9adf878bd3d1bdf74cc5923865af",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "active_candidate",
     "object_kind": "design",

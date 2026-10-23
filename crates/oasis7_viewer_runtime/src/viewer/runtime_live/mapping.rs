@@ -279,7 +279,7 @@ pub(super) fn map_runtime_event(
         id: runtime_event.id,
         time: runtime_event.time,
         kind,
-        runtime_event: (!crate::runtime::codec::world_event_json_value(runtime_event)
+        runtime_event: (!serde_json::to_value(runtime_event)
             .map(|value| super::snapshot_privacy::contains_private_canonical_input(&value))
             .unwrap_or(true))
         .then(|| runtime_event.clone()),

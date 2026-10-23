@@ -180,8 +180,16 @@ codegen-units = 16
             '[dependencies]\noasis7_viewer_codec = { path = "../oasis7_viewer_codec" }\n'))
         # Match production: the isolated Launcher/GameClient do not consume WorldState.
         self.write('crates/oasis7_world_state/src/lib.rs',
-                   'mod codec; pub fn value() -> u32 { codec::value() }\n')
-        self.write(METRICS.RUNTIME_EVENT_CODEC_PATH, 'pub fn value() -> u32 { 3 }\n')
+                   'pub mod codec; pub fn value() -> u32 { codec::world_event_json_value(0) }\n')
+        self.write(METRICS.RUNTIME_EVENT_CODEC_PATH,
+                   '#[inline(never)] pub fn world_event_json_value(value: u32) -> u32 { value + 3 }\n')
+        self.write('crates/oasis7_runtime/src/lib.rs',
+                   'pub use oasis7_world_state::codec;\n'
+                   'pub fn value() -> u32 { oasis7_world_state::value() + 1 }\n')
+        service = self.repo / 'crates/oasis7_world_service/src/lib.rs'
+        service.write_text(service.read_text() + 'pub use oasis7_runtime::codec;\n')
+        self.write(METRICS.VIEWER_PATH,
+                   'pub fn value() -> u32 { oasis7_world_service::codec::world_event_json_value(oasis7_game_client::value()) }\n')
         subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.repo,
                        env=self.env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.current = self.commit('reuse Runtime Event codec owner')
@@ -206,6 +214,10 @@ codegen-units = 16
                 self.assertIn('nm', abi['tool'])
                 for name in ('oasis7_world_state', 'oasis7_viewer_runtime'):
                     self.assertEqual(len(abi['libraries'][name]['sha256']), 64)
+                self.assertTrue(any(' T ' in line for line in
+                                    abi['libraries']['oasis7_world_state']['symbols']))
+                self.assertTrue(any(' U ' in line for line in
+                                    abi['libraries']['oasis7_viewer_runtime']['symbols']))
         self.assert_isolated_cleanup()
 
     def tearDown(self):
