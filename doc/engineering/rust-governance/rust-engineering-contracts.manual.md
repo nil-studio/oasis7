@@ -28,6 +28,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 4. 对默认、无默认、显式生产 feature 及受影响 required/full/test-support 组合，比较实际启用 features、source/version、optional 激活和 target 条件。别名及有意多版本按 package identity 归一，不按显示名猜测相等。
 5. 使用相同 root/target/features 的真实 check/build 和测试构建交叉核对解析结果；生产选择实际 lib/bin，测试按既有入口构建并执行受影响用例。不可运行的跨 target 测试只报告已完成的构建范围。
 6. 核对 Model Provider 的默认 feature、Launcher native/wasm 差异、WASM SDK 的可选 wire，以及本次触及的 formal producer/host feature 别名；不能仅用 lockfile 无 diff 判定等价。
+7. 核对受影响的原始 manifest 消费者，包括安全来源检查、CI 规划、构建与打包脚本；显式和继承配置均保留原断言与失败条件。若迁移 libp2p，验证[现有来源检查](../../../scripts/libp2p-security-source.test.py)仍检查有效 git/rev、成员 optional/平台条件。保留 manifest 变化的现有共享控制覆盖，不以纯去重规避 CI 或保证缓存命中。
 
 通过条件：所选配置没有非预期 package/source/version/kind/feature 变化，真实构建与适用测试一致。离线缓存、工具链或解析失败属于未完成；通过正常环境准备补齐后重跑，不静默去掉 `--offline`/`--locked` 或更新锁文件。
 本场景不证明性能提升。若主张编译收益，另复用现有 compile metrics，并固定 profile、jobs、target 与缓存条件。
@@ -60,7 +61,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 
 1. 注入缺失 lock/root、损坏元数据、离线依赖不足、工具链不可用与规则解析错误，确认返回非零 `inspection_error`，没有伪造 `pass` 或静默换配置。
 2. 对规则要求而尚未注册/未执行的组合验证 `coverage_gap`；只有正式启用的必需检查按设计阻断，未启用范围明确报告，不用扩大 N/A 消除缺口。
-3. 分别改变规则、检查器、反例、相关 Cargo/lock/toolchain、profile 与受管产物，使用既有 [scope 规划测试](../../../scripts/plan-rust-required-scope.test.py) 和实际候选 CI 核对选择及 required 汇总。
+3. 分别改变规则、检查器、反例、相关 Cargo/lock/toolchain、profile、受管产物与 TS 消费样例，使用既有 [scope 规划测试](../../../scripts/plan-rust-required-scope.test.py) 和实际候选 CI 核对选择及 required 汇总。首次新增独立路径时核对[可信基线登记规则](../../testing/ci/ci-tiered-execution.design.md#ci-unknown-inputs-design)：旧基线须拒绝未知路径，登记合入后的基线须选中实际验证；已被 Cargo owner/可信规则覆盖的路径不强制另拆登记 PR。生成工具首次接入同样适用。
 4. 核对普通文档改动仍按原 scope 处理；共享控制变化保留原扩大覆盖策略。选择器 fixture 通过不能替代实际运行的依赖检查。
 
 通过条件：失败和缺口分类准确、既有选择与汇总正确消费新检查结果；不新增同名成功状态、跳过必要任务或自行改变合入权限。
@@ -71,7 +72,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 1. 生成器就绪后，固定 profile、输入和工具/依赖锁，在两个不同临时路径生成完整集合，比较所有文件字节、清单与摘要；使用已登记容量上限的边界样例。工具准备失败时停止，不改用未锁定版本。
 2. 核对产物没有时间戳、绝对路径或无关 HEAD；修改实际输入/生成配置应被识别，无关文档变更不应造成协议输出变化。首切片人工 OpenAPI 始终作为输入保留。
 3. 执行候选工具的 `check` 前后比较全部受管文件和人工源，确认检查无工作区写入；分别修改、删除、增加、混合不同 generation 的产物，验证 `stale`、`missing`、`extra` 或 `invalid` 与非零结果。
-4. 在隔离副本中注入无法解析的 `$ref`、未知 custom serde、精确整数舍入、超限输入和 symlink/path 越界；拒绝不完整或过度宽泛输出，不影响人工消费者与 golden fixtures。
+4. 在隔离副本中注入无法解析的 `$ref`、影响导出语义但未支持的 OpenAPI/JSON Schema 构造、精确整数舍入、超限输入和 symlink/path 越界；拒绝不完整或过度宽泛输出，不影响人工消费者与 golden fixtures。custom serde/泛型负例仅在 profile 引入 Rust component 后执行，首版不虚报 Rust 导出覆盖；首次 CI 接入按 [RG-A03/RG-A04](#architecture-scope)验证真实路径选择。
 5. 在生成与写入之间改变输入或输出 preimage，验证写入冲突停止；在多文件替换过程中中断，验证 manifest/摘要能识别混合集，检查与打包均拒绝发布。
 6. 恢复固定输入后完整重生成，或用普通 Git 操作恢复已知完整版本，再运行只读检查。不得把逐文件 rename 称为多文件原子事务，临时输出不交给运行消费者。
 
@@ -80,9 +81,9 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 <a id="bootstrap-conformance"></a>
 ## RG-P03：Bootstrap profile 与真实消费者
 
-1. 对照[人工 OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json)、[实际 handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs)和[wire 测试](../../../crates/oasis7_agent_api/tests/game_wire.rs)，核对当前五条 GET、API/schema revision、limits 及 `writes_available=false`。
-2. 复用并按差距扩展 [handler 测试](../../../crates/oasis7_viewer_runtime/src/game_read_api_tests.rs)，核对 `fixed_commit` null-only、历史读拒绝、严格未知字段和递归整数投影；不能用较宽 World Service DTO 放宽 HTTP profile。
-3. 使用真实 handler 的正负响应 fixtures 编译一个实际 TS 消费者，并运行其运行时校验；覆盖 `0`、`2^53-1`、`2^53`、`u64::MAX`、越界、前导零、null/缺省及未知字段。
+1. 对照[人工 OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json)、[实际 handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs)和[wire 测试](../../../crates/oasis7_agent_api/tests/game_wire.rs)，核对当前五条 GET、API/schema revision、limits 及 `writes_available=false`。源 OpenAPI 须补齐 `DecimalU64` 的标准 schema 上界约束；原 pattern/20 位长度与 description 不足以拒绝上界加一，不从自然语言猜测范围。
+2. 复用并按差距扩展 [handler 测试](../../../crates/oasis7_viewer_runtime/src/game_read_api_tests.rs)，核对 `fixed_commit` 缺省/null 允许与非 null 历史读拒绝、严格未知请求字段和递归整数投影；不能用较宽 World Service DTO 放宽 HTTP profile。
+3. 编译独立 TS 协议一致性样例，真实 import 生成类型并运行校验，消费实际 handler 的成功/错误响应 fixtures 及独立负例；覆盖 `0`、`2^53-1`、`2^53`、`u64::MAX`、上界加一、前导零、尾随换行、null/缺省和未知字段。标准 schema 校验与 TS 校验均应拒绝越界，包含已知 task-control 嵌套字段的上界加一反例和字段正整数收窄；请求拒绝未知字段与响应允许扩展分别测正反例。仅 `tsc` 编译生成文件不算消费验证，此场景不要求改造 Viewer 或新增产品网络客户端。
 4. 确认 `world_binding`/`data` 的实际字符串投影与顶层数值版本字段没有混淆；动态 `data` 保持有界 JSON/`unknown`，不声称获得完整世界 schema。proof 仍为 opaque hex。
 
 通过条件：生成表达、真实响应和消费者行为一致；TS 编译本身不证明网络输入可信、鉴权完成或完整 `/v1/game` 行动闭环。
@@ -93,7 +94,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 1. 核对共享 DTO、codec 的唯一声明、兼容再导出及实际消费者；若从人工 component 迁到 Rust，确认 typed DTO 被真实 handler 使用，未复制只为生成 schema 的镜像类型，旧人工定义不再成为可编辑真源。
 2. 按实际触及 profile 选择现有 [Agent wire tests](../../../crates/oasis7_agent_api/tests/wire_contracts.rs)、[World Service contract tests](../../../crates/oasis7_client_api/tests/world_service_contract.rs) 和[签名兼容测试](../../../crates/oasis7_client_api/tests/signing_compatibility.rs)；记录实际版本、features、测试过滤与结果，不为未触及 profile 宣称覆盖。
 3. 保留原始 JSON/CBOR golden 字节和独立预期值，核对 DecimalU64 字符串、裸 u64 数值、字段省略/null、enum/tag/rename、canonicalizer 与 domain；生成工具不得自行重写签名字节。
-4. 用基线/候选消费者分别执行旧读新和新读旧，包含新增字段/枚举、严格未知字段及版本拒绝；明确预期兼容或明确拒绝，不自动将新增字段视为兼容。
+4. 对实际受影响且已有旧版本的消费者执行旧读新和新读旧，包含新增字段/枚举、严格未知字段及版本拒绝；明确预期兼容或明确拒绝，不自动将新增字段视为兼容。首次 TS 产物没有旧 TS 版本，以现有 Rust wire golden、真实 handler fixtures 和现行 profile 建立首个消费基线，不伪造双向 TS 结果；后续版本再按真实消费版本验证双向兼容。
 5. 精确整数通过真实解析/编码往返验证；没有 lossless codec 与跨语言 golden 的 profile 只提供已验证描述或 opaque proof，不发布可调用的 JS 签名/编解码能力。
 
 通过条件：声明范围内 wire 与签名语义保持，兼容方向有实际证据。schema diff 或字节生成一致不替代该验证。

@@ -65,6 +65,8 @@ feature 是叠加关系。共享基线只含所有相关消费者确实共同需
 
 等价比较对象为：`consumer package × dependency kind × host/target × feature selection → resolved package/source/version + enabled features`。例如 [Model Provider](../../../crates/oasis7_model_provider/Cargo.toml) 的 reqwest 关闭 defaults、[Launcher](../../../crates/oasis7_client_launcher/Cargo.toml) 的 native/wasm eframe 差异、[Net](../../../crates/oasis7_net/Cargo.toml) 的 optional 网络栈及 [WASM SDK](../../../crates/oasis7_wasm_sdk/Cargo.toml) 的可选 `wire` 都必须保留。`Cargo.lock` 不变不能单独证明以上等价。
 
+配置表示也是现有工具的输入。迁移须核对直接读取 manifest 的安全检查、CI 规划、构建和打包消费者；例如 [libp2p 来源检查](../../../scripts/libp2p-security-source.test.py) 当前读取成员的 git/rev。触及这些输入时同步支持显式与继承配置，保留来源锁定、optional/平台条件及原失败断言；不能以 Cargo 图等价为由删除或弱化检查。manifest 变化继续触发现有共享控制覆盖，并可能使相关构建缓存失效，不能将配置去重视为免测或加速证明。
+
 <a id="lint-policy"></a>
 
 共性 lint 使用 `workspace.lints`，成员通过 `[lints] workspace = true` 加入；独立 workspace 不跨根隐式继承。先承接已经采纳的规则，本地与 CI 共享定义，CI 继续按现有命令升级 warnings。新增禁止 API、锁跨 await 等规则须说明具体风险、生产/测试/平台适用性；不顺带全仓禁止 `unwrap`、`expect` 或 `unsafe`。局部例外采用最小范围和技术理由，不能以关闭继承或 blanket allow 绕过共同规则，也不要求为每个例外另建任务。
@@ -113,9 +115,11 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc、O7-REQ-ad3ea59c-596c-4
 
 首切片使用现有人工维护 [read_bootstrap.openapi.json](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 作为 HTTP profile 输入，生成 TS 类型与独立 JSON Schema；该 OpenAPI 仍是手工源，不被生成器覆盖。只列当前五条 GET 和 `writes_available=false`。`ReadInfo`/`ReadProjection`/`ReadError` 暂无唯一 typed Rust envelope，不能新造一套仅供生成的镜像 struct 来宣称单一真源。
 
+首版消费验证采用独立 TS 协议一致性样例：真实 import 生成类型并执行运行时校验，消费实际 handler 固定下来的成功与错误响应及独立负例。仅编译生成文件不构成消费验证。此样例不要求改造 Viewer、增加产品网络客户端或发布 SDK；真正触及产品调用、请求或重试行为时，再按原产品合同和开发流程选择适用验收。
+
 后续有跨语言复用需要时，可先提取真实 handler 使用的唯一 typed DTO，以既有 JSON fixtures 证明同义，再将该 component 的输入权威迁到 Rust。profile 继续拥有 routes/auth/error/limits 与业务收窄；同一 component 的人工定义和生成定义不能同时成为可编辑真源。
 
-Bootstrap `ReadWorldViewRequest.fixed_commit` 仅允许 null，实际 handler 拒绝历史读；嵌套未知字段由严格 parser/`serde_ignored` 拒绝。底层 World Service DTO 可以表达更宽范围，不能覆盖 profile 收窄。动态投影 `data` 只导出实际已说明的有界 JSON/`unknown`；签名 proof header 在首切片保持 opaque hex string，不附赠未经验证的 JS 签名或 codec。
+Bootstrap `ReadWorldViewRequest.fixed_commit` 可缺省或为 null，实际 handler 拒绝非 null 的历史读；嵌套未知请求字段由严格 parser/`serde_ignored` 拒绝。响应 `ReadInfo`/`ReadProjection`/`ReadError` 保留原 `additionalProperties=true`，不能把请求严格性扩大为所有响应禁止扩展。底层 World Service DTO 可以表达更宽范围，不能覆盖 profile 收窄。动态投影 `data` 只导出实际已说明的有界 JSON/`unknown`；签名 proof header 在首切片保持 opaque hex string，不附赠未经验证的 JS 签名或 codec。
 
 生成器是独立开发工具，依赖轻量合同/profile 输入；普通运行包不反向依赖它，不在服务启动、请求处理或常规 `build.rs` 自动运行。未来 schema/TS derives 若使用可选 feature，默认关闭且不得进入未选择生成能力的 normal/build 图。具体工具包名属于实施选择，工具职责和以下操作合同必须保持。
 
@@ -135,7 +139,7 @@ Bootstrap `ReadWorldViewRequest.fixed_commit` 仅允许 null，实际 handler �
 ### 5.2 协议生成、检查与中断
 
 1. 选择显式 profile，校验输入根、协议版本、工具/锁定依赖、输出清单与适用配置；冻结输入 digest。默认不访问网络或远端 schema。
-2. 在临时目录生成完整输出，检查可解析性、本地 `$ref`、唯一根、精确整数、排序、fixtures、大小与文件集合。未知 custom serde、无法表达的泛型或引用必须指出具体项并失败。
+2. 在临时目录生成完整输出，检查可解析性、本地 `$ref`、唯一根、精确整数、排序、fixtures、大小与文件集合。首切片对影响导出根语义且无法支持的 OpenAPI/JSON Schema 构造或引用明确失败；custom serde、泛型与 Rust adapter 的支持验证仅在 profile 实际登记 Rust component 后适用，不将未实现的 Rust 导出记为通过。
 3. `check` 比较临时结果与已提交产物，报告 `stale`、`missing`、`extra` 或 `invalid`，不改仓库文件。`write` 在发布前重核输入与输出 preimage，冲突则终止，不能覆盖并发人工修改。
 4. `write` 只更新明确受管文件；各文件采用临时文件替换，产物 manifest 最后写入。多个文件 rename **不构成多文件原子事务**；检查与打包必须核对完整集合和 digest，混合 generation 不得发布。
 5. 中断后不自动重试发布；保留错误和冲突定位。维护者在原输入上重新完整生成，或通过普通 Git 修改恢复已知完整版本，再运行只读检查。临时输出不成为消费者输入，人工 profile 不被覆盖或删除。
@@ -163,7 +167,7 @@ Bootstrap `ReadWorldViewRequest.fixed_commit` 仅允许 null，实际 handler �
 
 每个 profile 登记名称、唯一权威输入、导出根及具体泛型实例、target/features、API/schema/协议版本、生成配置和格式版本、生成工具/依赖锁、受管文件相对路径。profile 不以 Cargo 包版本替代 wire 版本；`UnsupportedWireVariant` 等不可构造分支必须表达为不可构造，不降级为任意值。
 
-首切片每个 profile 一个受管目录，输出集合至少为 `types.ts`、`schema.json` 和 `manifest.json`；确需拆分 schema 时由清单穷举。具体仓库目录随生成器实施确定，并在首次实施 PR 中纳入既有 CI scope；本文不声称这些产物已存在。手工 OpenAPI 与受管目录分开，所有生成文件标明编辑入口。人工消费者、overlay 和 golden fixtures 不被写模式删除。
+首切片每个 profile 一个受管目录，输出集合至少为 `types.ts`、`schema.json` 和 `manifest.json`；确需拆分 schema 时由清单穷举。具体仓库目录随生成器实施确定，先按[CI 接入约束](#runtime-constraints)核对可信基线中的路径归属；本文不声称这些产物已存在。手工 OpenAPI 与受管目录分开，所有生成文件标明编辑入口。人工消费者、overlay 和 golden fixtures 不被写模式删除。
 
 Manifest 至少包含格式版本、profile、wire 版本、导出根、相关输入的相对路径与内容摘要、生成工具/配置/锁定依赖摘要及各输出摘要；摘要算法固定为 SHA-256，manifest 不把自身摘要纳入递归计算。生成字节采用 UTF-8/LF、固定排序、稳定命名和确定的格式化工具，不含时间戳、绝对路径或整仓 HEAD。实际执行的源码 SHA 与环境留在 CI/PR 证据，不能让无关文档提交造成协议重生成。
 
@@ -184,6 +188,8 @@ Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b、O7-REQ-7d6cef7f-9419-4
 | 精确 schema 数值 | `u64::MAX` 等边界不能在生成过程中被舍入 | 使用能保持 u64 的 Rust 解析或等效精确整数处理；不能普通 JS `JSON.parse` 后再 stringify 精确边界 |
 | 字段与枚举 | `rename`、tag、flatten、default、skip、缺失/null、未知字段/状态处理均保持所属 profile | 不从 Rust `Option` 简化推出“总可省略”；不认识的 custom serde 使用显式 adapter 与 fixture，否则失败 |
 | 签名与摘要 | World Service canonical CBOR 的 domain/value 结构、cognition digest、projection canonical JSON 各有原 owner | 不互换 JSON/CBOR canonicalizer，不改 domain、字段表示或原始投影；先验证完整值，再投影窄类型 |
+
+当前人工 OpenAPI 的 `DecimalU64` 仅用 pattern 与 `maxLength=20` 约束字符串，上界只在 description 中，尚不足以让标准 schema 校验拒绝 `18446744073709551616`。首切片须先由接口 owner 将与原 Rust codec 一致的上界补成源 OpenAPI 中的标准 JSON Schema 可机读约束，再派生类型与 schema；生成器不从自然语言 description 猜测范围，也不另设可独立修改的上界真源。盘点首切片已知的同语义字段，包括 task-control 的内联整数正则，引用同一精确约束并保留正整数等字段收窄；不向动态 unknown JSON 推断类型。生成 schema 和 TS 运行时校验都须接受 `u64::MAX`、拒绝其加一，并以原 codec/golden 独立核对；源合同修正的 schema revision 与消费者兼容性仍由接口 owner 按原规则判断。
 
 签名与规范编码依据为 [World Service authority](../../../crates/oasis7_client_api/src/world_service/authority.rs)、[canonical CBOR](../../../crates/oasis7_wasm_abi/src/canonical_cbor.rs) 和[投影承诺](../../../crates/oasis7_client_api/src/formal_projection.rs)。生成物只描述合同，不重新实现权限或世界规则。新增字段/枚举并不天然兼容，严格未知字段、版本协商和签名域均须双向验证。
 
@@ -206,7 +212,9 @@ Workspace 和规则的长期状态由 Git 中的 manifest、锁文件、规则�
 
 Bootstrap 仍只开放其实际 GET profile；生成 TS 不授予连接身份、Agent 资格、委托或世界写权，不修改原请求标识、重试、签名域和未知结果处理。授权、幂等及恢复的产品义务继续按 [REQ-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-013) 与[接口认证设计](../../world-simulator/llm/external-agent-game-api.design.md#api-auth)验证。
 
-CI 接入复用现有 [scope 选择](../../../scripts/ci-required-scope.json) 和 [required/full 入口](../../../scripts/ci-tests.sh)。新增工具、规则、相关 Cargo/lock/toolchain、profile 或生成物变化应在实施 PR 中登记准确触发关系，包含检查器自身和反例；共享控制变化继续遵循原扩大覆盖规则。普通文档修改仍按现行 scope 处理。采用本设计不自动新增 required check 名称、放宽门禁或改变合入权限。
+CI 接入复用现有 [scope 选择](../../../scripts/ci-required-scope.json) 和 [required/full 入口](../../../scripts/ci-tests.sh)。新增工具、规则、相关 Cargo/lock/toolchain、profile、生成物与 TS 消费样例应有准确触发关系，包含检查器自身和反例；共享控制变化继续遵循原扩大覆盖规则。普通文档修改仍按现行 scope 处理。采用本设计不自动新增 required check 名称、放宽门禁或改变合入权限。
+
+首次接入先以当前可信基线核对上述路径归属。已有 Cargo owner 或可信 scope 规则覆盖的路径可在正常实施 PR 中接入；确需新增未登记独立路径时，依现行[未登记路径合同](../../testing/ci/ci-tiered-execution.design.md#ci-unknown-inputs-design)先合入规则/验证入口登记，再提交使用该路径的实现。候选自登记、混合共享控制变更或全量请求不能替代可信基线登记，不得改用候选选择器绕过。此条件不要求所有切片机械拆分 PR，CI 控制变更仍按现行规范独立评审。
 
 ## 9. 质量与容量
 
@@ -223,11 +231,11 @@ CI 接入复用现有 [scope 选择](../../../scripts/ci-required-scope.json) �
 <a id="migration-rollback"></a>
 ## 10. 兼容、迁移与回滚
 
-实施按下列依赖顺序推进，各切片可以独立形成 PR，不要求新的任务身份或一次完成全仓治理：
+Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；下列条目描述各方向内部的迁移与启用步骤，不建立三项之间的串行前置。检查器须同时支持显式与 workspace 继承声明；协议生成不依赖全仓配置归一。只有具体输入依赖或既有 CI 首次路径登记产生先后关系，不要求新的任务身份或一次完成全仓治理：
 
-1. **同义配置与共性 lint**：先迁移已证明等价的成员和依赖，再承接已采纳 lint。保持工具链、resolver、profiles、patch、依赖来源与有效 feature 不变；未迁移成员继续显式声明。回滚该切片只恢复配置和对应规则，不夹带协议变化。
+1. **同义配置与共性 lint**：成员/依赖迁移和已采纳 lint 继承分别满足其等价与诊断验证后纳入所选切片，不互设前置。保持工具链、resolver、profiles、patch、依赖来源与有效 feature 不变，同步维护受影响的 manifest 消费者；未迁移成员继续显式声明。回滚该切片只恢复配置和对应工具/规则，不夹带协议变化。
 2. **结构规则与覆盖**：先实现声明/解析视图、正反例和机器诊断，在开发环境核对真实支持组合与现有合法关系。覆盖未完成的部分保持明确未启用；完成后通过正常 CI 变更接入。新规则达到原 Launcher 检查的实际覆盖并保留其反例前，不移除旧检查；遇到误报应修正规则/解析或撤回新接线，不能放宽上游架构。
-3. **Bootstrap 产物**：保留人工 OpenAPI，增加受管 TS/schema/manifest 与只读漂移检查，接入一个真实消费者的编译及运行时校验样例。首切片不替换现有 signer/codec；只有完整集合通过才可打包。工具回滚恢复上一已知完整生成集合与匹配的生成配置。
+3. **Bootstrap 产物**：保留并补齐人工 OpenAPI 的机器约束，增加受管 TS/schema/manifest 与只读漂移检查，接入前述 TS 协议一致性样例的编译及运行时校验。首切片不替换现有 signer/codec；只有完整集合通过才可打包。工具回滚恢复上一已知完整生成集合与匹配的生成配置。
 4. **按需求扩展**：只有明确跨语言消费者时才提取 handler 使用的唯一 typed DTO 或登记新的具体 Rust profile。先保持 golden wire，再迁移 component 来源；生产包默认不引入生成工具依赖。不同 target/features 若改变 wire，必须成为显式命名 profile，不能随生成机器改变输出。
 
 生成漂移、协议兼容和部署版本是不同维度。纯产物修正不自动增加 API revision；实际 wire 变化按原接口 owner 的版本协商、旧读新/新读旧、未知枚举和签名兼容合同处理。增字段不被自动认定为兼容，也不把 Cargo package 版本当 API 版本。
@@ -268,7 +276,7 @@ CI 接入复用现有 [scope 选择](../../../scripts/ci-required-scope.json) �
 | 生成与运行分离 | 开发期工具、显式 profile、提交完整产物，运行时无生成依赖 | 增加开发期工具维护；engineering 与接口 owner 在新增 profile/consumer 时评估输入闭包和依赖成本 |
 | 三类证据独立 | 漂移、wire/兼容、服务语义分别验证，禁止以一种成功代替其他 | 测试按受影响合同选择；协议 owner 在编码/消费者变更时复核兼容方向 |
 
-实施前仍需确定两个局部事项，均不改变上述合同：engineering 维护者在首次工具 PR 确定 binary、规则文件与产物目录，并登记既有 CI 触发关系；接口 owner 根据首个真实消费者和 CI 资源确定 profile 的有限容量上限与 TS 运行时校验适配，带上限/超限样例后才能启用该 profile。未登记的 Viewer/World Service 导出根不属于首版承诺。
+实施前仍需确定两个局部事项，均不改变上述合同：engineering 维护者确定 binary、规则文件与产物目录，并按[可信基线路径约束](#runtime-constraints)安排首次 CI 登记和接入；接口 owner 根据 TS 协议一致性样例和 CI 资源确定 profile 的有限容量上限与运行时校验实现，带上限/超限样例后才能启用该 profile。未登记的 Viewer/World Service 导出根不属于首版承诺。
 
 长期风险包括规则漂移、feature 合并造成误报、custom serde 与 schema 不一致、精确整数在 JS 处理中丢失，以及严格消费者拒绝新增字段。对应控制是原 owner 的单一依据、按真实配置解析、显式 adapter/fixture、lossless 边界和双向兼容验证；无法证明的部分继续显示缺口，不降级为静默成功。
 

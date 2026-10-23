@@ -38,7 +38,7 @@ Trace refs: O7-REQ-3dae99ae-2b00-4ba4-b5fd-4311965733cf；对应 [REQ-RUST-001](
 
 1. 以 Cargo 识别的 workspace 成员确定归属；对本次迁移涉及的成员和声明说明继承与保留本地配置的理由，独立 workspace、vendor 和第三方代码不被错误纳入。
 2. normal、build、dev、target 条件、optional、依赖别名与有意保留的多版本关系不因归一而改变；共享 features 不取所有消费者需求的并集。
-3. 在仓库固定工具链上，对受影响 root/target/features 比较基线与候选依赖图；`Cargo.lock` 无变化不是 feature 等价的充分证据。
+3. 在仓库固定工具链上，对受影响 root/target/features 比较基线与候选依赖图；`Cargo.lock` 无变化不是 feature 等价的充分证据。直接读取 manifest 的现有安全检查、CI 规划、构建与打包工具须继续理解本次采用的声明形式，保持原检查语义和失败条件。
 4. 本地和 CI 采用同一共性 lint 定义，CI 的目标选择与告警升级策略继续明确。新增更强 lint 必须独立说明适用范围和存量影响，不能借继承配置静默全仓启用。
 5. 未验证的成员或构建组合如实保留原声明与覆盖缺口；不得因部分迁移宣称全 workspace 已归一或编译必然更快。
 
@@ -80,8 +80,8 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；对应 [REQ-RUST-003](
 
 1. 每个 profile 登记权威输入、导出根、适用 target/features、协议版本、生成工具及输出集合；包版本、API revision、schema revision 与 Viewer protocol version 各守其语义。
 2. 同一受支持输入与锁定工具产生字节一致的结果；生成内容不含时间戳、绝对路径或无关提交引起的版本噪声。`check` 不修改仓库，`write` 在临时目录完成验证后更新受管文件。
-3. 缺失、额外、过期、混合 generation、无法解析的引用与未支持的 custom serde 必须明确失败；不得覆盖人工输入，或用 `any`/宽泛 schema 掩盖本应精确表达的类型。
-4. Bootstrap 的五条 GET、只读声明、`fixed_commit` null-only、严格未知字段处理与递归整数字符串投影保持现有范围。动态 `data` 的未定义结构如实使用有界 JSON/`unknown`，不声称完整世界 schema。
+3. 缺失、额外、过期、混合 generation、无法解析的引用及未支持的输入语义必须明确失败；首切片检查实际采用的 OpenAPI/JSON Schema 构造，custom serde 与泛型验证仅适用于已登记 Rust component 的 profile。不得覆盖人工输入，或用 `any`/宽泛 schema 掩盖本应精确表达的类型。
+4. Bootstrap 的五条 GET、只读声明、`fixed_commit` 可缺省或为 null、严格未知请求字段处理与递归整数字符串投影保持现有范围；非 null 历史读仍被拒绝，响应对象保留各自允许扩展的合同。人工 OpenAPI 补齐 `DecimalU64` 的可机读上界后再派生，使 schema 与真实 codec 一致拒绝越界。动态 `data` 的未定义结构如实使用有界 JSON/`unknown`，不声称完整世界 schema。
 5. 分别验证生成漂移、wire/消费者兼容性和真实服务语义。`DecimalU64`、裸 `u64`、字段缺省、enum、规范 JSON/CBOR 与签名域保持原行为；未具备 lossless codec 与跨语言 golden 的 profile 不发布可调用的 JS 签名/编解码能力。
 6. 中断、并发修改、写入冲突与回滚有明确处理；未形成完整且校验通过的产物集不得打包发布。生成成功不证明实际部署、授权成功或世界效果。
 
