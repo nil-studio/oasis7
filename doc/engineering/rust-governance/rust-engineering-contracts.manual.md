@@ -46,6 +46,27 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 <a id="architecture-regressions"></a>
 ## RG-A01 / RG-A02：真实依赖正反例
 
+开发期入口为 `python3 scripts/cargo-dev-architecture.py`（Python 3.11+；按仓库方式先准备 Cargo target）。
+规则来自 `scripts/cargo-dev-architecture.json`，根身份固定为 path package 的名称、版本和 `source=null`。
+工具先用固定工具链的离线、锁定 metadata 归一声明；metadata 的 all-features **只用于身份解析**，
+不作为生产图。随后逐根、逐配置执行显式 kind/target/features 的 `cargo tree` 与同配置 `cargo check`；
+测试配置用 `--tests`，生产配置使用实际 lib 或 bins。完整 JSON 输出到 stdout，进度到 stderr；
+任一 violation、inspection_error 或 coverage_gap 都返回非零。
+
+首批配置在执行 host 上区分默认生产、无默认生产、manifest 实际拥有的 required/full/test-support，
+Runtime 另列显式 Wasmtime 生产配置。Client Launcher 保留原脚本的 host/无默认 features/含 dev 范围，
+不把四项禁令扩大到所有版本或所有平台。Protocol Tools 的测试允许关系只命中其精确的
+`dev -> oasis7(default-features=false,features=[test_tier_required])` 首边；生产图仍完整检查。
+Harness 与 World State 另列 manifest 已有的 wasm32 默认/无默认 lib 编译配置，只证明其可移植合同层。
+Windows/wasm 的条件解析、host build 与 target 分离由真实最小 Cargo workspace 反例验证；
+本机 host 的构建结果不代表其他平台构建。平台支持与实际缺口仍按候选执行记录判断。
+
+`--graphs-only` 和 `--profile ID` 仅供排障：未构建或未选中的必需配置会输出 coverage_gap，不能作为门禁通过方式。
+`python3 scripts/cargo-dev-architecture.test.py` 运行临时真实 workspace 正反例，结束后删除夹具。
+现有可信 scope 的 `scripts/cargo-dev*` 已覆盖这些工具/规则路径；具体匹配追加 `rust_baseline` 执行真实图，
+`cargo_tooling_contracts` 执行反例。Cargo/lock/toolchain 继续通过既有共享控制与 Rust baseline 触发，
+required/full 使用既有汇总，旧 Launcher 检查保留。
+
 1. 检查器就绪后，用真实最小 Cargo workspace 构造夹具，固定依赖和 lock；分别测试直接依赖、中转传递依赖、build 依赖、optional feature、平台限定边、`package=` 别名及 workspace 继承。
 2. 先运行合法图，再仅引入一个违规边；以实际 Cargo 解析结果检查 rule key、root、kind、host/target、features、source 和可定位路径。声明违规与激活闭包违规分开核对。
 3. 生产图不混入其他成员 dev 图；测试图只含所选测试根。Windows-only/wasm-only 与 host build 反例按已支持矩阵执行，未具备条件的组合报告覆盖缺口。
