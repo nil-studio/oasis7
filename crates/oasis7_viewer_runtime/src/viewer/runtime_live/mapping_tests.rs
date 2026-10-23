@@ -708,11 +708,23 @@ fn public_event_wire_omits_mapped_freeform_diagnostics() {
 
 #[test]
 fn runtime_event_codec_preserves_values_and_canonical_input_filtering() {
-    for record in [
-        serde_json::json!({"kind":"public","message":"public receipt"}),
-        serde_json::json!({"nested":[{"signed_payload":{"kind":"agent_chat","payload":{"message":"private chat"}}}]}),
-        serde_json::json!({"nested":[{"signed_payload":{"kind":"safe_alternative","payload":{"goal":"private goal"}}}]}),
-        serde_json::json!({"type":"SafeAlternativeCommandRecorded","original":"private"}),
+    for (record, public) in [
+        (
+            serde_json::json!({"kind":"public","message":"public receipt"}),
+            true,
+        ),
+        (
+            serde_json::json!({"nested":[{"signed_payload":{"kind":"agent_chat","payload":{"message":"private chat"}}}]}),
+            false,
+        ),
+        (
+            serde_json::json!({"nested":[{"signed_payload":{"kind":"safe_alternative","payload":{"goal":"private goal"}}}]}),
+            false,
+        ),
+        (
+            serde_json::json!({"type":"SafeAlternativeCommandRecorded","original":"private"}),
+            false,
+        ),
     ] {
         let event = RuntimeWorldEvent {
             id: 42,
@@ -728,15 +740,8 @@ fn runtime_event_codec_preserves_values_and_canonical_input_filtering() {
         let legacy = serde_json::to_value(&event);
         let codec = crate::runtime::codec::world_event_json_value(&event);
         assert_eq!(codec.as_ref().unwrap(), legacy.as_ref().unwrap());
-        let private = legacy
-            .map(|value| {
-                crate::viewer::runtime_live::snapshot_privacy::contains_private_canonical_input(
-                    &value,
-                )
-            })
-            .unwrap_or(true);
         let mapped = map_runtime_event(&event, &WorldConfig::default(), None);
-        assert_eq!(mapped.runtime_event, (!private).then(|| event.clone()));
+        assert_eq!(mapped.runtime_event, public.then(|| event.clone()));
         assert_eq!(mapped.id, event.id);
         assert_eq!(mapped.time, event.time);
         assert!(matches!(mapped.kind, WorldEventKind::RuntimeEvent { .. }));

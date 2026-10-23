@@ -239,7 +239,7 @@ def read_artifacts(path, fixture):
             if type(message.get('fresh')) is not bool:
                 raise MeasurementError('Cargo artifact has no boolean Fresh value')
             package = fixture['packages'].get(message.get('package_id'))
-            unit = {key: message.get(key) for key in ('package_id', 'target', 'profile', 'features', 'fresh')}
+            unit = {key: message.get(key) for key in ('package_id', 'target', 'profile', 'features', 'fresh', 'filenames')}
             unit['local_package'] = package['name'] if package else None
             unit['manifest_path'] = (str(Path(package['manifest_path']).relative_to(checkout)) if package else None)
             units.append(unit)
@@ -275,6 +275,28 @@ def read_artifacts(path, fixture):
     return {'units': units, 'fresh': sum(u['fresh'] for u in units),
             'rebuilt': sum(not u['fresh'] for u in units), 'local_crates': per_crate,
             'lower_libraries': lower, 'binaries': binaries}
+
+
+def runtime_event_codec_abi(fixture, result):
+    observation = {'tool': output(['nm', '--version'], fixture['checkout']).splitlines()[0],
+                   'entry': 'world_event_json_value', 'libraries': {}}
+    for name in ('oasis7_world_state', 'oasis7_viewer_runtime'):
+        units = [unit for unit in result['units'] if unit['local_package'] == name
+                 and 'lib' in unit['target']['kind']]
+        paths = [Path(path) for unit in units for path in unit['filenames']
+                 if path.endswith('.rlib')]
+        if len(paths) != 1:
+            raise MeasurementError('event codec ABI probe requires one actual library artifact: ' + name)
+        path = paths[0]
+        # Filter raw symbols first; do not expand every deeply generic Rust name.
+        with tempfile.TemporaryFile(mode='w+t') as symbols:
+            subprocess.run(['nm', '--no-demangle', '--print-file-name', str(path)],
+                           stdout=symbols, stderr=subprocess.PIPE, check=True, text=True)
+            symbols.seek(0)
+            matching = [line.strip() for line in symbols if 'world_event_json_value' in line]
+        observation['libraries'][name] = {'path': str(path), 'sha256': digest(path),
+                                         'symbols': matching}
+    return observation
 
 
 def stop_process(process):
@@ -344,6 +366,8 @@ def measure_build(fixture, phase, out, expected_source):
         if source_fingerprint(fixture['checkout']) != expected_source:
             raise MeasurementError('build modified measurement source during ' + phase)
         result.update(read_artifacts(out / 'cargo.jsonl', fixture))
+        if fixture.get('runtime_event_codec_touch') and phase in ('seed', 'viewer_touch'):
+            result['runtime_event_codec_abi'] = runtime_event_codec_abi(fixture, result)
         if phase == 'no_op' and result['rebuilt'] != 0:
             raise MeasurementError('same-source no-op unexpectedly rebuilt Cargo units')
         viewer_units = [u for u in result['units'] if u['local_package'] == 'oasis7_viewer_runtime'
@@ -437,6 +461,18 @@ def viewer_mutation(checkout, out, source_path=VIEWER_PATH):
             raise MeasurementError('measurement checkout contains unexpected changes after Viewer restoration')
 
 
+def viewer_touch_samples(record):
+    return [phase['wall_seconds'] for name, phase in record['phases'].items()
+            if name == 'viewer_touch' or
+            (name.startswith('viewer_touch_') and name.removeprefix('viewer_touch_').isdigit())]
+
+
+def viewer_order_control_needed(results):
+    samples = [viewer_touch_samples(results[label]) for label in ('current', 'baseline')]
+    return (all(len(values) >= 3 for values in samples)
+            and max(min(values) for values in samples) <= min(max(values) for values in samples))
+
+
 def compare(results):
     current, baseline = results['current'], results['baseline']
     rows = []
@@ -473,6 +509,8 @@ def measure(args):
     out.mkdir(parents=True, exist_ok=False)
     report = {'schema': 1, 'success': False, 'scope': 'ECS native three-binary compile/link only',
               'measurement_order': list(revisions), 'revisions': revisions, 'jobs': args.jobs,
+              'viewer_touch_samples_requested': getattr(args, 'viewer_touch_samples', 1),
+              'runtime_event_codec_touch': getattr(args, 'runtime_event_codec_touch', False),
               'profile': 'ecs', 'features': 'default', 'incremental': 0,
               'runner': runner_resources(),
               'limitations': ['one cold build per revision; Viewer samples are sequential within each revision',
@@ -493,6 +531,7 @@ def measure(args):
             target.mkdir()
             (out / label).mkdir()
             fixtures[label] = inspect_checkout(checkout, source, target, args.jobs, out / label)
+            fixtures[label]['runtime_event_codec_touch'] = getattr(args, 'runtime_event_codec_touch', False)
         if fixtures['current']['identity']['configuration'] != fixtures['baseline']['identity']['configuration']:
             raise MeasurementError('baseline/current toolchain, profile, flags or Cargo configuration differ')
         for label, fixture in fixtures.items():
@@ -562,9 +601,26 @@ def measure(args):
                                                   'binary_sha256': digest(executable)}
             finally:
                 record['source_restored'] = source_fingerprint(fixture['checkout']) == before
+        if viewer_order_control_needed(report['results']):
+            report['viewer_touch_order_control'] = {
+                'reason': 'initial Viewer sample ranges overlap',
+                'execution_order': ['baseline', 'current'],
+                'scope': 'one reverse-order warm-target pair; no additional cold builds',
+            }
+            for label in ('baseline', 'current'):
+                fixture, record = fixtures[label], report['results'][label]
+                control_out = out / label / 'viewer_touch_order_control'
+                control_out.mkdir()
+                try:
+                    with viewer_mutation(fixture['checkout'], control_out) as mutation:
+                        record['phases']['viewer_touch_order_control'] = measure_build(
+                            fixture, 'viewer_touch_order_control', control_out / 'build',
+                            mutation['source_fingerprint'])
+                finally:
+                    record['source_restored'] = (source_fingerprint(fixture['checkout'])
+                                                == fixture['identity']['source_fingerprint'])
         for record in report['results'].values():
-            samples = [phase['wall_seconds'] for name, phase in record['phases'].items()
-                       if name.startswith('viewer_touch')]
+            samples = viewer_touch_samples(record)
             record['viewer_touch_summary'] = {
                 'samples': len(samples), 'execution_order_seconds': samples,
                 'median_seconds': statistics.median(samples),

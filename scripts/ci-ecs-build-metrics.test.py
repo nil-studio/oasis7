@@ -72,6 +72,22 @@ class Contracts(unittest.TestCase):
                 with self.assertRaisesRegex(METRICS.MeasurementError, message):
                     METRICS.read_artifacts(log, fixture)
 
+    def test_reverse_pair_is_selected_only_for_three_sample_range_overlap(self):
+        def record(values):
+            return {'phases': {('viewer_touch' if i == 0 else f'viewer_touch_{i+1}'):
+                               {'wall_seconds': value} for i, value in enumerate(values)}}
+        for current, baseline, expected in (
+                ([100, 101, 102], [101, 102, 103], True),
+                ([90, 91, 92], [100, 101, 102], False),
+                ([100], [100], False),
+                ([100, 101], [100, 101], False)):
+            self.assertEqual(METRICS.viewer_order_control_needed(
+                {'current': record(current), 'baseline': record(baseline)}), expected)
+        # An order control remains separate from the original three samples.
+        repeated = record([100, 101, 102])
+        repeated['phases']['viewer_touch_order_control'] = {'wall_seconds': 999}
+        self.assertEqual(METRICS.viewer_touch_samples(repeated), [100, 101, 102])
+
 
 @unittest.skipUnless(RUST_AVAILABLE, 'x86_64 Linux Cargo/rustc required for offline Rust integration fixture')
 class RustFixture(unittest.TestCase):
@@ -188,6 +204,11 @@ codegen-units = 16
                 self.assertGreater(touched['local_crates'][name]['rebuilt'], 0)
             self.assertTrue(all(not binary['fresh'] for binary in touched['binaries'].values()))
             self.assertIn('codec_touch', record['phases'])
+            for phase in ('seed', 'viewer_touch'):
+                abi = record['phases'][phase]['runtime_event_codec_abi']
+                self.assertIn('nm', abi['tool'])
+                for name in ('oasis7_world_state', 'oasis7_viewer_runtime'):
+                    self.assertEqual(len(abi['libraries'][name]['sha256']), 64)
         self.assert_isolated_cleanup()
 
     def tearDown(self):
