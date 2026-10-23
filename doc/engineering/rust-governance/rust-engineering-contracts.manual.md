@@ -2,7 +2,7 @@
 
 - 适用需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)。
 - 技术依据：[Rust 工程契约系统设计](rust-engineering-contracts.design.md)。
-- 本文是未来实施切片的验收操作计划；不表示新检查器、生成器、lint 继承或下列自动测试已存在，也不记录一次运行通过。
+- Workspace 与架构章节是后续切片的验收操作计划；signed-read 章节提供首个开发期工具的实际入口。方法和工具存在不代表一次运行通过，实际结果仍归对应 PR/CI。
 - 通用验证范围、开发缓存与正式命令沿用 [testing-manual.md](../../../testing-manual.md) 和[开发流程规范](../workflow/source-of-truth.md)，不新增 gate、审批或强制任务。
 
 ## 执行前置与结果归属

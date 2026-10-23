@@ -1,6 +1,6 @@
 # Rust 工程契约系统设计
 
-- 状态：`active`，目标设计；新增检查器、继承配置与生成流程均需后续实施。
+- 状态：`active`；Workspace 与架构机制按切片实施，signed-read 首个开发期生成入口见[产物合同](#artifact-contract)。
 - 主责：engineering 维护者；架构和 wire/profile 语义由原 crate、Runtime 与接口 owner 拥有。
 - 专业需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)（`PRD-ENGINEERING-036`）。
 - 实施验收：[验证手册](rust-engineering-contracts.manual.md)，新增工具就绪后按实际候选执行。
@@ -47,7 +47,7 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 | Workspace | [根 manifest](../../../Cargo.toml) 有少量共享依赖，没有统一 `workspace.package` / `workspace.lints`；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 分批迁移与等价检查，不能顺带修改 resolver/profiles/patch |
 | Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 规则继承与本地入口尚需实施；普通 clippy 不等于所有 CI 组合 |
 | 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh) 使用 host、`--no-default-features` 的局部 `cargo tree` | 有作用域的规则、声明与解析闭包检查 | 现有检查没有显式 target/kind 矩阵，不证明所有组合 |
-| HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 5、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首切片从此 profile 生成 TS/JSON Schema，继续以实现验证 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
+| HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 4、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首切片从此 profile 生成 TS/JSON Schema，继续以实现验证 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
 | Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；未有本专题的完整生成闭环 |
 
 ## 4. 边界与结构
@@ -167,7 +167,7 @@ Bootstrap `ReadWorldViewRequest.fixed_commit` 可缺省或为 null，实际 hand
 
 每个 profile 登记名称、唯一权威输入、导出根及具体泛型实例、target/features、API/schema/协议版本、生成配置和格式版本、生成工具/依赖锁、受管文件相对路径。profile 不以 Cargo 包版本替代 wire 版本；`UnsupportedWireVariant` 等不可构造分支必须表达为不可构造，不降级为任意值。
 
-首切片每个 profile 一个受管目录，输出集合至少为 `types.ts`、`schema.json` 和 `manifest.json`；确需拆分 schema 时由清单穷举。具体仓库目录随生成器实施确定，先按[CI 接入约束](#runtime-constraints)核对可信基线中的路径归属；本文不声称这些产物已存在。手工 OpenAPI 与受管目录分开，所有生成文件标明编辑入口。人工消费者、overlay 和 golden fixtures 不被写模式删除。
+首切片每个 profile 一个受管目录，输出集合至少为 `types.ts`、`schema.json` 和 `manifest.json`；确需拆分 schema 时由清单穷举。首切片的[生成器与 profile](../../../crates/oasis7_agent_api/protocol_codegen/README.md)及 `generated/` 受管目录位于 `crates/oasis7_agent_api/protocol_codegen/`，由既有 Cargo owner 覆盖；[独立 TS 消费样例](../../../crates/oasis7_agent_api/protocol_conformance/README.md)与生成工具分开维护。新增 profile 仍按[CI 接入约束](#runtime-constraints)核对可信路径归属。手工 OpenAPI 与受管目录分开，所有生成文件标明编辑入口。人工消费者、overlay 和 golden fixtures 不被写模式删除。
 
 Manifest 至少包含格式版本、profile、wire 版本、导出根、相关输入的相对路径与内容摘要、生成工具/配置/锁定依赖摘要及各输出摘要；摘要算法固定为 SHA-256，manifest 不把自身摘要纳入递归计算。生成字节采用 UTF-8/LF、固定排序、稳定命名和确定的格式化工具，不含时间戳、绝对路径或整仓 HEAD。实际执行的源码 SHA 与环境留在 CI/PR 证据，不能让无关文档提交造成协议重生成。
 
@@ -276,7 +276,7 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 | 生成与运行分离 | 开发期工具、显式 profile、提交完整产物，运行时无生成依赖 | 增加开发期工具维护；engineering 与接口 owner 在新增 profile/consumer 时评估输入闭包和依赖成本 |
 | 三类证据独立 | 漂移、wire/兼容、服务语义分别验证，禁止以一种成功代替其他 | 测试按受影响合同选择；协议 owner 在编码/消费者变更时复核兼容方向 |
 
-实施前仍需确定两个局部事项，均不改变上述合同：engineering 维护者确定 binary、规则文件与产物目录，并按[可信基线路径约束](#runtime-constraints)安排首次 CI 登记和接入；接口 owner 根据 TS 协议一致性样例和 CI 资源确定 profile 的有限容量上限与运行时校验实现，带上限/超限样例后才能启用该 profile。未登记的 Viewer/World Service 导出根不属于首版承诺。
+首个 HTTP profile 使用独立 Python 3.12 标准库工具，生成/check 入口及冲突恢复见[生成器说明](../../../crates/oasis7_agent_api/protocol_codegen/README.md)；导出根、有限容量/深度/超时及目标配置由 [profile.json](../../../crates/oasis7_agent_api/protocol_codegen/profile.json)登记，实际输入与输出摘要归生成 manifest。TS 消费者使用独立锁定的 TypeScript/Ajv 工具，验证方法见[手册](rust-engineering-contracts.manual.md#protocol-generation)。本节采纳这些稳定入口与职责，不代签一次运行或部署结果；未登记的 Rust components、Viewer/World Service 导出根仍不属于首版承诺。
 
 长期风险包括规则漂移、feature 合并造成误报、custom serde 与 schema 不一致、精确整数在 JS 处理中丢失，以及严格消费者拒绝新增字段。对应控制是原 owner 的单一依据、按真实配置解析、显式 adapter/fixture、lossless 边界和双向兼容验证；无法证明的部分继续显示缺口，不降级为静默成功。
 
