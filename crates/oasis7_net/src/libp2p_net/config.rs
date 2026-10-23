@@ -36,6 +36,16 @@ pub struct Libp2pNetworkConfig {
     pub request_response_timeout: Duration,
 }
 
+impl Libp2pNetworkConfig {
+    pub(super) fn rendezvous_enabled(&self) -> bool {
+        self.enable_rendezvous
+            || self
+                .peer_record
+                .as_ref()
+                .is_some_and(super::discovery::peer_record_enables_rendezvous)
+    }
+}
+
 impl Default for Libp2pNetworkConfig {
     fn default() -> Self {
         Self {
