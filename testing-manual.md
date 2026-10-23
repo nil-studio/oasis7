@@ -1732,6 +1732,16 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
 
 
+<a id="traffic-durable-attempt"></a>
+### 独立 traffic 持久尝试与历史事务：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[traffic 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#traffic-durable-attempt)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，其中应包含实际入口 `scripts/p2p-real-env-traffic-durable.test.py`；另保留现有流量归约和新鲜度回归。
+
+- 实际 wrapper 与隔离 HTTP／SSH／接口替身覆盖 pre-probe pending、SIGKILL、同钟、旧 A 对新 B pending／失败、预发布／终态失败、损坏状态及恢复；类型误用／旧无类型外层兼容沿共享 helper 回归。
+- 用固定来源的真实旧 wrapper 先生成历史及时间戳 run，再用新入口在同一 root 初始化；核对 seq1 pending 不采用旧成功、旧工件逐字节保留、后续 seq2 可继续，以及混入孤立版本化工件仍拒绝。
+- 同一和不同输出 root 指向同一历史，核对 admitted 事务不丢样、不重复批次，保留顺序、失败及回退的新行，裁剪与本 run 快照是同一事务；损坏锁或写入失败不显示旧成功。未接入事务的其他 writer 不据此取得并发保证。
+- 只读外部历史回放不创建／写入源目录、锁或文件，不追加／裁剪源；原 capture／producer 时点不刷新。实际 outer→traffic→merger→canonical 保留 incomplete／unknown 与历史身份，损坏协议不回退 legacy。结果不证明角色权威、可信绝对时间、全存储物理回滚或真实环境。
+
 <a id="snapshot-durable-attempt"></a>
 ### 独立 snapshot 持久尝试：离线验证
 

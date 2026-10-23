@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Durable observability, host and snapshot collection ordering. Read this canonical state, not an unvalidated cache."""
+"""Durable observability, host, snapshot and traffic collection ordering. Read this canonical state, not an unvalidated cache."""
 import argparse
+from datetime import datetime
+import re
 from contextlib import contextmanager
 try:
     import fcntl
 except ImportError:
     fcntl = None
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -193,9 +196,81 @@ def validate_attempt_identity(attempt):
 
 
 def validate_collector(value, collector):
-    if collector not in ('observability', 'host', 'snapshot') or value.get('collector', 'observability') != collector:
+    if collector not in ('observability', 'host', 'snapshot', 'traffic') or value.get('collector', 'observability') != collector:
         raise AttemptError('collector profile mismatch')
 
+
+
+def legacy_traffic_run(root, directory):
+    """Recognize the old timestamp namespace without adopting any old success."""
+    if not re.fullmatch(r'[0-9]{8}-[0-9]{6}', directory.name):
+        raise AttemptError('unrecognized legacy traffic run name')
+    try:
+        datetime.strptime(directory.name, '%Y%m%d-%H%M%S')
+    except ValueError as error:
+        raise AttemptError('invalid legacy traffic run timestamp') from error
+    required = {'config.json', 'summary.json', 'summary.md', 'samples.ndjson', 'raw'}
+    if not directory.is_dir() or {path.name for path in directory.iterdir()} != required:
+        raise AttemptError('legacy traffic run artifacts incomplete or mixed')
+    forbidden = {ANCHOR, STATE, LOCK, 'publication', 'terminal_result.json', 'history_receipt.json', 'report'}
+    for path in (directory.parent, directory, *directory.rglob('*')):
+        reject_symlinks(path)
+        metadata = path.stat()
+        if (metadata.st_uid != os.getuid() or metadata.st_mode & 0o022
+                or not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode))
+                or (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink != 1)
+                or path.name in forbidden):
+            raise AttemptError('unsafe or versioned legacy traffic artifact')
+    if not (directory / 'raw').is_dir() or any(not (directory / name).is_file() for name in required - {'raw'}):
+        raise AttemptError('invalid legacy traffic artifact types')
+    config, summary = read_json(directory / 'config.json'), read_json(directory / 'summary.json')
+    config_fields = {'run_id', 'run_dir', 'history_path', 'latest_summary_json', 'latest_summary_md',
+                     'samples', 'interval_secs', 'window_minutes', 'history_retention_minutes', 'top_n',
+                     'ssh_timeout_secs', 'summary_only', 'nodes'}
+    if not isinstance(config, dict) or set(config) != config_fields or not isinstance(summary, dict):
+        raise AttemptError('unrecognized legacy traffic configuration')
+    def absolute(value):
+        if not isinstance(value, str) or not value:
+            raise AttemptError('invalid legacy traffic path')
+        return Path(os.path.abspath(Path(__file__).parent.parent / value))
+    summary_fields = {'ok', 'schema_version', 'as_of_unix_ms', 'freshness_policy', 'generated_at', 'history_path',
+                      'history_retention_minutes', 'history_record_count_before_prune', 'history_record_count',
+                      'history_pruned_count', 'window_minutes_requested', 'top_n', 'run_id', 'run_dir', 'nodes', 'aggregate'}
+    if (set(summary) != summary_fields or config['run_id'] != directory.name or absolute(config['run_dir']) != directory
+            or summary.get('run_id') != config['run_id'] or summary.get('run_dir') != config['run_dir']
+            or absolute(config['latest_summary_json']) != root / 'latest_summary.json'
+            or absolute(config['latest_summary_md']) != root / 'latest_summary.md'
+            or not isinstance(config['history_path'], str) or not config['history_path']
+            or summary.get('history_path') != config['history_path']
+            or summary.get('schema_version') != 2 or summary.get('ok') is not True
+            or not isinstance(summary.get('nodes'), dict) or set(summary['nodes']) != {'local_node', 'sequencer_ecs', 'storage_ecs'}
+            or any(not isinstance(node, dict) for node in summary['nodes'].values())
+            or not isinstance(summary.get('aggregate'), dict)
+            or any(type(summary.get(key)) is not int or summary[key] < 0 for key in
+                   ('as_of_unix_ms', 'history_record_count_before_prune', 'history_record_count', 'history_pruned_count'))
+            or summary.get('history_retention_minutes') != config['history_retention_minutes']
+            or summary.get('window_minutes_requested') != config['window_minutes'] or summary.get('top_n') != config['top_n']
+            or not isinstance(summary.get('freshness_policy'), dict) or not isinstance(summary.get('generated_at'), str)
+            or any(key in summary for key in ('collection', 'collection_attempt', 'attempt', 'latest_attempt',
+                                               'last_success', 'canonical_state'))
+            or type(config['summary_only']) is not bool
+            or any(type(config[key]) is not int or config[key] <= 0 for key in
+                   ('samples', 'interval_secs', 'window_minutes', 'history_retention_minutes', 'top_n', 'ssh_timeout_secs'))):
+        raise AttemptError('legacy traffic configuration or summary identity mismatch')
+    nodes = config['nodes']
+    if not isinstance(nodes, dict) or set(nodes) != {'local_node', 'sequencer_ecs', 'storage_ecs'}:
+        raise AttemptError('invalid legacy traffic requested inventory')
+    for label, node in nodes.items():
+        expected = {'mode', 'status_url'} | (set() if label == 'local_node' else {'target'})
+        if (not isinstance(node, dict) or set(node) != expected
+                or node['mode'] != ('local' if label == 'local_node' else 'remote')
+                or any(not isinstance(value, str) or not value for value in node.values())):
+            raise AttemptError('invalid legacy traffic node configuration')
+    try:
+        (directory / 'summary.md').read_text(encoding='utf-8')
+    except UnicodeError as error:
+        raise AttemptError('invalid legacy traffic markdown encoding') from error
+    return {name: digest((directory / name).read_bytes()) for name in ('config.json', 'summary.json', 'summary.md')}
 
 def load_state(root, collector='observability'):
     anchor, state_path = root / ANCHOR, root / STATE
@@ -215,14 +290,28 @@ def load_state(root, collector='observability'):
     validate_collector(state, collector)
     runs = root / 'runs'
     reject_symlinks(runs)
+    legacy_runs = initialized.get('legacy_runs', {})
+    if not isinstance(legacy_runs, dict) or (legacy_runs and collector != 'traffic'):
+        raise AttemptError('invalid legacy run registry')
+    if any(not isinstance(name, str) or not re.fullmatch(r'[0-9]{8}-[0-9]{6}', name)
+           or not isinstance(reference, dict) or set(reference) != {'config.json', 'summary.json', 'summary.md'}
+           or any(not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{64}', value) for value in reference.values())
+           for name, reference in legacy_runs.items()):
+        raise AttemptError('invalid legacy run registry entry')
     if runs.exists():
         for directory in runs.iterdir():
+            if directory.name in legacy_runs:
+                if legacy_traffic_run(root, directory) != legacy_runs[directory.name]:
+                    raise AttemptError('registered legacy traffic metadata changed')
+                continue
             try:
                 sequence = int(directory.name.split('-', 1)[0])
             except ValueError as error:
                 raise AttemptError('invalid retained run sequence evidence') from error
             if sequence > state['last_sequence']:
                 raise AttemptError('retained run evidence exceeds persisted sequence')
+    if any(not (runs / name).exists() for name in legacy_runs):
+        raise AttemptError('registered legacy traffic run missing')
     attempt = state.get('latest_attempt')
     if state['last_sequence']:
         if (not isinstance(attempt, dict) or attempt.get('sequence') != state['last_sequence']
@@ -261,12 +350,16 @@ def scope_fingerprint(args, collector='observability'):
             ('p2p-real-env-host-monitor.sh', 'p2p-real-env-host-summary.py', 'p2p-real-env-node-host-sample.sh')]]
     if collector == 'snapshot':
         sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-triad-snapshot.sh').resolve())]
+    if collector == 'traffic':
+        sources = [str(Path(__file__).resolve()), *[str(Path(__file__).with_name(name).resolve()) for name in
+            ('p2p-real-env-traffic-monitor.sh', 'traffic-monitor-summary.py', 'traffic_monitor_freshness.py')]]
     candidate = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent.parent,
                                capture_output=True, text=True)
     material = {'candidate': candidate.stdout.strip() if candidate.returncode == 0 else 'unknown',
                 'collector': collector, 'arguments': args, 'code': {path: digest(Path(path).read_bytes()) for path in sources}}
     # Bind file inputs by content too, without persisting their paths or contents.
-    material['files'] = [digest(Path(arg).read_bytes()) for arg in args if Path(arg).is_file()]
+    file_args = [arg for index, arg in enumerate(args) if collector != 'traffic' or index == 0 or args[index - 1] != '--history-path']
+    material['files'] = [digest(Path(arg).read_bytes()) for arg in file_args if Path(arg).is_file()]
     return digest(encoded(material))
 
 
@@ -285,6 +378,15 @@ def report_for(attempt, last_success, source=None, collector='observability'):
             report['collection'] = dict(report.get('collection') or {}, complete=False)
             report['failure_signatures'] = sorted(set(report.get('failure_signatures', []) +
                 ['collection_' + attempt['result']] + [row['stage'] + '_failed' for row in attempt.get('errors', [])]))
+    if collector == 'traffic':
+        report['schema_version'] = 2
+        if attempt['result'] != 'success':
+            report['collection'] = dict(report.get('collection') or {}, complete=False)
+            nodes = report.setdefault('nodes', {})
+            for label in ('local_node', 'sequencer_ecs', 'storage_ecs'):
+                node = nodes.setdefault(label, {})
+                node['available'] = False
+                node['freshness'] = dict(node.get('freshness') or {}, state='unknown')
     report['collection_attempt'] = dict(attempt)
     report['attempt'] = dict(attempt)
     report['latest_attempt'] = dict(attempt)
@@ -331,12 +433,16 @@ def begin(root, arguments, collector='observability'):
                 old = read_json(legacy)
                 if isinstance(old, dict) and ('attempt' in old or 'latest_attempt' in old):
                     raise AttemptError('versioned artifacts exist without sequence anchor')
-            if (root / 'runs').exists() and any((root / 'runs').iterdir()):
-                raise AttemptError('run artifacts exist without sequence anchor')
+            legacy_runs = {}
+            if (root / 'runs').exists():
+                for directory in (root / 'runs').iterdir():
+                    if collector != 'traffic':
+                        raise AttemptError('run artifacts exist without sequence anchor')
+                    legacy_runs[directory.name] = legacy_traffic_run(root, directory)
             store_id = str(uuid.uuid4())
             metadata = (root / LOCK).stat()
             atomic_write(root / ANCHOR, encoded({'schema_version': 1, 'collector': collector, 'store_id': store_id,
-                         'high_water_sequence': 0, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino,
+                         'high_water_sequence': 0, 'legacy_runs': legacy_runs, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino,
                          'token': check.lock_token}}))
             atomic_write(root / STATE, encoded({'schema_version': 1, 'collector': collector, 'store_id': store_id,
                          'last_sequence': 0, 'latest_attempt': None, 'last_success': None}))
@@ -470,6 +576,278 @@ def validate_snapshot_source(source, directory):
         raise AttemptError('inconsistent snapshot aggregate completeness')
 
 
+
+TRAFFIC_LABELS = ('local_node', 'sequencer_ecs', 'storage_ecs')
+
+
+def ndjson_rows(payload):
+    try:
+        rows = [json.loads(line) for line in payload.decode('utf-8').splitlines() if line.strip()]
+    except (UnicodeError, ValueError) as error:
+        raise AttemptError('invalid traffic history encoding') from error
+    if any(not isinstance(row, dict) for row in rows):
+        raise AttemptError('invalid traffic history record')
+    return rows
+
+
+def protected_regular(descriptor):
+    metadata = os.fstat(descriptor)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or metadata.st_mode & 0o022 or metadata.st_nlink != 1):
+        raise AttemptError('history file is not an owner protected unaliased regular file')
+    return metadata
+
+
+def read_history(path):
+    reject_symlinks(path)
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        before = protected_regular(descriptor)
+        with os.fdopen(os.dup(descriptor), 'rb') as stream:
+            payload = stream.read()
+        after = protected_regular(descriptor)
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise AttemptError('history changed while reading')
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+def validate_history_path(path, requested_root=None):
+    reject_symlinks(path)
+    if not path.is_absolute() or path != Path(os.path.abspath(path)):
+        raise AttemptError('history path is not canonical absolute path')
+    for parent in (() if requested_root is not None and path == requested_root / 'history.ndjson' else path.parents):
+        if (parent / ANCHOR).exists() or (parent / STATE).exists():
+            if path != parent / 'history.ndjson':
+                raise AttemptError('history path overlaps reserved collector artifacts')
+            break
+    if path.name.endswith(('.traffic-history.lock', '.traffic-history.identity')):
+        raise AttemptError('history path overlaps persistent history metadata')
+    if path.name in (STATE, ANCHOR, LOCK, 'latest_summary.json', 'latest_summary.md',
+                     'config.json', 'samples.ndjson', 'history_receipt.json'):
+        raise AttemptError('history path overlaps reserved artifact name')
+    if path.exists():
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+        try:
+            protected_regular(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+@contextmanager
+def locked_history(path):
+    """Serialize cooperating writers with a durably bound, never replaced carrier."""
+    reject_symlinks(path)
+    durable_mkdir(path.parent)
+    parent = os.open(path.parent, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0))
+    lock = path.with_name('.' + path.name + '.traffic-history.lock')
+    anchor = path.with_name('.' + path.name + '.traffic-history.identity')
+    descriptor = None
+    try:
+        reject_symlinks(lock)
+        reject_symlinks(anchor)
+        flags = os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
+        if not anchor.exists():
+            flags |= os.O_CREAT
+        descriptor = os.open(lock, flags, 0o600)
+        def check(validate_anchor=True):
+            reject_symlinks(path)
+            reject_symlinks(lock)
+            reject_symlinks(anchor)
+            for opened, named, directory in ((os.fstat(parent), path.parent.stat(), True),
+                                             (os.fstat(descriptor), lock.stat(), False)):
+                if ((opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino)
+                        or opened.st_uid != os.getuid() or opened.st_mode & 0o022
+                        or not (stat.S_ISDIR(opened.st_mode) if directory else stat.S_ISREG(opened.st_mode))
+                        or (not directory and (stat.S_IMODE(opened.st_mode) != 0o600 or opened.st_nlink != 1))):
+                    raise AttemptError('history lock identity or permissions changed')
+            token = read_lock_token(descriptor)
+            if check.token is not None and token != check.token:
+                raise AttemptError('history lock token changed')
+            if validate_anchor:
+                metadata = os.fstat(descriptor)
+                expected = {'schema_version': 1, 'history_path': str(path), 'device': metadata.st_dev,
+                            'inode': metadata.st_ino, 'token': token}
+                if read_json(anchor) != expected:
+                    raise AttemptError('persistent history lock identity changed')
+                anchor_fd = os.open(anchor, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+                try:
+                    protected_regular(anchor_fd)
+                finally:
+                    os.close(anchor_fd)
+        check.token = None
+        check(validate_anchor=False)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if not anchor.exists():
+            # A token with no anchor is an interrupted initialization, never a
+            # license to establish a second identity domain after recovery.
+            if read_lock_token(descriptor) is not None:
+                raise AttemptError('history identity anchor missing after token initialization')
+            payload = (str(uuid.uuid4()) + '\n').encode('ascii')
+            if os.write(descriptor, payload) != len(payload):
+                raise AttemptError('history lock token write incomplete')
+            os.fsync(descriptor)
+            sync_directory(path.parent)
+            metadata = os.fstat(descriptor)
+            atomic_write(anchor, encoded({'schema_version': 1, 'history_path': str(path),
+                'device': metadata.st_dev, 'inode': metadata.st_ino, 'token': read_lock_token(descriptor)}))
+        check.token = read_lock_token(descriptor)
+        check()
+        yield check
+        check()
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def own_traffic_rows(directory, config):
+    reject_symlinks(directory / 'samples.ndjson')
+    rows = ndjson_rows((directory / 'samples.ndjson').read_bytes())
+    seen = set()
+    for row in rows:
+        identity = (row.get('label'), row.get('sample_index'))
+        if (row.get('run_id') != config['run_id'] or row.get('label') not in TRAFFIC_LABELS
+                or type(row.get('sample_index')) is not int or not 1 <= row['sample_index'] <= config['samples']
+                or type(row.get('status_fetch_ok')) is not bool
+                or type(row.get('captured_at_unix_ms')) is not int or row['captured_at_unix_ms'] < 0
+                or identity in seen):
+            raise AttemptError('invalid own traffic sample identity')
+        seen.add(identity)
+    return rows
+
+
+def history_transaction(root, sequence, attempt_id, history_path, retention_minutes, read_only=False):
+    """Commit one history batch and freeze the reducer input before terminal CAS."""
+    global _ACTIVE_GUARD
+    if type(retention_minutes) is not int or retention_minutes <= 0 or type(read_only) is not bool:
+        raise AttemptError('invalid history retention or mode')
+    validate_history_path(history_path)
+    with locked(root) as store_check:
+        state = load_state(root, 'traffic')
+        latest = state['latest_attempt']
+        if (latest['sequence'], latest['attempt_id'], latest['result']) != (sequence, attempt_id, 'pending'):
+            return 3
+        directory = root / latest['run_directory']
+        config = read_json(directory / 'config.json')
+        if (not isinstance(config, dict) or type(config.get('summary_only')) is not bool
+                or config['summary_only'] != read_only or type(config.get('samples')) is not int
+                or config['samples'] <= 0 or config.get('run_id') != str(sequence) + '-' + attempt_id
+                or config.get('run_dir') != str(directory) or config.get('history_path') != str(history_path)
+                or config.get('history_input_path') != str(directory / 'history.ndjson')):
+            raise AttemptError('traffic history configuration identity mismatch')
+        samples = b'' if read_only else (directory / 'samples.ndjson').read_bytes()
+        if not read_only:
+            own_traffic_rows(directory, config)
+        snapshot, receipt = directory / 'history.ndjson', directory / 'history_receipt.json'
+        reject_symlinks(snapshot)
+        reject_symlinks(receipt)
+        identity = {'history_path': str(history_path), 'read_only': read_only,
+                    'input_sha256': digest(samples), 'collector': 'traffic',
+                    'sequence': sequence, 'attempt_id': attempt_id}
+        if receipt.exists():
+            recorded = read_json(receipt)
+            if not isinstance(recorded, dict) or any(recorded.get(key) != value for key, value in identity.items()) or recorded.get('snapshot_sha256') != digest(snapshot.read_bytes()):
+                raise AttemptError('immutable history receipt differs')
+            return 0
+        if snapshot.exists():
+            raise AttemptError('history transaction interrupted; start a new attempt')
+        if read_only:
+            payload = read_history(history_path)
+            ndjson_rows(payload)
+            atomic_write(snapshot, payload)
+            atomic_write(receipt, encoded(dict(identity, snapshot_sha256=digest(payload))))
+            return 0
+        with locked_history(history_path) as history_check:
+            def check():
+                store_check()
+                history_check()
+            _ACTIVE_GUARD = check
+            try:
+                previous = read_history(history_path) if history_path.exists() else b''
+                old_rows = ndjson_rows(previous)
+                cutoff = time.time_ns() // 1_000_000 - retention_minutes * 60_000
+                retained = [row for row in old_rows if type(row.get('captured_at_unix_ms')) is not int
+                            or row['captured_at_unix_ms'] >= cutoff]
+                # New rows survive clock regression and preserve their append order.
+                rows = retained + ndjson_rows(samples)
+                payload = b''.join(encoded(row).replace(b'\n', b'') + b'\n' for row in rows)
+                atomic_write(snapshot, payload)
+                check()
+                atomic_write(history_path, payload)
+                check()
+                atomic_write(receipt, encoded(dict(identity, snapshot_sha256=digest(payload))))
+            finally:
+                _ACTIVE_GUARD = store_check
+        return 0
+
+
+def validate_traffic_source(source, directory):
+    config = read_json(directory / 'config.json')
+    if (not isinstance(source, dict) or not isinstance(config, dict) or type(config.get('summary_only')) is not bool
+            or type(config.get('samples')) is not int or config['samples'] <= 0
+            or config.get('run_dir') != str(directory) or config.get('run_id') != source.get('run_id')
+            or config.get('history_input_path') != str(directory / 'history.ndjson')
+            or not isinstance(source, dict) or source.get('schema_version') != 2
+            or source.get('history_path') != config['history_input_path']
+            or type(source.get('as_of_unix_ms')) is not int or source['as_of_unix_ms'] < 0):
+        raise AttemptError('invalid traffic summary configuration or schema')
+    replay = config['summary_only']
+    if config.get('as_of_unix_ms') is not None and config['as_of_unix_ms'] != source['as_of_unix_ms']:
+        raise AttemptError('traffic replay boundary mismatch')
+    rows = [] if replay else own_traffic_rows(directory, config)
+    failed = sum(row['status_fetch_ok'] is False for row in rows)
+    expected = 0 if replay else len(TRAFFIC_LABELS) * config['samples']
+    required = {'mode': 'history_replay' if replay else 'live', 'samples_per_node': config['samples'],
+                'expected_sample_count': expected, 'attempted_count': len(rows), 'failed_sample_count': failed,
+                'complete': replay or (len(rows) == expected and failed == 0), 'node_labels': list(TRAFFIC_LABELS)}
+    collection = source.get('collection')
+    if not isinstance(collection, dict) or any(type(collection.get(key)) is not type(value) or collection[key] != value for key, value in required.items()):
+        raise AttemptError('inconsistent traffic collection completeness')
+    receipt = read_json(directory / 'history_receipt.json')
+    reject_symlinks(directory / 'history.ndjson')
+    history = (directory / 'history.ndjson').read_bytes()
+    if (not isinstance(receipt, dict) or receipt.get('collector') != 'traffic'
+            or str(receipt.get('sequence')) + '-' + str(receipt.get('attempt_id')) != config['run_id']
+            or receipt.get('history_path') != config.get('history_path') or receipt.get('read_only') != replay
+            or receipt.get('input_sha256') != digest(b'' if replay else (directory / 'samples.ndjson').read_bytes())
+            or receipt.get('snapshot_sha256') != digest(history)):
+        raise AttemptError('traffic history snapshot receipt mismatch')
+    nodes = source.get('nodes')
+    if not isinstance(nodes, dict) or set(nodes) != set(TRAFFIC_LABELS) or not isinstance(source.get('aggregate'), dict):
+        raise AttemptError('invalid traffic triad shape')
+    for key in ('window_minutes', 'max_sample_age_secs', 'max_sample_gap_secs'):
+        if type(config.get(key)) is not int or config[key] <= 0:
+            raise AttemptError('invalid traffic freshness configuration')
+    module_path = Path(__file__).with_name('traffic_monitor_freshness.py')
+    spec = importlib.util.spec_from_file_location('traffic_attempt_freshness', module_path)
+    freshness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(freshness)
+    records = ndjson_rows(history)
+    policy = {'version': 1, 'max_sample_age_ms': config['max_sample_age_secs'] * 1000,
+              'max_sample_gap_ms': config['max_sample_gap_secs'] * 1000}
+    if source.get('freshness_policy') != policy or source.get('window_minutes_requested') != config['window_minutes']:
+        raise AttemptError('traffic freshness policy mismatch')
+    if any(type(source.get(key)) is not int or source[key] != expected for key, expected in
+           (('history_record_count', len(records)), ('history_record_count_before_prune', len(records)), ('history_pruned_count', 0))):
+        raise AttemptError('traffic immutable history record counts mismatch')
+    for label in TRAFFIC_LABELS:
+        node = nodes[label]
+        expected_metadata, _, _ = freshness.analyze([row for row in records if (row.get('label') or row.get('node_label')) == label],
+            source['as_of_unix_ms'], config['window_minutes'], config['max_sample_age_secs'] * 1000,
+            config['max_sample_gap_secs'] * 1000, config.get('as_of_unix_ms') is not None)
+        if not isinstance(node, dict):
+            raise AttemptError('invalid traffic node shape')
+        for key, value in expected_metadata.items():
+            if key == 'window':
+                if not isinstance(node.get(key), dict) or any(node[key].get(field) != item for field, item in value.items()):
+                    raise AttemptError('traffic window metadata mismatch')
+            elif node.get(key) != value:
+                raise AttemptError('traffic freshness metadata mismatch')
+    if source['aggregate'].get('node_count') != sum(node['available'] for node in nodes.values()):
+        raise AttemptError('traffic aggregate node count mismatch')
+
 def finish(root, sequence, attempt_id, errors, collector='observability'):
     with locked(root) as check:
         state = load_state(root, collector)
@@ -480,6 +858,10 @@ def finish(root, sequence, attempt_id, errors, collector='observability'):
         if not any(row.get('stage') == 'summary' for row in errors):
             try:
                 source = read_json(own_directory / 'report' / 'latest_summary.json')
+                if collector == 'traffic':
+                    validate_traffic_source(source, own_directory)
+                    if source['collection']['complete'] is not True and not any(row.get('stage') == 'traffic' for row in errors):
+                        raise AttemptError('incomplete traffic collection lacks failure result')
                 if collector == 'snapshot':
                     validate_snapshot_source(source, own_directory)
                     if source['collection']['complete'] is not True and not any(row.get('stage') == 'snapshot' for row in errors):
@@ -495,7 +877,7 @@ def finish(root, sequence, attempt_id, errors, collector='observability'):
                         or source.get('run_dir') != str(own_directory)):
                     raise AttemptError('summary source is not associated with reserved run')
                 source_markdown = (own_directory / 'report' / 'latest_summary.md').read_text(encoding='utf-8')
-            except (AttemptError, OSError, UnicodeError):
+            except (AttemptError, OSError, UnicodeError, ValueError, TypeError, AttributeError):
                 source = None
                 source_markdown = None
                 errors = [*errors, {'stage': 'summary', 'exit_code': 1, 'error': 'summary_failed'}]
@@ -581,13 +963,16 @@ def read(root, collector='observability'):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('begin', 'finish', 'read'))
+    parser.add_argument('command', choices=('begin', 'finish', 'read', 'history', 'history-validate'))
     parser.add_argument('--out-dir', required=True)
-    parser.add_argument('--collector', choices=('observability', 'host', 'snapshot'), default='observability')
+    parser.add_argument('--collector', choices=('observability', 'host', 'snapshot', 'traffic'), default='observability')
     parser.add_argument('--sequence', type=int)
     parser.add_argument('--attempt-id')
     parser.add_argument('--scope-arg', action='append', default=[])
     parser.add_argument('--error', action='append', default=[])
+    parser.add_argument('--history-path')
+    parser.add_argument('--retention-minutes', type=int)
+    parser.add_argument('--read-only-history', action='store_true')
     parser.add_argument('--format', choices=('json', 'markdown'), default='json')
     args = parser.parse_args()
     try:
@@ -595,6 +980,24 @@ def main():
         if args.command == 'begin':
             print(json.dumps(begin(root, args.scope_arg, args.collector)))
             return 0
+        if args.command == 'history-validate':
+            if args.collector != 'traffic' or not args.history_path:
+                parser.error('history-validate needs traffic collector and history-path')
+            path = Path(os.path.abspath(args.history_path))
+            validate_history_path(path, requested_root=root)
+            if root in path.parents and path != root / 'history.ndjson':
+                raise AttemptError('history path overlaps requested collector store')
+            if not args.read_only_history and path.parent.exists():
+                parent = path.parent.stat()
+                if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_mode & 0o022:
+                    raise AttemptError('history parent is not owner protected')
+            if args.read_only_history and not path.is_file():
+                raise AttemptError('history replay source missing')
+            return 0
+        if args.command == 'history':
+            if args.collector != 'traffic' or not args.sequence or not args.attempt_id or not args.history_path or not args.retention_minutes or args.retention_minutes <= 0:
+                parser.error('history needs traffic collector, sequence, attempt-id, history-path and positive retention-minutes')
+            return history_transaction(root, args.sequence, args.attempt_id, Path(os.path.abspath(args.history_path)), args.retention_minutes, args.read_only_history)
         if args.command == 'finish':
             if not args.sequence or not args.attempt_id:
                 parser.error('finish needs sequence and attempt-id')
@@ -614,6 +1017,9 @@ def main():
             unknown = {'current_measurement_available': False, 'attempt': {'result': 'unknown'},
                        'latest_attempt': {'result': 'unknown'},
                        'overall': {'status': 'unknown', 'alerts': ['state_unavailable']}}
+            if args.collector == 'traffic':
+                unknown.update(schema_version=2, collection={'complete': False}, nodes={label: {
+                    'available': False, 'freshness': {'state': 'unknown'}} for label in ('local_node', 'sequencer_ecs', 'storage_ecs')})
             if args.collector == 'host':
                 unknown.update(schema_version=2, aggregate={'complete': False})
             if args.collector == 'snapshot':
