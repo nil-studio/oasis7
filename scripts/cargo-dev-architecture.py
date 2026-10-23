@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tomllib
+import time
 
 VERSION = 1
 KINDS = {None: 'normal', 'build': 'build', 'dev': 'dev'}
@@ -43,7 +44,7 @@ def validate(config):
     for rule in config['rules']:
         required = {'key', 'upstream', 'roots', 'forbidden', 'kinds',
                     'declaration_kinds', 'profiles', 'required_profiles', 'allows', 'exceptions'}
-        if set(rule) - (required | {'empty_default', 'forbidden_feature_tokens', 'test_edges'}) or not required <= rule.keys():
+        if set(rule) - (required | {'empty_default', 'forbidden_feature_tokens', 'test_edges', 'test_kinds'}) or not required <= rule.keys():
             raise InspectionError('invalid rule fields')
         if rule['key'] in seen or not rule['roots']:
             raise InspectionError('duplicate key or missing roots')
@@ -56,6 +57,8 @@ def validate(config):
         for kinds in (rule['kinds'], rule['declaration_kinds']):
             if not isinstance(kinds, list) or not set(kinds) <= {'normal', 'build', 'dev'}:
                 raise InspectionError('invalid edge kinds')
+        if set(rule.get('test_kinds', ['normal', 'build', 'dev'])) not in ({'normal', 'build'}, {'normal', 'build', 'dev'}):
+            raise InspectionError('invalid test closure kinds')
         if set(rule['kinds']) != {'normal', 'build'}:
             raise InspectionError('production graph must contain exactly normal/build kinds')
         if (not isinstance(rule['required_profiles'], list) or not rule['required_profiles'] or
@@ -219,7 +222,7 @@ def allowed_test_path(rule, profile, path):
     return False
 
 
-def inspect(root, config, builds=True, selected=None):
+def inspect(root, config, builds=True, selected=None, plan=None):
     validate(config)
     lock = root / 'Cargo.lock'
     if not lock.is_file():
@@ -250,6 +253,24 @@ def inspect(root, config, builds=True, selected=None):
                 'tool_version': VERSION, 'rule_revision': config['revision'],
                 'rules_sha256': hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
                 'toolchain': toolchain, 'host': host}
+    architecture = (plan or {}).get('architecture', {})
+    targeted = architecture.get('version') == 1 and architecture.get('mode') == 'targeted'
+    if targeted:
+        if (not isinstance(architecture.get('packages'), list) or
+                any(not isinstance(p, str) for p in architecture['packages'])):
+            raise InspectionError('invalid trusted architecture inputs')
+        # The plan is produced by the trusted BASE planner, never candidate rules.
+        # A plan for another checkout must not narrow compilation.
+        for key, ref in [('tested', 'HEAD')]:
+            if run(root, ['git', 'rev-parse', architecture[key] + '^{commit}']).strip() != run(root, ['git', 'rev-parse', ref]).strip():
+                raise InspectionError('trusted architecture plan does not match tested HEAD')
+        if evidence['tracked_changes']:
+            targeted = False  # worktree experiments cannot borrow committed-input scope
+    inputs = set(architecture.get('packages', [])) if targeted else set()
+    evidence['selection'] = {'mode': 'targeted' if targeted else 'full',
+                             'inputs': sorted(inputs), 'plan': architecture,
+                             'reason': 'trusted input/profile graph intersection' if targeted else 'full or no compatible trusted plan'}
+    timings = {'graph_seconds': 0.0, 'build_seconds': 0.0, 'graph_profiles': 0, 'build_profiles': 0}
     results = []
     for rule in config['rules']:
         upstream_path, anchor = rule['upstream'].split('#')
@@ -313,36 +334,55 @@ def inspect(root, config, builds=True, selected=None):
                 commands.append(command)
                 print(f'{rule["key"]}/{package["name"]}/{profile["id"]}: graph {scope["target"]}', file=sys.stderr)
                 try:
+                    started = time.monotonic()
                     nodes = tree_nodes(run(root, command), packages)
                     production_children = set()
+                    closure_nodes = nodes
                     if profile['mode'] == 'test':
                         production_command = list(command)
                         production_command[production_command.index('--edges') + 1] = 'normal,build'
                         commands.append(production_command)
                         production_nodes = tree_nodes(run(root, production_command), packages)
                         production_children = {p['id'] for p, path, _ in production_nodes if len(path) == 2}
+                        if 'dev' not in rule.get('test_kinds', ['normal', 'build', 'dev']):
+                            closure_nodes = production_nodes
                     def skip_first(child):
                         return (child['id'] not in production_children and
                                 allowed_test_path(rule, profile, [package, child]))
-                    for dep, path, enabled in expanded_paths(nodes, skip_first):
+                    profile_start = len(results)
+                    for dep, path, enabled in expanded_paths(closure_nodes, skip_first):
                         if any(matches(f, dep) for f in rule['forbidden']):
                             results.append(dict(scope, status='violation', view='closure',
                                                 forbidden=dep['id'], enabled_features=enabled,
                                                 path=[p['id'] for p in path], edges=witness(path, host, scope['target']), command=command))
-                    if builds:
+                    timings['graph_seconds'] += time.monotonic() - started
+                    timings['graph_profiles'] += 1
+                    graph_ok = len(results) == profile_start
+                    results.append(dict(scope, status='pass' if graph_ok else 'violation', view='closure'))
+                    affected = sorted({p['name'] for p, _, _ in nodes if p['source'] is None} & inputs)
+                    required = not targeted or bool(affected)
+                    if not builds:
+                        results.append(dict(scope, status='coverage_gap', reason='graph inspected; target build not executed'))
+                    elif not required:
+                        results.append(dict(scope, status='not_required', view='build', reason='no changed input in profile graph'))
+                    else:
                         command = ['cargo', 'check', *flags, '--tests' if profile['mode'] == 'test' else '--lib']
                         # The launcher is binary-only.
                         if profile['mode'] == 'production' and not any('lib' in t['kind'] for t in package['targets']):
                             command[-1] = '--bins'
                         commands.append(command)
-                        print(f'{rule["key"]}/{package["name"]}/{profile["id"]}: target build', file=sys.stderr)
-                        run(root, command)
-                        results.append(dict(scope, status='pass', view='closure_and_build', command=command))
-                    else:
-                        results.append(dict(scope, status='coverage_gap', reason='graph inspected; target build not executed'))
+                        print(f'{rule["key"]}/{package["name"]}/{profile["id"]}: target build ({affected or "full"})', file=sys.stderr)
+                        started = time.monotonic()
+                        try:
+                            run(root, command)
+                        finally:
+                            timings['build_seconds'] += time.monotonic() - started
+                            timings['build_profiles'] += 1
+                        results.append(dict(scope, status='pass', view='build', command=command,
+                                            reason='full matrix' if not targeted else 'changed inputs: ' + ', '.join(affected)))
                 except InspectionError as error:
                     results.append(dict(scope, status='inspection_error', reason=str(error), command=command))
-    return {'evidence': evidence, 'commands': commands, 'results': results}
+    return {'evidence': evidence, 'timings': timings, 'commands': commands, 'results': results}
 
 
 def main():
@@ -351,14 +391,15 @@ def main():
     parser.add_argument('--rules', type=Path, default=Path(__file__).with_suffix('.json'))
     parser.add_argument('--graphs-only', action='store_true', help='diagnostic mode; leaves build coverage gaps')
     parser.add_argument('--profile', action='append', help='diagnostic subset; omitted profiles are coverage gaps')
+    parser.add_argument('--plan', help='JSON plan from trusted BASE selector; absent/old plan builds full matrix')
     args = parser.parse_args()
     try:
         config = json.loads(args.rules.read_text(encoding='utf-8'))
-        report = inspect(args.repo_root.resolve(), config, not args.graphs_only, args.profile)
+        report = inspect(args.repo_root.resolve(), config, not args.graphs_only, args.profile, json.loads(args.plan) if args.plan else None)
     except (InspectionError, OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
         report = {'results': [{'status': 'inspection_error', 'reason': str(error)}]}
     print(json.dumps(report, indent=2))
-    return int(any(r['status'] != 'pass' for r in report['results']))
+    return int(any(r['status'] not in ('pass', 'not_required') for r in report['results']))
 
 
 if __name__ == '__main__':

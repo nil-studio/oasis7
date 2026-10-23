@@ -87,6 +87,8 @@ CI 在检查前显式运行 `cargo fetch --locked` 准备依赖；检查器本�
 <a id="architecture-scope"></a>
 ## RG-A03 / RG-A04：不完整检查与 CI 选择
 
+可信局部执行合同见[局部架构核查](rust-engineering-contracts.design.md#trusted-local-architecture)。CI 只消费可信 BASE 产生的 architecture 计划；无计划或旧计划执行 full。全部图始终检查，编译按实际图与输入交集选择，输出 not_required 不算已执行。对比耗时须固定 toolchain、host/target、features、jobs 与缓存条件，同时记录图/编译项数与两阶段耗时。
+
 1. 注入缺失 lock/root、损坏元数据、离线依赖不足、工具链不可用与规则解析错误，确认返回非零 `inspection_error`，没有伪造 `pass` 或静默换配置。
 2. 对规则要求而尚未注册/未执行的组合验证 `coverage_gap`；只有正式启用的必需检查按设计阻断，未启用范围明确报告，不用扩大 N/A 消除缺口。
 3. 分别改变规则、检查器、反例、相关 Cargo/lock/toolchain、profile、受管产物与 TS 消费样例，使用既有 [scope 规划测试](../../../scripts/plan-rust-required-scope.test.py) 和实际候选 CI 核对选择及 required 汇总。首次新增独立路径时核对[可信基线登记规则](../../testing/ci/ci-tiered-execution.design.md#ci-unknown-inputs-design)：旧基线须拒绝未知路径，登记合入后的基线须选中实际验证；已被 Cargo owner/可信规则覆盖的路径不强制另拆登记 PR。生成工具首次接入同样适用。

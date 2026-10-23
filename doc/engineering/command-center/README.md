@@ -27,7 +27,7 @@
 
 ## 核验基线与覆盖范围
 
-2026-10-23 signed-read 协议产物局部核对：人工 OpenAPI 保留 HTTP profile 主责；[协议生成设计](../rust-governance/rust-engineering-contracts.design.md#artifact-contract)规定开发期生成与服务运行闭包分离，派生 TS/schema/manifest 不赋予 signer 或写权限。[实施 #5024](https://github.com/nil-studio/oasis7/issues/5024) 当前候选覆盖五条 GET、精确 DecimalU64 与独立 TS 消费；实际合入和验证由该任务承接，未改变部署或整局验收结论。
+2026-10-24 Rust 工程契约局部核对：[#5026](https://github.com/nil-studio/oasis7/pull/5026)、[#5027](https://github.com/nil-studio/oasis7/pull/5027)、[#5028](https://github.com/nil-studio/oasis7/pull/5028) 已合入首批 6 成员继承、9 条架构规则/37 个 profile 与 signed-read 五 GET 的 TS/schema 生成消费；API revision 1 / read schema revision 5。[现行设计](../rust-governance/rust-engineering-contracts.design.md)保留原专业 owner 与开发期工具边界。[#5036](https://github.com/nil-studio/oasis7/issues/5036) 承接 path/status 回归、dev 范围及可信局部编译选择，尚待 PR 评审；不据此宣称部署、完整世界 schema 或全平台验收。
 
 Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 

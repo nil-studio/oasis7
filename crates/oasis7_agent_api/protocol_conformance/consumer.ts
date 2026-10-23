@@ -21,11 +21,37 @@ function expectSchema(name: string, value: unknown, expected = true): void {
   assert.equal(validate(value), expected, `${name}: ${JSON.stringify(value)}: ${ajv.errorsText(validate.errors)}`);
   assertions++;
 }
-const operations = schema["x-operations"] as Record<string, { responses: Record<string, unknown> }>;
-const routes: Record<string, string> = {
-  info: "getGameReadInfo", openapi: "getGameReadOpenApi", observation: "getAgentObservation",
-  capabilities: "getAgentCapabilities", "task-control": "getAgentTaskControl",
-};
+type Operation = { method: string; path: string; responses: Record<string, object> };
+const operations = schema["x-operations"] as Record<string, Operation>;
+const successFixtures = ["info", "openapi", "observation", "capabilities", "task-control"];
+function validateResponse(bundle: typeof schema, fixture: typeof fixtures.cases[number]): void {
+  // Match literal segments and nonempty single-segment path parameters. Fixtures
+  // come from real GET handlers, independently of the generated operations.
+  const matches = Object.entries(bundle["x-operations"] as Record<string, Operation>).filter(([, operation]) => {
+    const template = operation.path.split("/");
+    const actual = fixture.path.split("/");
+    return operation.method === "GET" && template.length === actual.length &&
+      template.every((part, index) => /^\{[^{}]+\}$/.test(part) ? actual[index].length > 0 : part === actual[index]);
+  });
+  assert.equal(matches.length, 1, `${fixture.name}: GET ${fixture.path}: expected unique operation`);
+  const [id, operation] = matches[0];
+  const response = operation.responses[String(fixture.status)];
+  assert.ok(response, `${fixture.name}: ${id}: undeclared status ${fixture.status}`);
+  const validate = ajv.compile({ ...bundle, ...response });
+  assert.ok(validate(fixture.body), `${fixture.name}: ${id}/${fixture.status}: ${ajv.errorsText(validate.errors)}`);
+}
+// Fault injection uses unchanged handler inputs and mutates only the contract.
+for (const [label, mutate] of [
+  ["missing 400", (s: typeof schema) => { delete s["x-operations"].getAgentObservation.responses["400"]; }],
+  ["wrong path", (s: typeof schema) => { s["x-operations"].getAgentObservation.path += "/wrong"; }],
+  ["wrong method", (s: typeof schema) => { s["x-operations"].getAgentObservation.method = "POST"; }],
+  ["wrong error schema", (s: typeof schema) => { s["x-operations"].getAgentObservation.responses["400"] = { $ref: "#/$defs/ReadInfo" }; }],
+  ["ambiguous path", (s: typeof schema) => { s["x-operations"].duplicate = structuredClone(s["x-operations"].getAgentObservation); }],
+] as const) {
+  const changed = structuredClone(schema);
+  mutate(changed);
+  assert.throws(() => fixtures.cases.forEach(fixture => validateResponse(changed, fixture)), Error, label);
+}
 function assertProjectionIntegersAreStrings(value: unknown): void {
   if (typeof value === "number") assert.equal(Number.isInteger(value), false, "projection integer remained numeric");
   else if (Array.isArray(value)) value.forEach(assertProjectionIntegersAreStrings);
@@ -33,23 +59,16 @@ function assertProjectionIntegersAreStrings(value: unknown): void {
 }
 for (const fixture of fixtures.cases) {
   assert.ok(Buffer.byteLength(JSON.stringify(fixture.body)) <= 2097152, `${fixture.name}: response byte limit`);
-  if (fixture.status === 200) {
-    const operation = routes[fixture.name];
-    assert.ok(operation, `unexpected success fixture ${fixture.name}`);
-    const validate = ajv.compile({ ...schema, ...operations[operation].responses["200"] as object });
-    assert.ok(validate(fixture.body), `${fixture.name}: ${ajv.errorsText(validate.errors)}`);
-    assertions++;
-    if (["observation", "capabilities", "task-control"].includes(fixture.name)) {
-      const projection = fixture.body as ReadProjection;
-      assertProjectionIntegersAreStrings(projection.world_binding);
-      assertProjectionIntegersAreStrings(projection.data);
-    }
-  } else {
-    expectSchema("ReadError", fixture.body);
+  validateResponse(schema, fixture);
+  assertions++;
+  if (fixture.status === 200 && ["observation", "capabilities", "task-control"].includes(fixture.name)) {
+    const projection = fixture.body as ReadProjection;
+    assertProjectionIntegersAreStrings(projection.world_binding);
+    assertProjectionIntegersAreStrings(projection.data);
   }
   if (fixture.request !== undefined && fixture.status === 200) expectSchema("ReadWorldViewRequest", fixture.request);
 }
-for (const name of Object.keys(routes)) assert.ok(fixtures.cases.some(f => f.name === name && f.status === 200));
+for (const name of successFixtures) assert.ok(fixtures.cases.some(f => f.name === name && f.status === 200));
 // These functions exercise real generated types as a consumer, including per-operation responses.
 const info = fixtures.cases.find(f => f.name === "info")!.body as ReadInfo;
 const observation = fixtures.cases.find(f => f.name === "observation")!.body as ReadProjection;
