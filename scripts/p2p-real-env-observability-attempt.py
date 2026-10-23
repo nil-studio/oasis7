@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Durable outer-run ordering. Read this canonical state, not an unvalidated cache."""
+"""Durable observability and host collection ordering. Read this canonical state, not an unvalidated cache."""
 import argparse
 from contextlib import contextmanager
 try:
@@ -192,7 +192,12 @@ def validate_attempt_identity(attempt):
         raise AttemptError('attempt directory or scope identity invalid')
 
 
-def load_state(root):
+def validate_collector(value, collector):
+    if collector not in ('observability', 'host') or value.get('collector', 'observability') != collector:
+        raise AttemptError('collector profile mismatch')
+
+
+def load_state(root, collector='observability'):
     anchor, state_path = root / ANCHOR, root / STATE
     if not anchor.exists() or not state_path.exists():
         raise AttemptError('initialization anchor or sequence state missing')
@@ -206,6 +211,8 @@ def load_state(root):
             or type(state.get('last_sequence')) is not int or state['last_sequence'] < 0
             or 'last_success' not in state):
         raise AttemptError('invalid sequence state')
+    validate_collector(initialized, collector)
+    validate_collector(state, collector)
     runs = root / 'runs'
     reject_symlinks(runs)
     if runs.exists():
@@ -226,6 +233,7 @@ def load_state(root):
     elif attempt is not None:
         raise AttemptError('invalid initial attempt state')
     if attempt:
+        validate_collector(attempt, collector)
         validate_attempt_identity(attempt)
     success = state['last_success']
     if success is not None and (not isinstance(success, dict) or success.get('result') != 'success'
@@ -233,6 +241,7 @@ def load_state(root):
             or not isinstance(success.get('publication'), dict)):
         raise AttemptError('invalid last-success reference')
     if success is not None:
+        validate_collector(success, collector)
         validate_attempt_identity(success)
         if success['publication'].get('generation') != success['generation']:
             raise AttemptError('last-success generation mismatch')
@@ -245,19 +254,28 @@ def load_state(root):
     return state
 
 
-def scope_fingerprint(args):
+def scope_fingerprint(args, collector='observability'):
     sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-observability-monitor.sh').resolve())]
+    if collector == 'host':
+        sources = [str(Path(__file__).resolve()), *[str(Path(__file__).with_name(name).resolve()) for name in
+            ('p2p-real-env-host-monitor.sh', 'p2p-real-env-host-summary.py', 'p2p-real-env-node-host-sample.sh')]]
     candidate = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent.parent,
                                capture_output=True, text=True)
     material = {'candidate': candidate.stdout.strip() if candidate.returncode == 0 else 'unknown',
-                'arguments': args, 'code': {path: digest(Path(path).read_bytes()) for path in sources}}
+                'collector': collector, 'arguments': args, 'code': {path: digest(Path(path).read_bytes()) for path in sources}}
     # Bind file inputs by content too, without persisting their paths or contents.
     material['files'] = [digest(Path(arg).read_bytes()) for arg in args if Path(arg).is_file()]
     return digest(encoded(material))
 
 
-def report_for(attempt, last_success, source=None):
+def report_for(attempt, last_success, source=None, collector='observability'):
     report = dict(source or {})
+    if collector == 'host':
+        report['schema_version'] = 2
+        report['aggregate'] = dict(report.get('aggregate') or {})
+        if attempt['result'] != 'success':
+            report['aggregate']['complete'] = False
+        report['overall'] = {'status': 'pass', 'alerts': [], 'scope': 'collection_execution_only'}
     report['collection_attempt'] = dict(attempt)
     report['attempt'] = dict(attempt)
     report['latest_attempt'] = dict(attempt)
@@ -294,7 +312,8 @@ def publish(root, state, attempt, report, markdown):
     return reference
 
 
-def begin(root, arguments):
+def begin(root, arguments, collector='observability'):
+    validate_collector({'collector': collector}, collector)
     with locked(root, create=True) as check:
         reject_symlinks(root / 'runs')
         if not (root / ANCHOR).exists() and not (root / STATE).exists():
@@ -307,16 +326,16 @@ def begin(root, arguments):
                 raise AttemptError('run artifacts exist without sequence anchor')
             store_id = str(uuid.uuid4())
             metadata = (root / LOCK).stat()
-            atomic_write(root / ANCHOR, encoded({'schema_version': 1, 'store_id': store_id,
+            atomic_write(root / ANCHOR, encoded({'schema_version': 1, 'collector': collector, 'store_id': store_id,
                          'high_water_sequence': 0, 'lock_identity': {'device': metadata.st_dev, 'inode': metadata.st_ino,
                          'token': check.lock_token}}))
-            atomic_write(root / STATE, encoded({'schema_version': 1, 'store_id': store_id,
+            atomic_write(root / STATE, encoded({'schema_version': 1, 'collector': collector, 'store_id': store_id,
                          'last_sequence': 0, 'latest_attempt': None, 'last_success': None}))
-        state = load_state(root)
+        state = load_state(root, collector)
         attempt_id = str(uuid.uuid4())
         sequence = state['last_sequence'] + 1
-        attempt = {'sequence': sequence, 'attempt_id': attempt_id, 'result': 'pending',
-                   'scope_fingerprint': scope_fingerprint(arguments), 'started_at_unix_ms': time.time_ns() // 1_000_000,
+        attempt = {'collector': collector, 'sequence': sequence, 'attempt_id': attempt_id, 'result': 'pending',
+                   'scope_fingerprint': scope_fingerprint(arguments, collector), 'started_at_unix_ms': time.time_ns() // 1_000_000,
                    'generation': str(uuid.uuid4()), 'run_directory': 'runs/' + str(sequence).zfill(12) + '-' + attempt_id}
         directory = root / attempt['run_directory']
         reject_symlinks(directory)
@@ -331,17 +350,61 @@ def begin(root, arguments):
         state.update(last_sequence=sequence, latest_attempt=attempt, publication=None)
         check()
         atomic_write(root / STATE, encoded(state))
-        report = report_for(attempt, state.get('last_success'))
-        reference = publish(root, state, attempt, report, '# Observability attempt pending\n')
+        report = report_for(attempt, state.get('last_success'), collector=collector)
+        reference = publish(root, state, attempt, report, '# ' + collector.capitalize() + ' attempt pending\n')
         state['publication'] = reference
         check()
         atomic_write(root / STATE, encoded(state))
         return dict(attempt, run_dir=str(directory))
 
 
-def finish(root, sequence, attempt_id, errors):
+def validate_host_source(source):
+    labels = ('local_node', 'sequencer_ecs', 'storage_ecs')
+    if not isinstance(source, dict) or source.get('schema_version') != 2:
+        raise AttemptError('invalid host summary schema')
+    aggregate, nodes = source.get('aggregate'), source.get('nodes')
+    if (not isinstance(aggregate, dict) or type(aggregate.get('complete')) is not bool
+            or not isinstance(nodes, dict) or set(nodes) != set(labels)):
+        raise AttemptError('invalid host completeness shape')
+    totals = dict(sample_count=0, success_sample_count=0, failed_sample_count=0)
+    failed_nodes = []
+    for label in labels:
+        node = nodes[label]
+        if not isinstance(node, dict) or type(node.get('available')) is not bool:
+            raise AttemptError('invalid host node')
+        for key in totals:
+            if type(node.get(key)) is not int or node[key] < 0:
+                raise AttemptError('invalid host sample counts')
+            totals[key] += node[key]
+        if node['sample_count'] != node['success_sample_count'] + node['failed_sample_count']:
+            raise AttemptError('inconsistent host sample counts')
+        latest = node.get('latest_attempt')
+        if not isinstance(latest, dict) or 'last_success' not in node:
+            raise AttemptError('invalid host node attempt history')
+        if node['sample_count'] and (latest.get('result') not in ('success', 'failed')
+                or type(latest.get('sample_fetch_ok')) is not bool
+                or (latest['result'] == 'success') != latest['sample_fetch_ok']
+                or node['available'] != latest['sample_fetch_ok']):
+            raise AttemptError('inconsistent host latest sample')
+        if node['failed_sample_count']:
+            failed_nodes.append(label)
+    for key in ('expected_sample_count', 'attempted_count', 'failed_sample_count', 'node_count'):
+        if type(aggregate.get(key)) is not int or aggregate[key] < 0:
+            raise AttemptError('invalid host aggregate counts')
+    expected = aggregate['expected_sample_count']
+    complete = (expected > 0 and expected % 3 == 0 and
+                all(node['sample_count'] == expected // 3 and node['failed_sample_count'] == 0 for node in nodes.values()))
+    if (aggregate['attempted_count'] != totals['sample_count']
+            or aggregate['failed_sample_count'] != totals['failed_sample_count']
+            or aggregate.get('failed_nodes') != failed_nodes
+            or aggregate['node_count'] != sum(node['available'] for node in nodes.values())
+            or aggregate['complete'] != complete):
+        raise AttemptError('inconsistent host aggregate completeness')
+
+
+def finish(root, sequence, attempt_id, errors, collector='observability'):
     with locked(root) as check:
-        state = load_state(root)
+        state = load_state(root, collector)
         latest = state['latest_attempt']
         own_directory = root / ('runs/' + str(sequence).zfill(12) + '-' + attempt_id)
         source = None
@@ -349,9 +412,13 @@ def finish(root, sequence, attempt_id, errors):
         if not any(row.get('stage') == 'summary' for row in errors):
             try:
                 source = read_json(own_directory / 'report' / 'latest_summary.json')
-                if (not isinstance(source, dict) or not isinstance(source.get('overall'), dict)
-                        or not isinstance(source['overall'].get('alerts', []), list)
-                        or not all(isinstance(alert, str) for alert in source['overall'].get('alerts', []))
+                if collector == 'host':
+                    validate_host_source(source)
+                    if source['aggregate']['complete'] is not True and not any(row.get('stage') == 'host' for row in errors):
+                        raise AttemptError('incomplete host collection lacks failure result')
+                if (not isinstance(source, dict) or (collector == 'observability' and not isinstance(source.get('overall'), dict))
+                        or (collector == 'observability' and (not isinstance(source.get('overall', {}).get('alerts', []), list)
+                        or not all(isinstance(alert, str) for alert in source.get('overall', {}).get('alerts', []))))
                         or source.get('run_id') != str(sequence) + '-' + attempt_id
                         or source.get('run_dir') != str(own_directory)):
                     raise AttemptError('summary source is not associated with reserved run')
@@ -375,8 +442,8 @@ def finish(root, sequence, attempt_id, errors):
                        error=errors[0]['error'] if errors else None,
                        finished_at_unix_ms=time.time_ns() // 1_000_000, generation=str(uuid.uuid4()))
         previous_success = state.get('last_success')
-        report = report_for(attempt, previous_success, source)
-        markdown = '# Observability attempt ' + attempt['result'] + '\n'
+        report = report_for(attempt, previous_success, source, collector)
+        markdown = '# ' + collector.capitalize() + ' attempt ' + attempt['result'] + '\n'
         if errors:
             markdown += '\nCanonical overall status: `blocked`; current measurement available: `false`\n'
         if source_markdown is not None:
@@ -412,9 +479,9 @@ def validated_artifacts(root, attempt, reference, check_cache=False):
     return artifacts
 
 
-def read(root):
+def read(root, collector='observability'):
     with locked(root):
-        state = load_state(root)
+        state = load_state(root, collector)
         attempt = state['latest_attempt']
         if not attempt:
             raise AttemptError('no attempt available')
@@ -432,7 +499,7 @@ def read(root):
         report['canonical_state'] = {'path': str(root / STATE), 'generation': attempt['generation'], 'validated': True,
                                      'validation_scope': 'attempt_order_and_artifact_integrity',
                                      'read_at_unix_ms': time.time_ns() // 1_000_000}
-        markdown = ('# Canonically validated observability attempt\n\n'
+        markdown = ('# Canonically validated ' + collector + ' attempt\n\n'
                     + '- Sequence: `' + str(attempt['sequence']) + '`; result: `' + attempt['result'] + '`\n'
                     + '- Generation: `' + attempt['generation'] + '`\n'
                     + '- Last successful sequence: `' + str((state.get('last_success') or {}).get('sequence')) + '`\n\n'
@@ -444,6 +511,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('begin', 'finish', 'read'))
     parser.add_argument('--out-dir', required=True)
+    parser.add_argument('--collector', choices=('observability', 'host'), default='observability')
     parser.add_argument('--sequence', type=int)
     parser.add_argument('--attempt-id')
     parser.add_argument('--scope-arg', action='append', default=[])
@@ -453,7 +521,7 @@ def main():
     try:
         root = Path(os.path.abspath(args.out_dir)).resolve(strict=False)
         if args.command == 'begin':
-            print(json.dumps(begin(root, args.scope_arg)))
+            print(json.dumps(begin(root, args.scope_arg, args.collector)))
             return 0
         if args.command == 'finish':
             if not args.sequence or not args.attempt_id:
@@ -465,8 +533,8 @@ def main():
                 if stage not in ('snapshot', 'host', 'traffic', 'wasm_local_node', 'wasm_sequencer_ecs', 'wasm_storage_ecs', 'summary'):
                     raise AttemptError('unsupported collector stage')
                 errors.append({'stage': stage, 'exit_code': int(code), 'error': 'summary_failed' if stage == 'summary' else 'collector_failed'})
-            return finish(root, args.sequence, args.attempt_id, errors)
-        report, markdown, code = read(root)
+            return finish(root, args.sequence, args.attempt_id, errors, args.collector)
+        report, markdown, code = read(root, args.collector)
         print(json.dumps(report) if args.format == 'json' else markdown, end='\n')
         return code
     except (AttemptError, OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
@@ -474,6 +542,8 @@ def main():
             unknown = {'current_measurement_available': False, 'attempt': {'result': 'unknown'},
                        'latest_attempt': {'result': 'unknown'},
                        'overall': {'status': 'unknown', 'alerts': ['state_unavailable']}}
+            if args.collector == 'host':
+                unknown.update(schema_version=2, aggregate={'complete': False})
             print(json.dumps(unknown) if args.format == 'json' else '# Observability state unavailable\n\nCurrent measurement unavailable; latest attempt unknown.')
         print('observability attempt: state or publication unavailable', file=sys.stderr)
         return 2

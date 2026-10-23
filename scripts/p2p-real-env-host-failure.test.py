@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the actual wrapper using isolated local-probe and SSH stubs."""
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -10,12 +11,14 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def run_case(failures, samples=2):
+@contextmanager
+def host_fixture(failures=None):
+    failures = failures or {}
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         scripts = root / "scripts"
         scripts.mkdir()
-        for name in ("p2p-real-env-host-monitor.sh", "p2p-real-env-host-summary.py"):
+        for name in ("p2p-real-env-host-monitor.sh", "p2p-real-env-host-summary.py", "p2p-real-env-observability-attempt.py", "p2p-real-env-observability-monitor.sh"):
             shutil.copy(ROOT / "scripts" / name, scripts / name)
         values = {"hostname": "test-host", "cpu_cores": "4", "load1": "0.2", "load5": "0.1", "load15": "0.1", "mem_total_bytes": "1000", "mem_available_bytes": "800", "storage_path": "/data", "storage_total_bytes": "1000", "storage_used_bytes": "100", "storage_available_bytes": "900", "storage_used_percent": "10", "service_active_state": "active", "service_sub_state": "running", "service_main_pid": "0"}
         for prefix in ("wrapper", "runtime"):
@@ -34,7 +37,14 @@ def run_case(failures, samples=2):
         env = dict(os.environ, PATH=str(bindir)+os.pathsep+os.environ['PATH'], STUB_ROOT=str(root), FAILURES=json.dumps(failures))
         env.pop("P2PARCH6_SEQ_SSH_PASSWORD", None)
         env.pop("P2PARCH6_STORAGE_SSH_PASSWORD", None)
-        result = subprocess.run([bash, str(scripts / "p2p-real-env-host-monitor.sh"), "--samples", str(samples), "--interval-secs", "1", "--out-dir", str(root / "out"), "--local-service", "local_node.service", "--sequencer-service", "sequencer_ecs.service", "--storage-service", "storage_ecs.service"], env=env, capture_output=True, text=True)
+        command = [bash, str(scripts / "p2p-real-env-host-monitor.sh"), "--samples", "2", "--interval-secs", "1", "--out-dir", str(root / "out"), "--local-service", "local_node.service", "--sequencer-service", "sequencer_ecs.service", "--storage-service", "storage_ecs.service"]
+        yield root, env, command
+
+
+def run_case(failures, samples=2):
+    with host_fixture(failures) as (root, env, command):
+        command[command.index("--samples") + 1] = str(samples)
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
         assert result.returncode == bool(failures), (failures, result.returncode, result.stderr)
         summary_path = root / "out/latest_summary.json"
         assert summary_path.is_file(), (failures, result.stderr)
@@ -50,7 +60,7 @@ def run_case(failures, samples=2):
             if latest_failed: assert node['latest'] == {}
             assert node['sample_count'] == samples
             assert node['success_sample_count'] + node['failed_sample_count'] == samples
-        records = [json.loads(line) for line in next((root / 'out').glob('*/samples.ndjson')).read_text().splitlines()]
+        records = [json.loads(line) for line in next((root / 'out').glob('runs/*/samples.ndjson')).read_text().splitlines()]
         for row in records:
             mode = failures.get(row['label'] + ':' + str(row['sample_index']))
             if mode in ('empty', 'duplicate', 'unknown', 'missing', 'malformed', 'overflow', 'decimal_pid', 'decimal_cpu', 'path_mismatch'):

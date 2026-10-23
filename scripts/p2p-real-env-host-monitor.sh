@@ -23,7 +23,6 @@ Options:
                                    (default: oasis7-triad-observer.service)
   --local-storage-path <path>      local node storage path
                                    (default: /opt/oasis7/p2p-triad-local/data/storage)
-  --observer-*                     deprecated aliases for the local-* options above
 
   --sequencer-target <user@host>   remote sequencer SSH target
                                    (default: root@39.104.204.172)
@@ -44,21 +43,31 @@ Environment:
   P2PARCH6_STORAGE_SSH_PASSWORD    optional storage SSH password for sshpass
 
 Artifacts:
-  <out-dir>/<timestamp>/samples.ndjson
-  <out-dir>/<timestamp>/summary.json
-  <out-dir>/<timestamp>/summary.md
+  <out-dir>/runs/<sequence>-<attempt-id>/samples.ndjson
+  <out-dir>/runs/<sequence>-<attempt-id>/report/latest_summary.json
+  <out-dir>/runs/<sequence>-<attempt-id>/report/latest_summary.md
+  <out-dir>/attempt_state.json (canonical ordering and publication references)
   <out-dir>/latest_summary.json
   <out-dir>/latest_summary.md
 USAGE
 }
 
-ensure_positive_int() {
-  local flag=$1
-  local value=$2
-  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value <= 0 )); then
-    echo "invalid $flag: $value" >&2
-    exit 2
-  fi
+decimal_value() {
+  python3 - "$1" "$2" <<'PYDECIMAL'
+import re
+import sys
+flag, raw = sys.argv[1:]
+try:
+    if re.fullmatch(r'[0-9]+', raw) is None:
+        raise ValueError()
+    value = int(raw)
+    if not 1 <= value <= 2**31 - 1:
+        raise ValueError()
+except ValueError:
+    print(flag + ' requires an ASCII decimal integer within its supported range', file=sys.stderr)
+    raise SystemExit(2)
+print(value)
+PYDECIMAL
 }
 
 run_ssh() {
@@ -80,6 +89,7 @@ run_ssh() {
   fi
 }
 
+original_args=("$@")
 samples=4
 interval_secs=5
 ssh_timeout_secs=8
@@ -98,52 +108,66 @@ storage_storage_path="/opt/oasis7/p2p-triad/data/storage"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --samples|--interval-secs|--ssh-timeout-secs|--out-dir|--local-service|--local-storage-path|--sequencer-target|--sequencer-service|--sequencer-storage-path|--storage-target|--storage-service|--storage-storage-path)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+        echo "$1 requires a nonempty value" >&2
+        exit 2
+      fi
+      ;;
+    *) echo "unsupported host monitor option" >&2; exit 2 ;;
+  esac
+  option_value=$2
+  case "$1" in
+    --samples|--interval-secs|--ssh-timeout-secs) option_value=$(decimal_value "$1" "$option_value") ;;
+  esac
+  case "$1" in
     --samples)
-      samples=${2:-}
+      samples=$option_value
       shift 2
       ;;
     --interval-secs)
-      interval_secs=${2:-}
+      interval_secs=$option_value
       shift 2
       ;;
     --ssh-timeout-secs)
-      ssh_timeout_secs=${2:-}
+      ssh_timeout_secs=$option_value
       shift 2
       ;;
     --out-dir)
-      out_root=${2:-}
+      out_root=$option_value
       shift 2
       ;;
     --local-service)
-      local_service=${2:-}
+      local_service=$option_value
       shift 2
       ;;
     --local-storage-path)
-      local_storage_path=${2:-}
+      local_storage_path=$option_value
       shift 2
       ;;
     --sequencer-target)
-      sequencer_target=${2:-}
+      sequencer_target=$option_value
       shift 2
       ;;
     --sequencer-service)
-      sequencer_service=${2:-}
+      sequencer_service=$option_value
       shift 2
       ;;
     --sequencer-storage-path)
-      sequencer_storage_path=${2:-}
+      sequencer_storage_path=$option_value
       shift 2
       ;;
     --storage-target)
-      storage_target=${2:-}
+      storage_target=$option_value
       shift 2
       ;;
     --storage-service)
-      storage_service=${2:-}
+      storage_service=$option_value
       shift 2
       ;;
     --storage-storage-path)
-      storage_storage_path=${2:-}
+      storage_storage_path=$option_value
       shift 2
       ;;
     -h|--help)
@@ -158,20 +182,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_positive_int --samples "$samples"
-ensure_positive_int --interval-secs "$interval_secs"
-ensure_positive_int --ssh-timeout-secs "$ssh_timeout_secs"
+samples=$(decimal_value --samples "$samples")
+interval_secs=$(decimal_value --interval-secs "$interval_secs")
+ssh_timeout_secs=$(decimal_value --ssh-timeout-secs "$ssh_timeout_secs")
 
-run_id=$(date +"%Y%m%d-%H%M%S")
-run_dir="$out_root/$run_id"
+attempt_helper="$repo_root/scripts/p2p-real-env-observability-attempt.py"
+scope_args=()
+for argument in "${original_args[@]+"${original_args[@]}"}"; do
+  scope_args+=("--scope-arg=$argument")
+done
+# begin durably publishes pending before any local probe or remote SSH.
+reservation=$(python3 "$attempt_helper" begin --collector host --out-dir "$out_root" ${scope_args[@]+"${scope_args[@]}"})
+sequence=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sequence"])')
+attempt_id=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["attempt_id"])')
+run_dir=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_dir"])')
+run_id="$sequence-$attempt_id"
 nodes_root="$run_dir/nodes"
 samples_ndjson="$run_dir/samples.ndjson"
-summary_json="$run_dir/summary.json"
-summary_md="$run_dir/summary.md"
-latest_summary_json="$out_root/latest_summary.json"
-latest_summary_md="$out_root/latest_summary.md"
+summary_json="$run_dir/report/latest_summary.json"
+summary_md="$run_dir/report/latest_summary.md"
+errors=()
 
 mkdir -p \
+  "$run_dir/report" \
   "$nodes_root/local_node" \
   "$nodes_root/sequencer_ecs" \
   "$nodes_root/storage_ecs"
@@ -195,13 +228,13 @@ capture_sample() {
   local stage="" error=""
   if [[ "$mode" == "local" ]]; then
     if bash "$helper_script" "$service" "$storage_path" >"$sample_env" 2>/dev/null; then :; else
-      stage=local_probe; error=local_probe_failed
+      stage=local_probe; error=local_probe_failed; collection_failed=1
     fi
   else
     local remote_command
     printf -v remote_command 'bash -s -- %q %q' "$service" "$storage_path"
     if run_ssh "$target" "$password" "$remote_command" <"$helper_script" >"$sample_env" 2>/dev/null; then :; else
-      stage=ssh; error=ssh_failed
+      stage=ssh; error=ssh_failed; collection_failed=1
     fi
   fi
   if python3 "$repo_root/scripts/p2p-real-env-host-summary.py" --sample-env "$sample_env" \
@@ -229,16 +262,25 @@ for ((sample_index = 1; sample_index <= samples; sample_index++)); do
 done
 ended_at=$(date -Iseconds)
 
-python3 "$repo_root/scripts/p2p-real-env-host-summary.py" \
+if python3 "$repo_root/scripts/p2p-real-env-host-summary.py" \
   --history-path "$samples_ndjson" \
   --summary-json "$summary_json" \
   --summary-md "$summary_md" \
   --expected-samples-per-node "$samples" \
   --run-id "$run_id" \
-  --run-dir "$run_dir"
-
-cp "$summary_json" "$latest_summary_json"
-cp "$summary_md" "$latest_summary_md"
+  --run-dir "$run_dir"; then
+  :
+else
+  errors+=(--error summary:1)
+fi
+if (( collection_failed )); then
+  errors+=(--error host:1)
+fi
+if python3 "$attempt_helper" finish --collector host --out-dir "$out_root" --sequence "$sequence" --attempt-id "$attempt_id" ${errors[@]+"${errors[@]}"}; then
+  result=0
+else
+  result=$?
+fi
 
 echo "p2p real-env host monitor complete"
 echo "  run_dir: $run_dir"
@@ -247,4 +289,4 @@ echo "  ended_at: $ended_at"
 echo "  summary_json: $summary_json"
 echo "  summary_md: $summary_md"
 
-exit "$collection_failed"
+exit "$result"

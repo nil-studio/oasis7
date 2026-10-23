@@ -80,3 +80,5 @@ assert "storage_metrics_unavailable" in markdown
 PY
 
 python3 ./scripts/p2p-real-env-host-failure.test.py
+
+python3 ./scripts/p2p-real-env-host-durable.test.py

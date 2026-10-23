@@ -282,6 +282,88 @@ else:
         spec.loader.exec_module(module)
         return module
 
+    def test_collector_profile_separation_and_legacy_default(self):
+        helper = self.helper()
+        reserved = helper.begin(self.out, [])
+        before = {p.name: p.read_bytes() for p in self.out.iterdir() if p.is_file()}
+        for operation in (lambda: helper.begin(self.out, [], collector='host'),
+                          lambda: helper.finish(self.out, reserved['sequence'], reserved['attempt_id'], [], collector='host'),
+                          lambda: helper.read(self.out, collector='host')):
+            with self.assertRaises(helper.AttemptError): operation()
+            self.assertEqual(before, {p.name: p.read_bytes() for p in self.out.iterdir() if p.is_file()})
+        for name in (helper.ANCHOR, helper.STATE):
+            path = self.out / name
+            value = json.loads(path.read_text())
+            value.pop('collector', None)
+            if name == helper.STATE: value['latest_attempt'].pop('collector', None)
+            path.write_text(json.dumps(value))
+        self.assertEqual(helper.begin(self.out, [])['sequence'], 2)
+        with self.assertRaises(helper.AttemptError): helper.begin(self.out, [], collector='host')
+
+    def test_host_store_profile_corruption_fails_before_mutation(self):
+        helper = self.helper()
+        reserved = helper.begin(self.out, [], collector='host')
+        for target in ('anchor', 'state', 'attempt'):
+            with self.subTest(target=target):
+                path = self.out / (helper.ANCHOR if target == 'anchor' else helper.STATE)
+                original = path.read_bytes()
+                value = json.loads(original)
+                (value['latest_attempt'] if target == 'attempt' else value).pop('collector')
+                path.write_text(json.dumps(value))
+                before = {p.name: p.read_bytes() for p in self.out.iterdir() if p.is_file()}
+                for operation in (lambda: helper.begin(self.out, [], collector='host'),
+                                  lambda: helper.finish(self.out, reserved['sequence'], reserved['attempt_id'], [], collector='host'),
+                                  lambda: helper.read(self.out, collector='host')):
+                    with self.assertRaises(helper.AttemptError): operation()
+                    self.assertEqual(before, {p.name: p.read_bytes() for p in self.out.iterdir() if p.is_file()})
+                path.write_bytes(original)
+        with self.assertRaises(helper.AttemptError): helper.begin(self.out, [])
+
+    def test_host_own_source_identity_schema_and_collection_history(self):
+        helper = self.helper()
+        for mutation in ('valid', 'wrong_run', 'wrong_schema', 'bad_complete', 'missing', 'incomplete', 'host_failed'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                reserved = helper.begin(root, [], collector='host')
+                pending, _, code = helper.read(root, collector='host')
+                self.assertEqual(code, 1)
+                self.assertFalse(pending['aggregate']['complete'])
+                report = Path(reserved['run_dir']) / 'report'
+                report.mkdir()
+                nodes = {label: {'available': True, 'sample_count': 1, 'success_sample_count': 1,
+                    'failed_sample_count': 0, 'latest_attempt': {'result': 'success', 'sample_fetch_ok': True},
+                    'last_success': {'sample_index': 1}} for label in ('local_node', 'sequencer_ecs', 'storage_ecs')}
+                source = {'schema_version': 2, 'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'],
+                    'run_dir': reserved['run_dir'], 'nodes': nodes, 'aggregate': {'complete': True,
+                    'expected_sample_count': 3, 'attempted_count': 3, 'failed_sample_count': 0,
+                    'failed_nodes': [], 'node_count': 3}}
+                if mutation == 'wrong_run': source['run_id'] = 'another'
+                if mutation == 'wrong_schema': source['schema_version'] = 1
+                if mutation == 'bad_complete': source['nodes']['local_node']['failed_sample_count'] = 1
+                if mutation in ('incomplete', 'host_failed'):
+                    source['nodes']['local_node'].update(available=False, success_sample_count=0, failed_sample_count=1,
+                        latest_attempt={'result': 'failed', 'sample_fetch_ok': False}, last_success=None)
+                    source['aggregate'].update(complete=False, failed_sample_count=1, failed_nodes=['local_node'], node_count=2)
+                if mutation != 'missing':
+                    (report / 'latest_summary.json').write_text(json.dumps(source))
+                    (report / 'latest_summary.md').write_text('# host source')
+                expected = 0 if mutation == 'valid' else 1
+                self.assertEqual(helper.finish(root, reserved['sequence'], reserved['attempt_id'],
+                    [{'stage': 'host', 'exit_code': 1, 'error': 'collector_failed'}] if mutation == 'host_failed' else [], collector='host'), expected)
+                value, _, code = helper.read(root, collector='host')
+                self.assertEqual(code, expected)
+                if expected:
+                    self.assertFalse(value['aggregate']['complete'])
+                    if mutation == 'host_failed':
+                        self.assertEqual(value['nodes'], nodes)
+                        self.assertNotIn('summary_failed', value['overall']['alerts'])
+                    else:
+                        self.assertIn('summary_failed', value['overall']['alerts'])
+                else:
+                    self.assertEqual(value['nodes'], nodes)
+                    self.assertEqual(value['last_success']['sequence'], 1)
+                    self.assertEqual(value['overall']['status'], 'pass')
+
     def test_anchor_loss_and_versioned_orphans_never_reset_sequence(self):
         self.complete(self.start())
         anchor = self.out / '.observability-initialized'
