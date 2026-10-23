@@ -63,7 +63,12 @@ fn decimal_codec_rejects_numeric_and_noncanonical_epochs() {
         json!("-1"),
         json!(""),
         json!("18446744073709551616"),
+        json!("1\n"),
+        json!("18446744073709551615\n"),
     ] {
+        assert!(
+            serde_cbor::from_slice::<DecimalU64>(&serde_cbor::to_vec(&invalid).unwrap()).is_err()
+        );
         let mut value = action();
         value["executor_epoch"] = invalid;
         assert!(parse_request::<ActionSubmissionV1>(&serde_json::to_vec(&value).unwrap()).is_err());
@@ -200,4 +205,58 @@ fn task_create_codec_binds_owner_and_history_without_granting_execution() {
     let mut altered = request;
     altered.api_rev += 1;
     assert!(altered.validate().is_err());
+}
+
+#[test]
+fn decimal_wire_boundaries_are_lossless_in_json_and_cbor() {
+    for number in [0, (1 << 53) - 1, 1 << 53, u64::MAX] {
+        let value = DecimalU64(number);
+        let json = serde_json::to_vec(&value).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&json).unwrap(),
+            number.to_string()
+        );
+        assert_eq!(serde_json::from_slice::<DecimalU64>(&json).unwrap(), value);
+        let cbor = serde_cbor::to_vec(&value).unwrap();
+        let decoded: String = serde_cbor::from_slice(&cbor).unwrap();
+        assert_eq!(decoded, number.to_string());
+        assert_eq!(serde_cbor::from_slice::<DecimalU64>(&cbor).unwrap(), value);
+    }
+}
+
+#[test]
+fn known_task_decimal_fields_share_the_bootstrap_range() {
+    let document = oasis7_agent_api::game::read_bootstrap_openapi();
+    let schemas = &document["components"]["schemas"];
+    for (schema, fields) in [
+        (
+            "TaskControlBootstrap",
+            &[
+                "reorg_epoch",
+                "owner_generation",
+                "task_revision",
+                "latest_goal_revision",
+                "active_goal_revision",
+                "executor_epoch",
+            ][..],
+        ),
+        (
+            "GoalReference",
+            &["goal_revision", "activation_committed_height"][..],
+        ),
+        (
+            "ExecutorBinding",
+            &["delegation_generation", "executor_epoch"][..],
+        ),
+    ] {
+        for field in fields {
+            assert_eq!(
+                schemas[schema]["properties"][field]["$ref"],
+                "#/components/schemas/DecimalU64"
+            );
+            if schema != "TaskControlBootstrap" {
+                assert_eq!(schemas[schema]["properties"][field]["pattern"], "^[1-9]");
+            }
+        }
+    }
 }

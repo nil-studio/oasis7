@@ -66,6 +66,28 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 
 通过条件：失败和缺口分类准确、既有选择与汇总正确消费新检查结果；不新增同名成功状态、跳过必要任务或自行改变合入权限。
 
+### Signed-read bootstrap 开发期入口
+
+首版 profile 位于 [profile.json](../../../crates/oasis7_agent_api/protocol_codegen/profile.json)，人工 OpenAPI 仍是唯一 HTTP 输入。使用 Python 3.12 标准库，Node 22；TS/Ajv 依赖由消费样例的 package-lock.json 锁定。根目录执行：
+
+```bash
+python3.12 crates/oasis7_agent_api/protocol_codegen/generate.py write
+python3.12 crates/oasis7_agent_api/protocol_codegen/generate.py check
+python3.12 -m unittest discover -s crates/oasis7_agent_api/protocol_codegen -p 'test_*.py'
+npm ci --prefix crates/oasis7_agent_api/protocol_conformance --ignore-scripts
+PYTHON=python3.12 npm test --prefix crates/oasis7_agent_api/protocol_conformance
+```
+
+`write` 只更新 `protocol_codegen/generated/` 的完整集合；`check` 是提交及打包前置，不更新源、消费者或 handler fixture。多文件 rename 中断后先确认没有 writer 占用，再按[生成器说明](../../../crates/oasis7_agent_api/protocol_codegen/README.md)恢复；不能发布未通过 check 的集合。容量及递归上限由 profile 记录，CLI 超时上限 10 秒；测试故障在临时副本执行。
+
+真实 handler fixtures 由 `oasis7_viewer_runtime` 的 `signed_read_protocol_handler_fixtures` 测试逐项对照，需显式更新时执行：
+
+```bash
+env -u RUSTC_WRAPPER OASIS7_UPDATE_PROTOCOL_FIXTURES=1 cargo test -p oasis7_viewer_runtime --lib signed_read_protocol_handler_fixtures
+```
+
+上述命令按唯一测试名过滤；测试的完整模块名以 `cargo test -- --list` 为准。更新后撤去环境变量重新运行，确认 committed fixture 与实际 handler 一致，再执行 TS 样例。原 `game_wire`、`wire_contracts` 和 parser/handler 拒绝测试分别留结果；生成通过不代替 wire、安全或世界效果验证。首次 TS 没有旧版本，只建立当前基线。
+
 <a id="protocol-generation"></a>
 ## RG-P01 / RG-P02：确定生成、只读检查与完整集合
 

@@ -1,0 +1,14 @@
+{
+  "name": "oasis7-signed-read-conformance",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node check-generated.mjs && tsc --project tsconfig.json && node .build/protocol_conformance/consumer.js"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "ajv": "8.20.0",
+    "typescript": "5.8.3"
+  }
+}

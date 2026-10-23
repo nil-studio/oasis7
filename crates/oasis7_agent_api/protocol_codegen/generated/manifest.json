@@ -1,0 +1,23 @@
+{
+  "api_revision": 1,
+  "export_roots": [
+    "components/schemas",
+    "paths"
+  ],
+  "features": [],
+  "format_version": 1,
+  "inputs": {
+    "crates/oasis7_agent_api/protocol_codegen/generate.py": "a05f7a005d98e42086218938c0923cb1888821057f4874676cad4465ef5045f3",
+    "crates/oasis7_agent_api/protocol_codegen/profile.json": "336de3bf3ea9befdd4c2c818fef875b31301ee874c7016b2636cfa9d2ae40db6",
+    "crates/oasis7_agent_api/protocol_codegen/toolchain.lock.json": "323cce7cad0ef1811f6213687e785bc6c01332c045098749778f29d7e68010a4",
+    "crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json": "38c16a46f114ae98c96482a7793b469df009629bb40c1a4c676e4ce284d3e4e1"
+  },
+  "outputs": {
+    "schema.json": "1d74afce4217ea6e0c2a2b334b74caa536fe356e12feb46aa286aa2519da7d26",
+    "types.ts": "44b9ebb47ea0e942dce03fa16373797773ebee2418106209649adc756ec1b84b"
+  },
+  "profile": "signed-read-bootstrap",
+  "schema_revision": 5,
+  "target": "http-json",
+  "wire_version": "2"
+}

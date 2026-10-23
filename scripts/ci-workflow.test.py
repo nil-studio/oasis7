@@ -479,6 +479,24 @@ class Workflow(unittest.TestCase):
         self.assertLess(group.index('run_oasis7_viewer_software_safe_build'),
                         group.index('viewer-auth-browser-security-smoke.mjs'))
 
+    def test_signed_read_codegen_runs_in_support_and_full(self):
+        job = JOBS['workspace-support']
+        self.assertIn('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1', job)
+        self.assertIn("node-version: '22'", job)
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        function = driver.split('run_signed_read_protocol_contract_tests() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('protocol_codegen/generate.py check', function)
+        self.assertNotIn('generate.py write', function)
+        self.assertIn('--ignore-scripts', function)
+        self.assertIn('npm test --prefix crates/oasis7_agent_api/protocol_conformance', function)
+        self.assertIn('PYTHON="$ci_python"', function)
+        support = driver.split('run_oasis7_workspace_support_crate_tests() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('run_signed_read_protocol_contract_tests', support)
+        self.assertIn('oasis7_agent_api) run_signed_read_protocol_contract_tests;', driver)
+        for full in ('run_full_support_tier_tests', 'run_full_required_superset'):
+            self.assertIn('run_oasis7_workspace_support_crate_tests',
+                          driver.split(full + '() {', 1)[1].split('\n}', 1)[0])
+
     def test_additive_security_steps_preserve_candidate_groups(self):
         for name in ('net', 'viewer-js-required', 'viewer-performance-report', 'workflow-governance'):
             self.assertEqual(JOBS[name].count('name: Execute selected group'), 1)
@@ -1004,8 +1022,8 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','launcher-web','full-regression','candidate-full-regression'})
-        for name in node_jobs:
+        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','launcher-web','workspace-support','full-regression','candidate-full-regression'})
+        for name in node_jobs - {'workspace-support'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
@@ -1116,6 +1134,7 @@ run_cargo() {
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_oasis7_workspace_support_crate_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
         script = """set -euo pipefail
+run_signed_read_protocol_contract_tests() { :; }
 run_cargo() { printf '%s|%s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
 run_cargo_clippy() { printf '%s|clippy %s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
 """ + function + "\nrun_oasis7_workspace_support_crate_tests\nprintf 'after|%s\\n' \"$OASIS7_WASM_BUILD_STD\"\n"
@@ -1131,6 +1150,7 @@ run_cargo_clippy() { printf '%s|clippy %s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_oasis7_workspace_support_crate_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
         script = """set -euo pipefail
+run_signed_read_protocol_contract_tests() { :; }
 run_cargo() { printf 'test|%s\\n' "$*"; }
 run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
 """ + function + "\nrun_oasis7_workspace_support_crate_tests\n"
@@ -1147,7 +1167,7 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
     def test_private_context_all_targets_and_caller_are_executed(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_oasis7_workspace_support_crate_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
-        script = "set -euo pipefail\nrun_cargo() { printf '%s\\n' \"$*\"; }\nrun_cargo_clippy() { printf 'clippy %s\\n' \"$*\"; }\n" + function + "\nrun_oasis7_workspace_support_crate_tests\n"
+        script = "set -euo pipefail\nrun_signed_read_protocol_contract_tests() { :; }\nrun_cargo() { printf '%s\\n' \"$*\"; }\nrun_cargo_clippy() { printf 'clippy %s\\n' \"$*\"; }\n" + function + "\nrun_oasis7_workspace_support_crate_tests\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = [line.split() for line in result.stdout.splitlines()]

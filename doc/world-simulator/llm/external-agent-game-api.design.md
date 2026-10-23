@@ -19,6 +19,8 @@
 - 三个读取资源使用 `X-Oasis7-World-Read-Proof` header：值为 `hex(UTF8 JSON SignedReadRequest<ReadWorldViewRequest>)`。调用者在设备端以现有 `authority::sign_read_request` codec 和 `/v1/world/view` domain 签署配置匹配的 world/scope。没有证明返回 428；重复 header/key、未知字段、篡改、错误 scope、带 token 的 query 或 Origin 均拒绝。固定历史 commit 不支持，避免旧快照代替当前权限检查。
 - header 最多 8192 bytes、整个 HTTP header 最多 16384 bytes；JSON 同时消费共享严格解析器；最多 8 个后端读取、响应最多 2 MiB。bootstrap `data` 和 `world_binding` 中整数统一为十进制字符串，顶层 API revision 保持整数。服务签名认证不代签共识最终性。
 
+读取 schema revision 5 将 DecimalU64 的现有 codec 上界补为标准 schema 机器约束；task-control 的已知同语义字段引用同一约束，正整数收窄保留。API revision 仍为 1，JSON/CBOR 与签名域不变；仅接受旧 schema revision 4 的消费者须显式升级。开发期派生物与独立 TS 样例的使用、兼容范围见[协议验证手册](../../engineering/rust-governance/rust-engineering-contracts.manual.md#protocol-generation)。
+
 这是设备签名 bootstrap 实施中间阶段；未实现 opaque token/配对、proof prepare、上下文/行动/持久 Game operation、完整任务协作、普通 Viewer/browser 授权、worker 或首局验收。正式 token 接入仍须在入口验证会话后保留此主体证明和世界授权链路。共享 `oasis7_agent_api::game` 已定义 action request、decimal u64 和操作状态 registry，但 DTO 不授予权限。对应测试为 `game_wire`、`viewer::game_read_api` 和 `world_service::client`；测试通过不表示上述未实施能力已交付。
 
 ### 持久任务控制前置

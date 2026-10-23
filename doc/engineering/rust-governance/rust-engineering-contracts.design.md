@@ -47,7 +47,7 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 | Workspace | [根 manifest](../../../Cargo.toml) 有少量共享依赖，没有统一 `workspace.package` / `workspace.lints`；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 分批迁移与等价检查，不能顺带修改 resolver/profiles/patch |
 | Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 规则继承与本地入口尚需实施；普通 clippy 不等于所有 CI 组合 |
 | 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh) 使用 host、`--no-default-features` 的局部 `cargo tree` | 有作用域的规则、声明与解析闭包检查 | 现有检查没有显式 target/kind 矩阵，不证明所有组合 |
-| HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 4、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首切片从此 profile 生成 TS/JSON Schema，继续以实现验证 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
+| HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 5、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首切片从此 profile 生成 TS/JSON Schema，继续以实现验证 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
 | Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；未有本专题的完整生成闭环 |
 
 ## 4. 边界与结构
@@ -189,7 +189,7 @@ Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b、O7-REQ-7d6cef7f-9419-4
 | 字段与枚举 | `rename`、tag、flatten、default、skip、缺失/null、未知字段/状态处理均保持所属 profile | 不从 Rust `Option` 简化推出“总可省略”；不认识的 custom serde 使用显式 adapter 与 fixture，否则失败 |
 | 签名与摘要 | World Service canonical CBOR 的 domain/value 结构、cognition digest、projection canonical JSON 各有原 owner | 不互换 JSON/CBOR canonicalizer，不改 domain、字段表示或原始投影；先验证完整值，再投影窄类型 |
 
-当前人工 OpenAPI 的 `DecimalU64` 仅用 pattern 与 `maxLength=20` 约束字符串，上界只在 description 中，尚不足以让标准 schema 校验拒绝 `18446744073709551616`。首切片须先由接口 owner 将与原 Rust codec 一致的上界补成源 OpenAPI 中的标准 JSON Schema 可机读约束，再派生类型与 schema；生成器不从自然语言 description 猜测范围，也不另设可独立修改的上界真源。盘点首切片已知的同语义字段，包括 task-control 的内联整数正则，引用同一精确约束并保留正整数等字段收窄；不向动态 unknown JSON 推断类型。生成 schema 和 TS 运行时校验都须接受 `u64::MAX`、拒绝其加一，并以原 codec/golden 独立核对；源合同修正的 schema revision 与消费者兼容性仍由接口 owner 按原规则判断。
+人工 OpenAPI 的 `DecimalU64` 使用标准 JSON Schema pattern 表达规范十进制及精确上界，已知 task-control、GoalReference 和 ExecutorBinding 字段引用同一约束并保留正整数等局部收窄。生成器不从 description 猜测范围，也不维护第二份上界；动态 unknown JSON 不据此推断类型。生成 schema 和 TS 校验须接受 `u64::MAX`、拒绝其加一，并以原 codec/golden 独立核对。相对于原来的 pattern/20 位长度规则，这是机器接受范围的收窄，read schema revision 从 4 升到 5，API revision 保持 1；Rust JSON/CBOR codec 和五条 GET 不变。声明只接受 schema revision 4 的旧消费者应明确拒绝 revision 5，升级后重新验证；本次首次建立 TS 基线，没有旧 TS 版本可执行双向矩阵。
 
 签名与规范编码依据为 [World Service authority](../../../crates/oasis7_client_api/src/world_service/authority.rs)、[canonical CBOR](../../../crates/oasis7_wasm_abi/src/canonical_cbor.rs) 和[投影承诺](../../../crates/oasis7_client_api/src/formal_projection.rs)。生成物只描述合同，不重新实现权限或世界规则。新增字段/枚举并不天然兼容，严格未知字段、版本协商和签名域均须双向验证。
 
