@@ -5,6 +5,9 @@ use oasis7_agent_api::game::{
     TaskContextIdentityV1,
 };
 
+#[path = "prefix_lease.rs"]
+mod prefix_lease;
+
 fn delegated(world: &mut World, owner: &str, generation: u64, nonce: u64, delegate: &str) {
     let public = sign_read_request("key", (), delegate)
         .unwrap()
@@ -124,6 +127,7 @@ fn task_provider_prefix_result(
                     .unwrap()
                     .delegation_generation
                     .0,
+                task_prefix_binding_revision: 0,
                 captured_base_binding: world.current_cognition_base_binding().unwrap(),
                 operation: SchedulerOperationV1::TaskProviderPrefix {
                     context: context.clone(),

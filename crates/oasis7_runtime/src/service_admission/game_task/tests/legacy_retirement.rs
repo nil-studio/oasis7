@@ -39,6 +39,7 @@ fn prefix(
         sign_read_request(
             "scheduler",
             SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: context.agent_subject.clone(),
                 request_id: format!("prefix-{}", context.decision_request_id),
                 delegation_generation: generation,
