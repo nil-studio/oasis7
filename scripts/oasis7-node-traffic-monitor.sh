@@ -23,10 +23,14 @@ Options:
   --summary-json <path>            override latest summary json path
   --summary-md <path>              override latest summary markdown path
   --interval-secs <n>              loop interval for --loop mode (default: 60)
+  --as-of-unix-ms <n>              historical boundary (requires --summary-only; history read-only)
+  --max-sample-age-secs <n>         maximum collector/producer age (default: 60)
+  --max-sample-gap-secs <n>         maximum contiguous sample gap (default: 120)
   --window-minutes <n>             recent summary window in minutes (default: 10)
   --history-retention-minutes <n>  keep only recent history for summary+buffer
                                    (default: max(window+30, 120))
   --top-n <n>                      top kind/topic/protocol rows (default: 5)
+  --summary-only                   recompute without collecting or changing history
   --loop                           run forever instead of sampling once
   -h, --help                       show help
 
@@ -70,7 +74,11 @@ interval_secs=60
 window_minutes=10
 history_retention_minutes=""
 top_n=5
+max_sample_age_secs=60
+max_sample_gap_secs=120
+as_of_unix_ms=""
 loop_mode=0
+summary_only=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -106,6 +114,18 @@ while [[ $# -gt 0 ]]; do
       interval_secs=${2:-}
       shift 2
       ;;
+    --as-of-unix-ms)
+      as_of_unix_ms=${2:-}
+      shift 2
+      ;;
+    --max-sample-age-secs)
+      max_sample_age_secs=${2:-}
+      shift 2
+      ;;
+    --max-sample-gap-secs)
+      max_sample_gap_secs=${2:-}
+      shift 2
+      ;;
     --window-minutes)
       window_minutes=${2:-}
       shift 2
@@ -117,6 +137,10 @@ while [[ $# -gt 0 ]]; do
     --top-n)
       top_n=${2:-}
       shift 2
+      ;;
+    --summary-only)
+      summary_only=1
+      shift
       ;;
     --loop)
       loop_mode=1
@@ -135,6 +159,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 ensure_positive_int --interval-secs "$interval_secs"
+ensure_positive_int --max-sample-age-secs "$max_sample_age_secs"
+ensure_positive_int --max-sample-gap-secs "$max_sample_gap_secs"
+summary_clock_args=(--max-sample-age-secs "$max_sample_age_secs" --max-sample-gap-secs "$max_sample_gap_secs")
+if (( summary_only == 1 )); then
+  summary_clock_args+=(--read-only-history)
+fi
+if [[ -n "$as_of_unix_ms" ]]; then
+  if [[ ! "$as_of_unix_ms" =~ ^[0-9]+$ ]] || (( summary_only == 0 )); then
+    echo "--as-of-unix-ms requires a nonnegative integer and --summary-only" >&2
+    exit 2
+  fi
+  python3 "$repo_root/scripts/traffic_monitor_freshness.py" --validate-as-of "$as_of_unix_ms"
+  summary_clock_args+=(--as-of-unix-ms "$as_of_unix_ms")
+fi
 ensure_positive_int --window-minutes "$window_minutes"
 if [[ -n "$history_retention_minutes" ]]; then
   ensure_positive_int --history-retention-minutes "$history_retention_minutes"
@@ -156,9 +194,14 @@ if [[ -z "$summary_md_path" ]]; then
   summary_md_path="$out_dir/latest_summary.md"
 fi
 
+if (( summary_only == 1 )) && [[ ! -f "$history_path" ]]; then
+  echo "history file does not exist: $history_path" >&2
+  exit 2
+fi
+
 mkdir -p "$out_dir"
 mkdir -p "$(dirname "$history_path")" "$(dirname "$summary_json_path")" "$(dirname "$summary_md_path")"
-touch "$history_path"
+if (( summary_only == 0 )); then touch "$history_path"; fi
 
 summary_script="$repo_root/scripts/traffic-monitor-summary.py"
 [[ -f "$summary_script" ]] || {
@@ -195,8 +238,6 @@ sample_once() {
   local sample_network_interface=${network_interface:-}
   local network_rx_bytes=""
   local network_tx_bytes=""
-  captured_at=$(date -Iseconds)
-  captured_at_unix_ms=$(( $(date +%s) * 1000 ))
 
   if [[ -z "$sample_network_interface" ]]; then
     sample_network_interface=$(detect_default_network_interface || true)
@@ -209,6 +250,9 @@ sample_once() {
   if ! curl -fsS "$status_url" >"$sample_tmp" 2>"$sample_tmp.stderr"; then
     printf '{"ok":false,"fetch_error":"curl_failed"}\n' >"$sample_tmp"
   fi
+
+  captured_at_unix_ms=$(python3 "$repo_root/scripts/traffic_monitor_freshness.py" "$sample_tmp" --capture-time)
+  captured_at=$(date -Iseconds)
 
   jq -c -n \
     --arg captured_at "$captured_at" \
@@ -268,13 +312,14 @@ write_summary() {
     --summary-md "$summary_md_path" \
     --window-minutes "$window_minutes" \
     --history-retention-minutes "$history_retention_minutes" \
+    "${summary_clock_args[@]}" \
     --top-n "$top_n"
 }
 
 while true; do
-  sample_once
+  if (( summary_only == 0 )); then sample_once; fi
   write_summary
-  if (( loop_mode == 0 )); then
+  if (( loop_mode == 0 || summary_only == 1 )); then
     break
   fi
   sleep "$interval_secs"

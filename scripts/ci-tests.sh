@@ -464,6 +464,8 @@ run_operational_identity_contract_tests() {
 }
 
 run_operational_node_contract_tests() {
+  run bash ./scripts/traffic-monitor-summary.test.sh
+  run bash ./scripts/p2p-real-env-observability-monitor.test.sh
   run ./scripts/game-world-state-sync-commit-module-required.test.sh
   run ./scripts/state-sync-closure-evidence-template.test.sh
   run ./scripts/s10-five-node-game-soak-summary.test.sh

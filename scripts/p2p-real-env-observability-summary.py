@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+from copy import deepcopy
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +21,7 @@ def parse_args():
             "including per-module breakdowns and optimization candidates."
         )
     )
+    parser.add_argument("--as-of-unix-ms", type=int)
     parser.add_argument("--snapshot-summary", required=True)
     parser.add_argument("--host-summary", required=True)
     parser.add_argument("--traffic-summary", required=True)
@@ -32,7 +35,10 @@ def parse_args():
     parser.add_argument("--summary-md", required=True)
     parser.add_argument("--run-id")
     parser.add_argument("--run-dir")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.as_of_unix_ms is not None and not 0 <= args.as_of_unix_ms <= time.time_ns() // 1_000_000:
+        parser.error("--as-of-unix-ms must be non-negative and not later than current UTC time")
+    return args
 
 
 def load_json(path: str | None) -> dict:
@@ -608,6 +614,80 @@ def summarize_wasm(raw_status: dict, wasm_summary: dict) -> dict:
     }
 
 
+def reevaluate_traffic(traffic: dict, as_of: int) -> dict:
+    """Retain historical counters; never refresh evidence by report generation time."""
+    traffic = deepcopy(traffic)
+    policy = traffic.get("freshness_policy") or {}
+    positive = lambda value: type(value) is int and value > 0
+    valid_policy = (policy.get("version") == 1 and positive(policy.get("max_sample_age_ms"))
+                    and positive(policy.get("max_sample_gap_ms")))
+    stamp = lambda value: value if type(value) is int and value >= 0 else None
+    child_as_of = stamp(traffic.get("as_of_unix_ms"))
+    schema_ok = traffic.get("schema_version") == 2 and valid_policy
+    for node in (traffic.get("nodes") or {}).values():
+        prior = node.get("freshness") or {}
+        attempt = node.get("latest_attempt") or {}
+        success = node.get("last_success") or {}
+        captured = stamp(attempt.get("captured_at_unix_ms"))
+        successful = stamp(success.get("captured_at_unix_ms"))
+        observed = stamp(success.get("status_observed_at_unix_ms"))
+        reasons = list(prior.get("reasons") or [])
+        boundary = stamp(node.get("as_of_unix_ms"))
+        window = node.get("window") or {}
+        end = stamp(window.get("end_unix_ms"))
+        consistent = (schema_ok and child_as_of is not None and boundary == child_as_of
+                      and end == child_as_of and child_as_of <= as_of)
+        valid_times = (captured is not None and captured <= as_of and captured <= (child_as_of or 0)
+                       and (successful is None or successful <= captured))
+        age = as_of - captured if valid_times else None
+        success_age = as_of - successful if successful is not None and successful <= as_of else None
+        result = attempt.get("result")
+        state = prior.get("state", "unknown")
+        if state not in ("fresh", "failed", "stale", "unknown"):
+            state = "unknown"
+        if not consistent or not valid_times or result not in ("success", "failed"):
+            state = "unknown"
+            reasons.append("unsupported_or_inconsistent_freshness")
+        elif state == "unknown":
+            pass  # Clock anomalies discovered by the reducer remain fail-closed.
+        elif result == "failed":
+            state = "failed"
+        elif age > policy["max_sample_age_ms"]:
+            state = "stale"
+        else:
+            state = "fresh"
+        producer_age = as_of - observed if observed is not None and observed <= as_of else None
+        producer_state = (prior.get("producer") or {}).get("state", "unknown")
+        if (not consistent or observed is None or successful is None or observed > successful
+                or observed > as_of or producer_state not in ("fresh", "stale")):
+            producer_state = "unknown"
+        elif producer_age > policy["max_sample_age_ms"]:
+            producer_state = "stale"
+        else:
+            producer_state = "fresh"
+        if state != "fresh":
+            reasons.append("report_sample_" + state)
+        if producer_state != "fresh":
+            reasons.append("report_producer_" + producer_state)
+        right_gap = as_of - end if end is not None and end <= as_of else None
+        current_window = (consistent and producer_state == "fresh" and state == "fresh" and right_gap is not None
+                          and right_gap <= policy["max_sample_gap_ms"]
+                          and window.get("full_window_covered") is True)
+        node["reported_window"] = deepcopy(window)
+        node["window"] = dict(window, full_window_covered=current_window)
+        node["freshness"] = {"state": state, "sample_age_ms": age,
+                             "last_success_age_ms": success_age,
+                             "producer": {"state": producer_state, "observed_at_unix_ms": observed,
+                                          "age_ms": producer_age}, "reasons": unique_sorted(reasons)}
+        node["current_measurement_available"] = (state == "fresh" and producer_state == "fresh"
+                                                  and current_window and node.get("available") is True)
+        node["available"] = node["current_measurement_available"]
+    traffic["report_as_of_unix_ms"] = as_of
+    traffic["current_measurement_available"] = bool(traffic.get("nodes")) and all(
+        node.get("current_measurement_available") for node in (traffic.get("nodes") or {}).values())
+    return traffic
+
+
 def summarize_traffic_control_plane(traffic_node: dict) -> dict:
     latest_traffic = traffic_node.get("latest") or {}
     traffic_window = traffic_node.get("window") or {}
@@ -617,7 +697,8 @@ def summarize_traffic_control_plane(traffic_node: dict) -> dict:
     control_plane = libp2p.get("control_plane") or {}
     covered_minutes = traffic_window.get("covered_minutes")
     sample_count_successful = traffic_window.get("sample_count_successful", traffic_node.get("sample_count_successful"))
-    payload_total_bytes = safe_int(libp2p.get("total_payload_bytes")) + safe_int(udp.get("total_payload_bytes"))
+    payload_values = [libp2p.get("total_payload_bytes"), udp.get("total_payload_bytes")]
+    payload_total_bytes = sum(value for value in payload_values if value is not None) if any(value is not None for value in payload_values) else None
     libp2p_wire_bytes = libp2p.get("total_wire_bytes")
     control_plane_wire_bytes = control_plane.get("total_wire_bytes")
     control_plane_total_events = control_plane.get("total_events")
@@ -626,7 +707,12 @@ def summarize_traffic_control_plane(traffic_node: dict) -> dict:
     control_plane_events_per_minute = None
     if covered_minutes not in (None, 0):
         control_plane_events_per_minute = round(float(control_plane_total_events or 0) / float(covered_minutes), 2)
+    freshness = traffic_node.get("freshness") or {"state": "unknown", "producer": {"state": "unknown"}}
     alerts = []
+    if freshness.get("state") != "fresh":
+        alerts.append("traffic_freshness_" + freshness.get("state", "unknown"))
+    if (freshness.get("producer") or {}).get("state") != "fresh":
+        alerts.append("traffic_producer_" + (freshness.get("producer") or {}).get("state", "unknown"))
     if traffic_node.get("available") is False:
         alerts.append("traffic_monitor_unavailable")
     if latest_traffic.get("last_error"):
@@ -645,6 +731,8 @@ def summarize_traffic_control_plane(traffic_node: dict) -> dict:
     return {
         "status": determine_module_status(alerts),
         "alerts": alerts,
+        "freshness": freshness,
+        "current_measurement_available": traffic_node.get("current_measurement_available", False),
         "payload_total_bytes": payload_total_bytes,
         "libp2p_total_wire_bytes": libp2p_wire_bytes,
         "control_plane_total_events": control_plane_total_events,
@@ -1069,9 +1157,9 @@ def derive_node_summary(label: str, snapshot: dict, host: dict, traffic: dict, r
     latest_storage = latest_host.get("storage") or {}
     latest_traffic = traffic_node.get("latest") or {}
     libp2p = (traffic_node.get("traffic") or {}).get("libp2p_replication") or {}
-    payload_bytes = int(libp2p.get("total_payload_bytes") or 0) + int(
-        (((traffic_node.get("traffic") or {}).get("udp_gossip") or {}).get("total_payload_bytes") or 0)
-    )
+    payload_values = [libp2p.get("total_payload_bytes"),
+                      ((traffic_node.get("traffic") or {}).get("udp_gossip") or {}).get("total_payload_bytes")]
+    payload_bytes = sum(value for value in payload_values if value is not None) if any(value is not None for value in payload_values) else None
 
     modules = summarize_modules(snapshot_node, host_node, traffic_node, raw_status, wasm)
     optimization_candidates = derive_optimization_candidates(label, modules)
@@ -1129,6 +1217,13 @@ def derive_node_summary(label: str, snapshot: dict, host: dict, traffic: dict, r
             ),
         },
         "traffic": {
+            "freshness": traffic_node.get("freshness"),
+            "latest_attempt": traffic_node.get("latest_attempt"),
+            "last_success": traffic_node.get("last_success"),
+            "as_of_unix_ms": traffic_node.get("as_of_unix_ms"),
+            "reported_window": traffic_node.get("reported_window"),
+            "current_measurement_available": traffic_node.get("current_measurement_available", False),
+            "counter_semantics": "historical_window",
             "payload_total_bytes": payload_bytes,
             "window_covered_minutes": ((traffic_node.get("window") or {}).get("covered_minutes")),
             "libp2p_total_wire_bytes": libp2p.get("total_wire_bytes"),
@@ -1154,6 +1249,7 @@ def render_markdown(summary: dict) -> list[str]:
     lines = [
         "# P2P Real Env Observability Summary",
         "",
+        f"- Report as-of Unix ms: `{summary.get('as_of_unix_ms')}` (generation time does not renew evidence)",
         f"- Generated at: `{summary['generated_at']}`",
         f"- Run id: `{summary.get('run_id') or 'n/a'}`",
         f"- Snapshot claim_status: `{summary['snapshot'].get('claim_status')}`",
@@ -1222,6 +1318,7 @@ def render_markdown(summary: dict) -> list[str]:
                 f"- heights=`{fmt_num((node.get('snapshot') or {}).get('committed_height_first'))} -> {fmt_num((node.get('snapshot') or {}).get('committed_height_last'))}` known_peer_heads_max=`{fmt_num((node.get('snapshot') or {}).get('known_peer_heads_max'))}`",
                 f"- runtime_cpu=`{fmt_percent((node.get('host') or {}).get('runtime_cpu_percent'))}` core_ratio=`{fmt_ratio_as_percent((node.get('host') or {}).get('runtime_cpu_core_ratio'))}` load1/core=`{fmt_num((node.get('host') or {}).get('load_per_core_ratio_1m'))}` mem_available=`{fmt_percent((node.get('host') or {}).get('mem_available_percent'))}` storage_used=`{fmt_percent((node.get('host') or {}).get('storage_used_percent'))}`",
                 f"- runtime_perf=`{(node.get('runtime_perf') or {}).get('health') or 'not_reported'}` bottleneck=`{(node.get('runtime_perf') or {}).get('bottleneck') or 'not_reported'}` decision_p95_ms=`{fmt_num((node.get('runtime_perf') or {}).get('decision_p95_ms'))}`",
+                f"- Traffic freshness: `{((node.get('traffic') or {}).get('freshness') or {}).get('state', 'unknown')}` producer=`{(((node.get('traffic') or {}).get('freshness') or {}).get('producer') or {}).get('state', 'unknown')}` current_measurement_available=`{(node.get('traffic') or {}).get('current_measurement_available', False)}`; counters below are historical window values",
                 f"- traffic_payload=`{fmt_bytes((node.get('traffic') or {}).get('payload_total_bytes'))}` control_plane_events=`{fmt_num((node.get('traffic') or {}).get('control_plane_total_events'))}`",
                 f"- wasm_metrics_available=`{(node.get('wasm') or {}).get('metrics_available')}` window_available=`{(node.get('wasm') or {}).get('window_available')}` hotspot=`{(node.get('wasm') or {}).get('top_hotspot')}`",
                 f"- alerts=`{', '.join(node.get('alerts') or ['(none)'])}`",
@@ -1250,7 +1347,10 @@ def main():
     args = parse_args()
     snapshot = load_json(args.snapshot_summary)
     host = load_json(args.host_summary)
-    traffic = load_json(args.traffic_summary)
+    as_of = args.as_of_unix_ms if args.as_of_unix_ms is not None else time.time_ns() // 1_000_000
+    if as_of < 0:
+        raise SystemExit("--as-of-unix-ms must be non-negative")
+    traffic = reevaluate_traffic(load_json(args.traffic_summary), as_of)
     wasm = {
         "local_node": load_json(args.local_wasm_summary),
         "sequencer_ecs": load_json(args.sequencer_wasm_summary),
@@ -1299,6 +1399,8 @@ def main():
     )
 
     summary = {
+        "schema_version": 2,
+        "as_of_unix_ms": as_of,
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "run_id": args.run_id,
         "run_dir": args.run_dir,
@@ -1324,6 +1426,11 @@ def main():
             "aggregate": host.get("aggregate") or {},
         },
         "traffic": {
+            "schema_version": traffic.get("schema_version"),
+            "as_of_unix_ms": traffic.get("as_of_unix_ms"),
+            "freshness_policy": traffic.get("freshness_policy"),
+            "current_measurement_available": traffic.get("current_measurement_available", False),
+            "aggregate_semantics": "historical_child_window",
             "aggregate": traffic.get("aggregate") or {},
         },
         "nodes": nodes,
