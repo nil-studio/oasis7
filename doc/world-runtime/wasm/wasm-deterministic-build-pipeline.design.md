@@ -110,7 +110,7 @@ Trace refs: O7-REQ-229af15b-05ad-4a1b-85f4-f7baf15f10bc；[REQ-DWE-004](../../pr
 
 具体流程、字段和原约束见 [原详细设计](#build-suite-detail)。仅构建身份子范围；receipt 的 recipe digest 不独立证明执行镜像字节恒等。
 
-源码摘要复用共享算法，覆盖模块本地 path dependency closure 和适用 Cargo.lock；build manifest 绑定 profile/target/tooling/canonicalizer/recipe 等输入；wasm_hash_sha256 只取 canonical packaged bytes。`dry_run` 的 source/hash/receipt 输出为 None，不是构建证据。
+源码摘要复用共享算法，覆盖模块本地 path dependency closure、适用 Cargo.lock 及本地包由 Cargo 确认的 owning workspace manifest；虚拟 workspace 的继承配置也是输入，不能因声明移出成员而漏掉。workspace manifest 去重并使用稳定相对路径标签，查找或读取失败显式拒绝，不扩大为整个仓库扫描；build manifest 绑定 profile/target/tooling/canonicalizer/recipe 等输入；wasm_hash_sha256 只取 canonical packaged bytes。`dry_run` 的 source/hash/receipt 输出为 None，不是构建证据。
 
 <a id="build-publish-hash-contract"></a>
 ### 单 canonical 发布 hash

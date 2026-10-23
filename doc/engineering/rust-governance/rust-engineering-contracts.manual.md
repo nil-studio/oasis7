@@ -2,7 +2,7 @@
 
 - 适用需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)。
 - 技术依据：[Rust 工程契约系统设计](rust-engineering-contracts.design.md)。
-- Workspace 与架构章节是后续切片的验收操作计划；signed-read 章节提供首个开发期工具的实际入口。方法和工具存在不代表一次运行通过，实际结果仍归对应 PR/CI。
+- 本文维护各实施切片的验收方法；Workspace 首批继承范围见系统设计，架构检查器与 signed-read 生成器的当前入口见对应章节。方法和工具存在不代表一次运行通过，实际结果仍归对应 PR/CI。
 - 通用验证范围、开发缓存与正式命令沿用 [testing-manual.md](../../../testing-manual.md) 和[开发流程规范](../workflow/source-of-truth.md)，不新增 gate、审批或强制任务。
 
 ## 执行前置与结果归属
@@ -30,6 +30,8 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 6. 核对 Model Provider 的默认 feature、Launcher native/wasm 差异、WASM SDK 的可选 wire，以及本次触及的 formal producer/host feature 别名；不能仅用 lockfile 无 diff 判定等价。
 7. 核对受影响的原始 manifest 消费者，包括安全来源检查、CI 规划、构建与打包脚本；显式和继承配置均保留原断言与失败条件。若迁移 libp2p，验证[现有来源检查](../../../scripts/libp2p-security-source.test.py)仍检查有效 git/rev、成员 optional/平台条件。保留 manifest 变化的现有共享控制覆盖，不以纯去重规避 CI 或保证缓存命中。
 
+8. 本批 SDK 还被根 workspace 外的 37 个正式内置模块使用；按 `builtin_module_manifest_map.txt` 与 m1/m4/m5 module id 清单核对独立 lock 和 host/wasm 生产/测试图。先以真实独立 module → workspace SDK 夹具验证：只改变根继承 feature/package 配置、保持成员文件及 lock 不变时，`oasis7_wasm_build` 必须检出 source hash 变化；同一夹具换路径仍应一致，owner 查找失败不能退化为成功。manifest 原始字节变化会改变 [source identity](../../p2p/consensus/builtin-wasm-identity-consensus.design.md)，须在获准本地开发环境以 `OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev scripts/sync-m1-builtin-wasm-artifacts.sh` 及对应 m4/m5 入口生成真实 receipt/identity，再分别运行 `--check`。配置等价切片核对三套 `.sha256` 清单和 build_manifest_hash 保持；仅 source_hash 与派生 identity_hash 更新。不手改摘要、复用旧 receipt 或关闭检查消除漂移；该同步不授予生产发布权限。
+
 通过条件：所选配置没有非预期 package/source/version/kind/feature 变化，真实构建与适用测试一致。离线缓存、工具链或解析失败属于未完成；通过正常环境准备补齐后重跑，不静默去掉 `--offline`/`--locked` 或更新锁文件。
 本场景不证明性能提升。若主张编译收益，另复用现有 compile metrics，并固定 profile、jobs、target 与缓存条件。
 
@@ -38,7 +40,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 
 1. 核对本次迁移成员显式采用 `[lints] workspace = true`，独立 workspace 保持自身配置；比较基线和候选共性规则，不把新增强规则当配置去重。
 2. 在相同 root/target/features 下分别运行本地 clippy 和 [CI 入口](../../../scripts/ci-tests.sh) 的实际 flags；当前 CI 使用 `-D warnings -D clippy::correctness -D clippy::suspicious`。记录诊断集合及级别差异，区分相同规则与 CI 告警升级。
-3. 在隔离测试夹具中引入能触发所选规则的真实代码，确认继承后本地可见且 CI 如预期失败；修正缺陷后复测。不得只用 stub 参数记录证明 lint 生效。
+3. 在隔离 checkout 的临时 example 中引入真实代码，使用成员的实际 `[lints] workspace=true`，不要复制一份规则冒充继承。可用 `Add` 实现内做减法触发 `clippy::suspicious_arithmetic_impl`（本地 warning、成功；CI error、失败），用变量自比较触发 `clippy::eq_op`（本地/CI 均 error、失败）。分别固定基线与候选的诊断 code/level/退出码；修正代码后两种入口均须成功，并删除临时 example。不得只用 stub 参数记录证明 lint 生效。
 4. 对确需例外的测试或平台范围，验证例外命中该范围，相同问题移入生产代码或例外外仍能检出；不采用关闭继承、全 crate blanket allow 或放宽现有 CI flags 的方式消除失败。
 
 通过条件：已迁移成员获得预期规则；局部例外有技术理由且不扩大范围。未迁移成员和未执行组合不记为完成；普通 clippy 通过不代表全 CI 已执行。

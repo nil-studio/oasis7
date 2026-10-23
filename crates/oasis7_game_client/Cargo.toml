@@ -1,8 +1,8 @@
 [package]
 name = "oasis7_game_client"
 version = "0.1.0"
-edition = "2024"
-license = "MIT"
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 oasis7_client_storage = { path = "../oasis7_client_storage" }
@@ -10,17 +10,21 @@ oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
 oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
 serde_ignored = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-hex = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
 base64 = "0.22"
 getrandom = "0.4"
 ed25519-dalek = "3"
-reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
+reqwest = { workspace = true, features = ["blocking", "json", "rustls"] }
 zeroize = "1"
+# This client uses the 0.10 API; the workspace intentionally provides 0.11.
 sha2 = "0.10"
 
 blake3 = "1"
-serde_cbor = "0.11"
+serde_cbor.workspace = true
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 oasis7_proto = { path = "../oasis7_proto" }
+
+[lints]
+workspace = true
