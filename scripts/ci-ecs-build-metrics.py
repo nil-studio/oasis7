@@ -634,7 +634,7 @@ def measure(args):
     finally:
         cleanup_errors = []
         for checkout in reversed(linked):
-            removed = subprocess.run(['git', 'worktree', 'remove', '--force', str(checkout)], cwd=repo,
+            removed = subprocess.run(['git', 'worktree', 'remove', str(checkout)], cwd=repo,
                                      text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if removed.returncode:
                 cleanup_errors.append(removed.stderr.strip())
