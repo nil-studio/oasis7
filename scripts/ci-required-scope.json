@@ -255,6 +255,9 @@
     "oasis7_provider_tools": [
       "oasis7_required"
     ],
+    "oasis7_viewer_codec": [
+      "oasis7_required"
+    ],
     "oasis7_viewer_runtime": [
       "oasis7_required"
     ],

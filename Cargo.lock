@@ -6696,6 +6696,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oasis7_viewer_codec"
+version = "0.1.0"
+dependencies = [
+ "oasis7",
+ "oasis7_client_api",
+ "oasis7_proto",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oasis7_viewer_runtime"
 version = "0.1.0"
 dependencies = [
@@ -6712,6 +6723,7 @@ dependencies = [
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_simulator",
+ "oasis7_viewer_codec",
  "oasis7_wasm_abi",
  "oasis7_world_projection",
  "reqwest 0.13.5",
