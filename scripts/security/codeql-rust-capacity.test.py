@@ -180,6 +180,12 @@ class Capacity(unittest.TestCase):
             self.assertEqual(int((root/'run.log').read_text()),resource.getrlimit(resource.RLIMIT_FSIZE)[0])
             self.assertIsNone(actual['file_size_limit_bytes'])
 
+    def test_job_env_does_not_use_runner_context_unavailable_to_schema(self):
+        workflow=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
+        job_env=workflow.split('    env:\n',1)[1].split('    steps:',1)[0]
+        self.assertNotIn('${{ runner.',job_env)
+        self.assertIn("CODEQL_ACTION_TEMP={os.environ['RUNNER_TEMP']}/rust-capacity-action",workflow)
+
     def test_manual_disabled_scope_and_production_security_boundary(self):
         workflow=P.parents[2]/'.github/workflows/codeql-rust-capacity.yml'
         text=workflow.read_text()

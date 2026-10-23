@@ -28,7 +28,6 @@ jobs:
       CODEQL_RAM: ''
       CODEQL_THREADS: ''
       CODEQL_OVERLAY_DATABASE_MODE: none
-      CODEQL_ACTION_TEMP: ${{ runner.temp }}/rust-capacity-action
       CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
       CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '["${{ github.workspace }}/capacity-source/crates/oasis7_builtin_wasm_modules/_templates"]'
     steps:
@@ -47,6 +46,7 @@ jobs:
           if not 0<=time.time()-start<120:raise SystemExit('invalid or stale job clock')
           with open(os.environ['GITHUB_ENV'],'a') as out:
               out.write(f"CAPACITY_DEADLINE={start+2700}\nCAPACITY_JOB_ID={jobs[0]['id']}\n")
+              out.write(f"CODEQL_ACTION_TEMP={os.environ['RUNNER_TEMP']}/rust-capacity-action\n")
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
