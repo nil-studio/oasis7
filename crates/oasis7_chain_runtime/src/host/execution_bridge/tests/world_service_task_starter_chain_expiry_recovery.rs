@@ -173,19 +173,23 @@ fn starter_context_live_conflict_fails_closed_then_expiry_aborts_and_reprepares(
             )
         };
         assert!(retains_original_context(&original_prefix_intent));
+        // Keep this historical replay-contract negative explicit: revision 0
+        // requires the exact base even while the original lease remains live.
+        let mut legacy_prefix_intent = original_prefix_intent.clone();
+        legacy_prefix_intent.task_prefix_binding_revision = 0;
         let stale_signed =
-            sign_read_request("scheduler", original_prefix_intent.clone(), &delegate).unwrap();
+            sign_read_request("scheduler", legacy_prefix_intent, &delegate).unwrap();
         let mut stale_world = comparison_world.clone();
         let stale_result = stale_world.apply_authenticated_scheduler(stale_signed);
         assert!(
             matches!(stale_result, Err(ref error) if error == "scheduler base binding changed"),
-            "a prefix signed against the earlier base must fail on the advanced clone"
+            "a legacy exact-base prefix must fail on the advanced clone"
         );
         eprintln!(
             "TASK_EXPIRY_PREFIX phase=clone_old_base_rejected tick_advanced=true lease_live=true"
         );
 
-        // A prepared prefix is pinned to its captured base. After the live 409 negative,
+        // After the live 409 and legacy exact-base rejection negatives,
         // acquire a new prepared identity and submit its exact signed prefix.
         let (capture_prepared, capture_get) = prepare_prefixed_context(
             &client,
