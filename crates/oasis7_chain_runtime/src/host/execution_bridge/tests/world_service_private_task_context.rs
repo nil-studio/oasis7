@@ -16,33 +16,11 @@ use std::sync::{Arc, Mutex};
 mod stack;
 use stack::{
     boxed_context_driver_fixture, boxed_context_driver_restart, boxed_context_value,
-    run_context_stage,
+    commit_empty_context_block, run_context_stage,
 };
 
 #[path = "world_service_task_authority_compat.rs"]
 mod authority_compat;
-fn commit_empty_context_block(driver: &mut NodeRuntimeExecutionDriver, height: u64) {
-    driver
-        .on_commit(NodeExecutionCommitContext {
-            world_id: "w1".into(),
-            node_id: "node-a".into(),
-            proposer_id: "node-a".into(),
-            height,
-            slot: height,
-            epoch: 0,
-            node_block_hash: format!("node-h{height}"),
-            action_root: compute_consensus_action_root(&[]).unwrap(),
-            committed_actions: vec![],
-            committed_at_unix_ms: height as i64 * 1000,
-        })
-        .unwrap();
-}
-fn complete_context_scenario(
-    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
-    other_provider: bool,
-) {
-    complete_context_scenario_with_revision(authority_mode, other_provider, 1);
-}
 fn complete_context_scenario_with_revision(
     authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
     other_provider: bool,
