@@ -220,7 +220,7 @@ else:
     def test_same_clock_runs_have_unique_directories_and_configuration_digests(self):
         self.complete(self.start())
         first = self.canonical()
-        self.complete(self.start(arguments=['--local-status-url', 'another-fixture', '--password', 'never-store-this-secret']))
+        self.complete(self.start(arguments=['--local-status-url', 'http://offline.invalid/status?token=never-store-this-secret']))
         second = self.canonical()
         self.assertNotEqual(first['latest_attempt']['run_directory'], second['latest_attempt']['run_directory'])
         self.assertNotEqual(first['latest_attempt']['scope_fingerprint'], second['latest_attempt']['scope_fingerprint'])

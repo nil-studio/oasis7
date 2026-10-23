@@ -1732,6 +1732,16 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
 
 
+<a id="observability-consumer-routing"></a>
+### 外层三节点参数路由：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[消费者路由](doc/p2p/node/node-triad-operations-observability.design.md#run-routing)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，路由套件为 `scripts/p2p-real-env-observability-routing.test.py`。
+
+- 驱动实际 outer wrapper，逐项及组合覆盖 service、status、target、storage、health/env/public fallback、world 和流量专属选项；验证参数只到声明支持的消费者，WASM 仍只消费本 run 的 snapshot 样本。
+- 用实际子 collector／reducer 加隔离底层采样替身验证配置路径可完成报告；严格 argv stub 用于完整路由矩阵，不能代签真实 SSH、服务状态或任意拓扑。
+- 缺值、空值、非法数字、未知选项、子工具专属选项与 `--node` 在预留尝试和 collector 前非零拒绝；核对既有状态、目录和历史均未修改。help 不产生尝试；路径含空格／元字符保持独立 argv，外层不执行其内容。
+- 继续执行现有 freshness 历史回放及持久尝试回归，核对只读历史、原 as-of 和失败／blocked 语义；支持环境中使用 Bash 3 与当前 Bash 核对空数组行为。
+
 <a id="durable-observability-attempt"></a>
 ### 外层 observability 持久尝试：离线验证
 
