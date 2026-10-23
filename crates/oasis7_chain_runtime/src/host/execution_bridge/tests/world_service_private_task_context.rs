@@ -19,10 +19,16 @@ use stack::{
     run_context_stage,
 };
 
-#[test]
-fn private_task_context_native_complete_prepare_capture_read_action_and_restart() {
+#[path = "world_service_task_authority_compat.rs"]
+mod authority_compat;
+fn complete_context_scenario(
+    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
+    other_provider: bool,
+) {
     const AGE: u64 = 34;
-    let (dir, mut driver, world, owner, owner_public) = boxed_context_driver_fixture();
+    let (dir, mut driver, world, owner, owner_public) =
+        boxed_context_driver_fixture(authority_mode.is_some(), other_provider);
+    stack::assert_fixture_authorities(&driver, authority_mode.is_some(), other_provider);
     let create = game_task_tests::create(&world, &owner, "context-task");
     commit(&mut driver, 3, create.clone());
     let c = game_task::current_control(&driver.execution_world, "agent-a")
@@ -139,7 +145,10 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     let proof = sign_read_request(
         TASK_CONTEXT_PREPARE_PATH,
         TaskContextPrepareV1 {
-            schema_revision: 1,
+            authority_mode,
+            schema_revision: oasis7_agent_api::game::TaskContextAuthorityModeV1::schema_revision(
+                authority_mode,
+            ),
             fence: fence.clone(),
             client_operation_id: "context-operation".into(),
             client_nonce: "cd".repeat(32),
@@ -272,6 +281,14 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     let prepared = consumer(&dir, &runtime, &signer, &store, &world, |client| {
         client.prepare_task_context(&proof).unwrap()
     });
+    if authority_mode.is_none() {
+        authority_compat::verify_original_provider_bytes(&prepared);
+    }
+    if !other_provider {
+        authority_compat::export_test_snapshot_if_requested(&prepared);
+    }
+    assert_eq!(prepared.identity.authority_mode, authority_mode);
+    assert_eq!(prepared.snapshot.authority_mode().unwrap(), authority_mode);
     assert_eq!(
         prepared.snapshot.active_goal.owner_proof.request.content,
         goal.request.content
@@ -600,7 +617,10 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     let g2_prepare = sign_read_request(
         TASK_CONTEXT_PREPARE_PATH,
         TaskContextPrepareV1 {
-            schema_revision: 1,
+            authority_mode,
+            schema_revision: oasis7_agent_api::game::TaskContextAuthorityModeV1::schema_revision(
+                authority_mode,
+            ),
             fence: fence.clone(),
             client_operation_id: "g2-context".into(),
             client_nonce: "78".repeat(32),
@@ -684,14 +704,7 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
         expiry.valid_until_tick.0,
         expiry.snapshot.captured_base_binding.base_tick + TASK_CONTEXT_LEASE_TICKS
     );
-    assert!(
-        expiry.valid_until_tick.0
-            < expiry
-                .snapshot
-                .provider_authority
-                .capability_catalog
-                .valid_until_tick
-    );
+    assert!(expiry.valid_until_tick.0 <= expiry.snapshot.authority_valid_until_tick().unwrap());
     let expiry_prefix = request(
         &world,
         WorldServicePayloadV1::Scheduler(
@@ -1038,7 +1051,10 @@ fn private_task_context_native_complete_prepare_capture_read_action_and_restart(
     let snapshot_request = sign_read_request(
         TASK_SNAPSHOT_PATH,
         TaskGoalSnapshotRequestV1 {
-            schema_revision: 1,
+            authority_mode,
+            schema_revision: oasis7_agent_api::game::TaskContextAuthorityModeV1::schema_revision(
+                authority_mode,
+            ),
             fence: fence.clone(),
         },
         &delegate,

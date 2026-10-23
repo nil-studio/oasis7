@@ -1,6 +1,5 @@
 use oasis7_proto::viewer as proto;
 
-use crate::simulator::{AgentDecisionTrace, RunnerMetrics, WorldEvent, WorldSnapshot};
 #[cfg(test)]
 use oasis7_simulator::WorldEventKind;
 use oasis7_simulator::{FragmentRefillPreview, WorldTime};
@@ -33,8 +32,7 @@ mod capability_tests {
 }
 
 pub use oasis7_client_api::viewer_protocol::*;
-pub type ViewerResponse =
-    proto::ViewerResponse<WorldSnapshot, WorldEvent, AgentDecisionTrace, RunnerMetrics, WorldTime>;
+pub use oasis7_viewer_codec::ViewerResponse;
 pub type PromptControlAck = proto::PromptControlAck<WorldTime>;
 pub type AgentChatAck = proto::AgentChatAck<WorldTime>;
 pub type GameplayActionAck = proto::GameplayActionAck<WorldTime>;

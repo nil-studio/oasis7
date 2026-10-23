@@ -1,11 +1,11 @@
 ---
 name: oasis7-play
-description: Execute an authorized Oasis7 native task through the supplied signed game client or approved local tool socket, read the complete goal/context, choose a supported action, and verify its canonical result. Owner-controlled entry remains separate.
+description: Execute an authorized Oasis7 native task through the supplied signed game client or approved local tool socket, read the complete goal/context, choose a supported action, and verify its canonical result. Trusted cold entry and owner-controlled entry remain separate.
 ---
 
 # Oasis7 native task play
 
-This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. It does not provide cold world entry, token pairing, the full Game HTTP write catalog.
+This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. The default executor does not perform owner cold entry, token pairing or the full Game HTTP write catalog. A trusted local companion can perform [cold entry](references/cold-entry.md) before handing off a separate executor.
 
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.
 
@@ -13,7 +13,7 @@ Trusted identity, world entry and explicit owner operations have a separate
 [owner-control reference](references/identity-entry.md). Default executors must
 not invoke those commands, unlock storage or obtain owner credentials. Missing
 world/Agent/task binding stops play; identity registration alone cannot authorize
-the commands below. OpenClaw/Codex cold-entry combinations require independent
+the commands below. The trusted cold-entry CLI is separate from Runtime launch. OpenClaw/Codex cold-entry combinations require independent
 acceptance and are not certified by this Skill.
 
 For an approved isolated Runtime profile, the launcher supplies only a private
@@ -61,7 +61,7 @@ Choose a unique operation ID once per decision context. Retain it across transpo
 
 If context returns `usable_context=false`, inspect its original canonical outcome. Pending or unknown outcomes require original lookup/retry. A settled rejection or expiry cannot become a usable context by repeating it: preserve that result and reread the task. A committed prefix can still occupy the active turn after its private context expires; use the explicit expired-context recovery below before creating a new decision context. A changing world may invalidate a captured base between preparation and submission.
 
-A context is usable only after its prefix is canonically committed. Read the returned complete goal, soft constraints, current task/executor fence, observation schema and actual capability catalog. `world-agent-state/v1` is raw Agent state, not the legacy ProviderObservation format. Derive your decision from this goal and observation. Contexts have a bounded tick lease, at most 16 ticks and never beyond the capability grant expiry; refresh promptly before making a new decision.
+A context is usable only after its prefix is canonically committed. Read the returned complete goal, soft constraints, current task/executor fence, observation schema and [typed context authority](references/task-context.md). `world-agent-state/v1` is raw Agent state, not the legacy ProviderObservation format. Derive your decision from this goal and observation. Contexts have a bounded tick lease of at most 16 ticks. Provider contexts are additionally bounded by their capability catalog expiry. Native actions must independently satisfy each current native grant's expiry and remaining budget. Refresh promptly before making a new decision.
 
 ## World-rule orders, supply and organization cases
 
@@ -95,6 +95,19 @@ The movement CLI proposal is movement of the configured Agent to three signed i6
 <client> --config <device.json> move --context <context-id> --to <x_cm,y_cm,z_cm>
 <client> --config <device.json> lookup --context <context-id> --kind action
 ```
+
+Signer/task authority is distinct from business action/object electricity grants.
+Capabilities' empty grant list reports `needs_native_context_confirmation` because
+legacy observations can omit that field. The complete verified native context's
+required grant list confirms `default_action_validation` when empty; any grant,
+including revoked or expired entries, means `grant_scoped`. This is not action
+approval. Empty grants
+alone do not deny movement; current task/signer fences and ordinary world rules,
+governance, destination and resource checks still apply. A raw Agent `resources`
+map is not an OC balance. Authorization `cost_units: 0` is not an action quote.
+The Runtime's Move quote is zero only in the delegation-electricity domain; do
+not infer zero total costs or bypass a goal's evidence/budget requirements. See
+[typed context authority](references/task-context.md) for these separate boundaries.
 
 Choose coordinates yourself to satisfy the actual goal. The runtime still checks authority, capability admission, current task/goal/executor fences, base binding and available resources. A submitted or pending request is not a successful world effect. Inspect the canonical outcome and action receipt, and read a new context to check the resulting position when another decision is needed.
 

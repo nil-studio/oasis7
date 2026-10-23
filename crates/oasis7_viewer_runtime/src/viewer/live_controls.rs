@@ -1053,7 +1053,7 @@ fn read_requests(
                 if trimmed.is_empty() {
                     continue;
                 }
-                if let Ok(request) = serde_json::from_str::<ViewerRequest>(trimmed) {
+                if let Ok(request) = oasis7_viewer_codec::request_from_json(trimmed) {
                     if tx.send(LiveLoopSignal::Request(request)).is_err() {
                         loop_running.store(false, Ordering::SeqCst);
                         break;
@@ -1099,7 +1099,7 @@ fn send_response(
     writer: &mut BufWriter<TcpStream>,
     response: &ViewerResponse,
 ) -> Result<(), ViewerLiveServerError> {
-    let payload = serde_json::to_string(response)
+    let payload = oasis7_viewer_codec::response_to_json(response)
         .map_err(|err| ViewerLiveServerError::Serde(err.to_string()))?;
     writer.write_all(payload.as_bytes())?;
     writer.write_all(b"\n")?;

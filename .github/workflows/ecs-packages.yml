@@ -128,7 +128,7 @@ jobs:
           python3 scripts/ci-ecs-cache.py restore --cache "$RUNNER_TEMP/ecs-workspace-cache" \
             --report "$RUNNER_TEMP/ecs-cache-restore.json" --requested-key "$ECS_REQUESTED_KEY" \
             --matched-key "$ECS_MATCHED_KEY" --cache-hit "$ECS_CACHE_HIT"
-      - name: Compile three ECS binaries
+      - name: Compile ECS service and game client binaries
         shell: bash
         env:
           # Keep this step-local so jobs=1/2 restore the same Rust cache.
@@ -151,6 +151,19 @@ jobs:
           trap finish_resources EXIT
           /usr/bin/time -v -o "$resource_dir/ecs-time.txt" \
             python3 scripts/package-ecs.py native --out "$RUNNER_TEMP/ecs-native" --cache-state "$RUNNER_TEMP/ecs-cache-state.json"
+      - name: Compile actual cold entry integration probe
+        env:
+          CARGO_BUILD_JOBS: ${{ inputs.native_build_jobs || '2' }}
+        run: |
+          env -u RUSTC_WRAPPER cargo build --locked --profile ecs -p oasis7_game_client --example cold_entry_probe
+          mkdir -p "$RUNNER_TEMP/ecs-cold-entry-probe"
+          cp target/ecs/examples/cold_entry_probe "$RUNNER_TEMP/ecs-cold-entry-probe/cold_entry_probe"
+      - name: Stage separate cold entry probe
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-cold-entry-probe-stage
+          path: ${{ runner.temp }}/ecs-cold-entry-probe/cold_entry_probe
+          if-no-files-found: error
       - name: Stage ECS workspace cache
         id: ecs-cache-stage
         continue-on-error: true
@@ -292,6 +305,29 @@ jobs:
           asset="oasis7-ecs-linux-x64-${RUN_NUMBER}-${SOURCE_SHA:0:12}.tar.gz"
           tar -C output/ecs -czf "output/$asset" .
           (cd output && sha256sum "$asset" > "$asset.sha256")
+      - name: Download same-source cold entry probe
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ecs-cold-entry-probe-stage
+          path: output/cold-entry-probe
+      - name: Verify assembled bundle through actual cold entry services
+        id: cold_entry_smoke
+        timeout-minutes: 15
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssl libx11-6 libxi6 libxcursor1 libxrandr2 libxinerama1 libasound2t64 libudev1
+          chmod 700 output/cold-entry-probe/cold_entry_probe
+          python3 scripts/package-ecs-cold-entry-smoke.py \
+            --bundle "$GITHUB_WORKSPACE/output/ecs" \
+            --probe-binary "$GITHUB_WORKSPACE/output/cold-entry-probe/cold_entry_probe" \
+            --evidence-directory "$RUNNER_TEMP/ecs-cold-entry-live" --timeout-seconds 600
+      - name: Upload public cold entry verification receipt
+        if: always() && steps.cold_entry_smoke.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ecs-cold-entry-verification
+          path: ${{ runner.temp }}/ecs-cold-entry-live/receipt.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oasis7-ecs-linux-x64

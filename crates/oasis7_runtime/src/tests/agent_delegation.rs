@@ -283,6 +283,7 @@ fn agent_delegation_atomic_commit_retry_and_shared_budget() {
     allowance.action_kinds = vec!["ScheduleRecipe".into()];
     allowance.limit_units = 12;
     world.install_agent_delegation_grant(allowance).unwrap();
+    let native_root = world.native_task_authorization_root(AGENT_ID).unwrap();
     let prepared = prepare(
         &mut world,
         "one",
@@ -297,6 +298,11 @@ fn agent_delegation_atomic_commit_retry_and_shared_budget() {
     let committed = world
         .finalize_cognition_commit(&prepared.commit_id)
         .unwrap();
+    assert_eq!(
+        native_root,
+        world.native_task_authorization_root(AGENT_ID).unwrap(),
+        "nonzero spend and committed receipt must not retire original context authority"
+    );
     let receipts = world.agent_causal_receipts(AGENT_ID).unwrap();
     assert_eq!(receipts.len(), 1);
     assert_eq!(receipts[0].receipt_id, committed.receipt_id);
@@ -339,6 +345,15 @@ fn agent_delegation_atomic_commit_retry_and_shared_budget() {
         .contains("budget_exhausted")
     );
     assert_eq!(world.agent_causal_receipts(AGENT_ID).unwrap(), receipts);
+    let mut changed = world.agent_delegation_authorizations(AGENT_ID).unwrap()[0]
+        .grant
+        .clone();
+    changed.revision += 1;
+    world.install_agent_delegation_grant(changed).unwrap();
+    assert_ne!(
+        native_root,
+        world.native_task_authorization_root(AGENT_ID).unwrap()
+    );
 }
 
 #[test]

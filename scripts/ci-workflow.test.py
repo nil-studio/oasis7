@@ -510,7 +510,7 @@ run_cargo() {
             calls = log.read_text().splitlines()
             self.assertEqual(sum(call.startswith('BUILD|') for call in calls), 2)
             self.assertEqual(sum(call.startswith('TEST|') for call in calls), 2)
-            self.assertIn('CHECK|check -p oasis7_agent_api -p oasis7_simulator --target wasm32-unknown-unknown --locked', calls)
+            self.assertIn('CHECK|check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked', calls)
             self.assertTrue(all('-p oasis7_simulator' in call for call in calls if call.startswith('TEST|')))
             for feature in ('test_tier_required', 'test_tier_full,wasmtime,viewer_live_integration'):
                 build_index = next((index for index, call in enumerate(calls)

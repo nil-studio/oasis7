@@ -22,6 +22,7 @@ fn fixture() -> (Client, PathBuf, WorldServicePayloadV1) {
         .join(format!("oasis7-outcome-{}", hex::encode(nonce)));
     let config = crate::tests::config("http://127.0.0.1:1".into());
     let client = Client {
+        authority_mode: None,
         world: config.expected_world.clone(),
         agent: "a".into(),
         public_key: authority::sign_read_request("key", (), &hex::encode([7; 32]))

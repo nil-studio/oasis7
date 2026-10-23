@@ -12,6 +12,22 @@ pub(crate) struct ProviderCapabilityContext {
 }
 
 impl World {
+    /// Ordinary observation may precede provider provisioning. Existing provider
+    /// records retain the strict selection and validation failures below.
+    pub fn optional_canonical_agent_service_context(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<WorldServiceAgentContext>, String> {
+        if !self
+            .capability_invocation_contexts()
+            .values()
+            .any(|context| is_provider_context_for_agent(context, agent_id))
+        {
+            return Ok(None);
+        }
+        self.canonical_agent_service_context(agent_id).map(Some)
+    }
+
     /// Read-only authorized projection from the exact service-pinned World.
     /// No sidecar cache, signer material, or grant registry is transported.
     pub fn canonical_agent_service_context(
@@ -50,10 +66,7 @@ pub(crate) fn provider_capability_context(
         .capability_invocation_contexts()
         .values()
         .find(|context| {
-            matches!(
-                &context.subject,
-                CapabilitySubject::Agent { agent_id: subject_id, .. } if subject_id == agent_id
-            ) && context.presenter.presenter_kind == "provider"
+            is_provider_context_for_agent(context, agent_id)
                 && context.audience.world_id == runtime_binding.world_id
                 && context.audience.branch_id == runtime_binding.branch_id
                 && context.audience.finality_epoch == runtime_binding.finality_epoch
@@ -99,3 +112,14 @@ pub(crate) fn provider_capability_context(
         invocation,
     })
 }
+
+fn is_provider_context_for_agent(context: &CapabilityInvocationContext, agent_id: &str) -> bool {
+    matches!(
+        &context.subject,
+        CapabilitySubject::Agent { agent_id: subject_id, .. } if subject_id == agent_id
+    ) && context.presenter.presenter_kind == "provider"
+}
+
+#[cfg(test)]
+#[path = "service_context_tests.rs"]
+mod tests;

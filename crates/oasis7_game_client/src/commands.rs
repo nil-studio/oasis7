@@ -1,11 +1,17 @@
+#[path = "native_context_display.rs"]
+mod native_context_display;
 use crate::device_client::{Client, pending, print};
 use crate::operation_store::ClientStateKind;
 use oasis7_client_api::world_service::*;
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path};
-const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  schedule-essential --context <context-id> --factory <factory-id> --recipe <recipe-id> --batches <positive-u32> --obligation <registered-id>\n  world-rule-key --request <stable-id>\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nAuthenticated executor: --executor-config <executor.json> <same-command> [same-options]. Public config contains identity, login_operation, executor_vault_directory, service_public_key, full fence and state_directory; private unlock only through trusted local stdin. No owner signing or Runtime launch.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
+const HELP: &str = "oasis7_game_client --config <device.json> <command> [options]\nCommands:\n  schedule-essential --context <context-id> --factory <factory-id> --recipe <recipe-id> --batches <positive-u32> --obligation <registered-id>\n  world-rule-key --request <stable-id>\n  world-rule --context <context-id> --request <stable-id> --command <typed-json>\n  describe\n  task\n  capabilities\n  industry\n  context --operation <stable-prepare-id>\n  move --context <prepare-id> --to <x,y,z>\n  transfer --context <prepare-id> --from <ledger> --to <ledger> --material <kind> --amount <positive-i64> --distance-km <nonnegative-i64> --priority <standard|urgent> --routes <route-id,...|direct>\n  quote-build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  build --context <prepare-id> --site <site-id> --factory <factory-id> --kind <factory.smelter.mk1|factory.assembler.mk1>\n  quote-schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  schedule --context <prepare-id> --factory <factory-id> --recipe <canonical-recipe-id> --batches <positive-u32>\n  outcome --context <prepare-id> --reason <executor_aborted|provider_failed|transport_exhausted|context_expired>\n  lookup --context <prepare-id> --kind <prefix|action|outcome>\nConfiguration: endpoint, world_id, genesis_digest, agent_id, service_public_key, signer_file, state_directory.\nThe signer is an operator-owned mode-0600 raw 32-byte file; state_directory is a private encrypted operation cache.\nAuthenticated executor: --executor-config <executor.json> <same-command> [same-options]. Public config contains identity, login_operation, executor_vault_directory, service_public_key, full fence, state_directory and optional authority_mode (native_executor_v1; omitted means legacy provider); private unlock only through trusted local stdin. No owner signing or Runtime launch.\nHTTP loopback requires all local listening processes to be trusted. Use authenticated TLS for untrusted multi-user hosts.";
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
+    #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "cold-entry") {
+        return crate::cold_entry::run(&args);
+    }
     #[cfg(unix)]
     if args
         .first()
@@ -35,6 +41,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         println!("{}", crate::identity_cli::HELP);
         #[cfg(unix)]
         println!("{}", crate::participant_cli::HELP);
+        #[cfg(unix)]
+        println!("{}", crate::cold_entry::HELP);
         #[cfg(unix)]
         println!("{}", crate::runtime_broker_cli::HELP);
         return Ok(());
@@ -132,17 +140,22 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             }
             let captured = client.captured(operation)?;
             let prepared = &captured.prepared;
-            print(&json!({
+            let display = json!({
                 "api_revision":1,"context":prepared.identity,
                 "goal":{"revision":prepared.snapshot.control.active_goal_revision,"content":prepared.snapshot.active_goal.owner_proof.request.content},
                 "actor_observation_schema":prepared.snapshot.actor_observation_schema,
                 "actor_observation":prepared.snapshot.actor_observation,
-                "capabilities":captured.current_public_context.provider_authority.capability_catalog,
+                "capabilities":captured.current_public_context.provider_authority.as_ref().map(|authority| &authority.capability_catalog),
+                "native_authority":captured.current_public_context.native_authority,
                 "capture_commit":captured.capture_commit,
                 "current_read_commit":captured.current_public_context.read_commit,
                 "prepare_operation_id":operation,
                 "action_correlation_identity":prepared.identity.decision_request_id
-            }))
+            });
+            print(&native_context_display::annotate_verified_native_context(
+                display,
+                captured.current_public_context.native_authority.as_ref(),
+            ))
         }
         "world-rule-key" => {
             let request_id = required("--request")?;

@@ -117,9 +117,9 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-
 - 系统设计状态：已覆盖。
 - 系统设计依据：[Peer record 接纳、刷新与版本迁移](mainnet-private-reachability-architecture.design.md#peer-record-lifecycle)。
 - 实现状态：部分实现。
-- 实现依据：当前 libp2p 按 [v1 时间策略](mainnet-private-reachability-architecture.design.md#当前-v1-时间策略)检查 signed TTL、未来偏差和进程内时钟回退，限制缓存转发与发现拨号；协议仍无 sequence 和持久水位。
+- 实现依据：当前 libp2p 按 [v1 时间策略](mainnet-private-reachability-architecture.design.md#当前-v1-时间策略)检查 signed TTL、未来偏差和进程内时钟回退，限制缓存转发与发现拨号；自动查询／交换／缓存重发布另由[共享工作预算](mainnet-private-reachability-architecture.design.md#discovery-work-budget)限制并发、滚动速率与代理重试，列表输入／输出有界。协议仍无 sequence 和持久水位。
 - 验证依据：[发现记录时效验证](../../../testing-manual.md#discovery-record-v1-time-policy)覆盖时间边界、缓存／DHT 转发和拨号租约、活动会话保留；持久乱序／撤销／重启迁移仍待验收。
-- 剩余范围：版本化 wire、发布序号持久化、接收水位及安全回收、持久可信时间、累计发现轮次预算和有余量的抖动刷新；节点身份密钥失陷或本机受信存储被恶意回滚不由 TTL 单独解决。
+- 剩余范围：版本化 wire、发布序号持久化、接收水位及安全回收、持久可信时间、跨重启累计配额、入站验证／服务总预算和有余量的抖动刷新；节点身份密钥失陷或本机受信存储被恶意回滚不由 TTL 单独解决。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用。

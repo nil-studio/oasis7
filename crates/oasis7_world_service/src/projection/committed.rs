@@ -22,9 +22,8 @@ pub fn from_committed_world(
 ) -> Result<WorldServiceProjection, String> {
     let mut projection = from_authenticated_world(world, agent, reader)?;
     if let Some(agent) = agent {
-        projection.agent_context = Some(oasis7_runtime::World::canonical_agent_service_context(
-            world, agent,
-        )?);
+        projection.agent_context =
+            oasis7_runtime::World::optional_canonical_agent_service_context(world, agent)?;
         projection.cognition_leases = world
             .cognition_economy()
             .map_err(|e| format!("{e:?}"))?

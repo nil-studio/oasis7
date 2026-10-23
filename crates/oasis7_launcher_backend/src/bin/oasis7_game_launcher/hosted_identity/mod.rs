@@ -13,6 +13,7 @@ mod recovery;
 mod service;
 #[cfg(test)]
 mod session_tests;
+pub(super) mod snapshot_export;
 pub mod store;
 pub mod webauthn;
 mod world;

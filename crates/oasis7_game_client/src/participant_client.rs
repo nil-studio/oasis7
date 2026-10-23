@@ -47,7 +47,7 @@ pub struct ParticipantClient {
     scope: String,
 }
 impl ParticipantClient {
-    fn validate(config: &ParticipantClientConfig) -> Result<(), String> {
+    pub(crate) fn validate(config: &ParticipantClientConfig) -> Result<(), String> {
         http::validate_config(&config.identity)?;
         config.world.validate().map_err(|e| e.to_string())?;
         let bytes: [u8; 32] = hex::decode(&config.trusted_world_service_key)

@@ -123,6 +123,20 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接 [PRD 生命周�
 
 DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他 DHT 对象的期限不受本条改变。
 
+<a id="discovery-work-budget"></a>
+### 当前发现工作预算
+
+现有 libp2p 网络实例采用固定 `v1-discovery-budget-1`，在自动发现工作排入底层协议前统一接纳。目标是限制候选 fanout 和代理重试放大；不改变签名 wire，也不将预算余量视为健康或授权依据。
+
+- 同一实例、所有发现来源共享单调时钟的滚动 60 秒窗口，最多启动 128 项工作，并发最多 32 项。完成或失败只释放并发，不返还窗口消耗；切换代理、DHT／RR 入口或重建工作项不能重置窗口。新实例重新计数，不声称跨重启限速。
+- 自动 provider 查询、记录查询、记录交换和缓存转发重发布属于发现工作。本机发布／provider 公告、应用显式 DHT／业务 RR、rendezvous register／discover 协议操作及底层协议内部报文不由此预算逐项／逐包计量；现有 transport／协议限制继续适用。该边界不等于全网连接、字节或验证 CPU 的总预算。
+- 单目标缓存代理链最多尝试 4 个不同代理；成功或失败后的新逻辑请求仍受实例滚动窗口约束。到限延后，保持现有已认证会话；不为腾预算全量断连，也不承诺攻击下的公平性或收敛期限。
+- 缓存发现列表 wire 输入最多 16 KiB、128 项，先核输入尺寸并有界解码，再去重和派生工作。响应端最多返回 128 个当前有效的 ID；这不是完整分页枚举 API。DHT provider 结果累积也最多 128 个候选。
+- 三类 RR 请求各自的 cooldown 表最多 1024 个 peer（direct record、cached record、cached ID list，合计最多 3072 项）；到期项先回收，无安全空位则拒绝新增调度，不驱逐仍有效的限速记录。拒绝不能制造 pending 标记或请求流量统计。
+- 并发／窗口占用、容量上限、累计启动数及并发／窗口拒绝计数通过既有网络 metrics 的 `discovery_work` 摘要投影，禁止 peer ID 或远端字符串作为无限维度 label。预算拒绝不替代签名、域、TTL、peer health 或角色检查。
+
+并发仅在对应协议实际终态释放；不能按本机超时清空账本而让仍在运行的协议工作失去计量。上述速率窗口和代理链限制承接累计工作上限；跨轮次持久配额、rendezvous 协议操作总预算、入站服务／验证总预算、抖动刷新以及受信控制域依据仍属后续范围。
+
 ### 版本兼容与交付顺序
 
 1. 先在不改变现有签名含义的前提下分离本地来源观察，并对当前已签名的时间字段落实 TTL/时钟/缓存检查；既有记录缓存不得被原地补 source 或 sequence。
@@ -141,7 +155,7 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 
 来源不足的健康状态与已建立会话的传输准入分开：允许符合实际路径及 unknown 域预算的既有会话继续获取材料，健康仍降级。每个会话都计入路径、relay、operator/ASN 分母与桶；无 record 或远端自报 `observer_light` 不能豁免这些预算。候选按稳定 peer ID 顺序准入，配额拒绝进入 quarantine，不以缺 record 提前跳过统计。该策略改变旧版依赖自述标签的 healthy 结果及 observer 配额豁免；没有新增 wire 字段或重签旧记录。
 
-[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs)仍为既有 wire，包含 `published_at_ms/ttl_ms` 而没有 sequence。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。持久可信时间、首次观察与配置版本、rendezvous ID-only 来源链、持久 sequence/tombstone/高水位、累计发现轮次预算、有余量的抖动刷新和跨重启迁移仍待实现；本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
+[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs)仍为既有 wire，包含 `published_at_ms/ttl_ms` 而没有 sequence。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。持久可信时间、首次观察与配置版本、rendezvous ID-only 来源链、持久 sequence/tombstone/高水位、rendezvous 协议操作总预算、跨重启配额、有余量的抖动刷新和跨重启迁移仍待实现；自动 DHT／RR／缓存重发布采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
 
 ## Peer Reachability Contract Normalization
 本节是 2026-06-15 iroh-inspired follow-up 的设计落点。借鉴点只限于 identity-first address boundary、显式 selected path 与 reachability evidence；不引入 iroh 依赖，不替换 libp2p，也不采用 iroh relay/DNS/Pkarr 默认。

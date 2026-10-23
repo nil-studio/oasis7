@@ -61,7 +61,7 @@ impl Agent {
         // original intent or effect readback.
         io::private_dir(&action_dir)?;
         let lock = io::private_file(&action_dir.join("agent.lock"))?;
-        lock.try_lock().map_err(|_| "remote operation agent busy")?;
+        let _lock = io::WriterLock::try_lock(lock).map_err(|_| "remote operation agent busy")?;
         verify_target_binding(&request, runner)?;
         if request.mode == AgentModeV1::Query {
             let path = action_path(&action_dir, &request.action_id)?;

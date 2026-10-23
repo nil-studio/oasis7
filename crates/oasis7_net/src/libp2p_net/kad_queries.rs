@@ -350,7 +350,12 @@ pub(super) fn handle_dht_progress(
                     providers: found,
                     ..
                 })) => {
-                    peers.extend(found);
+                    for peer in found {
+                        if peers.len() >= super::discovery_budget::MAX_DISCOVERY_IDS {
+                            break;
+                        }
+                        peers.insert(peer);
+                    }
                 }
                 kad::QueryResult::GetProviders(Ok(
                     kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },

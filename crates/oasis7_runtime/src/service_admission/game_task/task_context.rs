@@ -44,11 +44,23 @@ fn validate_context_expiry(
     world: &World,
     context: &oasis7_agent_api::game::TaskContextIdentityV1,
 ) -> Result<(), String> {
-    let authority =
-        crate::World::canonical_agent_service_context(world, &context.fence.agent_id)?;
-    if world.state().time > context.valid_until_tick.0
-        || context.valid_until_tick.0 > authority.capability_catalog.valid_until_tick
-    {
+    let grant_until = match context.authority_mode {
+        None => {
+            world
+                .canonical_agent_service_context(&context.fence.agent_id)?
+                .capability_catalog
+                .valid_until_tick
+        }
+        Some(_) => {
+            let native = world.canonical_native_task_authority(&context.fence)?;
+            if context.native_authorization_root.as_ref() != Some(&native.native_authorization_root)
+            {
+                return Err("native task authority definition changed".into());
+            }
+            native.valid_until_tick
+        }
+    };
+    if world.state().time > context.valid_until_tick.0 || context.valid_until_tick.0 > grant_until {
         return Err("task context expired or exceeds canonical grant expiry".into());
     }
     Ok(())
@@ -172,8 +184,20 @@ pub fn task_cognition_intent(
     subject: &str,
 ) -> Result<CognitionIntentV1, String> {
     validate_task_context_capture(world, context, subject)?;
-    let authority =
-        crate::World::canonical_agent_service_context(world, &context.fence.agent_id)?;
+    let provider = if context.authority_mode.is_none() {
+        Some(world.canonical_agent_service_context(&context.fence.agent_id)?)
+    } else {
+        None
+    };
+    let native = if context.authority_mode.is_some() {
+        Some(world.canonical_native_task_authority(&context.fence)?)
+    } else {
+        None
+    };
+    let authority = oasis7_client_api::world_service::task_context::TaskAuthorityRef::select(
+        provider.as_ref(),
+        native.as_ref(),
+    )?;
     let actor = world
         .state()
         .agents
@@ -185,7 +209,7 @@ pub fn task_cognition_intent(
         world
             .current_cognition_base_binding()
             .map_err(|e| format!("{e:?}"))?,
-        &authority,
+        authority,
         &actor,
         action,
     )
@@ -228,6 +252,14 @@ pub fn validate_task_commit_context(
             && context.retry_seq == request.retry_seq
             && context.transport_attempt == request.transport_attempt
         {
+            if context.authority_mode.is_some() {
+                let current = world.canonical_native_task_authority(&context.fence)?;
+                if request.capability_snapshot_hash != current.capability_snapshot_hash
+                    || request.authority_context_hash != current.authority_context_hash
+                {
+                    return Err("native task action authority root changed".into());
+                }
+            }
             return validate_context_capture_staged(world, context, subject, staged);
         }
     }

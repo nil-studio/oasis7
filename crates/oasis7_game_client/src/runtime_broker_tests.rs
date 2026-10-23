@@ -141,6 +141,13 @@ fn broker_rejects_owner_raw_options_hash_changes_aliases_and_unsupported_profile
         vec!["owner"],
         vec!["identity-operation-id"],
         vec!["describe", "--config", "/tmp/x"],
+        vec![
+            "context",
+            "--operation",
+            "native",
+            "--authority-mode",
+            "native_executor_v1",
+        ],
         vec!["lookup", "--kind", "prefix", "--kind", "action"],
         vec!["move", "--signer-file", "/tmp/key"],
     ] {
@@ -349,5 +356,86 @@ fn broker_vault_lifetime_pin_rejects_root_loss_root_change_and_resource_rename()
         execute(&f.c, secret, &q("B", "b-next", "describe"))
             .unwrap_err()
             .contains("history missing")
+    );
+}
+
+#[test]
+fn broker_accepts_real_runtime_sized_pinned_binary_without_expanding_small_inputs() {
+    let f = fixture(1);
+    let path = f.root.join("runtime-sized-artifact");
+    let binary = std::fs::File::create(&path).unwrap();
+    // Same size as the deployed Codex runtime, represented sparsely. This
+    // fixture is never executed and asserts only artifact pin verification.
+    binary.set_len(249_954_368).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let large = PinnedArtifact {
+        path,
+        // Independently precomputed SHA256 of 249,954,368 zero bytes.
+        sha256: "116d8d0ff92f324e364103776042b24770be176dd17f6ae3976359da7d2c2b96".into(),
+    };
+    let mut c = f.c.clone();
+    c.runtime_binary = large.clone();
+    assert!(
+        c.validate().is_ok(),
+        "a correctly pinned real-sized Runtime must pass artifact verification"
+    );
+    let mut c = f.c.clone();
+    c.client_binary = large.clone();
+    assert!(
+        c.validate().is_ok(),
+        "the native client gets the same streaming binary verification"
+    );
+    c.client_binary = f.c.client_binary.clone();
+    c.client_binary.sha256 = "00".repeat(32);
+    assert!(c.validate().unwrap_err().contains("hash mismatch"));
+    for kind in ["skill", "source", "executor_config"] {
+        let mut c = f.c.clone();
+        match kind {
+            "skill" => c.skill = large.clone(),
+            "source" => c.source_attestation = large.clone(),
+            _ => c.resources.get_mut("A").unwrap().executor_config = large.clone(),
+        }
+        assert!(
+            c.validate().unwrap_err().contains("size invalid"),
+            "small-input bound must remain unchanged for {kind}"
+        );
+    }
+}
+
+#[test]
+fn broker_oversized_binary_and_aliases_fail_before_hashing() {
+    let f = fixture(1);
+    let path = f.root.join("oversized-runtime");
+    let binary = std::fs::File::create(&path).unwrap();
+    binary
+        .set_len(MAX_BINARY_ARTIFACT_BYTES as u64 + 1)
+        .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let artifact = PinnedArtifact {
+        path: path.clone(),
+        sha256: "00".repeat(32),
+    };
+    assert!(
+        pinned_binary(&artifact)
+            .unwrap_err()
+            .contains("size invalid")
+    );
+    let link = f.root.join("runtime-alias");
+    std::os::unix::fs::symlink(&f.c.runtime_binary.path, &link).unwrap();
+    let alias = PinnedArtifact {
+        path: link,
+        sha256: f.c.runtime_binary.sha256.clone(),
+    };
+    assert!(
+        pinned_binary(&alias)
+            .unwrap_err()
+            .contains("path or size invalid")
+    );
+    let hard_link = f.root.join("runtime-hardlink");
+    std::fs::hard_link(&f.c.runtime_binary.path, &hard_link).unwrap();
+    assert!(
+        pinned_binary(&f.c.runtime_binary)
+            .unwrap_err()
+            .contains("path or size invalid")
     );
 }

@@ -146,6 +146,7 @@ impl Probe {
             signed_payload: payload,
         };
         let client = Client {
+            authority_mode: None,
             world: config.expected_world.clone(),
             agent: "a".into(),
             public_key: authority::sign_read_request("key", (), &hex::encode([7; 32]))
@@ -361,6 +362,7 @@ fn restarted_cached_original_retries_transient_queries_without_submit_or_new_ide
             .unwrap();
         assert_eq!(cached, probe.original);
         let restarted = Client {
+            authority_mode: None,
             remote: crate::WorldServiceTaskClient::new(probe.client.remote.config().clone())
                 .unwrap(),
             world: probe.client.world.clone(),

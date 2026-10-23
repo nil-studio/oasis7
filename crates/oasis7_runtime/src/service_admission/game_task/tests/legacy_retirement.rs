@@ -9,7 +9,8 @@ fn legacy_context(world: &World, agent: &str, decision: &str) -> ContinuousAgent
             "observation": oasis7_agent_api::ProviderObservation::default(),
             "action_catalog":[{"action_ref":"wait", "summary":"Wait"}], "timeout_budget_ms":60000},
         "timeout_budget_ms":60000
-    })).unwrap();
+    }))
+    .unwrap();
     base.observation.agent_id = agent.into();
     let digest = format!("blake3:{}", "11".repeat(32));
     let mut request: ContinuousAgentRequestContextV1 = serde_json::from_value(serde_json::json!({

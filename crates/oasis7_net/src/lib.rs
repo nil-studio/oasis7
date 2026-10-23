@@ -116,11 +116,11 @@ pub use libp2p_net::error_mapping::{
 
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
 pub use libp2p_net::{
-    Libp2pControlPlaneMetricsSnapshot, Libp2pNetwork, Libp2pNetworkConfig,
-    Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot, LiveAutoNatStatus,
-    LiveHolePunchState, LivePublicPortReachability, LiveTransportKind, LiveTransportTransition,
-    LiveTransportTransitionCounters, PeerManagerBlockArtifact, PeerManagerHealthIssue,
-    PeerManagerHealthStatus, PeerManagerPeerHealth, PeerManagerPolicy,
+    DiscoveryWorkMetricsSnapshot, Libp2pControlPlaneMetricsSnapshot, Libp2pNetwork,
+    Libp2pNetworkConfig, Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot,
+    LiveAutoNatStatus, LiveHolePunchState, LivePublicPortReachability, LiveTransportKind,
+    LiveTransportTransition, LiveTransportTransitionCounters, PeerManagerBlockArtifact,
+    PeerManagerHealthIssue, PeerManagerHealthStatus, PeerManagerPeerHealth, PeerManagerPolicy,
     TrafficDirectionMetricsSnapshot, TrafficLaneMetricsSnapshot, WireByteDirectionMetricsSnapshot,
     WireByteLaneMetricsSnapshot,
 };

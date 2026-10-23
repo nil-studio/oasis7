@@ -31,15 +31,17 @@ pub(crate) fn create(
     getrandom::fill(&mut *bytes).map_err(|_| "private task randomness unavailable")?;
     let valid_until_tick = context_deadline(
         snapshot.captured_base_binding.base_tick,
-        snapshot
-            .provider_authority
-            .capability_catalog
-            .valid_until_tick,
+        snapshot.authority_valid_until_tick()?,
     )?;
     let mut record = PreparedTaskContextV1 {
-        schema_revision: 1,
+        schema_revision: snapshot.schema_revision,
         identity: TaskContextIdentityV1 {
-            schema_revision: 1,
+            authority_mode: original.request.authority_mode,
+            native_authorization_root: snapshot
+                .native_authority
+                .as_ref()
+                .map(|a| a.native_authorization_root.clone()),
+            schema_revision: snapshot.schema_revision,
             fence: original.request.fence.clone(),
             valid_until_tick,
             agent_session_id: random_id("task-session")?,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::WorldServiceClientError;
 use oasis7_agent_api::game::{DecimalU64, GAME_TASK_CREATE_DOMAIN, GameTaskCreateV1};
 use std::{
     io::{Read, Write},
@@ -120,4 +121,140 @@ fn lost_task_submit_is_unknown_and_only_explicit_lookup_recovers_same_signed_req
         IntentOutcome::Pending
     ));
     server.join().unwrap();
+}
+
+fn assert_snapshot_reader_rejects_wrong_mode(native_reply: bool, legacy_reader: bool) {
+    use oasis7_agent_api::game::{GameTaskFenceV1, TaskContextAuthorityModeV1};
+    use oasis7_client_api::world_service::task_context::*;
+    let (snapshot_bytes, request_bytes): (&[u8], &[u8]) = if native_reply {
+        (
+            include_bytes!("../testdata/task-context/native-snapshot.json"),
+            include_bytes!("../testdata/task-context/native-snapshot-request.json"),
+        )
+    } else {
+        (
+            include_bytes!("../testdata/task-context/provider-snapshot.json"),
+            include_bytes!("../testdata/task-context/provider-snapshot-request.json"),
+        )
+    };
+    let snapshot: GoalExecutionSnapshotV1 = serde_json::from_slice(snapshot_bytes).unwrap();
+    let original: SignedReadRequest<TaskGoalSnapshotRequestV1> =
+        serde_json::from_slice(request_bytes).unwrap();
+    snapshot.validate().unwrap();
+    verify_snapshot_request(&original).unwrap();
+    assert!(GameTaskFenceV1::from_control(&snapshot.control) == original.request.fence);
+    assert_eq!(
+        snapshot.authority_mode().unwrap(),
+        original.request.authority_mode
+    );
+    assert_eq!(
+        original.subject_public_key,
+        original
+            .request
+            .fence
+            .executor_binding
+            .as_ref()
+            .unwrap()
+            .executor_public_key
+    );
+    let mut opposite = original.request.clone();
+    opposite.authority_mode = if native_reply {
+        None
+    } else {
+        Some(TaskContextAuthorityModeV1::NativeExecutorV1)
+    };
+    opposite.schema_revision = TaskContextAuthorityModeV1::schema_revision(opposite.authority_mode);
+    let opposite = sign_read_request(TASK_SNAPSHOT_PATH, opposite, &hex::encode([73; 32])).unwrap();
+    verify_snapshot_request(&opposite).unwrap();
+    assert_eq!(opposite.subject_public_key, original.subject_public_key);
+    for mismatch in [false, true] {
+        let selected = if mismatch { &opposite } else { &original };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut config = crate::tests::config(format!("http://{}", listener.local_addr().unwrap()));
+        config.expected_world = snapshot.read_commit.world.clone();
+        config.scope_id = format!("agent:{}", original.request.fence.agent_id);
+        config.max_response_bytes = MAX_PRIVATE_CONTEXT_BYTES;
+        config.timeout = std::time::Duration::from_secs(2);
+        let expected = selected.clone();
+        let snapshot = snapshot.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let received: SignedReadRequest<TaskGoalSnapshotRequestV1> =
+                serde_json::from_slice(&body(&mut stream)).unwrap();
+            assert!(received == expected);
+            let response = sign_service_response(
+                TASK_SNAPSHOT_PATH,
+                request_digest(TASK_SNAPSHOT_PATH, &received).unwrap(),
+                snapshot,
+                &hex::encode([9; 32]),
+            )
+            .unwrap();
+            let bytes = serde_json::to_vec(&response).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            )
+            .unwrap();
+            stream.write_all(&bytes).unwrap();
+        });
+        let result = if legacy_reader {
+            crate::legacy_profile::LegacyWorldServiceClient::new(
+                crate::remote_world_service::WorldServiceClientConfig {
+                    formal_read_trust: None,
+                    endpoint: config.endpoint,
+                    trusted_service_public_key: config.trusted_service_public_key,
+                    expected_world: config.expected_world,
+                    scope_id: config.scope_id,
+                    read_private_key_hex: config.read_private_key_hex,
+                    timeout: config.timeout,
+                    max_response_bytes: config.max_response_bytes,
+                },
+            )
+            .unwrap()
+            .read_task_goal_snapshot(selected)
+        } else {
+            WorldServiceTaskClient::new(config)
+                .unwrap()
+                .read_task_goal_snapshot(selected)
+        };
+        if mismatch {
+            match result {
+                Err(WorldServiceClientError::Assurance(message)) => assert_eq!(
+                    message,
+                    if legacy_reader {
+                        "private task response not verified"
+                    } else {
+                        "snapshot authority mode differs"
+                    }
+                ),
+                Err(error) => panic!("unexpected snapshot failure: {error}"),
+                Ok(_) => {
+                    panic!("valid signed snapshot from the opposite authority mode was accepted")
+                }
+            }
+        } else {
+            assert!(
+                result.is_ok(),
+                "matching signed snapshot must pass all reader checks"
+            );
+        }
+        server.join().unwrap();
+    }
+}
+#[test]
+fn task_snapshot_reader_rejects_signed_provider_reply_for_native_request() {
+    assert_snapshot_reader_rejects_wrong_mode(false, false);
+}
+#[test]
+fn task_snapshot_reader_rejects_signed_native_reply_for_provider_request() {
+    assert_snapshot_reader_rejects_wrong_mode(true, false);
+}
+#[test]
+fn legacy_snapshot_reader_rejects_signed_provider_reply_for_native_request() {
+    assert_snapshot_reader_rejects_wrong_mode(false, true);
+}
+#[test]
+fn legacy_snapshot_reader_rejects_signed_native_reply_for_provider_request() {
+    assert_snapshot_reader_rejects_wrong_mode(true, true);
 }

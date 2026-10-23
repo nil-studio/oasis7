@@ -25,8 +25,7 @@ impl OwnerControlHostAuthority for Registry {
     }
 }
 
-#[test]
-fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
+fn native_grant_world(grant_agents: &[&str]) -> (oasis7_runtime::World, String) {
     let mut world = oasis7_runtime::World::new();
     let public = super::super::authority::sign_read_request("fixture", (), &"71".repeat(32))
         .unwrap()
@@ -55,6 +54,8 @@ fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
         world
             .install_capability_agent_identity(agent, "owner", 1)
             .unwrap();
+    }
+    for agent in grant_agents.iter().copied() {
         let mut request = oasis7_proto::agency_control::AgencyControlRequest {
             frame_type: oasis7_proto::agency_control::AGENCY_CONTROL_REQUEST_TYPE.into(),
             request_id: format!("grant-{agent}"),
@@ -101,6 +102,12 @@ fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
     world
         .bind_cognition_runtime("world", "main", 0, None, "pending", 0)
         .unwrap();
+    (world, public)
+}
+
+#[test]
+fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
+    let (world, public) = native_grant_world(&["agent-a", "agent-b"]);
     let before = serde_json::to_value(world.snapshot()).unwrap();
     for scope in [None, Some("agent-a")] {
         let generic = crate::projection::from_world(&world, scope).unwrap();
@@ -130,5 +137,20 @@ fn native_grant_projection_is_agent_scoped_and_absent_from_generic_reads() {
             .unwrap()
             .native_delegation_authorizations
             .is_empty()
+    );
+}
+
+#[test]
+fn unrelated_agents_business_grant_does_not_populate_empty_agent_projection() {
+    let (world, public) = native_grant_world(&["agent-b"]);
+    let agent_a =
+        crate::projection::from_authenticated_world(&world, Some("agent-a"), &public).unwrap();
+    assert!(agent_a.native_delegation_authorizations.is_empty());
+    let agent_b =
+        crate::projection::from_authenticated_world(&world, Some("agent-b"), &public).unwrap();
+    assert_eq!(agent_b.native_delegation_authorizations.len(), 1);
+    assert_eq!(
+        agent_b.native_delegation_authorizations[0].grant.agent_id,
+        "agent-b"
     );
 }

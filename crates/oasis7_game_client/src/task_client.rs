@@ -231,6 +231,10 @@ impl WorldServiceTaskClient {
             &self.config().trusted_service_public_key,
         )
         .map_err(assurance)?;
+        if response.payload.authority_mode().map_err(assurance)? != original.request.authority_mode
+        {
+            return Err(assurance("snapshot authority mode differs".to_owned()));
+        }
         response.payload.validate().map_err(assurance)?;
         if GameTaskFenceV1::from_control(&response.payload.control) != original.request.fence {
             return Err(assurance("snapshot fence differs"));

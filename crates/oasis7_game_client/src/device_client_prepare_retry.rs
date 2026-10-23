@@ -71,6 +71,7 @@ mod tests {
         authority::sign_read_request(
             TASK_CONTEXT_PREPARE_PATH,
             TaskContextPrepareV1 {
+                authority_mode: None,
                 schema_revision: 1,
                 fence: GameTaskFenceV1::from_control(&control),
                 client_operation_id: "immutable-prepare".into(),
@@ -80,6 +81,57 @@ mod tests {
         )
         .unwrap()
     }
+    #[test]
+    fn authority_selection_preserves_provider_wire_and_is_signed_for_native() {
+        #[derive(Serialize)]
+        struct LegacyPrepare<'a> {
+            schema_revision: u32,
+            fence: &'a GameTaskFenceV1,
+            client_operation_id: &'a str,
+            client_nonce: &'a str,
+        }
+        let provider = original();
+        let request = &provider.request;
+        let legacy = LegacyPrepare {
+            schema_revision: request.schema_revision,
+            fence: &request.fence,
+            client_operation_id: &request.client_operation_id,
+            client_nonce: &request.client_nonce,
+        };
+        assert_eq!(
+            serde_json::to_vec(request).unwrap(),
+            serde_json::to_vec(&legacy).unwrap()
+        );
+        assert_eq!(
+            serde_cbor::to_vec(request).unwrap(),
+            serde_cbor::to_vec(&legacy).unwrap()
+        );
+        let mut native = request.clone();
+        native.authority_mode = Some(TaskContextAuthorityModeV1::NativeExecutorV1);
+        native.schema_revision = 2;
+        let native =
+            authority::sign_read_request(TASK_CONTEXT_PREPARE_PATH, native, &hex::encode([7; 32]))
+                .unwrap();
+        verify_prepare(&native).unwrap();
+        assert_ne!(
+            authority::request_digest(TASK_CONTEXT_PREPARE_PATH, &provider).unwrap(),
+            authority::request_digest(TASK_CONTEXT_PREPARE_PATH, &native).unwrap()
+        );
+        let mut substituted = provider.clone();
+        substituted.request.authority_mode = native.request.authority_mode;
+        substituted.request.schema_revision = 2;
+        assert!(verify_prepare(&substituted).is_err());
+        let mut wrong_revision = native.request.clone();
+        wrong_revision.schema_revision = 1;
+        let wrong_revision = authority::sign_read_request(
+            TASK_CONTEXT_PREPARE_PATH,
+            wrong_revision,
+            &hex::encode([7; 32]),
+        )
+        .unwrap();
+        assert!(verify_prepare(&wrong_revision).is_err());
+    }
+
     #[test]
     fn prepare_persisted_then_response_lost_retries_identical_signed_original() {
         let original = original();

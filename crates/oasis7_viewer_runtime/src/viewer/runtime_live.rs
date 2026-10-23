@@ -735,7 +735,7 @@ impl ViewerRuntimeLiveServer {
                                 )?;
                             }
                             agency_control::ParsedAgencyControlFrame::NotAgencyControl => {
-                                if let Ok(request) = serde_json::from_str::<ViewerRequest>(trimmed)
+                                if let Ok(request) = oasis7_viewer_codec::request_from_json(trimmed)
                                 {
                                     let chain_prime = Self::prime_shared_request_if_needed(
                                         &shared, &request, &session,

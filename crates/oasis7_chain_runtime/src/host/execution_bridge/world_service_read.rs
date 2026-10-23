@@ -101,6 +101,53 @@ pub(crate) fn pin_with_context(
     )
 }
 
+/// Offline administrative reads require the exact trusted current head. Unlike
+/// ordinary historical recovery, a malformed newest numbered record must not
+/// silently select an older valid prefix or a mutable world cache.
+pub(crate) fn pin_offline_current_with_context(
+    records: &Path,
+    storage: &Path,
+    identity: &WorldIdentity,
+    expected: Option<&CommitRef>,
+    context: &RestoreContext,
+) -> Result<PinnedWorld, String> {
+    fn latest_record(records: &Path) -> Result<Option<ExecutionBridgeRecord>, String> {
+        let path = records.join("latest.json");
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() => {
+                checkpoint::load_execution_bridge_record(&path).map(Some)
+            }
+            Ok(_) => Err("offline latest record is not a regular file".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err("offline latest record unavailable".into()),
+        }
+    }
+    let heights = checkpoint::list_execution_bridge_record_heights(records)?;
+    let height = heights.last().copied().ok_or(
+        "offline canonical read requires numbered execution records; bootstrap unsupported",
+    )?;
+    // A convenience pointer cannot choose the head, but an advertised newer
+    // tail is evidence that selecting an older numbered prefix would downgrade.
+    let latest = latest_record(records)?;
+    if latest.as_ref().is_some_and(|record| record.height > height) {
+        return Err("offline latest pointer advertises a missing numbered tail".into());
+    }
+    if expected.is_some_and(|expected| expected.world != *identity || height != expected.position) {
+        return Err("offline canonical head differs from trusted expected commit".into());
+    }
+    let pinned = pin_at_height_with_context(records, storage, identity, height, context)?;
+    if pinned.commit.position != height
+        || expected.is_some_and(|expected| pinned.commit != *expected)
+        || checkpoint::list_execution_bridge_record_heights(records)? != heights
+        || latest_record(records)? != latest
+    {
+        return Err(
+            "offline canonical head changed or differs from trusted expected commit".into(),
+        );
+    }
+    Ok(pinned)
+}
+
 /// Verify the immutable initial publication package without consulting live
 /// CAS. The caller authenticates each archived byte string and the original
 /// node signature before using this result; current heads still use `pin`.

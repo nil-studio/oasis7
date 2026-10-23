@@ -548,65 +548,17 @@ fn validate_runtime_identity(
         return Err(CognitionValidationError::new("recovery_pending"));
     }
 
-    let authorities = &world.capability_revocation_state().authority_records;
-    if let Some(first) = authorities.values().next() {
-        // A capability authority record is the existing durable branch and
-        // finality source.  More than one disagreeing record is an upstream
-        // contradiction, not a reason to choose an arbitrary record.
-        let consistent = authorities.values().all(|record| {
-            record.world_id == first.world_id
-                && record.branch_id == first.branch_id
-                && record.finality_epoch == first.finality_epoch
-                && record.finality_block_hash == first.finality_block_hash
-                && record.finality_status == first.finality_status
-        });
-        if !consistent {
-            return Err(CognitionValidationError::new("recovery_pending"));
-        }
-        if first.world_id != envelope.world_id || first.branch_id != envelope.branch_id {
-            return Err(CognitionValidationError::new("reorg_invalidated"));
-        }
-        // Governance stores `finalized`; the cognition wire uses `verified`
-        // for the same finalized anchor.  No other status is interchangeable.
-        if !((first.finality_status == "finalized" && envelope.finality_status == "verified")
-            || first.finality_status == envelope.finality_status)
-        {
-            return Err(CognitionValidationError::new("reorg_invalidated"));
-        }
-        if first.finality_epoch != envelope.finality_epoch
-            || envelope
-                .finality_block_hash
-                .as_deref()
-                .is_some_and(|hash| hash != first.finality_block_hash)
-        {
-            return Err(CognitionValidationError::new("reorg_invalidated"));
-        }
-    } else if let Some(record) = world.latest_tick_consensus_record() {
-        // Tick consensus has no branch field, so it can anchor the epoch and
-        // block only.  Branch identity remains supplied by a capability
-        // authority record; accepting a guessed branch here would weaken the
-        // reorg boundary.
-        if record.block.header.epoch != envelope.finality_epoch
-            || envelope
-                .finality_block_hash
-                .as_deref()
-                .is_some_and(|hash| hash != record.certificate.block_hash)
-        {
-            return Err(CognitionValidationError::new("reorg_invalidated"));
-        }
-    }
-
-    let intent_reorg_epochs = world
-        .read_retained_reorg_epoch_summary()
-        .map_err(|_| CognitionValidationError::new("recovery_pending"))?;
-    if intent_reorg_epochs.has_multiple() {
-        return Err(CognitionValidationError::new("recovery_pending"));
-    }
-    if let Some(reorg_epoch) = intent_reorg_epochs.single_epoch()
-        && reorg_epoch != envelope.reorg_epoch
-    {
-        return Err(CognitionValidationError::new("reorg_invalidated"));
-    }
+    validate_authority_pin(
+        world,
+        CognitionAuthorityPin {
+            world_id: &envelope.world_id,
+            branch_id: &envelope.branch_id,
+            finality_status: &envelope.finality_status,
+            finality_epoch: envelope.finality_epoch,
+            finality_block_hash: envelope.finality_block_hash.as_deref(),
+            reorg_epoch: envelope.reorg_epoch,
+        },
+    )?;
 
     // An empty World is the explicitly supported bootstrap compatibility lane.
     // Once any versioned world/agent/finality state is present, identity is
@@ -625,6 +577,97 @@ fn validate_runtime_identity(
         return Err(CognitionValidationError::new("reorg_invalidated"));
     }
     Ok(())
+}
+
+struct CognitionAuthorityPin<'a> {
+    world_id: &'a str,
+    branch_id: &'a str,
+    finality_status: &'a str,
+    finality_epoch: u64,
+    finality_block_hash: Option<&'a str>,
+    reorg_epoch: u64,
+}
+
+fn validate_authority_pin(
+    world: &World,
+    pin: CognitionAuthorityPin<'_>,
+) -> Result<(), CognitionValidationError> {
+    let authorities = &world.capability_revocation_state().authority_records;
+    if let Some(first) = authorities.values().next() {
+        // A capability authority record is the existing durable branch and
+        // finality source.  More than one disagreeing record is an upstream
+        // contradiction, not a reason to choose an arbitrary record.
+        let consistent = authorities.values().all(|record| {
+            record.world_id == first.world_id
+                && record.branch_id == first.branch_id
+                && record.finality_epoch == first.finality_epoch
+                && record.finality_block_hash == first.finality_block_hash
+                && record.finality_status == first.finality_status
+        });
+        if !consistent {
+            return Err(CognitionValidationError::new("recovery_pending"));
+        }
+        if first.world_id != pin.world_id || first.branch_id != pin.branch_id {
+            return Err(CognitionValidationError::new("reorg_invalidated"));
+        }
+        // Governance stores `finalized`; the cognition wire uses `verified`
+        // for the same finalized anchor.  No other status is interchangeable.
+        if !((first.finality_status == "finalized" && pin.finality_status == "verified")
+            || first.finality_status == pin.finality_status)
+        {
+            return Err(CognitionValidationError::new("reorg_invalidated"));
+        }
+        if first.finality_epoch != pin.finality_epoch
+            || pin
+                .finality_block_hash
+                .is_some_and(|hash| hash != first.finality_block_hash)
+        {
+            return Err(CognitionValidationError::new("reorg_invalidated"));
+        }
+    } else if let Some(record) = world.latest_tick_consensus_record() {
+        // Tick consensus has no branch field, so it can anchor the epoch and
+        // block only.  Branch identity remains supplied by a capability
+        // authority record; accepting a guessed branch here would weaken the
+        // reorg boundary.
+        if record.block.header.epoch != pin.finality_epoch
+            || pin
+                .finality_block_hash
+                .is_some_and(|hash| hash != record.certificate.block_hash)
+        {
+            return Err(CognitionValidationError::new("reorg_invalidated"));
+        }
+    }
+
+    let intent_reorg_epochs = world
+        .read_retained_reorg_epoch_summary()
+        .map_err(|_| CognitionValidationError::new("recovery_pending"))?;
+    if intent_reorg_epochs.has_multiple() {
+        return Err(CognitionValidationError::new("recovery_pending"));
+    }
+    if let Some(reorg_epoch) = intent_reorg_epochs.single_epoch()
+        && reorg_epoch != pin.reorg_epoch
+    {
+        return Err(CognitionValidationError::new("reorg_invalidated"));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn validate_native_task_base_authority(
+    world: &World,
+    base: &crate::cognition_recovery::RuntimeCognitionBaseBindingV1,
+) -> Result<(), CognitionValidationError> {
+    validate_authority_pin(
+        world,
+        CognitionAuthorityPin {
+            world_id: &base.world_id,
+            branch_id: &base.branch_id,
+            finality_status: &base.finality_status,
+            finality_epoch: base.finality_epoch,
+            finality_block_hash: base.finality_block_hash.as_deref(),
+            reorg_epoch: base.reorg_epoch,
+        },
+    )
 }
 
 fn validate_finality_binding(

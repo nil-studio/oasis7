@@ -305,6 +305,16 @@ fn main() {
     init_tracing(TRACE_SESSION_PROCESS_LABEL);
     let trace_session_id = resolve_trace_session_id(TRACE_SESSION_PROCESS_LABEL);
     let raw_args: Vec<String> = env::args().skip(1).collect();
+    if raw_args
+        .first()
+        .is_some_and(|arg| arg == "--identity-snapshot-export")
+    {
+        if let Err(error) = hosted_identity::snapshot_export::run(&raw_args[1..]) {
+            eprintln!("identity snapshot export failed: {error}");
+            process::exit(1);
+        }
+        return;
+    }
     if raw_args.iter().any(|arg| arg == "--help" || arg == "-h") {
         print_help();
         return;
