@@ -32,6 +32,19 @@ class GenerationTests(unittest.TestCase):
         change(source)
         self.source.write_bytes(g.encoded(source))
 
+    def test_logical_paths_are_portable_posix(self):
+        from pathlib import PureWindowsPath, PurePosixPath
+        for kind in (PureWindowsPath, PurePosixPath):
+            base = kind("crates") / "oasis7_agent_api" / "protocol_codegen"
+            self.assertEqual(g.logical(base / "generated"), "crates/oasis7_agent_api/protocol_codegen/generated")
+            self.assertEqual(g.logical(base / "profile.json"), "crates/oasis7_agent_api/protocol_codegen/profile.json")
+            self.assertEqual(g.logical(base / "toolchain.lock.json"), "crates/oasis7_agent_api/protocol_codegen/toolchain.lock.json")
+            self.assertEqual(g.logical(base / "generate.py"), "crates/oasis7_agent_api/protocol_codegen/generate.py")
+        profile, _, outputs = g.generate(self.root)
+        self.assertNotIn(chr(92), profile["output"])
+        manifest = json.loads(outputs["manifest.json"])
+        self.assertTrue(all(chr(92) not in path for path in manifest["inputs"]))
+
     def test_deterministic_across_paths_and_unrelated_files(self):
         expected = g.generate()[2]
         self.assertEqual(g.generate(self.root)[2], expected)

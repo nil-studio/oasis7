@@ -37,6 +37,10 @@ def load(data):
         return result
     return json.loads(data, object_pairs_hook=pairs, parse_constant=lambda x: (_ for _ in ()).throw(Invalid("nonfinite JSON")))
 
+def logical(path):
+    """Portable repository-relative catalog/manifest spelling, independent of host."""
+    return path.as_posix()
+
 def safe(root, relative):
     path = Path(relative)
     if path.is_absolute() or ".." in path.parts:
@@ -260,13 +264,13 @@ def generate(root=ROOT):
         raise Invalid("unsupported profile configuration")
     if profile["format_version"] != 1 or profile["target"] != "http-json" or profile["features"] != [] or profile["export_roots"] != ["components/schemas", "paths"]:
         raise Invalid("unsupported profile configuration")
-    if profile["profile"] != "signed-read-bootstrap" or profile["source"] != "crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json" or profile["output"] != str(base / "generated"):
+    if profile["profile"] != "signed-read-bootstrap" or profile["source"] != "crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json" or profile["output"] != logical(base / "generated"):
         raise Invalid("profile source/output outside explicit managed paths")
     limits = profile["limits"]
     maxima = {"input_bytes": 2097152, "output_bytes": 4194304, "depth": 64, "nodes": 50000, "timeout_seconds": 10}
     if set(limits) != set(maxima) or any(type(value) is not int or value < 1 or value > maxima[key] for key, value in limits.items()):
         raise Invalid("invalid profile capacity limits")
-    paths = [profile["source"], str(base / "profile.json"), str(base / "toolchain.lock.json"), str(base / "generate.py")]
+    paths = [profile["source"], logical(base / "profile.json"), logical(base / "toolchain.lock.json"), logical(base / "generate.py")]
     inputs = {}
     for relative in paths:
         path = safe(root, relative)
@@ -276,7 +280,7 @@ def generate(root=ROOT):
         if len(data) > limits["input_bytes"]:
             raise Invalid("input capacity exceeded: " + relative)
         inputs[relative] = data
-    lock = load(inputs[str(base / "toolchain.lock.json")])
+    lock = load(inputs[logical(base / "toolchain.lock.json")])
     if set(lock) != {"generator", "python_major_minor", "dependencies", "schema_dialect"} or lock["generator"] != "python-stdlib" or lock["dependencies"] != {}:
         raise Invalid("unsupported toolchain lock")
     if list(sys.version_info[:2]) != lock["python_major_minor"]:
