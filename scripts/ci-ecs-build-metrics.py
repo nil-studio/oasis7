@@ -475,7 +475,7 @@ def measure(args):
               'measurement_order': list(revisions), 'revisions': revisions, 'jobs': args.jobs,
               'profile': 'ecs', 'features': 'default', 'incremental': 0,
               'runner': runner_resources(),
-              'limitations': ['single sequential sample per revision, no stable speedup claim',
+              'limitations': ['one cold build per revision; Viewer samples are sequential within each revision',
                               'shared prefetched Cargo source cache; separate initially empty targets',
                               'no cross-run remote workspace cache measurement',
                               'no Web build, package assembly, execution or tests'], 'results': {}}
@@ -545,6 +545,21 @@ def measure(args):
                     record['codec_cost'] = {'samples': 'codec-cost.json',
                                             'resources': 'codec-cost-resources.txt',
                                             'binary_sha256': digest(executable)}
+                event_cost = fixture['checkout'] / 'crates/oasis7_world_state/examples/event_value_cost.rs'
+                if event_cost.is_file():
+                    command = [*build_command(), '-p', 'oasis7_world_state',
+                               '--example', 'event_value_cost']
+                    with (out / label / 'event-value-cost-build.jsonl').open('w') as log:
+                        subprocess.run(command, cwd=fixture['checkout'], env=fixture['env'],
+                                       stdout=log, check=True)
+                    executable = fixture['target'] / 'ecs/examples/event_value_cost'
+                    with (out / label / 'event-value-cost.json').open('w') as log:
+                        subprocess.run(['/usr/bin/time', '-v', '-o',
+                                        str(out / label / 'event-value-cost-resources.txt'), str(executable)],
+                                       cwd=fixture['checkout'], env=fixture['env'], stdout=log, check=True)
+                    record['event_value_cost'] = {'samples': 'event-value-cost.json',
+                                                  'resources': 'event-value-cost-resources.txt',
+                                                  'binary_sha256': digest(executable)}
             finally:
                 record['source_restored'] = source_fingerprint(fixture['checkout']) == before
         for record in report['results'].values():
