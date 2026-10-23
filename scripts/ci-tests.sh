@@ -391,6 +391,7 @@ run_cargo_tooling_baseline_contract_tests() {
   run bash ./scripts/cargo-dev-worktree-isolation.test.sh
   run bash ./scripts/new-task-worktree.test.sh
   run bash ./scripts/check-launcher-p2p-dependency-surface.test.sh
+  run python3 ./scripts/cargo-dev-architecture.test.py
 }
 
 run_cargo_tooling_contract_tests() {
@@ -756,6 +757,10 @@ run_full_required_superset() {
 }
 
 run_rust_baseline() {
+  # Explicit preparation for the locked offline architecture inspector. A
+  # restored cache is optional and cannot stand in for dependency availability.
+  run_cargo fetch --locked
+  run python3 ./scripts/cargo-dev-architecture.py
   run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh

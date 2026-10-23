@@ -2,7 +2,7 @@
 
 - 适用需求：[Rust 工程契约需求](rust-engineering-contracts.prd.md)。
 - 技术依据：[Rust 工程契约系统设计](rust-engineering-contracts.design.md)。
-- 本文维护各实施切片的验收方法；Workspace 首批继承范围见系统设计，架构章节仍是后续切片的验收计划，signed-read 章节提供首个开发期工具的实际入口。方法和工具存在不代表一次运行通过，实际结果仍归对应 PR/CI。
+- 本文维护各实施切片的验收方法；Workspace 首批继承范围见系统设计，架构检查器与 signed-read 生成器的当前入口见对应章节。方法和工具存在不代表一次运行通过，实际结果仍归对应 PR/CI。
 - 通用验证范围、开发缓存与正式命令沿用 [testing-manual.md](../../../testing-manual.md) 和[开发流程规范](../workflow/source-of-truth.md)，不新增 gate、审批或强制任务。
 
 ## 执行前置与结果归属
@@ -47,6 +47,32 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 
 <a id="architecture-regressions"></a>
 ## RG-A01 / RG-A02：真实依赖正反例
+
+开发期入口为 `python3 scripts/cargo-dev-architecture.py`（Python 3.11+；按仓库方式先准备 Cargo target）。
+规则来自 `scripts/cargo-dev-architecture.json`，根身份固定为 path package 的名称、版本和 `source=null`。
+工具先用固定工具链的离线、锁定 metadata 归一声明；metadata 的 all-features **只用于身份解析**，
+不作为生产图。随后逐根、逐配置执行显式 kind/target/features 的 `cargo tree` 与同配置 `cargo check`；
+测试配置用 `--tests`，生产配置使用实际 lib 或 bins。完整 JSON 输出到 stdout，进度到 stderr；
+任一 violation、inspection_error 或 coverage_gap 都返回非零。
+
+首批配置在执行 host 上区分默认生产、无默认生产、manifest 实际拥有的 required/full/test-support，
+Game Client 另有必需的 `unit-tests` 测试闭包，防止通过 dev helper 传递回拉后端，
+Runtime 另列显式 Wasmtime 生产配置。Client Launcher 保留原脚本的 host/无默认 features/含 dev 范围，
+不把四项禁令扩大到所有版本或所有平台。Protocol Tools 的测试允许关系只命中其精确的
+`dev -> oasis7(default-features=false,features=[test_tier_required])` 首边；生产图仍完整检查。
+Harness 与 World State 另列 manifest 已有的 wasm32 默认/无默认 lib 编译配置，只证明其可移植合同层。
+Windows/wasm 的条件解析、host build 与 target 分离由真实最小 Cargo workspace 反例验证；
+本机 host 的构建结果不代表其他平台构建。平台支持与实际缺口仍按候选执行记录判断。
+
+`--graphs-only` 和 `--profile ID` 仅供排障：未构建或未选中的必需配置会输出 coverage_gap，不能作为门禁通过方式。
+`python3 scripts/cargo-dev-architecture.test.py` 运行临时真实 workspace 正反例，结束后删除夹具。
+现有可信 scope 的 `scripts/cargo-dev*` 已覆盖这些工具/规则路径；具体匹配追加 `rust_baseline` 执行真实图，
+`cargo_tooling_contracts` 执行反例。Cargo/lock/toolchain 继续通过既有共享控制与 Rust baseline 触发，
+required/full 使用既有汇总，旧 Launcher 检查保留。
+Launcher 的 `declaration_kinds=[]` 明确表示只投影旧脚本的激活图约束；报告保留该字段，
+不把外国 target 或未激活的声明当作 host 图违规。其余规则继续检查全部适用的直接声明。
+CI 在检查前显式运行 `cargo fetch --locked` 准备依赖；检查器本身始终离线、锁定，
+缓存不完整时返回 inspection_error，不自动改为在线解析或更新 lockfile。
 
 1. 检查器就绪后，用真实最小 Cargo workspace 构造夹具，固定依赖和 lock；分别测试直接依赖、中转传递依赖、build 依赖、optional feature、平台限定边、`package=` 别名及 workspace 继承。
 2. 先运行合法图，再仅引入一个违规边；以实际 Cargo 解析结果检查 rule key、root、kind、host/target、features、source 和可定位路径。声明违规与激活闭包违规分开核对。

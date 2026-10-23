@@ -32,6 +32,23 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_architecture_inputs_have_trusted_owner_and_select_execution(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json',
+                     'scripts/cargo-dev-architecture.test.py'):
+            with self.subTest(path=path):
+                # The existing cargo-dev* owner is already trusted before this
+                # PR. It must recognize first introduction without self-enrolment.
+                trusted = copy_config = json.loads(json.dumps(config))
+                copy_config['rules'] = [r for r in config['rules']
+                                        if r['reason'] != 'cargo_architecture_boundaries']
+                self.write(path, '# input')
+                head = self.commit()
+                self.assertIn('cargo_tooling_contracts', selector.select(trusted, self.base, head)['groups'])
+                plan = selector.select(config, self.base, head)
+                self.assertTrue({'rust_baseline', 'cargo_tooling_contracts'}.issubset(plan['groups']))
+                self.base = head
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = Path.cwd()
