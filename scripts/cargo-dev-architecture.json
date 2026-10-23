@@ -222,7 +222,7 @@
         {
           "id": "test_tier_required",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_required"
           ],
@@ -231,7 +231,7 @@
         {
           "id": "test_tier_full",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_full"
           ],
@@ -240,7 +240,7 @@
         {
           "id": "test-support",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test-support"
           ],
@@ -334,7 +334,7 @@
         {
           "id": "test_tier_required",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_required"
           ],
@@ -343,7 +343,7 @@
         {
           "id": "test_tier_full",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_full"
           ],
@@ -429,7 +429,7 @@
         {
           "id": "test_tier_required",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_required"
           ],
@@ -438,7 +438,7 @@
         {
           "id": "test_tier_full",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_full"
           ],
@@ -447,7 +447,7 @@
         {
           "id": "test-support",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test-support"
           ],
@@ -520,7 +520,7 @@
         {
           "id": "test_tier_required",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_required"
           ],
@@ -529,7 +529,7 @@
         {
           "id": "test_tier_full",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_full"
           ],
@@ -643,7 +643,7 @@
         {
           "id": "test_tier_required",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_required"
           ],
@@ -652,7 +652,7 @@
         {
           "id": "test_tier_full",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_full"
           ],
@@ -738,7 +738,7 @@
         {
           "id": "test_tier_required",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_required"
           ],
@@ -747,7 +747,7 @@
         {
           "id": "test_tier_full",
           "target": "host",
-          "default_features": false,
+          "default_features": true,
           "features": [
             "test_tier_full"
           ],
