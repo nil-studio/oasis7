@@ -24,7 +24,7 @@ Options:
   --as-of-unix-ms <n>              traffic/report cutoff; requires --traffic-history-path
   --traffic-history-path <path>    existing traffic history for read-only historical traffic
   --max-sample-age-secs <n>        traffic freshness limit (default: 60)
-  --max-sample-gap-secs <n>        traffic coverage gap limit (default: 60)
+  --max-sample-gap-secs <n>        traffic coverage gap limit (default: 120)
   --ssh-timeout-secs <n>           SSH connect timeout (default: 8)
   --out-dir <path>                 output root (default: .tmp/p2p_real_env_observability)
 
