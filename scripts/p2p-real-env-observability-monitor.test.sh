@@ -117,3 +117,5 @@ PY
 python3 ./scripts/p2p-real-env-observability-freshness.test.py
 
 python3 ./scripts/p2p-real-env-observability-attempt.test.py
+
+python3 ./scripts/p2p-real-env-observability-routing.test.py
