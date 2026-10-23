@@ -155,6 +155,41 @@ codegen-units = 16
             self.assertTrue(current[name]['lower_libraries']['oasis7_viewer_codec']['all_fresh'])
         self.assert_isolated_cleanup()
 
+    def test_runtime_event_codec_owner_invalidates_real_consumers(self):
+        self.package('oasis7_viewer_codec', ['oasis7_world_service'],
+                     'pub fn value() -> u32 { oasis7_world_service::value() }\n')
+        manifest = self.repo / 'crates/oasis7_viewer_runtime/Cargo.toml'
+        manifest.write_text(manifest.read_text().replace(
+            '[dependencies]\n',
+            '[dependencies]\noasis7_viewer_codec = { path = "../oasis7_viewer_codec" }\n'))
+        # Ensure all three production roots really consume this owner.
+        manifest = self.repo / 'crates/oasis7_game_client/Cargo.toml'
+        manifest.write_text(manifest.read_text() +
+                            '\n[dependencies]\noasis7_world_state = { path = "../oasis7_world_state" }\n')
+        self.write('crates/oasis7_game_client/src/lib.rs',
+                   'pub fn value() -> u32 { oasis7_world_state::value() }\n')
+        self.write('crates/oasis7_world_state/src/lib.rs',
+                   'mod codec; pub fn value() -> u32 { codec::value() }\n')
+        self.write(METRICS.RUNTIME_EVENT_CODEC_PATH, 'pub fn value() -> u32 { 3 }\n')
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=self.repo,
+                       env=self.env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.current = self.commit('reuse Runtime Event codec owner')
+        self.run_measurement(event_codec=True, baseline=self.current)
+        report = json.loads((self.out / 'report.json').read_text())
+        for record in report['results'].values():
+            self.assertTrue(record['source_restored'])
+            self.assertEqual(record['runtime_event_codec_mutation']['path'],
+                             METRICS.RUNTIME_EVENT_CODEC_PATH)
+            self.assertTrue(record['phases']['viewer_touch']['lower_libraries']
+                            ['oasis7_world_state']['all_fresh'])
+            touched = record['phases']['runtime_event_codec_touch']
+            for name in ('oasis7_world_state', 'oasis7_runtime',
+                         'oasis7_viewer_codec', 'oasis7_viewer_runtime'):
+                self.assertGreater(touched['local_crates'][name]['rebuilt'], 0)
+            self.assertTrue(all(not binary['fresh'] for binary in touched['binaries'].values()))
+            self.assertIn('codec_touch', record['phases'])
+        self.assert_isolated_cleanup()
+
     def tearDown(self):
         self.temporary.cleanup()
 
@@ -188,8 +223,10 @@ codegen-units = 16
                 '--baseline-ref', baseline or self.baseline, '--current-ref', self.current,
                 '--out-dir', str(out or self.out), '--work-dir', str(self.work), '--jobs', '1']
 
-    def run_measurement(self, *, expected=0, baseline=None, out=None, samples=1):
+    def run_measurement(self, *, expected=0, baseline=None, out=None, samples=1, event_codec=False):
         command = self.measurement_command(baseline, out) + ['--viewer-touch-samples', str(samples)]
+        if event_codec:
+            command.append('--runtime-event-codec-touch')
         result = subprocess.run(command, env=self.env, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=120)
         self.assertEqual(result.returncode, expected, result.stdout + '\n' + result.stderr)

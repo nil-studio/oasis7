@@ -32,6 +32,7 @@ ROOTS = {
 VIEWER_PATH = 'crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_view_source.rs'
 PATCH_BYTES = b'\n// ECS build measurement: deterministic Viewer source-only invalidation.\n'
 CODEC_PATH = 'crates/oasis7_viewer_codec/src/lib.rs'
+RUNTIME_EVENT_CODEC_PATH = 'crates/oasis7_world_state/src/codec.rs'
 PHASES = ('seed', 'no_op', 'viewer_touch')
 LOWER_LIBRARIES = ('oasis7_world_state', 'oasis7_world_projection', 'oasis7_runtime',
                    'oasis7_world_service', 'oasis7_game_client')
@@ -354,11 +355,25 @@ def measure_build(fixture, phase, out, expected_source):
         codec_exists = (fixture['checkout'] / CODEC_PATH).is_file()
         if codec_exists and not codec_units:
             raise MeasurementError('new codec is missing from the production Cargo unit set')
+        if phase.startswith('viewer_touch') and any(
+                observation['all_fresh'] is not True
+                for observation in result['lower_libraries'].values()
+                if observation['observed_units']):
+            raise MeasurementError('Viewer orchestration touch unexpectedly rebuilt a lower library')
         if phase.startswith('viewer_touch') and codec_exists and not all(u['fresh'] for u in codec_units):
             raise MeasurementError('Viewer orchestration touch unexpectedly rebuilt the codec')
         if phase == 'codec_touch' and (not codec_units or all(u['fresh'] for u in codec_units)
                                        or all(u['fresh'] for u in viewer_units)):
             raise MeasurementError('codec touch did not invalidate codec and Viewer consumer')
+        if phase == 'runtime_event_codec_touch':
+            for name in ('oasis7_world_state', 'oasis7_runtime',
+                         'oasis7_viewer_codec', 'oasis7_viewer_runtime'):
+                matched = [u for u in result['units'] if u['local_package'] == name
+                           and 'lib' in u['target']['kind']]
+                if not matched or any(u['fresh'] for u in matched):
+                    raise MeasurementError('Runtime Event codec touch did not invalidate ' + name)
+            if any(binary['fresh'] for binary in result['binaries'].values()):
+                raise MeasurementError('Runtime Event codec touch did not invalidate all production binaries')
         if (timings / 'cargo-timing.html').is_symlink() or not (timings / 'cargo-timing.html').is_file():
             raise MeasurementError('Cargo did not preserve its requested timing HTML')
         result['success'] = True
@@ -506,6 +521,15 @@ def measure(args):
                         record['phases']['codec_touch'] = measure_build(
                             fixture, 'codec_touch', out / label / 'codec_touch',
                             mutation['source_fingerprint'])
+                if getattr(args, 'runtime_event_codec_touch', False):
+                    event_out = out / label / 'runtime_event_codec_mutation'
+                    event_out.mkdir()
+                    with viewer_mutation(fixture['checkout'], event_out,
+                                         RUNTIME_EVENT_CODEC_PATH) as mutation:
+                        record['runtime_event_codec_mutation'] = mutation
+                        record['phases']['runtime_event_codec_touch'] = measure_build(
+                            fixture, 'runtime_event_codec_touch', out / label / 'runtime_event_codec_touch',
+                            mutation['source_fingerprint'])
                 cost_source = fixture['checkout'] / 'crates/oasis7_viewer_codec/examples/codec_cost.rs'
                 if cost_source.is_file():
                     # Retain all production roots so feature unification matches the timed build.
@@ -587,6 +611,8 @@ def main():
     parser.add_argument('--out-dir', type=Path, required=True)
     parser.add_argument('--work-dir', type=Path, help='external temporary parent; defaults to system temp')
     parser.add_argument('--viewer-touch-samples', type=int, choices=range(1, 6), default=1)
+    parser.add_argument('--runtime-event-codec-touch', action='store_true',
+                        help='also verify the existing world_state event codec and consumers invalidate')
     parser.add_argument('--jobs', type=int, choices=(1, 2), default=1)
     args = parser.parse_args()
     def interrupted(signum, _frame):

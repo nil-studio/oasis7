@@ -18,6 +18,8 @@
 
 普通和带原请求 nonce 的 flatten envelope 编码均在 codec 中生成；nonce 为 None 时省略。公开 writer 参数保持 `&mut dyn Write`。Runtime live 使用直接编码入口；Offline TCP 使用 codec 内的 8 KiB 有界缓冲入口；Event 响应复用直写入口，避开 Linux 大 Event 实测的额外缓冲开销；具体开销机制未归因，字符串包装复用同一缓冲 serializer、请求 1 KiB 缓冲，并在未排出块时直接复用尾部 Vec。这避免原具体 BufWriter 和 Vec 路径逐片段虚分派的实测退化。普通响应有两种固定 writer 实例（动态 writer 与 `BufWriter<&mut dyn Write>`），均留在 codec 库内，不向上层导出泛型序列化树；实例数量取舍须一并测量冷构建与运行时成本。小字符串保留容量可由原 128 B 增至 1 KiB；Offline 临时增加 8 KiB 缓冲。返回编码或 writer 错误前拆开缓冲，丢弃未写尾部，不在 codec 内重试写入；此保证不扩展到 panic 路径。codec 不做权限判断、不拥有 socket，不写 newline 或 flush。Runtime live 在原权限/可见性选择与 Event 清理后，把响应直接流式写入受限 Outbox writer；完整帧仍由上层 newline 与 flush 提交。单帧、单轮、帧数、partial frame、deadline 和错误映射保持原合同；不能先生成无界缓冲再交给 Outbox。
 
+Runtime Event 的 JSON Value 转换复用现有 `crate::runtime::codec::world_event_json_value`，由 `oasis7_world_state` 持有同一具体事件的序列化入口，不新增依赖或扩大 native/WASM 范围。Viewer mapping 仍对完整 Value 执行 `contains_private_canonical_input`；编码失败按 `unwrap_or(true)` 拒绝附带原事件，仅检查通过后才 clone。此编译边界不迁移或替代隐私判断。
+
 编译复用验收使用同配置 ECS 三 binary 测量：冷构建、no-op、Viewer 编排 touch 与 codec 输入 touch 分别记录真实 Cargo unit、Fresh/rebuilt、timings 和资源。新增包或搬迁代码不代表已证明加速；构建和运行时成本的当前候选结果放在实际 PR/CI。
 
 ## PromptControl system contract
