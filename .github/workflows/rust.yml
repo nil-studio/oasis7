@@ -292,6 +292,36 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ github.sha }}
         run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --repo-root "$GITHUB_WORKSPACE"
 
+  cache-bootstrap-maintenance:
+    cache-mode: none
+    permissions:
+      contents: read
+      actions: write
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.select.outputs.run_oasis7_required == 'true' ||
+       needs.select.outputs.run_formal_process == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full') &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'push' || github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: ci-cache-maintenance-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retire redundant obsolete workspace generations
+        env:
+          CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-cache-maintenance.py --bootstrap --apply
+
   oasis7-test-build-candidate:
     cache-mode: read
     permissions:
@@ -345,7 +375,7 @@ jobs:
         if: steps.ordinary-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.gz
+          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.ordinary-cache-identity.outputs.key }}
           restore-keys: ${{ steps.ordinary-cache-identity.outputs.prefix }}
       - name: Validate and restore ordinary workspace units
@@ -394,7 +424,7 @@ jobs:
         if: github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.gz
+          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.ordinary-cache-identity.outputs.key }}
       - name: Confirm ordinary workspace cache
         id: ordinary-cache-observe
@@ -420,12 +450,12 @@ jobs:
     permissions:
       contents: read
       actions: read
-    needs: select
+    needs: [select, cache-bootstrap-maintenance]
     outputs:
       cache_key: ${{ steps.ordinary-cache-identity.outputs.key }}
       cache_confirmed: ${{ steps.ordinary-cache-observe.outputs.saved_confirmed }}
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
        fromJSON(needs.select.outputs.plan).scope == 'full') &&
@@ -504,7 +534,7 @@ jobs:
         if: steps.formal-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/formal-workspace-cache/workspace-units.tar.gz
+          path: ${{ runner.temp }}/formal-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-cache-identity.outputs.key }}
           restore-keys: ${{ steps.formal-cache-identity.outputs.prefix }}
       - name: Validate and restore formal workspace units
@@ -585,7 +615,7 @@ jobs:
         if: github.job == 'formal-test-build-trusted' && steps.formal-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/formal-workspace-cache/workspace-units.tar.gz
+          path: ${{ runner.temp }}/formal-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-cache-identity.outputs.key }}
       - name: Confirm formal workspace cache
         id: formal-cache-observe
@@ -611,12 +641,12 @@ jobs:
     permissions:
       contents: read
       actions: read
-    needs: select
+    needs: [select, cache-bootstrap-maintenance]
     outputs:
       cache_key: ${{ steps.formal-cache-identity.outputs.key }}
       cache_confirmed: ${{ steps.formal-cache-observe.outputs.saved_confirmed }}
     if: >-
-      needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
+      always() && !cancelled() && needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'push' || github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
