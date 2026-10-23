@@ -167,7 +167,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 | --- | --- | --- | --- |
 | ARCH-11 · 云端与本地 | Sites 网页与后端承担四视图、已提交文档/GitHub 事实和云端个人记录；本地 Tauri/Rust 辅助端承担工作树、私有资料、CLI 与 signer。浏览器与本机 IPC 分离，精确导航不构成执行或上传授权 | 改 Site 身份/访问范围、记录归属、来源授权、数据格式或本机能力边界 | [职责与身份](../command-center.design.md#DES-CC-001)、[云端个人空间](../command-center.design.md#DES-CC-017)、[本机工具](../local-tools.design.md) |
 
-本主题于 2026-10-22 核对文档职责。最终产品与系统合同覆盖云端日常工作闭环、本机独立能力和两端导航；**本次文档更新没有修改或部署应用，不证明拆分已实现**。实际来源基线、已有能力及未验证范围集中见[实现核对](../command-center.design.md#cc-current-implementation)；历史原生结果仍限定于[日常验证记录](../daily-work-verification.manual.md)的构建、环境和场景。
+本主题于 2026-10-23 核对文档职责及 [v6 公开实现反馈](https://github.com/nil-studio/oasis7/issues/4983#issuecomment-6343356855)。云端已有个人空间和交付摘要，最终合同补齐[证据与结论边界](../command-center.design.md#cc-delivery-conclusion-boundaries)、[目标身份与依据版本分离](../command-center.design.md#cc-stable-goal-identity)、[完整文档候选发布](../document-tree.design.md#cc-document-snapshot-update)及[真实更新状态](../command-center.design.md#cc-update-health)；这些补充尚不构成实现或部署验收。实际来源基线、已有能力及未验证范围集中见[实现核对](../command-center.design.md#cc-current-implementation)；历史原生结果仍限定于[日常验证记录](../daily-work-verification.manual.md)的构建、环境和场景。
 
 本机 context、CLI 和既有 signer 继续遵守[工具安全合同](../local-tools.design.md)：本机资料不进入云端普通记录，未知操作按原身份核对，Apple 签名及管理员集成的用户暂停保持有效。云端个人记录可导出恢复，不代表整机资料、工具账本或凭据可上传。
 
@@ -181,3 +181,4 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 ### 文档全局树阅读设计
 
 [文档树合同](../document-tree.design.md)统一产品树、专业系统树、目录与明确配对关系的解释。云端读取固定提交，按可信身份保存个人阅读位置；本地工作树预览仅在设备范围索引并保存本机位置。快照与覆盖、部分读取和失效关系各自可见，来源刷新不改变条款权威或个人决定。两端验收分别核对真实浏览器与适用的原生交互，旧本地索引证据不代签云端完整文档树。
+
