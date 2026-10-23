@@ -81,19 +81,51 @@ pub(super) fn assert_fixture_authorities(
 
 #[test]
 fn private_task_context_native_complete_prepare_capture_read_action_and_restart() {
-    super::complete_context_scenario(None, false);
+    complete_context_scenario(None, false);
 }
 #[test]
 fn private_task_context_explicit_native_authority_complete_without_provider_selection() {
-    super::complete_context_scenario(
+    complete_context_scenario(
         Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
         false,
     );
 }
 #[test]
 fn private_task_context_native_complete_with_unrelated_provider() {
-    super::complete_context_scenario(
+    complete_context_scenario(
         Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
         true,
     );
+}
+
+#[test]
+fn private_task_context_legacy_prefix_capture_read_and_restart_remain_verifiable() {
+    super::complete_context_scenario_with_revision(
+        Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
+        false,
+        0,
+    );
+}
+
+pub(super) fn commit_empty_context_block(driver: &mut NodeRuntimeExecutionDriver, height: u64) {
+    driver
+        .on_commit(NodeExecutionCommitContext {
+            world_id: "w1".into(),
+            node_id: "node-a".into(),
+            proposer_id: "node-a".into(),
+            height,
+            slot: height,
+            epoch: 0,
+            node_block_hash: format!("node-h{height}"),
+            action_root: compute_consensus_action_root(&[]).unwrap(),
+            committed_actions: vec![],
+            committed_at_unix_ms: height as i64 * 1000,
+        })
+        .unwrap();
+}
+fn complete_context_scenario(
+    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
+    other_provider: bool,
+) {
+    super::complete_context_scenario_with_revision(authority_mode, other_provider, 1);
 }

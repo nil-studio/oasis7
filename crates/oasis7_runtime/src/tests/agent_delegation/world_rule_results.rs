@@ -250,6 +250,7 @@ fn execute(expired: bool) -> World {
     let prefix_signed = service::sign_read_request(
         "scheduler",
         service::SchedulerIntentV1 {
+            task_prefix_binding_revision: 0,
             agent_id: AGENT_ID.into(),
             request_id: "prefix".into(),
             delegation_generation: 1,

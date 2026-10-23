@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": false,
+    "outDir": ".build",
+    "rootDir": "..",
+    "noEmitOnError": true
+  },
+  "include": ["consumer.ts", "../protocol_codegen/generated/types.ts"]
+}

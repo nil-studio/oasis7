@@ -282,3 +282,11 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 ## PRD-ENGINEERING-035 私有资料管理工具
 
 机器、环境与操作说明保存在独立私有 Markdown 库，支持条件更新、本地历史与加密新目录恢复。需求与验收见 [私有资料产品需求](private-context/private-context.prd.md)，实现合同见 [系统设计](private-context/private-context.design.md)。
+
+<a id="PRD-ENGINEERING-036"></a>
+
+## PRD-ENGINEERING-036 Rust 工程契约
+
+Workspace 共性配置、现行架构边界的可执行检查与协议产物的可重现生成，由 [Rust 工程契约需求](rust-governance/rust-engineering-contracts.prd.md) 拥有稳定要求与验收，[系统设计](rust-governance/rust-engineering-contracts.design.md) 承接配置等价、合法依赖范围、服务 profile、迁移与验证。三项要求在专业原文分别声明 Trace ID；此入口不重复声明。
+
+本专题先形成目标设计，当前实现与剩余范围在专业文档分别说明；文档采纳不代表自动检查已经启用。现有文件体量规则、required/full 门禁与通用开发流程保持各自主责，实际交付事实见 PR、CI 与评审记录。

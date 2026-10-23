@@ -1,0 +1,783 @@
+{
+  "revision": 1,
+  "rules": [
+    {
+      "key": "game-client",
+      "upstream": "doc/world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001",
+      "roots": [
+        {
+          "name": "oasis7_game_client",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_state"
+        },
+        {
+          "name": "oasis7_world_projection"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "unit-tests",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Game Client -> Client Storage; real World integration belongs to Service"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "unit-tests"
+      ]
+    },
+    {
+      "key": "agent-harness",
+      "upstream": "doc/world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001",
+      "roots": [
+        {
+          "name": "oasis7_agent_harness",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_state"
+        },
+        {
+          "name": "oasis7_world_projection"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-default",
+          "target": "wasm32-unknown-unknown",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-lightweight",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        }
+      ],
+      "allows": [
+        "native Harness -> Game Client"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "wasm-default",
+        "wasm-lightweight"
+      ]
+    },
+    {
+      "key": "world-state",
+      "upstream": "doc/world-runtime/design.md#\u72b6\u6001\u4e0e\u670d\u52a1\u6295\u5f71\u7684\u7f16\u8bd1\u8fb9\u754c",
+      "roots": [
+        {
+          "name": "oasis7_world_state",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_game_client"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        },
+        {
+          "name": "oasis7_chain_runtime"
+        },
+        {
+          "name": "oasis7_wasm_executor"
+        },
+        {
+          "name": "wasmtime"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test-support",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test-support"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "wasm-default",
+          "target": "wasm32-unknown-unknown",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-lightweight",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        }
+      ],
+      "allows": [
+        "API/Proto/WASM ABI/CAS/Formal Protocol; filesystem support"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full",
+        "test-support",
+        "wasm-default",
+        "wasm-lightweight"
+      ]
+    },
+    {
+      "key": "world-projection",
+      "upstream": "doc/world-runtime/design.md#\u72b6\u6001\u4e0e\u670d\u52a1\u6295\u5f71\u7684\u7f16\u8bd1\u8fb9\u754c",
+      "roots": [
+        {
+          "name": "oasis7_world_projection",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        },
+        {
+          "name": "oasis7_chain_runtime"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Projection -> Game Client verification core and legal HTTP closure"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full"
+      ]
+    },
+    {
+      "key": "runtime",
+      "upstream": "doc/world-runtime/design.md#\u5b9e\u73b0\u8fb9\u754c\u4e0e\u5171\u4eab\u503c\u6240\u6709\u6743",
+      "roots": [
+        {
+          "name": "oasis7_runtime",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_world_projection"
+        },
+        {
+          "name": "oasis7_game_client"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        },
+        {
+          "name": "oasis7_node"
+        },
+        {
+          "name": "oasis7_distfs"
+        },
+        {
+          "name": "oasis7_chain_runtime"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test-support",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test-support"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "wasmtime",
+          "target": "host",
+          "default_features": false,
+          "features": [
+            "wasmtime"
+          ],
+          "mode": "production"
+        }
+      ],
+      "allows": [
+        "World State test-support dev; Wasmtime production; WASM platform crates"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full",
+        "test-support",
+        "wasmtime"
+      ]
+    },
+    {
+      "key": "launcher-backend",
+      "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+      "roots": [
+        {
+          "name": "oasis7_launcher_backend",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_simulator"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "process orchestration/Harness/Game Client/Model Provider"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full"
+      ]
+    },
+    {
+      "key": "client-launcher",
+      "upstream": "scripts/check-launcher-p2p-dependency-surface.sh#forbidden_specs",
+      "roots": [
+        {
+          "name": "oasis7_client_launcher",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "libp2p"
+        },
+        {
+          "name": "ring",
+          "version": "0.16.20"
+        },
+        {
+          "name": "rustls-webpki",
+          "version": "0.101.7"
+        },
+        {
+          "name": "hickory-proto",
+          "version": "0.24.4"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [],
+      "profiles": [
+        {
+          "id": "legacy-host",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "existing host/no-default scope; newer versions and other platforms unrestricted"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "legacy-host"
+      ]
+    },
+    {
+      "key": "protocol-tools",
+      "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+      "roots": [
+        {
+          "name": "oasis7_protocol_tools",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "wasmtime"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "dev -> oasis7(default=false, features=[test_tier_required]) for signed interoperability"
+      ],
+      "exceptions": [],
+      "test_edges": [
+        {
+          "root": {
+            "name": "oasis7_protocol_tools",
+            "source": null,
+            "version": "0.1.0"
+          },
+          "dependency": {
+            "name": "oasis7",
+            "source": null,
+            "version": "0.1.0"
+          },
+          "cfg": null,
+          "default_features": false,
+          "features": [
+            "test_tier_required"
+          ],
+          "purpose": "signed Runtime interoperability",
+          "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+          "kind": "dev",
+          "target": "host",
+          "profiles": [
+            "test_tier_required",
+            "test_tier_full"
+          ]
+        }
+      ],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full"
+      ]
+    },
+    {
+      "key": "provider-local-bridge",
+      "upstream": "doc/world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001",
+      "roots": [
+        {
+          "name": "oasis7_provider_local_bridge",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "default",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "lightweight",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "test_tier_required",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_required"
+          ],
+          "mode": "test"
+        },
+        {
+          "id": "test_tier_full",
+          "target": "host",
+          "default_features": true,
+          "features": [
+            "test_tier_full"
+          ],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Simulator action/event DTO; restriction does not apply to provider_tools"
+      ],
+      "exceptions": [],
+      "empty_default": true,
+      "forbidden_feature_tokens": [
+        "wasmtime",
+        "libp2p",
+        "viewer"
+      ],
+      "required_profiles": [
+        "default",
+        "lightweight",
+        "test_tier_required",
+        "test_tier_full"
+      ]
+    }
+  ]
+}

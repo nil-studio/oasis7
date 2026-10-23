@@ -72,6 +72,8 @@
     ],
     "workspace_support": [
       "rust_toolchain",
+      "node",
+      "python",
       "system_deps"
     ],
     "scenario_regression": [
@@ -293,6 +295,11 @@
     ]
   },
   "rules": [
+    {
+      "match": ["scripts/cargo-dev-architecture*"],
+      "groups": ["rust_baseline", "cargo_tooling_contracts"],
+      "reason": "cargo_architecture_boundaries"
+    },
     {
       "match": [
         "tests/libp2p-compat/**",
@@ -646,6 +653,16 @@
         "command_center"
       ],
       "reason": "command_center"
+    },
+    {
+      "match": [
+        "crates/oasis7_viewer_runtime/src/game_read_api*.rs",
+        "crates/oasis7_viewer_runtime/tests/fixtures/signed_read_bootstrap.json"
+      ],
+      "groups": [
+        "workspace_support"
+      ],
+      "reason": "signed_read_handler_conformance"
     }
   ]
 }

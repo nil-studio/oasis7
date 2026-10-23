@@ -14,6 +14,7 @@ fn checkpoint() -> (
         sign_read_request(
             "scheduler",
             SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent-1".into(),
                 request_id: "original-reject-predecessor".into(),
                 delegation_generation: 7,

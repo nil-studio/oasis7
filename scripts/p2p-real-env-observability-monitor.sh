@@ -28,11 +28,26 @@ Options:
   --ssh-timeout-secs <n>           SSH connect timeout (default: 8)
   --out-dir <path>                 output root (default: .tmp/p2p_real_env_observability)
 
-  The remaining node/service/status arguments are passed through to the
-  underlying snapshot / host / traffic scripts when applicable.
+  --sequencer-target/--storage-target <user@host>  snapshot, host and traffic
+  --local-service/--sequencer-service/--storage-service <name>  snapshot and host
+  --local-status-url/--sequencer-status-url/--storage-status-url <url>  snapshot and traffic
+  --local-storage-path/--sequencer-storage-path/--storage-storage-path <path>  host only
+  --world-id <id>                  snapshot only
+  --local-health-url/--sequencer-health-url/--storage-health-url <url>  snapshot only
+  --local-env-file/--sequencer-env-file/--storage-env-file <path>  snapshot only
+  --sequencer-public-status-url/--sequencer-public-health-url <url>  snapshot only
+  --storage-public-status-url/--storage-public-health-url <url>  snapshot only
+  --top-n <n>                      traffic detail rows (default: child default)
+  --history-retention-minutes <n>  traffic retention (default: child default)
+
+Only the fixed local/sequencer/storage triad is supported. Raw child options,
+--node and observer-* aliases are rejected before creating an attempt.
+Numeric values use ASCII decimal; leading zeros are normalized. Positive controls
+are bounded by 2147483647; as-of is a nonnegative signed-64-bit timestamp.
 USAGE
 }
 
+original_args=("$@")
 samples=4
 interval_secs=5
 traffic_samples=3
@@ -41,74 +56,101 @@ window_minutes=10
 ssh_timeout_secs=8
 out_root=".tmp/p2p_real_env_observability"
 
-pass_through_args=()
+snapshot_args=()
+host_args=()
+traffic_args=()
 traffic_freshness_args=()
 report_freshness_args=()
 traffic_history_path=""
 historical_as_of=""
 
+decimal_value() {
+  python3 - "$1" "$2" <<'PYDECIMAL'
+import re
+import sys
+flag, raw = sys.argv[1:]
+minimum = 0 if flag == '--as-of-unix-ms' else 1
+maximum = 2**63 - 1 if flag == '--as-of-unix-ms' else 2**31 - 1
+try:
+    if re.fullmatch(r'[0-9]+', raw) is None:
+        raise ValueError()
+    value = int(raw)
+    if not minimum <= value <= maximum:
+        raise ValueError()
+except ValueError:
+    print(flag + ' requires an ASCII decimal integer within its supported range', file=sys.stderr)
+    raise SystemExit(2)
+print(value)
+PYDECIMAL
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --traffic-history-path)
-      [[ $# -ge 2 && -n "$2" ]] || { echo "$1 requires an existing history path" >&2; exit 2; }
-      traffic_history_path=$2
-      shift 2
-      ;;
-    --as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs)
-      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "$1 requires a non-negative integer" >&2; exit 2; }
-      if [[ "$1" != --as-of-unix-ms && "$2" -eq 0 ]]; then
-        echo "$1 must be positive" >&2
-        exit 2
-      fi
-      traffic_freshness_args+=("$1" "$2")
-      if [[ "$1" == --as-of-unix-ms ]]; then
-        report_freshness_args+=("$1" "$2")
-        historical_as_of=$2
-      fi
-      shift 2
-      ;;
-    --samples)
-      samples=${2:-}
-      shift 2
-      ;;
-    --interval-secs)
-      interval_secs=${2:-}
-      shift 2
-      ;;
-    --traffic-samples)
-      traffic_samples=${2:-}
-      shift 2
-      ;;
-    --traffic-interval-secs)
-      traffic_interval_secs=${2:-}
-      shift 2
-      ;;
-    --window-minutes)
-      window_minutes=${2:-}
-      shift 2
-      ;;
-    --ssh-timeout-secs)
-      ssh_timeout_secs=${2:-}
-      shift 2
-      ;;
-    --out-dir)
-      out_root=${2:-}
-      shift 2
-      ;;
     -h|--help)
       usage
       exit 0
       ;;
-    *)
-      pass_through_args+=("$1")
-      if [[ $# -ge 2 && "$2" != --* ]]; then
-        pass_through_args+=("$2")
-        shift 2
-      else
-        shift
+    --node)
+      echo "this outer monitor is triad-only; --node is not supported" >&2
+      exit 2
+      ;;
+    --samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+        echo "$1 requires a nonempty value" >&2
+        exit 2
       fi
       ;;
+    *)
+      echo "unsupported outer monitor option" >&2
+      exit 2
+      ;;
   esac
+  value=$2
+  case "$1" in
+    --samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes)
+      value=$(decimal_value "$1" "$value")
+      ;;
+  esac
+  case "$1" in
+    --samples) samples=$value ;;
+    --interval-secs) interval_secs=$value ;;
+    --traffic-samples) traffic_samples=$value ;;
+    --traffic-interval-secs) traffic_interval_secs=$value ;;
+    --window-minutes) window_minutes=$value ;;
+    --ssh-timeout-secs) ssh_timeout_secs=$value ;;
+    --out-dir) out_root=$value ;;
+    --traffic-history-path) traffic_history_path=$value ;;
+    --as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs)
+      traffic_freshness_args+=("$1" "$value")
+      if [[ "$1" == --as-of-unix-ms ]]; then
+        report_freshness_args+=("$1" "$value")
+        historical_as_of=$value
+      fi
+      ;;
+    --top-n|--history-retention-minutes)
+      traffic_args+=("$1" "$value")
+      ;;
+    --sequencer-target|--storage-target)
+      snapshot_args+=("$1" "$value")
+      host_args+=("$1" "$value")
+      traffic_args+=("$1" "$value")
+      ;;
+    --local-service|--sequencer-service|--storage-service)
+      snapshot_args+=("$1" "$value")
+      host_args+=("$1" "$value")
+      ;;
+    --local-status-url|--sequencer-status-url|--storage-status-url)
+      snapshot_args+=("$1" "$value")
+      traffic_args+=("$1" "$value")
+      ;;
+    --local-storage-path|--sequencer-storage-path|--storage-storage-path)
+      host_args+=("$1" "$value")
+      ;;
+    *)
+      snapshot_args+=("$1" "$value")
+      ;;
+  esac
+  shift 2
 done
 
 if [[ -n "$historical_as_of" ]]; then
@@ -116,7 +158,8 @@ if [[ -n "$historical_as_of" ]]; then
 import sys
 import time
 if int(sys.argv[1]) > time.time_ns() // 1_000_000:
-    raise SystemExit("--as-of-unix-ms must not be later than current UTC time")
+    print("--as-of-unix-ms must not be later than current UTC time", file=sys.stderr)
+    raise SystemExit(2)
 PYTIME
 fi
 if [[ -n "$historical_as_of" || -n "$traffic_history_path" ]]; then
@@ -127,57 +170,77 @@ if [[ -n "$historical_as_of" || -n "$traffic_history_path" ]]; then
   traffic_freshness_args+=(--summary-only --history-path "$traffic_history_path")
 fi
 
-run_id=$(date +"%Y%m%d-%H%M%S")
-run_dir="$out_root/$run_id"
+
+attempt_helper="$repo_root/scripts/p2p-real-env-observability-attempt.py"
+scope_args=()
+for argument in "${original_args[@]+"${original_args[@]}"}"; do
+  scope_args+=("--scope-arg=$argument")
+done
+reservation=$(python3 "$attempt_helper" begin --out-dir "$out_root" ${scope_args[@]+"${scope_args[@]}"})
+sequence=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sequence"])')
+attempt_id=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["attempt_id"])')
+run_dir=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_dir"])')
+run_id="$sequence-$attempt_id"
+errors=()
+run_stage() {
+  local stage=$1
+  shift
+  local code
+  if "$@"; then
+    return 0
+  else
+    code=$?
+    errors+=(--error "$stage:$code")
+  fi
+}
+
 snapshot_root="$run_dir/snapshot"
 host_root="$run_dir/host"
 traffic_root="$run_dir/traffic"
 wasm_root="$run_dir/wasm"
 report_root="$run_dir/report"
-latest_summary_json="$out_root/latest_summary.json"
-latest_summary_md="$out_root/latest_summary.md"
 
 mkdir -p "$snapshot_root" "$host_root" "$traffic_root" "$wasm_root" "$report_root"
 
-./scripts/p2p-real-env-triad-snapshot.sh \
+run_stage snapshot ./scripts/p2p-real-env-triad-snapshot.sh \
   --samples "$samples" \
   --interval-secs "$interval_secs" \
   --ssh-timeout-secs "$ssh_timeout_secs" \
   --out-dir "$snapshot_root" \
-  "${pass_through_args[@]}"
+  ${snapshot_args[@]+"${snapshot_args[@]}"}
 
 snapshot_run_dir="$(find "$snapshot_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-[[ -n "$snapshot_run_dir" ]] || {
-  echo "failed to locate snapshot run dir under $snapshot_root" >&2
-  exit 1
-}
+if [[ -z "$snapshot_run_dir" ]]; then
+  snapshot_run_dir="$snapshot_root/unavailable"
+  errors+=(--error snapshot:1)
+fi
 snapshot_summary="$snapshot_run_dir/summary.json"
 local_status_json="$snapshot_run_dir/nodes/local_node/status.json"
 sequencer_status_json="$snapshot_run_dir/nodes/sequencer_ecs/status.json"
 storage_status_json="$snapshot_run_dir/nodes/storage_ecs/status.json"
 
-./scripts/p2p-real-env-host-monitor.sh \
+run_stage host ./scripts/p2p-real-env-host-monitor.sh \
   --samples "$samples" \
   --interval-secs "$interval_secs" \
   --ssh-timeout-secs "$ssh_timeout_secs" \
   --out-dir "$host_root" \
-  "${pass_through_args[@]}"
+  ${host_args[@]+"${host_args[@]}"}
 
 host_run_dir="$(find "$host_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-[[ -n "$host_run_dir" ]] || {
-  echo "failed to locate host run dir under $host_root" >&2
-  exit 1
-}
+if [[ -z "$host_run_dir" ]]; then
+  host_run_dir="$host_root/unavailable"
+  errors+=(--error host:1)
+fi
 host_summary="$host_run_dir/summary.json"
 
-./scripts/p2p-real-env-traffic-monitor.sh \
+run_stage traffic ./scripts/p2p-real-env-traffic-monitor.sh \
   ${traffic_freshness_args[@]+"${traffic_freshness_args[@]}"} \
   --samples "$traffic_samples" \
   --interval-secs "$traffic_interval_secs" \
   --window-minutes "$window_minutes" \
   --ssh-timeout-secs "$ssh_timeout_secs" \
   --out-dir "$traffic_root" \
-  "${pass_through_args[@]}"
+  ${traffic_args[@]+"${traffic_args[@]}"}
 
 traffic_summary="$traffic_root/latest_summary.json"
 
@@ -192,13 +255,13 @@ for label in local_node sequencer_ecs storage_ecs; do
     cp "$sample_status" "$wasm_input_dir/$(printf '%03d' "$index").json"
     index=$(( index + 1 ))
   done
-  bash ./scripts/oasis7-node-wasm-metrics-monitor.sh \
+  run_stage "wasm_$label" bash ./scripts/oasis7-node-wasm-metrics-monitor.sh \
     --status-sample-dir "$wasm_input_dir" \
     --node-label "$label" \
     --out-dir "$wasm_out_dir"
 done
 
-python3 ./scripts/p2p-real-env-observability-summary.py \
+run_stage summary python3 ./scripts/p2p-real-env-observability-summary.py \
   ${report_freshness_args[@]+"${report_freshness_args[@]}"} \
   --snapshot-summary "$snapshot_summary" \
   --host-summary "$host_summary" \
@@ -214,12 +277,10 @@ python3 ./scripts/p2p-real-env-observability-summary.py \
   --run-id "$run_id" \
   --run-dir "$run_dir"
 
-cp "$report_root/latest_summary.json" "$latest_summary_json"
-cp "$report_root/latest_summary.md" "$latest_summary_md"
-
-echo "p2p real-env observability monitor complete"
-echo "  run_dir: $run_dir"
-echo "  snapshot_summary: $snapshot_summary"
-echo "  host_summary: $host_summary"
-echo "  traffic_summary: $traffic_summary"
-echo "  report_summary: $report_root/latest_summary.json"
+if python3 "$attempt_helper" finish --out-dir "$out_root" --sequence "$sequence" --attempt-id "$attempt_id" ${errors[@]+"${errors[@]}"}; then
+  result=0
+else
+  result=$?
+fi
+printf 'observability attempt result=%s run_dir=%s\n' "$result" "$run_dir"
+exit "$result"

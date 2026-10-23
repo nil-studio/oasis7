@@ -95,6 +95,30 @@ fn report_cleanup_boundary(
         serde_json::json!({"phase":phase,"class":class,"status":status,"categories":categories})
     );
 }
+// These negative samples deliberately preserve the historical exact-base
+// contract; subsequent attempts exercise the current lease-aware SDK.
+fn legacy_first_prefix(
+    mut intent: oasis7::world_service::SchedulerIntentV1,
+    attempt: usize,
+) -> oasis7::world_service::SchedulerIntentV1 {
+    if attempt == 0 {
+        intent.task_prefix_binding_revision = 0;
+    }
+    intent
+}
+
+fn assert_legacy_prefix_base_rejection(
+    world: &RuntimeWorld,
+    prefix: &SubmitIntentRequest<WorldServicePayloadV1>,
+) {
+    let key = oasis7::world_service::correlation::key_digest(&prefix.correlation.key).unwrap();
+    assert_eq!(
+        world.capability_revocation_state().world_service_results[&key]["rejected"],
+        "scheduler base binding changed",
+        "the legacy sample must reject for exact-base drift"
+    );
+}
+
 fn settle_cleanup_original(
     client: &RemoteWorldServiceClient,
     original: &SubmitIntentRequest<WorldServicePayloadV1>,

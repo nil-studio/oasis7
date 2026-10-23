@@ -19,6 +19,8 @@
 - 三个读取资源使用 `X-Oasis7-World-Read-Proof` header：值为 `hex(UTF8 JSON SignedReadRequest<ReadWorldViewRequest>)`。调用者在设备端以现有 `authority::sign_read_request` codec 和 `/v1/world/view` domain 签署配置匹配的 world/scope。没有证明返回 428；重复 header/key、未知字段、篡改、错误 scope、带 token 的 query 或 Origin 均拒绝。固定历史 commit 不支持，避免旧快照代替当前权限检查。
 - header 最多 8192 bytes、整个 HTTP header 最多 16384 bytes；JSON 同时消费共享严格解析器；最多 8 个后端读取、响应最多 2 MiB。bootstrap `data` 和 `world_binding` 中整数统一为十进制字符串，顶层 API revision 保持整数。服务签名认证不代签共识最终性。
 
+读取 schema revision 5 将 DecimalU64 的现有 codec 上界补为标准 schema 机器约束；task-control 的已知同语义字段引用同一约束，正整数收窄保留。API revision 仍为 1，JSON/CBOR 与签名域不变；仅接受旧 schema revision 4 的消费者须显式升级。开发期派生物与独立 TS 样例的使用、兼容范围见[协议验证手册](../../engineering/rust-governance/rust-engineering-contracts.manual.md#protocol-generation)。
+
 这是设备签名 bootstrap 实施中间阶段；未实现 opaque token/配对、proof prepare、上下文/行动/持久 Game operation、完整任务协作、普通 Viewer/browser 授权、worker 或首局验收。正式 token 接入仍须在入口验证会话后保留此主体证明和世界授权链路。共享 `oasis7_agent_api::game` 已定义 action request、decimal u64 和操作状态 registry，但 DTO 不授予权限。对应测试为 `game_wire`、`viewer::game_read_api` 和 `world_service::client`；测试通过不表示上述未实施能力已交付。
 
 ### 持久任务控制前置
@@ -55,7 +57,9 @@ Owner 使用 `game_executor_control/v1` 签署 `GameExecutorControlV1`，经原 
 
 活跃任务的恢复证据保留必须覆盖该任务当前完整 fence 下所有已提交原 Context prefix、终止 outcome 与动作结果的实际历史提交材料，包括已消费或已过期 Context；不能只按 Context 当前可写性决定 GC pin。派生 pin 仅保留签名回读所需 snapshot、journal 与 head proof，不授予旧 Context 新写权，也不延长 16 tick 租期；任务／完整 fence 退休后释放对应依赖。原结果已确认但历史材料在既定保留范围外时返回 `HistoryUnavailable` 并保留原身份、停止新副作用；记录头仍存在但引用已压缩同样属于历史不可用，不伪装成可重试服务故障或 `Unknown`。损坏或冲突证据继续失败关闭。正常维护与重启可从当前 hot 权威结果重建依赖，并将已有派生 scope 指向的历史切点作为候选，与当前 hot／cold canonical 结果和完整 fence 逐条重验；scope 本身不证明结果或权限。既有 scope 损坏必须阻止 GC。所有派生 scope 均丢失、且原结果已全部转 cold 时的完整发现与重建尚未由此路径提供，不得宣称该损坏恢复能力已验收。
 
-准备不等于可用。客户端先提交 identity-only `SchedulerOperationV1::TaskProviderPrefix`，等待 canonical committed，再 POST `/v1/world/private-task/context-read`。回应包含原密文记录、实际捕获 CommitRef/receipt 及当前同 pin 的公共 base binding/观察/能力。客户端核对配置服务签名、原意图、完整目标 proof、盐承诺、捕获回执和新鲜 bundle。世界公开历史只存完整 fence、session/turn/request 标识及三项私有随机盐隔域承诺，不保存正文、原私有摘要、盐或完整 Provider request。受信服务签名证明所交付内容，不代替独立共识证书。
+准备不等于可用。客户端先提交 identity-only `SchedulerOperationV1::TaskProviderPrefix`，等待 canonical committed，再 POST `/v1/world/private-task/context-read`。该 prefix 仅登记已签名的上下文身份，不提交游戏动作。签名意图的 `task_prefix_binding_revision=1` 显式选用有界捕获规则；缺省/0 保持原 exact-base 规则且序列化省略该字段，旧请求、签名、拒绝和历史重放保持不变。其他操作不得携带非零值，未知版本失败关闭。版本 1 允许捕获后世界状态/tick 推进，但必须保持 world、branch、finality epoch/hash/status、reorg epoch 和 Runtime manifest 一致，捕获 tick 不得晚于当前 tick；只有较旧 tick 可忽略历史状态 hash，同 tick 的 hash 仍精确相等，并继续验证当前完整 fence、signer、授权定义及原捕获 tick 的最多 16 tick 租期（当前 tick 等于原到期 tick 仍有效）。捕获 base 必须通过原 schema 验证；其历史状态 hash 仅为捕获关联，不被当作当前状态或历史共识证明。任何 authority 变化或过期均拒绝，不能重新绑定原件、延长租期或替换未知操作。只有此 identity-only prefix 使用有界捕获规则，其他 scheduler 操作和行动仍逐字段校验当前 base/MVCC。新版本意图须在执行与恢复节点协调升级后启用；旧 binary 不能作为含新版本意图历史的恢复执行器。
+
+回应包含原密文记录、实际捕获 CommitRef/receipt 及当前同 pin 的公共 base binding/观察/能力。客户端核对配置服务签名、原意图、完整目标 proof、盐承诺、捕获回执和新鲜 bundle。世界公开历史只存完整 fence、session/turn/request 标识及三项私有随机盐隔域承诺，不保存正文、原私有摘要、盐或完整 Provider request。受信服务签名证明所交付内容，不代替独立共识证书。
 
 当前目标激活、当前完整 fence 下原 Context 与动作恢复所依赖的真实历史 snapshot/journal/head proof，由 canonical 世界状态派生专用 CAS pin scope；普通提交、catchup、checkpoint install 和全量维护保留这些依赖，目标替换或完整任务 fence 退休后释放对应材料，Context 消费或过期本身不触发释放。派生 cache 不构成任务权威，丢失后的重建受前述 hot／已知 scope 发现边界约束，损坏时阻止 GC。已经被旧版本清理且不可恢复的历史依赖返回 `recovery_required`，不能用当前 CommitRef 冒充历史激活证明。
 

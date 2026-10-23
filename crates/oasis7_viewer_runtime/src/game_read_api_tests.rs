@@ -476,3 +476,6 @@ fn task_control_metadata_read_accepts_only_matching_bound_executor_key() {
         worker.join().unwrap();
     }
 }
+
+#[path = "game_read_api_protocol_fixtures_tests.rs"]
+mod protocol_fixtures;

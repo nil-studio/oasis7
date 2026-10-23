@@ -1,5 +1,7 @@
 # 指挥面板架构索引
 
+2026-10-23 signed-read 协议产物局部核对：人工 OpenAPI 保留 HTTP profile 主责；[协议生成设计](../../rust-governance/rust-engineering-contracts.design.md#artifact-contract)规定开发期生成与服务运行闭包分离，派生 TS/schema/manifest 不赋予 signer 或写权限。[实施 #5024](https://github.com/nil-studio/oasis7/issues/5024) 当前候选覆盖五条 GET、精确 DecimalU64 与独立 TS 消费；实际合入和验证由该任务承接，未改变部署或整局验收结论。
+
 > 指挥中心的职责与目标见[产品要求](../command-center.prd.md)和[系统设计](../command-center.design.md)：云端承载四个主视图、已提交来源与个人空间，本地承载工作树、私有资料及原生工具。来源事实与个人记录各守原义；实际实现和可用性由对应交付证据说明。
 
 
