@@ -193,6 +193,9 @@
         },
         {
           "name": "oasis7_wasm_executor"
+        },
+        {
+          "name": "wasmtime"
         }
       ],
       "kinds": [

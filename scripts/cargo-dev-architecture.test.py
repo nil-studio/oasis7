@@ -175,6 +175,8 @@ class CargoBoundaries(unittest.TestCase):
         self.assertEqual(report['results'][0]['status'], 'coverage_gap')
         self.rule['profiles'][0]['features'] = ['unregistered']
         self.assertEqual(self.inspect()['results'][0]['status'], 'coverage_gap')
+        self.rule['profiles'] = []
+        self.assertEqual(self.inspect()['results'][0]['status'], 'coverage_gap')
         self.rule['exceptions'] = ['allow_all_dev']
         with self.assertRaises(checker.InspectionError):
             self.inspect()
@@ -197,6 +199,40 @@ class CargoBoundaries(unittest.TestCase):
         self.assertFalse(self.violations(self.inspect()))
         self.package('root', '[dependencies]\nforbidden={path="../forbidden"}\n')
         self.assertTrue(self.violations(self.inspect()))
+
+    def test_provider_feature_names_are_exact(self):
+        self.rule['forbidden'] = [dict(name='never_present')]
+        self.rule['forbidden_feature_tokens'] = ['viewer', 'wasmtime', 'libp2p']
+        self.package('middle', '[features]\nviewer_protocol=[]\npreviewer=[]\nviewer=[]\nwasmtime=[]\nlibp2p=[]\n')
+        prefix = '[dependencies]\nmiddle={path="../middle",optional=true}\nviewer={package="forbidden",path="../forbidden",optional=true}\n'
+        self.package('root', prefix + '[features]\npreview=["middle/viewer_protocol","middle/previewer"]\n')
+        self.assertFalse(self.violations(self.inspect()))
+        for reference in ('middle/viewer', 'middle?/viewer', 'dep:viewer', 'middle/wasmtime', 'middle/libp2p'):
+            self.package('root', prefix + f'[features]\nforward=["{reference}"]\n')
+            self.assertTrue(any(r['view'] == 'features' for r in self.violations(self.inspect())))
+
+    def test_every_registered_rule_with_real_positive_and_alias_counterexample(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        state = next(r for r in rules if r['key'] == 'world-state')
+        self.assertIn(dict(name='wasmtime'), state['forbidden'])
+        scenarios = [(rule, rule['forbidden'][0]) for rule in rules]
+        scenarios.append((state, dict(name='wasmtime')))
+        for rule, forbidden in scenarios:
+            with self.subTest(rule=rule['key'], forbidden=forbidden['name']):
+                rule = json.loads(json.dumps(rule))
+                rule['upstream'] = 'owner.md#boundary'
+                rule['profiles'] = [dict(id='production', target='host', default_features=True,
+                                         features=[], mode='production')]
+                rule['required_profiles'] = ['production']
+                rule.pop('test_edges', None)
+                self.rule = rule
+                name = rule['roots'][0]['name']
+                root_manifest = f'[package]\nname="{name}"\nversion="0.1.0"\nedition="2024"\n[features]\ndefault=[]\n'
+                self.write('root/Cargo.toml', root_manifest)
+                self.write('forbidden/Cargo.toml', f'[package]\nname="{forbidden["name"]}"\nversion="{forbidden.get("version", "0.1.0")}"\nedition="2024"\n')
+                self.assertFalse(self.violations(self.inspect()))
+                self.write('root/Cargo.toml', root_manifest + f'[dependencies]\nbanned={{package="{forbidden["name"]}",path="../forbidden"}}\n')
+                self.assertTrue(self.violations(self.inspect()))
 
     def test_unregistered_required_profile_is_gap(self):
         self.rule['required_profiles'].append('required-wasm')

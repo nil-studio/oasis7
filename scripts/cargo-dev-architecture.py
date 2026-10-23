@@ -45,8 +45,8 @@ def validate(config):
                     'declaration_kinds', 'profiles', 'required_profiles', 'allows', 'exceptions'}
         if set(rule) - (required | {'empty_default', 'forbidden_feature_tokens', 'test_edges'}) or not required <= rule.keys():
             raise InspectionError('invalid rule fields')
-        if rule['key'] in seen or not rule['roots'] or not rule['profiles']:
-            raise InspectionError('duplicate key or missing roots/profiles')
+        if rule['key'] in seen or not rule['roots']:
+            raise InspectionError('duplicate key or missing roots')
         seen.add(rule['key'])
         if not rule['upstream'].count('#') == 1:
             raise InspectionError('upstream must include path#anchor')
@@ -287,7 +287,8 @@ def inspect(root, config, builds=True, selected=None):
                 results.append(dict(context, status='violation', view='features', edge='features.default'))
             for key, values in manifest.get('features', {}).items():
                 for value in values:
-                    if any(token in value for token in rule.get('forbidden_feature_tokens', [])):
+                    feature_name = value.rsplit('/', 1)[-1].removeprefix('dep:')
+                    if feature_name in rule.get('forbidden_feature_tokens', []):
                         results.append(dict(context, status='violation', view='features', edge=f'features.{key}', value=value))
             for profile in rule['profiles']:
                 scope = dict(context, profile=profile, target=host if profile['target'] == 'host' else profile['target'])
