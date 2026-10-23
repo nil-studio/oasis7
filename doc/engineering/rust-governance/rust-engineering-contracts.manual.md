@@ -54,6 +54,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 任一 violation、inspection_error 或 coverage_gap 都返回非零。
 
 首批配置在执行 host 上区分默认生产、无默认生产、manifest 实际拥有的 required/full/test-support，
+Game Client 另有必需的 `unit-tests` 测试闭包，防止通过 dev helper 传递回拉后端，
 Runtime 另列显式 Wasmtime 生产配置。Client Launcher 保留原脚本的 host/无默认 features/含 dev 范围，
 不把四项禁令扩大到所有版本或所有平台。Protocol Tools 的测试允许关系只命中其精确的
 `dev -> oasis7(default-features=false,features=[test_tier_required])` 首边；生产图仍完整检查。

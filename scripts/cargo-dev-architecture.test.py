@@ -234,6 +234,20 @@ class CargoBoundaries(unittest.TestCase):
                 self.write('root/Cargo.toml', root_manifest + f'[dependencies]\nbanned={{package="{forbidden["name"]}",path="../forbidden"}}\n')
                 self.assertTrue(self.violations(self.inspect()))
 
+    def test_registered_game_client_profiles_reject_transitive_dev_backend(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        self.rule = next(r for r in rules if r['key'] == 'game-client')
+        self.rule['upstream'] = 'owner.md#boundary'
+        root_manifest = '[package]\nname="oasis7_game_client"\nversion="0.1.0"\nedition="2024"\n'
+        self.write('root/Cargo.toml', root_manifest)
+        self.write('forbidden/Cargo.toml', '[package]\nname="oasis7_runtime"\nversion="0.1.0"\nedition="2024"\n')
+        self.package('middle', '[dependencies]\nruntime={package="oasis7_runtime",path="../forbidden"}\n')
+        self.assertFalse(self.violations(self.inspect()))
+        self.write('root/Cargo.toml', root_manifest + '[dev-dependencies]\nmiddle={path="../middle"}\n')
+        failures = self.violations(self.inspect())
+        self.assertTrue(any(r['view'] == 'closure' and r['profile']['mode'] == 'test'
+                            for r in failures), failures)
+
     def test_unregistered_required_profile_is_gap(self):
         self.rule['required_profiles'].append('required-wasm')
         self.assertTrue(any(r['status'] == 'coverage_gap' for r in self.inspect()['results']))

@@ -60,6 +60,13 @@
           "default_features": false,
           "features": [],
           "mode": "production"
+        },
+        {
+          "id": "unit-tests",
+          "target": "host",
+          "default_features": true,
+          "features": [],
+          "mode": "test"
         }
       ],
       "allows": [
@@ -68,7 +75,8 @@
       "exceptions": [],
       "required_profiles": [
         "default",
-        "lightweight"
+        "lightweight",
+        "unit-tests"
       ]
     },
     {
