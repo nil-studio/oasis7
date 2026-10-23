@@ -16,7 +16,7 @@
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | 区分实例存活、读取范围、授权、成员采用和签名/追加阻断 | [角色就绪投影](#report-profile-readiness) | 各 profile producer、ops 与 QA | 目标字段/适配仍待实现；不扩大 triad 拓扑支持或新增自动操作 |
 | [独占 run](node-triad-operations-observability.prd.md#observability-run-contract) | 写入前原子独占；冲突写前拒绝/重分配，同 run 工件所属一致。 | [编排目标](#run-exclusive) | runtime / blockchain ops / QA；上游各自 owning module | 未运行目标故障/并发回归；不证明 producer 修复、真实 SSH 或现场恢复。  产品适用性：N/A；理由：本行是旧接口维护或 operator 技术观测合同，本身不新增玩家承诺；范围：本行所列专业机制，不免除现行产品恢复、经济或可用性义务。 |
 | [参数路由](node-triad-operations-observability.prd.md#observability-run-contract) | service/status/shared target 先校验再按消费者分配，非法参数写前失败。 | [编排目标](#run-routing) | ops collector／QA；子工具各自 owning module | 限受支持 triad 参数；不证明任意拓扑、host 内部失败续采或现场恢复。产品适用性：N/A；理由：本行为 operator 技术接口，不新增玩家承诺；范围：受支持的三节点参数路由，不替代现行可用性义务。 |
-| [失败后报告](node-triad-operations-observability.prd.md#observability-run-contract) | 首个/后续/全部 SSH 失败保留结构化不可用样本、继续其余节点并生成终态报告，非零退出。 | [编排目标](#run-failure-report) | runtime / blockchain ops / QA；上游各自 owning module | 未运行目标故障/并发回归；不证明 producer 修复、真实 SSH 或现场恢复。  产品适用性：N/A；理由：本行是旧接口维护或 operator 技术观测合同，本身不新增玩家承诺；范围：本行所列专业机制，不免除现行产品恢复、经济或可用性义务。 |
+| [失败后报告](node-triad-operations-observability.prd.md#observability-run-contract) | 首个／后续／全部节点采样失败保留不可用样本、继续其余采样并生成非零终态。 | [编排目标](#run-failure-report) | ops collector／report publisher／QA | 不证明独立入口的持久 pending、目录并发安全或真实故障域恢复。产品适用性：N/A；理由：本行为 operator 诊断接口；范围：本地采集与报告，不替代现行产品可用性义务。 |
 | [持久错误](node-triad-operations-observability.prd.md#observability-run-contract) | reward collector/probe state 写入失败独立保留 last_error/degraded，不因旧 report、无新 epoch 或 invariant 正常清错。 | [编排目标](#run-worker-error) | runtime / blockchain ops / QA；上游各自 owning module | 未运行目标故障/并发回归；不证明 producer 修复、真实 SSH 或现场恢复。  产品适用性：N/A；理由：本行是旧接口维护或 operator 技术观测合同，本身不新增玩家承诺；范围：本行所列专业机制，不免除现行产品恢复、经济或可用性义务。 |
 | [选用范围](node-triad-operations-observability.prd.md#ops-selected-scope) | 本轮明确候选、inventory、用途；旧 fleet 退出不把旧未验证结果升级为通过。 | [报告目标](#report-scope) | runtime / blockchain ops / QA；上游各自 owning module | 现有 fixture 仅覆盖其断言子范围；不证明完整 producer/adapter 链、现场健康或 release readiness。  产品适用性：N/A；理由：本行是旧接口维护或 operator 技术观测合同，本身不新增玩家承诺；范围：本行所列专业机制，不免除现行产品恢复、经济或可用性义务。 |
 | [OPS-AC-1](node-triad-operations-observability.prd.md#ops-report-contract) | 真实 traffic envelope 保值，未知 schema/不可用/缺文件显式诊断，仅支持格式可 adapter。 | [报告目标](#report-envelope) | runtime / blockchain ops / QA；上游各自 owning module | 现有 fixture 仅覆盖其断言子范围；不证明完整 producer/adapter 链、现场健康或 release readiness。  产品适用性：N/A；理由：本行是旧接口维护或 operator 技术观测合同，本身不新增玩家承诺；范围：本行所列专业机制，不免除现行产品恢复、经济或可用性义务。 |
@@ -29,13 +29,13 @@
 - Owner role：`blockchain_ops_engineer`；runtime 维护 status/worker 真值，QA 判读适用证据。
 - 审读基线：`edf61e801e4888087c2e65a402011088bd1c50b2`（2026-10-15）。目标是同一候选、inventory 和窗口下可诊断的 operator 报告；下列编排条款是应满足的目标，不是已实现声明。
 - 当前外层 [monitor](../../../scripts/p2p-real-env-observability-monitor.sh) 按[持久尝试](#durable-observability-attempt)分配独占 run 并条件发布终态；独立 snapshot／host／traffic 入口不因此取得该保护。参数按[三节点消费者路由](#run-routing)分配；不接受通用透传，也不将 snapshot 的显式多节点清单混入固定 triad 的 host／traffic 证据。
-- 外层 monitor 捕获子阶段退出，继续可独立运行的采集并发布失败诊断。[host monitor](../../../scripts/p2p-real-env-host-monitor.sh) 内部逐节点 SSH 失败后的续采仍未由本切片修复，不能声称它已覆盖首个／后续／全部节点失败恢复。
-- [monitor 测试](../../../scripts/p2p-real-env-observability-monitor.test.sh) 已包含外层实际入口的 stub 并发／故障及真实 merger 集成；[host 测试](../../../scripts/p2p-real-env-host-monitor.test.sh) 仍主要核对 host summary。这些离线测试不证明真实 fleet 或内部 SSH 续采。
+- 外层 monitor 捕获子阶段退出，继续可独立运行的采集并发布失败诊断。[host monitor](../../../scripts/p2p-real-env-host-monitor.sh) 按[失败样本合同](#run-failure-report)逐节点记录成功或失败，继续剩余节点／样本，并在报告发布后以非零退出保留本 run 的采集失败。
+- [monitor 测试](../../../scripts/p2p-real-env-observability-monitor.test.sh) 已包含外层实际入口的 stub 并发／故障及真实 merger 集成；[host 测试](../../../scripts/p2p-real-env-host-monitor.test.sh) 包含实际采集器的离线 I/O 故障回归。这些测试不证明真实 fleet 或物理故障域恢复。
 - 表中标记“产品适用性：N/A”的旧工具行，仅描述目录隔离、参数路由等专业 operator 机制，本身不新增玩家功能或经济承诺；此说明不适用于明确承接 REQ-DCS-005 的新鲜度与角色观测行。storage/reward 的 producer 义务仍由各自 authority 拥有，本文不改变计算规则或恢复承诺。
 - 当前 summary 的 `summarize_storage` 直接累加 `bytes_by_dir`，且将非 None/success 的 GC 状态均判作失败；与 OPS-AC-4 的目录并集、GC 多状态解释存在差距，仍需独立实现与正负例核验。
-- 剩余风险：目录碰撞、参数误传与早退可使本轮报告缺失或混入旧数据；未知 schema、过期窗口与 producer 错误不能用健康数值冲淡。源码审读不证明故障已修复，也不验证现场 fleet。
+- 剩余风险：独立入口的目录碰撞、输出不可写和未支持的 producer 输入仍可使本轮报告不可用；未知 schema、过期窗口与 producer 错误不能用健康数值冲淡。源码审读不证明故障已修复，也不验证现场 fleet。
 
-流量归约按[当前新鲜度策略](#traffic-freshness-v2)保留最新失败和历史成功，以显式边界及年龄／缺口预算归约，并在合并时重新核验年龄。外层编排的持久尝试与失败发布另见下节；独立 collector 的持久尝试、host 内部失败续采和 profile producer 差距仍存在；本节不刷新历史现场证据，不能从流量新鲜度字段推断授权、成员或签名状态已经接线。
+流量归约按[当前新鲜度策略](#traffic-freshness-v2)保留最新失败和历史成功，以显式边界及年龄／缺口预算归约，并在合并时重新核验年龄。外层编排的持久尝试与失败发布另见下节；独立 collector 的持久尝试和 profile producer 差距仍存在；本节不刷新历史现场证据，不能从流量新鲜度字段推断授权、成员或签名状态已经接线。
 
 <a id="数据流"></a>
 ## 边界与数据流
@@ -69,6 +69,13 @@
 2. 写入前原子分配独占 run 目录，snapshot 单独调用也承担同样责任；冲突在写前拒绝或重新分配，不覆盖已存在目录。外层与子采集器记录同一所属关系。
 <a id="run-failure-report"></a>
 3. 捕获采集失败并保留结构化不可用样本；host SSH 失败不跳过后续节点和最终报告。终态汇总同时保留非零退出、失败节点、仍有效的其他采样和 underlying snapshot 的 blocked。
+
+Host 样本 schema 2 对每次已执行的节点采样保存 `sample_fetch_ok`、`sample_index`、实际完成时点与固定 `stage`／`fetch_error` 类别。local probe、SSH、空响应、缺字段或数值损坏均形成失败行；不执行采样返回的 shell 文本，不把原始 stderr、环境或凭据写入公开诊断。每次采样单独解析，不能继承上一节点／上一轮的变量。一次失败不跳过剩余节点或请求的后续轮次；写入／归约本身失败仍非零，不承诺磁盘不可写时能生成终态工件。
+
+Host summary 分开输出每节点 `latest_attempt` 与历史 `last_success`，保留总尝试数、成功／失败数。最新失败时 `available=false` 且当前 `latest` 为空，历史成功与峰值不能替它填当前读数；失败后新的有效采样可恢复该节点的当前可采集性。`aggregate.complete` 仅在本 run 所有请求采样均有效时为 true，`expected_sample_count` 记录请求总数，`attempted_count`、各节点计数及 `failed_sample_count`／`failed_nodes` 交叉核对并保留窗口失败；即使后续恢复，本 run 仍非零退出并保持 incomplete。缺新标志的已支持 legacy 成功历史继续按旧格式解释，不因此取得新鲜度或角色就绪保证。
+
+合并报告保留 host 聚合诊断与每节点尝试／历史引用；schema 2 缺失或未满足 complete 时整体 blocked，未知 host schema 同样不可判定。underlying snapshot 的 blocked 不被资源正常值或后续采集恢复覆盖。外层持久尝试即使因 host 非零而失败，仍可在核对 run ID／目录后保留本 run 已成功生成的 merged 诊断，附加有界阶段错误与 unavailable 标志；错误 run、缺失或损坏报告不能被采纳。host 独立调用的目录碰撞、持久 pending／条件发布及真实 SSH 故障域验收仍不在此子范围。
+
 4. 汇总仅引用本 run 的实际文件；失败细节限制为 label、时间、阶段和受限错误类别，不输出凭据或完整环境。
 <a id="run-worker-error"></a>
 5. reward state 写入错误独立于数值发布与 invariant：采集窗口按实际 last_error/degraded 解释，不用已有 report 或无新 epoch 清错。producer 只有在对应持久化真正恢复后才清除该错误；本设计不更改持久化格式或奖励计算。
@@ -180,7 +187,7 @@ producer 发布实际 profile、world/chain、构建与实例身份，adapter �
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | [角色就绪投影](#report-profile-readiness) | OPS-AC-5 与失败终态指针不掩盖阻断 | planned：扩展 [observability 回归](../../../scripts/p2p-real-env-observability-monitor.test.sh)，走 collector→adapter→report，注入失效 grant、未采用成员、签名失败、P/R 故障、容量和旧样本，以及 A 慢/B 快、pending 中止与终态写入失败；现有 fixture 不覆盖该编排链 | 未来实现 PR 的同候选输出、退出码和各角色断言；当前仅设计 | 不证明协议撤销/BFT/物理故障域或任意拓扑已支持 |
 | [独占 run](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-exclusive) | 外层写入前原子分配独占 run，同 run 工件关联一致 | [实际编排回归](../../../scripts/p2p-real-env-observability-attempt.test.py)：固定时钟并发、输出别名和预存工件／内部 symlink 拒绝 | 当前实现 PR 的本地／CI 命令、退出码与断言 | 不证明独立 snapshot 等入口的目录隔离、真实 SSH 或现场恢复 |
 | [参数路由](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-routing) | 三节点参数按消费者分配，非法参数采集与写入前失败 | [实际路由回归](../../../scripts/p2p-real-env-observability-routing.test.py)：严格 argv 消费检查与真实子工具离线集成，覆盖 service／status／target／storage 等单项及组合、help、缺值与不支持拓扑 | 当前实现 PR 的 source HEAD、本地／CI 命令、退出码及 JSON／Markdown 断言 | 不证明任意拓扑、host 内部失败续采、producer 修复、真实 SSH 或现场恢复 |
-| [失败后报告](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-failure-report) | 外层捕获阶段失败、继续独立阶段并保留非零终态 | [实际编排回归](../../../scripts/p2p-real-env-observability-attempt.test.py)：实际 wrapper 注入子进程失败、pending 中止、终态写入失败及恢复 | 当前实现 PR 的本地／CI 命令、JSON／Markdown 与断言 | 不证明 host 内部首个／后续／全部 SSH 节点失败的续采或现场恢复 |
+| [失败后报告](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-failure-report) | 节点失败不跳过后续采样，保留本 run 失败及非零终态 | [host 实际采集回归](../../../scripts/p2p-real-env-host-failure.test.py)：首个／后续／全部失败、部分响应、失败后恢复及真实 reducer／merged 消费；另执行现有持久尝试回归 | 当前实现 PR 的 source HEAD、本地／CI 命令及 JSON／Markdown 断言 | 不证明独立 collector 持久尝试、目录隔离、真实 SSH 或物理故障域恢复 |
 | [持久错误](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-worker-error) | reward collector/probe state 写入失败独立保留 last_error/degraded，不因旧 report、无新 epoch 或 invariant 正常清错。 | 当前只核对 `../../../scripts/p2p-real-env-observability-summary.py`（summary） 的 summarize_reward_runtime 消费边界；producer 写入实现未在本专题核实。未来由 worker owner 沿实际调用链提供连续两轮失败/真正恢复 fixture，再核对 status→report；不得从 summary 通过推导写入恢复。  离线工具验证遵循 [testing manual](../../../testing-manual.md)；源码审读与未来实际执行分别记录。 | 同一候选的静态核对记录；未来实际命令、退出码、断言与适用环境分项记录 | 未运行目标故障/并发回归；不证明 producer 修复、真实 SSH 或现场恢复。 |
 | [选用范围](node-triad-operations-observability.prd.md#ops-selected-scope) | [报告目标](#report-scope) | 本轮明确候选、inventory、用途；旧 fleet 退出不把旧未验证结果升级为通过。 | 核对选定配置与报告身份；未来离线 fixture 检查不同 inventory 与候选一致性，现场证据另按当次授权取得。  离线工具验证遵循 [testing manual](../../../testing-manual.md)；源码审读与未来实际执行分别记录。 | 同一候选的静态核对记录；未来实际命令、退出码、断言与适用环境分项记录 | 现有 fixture 仅覆盖其断言子范围；不证明完整 producer/adapter 链、现场健康或 release readiness。 |
 | [OPS-AC-1](node-triad-operations-observability.prd.md#ops-report-contract) | [报告目标](#report-envelope) | 真实 traffic envelope 保值，未知 schema/不可用/缺文件显式诊断，仅支持格式可 adapter。 | 静态审读 summary 的 summarize_traffic_control_plane 与 fixture 断言；未来新增真实 single-node envelope→adapter→merged Markdown 正负例。现有 fixture aggregate 不证明全部 envelope 适配。  离线工具验证遵循 [testing manual](../../../testing-manual.md)；源码审读与未来实际执行分别记录。 | 同一候选的静态核对记录；未来实际命令、退出码、断言与适用环境分项记录 | 现有 fixture 仅覆盖其断言子范围；不证明完整 producer/adapter 链、现场健康或 release readiness。 |

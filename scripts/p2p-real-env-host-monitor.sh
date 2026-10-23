@@ -192,93 +192,27 @@ capture_sample() {
   mkdir -p "$sample_dir"
   local sample_env="$sample_dir/sample.env"
 
+  local stage="" error=""
   if [[ "$mode" == "local" ]]; then
-    bash "$helper_script" "$service" "$storage_path" >"$sample_env"
+    if bash "$helper_script" "$service" "$storage_path" >"$sample_env" 2>/dev/null; then :; else
+      stage=local_probe; error=local_probe_failed
+    fi
   else
-    run_ssh "$target" "$password" "bash -s -- '$service' '$storage_path'" <"$helper_script" >"$sample_env"
+    local remote_command
+    printf -v remote_command 'bash -s -- %q %q' "$service" "$storage_path"
+    if run_ssh "$target" "$password" "$remote_command" <"$helper_script" >"$sample_env" 2>/dev/null; then :; else
+      stage=ssh; error=ssh_failed
+    fi
   fi
-
-  # shellcheck disable=SC1090
-  source "$sample_env"
-
-  jq -c -n \
-    --arg captured_at "$captured_at" \
-    --arg captured_at_unix_ms "$captured_at_unix_ms" \
-    --arg label "$label" \
-    --arg service "$service" \
-    --arg hostname "$hostname" \
-    --arg cpu_cores "$cpu_cores" \
-    --arg load1 "$load1" \
-    --arg load5 "$load5" \
-    --arg load15 "$load15" \
-    --arg mem_total_bytes "$mem_total_bytes" \
-    --arg mem_available_bytes "$mem_available_bytes" \
-    --arg storage_path "$storage_path" \
-    --arg storage_total_bytes "${storage_total_bytes:-}" \
-    --arg storage_used_bytes "${storage_used_bytes:-}" \
-    --arg storage_available_bytes "${storage_available_bytes:-}" \
-    --arg storage_used_percent "${storage_used_percent:-}" \
-    --arg service_active_state "${service_active_state:-unknown}" \
-    --arg service_sub_state "${service_sub_state:-unknown}" \
-    --arg service_main_pid "${service_main_pid:-0}" \
-    --arg wrapper_pcpu "${wrapper_pcpu:-}" \
-    --arg wrapper_pmem "${wrapper_pmem:-}" \
-    --arg wrapper_elapsed_secs "${wrapper_elapsed_secs:-}" \
-    --arg wrapper_nlwp "${wrapper_nlwp:-}" \
-    --arg wrapper_psr "${wrapper_psr:-}" \
-    --arg runtime_pid "${runtime_pid:-}" \
-    --arg runtime_pcpu "${runtime_pcpu:-}" \
-    --arg runtime_pmem "${runtime_pmem:-}" \
-    --arg runtime_elapsed_secs "${runtime_elapsed_secs:-}" \
-    --arg runtime_nlwp "${runtime_nlwp:-}" \
-    --arg runtime_psr "${runtime_psr:-}" \
-    '{
-      captured_at: $captured_at,
-      captured_at_unix_ms: ($captured_at_unix_ms | tonumber),
-      label: $label,
-      service_name: $service,
-      host: {
-        hostname: $hostname,
-        cpu_cores: ($cpu_cores | tonumber),
-        loadavg_1m: ($load1 | tonumber),
-        loadavg_5m: ($load5 | tonumber),
-        loadavg_15m: ($load15 | tonumber),
-        mem_total_bytes: ($mem_total_bytes | tonumber),
-        mem_available_bytes: ($mem_available_bytes | tonumber)
-      },
-      storage: {
-        path: $storage_path,
-        total_bytes: (if ($storage_total_bytes | length) == 0 then null else ($storage_total_bytes | tonumber) end),
-        used_bytes: (if ($storage_used_bytes | length) == 0 then null else ($storage_used_bytes | tonumber) end),
-        available_bytes: (if ($storage_available_bytes | length) == 0 then null else ($storage_available_bytes | tonumber) end),
-        used_percent: (if ($storage_used_percent | length) == 0 then null else ($storage_used_percent | tonumber) end)
-      },
-      service: {
-        active_state: $service_active_state,
-        sub_state: $service_sub_state,
-        main_pid: (if ($service_main_pid | length) == 0 then null else ($service_main_pid | tonumber) end)
-      },
-      wrapper: {
-        present: (($service_main_pid | length) > 0 and $service_main_pid != "0"),
-        pid: (if ($service_main_pid | length) == 0 then null else ($service_main_pid | tonumber) end),
-        pcpu: (if ($wrapper_pcpu | length) == 0 then null else ($wrapper_pcpu | tonumber) end),
-        pmem: (if ($wrapper_pmem | length) == 0 then null else ($wrapper_pmem | tonumber) end),
-        elapsed_secs: (if ($wrapper_elapsed_secs | length) == 0 then null else ($wrapper_elapsed_secs | tonumber) end),
-        nlwp: (if ($wrapper_nlwp | length) == 0 then null else ($wrapper_nlwp | tonumber) end),
-        psr: (if ($wrapper_psr | length) == 0 then null else ($wrapper_psr | tonumber) end)
-      },
-      runtime: {
-        present: (($runtime_pid | length) > 0),
-        pid: (if ($runtime_pid | length) == 0 then null else ($runtime_pid | tonumber) end),
-        pcpu: (if ($runtime_pcpu | length) == 0 then null else ($runtime_pcpu | tonumber) end),
-        pmem: (if ($runtime_pmem | length) == 0 then null else ($runtime_pmem | tonumber) end),
-        elapsed_secs: (if ($runtime_elapsed_secs | length) == 0 then null else ($runtime_elapsed_secs | tonumber) end),
-        nlwp: (if ($runtime_nlwp | length) == 0 then null else ($runtime_nlwp | tonumber) end),
-        psr: (if ($runtime_psr | length) == 0 then null else ($runtime_psr | tonumber) end)
-      }
-    }' >>"$samples_ndjson"
+  if python3 "$repo_root/scripts/p2p-real-env-host-summary.py" --sample-env "$sample_env" \
+    "$label" "$sample_index" "$service" "$storage_path" "$stage" "$error" >>"$samples_ndjson"; then
+    :
+  else
+    collection_failed=1
+  fi
 }
 
+collection_failed=0
 started_at=$(date -Iseconds)
 for ((sample_index = 1; sample_index <= samples; sample_index++)); do
   captured_at=$(date -Iseconds)
@@ -299,6 +233,7 @@ python3 "$repo_root/scripts/p2p-real-env-host-summary.py" \
   --history-path "$samples_ndjson" \
   --summary-json "$summary_json" \
   --summary-md "$summary_md" \
+  --expected-samples-per-node "$samples" \
   --run-id "$run_id" \
   --run-dir "$run_dir"
 
@@ -311,3 +246,5 @@ echo "  started_at: $started_at"
 echo "  ended_at: $ended_at"
 echo "  summary_json: $summary_json"
 echo "  summary_md: $summary_md"
+
+exit "$collection_failed"

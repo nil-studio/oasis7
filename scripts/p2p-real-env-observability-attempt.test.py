@@ -65,6 +65,7 @@ elif 'host-monitor' in name:
     (out / 'fixture').mkdir(parents=True)
     (out / 'fixture' / 'summary.json').write_text('{}')
     if fixtures: shutil.copy2(fixtures / 'host_summary.json', out / 'fixture' / 'summary.json')
+    if os.environ.get('ATTEMPT_TEST_FAIL') == 'host': sys.exit(7)
 elif 'traffic-monitor' in name or 'wasm-metrics' in name:
     out.mkdir(parents=True, exist_ok=True)
     (out / 'latest_summary.json').write_text('{}')
@@ -241,6 +242,39 @@ else:
         self.assertEqual(report['canonical_state']['validation_scope'], 'attempt_order_and_artifact_integrity')
         self.assertGreaterEqual(report['canonical_state']['read_at_unix_ms'], report['as_of_unix_ms'])
         self.assertIn('blocked', self.canonical(markdown=True))
+
+    def test_real_merger_host_failure_preserves_report_diagnostics(self):
+        self.complete(self.start())
+        shutil.copy2(SCRIPTS / 'p2p-real-env-observability-summary.py', self.root / 'scripts')
+        env = dict(self.env, ATTEMPT_TEST_FIXTURES=str(SCRIPTS.parent / 'fixtures' / 'p2p_real_env_observability'), ATTEMPT_TEST_FAIL='host')
+        self.complete(self.start(env, arguments=[]), 1)
+        report = self.canonical(1)
+        self.assertIn('nodes', report)
+        self.assertEqual(report['snapshot']['claim_status'], 'blocked')
+        self.assertEqual(report['last_success']['sequence'], 1)
+        self.assertEqual(report['overall']['status'], 'blocked')
+        self.assertIn('host_failed', report['overall']['alerts'])
+        self.assertFalse(report['current_measurement_available'])
+        self.assertIn('## local_node', self.canonical(1, markdown=True))
+
+    def test_failed_collectors_discard_invalid_or_failed_summary_source(self):
+        for mutation in ('wrong_run', 'malformed', 'bad_alerts', 'summary_failed'):
+            with self.subTest(mutation=mutation):
+                helper = self.helper()
+                reserved = helper.begin(self.out, [])
+                directory = Path(reserved['run_dir']) / 'report'
+                directory.mkdir()
+                source = {'overall': {'status':'pass'}, 'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'], 'run_dir': reserved['run_dir'], 'nodes': {'must_not_adopt': {}}}
+                if mutation == 'wrong_run': source['run_id'] = 'wrong'
+                if mutation == 'bad_alerts': source['overall']['alerts'] = [{}]
+                (directory / 'latest_summary.json').write_text('{' if mutation == 'malformed' else json.dumps(source))
+                (directory / 'latest_summary.md').write_text('# must_not_adopt')
+                errors = [{'stage':'summary' if mutation == 'summary_failed' else 'host', 'exit_code':7, 'error':'collector_failed'}]
+                self.assertEqual(helper.finish(self.out, reserved['sequence'], reserved['attempt_id'], errors), 1)
+                report = self.canonical(1)
+                self.assertNotIn('nodes', report)
+                self.assertIsNone(report['last_success'])
+                self.assertNotIn('must_not_adopt', self.canonical(1, markdown=True))
 
     def helper(self):
         spec = importlib.util.spec_from_file_location('attempt_helper_extra', SCRIPTS / 'p2p-real-env-observability-attempt.py')

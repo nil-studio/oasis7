@@ -266,7 +266,12 @@ def report_for(attempt, last_success, source=None):
     if attempt['result'] != 'success':
         report['current_measurement_available'] = False
     if attempt['result'] != 'success':
-        report['overall'] = {'status': 'blocked', 'alerts': [attempt.get('error') or 'attempt_pending']}
+        overall = dict(report.get('overall') or {})
+        alerts = list(overall.get('alerts') or [])
+        alerts.extend(row['stage'] + '_failed' for row in attempt.get('errors', []))
+        alerts.append(attempt.get('error') or 'attempt_pending')
+        overall.update(status='blocked', alerts=sorted(set(alerts)))
+        report['overall'] = overall
     return report
 
 
@@ -341,16 +346,20 @@ def finish(root, sequence, attempt_id, errors):
         own_directory = root / ('runs/' + str(sequence).zfill(12) + '-' + attempt_id)
         source = None
         source_markdown = None
-        if not errors:
+        if not any(row.get('stage') == 'summary' for row in errors):
             try:
                 source = read_json(own_directory / 'report' / 'latest_summary.json')
                 if (not isinstance(source, dict) or not isinstance(source.get('overall'), dict)
+                        or not isinstance(source['overall'].get('alerts', []), list)
+                        or not all(isinstance(alert, str) for alert in source['overall'].get('alerts', []))
                         or source.get('run_id') != str(sequence) + '-' + attempt_id
                         or source.get('run_dir') != str(own_directory)):
                     raise AttemptError('summary source is not associated with reserved run')
                 source_markdown = (own_directory / 'report' / 'latest_summary.md').read_text(encoding='utf-8')
             except (AttemptError, OSError, UnicodeError):
-                errors = [{'stage': 'summary', 'exit_code': 1, 'error': 'summary_failed'}]
+                source = None
+                source_markdown = None
+                errors = [*errors, {'stage': 'summary', 'exit_code': 1, 'error': 'summary_failed'}]
         own_result = {'sequence': sequence, 'attempt_id': attempt_id,
                       'result': 'failed' if errors else 'success', 'errors': errors}
         # Superseded attempts may only leave their own completion evidence.
@@ -368,9 +377,11 @@ def finish(root, sequence, attempt_id, errors):
         previous_success = state.get('last_success')
         report = report_for(attempt, previous_success, source)
         markdown = '# Observability attempt ' + attempt['result'] + '\n'
-        if not errors:
+        if errors:
+            markdown += '\nCanonical overall status: `blocked`; current measurement available: `false`\n'
+        if source_markdown is not None:
             markdown += source_markdown
-        else:
+        if errors:
             markdown += '\nCollectors failed: ' + ', '.join(row['stage'] for row in errors) + '\n'
         # Canonical state remains pending until both report artifacts are durable.
         reference = publish(root, state, attempt, report, markdown)

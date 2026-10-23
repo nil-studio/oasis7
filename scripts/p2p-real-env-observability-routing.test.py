@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import unittest
@@ -165,8 +166,14 @@ pathlib.Path(os.environ['ROUTING_ARGV_LOG'], pathlib.Path(sys.argv[0]).name + '.
                      'p2p-real-env-traffic-monitor.sh', 'traffic-monitor-summary.py', 'traffic_monitor_freshness.py']:
             shutil.copy2(SCRIPTS / name, self.scripts)
         env_body = 'hostname=offline\ncpu_cores=1\nload1=0\nload5=0\nload15=0\nmem_total_bytes=1024\nmem_available_bytes=1024\n'
+        env_body += "service_active_state=active\nservice_sub_state=running\nservice_main_pid=0\nruntime_pid=''\n"
+        for key in ['storage_total_bytes', 'storage_used_bytes', 'storage_available_bytes', 'storage_used_percent']:
+            env_body += key + "=''\n"
+        for prefix in ['wrapper', 'runtime']:
+            for key in ['pcpu', 'pmem', 'elapsed_secs', 'nlwp', 'psr']:
+                env_body += prefix + '_' + key + "=''\n"
         sample = self.scripts / 'p2p-real-env-node-host-sample.sh'
-        sample.write_text("#!/bin/sh\ncat <<'HOSTENV'\n" + env_body + "HOSTENV\n")
+        sample.write_text("#!/bin/sh\ncat <<'HOSTENV'\n" + env_body + "HOSTENV\nprintf 'storage_path=%q\\n' \"$2\"\n")
         sample.chmod(0o755)
         binaries = self.root / 'bin'
         binaries.mkdir()
@@ -176,10 +183,10 @@ pathlib.Path(os.environ['ROUTING_ARGV_LOG'], pathlib.Path(sys.argv[0]).name + '.
                 + 'with open(os.environ["ROUTING_CURL_LOG"], "a") as log: log.write(json.dumps(sys.argv[1:]) + "\\n")\n'
                 + 'print(' + repr(status) + ')\n',
             'ip': '#!/bin/sh\nexit 0\n',
-            'ssh': '#!' + sys.executable + '\nimport json,os,sys\n'
+            'ssh': '#!' + sys.executable + '\nimport json,os,sys,shlex\n'
                 + 'with open(os.environ["ROUTING_SSH_LOG"], "a") as log: log.write(json.dumps(sys.argv[1:]) + "\\n")\n'
                 + 'command = sys.argv[-1]\n'
-                + 'print(' + repr(env_body) + ', end="") if "bash -s --" in command else print('
+                + 'print(' + repr(env_body) + ' + "storage_path=" + shlex.quote(shlex.split(command)[4]) + "\\n", end="") if "bash -s --" in command else print('
                 + repr(status) + ' if "curl -fsS" in command else ' + repr('{"available":false}') + ')\n',
 
         }.items():
@@ -206,8 +213,8 @@ pathlib.Path(os.environ['ROUTING_ARGV_LOG'], pathlib.Path(sys.argv[0]).name + '.
         self.assertEqual(traffic['nodes']['local_node']['latest']['status_url'], 'http://offline.invalid/local')
         self.assertEqual(traffic['top_n'], 3)
         ssh_calls = [json.loads(line) for line in (self.root / 'ssh-argv').read_text().splitlines()]
-        self.assertTrue(any('fixture@seq.invalid' in call and '/offline/seq space' in call[-1] for call in ssh_calls))
-        self.assertTrue(any('fixture@storage.invalid' in call and '/offline/storage space' in call[-1] for call in ssh_calls))
+        self.assertTrue(any('fixture@seq.invalid' in call and '/offline/seq space' in shlex.split(call[-1]) for call in ssh_calls))
+        self.assertTrue(any('fixture@storage.invalid' in call and '/offline/storage space' in shlex.split(call[-1]) for call in ssh_calls))
         self.assertTrue(any('http://offline.invalid/seq' in call[-1] for call in ssh_calls))
         curl_calls = [json.loads(line) for line in (self.root / 'curl-argv').read_text().splitlines()]
         self.assertTrue(any('http://offline.invalid/local' in call for call in curl_calls))
