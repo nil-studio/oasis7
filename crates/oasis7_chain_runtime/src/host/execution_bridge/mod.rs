@@ -871,6 +871,7 @@ pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 pub(super) use self::driver::derive_local_execution_bootstrap;
 #[allow(unused_imports)]
 pub(crate) use self::driver::{load_execution_world, load_execution_world_with_policy};
+pub(crate) use self::driver_persistence::load_execution_world_with_context;
 #[allow(unused_imports)]
 pub(super) use self::driver_committed_heights::bridge_committed_heights;
 #[cfg(test)]

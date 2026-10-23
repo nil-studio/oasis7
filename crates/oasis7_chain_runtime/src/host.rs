@@ -543,11 +543,12 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
     if let Some(bind_addr) = options.node_gossip_bind {
         config = config.with_gossip_optional(bind_addr, options.node_gossip_peers.clone());
     }
-
     config = apply_traffic_profile_to_node_config(config, &options)?;
-    config = governance_registry::apply_world_governance_registry_overrides(
+    config = governance_registry::apply_world_governance_registry_overrides_with_context(
         config,
         paths.execution_world_dir.as_path(),
+        &release_security_policy,
+        participant_control.authority.as_ref(),
     )?;
     if options.local_test_provider_authority_path.is_some() {
         local_provider_setup::ensure_local_test_provider_authority(

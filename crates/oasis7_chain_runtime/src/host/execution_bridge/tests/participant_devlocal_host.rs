@@ -162,7 +162,57 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
         )
         .exists()
     );
+    let before_policy_snapshot = driver.execution_world.snapshot();
     commit(&mut driver).unwrap();
+    // Exercise the actual Host governance read after policy commit, before driver restore.
+    crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+        oasis7_node::NodeConfig::new("node-a", "w1", oasis7_node::NodeRole::Sequencer).unwrap(),
+        &driver.world_dir,
+        &ReleaseSecurityPolicy::default(),
+        control.authority.as_ref(),
+    ).expect("Host governance override must restore activated DevLocal policy with trusted context");
+    let node_config = || oasis7_node::NodeConfig::new("node-a", "w1", oasis7_node::NodeRole::Sequencer).unwrap();
+    let read_governance = |policy: &ReleaseSecurityPolicy, authority| {
+        crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(), &driver.world_dir, policy, authority,
+        )
+    };
+    assert!(read_governance(&ReleaseSecurityPolicy::default(), None).is_err());
+    let wrong_authority = oasis7_runtime::DevLocalParticipantAuthority::new(
+        oasis7_proto::storage_profile::StorageProfile::DevLocal,
+        &ReleaseSecurityPolicy::default(),
+        hex::encode(ed25519_dalek::SigningKey::from_bytes(&[73; 32]).verifying_key().to_bytes()),
+    ).unwrap();
+    assert!(read_governance(&ReleaseSecurityPolicy::default(), Some(&wrong_authority)).is_err());
+    assert!(read_governance(&ReleaseSecurityPolicy::production_hardened(), None).is_err());
+    assert!(read_governance(&ReleaseSecurityPolicy::production_hardened(), control.authority.as_ref()).is_err());
+    // Normal persisted snapshot and pre-policy snapshot plus signed journal tail
+    // must pass the same governance read, without reconstructing trust from either.
+    for (label, snapshot) in [
+        ("snapshot", driver.execution_world.snapshot()),
+        ("journal-tail", before_policy_snapshot),
+    ] {
+        let path = dir.join(format!("governance-{label}"));
+        fs::create_dir(&path).unwrap();
+        snapshot.save_json(path.join("snapshot.json")).unwrap();
+        driver.execution_world.journal().save_json(path.join("journal.json")).unwrap();
+        crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(), &path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
+        ).unwrap_or_else(|error| panic!("governance restore {label}: {error}"));
+        assert!(crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(), &path, &ReleaseSecurityPolicy::default(), None,
+        ).is_err());
+    }
+    let formal_path = dir.join("governance-conflicting-formal-authority");
+    fs::create_dir(&formal_path).unwrap();
+    let mut formal_snapshot = driver.execution_world.snapshot();
+    formal_snapshot.state.governance_finality_signer_registry = Some(Default::default());
+    formal_snapshot.save_json(formal_path.join("snapshot.json")).unwrap();
+    driver.execution_world.journal().save_json(formal_path.join("journal.json")).unwrap();
+    let formal_error = crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+        node_config(), &formal_path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
+    ).err().expect("mixed formal authority must remain rejected");
+    assert!(formal_error.contains("DevLocal participant authority conflicts with effective world authority"), "{formal_error}");
     let registry = driver
         .execution_world
         .participant_registry_digest()
