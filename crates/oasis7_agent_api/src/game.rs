@@ -34,7 +34,7 @@ pub const API_REVISION: u32 = 1;
 pub const MAX_REQUEST_BYTES: usize = 256 * 1024;
 pub const MAX_JSON_DEPTH: usize = 16;
 
-pub const READ_SCHEMA_REVISION: u32 = 4;
+pub const READ_SCHEMA_REVISION: u32 = 5;
 pub const READ_OPENAPI_PATH: &str = "/v1/game/openapi.json";
 pub const MAX_READ_PROOF_HEADER_BYTES: usize = 8192;
 pub const MAX_READ_HTTP_HEADER_BYTES: usize = 16384;

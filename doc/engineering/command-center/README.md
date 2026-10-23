@@ -27,6 +27,8 @@
 
 ## 核验基线与覆盖范围
 
+2026-10-23 signed-read 协议产物局部核对：人工 OpenAPI 保留 HTTP profile 主责；[协议生成设计](../rust-governance/rust-engineering-contracts.design.md#artifact-contract)规定开发期生成与服务运行闭包分离，派生 TS/schema/manifest 不赋予 signer 或写权限。[实施 #5024](https://github.com/nil-studio/oasis7/issues/5024) 当前候选覆盖五条 GET、精确 DecimalU64 与独立 TS 消费；实际合入和验证由该任务承接，未改变部署或整局验收结论。
+
 Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
