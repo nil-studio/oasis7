@@ -105,6 +105,11 @@ bounded game commands through the approved broker described in the main Skill.
 Actual Runtime OS isolation and provider/model budgets remain separately required.
 No command launches a Runtime or authorizes paid inference.
 
+Current owner and owner-control checks select the bounded `owner_control_v1`
+profile, so unrelated world history and public entities do not enlarge this
+response. Use matching client and service versions; an unsupported profile is
+not permission to fall back to a full world export or create another identity.
+
 ## Lost login and blocked stages
 
 A login response can be consumed without its cookie being saved. The client

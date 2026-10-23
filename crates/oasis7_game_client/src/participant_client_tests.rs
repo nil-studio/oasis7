@@ -91,7 +91,7 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
         let mut authorizations = 0;
         let mut lookup_count = 0;
         let mut owner_views = 0;
-        for _ in 0..27 {
+        for _ in 0..33 {
             let (mut socket, _) = listener.accept().unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(3)))
@@ -143,16 +143,40 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
                 } else {
                     let owner = &original.as_ref().unwrap().request;
                     let commit = json!({"world":world,"binding":{"provider_world_id":"world","branch_id":"main","finality_ref":"test","reorg_generation":0,"governing_manifest_ref":"test","authority_generation":1,"permission_generation":1},"position":1,"execution_block_hash":"test-block","state_root_ref":"test-root"});
-                    let scope = body["read"]["request"]["scope_id"].clone();
-                    let view = json!({"contract_version":1,"version":{"commit":commit,"projection_revision":"owner-v1","visibility_scope":scope},"logical_tick":1,"continuation":{"stream_id":"owners","scope_id":scope,"era":0,"sequence":1,"commit":commit},"view":{"canonical_agent_owner":{"agent_id":"agent","player_id":"binding","public_key":owner.owner_public_key,"world_id":"world","reorg_epoch":0,"canonical_authority":{"branch_id":"main","agent_identity_generation":1},"current_intent_id":null},"game_task_control":null}});
-                    let signed = ws::sign_service_response(
-                        VIEW_JSON_PATH,
-                        ws::request_digest(VIEW_JSON_PATH, &body["read"]).unwrap(),
+                    let request: ws::participant_discovery::ParticipantOwnerViewRequestV1 =
+                        serde_json::from_value(body.clone()).unwrap();
+                    assert_eq!(request.response_profile, Some(ws::participant_discovery::ParticipantOwnerViewProfileV1::OwnerControlV1));
+                    let view: ws::participant_discovery::ParticipantOwnerControlViewV1 = serde_json::from_value(json!({"canonical_agent_owner":{"agent_id":"agent","player_id":"binding","public_key":owner.owner_public_key,"world_id":"world","reorg_epoch":0,"canonical_authority":{"branch_id":"main","agent_identity_generation":1},"current_intent_id":null},"game_task_control":null})).unwrap();
+                    let response = ws::participant_discovery::ParticipantOwnerControlResponseV1 {
+                        schema_revision: 1,
+                        world: world.clone(),
+                        version: ProjectionVersion {
+                            commit: serde_json::from_value(commit).unwrap(),
+                            projection_revision: ws::request_digest("projection", &view).unwrap(),
+                            visibility_scope: request.read.request.scope_id.clone(),
+                        },
+                        logical_tick: 1,
                         view,
+                    };
+                    response.validate(&request).unwrap();
+                    let signed = ws::sign_service_response(
+                        ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH,
+                        ws::request_digest(
+                            ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH,
+                            &request,
+                        )
+                        .unwrap(),
+                        response,
                         &hex::encode([77; 32]),
                     )
                     .unwrap();
-                    json!({"api_version":2,"ok":true,"world_response":signed})
+                    if owner_views == 3 {
+                        // A legacy full view cannot bypass the existing 64KiB
+                        // client bound merely because the caller requested compact.
+                        json!({"api_version":2,"ok":true,"world_response":signed,"legacy_history":"x".repeat(70000)})
+                    } else {
+                        json!({"api_version":2,"ok":true,"world_response":signed})
+                    }
                 }
             } else if path.ends_with("/participant/authorize") {
                 let owner: SignedReadRequest<GameParticipantRegisterV1> =
@@ -230,10 +254,13 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
                 body.len()
             )
             .unwrap();
-            socket.write_all(&body).unwrap();
+            let written = socket.write_all(&body);
+            if body.len() <= 65536 {
+                written.unwrap();
+            }
         }
-        assert_eq!(authorizations, 4);
-        assert_eq!(owner_views, 2);
+        assert_eq!(authorizations, 5);
+        assert_eq!(owner_views, 3);
         assert_eq!(lookup_count, 2);
     });
     assert!(client.register("original-op", "login").is_err());
@@ -270,5 +297,275 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
         .unwrap()
         .is_none()
     );
+    assert!(
+        restarted
+            .current_owner("original-op", "login")
+            .err()
+            .unwrap()
+            .contains("identity response exceeds bound")
+    );
     server.join().unwrap();
+}
+
+// Shared genuine HTTP boundary for history-unavailable participant/owner regressions.
+pub(super) fn history_server(
+    listener: TcpListener,
+    world: WorldIdentity,
+    owner_mode: bool,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut first_business = None;
+        let mut first_lookup = None;
+        let mut lookups = 0;
+        for _ in 0..if owner_mode { 18 } else { 12 } {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            let (path, body) = loop {
+                let mut chunk = [0; 2048];
+                let n = socket.read(&mut chunk).unwrap();
+                assert!(n > 0);
+                bytes.extend_from_slice(&chunk[..n]);
+                assert!(bytes.len() <= 65536);
+                if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+                    let length = header
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .map(|s| s.trim().parse::<usize>().unwrap())
+                        .unwrap_or(0);
+                    if bytes.len() >= end + 4 + length {
+                        break (
+                            header
+                                .lines()
+                                .next()
+                                .unwrap()
+                                .split_whitespace()
+                                .nth(1)
+                                .unwrap()
+                                .to_owned(),
+                            if length == 0 {
+                                Value::Null
+                            } else {
+                                serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap()
+                            },
+                        );
+                    }
+                }
+            };
+            let reply = if path.ends_with("/session") {
+                json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
+            } else if path.ends_with("/capabilities") {
+                json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
+            } else if path.ends_with("/participant/authorize") {
+                let owner: SignedReadRequest<GameParticipantRegisterV1> =
+                    serde_json::from_value(body).unwrap();
+                ws::verify_read_request(GAME_PARTICIPANT_REGISTER_DOMAIN, &owner).unwrap();
+                if let Some(first) = &first_business {
+                    assert_eq!(&owner, first);
+                } else {
+                    first_business = Some(owner.clone());
+                }
+                let r = &owner.request;
+                let admission=ws::sign_read_request(GAME_PARTICIPANT_ADMISSION_DOMAIN,GameParticipantAdmissionV1 {
+                    api_rev:1,business_digest:oasis7_client_api::world_service_correlation::participant_business_digest(r).unwrap(),
+                    identity_namespace:r.identity_namespace.clone(),account_id:r.account_id.clone(),world_id:r.world_id.clone(),genesis_digest:r.genesis_digest.clone(),owner_public_key:r.owner_public_key.clone(),
+                    branch_id:"main".into(),reorg_epoch:DecimalU64(0),policy_generation:DecimalU64(1),valid_from_tick:DecimalU64(1),valid_until_tick:DecimalU64(16)
+                }, &hex::encode([78;32])).unwrap();
+                json!({"api_version":2,"ok":true,"phase":"participant_authorized","new_registration_enabled":true,"admission":admission})
+            } else {
+                // Any submit, owner view, or unrelated new operation is a regression.
+                assert!(
+                    path.ends_with("/participant/lookup")
+                        || (owner_mode && path.ends_with("/entry-owner/control")),
+                    "unexpected write/read: {path}"
+                );
+                let lookup: AuthenticatedLookup = if path.ends_with("/participant/lookup") {
+                    serde_json::from_value(body.clone()).unwrap()
+                } else {
+                    let transport: ws::entry_control::EntryOwnerControlRequestV1 =
+                        serde_json::from_value(body).unwrap();
+                    let ws::entry_control::EntryOwnerOperationV1::Lookup(lookup) =
+                        transport.operation
+                    else {
+                        panic!("history-unavailable must never submit")
+                    };
+                    lookup
+                };
+                let correlation = oasis7_client_api::world_service_correlation::derive_correlation(
+                    world.clone(),
+                    &lookup.original,
+                )
+                .unwrap();
+                let outcome = if owner_mode && path.ends_with("/participant/lookup") {
+                    let r = &first_business.as_ref().unwrap().request;
+                    IntentOutcome::Committed { commit: Box::new(CommitRef {world:world.clone(),binding:ExecutionBinding {provider_world_id:"world".into(),branch_id:"main".into(),finality_ref:"test".into(),reorg_generation:0,governing_manifest_ref:"test".into(),authority_generation:1,permission_generation:1},position:1,execution_block_hash:"block".into(),state_root_ref:"root".into()}),
+                        receipt:serde_json::to_value(GameParticipantReceiptV1 { api_rev:1,imported:false,identity_namespace:r.identity_namespace.clone(),account_id:r.account_id.clone(),world_id:r.world_id.clone(),genesis_digest:r.genesis_digest.clone(),agent_id:"agent".into(),owner_public_key:r.owner_public_key.clone(),owner_binding:"binding".into(),owner_generation:DecimalU64(1),client_operation_id:r.client_operation_id.clone(),business_digest:oasis7_client_api::world_service_correlation::participant_business_digest(r).unwrap(),registered_tick:DecimalU64(1)}).unwrap() }
+                } else {
+                    lookups += 1;
+                    let value = serde_json::to_value(&lookup).unwrap();
+                    if let Some(first) = &first_lookup {
+                        assert_eq!(
+                            &value, first,
+                            "same operation must preserve its exact original"
+                        );
+                    } else {
+                        first_lookup = Some(value);
+                    }
+                    IntentOutcome::HistoryUnavailable
+                };
+                let signed = ws::sign_service_response(
+                    LOOKUP_PATH,
+                    ws::request_digest(LOOKUP_PATH, &lookup).unwrap(),
+                    IntentResponse {
+                        contract_version: 1,
+                        formal_profile: None,
+                        execution_evidence_scope: None,
+                        correlation,
+                        outcome,
+                    },
+                    &hex::encode([77; 32]),
+                )
+                .unwrap();
+                json!({"api_version":2,"ok":true,"world_response":signed})
+            };
+            let raw = serde_json::to_vec(&reply).unwrap();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                raw.len()
+            )
+            .unwrap();
+            socket.write_all(&raw).unwrap();
+        }
+        assert_eq!(lookups, 2);
+    })
+}
+pub(super) fn history_client(
+    endpoint: String,
+) -> (impl Drop, ParticipantClientConfig, ParticipantClient) {
+    let (root, c) = config(endpoint);
+    IdentityClient::initialize(&c.identity, PASSWORD).unwrap();
+    ParticipantClient::initialize_owner(&c, PASSWORD).unwrap();
+    let client = ParticipantClient::new(c.clone(), PASSWORD).unwrap();
+    client
+        .identity
+        .store
+        .put_original(
+            &client.identity.scope,
+            "login",
+            "login-session",
+            &IdentitySession {
+                account_id: "account".into(),
+                cookie: format!("__Host-oasis7_sid={}", URL_SAFE_NO_PAD.encode([8; 32])),
+            },
+        )
+        .unwrap();
+    (root, c, client)
+}
+#[test]
+fn participant_signed_history_unavailable_blocks_without_resubmission_or_owner_read() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_root, c, client) = history_client(format!("http://{}", listener.local_addr().unwrap()));
+    let server = history_server(listener, c.world.clone(), false);
+    let first = client.register("original-history", "login").unwrap();
+    let original: Value = client
+        .owner
+        .read_original(
+            &client.scope,
+            "original-history",
+            "participant-business-original",
+        )
+        .unwrap()
+        .unwrap();
+    // Reconcile exactly the same operation a second time, with the original key/nonce.
+    let second = client.register("original-history", "login").unwrap();
+    let retained: Value = client
+        .owner
+        .read_original(
+            &client.scope,
+            "original-history",
+            "participant-business-original",
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(original, retained);
+    server.join().unwrap();
+    for progress in [first, second] {
+        assert_eq!(progress.state, "blocked");
+        assert_eq!(progress.next_action, "restore_original_history");
+        let stopped = crate::cold_entry::participant_result(&progress, "original-history", || {
+            panic!("history unavailable cannot advance via current owner")
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(stopped["state"], "blocked");
+    }
+    assert!(
+        client
+            .owner
+            .read_original::<GameParticipantReceiptV1>(
+                &client.scope,
+                "original-history",
+                "participant-settlement"
+            )
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn participant_nonsettled_progress_preserves_existing_pending_unknown_and_rejection_contracts() {
+    let (_root, c, client) = history_client("https://identity.example".into());
+    let owner = hex::encode(client.key.verifying_key().to_bytes());
+    let request = GameParticipantRegisterV1 {
+        api_rev: 1,
+        identity_namespace: GameIdentityNamespaceV1 {
+            service_id: "identity".into(),
+            environment_id: "test".into(),
+            instance_epoch: DecimalU64(1),
+        },
+        account_id: "account".into(),
+        world_id: c.world.world_id.clone(),
+        genesis_digest: c.world.genesis_digest.clone(),
+        owner_public_key: owner,
+        owner_key_version: DecimalU64(1),
+        client_operation_id: "original".into(),
+    };
+    for (outcome, state, next) in [
+        (IntentOutcome::Unknown, "unknown", "query_original"),
+        (IntentOutcome::Pending, "unknown", "query_original"),
+        (
+            IntentOutcome::Received {
+                durability: AdmissionDurability::Volatile,
+            },
+            "pending",
+            "query_original",
+        ),
+        (
+            IntentOutcome::Rejected {
+                reason: WorldServiceErrorKind::Conflict,
+            },
+            "blocked",
+            "inspect_original_rejection",
+        ),
+        (
+            IntentOutcome::Expired,
+            "blocked",
+            "inspect_original_rejection",
+        ),
+        (
+            IntentOutcome::HistoryUnavailable,
+            "blocked",
+            "restore_original_history",
+        ),
+    ] {
+        let progress = client.progress("original", &request, &outcome).unwrap();
+        assert_eq!(progress.state, state);
+        assert_eq!(progress.next_action, next);
+        assert!(progress.agent_id.is_none());
+    }
+    assert_eq!(client.status("original").unwrap().state, "not_started");
 }

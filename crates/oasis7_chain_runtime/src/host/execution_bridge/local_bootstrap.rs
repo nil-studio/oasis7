@@ -17,8 +17,31 @@ pub(crate) fn derive_service_execution_bootstrap(
     storage_dir: &std::path::Path,
     world_id: &str,
 ) -> Result<NodeExecutionBootstrap, String> {
+    derive_service_execution_bootstrap_with_context(
+        world_dir,
+        records_dir,
+        storage_dir,
+        world_id,
+        &super::world_service_read::RestoreContext::default(),
+    )
+}
+
+/// Trusted running-host context must be supplied before committed CAS restoration.
+pub(crate) fn derive_service_execution_bootstrap_with_context(
+    world_dir: &std::path::Path,
+    records_dir: &std::path::Path,
+    storage_dir: &std::path::Path,
+    world_id: &str,
+    context: &super::world_service_read::RestoreContext,
+) -> Result<NodeExecutionBootstrap, String> {
     let identity = super::world_service_read::identity(world_dir, world_id)?;
-    let pinned = super::world_service_read::pin(records_dir, storage_dir, &identity, None)?;
+    let pinned = super::world_service_read::pin_with_context(
+        records_dir,
+        storage_dir,
+        &identity,
+        None,
+        context,
+    )?;
     Ok(NodeExecutionBootstrap {
         height: pinned.record.height,
         consensus_block_hash: pinned
@@ -165,11 +188,16 @@ impl NodeRuntimeExecutionDriver {
             .current_cognition_runtime_binding()
             .map_err(|e| format!("{e:?}"))?;
         let identity = super::world_service_read::identity(&self.world_dir, &binding.world_id)?;
-        let pinned = super::world_service_read::pin(
+        let restore_context = super::world_service_read::RestoreContext::new(
+            self.execution_world.release_security_policy().clone(),
+            self.devlocal_participant.authority.clone(),
+        )?;
+        let pinned = super::world_service_read::pin_with_context(
             &self.records_dir,
             self.execution_store.root(),
             &identity,
             None,
+            &restore_context,
         )?;
         if pinned.record.height != baseline.height
             || pinned.record.node_block_hash.as_deref()
@@ -238,11 +266,16 @@ impl NodeRuntimeExecutionDriver {
                 .current_cognition_runtime_binding()
                 .map_err(|error| format!("{error:?}"))?;
             let identity = super::world_service_read::identity(&self.world_dir, &binding.world_id)?;
-            let pinned = super::world_service_read::pin(
+            let restore_context = super::world_service_read::RestoreContext::new(
+                self.execution_world.release_security_policy().clone(),
+                self.devlocal_participant.authority.clone(),
+            )?;
+            let pinned = super::world_service_read::pin_with_context(
                 &self.records_dir,
                 self.execution_store.root(),
                 &identity,
                 None,
+                &restore_context,
             )?;
             #[cfg(any(test, feature = "test_tier_required"))]
             if std::env::var_os("PRE2_SERVICE_BOOTSTRAP_PRIVATE_TRACE").is_some() {

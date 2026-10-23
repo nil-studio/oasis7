@@ -206,6 +206,7 @@ def fixture(smoke, bundle, probe_binary):
     identity = {"endpoint": origin, "identity_service_id": namespace["service_id"], "environment_id": namespace["environment_id"],
         "audience": origin, "state_directory": str(root / "login-vault")}
     return {"client_binary": client, "setup_commands": [], "server_commands": [chain_args, launcher_args],
+        "restart_committed_chain": True,
         "initial_prepared": str(root / "prepared.json"), "canonical_probe": [probe_binary, str(root / "orchestration"), str(root / "executor-config/executor.json")],
         "binding_response_path": "/api/public/hosted-account/v2/entry-owner/control", "plan_template": {"owner_approved": True,
         "entry": {"identity": identity, "identity_instance_epoch": "1", "world": world, "trusted_world_service_key": service, "owner_state_directory": str(root / "owner-vault")},

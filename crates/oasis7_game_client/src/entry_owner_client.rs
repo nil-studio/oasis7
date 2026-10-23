@@ -244,7 +244,7 @@ impl ParticipantClient {
             }
             IntentOutcome::Unknown => ("unknown", "query_exact_original_read_only", None, None),
             IntentOutcome::HistoryUnavailable => (
-                "unknown",
+                "blocked",
                 "inspect_history_availability_retain_original_no_resume",
                 None,
                 None,
@@ -589,6 +589,7 @@ impl ParticipantClient {
                 ("blocked", "inspect_original_rejection")
             }
             IntentOutcome::Received { .. } => ("pending", "query_original"),
+            IntentOutcome::HistoryUnavailable => ("blocked", "restore_original_history"),
             _ => ("unknown", "query_original"),
         };
         let (canonical_commit, receipt_ref) = match &response.outcome {

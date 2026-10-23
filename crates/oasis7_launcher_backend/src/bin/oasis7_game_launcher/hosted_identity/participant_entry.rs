@@ -147,6 +147,35 @@ impl ParticipantEntry {
         .map_err(|_| reject("participant_unavailable"))?;
         Ok(response.payload)
     }
+    pub(super) fn forward_owner_view(
+        &self,
+        request: &ParticipantOwnerViewRequestV1,
+    ) -> Result<Value, StoreError> {
+        match request.response_profile {
+            None => self.forward_bound(
+                PARTICIPANT_OWNER_VIEW_PATH,
+                VIEW_JSON_PATH,
+                request,
+                &request.read,
+            ),
+            Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
+                let reply = self.forward_bound(
+                    PARTICIPANT_OWNER_VIEW_PATH,
+                    PARTICIPANT_OWNER_VIEW_PATH,
+                    request,
+                    request,
+                )?;
+                let response: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
+                    serde_json::from_value(reply["world_response"].clone())
+                        .map_err(|_| StoreError::OutcomeUnknown)?;
+                response
+                    .payload
+                    .validate(request)
+                    .map_err(|_| StoreError::OutcomeUnknown)?;
+                Ok(reply)
+            }
+        }
+    }
     fn forward<Q: Serialize>(&self, path: &str, request: &Q) -> Result<Value, StoreError> {
         if ![SUBMIT_PATH, LOOKUP_PATH].contains(&path) {
             return Err(reject("invalid_request"));
@@ -246,6 +275,7 @@ impl ParticipantEntry {
         // Private signatures cover typed CBOR, including typed map keys.
         // Never reinterpret that proof as the normalized JSON view profile.
         let response = match response_path {
+            PARTICIPANT_OWNER_VIEW_PATH => verified!(ParticipantOwnerControlResponseV1),
             GOAL_PREPARE_PATH => verified!(PreparedGoalReceiptV1),
             GOAL_CURRENT_PATH => verified!(CurrentGoalResponse),
             TASK_CONTEXT_PREPARE_PATH => verified!(PreparedTaskContextV1),
@@ -361,12 +391,7 @@ impl IdentityService {
                         &request,
                     );
                 }
-                return entry.forward_bound(
-                    PARTICIPANT_OWNER_VIEW_PATH,
-                    VIEW_JSON_PATH,
-                    &request,
-                    &request.read,
-                );
+                return entry.forward_owner_view(&request);
             }
             if path != "/participant/authorize" {
                 let bytes = serde_json::to_vec(payload).map_err(|_| reject("invalid_request"))?;

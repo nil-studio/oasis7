@@ -208,11 +208,41 @@ fn historical_values_at_height(
     }
     Ok(selected)
 }
+pub(super) fn trusted_restore_context(
+    world: &oasis7_runtime::World,
+) -> Result<super::super::world_service_read::RestoreContext, String> {
+    world
+        .validate_devlocal_participant_authority_context()
+        .map_err(|error| format!("{error:?}"))?;
+    // Both values are trusted process fields of the validated live Host world,
+    // never inferred from historical snapshot bytes or the derived GC cache.
+    super::super::world_service_read::RestoreContext::new(
+        world.release_security_policy().clone(),
+        world.devlocal_participant_authority().cloned(),
+    )
+}
+// The historical read must carry the same explicit trusted context as the live host.
+pub(in super::super) fn pin_task_history(
+    records: &Path,
+    store: &LocalCasStore,
+    identity: &oasis7::world_service::WorldIdentity,
+    height: u64,
+    context: &super::super::world_service_read::RestoreContext,
+) -> Result<super::super::world_service_read::PinnedWorld, String> {
+    super::super::world_service_read::pin_at_height_with_context(
+        records,
+        store.root(),
+        identity,
+        height,
+        context,
+    )
+}
 fn live_results(
     world: &oasis7_runtime::World,
     records: &Path,
     store: &LocalCasStore,
     previous: &BTreeSet<u64>,
+    context: &super::super::world_service_read::RestoreContext,
 ) -> Result<BTreeMap<u64, Vec<CanonicalIntentResultV1>>, String> {
     let history = game_task::validate_retention_history(world)?;
     let mut selected: BTreeMap<u64, Vec<CanonicalIntentResultV1>> = BTreeMap::new();
@@ -262,12 +292,7 @@ fn live_results(
     // Revalidate against current canonical results and the current full fence:
     // neither a historical cut nor a pin grants authority or prolongs a context.
     for height in previous {
-        let pinned = super::super::world_service_read::pin_at_height(
-            records,
-            store.root(),
-            &identity,
-            *height,
-        )?;
+        let pinned = pin_task_history(records, store, &identity, *height, context)?;
         for (key, value) in historical_values_at_height(
             &pinned
                 .world
@@ -311,9 +336,10 @@ pub(super) fn refresh(
     store: &LocalCasStore,
     world: &oasis7_runtime::World,
     hot: u64,
+    context: &super::super::world_service_read::RestoreContext,
 ) -> Result<super::ValidatedTaskRetention, String> {
     let previous = protected_heights(records, store)?;
-    let wanted = live_results(world, records, store, &previous)?;
+    let wanted = live_results(world, records, store, &previous, context)?;
     let latest = list_execution_bridge_record_heights(records)?
         .last()
         .copied()
@@ -339,12 +365,7 @@ pub(super) fn refresh(
             .correlation
             .key
             .world;
-        let pinned = super::super::world_service_read::pin_at_height(
-            records,
-            store.root(),
-            identity,
-            *height,
-        )?;
+        let pinned = pin_task_history(records, store, identity, *height, context)?;
         for result in results {
             let key = correlation::key_digest(&result.request.correlation.key)?;
             if pinned

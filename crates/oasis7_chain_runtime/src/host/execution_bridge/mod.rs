@@ -871,6 +871,7 @@ pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 pub(super) use self::driver::derive_local_execution_bootstrap;
 #[allow(unused_imports)]
 pub(crate) use self::driver::{load_execution_world, load_execution_world_with_policy};
+pub(crate) use self::driver_persistence::load_execution_world_with_context;
 #[allow(unused_imports)]
 pub(super) use self::driver_committed_heights::bridge_committed_heights;
 #[cfg(test)]
@@ -888,10 +889,9 @@ pub(crate) use self::local_bootstrap::derive_local_execution_bootstrap;
 pub(super) use self::provider_bootstrap::publish_provider_backed_bootstrap_from_paths;
 pub(crate) use self::simulator_mirror::simulator_world_dir_from_execution_world_dir;
 
-#[cfg(test)]
 pub(crate) use self::local_bootstrap::derive_service_execution_bootstrap;
 #[cfg(not(test))]
-pub(crate) use self::local_bootstrap::derive_service_execution_bootstrap;
+pub(crate) use self::local_bootstrap::derive_service_execution_bootstrap_with_context;
 
 pub(crate) mod controlled_bootstrap_anchor;
 mod controlled_capture;

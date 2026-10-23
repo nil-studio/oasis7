@@ -11,6 +11,7 @@ import http.client
 import http.server
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import signal
@@ -41,7 +42,8 @@ COLD_ENTRY_ENUMS = {
 FAILURE_STAGES = frozenset((
     "initialization", "temporary_tls", "actual_fixture_setup", "authorized_service_startup",
     "zero_resource_discovery", "cold_entry_init", "cold_entry_response_loss_recovery",
-    "canonical_sdk_action", "completed_workflow_restart", "canonical_original_recheck"))
+    "committed_policy_chain_process_restart", "canonical_sdk_action",
+    "completed_workflow_restart", "canonical_original_recheck"))
 
 
 def safe_enum(value, allowed):
@@ -362,6 +364,87 @@ def wait_initial_resources(smoke, fixture, read_discovery):
     raise RuntimeError("fresh actual services did not become ready")
 
 
+def validate_restart_commits(before, after):
+    """CLI already verified both signatures; preserve the complete history fence."""
+    fields = {"world", "binding", "position", "execution_block_hash", "state_root_ref"}
+    if (not isinstance(before, dict) or not isinstance(after, dict)
+            or set(before) != fields or set(after) != fields
+            or any(type(value.get("position")) is not int or value["position"] < 0 for value in (before, after))
+            or before["world"] != after["world"] or before["binding"] != after["binding"]
+            or after["position"] < before["position"]
+            or (after["position"] == before["position"] and after != before)):
+        raise RuntimeError("canonical chain restart changed or regressed the committed history")
+
+
+def restart_committed_chain(smoke, fixture, chain_process, plan, read_discovery=read_initial_discovery):
+    """Real production binary restart; same world, argv, env, vault and operations."""
+    if fixture.get("restart_committed_chain") is not True:
+        return None
+    client = fixture["client_binary"]
+    directory = plan["orchestration_directory"]
+    code, raw = smoke.command([client, "cold-entry", "status", "--directory", directory], private=True)
+    if code or len(raw) > 65536:
+        raise RuntimeError("restart original status unavailable")
+    status = json.loads(raw)
+    refs = [status.get("participant_operation_id"), status.get("active_login_operation_id")]
+    if not all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", value) for value in refs):
+        raise RuntimeError("restart requires original participant and login references")
+    config = smoke.root / "restart-owner-entry.json"
+    with config.open("x") as output:
+        os.chmod(config, 0o600)
+        json.dump(plan["entry"], output)
+    argv = [client, "--entry-config", str(config), "entry-owner-view",
+            "--operation", refs[0], "--login-operation", refs[1]]
+    def owner_view():
+        code, raw = smoke.command(argv, private=True)
+        if code or len(raw) > 65536:
+            raise RuntimeError("fresh canonical restart owner view unavailable")
+        view = json.loads(raw)
+        if not isinstance(view, dict) or not isinstance(view.get("version"), dict):
+            raise RuntimeError("invalid canonical restart owner observation")
+        return view
+    before = owner_view()
+    if chain_process not in smoke.children or chain_process.poll() is not None:
+        raise RuntimeError("original chain process unavailable before restart")
+    expected_argv = smoke.expand(fixture["server_commands"][0])
+    if chain_process.args != expected_argv or smoke.env != smoke.server_environment:
+        raise RuntimeError("original chain argv or environment changed before restart")
+    original_argv = list(chain_process.args)
+    os.killpg(chain_process.pid, signal.SIGTERM)
+    chain_process.wait(timeout=min(10, smoke.remaining()))
+    restarted = smoke.command(original_argv, start=True)
+    if restarted.args != original_argv:
+        raise RuntimeError("restarted chain argv differs from original process")
+    deadline = min(time.monotonic() + 45, smoke.deadline)
+    while time.monotonic() < deadline:
+        smoke.remaining()
+        if restarted.poll() is not None:
+            raise RuntimeError("production chain exited restoring committed participant policy")
+        try:
+            discovery = read_discovery(smoke, fixture)
+            entry = plan["entry"]
+            identity = entry["identity"]
+            if (discovery.get("identity") != {"service_id": identity["identity_service_id"],
+                    "environment_id": identity["environment_id"], "instance_epoch": entry["identity_instance_epoch"]}
+                    or discovery.get("world") != entry["world"]
+                    or discovery.get("world_service_public_key") != entry["trusted_world_service_key"]
+                    or not all(discovery.get("phase_capabilities", {}).get(phase) is True for phase in
+                        ("machine_registration", "participant_registration", "owner_control", "executor_control"))):
+                raise RuntimeError("restarted policy service not ready")
+            after = owner_view()  # a new official nonce/signature each attempt, never reuse old success
+            validate_restart_commits(before["version"]["commit"], after["version"]["commit"])
+            if (before.get("receipt") != after.get("receipt") or before.get("owner") != after.get("owner")
+                    or before.get("task") != after.get("task")):
+                raise RuntimeError("canonical participant or task changed across process restart")
+            return {"production_chain_restarted": True, "original_argv_preserved": True,
+                    "canonical_owner_read_verified": True,
+                    "before_position": before["version"]["commit"]["position"],
+                    "after_position": after["version"]["commit"]["position"]}
+        except (RuntimeError, OSError, ValueError, KeyError):
+            time.sleep(min(0.25, smoke.remaining()))
+    raise RuntimeError("production chain restart canonical verification timed out")
+
+
 def require_fresh_subject_paths(plan):
     paths = [plan[key] for key in ("orchestration_directory", "executor_vault_directory", "executor_state_directory", "executor_config_directory")]
     paths += [plan["entry"]["identity"]["state_directory"], plan["entry"]["owner_state_directory"]]
@@ -430,8 +513,10 @@ def main():
             if smoke.command(argv)[0]:
                 raise RuntimeError("actual fixture setup failed; inspect private process log")
         smoke.stage = "authorized_service_startup"
+        smoke.server_environment = dict(smoke.env)
+        actual_servers = []
         for argv in fixture["server_commands"]:
-            smoke.command(argv, start=True)
+            actual_servers.append(smoke.command(argv, start=True))
         smoke.stage = "zero_resource_discovery"
         initial = wait_initial_resources(smoke, fixture, read_initial_discovery)
         plan = smoke.expand(fixture["plan_template"])
@@ -451,6 +536,8 @@ def main():
         smoke.recover_cold_entry([client, "cold-entry", "run", "--directory", directory])
         if not all(f["hit"] for f in smoke.faults):
             raise RuntimeError("cold entry required real response-loss recovery incomplete")
+        smoke.stage = "committed_policy_chain_process_restart"
+        restart_evidence = restart_committed_chain(smoke, fixture, actual_servers[0], plan)
         smoke.stage = "canonical_sdk_action"
         before = smoke.probe("canonical_probe", {"canonical_verified": True, "agents": 1, "tasks": 1,
                             "goals": 1, "active_executors": 1, "sdk_task_context_verified": True,
@@ -466,7 +553,7 @@ def main():
                 raise RuntimeError("canonical original identity changed on restart: " + key)
         receipt = {"state": "passed", "kind": "actual_service_integration_fixture",
                    "model_runtime_playtest": False, "response_losses_recovered": 2,
-                   "canonical_originals_unchanged": True}
+                   "canonical_originals_unchanged": True, "committed_policy_restart": restart_evidence}
         (smoke.root / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
         smoke.stage = "passed"
         print(json.dumps(receipt))

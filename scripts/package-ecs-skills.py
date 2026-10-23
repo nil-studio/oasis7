@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """Package and publish the game Skill from the same source as an ECS release."""
 import argparse
+import contextlib
 import hashlib
 import html
 import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 SKILL_ROOT = "skills/oasis7-play"
 CANONICAL = "/skills/oasis7-play/"
+RELOAD_VERIFY_SECONDS = 20
 
 
 def sha256(data):
@@ -141,15 +146,66 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def verify(public, origin):
+class PublicSkillMismatch(ValueError):
+    pass
+
+
+@contextlib.contextmanager
+def reload_verification_deadline():
+    # urllib's timeout covers socket operations, not a slowly streaming body.
+    # ECS activation is POSIX/main-thread only; do not steal an existing timer.
+    if not hasattr(signal, "setitimer") or signal.getitimer(signal.ITIMER_REAL) != (0.0, 0.0):
+        raise ValueError("reload verification requires an unused POSIX wall-clock timer")
+    previous = signal.getsignal(signal.SIGALRM)
+    def expired(_signum, _frame):
+        raise TimeoutError("public Skill reload verification deadline exceeded")
+    signal.signal(signal.SIGALRM, expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, RELOAD_VERIFY_SECONDS)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def verify(public, origin, *, after_reload=False):
+    with reload_verification_deadline() if after_reload else contextlib.nullcontext():
+        verify_public_set(public, origin, after_reload=after_reload)
+
+
+def verify_public_set(public, origin, *, after_reload):
     origin = public_origin(origin)
-    # Reject redirects before following them, including redirects to another origin.
-    opener = urllib.request.build_opener(NoRedirect)
-    for url, path in public.items():
-        with opener.open(origin + url, timeout=15) as response:
-            data = response.read(len(path.read_bytes()) + 1)
-            if response.url != origin + url or response.status != 200 or data != path.read_bytes():
-                raise ValueError("public Skill differs from release: " + url)
+    # A reload is asynchronous: old workers can finish requests after systemctl
+    # returns. Require one entire matching set within a fixed convergence window.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    expected = {url: release_bytes(path) for url, path in public.items()}
+    deadline = time.monotonic() + RELOAD_VERIFY_SECONDS if after_reload else None
+    while True:
+        try:
+            for url, wanted in expected.items():
+                timeout = 15
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("public Skill reload verification deadline exceeded")
+                    timeout = min(3, remaining)
+                with opener.open(origin + url, timeout=timeout) as response:
+                    data = response.read(len(wanted) + 1)
+                    if response.url != origin + url or response.status != 200:
+                        raise ValueError("unexpected public Skill origin or status: " + url)
+                    if data != wanted:
+                        raise PublicSkillMismatch("public Skill differs from release: " + url)
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError("public Skill reload verification deadline exceeded")
+            break
+        except (PublicSkillMismatch, urllib.error.HTTPError) as error:
+            if deadline is None or (isinstance(error, urllib.error.HTTPError)
+                                    and error.code not in (502, 503, 504)):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("public Skill reload verification deadline exceeded") from error
+            time.sleep(min(0.5, remaining))
     print("Public Skill, references, discovery page and manifest match the release")
 
 
@@ -207,7 +263,7 @@ def activate(args, public):
             atomic_write(include, nginx_config(public))
             subprocess.run(["nginx", "-t"], check=True, timeout=6)
             subprocess.run(["systemctl", "reload", "nginx"], check=True, timeout=6)
-            verify(public, args.origin)
+            verify(public, args.origin, after_reload=True)
         except BaseException:
             atomic_write(include, before)
             subprocess.run(["nginx", "-t"], check=True, timeout=6)

@@ -543,11 +543,12 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
     if let Some(bind_addr) = options.node_gossip_bind {
         config = config.with_gossip_optional(bind_addr, options.node_gossip_peers.clone());
     }
-
     config = apply_traffic_profile_to_node_config(config, &options)?;
-    config = governance_registry::apply_world_governance_registry_overrides(
+    config = governance_registry::apply_world_governance_registry_overrides_with_context(
         config,
         paths.execution_world_dir.as_path(),
+        &release_security_policy,
+        participant_control.authority.as_ref(),
     )?;
     if options.local_test_provider_authority_path.is_some() {
         local_provider_setup::ensure_local_test_provider_authority(
@@ -592,11 +593,15 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         .exists()
         && paths.execution_records_dir.join("latest.json").exists()
     {
-        Some(execution_bridge::derive_service_execution_bootstrap(
+        Some(execution_bridge::derive_service_execution_bootstrap_with_context(
             &paths.execution_world_dir,
             &paths.execution_records_dir,
             &paths.storage_root,
             &options.world_id,
+            &execution_bridge::world_service_read::RestoreContext::new(
+                release_security_policy.clone(),
+                participant_control.authority.clone(),
+            )?,
         )?)
     } else {
         local_execution_bootstrap
