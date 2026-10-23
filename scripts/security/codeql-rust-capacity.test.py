@@ -50,6 +50,25 @@ class Capacity(unittest.TestCase):
                 (source/'a.rs').unlink()
                 self.assertEqual(m.after_identity(source,official,out)['source'],'CHANGED')
 
+    def test_real_gitlinks_are_explicit_without_reading_payload(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)
+            subprocess.run(['git','init','--quiet',str(source)],check=True)
+            (source/'regular.rs').write_text('tracked')
+            subprocess.run(['git','-C',str(source),'add','regular.rs'],check=True)
+            oid='a'*40
+            for name in ('third_party/absent','third_party/present'):
+                subprocess.run(['git','-C',str(source),'update-index','--add','--cacheinfo','160000,'+oid+','+name],check=True)
+            payload=source/'third_party/present';payload.mkdir(parents=True)
+            (payload/'foreign').write_text('must not inspect')
+            value=m.snapshot(source)
+            self.assertEqual(value['third_party/absent'],{'mode':'160000','gitlink':oid})
+            self.assertEqual(value['third_party/present'],{'mode':'160000','gitlink':oid})
+            self.assertNotIn('third_party/present/foreign',value)
+            (source/'regular.rs').unlink()
+            with self.assertRaises(RuntimeError):m.snapshot(source)
+
     def test_capacity_pack_binding_rejects_foreign_library(self):
         query=Path('/owned/query');closure={'codeql/rust-all':{'root':'/bundle/rust'}}
         value={'libraryPath':['/owned/query','/bundle/rust'],'dbscheme':'/bundle/rust/rust.dbscheme','compilationCache':[],'relativeName':'oasis7/rust-capacity/Image.ql','qlPackName':'oasis7/rust-capacity'}

@@ -27,13 +27,24 @@ model=load('capacity_model','codeql-rust-refactored-source.py')
 bundle=load('capacity_bundle','codeql-rust-model-diagnostic.py')
 
 def snapshot(source, selected=None):
-    names=subprocess.check_output(['git','ls-files','-z'],cwd=source).decode().split('\0') if selected is None else selected
+    if selected is None:
+        entries=subprocess.check_output(['git','ls-files','--stage','-z'],cwd=source).decode().split('\0')
+        selected={}
+        for entry in filter(None,entries):
+            metadata,name=entry.split('\t',1);mode,oid,stage=metadata.split()
+            if stage!='0' or name in selected:raise RuntimeError('unmerged/duplicate source index')
+            selected[name]={'mode':mode,'gitlink':oid} if mode=='160000' else {}
+        strict=True
+    else:strict=False
     result={}
-    for name in filter(None,names):
+    for name,identity in selected.items():
+        if 'gitlink' in identity:
+            # Mode/OID are source-index facts; excluded submodule contents are never inspected.
+            result[name]={'mode':'160000','gitlink':identity['gitlink']};continue
         path=source/name
-        if path.is_symlink():
-            result[name]={'symlink':os.readlink(path)}
+        if path.is_symlink():result[name]={'symlink':os.readlink(path)}
         elif path.is_file():result[name]={'sha256':runtime.digest(path),'bytes':path.stat().st_size}
+        elif strict:raise RuntimeError('missing ordinary tracked source: '+name)
         else:result[name]={'missing':True}
     return result
 
@@ -52,7 +63,10 @@ def after_identity(source,official,out):
     result={}
     before=out/'source-before.json'
     frozen_source=json.loads(before.read_text()) if before.is_file() else None
-    result['source']='NOT_FROZEN' if frozen_source is None else ('UNCHANGED' if frozen_source==snapshot(source,frozen_source) else 'CHANGED')
+    blobs={name:value for name,value in (frozen_source or {}).items() if 'gitlink' not in value}
+    result['source']='NOT_FROZEN' if frozen_source is None else ('UNCHANGED' if blobs==snapshot(source,blobs) else 'CHANGED')
+    result['source_scope']='frozen non-gitlink regular/symlink inputs only'
+    result['gitlinks']={name:dict(value,payload='NOT_INSPECTED',finally_oid_check='NOT_RECHECKED_WITHOUT_SUBPROCESS') for name,value in (frozen_source or {}).items() if 'gitlink' in value}
     before=out/'official-before.json'
     if not before.is_file():result['official']='NOT_FROZEN'
     else:
