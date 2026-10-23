@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Durable observability and host collection ordering. Read this canonical state, not an unvalidated cache."""
+"""Durable observability, host and snapshot collection ordering. Read this canonical state, not an unvalidated cache."""
 import argparse
 from contextlib import contextmanager
 try:
@@ -193,7 +193,7 @@ def validate_attempt_identity(attempt):
 
 
 def validate_collector(value, collector):
-    if collector not in ('observability', 'host') or value.get('collector', 'observability') != collector:
+    if collector not in ('observability', 'host', 'snapshot') or value.get('collector', 'observability') != collector:
         raise AttemptError('collector profile mismatch')
 
 
@@ -259,6 +259,8 @@ def scope_fingerprint(args, collector='observability'):
     if collector == 'host':
         sources = [str(Path(__file__).resolve()), *[str(Path(__file__).with_name(name).resolve()) for name in
             ('p2p-real-env-host-monitor.sh', 'p2p-real-env-host-summary.py', 'p2p-real-env-node-host-sample.sh')]]
+    if collector == 'snapshot':
+        sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-triad-snapshot.sh').resolve())]
     candidate = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent.parent,
                                capture_output=True, text=True)
     material = {'candidate': candidate.stdout.strip() if candidate.returncode == 0 else 'unknown',
@@ -276,6 +278,13 @@ def report_for(attempt, last_success, source=None, collector='observability'):
         if attempt['result'] != 'success':
             report['aggregate']['complete'] = False
         report['overall'] = {'status': 'pass', 'alerts': [], 'scope': 'collection_execution_only'}
+    if collector == 'snapshot':
+        report['schema_version'] = 2
+        if attempt['result'] != 'success':
+            report['claim_status'] = 'blocked'
+            report['collection'] = dict(report.get('collection') or {}, complete=False)
+            report['failure_signatures'] = sorted(set(report.get('failure_signatures', []) +
+                ['collection_' + attempt['result']] + [row['stage'] + '_failed' for row in attempt.get('errors', [])]))
     report['collection_attempt'] = dict(attempt)
     report['attempt'] = dict(attempt)
     report['latest_attempt'] = dict(attempt)
@@ -402,6 +411,65 @@ def validate_host_source(source):
         raise AttemptError('inconsistent host aggregate completeness')
 
 
+def validate_snapshot_source(source, directory):
+    config = read_json(directory / 'config.json')
+    if (not isinstance(config, dict) or not isinstance(config.get('nodes'), dict)
+            or not config['nodes'] or type(config.get('samples')) is not int or config['samples'] <= 0):
+        raise AttemptError('invalid snapshot requested inventory')
+    labels, samples_per_node = set(config['nodes']), config['samples']
+    if any(not isinstance(label, str) or not label or not isinstance(node, dict)
+           or node.get('label') != label for label, node in config['nodes'].items()):
+        raise AttemptError('invalid snapshot requested node')
+    if (not isinstance(source, dict) or source.get('schema_version') != 2
+            or source.get('claim_status') not in ('pass_candidate', 'blocked', 'partial_with_node_health_blocker',
+                'partial_with_local_validator_blocker', 'partial_with_observer_blocker')
+            or not isinstance(source.get('failure_signatures'), list)
+            or not all(isinstance(value, str) for value in source['failure_signatures'])):
+        raise AttemptError('invalid snapshot summary schema')
+    if (config.get('run_id') != source.get('run_id') or config.get('run_dir') != str(directory)
+            or config.get('world_id') != source.get('world_id')
+            or not isinstance(config.get('world_id'), str) or not config['world_id']):
+        raise AttemptError('snapshot configuration identity mismatch')
+    collection, nodes, samples, totals = (source.get(key) for key in ('collection', 'nodes', 'samples', 'totals'))
+    if (not isinstance(collection, dict) or not isinstance(nodes, dict) or set(nodes) != labels
+            or not isinstance(samples, list) or not isinstance(totals, dict)
+            or not isinstance(collection.get('node_labels'), list)
+            or len(collection['node_labels']) != len(labels)
+            or not all(isinstance(label, str) for label in collection['node_labels'])
+            or set(collection['node_labels']) != labels):
+        raise AttemptError('invalid snapshot collection inventory')
+    seen = set()
+    counts = {label: [0, 0] for label in labels}
+    for sample in samples:
+        if (not isinstance(sample, dict) or not isinstance(sample.get('label'), str) or sample['label'] not in labels
+                or type(sample.get('sample_index')) is not int or not 1 <= sample['sample_index'] <= samples_per_node
+                or type(sample.get('healthz_fetch_ok')) is not bool or type(sample.get('status_fetch_ok')) is not bool):
+            raise AttemptError('invalid snapshot sample identity or fetch result')
+        identity = (sample['label'], sample['sample_index'])
+        if identity in seen:
+            raise AttemptError('duplicate snapshot sample')
+        seen.add(identity)
+        counts[sample['label']][0] += 1
+        counts[sample['label']][1] += not (sample['healthz_fetch_ok'] and sample['status_fetch_ok'])
+    for label, node in nodes.items():
+        attempted, failed = counts[label]
+        if (not isinstance(node, dict) or any(type(node.get(key)) is not int for key in
+                ('sample_count', 'success_sample_count', 'failed_sample_count'))
+                or (node['sample_count'], node['success_sample_count'], node['failed_sample_count'])
+                != (attempted, attempted - failed, failed)):
+            raise AttemptError('inconsistent snapshot node counts')
+    expected = len(labels) * samples_per_node
+    failed = sum(row[1] for row in counts.values())
+    required_counts = {'samples_per_node': samples_per_node, 'expected_sample_count': expected,
+                       'attempted_count': len(samples), 'failed_sample_count': failed}
+    if (any(type(collection.get(key)) is not int or collection[key] != value for key, value in required_counts.items())
+            or type(collection.get('complete')) is not bool
+            or collection['complete'] != (len(samples) == expected and failed == 0)
+            or type(totals.get('sample_record_count')) is not int or totals['sample_record_count'] != len(samples)
+            or type(totals.get('node_count')) is not int or totals['node_count'] != len({sample['label'] for sample in samples})):
+        raise AttemptError('inconsistent snapshot aggregate completeness')
+
+
 def finish(root, sequence, attempt_id, errors, collector='observability'):
     with locked(root) as check:
         state = load_state(root, collector)
@@ -412,6 +480,10 @@ def finish(root, sequence, attempt_id, errors, collector='observability'):
         if not any(row.get('stage') == 'summary' for row in errors):
             try:
                 source = read_json(own_directory / 'report' / 'latest_summary.json')
+                if collector == 'snapshot':
+                    validate_snapshot_source(source, own_directory)
+                    if source['collection']['complete'] is not True and not any(row.get('stage') == 'snapshot' for row in errors):
+                        raise AttemptError('incomplete snapshot collection lacks failure result')
                 if collector == 'host':
                     validate_host_source(source)
                     if source['aggregate']['complete'] is not True and not any(row.get('stage') == 'host' for row in errors):
@@ -511,7 +583,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('begin', 'finish', 'read'))
     parser.add_argument('--out-dir', required=True)
-    parser.add_argument('--collector', choices=('observability', 'host'), default='observability')
+    parser.add_argument('--collector', choices=('observability', 'host', 'snapshot'), default='observability')
     parser.add_argument('--sequence', type=int)
     parser.add_argument('--attempt-id')
     parser.add_argument('--scope-arg', action='append', default=[])
@@ -544,6 +616,9 @@ def main():
                        'overall': {'status': 'unknown', 'alerts': ['state_unavailable']}}
             if args.collector == 'host':
                 unknown.update(schema_version=2, aggregate={'complete': False})
+            if args.collector == 'snapshot':
+                unknown.update(schema_version=2, claim_status='blocked', collection={'complete': False},
+                               failure_signatures=['state_unavailable'])
             print(json.dumps(unknown) if args.format == 'json' else '# Observability state unavailable\n\nCurrent measurement unavailable; latest attempt unknown.')
         print('observability attempt: state or publication unavailable', file=sys.stderr)
         return 2

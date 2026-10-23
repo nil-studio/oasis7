@@ -123,3 +123,5 @@ python3 ./scripts/p2p-real-env-observability-routing.test.py
 bash ./scripts/p2p-real-env-host-monitor.test.sh
 
 python3 ./scripts/p2p-real-env-host-report.test.py
+
+bash ./scripts/p2p-real-env-triad-snapshot.test.sh

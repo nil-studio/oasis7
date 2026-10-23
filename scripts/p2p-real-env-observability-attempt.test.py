@@ -364,6 +364,93 @@ else:
                     self.assertEqual(value['last_success']['sequence'], 1)
                     self.assertEqual(value['overall']['status'], 'pass')
 
+    def test_snapshot_source_inventory_and_execution_profile(self):
+        helper = self.helper()
+        for mutation in ('valid', 'diagnostic_blocked', 'failed', 'incomplete', 'wrong_inventory', 'bad_count', 'bad_sample', 'wrong_schema', 'duplicate', 'bad_label', 'missing_fetch', 'bool_count', 'config_mismatch', 'config_run', 'config_world'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                reserved = helper.begin(root, [], collector='snapshot')
+                pending, _, code = helper.read(root, collector='snapshot')
+                self.assertEqual(code, 1)
+                self.assertEqual(pending['claim_status'], 'blocked')
+                run = Path(reserved['run_dir'])
+                config = {'samples': 1, 'nodes': {'one': {'label': 'one'}}, 'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'], 'run_dir': reserved['run_dir'], 'world_id': 'world'}
+                (run / 'config.json').write_text(json.dumps(config))
+                report = run / 'report'
+                report.mkdir()
+                source = {'schema_version': 2, 'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'],
+                    'run_dir': reserved['run_dir'], 'world_id': 'world', 'claim_status': 'pass_candidate', 'failure_signatures': [],
+                    'collection': {'node_labels': ['one'], 'samples_per_node': 1, 'expected_sample_count': 1,
+                        'attempted_count': 1, 'failed_sample_count': 0, 'complete': True},
+                    'nodes': {'one': {'sample_count': 1, 'success_sample_count': 1, 'failed_sample_count': 0}},
+                    'totals': {'sample_record_count': 1, 'node_count': 1},
+                    'samples': [{'label': 'one', 'sample_index': 1, 'healthz_fetch_ok': True, 'status_fetch_ok': True}]}
+                if mutation == 'diagnostic_blocked': source.update(claim_status='blocked', failure_signatures=['node_not_ready'])
+                if mutation in ('failed', 'incomplete'):
+                    source['collection'].update(complete=False, failed_sample_count=1)
+                    source['nodes']['one'].update(success_sample_count=0, failed_sample_count=1)
+                    source['samples'][0]['status_fetch_ok'] = False
+                if mutation == 'wrong_inventory': source['collection']['node_labels'] = ['other']
+                if mutation == 'bad_count': source['nodes']['one']['sample_count'] = 2
+                if mutation == 'bad_sample': source['samples'][0]['sample_index'] = 2
+                if mutation == 'wrong_schema': source['schema_version'] = 1
+                if mutation == 'duplicate': source['samples'].append(dict(source['samples'][0]))
+                if mutation == 'bad_label': source['samples'][0]['label'] = []
+                if mutation == 'missing_fetch': source['samples'][0].pop('healthz_fetch_ok')
+                if mutation == 'bool_count': source['collection']['expected_sample_count'] = True
+                if mutation == 'config_mismatch': config['samples'] = 2
+                if mutation == 'config_run': config['run_id'] = 'another'
+                if mutation == 'config_world': config['world_id'] = 'another'
+                (run / 'config.json').write_text(json.dumps(config))
+                (report / 'latest_summary.json').write_text(json.dumps(source))
+                (report / 'latest_summary.md').write_text('# snapshot source')
+                errors = [{'stage': 'snapshot', 'exit_code': 1, 'error': 'collector_failed'}] if mutation == 'failed' else []
+                expected = 0 if mutation in ('valid', 'diagnostic_blocked') else 1
+                self.assertEqual(helper.finish(root, reserved['sequence'], reserved['attempt_id'], errors, collector='snapshot'), expected)
+                value, _, code = helper.read(root, collector='snapshot')
+                self.assertEqual(code, expected)
+                if not expected:
+                    self.assertEqual(value['claim_status'], source['claim_status'])
+                    self.assertEqual(value['last_success']['sequence'], 1)
+                else:
+                    self.assertEqual(value['claim_status'], 'blocked')
+                    self.assertFalse(value['current_measurement_available'])
+                    self.assertIsNone(value['last_success'])
+                    if mutation == 'failed': self.assertEqual(value['nodes'], source['nodes'])
+                for other in ('host', 'observability'):
+                    with self.assertRaises(helper.AttemptError): helper.read(root, collector=other)
+
+    def test_snapshot_profile_binding_scope_and_unknown_reader(self):
+        helper = self.helper()
+        reserved = helper.begin(self.out, [], collector='snapshot')
+        for target in ('anchor', 'state', 'attempt'):
+            path = self.out / (helper.ANCHOR if target == 'anchor' else helper.STATE)
+            original = path.read_bytes()
+            value = json.loads(original)
+            (value['latest_attempt'] if target == 'attempt' else value).pop('collector')
+            path.write_text(json.dumps(value))
+            before = {p.name: p.read_bytes() for p in self.out.iterdir() if p.is_file()}
+            for operation in (lambda: helper.begin(self.out, [], collector='snapshot'),
+                              lambda: helper.finish(self.out, reserved['sequence'], reserved['attempt_id'], [], collector='snapshot'),
+                              lambda: helper.read(self.out, collector='snapshot')):
+                with self.assertRaises(helper.AttemptError): operation()
+                self.assertEqual(before, {p.name: p.read_bytes() for p in self.out.iterdir() if p.is_file()})
+            path.write_bytes(original)
+        # Snapshot code is bound separately from host/default code, and file inputs bind content.
+        config = self.root / 'scope-config'
+        config.write_text('one')
+        first = helper.scope_fingerprint([str(config)], 'snapshot')
+        config.write_text('two')
+        self.assertNotEqual(first, helper.scope_fingerprint([str(config)], 'snapshot'))
+        self.assertNotEqual(helper.scope_fingerprint([], 'host'), helper.scope_fingerprint([], 'snapshot'))
+        result = subprocess.run([sys.executable, str(SCRIPTS / 'p2p-real-env-observability-attempt.py'),
+            'read', '--collector', 'snapshot', '--out-dir', str(self.root / 'missing')], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        unknown = json.loads(result.stdout)
+        self.assertEqual(unknown['claim_status'], 'blocked')
+        self.assertFalse(unknown['current_measurement_available'])
+        self.assertFalse(unknown['collection']['complete'])
+
     def test_anchor_loss_and_versioned_orphans_never_reset_sequence(self):
         self.complete(self.start())
         anchor = self.out / '.observability-initialized'

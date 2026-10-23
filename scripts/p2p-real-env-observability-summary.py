@@ -1013,7 +1013,7 @@ def derive_optimization_candidates(node_label: str, modules: dict) -> list[dict]
 
     if (
         (consensus.get("height_lag") or 0) > 0
-        or (consensus.get("pending_consensus_actions") or {}).get("queued_action_count", 0) >= 10
+        or safe_int((consensus.get("pending_consensus_actions") or {}).get("queued_action_count")) >= 10
         or (consensus.get("last_commit_age_ms") or 0) >= 15000
     ):
         candidates.append(
