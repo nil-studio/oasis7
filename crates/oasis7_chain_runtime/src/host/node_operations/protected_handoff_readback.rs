@@ -96,6 +96,9 @@ pub(super) fn verify_successor_published_cut(
     history
         .prewarm_qualified_business_history(&read_anchor, business_reader.as_ref())
         .map_err(|error| format!("successor verified business-history prewarm: {error}"))?;
+    history
+        .verify_governance_history(&read_anchor)
+        .map_err(|error| format!("successor governance-history verification: {error}"))?;
 
     let minimum = validated.anchor.head().head().clone();
     let endpoint = |address, role| {

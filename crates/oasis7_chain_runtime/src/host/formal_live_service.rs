@@ -176,10 +176,20 @@ impl super::execution_bridge::formal_node_hook::FormalPublicationSink for Publis
     }
 }
 
-/// Storage-backed resolvers must perform exact lookups and bounded native
-/// history reads. They must not discover trust from a service pin or scan the
-/// complete history. `history_page` is deliberately capped at 128 steps.
+/// Storage-backed resolvers use exact cut lookups and never discover trust by
+/// searching storage or accepting a service pin. Profile-v2 governance checks
+/// replay from the configured external origin under one operation deadline;
+/// `history_page` remains capped at 128 steps per page.
 pub(crate) trait FormalLiveHistoryResolver: Send + Sync {
+    /// Startup must establish semantic history before a profile-v2 writer serves.
+    fn verify_governance_history(&self, anchor: &VerifiedFormalReadAnchorV1) -> Result<(), String> {
+        if anchor.authority().definition().profile_version == 2 {
+            Err("HistoryUnavailable: authenticated governance history unavailable".into())
+        } else {
+            Ok(())
+        }
+    }
+
     #[cfg(test)]
     fn business_result(
         &self,

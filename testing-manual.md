@@ -1665,6 +1665,16 @@ The host suite uses actual signed profile-v2 activation and qualified parent ver
 Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.
 
 
+### Qualified governance history across committed parents
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; contract: [qualified history authentication](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-governance-history-authentication).
+
+Run `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_history` and `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history`. Runtime fixtures use synthetic qualified-parent tokens to test original-policy/nonces, projection tampering, event cursor rollover, time, capacity, deadline and authenticated cold archive success/corruption without mutating either World. Host fixtures form cryptographically qualified C0→signed submit→signed approve material and consume it through the production exact-history resolver, restore the same target Snapshot and continue with a signed activate action. A fully re-signed candidate with an unjournaled controller-policy replacement must fail before publication; this is distinct from merely corrupting an artifact hash.
+
+Two additional ignored process regressions use the real authenticated Primary/Replica endpoints with the test custody oracle: a missing intermediate local publication is restored across signed parents, and a native-qualified silent policy replacement is rejected by `FormalLiveRuntime::open_with_native_history`. Build `oasis7_durability_endpoint --release`, set `OASIS7_FORMAL_ENDPOINT_TEST_BIN` to that candidate executable, then run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history_ -- --ignored --test-threads=1`. Both exact cases are registered in the formal `runtime-protocol` CI suite. The existing real signer-handoff process test covers the valid readback path; a separately constructed malicious signed read service for a direct negative handoff test is not covered by these fixtures. Local custody-oracle processes do not prove independent physical fault domains.
+
+The host fixtures exercise Runtime execution and the shipping history consumer; they do not claim Node committed-action ingress or the formal executor for these newly constructed candidates. Keep the existing governance authorization ingress suite and formal history/recovery suites in required CI. This change does not alter Agent gameplay entry or behavior, and does not trigger Agent self-playtest. Arbitrary raw-tail World reconstruction, BFT, component installation ACK and real isolated-fault-domain evidence remain separate obligations.
+
 <a id="discovery-observation-local-trust-boundary"></a>
 ## Discovery observations and local bootstrap trust
 

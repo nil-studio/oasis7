@@ -59,6 +59,8 @@ validator 的 approve、activate、rotate、revoke 及受保护的 admission 写
 
 验收须覆盖“正确公开 controller ID 但没有密钥／授权”“有效 signer 但不足 threshold”“本批自授权”“跨世界／旧 policy／重复请求”和经不同入口提交的等效负例；拒绝后 admission、registry、nonce 与权威历史不得出现未授权效果。已有字符串与状态机测试不能代签此验收。
 
+当前受控 profile-v2 的跨 parent 历史消费按[qualified 治理历史认证](p2p-mainnet-security-governance-readiness.design.md#readiness-governance-history-authentication)接通原 policy／nonce 重验及目标完整 checkpoint 恢复；不等于任意 raw journal tail 的全状态重建。组件安装、私有读取撤销与 BFT 等后续义务保持。
+
 <a id="readiness-membership-application"></a>
 ### 治理生效与实际成员应用目标
 

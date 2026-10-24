@@ -34,7 +34,7 @@ mod provider_bootstrap;
 mod world_service_execution;
 pub(crate) mod world_service_read;
 #[cfg(all(test, unix))]
-mod governance_authorization_tests;
+pub(crate) mod governance_authorization_tests;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionBridgeState {

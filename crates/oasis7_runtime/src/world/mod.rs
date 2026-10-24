@@ -87,6 +87,7 @@ mod governance_publication;
 mod governance_quote;
 pub(crate) mod governance_registry_publication;
 mod governance_authorization;
+mod governance_history;
 #[cfg(test)]
 pub(crate) mod governance_authorization_test_support;
 #[cfg(test)]

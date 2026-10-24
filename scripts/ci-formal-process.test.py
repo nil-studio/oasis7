@@ -86,7 +86,7 @@ class Coverage(unittest.TestCase):
         suites = artifacts.resolve_suites(self.config, self.binaries)
         cases = [(e['binary'], e['name']) for entries in suites.values() for e in entries if 'binary' in e]
         self.assertEqual(len(cases), len(set(cases)))
-        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 26)
+        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 28)
         self.assertEqual(sum('script' in e for entries in suites.values() for e in entries), 2)
 
     def test_rename_duplicate_and_new_unassigned_acceptance_fail(self):

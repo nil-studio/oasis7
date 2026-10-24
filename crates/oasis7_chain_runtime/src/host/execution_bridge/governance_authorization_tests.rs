@@ -24,7 +24,7 @@ impl ModuleSandbox for NoModules {
         panic!("governance-only fixture must not invoke modules")
     }
 }
-fn controller_key() -> SigningKey {
+pub(crate) fn controller_key() -> SigningKey {
     SigningKey::from_bytes(&[71; 32])
 }
 
@@ -40,7 +40,67 @@ pub(super) fn qualified_world_and_anchor() -> (World, VerifiedFormalReadAnchorV1
 fn qualified_world_and_anchor_with_threshold(
     threshold: u16,
 ) -> (World, VerifiedFormalReadAnchorV1) {
-    let (mut world, mut trust, template, _) = fixtures::actual_world_initial_fixture();
+    let (world, anchor, _, _) = history_origin(threshold);
+    (world, anchor)
+}
+pub(crate) fn history_origin(
+    threshold: u16,
+) -> (
+    World,
+    VerifiedFormalReadAnchorV1,
+    oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    FormalQualifiedCommitProofV1,
+) {
+    let (world, anchor, candidate, proof, _, _) = history_origin_with_trust(threshold);
+    (world, anchor, candidate, proof)
+}
+pub(crate) fn history_origin_with_trust(
+    threshold: u16,
+) -> (
+    World,
+    VerifiedFormalReadAnchorV1,
+    oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    FormalQualifiedCommitProofV1,
+    SignedInitialActivationV1,
+    InitialActivationTrustV1,
+) {
+    history_origin_for_endpoints(threshold, None)
+}
+pub(crate) fn history_origin_for_endpoints(
+    threshold: u16,
+    directories: Option<[&std::path::Path; 2]>,
+) -> (
+    World,
+    VerifiedFormalReadAnchorV1,
+    oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    FormalQualifiedCommitProofV1,
+    SignedInitialActivationV1,
+    InitialActivationTrustV1,
+) {
+    history_origin_for_endpoints_with_policy(
+        threshold,
+        directories,
+        &ReleaseSecurityPolicy::default(),
+    )
+}
+pub(crate) fn history_origin_for_endpoints_with_policy(
+    threshold: u16,
+    directories: Option<[&std::path::Path; 2]>,
+    release_policy: &ReleaseSecurityPolicy,
+) -> (
+    World,
+    VerifiedFormalReadAnchorV1,
+    oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    FormalQualifiedCommitProofV1,
+    SignedInitialActivationV1,
+    InitialActivationTrustV1,
+) {
+    let (mut world, mut trust, template, _) =
+        fixtures::actual_world_initial_fixture_with_execution_policy(
+            formal_package::execution_policy_material(release_policy)
+                .unwrap()
+                .2,
+        );
     world
         .set_governance_main_token_controller_registry(GovernanceMainTokenControllerRegistry {
             genesis_controller_account_id: "controller".into(),
@@ -62,10 +122,18 @@ fn qualified_world_and_anchor_with_threshold(
     world.initialize_empty_formal_history().unwrap();
     let mut definition = template.authority().definition().clone();
     definition.profile_version = 2;
+    if let Some([primary, replica]) = directories {
+        definition.primary.instance.storage_fingerprint =
+            oasis7_distfs::controlled_authority::formal::fencing::directory_fingerprint(primary)
+                .unwrap();
+        definition.replica.instance.storage_fingerprint =
+            oasis7_distfs::controlled_authority::formal::fencing::directory_fingerprint(replica)
+                .unwrap();
+    }
     let closure = formal_initial::InitialWorldClosure::from_genesis_world_with_node_bootstrap(
         &world,
         &definition.world,
-        &ReleaseSecurityPolicy::default(),
+        release_policy,
         formal_initial::InitialNodeBootstrapV1 {
             height: 0,
             consensus_block_hash: fixtures::h(81),
@@ -108,10 +176,10 @@ fn qualified_world_and_anchor_with_threshold(
         Arc::new(EmptyNodes),
     )
     .unwrap();
-    (world, anchor)
+    (world, anchor, initial, proof, certificate, trust)
 }
 
-fn action(candidate: &str) -> Action {
+pub(crate) fn action(candidate: &str) -> Action {
     Action::SubmitGovernanceValidatorAdmission {
         controller_account_id: "controller".into(),
         candidate_id: candidate.into(),
@@ -124,14 +192,14 @@ fn action(candidate: &str) -> Action {
         public_manifest_hash: "a".repeat(64),
     }
 }
-fn signed(world: &World, action: &Action, nonce: u64) -> GovernanceAuthorizationV1 {
+pub(crate) fn signed(world: &World, action: &Action, nonce: u64) -> GovernanceAuthorizationV1 {
     let mut proof = world
         .governance_authorization_for_next_commit(nonce)
         .unwrap();
     resign(&mut proof, action);
     proof
 }
-fn resign(proof: &mut GovernanceAuthorizationV1, action: &Action) {
+pub(crate) fn resign(proof: &mut GovernanceAuthorizationV1, action: &Action) {
     let signature = controller_key().sign(&proof.signing_bytes(action).unwrap());
     proof.signatures.insert(
         hex::encode(controller_key().verifying_key().as_bytes()),
@@ -149,11 +217,11 @@ fn context(world: &World) -> RuntimeCommittedTickContext {
         committed_at_unix_ms: 0,
     }
 }
-fn begin(world: &mut World) {
+pub(crate) fn begin(world: &mut World) {
     let context = context(world);
     world.begin_formal_execution_tick(&context).unwrap();
 }
-fn execute(world: &mut World) -> Result<(), oasis7_runtime::WorldError> {
+pub(crate) fn execute(world: &mut World) -> Result<(), oasis7_runtime::WorldError> {
     let mut context = context(world);
     context.height = world.state().time;
     world.step_with_modules_for_committed_context(&mut NoModules, &context)
@@ -502,4 +570,252 @@ fn governance_authorization_real_node_driver_ingress_rejects_before_queueing() {
     )
     .unwrap();
     drop(node);
+}
+
+/// Genuine signed archives for host replay tests. Execution is the real runtime;
+/// endpoint receipts use fixture keys and do not certify deployment key custody.
+pub(crate) fn history_successor(
+    before: &World,
+    parent: &VerifiedFormalReadAnchorV1,
+    mut after: World,
+    parent_candidate: &oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    parent_proof: &FormalQualifiedCommitProofV1,
+) -> (
+    World,
+    VerifiedFormalReadAnchorV1,
+    oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    FormalQualifiedCommitProofV1,
+) {
+    use oasis7_distfs::controlled_authority::replicated_protocol::{ArtifactObject, ArtifactRole};
+    let height = before.state().time + 1;
+    let continuation = oasis7_node::NodeLocalExecutionContinuation {
+        schema_version: 1,
+        context: oasis7_node::NodeExecutionCommitContext {
+            world_id: parent.head().record().world.world_id.clone(),
+            node_id: "node-a".into(),
+            proposer_id: "node-a".into(),
+            height,
+            slot: 0,
+            epoch: 0,
+            node_block_hash: fixtures::h(90),
+            action_root: oasis7_node::compute_consensus_action_root(&[]).unwrap(),
+            committed_actions: vec![],
+            committed_at_unix_ms: 0,
+        },
+        predecessor_committed_height: height - 1,
+        predecessor_node_block_hash: Some(fixtures::h(91)),
+        predecessor_execution_height: height - 1,
+        predecessor_execution_block_hash: Some(fixtures::h(92)),
+        predecessor_execution_state_root: Some(blake3_hex(&to_cbor(before.snapshot()).unwrap())),
+        next_height: height + 1,
+        next_slot: 1,
+        reserved_action_bytes: 0,
+        approved_stake: 1,
+        rejected_stake: 0,
+        required_stake: 1,
+        total_stake: 1,
+    };
+    let authority = parent.authority();
+    let hardened = ReleaseSecurityPolicy::production_hardened();
+    let release_policy = if formal_package::execution_policy_material(&hardened)
+        .unwrap()
+        .2
+        == parent.head().record().execution_policy_digest
+    {
+        hardened
+    } else {
+        ReleaseSecurityPolicy::default()
+    };
+    let business_tree = super::formal_business_package::tree(
+        &parent_candidate.material,
+        parent.head().record(),
+        before,
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    let (body, frozen_material) = formal_package::freeze_material_from_parent(
+        authority,
+        parent.head(),
+        &continuation,
+        before,
+        &release_policy,
+        business_tree.clone(),
+        parent_proof.clone(),
+        None,
+        &parent_candidate.material,
+    )
+    .unwrap();
+    let receipt = |role, binding: &EndpointSignerBindingV1, n| {
+        let body = FormalFrozenReceiptBodyV1 {
+            authority_id: authority.authority_id().unwrap(),
+            role,
+            instance_digest: binding.instance.digest().unwrap(),
+            reservation_id: body.reservation_id().unwrap(),
+        };
+        FormalFrozenReceiptV1 {
+            signature_hex: fixtures::sign(frozen_receipt_signing_bytes(&body).unwrap(), n),
+            body,
+        }
+    };
+    let frozen = FormalFrozenCertificateV1 {
+        primary: receipt(
+            oasis7_distfs::controlled_authority::replicated_protocol::EndpointRole::Primary,
+            &authority.definition().primary,
+            5,
+        ),
+        replica: receipt(
+            oasis7_distfs::controlled_authority::replicated_protocol::EndpointRole::Replica,
+            &authority.definition().replica,
+            6,
+        ),
+        reservation: SignedFormalFrozenV1 {
+            signature_hex: fixtures::sign(frozen_signing_bytes(&body).unwrap(), 4),
+            body: body.clone(),
+        },
+    };
+    let mut material = frozen_material.clone();
+    for (role, bytes) in [
+        (ArtifactRole::Snapshot, to_cbor(after.snapshot()).unwrap()),
+        (ArtifactRole::Journal, to_cbor(after.journal()).unwrap()),
+    ] {
+        let content_hash = blake3_hex(&bytes);
+        material.roots.insert(role, content_hash.clone());
+        if !material
+            .objects
+            .iter()
+            .any(|o| o.content_hash == content_hash)
+        {
+            material.objects.push(ArtifactObject {
+                content_hash,
+                bytes,
+                references: vec![],
+            });
+        }
+    }
+    material
+        .objects
+        .sort_by(|a, b| a.content_hash.cmp(&b.content_hash));
+    material.after_state_root = blake3_hex(&to_cbor(after.snapshot()).unwrap());
+    let mut record = parent.head().record().clone();
+    record.kind = FormalRecordKindV1::Execution;
+    record.position = body.next_position;
+    record.parent_record_id = body.parent.record_id.clone();
+    record.request_digest = body.request_digest;
+    record.payload_digest = material.payload_digest.clone();
+    record.frozen_reservation_id = Some(frozen.reservation.body.reservation_id().unwrap());
+    record.runtime_manifest_digest = body.runtime_manifest_digest;
+    record.before_state_root = material.before_state_root.clone();
+    record.after_state_root = material.after_state_root.clone();
+    record.artifact_roots = material.roots.clone();
+    record.projection_root =
+        oasis7::world_service::formal_projection::commitments_for_world(&after)
+            .unwrap()
+            .root()
+            .unwrap();
+    use oasis7_distfs::controlled_authority::formal::business_material::{
+        FORMAL_BUSINESS_ENVELOPE_DOMAIN_V1, FormalBusinessResultEnvelopeV1,
+    };
+    struct ArchiveNodes<'a>(
+        &'a oasis7_distfs::controlled_authority::replicated_protocol::ClosedRecord,
+    );
+    impl BusinessIndexNodeReader for ArchiveNodes<'_> {
+        fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+            for object in &self.0.objects {
+                if let Ok(envelope) = FormalBusinessResultEnvelopeV1::decode(&object.bytes) {
+                    if let Some(node) = envelope
+                        .delta
+                        .node_writes
+                        .iter()
+                        .find(|node| node.digest == digest)
+                    {
+                        return Ok(Some(node.bytes.clone()));
+                    }
+                }
+            }
+            Ok(None)
+        }
+    }
+    let update =
+        oasis7::world_service::formal_result::FormalBusinessResultTreeV1::extend_with_parent_proof(
+            &after,
+            &record,
+            &business_tree,
+            parent_proof,
+            &[],
+            &ArchiveNodes(&parent_candidate.material),
+        )
+        .unwrap();
+    record.result_root = update.tree.root().unwrap();
+    let old_result = material.roots[&ArtifactRole::Result].clone();
+    let envelope = FormalBusinessResultEnvelopeV1 {
+        schema_version: 1,
+        domain: FORMAL_BUSINESS_ENVELOPE_DOMAIN_V1.into(),
+        execution_result_cbor: super::formal_business_package::envelope(
+            &parent_candidate.material,
+            true,
+        )
+        .unwrap()
+        .unwrap()
+        .execution_result_cbor,
+        tree_descriptor_cbor: update.tree.encode_cbor().unwrap(),
+        delta: update.delta,
+        retained_history_delta: None,
+    }
+    .encode()
+    .unwrap();
+    let digest = blake3_hex(&envelope);
+    let mut references = vec![
+        old_result,
+        material.roots[&ArtifactRole::Snapshot].clone(),
+        material.roots[&ArtifactRole::Journal].clone(),
+    ];
+    references.sort();
+    references.dedup();
+    material.objects.push(ArtifactObject {
+        content_hash: digest.clone(),
+        bytes: envelope,
+        references,
+    });
+    material.roots.insert(ArtifactRole::Result, digest);
+    material
+        .objects
+        .sort_by(|a, b| a.content_hash.cmp(&b.content_hash));
+    record.artifact_roots = material.roots.clone();
+    verify_record_material(&record, &material).unwrap();
+    let proof = fixtures::qualified_proof(
+        record.clone(),
+        Some(frozen.clone()),
+        authority,
+        Some(parent.head()),
+        None,
+        4,
+        5,
+        6,
+    );
+    let committed = verify_formal_qualified(&proof, authority, Some(parent.head()), None).unwrap();
+    let anchor = parent
+        .after_verified_commit(authority.clone(), committed)
+        .unwrap();
+    let bytes = to_cbor(after.snapshot()).unwrap();
+    let token = VerifiedFormalRetainedHistoryParentV1::verify(&anchor, &bytes).unwrap();
+    after = World::from_verified_formal_snapshot(
+        after.snapshot(),
+        after.journal().clone(),
+        token,
+        Arc::new(EmptyNodes),
+    )
+    .unwrap();
+    let candidate =
+        oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1 {
+            candidate: SignedCanonicalCandidateV1 {
+                record,
+                writer_signature_hex: proof.decision.writer_signature_hex.clone(),
+            },
+            material,
+            frozen: Some(frozen),
+            frozen_material: Some(frozen_material),
+            branch: FormalCompletionBranchV1::Normal,
+        };
+    (after, anchor, candidate, proof)
 }

@@ -35,6 +35,8 @@ mod business;
 pub(crate) use business::VerifiedBusinessPrewarmReceipt;
 #[path = "formal_live_durable_set_activation.rs"]
 mod durable_set_activation;
+#[path = "formal_live_governance_history.rs"]
+mod governance_history;
 #[path = "formal_live_history_material.rs"]
 mod material;
 #[path = "formal_live_history_replay.rs"]
@@ -45,8 +47,7 @@ mod transitions;
 use replay::{
     ReplayFailure, ReplayStepProof, ReplayTargetPolicy, ReplayedHistoryCut,
     advance_durable_set_marker, decode_role,
-    replay_exact_origin_after_verified_with_activation_policy,
-    replay_exact_origin_from_with_activations, requested_anchor_matches,
+    replay_exact_origin_after_verified_with_activation_policy, requested_anchor_matches,
     require_exact_history_target,
 };
 #[cfg(test)]
@@ -131,6 +132,7 @@ fn resolver_from_validated(
             validated.config.writer_directory.clone(),
         ),
         prewarm_scope: Arc::new(()),
+        governance_verified: std::sync::Mutex::new(None),
     })
 }
 
@@ -196,6 +198,7 @@ struct NativeHistoryResolver {
     // An unforgeable in-memory scope for one constructor's immutable origin,
     // permissions, activation markers, release policy and endpoint bindings.
     prewarm_scope: Arc<()>,
+    governance_verified: std::sync::Mutex<Option<ReplayedHistoryCut>>,
 }
 impl NativeHistoryResolver {
     fn startup_anchor(
@@ -271,34 +274,85 @@ impl NativeHistoryResolver {
         requested: &FormalReadAnchorRefV1,
         deadline: Instant,
     ) -> Result<ReplayedHistoryCut, String> {
-        replay_exact_origin_from_with_activations(
+        if Instant::now() >= deadline {
+            return Err("HistoryUnavailable: governance replay deadline exceeded".into());
+        }
+        if let Some(cached) = self
+            .governance_verified
+            .lock()
+            .map_err(|_| "HistoryUnavailable: governance verification cache unavailable")?
+            .as_ref()
+            && requested_anchor_matches(&cached.anchor, requested)?
+        {
+            if let Some(copy) = cached.normal_cache_copy() {
+                return Ok(copy);
+            }
+        }
+        let mut governance_cursor = None;
+        let replayed = replay_exact_origin_after_verified_with_activation_policy(
             &self.external_origin,
             requested,
             &self.permissions,
             deadline,
+            ReplayTargetPolicy::Exact,
+            |cursor, position, pending_permission, operation_deadline| {
+                let proof = if let Some(proof) =
+                    super::execution_bridge::formal_writer::read_published_proof_at(
+                        &self.writer_directory,
+                        position,
+                    )
+                    .map_err(ReplayFailure::Invalid)?
+                {
+                    proof
+                } else {
+                    self.restore_history_proof(
+                        cursor,
+                        position,
+                        pending_permission,
+                        operation_deadline,
+                    )
+                    .map_err(ReplayFailure::Invalid)?
+                };
+                Ok(ReplayStepProof {
+                    proof,
+                    candidate: None,
+                })
+            },
             |position| {
                 self.activation_markers
-                    .read(position)?
+                    .read(position)
+                    .map_err(ReplayFailure::Invalid)?
                     .map(|marker| {
                         if marker.boundary_position != position {
-                            return Err("formal durable-set marker position mismatch".into());
+                            return Err(ReplayFailure::Invalid(
+                                "formal durable-set marker position mismatch".into(),
+                            ));
                         }
                         Ok(marker.step)
                     })
                     .transpose()
             },
-            |cursor, position, pending_permission, operation_deadline| {
-                if let Some(proof) =
-                    super::execution_bridge::formal_writer::read_published_proof_at(
-                        &self.writer_directory,
-                        position,
-                    )?
-                {
-                    return Ok(proof);
-                }
-                self.restore_history_proof(cursor, position, pending_permission, operation_deadline)
+            |predecessor, anchor, proof, _| {
+                self.verify_governance_history_step(
+                    &mut governance_cursor,
+                    predecessor,
+                    anchor,
+                    proof,
+                    deadline,
+                )
+                .map_err(ReplayFailure::Invalid)
             },
         )
+        .map_err(ReplayFailure::into_string)?;
+        if Instant::now() >= deadline {
+            return Err("HistoryUnavailable: governance replay deadline exceeded".into());
+        }
+        *self
+            .governance_verified
+            .lock()
+            .map_err(|_| "HistoryUnavailable: governance verification cache unavailable")? =
+            replayed.normal_cache_copy();
+        Ok(replayed)
     }
 
     fn replay_exact_origin_for_prewarm(
@@ -456,6 +510,38 @@ impl NativeHistoryResolver {
 }
 
 impl FormalLiveHistoryResolver for NativeHistoryResolver {
+    fn verify_governance_history(&self, anchor: &VerifiedFormalReadAnchorV1) -> Result<(), String> {
+        if anchor.authority().definition().profile_version != 2 {
+            return Ok(());
+        }
+        let deadline = Instant::now()
+            .checked_add(self.timeout)
+            .ok_or("HistoryUnavailable: startup governance deadline overflow")?;
+        let requested = FormalReadAnchorRefV1 {
+            position: anchor.head().record().position,
+            record_id: anchor.head().head().record_id.clone(),
+            active_authority_id: anchor
+                .authority()
+                .authority_id()
+                .map_err(|e| e.to_string())?,
+        };
+        let replayed = self.replay_exact_origin(&requested, deadline)?;
+        if replayed.anchor.checkpoint() != anchor.checkpoint()
+            || replayed
+                .anchor
+                .authority()
+                .context_digest()
+                .map_err(|e| e.to_string())?
+                != anchor
+                    .authority()
+                    .context_digest()
+                    .map_err(|e| e.to_string())?
+        {
+            return Err("HistoryUnavailable: startup governance cut differs from writer".into());
+        }
+        Ok(())
+    }
+
     fn prewarm_qualified_business_history(
         &self,
         target: &VerifiedFormalReadAnchorV1,
@@ -516,6 +602,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         &self,
         anchor: &FormalReadAnchorRefV1,
     ) -> Result<FormalReadPublication, String> {
+        if self.active.definition().profile_version == 2 {
+            return self.publication_from_exact_replay(anchor);
+        }
         let has_healthy_markers = !self.activation_markers.positions()?.is_empty();
         if !has_healthy_markers
             && anchor.active_authority_id
@@ -537,7 +626,7 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             );
         }
         if has_healthy_markers {
-            self.publication_from_replayed_cut(replayed)
+            self.publication_from_replayed_cut(replayed, deadline)
         } else {
             let restored = self.restore_exact_history_cut(&replayed, deadline)?;
             let world = self.world_for(&replayed.anchor, restored.material())?;
@@ -545,7 +634,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         }
     }
     fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, String> {
-        if !self.activation_markers.positions()?.is_empty() {
+        if self.active.definition().profile_version == 2
+            || !self.activation_markers.positions()?.is_empty()
+        {
             let requested = self.anchor_ref_for_position(
                 commit.position,
                 Some(commit.execution_block_hash.as_str()),
@@ -573,7 +664,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             .position
             .saturating_add(max_steps as u64)
             .min(current.head().record().position);
-        if !self.activation_markers.positions()?.is_empty() {
+        if self.active.definition().profile_version == 2
+            || !self.activation_markers.positions()?.is_empty()
+        {
             let requested = if position == current.head().record().position {
                 FormalReadAnchorRefV1 {
                     position,
@@ -754,7 +847,8 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         &self,
         anchor: &VerifiedFormalReadAnchorV1,
     ) -> Result<ClosedRecord, String> {
-        if anchor.authority().durable_set_activation_digest().is_some()
+        if anchor.authority().definition().profile_version == 2
+            || anchor.authority().durable_set_activation_digest().is_some()
             || !self.activation_markers.positions()?.is_empty()
         {
             let deadline = Instant::now()
@@ -769,12 +863,26 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                     .map_err(|error| error.to_string())?,
             };
             let replayed = self.replay_exact_origin(&requested, deadline)?;
-            if replayed.anchor.checkpoint() != anchor.checkpoint() {
+            if replayed.anchor.checkpoint() != anchor.checkpoint()
+                || replayed
+                    .anchor
+                    .authority()
+                    .context_digest()
+                    .map_err(|e| e.to_string())?
+                    != anchor
+                        .authority()
+                        .context_digest()
+                        .map_err(|e| e.to_string())?
+            {
                 return Err(
                     "HistoryUnavailable: full-sync target differs from external replay".into(),
                 );
             }
-            return self.material_for_replayed_cut(&replayed);
+            return self.governance_material_at(
+                &replayed.anchor,
+                replayed.target_proof.as_ref(),
+                deadline,
+            );
         }
         let position = anchor.head().record().position;
         let head = anchor.head().head();

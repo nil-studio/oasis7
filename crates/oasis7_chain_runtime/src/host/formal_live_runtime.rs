@@ -357,6 +357,9 @@ impl FormalLiveRuntime {
             .map_err(|error| format!("read exact qualified formal business nodes: {error}"))?;
         business_reader.seed_verified_writes(committed_business_nodes)?;
         drop(seed);
+        history
+            .verify_governance_history(writer.anchor())
+            .map_err(|error| format!("verify restored formal governance history: {error}"))?;
 
         let _bootstrap = timing.stage("publication_and_node_bootstrap");
         let published = Arc::new(PublishedReadState::default());

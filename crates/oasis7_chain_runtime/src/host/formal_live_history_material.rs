@@ -77,9 +77,17 @@ impl NativeHistoryResolver {
     pub(super) fn publication_from_replayed_cut(
         &self,
         replayed: ReplayedHistoryCut,
+        deadline: Instant,
     ) -> Result<FormalReadPublication, String> {
-        let material = self.material_for_replayed_cut(&replayed)?;
+        let material = self.governance_material_at(
+            &replayed.anchor,
+            replayed.target_proof.as_ref(),
+            deadline,
+        )?;
         let world = self.world_for(&replayed.anchor, &material)?;
+        if Instant::now() >= deadline {
+            return Err("HistoryUnavailable: exact publication restore deadline exceeded".into());
+        }
         FormalReadPublication::new(replayed.anchor, world)
     }
 
@@ -482,6 +490,6 @@ impl NativeHistoryResolver {
         if Instant::now() >= deadline {
             return Err("HistoryUnavailable: exact publication replay deadline exceeded".into());
         }
-        self.publication_from_replayed_cut(replayed)
+        self.publication_from_replayed_cut(replayed, deadline)
     }
 }
