@@ -191,7 +191,10 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
     )
     .map_err(|e| match e {
         formal::FormalError::FencingUnproven => "FENCING_UNPROVEN".into(),
-        other => other.to_string(),
+        other => format!(
+            "protected endpoint open role={:?} target={:?}: {other}",
+            config.role, config.data_dir
+        ),
     })?;
     // A port is published only after strict custody/floor and native restore.
     let listener = std::net::TcpListener::bind(config.listen).map_err(|e| e.to_string())?;
