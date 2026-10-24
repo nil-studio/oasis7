@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import time
 import zipfile
@@ -227,8 +228,12 @@ def archive_identity(database,selected,before):
         return {'selected':observations,'entry_count':len(entries),'expanded_bytes':sum(item.file_size for item in entries),'analysis_sysroots':sysroots}
 
 
-def captured_segments(path,item):
+def captured_segments(path,item,*,end=None):
     """Never join across an omitted source interval or parse a cut line."""
+    if item.get("encoding") == "gzip":
+        return [evidence.CompressedLogText(path,item,end if end is not None else float("inf"))]
+    if item.get('encoding') not in (None,'raw'):raise RuntimeError('unknown log encoding')
+    if path.stat().st_size>evidence.MAX_FILE_BYTES:raise RuntimeError('raw retained log size bound')
     data=path.read_bytes(); texts=[]
     ranges=item.get('source_ranges',[{'source_offset':0,'destination_offset':0,'length':len(data)}])
     for segment in ranges:
@@ -246,12 +251,18 @@ def query_progress(texts,*,end=None):
     started=set();completed=set()
     for text in texts:
         check_time(end)
-        for line in text.splitlines():
+        for line in (text.splitlines() if isinstance(text,str) else text):
             check_time(end)
             match=re.search(r'Starting evaluation of (\S+\.ql)\.',line)
-            if match:started.add(match[1])
+            if match:
+                if len(match[1].encode())>4096:raise RuntimeError('query progress path bound')
+                started.add(match[1])
+                if len(started)>512:raise RuntimeError('query progress count bound')
             match=re.search(r'Evaluation done; writing results to (\S+\.bqrs)\.',line)
-            if match:completed.add(match[1])
+            if match:
+                if len(match[1].encode())>4096:raise RuntimeError('query progress path bound')
+                completed.add(match[1])
+                if len(completed)>512:raise RuntimeError('query progress count bound')
     return {'scope':'unique markers in complete lines of retained ranges only; omitted ranges UNKNOWN; not decoded results',
             'started':sorted(started),'completed':sorted(completed),
             'started_count':len(started),'completed_count':len(completed),
@@ -259,11 +270,11 @@ def query_progress(texts,*,end=None):
 
 
 def coverage_report(source,inventory,texts,*,end=None,logs_complete=True):
-    found=set();diagnostics=[];enumeration_complete=logs_complete;sections=0
+    found=set();diagnostics=set();enumeration_complete=logs_complete;sections=0
     for text in texts:
         check_time(end)
         section=False
-        for raw in text.splitlines():
+        for raw in (text.splitlines() if isinstance(text,str) else text):
             check_time(end)
             line=re.sub(r'\x1b\[[0-9;]*m','',raw)
             if 'found manifests:' in line:
@@ -274,11 +285,16 @@ def coverage_report(source,inventory,texts,*,end=None,logs_complete=True):
                 # lines must not cause the old unanchored regex to backtrack.
                 offset=line.find('  '+str(source)+'/')
                 candidate=line[offset+2:].rstrip() if offset>=0 else ''
-                if candidate.endswith('/Cargo.toml'):found.add(str(Path(candidate).relative_to(source)))
+                if candidate.endswith('/Cargo.toml'):
+                    if len(candidate.encode())>4096:raise RuntimeError('manifest observation path bound')
+                    found.add(str(Path(candidate).relative_to(source)))
+                    if len(found)>4096:raise RuntimeError('manifest observation count bound')
                 else:
                     if re.search(r'\band\s+[0-9]+\s+more\b',line) or not line.strip():enumeration_complete=False
                     section=False
-            if any(marker in line for marker in ('failed to load workspace','semantic analyzer unavailable','failed to expand macro')):diagnostics.append(line[-2048:])
+            if any(marker in line for marker in ('failed to load workspace','semantic analyzer unavailable','failed to expand macro')):
+                diagnostics.add(line[-2048:])
+                if len(diagnostics)>1024:raise RuntimeError('coverage diagnostic count bound')
         if section:enumeration_complete=False
     enumeration_complete=enumeration_complete and sections>0
     return {'scope':'Linux host, all targets, default all features; not all OS/target triples',
@@ -289,14 +305,54 @@ def coverage_report(source,inventory,texts,*,end=None,logs_complete=True):
         'boundaries':['found manifest does not prove every cfg/target/macro model','nightly and WASM/foreign-platform contexts require independent diagnostics; not waived']}
 
 
+def read_initial_locks(out,source,deadline):
+    path=out/'lock-inventory-initial.json'
+    try:
+        parent=evidence._open_directory(out)
+        try:descriptor=os.open(path.name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
+        finally:os.close(parent)
+        with os.fdopen(descriptor,'rb') as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):return None
+            raw=stream.read(evidence.MAX_RECEIPT_BYTES+1)
+        if len(raw)>evidence.MAX_RECEIPT_BYTES:return None
+        value=json.loads(raw)
+        if (value.get('source')!=str(source) or value.get('expected_head')!=SOURCE
+            or value.get('fixed_job_deadline')!=deadline or value.get('status')!='COMPLETE'):return None
+        return value
+    except (OSError,ValueError,TypeError,AttributeError):return None
+
+
+def observe_inputs(source,out,end,deadline,manifests,initial,stage,*,identity=None,metadata=None,metadata_path=None):
+    current=evidence.lock_inventory(source,manifests,out,end,SOURCE,stage=stage,fixed_deadline=deadline)
+    identity=identity if identity is not None else evidence.capture_identity(
+        source,out,end,SOURCE,prefix=stage,initial_locks=initial)
+    def binding(value):
+        return {item['path']:(item['status'],item.get('bytes'),item.get('sha256')) for item in value['locks']}
+    comparable=initial is not None and current['status']=='COMPLETE'
+    changed=sorted(name for name,value in binding(current).items()
+                   if value!=binding(initial).get(name)) if comparable else None
+    report={'stage':stage,'source':str(source),'expected_head':SOURCE,'fixed_job_deadline':deadline,
+            'identity_status':identity.get('status'),'lock_status':current['status'],
+            'changed_locks':changed,'origin':'UNKNOWN','dependency_resolution_impact':'UNKNOWN',
+            'status':'PASS' if comparable and changed==[] and identity.get('status')=='PASS' else 'FAIL'}
+    if metadata_path is not None and metadata_path.is_file():
+        report['metadata_output_sha256']=digest_until(metadata_path,end)
+        if isinstance(metadata,dict):
+            report['resolve_document_sha256']=hashlib.sha256(json.dumps(metadata.get('resolve'),sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            report['resolve_digest_scope']='existing JSON document identity, not semantic equivalence or a post-analysis graph'
+    save(out/('input-observation-'+stage+'.json'),report,out)
+    return report
+
+
 def capture_failure_evidence(args,source,out,end,env,terminal):
     """Collect existing bytes before any admission gate; never evaluate CodeQL here."""
     capture_end=min(end-120,time.monotonic()+90)
     terminal['capture_limits']={'maximum_seconds':90,'identity_reserve_seconds':30,
         'scope':'within the unchanged job deadline and two minute capture step'}
+    initial_locks=read_initial_locks(out,source,args.deadline)
     for name,operation in (
         ('log_capture',lambda:evidence.collect_logs(args.database,out,capture_end-30)),
-        ('checkout',lambda:evidence.capture_identity(source,out,capture_end,SOURCE,prefix='capture')),
+        ('checkout',lambda:evidence.capture_identity(source,out,capture_end,SOURCE,prefix='capture',initial_locks=initial_locks)),
         ('resources',lambda:resources(env)),
     ):
         try:terminal[name]=operation()
@@ -308,13 +364,28 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     terminal['evidence_status']=terminal['log_capture'].get('status','PARTIAL')
     terminal['status']='CAPTURED'
     terminal['coverage_capture']={'status':'NOT_REACHED'}
+    terminal['lock_observation_gate']='NOT_REACHED'
+    try:
+        if initial_locks is not None:
+            manifests=json.loads((out/'manifest-inventory.json').read_text())
+            prior=json.loads((out/'input-observation-pre-analyze.json').read_text())
+            if (prior.get('status')!='PASS' or prior.get('source')!=str(source)
+                or prior.get('expected_head')!=SOURCE or prior.get('fixed_job_deadline')!=args.deadline):
+                raise RuntimeError('pre-analysis input observation is missing or unbound')
+            observed=observe_inputs(source,out,capture_end,args.deadline,manifests,initial_locks,
+                                    'post-analyze',identity=terminal['checkout'])
+            terminal['lock_observation_gate']=observed['status']
+    except Exception as exc:
+        terminal['lock_observation_gate']='FAIL'
+        terminal['secondary_errors'].append({'stage':'lock-observation','error':repr(exc)[:2048]})
+
     # Preserve the primary failure and raw-capture receipts before any derived
     # parsing. A step timeout during that optional work must not erase them.
     runtime.save(out/'capacity-capture-terminal.json',terminal,out,terminal=True)
     try:
         check_time(capture_end)
         inventory=json.loads((out/'manifest-inventory.json').read_text())
-        texts=[]
+        texts=[];expanded=0
         for item in terminal['log_capture'].get('files',[]):
             check_time(capture_end)
             if not item.get('artifact_created'):continue
@@ -322,7 +393,10 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
             if not name:continue
             path=out/name
             if path.is_symlink() or not path.resolve().is_relative_to((out/'database-logs').resolve()):raise RuntimeError('unsafe captured log reference')
-            if path.is_file():texts.extend(captured_segments(path,item))
+            if path.is_file():
+                expanded+=item.get('raw_bytes',path.stat().st_size)
+                if expanded>evidence.MAX_RAW_CAPTURE_BYTES:raise RuntimeError('expanded log aggregate bound')
+                texts.extend(captured_segments(path,item,end=capture_end))
         save(out/'query-progress.json',query_progress(texts,end=capture_end),out)
         coverage=coverage_report(source,inventory,texts,end=capture_end,logs_complete=terminal['evidence_status']=='COMPLETE')
         coverage['log_evidence_status']=terminal['evidence_status']
@@ -405,6 +479,8 @@ def main():
             files,_=plan.inventory(source,SOURCE)
             manifests=sorted(name for name in files if Path(name).name=='Cargo.toml' and not name.startswith(EXCLUDES))
             save(out/'manifest-inventory.json',manifests,out)
+            initial_locks=evidence.lock_inventory(source,manifests,out,end-120,SOURCE,stage='initial',fixed_deadline=args.deadline)
+            if initial_locks['status']!='COMPLETE':raise RuntimeError('initial lock inventory incomplete')
             save(out/'target-toolchain-inputs.json',{name:value for name,value in frozen.items() if Path(name).name in ('rust-toolchain.toml','rust-toolchain') or name in manifests},out)
             save(out/'resources.json',dict(resource_values,space=shutil.disk_usage(work)._asdict()),out)
             run(['rustc','-vV'],'project-toolchain',20)
@@ -420,8 +496,17 @@ def main():
             save(out/'default-suite.json',{'suite_sha256':runtime.digest(suite),'query_root':str(query_root),'queries':entries},out)
             libp2p={}
             for context,manifest in [('workspace',source/'Cargo.toml'),('candidate',source/model.BASE/'candidate/Cargo.toml'),('legacy',source/model.BASE/'legacy/Cargo.toml'),('common',source/model.BASE/'common/Cargo.toml')]:
-                run(['cargo','metadata','--locked','--format-version=1','--manifest-path',manifest],'metadata-'+context,120)
-                data=json.loads((out/('metadata-'+context+'.log')).read_text())
+                metadata_path=out/('metadata-'+context+'.log')
+                stage='after-metadata-'+context
+                try:
+                    run(['cargo','metadata','--locked','--format-version=1','--manifest-path',manifest],'metadata-'+context,120)
+                    data=json.loads(metadata_path.read_text())
+                except Exception:
+                    try:observe_inputs(source,out,end-120,args.deadline,manifests,initial_locks,stage,metadata_path=metadata_path)
+                    except Exception as observation_error:terminal.setdefault('input_observation_errors',[]).append(repr(observation_error)[:2048])
+                    raise
+                observed=observe_inputs(source,out,end-120,args.deadline,manifests,initial_locks,stage,metadata=data,metadata_path=metadata_path)
+                if observed['status']!='PASS':raise RuntimeError('metadata changed or obscured frozen inputs: '+stage)
                 if context in ('candidate','legacy'):libp2p[context]=str(model.verify_metadata(data,source,context))
                 if not isinstance(data.get('resolve'),dict) or not data['resolve'].get('nodes'):raise RuntimeError('incomplete Cargo graph')
             save(out/'libp2p-provenance.json',libp2p,out)
@@ -443,6 +528,8 @@ def main():
             config=json.loads(action_config.read_text())
             save(out/'action-config.json',{'sha256':runtime.digest(action_config),'settings':{key:config.get(key) for key in ('languages','buildMode','dbLocation','repositoryRoot','overlayDatabaseMode','trapCaches','dependencyCachingEnabled','computedConfig','useOverlayDatabaseCaching')}},out)
             verify_action_config(config,source,args.database)
+            observed=observe_inputs(source,out,end-120,args.deadline,manifests,initial_locks,'pre-analyze')
+            if observed['status']!='PASS':raise RuntimeError('pre-analysis inputs were not frozen')
             remaining=args.deadline-time.time()
             budget=analysis_budget(args.mode,remaining);minutes=budget['analysis_allocated_minutes']
             save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
@@ -456,7 +543,7 @@ def main():
             if args.analyze_outcome!='success':raise RuntimeError('ACTION_ANALYSIS_FAILED_OR_INCOMPLETE; no semantic child started')
             if captured.get('mode','capacity')!=args.mode:raise RuntimeError('capture assessment mode differs')
             if captured.get('source_root')!=str(source) or captured.get('fixed_job_deadline')!=args.deadline or captured.get('analyze_outcome')!='success':raise RuntimeError('failure capture identity differs')
-            if captured.get('checkout_gate')!='PASS' or captured.get('resource_gate')!='PASS' or captured.get('evidence_status')!='COMPLETE' or captured.get('coverage_capture',{}).get('status')!='PASS':raise RuntimeError('assessment admission failed; see independent capture receipts')
+            if captured.get('lock_observation_gate')!='PASS' or captured.get('checkout_gate')!='PASS' or captured.get('resource_gate')!='PASS' or captured.get('evidence_status')!='COMPLETE' or captured.get('coverage_capture',{}).get('status')!='PASS':raise RuntimeError('assessment admission failed; see independent capture receipts')
             resource_values=captured['resources']
             before_resources=json.loads((out/'resources.json').read_text())
             if any(resource_values[k]!=before_resources[k] for k in ('CODEQL_RAM','CODEQL_THREADS')):raise RuntimeError('Action resource exports changed')

@@ -105,6 +105,8 @@ CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI
 
 任务复用生产固定 CodeQL Action 的初始化、资源自动选择及默认安全查询，保留全仓 Rust 上下文、独立 manifest、vendor、features、targets 与模板。记录实际线程/RAM、runner 和 cgroup、项目及分析工具链、归档标准库来源、默认查询清单与结果。分析设置 `upload: never` 并关闭数据库上传，不设置运营变量，不调用平台 SARIF 上传；本地 SARIF/原始查询结果只作为容量证据。
 
+准备阶段记录 manifest 对应 Cargo.lock 的初始存在性、每次既有 metadata 后及分析前的身份与摘要；新增锁不白名单放行，首次观察阶段不等于写入者证明，解析影响未知时继续拒绝。分析后再次比较初始锁文件，ignored 锁新增或变化、观察缺失同样阻断验收。大日志可按设计上限流式 gzip 保存完整原字节，原始与压缩摘要分开核验；达到任何上限仍为 PARTIAL，不能仅因末尾存在成功 footer 改记完整。总 artifact 256 MiB、日志落盘 128 MiB、原 job 截止及无扫描重试/无平台上传边界不变。
+
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
 容量 helper 为 `scripts/security/codeql-rust-capacity.py`。其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
