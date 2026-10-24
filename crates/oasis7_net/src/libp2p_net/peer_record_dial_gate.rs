@@ -86,6 +86,12 @@ impl DiscoveryDialPolicy {
         true
     }
 
+    pub(super) fn remove_record_paths(&self, peer: PeerId) {
+        if let Ok(mut state) = self.0.lock() {
+            state.records.remove(&peer);
+        }
+    }
+
     pub(super) fn permits(&self, peer: Option<PeerId>, address: &Multiaddr) -> bool {
         let Some(peer) = peer else {
             return false;

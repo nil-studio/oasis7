@@ -123,8 +123,8 @@ pub use gossip_udp::{
 };
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
 pub use libp2p_replication_network::{
-    Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, ReplicationNetworkDebugSnapshot,
-    derive_libp2p_identity_keypair,
+    Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, PeerRecordReceiverConfig,
+    PeerRecordReceiverMode, ReplicationNetworkDebugSnapshot, derive_libp2p_identity_keypair,
 };
 #[cfg(all(feature = "libp2p", target_arch = "wasm32"))]
 pub use libp2p_replication_network_wasm::{

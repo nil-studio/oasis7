@@ -29,6 +29,7 @@ mod peer_record_protocol_dial;
 mod peer_record_refresh;
 mod peer_record_store;
 mod peer_record_time;
+mod receiver_floor;
 use peer_record_cache::PeerRecordCache;
 mod peer_record_republish;
 mod reachability;
@@ -43,7 +44,7 @@ mod transport_paths;
 mod utils;
 mod wire_bytes;
 use crate::error::WorldError;
-pub use config::Libp2pNetworkConfig;
+pub use config::{Libp2pNetworkConfig, PeerRecordReceiverConfig, PeerRecordReceiverMode};
 use connection_lifecycle::{
     clear_disconnected_peer_state, failover_after_disconnect, log_active_transport_path,
     prune_redundant_peer_connections, record_established_connection,
@@ -106,7 +107,7 @@ use runtime_loop::{
     admitted_active_transport_paths, collect_quarantined_active_peers,
     filter_request_peers_by_health, filter_request_peers_by_lane,
 };
-use swarm_behaviour::{Behaviour, BehaviourEvent, build_swarm, dial_addr_with_optional_peer_id};
+use swarm_behaviour::{Behaviour, BehaviourEvent, dial_addr_with_optional_peer_id};
 use swarm_reachability_events::{
     handle_autonat_event, handle_expired_listen_addr, handle_external_addr_candidate,
     handle_listener_closed, handle_new_listen_addr,
