@@ -662,15 +662,21 @@ mod tests {
             ),
             (DevelopmentPeerRecordReceptionModeV1::V2Only, "v2_only"),
         ] {
-            let options = super::super::cli::parse_options(
-                ["--p2p-peer-record-reception", spelling].into_iter(),
-            )
-            .expect("receiver mode should parse");
+            let mut args = vec!["--p2p-peer-record-reception", spelling];
+            if mode == DevelopmentPeerRecordReceptionModeV1::V2Only {
+                args.extend(["--p2p-peer-record-publication", "v2_durable"]);
+            }
+            let options = super::super::cli::parse_options(args.into_iter())
+                .expect("supported receiver/publication combination should parse");
             assert_eq!(options.p2p_peer_record_reception, mode);
             let typed = from_options(&options).expect("receiver mode should enter typed config");
             assert_eq!(typed.runtime.p2p_peer_record_reception, mode);
             let reopened = into_options(typed, false).expect("receiver mode should reopen");
             assert_eq!(reopened.p2p_peer_record_reception, mode);
+            assert_eq!(
+                reopened.p2p_peer_record_publication,
+                options.p2p_peer_record_publication
+            );
         }
 
         assert!(
