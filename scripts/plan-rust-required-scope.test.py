@@ -49,6 +49,25 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'cargo_tooling_contracts'}.issubset(plan['groups']))
                 self.base = head
 
+    def test_architecture_direct_inputs_do_not_flatten_reverse_profiles(self):
+        self.write('crates/core/src/lib.rs', '// ordinary source')
+        plan = selector.select(self.config, self.base, self.commit())
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+        self.assertIn('consumer', plan['groups'])  # ordinary CI stays conservative
+
+    def test_architecture_shared_and_checker_controls_build_full(self):
+        for path in ('Cargo.toml', 'Cargo.lock', 'crates/core/build.rs', 'rust-toolchain.toml',
+                     'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json'):
+            with self.subTest(path=path):
+                if path == 'Cargo.toml':
+                    self.write(path, Path(path).read_text() + '\n# changed\n')
+                else:
+                    self.write(path, '# control')
+                config = json.loads(json.dumps(self.config))
+                config['rules'].append({'match': ['scripts/cargo-dev*'], 'groups': ['rust_baseline'], 'reason': 'architecture'})
+                self.assertEqual(selector.select(config, self.base, self.commit())['architecture']['mode'], 'full')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = Path.cwd()
@@ -541,6 +560,23 @@ class Selection(unittest.TestCase):
             self.assertIn('unknown.file', str(error.exception))
             self.assertNotIn('Cargo.lock', str(error.exception))
 
+    def test_invalid_merge_cannot_bypass_unknown_path(self):
+        self.write('unknown.file', 'unknown despite invalid merge topology')
+        head = self.commit()
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            selector.select(self.config, self.base, head, test_head=self.base)
+
+    def test_parse_uncertainty_cannot_register_unknown_path(self):
+        self.write('crates/core/Cargo.toml', 'broken manifest')
+        self.write('unknown.file', 'must remain unknown')
+        head = self.commit()
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            selector.select(self.config, self.base, head)
+        Path('unknown.file').unlink()
+        plan = selector.select(self.config, self.base, self.commit())
+        self.assertEqual(plan['architecture']['mode'], 'full')
+        self.assertEqual(plan['scope'], 'full')
+
     def test_unknown_deleted_and_renamed_endpoints_block(self):
         self.write('unknown-old.file', 'unique unknown file content')
         self.base = self.commit()
@@ -739,7 +775,7 @@ class Selection(unittest.TestCase):
             selector.main()
         outputs = dict(line.split('=', 1) for line in Path('outputs.txt').read_text().splitlines())
         plan = json.loads(outputs['plan'])
-        self.assertEqual(set(plan), {'groups', 'resources', 'reasons', 'scope',
+        self.assertEqual(set(plan), {'groups', 'resources', 'reasons', 'scope', 'architecture',
                                     'workspace_support_profiles', 'workspace_support_profile_version'})
         self.assertEqual(outputs['run_baseline'], 'true')
         self.assertEqual(outputs['run_other'], 'false')

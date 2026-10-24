@@ -79,7 +79,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(record['sha256'], hashlib.sha256(original).hexdigest())
         self.assertEqual(report, self.receipt())
 
-    def test_oversize_log_keeps_prefix_and_later_small_log(self):
+    def test_oversize_log_keeps_head_tail_and_later_small_log(self):
         (self.logs / 'large.log').write_bytes(b'abcdefgh')
         (self.logs / 'small.log').write_bytes(b'abc')
         with patch.object(evidence, 'MAX_FILE_BYTES', 4):
@@ -87,9 +87,36 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(report['status'], 'PARTIAL')
         records = {item['source']: item for item in report['files']}
         self.assertIn('FILE_SIZE_LIMIT', records['large.log']['reasons'])
-        self.assertEqual((self.out / 'database-logs/large.log').read_bytes(), b'abcd')
+        self.assertEqual((self.out / 'database-logs/large.log').read_bytes(), b'abgh')
+        self.assertEqual(records['large.log']['omitted_ranges'], [{'offset': 2, 'length': 4}])
+        self.assertEqual([x['source_offset'] for x in records['large.log']['source_ranges']], [0, 6])
         self.assertEqual(records['small.log']['status'], 'COMPLETE')
+        for segment in records['large.log']['source_ranges']:
+            value=(self.out / 'database-logs/large.log').read_bytes()[segment['destination_offset']:segment['destination_offset']+segment['length']]
+            self.assertEqual(segment['sha256'],hashlib.sha256(value).hexdigest())
         self.assertEqual(report, self.receipt())
+
+    def test_untracked_lock_is_described_but_not_admitted(self):
+        lock = self.source / 'vendor/Cargo.lock'
+        lock.parent.mkdir()
+        lock.write_bytes(b'version = 4\n')
+        self.fake_git({'status': {'stdout': b'?? vendor/Cargo.lock\n'}})
+        report = evidence.capture_identity(self.source, self.out, self.deadline, self.expected)
+        self.assertEqual(report['clean_gate'], 'FAIL')
+        self.assertEqual(report['tracked_status_gate'], 'PASS')
+        self.assertEqual(report['untracked_locks'][0]['sha256'], hashlib.sha256(lock.read_bytes()).hexdigest())
+        self.assertEqual(report['untracked_locks'][0]['dependency_resolution_impact'], 'UNKNOWN')
+
+    def test_lock_symlink_and_tracked_change_still_fail(self):
+        external=self.root/'external';external.write_text('private')
+        vendor=self.source/'vendor';vendor.mkdir()
+        (vendor/'Cargo.lock').symlink_to(external)
+        self.fake_git({'status': {'stdout': b' M tracked.rs\n?? vendor/Cargo.lock\n'}})
+        report=evidence.capture_identity(self.source,self.out,self.deadline,self.expected)
+        self.assertEqual(report['tracked_status_gate'],'FAIL')
+        self.assertEqual(report['clean_gate'],'FAIL')
+        self.assertEqual(report['untracked_locks'][0]['status'],'UNKNOWN')
+        self.assertNotIn('sha256',report['untracked_locks'][0])
 
     def test_growing_file_captures_only_initial_length_and_marks_change(self):
         source = self.logs / 'live.log'
@@ -245,7 +272,7 @@ class EvidenceTests(unittest.TestCase):
             report = self.capture()
         self.assertEqual(report['status'], 'PARTIAL')
         self.assertEqual(report['copied_bytes'], 5)
-        self.assertEqual((self.out / 'database-logs/failure.log').read_bytes(), b'abcde')
+        self.assertEqual((self.out / 'database-logs/failure.log').read_bytes(), b'abcgh')
         self.assertEqual(report, self.receipt())
 
     def test_file_and_scan_count_limits_are_reported(self):

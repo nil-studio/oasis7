@@ -40,15 +40,15 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 <a id="baseline-gap"></a>
 ## 3. 当前状态、目标状态与差距
 
-下表区分当前实现与目标；Workspace 首批继承范围随源码维护，其余历史静态判断以上述审读基线为准。生成器与通用边界检查不因配置迁移而视为已实现；运行结果在实际 PR/CI 记录。
+下表随当前源码维护首版能力；顶部审读基线仅是历史设计来源。运行结果在实际 PR/CI 记录。
 
 | 对象 | 当前实现与依据 | 目标状态 | 差距 |
 | --- | --- | --- | --- |
 | Workspace | [根 manifest](../../../Cargo.toml) 集中共性依赖、`workspace.package` / `workspace.lints`，首批 6 个成员显式继承；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 其余成员尚未迁移；每批仍须等价检查，不修改 resolver/profiles/patch |
 | Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 首批继承保持 correctness=deny、suspicious=warn 的本地级别；CI 继续升级，普通 clippy 不等于所有 CI 组合 |
-| 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh) 使用 host、`--no-default-features` 的局部 `cargo tree` | 有作用域的规则、声明与解析闭包检查 | 现有检查没有显式 target/kind 矩阵，不证明所有组合 |
-| HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 4、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首切片从此 profile 生成 TS/JSON Schema，继续以实现验证 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
-| Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；未有本专题的完整生成闭环 |
+| 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh) 使用 host、`--no-default-features` 的局部 `cargo tree` | 有作用域的规则、声明与解析闭包检查 | 首版检查器已有 9 条规则、37 个显式 profile，逐根声明/闭包与编译核查；不证明未登记平台或 Viewer/Service 全量配置 |
+| HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 5、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首版已从此 profile 生成 TS/JSON Schema，真实 handler fixtures 与 TS consumer 校验 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
+| Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；仅 signed-read bootstrap 已有生成闭环，其他 profile 未登记 |
 
 ## 4. 边界与结构
 
@@ -108,6 +108,8 @@ Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；承接 [REQ-RUST-002](
 
 Service → Runtime/Projection/Game Client/Client Storage 是合法组合；主 `oasis7` 是宿主和兼容 facade。`client_cli` 中执行本地世界或解析权威 Simulator 配置的入口保留显式世界依赖；其**生产默认**不含 Wasmtime/libp2p 的要求不能被扩大为整个 package 禁止 Runtime/Simulator。以上是职责允许关系，不是待清理债务。
 
+测试闭包的 kind 由各专业 owner 明确：Game Client、State、Client Launcher、Protocol Tools 包含 dev（后者仅精确互操作首边允许）；Harness、Projection、Runtime、Launcher Backend、Provider Local Bridge 的禁令限 normal/build。所有测试 profile 的构建及编译影响选择仍包含实际 dev 输入。
+
 规则配置中的例外必须精确到 root、边/kind、target/features、用途和依据；稳定允许关系与临时迁移例外分别表达。临时例外另写复核/移除触发条件，同一 PR 按现有评审处理，不能使用 `allow_all_dev` 或通配全部路径豁免。原专业合同变化时同步改规则与正反例，不能仅为清除报错放松合同。
 
 <a id="protocol-authority"></a>
@@ -123,7 +125,7 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc、O7-REQ-ad3ea59c-596c-4
 
 首切片使用现有人工维护 [read_bootstrap.openapi.json](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 作为 HTTP profile 输入，生成 TS 类型与独立 JSON Schema；该 OpenAPI 仍是手工源，不被生成器覆盖。只列当前五条 GET 和 `writes_available=false`。`ReadInfo`/`ReadProjection`/`ReadError` 暂无唯一 typed Rust envelope，不能新造一套仅供生成的镜像 struct 来宣称单一真源。
 
-首版消费验证采用独立 TS 协议一致性样例：真实 import 生成类型并执行运行时校验，消费实际 handler 固定下来的成功与错误响应及独立负例。仅编译生成文件不构成消费验证。此样例不要求改造 Viewer、增加产品网络客户端或发布 SDK；真正触及产品调用、请求或重试行为时，再按原产品合同和开发流程选择适用验收。
+首版消费验证按 fixture 的真实 GET/path 匹配唯一 operation，再确认实际 status 有声明，并使用该 status 的 schema 验证成功和错误 body；缺失、歧义或不匹配均失败。真实 handler fixtures 是独立输入，不能从待检 operation 反向生成期望。删除错误 status、改错 path 或错误 schema 关联须由反例检出。首版消费验证采用独立 TS 协议一致性样例：真实 import 生成类型并执行运行时校验，消费实际 handler 固定下来的成功与错误响应及独立负例。仅编译生成文件不构成消费验证。此样例不要求改造 Viewer、增加产品网络客户端或发布 SDK；真正触及产品调用、请求或重试行为时，再按原产品合同和开发流程选择适用验收。
 
 后续有跨语言复用需要时，可先提取真实 handler 使用的唯一 typed DTO，以既有 JSON fixtures 证明同义，再将该 component 的输入权威迁到 Rust。profile 继续拥有 routes/auth/error/limits 与业务收窄；同一 component 的人工定义和生成定义不能同时成为可编辑真源。
 
@@ -153,6 +155,17 @@ Bootstrap `ReadWorldViewRequest.fixed_commit` 可缺省或为 null，实际 hand
 5. 中断后不自动重试发布；保留错误和冲突定位。维护者在原输入上重新完整生成，或通过普通 Git 修改恢复已知完整版本，再运行只读检查。临时输出不成为消费者输入，人工 profile 不被覆盖或删除。
 
 ## 6. 接口与数据合同
+
+<a id="trusted-local-architecture"></a>
+### 5.3 可信局部架构核查
+
+Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。
+
+完整声明检查及全部登记 profile 的依赖图始终执行。普通源码变化的必需编译集合为：可信 BASE 选择器从 base/source/tested（含实际 merge parents）归属及嵌入输入得到的直接受影响包，与每个 profile 的实际 Cargo 图相交的 root/profile；图包括 normal/build，测试配置另含 root dev，host build/proc-macro 与 target 条件及 features 由 Cargo 解析。编译选择使用未豁免的完整图，精确互操作允许关系只影响违规判定，不能使构建输入漏选。未选中编译明确报告 `not_required`，图通过与编译成功分别记录，不能声称执行过未选项。
+
+Cargo manifest/lock/build script/toolchain、检查器/规则/profile 或 CI 控制变化，显式 full，以及可信计划缺失、旧版或已登记输入解析不确定时，执行完整登记编译矩阵。未登记路径仍由可信 scope 明确拒绝；full 或候选配置不能用于自行登记。候选图解析失败返回 inspection_error，不借缩小集合规避失败。可信 BASE 旧选择器没有局部字段时完整执行，待登记合入后才启用局部收益。排障 `--profile`/`--graphs-only` 仍产生 coverage_gap，不能代替可信必需集合。
+
+报告包含可信输入集合、选择理由、实际图/编译项及两阶段耗时。profile 的整体状态汇总图违规与构建结果；构建成功不能覆盖闭包违规。协议 handler/fixture 的 workspace-support 保留原完整选择，因为同时承担 Rust handler 与其他消费者回归，不仅是 TS 输入。
 
 <a id="inspection-contract"></a>
 ### 6.1 检查输入、覆盖与结果
@@ -229,9 +242,9 @@ CI 接入复用现有 [scope 选择](../../../scripts/ci-required-scope.json) �
 | 场景 | 环境、规模与资源 | 预期响应 | 指标/阈值来源 | 验证入口 | 当前范围 |
 | --- | --- | --- | --- | --- | --- |
 | 配置归一 | 固定 Rust/lock，受影响 root、真实 native/wasm 与 feature 组合 | package/source/version/feature/kind 语义一致 | [AC-RUST-001](rust-engineering-contracts.prd.md#ac-rust-001) 的零非预期差异 | 基线/候选 metadata 与 feature 图比较、受影响构建 | 实施后验证；本设计不报告性能收益 |
-| 边界检查 | 首批规则、声明全集及登记支持组合；host/target 分开 | 正例通过，直接/间接/build/alias/平台反例命中 | [AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002)，所有必需组合无缺口 | RG-A01～RG-A04 | 通用检查尚未实现 |
-| 生成确定性 | 相同输入、锁定工具，不同临时路径/工作区；首切片全产物 | 输出集合、内容和摘要相同，check 无工作区写入 | [AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003)，字节差异为零 | RG-P01、RG-P02 | 首切片实施后验证 |
-| 数值与严格 wire | `0`、`2^53-1`、`2^53`、`u64::MAX`、越界/非规范输入、null/缺省 | 精确保持既有编码与拒绝语义 | 原 wire 与 profile；不得由生成器扩宽 | RG-P03、现有 codec/handler tests | 现有测试不代表 TS 已验证 |
+| 边界检查 | 首批规则、声明全集及登记支持组合；host/target 分开 | 正例通过，直接/间接/build/alias/平台反例命中 | [AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002)，所有必需组合无缺口 | RG-A01～RG-A04 | 首版已接入；范围与缺口按候选 JSON/CI 核验 |
+| 生成确定性 | 相同输入、锁定工具，不同临时路径/工作区；首切片全产物 | 输出集合、内容和摘要相同，check 无工作区写入 | [AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003)，字节差异为零 | RG-P01、RG-P02 | 首版已实施确定性与故障回归；运行结果留 PR/CI |
+| 数值与严格 wire | `0`、`2^53-1`、`2^53`、`u64::MAX`、越界/非规范输入、null/缺省 | 精确保持既有编码与拒绝语义 | 原 wire 与 profile；不得由生成器扩宽 | RG-P03、现有 codec/handler tests | 已有 TS/真实 handler 验证；不代表未登记 profile |
 | 容量与故障 | profile 明确登记输入/输出字节、schema 深度、根数量与执行超时上限；上限内最大样例及超限/中断注入 | 有界完成或明确失败，禁止部分集发布 | 实施 owner 以实际 profile 和 CI 资源确定有限上限；首版启用前必须填写并测试 | RG-P02；临时目录/冲突故障注入 | 不虚设无基线吞吐或耗时目标 |
 
 检查开销先记录固定环境的实际耗时、峰值内存与输入规模，必要时再建立回归阈值。配置集中或 crate 分层不直接证明编译变快；如主张收益，沿用现有编译测量方法，固定 toolchain/profile/features/jobs/target/缓存条件分别测量。

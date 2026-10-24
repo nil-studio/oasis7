@@ -288,6 +288,7 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
+          OASIS7_CI_ARCHITECTURE_PLAN: ${{ needs.select.outputs.plan }}
           OASIS7_PRODUCT_DOC_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ github.sha }}
         run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --repo-root "$GITHUB_WORKSPACE"

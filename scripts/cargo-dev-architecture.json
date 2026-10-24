@@ -77,6 +77,11 @@
         "default",
         "lightweight",
         "unit-tests"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
       ]
     },
     {
@@ -162,6 +167,10 @@
         "lightweight",
         "wasm-default",
         "wasm-lightweight"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
       ]
     },
     {
@@ -284,6 +293,11 @@
         "test-support",
         "wasm-default",
         "wasm-lightweight"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
       ]
     },
     {
@@ -370,6 +384,10 @@
         "lightweight",
         "test_tier_required",
         "test_tier_full"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
       ]
     },
     {
@@ -485,6 +503,10 @@
         "test_tier_full",
         "test-support",
         "wasmtime"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
       ]
     },
     {
@@ -556,6 +578,10 @@
         "lightweight",
         "test_tier_required",
         "test_tier_full"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
       ]
     },
     {
@@ -605,6 +631,11 @@
       "exceptions": [],
       "required_profiles": [
         "legacy-host"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
       ]
     },
     {
@@ -703,6 +734,11 @@
         "lightweight",
         "test_tier_required",
         "test_tier_full"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
       ]
     },
     {
@@ -777,6 +813,10 @@
         "lightweight",
         "test_tier_required",
         "test_tier_full"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
       ]
     }
   ]

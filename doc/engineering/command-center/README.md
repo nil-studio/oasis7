@@ -27,7 +27,7 @@
 
 ## 核验基线与覆盖范围
 
-2026-10-23 signed-read 协议产物局部核对：人工 OpenAPI 保留 HTTP profile 主责；[协议生成设计](../rust-governance/rust-engineering-contracts.design.md#artifact-contract)规定开发期生成与服务运行闭包分离，派生 TS/schema/manifest 不赋予 signer 或写权限。[实施 #5024](https://github.com/nil-studio/oasis7/issues/5024) 当前候选覆盖五条 GET、精确 DecimalU64 与独立 TS 消费；实际合入和验证由该任务承接，未改变部署或整局验收结论。
+2026-10-24 Rust 工程契约局部核对：[#5026](https://github.com/nil-studio/oasis7/pull/5026)、[#5027](https://github.com/nil-studio/oasis7/pull/5027)、[#5028](https://github.com/nil-studio/oasis7/pull/5028) 已合入首批 6 成员继承、9 条架构规则/37 个 profile 与 signed-read 五 GET 的 TS/schema 生成消费；API revision 1 / read schema revision 5。[现行设计](../rust-governance/rust-engineering-contracts.design.md)保留原专业 owner 与开发期工具边界。[#5036](https://github.com/nil-studio/oasis7/issues/5036) 承接 path/status 回归、dev 范围及可信局部编译选择，尚待 PR 评审；不据此宣称部署、完整世界 schema 或全平台验收。
 
 Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
@@ -230,3 +230,5 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 已解决事项移出当前关注，历史通过 Git 和原 PR 追溯；没有实质变化时不制造新的提交。
 
 文件清单支持按已读文件头显式文档 ID 检索；原声明/源行与有限重复诊断沿[文档树设计](document-tree.design.md)展示。同 ID 文件不合并，重复范围限同次已读候选，不代表仓库全量唯一或实现验收；旧清单需刷新。明确正文承接表可按行查看两侧链接、原行样本和同版本章节；仅覆盖精确标题/列名，超限与歧义有诊断，不证明语义承接完整。目录层级支持按路径逐层/分页浏览 PRD、设计与结构入口，搜索保留祖先，文件详情复用同版本来源；不推断语义归属。产品树从四域入口表与根 PRD 活跃专题展开，专业系统树从工程模块矩阵与明确模块导航展开；多父入口保留，匹配按文件去重，未归属与断链/未读/循环诊断可见，详情仍沿同版本章节。导航不提升为配对或主责，两树支持按需展开、键盘操作及独立个人阅读恢复；支持范围见[显式导航投影](document-tree.design.md#显式产品与专业导航投影)。独立树快照及固定提交基线仍待补齐，完整验收范围归专题设计。
+
+2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。
