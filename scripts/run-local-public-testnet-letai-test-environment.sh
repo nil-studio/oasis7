@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/cargo-dev-lib.sh"
 
 if [[ -n "${OASIS7_PUBLIC_TESTNET_NODE_BASE_URL:-}" ]]; then
   NODE_BASE_URL="$OASIS7_PUBLIC_TESTNET_NODE_BASE_URL"
@@ -683,12 +684,15 @@ build_bins() {
     return 0
   fi
   log "building local binaries"
-  "$ROOT_DIR/scripts/cargo-dev.sh" build \
-    -p oasis7_protocol_tools -p oasis7_newapi_bridge_service -p oasis7_provider_local_bridge -p oasis7_viewer_runtime \
-    --bin oasis7_newapi_bridge_service \
-    --bin oasis7_chain_transfer_submit_client \
-    --bin oasis7_provider_local_bridge \
-    --bin oasis7_viewer_live
+  (
+    cd "$ROOT_DIR"
+    OASIS7_CARGO_DEV_REPO_ROOT="$ROOT_DIR" oasis7_cargo_dev build \
+      -p oasis7_protocol_tools -p oasis7_newapi_bridge_service -p oasis7_provider_local_bridge -p oasis7_viewer_runtime \
+      --bin oasis7_newapi_bridge_service \
+      --bin oasis7_chain_transfer_submit_client \
+      --bin oasis7_provider_local_bridge \
+      --bin oasis7_viewer_live
+  )
 }
 
 start_newapi_bridge() {
@@ -707,7 +711,7 @@ start_newapi_bridge() {
   fi
   [[ -n "$platform_key_env" ]] || die "OASIS7_NEWAPI_BRIDGE_LETAI_PLATFORM_KEY or LETAI_PLATFORM_KEY is required to start NewAPI bridge"
   local target_dir
-  target_dir="$("$ROOT_DIR/scripts/cargo-dev.sh" --print-target-dir)"
+  target_dir="$(oasis7_cargo_dev_target_dir "$ROOT_DIR")"
   local pricing
   pricing="$(load_pricing_rules)"
   [[ -n "$pricing" ]] || die "no pricing rules configured"
@@ -786,7 +790,7 @@ start_viewer_live() {
     return 0
   fi
   local target_dir
-  target_dir="$("$ROOT_DIR/scripts/cargo-dev.sh" --print-target-dir)"
+  target_dir="$(oasis7_cargo_dev_target_dir "$ROOT_DIR")"
   local chain_status_bind
   chain_status_bind="$(node_status_bind)"
   local chain_submit_bind_value
@@ -945,7 +949,8 @@ Operator recharge commands are intentionally not executed by this script.
 After selecting a test persona and nonce, run the bind/deposit/transfer/reconcile
 flow from the runbook. The signed transfer shape is:
 
-  target_dir="\$(./scripts/cargo-dev.sh --print-target-dir)"
+  source ./scripts/cargo-dev-lib.sh
+  target_dir="\$(oasis7_cargo_dev_target_dir)"
   "\$target_dir/debug/oasis7_chain_transfer_submit_client" submit \\
     --keys-file "\$OASIS7_TEST_KEYS_FILE" \\
     --persona happy_path \\

@@ -84,14 +84,7 @@ run() {
   "$@"
 }
 
-prepare_local_cargo_target() {
-  if [[ "${CI:-}" != "1" && "${CI:-}" != "true" && -z "${CARGO_TARGET_DIR:-}" ]]; then
-    (cd "$repo_root" && "$driver_dir/cargo-dev.sh" --prepare-target)
-  fi
-}
-
 run_cargo() {
-  prepare_local_cargo_target
   if [[ "${CI_VERBOSE:-}" == "1" ]]; then
     run env -u RUSTC_WRAPPER cargo --verbose "$@"
   else
@@ -100,7 +93,6 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
-  prepare_local_cargo_target
   local lint_flags=(
     -D warnings
     -D clippy::correctness
@@ -396,8 +388,6 @@ run_cargo_tooling_baseline_contract_tests() {
 
 run_cargo_tooling_contract_tests() {
   run_cargo_tooling_baseline_contract_tests
-  run python3 ./scripts/cargo-cache.test.py
-  run python3 ./scripts/cargo-incremental-clean.test.py
   run python3 ./scripts/runtime-module-routing-perf-harness.test.py
   run bash ./scripts/cargo-dev-lib.test.sh
   run bash ./scripts/check-standalone-tool-lockfiles.test.sh
@@ -448,6 +438,7 @@ run_workflow_governance_contract_tests() {
 }
 
 run_packaging_artifact_contract_tests() {
+  run bash ./scripts/build-wasm-module.test.sh
   run python3 ./scripts/package-source-plan.test.py
   run python3 ./scripts/package-release-version.test.py
   run python3 ./scripts/safe-git-archive.test.py
@@ -477,6 +468,7 @@ run_operational_identity_contract_tests() {
 }
 
 run_operational_node_contract_tests() {
+  run bash ./scripts/local-letai-provider-bridge.test.sh
   run bash ./scripts/traffic-monitor-summary.test.sh
   run bash ./scripts/p2p-real-env-observability-monitor.test.sh
   run ./scripts/game-world-state-sync-commit-module-required.test.sh
@@ -526,7 +518,6 @@ run_provider_bridge_live_gate() {
 }
 
 run_newapi_bridge_service_accounting_tests() {
-  prepare_local_cargo_target
   run env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
 }
 

@@ -39,22 +39,6 @@ class SafetyTests(unittest.TestCase):
         self.git('config', 'remote.origin.url', str(self.root / 'remote'))
         self.git('config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
 
-    def test_cache_followup_is_scoped_read_only_and_nonblocking(self):
-        owner = str(self.path.resolve())
-        namespace = 'worktree-' + cleanup.hashlib.sha256(owner.encode()).hexdigest()[:12]
-        data = {'targets': [{'owner': owner, 'target': '/cache/own'}, {'owner': '/other', 'target': '/cache/other'}, {'owner': None, 'status': 'unknown', 'target': '/cache/' + namespace + '/rustc-legacy'}],
-                'actions': [{'target': '/cache/own', 'action': 'would-delete'}, {'target': '/cache/other', 'action': 'would-delete'}]}
-        with patch.object(cleanup, '_run', return_value=subprocess.CompletedProcess([], 0, json.dumps(data), '')) as run:
-            result = cleanup.cargo_cache_followup(self.repo, self.path)
-            self.assertEqual(len(result['targets']), 2)
-            self.assertEqual(result['targets'][1]['status'], 'unknown')
-            self.assertEqual(len(result['actions']), 1)
-            self.assertNotIn('--apply', run.call_args.args[0])
-            self.assertEqual(result['default_retention_days'], 7)
-        with patch.object(cleanup, '_run', side_effect=cleanup.CleanupError('unavailable')):
-            result = cleanup.cargo_cache_followup(self.repo, self.path)
-            self.assertEqual(result['report_error'], 'unavailable')
-
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.repo), *args], text=True, stderr=subprocess.DEVNULL).strip()
 
@@ -304,19 +288,21 @@ class DeliveryTests(SafetyTests):
         self.assertEqual(self.git('rev-parse', 'feature'), self.head)
 
     @patch.object(cleanup, '_process_mentions_path', return_value=False)
-    def test_ignored_config_and_cache_are_verified(self, _):
+    def test_ignored_config_is_verified_and_target_material_retained(self, _):
         self.git('config', 'core.excludesFile', str(self.root / 'ignore'))
         (self.root / 'ignore').write_text('config.toml\ntarget\nsecret\n')
         (self.repo / 'config.toml').write_text('canonical')
         (self.path / 'config.toml').write_text('canonical')
-        cache = self.root / '.oasis7-cache' / 'cargo-target' / 'dev'
-        cache.mkdir(parents=True)
-        (self.path / 'target').symlink_to(cache)
         self.inspect()
         (self.path / 'config.toml').write_text('user change')
         with self.assertRaisesRegex(cleanup.CleanupError, 'config retained'):
             self.inspect()
         (self.path / 'config.toml').write_text('canonical')
+        external = self.root / 'external'
+        external.mkdir()
+        (self.path / 'target').symlink_to(external)
+        with self.assertRaisesRegex(cleanup.CleanupError, 'ignored user material'):
+            self.inspect()
         (self.path / 'target').unlink()
         (self.path / 'target').mkdir()
         (self.path / 'target' / 'file').write_text('user material')

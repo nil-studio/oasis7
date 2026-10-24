@@ -307,12 +307,9 @@ class Selection(unittest.TestCase):
         self.assertEqual(set(plan['groups']), {'baseline', 'command_center'})
         self.assertFalse(any('unknown input:' in reason for reason in plan['reasons']))
 
-    def test_existing_cache_and_bridge_inputs_cover_modifications_and_deletions(self):
+    def test_existing_bridge_input_covers_modification_and_deletion(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         cases = {
-            'scripts/cargo-cache.test.py': {'cargo_tooling_contracts'},
-            'scripts/cargo-incremental-clean.py': {'cargo_tooling_contracts'},
-            'scripts/cargo-incremental-clean.test.py': {'cargo_tooling_contracts'},
             'scripts/local-letai-provider-bridge.test.sh': {'oasis7_required', 'operational_contracts'},
         }
         for path, groups in cases.items():
@@ -326,7 +323,7 @@ class Selection(unittest.TestCase):
 
     def test_command_center_shared_tools_keep_dedicated_checks(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('scripts/cargo-dev.sh', 'scripts/cargo-cache.py',
+        for path in ('scripts/cargo-dev.sh',
                      'scripts/find-python-with-module.sh'):
             with self.subTest(path=path):
                 self.write(path, 'shared tool changed')

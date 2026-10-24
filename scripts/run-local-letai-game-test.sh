@@ -364,7 +364,7 @@ run_preflight() {
       failed="1"
     fi
   else
-    echo "note: source build may take several minutes on a cold cache; shared target locks are normal." >&2
+    echo "note: source build may take several minutes on a cold cache; Cargo build locks are normal." >&2
   fi
 
   case "$PROVIDER_SMOKE_MODE" in

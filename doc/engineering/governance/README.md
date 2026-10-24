@@ -28,7 +28,6 @@
 ./scripts/doc-governance-check.sh
 ./scripts/lint-skills.sh
 ./scripts/worktree-gc-report.sh --footprint
-python3 scripts/cargo-cache.py report --json
 
 ./scripts/ci-rust-governance-report.sh --out-dir "output/rust-governance/repository-health-$(date +%Y%m%d)"
 ```
@@ -46,7 +45,7 @@ python3 scripts/cargo-cache.py report --json
 | `doc-governance-check` / `lint-skills` 失败 | 作为 P0/P1 engineering-governance follow-up candidate，定位到具体文档或 workflow surface。 |
 | `doc-inventory-report` 返回 `action_required` | 按 module/hotspot 分类；在聚焦 path-governance follow-up 与季度趋势证据之间做明确选择。 |
 | `worktree-gc-report` 的注册、文件或体积异常 | 仅作 Git/文件事实线索，不判定删除资格。清理使用 `resource-cleanup-executor.py`，明确目标、branch 和 expected HEAD，并重新检查合入、资料及占用。 |
-| 外部 Cargo 缓存占用 | 按 [testing-manual.md](../../../testing-manual.md) 先预览缓存预算回收；只有明确标记、已无注册工作区和引用且未占用的过期缓存可显式执行删除。历史未知缓存只报告。 |
+| 本地 Cargo target 占用 | 按 [testing-manual.md](../../../testing-manual.md) 盘点所属工作区，停止构建和运行后核对路径并用 Cargo clean 回收；显式外部目录及旧链接产物需单独核对归属、引用和占用。未知资料保留。 |
 | Rust governance report finding | 阅读 duplicate counts 和 top-crate list；将 advisory upgrade、routine refresh、dependency prune 和 unsafe-boundary review 分类，不在巡检 task 内直接升级依赖。 |
 | `ci-tests.sh required` 失败 | 区分 formatting、RustSec、file-size/code-health、scoped test 和 workflow-surface 失败。只有当前 task 引入或它已是 active merge/release blocker 时，才将巡检标为 blocked。 |
 

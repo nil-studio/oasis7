@@ -320,7 +320,6 @@ def user_material(repo, path, records):
     if git(path, 'status', '--porcelain', '--untracked-files=all'):
         raise CleanupError('uncommitted or untracked work retained')
     canonical = pathlib.Path(records[0]['worktree']).resolve()
-    cache = canonical.parent / '.oasis7-cache' / 'cargo-target'
     ignored = git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').split('\0')
     for item in filter(None, ignored):
         if reconstructable_pycache(path, item):
@@ -329,14 +328,6 @@ def user_material(repo, path, records):
             source, copy = canonical / item, path / item
             if canonical == path or source.is_symlink() or copy.is_symlink() or not source.is_file() or source.read_bytes() != copy.read_bytes():
                 raise CleanupError('modified or unverifiable ignored config retained')
-        elif item.rstrip('/') == 'target' and (path / 'target').is_symlink():
-            destination = (path / 'target').resolve()
-            try:
-                destination.relative_to(cache.resolve())
-            except ValueError as exc:
-                raise CleanupError('target does not point into known external build cache') from exc
-            if not destination.is_dir() or destination == cache.resolve() or destination.is_relative_to(path):
-                raise CleanupError('target cache identity unclear')
         else:
             raise CleanupError('unknown ignored user material retained: ' + item)
 
@@ -726,22 +717,6 @@ def execute(repo, path, branch, expected, base_ref, pr, report, allow_submodules
     report['branch_removed'] = True
 
 
-def cargo_cache_followup(repo, worktree):
-    cache_script = pathlib.Path(__file__).with_name('cargo-cache.py')
-    command = [sys.executable, str(cache_script), 'gc', '--repo-root', str(repo), '--json']
-    result = {'preview_command': command, 'default_retention_days': 7}
-    try:
-        preview = _run(command, timeout=120)
-        data = json.loads(preview.stdout)
-        namespace = 'worktree-' + hashlib.sha256(str(worktree.resolve()).encode()).hexdigest()[:12]
-        result['targets'] = [r for r in data['targets'] if r.get('owner') == str(worktree.resolve()) or pathlib.Path(r['target']).parent.name == namespace]
-        targets = {r['target'] for r in result['targets']}
-        result['actions'] = [a for a in data['actions'] if a['target'] in targets]
-    except (CleanupError, ValueError, KeyError) as exc:
-        result['report_error'] = str(exc)
-    return result
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, epilog='Process snapshots cover current-user processes and visible all-user target holders; invisible foreign use is outside this observation domain. Current-ABI pycache requires matching tracked source content. Unsupported cache ABI is retained. Stop known users and run outside the target. Never fetches or uses sudo. A single force removal is allowed only for verified submodule worktrees with --allow-submodules; all other safeguards still apply. Exit: 0 eligible/success, 1 blocked/partial, 2 invalid arguments.')
     parser.add_argument('--repo-root', type=pathlib.Path, default=pathlib.Path.cwd())
@@ -781,9 +756,6 @@ def main():
     except CleanupError as exc:
         report['readback_error'] = str(exc)
         report['eligible'] = False
-    if report['worktree_removed']:
-        # Reporting is independent of Git deletion success; never delete external caches here.
-        report['cargo_cache_followup'] = cargo_cache_followup(args.repo_root, args.worktree)
     print(json.dumps(report))
     return 0 if report['eligible'] else 1
 

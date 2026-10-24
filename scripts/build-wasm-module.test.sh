@@ -119,8 +119,7 @@ class BuilderLifecycleTest(unittest.TestCase):
         (self.root / "scripts").mkdir()
         self.script = self.root / "scripts/build-wasm-module.sh"
         shutil.copyfile(Path(sys.argv[1]) / "scripts/build-wasm-module.sh", self.script)
-        (self.root / "cache").mkdir()
-        (self.root / "target").symlink_to(self.root / "cache", target_is_directory=True)
+        (self.root / "target").mkdir()
         (self.root / "docker/wasm-builder").mkdir(parents=True)
         (self.root / "docker/wasm-builder/Dockerfile").write_text("FROM fixture-only\n")
         self.manifest = self.root / "module/Cargo.toml"
@@ -273,7 +272,7 @@ else:
         self.assertEqual(result[0], 0, result[2])
         self.assert_receipt(self.run_record(), EXPECTED)
         run = next(c["args"] for c in self.calls() if c["args"][:1] == ["run"])
-        self.assertIn(f"type=bind,src={self.root / 'cache'},dst={self.root / 'cache'}", run)
+        self.assertEqual(sum(arg.startswith("type=bind,") for arg in run), 1)
 
         self.assertFalse(any(c["args"][:1] == ["build"] or c["args"][:2] == ["buildx", "build"] for c in self.calls()))
 

@@ -238,7 +238,7 @@ export OASIS7_PROVIDER_LIVE_TARGET_CONTEXT_PAYLOAD_FILE="<local-secure-dir>/runt
 启动 `oasis7_newapi_bridge_service`。下面命令只传 secret 环境变量名，不把 platform key 放进长驻进程 argv；`LETAI_PLATFORM_KEY` 必须已经在当前 operator shell 中设置：
 
 ```bash
-rtk bash -lc 'target_dir=$(./scripts/cargo-dev.sh --print-target-dir); \
+rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
 IFS="," read -r -a pricing_rules <<< "$OASIS7_NEWAPI_BRIDGE_PRICING_RULES"; \
 cmd=("$target_dir/debug/oasis7_newapi_bridge_service" \
   --bind-addr 127.0.0.1:5852 \
@@ -328,7 +328,7 @@ export TEST_DEPOSIT_TOKEN="$(
   jq -r '.deposit_token' /tmp/oasis7-newapi-deposit-route-response.json
 )"
 
-rtk bash -lc 'target_dir=$(./scripts/cargo-dev.sh --print-target-dir); \
+rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); \
 "$target_dir/debug/oasis7_chain_transfer_submit_client" submit \
   --keys-file "$OASIS7_TEST_KEYS_FILE" \
   --persona happy_path \
@@ -669,7 +669,7 @@ rtk ./scripts/cargo-dev.sh build -p oasis7_viewer_runtime --bin oasis7_viewer_li
 启动 live 服务，显式绑定已同步节点：
 
 ```bash
-rtk bash -lc 'target_dir=$(./scripts/cargo-dev.sh --print-target-dir); chain_submit_bind="${OASIS7_PUBLIC_TESTNET_CHAIN_SUBMIT_BIND:?set submit-capable host:port first}"; env \
+rtk bash -lc 'source ./scripts/cargo-dev-lib.sh; target_dir=$(oasis7_cargo_dev_target_dir); chain_submit_bind="${OASIS7_PUBLIC_TESTNET_CHAIN_SUBMIT_BIND:?set submit-capable host:port first}"; env \
   OASIS7_AGENT_DECISION_SOURCE=provider_backed \
   OASIS7_AGENT_PROVIDER_BACKEND=provider_local_bridge \
   OASIS7_AGENT_PROVIDER_CONTRACT=worldsim_provider_v1 \

@@ -499,8 +499,6 @@
     {
       "match": [
         "scripts/cargo-dev*",
-        "scripts/cargo-cache*",
-        "scripts/cargo-incremental-clean*",
         "scripts/check-standalone-tool-lockfiles*",
         "scripts/check-launcher-p2p-dependency*"
       ],
@@ -646,7 +644,6 @@
       "match": [
         "tools/oasis7-command-center/**",
         "scripts/cargo-dev.sh",
-        "scripts/cargo-cache.py",
         "scripts/find-python-with-module.sh"
       ],
       "exclude": [
