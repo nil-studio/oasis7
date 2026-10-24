@@ -64,6 +64,27 @@ impl std::fmt::Debug for AttachedFormalHistory {
     }
 }
 
+impl AttachedFormalHistory {
+    #[cfg(test)]
+    pub(super) fn governance_test_reader(&self) -> Arc<dyn BusinessIndexNodeReader + Send + Sync> {
+        Arc::new(self.reader.clone())
+    }
+
+    // The caller must have bound the complete canonical Snapshot bytes first.
+    // Only the opaque governance projection constructor uses this attachment.
+    pub(super) fn for_verified_governance_projection(
+        parent: VerifiedFormalRetainedHistoryParentV1,
+        reader: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
+    ) -> Self {
+        Self {
+            view: parent.index_view(),
+            parent: Some(parent),
+            reader: super::SharedFormalHistoryReader::new(reader),
+            candidate_installed: false,
+        }
+    }
+}
+
 impl Clone for AttachedFormalHistory {
     fn clone(&self) -> Self {
         Self {

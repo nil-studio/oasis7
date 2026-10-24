@@ -11,6 +11,27 @@ pub(super) struct ReplayedHistoryCut {
         Option<oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1>,
 }
 
+impl ReplayedHistoryCut {
+    /// Activation tokens are deliberately non-Clone. Cache only exact replay
+    /// results that carry no healthy activation ownership/context.
+    pub(super) fn normal_cache_copy(&self) -> Option<Self> {
+        if self.activation.is_some()
+            || self.activation_predecessor.is_some()
+            || self.activation_step.is_some()
+        {
+            return None;
+        }
+        Some(Self {
+            anchor: self.anchor.clone(),
+            target_proof: self.target_proof.clone(),
+            target_recovery: self.target_recovery,
+            activation: None,
+            activation_predecessor: None,
+            activation_step: None,
+        })
+    }
+}
+
 pub(super) fn requested_anchor_matches(
     anchor: &VerifiedFormalReadAnchorV1,
     requested: &FormalReadAnchorRefV1,
@@ -52,6 +73,7 @@ pub(super) fn replay_exact_origin_from(
     )
 }
 
+#[cfg(test)]
 pub(super) fn replay_exact_origin_from_with_activations(
     external: &VerifiedFormalReadAnchorV1,
     requested: &FormalReadAnchorRefV1,
@@ -100,7 +122,7 @@ pub(super) enum ReplayFailure {
 }
 
 impl ReplayFailure {
-    fn into_string(self) -> String {
+    pub(super) fn into_string(self) -> String {
         match self {
             Self::LocalPublicationMissing => {
                 "HistoryUnavailable: exact local formal publication is missing".into()

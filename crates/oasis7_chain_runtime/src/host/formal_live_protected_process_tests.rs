@@ -71,7 +71,7 @@ mod identity_runtime_tests;
 #[path = "formal_live_protected_long_history_tests.rs"]
 mod long_history_tests;
 #[path = "formal_live_protected_process_oracle.rs"]
-mod oracle_support;
+pub(crate) mod oracle_support;
 #[path = "formal_live_protected_proc_sampler.rs"]
 mod proc_sampler;
 #[path = "world_initialization_process_tests.rs"]

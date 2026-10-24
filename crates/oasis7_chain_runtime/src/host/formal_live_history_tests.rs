@@ -27,6 +27,9 @@ use crate::formal_read_fixtures as fixtures;
 
 use crate::formal_live_recovery_test_support as recovery_test_support;
 
+#[path = "formal_live_history_startup_tests.rs"]
+mod startup_governance_tests;
+
 fn normal_execution_proof(
     authority: &VerifiedAuthorityV1,
     parent: &VerifiedFormalCommitV1,
@@ -747,6 +750,40 @@ fn only_exact_verified_pending_recovery_target_is_optional_for_prewarm() {
         Err(ReplayFailure::UnqualifiedPendingRecoveryTarget(expected))
             if expected.as_ref() == &pending_target.checkpoint()
     ));
+
+    struct EmptyNodes;
+    impl BusinessIndexNodeReader for EmptyNodes {
+        fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
+            Ok(None)
+        }
+    }
+    let ordinary_resolver = NativeHistoryResolver {
+        addresses: ["127.0.0.1:1".parse().unwrap(); 2],
+        timeout: Duration::from_secs(2),
+        authentication: fixtures::key(4),
+        external_origin: origin.clone(),
+        trusted: pending_target.clone(),
+        permission: Some(pending_permission.clone()),
+        active: pending_permission.recovery().successor().clone(),
+        permissions: permissions.to_vec(),
+        release: ReleaseSecurityPolicy::default(),
+        business_reader: std::sync::Arc::new(EmptyNodes),
+        writer_directory: std::path::PathBuf::new(),
+        origin_history_directory: None,
+        activation_markers: durable_set_activation::DurableSetActivationMarkerStoreV1::new(
+            std::path::PathBuf::new(),
+        ),
+        prewarm_scope: std::sync::Arc::new(()),
+        governance_verified: std::sync::Mutex::new(None),
+    };
+    assert_eq!(
+        ordinary_resolver
+            .replay_exact_origin(&exact_target, Instant::now() + Duration::from_secs(2))
+            .err()
+            .expect("pending recovery must not qualify as an exact read"),
+        "HistoryUnavailable: pending recovery target is not a qualified read cut",
+        "the production exact-replay path must continue to reject pending recovery anchors"
+    );
 
     let forged_target = FormalReadAnchorRefV1 {
         active_authority_id: fixtures::h(81),

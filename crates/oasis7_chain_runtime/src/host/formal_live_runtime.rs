@@ -18,7 +18,8 @@ use ed25519_dalek::SigningKey;
 use oasis7_client_api::world_service::WorldIdentity;
 use oasis7_distfs::controlled_authority::{
     formal::{
-        SignedNormalDurableSetTransitionV1, VerifiedAuthorityV1,
+        RecoveryTailV1, SignedNormalDurableSetTransitionV1, VerifiedAuthorityV1,
+        VerifiedFormalReadAnchorV1, VerifiedRecoveryBootstrapV1,
         business_index::{
             BusinessIndexNodeReader, BusinessIndexNodeWriteV1, BusinessIndexPathV1,
             BusinessIndexRootV1,
@@ -118,6 +119,94 @@ impl PendingNodeStop {
             worker,
         })
     }
+}
+
+pub(super) fn startup_governance_history_anchor(
+    writer_anchor: &VerifiedFormalReadAnchorV1,
+    recovery: Option<&VerifiedRecoveryBootstrapV1>,
+    trust: &oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1,
+    initial: &oasis7_distfs::controlled_authority::formal::SignedInitialActivationV1,
+) -> Result<VerifiedFormalReadAnchorV1, String> {
+    let Some(recovery) = recovery else {
+        return Ok(writer_anchor.clone());
+    };
+
+    let recovery_cut = recovery.cut();
+    let writer_position = writer_anchor.head().record().position;
+    let recovery_position = recovery_cut.record().position;
+    if writer_position < recovery_position {
+        return Err("HistoryUnavailable: restored writer precedes its recovery cut".into());
+    }
+    if writer_position > recovery_position {
+        // A completed recovery may already have advanced this writer. Leave
+        // that qualified descendant on the ordinary exact-replay path.
+        return Ok(writer_anchor.clone());
+    }
+
+    let successor_context = recovery
+        .recovery()
+        .successor()
+        .context_digest()
+        .map_err(|error| error.to_string())?;
+    let writer_context = writer_anchor
+        .authority()
+        .context_digest()
+        .map_err(|error| error.to_string())?;
+    if writer_context != successor_context {
+        return Err(
+            "HistoryUnavailable: restored writer authority differs from recovery successor".into(),
+        );
+    }
+
+    if writer_anchor.head().record() != recovery_cut.record()
+        || writer_anchor.head().head() != recovery_cut.head()
+        || writer_anchor.head().finalizing_authority_id() != recovery_cut.finalizing_authority_id()
+    {
+        return Err("HistoryUnavailable: restored writer differs from exact recovery cut".into());
+    }
+    let expected_pending = recovery
+        .external_anchor()
+        .with_pending_recovery(recovery.recovery())
+        .map_err(|error| error.to_string())?;
+    if writer_anchor.checkpoint() != expected_pending.checkpoint()
+        || writer_context
+            != expected_pending
+                .authority()
+                .context_digest()
+                .map_err(|error| error.to_string())?
+    {
+        return Err(
+            "HistoryUnavailable: restored pending writer differs from its verified recovery permission"
+                .into(),
+        );
+    }
+
+    if recovery.recovery().body().tail == RecoveryTailV1::Empty {
+        // An empty recovery qualifies its successor at the same cut; replay
+        // that exact successor normally.
+        return Ok(writer_anchor.clone());
+    }
+
+    // A non-empty tail is still pending and therefore cannot be used as a
+    // read target. The entire retained chain shares this sealed cut; its
+    // oldest schema-1 permission identifies the cursor before any retained
+    // recovery context was installed.
+    let mut first_evidence = recovery.permission_evidence();
+    while let Some(prior) = first_evidence.prior_permission.as_deref() {
+        first_evidence = prior;
+    }
+    let first = first_evidence
+        .verify(trust, initial)
+        .map_err(|error| format!("HistoryUnavailable: recovery chain root: {error}"))?;
+    if first.cut().record() != recovery_cut.record()
+        || first.cut().head() != recovery_cut.head()
+        || first.cut().finalizing_authority_id() != recovery_cut.finalizing_authority_id()
+    {
+        return Err(
+            "HistoryUnavailable: retained recovery chain differs from exact pending cut".into(),
+        );
+    }
+    Ok(first.external_anchor().clone())
 }
 
 #[path = "formal_live_business_reader.rs"]
@@ -357,6 +446,15 @@ impl FormalLiveRuntime {
             .map_err(|error| format!("read exact qualified formal business nodes: {error}"))?;
         business_reader.seed_verified_writes(committed_business_nodes)?;
         drop(seed);
+        let governance_anchor = startup_governance_history_anchor(
+            writer.anchor(),
+            validated.recovery.as_ref(),
+            &validated.trust.initial_trust,
+            &validated.trust.checkpoint.initial_certificate,
+        )?;
+        history
+            .verify_governance_history(&governance_anchor)
+            .map_err(|error| format!("verify restored formal governance history: {error}"))?;
 
         let _bootstrap = timing.stage("publication_and_node_bootstrap");
         let published = Arc::new(PublishedReadState::default());
