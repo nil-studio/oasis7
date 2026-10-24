@@ -27,6 +27,8 @@ pub mod durable_set_install;
 pub use durable_set_install::*;
 pub mod durable_set_bootstrap;
 pub use durable_set_bootstrap::*;
+pub mod full_sync_issuer;
+pub use full_sync_issuer::*;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixtures;
 #[cfg(test)]
