@@ -9,9 +9,26 @@ FULL_SYNC = "formal_full_state_sync_read_only_v1"
 MAX_AGE_MS = 60_000
 
 
+RUST_WHITESPACE = " \t\n\r\v\f\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
+
 def text(value):
-    # Identifiers are bounded and safe in JSON and Markdown, never free-form errors.
-    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:/+-]{1,256}", value) else None
+    # Contract identifiers are opaque UTF-8 strings, not ASCII protocol tokens.
+    if not isinstance(value, str) or not value.strip(RUST_WHITESPACE):
+        return None
+    try:
+        value.encode("utf-8")
+        return value
+    except UnicodeEncodeError:
+        return None
+
+
+def node_label(value):
+    # Match the formal CLI's UTF-8 byte budget and Rust str::trim contract.
+    value = text(value)
+    if value is None or value.startswith("triad-testnet-"):
+        return None
+    return value if len(value.encode("utf-8")) <= 256 else None
 
 
 def uint(value):
@@ -42,7 +59,7 @@ def project(status, source, as_of_unix_ms):
     if profile not in (OBSERVER, FULL_SYNC):
         return finish("unknown", "unsupported_runtime_profile")
     result["runtime_profile"] = profile
-    node_id = text(status.get("node_id"))
+    node_id = node_label(status.get("node_id"))
     if not node_id:
         return finish("unknown", "invalid_node_identity")
     result["node_id"] = node_id
@@ -213,7 +230,12 @@ def project(status, source, as_of_unix_ms):
 
 def markdown(result):
     import json
-    return ["", "## Profile Readiness"] + [
-        f"- {key}: `{json.dumps(value, ensure_ascii=True, sort_keys=True)}`"
-        for key, value in result.items()
-    ]
+    lines = ["", "## Profile Readiness"]
+    for key, value in result.items():
+        rendered = json.dumps(value, ensure_ascii=True, sort_keys=True)
+        longest = max((len(run) for run in re.findall(r"`+", rendered)), default=0)
+        delimiter = "`" * (longest + 1)
+        # JSON strings begin/end with a quote; other allowlisted JSON values
+        # cannot begin/end in backticks. Escaped newlines stay inside the span.
+        lines.append(f"- {key}: {delimiter}{rendered}{delimiter}")
+    return lines

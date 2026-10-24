@@ -356,7 +356,7 @@ fn schema2_process_hook_reports_verified_public_readiness_and_stops_cleanly() {
     let config = super::super::model::initialize(
         chain,
         &data,
-        Some("formal-public-test-observer"),
+        Some("observer@host-节点`name"),
         "127.0.0.1:19083",
     )
     .unwrap();

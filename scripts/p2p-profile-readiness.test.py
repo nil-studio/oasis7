@@ -132,6 +132,49 @@ class ReportTests(unittest.TestCase):
         status=fixture();status["blocker"]={"raw":"DO_NOT_COPY"}
         self.assertEqual(self.report(status)["status"],"unknown")
 
+    def test_opaque_unicode_world_and_chain_identifiers(self):
+        for profile in (OBSERVER,FULL):
+            status=fixture(profile)
+            world="世界@`world";chain="链@``chain"
+            status["chain"].update(world_id=world,chain_id=chain)
+            config=status["chain"]["formal_observer" if profile == OBSERVER else "formal_full_sync"]
+            config.update(world_id=world,chain_id=chain)
+            if profile == OBSERVER:
+                status["formal_public_observer"]["last_verified_commit"]["world"]["world_id"]=world
+            else:
+                child=status["formal_full_state_sync"]
+                child.update(world_id=world,chain_id=chain)
+                for name in ("loaded_cut","last_verified_cut"):
+                    child[name]["world"]["world_id"]=world
+                    child[name]["chain_id"]=chain
+            result=self.report(status)
+            self.assertEqual(result["status"],"ready")
+            self.assertEqual(result["world_id"],world)
+            self.assertEqual(result["chain_id"],chain)
+
+    def test_producer_node_labels(self):
+        for label in ("观察者@north`lane", "a"*256, "界"*85+"a"):
+            status=fixture();status["node_id"]=label
+            self.assertEqual(self.report(status)["node_id"],label)
+            self.assertEqual(self.report(status)["status"],"ready")
+        for label in ("", " ", "triad-testnet-node", "界"*85+"ab", "a"*257):
+            status=fixture();status["node_id"]=label
+            self.assertEqual(self.report(status)["status"],"unknown")
+
+    def test_markdown_node_label_is_contained(self):
+        label="观察者@`lane`` [link](https://evil.invalid)\n## Inject"
+        status=fixture();status["node_id"]=label
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)/"input.json";source.write_text(json.dumps(status))
+            subprocess.run(["bash",str(ROOT/"scripts/oasis7-node-observability-report.sh"),
+                "--status-json-path",str(source),"--out-dir",tmp],check=True,capture_output=True,cwd=tmp)
+            md=(Path(tmp)/"latest_summary.md").read_text()
+            line=next(line for line in md.splitlines() if line.startswith("- node_id:") and "lane" in line)
+            self.assertTrue(line.startswith('- node_id: ```"'))
+            self.assertTrue(line.endswith('"```'))
+            self.assertIn('\\n## Inject',line)
+            self.assertNotIn("\n## Inject",md)
+
     def test_producer_state_is_allowlisted(self):
         status=fixture();status["formal_public_observer"].update(read_state="DO_NOT_COPY",read_ready=False)
         result=self.report(status)
