@@ -4,9 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       execute:
-        description: Run one full rust-repo/default capacity assessment without uploading security results
+        description: Run one selected Rust assessment without uploading security results
         type: boolean
         default: false
+
+      mode:
+        description: Explicit research budget or unchanged production-capacity assessment
+        type: choice
+        default: capacity
+        options:
+          - capacity
+          - official-default-research
 
 permissions:
   contents: read
@@ -17,12 +25,13 @@ jobs:
     name: CodeQL Rust capacity
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 45 }}
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
       cancel-in-progress: false
     env:
+      CAPACITY_MODE: ${{ inputs.mode }}
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_RAM: ''
@@ -42,10 +51,13 @@ jobs:
           with urllib.request.urlopen(request,timeout=20) as response: value=json.load(response)
           jobs=[job for job in value['jobs'] if job['name']=='CodeQL Rust capacity' and job['status']=='in_progress']
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
+          mode=os.environ['CAPACITY_MODE']
+          if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
+          budget=21600 if mode=='official-default-research' else 2700
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
           if not 0<=time.time()-start<120:raise SystemExit('invalid or stale job clock')
           with open(os.environ['GITHUB_ENV'],'a') as out:
-              out.write(f"CAPACITY_DEADLINE={start+2700}\nCAPACITY_JOB_ID={jobs[0]['id']}\n")
+              out.write(f"CAPACITY_DEADLINE={start+budget}\nCAPACITY_JOB_ID={jobs[0]['id']}\n")
               out.write(f"CODEQL_ACTION_TEMP={os.environ['RUNNER_TEMP']}/rust-capacity-action\n")
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,18 +113,18 @@ jobs:
               - dist/**
               - .pm/**
       - id: prepare
-        name: Freeze suite, whole source, graphs, resources and witness inputs
+        name: ${{ inputs.mode == 'official-default-research' && 'Freeze official suite, source, graphs and resources' || 'Freeze suite, whole source, graphs, resources and witness inputs' }}
         timeout-minutes: 8
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" \
             --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: analyze
-        name: Production extraction and complete official default queries
+        name: Extraction and complete official default queries
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         with:
@@ -133,20 +145,20 @@ jobs:
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
           ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE" \
             --checkout-outcome "$CHECKOUT_OUTCOME" --layout-outcome "$LAYOUT_OUTCOME" --tools-outcome "$TOOLS_OUTCOME" \
             --init-outcome "$INIT_OUTCOME" --prepare-outcome "$PREPARE_OUTCOME" --analyze-outcome "$ANALYZE_OUTCOME" \
             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: finish
-        name: Verify every default result and complete public semantic witnesses
+        name: ${{ inputs.mode == 'official-default-research' && 'Verify official default results only' || 'Verify every default result and complete public semantic witnesses' }}
         if: always() && steps.prepare.outcome == 'success' && steps.capture.outcome == 'success'
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
           ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" finish \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" finish --mode "$CAPACITY_MODE" \
             --analyze-outcome "$ANALYZE_OUTCOME" --codeql "$CAPACITY_CLI" \
             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
@@ -185,7 +197,7 @@ jobs:
           minutes=int(os.environ['ANALYSIS_MINUTES']) if os.environ.get('ANALYSIS_MINUTES') else None
           write('job-clock.json',{'job_id':os.environ.get('CAPACITY_JOB_ID'),'fixed_job_deadline':deadline,
               'analysis_allocated_minutes':minutes,'remaining_before_upload':deadline-time.time() if deadline is not None else None,
-              'final_job_duration_requires_terminal_readback':True})
+              'mode':os.environ['CAPACITY_MODE'],'final_job_duration_requires_terminal_readback':True})
           hashes={}
           for path in sorted(root.rglob('*')):
               if path.is_file() and path.name!='hashes.json':

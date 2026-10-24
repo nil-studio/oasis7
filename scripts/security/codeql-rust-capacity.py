@@ -338,10 +338,25 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     terminal['status']='CAPTURED'
 
 
+def analysis_budget(mode,remaining):
+    if mode not in ('capacity','official-default-research'):
+        raise ValueError('unknown assessment mode')
+    research=mode=='official-default-research'
+    budget=21600 if research else 2700
+    minutes=int((remaining-600)//60)
+    if not research:minutes=min(35,minutes)
+    return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
+            'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
+            'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
+            'scope':'official-default research; not production capacity' if research else
+                'internal analysis allocation; not a measurement of the complete 45 minute workload'}
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
+    parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
     parser.add_argument('--checkout-outcome',default='unknown')
@@ -351,6 +366,7 @@ def main():
     parser.add_argument('--prepare-outcome',default='unknown')
     parser.add_argument('--analyze-outcome',default='unknown')
     args=parser.parse_args();out=args.output;work=args.work;source=args.source.resolve()
+    research=args.mode=='official-default-research'
     if args.phase!='capture' and args.codeql is None:parser.error('--codeql is required for prepare/finish')
     # Capacity artifacts have their own bound. Database files inherit runner limits, not probe RLIMIT_FSIZE.
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-1024**2
@@ -360,7 +376,9 @@ def main():
         'checkout_outcome':args.checkout_outcome,'layout_outcome':args.layout_outcome,'tools_outcome':args.tools_outcome,
         'init_outcome':args.init_outcome,'prepare_outcome':args.prepare_outcome,'analyze_outcome':args.analyze_outcome,
         'default_result_verification':'NOT_REACHED','public_semantics':'NOT_REACHED',
-        'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[]}
+        'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[],
+        'mode':args.mode,'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
+    if research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
     for stage in ('checkout','layout','tools','init','prepare','analyze'):
         outcome=getattr(args,stage+'_outcome')
         if outcome in ('failure','cancelled'):
@@ -407,30 +425,27 @@ def main():
                 if context in ('candidate','legacy'):libp2p[context]=str(model.verify_metadata(data,source,context))
                 if not isinstance(data.get('resolve'),dict) or not data['resolve'].get('nodes'):raise RuntimeError('incomplete Cargo graph')
             save(out/'libp2p-provenance.json',libp2p,out)
-            query_dir=work/'queries';query_dir.mkdir(exist_ok=False)
-            (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.24\n')
-            texts=semantic_queries(source)
-            for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
-            save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)
-            packs=os.pathsep.join(item['root'] for item in closure.values())
-            for name in texts:
-                run([args.codeql,'resolve','library-path','--query='+str(query_dir/(name+'.ql')),'--format=json','--additional-packs='+packs],'library-'+name,20)
-                bundle.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query_dir,name,closure,pack_name='oasis7/rust-capacity')
-            # Exact CLI type/import validation before the expensive production analysis.
-            run([args.codeql,'query','compile','--check-only','--keep-going','--additional-packs='+packs,
-                 '--threads='+str(resource_values['CODEQL_THREADS']),'--ram='+str(resource_values['CODEQL_RAM']),
-                 *[query_dir/(name+'.ql') for name in texts]],'semantic-typecheck',120)
+            if not research:
+                query_dir=work/'queries';query_dir.mkdir(exist_ok=False)
+                (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.24\n')
+                texts=semantic_queries(source)
+                for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
+                save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)
+                packs=os.pathsep.join(item['root'] for item in closure.values())
+                for name in texts:
+                    run([args.codeql,'resolve','library-path','--query='+str(query_dir/(name+'.ql')),'--format=json','--additional-packs='+packs],'library-'+name,20)
+                    bundle.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query_dir,name,closure,pack_name='oasis7/rust-capacity')
+                # Exact CLI type/import validation before the expensive production analysis.
+                run([args.codeql,'query','compile','--check-only','--keep-going','--additional-packs='+packs,
+                     '--threads='+str(resource_values['CODEQL_THREADS']),'--ram='+str(resource_values['CODEQL_RAM']),
+                     *[query_dir/(name+'.ql') for name in texts]],'semantic-typecheck',120)
             action_config=Path(os.environ['CODEQL_ACTION_TEMP'])/'config'
             config=json.loads(action_config.read_text())
             save(out/'action-config.json',{'sha256':runtime.digest(action_config),'settings':{key:config.get(key) for key in ('languages','buildMode','dbLocation','repositoryRoot','overlayDatabaseMode','trapCaches','dependencyCachingEnabled','computedConfig','useOverlayDatabaseCaching')}},out)
             verify_action_config(config,source,args.database)
             remaining=args.deadline-time.time()
-            minutes=min(35,int((remaining-600)//60))
-            save(out/'capacity-budget.json',{'fixed_job_deadline':args.deadline,'job_budget_seconds':2700,
-                'elapsed_since_job_start':2700-remaining,'remaining_at_allocation':remaining,
-                'analysis_allocated_minutes':minutes,'post_analysis_reserve_seconds':600,
-                'helper_terminal_and_upload_reserve_seconds':120,
-                'scope':'internal analysis allocation; not a measurement of the complete 45 minute workload'},out)
+            budget=analysis_budget(args.mode,remaining);minutes=budget['analysis_allocated_minutes']
+            save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
             if minutes<1:raise RuntimeError('NOT_REACHED no analysis+semantic+receipt capacity')
             with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('analysis_minutes='+str(minutes)+'\n')
             terminal.update(status='PREPARED',analysis_minutes=minutes)
@@ -439,6 +454,7 @@ def main():
             terminal['primary_failure']=terminal['primary_failure'] or captured.get('primary_failure')
             terminal['capture_status']=captured.get('evidence_status')
             if args.analyze_outcome!='success':raise RuntimeError('ACTION_ANALYSIS_FAILED_OR_INCOMPLETE; no semantic child started')
+            if captured.get('mode','capacity')!=args.mode:raise RuntimeError('capture assessment mode differs')
             if captured.get('source_root')!=str(source) or captured.get('fixed_job_deadline')!=args.deadline or captured.get('analyze_outcome')!='success':raise RuntimeError('failure capture identity differs')
             if captured.get('checkout_gate')!='PASS' or captured.get('resource_gate')!='PASS' or captured.get('evidence_status')!='COMPLETE' or captured.get('coverage_capture',{}).get('status')!='PASS':raise RuntimeError('assessment admission failed; see independent capture receipts')
             resource_values=captured['resources']
@@ -472,29 +488,33 @@ def main():
             sarif=json.loads(sarifs[0].read_text());findings=check_sarif(sarif)
             runtime.evidence_write(out/'default-results.sarif',sarifs[0].read_bytes(),out)
             terminal['default_result_verification']='PASS'
-            selected=[model.DRIVER,model.BASE+'/common/src/protocol.rs',model.EXPECT,model.BASE+'/candidate/src/adapter.rs',model.BASE+'/legacy/src/adapter.rs']
-            before={name:item['sha256'] for name,item in frozen.items() if 'sha256' in item}
-            save(out/'archived-source.json',archive_identity(args.database,selected,before),out)
-            query_dir=work/'queries';texts=semantic_queries(source)
-            if json.loads((out/'semantic-query-inputs.json').read_text())!={name:runtime.digest(query_dir/(name+'.ql')) for name in texts}:raise RuntimeError('public query bytes changed')
-            common=work/'semantic-common';common.mkdir(exist_ok=False)
-            terminal['public_semantics']='RUNNING'
-            run([args.codeql,'database','run-queries',args.database,*[query_dir/(name+'.ql') for name in texts],
-                 '--additional-packs='+os.pathsep.join(item['root'] for item in json.loads((out/'library-closure.json').read_text()).values()),'--threads='+str(resource_values['CODEQL_THREADS']),
-                 '--ram='+str(resource_values['CODEQL_RAM']),'--common-caches='+str(common),'--no-default-compilation-cache'], 'semantic-batch')
-            libp2p=json.loads((out/'libp2p-provenance.json').read_text());validated={}
-            for name in texts:
-                matches=list((args.database/'results').rglob(name+'.bqrs'))
-                if len(matches)!=1:raise RuntimeError('semantic BQRS missing/ambiguous '+name)
-                run([args.codeql,'bqrs','decode',matches[0],'--format=csv'],'decode-'+name,30)
-                with (out/('decode-'+name+'.log')).open() as stream:rows=list(csv.reader(stream))[1:]
-                validated[name]=validate(name,rows,source,libp2p)
-                save(out/('semantic-'+name+'-terminal.json'),{'status':'PASS','validated':validated[name]},out)
-            if snapshot(source)!=frozen:raise RuntimeError('post-evaluation business changed')
-            terminal['public_semantics']='PASS'
-            remaining=args.deadline-time.time()
-            terminal['margin_scope']='evidence readiness; final hosted job duration including upload must independently confirm >=270s'
-            terminal.update(status='NEAR_LIMIT' if remaining<270 else 'CAPACITY_COMPLETED',assessment_status='CAPACITY_COMPLETED',findings=findings,default_queries=len(manifest),public_semantic_tables=validated,remaining_seconds=remaining,full_rust_coverage=coverage['status'],assessment_scope='execution plus fixed semantic witnesses; no operational enablement')
+            if research:
+                terminal.update(status='RESEARCH_COMPLETED',assessment_status='RESEARCH_COMPLETED',findings=findings,
+                    default_queries=len(manifest),assessment_scope='official default results only; no production capacity or public semantics acceptance')
+            else:
+                selected=[model.DRIVER,model.BASE+'/common/src/protocol.rs',model.EXPECT,model.BASE+'/candidate/src/adapter.rs',model.BASE+'/legacy/src/adapter.rs']
+                before={name:item['sha256'] for name,item in frozen.items() if 'sha256' in item}
+                save(out/'archived-source.json',archive_identity(args.database,selected,before),out)
+                query_dir=work/'queries';texts=semantic_queries(source)
+                if json.loads((out/'semantic-query-inputs.json').read_text())!={name:runtime.digest(query_dir/(name+'.ql')) for name in texts}:raise RuntimeError('public query bytes changed')
+                common=work/'semantic-common';common.mkdir(exist_ok=False)
+                terminal['public_semantics']='RUNNING'
+                run([args.codeql,'database','run-queries',args.database,*[query_dir/(name+'.ql') for name in texts],
+                     '--additional-packs='+os.pathsep.join(item['root'] for item in json.loads((out/'library-closure.json').read_text()).values()),'--threads='+str(resource_values['CODEQL_THREADS']),
+                     '--ram='+str(resource_values['CODEQL_RAM']),'--common-caches='+str(common),'--no-default-compilation-cache'], 'semantic-batch')
+                libp2p=json.loads((out/'libp2p-provenance.json').read_text());validated={}
+                for name in texts:
+                    matches=list((args.database/'results').rglob(name+'.bqrs'))
+                    if len(matches)!=1:raise RuntimeError('semantic BQRS missing/ambiguous '+name)
+                    run([args.codeql,'bqrs','decode',matches[0],'--format=csv'],'decode-'+name,30)
+                    with (out/('decode-'+name+'.log')).open() as stream:rows=list(csv.reader(stream))[1:]
+                    validated[name]=validate(name,rows,source,libp2p)
+                    save(out/('semantic-'+name+'-terminal.json'),{'status':'PASS','validated':validated[name]},out)
+                if snapshot(source)!=frozen:raise RuntimeError('post-evaluation business changed')
+                terminal['public_semantics']='PASS'
+                remaining=args.deadline-time.time()
+                terminal['margin_scope']='evidence readiness; final hosted job duration including upload must independently confirm >=270s'
+                terminal.update(status='NEAR_LIMIT' if remaining<270 else 'CAPACITY_COMPLETED',assessment_status='CAPACITY_COMPLETED',findings=findings,default_queries=len(manifest),public_semantic_tables=validated,remaining_seconds=remaining,full_rust_coverage=coverage['status'],assessment_scope='execution plus fixed semantic witnesses; no operational enablement')
     except BaseException as exc:
         primary=exc
         terminal['error']=repr(exc)[:2048]
@@ -503,6 +523,7 @@ def main():
         else:terminal['secondary_errors'].append(failure)
         for key in ('default_result_verification','public_semantics'):
             if terminal[key]=='RUNNING':terminal[key]='INCOMPLETE'
+        if research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
         terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production45min-unusable conclusion'
         raise
     finally:
@@ -513,12 +534,12 @@ def main():
             else:integrity=after_identity(source,args.codeql.parent,out,end=end-120)
             terminal['after_identity']=integrity
             if 'CHANGED' in integrity.values():
-                terminal['status']='FAILED'
-                terminal['assessment_status']='ASSESSMENT_INCOMPLETE'
+                terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'FAILED'
+                terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'ASSESSMENT_INCOMPLETE'
                 if primary is None:raise RuntimeError('post-assessment identity changed')
         except BaseException as exc:
-            terminal['status']='FAILED'
-            terminal['assessment_status']='ASSESSMENT_INCOMPLETE'
+            terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'FAILED'
+            terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'ASSESSMENT_INCOMPLETE'
             terminal['identity_error']=repr(exc)[:1024]
             if primary is None:primary=exc
         try:runtime.save(out/('capacity-'+args.phase+'-terminal.json'),terminal,out,terminal=True)
