@@ -438,27 +438,50 @@ fn validate_record_paths(record: &SignedPeerRecord) -> Result<(), WorldError> {
     let peer = record.record.peer_id.parse::<PeerId>().map_err(|_| {
         protocol_error("peer record peer_id is invalid for receiver admission".into())
     })?;
-    for raw in record
-        .record
-        .direct_addrs
-        .iter()
-        .chain(&record.record.hole_punch_addrs)
-        .chain(&record.record.relay_addrs)
-    {
-        let address = raw.parse::<Multiaddr>().map_err(|error| {
-            protocol_error(format!(
-                "peer record contains an invalid multiaddr: {error}"
-            ))
-        })?;
-        if address.is_empty() {
-            return Err(protocol_error(
-                "peer record contains an empty multiaddr".into(),
-            ));
+    for raw in &record.record.direct_addrs {
+        validate_record_path(raw, peer, false)?;
+    }
+    for raw in &record.record.hole_punch_addrs {
+        validate_record_path(raw, peer, false)?;
+    }
+    for raw in &record.record.relay_addrs {
+        validate_record_path(raw, peer, true)?;
+    }
+    Ok(())
+}
+
+fn validate_record_path(raw: &str, peer: PeerId, allow_relay_hops: bool) -> Result<(), WorldError> {
+    let address = raw.parse::<Multiaddr>().map_err(|error| {
+        protocol_error(format!(
+            "peer record contains an invalid multiaddr: {error}"
+        ))
+    })?;
+    if address.is_empty() {
+        return Err(protocol_error(
+            "peer record contains an empty multiaddr".into(),
+        ));
+    }
+    let protocols: Vec<_> = address.iter().collect();
+    for (index, protocol) in protocols.iter().enumerate() {
+        if matches!(protocol, Protocol::P2pCircuit) {
+            let follows_relay_peer =
+                index > 0 && matches!(protocols.get(index - 1), Some(Protocol::P2p(_)));
+            if !allow_relay_hops || !follows_relay_peer {
+                return Err(protocol_error(
+                    "peer record relay circuit is not bound to a relay hop".into(),
+                ));
+            }
         }
-        let protocols: Vec<_> = address.iter().collect();
-        for (index, protocol) in protocols.iter().enumerate() {
-            if let Protocol::P2p(address_peer) = protocol
-                && (*address_peer != peer || index + 1 != protocols.len())
+        if let Protocol::P2p(address_peer) = protocol {
+            let terminal = index + 1 == protocols.len();
+            if terminal {
+                if *address_peer != peer {
+                    return Err(protocol_error(
+                        "peer record multiaddr has a mismatched or nonterminal peer id".into(),
+                    ));
+                }
+            } else if !(allow_relay_hops
+                && matches!(protocols.get(index + 1), Some(Protocol::P2pCircuit)))
             {
                 return Err(protocol_error(
                     "peer record multiaddr has a mismatched or nonterminal peer id".into(),
@@ -467,6 +490,54 @@ fn validate_record_paths(record: &SignedPeerRecord) -> Result<(), WorldError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod path_validation_tests {
+    use super::*;
+
+    #[test]
+    fn only_relay_addrs_allow_immediate_relay_hops_and_owner_destination() {
+        let owner = PeerId::random();
+        let relay = PeerId::random();
+        let wrong_owner = PeerId::random();
+        let relay_prefix = format!("/dns4/relay.example/tcp/443/p2p/{relay}");
+
+        assert!(
+            validate_record_path(
+                &format!("{relay_prefix}/p2p-circuit/p2p/{owner}"),
+                owner,
+                true,
+            )
+            .is_ok()
+        );
+        assert!(validate_record_path(&format!("{relay_prefix}/p2p-circuit"), owner, true).is_ok());
+        assert!(
+            validate_record_path(
+                &format!("{relay_prefix}/p2p-circuit/p2p/{wrong_owner}"),
+                owner,
+                true,
+            )
+            .is_err()
+        );
+        assert!(validate_record_path(&format!("{relay_prefix}/udp/443"), owner, true,).is_err());
+        assert!(
+            validate_record_path(
+                &format!("/ip4/192.0.2.1/tcp/443/p2p/{wrong_owner}"),
+                owner,
+                false,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_record_path(
+                &format!("{relay_prefix}/p2p-circuit/p2p/{owner}"),
+                owner,
+                false,
+            )
+            .is_err()
+        );
+    }
 }
 
 impl ReceiverLeaseGuard {

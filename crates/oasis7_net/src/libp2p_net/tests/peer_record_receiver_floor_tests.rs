@@ -12,6 +12,218 @@ use oasis7_proto::distributed_dht::{
 };
 
 #[cfg(unix)]
+fn durable_relay_receiver_fixture() -> (
+    tempfile::TempDir,
+    Keypair,
+    oasis7_proto::distributed_dht::PeerRecord,
+    super::super::receiver_floor::SharedPeerRecordReceiver,
+) {
+    let root = tempfile::tempdir_in(
+        std::env::temp_dir()
+            .canonicalize()
+            .expect("canonical temp root"),
+    )
+    .expect("receiver fixture root");
+    let directory = root.path().join("receiver");
+    std::fs::create_dir(&directory).expect("create receiver directory");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+        .expect("make receiver directory private");
+
+    let keypair = Keypair::generate_ed25519();
+    let template = super::signed_discovery_peer_record(&keypair, Vec::new(), now_ms()).record;
+    let config = PeerRecordReceiverConfig {
+        mode: PeerRecordReceiverMode::DurableCompatible,
+        directory: Some(directory),
+    };
+    PeerRecordReceiver::initialize(&config, &keypair, &template)
+        .expect("initialize durable receiver");
+    let receiver = PeerRecordReceiver::open(&config, &keypair, Some(&template))
+        .expect("open durable receiver");
+    (root, keypair, template, receiver)
+}
+
+#[cfg(unix)]
+fn signed_relay_record(
+    with_owner_destination: bool,
+) -> oasis7_proto::distributed_dht::SignedPeerRecord {
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(keypair.public());
+    let relay_peer_id = PeerId::random();
+    let mut record = super::signed_discovery_peer_record(
+        &keypair,
+        vec![crate::dht::PeerDiscoverySource::Dht],
+        now_ms(),
+    )
+    .record;
+    record.direct_addrs.clear();
+    let relay_address = format!("/dns4/relay.example/tcp/443/p2p/{relay_peer_id}/p2p-circuit");
+    record.relay_addrs = vec![if with_owner_destination {
+        format!("{relay_address}/p2p/{peer_id}")
+    } else {
+        relay_address
+    }];
+    super::super::peer_record::sign_peer_record_v2(
+        &record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &keypair,
+    )
+    .expect("sign V2 relay record")
+}
+
+#[cfg(unix)]
+#[test]
+fn durable_candidate_accepts_relay_hop_with_owner_destination() {
+    let (_root, local_keypair, template, receiver) = durable_relay_receiver_fixture();
+    let signed = signed_relay_record(true);
+    let peer_id = signed
+        .record
+        .peer_id
+        .parse::<PeerId>()
+        .expect("record peer id");
+    let upstream = PeerId::random();
+    let mut swarm = build_swarm_with_receiver(
+        &local_keypair,
+        false,
+        false,
+        Duration::from_secs(3),
+        super::super::wire_bytes::init_shared_wire_byte_counters(),
+        receiver.clone(),
+    );
+    let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
+        DiscoveryClock::default(),
+        swarm.behaviour().discovery_dial_policy(),
+        receiver,
+    );
+    let mut observations = DiscoveryObservations::default();
+    let mut known_paths = HashMap::new();
+    let mut last_dialed_paths = HashMap::new();
+    let active_paths = HashMap::new();
+    let mut failed_path_labels = HashSet::new();
+    let policy = PeerManagerPolicy {
+        min_active_discovery_sources: 0,
+        min_peer_discovery_sources: 0,
+        ..PeerManagerPolicy::default()
+    };
+
+    super::super::peer_record_candidate::process_signed_peer_record(
+        &mut swarm,
+        &mut cache,
+        &mut observations,
+        &mut known_paths,
+        &mut last_dialed_paths,
+        &active_paths,
+        &mut failed_path_labels,
+        Some(&template),
+        &policy,
+        &HashSet::new(),
+        signed.clone(),
+        DiscoveryIngress::PeerExchange { upstream },
+    )
+    .expect("a signed relay hop may precede its owner destination");
+
+    assert_eq!(cache.get(&peer_id), Some(&signed));
+    let path = known_paths
+        .get(&peer_id)
+        .and_then(|paths| paths.first())
+        .expect("accepted relay candidate path");
+    assert_eq!(
+        path.kind,
+        super::super::transport_paths::TransportPathKind::RelayReserved
+    );
+    assert_eq!(path.addr.to_string(), signed.record.relay_addrs[0]);
+    assert!(
+        path.record_lease
+            .as_ref()
+            .expect("durable lease")
+            .validate()
+            .is_ok()
+    );
+
+    let reservation = signed_relay_record(false);
+    let reservation_peer_id = reservation
+        .record
+        .peer_id
+        .parse::<PeerId>()
+        .expect("reservation record peer id");
+    super::super::peer_record_candidate::process_signed_peer_record(
+        &mut swarm,
+        &mut cache,
+        &mut observations,
+        &mut known_paths,
+        &mut last_dialed_paths,
+        &active_paths,
+        &mut failed_path_labels,
+        Some(&template),
+        &policy,
+        &HashSet::new(),
+        reservation.clone(),
+        DiscoveryIngress::PeerExchange {
+            upstream: PeerId::random(),
+        },
+    )
+    .expect("a relay reservation may omit the owner destination component");
+    assert_eq!(cache.get(&reservation_peer_id), Some(&reservation));
+    let reservation_path = known_paths
+        .get(&reservation_peer_id)
+        .and_then(|paths| paths.first())
+        .expect("accepted reservation path");
+    assert_eq!(
+        reservation_path.addr.to_string(),
+        format!(
+            "{}/p2p/{reservation_peer_id}",
+            reservation.record.relay_addrs[0]
+        )
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn durable_dht_store_accepts_relay_hop_with_owner_destination() {
+    use super::super::peer_record_admission::PeerRecordAdmissionBudget;
+    use super::super::peer_record_store::PeerRecordStore;
+    use libp2p::kad::Record;
+    use libp2p::kad::RecordKey;
+    use libp2p::kad::store::{MemoryStoreConfig, RecordStore};
+
+    let (_root, _local_keypair, _template, receiver) = durable_relay_receiver_fixture();
+    let signed = signed_relay_record(true);
+    let key = RecordKey::new(&oasis7_proto::distributed::dht_peer_record_key(
+        &signed.record.world_id,
+        &signed.record.peer_id,
+    ));
+    let bytes = crate::util::to_canonical_cbor(&signed).expect("encode signed relay record");
+    let mut store = PeerRecordStore::with_admission_budget_and_receiver(
+        PeerId::random(),
+        MemoryStoreConfig::default(),
+        PeerRecordAdmissionBudget::shared(),
+        receiver.clone(),
+    );
+
+    store
+        .put(Record {
+            key: key.clone(),
+            value: bytes,
+            publisher: None,
+            expires: None,
+        })
+        .expect("durable DHT admission accepts the signed relay path");
+
+    assert!(
+        store.get(&key).is_some(),
+        "accepted relay record is readable"
+    );
+    assert!(
+        receiver.lease_guard(&signed).is_ok(),
+        "the DHT store commits the V2 floor before exposing the record"
+    );
+}
+
+#[cfg(unix)]
 #[test]
 fn lower_v2_sequence_cannot_replace_a_higher_sequence_candidate() {
     let keypair = Keypair::generate_ed25519();
