@@ -451,6 +451,262 @@ else:
         self.assertFalse(unknown['current_measurement_available'])
         self.assertFalse(unknown['collection']['complete'])
 
+    def test_traffic_profile_pending_and_history_transaction(self):
+        helper = self.helper()
+        reserved = helper.begin(self.out, [], collector='traffic')
+        report, _, code = helper.read(self.out, collector='traffic')
+        self.assertEqual(code, 1)
+        self.assertFalse(report['collection']['complete'])
+        self.assertEqual(report['nodes']['local_node']['freshness']['state'], 'unknown')
+        run = Path(reserved['run_dir'])
+        history = self.root / 'shared' / 'history.ndjson'
+        rows = [{'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'], 'label': label, 'sample_index': 1, 'status_fetch_ok': False,
+                 'captured_at_unix_ms': 1} for label in ('local_node', 'sequencer_ecs', 'storage_ecs')]
+        (run / 'config.json').write_text(json.dumps({'summary_only': False, 'samples': 1,
+            'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'], 'run_dir': str(run),
+            'history_path': str(history), 'history_input_path': str(run / 'history.ndjson')}))
+        (run / 'samples.ndjson').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        helper.history_transaction(self.out, reserved['sequence'], reserved['attempt_id'], history, 120)
+        self.assertEqual(len(history.read_text().splitlines()), 3)
+        snapshot = (run / 'history.ndjson').read_bytes()
+        helper.history_transaction(self.out, reserved['sequence'], reserved['attempt_id'], history, 120)
+        self.assertEqual((run / 'history.ndjson').read_bytes(), snapshot)
+        self.assertEqual(len(history.read_text().splitlines()), 3)
+        with self.assertRaises(helper.AttemptError): helper.read(self.out, collector='host')
+
+    def legacy_traffic_fixture(self, root):
+        run = root / 'runs' / '20261023-120102'
+        (run / 'raw' / 'local_node').mkdir(parents=True)
+        config = {'run_id': run.name, 'run_dir': str(run), 'history_path': str(root / 'history.ndjson'),
+            'latest_summary_json': str(root / 'latest_summary.json'), 'latest_summary_md': str(root / 'latest_summary.md'),
+            'samples': 1, 'interval_secs': 1, 'window_minutes': 10, 'history_retention_minutes': 120,
+            'top_n': 5, 'ssh_timeout_secs': 8, 'summary_only': False, 'nodes': {
+                'local_node': {'mode': 'local', 'status_url': 'fixture'},
+                'sequencer_ecs': {'mode': 'remote', 'status_url': 'fixture', 'target': 'fixture'},
+                'storage_ecs': {'mode': 'remote', 'status_url': 'fixture', 'target': 'fixture'}}}
+        summary = {'schema_version': 2, 'run_id': run.name, 'run_dir': str(run),
+            'history_path': config['history_path'], 'nodes': {label: {} for label in config['nodes']}, 'aggregate': {}, 'ok': True,
+            'as_of_unix_ms': 1, 'freshness_policy': {}, 'generated_at': 'fixture', 'history_retention_minutes': 120,
+            'history_record_count_before_prune': 0, 'history_record_count': 0, 'history_pruned_count': 0,
+            'window_minutes_requested': 10, 'top_n': 5}
+        (run / 'config.json').write_text(json.dumps(config))
+        (run / 'summary.json').write_text(json.dumps(summary))
+        (run / 'summary.md').write_text('# legacy')
+        (run / 'samples.ndjson').write_text('')
+        (root / 'latest_summary.json').write_text(json.dumps(summary))
+        return run
+
+    def test_traffic_legacy_timestamp_upgrade_preserves_evidence_without_adopting_success(self):
+        helper = self.helper()
+        legacy = self.legacy_traffic_fixture(self.out)
+        before = {str(path.relative_to(legacy)): path.read_bytes() for path in legacy.rglob('*') if path.is_file()}
+        reserved = helper.begin(self.out, [], collector='traffic')
+        self.assertEqual(reserved['sequence'], 1)
+        report, _, code = helper.read(self.out, collector='traffic')
+        self.assertEqual(code, 1)
+        self.assertIsNone(report['last_success'])
+        self.assertEqual(before, {str(path.relative_to(legacy)): path.read_bytes() for path in legacy.rglob('*') if path.is_file()})
+        self.assertEqual(helper.begin(self.out, [], collector='traffic')['sequence'], 2)
+
+    def test_registered_legacy_traffic_metadata_cannot_change_or_expand(self):
+        helper = self.helper()
+        for mutation in ('config', 'summary', 'markdown', 'extra_timestamp', 'missing_run', 'registry'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                legacy = self.legacy_traffic_fixture(root)
+                helper.begin(root, [], collector='traffic')
+                if mutation in ('config', 'summary', 'markdown'):
+                    (legacy / {'config': 'config.json', 'summary': 'summary.json', 'markdown': 'summary.md'}[mutation]).write_text('{}')
+                if mutation == 'extra_timestamp':
+                    other = root / 'runs' / '20261023-120103'
+                    shutil.copytree(legacy, other)
+                if mutation == 'missing_run': shutil.rmtree(legacy)
+                if mutation == 'registry':
+                    anchor = json.loads((root / helper.ANCHOR).read_text())
+                    anchor['legacy_runs']['../outside'] = anchor['legacy_runs'].pop(legacy.name)
+                    (root / helper.ANCHOR).write_text(json.dumps(anchor))
+                for operation in (lambda: helper.read(root, collector='traffic'),
+                                  lambda: helper.begin(root, [], collector='traffic')):
+                    with self.assertRaises(helper.AttemptError): operation()
+
+    def test_traffic_legacy_upgrade_rejects_unknown_damaged_or_versioned_evidence(self):
+        helper = self.helper()
+        for mutation in ('unknown_name', 'bad_date', 'wrong_config', 'wrong_summary', 'new_config',
+                         'publication', 'terminal', 'symlink', 'unsafe', 'versioned_orphan'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                legacy = self.legacy_traffic_fixture(root)
+                if mutation == 'unknown_name': legacy.rename(legacy.with_name('unknown'))
+                if mutation == 'bad_date': legacy.rename(legacy.with_name('20261323-120102'))
+                if mutation in ('wrong_config', 'new_config'):
+                    config = json.loads((legacy / 'config.json').read_text())
+                    config['run_id' if mutation == 'wrong_config' else 'history_input_path'] = 'wrong'
+                    (legacy / 'config.json').write_text(json.dumps(config))
+                if mutation == 'wrong_summary':
+                    value = json.loads((legacy / 'summary.json').read_text()); value['run_dir'] = 'wrong'
+                    (legacy / 'summary.json').write_text(json.dumps(value))
+                if mutation == 'publication': (legacy / 'publication').mkdir()
+                if mutation == 'terminal': (legacy / 'terminal_result.json').write_text('{}')
+                if mutation == 'symlink': (legacy / 'raw' / 'alias').symlink_to(legacy / 'config.json')
+                if mutation == 'unsafe': (legacy / 'summary.md').chmod(0o666)
+                if mutation == 'versioned_orphan': (root / 'runs' / '000000000001-00000000-0000-0000-0000-000000000000').mkdir()
+                with self.assertRaises(helper.AttemptError): helper.begin(root, [], collector='traffic')
+                self.assertFalse((root / helper.ANCHOR).exists())
+                self.assertFalse((root / helper.STATE).exists())
+
+    def traffic_fixture(self, helper, root, history, replay=False, captured=1):
+        reserved = helper.begin(root, [], collector='traffic')
+        run = Path(reserved['run_dir'])
+        config = {'summary_only': replay, 'samples': 1,
+            'run_id': str(reserved['sequence']) + '-' + reserved['attempt_id'], 'run_dir': str(run),
+            'history_path': str(history), 'history_input_path': str(run / 'history.ndjson')}
+        (run / 'config.json').write_text(json.dumps(config))
+        rows = [{'run_id': config['run_id'], 'label': label, 'sample_index': 1, 'status_fetch_ok': False,
+                 'captured_at_unix_ms': captured} for label in ('local_node', 'sequencer_ecs', 'storage_ecs')]
+        (run / 'samples.ndjson').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        return reserved, run
+
+    def test_traffic_source_validates_own_snapshot_counts_and_freshness(self):
+        helper = self.helper()
+        for mutation in ('valid_failed', 'schema', 'counts', 'identity', 'history', 'freshness', 'receipt'):
+            with self.subTest(mutation=mutation):
+                root = self.root / mutation
+                history = self.root / (mutation + '.ndjson')
+                reserved, run = self.traffic_fixture(helper, root, history, captured=time.time_ns() // 1_000_000)
+                config = json.loads((run / 'config.json').read_text())
+                config.update(window_minutes=1, max_sample_age_secs=60, max_sample_gap_secs=120, as_of_unix_ms=None)
+                (run / 'config.json').write_text(json.dumps(config))
+                helper.history_transaction(root, reserved['sequence'], reserved['attempt_id'], history, 120)
+                report = run / 'report'; report.mkdir()
+                result = subprocess.run([sys.executable, str(SCRIPTS / 'traffic-monitor-summary.py'),
+                    '--layout', 'triad', '--history-path', str(run / 'history.ndjson'),
+                    '--summary-json', str(report / 'latest_summary.json'), '--summary-md', str(report / 'latest_summary.md'),
+                    '--window-minutes', '1', '--history-retention-minutes', '120', '--top-n', '1',
+                    '--read-only-history', '--run-id', config['run_id'], '--run-dir', str(run)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                source = json.loads((report / 'latest_summary.json').read_text())
+                source['collection'] = {'mode': 'live', 'complete': False, 'samples_per_node': 1,
+                    'expected_sample_count': 3, 'attempted_count': 3, 'failed_sample_count': 3,
+                    'node_labels': ['local_node', 'sequencer_ecs', 'storage_ecs']}
+                if mutation == 'schema': source['schema_version'] = 1
+                if mutation == 'counts': source['collection']['attempted_count'] = 2
+                if mutation == 'identity': source['run_id'] = 'wrong'
+                if mutation == 'history': source['history_path'] = str(history)
+                if mutation == 'freshness': source['nodes']['local_node']['freshness']['state'] = 'fresh'
+                if mutation == 'receipt':
+                    value = json.loads((run / 'history_receipt.json').read_text()); value['attempt_id'] = 'wrong'
+                    (run / 'history_receipt.json').write_text(json.dumps(value))
+                (report / 'latest_summary.json').write_text(json.dumps(source))
+                self.assertEqual(helper.finish(root, reserved['sequence'], reserved['attempt_id'],
+                    [{'stage': 'traffic', 'exit_code': 1, 'error': 'collector_failed'}], collector='traffic'), 1)
+                value, _, _ = helper.read(root, collector='traffic')
+                if mutation == 'valid_failed':
+                    self.assertEqual(value['collection']['attempted_count'], 3)
+                    self.assertEqual(value['nodes']['local_node']['latest_attempt']['result'], 'failed')
+                else:
+                    self.assertNotIn('attempted_count', value['collection'])
+                    self.assertIn('summary_failed', value['overall']['alerts'])
+
+    def test_traffic_history_replay_never_mutates_external_source(self):
+        helper = self.helper()
+        history = self.root / 'history.ndjson'
+        history.write_text('{"captured_at_unix_ms":1}\n')
+        before = history.stat()
+        reserved, run = self.traffic_fixture(helper, self.out, history, replay=True)
+        self.assertEqual(helper.history_transaction(self.out, reserved['sequence'], reserved['attempt_id'], history, 1, True), 0)
+        self.assertEqual(history.read_bytes(), (run / 'history.ndjson').read_bytes())
+        self.assertEqual((history.stat().st_ino, history.stat().st_mtime_ns), (before.st_ino, before.st_mtime_ns))
+        self.assertFalse(history.with_name('.history.ndjson.traffic-history.lock').exists())
+
+    def test_traffic_history_superseded_attempt_never_appends(self):
+        helper = self.helper()
+        history = self.root / 'history.ndjson'
+        old, run = self.traffic_fixture(helper, self.out, history)
+        helper.begin(self.out, [], collector='traffic')
+        self.assertEqual(helper.history_transaction(self.out, old['sequence'], old['attempt_id'], history, 1), 3)
+        self.assertFalse(history.exists())
+        self.assertFalse((run / 'history.ndjson').exists())
+
+    def test_traffic_history_interrupted_commit_never_reappends(self):
+        helper = self.helper()
+        history = self.root / 'history.ndjson'
+        reserved, run = self.traffic_fixture(helper, self.out, history)
+        write = helper.atomic_write
+        def fail_receipt(path, data):
+            if path.name == 'history_receipt.json': raise OSError('injected receipt failure')
+            return write(path, data)
+        helper.atomic_write = fail_receipt
+        with self.assertRaises(OSError): helper.history_transaction(self.out, reserved['sequence'], reserved['attempt_id'], history, 1)
+        committed = history.read_bytes()
+        helper.atomic_write = write
+        with self.assertRaises(helper.AttemptError): helper.history_transaction(self.out, reserved['sequence'], reserved['attempt_id'], history, 1)
+        self.assertEqual(history.read_bytes(), committed)
+        self.assertFalse((run / 'history_receipt.json').exists())
+
+    def test_traffic_history_completed_retry_never_overwrites_newer_root(self):
+        helper = self.helper()
+        history = self.root / 'history.ndjson'
+        a, run_a = self.traffic_fixture(helper, self.out, history)
+        helper.history_transaction(self.out, a['sequence'], a['attempt_id'], history, 1)
+        immutable_a = (run_a / 'history.ndjson').read_bytes()
+        b, _ = self.traffic_fixture(helper, self.root / 'other', history, captured=time.time_ns() // 1_000_000)
+        helper.history_transaction(self.root / 'other', b['sequence'], b['attempt_id'], history, 1)
+        immutable_b = history.read_bytes()
+        self.assertNotEqual(immutable_a, immutable_b)
+        helper.history_transaction(self.out, a['sequence'], a['attempt_id'], history, 1)
+        self.assertEqual(history.read_bytes(), immutable_b)
+        self.assertEqual((run_a / 'history.ndjson').read_bytes(), immutable_a)
+        self.assertEqual(len(history.read_text().splitlines()), 3)
+
+    def test_traffic_history_lock_restart_and_held_identity_fail_closed(self):
+        helper = self.helper()
+        for mutation in ('missing_lock', 'replaced_lock', 'token', 'missing_anchor', 'bad_anchor', 'held'):
+            with self.subTest(mutation=mutation):
+                directory = self.root / mutation; directory.mkdir()
+                history = directory / 'history.ndjson'
+                lock = directory / '.history.ndjson.traffic-history.lock'
+                anchor = directory / '.history.ndjson.traffic-history.identity'
+                with helper.locked_history(history): pass
+                payload = lock.read_bytes()
+                if mutation == 'missing_lock': lock.unlink()
+                if mutation == 'replaced_lock':
+                    lock.rename(directory / 'old-lock'); lock.write_bytes(payload); lock.chmod(0o600)
+                if mutation == 'token': lock.write_text('00000000-0000-0000-0000-000000000000\n')
+                if mutation == 'missing_anchor': anchor.unlink()
+                if mutation == 'bad_anchor': anchor.write_text('{}')
+                if mutation == 'held':
+                    with self.assertRaises(helper.AttemptError):
+                        with helper.locked_history(history):
+                            lock.rename(directory / 'old-lock'); lock.write_bytes(payload); lock.chmod(0o600)
+                    continue
+                with self.assertRaises((helper.AttemptError, OSError)):
+                    with helper.locked_history(history): pass
+                if mutation == 'missing_lock': self.assertFalse(lock.exists())
+
+    def test_traffic_history_partial_lock_initialization_requires_new_path(self):
+        helper = self.helper()
+        history = self.root / 'history.ndjson'
+        write = helper.atomic_write
+        def fail_anchor(path, data):
+            if path.name.endswith('.traffic-history.identity'): raise OSError('injected anchor write')
+            return write(path, data)
+        helper.atomic_write = fail_anchor
+        with self.assertRaises(OSError):
+            with helper.locked_history(history): pass
+        helper.atomic_write = write
+        with self.assertRaises(helper.AttemptError):
+            with helper.locked_history(history): pass
+        self.assertFalse(history.exists())
+
+    def test_traffic_history_rejects_aliases_and_reserved_artifacts(self):
+        helper = self.helper()
+        reserved, run = self.traffic_fixture(helper, self.out, self.root / 'unused')
+        source = self.root / 'regular'; source.write_text('{}\n')
+        alias = self.root / 'alias'; alias.symlink_to(source)
+        hardlink = self.root / 'hardlink'; os.link(source, hardlink)
+        for path in (alias, hardlink, self.out / 'attempt_state.json', run / 'history.ndjson'):
+            with self.subTest(path=path), self.assertRaises(helper.AttemptError): helper.validate_history_path(path)
+
     def test_anchor_loss_and_versioned_orphans_never_reset_sequence(self):
         self.complete(self.start())
         anchor = self.out / '.observability-initialized'

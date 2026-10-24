@@ -86,6 +86,39 @@ class MergeFreshnessTests(unittest.TestCase):
         merged, _ = self.merge(self.traffic(), 59_999)
         self.assertEqual(merged['nodes']['local_node']['traffic']['freshness']['state'], 'unknown')
 
+    def test_collection_completeness_and_replay_never_reuse_fresh_live_flags(self):
+        labels = ['local_node', 'sequencer_ecs', 'storage_ecs']
+        for mutation in ('complete', 'mode', 'count', 'failed', 'missing'):
+            with self.subTest(mutation=mutation):
+                traffic = self.traffic()
+                traffic['collection'] = dict(mode='live', complete=True, samples_per_node=2,
+                    expected_sample_count=6, attempted_count=6, failed_sample_count=0, node_labels=labels)
+                if mutation == 'complete': traffic['collection']['complete'] = False
+                if mutation == 'mode': traffic['collection']['mode'] = 'unknown'
+                if mutation == 'count': traffic['collection']['attempted_count'] = 5
+                if mutation == 'failed': traffic['collection']['failed_sample_count'] = 1
+                if mutation == 'missing':
+                    traffic.pop('collection')
+                    traffic['collection_attempt'] = dict(collector='traffic', result='pending')
+                report, markdown = self.merge(traffic, 60_000)
+                self.assertEqual(report['overall']['status'], 'blocked')
+                self.assertFalse(report['traffic']['collection_complete'])
+                self.assertFalse(report['nodes']['local_node']['traffic']['current_measurement_available'])
+                self.assertIn('traffic_collection_incomplete', markdown)
+        traffic = self.traffic()
+        traffic['collection'] = dict(mode='live', complete=True, samples_per_node=2,
+            expected_sample_count=6, attempted_count=6, failed_sample_count=0, node_labels=labels)
+        report, _ = self.merge(traffic, 60_000)
+        self.assertTrue(report['traffic']['collection_complete'])
+        self.assertTrue(report['nodes']['local_node']['traffic']['current_measurement_available'])
+        traffic['collection'].update(mode='history_replay', expected_sample_count=0, attempted_count=0)
+        report, markdown = self.merge(traffic, 60_000)
+        self.assertIn('mode=`history_replay`', markdown)
+        self.assertTrue(report['traffic']['collection_complete'])
+        self.assertFalse(report['traffic']['current_measurement_available'])
+        self.assertFalse(report['nodes']['local_node']['traffic']['current_measurement_available'])
+        self.assertEqual(report['nodes']['local_node']['traffic']['freshness']['producer']['observed_at_unix_ms'], 60_000)
+
     def test_future_as_of_rejected_before_outputs_or_collection(self):
         future = str(time.time_ns() // 1_000_000 + 3_600_000)
         with tempfile.TemporaryDirectory() as directory:
