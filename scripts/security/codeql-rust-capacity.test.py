@@ -237,6 +237,36 @@ class Capacity(unittest.TestCase):
         self.assertEqual(value['missing_found_manifests'],['nested/Cargo.toml'])
         self.assertEqual(value['status'],'COVERAGE_REQUIRES_REVIEW')
 
+    def test_abbreviated_manifest_list_cannot_prove_missing(self):
+        text='found manifests:\n  /frozen/Cargo.toml\n  and 36 more\n'
+        value=m.coverage_report(ROOT,['Cargo.toml','nested/Cargo.toml'],[text])
+        self.assertEqual(value['found_manifests'],['Cargo.toml'])
+        self.assertIsNone(value['missing_found_manifests'])
+        self.assertEqual(value['manifest_enumeration'], 'UNKNOWN')
+
+    def test_unclosed_manifest_list_cannot_prove_missing(self):
+        value=m.coverage_report(ROOT,['Cargo.toml'],['found manifests:\n  /frozen/Cargo.toml'])
+        self.assertIsNone(value['missing_found_manifests'])
+
+    def test_partial_logs_keep_positive_manifest_but_no_missing_claim(self):
+        text='found manifests:\n  /frozen/Cargo.toml\nINFO next\n'
+        value=m.coverage_report(ROOT,['Cargo.toml','nested/Cargo.toml'],[text],logs_complete=False)
+        self.assertEqual(value['found_manifests'],['Cargo.toml'])
+        self.assertIsNone(value['missing_found_manifests'])
+
+    def test_progress_does_not_join_a_cut_line_across_ranges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'log'
+            head=b'Starting evaluation of x.ql.\nEvaluation done; '
+            tail=b'writing results to x.bqrs.\nEvaluation done; writing results to y.bqrs.\n'
+            path.write_bytes(head+tail)
+            parts=m.captured_segments(path,{'source_ranges':[
+                {'source_offset':0,'destination_offset':0,'length':len(head)},
+                {'source_offset':500,'destination_offset':len(head),'length':len(tail)}]})
+            value=m.query_progress(parts)
+            self.assertEqual(value['started'],['x.ql'])
+            self.assertEqual(value['completed'],['y.bqrs'])
+
     def test_malformed_manifest_line_cannot_stall_failure_capture(self):
         script='''import importlib.util, pathlib, sys
 spec=importlib.util.spec_from_file_location('capacity',sys.argv[1])

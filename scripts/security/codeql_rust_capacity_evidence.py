@@ -174,7 +174,8 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
     def copy_file(parent_fd, target_parent_fd, name, relative):
         nonlocal remaining_bytes
         record = {'source': relative, 'destination': 'database-logs/' + relative,
-                  'status': 'PARTIAL', 'artifact_created': False, 'copied_bytes': 0, 'reasons': []}
+                  'status': 'PARTIAL', 'artifact_created': False, 'copied_bytes': 0, 'reasons': [],
+                  'source_ranges': [], 'omitted_ranges': []}
         report['files'].append(record)
         src_fd = dst_fd = None
         digest = hashlib.sha256()
@@ -196,27 +197,44 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
             dst_fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                              0o600, dir_fd=target_parent_fd)
             record['artifact_created'] = True
-            while record['copied_bytes'] < planned:
-                if time.monotonic() >= end:
-                    record['reasons'].append('DEADLINE_EXHAUSTED')
-                    limited('DEADLINE_EXHAUSTED')
+            # Keep disjoint initial-length head/tail ranges under the same cap.
+            head = (planned + 1) // 2 if planned < before.st_size else planned
+            ranges = [(0, head)]
+            if planned > head:
+                ranges.append((before.st_size - (planned - head), planned - head))
+            record['source_ranges'] = []
+            record['omitted_ranges'] = []
+            for offset, length in ranges:
+                os.lseek(src_fd, offset, os.SEEK_SET)
+                segment = {'source_offset': offset, 'destination_offset': record['copied_bytes'],
+                           'length': 0, 'sha256': None}
+                record['source_ranges'].append(segment)
+                segment_hash = hashlib.sha256()
+                while segment['length'] < length:
+                    if time.monotonic() >= end:
+                        record['reasons'].append('DEADLINE_EXHAUSTED')
+                        limited('DEADLINE_EXHAUSTED')
+                        break
+                    data = os.read(src_fd, min(CHUNK_BYTES, length - segment['length']))
+                    if not data:
+                        record['reasons'].append('SOURCE_SHORT_READ')
+                        break
+                    view = memoryview(data)
+                    while view:
+                        written = os.write(dst_fd, view)
+                        if not written:
+                            raise OSError('zero-byte log write')
+                        digest.update(view[:written])
+                        segment_hash.update(view[:written])
+                        segment['sha256'] = segment_hash.hexdigest()
+                        segment['length'] += written
+                        record['copied_bytes'] += written
+                        report['copied_bytes'] += written
+                        remaining_bytes -= written
+                        view = view[written:]
+                segment['sha256'] = segment_hash.hexdigest()
+                if segment['length'] < length:
                     break
-                data = os.read(src_fd, min(CHUNK_BYTES, planned - record['copied_bytes']))
-                if not data:
-                    record['reasons'].append('SOURCE_SHORT_READ')
-                    break
-                # Account each successful write so disk errors preserve an exact
-                # prefix length and hash, including a short write before failure.
-                view = memoryview(data)
-                while view:
-                    written = os.write(dst_fd, view)
-                    if not written:
-                        raise OSError('zero-byte log write')
-                    digest.update(view[:written])
-                    record['copied_bytes'] += written
-                    report['copied_bytes'] += written
-                    remaining_bytes -= written
-                    view = view[written:]
             record['final'] = _stat(os.fstat(src_fd))
             current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
             record['path_final'] = _stat(current)
@@ -232,6 +250,13 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
             record['error'] = _error(exc)
             record['reasons'].append('LOG_CAPTURE_ERROR')
         finally:
+            cursor = 0
+            for segment in record.get('source_ranges', []):
+                if segment['source_offset'] > cursor:
+                    record['omitted_ranges'].append({'offset': cursor, 'length': segment['source_offset'] - cursor})
+                cursor = segment['source_offset'] + segment['length']
+            if cursor < record.get('initial', {}).get('bytes', cursor):
+                record['omitted_ranges'].append({'offset': cursor, 'length': record.get('initial', {}).get('bytes', cursor) - cursor})
             record['sha256'] = digest.hexdigest()
             for fd in (dst_fd, src_fd):
                 if fd is not None:
@@ -361,6 +386,59 @@ def _raw_stream(out, name, read_limit=0):
     return metadata, data
 
 
+def describe_status(raw, source, end):
+    """Supplement raw porcelain; never exempts untracked files from clean gate."""
+    result = {'tracked_status_gate': 'UNKNOWN', 'untracked_locks': []}
+    if raw is None:
+        return result
+    lines = raw.decode('utf-8', errors='strict').splitlines()
+    if any(len(line) < 3 or line[2] != ' ' for line in lines):
+        return result
+    result['tracked_status_gate'] = 'FAIL' if any(not line.startswith('?? ') for line in lines) else 'PASS'
+    for line in lines[:128]:
+        if not line.startswith('?? ') or not line.endswith('/Cargo.lock'):
+            continue
+        name = line[3:]
+        record = {'path': name, 'status': 'UNKNOWN', 'origin': 'UNKNOWN', 'initial_presence': 'UNKNOWN',
+                  'dependency_resolution_impact': 'UNKNOWN',
+                  'observation': 'untracked at this Git status observation; not a producer attribution'}
+        result['untracked_locks'].append(record)
+        fd = parent = None
+        try:
+            parts = Path(name).parts
+            if not parts or Path(name).is_absolute() or any(x in ('.', '..') for x in parts):
+                raise RuntimeError('unsafe untracked path')
+            parent = _open_directory(source)
+            for part in parts[:-1]:
+                child = _child_directory(parent, part)
+                os.close(parent)
+                parent = child
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_size > 1024**2:
+                raise RuntimeError('lock is not a bounded regular file')
+            digest = hashlib.sha256(); size = 0
+            while size < before.st_size:
+                if time.monotonic() >= end:
+                    raise TimeoutError('lock evidence deadline')
+                data = os.read(fd, min(CHUNK_BYTES, before.st_size - size))
+                if not data:
+                    raise RuntimeError('short lock read')
+                digest.update(data); size += len(data)
+            after = os.fstat(fd)
+            current = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+            if _stat(before) != _stat(after) or _stat(after) != _stat(current):
+                raise RuntimeError('lock changed during capture')
+            record.update(status='CAPTURED', bytes=size, sha256=digest.hexdigest())
+        except Exception as exc:
+            record['error'] = _error(exc)
+        finally:
+            for descriptor in (fd, parent):
+                if descriptor is not None:
+                    os.close(descriptor)
+    return result
+
+
 def capture_identity(source: Path, out: Path, end: float, expected: str, *, prefix='checkout') -> dict:
     """Independently capture HEAD, status and repository root under one budget.
 
@@ -457,6 +535,7 @@ def capture_identity(source: Path, out: Path, end: float, expected: str, *, pref
                 continue
             if name == 'status':
                 report['clean_gate'] = 'PASS' if stdout['bytes'] == 0 else 'FAIL'
+                report.update(describe_status(raw, source, end))
             elif raw is None:
                 result['reasons'].append('GATE_OUTPUT_LIMIT')
                 result['status'] = 'PARTIAL'
