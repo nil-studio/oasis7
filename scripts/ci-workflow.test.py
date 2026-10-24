@@ -556,6 +556,54 @@ class Workflow(unittest.TestCase):
         self.assertEqual(len(set(identities)), 1)
         self.assertNotIn('bindgen-meta', JOBS['launcher-web'])
 
+    def test_local_cargo_contract_regressions_execute_and_propagate_failures(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = ('run_packaging_artifact_contract_tests', 'run_packaging_contract_tests',
+                 'run_operational_identity_contract_tests', 'run_operational_node_contract_tests',
+                 'run_operational_contract_tests')
+        functions = '\n'.join(re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                              for name in names)
+        setup = 'set -euo pipefail\nrun_provider_remote_https_smoke() { :; }\n'
+        setup += 'run() { echo "$*"; if [[ -n "$FAIL_TEST" && "$*" == *"$FAIL_TEST"* ]]; then return 37; fi; }\n'
+        calls = '\nrun_operational_contract_tests\nrun_packaging_contract_tests\necho contracts-complete\n'
+        tests = ('local-letai-provider-bridge.test.sh', 'build-wasm-module.test.sh')
+        for failing in ('', *tests):
+            result = subprocess.run(['bash', '-c', setup + functions + calls], text=True,
+                                    capture_output=True, env=dict(os.environ, FAIL_TEST=failing))
+            if failing:
+                self.assertEqual(result.returncode, 37, result.stdout + result.stderr)
+                self.assertNotIn('contracts-complete', result.stdout)
+            else:
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for test in tests:
+                    self.assertEqual(result.stdout.count('./scripts/' + test), 1, result.stdout)
+
+    def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            repo = (temporary / 'build repo').resolve()
+            (repo / 'scripts').mkdir(parents=True)
+            bin_dir = temporary / 'build-bin'
+            bin_dir.mkdir()
+            for path, mode in ((repo / 'scripts/cargo-dev.sh', 'wrapper'), (bin_dir / 'cargo', 'raw')):
+                path.write_text('#!/usr/bin/env bash\n{ printf "' + mode + '\\n"; printf "%s\\n" "$PWD" "$@"; } > "$BUILD_TRACE"\nexit "${BUILD_EXIT:-0}"\n')
+                path.chmod(0o755)
+            source = (ROOT / 'scripts/run-local-public-testnet-letai-test-environment.sh').read_text()
+            function = re.search(r'^build_bins\(\) \{\n.*?^\}', source, re.M | re.S).group()
+            script = 'set -euo pipefail\nROOT_DIR="$1"; source "$2"; BUILD=1; log() { :; }\n' + function + '\nbuild_bins\n'
+            for ci, raw in (('', '0'), ('1', '0'), ('true', '0'), ('', '1')):
+                trace = temporary / ('build-trace-' + (ci or 'dev') + raw)
+                env = dict(os.environ, CI=ci, OASIS7_FORCE_RAW_CARGO=raw,
+                           OASIS7_CARGO_DEV_REPO_ROOT=str(temporary / 'unrelated-repo'), BUILD_TRACE=str(trace),
+                           PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
+                for code in (0, 37):
+                    result = subprocess.run(['bash', '-c', script, '_', str(repo), str(ROOT / 'scripts/cargo-dev-lib.sh')],
+                                            cwd=temporary, env=dict(env, BUILD_EXIT=str(code)), capture_output=True, text=True)
+                    assert result.returncode == code, result.stderr
+                    records = trace.read_text().splitlines()
+                    assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
+                    assert 'oasis7_viewer_live' in records, records
+
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
         self.assertIn("if: runner.os == 'macOS'", fleet)

@@ -684,12 +684,15 @@ build_bins() {
     return 0
   fi
   log "building local binaries"
-  "$ROOT_DIR/scripts/cargo-dev.sh" build \
-    -p oasis7_protocol_tools -p oasis7_newapi_bridge_service -p oasis7_provider_local_bridge -p oasis7_viewer_runtime \
-    --bin oasis7_newapi_bridge_service \
-    --bin oasis7_chain_transfer_submit_client \
-    --bin oasis7_provider_local_bridge \
-    --bin oasis7_viewer_live
+  (
+    cd "$ROOT_DIR"
+    OASIS7_CARGO_DEV_REPO_ROOT="$ROOT_DIR" oasis7_cargo_dev build \
+      -p oasis7_protocol_tools -p oasis7_newapi_bridge_service -p oasis7_provider_local_bridge -p oasis7_viewer_runtime \
+      --bin oasis7_newapi_bridge_service \
+      --bin oasis7_chain_transfer_submit_client \
+      --bin oasis7_provider_local_bridge \
+      --bin oasis7_viewer_live
+  )
 }
 
 start_newapi_bridge() {

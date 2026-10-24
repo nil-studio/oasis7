@@ -255,7 +255,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 ### 9.2 WASM 与 wrapper 分层证明
 
-维护实际 native/WASM 消费者到 stable smoke、确定性构建入口、输入/产物及 hash 核验的映射。fake Docker 只检验 build wrapper 传参和错误传播；真实 builtin 容器构建与 hash 比较独立执行。`build-wasm-module.test.sh` 有测试文件不等于被 CI 调用，应能从实际选中 job 追到该命令和结果。缺必要 target 或把所有 lane 改为 `BUILD_STD=0` 不能压掉真实消费者；明确已退役且无消费者的旧 lane 不重新激活。
+维护实际 native/WASM 消费者到 stable smoke、确定性构建入口、输入/产物及 hash 核验的映射。fake Docker 只检验 build wrapper 传参和错误传播；真实 builtin 容器构建与 hash 比较独立执行。`build-wasm-module.test.sh` 由 `ci-tests.sh required --group packaging_contracts` 执行；本地 provider bridge 回归由 `operational_contracts` 执行。两条链路都须保留实际调用与失败传播，不能仅凭测试文件存在宣称 CI 覆盖。缺必要 target 或把所有 lane 改为 `BUILD_STD=0` 不能压掉真实消费者；明确已退役且无消费者的旧 lane 不重新激活。
 
 本地 `cargo-dev.sh` 只设置开发 profile 与可用的 sccache，不设置或覆盖 target-dir。Cargo 参数及 `--` 后的应用参数原样透传，包括含空格路径；显式参数、环境与配置的优先级由 Cargo 决定。默认产物位于各 worktree 的 `target/`。入口不维护外部缓存、租约或退出记账，直接传递 Cargo 的退出码。
 

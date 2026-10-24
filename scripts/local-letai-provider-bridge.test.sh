@@ -8,6 +8,21 @@ tmp_dir="${TMPDIR:-/tmp}/oasis7-local-letai-provider-test-$$"
 mkdir -p "$tmp_dir"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+# Isolate build/metadata routing from the host toolchain and dependency cache.
+mkdir -p "$tmp_dir/bin"
+cat >"$tmp_dir/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == metadata ]]; then
+  printf '{"target_directory":"%s/target"}\n' "$PWD"
+  exit 0
+fi
+printf 'cargo-target=%s\n' "${CARGO_TARGET_DIR:-unset}"
+printf 'cargo-arg=%s\n' "$@"
+EOF
+printf '#!/usr/bin/env bash\nexit 0\n' >"$tmp_dir/bin/rustc"
+chmod +x "$tmp_dir/bin/cargo" "$tmp_dir/bin/rustc"
+export PATH="$tmp_dir/bin:$PATH"
+
 config_path="$tmp_dir/letai.txt"
 cat >"$config_path" <<'EOF'
 Doc: https://docs.example.test/not-an-api-endpoint
@@ -59,17 +74,6 @@ OASIS7_LOCAL_LETAI_PROVIDER_BRIDGE_BIN="$fake_bridge" \
   exit 1
 }
 
-mkdir -p "$tmp_dir/bin"
-cat >"$tmp_dir/bin/cargo" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${1:-}" == metadata ]]; then
-  printf '{"target_directory":"%s/target"}\n' "$PWD"
-  exit 0
-fi
-printf 'cargo-target=%s\n' "${CARGO_TARGET_DIR:-unset}"
-printf 'cargo-arg=%s\n' "$@"
-EOF
-chmod +x "$tmp_dir/bin/cargo"
 forced_output="$tmp_dir/forced-output.txt"
 CI= OASIS7_FORCE_RAW_CARGO=0 OASIS7_CARGO_SCCACHE=0 \
   PATH="$tmp_dir/bin:$PATH" OASIS7_LOCAL_LETAI_PROVIDER_FORCE_CARGO_RUN=1 \

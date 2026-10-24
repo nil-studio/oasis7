@@ -438,6 +438,7 @@ run_workflow_governance_contract_tests() {
 }
 
 run_packaging_artifact_contract_tests() {
+  run bash ./scripts/build-wasm-module.test.sh
   run python3 ./scripts/package-source-plan.test.py
   run python3 ./scripts/package-release-version.test.py
   run python3 ./scripts/safe-git-archive.test.py
@@ -467,6 +468,7 @@ run_operational_identity_contract_tests() {
 }
 
 run_operational_node_contract_tests() {
+  run bash ./scripts/local-letai-provider-bridge.test.sh
   run bash ./scripts/traffic-monitor-summary.test.sh
   run bash ./scripts/p2p-real-env-observability-monitor.test.sh
   run ./scripts/game-world-state-sync-commit-module-required.test.sh
