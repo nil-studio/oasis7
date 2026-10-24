@@ -155,6 +155,17 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 3. 已接纳新版本的 peer 不接受旧版覆盖。兼容许可和已迁移状态须跨重启保持；不能因清 cache 或重建本地观察重新得到旧版许可。兼容窗口结束后严格拒绝旧版；不在旧签名下填充新字段，也不对远端记录重新签名掩盖变更。
 4. net/proto 共同完成 wire 与接纳，chain-runtime 完成发布序号持久化，node/status 消费本地派生视图；实现 PR 同时覆盖迁移、原签名转发、各入口的时间检查及高 churn 容量用例后再升级支持声明。
 
+<a id="discovery-durable-publication-v2"></a>
+### V2 本机发布序号与兼容边界
+
+本机发布切片沿用 Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。`SignedPeerRecord` 保留 V1 原字段，增加可选严格 `publication` 元数据：`schema_version = 2`、正且单调的 `sequence`、首版仅支持的 `state = live`。没有元数据时继续使用原 canonical CBOR 与 `oasis7-peer-record-v1|` 签名域；存在元数据时只按 `oasis7-peer-record-v2|` 和完整 `(schema_version, sequence, state, PeerRecord)` 签名／验证。未知版本、未知状态、零序号或 V2 验证失败均拒绝，不回退 V1 验签，也不为旧记录补序号。首版不发布或接纳 tombstone 语义；完整撤销协议仍由上文生命周期合同承接。
+
+启用由本机网络配置显式选择。legacy V1 保持原行为；V2 要求固定 identity key、record 模板与私有持久发布目录，已发布的标准 host 网络路径通过 typed `DevelopmentRuntimeConfigV1.p2p_peer_record_publication`／CLI `--p2p-peer-record-publication` 显式选择 `v1_legacy` 或 `v2_durable`，旧配置默认 legacy；V2 使用稳定 runtime root 下的 `p2p/peer-record-publication`，经 node adapter 传给 net。独立 `FormalLiveConfigV1` 当前不构造该 libp2p 网络，此开关不宣称已给正式 authority profile 接通 P2P。目录与 peer/public key、world/network 绑定，持有稳定 OS 生命周期锁；并发第二实例、symlink、权限或绑定异常、损坏状态与序号耗尽均阻断 V2 启动／发布，不自动重建或降级 V1。
+
+统一发布器覆盖初始、周期、监听地址、relay 与外部地址变化等本机入口：先以文件和父目录 fsync 原子预留递增序号及完整物化 payload，再签名并持久保存原 signed record，之后才允许对外 put。崩溃恢复只能重签同一预留 payload，或明确消耗该序号留下空洞；不能以新地址／时间覆盖旧序号。网络重试与恢复重发保持原 signed bytes；新地址或下一周期属于新发布意图，可用更高序号替代发送结果不确定的旧意图。过期预留不得通过重写时间重新生效，须消耗原号后另分配。Kademlia `Quorum::One` 不是全网安装确认，不以丢失 ACK 无限阻塞后续新发布；状态和未决材料有固定字节上限，不保存无界发布历史。转发远端缓存记录保持远端原签名与序号，不经过本机分配器。
+
+该切片只提供正常持久存储上的本机发行连续性，普通文件与 OS 锁不抵抗同密钥／磁盘的恶意快照回滚。接收端跨重启 sequence 高水位、同序冲突隔离、tombstone、V2-only 接纳迁移与可信时间仍待接入两个准入入口及独立保留策略；能够验证 V2 签名不表示已具备这些防重放保证。验证方法见 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2)。
+
 <a id="discovery-peer-record-implementation-boundary"></a>
 ### 当前实现边界
 
@@ -330,6 +341,8 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 来源独立性由本机实际观察及可核验控制域依据建立；seed 例外不改签名、不授予世界或角色权威 | [发现来源证据与签名不变性](#discovery-evidence-boundary) | net ingress/peer manager；本地 seed policy 与受信 operator/ASN 依据 | 已接入不变签名、本地 seed 与 DHT/RR 观察、未知域健康和会话预算；受信控制域映射、持久时间与完整生命周期仍待实现，不覆盖完整抗 Sybil |
 | [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | TTL/时钟/序号/撤销在接纳、缓存、转发及拨号入口一致；水位重启不降、缓存有界、版本迁移不改旧签名 | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | proto wire；net 验证与缓存；chain-runtime 发布持久化；受信时钟/本机存储 | 现有 v1 时效接纳／缓存／转发／拨号已接线；新 sequence wire 和持久迁移待实现；不把普通本地存储当硬件防回滚或 validator 防双签机制 |
 
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 本机 V2 发布预留／签名先持久化，所有重发布入口共享绑定与递增序号；V1 原签名语义保持不变。 | [V2 本机发布序号](#discovery-durable-publication-v2) | chain-runtime / node adapter / net publisher / proto；本机私有存储与 OS 锁 | 不证明接收端持久防重放、tombstone、可信时间或恶意整机回滚安全。 |
+
 ### 11.1 验证映射表
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
@@ -339,6 +352,8 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | [设计条款](#anti-eclipse-anti-spam-基线) | peer manager 根据既有 source/operator/ASN/subnet/relay-domain 与 budget 规则隔离异常 peer，远端不得覆盖本地 admission | [testing-manual S9B](../../../testing-manual.md#testing-p2p-mixed-topology-matrix)；同候选 required bootstrap-poisoning、relay-exhaustion 与角色边界 cases；核对 suspect record 的 dial dedupe、预算与集中度判定；required 不证明 live 隔离执行或公网抗攻击 | case stdout/stderr/log、测试断言与 summary | 不证明跨重启 banlist、经济安全或完整抗攻击能力；本轮未运行行为测试 |
 | [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary) | [发现来源证据与签名不变性](#discovery-evidence-boundary) | 自述不能成为独立来源；本地 seed 标记不能改变原签名或被第三节点继承 | 已实现签名不变与本地信任切片：按 [验证手册](../../../testing-manual.md#discovery-observation-local-trust-boundary) 执行；后续按同一手册补齐 PRA-EVIDENCE-01～03 的剩余条件；同一实现候选使用固定配置和可控时钟，执行 net 单元及三节点 record-exchange 合同测试，分别核对 cache、转发、selection 结果 | 原签名载荷 digest、第三方验签结果、实际来源分组及 degraded reason；记录 source/config/test ID | 三节点 loopback TCP 覆盖原签名经缓存转发及 seed 不继承；控制域映射、观察到期和完整 PRA-EVIDENCE-03 仍待实现，不证明公网来源独立性 |
 | [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle) | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | 所有入口拒绝过期、回退、冲突及降级；持久水位与缓存容量安全，失败不污染旧记录 | planned：在现有 [peer record 测试文件](../../../crates/oasis7_net/src/libp2p_net/tests/peer_record_tests.rs) 增补 PRA-RECORD-01～05；同一 proto/net/chain-runtime 候选使用确定性时钟、崩溃注入和超过配置上限的高 churn 输入，实际 TCP record-exchange 另核排队后到期 | 每入口拒绝/接纳状态、旧 digest/水位不变、重开后序号、缓存/字节/重试峰值；明确预算及 wire 版本 | 新 wire 与场景待实现，本次未运行；不声称真实公网时钟、恶意主机回滚或无限规模支持 |
+
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | [V2 本机发布序号](#discovery-durable-publication-v2) | 预留、签名持久化与发送之间崩溃不复用序号签不同内容；生产 host 显式启用并传递稳定目录，远端转发保持原件。 | 按 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2) 执行同候选 proto/net/node/chain-runtime 测试；覆盖重启、并发、状态损坏／权限／绑定、序号耗尽、V1 固定向量、V2 篡改／未知版本、实际发布入口和原签名转发。 | 固定配置与 source、原始 payload／签名、重开前后序号、故障点与退出码；分别记录本地存储和真实网络证据范围。 | 普通文件不证明快照防回退；接收端高水位、tombstone、长期运行容量与公网故障域未由本机发布测试代签。 |
 
 <a id="discovery-peer-record-validation"></a>
 ### 11.2 增量验收场景（待实现）

@@ -1848,3 +1848,12 @@ Use a separately keyed simulated witness for deterministic CAS and crash tests. 
 Validate the initial hard limit with a fully signed 1,024-record history containing distinct targets; time construction and complete replay separately, then require the 1,025th prepare/reconstruction to fail without mutation. The 64 MiB encoded-log bound remains independent. This capacity check is not a sustained-throughput or production-witness latency claim.
 
 These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
+
+<a id="discovery-durable-publication-v2"></a>
+### Discovery V2 durable local publication
+
+This scope verifies the [V2 local publication contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-durable-publication-v2), not receiver anti-replay or protected hardware storage. Use one source/config candidate across proto, net, node and chain-runtime. Keep V1 wire/signature vectors fixed; exercise explicit legacy and durable V2 configurations separately.
+
+Verify that reserve-before-sign and signed-before-send persistence survives interruption without signing different payloads at one sequence. Cover reopen with the same identity/runtime root, interrupted reserve and signed-result persistence, concurrent owner refusal, corrupt/private/symlink/binding failures, overflow, expired pending payloads and a later valid publication. Check every local refresh/address-change path and confirm remote cache forwarding preserves original signed bytes. Unknown versions/states, zero sequence and sequence/state/payload tampering must reject without V1 fallback; a legacy V1 verifier must reject V2 signatures. Record actual commands, source, exit codes and the boundaries of any simulated crash or loopback network test in the PR.
+
+Ordinary local files do not prove resistance to restoring both key and publisher state from an old machine snapshot. Receiver sequence floors, conflict quarantine, tombstone retention, V2-only acceptance, trusted time and independent fault-domain evidence remain separate obligations under #4975.
