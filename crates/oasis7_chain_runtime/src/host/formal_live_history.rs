@@ -19,7 +19,7 @@ use oasis7_distfs::controlled_authority::{
         business_index::BusinessIndexNodeReader,
         endpoint::{FormalCandidateMaterialV1, VerifiedNativeHistoricalRestoreV1},
         transport::RemoteFormalEndpoint,
-        verify_formal_qualified, verify_frozen_material, verify_record_material,
+        verify_formal_qualified, verify_frozen_material,
     },
     replicated_protocol::{ArtifactRole, ClosedRecord, EndpointRole},
 };
@@ -283,10 +283,9 @@ impl NativeHistoryResolver {
             .map_err(|_| "HistoryUnavailable: governance verification cache unavailable")?
             .as_ref()
             && requested_anchor_matches(&cached.anchor, requested)?
+            && let Some(copy) = cached.normal_cache_copy()
         {
-            if let Some(copy) = cached.normal_cache_copy() {
-                return Ok(copy);
-            }
+            return Ok(copy);
         }
         let mut governance_cursor = None;
         let replayed = replay_exact_origin_after_verified_with_activation_policy(

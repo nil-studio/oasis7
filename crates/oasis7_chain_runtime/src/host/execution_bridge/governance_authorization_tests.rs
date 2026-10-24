@@ -722,15 +722,14 @@ pub(crate) fn history_successor(
     impl BusinessIndexNodeReader for ArchiveNodes<'_> {
         fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
             for object in &self.0.objects {
-                if let Ok(envelope) = FormalBusinessResultEnvelopeV1::decode(&object.bytes) {
-                    if let Some(node) = envelope
+                if let Ok(envelope) = FormalBusinessResultEnvelopeV1::decode(&object.bytes)
+                    && let Some(node) = envelope
                         .delta
                         .node_writes
                         .iter()
                         .find(|node| node.digest == digest)
-                    {
-                        return Ok(Some(node.bytes.clone()));
-                    }
+                {
+                    return Ok(Some(node.bytes.clone()));
                 }
             }
             Ok(None)

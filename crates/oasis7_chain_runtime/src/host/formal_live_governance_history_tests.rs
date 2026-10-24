@@ -3,6 +3,7 @@ use super::*;
 use crate::execution_bridge_real_tests::real_execution_bridge::governance_authorization_tests as governance;
 use crate::formal_live_service::FormalLiveHistoryResolver;
 use crate::formal_read_fixtures as fixtures;
+use oasis7_distfs::controlled_authority::formal::verify_record_material;
 use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader;
 use oasis7_runtime::{Action, GovernanceValidatorAdmissionStatus};
 use serde::Serialize;
