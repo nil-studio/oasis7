@@ -362,7 +362,10 @@ pub(in super::super) fn run(
         if reference.position != target_position {
             return Err("survivor changed original first position".into());
         }
-        let publication = runtime.history.fixed_publication(&reference)?;
+        let publication = runtime
+            .history
+            .fixed_publication(&reference)
+            .map_err(|error| format!("survivor initial original fixed publication: {error}"))?;
         if wasm_emit_count(publication.world()) != initial_emits + 1 {
             return Err("survivor Wasmtime effect not exactly once".into());
         }
@@ -438,7 +441,10 @@ pub(in super::super) fn run(
         {
             return Err("survivor duplicate request produced a second original effect".into());
         }
-        let original = runtime.history.fixed_publication(&reference)?;
+        let original = runtime
+            .history
+            .fixed_publication(&reference)
+            .map_err(|error| format!("survivor later original fixed publication: {error}"))?;
         if Some(first_agent_test_effect::first_agent_effect(
             original.world(),
             request,

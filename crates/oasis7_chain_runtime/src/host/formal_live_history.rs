@@ -307,13 +307,8 @@ impl NativeHistoryResolver {
                         candidate: Some(candidate),
                     });
                 }
-                let proof = self
-                    .restore_history_proof(cursor, position, pending_permission, operation_deadline)
-                    .map_err(ReplayFailure::Invalid)?;
-                Ok(ReplayStepProof {
-                    proof,
-                    candidate: None,
-                })
+                self.restore_history_step(cursor, position, pending_permission, operation_deadline)
+                    .map_err(ReplayFailure::Invalid)
             },
             |position| {
                 self.activation_markers
@@ -400,13 +395,13 @@ impl NativeHistoryResolver {
         )
     }
 
-    fn restore_history_proof(
+    fn restore_history_step(
         &self,
         cursor: &VerifiedFormalReadAnchorV1,
         position: u64,
         pending_permission: Option<usize>,
         deadline: Instant,
-    ) -> Result<FormalQualifiedCommitProofV1, String> {
+    ) -> Result<ReplayStepProof, String> {
         if cursor.authority().durable_set_activation_digest().is_some() {
             return Err(
                 "HistoryUnavailable: post-activation proof is missing from exact local publication history".into(),
@@ -425,7 +420,13 @@ impl NativeHistoryResolver {
                 "HistoryUnavailable: native proof fallback differs from replay cursor".into(),
             );
         }
-        Ok(restored.proof().clone())
+        // The dual native restore already authenticated the complete candidate.
+        // Carry it into the semantic callback instead of downloading the same
+        // closure again under the shared operation deadline.
+        Ok(ReplayStepProof {
+            proof: restored.proof().clone(),
+            candidate: Some(restored.candidate().clone()),
+        })
     }
 
     fn activation_at_start(

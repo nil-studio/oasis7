@@ -96,7 +96,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。正式历史消费者�
 
 每个 resolver 可缓存一个已经完整验证的精确 cut 的进程内结果，绑定既有固定外部 C0 和完整 authority context；不持久化该结果、不从 DTO 或 prewarm receipt 生成它，也不把它当作运行就绪。含有不可复制 healthy activation token 的 replay 结果不缓存；target 闭包仍按受验 root 核验，不能因 cache 命中接受变化的材料。冷启动和不同 target 仍从固定 C0 扫描并核验完整快照，成本随历史长度与快照大小增长；deadline 超时拒绝服务，不能据短历史通过推导长期启动可用性。独立受验 successor checkpoint 的续锚与长历史容量验收仍由同步恢复合同补齐。
 
-本检查必须位于正式启动／精确历史消费的必经 replay 回调，不能只加在可跳过的 cache prewarm 优化中。origin／fixed／forward publication、full-sync material 与 successor handoff readback 均承接此边界；普通无 activation marker 的 profile-v2 不得直通。缺少前后材料或认证失败时，不发布恢复后的 serving World。验证通过后还需通过恢复后的下一合法治理动作，才能说明正向续办成立；这不提供组件安装 ACK、BFT 或生产部署证明。
+本检查必须位于正式启动／精确历史消费的必经 replay 回调，不能只加在可跳过的 cache prewarm 优化中。恢复启动仅在 writer 精确匹配本次受验 recovery permission 的未完成 pending checkpoint／authority context 时，沿同一 sealed cut 的受验 permission 链找到尚未 pending 的 qualified predecessor，仍从 resolver 固定外部 C0 重验到该终点；pending successor 不因启动校验而成为 qualified read cut，仍须由原恢复完成证明推进。origin／fixed／forward publication、full-sync material 与 successor handoff readback 均承接此边界；普通无 activation marker 的 profile-v2 不得直通。缺少前后材料或认证失败时，不发布恢复后的 serving World。验证通过后还需通过恢复后的下一合法治理动作，才能说明正向续办成立；这不提供组件安装 ACK、BFT 或生产部署证明。
 
 <a id="readiness-membership-application"></a>
 ### 成员应用、撤销与轮换目标

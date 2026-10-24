@@ -135,7 +135,12 @@ impl NativeHistoryResolver {
                     &*self.business_reader,
                 )
             }
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                format!(
+                    "HistoryUnavailable: native historical restore position={position} role={role:?} remaining_ms={}: {error}",
+                    deadline.saturating_duration_since(Instant::now()).as_millis()
+                )
+            })?;
             if Instant::now() >= deadline {
                 return Err("HistoryUnavailable: native restore deadline exceeded".into());
             }
@@ -250,7 +255,12 @@ impl NativeHistoryResolver {
                     &*self.business_reader,
                 )
             }
-            .map_err(|error| error.to_string())
+            .map_err(|error| {
+                format!(
+                    "HistoryUnavailable: native selector restore position={position} role={role:?} remaining_ms={}: {error}",
+                    deadline.saturating_duration_since(Instant::now()).as_millis()
+                )
+            })
         };
         let primary = restore(self.addresses[0], EndpointRole::Primary)?;
         let replica = restore(self.addresses[1], EndpointRole::Replica)?;
@@ -455,7 +465,10 @@ impl NativeHistoryResolver {
 
         // Replay independently verifies whichever signed transition selects
         // the active authority at this position.
-        let mut active_authority_id = record.original_authority_id.clone();
+        // Recovery completion retains the original record's authority while
+        // the signed completion proof names its successor finalizer. This is
+        // only a selector: exact C0 replay below must authenticate that proof.
+        let mut active_authority_id = proof.decision.primary.body.finalizing_authority_id.clone();
         let recovery_successors = self
             .permissions
             .iter()
