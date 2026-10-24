@@ -1849,6 +1849,13 @@ Validate the initial hard limit with a fully signed 1,024-record history contain
 
 These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
 
+<a id="discovery-record-admission-budget"></a>
+### Discovery peer-record admission budget
+
+Verify the [process-local admission contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-admission-budget) with deterministic monotonic time and real RR/DHT entry paths. A valid response/request/store attempt charges the same shared rolling window before decoding or signature verification; invalid payloads retain their charge. The candidate installation path must consume the admission permit. Verify per-source isolation, source churn and tracking capacity, global sharing across protocol/provider changes, exact expiry, no refund on failed crypto, and positive admission after the window expires.
+
+Exercise a real 128-ID discovery list followed by its record responses without accidental double charging. Reject a throttled update without replacing prior cache/store/observations or exposing a new dial/forward candidate. Include ordinary DHT `get_peer_record` results, peer-record `RecordStore::put`, special RR requests and RR record responses; use authenticated transport/Kad source metadata, never the claimed record identity. Report unknown-source DHT store as global-only. Record commands, candidate and actual accepted/rejected work; this does not prove cross-restart quotas, total Kad throughput or durable sequence floors.
+
 <a id="discovery-durable-publication-v2"></a>
 ### Discovery V2 durable local publication
 
