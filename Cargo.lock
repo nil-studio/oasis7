@@ -6512,6 +6512,7 @@ dependencies = [
 name = "oasis7_net"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "futures",
  "hex",
  "libp2p",

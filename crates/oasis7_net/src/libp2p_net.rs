@@ -21,7 +21,9 @@ mod peer_discovery_observations;
 mod peer_manager;
 mod peer_manager_active_set;
 mod peer_record;
+mod peer_record_admission;
 mod peer_record_cache;
+mod peer_record_candidate;
 mod peer_record_dial_gate;
 mod peer_record_protocol_dial;
 mod peer_record_refresh;
@@ -51,18 +53,22 @@ use constructor_support::{
     enqueue_initial_bootstrap_dials, schedule_bootstrap_redial,
     schedule_periodic_discovery_refresh, schedule_periodic_republish,
 };
+#[cfg(test)]
+use discovery::process_discovered_peer_record;
 use discovery::{
     PendingPeerRecordRequest, handle_peer_record_outbound_failure, handle_peer_record_response,
     handle_rendezvous_discovered, handle_routing_updated, maybe_discover_rendezvous_namespace,
     maybe_queue_discovery_peer_record, maybe_register_rendezvous_namespace,
     maybe_request_cached_discovery_peers, maybe_request_cached_peer_record,
     maybe_request_connected_peer_record, peer_record_matches_target, peer_record_world_id,
-    process_discovered_peer_record, publish_discovery_provider, start_peer_discovery_query,
+    publish_discovery_provider, start_peer_discovery_query,
 };
 pub use discovery_budget::DiscoveryWorkMetricsSnapshot;
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use inbound_dispatch::dispatch_inbound_request;
-use kad_queries::{DhtProgressAction, PendingDhtQuery, handle_dht_progress};
+#[cfg(test)]
+use kad_queries::handle_dht_progress;
+use kad_queries::{DhtProgressAction, PendingDhtQuery};
 use libp2p::gossipsub::{self, TopicHash};
 use libp2p::identity::Keypair;
 use libp2p::swarm::SwarmEvent;

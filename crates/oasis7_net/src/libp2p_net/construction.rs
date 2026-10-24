@@ -313,6 +313,7 @@ impl Libp2pNetwork {
                                                         handle_peer_record_response(
                                                             &mut swarm,
                                                             kind,
+                                                            peer,
                                                             response.payload.as_slice(),
                                                             &mut pending_peer_record_requests,
                                                             &mut pending_dht,
@@ -360,7 +361,15 @@ impl Libp2pNetwork {
                                                             pending_response.protocol.as_str(),
                                                             response.payload.len(),
                                                         );
-                                                        let _ = pending_response.response.send(Ok(response.payload));
+                                                        let admission_budget = swarm.behaviour().peer_record_admission_budget();
+                                                        let result = super::peer_record_admission::admit_special_response(
+                                                            &admission_budget,
+                                                            peer,
+                                                            pending_response.protocol.as_str(),
+                                                            response.payload.as_slice(),
+                                                        )
+                                                        .map(|()| response.payload);
+                                                        let _ = pending_response.response.send(result);
                                                     }
                                                 }
                                             }
@@ -406,8 +415,9 @@ impl Libp2pNetwork {
                                 SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                                     match event {
                                         kad::Event::OutboundQueryProgressed { id, result, step, .. } => {
+                                            let admission_budget = swarm.behaviour().peer_record_admission_budget();
                                             let action = if let Some(pending) = pending_dht.get_mut(&id) {
-                                                handle_dht_progress(pending, result, step.last, discovered_peer_records.clock())
+                                                super::kad_queries::handle_dht_progress_with_admission(pending, result, step.last, discovered_peer_records.clock(), &admission_budget)
                                             } else {
                                                 DhtProgressAction::None
                                             };
@@ -450,14 +460,14 @@ impl Libp2pNetwork {
                                                         "lock errors",
                                                     );
                                                 }
-                                                DhtProgressAction::DiscoverPeerRecord { peer_id, upstream, result } => {
+                                                        DhtProgressAction::DiscoverPeerRecord { peer_id, upstream, result } => {
                                                     pending_discovery_peer_records.remove(&peer_id);
                                                     match *result {
-                                                        Ok(Some(record)) => {
-                                                            if !peer_record_matches_target(&record, peer_id) {
+                                                        Ok(Some(admitted)) => {
+                                                            if !peer_record_matches_target(admitted.record(), peer_id) {
                                                                 push_bounded_clone(
                                                                     &event_errors,
-                                                                    format!("libp2p discovered peer record target mismatch requested={peer_id} actual={}", record.record.peer_id),
+                                                                    format!("libp2p discovered peer record target mismatch requested={peer_id} actual={}", admitted.record().record.peer_id),
                                                                     max_error_messages,
                                                                     "lock errors",
                                                                 );
@@ -471,7 +481,7 @@ impl Libp2pNetwork {
                                                                     peer_id,
                                                                     local_peer_id,
                                                                 );
-                                                            } else if let Err(err) = process_discovered_peer_record(
+                                                            } else if let Err(err) = super::peer_record_candidate::install_admitted_peer_record(
                                                                 &mut swarm,
                                                                 &mut discovered_peer_records,
                                                                 &mut discovery_observations,
@@ -482,7 +492,9 @@ impl Libp2pNetwork {
                                                                 peer_record_template.as_ref(),
                                                                 &config_clone.peer_manager_policy,
                                                                 &static_bootstrap_peer_ids,
-                                                                record,
+                                                                admitted,
+                                                                upstream,
+                                                                super::peer_record_admission::PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
                                                                 peer_discovery_observations::DiscoveryIngress::Dht { upstream },
                                                             ) {
                                                                 push_bounded_clone(

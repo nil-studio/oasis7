@@ -16,6 +16,7 @@ runtime_bridge = []
 self_tests = []
 
 [dependencies]
+blake3 = "1"
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs", optional = true }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }

@@ -27,6 +27,7 @@ mod discovery_peer_record_tests;
 mod discovery_work_budget_tests;
 mod peer_health_refresh_tests;
 mod peer_manager_observer_tests;
+mod peer_record_admission_budget_tests;
 mod peer_record_lifecycle_tests;
 mod peer_record_tests;
 mod rendezvous_ttl_tests;

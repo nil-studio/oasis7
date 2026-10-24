@@ -11,27 +11,44 @@ use oasis7_proto::distributed_dht::{
 
 use super::CommandResponseSender;
 use super::peer_record::decode_peer_record;
+#[cfg(test)]
+use super::peer_record_admission::PeerRecordAdmissionBudget;
+use super::peer_record_admission::{
+    AdmittedPeerRecord, PeerRecordAdmissionWorkUnit, SharedPeerRecordAdmissionBudget,
+};
 
 fn decode_peer_record_for_target(
     payload: &[u8],
     requested_peer_id: PeerId,
     clock: &super::peer_record_time::DiscoveryClock,
-) -> Result<SignedPeerRecord, WorldError> {
-    let decoded = decode_peer_record(payload)?;
-    clock.check(&decoded.record)?;
-    let record_peer_id = decoded.record.peer_id.parse::<PeerId>().map_err(|_| {
-        WorldError::NetworkProtocolUnavailable {
-            protocol: "kad peer record peer_id must be valid".to_string(),
-        }
-    })?;
-    if record_peer_id != requested_peer_id {
-        return Err(WorldError::NetworkProtocolUnavailable {
-            protocol: format!(
-                "kad peer record target mismatch requested={requested_peer_id} actual={record_peer_id}"
-            ),
-        });
-    }
-    Ok(decoded)
+    shared: &SharedPeerRecordAdmissionBudget,
+    source: Option<PeerId>,
+    work_unit: PeerRecordAdmissionWorkUnit,
+) -> Result<AdmittedPeerRecord, WorldError> {
+    AdmittedPeerRecord::admit_and_decode_with(
+        shared,
+        source,
+        work_unit,
+        payload,
+        super::peer_record::MAX_SIGNED_PEER_RECORD_BYTES,
+        |payload| {
+            let decoded = decode_peer_record(payload)?;
+            clock.check(&decoded.record)?;
+            let record_peer_id = decoded.record.peer_id.parse::<PeerId>().map_err(|_| {
+                WorldError::NetworkProtocolUnavailable {
+                    protocol: "kad peer record peer_id must be valid".to_string(),
+                }
+            })?;
+            if record_peer_id != requested_peer_id {
+                return Err(WorldError::NetworkProtocolUnavailable {
+                    protocol: format!(
+                        "kad peer record target mismatch requested={requested_peer_id} actual={record_peer_id}"
+                    ),
+                });
+            }
+            Ok(decoded)
+        },
+    )
 }
 
 pub(super) enum PendingDhtQuery {
@@ -65,7 +82,7 @@ pub(super) enum PendingDhtQuery {
     GetPeerRecord {
         peer_id: PeerId,
         response: Option<CommandResponseSender<Option<SignedPeerRecord>>>,
-        record: Option<SignedPeerRecord>,
+        record: Option<AdmittedPeerRecord>,
         error: Option<WorldError>,
     },
     DiscoverPeers {
@@ -75,7 +92,7 @@ pub(super) enum PendingDhtQuery {
     DiscoverPeerRecord {
         peer_id: PeerId,
         upstream: Option<PeerId>,
-        record: Option<SignedPeerRecord>,
+        record: Option<AdmittedPeerRecord>,
         error: Option<WorldError>,
     },
 }
@@ -101,15 +118,32 @@ pub(super) enum DhtProgressAction {
     DiscoverPeerRecord {
         peer_id: PeerId,
         upstream: Option<PeerId>,
-        result: Box<Result<Option<SignedPeerRecord>, WorldError>>,
+        result: Box<Result<Option<AdmittedPeerRecord>, WorldError>>,
     },
 }
 
+#[cfg(test)]
 pub(super) fn handle_dht_progress(
     pending: &mut PendingDhtQuery,
     result: kad::QueryResult,
     is_last: bool,
     clock: &super::peer_record_time::DiscoveryClock,
+) -> DhtProgressAction {
+    handle_dht_progress_with_admission(
+        pending,
+        result,
+        is_last,
+        clock,
+        &PeerRecordAdmissionBudget::shared(),
+    )
+}
+
+pub(super) fn handle_dht_progress_with_admission(
+    pending: &mut PendingDhtQuery,
+    result: kad::QueryResult,
+    is_last: bool,
+    clock: &super::peer_record_time::DiscoveryClock,
+    admission_budget: &SharedPeerRecordAdmissionBudget,
 ) -> DhtProgressAction {
     match pending {
         PendingDhtQuery::PublishProvider { response } => {
@@ -313,7 +347,14 @@ pub(super) fn handle_dht_progress(
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(found))) => {
-                    match decode_peer_record_for_target(&found.record.value, *peer_id, clock) {
+                    match decode_peer_record_for_target(
+                        &found.record.value,
+                        *peer_id,
+                        clock,
+                        admission_budget,
+                        found.peer,
+                        PeerRecordAdmissionWorkUnit::KadGetPeerRecordResult,
+                    ) {
                         Ok(decoded) => *record = Some(decoded),
                         Err(err) => *error = Some(err),
                     }
@@ -331,9 +372,20 @@ pub(super) fn handle_dht_progress(
                 }
                 _ => {}
             }
-            if is_last {
-                let outcome = if let Some(selected) = record.as_ref() {
-                    clock.check(&selected.record).map(|_| record.clone())
+            if is_last && response.is_some() {
+                let outcome = if let Some(selected) = record.take() {
+                    match clock.check(&selected.record().record) {
+                        Ok(_) => {
+                            let source = selected.source();
+                            selected
+                                .consume(
+                                    source,
+                                    PeerRecordAdmissionWorkUnit::KadGetPeerRecordResult,
+                                )
+                                .map(Some)
+                        }
+                        Err(err) => Err(err),
+                    }
                 } else if let Some(err) = error.take() {
                     Err(err)
                 } else {
@@ -384,7 +436,14 @@ pub(super) fn handle_dht_progress(
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(found))) => {
-                    match decode_peer_record_for_target(&found.record.value, *peer_id, clock) {
+                    match decode_peer_record_for_target(
+                        &found.record.value,
+                        *peer_id,
+                        clock,
+                        admission_budget,
+                        found.peer,
+                        PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
+                    ) {
                         Ok(decoded) => {
                             *record = Some(decoded);
                             *upstream = found.peer;
@@ -406,8 +465,10 @@ pub(super) fn handle_dht_progress(
                 _ => {}
             }
             if is_last {
-                let result = if let Some(selected) = record.as_ref() {
-                    clock.check(&selected.record).map(|_| record.clone())
+                let result = if let Some(selected) = record.take() {
+                    clock
+                        .check(&selected.record().record)
+                        .map(|_| Some(selected))
                 } else if let Some(err) = error.take() {
                     Err(err)
                 } else {

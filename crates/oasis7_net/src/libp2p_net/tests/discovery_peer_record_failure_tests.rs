@@ -54,9 +54,21 @@ fn assert_mismatched_peer_record_response_is_rejected(
         }
     }
 
+    let response_source = match &kind {
+        super::super::discovery::PendingPeerRecordRequest::ConnectedPeerRecord {
+            peer_id, ..
+        } => *peer_id,
+        super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord {
+            ask_peer, ..
+        } => *ask_peer,
+        super::super::discovery::PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id } => {
+            *peer_id
+        }
+    };
     super::super::discovery::handle_peer_record_response(
         &mut swarm,
         kind,
+        response_source,
         payload.as_slice(),
         &mut pending_peer_record_requests,
         &mut pending_dht,

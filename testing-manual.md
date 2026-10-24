@@ -1852,6 +1852,14 @@ These tests establish the management protocol and local persistence behavior und
 <a id="discovery-record-admission-budget"></a>
 ### Discovery peer-record admission budget
 
+Run focused admission/store checks and then the affected net suite serially:
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record_admission -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record_store -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib -- --test-threads=1
+```
+
 Verify the [process-local admission contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-admission-budget) with deterministic monotonic time and real RR/DHT entry paths. A valid response/request/store attempt charges the same shared rolling window before decoding or signature verification; invalid payloads retain their charge. The candidate installation path must consume the admission permit. Verify per-source isolation, source churn and tracking capacity, global sharing across protocol/provider changes, exact expiry, no refund on failed crypto, and positive admission after the window expires.
 
 Exercise a real 128-ID discovery list followed by its record responses without accidental double charging. Reject a throttled update without replacing prior cache/store/observations or exposing a new dial/forward candidate. Include ordinary DHT `get_peer_record` results, peer-record `RecordStore::put`, special RR requests and RR record responses; use authenticated transport/Kad source metadata, never the claimed record identity. Report unknown-source DHT store as global-only. Record commands, candidate and actual accepted/rejected work; this does not prove cross-restart quotas, total Kad throughput or durable sequence floors.
