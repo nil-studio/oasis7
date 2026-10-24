@@ -332,6 +332,7 @@
         "scripts/check-active-llm-provider.sh",
         "scripts/governance-registry-live-drill.sh",
         "scripts/run-local-letai-provider-bridge.sh",
+        "scripts/local-letai-provider-bridge.test.sh",
         "scripts/provider-parity-p0.sh",
         "scripts/oasis7-liveops-grant.sh",
         "scripts/newapi-bridge-service/package-newapi-bridge-service.sh",
@@ -498,6 +499,8 @@
     {
       "match": [
         "scripts/cargo-dev*",
+        "scripts/cargo-cache*",
+        "scripts/cargo-incremental-clean*",
         "scripts/check-standalone-tool-lockfiles*",
         "scripts/check-launcher-p2p-dependency*"
       ],
