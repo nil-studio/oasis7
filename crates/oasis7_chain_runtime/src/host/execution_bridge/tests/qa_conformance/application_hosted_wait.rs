@@ -193,6 +193,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let mut completion = application_completion::CompletionWatch::new();
     let mut completed = false;
     let mut summary = serde_json::Value::Null;
+    let mut transport_failure_observed = false;
     loop {
         session.snapshot(Duration::from_millis(25)); // Continuous bounded drain, no repeated queued requests.
         if let Ok(guard) = shared.try_lock() {
@@ -206,6 +207,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
                     && summary["memory_store"].to_string().contains(digest);
             }
         }
+        transport_failure_observed |=
+            application_hosted_transport_recovery::observe_error(&root, &summary);
         let rollback_observed = [
             ("PRE2_WAIT_CLEANUP_FS_ROOT", "wait-cleanup-rollback"),
             ("PRE2_RESUME_HANDOFF_FS_ROOT", "resume-handoff-rollback"),
@@ -250,6 +253,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
         application_completion::hosted_failure_diagnostic(&summary)
     );
     println!("PRE2_HOSTED_WAIT_RESUME_ACT_PASSED");
+    application_hosted_transport_recovery::verify_observed(transport_failure_observed);
 }
 
 pub(super) fn report(fixture: &Fixture, root: &std::path::Path, models: usize) {

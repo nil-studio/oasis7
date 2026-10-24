@@ -177,12 +177,16 @@ impl CompletionWatch {
 }
 
 fn unrecoverable_failure(summary: &serde_json::Value, rollback_observed: bool) -> bool {
-    if rollback_observed
+    let transport_pending = summary["agent_service_pump_error"]
+        == "Agent service result could not be applied; original work remains pending"
+        && summary["io_lifecycle"]["last_apply_error_class"] == "transport";
+    if transport_pending || (rollback_observed
         && summary["agent_service_pump_error"]
-            == "Agent service preparation is blocked; original work remains pending"
+            == "Agent service preparation is blocked; original work remains pending")
     {
-        // Only the QA-injected, observed atomic-write rollback may retry this
-        // specific preparation error. Preserve terminal and memory failures.
+        // The pump retains and reconciles the original request after transport
+        // failure. Keep the same hard deadline and exact completion oracle;
+        // response-application, terminal and memory failures still fail closed.
         let mut failure = summary.clone();
         failure["agent_service_pump_error"] = serde_json::Value::Null;
         has_failure(&failure)
@@ -206,6 +210,33 @@ fn observed_injected_rollback_only_allows_its_preparation_error() {
     summary["hosted_service_memory_failure"] = serde_json::Value::Null;
     summary["agent_service_pump_error"] = serde_json::json!("unexpected error");
     assert!(unrecoverable_failure(&summary, true));
+}
+
+#[test]
+fn transport_failure_keeps_original_completion_pending() {
+    let mut summary = serde_json::json!({
+        "agent_service_pump_error": "Agent service result could not be applied; original work remains pending",
+        "hosted_service_phase": "act",
+        "pending_intent_count": 1,
+        "io_lifecycle": {"last_apply_error_class": "transport"}
+    });
+    assert!(!unrecoverable_failure(&summary, false));
+    assert!(!canonical_complete(&summary));
+    let mut watch = CompletionWatch::new();
+    watch.deadline = Instant::now() + Duration::from_secs(1);
+    assert!(!watch.finished(&summary, false));
+    watch.deadline = Instant::now();
+    assert!(watch.finished(&summary, false), "transport failure cannot extend the hard deadline");
+    summary["io_lifecycle"]["last_apply_error_class"] = serde_json::json!("application");
+    assert!(unrecoverable_failure(&summary, false));
+    summary["io_lifecycle"]["last_apply_error_class"] = serde_json::Value::Null;
+    assert!(unrecoverable_failure(&summary, false));
+    summary["io_lifecycle"]["last_apply_error_class"] = serde_json::json!("transport");
+    summary["terminal_states"] = serde_json::json!({"agent-a": {"status": "failed"}});
+    assert!(unrecoverable_failure(&summary, false));
+    summary["terminal_states"] = serde_json::Value::Null;
+    summary["hosted_service_memory_failure"] = serde_json::json!("memory failure");
+    assert!(unrecoverable_failure(&summary, false));
 }
 
 pub(super) fn canonical_complete(summary: &serde_json::Value) -> bool {
@@ -337,6 +368,20 @@ pub(super) fn hosted_failure_diagnostic(summary: &serde_json::Value) -> serde_js
         lifecycle.insert(field.into(), serde_json::json!(io[field].as_u64()));
     }
     lifecycle.insert(
+        "last_apply_error_phase".into(),
+        serde_json::json!(io["last_apply_error_phase"].as_str()
+            .filter(|value| matches!(*value, "act" | "act_view" | "act_settled_view" | "act_settle"
+                | "feedback" | "feedback_ack" | "feedback_ack_view" | "wait" | "resume"
+                | "handoff_wake" | "handoff_view" | "admission"))
+            .unwrap_or("unknown")),
+    );
+    lifecycle.insert(
+        "last_apply_error_class".into(),
+        serde_json::json!(io["last_apply_error_class"].as_str()
+            .filter(|value| matches!(*value, "absent" | "transport" | "application"))
+            .unwrap_or("unknown")),
+    );
+    lifecycle.insert(
         "state".into(),
         serde_json::json!(
             io["state"]
@@ -388,7 +433,8 @@ fn hosted_failure_diagnostic_does_not_echo_private_summary() {
         "pending_intent_count": secret, "pending_action_count": 3,
         "pending_wake_ids": [secret], "mirrored_lease_count": secret,
         "memory_store": secret, "private_key": secret,
-        "io_lifecycle": {"state": secret, "operation": secret, "queued_count": secret, "private_payload": secret},
+        "io_lifecycle": {"state": secret, "operation": secret, "queued_count": secret,
+            "last_apply_error_class": secret, "last_apply_error_phase": secret, "private_payload": secret},
     });
     let diagnostic = hosted_failure_diagnostic(&summary);
     assert_eq!(diagnostic["phase"], "unknown");

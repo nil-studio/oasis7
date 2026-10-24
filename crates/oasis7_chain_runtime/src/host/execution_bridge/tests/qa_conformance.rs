@@ -9,6 +9,7 @@ mod application_feedback_ack_write_failure;
 mod application_fresh;
 mod application_harness;
 mod application_hosted;
+mod application_hosted_transport_recovery;
 mod application_hosted_final_budget;
 mod application_hosted_final_budget_recovery;
 mod application_hosted_final_budget_write_failure;
@@ -392,6 +393,11 @@ impl Fixture {
                     return;
                 }
                 if worker_outage.reject(&stream) {
+                    return;
+                }
+                if application_hosted_transport_recovery::interrupt_lookup(
+                    path, &bytes, &stream, &worker_gate,
+                ) {
                     return;
                 }
                 if path == LOOKUP_PATH {
