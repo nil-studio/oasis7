@@ -132,17 +132,14 @@ impl DurableFullSyncIssuerV2 {
             ));
         }
 
-        let state = match self.synchronize(witness) {
-            Ok(state) => state,
-            Err(error) => return Err(error),
-        };
+        let state = self.synchronize(witness)?;
         let pending = self.read_pending()?;
-        if let Some(pending) = &pending {
-            if pending.command != command {
-                return Err(FormalError::Conflict(
-                    "unresolved full-sync intent only accepts the original signed command".into(),
-                ));
-            }
+        if let Some(pending) = &pending
+            && pending.command != command
+        {
+            return Err(FormalError::Conflict(
+                "unresolved full-sync intent only accepts the original signed command".into(),
+            ));
         }
 
         let prepared = state.prepare(command.clone())?;

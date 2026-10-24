@@ -176,9 +176,9 @@ impl Drop for TempDir {
 
 #[derive(Clone, Copy)]
 enum CommitFault {
-    BeforeCas,
-    LoseReplyAfterCas,
-    BlockLocalLedgerAfterCas,
+    BeforeCommit,
+    LoseReply,
+    BlockLocalLedger,
 }
 
 /// Explicitly simulated witness behavior. This fake is not evidence of an
@@ -254,7 +254,7 @@ impl SimulatedWitness {
         let record = prepared
             .record()
             .cloned()
-            .ok_or_else(|| FormalError::IssuerUnproven)?;
+            .ok_or(FormalError::IssuerUnproven)?;
         let issuer_seed = (2u8..=20)
             .find(|n| public(*n) == self.policy.body().issuer_public_key)
             .ok_or(FormalError::IssuerUnproven)?;
@@ -341,7 +341,7 @@ impl FullSyncIssuerWitnessV2 for SimulatedWitness {
         record: &FullSyncIssuerRecordV2,
     ) -> Result<SignedFullSyncIssuerReceiptV2, FormalError> {
         observation.verify(&self.policy)?;
-        if matches!(self.fault, Some(CommitFault::BeforeCas)) {
+        if matches!(self.fault, Some(CommitFault::BeforeCommit)) {
             self.fault = None;
             return Err(FormalError::Io(
                 "simulated witness failure before CAS".into(),
@@ -366,10 +366,10 @@ impl FullSyncIssuerWitnessV2 for SimulatedWitness {
             receipt: receipt.clone(),
         });
         match self.fault.take() {
-            Some(CommitFault::LoseReplyAfterCas) => {
+            Some(CommitFault::LoseReply) => {
                 Err(FormalError::Io("simulated committed CAS reply loss".into()))
             }
-            Some(CommitFault::BlockLocalLedgerAfterCas) => {
+            Some(CommitFault::BlockLocalLedger) => {
                 let directory = self.local_directory.as_ref().ok_or_else(|| {
                     FormalError::Io("simulated local persistence path missing".into())
                 })?;
@@ -473,7 +473,7 @@ fn failed_cas_keeps_same_intent_and_reopen_allows_only_original_request() {
     let mut witness = SimulatedWitness::new(policy.clone());
     let command = witness.issue_for(13, 5);
     let mut issuer = witness.store(temp.path());
-    witness.fault = Some(CommitFault::BeforeCas);
+    witness.fault = Some(CommitFault::BeforeCommit);
     assert!(issuer.manage(command.clone(), &mut witness).is_err());
     assert!(temp.path().join(PENDING_FILE).is_file());
     assert_eq!(witness.entries.len(), 0);
@@ -645,7 +645,7 @@ fn cas_commit_lost_reply_reopens_to_the_original_receipt() {
     let mut witness = SimulatedWitness::new(policy.clone());
     let command = witness.issue_for(15, 5);
     let mut issuer = witness.store(temp.path());
-    witness.fault = Some(CommitFault::LoseReplyAfterCas);
+    witness.fault = Some(CommitFault::LoseReply);
     assert!(issuer.manage(command.clone(), &mut witness).is_err());
     assert!(temp.path().join(PENDING_FILE).is_file());
     let original_receipt = witness.entries[0].receipt.clone();
@@ -666,7 +666,7 @@ fn local_persist_failure_after_cas_is_poisoned_and_recovers_from_witness() {
     witness.local_directory = Some(temp.path().to_path_buf());
     let command = witness.issue_for(16, 5);
     let mut issuer = witness.store(temp.path());
-    witness.fault = Some(CommitFault::BlockLocalLedgerAfterCas);
+    witness.fault = Some(CommitFault::BlockLocalLedger);
     assert!(issuer.manage(command.clone(), &mut witness).is_err());
     assert!(temp.path().join(LEDGER_FILE).is_dir());
     assert!(temp.path().join(PENDING_FILE).is_file());
