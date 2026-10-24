@@ -1827,3 +1827,24 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；范围见[本地采集
 - 上述 `formal_full_state_sync_cli_` ignored shipping CLI 测试同时覆盖直接采集与 canonical read：首次 ready、旧 epoch grant 拒绝、重开和停止；collector 本身只调用 status，不启停节点。
 
 不执行生产采集或远程节点操作；不扩大为 triad profile 接线、BFT 或 P/R 验收。
+
+
+<a id="full-sync-v2-issuer-management"></a>
+### V2 full-sync issuer management ledger
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [V2 issuer ledger and witness decision](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-issuer-ledger).
+
+Run focused protocol and durable-store tests separately, using the existing shared Cargo cache:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol full_sync_issuer
+env -u RUSTC_WRAPPER cargo test -p oasis7_distfs full_sync_issuer
+```
+
+Verify signed management Issue/Replace/Revoke against the original externally pinned activation trust, complete world/epoch scope, authorized manager and current dedicated issuer generation. Negative cases include changed initial trust pins, wrong root/role/subject, reused request identity or manager nonce with different content, stale full head, wrong target epoch, absent-target tombstones, counter/byte limits, conflicting same-generation policy and reuse of any historical issuer key. An explicit root-authorized policy transition must advance the same ledger atomically; witness-key replacement is unsupported and must fail.
+
+Use a separately keyed simulated witness for deterministic CAS and crash tests. Exercise actual private filesystem ownership/modes, symlink refusal and competing store locks; persist the original pending request before witness CAS. Inject loss before/after CAS and before the local decision fsync, reopen from both current and old valid local backups, and retry the exact original command. Require the original committed entry/receipt, with no extra mutation or automatically rebased command. Reject corrupted/forked/future local logs, missing or truncated witness history, stale nonce observations and an unavailable witness. A valid earlier local prefix may recover only from the complete history closing to a fresh witness head and the external minimum anchor.
+
+Validate the initial hard limit with a fully signed 1,024-record history containing distinct targets; time construction and complete replay separately, then require the 1,025th prepare/reconstruction to fail without mutation. The 64 MiB encoded-log bound remains independent. This capacity check is not a sustained-throughput or production-witness latency claim.
+
+These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.

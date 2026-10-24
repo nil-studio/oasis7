@@ -225,7 +225,7 @@ impl RecoveryIssuer {
         &self.minimum
     }
 }
-fn private_options() -> OpenOptions {
+pub(super) fn private_options() -> OpenOptions {
     let mut options = OpenOptions::new();
     #[cfg(unix)]
     {
@@ -234,7 +234,7 @@ fn private_options() -> OpenOptions {
     }
     options
 }
-fn private_regular(path: &Path) -> Result<(), FormalError> {
+pub(super) fn private_regular(path: &Path) -> Result<(), FormalError> {
     let meta = fs::symlink_metadata(path).map_err(io)?;
     if !meta.is_file() || meta.file_type().is_symlink() {
         return Err(invalid("issuer regular private file"));
@@ -249,7 +249,7 @@ fn private_regular(path: &Path) -> Result<(), FormalError> {
     }
     Ok(())
 }
-fn private_directory(path: &Path) -> Result<(), FormalError> {
+pub(super) fn private_directory(path: &Path) -> Result<(), FormalError> {
     if !path.is_absolute() {
         return Err(invalid("issuer directory must be absolute"));
     }
@@ -303,7 +303,15 @@ fn read_bounded<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Formal
     serde_json::from_slice(&bytes).map_err(|e| invalid(e.to_string()))
 }
 fn atomic(directory: &Path, path: &Path, bytes: &[u8]) -> Result<(), FormalError> {
-    if bytes.len() > MAX_BYTES {
+    atomic_bounded(directory, path, bytes, MAX_BYTES)
+}
+pub(super) fn atomic_bounded(
+    directory: &Path,
+    path: &Path,
+    bytes: &[u8],
+    max_bytes: usize,
+) -> Result<(), FormalError> {
+    if bytes.len() > max_bytes {
         return Err(invalid("issuer file byte bound"));
     }
     if path.exists() {
