@@ -1,4 +1,4 @@
-# oasis7 hosted_public_join 托管身份 / 托管密钥与邮箱登录
+# oasis7 hosted_public_join 托管身份、托管密钥与受限执行
 
 - 对应设计文档: `doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md`
 - 对应GitHub Issue/Project task truth: GitHub Issue / GitHub Project
@@ -30,11 +30,13 @@
 - 若继续让浏览器持有长期 player signer，任何缓存泄露都会放大为账户接管风险。
 - 若把 player custody 与 node/governance signer 共用一套 trust domain，会让产品问题和协议级 custody 问题互相绑死。
 
+本专题同时定义[Cloudflare 测试账号托管与受限执行](#cloud-test-custody)。该首版是待实现设计，不是生产资产 custody，也不改变已有世界权威。
+
 账号接入的推荐方式、多凭证管理和邮箱受限恢复已由[免邮箱多凭证 PRD](hosted-public-join-key-based-onboarding.prd.md)承接；本专题继续拥有资产 signer / custody / step-up 与自托管升级合同。多凭证实现候选不升级当前技术预览或生产 custody 口径。
 
 ## 1. Executive Summary
 - Problem Statement: `hosted_public_join` 现在已经补上了 hosted account 邮箱登录 broker、`device_session + in-memory session key` 恢复链路，以及 env-configured SMTP 邮件投递；普通玩家不再需要手抄浏览器本地私钥，也不必继续依赖 repo-owned preview code 才能回到同一 `player_id`。但这套实现整体仍停留在 `limited playable technical preview` 边界：`crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_strong_auth.rs` 依然依赖 `OASIS7_HOSTED_STRONG_AUTH_*` + `approval_code`；`signer_ref`、managed custody sign API、冻结/恢复策略和 self-custody upgrade 还没有进入正式后端 contract。如果不把这些缺口继续收完，`public join` 仍然不能被宣称为生产级 hosted wallet / custody 方案。
-- Proposed Solution: 为 `hosted_public_join` 正式冻结一套 producer-owned 的“托管身份 + 托管密钥 + 自托管升级”目标态。默认玩家路径改为 `guest -> hosted account -> managed player signer -> optional self-custody bind/transfer-out`：用户通过通行密钥或已登记邮箱证明登录，浏览器只拿 `player_session` 与设备级短期密钥；长期玩家 signer 留在服务端 custody plane，由 KMS/HSM 或 KMS-wrapped sealed-key backend 保护，并通过 step-up auth + policy engine 出签。
+- Proposed Solution: 为 `hosted_public_join` 正式冻结一套 producer-owned 的“托管身份 + 托管密钥 + 自托管升级”目标态。默认玩家路径改为 `guest -> hosted account -> managed player signer -> optional self-custody bind/transfer-out`：用户通过通行密钥或已登记邮箱证明登录，浏览器只拿 `player_session` 与设备级短期密钥；长期玩家 signer 留在服务端 custody plane，生产目标由 KMS/HSM 或 KMS-wrapped sealed-key backend 保护，并通过 step-up auth + policy engine 出签。下述 Cloudflare 测试版使用独立、明确标注的 Worker 可信持钥 lane，不代表上述生产目标已达成。
 - Success Criteria:
   - SC-1: `hosted_public_join` 必须提供“不输入原始公钥私钥也能开始玩”的正式登录路径，默认推荐通行密钥，邮箱为可选兼容因子；账号与凭证生命周期由[免邮箱多凭证合同](hosted-public-join-key-based-onboarding.prd.md)承接。
   - SC-2: 浏览器在 `hosted_public_join` 下不得再持有长期资产 signer、node signer 或可长期复用的明文私钥；旧 `localStorage privateKey` 残留必须被清洗而不是恢复到运行态。
@@ -187,3 +189,120 @@
 | DEC-P2P-029-003 | 上层冻结 `signer_ref + sign API` 契约，底层后端允许 `KMS/HSM` 或 `KMS-wrapped sealed-key backend` | 直接把产品方案写死为单一云 KMS 的具体 key API | 产品首先需要稳定的 trust boundary，而不是把运行时算法/成本约束提前硬编码进 PRD。 |
 | DEC-P2P-029-004 | 自托管升级先支持 `bind external wallet` / `transfer-out`，不要求 MVP 导出托管私钥原文 | 把“导出原始托管私钥”当成 MVP 必备功能 | 迁移能力重要，但“把私钥直接吐给浏览器”不是 hosted onboarding 的最优安全默认值。 |
 | DEC-P2P-029-005 | 本专题只覆盖 hosted player identity/custody，不复用到 node/governance signer | 让一个统一 KMS 同时接管 player、node、governance 全部 signer | trust domain、审计要求与风险级别不同，混用会把 hosted player 产品问题和协议级 custody 问题绑死。 |
+
+
+<a id="cloud-test-custody"></a>
+## 6. Cloudflare 测试账号托管与受限执行
+
+### 6.1 使用情境、目标与非目标
+
+测试负责人需要管理多个 oasis7 测试账号，并让 dot 或其他已授权助手完成特定世界、Agent 的有限操作。负责人不应反复复制私钥，助手也不应因为能看到账号或登录管理页就获得 owner 控制权。负责人能够看清每个账号用途、授予哪些动作和预算、何时到期、怎样停止与撤销，以及一次请求到底只是被接收还是已经产生世界结果。
+
+首版采用 Cloudflare Workers 承载托管控制面；世界状态、owner 归属、executor delegation、业务预算和共识仍由现有 oasis7 authority 决定。控制面只管理测试账号、保管分用途密钥、消费已授权动作并回读原结果。服务不可用时宁可暂停，不退回把密钥交给助手。文档状态为设计候选，以下功能全部待实现，不声明已部署或完成真实账号验收。
+
+范围：多账号非秘密台账、Passkey 管理登录、独立 owner 批准、受限 executor API、可追踪请求、停止/撤销、密钥轮换与冻结恢复。账号创建或接入仍须遵守当前身份服务公开能力、注册开关和用户授权；不能借托管服务开放注册。
+
+非目标：生产资产、主网转账、validator/node/governance/treasury 密钥；修改游戏规则或共识；任意 HTTP 代理、通用签名服务、secret 读取器；替助手保存云平台管理员凭据；托管模型推理或无限后台运行；自动接管现有本地 vault、静默迁移账号、自助导出私钥。现有生产 custody 与 self-custody 目标保留，不由测试版替代。
+
+### 6.2 核心体验与权限决策
+
+1. 负责人以 Passkey 登录管理端，看见自己有权管理的非秘密账号列表、环境、world/Agent、公开身份、状态及最近核验时间。列表隐藏不代表撤销；旧列表也不证明账号可写。
+2. 负责人选择账号，核对明确动作、参数限制、world/Agent/task、期限、总预算及风险，再以新鲜 Passkey 证明批准一次 owner 控制意图。协议 owner 签名由独立 owner custody lane 产生。登录凭证自身不成为 owner key。
+3. 管理端给指定执行客户端签发短期、最小权限 capability。dot 只获得受限调用能力与公开引用，不获得 login、owner、executor 私钥、解密口令或 Cloudflare secret。
+4. 助手提交类型化动作。界面先显示本服务接收与排队，后显示原操作权威结果；超时显示“结果未知，正在核对原请求”，不能引导重复创建新操作。
+5. 负责人可以先暂停本服务派发，再提交世界 canonical Stop 或 delegation Revoke。界面分别显示本地暂停、世界停止确认、委托撤销确认，不能用一个绿色“已停”掩盖未确认项。
+6. 到期、预算耗尽、撤销或恢复冻结后，助手只可按仍有效的只读权限查看原结果；再次执行需要负责人重新批准。不能用“刷新连接”暗中延长原授权。
+
+管理界面须支持键盘操作、可读的错误文本和不依赖颜色的状态；确认页不预选所有账号或无限范围。账号切换必须清除尚未提交的其他账号草稿，提交时重验目标。负责人可选择不给权限、缩小动作/预算、先只读观察或退出；这些选项不得被自动降级流程绕过。
+
+<a id="req-cloud-custody-001"></a>
+### REQ-CLOUD-CUSTODY-001：账号台账与秘密分离
+
+Trace ID: O7-REQ-844f4b30-b7d5-4651-941e-17c21f37b4ac
+
+台账按账号与环境展示标签、用途、公开身份、world/Agent/task 绑定、密钥用途和版本引用、冻结状态，不存私钥、密码、恢复材料或 bearer token。同一负责人可管理多个账号，不能把标签或列表索引当权限。每次调用从已认证主体和批准关系核对精确 account/resource，跨账号替换必须拒绝。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[存储与数据](hosted-public-join-managed-identity-custody.design.md#cloud-custody-data)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；当前仅有 Unix 本地 broker，不含本节 Cloudflare 服务，尚无服务实现/部署验收任务结果。
+- 核对日期与基线：2026-10-24，源码 `73398d454082eb2106b2f1075a57bc9f377cd222`，仅仓库代码/合同核对。
+- 剩余范围：完整实现、跨账号隔离与脱敏验收。
+
+<a id="req-cloud-custody-002"></a>
+### REQ-CLOUD-CUSTODY-002：登录、Owner 与执行权分离
+
+Trace ID: O7-REQ-b799d81b-eafb-44e8-a0df-fda202d5d133
+
+Passkey 仅认证管理者；获得管理会话不自动批准开户、owner 绑定、任务控制或 executor 委托。login、owner、executor 使用不同密钥、签名用途、部署权限和秘密绑定。owner 操作必须与明确账号、世界、动作摘要和有效期绑定；executor 不能调用 owner 管理入口、创建新授权或提升自己的权限。Worker 运行时仍属可信持钥域，不能声称采用了 HSM 或对平台/部署管理员不可提取。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[信任边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-boundaries)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；本地三类密钥隔离不证明云端隔离。
+- 核对日期与基线：2026-10-24，源码 `73398d454082eb2106b2f1075a57bc9f377cd222`，无云端运行证据。
+- 剩余范围：管理认证、分部署权限、owner 批准与密钥隔离实现及安全验收。
+
+<a id="req-cloud-custody-003"></a>
+### REQ-CLOUD-CUSTODY-003：有限授权与协议兼容
+
+Trace ID: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c
+
+每份 capability 固定账号、世界身份、Agent/task、执行客户端、允许动作、参数范围、请求/业务预算、绝对期限和父授权。禁止递归转授与通过 refresh 自行续期；同一授权并发调用共享预算。托管服务不能签任意 bytes、调用任意 URL、改变 actor 或覆盖既有协议签名域。Cloudflare Ed25519 与 Rust 的同一类型化 payload 必须字节级互操作，通过正反向签名测试及拒绝矩阵后才可启用。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[接口与签名](hosted-public-join-managed-identity-custody.design.md#cloud-custody-api)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；已有 Rust 适配不能证明 Workers 互操作。
+- 核对日期与基线：2026-10-24，源码 `73398d454082eb2106b2f1075a57bc9f377cd222`，无云端签名测试结果。
+- 剩余范围：受限适配、共享预算、签名向量及真实下游兼容验收。
+
+<a id="req-cloud-custody-004"></a>
+### REQ-CLOUD-CUSTODY-004：请求结果、停止与撤销可区分
+
+Trace ID: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede
+
+每个请求保留稳定 operation ID、原正文/签名摘要、原下游请求和结果。重试不得变成新的业务动作；同 ID 不同正文必须拒绝。结果未知不能显示成功或默认重发。暂停本服务派发、世界 canonical Stop、delegation Revoke 是三个不同结果，后两者必须用原请求权威回执和当前 fence/委托状态证明。父授权撤销在账号权威提交后阻断本服务全部派生 capability 与尚未取得派发 claim 的请求；已取得 claim 即按在途请求处理，即使尚未实际发送，仍需核对，不能承诺撤销过去的世界效果。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[事务、状态与恢复](hosted-public-join-managed-identity-custody.design.md#cloud-custody-state)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；本地原请求恢复不证明云端故障恢复。
+- 核对日期与基线：2026-10-24，源码 `73398d454082eb2106b2f1075a57bc9f377cd222`，无 Cloudflare outbox/停止演练。
+- 剩余范围：持久 outbox、下游查重回读、并发撤销与失联演练。
+
+<a id="req-cloud-custody-005"></a>
+### REQ-CLOUD-CUSTODY-005：安全恢复与真实阶段边界
+
+Trace ID: O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945
+
+备份恢复、密钥轮换和部署回退必须先冻结执行，核对未回退的安全代、最新撤销事实与原操作结果，再由负责人重新批准。不得从旧备份复活权限、预算或已发送请求。系统披露 Worker 及部署管理员的剩余信任风险、单账号暂停边界、审计保留与数据删除限制。只通过文档/fixture/本地测试不得宣称云端托管、世界结果或生产安全已验收。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[运维与恢复](hosted-public-join-managed-identity-custody.design.md#cloud-custody-operations)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；生产 custody、恢复与云端部署不在当前能力内。
+- 核对日期与基线：2026-10-24，源码 `73398d454082eb2106b2f1075a57bc9f377cd222`，仅静态核对。
+- 剩余范围：灾备隔离、轮换、观测、真实恢复与受控账号端到端验收。
+
+<a id="cloud-custody-acceptance"></a>
+### 6.3 验收场景与结果边界
+
+| 验收 ID | 覆盖要求 | 使用者情境与可判定结果 | 不可替代的失败检查 |
+| --- | --- | --- | --- |
+| AC-CLOUD-01 | REQ-CLOUD-CUSTODY-001 | 管理多个测试账号，列表只显示非秘密元数据，切换后仅操作所选账号 | 替换 account/resource ID、枚举他人账号、日志与错误泄密必须被拒绝/消除 |
+| AC-CLOUD-02 | REQ-CLOUD-CUSTODY-002 | 登录后先保持只读；明确批准后只由相应用途密钥签协议请求 | 登录 cookie 冒充 owner、executor 调 owner 路由、共用三类 key、跨环境秘密都失败 |
+| AC-CLOUD-03 | REQ-CLOUD-CUSTODY-003 | 委托只在固定世界/Agent、动作参数、预算和期限内生效 | 并发超支、过期、跨世界、重放、续期、转授、任意 URL/raw sign 全部拒绝 |
+| AC-CLOUD-04 | REQ-CLOUD-CUSTODY-003 | 同一 Ed25519 测试向量在 Rust/Workers 双向生成和验签一致 | 域、字节、版本、整数编码、world/actor/fence 篡改与弱公钥必须拒绝 |
+| AC-CLOUD-05 | REQ-CLOUD-CUSTODY-004 | 超时/重启后回到同一原操作结果，不产生第二次业务效果 | 在提交前后各断网、并发同 ID、不同摘要、下游结果暂缺时不盲重发 |
+| AC-CLOUD-06 | REQ-CLOUD-CUSTODY-004 | 页面分别呈现本地暂停、世界 Stop、委托 Revoke 的完成或未知 | 父撤销后所有派生权限、未 claim 排队请求失效；已 claim 一律按 in-flight，未核对不得显示全部已撤销 |
+| AC-CLOUD-07 | REQ-CLOUD-CUSTODY-005 | 恢复旧快照仍冻结；核对当前安全代、撤销和原结果后重新批准 | 旧 capability、旧 nonce、旧预算、旧 Worker 版本不能复活写权限 |
+| AC-CLOUD-08 | REQ-CLOUD-CUSTODY-005 | 真实受控测试环境完成上述闭环，证据固定服务版本、世界身份和窗口 | 本地模拟、文档检查、cloud request accepted 均不冒充 world committed 或生产发行 |
+
+### 6.4 风险、成本与推进边界
+
+- 集中托管减少助手接触秘密，但集中 Worker 代码、平台账号与部署链的信任；账号分片不自动抵御平台管理员或供应链攻陷。
+- 暂停和结果核对优先于可用性。负责人承担重新认证、重新授权与处理未知请求的操作成本，不承诺断网期间持续执行。
+- 首版限制见[容量与预算](hosted-public-join-managed-identity-custody.design.md#cloud-custody-quality)，是待测上限而非容量实测。超限拒绝，不自动增加费用或购买资源。
+- 推进顺序为文档/独立安全审读、实现及离线向量/故障测试、隔离测试环境、真实受控账号验收。部署、凭据创建、数据导入与生产扩面分别需要明确授权；本次文档本身不授权这些动作。
+- 专业 owner 为 `blockchain_ops_engineer` 与 `runtime_engineer`，体验/claims 由 `producer_system_designer` 核对；具体实现排期及交付事实留在相应 PR/Task，不在本文维护第二份任务台账。

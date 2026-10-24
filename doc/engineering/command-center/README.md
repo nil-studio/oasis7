@@ -81,6 +81,8 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 ## 当前主线与进展
 
+2026-10-24 测试账号托管设计局部核对：在既有 [hosted custody 产品/系统权威](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#cloud-test-custody)明确多测试账号台账、Passkey 管理登录、独立 owner 批准、受限执行、原操作回读及冻结恢复。源码审读基线 `73398d454082eb2106b2f1075a57bc9f377cd222`；Cloudflare 服务与其真实验收均待实现，未部署、未迁移账号或创建凭据，不提升受限预览/生产 custody 口径。边界导航见[身份与 Agent](architecture/README.md#cc-architecture-agents)，其他项目/环境核验时间不变。
+
 以下主线消费既有里程碑和实际交付记录，不在这里重新排序或建立一套任务状态。
 [#4363](https://github.com/eng-cc/oasis7/issues/4363) 已以 `not_planned` 关闭，只是历史规划/文档来源；当前能力和限制回到对应主责文档与实际 PR/验证记录，不恢复旧 Issue 的剩余义务。
 “已有代码”“适用验证通过”“正式开放”“真人接受”分别表达，不用 PR 数量换算项目完成率。

@@ -119,6 +119,8 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 ## 身份与 Agent
 
+2026-10-24 测试账号托管设计局部核对（源码基线 `73398d454082eb2106b2f1075a57bc9f377cd222`）：[产品范围](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#cloud-test-custody)与[系统边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-test-custody-design)新增 Cloudflare 受控测试 lane，分离管理登录、owner 与 executor，账号 DO 持有授权/预算/原请求，D1 仅投影。现有实现仍是 Unix 本地 broker；云端服务、跨语言签名向量与恢复验收尚未实现。集中托管不改变世界权威/共识，不提供生产资产或治理 custody；Stop、Revoke 和未知原操作分别核对，恢复先冻结。
+
 玩家进入、游戏行动委托、operator 控制和代码开发会话分别成立。相同工具名称不能合并它们的权限与完成证据。
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
