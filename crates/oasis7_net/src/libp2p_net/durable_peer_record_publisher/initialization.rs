@@ -142,6 +142,9 @@ fn acquire_or_create_intent(
                     io_error("complete unpublished bootstrap intent", &temp_path, error)
                 })?;
         }
+        // Complete bytes can survive in page cache even if the previous file sync did not.
+        temp.sync_all()
+            .map_err(|error| io_error("sync recovered bootstrap intent", &temp_path, error))?;
         publish_intent_no_replace(&temp, &temp_path, &intent_path, directory)?;
         return Ok(temp);
     }
