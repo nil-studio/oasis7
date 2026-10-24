@@ -52,6 +52,23 @@ struct InitializingIntentV2<'a> {
     binding: super::PublisherBindingV2,
 }
 
+#[derive(Serialize)]
+struct FutureInitializationIntentV2<'a> {
+    schema_version: u16,
+    status: &'a str,
+    binding: super::PublisherBindingV2,
+    future_contract: &'a str,
+}
+
+#[derive(Serialize)]
+struct FuturePublisherStateV2<'a> {
+    schema_version: u16,
+    binding: super::PublisherBindingV2,
+    last_sequence: u64,
+    pending: Option<super::PendingPublicationV2>,
+    future_contract: &'a str,
+}
+
 #[derive(Clone, Copy)]
 enum BootstrapPhase {
     IntentOnly,
@@ -73,15 +90,19 @@ fn write_initializing_intent(
     keypair: &Keypair,
     template: &PeerRecord,
 ) -> Vec<u8> {
+    let bytes = encoded_initializing_intent(keypair, template);
+    write_private_file(&intent_path(directory), &bytes);
+    bytes
+}
+
+fn encoded_initializing_intent(keypair: &Keypair, template: &PeerRecord) -> Vec<u8> {
     let (_, binding) = super::publisher_binding(template, keypair).expect("publisher binding");
-    let bytes = super::canonical_cbor(&InitializingIntentV2 {
+    super::canonical_cbor(&InitializingIntentV2 {
         schema_version: super::STATE_SCHEMA_VERSION,
         status: "initializing",
         binding,
     })
-    .expect("encode canonical initialization intent");
-    write_private_file(&intent_path(directory), &bytes);
-    bytes
+    .expect("encode canonical initialization intent")
 }
 
 fn write_private_file(path: &std::path::Path, bytes: &[u8]) {
@@ -249,6 +270,225 @@ fn initializer_rejects_corrupt_or_wrong_scope_intent_without_creating_state() {
             !directory.0.join(super::LOCK_FILE_NAME).exists(),
             "rejected intent must not leave a permanent publisher lock"
         );
+    }
+}
+
+#[test]
+fn initializer_rejects_complete_future_intent_temp_without_replacing_it() {
+    let directory = TestDirectory::new();
+    let keypair = Keypair::generate_ed25519();
+    let template = sample_record(&keypair, 0);
+    let (_, binding) = super::publisher_binding(&template, &keypair).expect("publisher binding");
+    let future_bytes = super::canonical_cbor(&FutureInitializationIntentV2 {
+        schema_version: super::STATE_SCHEMA_VERSION + 1,
+        status: "initializing",
+        binding,
+        future_contract: "must-not-be-downgraded",
+    })
+    .expect("encode complete future intent");
+    let temp_path = directory
+        .0
+        .join(super::initialization::INTENT_TEMP_FILE_NAME);
+    write_private_file(&temp_path, &future_bytes);
+
+    assert!(
+        DurablePeerRecordPublisher::initialize(&directory.0, &keypair, &template).is_err(),
+        "a complete unsupported intent is not a crash-truncated intent"
+    );
+    assert_eq!(
+        std::fs::read(&temp_path).expect("retain future intent temp"),
+        future_bytes,
+        "initializer must not overwrite an intent from a newer schema"
+    );
+    assert!(!directory.0.join(super::STATE_FILE_NAME).exists());
+    assert!(!directory.0.join(super::LOCK_FILE_NAME).exists());
+    assert!(!intent_path(&directory).exists());
+}
+
+#[test]
+fn initializer_resumes_exact_prefix_of_current_intent_temp() {
+    let directory = TestDirectory::new();
+    let keypair = Keypair::generate_ed25519();
+    let template = sample_record(&keypair, 0);
+    let expected = encoded_initializing_intent(&keypair, &template);
+    let temp_path = directory
+        .0
+        .join(super::initialization::INTENT_TEMP_FILE_NAME);
+    write_private_file(&temp_path, &expected[..expected.len() / 2]);
+
+    DurablePeerRecordPublisher::initialize(&directory.0, &keypair, &template)
+        .expect("resume a torn write that is an exact prefix of this initialization");
+    assert!(!temp_path.exists());
+    assert!(!intent_path(&directory).exists());
+    let publisher = DurablePeerRecordPublisher::open(&directory.0, &keypair, &template)
+        .expect("open state completed from exact intent prefix");
+    assert_eq!(publisher.state.last_sequence, 0);
+}
+
+#[test]
+fn initializer_rejects_partial_future_intent_after_first_schema_difference() {
+    let directory = TestDirectory::new();
+    let keypair = Keypair::generate_ed25519();
+    let template = sample_record(&keypair, 0);
+    let expected = encoded_initializing_intent(&keypair, &template);
+    let (_, binding) = super::publisher_binding(&template, &keypair).expect("publisher binding");
+    let future = super::canonical_cbor(&FutureInitializationIntentV2 {
+        schema_version: super::STATE_SCHEMA_VERSION + 1,
+        status: "initializing",
+        binding,
+        future_contract: "future",
+    })
+    .expect("encode future initialization contract");
+    let first_difference = expected
+        .iter()
+        .zip(&future)
+        .position(|(expected, actual)| expected != actual)
+        .expect("future schema differs from the current intent");
+    let partial_future = &future[..=first_difference];
+    assert!(!expected.starts_with(partial_future));
+
+    let temp_path = directory
+        .0
+        .join(super::initialization::INTENT_TEMP_FILE_NAME);
+    write_private_file(&temp_path, partial_future);
+
+    assert!(
+        DurablePeerRecordPublisher::initialize(&directory.0, &keypair, &template).is_err(),
+        "a future-version prefix that already differs from current bytes must fail closed"
+    );
+    assert_eq!(
+        std::fs::read(&temp_path)
+            .expect("retain future prefix")
+            .as_slice(),
+        partial_future
+    );
+    assert!(!directory.0.join(super::STATE_FILE_NAME).exists());
+    assert!(!directory.0.join(super::LOCK_FILE_NAME).exists());
+}
+
+#[test]
+fn initializer_rejects_complete_future_state_temp_without_removing_it() {
+    let directory = TestDirectory::new();
+    let keypair = Keypair::generate_ed25519();
+    let template = sample_record(&keypair, 0);
+    write_initializing_intent(&directory, &keypair, &template);
+    let (_, binding) = super::publisher_binding(&template, &keypair).expect("publisher binding");
+    write_private_file(&directory.0.join(super::LOCK_FILE_NAME), &[]);
+    let future_bytes = super::canonical_cbor(&FuturePublisherStateV2 {
+        schema_version: super::STATE_SCHEMA_VERSION + 1,
+        binding,
+        last_sequence: 0,
+        pending: None,
+        future_contract: "must-not-be-downgraded",
+    })
+    .expect("encode complete future state");
+    let temp_path = directory.0.join(super::TEMP_FILE_NAME);
+    write_private_file(&temp_path, &future_bytes);
+
+    assert!(
+        DurablePeerRecordPublisher::initialize(&directory.0, &keypair, &template).is_err(),
+        "a complete unsupported state temp is not a crash-truncated state"
+    );
+    assert_eq!(
+        std::fs::read(&temp_path).expect("retain future state temp"),
+        future_bytes,
+        "initializer must not delete a future state it cannot decode"
+    );
+    assert!(!directory.0.join(super::STATE_FILE_NAME).exists());
+    assert_eq!(
+        std::fs::read(directory.0.join(super::LOCK_FILE_NAME)).expect("retain lock marker"),
+        b""
+    );
+}
+
+#[test]
+fn initializer_rejects_partial_future_state_after_first_schema_difference() {
+    let directory = TestDirectory::new();
+    let keypair = Keypair::generate_ed25519();
+    let template = sample_record(&keypair, 0);
+    write_initializing_intent(&directory, &keypair, &template);
+    let (_, binding) = super::publisher_binding(&template, &keypair).expect("publisher binding");
+    write_private_file(&directory.0.join(super::LOCK_FILE_NAME), &[]);
+    let expected_state = super::PublisherStateV2 {
+        schema_version: super::STATE_SCHEMA_VERSION,
+        binding: binding.clone(),
+        last_sequence: 0,
+        pending: None,
+    };
+    let expected = super::canonical_cbor(&expected_state).expect("encode zero state");
+    let future = super::canonical_cbor(&FuturePublisherStateV2 {
+        schema_version: super::STATE_SCHEMA_VERSION + 1,
+        binding,
+        last_sequence: 0,
+        pending: None,
+        future_contract: "future",
+    })
+    .expect("encode future state");
+    let first_difference = expected
+        .iter()
+        .zip(&future)
+        .position(|(expected, actual)| expected != actual)
+        .expect("future schema differs from the current state");
+    let partial_future = &future[..=first_difference];
+    assert!(!expected.starts_with(partial_future));
+    let temp_path = directory.0.join(super::TEMP_FILE_NAME);
+    write_private_file(&temp_path, partial_future);
+
+    assert!(
+        DurablePeerRecordPublisher::initialize(&directory.0, &keypair, &template).is_err(),
+        "a future state prefix that already differs from current bytes must fail closed"
+    );
+    assert_eq!(
+        std::fs::read(&temp_path)
+            .expect("retain future state prefix")
+            .as_slice(),
+        partial_future
+    );
+    assert!(!directory.0.join(super::STATE_FILE_NAME).exists());
+    assert_eq!(
+        std::fs::read(directory.0.join(super::LOCK_FILE_NAME)).expect("retain lock marker"),
+        b""
+    );
+}
+
+#[test]
+fn initializer_rejects_corrupt_nonprefix_intent_and_state_temps() {
+    for state_temp in [false, true] {
+        let directory = TestDirectory::new();
+        let keypair = Keypair::generate_ed25519();
+        let template = sample_record(&keypair, 0);
+        let temp_path = if state_temp {
+            write_initializing_intent(&directory, &keypair, &template);
+            write_private_file(&directory.0.join(super::LOCK_FILE_NAME), &[]);
+            directory.0.join(super::TEMP_FILE_NAME)
+        } else {
+            directory
+                .0
+                .join(super::initialization::INTENT_TEMP_FILE_NAME)
+        };
+        let corrupt = b"complete but unrelated bytes";
+        write_private_file(&temp_path, corrupt);
+
+        assert!(
+            DurablePeerRecordPublisher::initialize(&directory.0, &keypair, &template).is_err(),
+            "non-prefix corruption must not be treated as a torn write"
+        );
+        assert_eq!(
+            std::fs::read(&temp_path)
+                .expect("retain corrupt temp")
+                .as_slice(),
+            corrupt
+        );
+        assert!(!directory.0.join(super::STATE_FILE_NAME).exists());
+        if state_temp {
+            assert_eq!(
+                std::fs::read(directory.0.join(super::LOCK_FILE_NAME))
+                    .expect("retain empty marker"),
+                b""
+            );
+        } else {
+            assert!(!directory.0.join(super::LOCK_FILE_NAME).exists());
+        }
     }
 }
 

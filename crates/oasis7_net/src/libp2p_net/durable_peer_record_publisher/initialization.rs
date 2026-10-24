@@ -123,16 +123,25 @@ fn acquire_or_create_intent(
         }
 
         let bytes = read_locked_file(&temp, &temp_path, MAX_INTENT_BYTES)?;
-        if let Some(intent) = decode_complete_intent(&bytes)? {
-            validate_intent(&intent, expected_binding)?;
+        let expected_intent = encode_intent(expected_binding)?;
+        if bytes != expected_intent
+            && (bytes.len() >= expected_intent.len() || !expected_intent.starts_with(&bytes))
+        {
+            return Err(protocol_error(
+                "bootstrap intent temp is unsupported or does not match the current initialization"
+                    .into(),
+            ));
         }
         ensure_file_is_current_path(&temp, &temp_path)?;
-        let intent_bytes = encode_intent(expected_binding)?;
-        temp.set_len(0)
-            .and_then(|()| temp.seek(SeekFrom::Start(0)).map(|_| ()))
-            .and_then(|()| temp.write_all(&intent_bytes))
-            .and_then(|()| temp.sync_all())
-            .map_err(|error| io_error("replace unpublished bootstrap intent", &temp_path, error))?;
+        if bytes != expected_intent {
+            temp.set_len(0)
+                .and_then(|()| temp.seek(SeekFrom::Start(0)).map(|_| ()))
+                .and_then(|()| temp.write_all(&expected_intent))
+                .and_then(|()| temp.sync_all())
+                .map_err(|error| {
+                    io_error("complete unpublished bootstrap intent", &temp_path, error)
+                })?;
+        }
         publish_intent_no_replace(&temp, &temp_path, &intent_path, directory)?;
         return Ok(temp);
     }
@@ -231,21 +240,14 @@ fn read_and_validate_intent(
 ) -> Result<(), WorldError> {
     ensure_file_is_current_path(file, path)?;
     let bytes = read_locked_file(file, path, MAX_INTENT_BYTES)?;
-    let intent = decode_complete_intent(&bytes)?
-        .ok_or_else(|| protocol_error("bootstrap intent is incomplete or corrupt".into()))?;
-    validate_intent(&intent, expected_binding)
-}
-
-fn decode_complete_intent(bytes: &[u8]) -> Result<Option<InitializationIntentV2>, WorldError> {
-    let Ok(intent) = serde_cbor::from_slice::<InitializationIntentV2>(bytes) else {
-        return Ok(None);
-    };
+    let intent: InitializationIntentV2 = serde_cbor::from_slice(&bytes)
+        .map_err(|error| protocol_error(format!("bootstrap intent decode failed: {error}")))?;
     if canonical_cbor(&intent)? != bytes {
         return Err(protocol_error(
             "bootstrap intent is not canonical CBOR".into(),
         ));
     }
-    Ok(Some(intent))
+    validate_intent(&intent, expected_binding)
 }
 
 fn validate_intent(
@@ -373,7 +375,7 @@ fn finish_initialization(
             ));
         }
     }
-    recover_state_temp(directory, expected_binding, keypair, ready)?;
+    recover_state_temp(directory, expected_binding, ready)?;
 
     if !has_state {
         let initial_state = PublisherStateV2 {
@@ -411,7 +413,6 @@ fn read_and_validate_zero_state(
 fn recover_state_temp(
     directory: &Path,
     expected_binding: &PublisherBindingV2,
-    keypair: &Keypair,
     ready: bool,
 ) -> Result<(), WorldError> {
     let temp_path = directory.join(TEMP_FILE_NAME);
@@ -425,15 +426,19 @@ fn recover_state_temp(
         ));
     }
     let bytes = read_bounded_private_file(&temp_path, MAX_PERSISTED_STATE_BYTES)?;
-    if let Ok(state) = serde_cbor::from_slice::<PublisherStateV2>(&bytes)
-        && canonical_cbor(&state)? == bytes
+    let expected_state = PublisherStateV2 {
+        schema_version: STATE_SCHEMA_VERSION,
+        binding: expected_binding.clone(),
+        last_sequence: 0,
+        pending: None,
+    };
+    let expected_bytes = canonical_cbor(&expected_state)?;
+    if bytes != expected_bytes
+        && (bytes.len() >= expected_bytes.len() || !expected_bytes.starts_with(&bytes))
     {
-        validate_state(&state, expected_binding, keypair)?;
-        if state.last_sequence != 0 || state.pending.is_some() {
-            return Err(protocol_error(
-                "bootstrap state temp contains issued publication material".into(),
-            ));
-        }
+        return Err(protocol_error(
+            "bootstrap state temp is unsupported or does not match initial state".into(),
+        ));
     }
     ensure_private_regular_file(&temp_path)?;
     fs::remove_file(&temp_path)
