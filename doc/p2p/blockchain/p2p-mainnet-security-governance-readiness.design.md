@@ -92,7 +92,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。正式历史消费者�
 
 每段使用 predecessor 的受验 controller policy，按连续 `(event-id-era, event-id)` 顺序重验 admission 的原动作、签名、nonce 和事件效果；同一提交内不切换授权 policy。新事件可在 target 热 Journal 或其受验 retained-history index 中，缺失、损坏、游标回退与不连续均拒绝。每提交最多处理 65,536 个事件及 64 MiB 事件编码，超出明确报告容量不足；整条历史继续使用调用方同一个 deadline，不为每段重置预算。事件时间不能回退或越出前后 Snapshot 窗口。
 
-验证器只重演本合同拥有的 admission、nonce 和 controller registry 投影及 admission 所建立的身份绑定，并与 target Snapshot 对照；无事件的投影变化同样拒绝。保留已有明确 legacy unsigned prefix 兼容，首个 signed admission 后不能恢复 unsigned suffix。完整 World 最终由 target qualified checkpoint 恢复，不能把复制 target 字段后拼装的状态描述为确定性 raw journal 重放。归档／裁剪、Tick 和非 journal 状态仍归原完整 Snapshot 合同；任意旧 checkpoint 加 raw tail 的全状态重建尚未交付。
+每段以同一次读取且完整核验的 candidate／proof／展开 Snapshot 字节构造不可变治理投影；构造时绑定受验 parent、完整 canonical Snapshot root、Journal commitment 与游标，不重复恢复中间完整 World 或反复扫描其非治理 Tick 状态。投影不暴露可发布 World，最终 target 仍走原完整 World 恢复与校验。验证器只重演本合同拥有的 admission、nonce 和 controller registry 投影及 admission 所建立的身份绑定，并与 target Snapshot 对照；无事件的投影变化同样拒绝。保留已有明确 legacy unsigned prefix 兼容，首个 signed admission 后不能恢复 unsigned suffix。完整 World 最终由 target qualified checkpoint 恢复，不能把复制 target 字段后拼装的状态描述为确定性 raw journal 重放。归档／裁剪、Tick 和非 journal 状态仍归原完整 Snapshot 合同；任意旧 checkpoint 加 raw tail 的全状态重建尚未交付。
 
 每个 resolver 可缓存一个已经完整验证的精确 cut 的进程内结果，绑定既有固定外部 C0 和完整 authority context；不持久化该结果、不从 DTO 或 prewarm receipt 生成它，也不把它当作运行就绪。含有不可复制 healthy activation token 的 replay 结果不缓存；target 闭包仍按受验 root 核验，不能因 cache 命中接受变化的材料。冷启动和不同 target 仍从固定 C0 扫描并核验完整快照，成本随历史长度与快照大小增长；deadline 超时拒绝服务，不能据短历史通过推导长期启动可用性。独立受验 successor checkpoint 的续锚与长历史容量验收仍由同步恢复合同补齐。
 

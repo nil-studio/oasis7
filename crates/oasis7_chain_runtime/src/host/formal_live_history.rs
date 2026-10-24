@@ -296,23 +296,21 @@ impl NativeHistoryResolver {
             deadline,
             ReplayTargetPolicy::Exact,
             |cursor, position, pending_permission, operation_deadline| {
-                let proof = if let Some(proof) =
-                    super::execution_bridge::formal_writer::read_published_proof_at(
+                if let Some((candidate, proof)) =
+                    super::execution_bridge::formal_writer::read_published_candidate_at(
                         &self.writer_directory,
                         position,
                     )
                     .map_err(ReplayFailure::Invalid)?
                 {
-                    proof
-                } else {
-                    self.restore_history_proof(
-                        cursor,
-                        position,
-                        pending_permission,
-                        operation_deadline,
-                    )
-                    .map_err(ReplayFailure::Invalid)?
-                };
+                    return Ok(ReplayStepProof {
+                        proof,
+                        candidate: Some(candidate),
+                    });
+                }
+                let proof = self
+                    .restore_history_proof(cursor, position, pending_permission, operation_deadline)
+                    .map_err(ReplayFailure::Invalid)?;
                 Ok(ReplayStepProof {
                     proof,
                     candidate: None,
@@ -332,12 +330,13 @@ impl NativeHistoryResolver {
                     })
                     .transpose()
             },
-            |predecessor, anchor, proof, _| {
+            |predecessor, anchor, proof, candidate| {
                 self.verify_governance_history_step(
                     &mut governance_cursor,
                     predecessor,
                     anchor,
                     proof,
+                    candidate,
                     deadline,
                 )
                 .map_err(ReplayFailure::Invalid)
@@ -634,17 +633,21 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         }
     }
     fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, String> {
+        let deadline = Instant::now()
+            .checked_add(self.timeout)
+            .ok_or("HistoryUnavailable: fixed publication deadline overflow")?;
         if self.active.definition().profile_version == 2
             || !self.activation_markers.positions()?.is_empty()
         {
             let requested = self.anchor_ref_for_position(
                 commit.position,
                 Some(commit.execution_block_hash.as_str()),
+                deadline,
             )?;
-            return self.publication_from_exact_replay(&requested);
+            return self.publication_from_exact_replay_before(&requested, deadline);
         }
         let record_id = commit.execution_block_hash.as_str();
-        self.publication(&self.restore(commit.position, Some(record_id))?)
+        self.publication(&self.restore_before(commit.position, Some(record_id), deadline)?)
     }
     fn forward_publication(
         &self,
@@ -658,6 +661,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         {
             return Err("formal forward page bounds".into());
         }
+        let deadline = Instant::now()
+            .checked_add(self.timeout)
+            .ok_or("HistoryUnavailable: forward publication deadline overflow")?;
         let position = origin
             .head()
             .record()
@@ -677,11 +683,11 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                         .map_err(|error| error.to_string())?,
                 }
             } else {
-                self.anchor_ref_for_position(position, None)?
+                self.anchor_ref_for_position(position, None, deadline)?
             };
-            return self.publication_from_exact_replay(&requested);
+            return self.publication_from_exact_replay_before(&requested, deadline);
         }
-        self.publication(&self.restore(position, None)?)
+        self.publication(&self.restore_before(position, None, deadline)?)
     }
 
     fn history_page(

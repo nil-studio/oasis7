@@ -8,7 +8,7 @@ mod tests;
 pub(super) struct GovernanceHistoryCursor {
     checkpoint: FormalReadCheckpointV1,
     authority_context: String,
-    world: World,
+    projection: oasis7_runtime::VerifiedGovernanceHistorySnapshot,
 }
 
 fn remaining(deadline: Instant) -> Result<(), String> {
@@ -25,6 +25,7 @@ impl NativeHistoryResolver {
         predecessor: &VerifiedFormalReadAnchorV1,
         anchor: &VerifiedFormalReadAnchorV1,
         proof: &FormalQualifiedCommitProofV1,
+        candidate: Option<&FormalCandidateMaterialV1>,
         deadline: Instant,
     ) -> Result<(), String> {
         remaining(deadline)?;
@@ -51,15 +52,15 @@ impl NativeHistoryResolver {
             *cursor = Some(GovernanceHistoryCursor {
                 checkpoint: predecessor.checkpoint(),
                 authority_context: context,
-                world: self.governance_world_at(predecessor, None, deadline)?,
+                projection: self.governance_projection_at(predecessor, None, None, deadline)?,
             });
         }
-        let next = self.governance_world_at(anchor, Some(proof), deadline)?;
+        let next = self.governance_projection_at(anchor, Some(proof), candidate, deadline)?;
         cursor
             .as_ref()
             .ok_or("HistoryUnavailable: governance predecessor unavailable")?
-            .world
-            .verify_formal_governance_successor(&next, || remaining(deadline))
+            .projection
+            .verify_successor(&next, || remaining(deadline))
             .map_err(|e| format!("HistoryUnavailable: governance history authentication: {e}"))?;
         remaining(deadline)?;
         *cursor = Some(GovernanceHistoryCursor {
@@ -68,21 +69,62 @@ impl NativeHistoryResolver {
                 .authority()
                 .context_digest()
                 .map_err(|e| e.to_string())?,
-            world: next,
+            projection: next,
         });
         Ok(())
     }
 
-    fn governance_world_at(
+    fn governance_projection_at(
         &self,
         anchor: &VerifiedFormalReadAnchorV1,
-        known_proof: Option<&FormalQualifiedCommitProofV1>,
+        proof: Option<&FormalQualifiedCommitProofV1>,
+        candidate: Option<&FormalCandidateMaterialV1>,
         deadline: Instant,
-    ) -> Result<World, String> {
-        let material = self.governance_material_at(anchor, known_proof, deadline)?;
-        let world = self.world_for(anchor, &material)?;
+    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, String> {
         remaining(deadline)?;
-        Ok(world)
+        if let Some(candidate) = candidate {
+            let proof =
+                proof.ok_or("HistoryUnavailable: governance candidate lacks verified proof")?;
+            let cut = self.governance_cut(anchor, Some(proof.clone()))?;
+            let expanded = self.validate_material_for_replayed_cut(&cut, candidate, proof)?;
+            return self.governance_projection_from_material(
+                anchor,
+                &candidate.material,
+                expanded,
+                deadline,
+            );
+        }
+        let (material, expanded) =
+            self.governance_material_with_snapshot(anchor, proof, deadline)?;
+        self.governance_projection_from_material(anchor, &material, expanded, deadline)
+    }
+
+    fn governance_projection_from_material(
+        &self,
+        anchor: &VerifiedFormalReadAnchorV1,
+        material: &ClosedRecord,
+        expanded: Option<Vec<u8>>,
+        deadline: Instant,
+    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, String> {
+        remaining(deadline)?;
+        let bytes = match expanded {
+            Some(bytes) => bytes,
+            None => material.snapshot_bytes().map_err(|e| e.to_string())?,
+        };
+        let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
+        let journal = replay::decode_journal_role(
+            material,
+            oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole::Journal,
+        )?;
+        let projection =
+            oasis7_runtime::VerifiedGovernanceHistorySnapshot::from_verified_snapshot_bytes(
+                &bytes,
+                journal,
+                parent,
+                self.business_reader.clone(),
+            )?;
+        remaining(deadline)?;
+        Ok(projection)
     }
 
     pub(super) fn governance_material_at(
@@ -91,6 +133,16 @@ impl NativeHistoryResolver {
         known_proof: Option<&FormalQualifiedCommitProofV1>,
         deadline: Instant,
     ) -> Result<ClosedRecord, String> {
+        self.governance_material_with_snapshot(anchor, known_proof, deadline)
+            .map(|(material, _)| material)
+    }
+
+    fn governance_material_with_snapshot(
+        &self,
+        anchor: &VerifiedFormalReadAnchorV1,
+        known_proof: Option<&FormalQualifiedCommitProofV1>,
+        deadline: Instant,
+    ) -> Result<(ClosedRecord, Option<Vec<u8>>), String> {
         remaining(deadline)?;
         let position = anchor.head().record().position;
         let local = super::super::execution_bridge::formal_writer::read_published_candidate_at(
@@ -100,6 +152,29 @@ impl NativeHistoryResolver {
         let proof = known_proof
             .cloned()
             .or_else(|| local.as_ref().map(|(_, proof)| proof.clone()));
+        let cut = self.governance_cut(anchor, proof)?;
+        // Invalid present material is fatal. Only an absent publication may
+        // fall back to both authenticated native endpoints at this exact cut.
+        let (material, expanded) = if let Some((candidate, cached_proof)) = local {
+            let expanded =
+                self.validate_material_for_replayed_cut(&cut, &candidate, &cached_proof)?;
+            (candidate.material, expanded)
+        } else {
+            let restored = self.restore_exact_history_cut(&cut, deadline)?;
+            let material = restored.material().clone();
+            let expanded = oasis7_distfs::controlled_authority::formal::verify_record_material_retaining_snapshot(anchor.head().record(), &material).map_err(|e| e.to_string())?;
+            (material, expanded)
+        };
+        remaining(deadline)?;
+        Ok((material, expanded))
+    }
+
+    fn governance_cut(
+        &self,
+        anchor: &VerifiedFormalReadAnchorV1,
+        proof: Option<FormalQualifiedCommitProofV1>,
+    ) -> Result<ReplayedHistoryCut, String> {
+        let position = anchor.head().record().position;
         let recovery_digest = proof.as_ref().and_then(|p| {
             p.decision
                 .primary
@@ -138,24 +213,13 @@ impl NativeHistoryResolver {
         } else {
             None
         };
-        let cut = ReplayedHistoryCut {
+        Ok(ReplayedHistoryCut {
             anchor: anchor.clone(),
             target_proof: proof,
             target_recovery,
             activation: None,
             activation_predecessor: None,
             activation_step: None,
-        };
-        // Invalid present material is fatal. Only an absent publication may
-        // fall back to both authenticated native endpoints at this exact cut.
-        let material = if local.is_some() {
-            self.material_for_replayed_cut(&cut)?
-        } else {
-            self.restore_exact_history_cut(&cut, deadline)?
-                .material()
-                .clone()
-        };
-        remaining(deadline)?;
-        Ok(material)
+        })
     }
 }

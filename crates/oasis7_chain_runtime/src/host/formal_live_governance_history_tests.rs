@@ -461,6 +461,7 @@ fn governance_history_missing_middle_publication_restores_from_authenticated_nat
     archive.resolver.active = anchor.authority().clone();
     let (_endpoints, mut coordinator, mut proof) =
         protected_endpoints(&mut archive, &certificate, &trust, &candidate);
+    let mut snapshots = Vec::new();
     for (index, command) in [
         governance::action("native-history"),
         Action::ApproveGovernanceValidatorAdmission {
@@ -480,13 +481,62 @@ fn governance_history_missing_middle_publication_restores_from_authenticated_nat
             governance::history_successor(&before, &anchor, world, &candidate, &proof);
         proof = qualify_native(&mut coordinator, &candidate);
         archive.save(&candidate, &proof);
+        snapshots.push(world.snapshot());
     }
     let missing = archive
         .root
         .join("published")
         .join(format!("{:020}.cbor", anchor.head().record().position - 1));
+    // Available authenticated endpoints must not conceal invalid present local material.
+    let position = anchor.head().record().position - 1;
+    let (valid_middle, middle_proof) =
+        crate::execution_bridge::formal_writer::read_published_candidate_at(
+            &archive.root,
+            position,
+        )
+        .unwrap()
+        .unwrap();
+    let mut invalid_middle = valid_middle.clone();
+    invalid_middle.material.objects[0].bytes.push(0);
+    archive.save(&invalid_middle, &middle_proof);
+    let rejected = archive
+        .restore(&anchor)
+        .err()
+        .expect("present corrupt closure must not fall back to healthy native replicas");
+    assert!(
+        rejected.contains("local publication closure"),
+        "unexpected rejection: {rejected}"
+    );
+    archive.save(&valid_middle, &middle_proof);
     fs::remove_file(&missing).unwrap();
     assert!(!missing.exists());
+    let target_file = archive
+        .root
+        .join("published")
+        .join(format!("{:020}.cbor", anchor.head().record().position));
+    fs::remove_file(&target_file).unwrap();
+    let commit = fixtures::commit_ref(&anchor, &fixtures::projection(&world));
+    let fixed = archive.resolver.fixed_publication(&commit).unwrap();
+    assert_eq!(fixed.world().snapshot(), snapshots[1]);
+    let page = archive
+        .resolver
+        .forward_publication(&archive.resolver.external_origin, &anchor, 1)
+        .unwrap();
+    assert_eq!(page.world().snapshot(), snapshots[0]);
+    // A present invalid target must still fail even though both native copies are healthy.
+    let mut invalid_target = candidate.clone();
+    invalid_target.material.objects[0].bytes.push(0);
+    archive.save(&invalid_target, &proof);
+    let rejected = archive
+        .resolver
+        .fixed_publication(&commit)
+        .err()
+        .expect("invalid present target may not fall back");
+    assert!(
+        rejected.contains("local publication closure"),
+        "unexpected rejection: {rejected}"
+    );
+    archive.save(&candidate, &proof);
     let publication = archive.restore(&anchor).unwrap();
     let mut restored = publication.world().clone();
     assert_eq!(

@@ -62,6 +62,7 @@ impl Write for ByteBudget {
 }
 
 impl World {
+    #[cfg(test)]
     fn exact_governance_history_parent(
         &self,
     ) -> Result<&VerifiedFormalRetainedHistoryParentV1, String> {
@@ -82,7 +83,8 @@ impl World {
 
     /// Validate the governance projection of one adjacent pair of qualified
     /// snapshots. This does not verify the host's canonical previous-hash chain.
-    pub fn verify_formal_governance_successor(
+    #[cfg(test)]
+    pub(super) fn verify_formal_governance_successor(
         &self,
         next: &World,
         mut check_budget: impl FnMut() -> Result<(), String>,
@@ -91,6 +93,17 @@ impl World {
         let parent = self.exact_governance_history_parent()?;
         check_budget()?;
         let successor = next.exact_governance_history_parent()?;
+        check_budget()?;
+        self.verify_governance_projection_successor(next, parent, successor, check_budget)
+    }
+
+    pub(super) fn verify_governance_projection_successor(
+        &self,
+        next: &World,
+        parent: &VerifiedFormalRetainedHistoryParentV1,
+        successor: &VerifiedFormalRetainedHistoryParentV1,
+        mut check_budget: impl FnMut() -> Result<(), String>,
+    ) -> Result<(), String> {
         check_budget()?;
         let world = parent
             .effect_world()

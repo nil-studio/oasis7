@@ -126,8 +126,32 @@ fn pair() -> (World, World) {
     let next = successor(&parent, command());
     (parent, next)
 }
+fn projection(world: &World) -> Result<crate::VerifiedGovernanceHistorySnapshot, String> {
+    let history = world
+        .formal_history_reader
+        .as_ref()
+        .ok_or("missing test parent")?;
+    crate::VerifiedGovernanceHistorySnapshot::from_verified_snapshot_bytes(
+        &oasis7_world_state::codec::snapshot_cbor(&world.snapshot()).unwrap(),
+        world.journal.clone(),
+        history
+            .parent
+            .clone()
+            .ok_or("missing qualified test parent")?,
+        history.governance_test_reader(),
+    )
+}
 fn verify(parent: &World, next: &World) -> Result<(), String> {
-    parent.verify_formal_governance_successor(next, || Ok(()))
+    let complete = parent.verify_formal_governance_successor(next, || Ok(()));
+    let projected = projection(parent).and_then(|before| {
+        projection(next).and_then(|after| before.verify_successor(&after, || Ok(())))
+    });
+    assert_eq!(
+        complete.is_ok(),
+        projected.is_ok(),
+        "full={complete:?}, projection={projected:?}"
+    );
+    complete
 }
 #[test]
 fn governance_history_rejects_unqualified_worlds() {
@@ -503,4 +527,117 @@ fn governance_history_reads_real_cold_archive_and_rejects_corrupt_cas_without_mu
     assert_eq!(missing.snapshot(), next_before);
     assert_eq!(missing.journal, next_journal);
     assert_eq!(*nodes.0.lock().unwrap(), nodes_before);
+}
+
+#[test]
+fn governance_history_projection_preserves_full_restore_policy_rejection() {
+    let base = world();
+    for invalid in 0..4 {
+        let mut snapshot = base.snapshot();
+        match invalid {
+            0 => snapshot.governance_execution_policy.epoch_length_ticks = 0,
+            1 => {
+                snapshot
+                    .governance_execution_policy
+                    .emergency_brake_guardian_threshold = 0
+            }
+            2 => {
+                snapshot
+                    .governance_execution_policy
+                    .emergency_veto_guardian_threshold = 0
+            }
+            _ => {
+                snapshot
+                    .governance_execution_policy
+                    .emergency_brake_max_ticks = 0
+            }
+        }
+        let bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).unwrap();
+        let original = base
+            .formal_history_reader
+            .as_ref()
+            .unwrap()
+            .parent
+            .as_ref()
+            .unwrap();
+        let parent = crate::VerifiedFormalRetainedHistoryParentV1::for_test_governance_snapshot(
+            snapshot.state.retained_history_root.clone().unwrap(),
+            &bytes,
+            original.effect_world().unwrap().clone(),
+            original.head().unwrap().clone(),
+        );
+        let projected = crate::VerifiedGovernanceHistorySnapshot::from_verified_snapshot_bytes(
+            &bytes,
+            base.journal.clone(),
+            parent.clone(),
+            Arc::new(EmptyNodes),
+        );
+        assert!(projected.err().unwrap().contains("GovernancePolicyInvalid"));
+        let complete = World::from_verified_formal_snapshot(
+            snapshot,
+            base.journal.clone(),
+            parent,
+            Arc::new(EmptyNodes),
+        );
+        assert!(matches!(
+            complete,
+            Err(crate::WorldError::GovernancePolicyInvalid { .. })
+        ));
+    }
+}
+
+#[test]
+fn governance_history_projection_rejects_missing_admission_bindings_and_allocator_normalization() {
+    let base = successor(&world(), command());
+    for invalid in 0..3 {
+        let mut snapshot = base.snapshot();
+        match invalid {
+            0 => {
+                snapshot.state.node_identity_bindings.remove("node");
+            }
+            1 => {
+                snapshot
+                    .state
+                    .node_main_token_account_bindings
+                    .remove("node");
+            }
+            _ => snapshot.next_governance_identity_penalty_id = 0,
+        }
+        let bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).unwrap();
+        let original = base
+            .formal_history_reader
+            .as_ref()
+            .unwrap()
+            .parent
+            .as_ref()
+            .unwrap();
+        let parent = crate::VerifiedFormalRetainedHistoryParentV1::for_test_governance_snapshot(
+            snapshot.state.retained_history_root.clone().unwrap(),
+            &bytes,
+            original.effect_world().unwrap().clone(),
+            original.head().unwrap().clone(),
+        );
+        let projected = crate::VerifiedGovernanceHistorySnapshot::from_verified_snapshot_bytes(
+            &bytes,
+            base.journal.clone(),
+            parent.clone(),
+            Arc::new(EmptyNodes),
+        );
+        assert!(projected.err().unwrap().contains("normalization"));
+        let complete = World::from_verified_formal_snapshot(
+            snapshot,
+            base.journal.clone(),
+            parent,
+            Arc::new(EmptyNodes),
+        );
+        match complete {
+            Err(crate::WorldError::DistributedValidationFailed { reason }) => {
+                assert_eq!(
+                    reason,
+                    "World snapshot does not match the verified retained-history parent"
+                );
+            }
+            _ => panic!("complete restore must reject the changed qualified root"),
+        }
+    }
 }

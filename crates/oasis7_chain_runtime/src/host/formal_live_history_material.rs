@@ -319,24 +319,16 @@ impl NativeHistoryResolver {
         Ok(world)
     }
 
-    pub(super) fn material_for_replayed_cut(
+    pub(super) fn validate_material_for_replayed_cut(
         &self,
         replayed: &ReplayedHistoryCut,
-    ) -> Result<ClosedRecord, String> {
+        candidate: &FormalCandidateMaterialV1,
+        cached_proof: &FormalQualifiedCommitProofV1,
+    ) -> Result<Option<Vec<u8>>, String> {
         let anchor = &replayed.anchor;
         let record = anchor.head().record();
-        let (candidate, cached_proof) = super::super::execution_bridge::formal_writer::read_published_candidate_at(
-            &self.writer_directory,
-            record.position,
-        )?
-        .ok_or_else(|| {
-            format!(
-                "HistoryUnavailable: exact local publication material is missing at position {}",
-                record.position
-            )
-        })?;
         let proof = if let Some(proof) = &replayed.target_proof {
-            if &cached_proof != proof {
+            if cached_proof != proof {
                 return Err(
                     "HistoryUnavailable: local proof differs from externally replayed exact cut"
                         .into(),
@@ -344,14 +336,14 @@ impl NativeHistoryResolver {
             }
             proof
         } else {
-            let verified = verify_formal_qualified(&cached_proof, anchor.authority(), None, None)
+            let verified = verify_formal_qualified(cached_proof, anchor.authority(), None, None)
                 .map_err(|error| error.to_string())?;
             if verified.head() != anchor.head().head() {
                 return Err(
                     "HistoryUnavailable: local initial proof differs from exact anchor".into(),
                 );
             }
-            &cached_proof
+            cached_proof
         };
         let record_id = anchor.head().head().record_id.clone();
         let receipts_match = [
@@ -380,7 +372,11 @@ impl NativeHistoryResolver {
                     .into(),
             );
         }
-        verify_record_material(record, &candidate.material)
+        let snapshot =
+            oasis7_distfs::controlled_authority::formal::verify_record_material_retaining_snapshot(
+                record,
+                &candidate.material,
+            )
             .map_err(|error| format!("HistoryUnavailable: local publication closure: {error}"))?;
         match (&candidate.frozen, &candidate.frozen_material) {
             (Some(certificate), Some(material)) => {
@@ -394,13 +390,14 @@ impl NativeHistoryResolver {
                 );
             }
         }
-        Ok(candidate.material)
+        Ok(snapshot)
     }
 
     pub(super) fn anchor_ref_for_position(
         &self,
         position: u64,
         expected_record_id: Option<&str>,
+        deadline: Instant,
     ) -> Result<FormalReadAnchorRefV1, String> {
         if position == self.external_origin.head().record().position {
             let anchor = &self.external_origin;
@@ -419,13 +416,35 @@ impl NativeHistoryResolver {
                     .map_err(|error| error.to_string())?,
             });
         }
-        let proof = super::super::execution_bridge::formal_writer::read_published_proof_at(
+        if Instant::now() >= deadline {
+            return Err("HistoryUnavailable: anchor resolution deadline exceeded".into());
+        }
+        let local = super::super::execution_bridge::formal_writer::read_published_proof_at(
             &self.writer_directory,
             position,
-        )?
-        .ok_or_else(|| {
-            format!("HistoryUnavailable: exact publication proof is missing at position {position}")
-        })?;
+        )?;
+        let Some(proof) = local else {
+            if !self.activation_markers.positions()?.is_empty() {
+                return Err(format!(
+                    "HistoryUnavailable: exact publication proof is missing at position {position}"
+                ));
+            }
+            // Preserve ordinary native lookup when a local cache entry is absent.
+            // This selector still requires the complete C0 governance replay below.
+            let restored = self.restore_before(position, expected_record_id, deadline)?;
+            let anchor = self.anchor_for(&restored)?;
+            if Instant::now() >= deadline {
+                return Err("HistoryUnavailable: anchor resolution deadline exceeded".into());
+            }
+            return Ok(FormalReadAnchorRefV1 {
+                position: anchor.head().record().position,
+                record_id: anchor.head().head().record_id,
+                active_authority_id: anchor
+                    .authority()
+                    .authority_id()
+                    .map_err(|e| e.to_string())?,
+            });
+        };
         let record = &proof.decision.record;
         let record_id = record.record_id().map_err(|error| error.to_string())?;
         if record.position != position
@@ -486,6 +505,14 @@ impl NativeHistoryResolver {
         let deadline = Instant::now()
             .checked_add(self.timeout)
             .ok_or("HistoryUnavailable: exact publication replay deadline overflow")?;
+        self.publication_from_exact_replay_before(requested, deadline)
+    }
+
+    pub(super) fn publication_from_exact_replay_before(
+        &self,
+        requested: &FormalReadAnchorRefV1,
+        deadline: Instant,
+    ) -> Result<FormalReadPublication, String> {
         let replayed = self.replay_exact_origin(requested, deadline)?;
         if Instant::now() >= deadline {
             return Err("HistoryUnavailable: exact publication replay deadline exceeded".into());
