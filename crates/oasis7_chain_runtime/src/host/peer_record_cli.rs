@@ -5,6 +5,39 @@ use oasis7::development_node_config::{
 use super::cli::CliOptions;
 
 pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
+    let has_publication_transition =
+        options.withdraw_peer_record_publication || options.resume_peer_record_publication;
+    if options.withdraw_peer_record_publication && options.resume_peer_record_publication {
+        return Err(
+            "--withdraw-peer-record-publication and --resume-peer-record-publication are mutually exclusive"
+                .into(),
+        );
+    }
+    if has_publication_transition
+        && options.p2p_peer_record_publication != DevelopmentPeerRecordPublicationModeV1::V2Durable
+    {
+        return Err(
+            "peer-record publication transitions require --p2p-peer-record-publication v2_durable"
+                .into(),
+        );
+    }
+    if has_publication_transition
+        && options.p2p_peer_record_reception
+            == DevelopmentPeerRecordReceptionModeV1::LegacyCompatible
+    {
+        return Err(
+            "peer-record publication transitions require --p2p-peer-record-reception v2_durable_compatible or v2_only"
+                .into(),
+        );
+    }
+    if has_publication_transition
+        && (options.formal_live_config.is_some() || options.guarded_initial_config.is_some())
+    {
+        return Err(
+            "peer-record publication transitions apply only to the standard development host runtime"
+                .into(),
+        );
+    }
     if options.p2p_peer_record_reception != DevelopmentPeerRecordReceptionModeV1::LegacyCompatible
         && (options.formal_live_config.is_some() || options.guarded_initial_config.is_some())
     {
@@ -57,6 +90,14 @@ pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
     if options.initialize_peer_record_publication && options.initialize_peer_record_receiver {
         return Err(
             "peer-record publication and receiver initialization are separate one-time operations"
+                .into(),
+        );
+    }
+    if has_publication_transition
+        && (options.initialize_peer_record_publication || options.initialize_peer_record_receiver)
+    {
+        return Err(
+            "peer-record publisher initialization and publication transitions are mutually exclusive startup actions"
                 .into(),
         );
     }

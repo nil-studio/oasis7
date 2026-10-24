@@ -179,11 +179,11 @@ pub(super) fn sign_peer_record_v2(
     publication: PeerRecordPublicationV2,
     keypair: &Keypair,
 ) -> Result<SignedPeerRecord, WorldError> {
-    publication
-        .validate()
-        .map_err(|reason| WorldError::NetworkProtocolUnavailable {
+    publication.validate_for_record(&record).map_err(|reason| {
+        WorldError::NetworkProtocolUnavailable {
             protocol: reason.to_string(),
-        })?;
+        }
+    })?;
     let record = normalized_record_for_signing(record, keypair)?;
     let payload = encode_peer_record_signing_payload_v2(&publication, &record)?;
     let signature =
@@ -241,7 +241,14 @@ pub(super) fn verify_signed_peer_record(record: &SignedPeerRecord) -> Result<(),
     })?;
     let payload = match &record.publication {
         None => encode_peer_record_signing_payload(&record.record)?,
-        Some(publication) => encode_peer_record_signing_payload_v2(publication, &record.record)?,
+        Some(publication) => {
+            publication
+                .validate_for_record(&record.record)
+                .map_err(|reason| WorldError::NetworkProtocolUnavailable {
+                    protocol: reason.to_string(),
+                })?;
+            encode_peer_record_signing_payload_v2(publication, &record.record)?
+        }
     };
     if !public_key.verify(payload.as_slice(), signature.as_slice()) {
         return Err(WorldError::NetworkProtocolUnavailable {
@@ -383,11 +390,11 @@ pub(super) fn encode_peer_record_signing_payload_v2(
     publication: &PeerRecordPublicationV2,
     record: &PeerRecord,
 ) -> Result<Vec<u8>, WorldError> {
-    publication
-        .validate()
-        .map_err(|reason| WorldError::NetworkProtocolUnavailable {
+    publication.validate_for_record(record).map_err(|reason| {
+        WorldError::NetworkProtocolUnavailable {
             protocol: reason.to_string(),
-        })?;
+        }
+    })?;
     let mut payload = b"oasis7-peer-record-v2|".to_vec();
     payload.extend_from_slice(&to_canonical_cbor(&(
         publication.schema_version,

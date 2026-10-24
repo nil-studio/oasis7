@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use libp2p::{Multiaddr, multiaddr::Protocol};
 use libp2p::{PeerId, identity::Keypair};
-use oasis7_proto::distributed_dht::{PeerRecord, PeerRecordPublicationV2, SignedPeerRecord};
+use oasis7_proto::distributed_dht::{
+    PeerRecord, PeerRecordPublicationStateV2, PeerRecordPublicationV2, SignedPeerRecord,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::error::WorldError;
@@ -202,6 +204,13 @@ impl PeerRecordReceiver {
     pub(super) fn preflight_record(&self, record: &SignedPeerRecord) -> Result<(), WorldError> {
         verify_signed_peer_record(record)?;
         if self.state.mode == PeerRecordReceiverMode::Legacy {
+            if record.publication.as_ref().is_some_and(|publication| {
+                publication.state == PeerRecordPublicationStateV2::Tombstone
+            }) {
+                return Err(protocol_error(
+                    "tombstone requires a durable receiver mode".into(),
+                ));
+            }
             return Ok(());
         }
         let durable = self.durable_lock()?;
@@ -414,6 +423,41 @@ impl PeerRecordReceiver {
                 })
             }
         }
+    }
+
+    /// Return the exact currently committed tombstone bytes for bounded forwarding.
+    /// A floor is evidence only: callers must still apply their process-local time
+    /// policy, and this method never creates a candidate or a lease.
+    pub(super) fn current_tombstone_for_forwarding(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<Option<SignedPeerRecord>, WorldError> {
+        let Some(durable) = self.durable_lock()? else {
+            return Ok(None);
+        };
+        ensure_durable_usable(&durable)?;
+        let Some(floor) = durable.ledger.floors.get(&peer_id.to_string()) else {
+            return Ok(None);
+        };
+        if floor.isolated {
+            return Ok(None);
+        }
+        let signed = decode_stored_record(&floor.primary_signed_record_cbor)?;
+        let Some(publication) = signed.publication.as_ref() else {
+            return Err(protocol_error(
+                "receiver floor primary is not a V2 signed record".into(),
+            ));
+        };
+        ensure_record_matches_binding(&signed, &durable.ledger.binding)?;
+        validate_record_paths(&signed)?;
+        let identity = record_identity(&signed, publication)?;
+        if publication.state != PeerRecordPublicationStateV2::Tombstone
+            || publication.sequence != floor.sequence
+            || encode_digest(&identity) != floor.signing_payload_digest_hex
+        {
+            return Ok(None);
+        }
+        Ok(Some(signed))
     }
 
     fn durable_lock(&self) -> Result<Option<MutexGuard<'_, DurableReceiver>>, WorldError> {

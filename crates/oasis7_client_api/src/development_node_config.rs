@@ -380,4 +380,26 @@ mod tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn one_startup_publisher_transitions_are_not_persistable_runtime_fields() {
+        for action in [
+            "withdraw_peer_record_publication",
+            "resume_peer_record_publication",
+        ] {
+            let mut value = serde_json::json!({
+                "node_id": "node",
+                "world_id": "world",
+                "p2p_peer_record_publication": "v2_durable"
+            });
+            value
+                .as_object_mut()
+                .expect("runtime config object")
+                .insert(action.to_string(), serde_json::json!(true));
+            assert!(
+                serde_json::from_value::<DevelopmentRuntimeConfigV1>(value).is_err(),
+                "one-startup action {action} must not become persistent runtime configuration"
+            );
+        }
+    }
 }

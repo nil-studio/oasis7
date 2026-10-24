@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::WorldError;
 
+use super::config::PeerRecordPublicationTransition;
 use super::peer_record::{sign_peer_record_v2, verify_signed_peer_record};
 
 #[path = "durable_peer_record_publisher/initialization.rs"]
@@ -39,6 +40,11 @@ struct PendingPublicationV2 {
     sequence: u64,
     materialized_record_cbor: Vec<u8>,
     signed_record_cbor: Option<Vec<u8>>,
+    #[serde(
+        default = "default_publication_state",
+        skip_serializing_if = "is_live_state"
+    )]
+    state: PeerRecordPublicationStateV2,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +54,19 @@ struct PublisherStateV2 {
     binding: PublisherBindingV2,
     last_sequence: u64,
     pending: Option<PendingPublicationV2>,
+    #[serde(
+        default = "default_publication_state",
+        skip_serializing_if = "is_live_state"
+    )]
+    state: PeerRecordPublicationStateV2,
+}
+
+fn default_publication_state() -> PeerRecordPublicationStateV2 {
+    PeerRecordPublicationStateV2::Live
+}
+
+fn is_live_state(state: &PeerRecordPublicationStateV2) -> bool {
+    *state == PeerRecordPublicationStateV2::Live
 }
 
 pub(super) struct DurablePeerRecordPublisher {
@@ -94,6 +113,28 @@ impl LocalPeerRecordPublisher {
         }
     }
 
+    pub(super) fn apply_transition(
+        &mut self,
+        transition: PeerRecordPublicationTransition,
+        template: &PeerRecord,
+        keypair: &Keypair,
+    ) -> Result<(), WorldError> {
+        match self {
+            Self::Legacy => Err(protocol_error(
+                "peer-record publication transitions require durable V2 publication".into(),
+            )),
+            Self::Durable(publisher) => publisher.apply_transition(transition, template, keypair),
+        }
+    }
+
+    pub(super) fn is_withdrawn(&self) -> bool {
+        matches!(
+            self,
+            Self::Durable(publisher)
+                if publisher.state.state == PeerRecordPublicationStateV2::Tombstone
+        )
+    }
+
     pub(super) fn signed_record_for_remote_request(
         &self,
         current_record: &PeerRecord,
@@ -132,7 +173,7 @@ impl DurablePeerRecordPublisher {
     ) -> Result<Self, WorldError> {
         let (template, binding) = publisher_binding(template, keypair)?;
         require_private_persistence_platform()?;
-        ensure_existing_private_directory(directory)?;
+        ensure_existing_private_directory(directory, "publication")?;
         initialization::ensure_no_incomplete_bootstrap(directory)?;
 
         let lock_path = directory.join(LOCK_FILE_NAME);
@@ -161,6 +202,7 @@ impl DurablePeerRecordPublisher {
                 binding: binding.clone(),
                 last_sequence: 0,
                 pending: None,
+                state: PeerRecordPublicationStateV2::Live,
             },
             poisoned: false,
         };
@@ -174,12 +216,16 @@ impl DurablePeerRecordPublisher {
         record: &PeerRecord,
     ) -> Result<SignedPeerRecord, WorldError> {
         self.ensure_usable()?;
+        if self.state.state == PeerRecordPublicationStateV2::Tombstone {
+            return self.sign_and_persist_pending();
+        }
         let record = self.normalize_and_check_materialized_record(record)?;
         ensure_record_is_unexpired(&record)?;
         let record_bytes = canonical_cbor(&record)?;
         ensure_record_capacity(record_bytes.len())?;
 
         if let Some(pending) = &self.state.pending
+            && pending.state == PeerRecordPublicationStateV2::Live
             && pending.materialized_record_cbor == record_bytes
         {
             if let Some(signed_bytes) = &pending.signed_record_cbor {
@@ -193,6 +239,7 @@ impl DurablePeerRecordPublisher {
             sequence,
             materialized_record_cbor: record_bytes,
             signed_record_cbor: None,
+            state: PeerRecordPublicationStateV2::Live,
         };
         let mut next = self.state.clone();
         next.last_sequence = sequence;
@@ -213,6 +260,14 @@ impl DurablePeerRecordPublisher {
             return Ok(None);
         };
         let signed = self.decode_and_check_signed_record(pending, signed_bytes)?;
+        if self.state.state == PeerRecordPublicationStateV2::Tombstone {
+            return Ok((signed.publication.as_ref().map(|value| value.state)
+                == Some(PeerRecordPublicationStateV2::Tombstone))
+            .then_some(signed));
+        }
+        if pending.state != PeerRecordPublicationStateV2::Live {
+            return Ok(None);
+        }
         let mut expected = current_record.clone();
         expected.published_at_ms = signed.record.published_at_ms;
         let expected = self.normalize_and_check_materialized_record(&expected)?;
@@ -220,6 +275,67 @@ impl DurablePeerRecordPublisher {
             return Ok(None);
         }
         Ok(Some(signed))
+    }
+
+    fn apply_transition(
+        &mut self,
+        transition: PeerRecordPublicationTransition,
+        template: &PeerRecord,
+        keypair: &Keypair,
+    ) -> Result<(), WorldError> {
+        self.ensure_usable()?;
+        if hex::encode(keypair.public().encode_protobuf())
+            != self.state.binding.identity_public_key_protobuf_hex
+        {
+            return Err(protocol_error(
+                "publication transition key does not match durable publisher binding".into(),
+            ));
+        }
+        if template.world_id != self.state.binding.world_id
+            || template.network_id != self.state.binding.network_id
+        {
+            return Err(protocol_error(
+                "publication transition template does not match durable publisher scope".into(),
+            ));
+        }
+
+        match transition {
+            PeerRecordPublicationTransition::Withdraw => {
+                if self.state.state == PeerRecordPublicationStateV2::Tombstone {
+                    return self.sign_and_persist_pending().map(|_| ());
+                }
+                let mut record = template.clone();
+                record.peer_id = self.state.binding.peer_id.clone();
+                record.direct_addrs.clear();
+                record.hole_punch_addrs.clear();
+                record.relay_addrs.clear();
+                record.published_at_ms = super::now_ms();
+                let record = self.normalize_and_check_tombstone_record(&record)?;
+                ensure_record_is_unexpired(&record)?;
+                let record_bytes = canonical_cbor(&record)?;
+                ensure_record_capacity(record_bytes.len())?;
+                let sequence = self.next_sequence()?;
+                let mut next = self.state.clone();
+                next.state = PeerRecordPublicationStateV2::Tombstone;
+                next.last_sequence = sequence;
+                next.pending = Some(PendingPublicationV2 {
+                    sequence,
+                    materialized_record_cbor: record_bytes,
+                    signed_record_cbor: None,
+                    state: PeerRecordPublicationStateV2::Tombstone,
+                });
+                self.persist_state(next)?;
+                self.sign_and_persist_pending().map(|_| ())
+            }
+            PeerRecordPublicationTransition::Resume => {
+                if self.state.state == PeerRecordPublicationStateV2::Live {
+                    return Ok(());
+                }
+                let mut next = self.state.clone();
+                next.state = PeerRecordPublicationStateV2::Live;
+                self.persist_state(next)
+            }
+        }
     }
 
     fn load_existing_state(
@@ -270,7 +386,7 @@ impl DurablePeerRecordPublisher {
             PeerRecordPublicationV2 {
                 schema_version: 2,
                 sequence: pending.sequence,
-                state: PeerRecordPublicationStateV2::Live,
+                state: pending.state,
             },
             &self.keypair,
         )?;
@@ -311,7 +427,10 @@ impl DurablePeerRecordPublisher {
             .publication
             .as_ref()
             .ok_or_else(|| protocol_error("stored publication is not V2".into()))?;
-        if publication.sequence != pending.sequence || signed.record != record {
+        if publication.sequence != pending.sequence
+            || publication.state != pending.state
+            || signed.record != record
+        {
             return Err(protocol_error(
                 "stored signed publication does not match its reservation".into(),
             ));
@@ -340,6 +459,7 @@ impl DurablePeerRecordPublisher {
             sequence,
             materialized_record_cbor: record_bytes,
             signed_record_cbor: None,
+            state: PeerRecordPublicationStateV2::Live,
         });
         self.persist_state(next)?;
         Ok(sequence)
@@ -375,6 +495,35 @@ impl DurablePeerRecordPublisher {
         if expected != normalized {
             return Err(protocol_error(
                 "materialized peer record does not match durable publisher template".into(),
+            ));
+        }
+        Ok(normalized)
+    }
+
+    fn normalize_and_check_tombstone_record(
+        &self,
+        record: &PeerRecord,
+    ) -> Result<PeerRecord, WorldError> {
+        let mut normalized = record.clone();
+        normalized.peer_id = self.state.binding.peer_id.clone();
+        normalized.validate_policy().map_err(protocol_error)?;
+        if !normalized.direct_addrs.is_empty()
+            || !normalized.hole_punch_addrs.is_empty()
+            || !normalized.relay_addrs.is_empty()
+        {
+            return Err(protocol_error(
+                "peer record tombstone must not contain transport addresses".into(),
+            ));
+        }
+        let mut expected = self.template.clone();
+        expected.peer_id = self.state.binding.peer_id.clone();
+        expected.published_at_ms = normalized.published_at_ms;
+        expected.direct_addrs.clear();
+        expected.hole_punch_addrs.clear();
+        expected.relay_addrs.clear();
+        if expected != normalized {
+            return Err(protocol_error(
+                "tombstone does not match durable publisher template scope".into(),
             ));
         }
         Ok(normalized)
@@ -485,8 +634,18 @@ fn validate_state(
             "durable publication state schema or identity binding mismatch".into(),
         ));
     }
+    if state.state == PeerRecordPublicationStateV2::Tombstone
+        && !state
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.state == PeerRecordPublicationStateV2::Tombstone)
+    {
+        return Err(protocol_error(
+            "withdrawn publisher state has no matching tombstone reservation".into(),
+        ));
+    }
     match (state.last_sequence, state.pending.as_ref()) {
-        (0, None) => Ok(()),
+        (0, None) if state.state == PeerRecordPublicationStateV2::Live => Ok(()),
         (sequence, Some(pending)) if sequence > 0 && pending.sequence == sequence => {
             let record: PeerRecord = serde_cbor::from_slice(&pending.materialized_record_cbor)
                 .map_err(|error| {
@@ -498,6 +657,15 @@ fn validate_state(
                 return Err(protocol_error("reserved record encoding is invalid".into()));
             }
             record.validate_policy().map_err(protocol_error)?;
+            if pending.state == PeerRecordPublicationStateV2::Tombstone
+                && (!record.direct_addrs.is_empty()
+                    || !record.hole_punch_addrs.is_empty()
+                    || !record.relay_addrs.is_empty())
+            {
+                return Err(protocol_error(
+                    "reserved tombstone contains transport addresses".into(),
+                ));
+            }
             if record.peer_id != expected_binding.peer_id
                 || record.world_id != expected_binding.world_id
                 || record.network_id != expected_binding.network_id
@@ -524,7 +692,10 @@ fn validate_state(
                     .publication
                     .as_ref()
                     .ok_or_else(|| protocol_error("stored record has no V2 publication".into()))?;
-                if publication.sequence != sequence || signed.record != record {
+                if publication.sequence != sequence
+                    || publication.state != pending.state
+                    || signed.record != record
+                {
                     return Err(protocol_error(
                         "stored signed record does not match pending reservation".into(),
                     ));
@@ -602,7 +773,10 @@ pub(super) fn ensure_private_directory(directory: &Path) -> Result<(), WorldErro
     Ok(())
 }
 
-pub(super) fn ensure_existing_private_directory(directory: &Path) -> Result<(), WorldError> {
+pub(super) fn ensure_existing_private_directory(
+    directory: &Path,
+    state_name: &str,
+) -> Result<(), WorldError> {
     let absolute = absolute_path(directory)?;
     let mut current = PathBuf::new();
     for component in absolute.components() {
@@ -613,14 +787,13 @@ pub(super) fn ensure_existing_private_directory(directory: &Path) -> Result<(), 
         match fs::symlink_metadata(&current) {
             Ok(metadata) => ensure_directory_component(&current, &metadata)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(protocol_error(
-                    "publication directory is missing; restore the original publication state instead of reinitializing"
-                        .into(),
-                ));
+                return Err(protocol_error(format!(
+                    "{state_name} directory is missing; restore the original {state_name} state instead of reinitializing"
+                )));
             }
             Err(error) => {
                 return Err(io_error(
-                    "inspect existing publication directory",
+                    &format!("inspect existing {state_name} directory"),
                     &current,
                     error,
                 ));
@@ -630,21 +803,23 @@ pub(super) fn ensure_existing_private_directory(directory: &Path) -> Result<(), 
     let metadata = match fs::symlink_metadata(&absolute) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(protocol_error(
-                "publication directory is missing; restore the original publication state instead of reinitializing"
-                    .into(),
-            ));
+            return Err(protocol_error(format!(
+                "{state_name} directory is missing; restore the original {state_name} state instead of reinitializing"
+            )));
         }
         Err(error) => {
             return Err(io_error(
-                "inspect existing publication directory",
+                &format!("inspect existing {state_name} directory"),
                 &absolute,
                 error,
             ));
         }
     };
     ensure_directory_component(&absolute, &metadata)?;
-    ensure_private_mode(metadata.permissions().mode(), "publication directory")
+    ensure_private_mode(
+        metadata.permissions().mode(),
+        &format!("{state_name} directory"),
+    )
 }
 
 fn absolute_path(path: &Path) -> Result<PathBuf, WorldError> {

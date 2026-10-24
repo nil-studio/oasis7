@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use libp2p::PeerId;
 use libp2p::swarm::Swarm;
-use oasis7_proto::distributed_dht::{PeerRecord, SignedPeerRecord};
+use oasis7_proto::distributed_dht::{PeerRecord, PeerRecordPublicationStateV2, SignedPeerRecord};
 
 use crate::error::WorldError;
 
@@ -107,28 +107,41 @@ pub(super) fn process_signed_peer_record(
             protocol: "peer record peer_id must be valid".to_string(),
         }
     })?;
+    let is_tombstone = record
+        .publication
+        .as_ref()
+        .is_some_and(|publication| publication.state == PeerRecordPublicationStateV2::Tombstone);
     let allow_single_source_bootstrap_dial = static_bootstrap_peer_ids.contains(&peer_id);
-    let paths = peer_record_transport_paths(&record)?;
+    let paths = if is_tombstone {
+        Vec::new()
+    } else {
+        peer_record_transport_paths(&record)?
+    };
     let is_conflict = receiver.would_conflict(&record)?;
-    let mut lease = if is_conflict {
+    let mut lease = if is_conflict || is_tombstone {
         None
     } else {
         Some(discovered_peer_records.prepare(peer_id, &record)?)
     };
     let observed_at_ms = super::now_ms();
-    if !is_conflict {
+    if is_tombstone {
+        // A tombstone is not a candidate lease, but its signed TTL and local
+        // clock policy still apply before the durable floor is advanced.
+        discovered_peer_records.clock().check(&record.record)?;
+    } else if !is_conflict {
         discovery_observations.preflight_record(&record, &ingress, observed_at_ms)?;
     }
 
     let admission = receiver.admit_serialized(&record)?;
     if admission == super::receiver_floor::ReceiverAdmission::Conflict {
-        let previous_paths = known_transport_paths.remove(&peer_id).unwrap_or_default();
-        for path in previous_paths {
-            failed_transport_path_labels.remove(&path.label());
-        }
-        discovered_peer_records.invalidate_candidate(peer_id);
-        discovery_observations.remove(peer_id);
-        last_dialed_transport_paths.remove(&peer_id);
+        revoke_candidate_projection(
+            peer_id,
+            discovered_peer_records,
+            discovery_observations,
+            known_transport_paths,
+            last_dialed_transport_paths,
+            failed_transport_path_labels,
+        );
         return Err(PeerRecordInstallError::ReceiverConflict(
             WorldError::NetworkProtocolUnavailable {
                 protocol:
@@ -136,6 +149,18 @@ pub(super) fn process_signed_peer_record(
                         .into(),
             },
         ));
+    }
+
+    if is_tombstone {
+        revoke_candidate_projection(
+            peer_id,
+            discovered_peer_records,
+            discovery_observations,
+            known_transport_paths,
+            last_dialed_transport_paths,
+            failed_transport_path_labels,
+        );
+        return Ok(());
     }
 
     if admission == super::receiver_floor::ReceiverAdmission::Duplicate
@@ -202,4 +227,33 @@ pub(super) fn process_signed_peer_record(
         }
     }
     Ok(())
+}
+
+fn revoke_candidate_projection(
+    peer_id: PeerId,
+    discovered_peer_records: &mut PeerRecordCache,
+    discovery_observations: &mut DiscoveryObservations,
+    known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    failed_transport_path_labels: &mut HashSet<String>,
+) {
+    discovered_peer_records.invalidate_candidate(peer_id);
+    discovery_observations.remove(peer_id);
+    last_dialed_transport_paths.remove(&peer_id);
+    let remove_paths = if let Some(paths) = known_transport_paths.get_mut(&peer_id) {
+        paths.retain(|path| {
+            if path.record_lease.is_some() {
+                failed_transport_path_labels.remove(&path.label());
+                false
+            } else {
+                true
+            }
+        });
+        paths.is_empty()
+    } else {
+        false
+    };
+    if remove_paths {
+        known_transport_paths.remove(&peer_id);
+    }
 }

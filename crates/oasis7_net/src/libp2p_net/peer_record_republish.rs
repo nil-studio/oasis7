@@ -72,14 +72,14 @@ pub(super) fn handle_peer_record_exchange_request(
                 .map_err(|_| WorldError::NetworkProtocolUnavailable {
                     protocol: "cached peer record peer_id must be valid".to_string(),
                 })?;
-            let record = discovered_peer_records.get(&peer_id).ok_or_else(|| {
-                WorldError::NetworkRequestFailed {
+            let record = discovered_peer_records
+                .get_for_forwarding(&peer_id)
+                .ok_or_else(|| WorldError::NetworkRequestFailed {
                     code: DistributedErrorCode::ErrNotFound,
                     message: format!("cached peer record not found for peer={peer_id}"),
                     retryable: true,
-                }
-            })?;
-            Some(to_canonical_cbor(record)?)
+                })?;
+            Some(to_canonical_cbor(&record)?)
         }
         RR_GET_CACHED_DISCOVERY_PEERS => {
             let mut peers: Vec<String> = discovered_peer_records

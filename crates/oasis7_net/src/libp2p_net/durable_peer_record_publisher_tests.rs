@@ -9,6 +9,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[path = "durable_peer_record_publisher/tombstone_tests.rs"]
+mod tombstone_tests;
+
 static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
 
 struct TestDirectory(PathBuf);
@@ -138,6 +141,7 @@ fn install_interrupted_bootstrap(
         binding,
         last_sequence: 0,
         pending: None,
+        state: PeerRecordPublicationStateV2::Live,
     };
     let state_bytes = super::canonical_cbor(&state).expect("encode initial zero state");
     if matches!(phase, BootstrapPhase::StateTempPersisted) {
@@ -414,6 +418,7 @@ fn initializer_rejects_partial_future_state_after_first_schema_difference() {
         binding: binding.clone(),
         last_sequence: 0,
         pending: None,
+        state: PeerRecordPublicationStateV2::Live,
     };
     let expected = super::canonical_cbor(&expected_state).expect("encode zero state");
     let future = super::canonical_cbor(&FuturePublisherStateV2 {

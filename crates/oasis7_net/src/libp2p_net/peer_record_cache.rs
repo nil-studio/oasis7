@@ -3,7 +3,7 @@ use super::peer_record_time::{DiscoveryClock, RecordLease};
 use super::transport_paths::TransportPath;
 use crate::error::WorldError;
 use libp2p::PeerId;
-use oasis7_proto::distributed_dht::SignedPeerRecord;
+use oasis7_proto::distributed_dht::{PeerRecordPublicationStateV2, SignedPeerRecord};
 use std::collections::{HashMap, hash_map::RandomState};
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::Arc;
@@ -86,6 +86,27 @@ impl PeerRecordCache {
         let cached = self.records.get(peer)?;
         cached.lease.validate().ok()?;
         Some(&cached.signed)
+    }
+    /// Return a live cache candidate or, when one exists, the current bounded
+    /// receiver-floor tombstone. Tombstones are forwarding evidence only: they
+    /// are time-checked on every read and never enter the discovery cache.
+    pub(super) fn get_for_forwarding(&self, peer: &PeerId) -> Option<SignedPeerRecord> {
+        if let Some(record) = self.get(peer)
+            && record
+                .publication
+                .as_ref()
+                .map(|publication| publication.state)
+                != Some(PeerRecordPublicationStateV2::Tombstone)
+        {
+            return Some(record.clone());
+        }
+        let tombstone = self
+            .receiver
+            .current_tombstone_for_forwarding(*peer)
+            .ok()??;
+        self.clock.check(&tombstone.record).ok()?;
+        self.receiver.lease_guard(&tombstone).ok()?;
+        Some(tombstone)
     }
     pub(super) fn session_record(&self, peer: &PeerId) -> Option<&SignedPeerRecord> {
         self.records.get(peer).map(|cached| &cached.signed)

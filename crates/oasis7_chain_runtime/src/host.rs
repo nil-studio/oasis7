@@ -1098,6 +1098,9 @@ mod peer_record_publication_tests;
 #[path = "host/peer_record_receiver_tests.rs"]
 mod peer_record_receiver_tests;
 #[cfg(test)]
+#[path = "host/peer_record_transition_tests.rs"]
+mod peer_record_transition_tests;
+#[cfg(test)]
 #[path = "host/oasis7_chain_runtime_status_payload_chain_proof_tests.rs"]
 mod status_payload_chain_proof_tests;
 #[cfg(test)]

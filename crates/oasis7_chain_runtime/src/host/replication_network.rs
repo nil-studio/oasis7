@@ -7,7 +7,8 @@ use oasis7::development_node_config::{
 };
 use oasis7_node::{
     Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, NodeReplicationNetworkHandle,
-    NodeRuntime, PeerRecordReceiverConfig, PeerRecordReceiverMode, derive_libp2p_identity_keypair,
+    NodeRuntime, PeerRecordPublicationTransition, PeerRecordReceiverConfig, PeerRecordReceiverMode,
+    derive_libp2p_identity_keypair,
 };
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord};
 
@@ -142,6 +143,20 @@ fn build_default_peer_record_network_config(
             DevelopmentPeerRecordReceptionModeV1::V2Only => PeerRecordReceiverMode::V2Only,
         },
         directory: Some(paths.runtime_root.join("p2p").join("peer-record-receiver")),
+    };
+    config.peer_record_publication_transition = match (
+        options.withdraw_peer_record_publication,
+        options.resume_peer_record_publication,
+    ) {
+        (false, false) => None,
+        (true, false) => Some(PeerRecordPublicationTransition::Withdraw),
+        (false, true) => Some(PeerRecordPublicationTransition::Resume),
+        (true, true) => {
+            return Err(
+                "--withdraw-peer-record-publication and --resume-peer-record-publication are mutually exclusive"
+                    .into(),
+            );
+        }
     };
     Ok(config)
 }

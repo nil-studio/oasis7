@@ -44,7 +44,10 @@ mod transport_paths;
 mod utils;
 mod wire_bytes;
 use crate::error::WorldError;
-pub use config::{Libp2pNetworkConfig, PeerRecordReceiverConfig, PeerRecordReceiverMode};
+pub use config::{
+    Libp2pNetworkConfig, PeerRecordPublicationTransition, PeerRecordReceiverConfig,
+    PeerRecordReceiverMode,
+};
 use connection_lifecycle::{
     clear_disconnected_peer_state, failover_after_disconnect, log_active_transport_path,
     prune_redundant_peer_connections, record_established_connection,

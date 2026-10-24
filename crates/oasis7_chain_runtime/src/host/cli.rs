@@ -113,6 +113,9 @@ pub(super) struct CliOptions {
     pub initialize_peer_record_publication: bool,
     /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
     pub initialize_peer_record_receiver: bool,
+    /// One-startup durable publisher action; deliberately not persisted in runtime config.
+    pub withdraw_peer_record_publication: bool,
+    pub resume_peer_record_publication: bool,
     pub p2p_accept_public_entry: bool,
     pub p2p_detected_reachability: Option<PeerReachabilityClass>,
     pub p2p_detected_hole_punch_viability: NodeHolePunchViability,
@@ -259,6 +262,12 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             }
             "--initialize-peer-record-receiver" => {
                 options.initialize_peer_record_receiver = true;
+            }
+            "--withdraw-peer-record-publication" => {
+                options.withdraw_peer_record_publication = true;
+            }
+            "--resume-peer-record-publication" => {
+                options.resume_peer_record_publication = true;
             }
             "--p2p-accept-public-entry" => {
                 options.p2p_accept_public_entry = true;
@@ -652,7 +661,11 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
         || (options.deployment_inventory_path.is_some()
             && options.network_tier_manifest_path.is_none())
     {
-        if !options.initialize_peer_record_receiver {
+        let has_one_shot_peer_record_action = options.initialize_peer_record_publication
+            || options.initialize_peer_record_receiver
+            || options.withdraw_peer_record_publication
+            || options.resume_peer_record_publication;
+        if !has_one_shot_peer_record_action {
             let typed = super::development_runtime::from_options(&options)?;
             super::development_runtime::into_options(typed, false)?;
         }
