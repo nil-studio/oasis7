@@ -84,14 +84,7 @@ run() {
   "$@"
 }
 
-prepare_local_cargo_target() {
-  if [[ "${CI:-}" != "1" && "${CI:-}" != "true" && -z "${CARGO_TARGET_DIR:-}" ]]; then
-    (cd "$repo_root" && "$driver_dir/cargo-dev.sh" --prepare-target)
-  fi
-}
-
 run_cargo() {
-  prepare_local_cargo_target
   if [[ "${CI_VERBOSE:-}" == "1" ]]; then
     run env -u RUSTC_WRAPPER cargo --verbose "$@"
   else
@@ -100,7 +93,6 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
-  prepare_local_cargo_target
   local lint_flags=(
     -D warnings
     -D clippy::correctness
@@ -386,8 +378,6 @@ run_cargo_tooling_baseline_contract_tests() {
 
 run_cargo_tooling_contract_tests() {
   run_cargo_tooling_baseline_contract_tests
-  run python3 ./scripts/cargo-cache.test.py
-  run python3 ./scripts/cargo-incremental-clean.test.py
   run python3 ./scripts/runtime-module-routing-perf-harness.test.py
   run bash ./scripts/cargo-dev-lib.test.sh
   run bash ./scripts/check-standalone-tool-lockfiles.test.sh
@@ -508,7 +498,6 @@ run_provider_bridge_live_gate() {
 }
 
 run_newapi_bridge_service_accounting_tests() {
-  prepare_local_cargo_target
   run env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
 }
 

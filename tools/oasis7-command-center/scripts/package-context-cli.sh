@@ -32,8 +32,7 @@ require_committed_inputs() {
 require_committed_inputs
 head=$(git -C "$repo_root" rev-parse HEAD)
 release="context-$head"
-# Cargo's emitted executable is authoritative: CI does not create the local
-# target symlink, and shared/configured target directories may live elsewhere.
+# Cargo's emitted executable is authoritative, including configured target directories.
 binary=$(OASIS7_SOURCE_HEAD_OID="$head" OASIS7_RELEASE_ID="$release" OASIS7_BUILD_TARGET="$target" \
   "$repo_root/scripts/cargo-dev.sh" build --locked --release -p oasis7_context \
     --message-format=json-render-diagnostics --target "$target" | python3 -c '

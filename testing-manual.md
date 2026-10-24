@@ -36,35 +36,24 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 因果延迟探针只在已验证成功的 View 响应上等待，响应字节保持原样。串行运行目标用例时，可设置 `PRE2_CONFORMANCE_VIEW_DELAY_MS=600`（低于 transport timeout），分别过滤 `real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider`、`real_tcp_fresh_admission_waits_for_successful_metadata` 和 `real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns`。日志记录原请求和阶段推进；通过仍须获得同一原请求的 canonical result、唯一结算；双 turn 还须保留各自 memory。该探针验证多阶段累计延迟，不是吞吐或性能验收。
 
-## 开发态缓存约定
+## 本地 Cargo 开发约定
 
-- 若当前是在同一 repo family 的多个 git worktree 之间做本地迭代，开发态 `cargo check/test/run/build` 默认优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。每个 worktree 按自身 source identity 使用稳定、隔离的 target namespace；同一 worktree 内可复用缓存，divergent worktree 不得互选 artifacts。通过 `./scripts/new-task-worktree.sh` 创建的新 task worktree 会把 git-ignored `target` 链接到该 worktree 的 namespace，使直接 cargo 与 wrapper 在同一 worktree 内复用同一开发态缓存。
-- 本地 smoke / playtest / prewarm / regression / drill / longrun 脚本若只是为了开发反馈，应优先 source `scripts/cargo-dev-lib.sh` 并调用 `oasis7_cargo_dev ...` / `oasis7_cargo_dev_debug_bin_dir`，从而与手工 `cargo-dev.sh` 使用同一个当前-worktree target；`CI=1`、`OASIS7_CARGO_DEV_SHARED=0` 或 `OASIS7_FORCE_RAW_CARGO=1` 会回退到原始 cargo target 解析。
-- 该入口只服务开发态缓存复用，不替代本手册中的正式验收命令；手册里的 canonical 验收命令仍显式写原始 `env -u RUSTC_WRAPPER cargo ...`。
-- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它、通过参数传递 target（避免 `CARGO_TARGET_DIR` 污染缓存键）并关闭该调用的 Rust incremental。本地 lean 模式统一设置 dev/test debug=0，普通 dev/test profile 下 `cargo-dev.sh check/clippy ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run` 先选择实际缓存方式：启用 sccache 时 incremental=0，未安装或显式禁用时 incremental=1。Clippy 保留自身的 `RUSTC_WORKSPACE_WRAPPER`，不保证与 check 完整共用增量产物。显式 `--release/-r` 和非 dev/test 的 `--profile` 不使用自动 sccache，也不覆盖调用者的 profile/incremental 环境；`--` 后的参数不参与 profile 解析。sccache 执行失败直接返回错误，不切换模式重试。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check/clippy` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。wrapper 首次本地调用会为缺失的 `target` 建立当前 namespace 链接；已有工作区可执行 `./scripts/cargo-dev.sh --prepare-target`，之后直接 Cargo 也复用该目录。已有普通目录须确认未使用并清理后再准备，脚本不会自动删除它。Windows 缺少符号链接权限时，普通 wrapper 调用仍通过参数使用共享缓存；`--prepare-target` 则报告失败，直接 Cargo 的链接复用需先启用符号链接权限。
+- 本地开发态 `cargo check/test/run/build` 优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。wrapper 只调整开发 profile 与可用的 sccache，target 沿用 Cargo 原生解析，默认在当前 worktree 的 `target/`；不建立外部缓存 namespace 或符号链接，也不需要预先准备 target。直接 Cargo 与 wrapper 使用相同的 target 解析规则。
+- 本地 smoke / playtest / prewarm / regression / drill / longrun 脚本若只是为了开发反馈，应 source `scripts/cargo-dev-lib.sh` 并调用 `oasis7_cargo_dev ...` / `oasis7_cargo_dev_debug_bin_dir`。`CI=1`、`CI=true` 或 `OASIS7_FORCE_RAW_CARGO=1` 跳过开发 profile，使用原始 Cargo。
+- 该入口只服务开发态 profile 与编译加速，不替代本手册中的正式验收命令；手册里的 canonical 验收命令仍显式写原始 `env -u RUSTC_WRAPPER cargo ...`。
+- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它并关闭该调用的 Rust incremental；wrapper 不注入或覆盖 target 参数和环境。本地 lean 模式统一设置 dev/test debug=0，普通 dev/test profile 下 `cargo-dev.sh check/clippy ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run` 先选择实际缓存方式：启用 sccache 时 incremental=0，未安装或显式禁用时 incremental=1。Clippy 保留自身的 `RUSTC_WORKSPACE_WRAPPER`，不保证与 check 完整共用增量产物。显式 `--release/-r` 和非 dev/test 的 `--profile` 不使用自动 sccache，也不覆盖调用者的 profile/incremental 环境；`--` 后的参数不参与 profile 解析。sccache 执行失败直接返回错误，不切换模式重试。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check/clippy` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。
 - 本地存储验收分阶段运行：先完成所需编译（可用 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --no-run --locked`），再运行 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --locked`；时限测试执行期间不要在其他 worktree 并行编译或施加资源压力。Cargo 的构建锁不保证测试运行期间独占主机资源。压力实验单独记录负载与实际截止结果，不通过延长测试 RPC 期限消除失败。依赖释放锁后立即重开的用例在独立测试进程运行，防止并行 libtest 的其他 spawn/fork 短暂继承锁描述符；子进程失败、超时和清理失败仍算失败。
 - 磁盘有限时保留少量固定路径开发 worktree，串行任务在确认干净、独占且已保留未推送工作的工作区用 `git switch -c codex/<task> <base>` 切换独立分支；仅并行任务新建 worktree。不要编辑 main 或主工作区。`new-task-worktree.sh --with-harness` 是完整预热的显式选项，普通后端或文档任务不需要它。
-- 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或用户指定的外部工作区，首次本地编译前先运行 `./scripts/cargo-dev.sh --prepare-target`。入口选择规则见开发规范。
-- `python3 scripts/cargo-cache.py report --json` 按 native 及 target-triple 的 profile 列出 deps、incremental、build 的分配空间。关闭 incremental 不会主动清理 `check` 或 debug 模式留下的历史状态；需要回收时用 `python3 scripts/cargo-incremental-clean.py --target <report 中的 target>` 预览，明确执行再加 `--apply`。仅接受有效托管标记；取得 wrapper、注册窗口及 Cargo 排他锁并检查进程占用后只删除 incremental，忙、未知归属、符号链接及不支持平台均保留。正式编译和验收参数不变。
-- `resource-cleanup-executor.py` 移除工作区后输出对应外部缓存、默认 7 天保留期和 GC 预览命令；缓存报告失败不否认已完成的 Git 清理，也不自动删除缓存。`runtime-module-routing-perf-harness.sh --profile dev` 使用开发 wrapper，默认 release 性能测量保留原入口。
-- 最小开发反馈示例：`./scripts/cargo-dev.sh check -p oasis7_proto`；`./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>`；需要完整交互时才运行 `./scripts/worktree-harness.sh up`。不要用跳过必要验收来节省空间；正式范围仍由本手册与 CI 决定。
-- `build-game-launcher-bundle.sh --profile dev` 的 native 编译与读取目录使用相同开发缓存；默认玩家 bundle 不编译 operator binaries，只有显式 `--ops-out-dir` 才编译它们。packaging 和 wasm 构建保留原入口。
-- 本地 CI 验收和 launcher 打包入口会先准备上述链接；wasm Docker 构建会额外挂载已有链接的目标，容器宿主无需安装本地 Rust，首次构建前可手工准备链接，不修改正式 Cargo 参数或 profile；CI checkout 不建立链接。deterministic wasm / release 链路继续保持 `CARGO_TARGET_DIR` 为空；涉及 `scripts/build-wasm-module.sh`、release evidence 或 hash/receipt 对账时，不要改用 `scripts/cargo-dev.sh`。
+- 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或外部创建的工作区也直接使用本地 target，无需准备链接。入口选择规则见开发规范。
+- 盘点工作区磁盘占用使用 `./scripts/worktree-gc-report.sh --footprint`，只报告 Git 与文件系统事实。target 默认随所属 worktree 管理；关闭 incremental 不会自动删除已有增量产物。回收前停止该工作区的构建和运行进程、核对路径及资料，再执行该工作区的 `env -u RUSTC_WRAPPER cargo clean`；显式外部 target 需单独核对归属。全局 Cargo 下载缓存与 sccache 不随单个工作区清空。
 
-### 本地 Cargo 缓存盘点与回收
+- 最小开发反馈示例：`./scripts/cargo-dev.sh check -p oasis7_proto`；`./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>`；需要完整交互时才运行 `./scripts/worktree-harness.sh up`。正式范围仍由本手册与 CI 决定。
+- `runtime-module-routing-perf-harness.sh --profile dev` 与 `build-game-launcher-bundle.sh --profile dev` 使用开发 wrapper；bundle 的读取目录与编译 target 保持一致，默认玩家 bundle 不编译 operator binaries。默认 release 性能测量、packaging 和 wasm 构建保留原入口。
+- deterministic wasm / release 链路继续保持 `CARGO_TARGET_DIR` 为空；涉及 `scripts/build-wasm-module.sh`、release evidence 或 hash/receipt 对账时，不改用开发 wrapper。Docker 使用工作区内的普通 target，不额外挂载外部缓存。
 
-先执行 `python3 scripts/cargo-cache.py report --json`。报告从外部缓存反向扫描，包含没有 `target` 链接的工作区缓存；`worktree-gc-report.sh --footprint` 同时提供该缓存清单。按物理目录去重，工作区本地 target 与外部缓存分别报告，不把链接再次相加。容量预算是回收目标，不是通过删除活跃缓存强制达到的限额。体积与剩余预算按盘点快照估算，其他并行构建可能改变实际占用；需要时重新盘点。
+### 旧工作区的 target 链接迁移
 
-回收先预览，再显式执行。`--apply` 仅支持 Linux/macOS（Unix）；Windows 支持盘点、预览与编译锁，但拒绝实际回收，避免无法保证子进程继承锁时删除使用中的产物：
-
-```bash
-python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7
-python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
-```
-
-仅回收具有当前 wrapper 管理标记、所属工作区已不在 Git 注册表、没有其他 target 链接引用、超过保留期且能取得排他使用锁的缓存。仍注册（包括路径已缺失）、正在编译/运行、标记异常、身份未知和 legacy 缓存均保留。wrapper 更新最后使用时间并在 Cargo 及其运行子进程生命周期内持锁；`new-task-worktree.sh` 的 Git 注册与回收的重新检查/删除窗口使用同一仓库锁，避免固定路径重新挂接时被删除；手工 `git worktree add` 若与回收并发，应通过 `python3 scripts/cargo-cache.py attach -- git worktree add ...` 执行。worktree 清理后再次执行缓存回收，工作区清理本身不递归清空外部缓存。显式 target override 不纳入自动管理。首次报告中的历史缓存不因名称相似而自动取得删除资格。
-
-低调试配置不会清除已有大体积产物；本地普通 `target` 也不会被自动搬移或删除。报告预算无法满足时列出剩余占用与保护原因，不把未知目录视为可释放空间。
+更新前已创建的 `target` 符号链接不会因代码更新自动消失。先用 `ls -ld target` 与 `readlink target` 核对目标，停止相关构建/运行并确认没有其他使用者。对已确认指向旧集中 Cargo 缓存的链接，使用 `unlink target` 只移除链接；后续 Cargo 自动创建普通 `target/`。已有普通目录无需迁移，不要对目录执行此命令。旧链接的外部产物在确认可重建、归属和无进程/其他工作区引用后单独删除；不能递归清空 `.oasis7-cache`、全局 Cargo 或 sccache 目录。脚本不自动改写或删除未知目标。
 
 ### ECS 缓存与完整 native 构建测量
 
@@ -357,8 +346,8 @@ Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要
 env -u RUSTC_WRAPPER cargo fmt --all -- --check
 ```
 - S0 是适用于任何改动的快速静态基线：不运行 Viewer/Bevy、wasm 或任何其他 target-specific 编译；这类验证必须按改动面进入 scoped required（例如 S5）。
-- 本地日常迭代若只是为了更快得到开发反馈，默认把同类命令替换为 `./scripts/cargo-dev.sh check/test/run/build ...`；新 task worktree 的 ignored `target` symlink 只是降低误用直接 cargo 时的重复存储，不改变正式验收入口。但进入正式 required/full 验收、尤其是 deterministic wasm/release 相关链路时，仍以本手册列出的原始 cargo 命令为准。
-- 本地脚本内的开发态 build/test/run 应通过 `scripts/cargo-dev-lib.sh` 复用 shared target；正式验收脚本、release workflow、deterministic wasm、module release acceptance、hash/receipt evidence 仍不得被该 helper 隐式改写。
+- 本地日常迭代若只是为了更快得到开发反馈，默认把同类命令替换为 `./scripts/cargo-dev.sh check/test/run/build ...`；各 worktree 默认使用普通本地 `target/`，wrapper 不改变正式验收入口。但进入正式 required/full 验收、尤其是 deterministic wasm/release 相关链路时，仍以本手册列出的原始 cargo 命令为准。
+- 本地脚本内的开发态 build/test/run 应通过 `scripts/cargo-dev-lib.sh` 使用本地 target 与开发 profile；正式验收脚本、release workflow、deterministic wasm、module release acceptance、hash/receipt evidence 仍不得被该 helper 隐式改写。
 - `./scripts/check-rust-file-size.sh` 现同时校验超限基线、`touch-and-shrink` 和 `split_part/include!` 结构切片基线，不再只是“有没有新 >1200 文件”。
 - 可选（按需执行 builtin wasm hash 校验）：
 ```bash
@@ -457,7 +446,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 
 `node_keypair_config::transaction::tests` 使用当前 test executable 的独立子进程，在锁持有、意图、候选文件、准备、发布与完成边界 SIGKILL；逐次重开核对同一公钥、锁 inode、原配置及候选／完成状态。另覆盖发布后注入错误、损坏候选／目标冲突拒绝、private-only 补公钥、完整旧身份迁移与原件丢失阻断、旧锁离线迁移边界。`process_worker` 是该套件的子进程入口，独立执行不构成场景覆盖。临时环境变量只在 `cfg(test)` 中生效，不提供生产故障开关，不输出私钥。
 
-迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；本机 canonical Cargo 通过 `target` 符号链接启动 test executable 时，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
+迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；若显式配置的 target 符号链接被用于启动 test executable，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
 
 正式 v2 运行期身份租约还须验证：
 
@@ -1613,7 +1602,7 @@ Node snapshot / filesystem reward observations are owned by the Chain reward hos
 
 Refs #4975; Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`.
 
-Run canonical commands from the candidate worktree after `./scripts/cargo-dev.sh --prepare-target`:
+Run canonical commands directly from the candidate worktree:
 
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api governance_authorization -- --nocapture

@@ -633,7 +633,6 @@
       "match": [
         "tools/oasis7-command-center/**",
         "scripts/cargo-dev.sh",
-        "scripts/cargo-cache.py",
         "scripts/find-python-with-module.sh"
       ],
       "exclude": [

@@ -170,7 +170,7 @@ export OASIS7_REMOTE_LLM_PLATFORM_BASE_URL="${OASIS7_REMOTE_LLM_PLATFORM_BASE_UR
 
 if [[ -x "$OASIS7_LOCAL_LETAI_PROVIDER_BRIDGE_BIN" && "${OASIS7_LOCAL_LETAI_PROVIDER_FORCE_CARGO_RUN:-0}" != "1" ]]; then
   cmd=("$OASIS7_LOCAL_LETAI_PROVIDER_BRIDGE_BIN")
-elif oasis7_cargo_dev_use_shared_target; then
+elif oasis7_cargo_dev_use_wrapper; then
   cmd=("$OASIS7_LOCAL_LETAI_PROVIDER_REPO_ROOT/scripts/cargo-dev.sh" run -p oasis7_provider_local_bridge --bin oasis7_provider_local_bridge --)
 else
   cmd=(env -u RUSTC_WRAPPER cargo run -p oasis7_provider_local_bridge --bin oasis7_provider_local_bridge --)

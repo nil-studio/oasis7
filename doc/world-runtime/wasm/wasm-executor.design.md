@@ -143,7 +143,7 @@ ExecutionIdentity wrapper scope 只继承 execution_core；ModuleExecutionReceip
 accepted pending != committed effect != durable receipt != published consumer。Immutable pending request 与 terminal durable index 分离；activation、schedule 和历史 payload 不因最新版本而重写。Snapshot+tail 包含原 request/lineage/winner、journal era、state/resource hashes 与 receipt identities；restart 返回 original terminal record。历史 reexecution 只 audit compare，不替代 recorded result/charge；旧价格重算禁止。
 
 ## 8. 部署、安全与运行约束
-Production external proof、trust root、branch 与 authority snapshot 必须 actual readback。Current local effect signer、prototype finality、provider response、CI 只能证明各自层。Unknown scheme/key/manifest、missing proof bytes、不兼容 runtime 均 fail closed。Shared Cargo/cache constraints 原样；本次没有实际 runtime/provider/browser执行。
+Production external proof、trust root、branch 与 authority snapshot 必须 actual readback。Current local effect signer、prototype finality、provider response、CI 只能证明各自层。Unknown scheme/key/manifest、missing proof bytes、不兼容 runtime 均 fail closed。本地编译遵循[开发流程规范](../../engineering/workflow/source-of-truth.md)，默认使用各 worktree 的 target；本次没有实际 runtime/provider/browser执行。
 
 ## 9. 质量与容量
 Required tier 为 candidate-bound deterministic fault fixtures：每个 step 注入 failure、检查 full bytes/state/resource/journal/charge/receipt 相等；same inputs/core 更换合法 detached inclusion wrapper 不能改变 core IDs。Full 增加真实 canonical proof、多节点恢复和 consumer evidence。预算沿用 PRD fuel/memory/output 与 current compute/electricity ceil-KiB formula，clock/reset/cache variation 不改变费率/ID；不存在本次 benchmark pass。

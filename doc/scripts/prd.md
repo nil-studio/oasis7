@@ -75,7 +75,7 @@
   - PRD-SCRIPTS-007C: As a `producer_system_designer`, I want a `.pm` rebase conflict helper, so that same-PR rebase maintenance can distinguish retired signal inbox conflicts, generated-view conflicts, and canonical task/memory/stage conflicts that still require manual judgment.
   - PRD-SCRIPTS-008: As a 开发者, I want explicit identity, merge, material and process checks before cleanup, so that delivered code can be cleaned without losing ongoing work.
   - PRD-SCRIPTS-008A: As a 开发者, I want a read-only Git/filesystem report, so that registered worktrees and disk use are visible without deletion advice.
-  - PRD-SCRIPTS-009: As a 开发者, I want a worktree-scoped shared cargo development wrapper, so that each git worktree can reuse its own Rust build artifacts without cross-worktree contamination or weakening deterministic wasm/release gates.
+  - PRD-SCRIPTS-009: As a 开发者, I want a local Cargo profile and sccache wrapper, so that each git worktree can reuse its own Rust build artifacts without cross-worktree contamination or weakening deterministic wasm/release gates.
 - Critical User Flows:
   1. Flow-SCR-001: `调用主入口脚本 -> 执行检查/测试 -> 输出结构化结果`
   2. Flow-SCR-002: `CI 触发脚本 -> 失败定位到参数/环境 -> 修复后重跑`
@@ -84,8 +84,8 @@
   6B. Flow-SCR-006B: `pr-review-thread-closeout.sh [pr-number] --unresolved-only -> 盘点 unresolved review threads -> 修复并 push 当前 PR -> pr-review-thread-closeout.sh --resolve-thread <id>|--resolve-all-unresolved -> resolve thread -> 回报 reviewDecision / mergeStateStatus 并继续下一轮 comment closeout`
   6C. Flow-SCR-006C: `git rebase origin/main -> 命中 .pm/** 冲突 -> rebase-conflict-helper.sh --json -> 若命中 retired signal inbox 则删除退休文件或人工归档 -> 若命中 registry/backlog 视图则保留 main 删除并执行 sync-views -> 其余 canonical task/memory/stage 冲突人工处理`
   7. Flow-SCR-007: `确定独立分支与隔离需求 -> 保留已有工作 -> 实施与验证 -> 正常受保护 PR 合入`
-  8. Flow-SCR-008: `cargo-dev.sh check/test/run -> 解析当前 repo family + worktree source identity 的 target namespace -> 导出稳定 CARGO_TARGET_DIR -> 以 env -u RUSTC_WRAPPER cargo 执行开发态命令`
-  9. Flow-SCR-009: `local smoke / regression / drill script -> source cargo-dev-lib.sh -> 调用 oasis7_cargo_dev build/test/run -> 本地复用 shared target；CI 或显式 raw 环境回退原始 cargo target 语义`
+  8. Flow-SCR-008: `cargo-dev.sh check/test/run -> 使用 Cargo 原生 target 解析 -> 应用本地开发 profile 与可用 sccache -> 执行 cargo`
+  9. Flow-SCR-009: `local smoke / regression / drill script -> source cargo-dev-lib.sh -> 调用 oasis7_cargo_dev build/test/run -> 本地使用当前 worktree 的 target；CI 或显式 raw 环境跳过开发 profile`
   10. Flow-SCR-010: `worktree-gc-report.sh [--json] [--footprint] -> 读取 Git 与文件系统事实 -> 报告状态和不可读原因`
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
@@ -117,12 +117,12 @@
   - AC-18D: `scripts/pr-review-thread-closeout.sh --help` 必须明确列出 `[pr-number]`、`--unresolved-only`、`--resolve-thread`、`--resolve-all-unresolved` 与 `--json`；`--json` 至少输出 `pr.number`、`pr.review_decision`、`pr.merge_state_status`、`summary.total_threads`、`summary.unresolved_threads`、`resolved_now.thread_ids` 与每个 thread 的 `id`、`is_resolved`、`is_outdated`、`path`、`line`、`latest_comment`。
   - AC-18I: 仓库必须提供轻量 Web/UI automation smoke `scripts/viewer-software-safe-step-regression-smoke.sh`；该脚本需在不启动完整 runtime 栈的前提下，通过临时 fixture 页面复用真 `agent-browser` 与 `scripts/viewer-software-safe-step-regression.sh`，并验证 `software-safe-step-summary.json` 与关键 state artifact 的最小契约。
   - AC-20: `resource-cleanup-executor.py` 默认只读；只有身份、expected HEAD、已合入证明、资料与占用检查通过才可执行 worktree remove 和 ref CAS 删除；含子模块时仅按开发规范的显式有条件例外执行单次强制删除。阻挡或部分完成返回 1；参数错误返回 2。
-  - AC-22: `--resume-setup` 只恢复同 common-dir、精确 path/branch 的注册独立 worktree；不更改 HEAD 或 dirty 文件，与 `--with-harness` 互斥。config 已有则保留；缺失发布不覆盖；target 仅复用正确 symlink，其他对象保留并报冲突。
-  - AC-23: 新增 `scripts/cargo-dev.sh`，为本地开发态 `cargo check/test/run/build` 提供 worktree-scoped shared cache 入口，并默认使用 `env -u RUSTC_WRAPPER cargo ...`。
-  - AC-23A: 新增 `scripts/cargo-dev-lib.sh`，为本地 smoke / playtest / prewarm / regression / drill / longrun 脚本提供 `oasis7_cargo_dev` 与 shared-target debug binary 解析 helper；默认本地复用 `cargo-dev.sh`，但在 `CI=1`、`OASIS7_CARGO_DEV_SHARED=0` 或 `OASIS7_FORCE_RAW_CARGO=1` 时回退到原始 cargo target 语义。
-  - AC-24: `scripts/cargo-dev.sh --print-target-dir` 必须输出工作区外部缓存的稳定 namespace；同一 worktree 重复调用输出一致，默认不同 worktree 输出不同 namespace，且可通过环境变量显式覆盖。
-  - AC-25: 正式文档必须明确：`scripts/cargo-dev.sh` / `scripts/cargo-dev-lib.sh` 只服务开发态缓存复用，不适用于要求 `CARGO_TARGET_DIR` 为空的 deterministic wasm / release 构建链路，也不得替代 CI canonical required/full 验收命令。
-  - AC-26: 根 `AGENTS.md` 的 cargo 规则必须与 `scripts/cargo-dev.sh` / `testing-manual.md` 对齐，明确“原始 cargo 命令走 `env -u RUSTC_WRAPPER cargo ...`，开发态共享缓存可走 `./scripts/cargo-dev.sh ...`，但 deterministic wasm / release 仍必须保持 `CARGO_TARGET_DIR` 为空”。
+  - AC-22: `--resume-setup` 只恢复同 common-dir、精确 path/branch 的注册独立 worktree；不更改 HEAD 或 dirty 文件，与 `--with-harness` 互斥。config 已有则保留；缺失发布不覆盖；不创建、替换或准备 Cargo target。
+  - AC-23: 新增 `scripts/cargo-dev.sh`，为本地开发态 `cargo check/test/run/build` 提供本地 profile 与 sccache 入口，并默认使用 `env -u RUSTC_WRAPPER cargo ...`。
+  - AC-23A: 新增 `scripts/cargo-dev-lib.sh`，为本地 smoke / playtest / prewarm / regression / drill / longrun 脚本提供 `oasis7_cargo_dev` 与本地 target 的 debug binary 解析 helper；默认本地复用 `cargo-dev.sh`，但在 `CI=1`、`CI=true` 或 `OASIS7_FORCE_RAW_CARGO=1` 时回退到原始 cargo target 语义。
+  - AC-24: Cargo 默认在当前 worktree 的 `target/` 生成产物；wrapper 不设置 target 环境或参数，不建立符号链接。显式 `CARGO_TARGET_DIR`、Cargo 配置及 `--target-dir` 沿用 Cargo 原生行为。
+  - AC-25: 正式文档必须明确：`scripts/cargo-dev.sh` / `scripts/cargo-dev-lib.sh` 只服务开发态 profile 与编译加速，不适用于要求 `CARGO_TARGET_DIR` 为空的 deterministic wasm / release 构建链路，也不得替代 CI canonical required/full 验收命令。
+  - AC-26: 根 `AGENTS.md` 的 cargo 规则必须与 `scripts/cargo-dev.sh` / `testing-manual.md` 对齐，明确“原始 cargo 命令走 `env -u RUSTC_WRAPPER cargo ...`，开发态 profile 与 sccache 可走 `./scripts/cargo-dev.sh ...`，但 deterministic wasm / release 仍必须保持 `CARGO_TARGET_DIR` 为空”。
 - Non-Goals:
   - 不在 scripts PRD 中替代业务功能设计。
   - 不承诺所有历史脚本长期向后兼容。
@@ -139,7 +139,7 @@ python3 scripts/resource-cleanup-executor.py \
 
 `--base-ref` 仅允许 `refs/remotes/origin/main` 或已交付到 origin/main 的 `refs/heads/main`；缺失基线时保留，不自动 fetch。expected 已在 base 祖先链即可证明合入，不要求已 prune 的远端 topic 存在；仅 pushed 不足。显式 PR 证明需同仓库、正确 head/base、真实 merged 且 merge commit 可达。
 
-unknown ignored 文件、真实 target 目录、改动 config 均保留；已识别的外部缓存链接、与仍存在 canonical config 字节一致的副本，以及能验证与目标 worktree 已跟踪源码对应的普通 Python 字节码缓存可重建。缓存目录名本身不构成可删除证明，未知内容、符号链接和无法验证的字节码仍保留。Linux/macOS 以有界 ps、原生启动身份和 lsof 观察当前操作用户进程，并补充可见的跨用户目标占用者。无关系统进程的身份读取失败不扩大为目标资源未知；当前用户进程或可见目标占用者的身份、覆盖或查询结果不明确时保留，不自动 sudo。该检查证明有限观察域内未发现占用，不声称覆盖不可见的其他用户进程，也不锁住后续新进程。Windows 不执行删除。
+unknown ignored 文件、真实 target 目录、target 符号链接和改动 config 均保留；与仍存在 canonical config 字节一致的副本，以及能验证与目标 worktree 已跟踪源码对应的普通 Python 字节码缓存可重建。缓存目录名本身不构成可删除证明，未知内容、符号链接和无法验证的字节码仍保留。Linux/macOS 以有界 ps、原生启动身份和 lsof 观察当前操作用户进程，并补充可见的跨用户目标占用者。无关系统进程的身份读取失败不扩大为目标资源未知；当前用户进程或可见目标占用者的身份、覆盖或查询结果不明确时保留，不自动 sudo。该检查证明有限观察域内未发现占用，不声称覆盖不可见的其他用户进程，也不锁住后续新进程。Windows 不执行删除。
 
 执行前重查 Git、base 与材料，remove 成功后才用事务核验 base 并按 expected 删除 branch；另一 worktree 检出、tip/base 改变或 ref 重建均保留并报告部分完成。JSON 的 `eligible`、`blocked_reasons`、`worktree_removed` 和 `branch_removed` 反映实际结果。
 
@@ -185,7 +185,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - `.pm` rebase conflict helper：helper 不自动修复任何 `.pm/**` 路径；若冲突来自 retired signal inbox、工作说明或按需 Issue mapping / archive、memory、stage 或其他 canonical 对象，脚本只能分类并提示删除/人工归档/人工处理，不得擅自重写真值。
   - resource cleanup：从目标外运行，明确 repo/path/branch/expected HEAD；先正常 fetch 更新基线，停止已知使用者。资料或占用不明时保留。
   - worktree report：missing/prunable/locked、dirty/untracked/ignored 与不可读原因按事实报告，不隐式修改资源。
-  - shared cargo dev cache：同一 repo family 的每个 worktree 必须映射到自己的 stable source-identity target namespace；同一 worktree 可复用该 namespace，默认不同 worktree 不得共享编译 artifacts。deterministic wasm / release 脚本若要求 `CARGO_TARGET_DIR` 为空，必须继续走原始 cargo 入口而不是 `cargo-dev.sh`。
+  - local cargo target：默认使用各 worktree 内的 `target/`，固定路径工作区复用自身产物；跨 worktree 只通过 sccache 复用支持的编译结果。不设置外部 namespace、租约、缓存登记或自动回收。deterministic wasm / release 脚本若要求 `CARGO_TARGET_DIR` 为空，必须继续走原始 cargo 入口而不是 `cargo-dev.sh`。
 - Non-Functional Requirements:
   - NFR-SCR-1: 核心脚本具备可读帮助信息与失败语义说明。
   - NFR-SCR-2: 主入口脚本在 Linux/macOS 环境可执行一致。
@@ -198,7 +198,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - NFR-SCR-11: 交付事实以实际 PR merged 为准；清理暂缓只报告具体保留项，不改变代码已交付事实。
   - NFR-SCR-12: 分支、工作区和清理规则遵循开发流程规范，不额外引入任务身份或复用授权。
   - NFR-SCR-12A: GC JSON 稳定且只读，包含事实和不可读原因，不包含清理命令或资格判断。
-  - NFR-SCR-13: 开发态 shared cargo target 目录必须按 worktree source identity 稳定且默认落在工作区外部缓存位置，避免污染仓库源码树或让不同 worktree / repo family 相互踩缓存。
+  - NFR-SCR-13: 开发态 target 默认位于各工作区内并由 Git 忽略；工作区创建无需编译工具链或符号链接权限，普通 Cargo 目录不被入口脚本修改。
 - Security & Privacy: 脚本不得在默认输出中泄漏密钥；涉及网络调用时需要显式参数与最小权限。
 
 ## 5. Risks & Roadmap
@@ -228,13 +228,13 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
 | PRD-SCRIPTS-005 | PR / Issue 按需 | `test_tier_required` | 真实 Git hook 失败保留、resume 幂等与身份冲突回归 | bootstrap 数据保护 |
 | PRD-SCRIPTS-006 | PR / Issue 按需 | `test_tier_required` | `--init-docs` / `--with-harness` JSON 与互斥契约 | 可选环境初始化 |
 | PRD-SCRIPTS-008 | PR / Issue 按需 | `test_tier_required` | cleanup Git/进程/材料/CAS 回归、Linux/macOS host smoke 与 GC 事实回归 | 用户资料和并发资源保护 |
-| PRD-SCRIPTS-009 | TASK-SCRIPTS-021/022 | `test_tier_required` | `bash -n` + `--help` + `--print-target-dir` 跨 worktree 一致性检查 + `AGENTS.md`/scripts/testing 文档口径一致性检查 + 文档治理检查 | 多 worktree Rust 开发回归速度与 deterministic wasm/release 口径隔离 |
+| PRD-SCRIPTS-009 | TASK-SCRIPTS-021/022 | `test_tier_required` | `bash -n` + `--help` + 原生 target 跨 worktree 隔离与参数透传检查 + `AGENTS.md`/scripts/testing 文档口径一致性检查 + 文档治理检查 | 多 worktree Rust 开发回归速度与 deterministic wasm/release 口径隔离 |
 - Decision Log:
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
 | --- | --- | --- | --- |
 | DEC-SCR-001 | 主入口 + fallback 分层治理 | 全脚本平级使用 | 分层更利于稳定维护。 |
 | DEC-SCR-002 | 参数契约显式化 | 依赖隐式约定 | 可减少 CI 误用与回归。 |
 | DEC-SCR-003 | fallback 仅在受控场景启用 | 默认对所有场景开放 | 可避免过度依赖应急链路。 |
-| DEC-SCR-004 | 用独立 `cargo-dev.sh` 包装开发态共享 `CARGO_TARGET_DIR`，而不把共享 target 设成仓库全局默认 | 直接把所有 cargo 流程切到同一个全局 `CARGO_TARGET_DIR` | 能让日常多 worktree 开发复用缓存，同时不破坏 deterministic wasm / release 脚本对空 `CARGO_TARGET_DIR` 的围栏。 |
+| DEC-SCR-004 | 用独立 `cargo-dev.sh` 包装开发态 profile 与 sccache，target 沿用 Cargo 原生解析 | 直接把所有 cargo 流程切到同一个全局 `CARGO_TARGET_DIR` | 集中存放但按 worktree 隔离的 target 不增加跨工作区复用；移除链接、登记与租约，依赖 Cargo 自身的构建锁及 sccache。正式构建围栏不变。 |
 
-开发脚本只提供 Git worktree、共享 Cargo 缓存、运行隔离和真实验证。普通 PR 使用 Git、gh、实际 CI 与评审，不依赖本地 PM 身份。资源清理保留用户资料、未提交、未推送及使用中资源。
+开发脚本只提供 Git worktree、本地 Cargo 开发配置、运行隔离和真实验证。普通 PR 使用 Git、gh、实际 CI 与评审，不依赖本地 PM 身份。资源清理保留用户资料、未提交、未推送及使用中资源。

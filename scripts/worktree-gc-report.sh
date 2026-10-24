@@ -13,7 +13,7 @@ Report read-only Git and filesystem facts about registered worktrees.
 
 Options:
   --json           Print machine-readable JSON with all discovered worktrees
-  --footprint      Include worktree usage and reverse-scanned external Cargo caches
+  --footprint      Include worktree target and Viewer dependency usage
   -h, --help       Show this help
 
 Examples:
@@ -55,7 +55,7 @@ COMMON_GIT_DIR="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
 CANONICAL_REPO_ROOT="$(cd "$COMMON_GIT_DIR/.." && pwd -P)"
 CURRENT_WORKTREE="$(pwd -P)"
 
-python3 - "$COMMON_GIT_DIR" "$CANONICAL_REPO_ROOT" "$CURRENT_WORKTREE" "$OUTPUT_JSON" "$INCLUDE_FOOTPRINT" "$ROOT_DIR/scripts/cargo-cache.py" <<'PY'
+python3 - "$COMMON_GIT_DIR" "$CANONICAL_REPO_ROOT" "$CURRENT_WORKTREE" "$OUTPUT_JSON" "$INCLUDE_FOOTPRINT" <<'PY'
 from __future__ import annotations
 
 import json
@@ -113,14 +113,14 @@ def cached_dir_size_bytes(path: Path, cache: dict[str, int | None]) -> int | Non
     return cache[cache_key]
 
 
-def target_footprint(path: Path, shared_target_size_cache: dict[str, int | None]) -> dict[str, object]:
+def target_footprint(path: Path, linked_target_size_cache: dict[str, int | None]) -> dict[str, object]:
     target_path = path / "target"
     target_exists = target_path.exists()
     target_is_symlink = target_path.is_symlink()
     target_resolved_path = str(target_path.resolve(strict=False)) if target_is_symlink else None
     measured_path = Path(target_resolved_path) if target_resolved_path else target_path
     target_bytes = (
-        cached_dir_size_bytes(measured_path, shared_target_size_cache)
+        cached_dir_size_bytes(measured_path, linked_target_size_cache)
         if target_exists and target_is_symlink
         else dir_size_bytes(measured_path)
         if target_exists
@@ -195,9 +195,9 @@ dirty_count = 0
 prunable_count = 0
 known_target_bytes = 0
 known_local_target_bytes = 0
-known_shared_target_bytes = 0
-known_shared_target_paths: set[str] = set()
-shared_target_size_cache: dict[str, int | None] = {}
+known_linked_target_bytes = 0
+known_linked_target_paths: set[str] = set()
+linked_target_size_cache: dict[str, int | None] = {}
 known_node_modules_bytes = 0
 
 for record in records:
@@ -226,7 +226,7 @@ for record in records:
     node_modules_bytes = None
     total_footprint_bytes = None
     if include_footprint and exists:
-        target = target_footprint(path_obj, shared_target_size_cache)
+        target = target_footprint(path_obj, linked_target_size_cache)
         target_bytes = target["bytes"]
         target_is_symlink = target["is_symlink"]
         target_resolved_path = target["resolved_path"]
@@ -236,7 +236,7 @@ for record in records:
         if target_bytes is not None:
             known_target_bytes += target_bytes
             if target_is_symlink and isinstance(target_resolved_path, str):
-                known_shared_target_paths.add(target_resolved_path)
+                known_linked_target_paths.add(target_resolved_path)
             else:
                 known_local_target_bytes += target_bytes
         if node_modules_bytes is not None:
@@ -283,10 +283,10 @@ payload = {
     "entries": entries,
 }
 if include_footprint:
-    for shared_target_path in sorted(known_shared_target_paths):
-        shared_target_bytes = shared_target_size_cache.get(shared_target_path)
-        if shared_target_bytes is not None:
-            known_shared_target_bytes += shared_target_bytes
+    for linked_target_path in sorted(known_linked_target_paths):
+        linked_target_bytes = linked_target_size_cache.get(linked_target_path)
+        if linked_target_bytes is not None:
+            known_linked_target_bytes += linked_target_bytes
     payload["summary"].update(
         {
             "footprint_included": True,
@@ -294,23 +294,16 @@ if include_footprint:
             "known_target_human": human_size(known_target_bytes),
             "known_local_target_bytes": known_local_target_bytes,
             "known_local_target_human": human_size(known_local_target_bytes),
-            "known_shared_target_bytes": known_shared_target_bytes,
-            "known_shared_target_human": human_size(known_shared_target_bytes),
-            "known_deduplicated_target_bytes": known_local_target_bytes + known_shared_target_bytes,
-            "known_deduplicated_target_human": human_size(known_local_target_bytes + known_shared_target_bytes),
+            "known_linked_target_bytes": known_linked_target_bytes,
+            "known_linked_target_human": human_size(known_linked_target_bytes),
+            "known_deduplicated_target_bytes": known_local_target_bytes + known_linked_target_bytes,
+            "known_deduplicated_target_human": human_size(known_local_target_bytes + known_linked_target_bytes),
             "known_viewer_node_modules_bytes": known_node_modules_bytes,
             "known_viewer_node_modules_human": human_size(known_node_modules_bytes),
             "known_footprint_bytes": known_target_bytes + known_node_modules_bytes,
             "known_footprint_human": human_size(known_target_bytes + known_node_modules_bytes),
         }
     )
-
-if include_footprint:
-    # Reverse inventory also finds wrapper targets without a source-side symlink
-    # and orphan namespaces. Its total is separate; never add symlinks twice.
-    payload["cargo_cache"] = json.loads(subprocess.check_output(
-        [sys.executable, sys.argv[6],
-         "report", "--repo-root", str(repo_root), "--json"], text=True))
 
 if output_json:
     print(json.dumps(payload, ensure_ascii=True, indent=2))
@@ -324,8 +317,8 @@ print(f"- prunable_worktrees: {prunable_count}")
 print(f"- dirty_worktrees: {dirty_count}")
 if include_footprint:
     print(f"- known_target_size: {human_size(known_target_bytes)}")
-    print(f"- known_deduplicated_target_size: {human_size(known_local_target_bytes + known_shared_target_bytes)}")
-    print(f"- known_shared_target_size: {human_size(known_shared_target_bytes)}")
+    print(f"- known_deduplicated_target_size: {human_size(known_local_target_bytes + known_linked_target_bytes)}")
+    print(f"- known_linked_target_size: {human_size(known_linked_target_bytes)}")
     print(f"- known_viewer_node_modules_size: {human_size(known_node_modules_bytes)}")
     print(f"- known_worktree_cache_size: {human_size(known_target_bytes + known_node_modules_bytes)}")
 
@@ -334,9 +327,6 @@ if not shown:
     print("- details: none")
     raise SystemExit(0)
 
-if include_footprint:
-    print("- external_cargo_cache_inventory:")
-    print(json.dumps(payload["cargo_cache"], ensure_ascii=True, indent=2))
 print("- details:")
 for entry in shown:
     label_parts = []

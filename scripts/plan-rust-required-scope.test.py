@@ -273,7 +273,7 @@ class Selection(unittest.TestCase):
 
     def test_command_center_shared_tools_keep_dedicated_checks(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('scripts/cargo-dev.sh', 'scripts/cargo-cache.py',
+        for path in ('scripts/cargo-dev.sh',
                      'scripts/find-python-with-module.sh'):
             with self.subTest(path=path):
                 self.write(path, 'shared tool changed')

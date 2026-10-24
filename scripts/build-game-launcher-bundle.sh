@@ -336,9 +336,6 @@ elif [[ "$PROFILE" == "dev" ]]; then
   NATIVE_TARGET_DIR="$(oasis7_cargo_dev_target_dir "$ROOT_DIR")"
   run oasis7_cargo_dev build "${BUNDLE_NATIVE_BUILD_ARGS[@]}"
 else
-  if [[ "$DRY_RUN" == "0" && "${CI:-}" != "1" && "${CI:-}" != "true" && -z "${CARGO_TARGET_DIR:-}" ]]; then
-    (cd "$ROOT_DIR" && ./scripts/cargo-dev.sh --prepare-target)
-  fi
   run env -u RUSTC_WRAPPER cargo build --profile "$PROFILE" "${BUNDLE_NATIVE_BUILD_ARGS[@]}"
 fi
 

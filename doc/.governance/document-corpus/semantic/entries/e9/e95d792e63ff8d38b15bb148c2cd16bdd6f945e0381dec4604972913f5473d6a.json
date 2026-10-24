@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "34f15c021eb7c14a2fdeaf1832fb20b973e16f5450c849e47d615a46ad5014c9",
+    "content_sha256": "578554b21f1f0fcc7659c4d15b84f4b9796b93fa8b13282d9050bcaa65f25ab5",
     "current_authority": "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md",
     "decision_owner": "qa_engineer",
     "disposition": "retain_current_procedure",
-    "note": "Reviewed explicit local execution-root setup for direct Viewer attachment; existing environment authority retained Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance. Scoped review for #5004: preserve authority, historical evidence and CLI behavior while updating executable ownership and dependency boundaries; no deployment or gameplay acceptance is claimed.",
+    "note": "Reviewed explicit local execution-root setup for direct Viewer attachment; existing environment authority retained Scoped executable ownership review: updated Cargo package selectors and source anchors for the bin extraction; existing behavior, authority, disposition and evidence limits are retained. The runtime design additionally records seven executable owners and shared policy/observability/credit libraries; this is ownership documentation, not gameplay or deployment acceptance. Scoped review for #5004: preserve authority, historical evidence and CLI behavior while updating executable ownership and dependency boundaries; no deployment or gameplay acceptance is claimed. Scoped local-build update: replace centralized target discovery with the Cargo metadata helper; preserve runtime arguments, environment authority and historical evidence. This does not certify gameplay or deployment.",
     "path": "doc/testing/manual/local-public-testnet-letai-test-environment-2026-06-23.manual.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
