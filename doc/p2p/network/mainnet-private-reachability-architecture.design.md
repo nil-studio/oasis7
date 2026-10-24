@@ -155,6 +155,21 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 3. 已接纳新版本的 peer 不接受旧版覆盖。兼容许可和已迁移状态须跨重启保持；不能因清 cache 或重建本地观察重新得到旧版许可。兼容窗口结束后严格拒绝旧版；不在旧签名下填充新字段，也不对远端记录重新签名掩盖变更。
 4. net/proto 共同完成 wire 与接纳，chain-runtime 完成发布序号持久化，node/status 消费本地派生视图；实现 PR 同时覆盖迁移、原签名转发、各入口的时间检查及高 churn 容量用例后再升级支持声明。
 
+<a id="discovery-tombstone-v2"></a>
+### V2 发现撤销与显式恢复实施合同
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本段为后续实现合同，未由 live-only 发布／接收水位交付代签。扩展 `PeerRecordPublicationStateV2` 为 `live|tombstone`，保留 schema 2、V1 字段与签名域，V2 仍签完整 `(schema_version, sequence, state, PeerRecord)`。tombstone 必须绑定原 peer/world/network、使用正且更高序号并清空 direct、hole-punch、relay 地址；TTL／未来偏差和输入预算仍适用。旧 live-only 实现遇到未知 state 拒绝，不回退 V1，也不声称旧节点已执行撤销；未启用持久接收策略的节点不获得跨重启防重放保证。
+
+标准 development host 提供互斥、显式的一次启动操作 `--withdraw-peer-record-publication` 与 `--resume-peer-record-publication`，要求 durable V2 publisher 和已初始化原件，不隐式建身份或账本；操作参数不落入持久配置。该操作沿 host→node→net 传递，在启动共享发布器时持久执行，之后按原运行入口继续；普通启动无操作参数。撤销先持久预留更高序号、完整无路径 payload 及 tombstone 意图，再签名并持久原件，最后允许网络 put。撤销意图及状态随原 publisher 保存；预留后或签名后崩溃恢复只能完成同一撤销，不得把原序号签成 live。正常重启、周期刷新、地址变化和远端查询不得自动把已撤销发布器恢复为 live。显式 resume 才允许以更高序号发布当前合法 live 模板。原状态缺少新增撤销字段时按旧 live 状态兼容读取；旧实现无法识别新持久状态时必须阻断，不能清空或降级。
+
+撤销后本机周期和重试只可重发同一仍有效的签名 tombstone，不因远端查询重新签名或分配序号；过期后可以停止转发，持久撤销状态保持，普通启动仍不恢复 live。明确恢复前不自动续签 tombstone，因而不承诺离线新节点最终观察到该撤销；旧 live 最大 TTL 与接收端持久水位仍独立约束重放。DHT Quorum::One、发送完成或本机状态均不代表全网撤销确认。
+
+接收端以同一事务比较、持久提交 tombstone 和最高水位，随后撤销旧候选、来源观察和自动发现拨号授权；tombstone 不安装为健康／可拨号候选，也不进入发现 ID 列表。保留已有会话的限制性元数据与静态地址独立生命周期，不将发现撤销扩大为角色撤销。低序 live、V1 与同序异内容按原水位／冲突规则拒绝，未隔离 peer 的更高 live 可恢复候选；已有同序冲突隔离不因 tombstone 自动解除。
+
+撤销证据转发与 live 候选读取分离。当前签名 tombstone 从有界接收账本原件读取，经本进程时间、绑定与当前最高水位检查后可用于 RR 缓存响应／公开记录结果，保持远端签名与序号，不另建无界 tombstone map；该读取不授予发现健康或拨号租约。DHT StorePut 接纳、缓存转发、RR 原件转发和查询结果须分别验证，查询得到的记录未实际进入 store 时不声称可由 Kademlia 转发。失效后不转发，但水位继续保留；无可信时间不执行 GC，也不宣称跨重启绝对到期或恶意磁盘回滚安全。
+
+验收沿实际发布和接收入口：live 1→显式 tombstone 2→发布预留／签名后重启仍为原 tombstone→普通刷新不复活；接收撤销后拒绝旧 live／V1，清理来源与队列拨号但可返回当前有效撤销原件；重开接收原件后水位不降；显式 resume 为 live 3 后恢复候选。覆盖无地址约束、V1 固定向量、未知状态／篡改、同序冲突、过期转发拒绝和真实 TCP／DHT 正向传播。可信时间、全网 ACK 与物理故障域仍为独立义务。
+
 <a id="discovery-receiver-floor-v2"></a>
 ### V2 接收端持久水位实施合同
 
