@@ -1,3 +1,4 @@
+use super::durable_peer_record_publisher::LocalPeerRecordPublisher;
 use super::peer_discovery_observations::DiscoveryObservations;
 use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
@@ -106,6 +107,7 @@ pub(super) struct CommandContext<'a> {
     pub event_traffic_metrics: &'a super::SharedLibp2pTrafficMetrics,
     pub keypair: &'a Keypair,
     pub peer_record_template: Option<&'a PeerRecord>,
+    pub local_peer_record_publisher: &'a Arc<Mutex<LocalPeerRecordPublisher>>,
     pub local_peer_id: PeerId,
     pub max_published_messages: usize,
     pub max_error_messages: usize,
@@ -1035,6 +1037,7 @@ pub(super) fn handle_command(
                         ctx.event_listening_addrs,
                         ctx.event_reachability,
                         ctx.allow_loopback_external_addrs_for_testing,
+                        ctx.local_peer_record_publisher,
                         None,
                     )
                     .is_ok()
@@ -1152,6 +1155,7 @@ pub(super) fn handle_command(
                         ctx.event_listening_addrs,
                         ctx.event_reachability,
                         ctx.allow_loopback_external_addrs_for_testing,
+                        ctx.local_peer_record_publisher,
                         None,
                     )
                     .is_ok()

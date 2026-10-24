@@ -17,6 +17,8 @@ impl Default for CliOptions {
             traffic_profile: TrafficProfile::Default,
             node_role: NodeRole::Sequencer,
             p2p_user_mode: NodeUserMode::AutoJoin,
+            p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1::V1Legacy,
+            initialize_peer_record_publication: false,
             p2p_accept_public_entry: false,
             p2p_detected_reachability: None,
             p2p_detected_hole_punch_viability: NodeHolePunchViability::Unknown,

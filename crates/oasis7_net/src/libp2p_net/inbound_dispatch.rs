@@ -11,7 +11,8 @@ use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
 use crate::error::WorldError;
 
-use super::discovery::handle_request_response_request;
+use super::discovery::handle_request_response_request_with_publisher;
+use super::durable_peer_record_publisher::LocalPeerRecordPublisher;
 use super::response_budget::FetchBlobResponseBudget;
 use super::response_workers::ResponseWorkers;
 use super::runtime_loop::{Handler, HandlerRegistration};
@@ -92,6 +93,7 @@ pub(super) fn dispatch_inbound_request(
     max_error_messages: usize,
     peer_record_template: Option<&PeerRecord>,
     keypair: &Keypair,
+    local_peer_record_publisher: &Arc<Mutex<LocalPeerRecordPublisher>>,
     listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
     reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
     allow_loopback_external_addrs_for_testing: bool,
@@ -163,7 +165,7 @@ pub(super) fn dispatch_inbound_request(
         }
         return;
     }
-    let reply = handle_request_response_request(
+    let reply = handle_request_response_request_with_publisher(
         &request,
         handlers,
         peer_record_template,
@@ -172,6 +174,7 @@ pub(super) fn dispatch_inbound_request(
         reachability,
         allow_loopback_external_addrs_for_testing,
         discovered_peer_records,
+        local_peer_record_publisher,
     );
     response_workers.send_immediate(
         channel,

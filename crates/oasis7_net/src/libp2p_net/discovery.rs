@@ -1,6 +1,5 @@
-use super::discovery_budget::{
-    MAX_COOLDOWN_ENTRIES, MAX_DISCOVERY_IDS, MAX_DISCOVERY_LIST_BYTES, MAX_PROXY_ATTEMPTS,
-};
+use super::discovery_budget::{MAX_COOLDOWN_ENTRIES, MAX_DISCOVERY_LIST_BYTES, MAX_PROXY_ATTEMPTS};
+use super::durable_peer_record_publisher::LocalPeerRecordPublisher;
 use super::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -26,8 +25,10 @@ use super::peer_discovery_observations::{DiscoveryIngress, DiscoveryObservations
 use super::peer_manager::{
     PeerManagerHealthStatus, PeerManagerPolicy, recompute_peer_manager_healths,
 };
-use super::peer_record::{
-    build_configured_peer_record, put_record_query, validate_discovered_peer_record,
+use super::peer_record::{put_record_query, validate_discovered_peer_record};
+use super::peer_record_republish::handle_peer_record_exchange_request;
+pub(super) use super::peer_record_republish::{
+    RR_GET_CACHED_DISCOVERY_PEERS, RR_GET_CACHED_PEER_RECORD, RR_GET_LOCAL_PEER_RECORD,
 };
 use super::reachability::Libp2pReachabilitySnapshot;
 use super::swarm_behaviour::Behaviour;
@@ -38,10 +39,6 @@ use super::transport_paths::{
 };
 use super::utils::push_bounded_string_with_keyed_cooldown;
 use super::{HandlerRegistration, push_bounded_clone};
-
-const RR_GET_LOCAL_PEER_RECORD: &str = "/aw/rr/1.0.0/get_local_peer_record";
-pub(super) const RR_GET_CACHED_PEER_RECORD: &str = "/aw/rr/1.0.0/get_cached_peer_record";
-const RR_GET_CACHED_DISCOVERY_PEERS: &str = "/aw/rr/1.0.0/get_cached_discovery_peers";
 
 pub(super) enum PendingPeerRecordRequest {
     ConnectedPeerRecord {
@@ -746,6 +743,7 @@ pub(super) fn peer_record_matches_target(
     clippy::too_many_arguments,
     reason = "Discovery state is kept explicit to preserve peer-record and routing event ordering"
 )]
+#[cfg(test)]
 pub(super) fn handle_request_response_request(
     request: &NetworkRequest,
     handlers: &HashMap<String, HandlerRegistration>,
@@ -756,75 +754,60 @@ pub(super) fn handle_request_response_request(
     allow_loopback_external_addrs_for_testing: bool,
     discovered_peer_records: &PeerRecordCache,
 ) -> Result<Vec<u8>, WorldError> {
-    match request.protocol.as_str() {
-        RR_GET_LOCAL_PEER_RECORD => {
-            let Some(template) = peer_record_template else {
-                return Err(WorldError::NetworkProtocolUnavailable {
-                    protocol: RR_GET_LOCAL_PEER_RECORD.to_string(),
-                });
-            };
-            let record = build_configured_peer_record(
-                keypair,
-                template,
-                listening_addrs,
-                reachability,
-                allow_loopback_external_addrs_for_testing,
-            )?;
-            discovered_peer_records.clock().check(&record.record)?;
-            to_canonical_cbor(&record)
+    let local_publisher = Arc::new(Mutex::new(LocalPeerRecordPublisher::Legacy));
+    handle_request_response_request_with_publisher(
+        request,
+        handlers,
+        peer_record_template,
+        keypair,
+        listening_addrs,
+        reachability,
+        allow_loopback_external_addrs_for_testing,
+        discovered_peer_records,
+        &local_publisher,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Discovery state is kept explicit to preserve peer-record and routing event ordering"
+)]
+pub(super) fn handle_request_response_request_with_publisher(
+    request: &NetworkRequest,
+    handlers: &HashMap<String, HandlerRegistration>,
+    peer_record_template: Option<&PeerRecord>,
+    keypair: &Keypair,
+    listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
+    reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
+    allow_loopback_external_addrs_for_testing: bool,
+    discovered_peer_records: &PeerRecordCache,
+    local_publisher: &Arc<Mutex<LocalPeerRecordPublisher>>,
+) -> Result<Vec<u8>, WorldError> {
+    if let Some(response) = handle_peer_record_exchange_request(
+        request,
+        peer_record_template,
+        keypair,
+        listening_addrs,
+        reachability,
+        allow_loopback_external_addrs_for_testing,
+        discovered_peer_records,
+        local_publisher,
+    )? {
+        return Ok(response);
+    }
+    if let Some(handler) = handlers.get(&request.protocol) {
+        if let Some(admission) = handler.admission.as_ref() {
+            admission(&request.payload)?;
         }
-        RR_GET_CACHED_PEER_RECORD => {
-            let peer_id = String::from_utf8(request.payload.clone())
-                .map_err(|_| WorldError::NetworkProtocolUnavailable {
-                    protocol: "cached peer record payload must be utf-8".to_string(),
-                })?
-                .parse::<PeerId>()
-                .map_err(|_| WorldError::NetworkProtocolUnavailable {
-                    protocol: "cached peer record peer_id must be valid".to_string(),
-                })?;
-            let record = discovered_peer_records.get(&peer_id).ok_or_else(|| {
-                WorldError::NetworkRequestFailed {
-                    code: DistributedErrorCode::ErrNotFound,
-                    message: format!("cached peer record not found for peer={peer_id}"),
-                    retryable: true,
-                }
-            })?;
-            to_canonical_cbor(record)
-        }
-        RR_GET_CACHED_DISCOVERY_PEERS => {
-            let mut peers: Vec<String> = discovered_peer_records
-                .values()
-                .filter(|record| {
-                    peer_record_template
-                        .map(|template| {
-                            record.record.world_id == template.world_id
-                                && record.record.network_id == template.network_id
-                        })
-                        .unwrap_or(true)
-                })
-                .map(|record| record.record.peer_id.clone())
-                .collect();
-            peers.sort();
-            peers.dedup();
-            peers.truncate(MAX_DISCOVERY_IDS);
-            to_canonical_cbor(&peers)
-        }
-        _ => {
-            if let Some(handler) = handlers.get(&request.protocol) {
-                if let Some(admission) = handler.admission.as_ref() {
-                    admission(&request.payload)?;
-                }
-                let context = oasis7_proto::distributed_net::NetworkRequestContext::new(
-                    std::time::Instant::now() + std::time::Duration::from_secs(30),
-                    Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                );
-                (handler.handler)(&context, &request.payload)
-            } else {
-                Err(WorldError::NetworkProtocolUnavailable {
-                    protocol: request.protocol.clone(),
-                })
-            }
-        }
+        let context = oasis7_proto::distributed_net::NetworkRequestContext::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        (handler.handler)(&context, &request.payload)
+    } else {
+        Err(WorldError::NetworkProtocolUnavailable {
+            protocol: request.protocol.clone(),
+        })
     }
 }
 
