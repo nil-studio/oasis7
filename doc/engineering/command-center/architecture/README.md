@@ -184,4 +184,4 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 [文档树合同](../document-tree.design.md)统一产品树、专业系统树、目录与明确配对关系的解释。云端读取固定提交，按可信身份保存个人阅读位置；本地工作树预览仅在设备范围索引并保存本机位置。快照与覆盖、部分读取和失效关系各自可见，来源刷新不改变条款权威或个人决定。两端验收分别核对真实浏览器与适用的原生交互，旧本地索引证据不代签云端完整文档树。
 
-2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。
+2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。

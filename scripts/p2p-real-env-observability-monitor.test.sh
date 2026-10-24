@@ -131,3 +131,7 @@ python3 ./scripts/p2p-real-env-traffic-durable.test.py
 # The single-node CLI profile adapter shares the observability report contract.
 bash "$repo_root/scripts/oasis7-node-observability-report.test.sh"
 python3 "$repo_root/scripts/p2p-profile-readiness.test.py"
+
+# Explicit local CLI collection uses the same durable publication protocol.
+python3 "$repo_root/scripts/p2p-node-profile-monitor.test.py"
+python3 "$repo_root/scripts/p2p-node-profile-publication.test.py"
