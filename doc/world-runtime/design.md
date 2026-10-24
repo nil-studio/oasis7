@@ -49,6 +49,8 @@ Launcher bootstrap address parsing is shared by desktop and backend launchers in
 Launcher 后端只消费启动配置、共享协议和进程控制接口，其 normal/build 依赖闭包不包含 `oasis7_runtime` 或 `oasis7_simulator`。重大世界事件的可见性枚举由 `oasis7_client_api::viewer_protocol` 唯一声明，Runtime 保留原公开路径的再导出及全部投影授权判断；枚举值本身不授予读取权。内置场景的规范 ID、CLI 别名与调试分类由 `oasis7_agent_api::world_scenario` 提供，Launcher 与 Simulator 共用解析。Simulator 仍拥有 `WorldScenario`、场景文件加载和初始化方法，旧 Rust 路径、枚举序列化与构建调用保持兼容。Launcher 的 `Unknown` 默认值、四种可见性字符串和 `--allow-debug-scenario` 防护不变；类型下沉不改变启动参数、世界执行或恢复语义。
 
 
+架构检查中的测试范围沿本节专业职责投影：Projection、Runtime、Launcher Backend 的禁令限 normal/build 生产闭包；其测试构建仍含 dev，真实世界集成归 Service 或宿主测试，不由工具扩大为 dev 禁令。World State 下层 codec 单测与 Game Client/cache 单测保持后端 dev 隔离。Protocol Tools 测试图仍检查 dev，只有上文精确的签名互操作首边允许；Client Launcher 保留原 host/无默认/含 dev 的版本范围。
+
 ## 2. 阅读顺序
 1. `doc/world-runtime/prd.md`
 2. `doc/world-runtime/design.md`

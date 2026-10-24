@@ -52,6 +52,9 @@
 ## 4. 边界与结构
 
 <a id="des-agc-001"></a>
+
+工程检查的测试归属：Game Client 协议/cache 单测禁止经 dev helper 回拉后端；Harness 与 Provider Local Bridge 的宿主禁令按 normal/build 生产闭包检查，测试仍编译实际 dev 输入，真实 World 集成留 Service/宿主，不将生产约束自动扩大到 dev。
+
 ### DES-AGC-001：职责、依赖与复用边界
 
 `oasis7_client_storage` 承载私有目录、私钥文件、加密记录、操作状态和本地模型调用预算持久化；不依赖 HTTP transport 或世界执行。共享客户端与世界服务直接消费该存储库，`oasis7_game_client` 保留旧公开路径的重导出。文件格式、权限校验、锁、原子写入和预算语义保持不变；本地预算与操作记录不授予世界权限。

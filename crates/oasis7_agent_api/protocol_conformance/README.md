@@ -3,6 +3,10 @@
 This independent development-time consumer imports generated TypeScript types,
 compiles a typed use of discovery/projection/error and operation response types,
 and validates the real handler fixtures with locked Ajv (JSON Schema 2020-12).
+Each real GET fixture must match exactly one operation by path, declare its actual
+status, and validate against that status schema, including errors. Contract-only
+mutations remove 400, change path/method, substitute an error schema, and introduce
+an ambiguous path while keeping handler inputs unchanged.
 The fixture authority is the Rust handler test in `oasis7_viewer_runtime`; this
 consumer does not generate fixtures from the schema. Its independent negative
 values test canonical and exact u64 bounds, known nested task fields, positive
