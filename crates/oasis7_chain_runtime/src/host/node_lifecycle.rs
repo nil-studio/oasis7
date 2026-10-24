@@ -219,3 +219,7 @@ impl Arguments {
 #[cfg(test)]
 #[path = "node_lifecycle/tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "node_lifecycle/profile_report_tests.rs"]
+mod profile_report_tests;

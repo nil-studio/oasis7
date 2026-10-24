@@ -227,27 +227,65 @@ def archive_identity(database,selected,before):
         return {'selected':observations,'entry_count':len(entries),'expanded_bytes':sum(item.file_size for item in entries),'analysis_sysroots':sysroots}
 
 
-def coverage_report(source,inventory,texts,*,end=None):
-    found=set();diagnostics=[]
+def captured_segments(path,item):
+    """Never join across an omitted source interval or parse a cut line."""
+    data=path.read_bytes(); texts=[]
+    ranges=item.get('source_ranges',[{'source_offset':0,'destination_offset':0,'length':len(data)}])
+    for segment in ranges:
+        start=segment['destination_offset']; length=segment['length']
+        value=data[start:start+length]
+        if segment['source_offset']:
+            value=value.partition(b'\n')[2]
+        # An unterminated last line cannot prove a complete progress marker.
+        if not value.endswith(b'\n'):value=value.rpartition(b'\n')[0]
+        texts.append(value.decode(errors='replace'))
+    return texts
+
+
+def query_progress(texts,*,end=None):
+    started=set();completed=set()
+    for text in texts:
+        check_time(end)
+        for line in text.splitlines():
+            check_time(end)
+            match=re.search(r'Starting evaluation of (\S+\.ql)\.',line)
+            if match:started.add(match[1])
+            match=re.search(r'Evaluation done; writing results to (\S+\.bqrs)\.',line)
+            if match:completed.add(match[1])
+    return {'scope':'unique markers in complete lines of retained ranges only; omitted ranges UNKNOWN; not decoded results',
+            'started':sorted(started),'completed':sorted(completed),
+            'started_count':len(started),'completed_count':len(completed),
+            'full_query_results':'NOT_VERIFIED'}
+
+
+def coverage_report(source,inventory,texts,*,end=None,logs_complete=True):
+    found=set();diagnostics=[];enumeration_complete=logs_complete;sections=0
     for text in texts:
         check_time(end)
         section=False
         for raw in text.splitlines():
             check_time(end)
             line=re.sub(r'\x1b\[[0-9;]*m','',raw)
-            if 'found manifests:' in line:section=True;continue
+            if 'found manifests:' in line:
+                if section:enumeration_complete=False
+                section=True;sections+=1;continue
             if section:
                 # One linear search: repeated source prefixes in malformed long
                 # lines must not cause the old unanchored regex to backtrack.
                 offset=line.find('  '+str(source)+'/')
                 candidate=line[offset+2:].rstrip() if offset>=0 else ''
                 if candidate.endswith('/Cargo.toml'):found.add(str(Path(candidate).relative_to(source)))
-                else:section=False
+                else:
+                    if re.search(r'\band\s+[0-9]+\s+more\b',line) or not line.strip():enumeration_complete=False
+                    section=False
             if any(marker in line for marker in ('failed to load workspace','semantic analyzer unavailable','failed to expand macro')):diagnostics.append(line[-2048:])
+        if section:enumeration_complete=False
+    enumeration_complete=enumeration_complete and sections>0
     return {'scope':'Linux host, all targets, default all features; not all OS/target triples',
-        'maintained_manifests':inventory,'found_manifests':sorted(found),'missing_found_manifests':sorted(set(inventory)-found),
+        'maintained_manifests':inventory,'found_manifests':sorted(found),'missing_found_manifests':sorted(set(inventory)-found) if enumeration_complete else None,
+        'manifest_enumeration':'COMPLETE' if enumeration_complete else 'UNKNOWN',
         'diagnostics':sorted(set(diagnostics)),
-        'status':'COVERAGE_REQUIRES_REVIEW' if set(inventory)-found or diagnostics else 'MANIFEST_COLLECTION_OBSERVED_NOT_ALL_SEMANTICS_PROVEN',
+        'status':'COVERAGE_REQUIRES_REVIEW' if not enumeration_complete or set(inventory)-found or diagnostics else 'MANIFEST_COLLECTION_OBSERVED_NOT_ALL_SEMANTICS_PROVEN',
         'boundaries':['found manifest does not prove every cfg/target/macro model','nightly and WASM/foreign-platform contexts require independent diagnostics; not waived']}
 
 
@@ -284,8 +322,9 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
             if not name:continue
             path=out/name
             if path.is_symlink() or not path.resolve().is_relative_to((out/'database-logs').resolve()):raise RuntimeError('unsafe captured log reference')
-            if path.is_file():texts.append(path.read_text(errors='replace'))
-        coverage=coverage_report(source,inventory,texts,end=capture_end)
+            if path.is_file():texts.extend(captured_segments(path,item))
+        save(out/'query-progress.json',query_progress(texts,end=capture_end),out)
+        coverage=coverage_report(source,inventory,texts,end=capture_end,logs_complete=terminal['evidence_status']=='COMPLETE')
         coverage['log_evidence_status']=terminal['evidence_status']
         if terminal['evidence_status']!='COMPLETE':coverage['status']='COVERAGE_REQUIRES_REVIEW'
         save(out/'coverage.json',coverage,out)

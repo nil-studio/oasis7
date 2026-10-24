@@ -753,7 +753,11 @@ run_rust_baseline() {
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
-  run python3 ./scripts/cargo-dev-architecture.py
+  local architecture_args=()
+  if [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
+    architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
+  fi
+  run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
   run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
