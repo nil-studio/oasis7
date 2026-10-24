@@ -56,7 +56,7 @@ class CargoBoundaries(unittest.TestCase):
         return [r for r in report['results'] if r['status'] == 'violation']
 
     def test_legal_graph_real_build(self):
-        self.assertEqual([r['status'] for r in self.inspect()['results']], ['pass'])
+        self.assertTrue(all(r['status'] == 'pass' for r in self.inspect()['results']))
 
     def test_direct_alias_workspace_optional_and_target_declarations(self):
         for table, value in [('[dependencies]', 'renamed={workspace=true,optional=true}'),
@@ -78,6 +78,7 @@ class CargoBoundaries(unittest.TestCase):
                 self.package('middle', '[dependencies]\nforbidden={path="../forbidden"}\n')
                 failures = self.violations(self.inspect())
                 closures = [r for r in failures if r['view'] == 'closure']
+                closures = [r for r in closures if 'path' in r]
                 self.assertEqual(len(closures), 1, failures)
                 self.assertEqual(len(closures[0]['path']), 3)
                 self.assertEqual(closures[0]['edges'][0]['declarations'][0]['kind'],
@@ -247,6 +248,75 @@ class CargoBoundaries(unittest.TestCase):
         failures = self.violations(self.inspect())
         self.assertTrue(any(r['view'] == 'closure' and r['profile']['mode'] == 'test'
                             for r in failures), failures)
+
+    def test_violation_never_reports_closure_and_build_pass(self):
+        self.package('root', '[dependencies]\nforbidden={path="../forbidden"}\n')
+        report = self.inspect()
+        self.assertTrue(self.violations(report))
+        self.assertTrue(any(r['view'] == 'build' and r['status'] == 'pass' for r in report['results']))
+        self.assertFalse(any(r.get('view') in ('closure', 'closure_and_build') and r['status'] == 'pass'
+                             for r in report['results']))
+
+    def test_production_only_test_boundary_still_builds_dev(self):
+        self.package('root', '[dev-dependencies]\nforbidden={path="../forbidden"}\n')
+        self.rule['profiles'][0]['mode'] = 'test'
+        self.rule['test_kinds'] = ['normal', 'build']
+        self.assertFalse(self.violations(self.inspect()))
+        self.write('forbidden/src/lib.rs', 'compile_error!("dev must compile");')
+        self.assertTrue(any(r['status'] == 'inspection_error' for r in self.inspect()['results']))
+        self.write('forbidden/src/lib.rs', '')
+        self.package('root', '[dependencies]\nforbidden={path="../forbidden"}\n')
+        self.assertTrue(self.violations(self.inspect()))
+
+    def test_trusted_graph_selection_tracks_features_dev_and_host_target(self):
+        self.package('root', '[dependencies]\nmiddle={path="../middle",optional=true}\n'
+                     '[features]\nenable=["dep:middle"]\n'
+                     '[dev-dependencies]\nother={path="../other"}\n')
+        self.rule['forbidden'] = [dict(name='absent')]
+        self.rule['profiles'] += [dict(id='enabled', target='host', default_features=False,
+                                      features=['enable'], mode='production'),
+                                 dict(id='tests', target='host', default_features=False, features=[], mode='test')]
+        self.rule['required_profiles'] = [p['id'] for p in self.rule['profiles']]
+        self.command('cargo', 'generate-lockfile', '--offline')
+        self.command('git', 'add', '.')
+        self.command('git', '-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture', 'commit', '-qm', 'inputs')
+        config = dict(revision=1, rules=[self.rule])
+        def inspect(packages):
+            plan = {'architecture': {'version': 1, 'mode': 'targeted', 'packages': packages, 'tested': 'HEAD'}}
+            return checker.inspect(self.root, config, plan=plan)
+        for package, expected in [('middle', {'enabled'}), ('other', {'tests'}), ('root', {'production','enabled','tests'}), ('forbidden', set())]:
+            report = inspect([package])
+            self.assertFalse(self.violations(report))
+            built = {r['profile']['id'] for r in report['results'] if r.get('view') == 'build' and r['status'] == 'pass'}
+            self.assertEqual(built, expected, report)
+            self.assertEqual(report['timings']['graph_profiles'], 3)
+        # Even a build exempted by trusted scope retains complete forbidden graph inspection.
+        self.rule['forbidden'] = [dict(name='middle')]
+        self.assertTrue(self.violations(inspect(['forbidden'])))
+        diagnostic = checker.inspect(self.root, config, selected=['production'], plan={'architecture': {
+            'version': 1, 'mode': 'targeted', 'packages': [], 'tested': 'HEAD'}})
+        self.assertTrue(any(r['status'] == 'coverage_gap' for r in diagnostic['results']))
+        self.assertEqual(checker.inspect(self.root, config, plan={})['timings']['build_profiles'], 3)
+
+    def test_trusted_selection_preserves_target_conditions_and_host_build_tools(self):
+        self.package('root', "[target.'cfg(windows)'.dependencies]\nmiddle={path=\"../middle\"}\n")
+        self.rule['forbidden'] = [dict(name='absent')]
+        self.rule['profiles'].append(dict(id='windows', target='x86_64-pc-windows-msvc',
+                                         default_features=False, features=[], mode='production'))
+        self.rule['required_profiles'].append('windows')
+        def report():
+            self.command('cargo', 'generate-lockfile', '--offline')
+            self.command('git', 'add', '.')
+            self.command('git', '-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture', 'commit', '-qm', 'inputs')
+            return checker.inspect(self.root, dict(revision=1, rules=[self.rule]), builds=False,
+                plan={'architecture': {'version': 1, 'mode': 'targeted', 'packages': ['middle'], 'tested': 'HEAD'}})
+        host_windows = 'windows' in self.command('rustc', '-vV')
+        required = {r['profile']['id']: r['build_required'] for r in report()['results'] if r.get('view') == 'closure'}
+        self.assertEqual(required, {'production': host_windows, 'windows': True})
+        self.package('root', '[build-dependencies]\nmiddle={path="../middle"}\n')
+        self.write('root/build.rs', 'fn main() {}')
+        required = {r['profile']['id']: r['build_required'] for r in report()['results'] if r.get('view') == 'closure'}
+        self.assertEqual(required, {'production': True, 'windows': True})
 
     def test_unregistered_required_profile_is_gap(self):
         self.rule['required_profiles'].append('required-wasm')
