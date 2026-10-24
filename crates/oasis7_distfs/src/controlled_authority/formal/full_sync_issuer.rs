@@ -360,6 +360,11 @@ impl DurableFullSyncIssuerV2 {
             &self.key,
         )?;
         let observation = witness.observe(&query)?;
+        if observation.body.query != query {
+            return Err(invalid(
+                "full-sync witness response does not bind the fresh query",
+            ));
+        }
         observation.verify(&self.policy)?;
         let genesis =
             VerifiedFullSyncIssuerStateV2::from_committed_records(self.policy.clone(), vec![])?;
@@ -388,6 +393,11 @@ impl DurableFullSyncIssuerV2 {
             &self.key,
         )?;
         let observation = witness.observe(&query)?;
+        if observation.body.query != query {
+            return Err(invalid(
+                "full-sync witness response does not bind the fresh query",
+            ));
+        }
         observation.verify(&self.policy)?;
         if observation.body.current_anchor != *expected_head {
             return Err(FormalError::Conflict(

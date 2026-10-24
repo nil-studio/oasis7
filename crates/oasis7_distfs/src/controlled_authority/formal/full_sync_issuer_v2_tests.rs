@@ -195,6 +195,153 @@ struct SimulatedWitness {
     truncate_response: bool,
 }
 
+/// Replays authentic historical wire material without possessing either key.
+struct ReplayedObservation<'a> {
+    current: &'a mut SimulatedWitness,
+    captured: SignedFullSyncIssuerObservationV2,
+    captured_entries: Vec<FullSyncIssuerCommittedEntryV2>,
+    replay_on: usize,
+    observations: usize,
+    replaying: bool,
+    commits: usize,
+}
+
+impl FullSyncIssuerWitnessV2 for ReplayedObservation<'_> {
+    fn observe(
+        &mut self,
+        query: &SignedFullSyncIssuerQueryV2,
+    ) -> Result<SignedFullSyncIssuerObservationV2, FormalError> {
+        self.observations += 1;
+        self.replaying = self.observations == self.replay_on;
+        if self.replaying {
+            assert_ne!(query, &self.captured.body.query);
+            Ok(self.captured.clone())
+        } else {
+            self.current.observe(query)
+        }
+    }
+
+    fn records_after(
+        &mut self,
+        after: &FullSyncIssuerAnchorV2,
+        through: &FullSyncIssuerAnchorV2,
+    ) -> Result<Vec<FullSyncIssuerCommittedEntryV2>, FormalError> {
+        if self.replaying {
+            assert_eq!(through, &self.captured.body.current_anchor);
+            Ok(self.captured_entries.clone())
+        } else {
+            self.current.records_after(after, through)
+        }
+    }
+
+    fn commit(
+        &mut self,
+        observation: &SignedFullSyncIssuerObservationV2,
+        record: &FullSyncIssuerRecordV2,
+    ) -> Result<SignedFullSyncIssuerReceiptV2, FormalError> {
+        self.commits += 1;
+        self.current.commit(observation, record)
+    }
+}
+
+#[test]
+fn replayed_observation_cannot_reopen_old_backup_or_bypass_external_floor() {
+    let temp = TempDir::new("replayed-observation-backup");
+    let policy = policy(1, 3, 2, 4);
+    let mut witness = SimulatedWitness::new(policy.clone());
+    let issue = witness.issue_for(171, 5);
+    let mut issuer = witness.store(temp.path());
+    issuer.manage(issue, &mut witness).unwrap();
+    let backup = fs::read(temp.path().join(LEDGER_FILE)).unwrap();
+    let query =
+        SignedFullSyncIssuerQueryV2::sign(&policy, genesis(&policy), [177; 32], &key(3)).unwrap();
+    let captured = witness.observe(&query).unwrap();
+    let captured_entries = witness.entries.clone();
+    let revoke = command(
+        &witness.state().unwrap(),
+        &policy,
+        172,
+        173,
+        target(5, FullSyncReadRoleV2::StateSync),
+        FullSyncIssuerOperationV2::Revoke,
+        1,
+    );
+    issuer.manage(revoke, &mut witness).unwrap();
+    let current_floor = witness.state().unwrap().anchor().clone();
+    drop(issuer);
+    fs::write(temp.path().join(LEDGER_FILE), &backup).unwrap();
+
+    // Neither a fresh nonce at the original floor nor a stronger external
+    // floor can be satisfied by an old, otherwise valid signed response.
+    for floor in [genesis(&policy), current_floor.clone()] {
+        let mut replay = ReplayedObservation {
+            current: &mut witness,
+            captured: captured.clone(),
+            captured_entries: captured_entries.clone(),
+            replay_on: 1,
+            observations: 0,
+            replaying: false,
+            commits: 0,
+        };
+        assert!(
+            DurableFullSyncIssuerV2::open(temp.path(), policy.clone(), key(3), floor, &mut replay,)
+                .is_err()
+        );
+        assert_eq!(replay.commits, 0);
+        assert_eq!(fs::read(temp.path().join(LEDGER_FILE)).unwrap(), backup);
+    }
+    let reopened = DurableFullSyncIssuerV2::open(
+        temp.path(),
+        policy.clone(),
+        key(3),
+        current_floor,
+        &mut witness,
+    )
+    .unwrap();
+    drop(reopened);
+    let local: LedgerFile = read_optional_bounded(&temp.path().join(LEDGER_FILE), MAX_LEDGER_BYTES)
+        .unwrap()
+        .unwrap();
+    assert_eq!(local.entries, witness.entries);
+    assert!(
+        !witness
+            .state()
+            .unwrap()
+            .target_state(&target(5, FullSyncReadRoleV2::StateSync),)
+            .unwrap()
+            .active
+    );
+}
+
+#[test]
+fn replayed_same_head_observation_cannot_authorize_intent_cas() {
+    let temp = TempDir::new("replayed-observation-cas");
+    let policy = policy(1, 3, 2, 4);
+    let mut witness = SimulatedWitness::new(policy.clone());
+    let mut issuer = witness.store(temp.path());
+    let command = witness.issue_for(174, 5);
+    let query =
+        SignedFullSyncIssuerQueryV2::sign(&policy, genesis(&policy), [178; 32], &key(3)).unwrap();
+    let captured = witness.observe(&query).unwrap();
+    let mut replay = ReplayedObservation {
+        current: &mut witness,
+        captured,
+        captured_entries: vec![],
+        replay_on: 2,
+        observations: 0,
+        replaying: false,
+        commits: 0,
+    };
+    assert!(issuer.manage(command.clone(), &mut replay).is_err());
+    assert_eq!(replay.observations, 2);
+    assert_eq!(replay.commits, 0);
+    assert!(replay.current.entries.is_empty());
+    assert!(!temp.path().join(PENDING_FILE).exists());
+    drop(replay);
+    assert!(issuer.manage(command, &mut witness).is_ok());
+    assert_eq!(witness.entries.len(), 1);
+}
+
 impl SimulatedWitness {
     fn new(policy: VerifiedFullSyncIssuerPolicyV2) -> Self {
         // Test keys use a repeated seed byte; identify the seed by its public key.
