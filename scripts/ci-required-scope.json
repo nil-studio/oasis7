@@ -499,8 +499,6 @@
     {
       "match": [
         "scripts/cargo-dev*",
-        "scripts/cargo-cache*",
-        "scripts/cargo-incremental-clean*",
         "scripts/check-standalone-tool-lockfiles*",
         "scripts/check-launcher-p2p-dependency*"
       ],

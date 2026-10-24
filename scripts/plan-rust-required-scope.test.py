@@ -288,12 +288,9 @@ class Selection(unittest.TestCase):
         self.assertEqual(set(plan['groups']), {'baseline', 'command_center'})
         self.assertFalse(any('unknown input:' in reason for reason in plan['reasons']))
 
-    def test_existing_cache_and_bridge_inputs_cover_modifications_and_deletions(self):
+    def test_existing_bridge_input_covers_modification_and_deletion(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         cases = {
-            'scripts/cargo-cache.test.py': {'cargo_tooling_contracts'},
-            'scripts/cargo-incremental-clean.py': {'cargo_tooling_contracts'},
-            'scripts/cargo-incremental-clean.test.py': {'cargo_tooling_contracts'},
             'scripts/local-letai-provider-bridge.test.sh': {'oasis7_required', 'operational_contracts'},
         }
         for path, groups in cases.items():
