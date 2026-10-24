@@ -555,7 +555,17 @@ fn dht_get_peer_record_decodes_and_verifies_record() {
     let PendingDhtQuery::GetPeerRecord { record, .. } = pending else {
         panic!("unexpected query state");
     };
-    assert_eq!(record, Some(signed));
+    let admitted = record.expect("signed peer record should be admitted");
+    let source = admitted.source();
+    assert_eq!(
+        admitted
+            .consume(
+                source,
+                super::super::peer_record_admission::PeerRecordAdmissionWorkUnit::KadGetPeerRecordResult,
+            )
+            .expect("consume the one-use admission permit"),
+        signed
+    );
 }
 
 #[test]

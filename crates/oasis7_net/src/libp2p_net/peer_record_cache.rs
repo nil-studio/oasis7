@@ -283,6 +283,13 @@ mod tests {
             panic!("DHT refresh must decode the original signed response");
         };
         let replayed = result.unwrap().unwrap();
+        let source = replayed.source();
+        let replayed = replayed
+            .consume(
+                source,
+                super::super::peer_record_admission::PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
+            )
+            .unwrap();
         let lease = cache.prepare(peer, &replayed).unwrap();
         cache.install(peer, replayed, lease);
         assert_eq!(cache.records[&peer].lease.deadline(), deadline);

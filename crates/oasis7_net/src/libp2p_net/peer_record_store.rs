@@ -8,6 +8,11 @@ use libp2p::kad::{ProviderRecord, Record, RecordKey};
 use oasis7_proto::distributed::{DHT_PEER_RECORDS_SUFFIX, DHT_WORLD_PREFIX, dht_peer_record_key};
 
 use super::peer_record::decode_peer_record;
+#[cfg(test)]
+use super::peer_record_admission::PeerRecordAdmissionBudget;
+use super::peer_record_admission::{
+    PeerRecordAdmissionPermit, PeerRecordAdmissionWorkUnit, SharedPeerRecordAdmissionBudget,
+};
 use super::peer_record_time::{DiscoveryClock, RecordLease};
 
 pub(super) struct PeerRecordStore {
@@ -15,14 +20,25 @@ pub(super) struct PeerRecordStore {
     clock: DiscoveryClock,
     // Exactly one entry per stored peer record; removals and pruning clear it.
     leases: HashMap<RecordKey, RecordLease>,
+    admission_budget: SharedPeerRecordAdmissionBudget,
 }
 
 impl PeerRecordStore {
+    #[cfg(test)]
     pub(super) fn with_config(peer: PeerId, config: MemoryStoreConfig) -> Self {
+        Self::with_admission_budget(peer, config, PeerRecordAdmissionBudget::shared())
+    }
+
+    pub(super) fn with_admission_budget(
+        peer: PeerId,
+        config: MemoryStoreConfig,
+        admission_budget: SharedPeerRecordAdmissionBudget,
+    ) -> Self {
         Self {
             inner: MemoryStore::with_config(peer, config),
             clock: DiscoveryClock::default(),
             leases: HashMap::new(),
+            admission_budget,
         }
     }
 
@@ -95,7 +111,18 @@ impl RecordStore for PeerRecordStore {
             self.prune();
             return self.inner.put(record);
         }
+        let permit = PeerRecordAdmissionPermit::admit_payload(
+            &self.admission_budget,
+            None,
+            PeerRecordAdmissionWorkUnit::StorePut,
+            &record.value,
+            crate::libp2p_net::peer_record::MAX_SIGNED_PEER_RECORD_BYTES,
+        )
+        .map_err(|_| store::Error::ValueTooLarge)?;
         let mut lease = self.checked_lease(&record)?;
+        permit
+            .consume(None, PeerRecordAdmissionWorkUnit::StorePut, &record.value)
+            .map_err(|_| store::Error::ValueTooLarge)?;
         if let Some(previous) = self.inner.get(&record.key)
             && previous.value == record.value
         {

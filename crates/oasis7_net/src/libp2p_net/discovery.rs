@@ -14,7 +14,7 @@ use libp2p::{Multiaddr, PeerId};
 use crate::error::WorldError;
 use crate::util::to_canonical_cbor;
 use oasis7_proto::distributed::{
-    DistributedErrorCode, ErrorResponse, dht_peer_discovery_key, dht_peer_record_key,
+    dht_peer_discovery_key, dht_peer_record_key,
     rendezvous_namespace as distributed_rendezvous_namespace,
 };
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord, SignedPeerRecord};
@@ -26,6 +26,11 @@ use super::peer_manager::{
     PeerManagerHealthStatus, PeerManagerPolicy, recompute_peer_manager_healths,
 };
 use super::peer_record::{put_record_query, validate_discovered_peer_record};
+use super::peer_record_admission::{
+    PeerRecordAdmissionPermit, PeerRecordAdmissionWorkUnit, admit_discovery_list_response,
+    admit_optional_peer_record_response,
+};
+use super::peer_record_candidate::install_admitted_peer_record;
 use super::peer_record_republish::handle_peer_record_exchange_request;
 pub(super) use super::peer_record_republish::{
     RR_GET_CACHED_DISCOVERY_PEERS, RR_GET_CACHED_PEER_RECORD, RR_GET_LOCAL_PEER_RECORD,
@@ -39,6 +44,9 @@ use super::transport_paths::{
 };
 use super::utils::push_bounded_string_with_keyed_cooldown;
 use super::{HandlerRegistration, push_bounded_clone};
+
+#[cfg(test)]
+pub(super) use super::peer_record_admission::decode_optional_peer_record_response;
 
 pub(super) enum PendingPeerRecordRequest {
     ConnectedPeerRecord {
@@ -818,6 +826,7 @@ pub(super) fn handle_request_response_request_with_publisher(
 pub(super) fn handle_peer_record_response(
     swarm: &mut Swarm<Behaviour>,
     kind: PendingPeerRecordRequest,
+    response_source: PeerId,
     payload: &[u8],
     pending_peer_record_requests: &mut HashMap<
         request_response::OutboundRequestId,
@@ -860,50 +869,69 @@ pub(super) fn handle_peer_record_response(
         PendingPeerRecordRequest::CachedPeerRecord { ask_peer, .. }
         | PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id: ask_peer } => Some(*ask_peer),
     };
+    let admission_budget = swarm.behaviour().peer_record_admission_budget();
     if let PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id } = &kind {
-        match decode_cached_discovery_peers_response(payload) {
-            Ok(peer_ids) => {
-                for discovered_peer_id in peer_ids {
-                    maybe_queue_discovery_peer_record(
-                        swarm,
-                        pending_dht,
-                        pending_discovery_peer_records,
-                        discovered_peer_records,
-                        discovered_peer_id,
-                        local_peer_id,
-                        peer_record_world_id(peer_record_template),
-                    );
-                    let _ = request_cached_peer_record_via(
-                        swarm,
-                        pending_peer_record_requests,
-                        pending_cached_peer_records,
-                        cached_peer_record_cooldowns,
-                        traffic_metrics,
-                        *peer_id,
-                        discovered_peer_id,
-                        local_peer_id,
-                        Vec::new(),
-                    );
-                }
-            }
+        let peer_ids = match admit_discovery_list_response(
+            &admission_budget,
+            response_source,
+            *peer_id,
+            payload,
+        ) {
+            Ok(peer_ids) => peer_ids,
             Err(err) => {
                 push_bounded_clone(
                     event_errors,
-                    format!(
-                        "libp2p cached discovery peers decode failed peer={requested_peer_id}{}: {err:?}",
-                        response_via_peer_id
-                            .map(|peer_id| format!(" via={peer_id}"))
-                            .unwrap_or_default()
-                    ),
+                    format!("libp2p cached discovery response rejected peer={peer_id}: {err:?}"),
                     max_error_messages,
                     "lock errors",
                 );
+                return;
             }
+        };
+        for discovered_peer_id in peer_ids {
+            maybe_queue_discovery_peer_record(
+                swarm,
+                pending_dht,
+                pending_discovery_peer_records,
+                discovered_peer_records,
+                discovered_peer_id,
+                local_peer_id,
+                peer_record_world_id(peer_record_template),
+            );
+            let _ = request_cached_peer_record_via(
+                swarm,
+                pending_peer_record_requests,
+                pending_cached_peer_records,
+                cached_peer_record_cooldowns,
+                traffic_metrics,
+                *peer_id,
+                discovered_peer_id,
+                local_peer_id,
+                Vec::new(),
+            );
         }
         return;
     }
-    match decode_optional_peer_record_response(payload) {
-        Ok(Some(record)) => {
+    let expected_source = response_via_peer_id.unwrap_or(requested_peer_id);
+    if response_source != expected_source {
+        let _ = PeerRecordAdmissionPermit::admit_payload(
+            &admission_budget,
+            Some(response_source),
+            PeerRecordAdmissionWorkUnit::PeerRecordResponse,
+            payload,
+            super::peer_record::MAX_SIGNED_PEER_RECORD_BYTES,
+        );
+        push_bounded_clone(
+            event_errors,
+            "libp2p peer-record response came from an unexpected peer".into(),
+            max_error_messages,
+            "lock errors",
+        );
+        return;
+    }
+    match admit_optional_peer_record_response(&admission_budget, response_source, payload) {
+        Ok(Some(admitted)) => {
+            let record = admitted.record().clone();
             if !peer_record_matches_target(&record, requested_peer_id) {
                 push_bounded_clone(
                     event_errors,
@@ -914,7 +942,7 @@ pub(super) fn handle_peer_record_response(
                     max_error_messages,
                     "lock errors",
                 );
-            } else if let Err(err) = process_discovered_peer_record(
+            } else if let Err(err) = install_admitted_peer_record(
                 swarm,
                 discovered_peer_records,
                 discovery_observations,
@@ -925,14 +953,18 @@ pub(super) fn handle_peer_record_response(
                 peer_record_template,
                 peer_manager_policy,
                 static_bootstrap_peer_ids,
-                record.clone(),
+                admitted,
+                Some(response_source),
+                PeerRecordAdmissionWorkUnit::PeerRecordResponse,
                 match &kind {
-                    PendingPeerRecordRequest::ConnectedPeerRecord { peer_id, .. } => {
-                        DiscoveryIngress::Direct { peer: *peer_id }
+                    PendingPeerRecordRequest::ConnectedPeerRecord { .. } => {
+                        DiscoveryIngress::Direct {
+                            peer: response_source,
+                        }
                     }
-                    PendingPeerRecordRequest::CachedPeerRecord { ask_peer, .. } => {
+                    PendingPeerRecordRequest::CachedPeerRecord { .. } => {
                         DiscoveryIngress::PeerExchange {
-                            upstream: *ask_peer,
+                            upstream: response_source,
                         }
                     }
                     PendingPeerRecordRequest::CachedDiscoveryPeers { .. } => {
@@ -1119,27 +1151,6 @@ pub(super) fn republish_cached_peer_record(
     swarm.behaviour_mut().discovery_budget.track_dht(query_id);
     pending_dht.insert(query_id, PendingDhtQuery::PutPeerRecord { response: None });
     Ok(())
-}
-
-pub(super) fn decode_optional_peer_record_response(
-    payload: &[u8],
-) -> Result<Option<SignedPeerRecord>, WorldError> {
-    if payload.len() > super::peer_record::MAX_SIGNED_PEER_RECORD_BYTES {
-        return Err(WorldError::NetworkProtocolUnavailable {
-            protocol: "peer record payload capacity exceeded".into(),
-        });
-    }
-    if let Ok(error) = serde_cbor::from_slice::<ErrorResponse>(payload) {
-        if error.code == DistributedErrorCode::ErrNotFound {
-            return Ok(None);
-        }
-        return Err(WorldError::NetworkRequestFailed {
-            code: error.code,
-            message: error.message,
-            retryable: error.retryable,
-        });
-    }
-    Ok(Some(serde_cbor::from_slice(payload)?))
 }
 
 pub(super) fn decode_cached_discovery_peers_response(
