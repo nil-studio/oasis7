@@ -158,7 +158,7 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 <a id="discovery-receiver-floor-v2"></a>
 ### V2 接收端持久水位实施合同
 
-Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本切片目标为显式启用的 `receiver-floor-v2-1`，独立于本机 publisher 模式。legacy 默认保持现有接纳；持久兼容策略只允许尚未迁移的 peer 使用 V1，同 peer 首次接纳 V2 后永久拒绝 V1；严格 V2 策略拒绝所有 V1。初始化时固定策略，日常打开必须匹配，不能用换 publisher 模式或清缓存退回旧许可。标准 host 在稳定 `runtime_root/p2p/peer-record-receiver` 发现 receiver 目录（即使为空）、初始化意图、锁或 sentinel 任一残留时，拒绝禁用 receiver 模式；原目录整体丢失或恶意替换属于外部恢复边界，不能声称本机文件能检测任意整机回滚。
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本切片目标为显式启用的 `receiver-floor-v2-1`，独立于本机 publisher 模式。legacy 默认保持现有接纳；持久兼容策略只允许尚未迁移的 peer 使用 V1，同 peer 首次接纳 V2 后永久拒绝 V1；严格 V2 策略拒绝所有 V1。初始化时固定策略，日常打开必须匹配，不能用换 publisher 模式或清缓存退回旧许可。两个模式不相互推断或自动升级，但普通网络启动的严格 V2 接收策略要求本机配置的发布器也使用 durable V2：Kad 本机 put 与远端 store 共用接收边界，不能按本机 peer ID 豁免 V1，否则远端重放本机旧声明可绕过严格策略。不支持的组合须在启动前明确拒绝，而非启动后持续发布失败；receiver-only 显式初始化不启动网络，可先于 publisher 初始化单独完成。标准 host 在稳定 `runtime_root/p2p/peer-record-receiver` 发现 receiver 目录（即使为空）、初始化意图、锁或 sentinel 任一残留时，拒绝禁用 receiver 模式；原目录整体丢失或恶意替换属于外部恢复边界，不能声称本机文件能检测任意整机回滚。
 
 首次初始化是显式、只建 receiver 状态后退出的操作；日常启动只打开原件。状态绑定接收实例身份、world/network、schema 和接纳策略；稳定 OS 锁、私有路径／文件检查、有限输入、文件 fsync、原子替换及父目录 fsync 在网络实例启动前生效。初始化中断仅允许显式恢复可证明尚未接纳任何记录的原始空状态；已初始化原件丢失、未知版本、损坏、绑定不符或不明临时材料均阻断，保留原件而不重建。平台不支持所需持久语义时拒绝启用该模式。
 

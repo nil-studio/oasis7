@@ -1854,7 +1854,7 @@ These tests establish the management protocol and local persistence behavior und
 
 Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[接收水位](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-receiver-floor-v2)。在同一 source/tested tree 使用独立接收策略和私有原目录，记录真实 host→node→net 配置、进程重启和签名 payload。新能力尚在实现，本段定义验收而非通过记录。
 
-标准 development host 使用独立 `--p2p-peer-record-reception legacy_compatible|v2_durable_compatible|v2_only`。持久模式先在相同稳定身份、world/network 与 runtime root 下执行 `--initialize-peer-record-receiver`，初始化完成即退出；日常启动移除 initializer flag，保持同一 reception mode。默认 legacy 与本机 `--p2p-peer-record-publication` 相互独立，已有 receiver 目录不能通过改回 legacy 忽略。策略转换与清空原目录不作为本次支持的迁移方法。
+标准 development host 使用独立 `--p2p-peer-record-reception legacy_compatible|v2_durable_compatible|v2_only`。持久模式先在相同稳定身份、world/network 与 runtime root 下执行 `--initialize-peer-record-receiver`，初始化完成即退出；日常启动移除 initializer flag，保持同一 reception mode。默认 legacy 与本机 `--p2p-peer-record-publication` 相互独立，已有 receiver 目录不能通过改回 legacy 忽略。普通启动使用 `v2_only` 接收时还需显式配置 `--p2p-peer-record-publication v2_durable` 并按其独立流程先初始化 publisher；缺少 durable publisher 的严格接收组合应在起网络前拒绝。receiver initializer 仍只创建接收原件，不顺带初始化发布器。策略转换与清空原目录不作为本次支持的迁移方法。
 
 验证 V1 兼容 peer 首次接受 V2 后跨重启拒绝 V1／低序号；严格 V2 拒绝所有 V1；相同序号摘要幂等且不延寿；同序号不同的有效签名持久隔离，旧缓存响应、DHT 转发、健康来源和排队发现拨号不再使用该候选，既有会话与独立静态配置按原合同保留。至少一条真实 TCP 或 DHT 正向升序安装和一条重启重放负例必须贯穿实际消费者。
 
