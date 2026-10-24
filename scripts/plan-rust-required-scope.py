@@ -318,6 +318,7 @@ def select(config, base, source_head, test_head=None, additions=()):
     reasons = ['baseline always runs']
     paths = []
     affected = set()
+    architecture_inputs = set()
     unknown_paths = []
     full = False
     support_rule = False
@@ -326,23 +327,35 @@ def select(config, base, source_head, test_head=None, additions=()):
         # exclude target history already present in the actual first parent.
         graph_refs = [base, source_head, test_head or source_head]
         paths = changed_paths(base, source_head)
-        if test_head and test_head != source_head:
-            source_oid = git('rev-parse', source_head + '^{commit}').decode().strip()
-            base_oid = git('rev-parse', base + '^{commit}').decode().strip()
-            parents = git('show', '-s', '--format=%P', test_head).decode().split()
-            if len(parents) != 2 or parents[1] != source_oid:
-                raise ValueError('tested commit is not a target/source merge')
-            target = parents[0]
-            if git('merge-base', base_oid, target).decode().strip() != base_oid:
-                raise ValueError('event base is not an ancestor of tested target')
-            forks = git('merge-base', '--all', target, source_oid).decode().split()
-            if len(forks) != 1:
-                raise ValueError('ambiguous source/target merge base')
-            source_base = forks[0]
-            paths = list(dict.fromkeys(changed_paths(source_base, source_oid)
-                                       + changed_paths(target, test_head)))
-            graph_refs.extend([source_base, target])
-        graphs = [cargo_graph(ref, config.get('generated_inputs', [])) for ref in dict.fromkeys(graph_refs)]
+        try:
+            if test_head and test_head != source_head:
+                source_oid = git('rev-parse', source_head + '^{commit}').decode().strip()
+                base_oid = git('rev-parse', base + '^{commit}').decode().strip()
+                parents = git('show', '-s', '--format=%P', test_head).decode().split()
+                if len(parents) != 2 or parents[1] != source_oid:
+                    raise ValueError('tested commit is not a target/source merge')
+                target = parents[0]
+                if git('merge-base', base_oid, target).decode().strip() != base_oid:
+                    raise ValueError('event base is not an ancestor of tested target')
+                forks = git('merge-base', '--all', target, source_oid).decode().split()
+                if len(forks) != 1:
+                    raise ValueError('ambiguous source/target merge base')
+                source_base = forks[0]
+                paths = list(dict.fromkeys(changed_paths(source_base, source_oid)
+                                           + changed_paths(target, test_head)))
+                graph_refs.extend([source_base, target])
+        except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
+            full = True
+            reasons.append('uncertain tested merge inputs: ' + str(error))
+        graphs = []
+        for ref in dict.fromkeys(graph_refs):
+            try:
+                graphs.append(cargo_graph(ref, config.get('generated_inputs', [])))
+            except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
+                # Keep usable graphs to establish ownership even when another
+                # registered input cannot be parsed. Uncertainty is not registration.
+                full = True
+                reasons.append('uncertain Git/dependency inputs: ' + str(error))
         for path in paths:
             controlled = any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
             if controlled:
@@ -367,6 +380,7 @@ def select(config, base, source_head, test_head=None, additions=()):
                     direct = {name for name, (directory, _) in manifests.items()
                               if directory and path.startswith(directory + '/')}
                     library_owners = (set() if leaf else direct) | imported_readers | embedded.get('__library_embeds__', {}).get(path, set())
+                    architecture_inputs.update(owners)
                     affected.update(owners)
                     affected.update(reverse_consumers(library_owners, reverse))
             for rule in config['rules']:
@@ -425,6 +439,10 @@ def select(config, base, source_head, test_head=None, additions=()):
         if full or support_rule or unmapped_support or not support_profiles or 'workspace_support' in additions:
             support_profiles = sorted(SUPPORT_PROFILES)
     return {'groups': sorted(chosen), 'resources': resources,
+            'architecture': {'version': 1, 'mode': 'full' if full or additions or any(
+                fnmatch.fnmatchcase(path, 'scripts/cargo-dev*') for path in paths) else 'targeted',
+                'packages': sorted(architecture_inputs), 'base': base, 'source': source_head,
+                'tested': test_head or source_head},
             'workspace_support_profiles': support_profiles,
             'workspace_support_profile_version': 1,
             'reasons': list(dict.fromkeys(reasons)), 'scope': 'full' if full else 'targeted'}

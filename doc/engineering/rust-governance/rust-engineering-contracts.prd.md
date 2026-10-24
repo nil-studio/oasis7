@@ -89,9 +89,9 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；对应 [REQ-RUST-003](
 
 | 要求 | 系统设计覆盖 | 实现基线 | 剩余范围与证据入口 |
 | --- | --- | --- | --- |
-| [REQ-RUST-001](#req-rust-001) | 已覆盖：[Workspace 合同](rust-engineering-contracts.design.md#workspace-policy)、迁移与验证 | 部分基础：根 `Cargo.toml` 已有少量共享依赖，尚无统一 package/lint 继承 | 逐批同义迁移、配置检查与 lint 继承；以实施 PR 的候选图和实际 CI 为证据 |
-| [REQ-RUST-002](#req-rust-002) | 已覆盖：[边界规则](rust-engineering-contracts.design.md#architecture-rules)、方向矩阵、覆盖与诊断 | 部分基础：已有专业边界与 Launcher 局部依赖检查，未有本设计的通用检查器 | 规则实现、真实配置矩阵、正反例和门禁接入；不能从现有单一检查推导全平台覆盖 |
-| [REQ-RUST-003](#req-rust-003) | 已覆盖：[协议权威与首切片](rust-engineering-contracts.design.md#protocol-authority)、生成与兼容生命周期 | 部分基础：已有 Rust wire、bootstrap OpenAPI 与协议测试，未有本设计的完整 TS/schema 生成闭环 | 首切片生成器、消费者校验、完整集检查与 CI；其他 profile 仍需独立登记和证明 |
+| [REQ-RUST-001](#req-rust-001) | 已覆盖：[Workspace 合同](rust-engineering-contracts.design.md#workspace-policy)、迁移与验证 | 首版已落地：6 个成员显式继承 workspace package/依赖/lint | 逐批同义迁移、配置检查与 lint 继承；以实施 PR 的候选图和实际 CI 为证据 |
+| [REQ-RUST-002](#req-rust-002) | 已覆盖：[边界规则](rust-engineering-contracts.design.md#architecture-rules)、方向矩阵、覆盖与诊断 | 首版已落地：9 条规则、37 个 profile 的声明、依赖图和编译检查 | 局部执行保留全部图核查，按可信输入选择编译；未登记平台不声称覆盖 |
+| [REQ-RUST-003](#req-rust-003) | 已覆盖：[协议权威与首切片](rust-engineering-contracts.design.md#protocol-authority)、生成与兼容生命周期 | 首版已落地：signed-read bootstrap TS/schema 生成、只读完整集检查和真实 handler consumer | API revision 1 / read schema revision 5；其他 profile 仍需独立登记和证明 |
 
 上表以[固定基线与源文件](rust-engineering-contracts.design.md#baseline-gap)为实现依据，只说明本专题覆盖范围。工程设计的“已覆盖”不表示实现、CI 或相关产品 AC 已完成；执行进度与验证结果保留在 PR、实际 CI 和评审记录。
 
