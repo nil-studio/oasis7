@@ -1811,7 +1811,7 @@ These checks do not prove persistent pending/terminal publication, SIGKILL safet
 
 Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；范围见[单节点正式 CLI 报告](doc/p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)。
 
-- `bash scripts/oasis7-node-observability-report.test.sh`：实际 file report 入口、旧 HTTP 兼容、未知 schema/profile、实例绑定、停止／阻断、缺字段、陈旧／未来观察和恢复；保留 JSON／Markdown 只读角色边界，不输出私有配置和原始 error。现有 observability 合同入口同时执行它。
+- `bash scripts/oasis7-node-observability-report.test.sh` 与 `python3 scripts/p2p-profile-readiness.test.py`：实际 file report 入口、旧 HTTP 兼容、未知 schema/profile、实例绑定、停止／阻断、缺字段、陈旧／未来观察和恢复；保留 JSON／Markdown 只读角色边界，不输出私有配置和原始 error。现有 observability 合同入口同时执行它。
 - `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib schema2_process_hook_reports_verified_public_readiness_and_stops_cleanly`：真实 observer supervisor 与 `process::status` 正／停止状态进入报告；这不是外部 CLI 进程证明。
 - `env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_chain_runtime`，再设置 `OASIS7_FORMAL_NODE_TEST_BIN` 为该候选二进制，执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_state_sync_cli_ -- --ignored --test-threads=1`：shipping CLI 的首次就绪、重启、停止及 epoch 演进后的旧 grant 拒绝状态送入实际报告。普通不带 ignored 的 cargo test 不代签此项；沿现有 formal process CI suite 执行。
 

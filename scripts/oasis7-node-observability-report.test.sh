@@ -47,5 +47,3 @@ assert "smoke_tick: p95=`31.5`" in markdown
 assert "smoke_action_execution: p95=`14.8`" in markdown
 assert "decision: p95=`24.2`" in markdown
 PY
-
-PYTHONDONTWRITEBYTECODE=1 python3 "$(dirname "${BASH_SOURCE[0]}")/p2p-profile-readiness.test.py"
