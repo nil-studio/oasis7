@@ -1849,6 +1849,26 @@ Validate the initial hard limit with a fully signed 1,024-record history contain
 
 These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
 
+<a id="discovery-receiver-floor-v2"></a>
+### V2 接收端持久水位验证
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[接收水位](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-receiver-floor-v2)。在同一 source/tested tree 使用独立接收策略和私有原目录，记录真实 host→node→net 配置、进程重启和签名 payload。本段定义验收方法；实际受测版本、命令与退出码记录于实现 PR。
+
+同候选 canonical 本地命令（共享 target，串行执行；环境参数与受测 source 在 PR 记录）：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib receiver_ -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib peer_record_reception -- --test-threads=1
+```
+
+标准 development host 使用独立 `--p2p-peer-record-reception legacy_compatible|v2_durable_compatible|v2_only`。持久模式先在相同稳定身份、world/network 与 runtime root 下执行 `--initialize-peer-record-receiver`，初始化完成即退出；日常启动移除 initializer flag，保持同一 reception mode。默认 legacy 与本机 `--p2p-peer-record-publication` 相互独立，已有 receiver 目录不能通过改回 legacy 忽略。普通启动使用 `v2_only` 接收时还需显式配置 `--p2p-peer-record-publication v2_durable` 并按其独立流程先初始化 publisher；缺少 durable publisher 的严格接收组合应在起网络前拒绝。receiver initializer 仍只创建接收原件，不顺带初始化发布器。策略转换与清空原目录不作为本次支持的迁移方法。
+
+验证 V1 兼容 peer 首次接受 V2 后跨重启拒绝 V1／低序号；严格 V2 拒绝所有 V1；相同序号摘要幂等且不延寿；同序号不同的有效签名持久隔离，旧缓存响应、DHT 转发、健康来源和排队发现拨号不再使用该候选，既有会话与独立静态配置按原合同保留。分别验证尚未释放的 queued dial 在新 gate 下拒绝，以及已在旧有效 gate 下启动的 transport 操作若随后完成，不恢复旧记录、来源或永久候选资格；后者仍受原 transport 超时和独立角色／资源策略约束。至少一条真实 TCP 或 DHT 正向升序安装和一条重启重放负例必须贯穿实际消费者。
+
+故障覆盖显式初始化中断、正常打开原件、缺失／损坏／未来 schema／不明临时文件、绑定不符、重复实例、禁用或换策略降级、文件或父目录同步失败；失败不发布新的内存水位或候选；原子替换后的目录同步失败按提交不确定处理，不回写旧状态，重开验证实际原件并保持防回退。容量上限拒绝新身份但允许原未隔离 peer 正向更新，不用无可信时间的 GC 腾空间。分别记录普通文件持久性与未覆盖的恶意整机回滚、可信时间、tombstone 和物理故障域边界。
+
 <a id="discovery-record-admission-budget"></a>
 ### Discovery peer-record admission budget
 

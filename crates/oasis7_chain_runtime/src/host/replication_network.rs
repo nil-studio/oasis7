@@ -2,10 +2,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1;
+use oasis7::development_node_config::{
+    DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
+};
 use oasis7_node::{
     Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, NodeReplicationNetworkHandle,
-    NodeRuntime, derive_libp2p_identity_keypair,
+    NodeRuntime, PeerRecordReceiverConfig, PeerRecordReceiverMode, derive_libp2p_identity_keypair,
 };
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord};
 
@@ -65,7 +67,7 @@ pub(super) fn build_default_replication_network_config(
     root_keypair: &NodeKeypairConfig,
     paths: &RuntimePaths,
 ) -> Result<Libp2pReplicationNetworkConfig, String> {
-    let mut config = build_default_peer_record_publication_config(options, root_keypair, paths)?;
+    let mut config = build_default_peer_record_network_config(options, root_keypair, paths)?;
     if options.replication_network_listen_addrs.is_empty() {
         config
             .listen_addrs
@@ -108,7 +110,7 @@ pub(super) fn build_default_replication_network_config(
     Ok(config)
 }
 
-fn build_default_peer_record_publication_config(
+fn build_default_peer_record_network_config(
     options: &CliOptions,
     root_keypair: &NodeKeypairConfig,
     paths: &RuntimePaths,
@@ -129,7 +131,50 @@ fn build_default_peer_record_publication_config(
                 .join("peer-record-publication"),
         );
     }
+    config.peer_record_receiver = PeerRecordReceiverConfig {
+        mode: match options.p2p_peer_record_reception {
+            DevelopmentPeerRecordReceptionModeV1::LegacyCompatible => {
+                PeerRecordReceiverMode::Legacy
+            }
+            DevelopmentPeerRecordReceptionModeV1::V2DurableCompatible => {
+                PeerRecordReceiverMode::DurableCompatible
+            }
+            DevelopmentPeerRecordReceptionModeV1::V2Only => PeerRecordReceiverMode::V2Only,
+        },
+        directory: Some(paths.runtime_root.join("p2p").join("peer-record-receiver")),
+    };
     Ok(config)
+}
+
+pub(super) fn initialize_default_peer_record_receiver(options: &CliOptions) -> Result<(), String> {
+    if options.p2p_peer_record_reception == DevelopmentPeerRecordReceptionModeV1::LegacyCompatible {
+        return Err(
+            "--initialize-peer-record-receiver requires --p2p-peer-record-reception v2_durable_compatible or v2_only"
+                .into(),
+        );
+    }
+    if options.formal_live_config.is_some() || options.guarded_initial_config.is_some() {
+        return Err(
+            "--initialize-peer-record-receiver applies only to the development host runtime".into(),
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = options;
+        return Err("durable peer-record reception requires Unix filesystem guarantees".into());
+    }
+    #[cfg(unix)]
+    {
+        let root_keypair = node_keypair_config::ensure_node_keypair_in_config(Path::new(
+            options.config_path.as_str(),
+        ))?;
+        let paths = super::resolve_runtime_paths(options);
+        let mut network_config =
+            build_default_peer_record_network_config(options, &root_keypair, &paths)?;
+        network_config.peer_record_publication_directory = None;
+        Libp2pReplicationNetwork::initialize_peer_record_receiver(&network_config)
+            .map_err(|err| format!("failed to initialize durable peer-record receiver: {err:?}"))
+    }
 }
 
 pub(super) fn initialize_default_peer_record_publication(
@@ -159,7 +204,7 @@ pub(super) fn initialize_default_peer_record_publication(
         ))?;
         let paths = super::resolve_runtime_paths(options);
         let network_config =
-            build_default_peer_record_publication_config(options, &root_keypair, &paths)?;
+            build_default_peer_record_network_config(options, &root_keypair, &paths)?;
         Libp2pReplicationNetwork::initialize_peer_record_publication(&network_config)
             .map_err(|err| format!("failed to initialize durable peer-record publication: {err:?}"))
     }

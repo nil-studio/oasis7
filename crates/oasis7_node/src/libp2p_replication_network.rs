@@ -10,6 +10,7 @@ use oasis7_net::{
     Libp2pNetwork, Libp2pNetworkConfig, Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot,
     PeerManagerPolicy, world_error_is_missing_handler, world_error_is_retryable_connection_gap,
 };
+pub use oasis7_net::{PeerRecordReceiverConfig, PeerRecordReceiverMode};
 use oasis7_proto::distributed::WorldHeadAnnounce;
 use oasis7_proto::distributed::{DistributedErrorCode, ErrorResponse};
 use oasis7_proto::distributed_dht::{
@@ -97,6 +98,8 @@ pub struct Libp2pReplicationNetworkConfig {
     /// Enables durable V2 publication for the local signed peer record.
     /// `None` preserves the legacy V1 publication behavior.
     pub peer_record_publication_directory: Option<PathBuf>,
+    /// Independent inbound peer-record policy and its fixed durable receiver directory.
+    pub peer_record_receiver: PeerRecordReceiverConfig,
     pub listen_addrs: Vec<Multiaddr>,
     pub bootstrap_peers: Vec<Multiaddr>,
     pub bootstrap_redial_interval_ms: i64,
@@ -120,6 +123,7 @@ impl Default for Libp2pReplicationNetworkConfig {
             keypair: None,
             peer_record: None,
             peer_record_publication_directory: None,
+            peer_record_receiver: PeerRecordReceiverConfig::default(),
             listen_addrs: Vec::new(),
             bootstrap_peers: Vec::new(),
             bootstrap_redial_interval_ms: inner_defaults.bootstrap_redial_interval_ms,
@@ -165,7 +169,7 @@ impl Libp2pReplicationNetwork {
     }
 
     /// Constructs a replication network and reports synchronous local setup
-    /// failures, including durable peer-record publisher initialization.
+    /// failures, including publisher and receiver persistence setup.
     pub fn try_new(config: Libp2pReplicationNetworkConfig) -> Result<Self, WorldError> {
         let bootstrap_addrs_by_peer_id =
             bootstrap_peer_addrs_by_peer_id(config.bootstrap_peers.as_slice());
@@ -174,6 +178,7 @@ impl Libp2pReplicationNetwork {
             keypair: config.keypair,
             peer_record: config.peer_record,
             peer_record_publication_directory: config.peer_record_publication_directory,
+            peer_record_receiver: config.peer_record_receiver,
             listen_addrs: config.listen_addrs,
             bootstrap_peers: config.bootstrap_peers,
             bootstrap_redial_interval_ms: config.bootstrap_redial_interval_ms,
@@ -239,6 +244,19 @@ impl Libp2pReplicationNetwork {
             keypair: Some(keypair.clone()),
             peer_record: Some(peer_record.clone()),
             peer_record_publication_directory: Some(publication_directory.clone()),
+            ..Libp2pNetworkConfig::default()
+        })
+    }
+
+    /// Creates the durable receiver floor without starting a network.
+    /// Ordinary construction only opens the existing receiver state.
+    pub fn initialize_peer_record_receiver(
+        config: &Libp2pReplicationNetworkConfig,
+    ) -> Result<(), WorldError> {
+        Libp2pNetwork::initialize_peer_record_receiver(&Libp2pNetworkConfig {
+            keypair: config.keypair.clone(),
+            peer_record: config.peer_record.clone(),
+            peer_record_receiver: config.peer_record_receiver.clone(),
             ..Libp2pNetworkConfig::default()
         })
     }

@@ -34,6 +34,11 @@ pub struct DevelopmentRuntimeConfigV1 {
         skip_serializing_if = "DevelopmentPeerRecordPublicationModeV1::is_v1_legacy"
     )]
     pub p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1,
+    #[serde(
+        default,
+        skip_serializing_if = "DevelopmentPeerRecordReceptionModeV1::is_legacy_compatible"
+    )]
+    pub p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p2p_detected_reachability: Option<oasis7_proto::distributed_dht::PeerReachabilityClass>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,6 +156,49 @@ impl std::str::FromStr for DevelopmentPeerRecordPublicationModeV1 {
             "v1_legacy" => Ok(Self::V1Legacy),
             "v2_durable" => Ok(Self::V2Durable),
             _ => Err("peer record publication mode must be v1_legacy or v2_durable".into()),
+        }
+    }
+}
+
+/// Selects how this node accepts signed peer records from discovery.
+///
+/// Receiver replay protection is independent from the local publication mode.
+/// Existing typed configurations remain on the legacy compatibility behavior.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DevelopmentPeerRecordReceptionModeV1 {
+    #[default]
+    LegacyCompatible,
+    V2DurableCompatible,
+    V2Only,
+}
+
+impl DevelopmentPeerRecordReceptionModeV1 {
+    pub const fn is_legacy_compatible(&self) -> bool {
+        matches!(self, Self::LegacyCompatible)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LegacyCompatible => "legacy_compatible",
+            Self::V2DurableCompatible => "v2_durable_compatible",
+            Self::V2Only => "v2_only",
+        }
+    }
+}
+
+impl std::str::FromStr for DevelopmentPeerRecordReceptionModeV1 {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "legacy_compatible" => Ok(Self::LegacyCompatible),
+            "v2_durable_compatible" => Ok(Self::V2DurableCompatible),
+            "v2_only" => Ok(Self::V2Only),
+            _ => Err(
+                "peer record reception mode must be legacy_compatible, v2_durable_compatible, or v2_only"
+                    .into(),
+            ),
         }
     }
 }
@@ -288,6 +336,46 @@ mod tests {
                 "node_id": "node",
                 "world_id": "world",
                 "p2p_peer_record_publication": "automatic_upgrade"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn peer_record_reception_defaults_legacy_and_roundtrips_explicit_modes() {
+        let legacy_bytes = br#"{"node_id":"node","world_id":"world"}"#;
+        let legacy: DevelopmentRuntimeConfigV1 = serde_json::from_slice(legacy_bytes).unwrap();
+        assert_eq!(
+            legacy.p2p_peer_record_reception,
+            DevelopmentPeerRecordReceptionModeV1::LegacyCompatible
+        );
+        assert_eq!(serde_json::to_vec(&legacy).unwrap(), legacy_bytes);
+
+        for (encoded, expected) in [
+            (
+                "v2_durable_compatible",
+                DevelopmentPeerRecordReceptionModeV1::V2DurableCompatible,
+            ),
+            ("v2_only", DevelopmentPeerRecordReceptionModeV1::V2Only),
+        ] {
+            let config: DevelopmentRuntimeConfigV1 = serde_json::from_value(serde_json::json!({
+                "node_id": "node",
+                "world_id": "world",
+                "p2p_peer_record_reception": encoded
+            }))
+            .unwrap();
+            assert_eq!(config.p2p_peer_record_reception, expected);
+            assert_eq!(
+                serde_json::to_value(config).unwrap()["p2p_peer_record_reception"],
+                encoded
+            );
+        }
+
+        assert!(
+            serde_json::from_value::<DevelopmentRuntimeConfigV1>(serde_json::json!({
+                "node_id": "node",
+                "world_id": "world",
+                "p2p_peer_record_reception": "v2_automatic_upgrade"
             }))
             .is_err()
         );

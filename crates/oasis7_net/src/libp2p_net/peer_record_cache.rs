@@ -6,6 +6,7 @@ use libp2p::PeerId;
 use oasis7_proto::distributed_dht::SignedPeerRecord;
 use std::collections::{HashMap, hash_map::RandomState};
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::sync::Arc;
 use std::time::Instant;
 
 const MAX_RECORDS: usize = 1024;
@@ -21,12 +22,25 @@ struct CachedRecord {
 
 /// Candidate freshness is checked at every read. Expired metadata retained for an
 /// established session restricts that session's capabilities, never new discovery.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct PeerRecordCache {
     records: HashMap<PeerId, CachedRecord>,
     clock: DiscoveryClock,
     refresh_random: RandomState,
     dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+    receiver: super::receiver_floor::SharedPeerRecordReceiver,
+}
+
+impl Default for PeerRecordCache {
+    fn default() -> Self {
+        Self {
+            records: HashMap::new(),
+            clock: DiscoveryClock::default(),
+            refresh_random: RandomState::new(),
+            dial_policy: Default::default(),
+            receiver: super::receiver_floor::PeerRecordReceiver::legacy(),
+        }
+    }
 }
 
 impl PeerRecordCache {
@@ -37,17 +51,32 @@ impl PeerRecordCache {
             clock,
             refresh_random: RandomState::new(),
             dial_policy: Default::default(),
+            receiver: super::receiver_floor::PeerRecordReceiver::legacy(),
         }
     }
+    #[cfg(test)]
     pub(super) fn with_dial_policy(
         clock: DiscoveryClock,
         dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+    ) -> Self {
+        Self::with_dial_policy_and_receiver(
+            clock,
+            dial_policy,
+            super::receiver_floor::PeerRecordReceiver::legacy(),
+        )
+    }
+
+    pub(super) fn with_dial_policy_and_receiver(
+        clock: DiscoveryClock,
+        dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+        receiver: super::receiver_floor::SharedPeerRecordReceiver,
     ) -> Self {
         Self {
             records: HashMap::new(),
             clock,
             refresh_random: RandomState::new(),
             dial_policy,
+            receiver,
         }
     }
     pub(super) fn clock(&self) -> &DiscoveryClock {
@@ -88,7 +117,7 @@ impl PeerRecordCache {
         }
         let mut lease = self.clock.check(&signed.record)?;
         if let Some(old) = self.records.get(&peer) {
-            if &old.signed == signed {
+            if super::receiver_floor::same_publication_identity(&old.signed, signed) {
                 old.lease.validate()?;
                 lease = old.lease.clone();
             }
@@ -98,11 +127,9 @@ impl PeerRecordCache {
         Ok(lease)
     }
     pub(super) fn install(&mut self, peer: PeerId, signed: SignedPeerRecord, lease: RecordLease) {
-        if self
-            .records
-            .get(&peer)
-            .is_some_and(|old| old.signed == signed)
-        {
+        if self.records.get(&peer).is_some_and(|old| {
+            super::receiver_floor::same_publication_identity(&old.signed, &signed)
+        }) {
             return;
         }
         let mut hash = self.refresh_random.build_hasher();
@@ -126,6 +153,18 @@ impl PeerRecordCache {
                 refresh,
             },
         );
+    }
+
+    pub(super) fn receiver(&self) -> super::receiver_floor::SharedPeerRecordReceiver {
+        Arc::clone(&self.receiver)
+    }
+
+    /// Revoke discovery and autonomous dial authority without discarding metadata
+    /// still needed to constrain an already established session. The receiver
+    /// lease makes candidate reads fail immediately; `prune` removes the record
+    /// once no active transport path depends on its session restrictions.
+    pub(super) fn invalidate_candidate(&mut self, peer: PeerId) {
+        self.dial_policy.remove_record_paths(peer);
     }
     pub(super) fn take_due_refreshes(&mut self, now: Instant) -> Vec<PeerId> {
         let mut due: Vec<_> = self

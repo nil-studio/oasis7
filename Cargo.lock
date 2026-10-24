@@ -6523,6 +6523,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]

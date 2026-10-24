@@ -41,34 +41,20 @@ impl DiscoveryObservations {
         ingress: DiscoveryIngress,
         now_ms: i64,
     ) -> Result<(), WorldError> {
+        let payload = self.preflight_record(record, &ingress, now_ms)?;
         let peer = record
             .record
             .peer_id
             .parse::<PeerId>()
             .map_err(|_| invalid_observation("invalid observation peer identity"))?;
-        if matches!(ingress, DiscoveryIngress::Direct { peer: direct } if direct != peer) {
-            return Err(invalid_observation("direct observation identity mismatch"));
-        }
-        let payload = serde_cbor::to_vec(record)?;
-        if payload.len() > MAX_SIGNED_PAYLOAD_BYTES {
-            return Err(invalid_observation(
-                "observation payload exceeds local capacity",
-            ));
-        }
-        if let Some(previous) = self.records.get_mut(&peer) {
-            // Regressing wall time must not refresh evidence or replace newer observations.
-            if now_ms < previous.observed_at_ms {
-                return Err(invalid_observation("observation clock regressed"));
+        if let Some(previous) = self.records.get_mut(&peer)
+            && previous.signed_payload == payload
+        {
+            if !previous.ingresses.contains(&ingress) && previous.ingresses.len() < MAX_INGRESSES {
+                previous.ingresses.push(ingress);
             }
-            if previous.signed_payload == payload {
-                if !previous.ingresses.contains(&ingress)
-                    && previous.ingresses.len() < MAX_INGRESSES
-                {
-                    previous.ingresses.push(ingress);
-                }
-                previous.observed_at_ms = now_ms;
-                return Ok(());
-            }
+            previous.observed_at_ms = now_ms;
+            return Ok(());
         }
         if !self.records.contains_key(&peer)
             && self.records.len() >= MAX_RECORD_OBSERVATIONS
@@ -89,6 +75,42 @@ impl DiscoveryObservations {
             },
         );
         Ok(())
+    }
+
+    /// Check every fallible observation condition without mutating local evidence.
+    /// Durable receiver admission calls this before committing a sequence floor.
+    pub(super) fn preflight_record(
+        &self,
+        record: &SignedPeerRecord,
+        ingress: &DiscoveryIngress,
+        now_ms: i64,
+    ) -> Result<Vec<u8>, WorldError> {
+        let peer = record
+            .record
+            .peer_id
+            .parse::<PeerId>()
+            .map_err(|_| invalid_observation("invalid observation peer identity"))?;
+        if matches!(ingress, DiscoveryIngress::Direct { peer: direct } if *direct != peer) {
+            return Err(invalid_observation("direct observation identity mismatch"));
+        }
+        let payload = serde_cbor::to_vec(record)?;
+        if payload.len() > MAX_SIGNED_PAYLOAD_BYTES {
+            return Err(invalid_observation(
+                "observation payload exceeds local capacity",
+            ));
+        }
+        if self
+            .records
+            .get(&peer)
+            .is_some_and(|previous| now_ms < previous.observed_at_ms)
+        {
+            return Err(invalid_observation("observation clock regressed"));
+        }
+        Ok(payload)
+    }
+
+    pub(super) fn remove(&mut self, peer: PeerId) {
+        self.records.remove(&peer);
     }
 
     fn matching(&self, record: &SignedPeerRecord) -> Option<&RecordObservation> {

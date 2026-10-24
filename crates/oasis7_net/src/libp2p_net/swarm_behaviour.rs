@@ -240,12 +240,31 @@ impl From<rendezvous_server::Event> for BehaviourEvent {
     }
 }
 
+#[cfg(test)]
 pub(super) fn build_swarm(
     keypair: &Keypair,
     enable_rendezvous: bool,
     enable_autonat: bool,
     request_response_timeout: std::time::Duration,
     wire_byte_counters: SharedLibp2pWireByteCounters,
+) -> Swarm<Behaviour> {
+    build_swarm_with_receiver(
+        keypair,
+        enable_rendezvous,
+        enable_autonat,
+        request_response_timeout,
+        wire_byte_counters,
+        super::receiver_floor::PeerRecordReceiver::legacy(),
+    )
+}
+
+pub(super) fn build_swarm_with_receiver(
+    keypair: &Keypair,
+    enable_rendezvous: bool,
+    enable_autonat: bool,
+    request_response_timeout: std::time::Duration,
+    wire_byte_counters: SharedLibp2pWireByteCounters,
+    peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
 ) -> Swarm<Behaviour> {
     let swarm_config = libp2p::swarm::Config::with_tokio_executor()
         .with_idle_connection_timeout(std::time::Duration::from_secs(30));
@@ -271,10 +290,11 @@ pub(super) fn build_swarm(
         ..MemoryStoreConfig::default()
     };
     let peer_record_admission_budget = PeerRecordAdmissionBudget::shared();
-    let store = PeerRecordStore::with_admission_budget(
+    let store = PeerRecordStore::with_admission_budget_and_receiver(
         peer_id,
         store_config,
         std::sync::Arc::clone(&peer_record_admission_budget),
+        std::sync::Arc::clone(&peer_record_receiver),
     );
     let kademlia = kad::Behaviour::new(peer_id, store);
     let (relay_transport, relay_client) = relay::client::new(peer_id);

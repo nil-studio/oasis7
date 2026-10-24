@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use oasis7_proto::distributed_dht::PeerRecord;
+use serde::{Deserialize, Serialize};
 
 use super::PeerManagerPolicy;
 
@@ -23,6 +24,8 @@ pub struct Libp2pNetworkConfig {
     /// Opts local peer-record publication into durable V2 sequencing.
     /// `None` preserves the legacy V1 publication behavior.
     pub peer_record_publication_directory: Option<PathBuf>,
+    /// Controls inbound peer-record replay protection independently of publishing.
+    pub peer_record_receiver: PeerRecordReceiverConfig,
     pub enable_rendezvous: bool,
     pub enable_autonat: bool,
     pub allow_loopback_external_addrs_for_testing: bool,
@@ -56,6 +59,7 @@ impl Default for Libp2pNetworkConfig {
             keypair: None,
             peer_record: None,
             peer_record_publication_directory: None,
+            peer_record_receiver: PeerRecordReceiverConfig::default(),
             enable_rendezvous: false,
             enable_autonat: true,
             allow_loopback_external_addrs_for_testing: false,
@@ -71,6 +75,33 @@ impl Default for Libp2pNetworkConfig {
             max_listening_addrs: DEFAULT_MAX_LISTENING_ADDRS,
             peer_manager_policy: PeerManagerPolicy::default(),
             request_response_timeout: Duration::from_millis(DEFAULT_REQUEST_RESPONSE_TIMEOUT_MS),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PeerRecordReceiverMode {
+    /// Preserve legacy V1 and V2 acceptance without a persistent floor.
+    Legacy,
+    /// Accept V1 until a peer's first V2 record is durably recorded.
+    DurableCompatible,
+    /// Accept only signed V2 peer records.
+    V2Only,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerRecordReceiverConfig {
+    pub mode: PeerRecordReceiverMode,
+    /// Stable directory used by explicit initialization and open-existing startup.
+    pub directory: Option<PathBuf>,
+}
+
+impl Default for PeerRecordReceiverConfig {
+    fn default() -> Self {
+        Self {
+            mode: PeerRecordReceiverMode::Legacy,
+            directory: None,
         }
     }
 }

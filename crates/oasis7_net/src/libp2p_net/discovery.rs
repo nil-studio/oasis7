@@ -22,10 +22,8 @@ use oasis7_proto::distributed_net::NetworkRequest;
 
 use super::kad_queries::PendingDhtQuery;
 use super::peer_discovery_observations::{DiscoveryIngress, DiscoveryObservations};
-use super::peer_manager::{
-    PeerManagerHealthStatus, PeerManagerPolicy, recompute_peer_manager_healths,
-};
-use super::peer_record::{put_record_query, validate_discovered_peer_record};
+use super::peer_manager::PeerManagerPolicy;
+use super::peer_record::put_record_query;
 use super::peer_record_admission::{
     PeerRecordAdmissionPermit, PeerRecordAdmissionWorkUnit, admit_discovery_list_response,
     admit_optional_peer_record_response,
@@ -38,10 +36,7 @@ pub(super) use super::peer_record_republish::{
 use super::reachability::Libp2pReachabilitySnapshot;
 use super::swarm_behaviour::Behaviour;
 use super::traffic_metrics::{SharedLibp2pTrafficMetrics, record_request_outbound};
-use super::transport_paths::{
-    TransportPath, dial_transport_path, peer_record_transport_paths,
-    select_preferred_transport_path, sync_known_transport_paths,
-};
+use super::transport_paths::TransportPath;
 use super::utils::push_bounded_string_with_keyed_cooldown;
 use super::{HandlerRegistration, push_bounded_clone};
 
@@ -663,6 +658,7 @@ pub(super) fn handle_rendezvous_discovered(
     clippy::too_many_arguments,
     reason = "Discovery state is kept explicit to preserve peer-record and routing event ordering"
 )]
+#[cfg(test)]
 pub(super) fn process_discovered_peer_record(
     swarm: &mut Swarm<Behaviour>,
     discovered_peer_records: &mut PeerRecordCache,
@@ -677,62 +673,21 @@ pub(super) fn process_discovered_peer_record(
     record: SignedPeerRecord,
     ingress: DiscoveryIngress,
 ) -> Result<(), WorldError> {
-    validate_discovered_peer_record(&record, template)?;
-    let peer_id = record.record.peer_id.parse::<PeerId>().map_err(|_| {
-        WorldError::NetworkProtocolUnavailable {
-            protocol: "peer record peer_id must be valid".to_string(),
-        }
-    })?;
-    let allow_single_source_bootstrap_dial = static_bootstrap_peer_ids.contains(&peer_id);
-    let transport_paths = peer_record_transport_paths(&record)?;
-    let lease = discovered_peer_records.prepare(peer_id, &record)?;
-    discovery_observations.record(&record, ingress, super::now_ms())?;
-    discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
-    discovered_peer_records.install(peer_id, record, lease.clone());
-    let transport_paths: Vec<_> = transport_paths
-        .into_iter()
-        .map(|mut path| {
-            path.record_lease = Some(lease.clone());
-            path
-        })
-        .collect();
-    sync_known_transport_paths(
-        known_transport_paths,
-        failed_transport_path_labels,
-        peer_id,
-        transport_paths.clone(),
-    );
-    let peer_healths = recompute_peer_manager_healths(
+    super::peer_record_candidate::process_signed_peer_record(
+        swarm,
         discovered_peer_records,
         discovery_observations,
+        known_transport_paths,
+        last_dialed_transport_paths,
         active_transport_paths,
+        failed_transport_path_labels,
+        template,
         peer_manager_policy,
-    );
-    let peer_status = peer_healths
-        .get(&peer_id)
-        .map(|health| health.status)
-        .unwrap_or(PeerManagerHealthStatus::Candidate);
-    if let Some(preferred_path) =
-        select_preferred_transport_path(transport_paths.as_slice(), failed_transport_path_labels)
-    {
-        let already_dialing_preferred = last_dialed_transport_paths
-            .get(&peer_id)
-            .map(|path| path.label() == preferred_path.label())
-            .unwrap_or(false);
-        let should_dial = (!matches!(peer_status, PeerManagerHealthStatus::Blocked)
-            && !matches!(peer_status, PeerManagerHealthStatus::Suspect))
-            || (matches!(peer_status, PeerManagerHealthStatus::Suspect)
-                && allow_single_source_bootstrap_dial);
-        let should_dial = should_dial
-            && active_transport_paths
-                .get(&peer_id)
-                .map(|active| preferred_path.preference_rank() < active.preference_rank())
-                .unwrap_or(true);
-        if should_dial && !already_dialing_preferred {
-            let _ = dial_transport_path(swarm, last_dialed_transport_paths, preferred_path.clone());
-        }
-    }
-    Ok(())
+        static_bootstrap_peer_ids,
+        record,
+        ingress,
+    )
+    .map_err(super::peer_record_candidate::PeerRecordInstallError::into_world_error)
 }
 
 pub(super) fn peer_record_matches_target(
