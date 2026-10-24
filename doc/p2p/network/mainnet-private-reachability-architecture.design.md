@@ -158,9 +158,9 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 <a id="discovery-tombstone-v2"></a>
 ### V2 发现撤销与显式恢复实施合同
 
-Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本段为后续实现合同，未由 live-only 发布／接收水位交付代签。扩展 `PeerRecordPublicationStateV2` 为 `live|tombstone`，保留 schema 2、V1 字段与签名域，V2 仍签完整 `(schema_version, sequence, state, PeerRecord)`。tombstone 必须绑定原 peer/world/network、使用正且更高序号并清空 direct、hole-punch、relay 地址；TTL／未来偏差和输入预算仍适用。旧 live-only 实现遇到未知 state 拒绝，不回退 V1，也不声称旧节点已执行撤销；未启用持久接收策略的节点不获得跨重启防重放保证。
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本段为后续实现合同，未由 live-only 发布／接收水位交付代签。扩展 `PeerRecordPublicationStateV2` 为 `live|tombstone`，保留 schema 2、V1 字段与签名域，V2 仍签完整 `(schema_version, sequence, state, PeerRecord)`。tombstone 必须绑定原 peer/world/network、使用正且更高序号并清空 direct、hole-punch、relay 地址；TTL／未来偏差和输入预算仍适用。旧 live-only 实现遇到未知 state 拒绝，不回退 V1，也不声称旧节点已执行撤销；legacy 接收策略明确拒绝 tombstone，不以成功接纳却保留旧 live 候选的方式降级；显式 durable-compatible／V2-only 接收策略才启用本撤销语义。
 
-标准 development host 提供互斥、显式的一次启动操作 `--withdraw-peer-record-publication` 与 `--resume-peer-record-publication`，要求 durable V2 publisher 和已初始化原件，不隐式建身份或账本；操作参数不落入持久配置。该操作沿 host→node→net 传递，在启动共享发布器时持久执行，之后按原运行入口继续；普通启动无操作参数。撤销先持久预留更高序号、完整无路径 payload 及 tombstone 意图，再签名并持久原件，最后允许网络 put。撤销意图及状态随原 publisher 保存；预留后或签名后崩溃恢复只能完成同一撤销，不得把原序号签成 live。正常重启、周期刷新、地址变化和远端查询不得自动把已撤销发布器恢复为 live。显式 resume 才允许以更高序号发布当前合法 live 模板。原状态缺少新增撤销字段时按旧 live 状态兼容读取；旧实现无法识别新持久状态时必须阻断，不能清空或降级。
+标准 development host 提供互斥、显式的一次启动操作 `--withdraw-peer-record-publication` 与 `--resume-peer-record-publication`，要求 durable V2 publisher、显式持久接收策略和各自已初始化原件，不隐式建身份或账本；操作参数不落入持久配置。该操作沿 host→node→net 传递，在启动共享发布器时持久执行，之后按原运行入口继续；普通启动无操作参数。撤销先持久预留更高序号、完整无路径 payload 及 tombstone 意图，再签名并持久原件，最后允许网络 put。撤销意图及状态随原 publisher 保存；预留后或签名后崩溃恢复只能完成同一撤销，不得把原序号签成 live。正常重启、周期刷新、地址变化和远端查询不得自动把已撤销发布器恢复为 live。显式 resume 才允许以更高序号发布当前合法 live 模板。原状态缺少新增撤销字段时按旧 live 状态兼容读取；旧实现无法识别新持久状态时必须阻断，不能清空或降级。
 
 撤销后本机周期和重试只可重发同一仍有效的签名 tombstone，不因远端查询重新签名或分配序号；过期后可以停止转发，持久撤销状态保持，普通启动仍不恢复 live。明确恢复前不自动续签 tombstone，因而不承诺离线新节点最终观察到该撤销；旧 live 最大 TTL 与接收端持久水位仍独立约束重放。DHT Quorum::One、发送完成或本机状态均不代表全网撤销确认。
 

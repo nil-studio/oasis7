@@ -1852,7 +1852,7 @@ These tests establish the management protocol and local persistence behavior und
 <a id="discovery-tombstone-v2"></a>
 ### V2 发现撤销与恢复验证
 
-Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[持久撤销与显式恢复](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)。同一候选、正常原件和实际 host→node→net 路径执行：显式 durable 发布 live 1，使用 `--withdraw-peer-record-publication` 撤销为无路径 tombstone 2；分别在持久预留和签名后重启，原序号不得被签成 live。普通启动、周期和地址刷新不得恢复；只有 `--resume-peer-record-publication` 发布更高 live 3。两个 flag 互斥且不落入持久配置，initializer 与 formal/guarded 组合明确拒绝。
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[持久撤销与显式恢复](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)。同一候选、正常原件和实际 host→node→net 路径执行：显式 durable 发布 live 1，使用 `--withdraw-peer-record-publication` 撤销为无路径 tombstone 2；分别在持久预留和签名后重启，原序号不得被签成 live。普通启动、周期和地址刷新不得恢复；只有 `--resume-peer-record-publication` 发布更高 live 3。两个 flag 互斥且不落入持久配置，initializer 与 formal/guarded 组合明确拒绝。撤销／恢复要求 durable publisher 与已初始化的持久 receiver；legacy 接收策略对 tombstone 必须明确拒绝，不能接纳后继续从旧 live 缓存返回候选。
 
 接收端接纳 tombstone 后重开同一原件，拒绝旧 live 与 V1，撤掉候选、发现来源和排队拨号；当前有效撤销原件可以经实际 DHT／RR 返回原签名，不进入健康／ID／拨号集合。验证更高 live 恢复、同序冲突隔离不自动解除、无路径约束、过期拒绝转发、V1 固定向量和未知状态拒绝。保留已认证会话的限制性元数据，独立静态地址不随发现撤销删除。
 
