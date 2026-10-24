@@ -72,6 +72,8 @@
     ],
     "workspace_support": [
       "rust_toolchain",
+      "node",
+      "python",
       "system_deps"
     ],
     "scenario_regression": [
@@ -294,6 +296,11 @@
   },
   "rules": [
     {
+      "match": ["scripts/cargo-dev-architecture*"],
+      "groups": ["rust_baseline", "cargo_tooling_contracts"],
+      "reason": "cargo_architecture_boundaries"
+    },
+    {
       "match": [
         "tests/libp2p-compat/**",
         "scripts/libp2p-compat.test.py"
@@ -422,6 +429,9 @@
     {
       "match": [
         "scripts/oasis7-runtime-finality-*",
+        "scripts/oasis7-node-traffic-monitor.sh",
+        "scripts/traffic-monitor-*",
+        "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
         "scripts/run-local-letai-game-test*",
@@ -642,6 +652,16 @@
         "command_center"
       ],
       "reason": "command_center"
+    },
+    {
+      "match": [
+        "crates/oasis7_viewer_runtime/src/game_read_api*.rs",
+        "crates/oasis7_viewer_runtime/tests/fixtures/signed_read_bootstrap.json"
+      ],
+      "groups": [
+        "workspace_support"
+      ],
+      "reason": "signed_read_handler_conformance"
     }
   ]
 }

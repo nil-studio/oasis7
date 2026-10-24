@@ -39,6 +39,7 @@ fn original_runtime_fixture_preserves_all_legacy_operations_and_results() {
         // Construct the published concrete profile and sign it independently,
         // retaining the fixture's operation identity rather than replacing it.
         let constructed = SchedulerIntentV1 {
+            task_prefix_binding_revision: 0,
             agent_id: signed.request.agent_id.clone(),
             request_id: signed.request.request_id.clone(),
             delegation_generation: signed.request.delegation_generation,

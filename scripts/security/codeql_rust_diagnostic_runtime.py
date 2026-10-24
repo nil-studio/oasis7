@@ -150,7 +150,7 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
     result = {'argv': argv, 'cwd': str(cwd), 'started_wall': time.time(), 'pid': None,
               'exit': None, 'error': None, 'failure_kind': None, 'cleanup_errors': [], 'evidence_errors': [],
               'file_size_limit_bytes': file_limit}
-    if not 0 < file_limit <= DATA_LIMIT:
+    if file_limit is not None and not 0 < file_limit <= DATA_LIMIT:
         raise ValueError('invalid process data file bound')
     selector = selectors.DefaultSelector()
     proc = fifo_fd = None
@@ -177,7 +177,8 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
             files.append(streams[fifo_fd])
             selector.register(fifo_fd, selectors.EVENT_READ)
         def limits():
-            resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
+            if file_limit is not None:
+                resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, start_new_session=True, preexec_fn=limits)
         result['pid'] = result['pgid'] = proc.pid

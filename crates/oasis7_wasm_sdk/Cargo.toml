@@ -1,8 +1,8 @@
 [package]
 name = "oasis7_wasm_sdk"
 version = "0.1.0"
-edition = "2024"
-license = "MIT"
+edition.workspace = true
+license.workspace = true
 
 [features]
 default = []
@@ -13,6 +13,9 @@ wire = ["std", "dep:serde", "dep:serde_cbor", "dep:serde_json"]
 crate-type = ["rlib"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"], optional = true }
-serde_cbor = { version = "0.11", optional = true }
-serde_json = { version = "1", optional = true }
+serde = { workspace = true, optional = true }
+serde_cbor = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,19 @@
+{
+  "export_roots": [
+    "components/schemas",
+    "paths"
+  ],
+  "features": [],
+  "format_version": 1,
+  "limits": {
+    "depth": 64,
+    "input_bytes": 2097152,
+    "nodes": 50000,
+    "output_bytes": 4194304,
+    "timeout_seconds": 10
+  },
+  "output": "crates/oasis7_agent_api/protocol_codegen/generated",
+  "profile": "signed-read-bootstrap",
+  "source": "crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json",
+  "target": "http-json"
+}

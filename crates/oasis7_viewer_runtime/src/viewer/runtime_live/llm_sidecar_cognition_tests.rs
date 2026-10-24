@@ -173,6 +173,7 @@ fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
         crate::world_service::authority::sign_read_request(
             "scheduler",
             crate::world_service::wire::SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent-a".into(),
                 request_id: "original:resume:wake-past".into(),
                 delegation_generation: 1,

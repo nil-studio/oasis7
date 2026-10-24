@@ -1,9 +1,12 @@
+use super::peer_record_refresh::{REFRESH_BATCH, REFRESH_RETRY, RecordRefreshSchedule};
 use super::peer_record_time::{DiscoveryClock, RecordLease};
 use super::transport_paths::TransportPath;
 use crate::error::WorldError;
 use libp2p::PeerId;
 use oasis7_proto::distributed_dht::SignedPeerRecord;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::RandomState};
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::time::Instant;
 
 const MAX_RECORDS: usize = 1024;
 const MAX_PAYLOAD_BYTES: usize = crate::libp2p_net::peer_record::MAX_SIGNED_PEER_RECORD_BYTES;
@@ -13,6 +16,7 @@ struct CachedRecord {
     signed: SignedPeerRecord,
     lease: RecordLease,
     was_live: bool,
+    refresh: RecordRefreshSchedule,
 }
 
 /// Candidate freshness is checked at every read. Expired metadata retained for an
@@ -21,6 +25,7 @@ struct CachedRecord {
 pub(super) struct PeerRecordCache {
     records: HashMap<PeerId, CachedRecord>,
     clock: DiscoveryClock,
+    refresh_random: RandomState,
     dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
 }
 
@@ -30,6 +35,7 @@ impl PeerRecordCache {
         Self {
             records: HashMap::new(),
             clock,
+            refresh_random: RandomState::new(),
             dial_policy: Default::default(),
         }
     }
@@ -40,6 +46,7 @@ impl PeerRecordCache {
         Self {
             records: HashMap::new(),
             clock,
+            refresh_random: RandomState::new(),
             dial_policy,
         }
     }
@@ -91,6 +98,18 @@ impl PeerRecordCache {
         Ok(lease)
     }
     pub(super) fn install(&mut self, peer: PeerId, signed: SignedPeerRecord, lease: RecordLease) {
+        if self
+            .records
+            .get(&peer)
+            .is_some_and(|old| old.signed == signed)
+        {
+            return;
+        }
+        let mut hash = self.refresh_random.build_hasher();
+        peer.hash(&mut hash);
+        signed.signature_hex.hash(&mut hash);
+        let refresh =
+            RecordRefreshSchedule::new(lease.deadline(), signed.record.ttl_ms, hash.finish());
         if let Ok(paths) = super::transport_paths::peer_record_transport_paths(&signed) {
             let _ = self.dial_policy.install(
                 peer,
@@ -104,8 +123,31 @@ impl PeerRecordCache {
                 signed,
                 lease,
                 was_live: true,
+                refresh,
             },
         );
+    }
+    pub(super) fn take_due_refreshes(&mut self, now: Instant) -> Vec<PeerId> {
+        let mut due: Vec<_> = self
+            .records
+            .iter()
+            .filter(|(_, cached)| {
+                cached.refresh.eligible_at() <= now
+                    && now < cached.lease.deadline()
+                    && cached.lease.is_valid()
+            })
+            .map(|(peer, cached)| (cached.refresh.eligible_at(), peer.to_string(), *peer))
+            .collect();
+        due.sort_unstable();
+        due.truncate(REFRESH_BATCH);
+        for (_, _, peer) in &due {
+            if let Some(cached) = self.records.get_mut(peer) {
+                cached.refresh.retry_not_before = now
+                    .checked_add(REFRESH_RETRY)
+                    .unwrap_or(cached.lease.deadline());
+            }
+        }
+        due.into_iter().map(|(_, _, peer)| peer).collect()
     }
     pub(super) fn prune(&mut self, active: &HashMap<PeerId, TransportPath>) -> bool {
         let mut changed = false;
@@ -201,5 +243,89 @@ mod tests {
         assert!(cache.session_record(&active_peer).is_some());
         cache.prune(&HashMap::new());
         assert!(cache.records.is_empty());
+    }
+    #[test]
+    fn identical_reinstall_preserves_refresh_attempt_and_original_deadline() {
+        let key = Keypair::generate_ed25519();
+        let peer = PeerId::from(key.public());
+        let signed = signed_discovery_peer_record(&key, vec![], crate::libp2p_net::now_ms());
+        let mut cache = PeerRecordCache::default();
+        cache.insert(peer, signed.clone());
+        let deadline = cache.records[&peer].lease.deadline();
+        let due = cache.records[&peer].refresh.due;
+        assert_eq!(cache.take_due_refreshes(due), vec![peer]);
+        let attempted = cache.records[&peer].refresh;
+        let mut pending = super::super::kad_queries::PendingDhtQuery::DiscoverPeerRecord {
+            peer_id: peer,
+            upstream: None,
+            record: None,
+            error: None,
+        };
+        let action = super::super::kad_queries::handle_dht_progress(
+            &mut pending,
+            libp2p::kad::QueryResult::GetRecord(Ok(libp2p::kad::GetRecordOk::FoundRecord(
+                libp2p::kad::PeerRecord {
+                    peer: Some(PeerId::random()),
+                    record: libp2p::kad::Record {
+                        key: libp2p::kad::RecordKey::new(&"replayed-peer-record"),
+                        value: crate::util::to_canonical_cbor(&signed).unwrap(),
+                        publisher: None,
+                        expires: None,
+                    },
+                },
+            ))),
+            true,
+            cache.clock(),
+        );
+        let super::super::kad_queries::DhtProgressAction::DiscoverPeerRecord { result, .. } =
+            action
+        else {
+            panic!("DHT refresh must decode the original signed response");
+        };
+        let replayed = result.unwrap().unwrap();
+        let lease = cache.prepare(peer, &replayed).unwrap();
+        cache.install(peer, replayed, lease);
+        assert_eq!(cache.records[&peer].lease.deadline(), deadline);
+        assert_eq!(cache.records[&peer].refresh, attempted);
+        assert!(cache.take_due_refreshes(due).is_empty());
+        let mut renewed = signed.record;
+        renewed.ttl_ms = 120_000;
+        let renewed = crate::libp2p_net::peer_record::sign_peer_record(&renewed, &key).unwrap();
+        cache.insert(peer, renewed);
+        assert!(cache.records[&peer].lease.deadline() > deadline);
+        assert!(cache.records[&peer].refresh.due > attempted.due);
+    }
+
+    #[test]
+    fn refresh_batch_is_fair_bounded_and_expiry_never_hot_loops() {
+        let key = Keypair::generate_ed25519();
+        let record = signed_discovery_peer_record(&key, vec![], crate::libp2p_net::now_ms());
+        let mut cache = PeerRecordCache::default();
+        for _ in 0..10 {
+            let peer = PeerId::random();
+            let mut record = record.clone();
+            record.record.peer_id = peer.to_string();
+            cache.insert(peer, record);
+        }
+        let deadline = cache
+            .records
+            .values()
+            .map(|record| record.lease.deadline())
+            .max()
+            .unwrap();
+        let now = deadline - std::time::Duration::from_secs(1);
+        let mut seen = std::collections::HashSet::new();
+        for count in [4, 4, 2, 0] {
+            let batch = cache.take_due_refreshes(now);
+            assert_eq!(batch.len(), count);
+            assert!(batch.into_iter().all(|peer| seen.insert(peer)));
+        }
+        assert_eq!(seen.len(), 10);
+        assert!(cache.take_due_refreshes(deadline).is_empty());
+        assert!(
+            cache
+                .take_due_refreshes(deadline + std::time::Duration::from_secs(5))
+                .is_empty()
+        );
     }
 }

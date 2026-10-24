@@ -1,0 +1,1256 @@
+{
+  "cases": [
+    {
+      "body": {
+        "actor_proof_encoding": "hex_json",
+        "actor_proof_header": "X-Oasis7-World-Read-Proof",
+        "api_revision": 1,
+        "availability": "checked_against_each_authorized_world_read",
+        "limits": {
+          "max_active_reads": 8,
+          "max_http_header_bytes": 16384,
+          "max_json_depth": 16,
+          "max_proof_header_bytes": 8192,
+          "max_response_bytes": 2097152
+        },
+        "max_proof_header_bytes": 8192,
+        "mode": "signed_read_bootstrap",
+        "openapi_url": "/v1/game/openapi.json",
+        "operation_domain": "/v1/world/view",
+        "schema_revision": 5,
+        "supported_routes": [],
+        "writes_available": false
+      },
+      "name": "info",
+      "path": "/v1/game/info",
+      "status": 200
+    },
+    {
+      "body": {
+        "components": {
+          "schemas": {
+            "CommitRef": {
+              "additionalProperties": false,
+              "properties": {
+                "binding": {
+                  "$ref": "#/components/schemas/ExecutionBinding"
+                },
+                "execution_block_hash": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "position": {
+                  "maximum": 18446744073709551615,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "state_root_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "world": {
+                  "$ref": "#/components/schemas/WorldIdentity"
+                }
+              },
+              "required": [
+                "world",
+                "binding",
+                "position",
+                "execution_block_hash",
+                "state_root_ref"
+              ],
+              "type": "object"
+            },
+            "DecimalU64": {
+              "description": "Canonical decimal u64 string, value at most 18446744073709551615.",
+              "maxLength": 20,
+              "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]|1844674407370955161[0-4]|18446744073709551615)(?![\\s\\S])",
+              "type": "string"
+            },
+            "ExecutionBinding": {
+              "additionalProperties": false,
+              "properties": {
+                "authority_generation": {
+                  "maximum": 18446744073709551615,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "branch_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "finality_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "governing_manifest_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "permission_generation": {
+                  "maximum": 18446744073709551615,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "provider_world_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reorg_generation": {
+                  "maximum": 18446744073709551615,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "provider_world_id",
+                "branch_id",
+                "finality_ref",
+                "governing_manifest_ref",
+                "reorg_generation",
+                "authority_generation",
+                "permission_generation"
+              ],
+              "type": "object"
+            },
+            "ExecutorBinding": {
+              "additionalProperties": false,
+              "properties": {
+                "delegation_generation": {
+                  "$ref": "#/components/schemas/DecimalU64",
+                  "pattern": "^[1-9]"
+                },
+                "executor_epoch": {
+                  "$ref": "#/components/schemas/DecimalU64",
+                  "pattern": "^[1-9]"
+                },
+                "executor_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "executor_public_key": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "executor_id",
+                "executor_public_key",
+                "delegation_generation",
+                "executor_epoch"
+              ],
+              "type": "object"
+            },
+            "GoalReference": {
+              "additionalProperties": false,
+              "description": "Public owner-signed activation metadata. The opaque reference is a private-salt commitment; salt, complete goal and body-bound signature remain private. Committed height locates historical activation; it is not a standalone finality proof.",
+              "properties": {
+                "activation_committed_height": {
+                  "$ref": "#/components/schemas/DecimalU64",
+                  "pattern": "^[1-9]"
+                },
+                "goal_ref": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "goal_revision": {
+                  "$ref": "#/components/schemas/DecimalU64",
+                  "pattern": "^[1-9]"
+                },
+                "prepare_operation_id": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "publish_operation_id": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "goal_revision",
+                "goal_ref",
+                "prepare_operation_id",
+                "publish_operation_id",
+                "activation_committed_height"
+              ],
+              "type": "object"
+            },
+            "ReadError": {
+              "additionalProperties": true,
+              "properties": {
+                "code": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "retryable"
+              ],
+              "type": "object"
+            },
+            "ReadInfo": {
+              "additionalProperties": true,
+              "properties": {
+                "actor_proof_encoding": {
+                  "const": "hex_json"
+                },
+                "actor_proof_header": {
+                  "const": "X-Oasis7-World-Read-Proof"
+                },
+                "api_revision": {
+                  "const": 1,
+                  "type": "integer"
+                },
+                "availability": {
+                  "const": "checked_against_each_authorized_world_read"
+                },
+                "limits": {
+                  "additionalProperties": true,
+                  "properties": {
+                    "max_active_reads": {
+                      "const": 8,
+                      "type": "integer"
+                    },
+                    "max_http_header_bytes": {
+                      "const": 16384,
+                      "type": "integer"
+                    },
+                    "max_json_depth": {
+                      "const": 16,
+                      "type": "integer"
+                    },
+                    "max_proof_header_bytes": {
+                      "const": 8192,
+                      "type": "integer"
+                    },
+                    "max_response_bytes": {
+                      "const": 2097152,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "max_proof_header_bytes",
+                    "max_http_header_bytes",
+                    "max_json_depth",
+                    "max_active_reads",
+                    "max_response_bytes"
+                  ],
+                  "type": "object"
+                },
+                "max_proof_header_bytes": {
+                  "const": 8192
+                },
+                "mode": {
+                  "const": "signed_read_bootstrap",
+                  "type": "string"
+                },
+                "openapi_url": {
+                  "const": "/v1/game/openapi.json"
+                },
+                "operation_domain": {
+                  "const": "/v1/world/view"
+                },
+                "schema_revision": {
+                  "const": 5
+                },
+                "supported_routes": {
+                  "items": {
+                    "enum": [
+                      "agent:observation",
+                      "agent:capabilities",
+                      "agent:task-control"
+                    ]
+                  },
+                  "type": "array"
+                },
+                "writes_available": {
+                  "const": false
+                }
+              },
+              "required": [
+                "api_revision",
+                "mode",
+                "supported_routes",
+                "availability",
+                "actor_proof_header",
+                "actor_proof_encoding",
+                "operation_domain",
+                "max_proof_header_bytes",
+                "writes_available",
+                "schema_revision",
+                "openapi_url",
+                "limits"
+              ],
+              "type": "object"
+            },
+            "ReadProjection": {
+              "additionalProperties": true,
+              "properties": {
+                "agent_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "api_revision": {
+                  "const": 1,
+                  "type": "integer"
+                },
+                "data": {
+                  "description": "Authorized AgentCell, CapabilityCatalogSnapshot or current task control metadata. All integer values recursively use decimal strings. This is not a full first-session observation or action schema. Private goal bodies, salts and proofs are excluded.",
+                  "type": "object"
+                },
+                "logical_tick": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "resource": {
+                  "enum": [
+                    "observation",
+                    "capabilities",
+                    "task-control"
+                  ],
+                  "type": "string"
+                },
+                "world_binding": {
+                  "description": "Committed ProjectionVersion. Every integer is encoded as a decimal string; not a standalone finality proof.",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "api_revision",
+                "agent_id",
+                "logical_tick",
+                "world_binding",
+                "resource",
+                "data"
+              ],
+              "type": "object"
+            },
+            "ReadWorldViewRequest": {
+              "additionalProperties": false,
+              "properties": {
+                "contract_version": {
+                  "const": 1,
+                  "type": "integer"
+                },
+                "deadline_unix_ms": {
+                  "anyOf": [
+                    {
+                      "maximum": 18446744073709551615,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fixed_commit": {
+                  "description": "Fixed historical reads are rejected by this bootstrap.",
+                  "type": "null"
+                },
+                "min_commit": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CommitRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "scope_id": {
+                  "pattern": "^agent:.+$",
+                  "type": "string"
+                },
+                "world": {
+                  "$ref": "#/components/schemas/WorldIdentity"
+                }
+              },
+              "required": [
+                "contract_version",
+                "world",
+                "scope_id"
+              ],
+              "type": "object"
+            },
+            "SignedReadRequest": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/components/schemas/ReadWorldViewRequest"
+                },
+                "signature_hex": {
+                  "pattern": "^[0-9a-fA-F]{128}$",
+                  "type": "string"
+                },
+                "subject_public_key": {
+                  "pattern": "^[0-9a-fA-F]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "request",
+                "subject_public_key",
+                "signature_hex"
+              ],
+              "type": "object"
+            },
+            "TaskControlBootstrap": {
+              "additionalProperties": false,
+              "description": "Current canonical task control metadata for the owner or currently bound delegated executor. Binding, replacement and Stop advance the executor fence; goal publication retains the current binding. Private content, salt, proof and digest are excluded.",
+              "properties": {
+                "active_goal_reference": {
+                  "$ref": "#/components/schemas/GoalReference"
+                },
+                "active_goal_revision": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "agent_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "branch_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "created_operation_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "executor_binding": {
+                  "$ref": "#/components/schemas/ExecutorBinding"
+                },
+                "executor_epoch": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "executor_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "genesis_digest": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "latest_goal_revision": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "owner_binding": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "owner_generation": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "owner_public_key": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reorg_epoch": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "schema_revision": {
+                  "const": "1"
+                },
+                "task_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "task_revision": {
+                  "$ref": "#/components/schemas/DecimalU64"
+                },
+                "task_status": {
+                  "enum": [
+                    "active",
+                    "suspended"
+                  ],
+                  "type": "string"
+                },
+                "world_id": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "task_id",
+                "world_id",
+                "genesis_digest",
+                "branch_id",
+                "agent_id",
+                "owner_binding",
+                "owner_public_key",
+                "created_operation_id",
+                "reorg_epoch",
+                "owner_generation",
+                "task_revision",
+                "latest_goal_revision",
+                "active_goal_revision",
+                "executor_epoch",
+                "schema_revision",
+                "task_status",
+                "executor_id"
+              ],
+              "type": "object"
+            },
+            "WorldIdentity": {
+              "additionalProperties": false,
+              "properties": {
+                "genesis_digest": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "world_id": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "world_id",
+                "genesis_digest"
+              ],
+              "type": "object"
+            }
+          },
+          "securitySchemes": {
+            "DeviceReadProof": {
+              "description": "hex(UTF8 JSON SignedReadRequest<ReadWorldViewRequest>), at most 8192 ASCII bytes, exactly one header. This is a public-key signature proof, not an API token or secret key. Nested unknown fields and duplicate JSON keys are rejected. JSON nesting is bounded to 16. ReadWorldViewRequest retains the existing numeric World Service wire encoding inside this opaque header.",
+              "in": "header",
+              "name": "X-Oasis7-World-Read-Proof",
+              "type": "apiKey",
+              "x-oasis7-decoded-schema": {
+                "$ref": "#/components/schemas/SignedReadRequest"
+              },
+              "x-oasis7-operation-domain": "/v1/world/view"
+            }
+          }
+        },
+        "info": {
+          "description": "Implemented opt-in loopback HTTP read contract. Disabled by default. No pairing, tokens, contexts, actions or operations are available.",
+          "title": "Oasis7 signed-read Game API bootstrap",
+          "version": "2"
+        },
+        "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+        "openapi": "3.1.0",
+        "paths": {
+          "/v1/game/info": {
+            "get": {
+              "operationId": "getGameReadInfo",
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadInfo"
+                      }
+                    }
+                  },
+                  "description": "Current bootstrap discovery; not a claim of backend availability."
+                },
+                "400": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Invalid request/proof, unsupported signed contract or historical read; not retryable."
+                }
+              },
+              "security": []
+            }
+          },
+          "/v1/game/openapi.json": {
+            "get": {
+              "operationId": "getGameReadOpenApi",
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "description": "OpenAPI 3.1 document for the implemented signed-read bootstrap."
+                },
+                "400": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Invalid request/proof, unsupported signed contract or historical read; not retryable."
+                }
+              },
+              "security": []
+            }
+          },
+          "/v1/game/worlds/{world}/agents/{agent}/capabilities": {
+            "get": {
+              "description": "Only the configured world and Agent are accessible. Current owner/delegate authorization is checked on each signed World Service read. No query parameters or request body; browser Origin is rejected. Signature codec is the existing authority::sign_read_request codec, domain /v1/world/view; JSON bytes are the transport, not the signed canonical payload.",
+              "operationId": "getAgentCapabilities",
+              "parameters": [
+                {
+                  "in": "path",
+                  "name": "world",
+                  "required": true,
+                  "schema": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                {
+                  "in": "path",
+                  "name": "agent",
+                  "required": true,
+                  "schema": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              ],
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadProjection"
+                      }
+                    }
+                  },
+                  "description": "Verified current projection; integer fields are decimal strings."
+                },
+                "400": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Invalid request/proof, unsupported signed contract or historical read; not retryable."
+                },
+                "403": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Actor signature, current world authority, scope or browser Origin denied; not retryable."
+                },
+                "428": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Device-signed actor proof required; not retryable."
+                },
+                "429": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Eight backend reads are already active; retryable after an active read completes."
+                },
+                "503": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Authoritative read unavailable or untrusted; retryable except response_limit_exceeded."
+                }
+              },
+              "security": [
+                {
+                  "DeviceReadProof": []
+                }
+              ]
+            }
+          },
+          "/v1/game/worlds/{world}/agents/{agent}/observation": {
+            "get": {
+              "description": "Only the configured world and Agent are accessible. Current owner/delegate authorization is checked on each signed World Service read. No query parameters or request body; browser Origin is rejected. Signature codec is the existing authority::sign_read_request codec, domain /v1/world/view; JSON bytes are the transport, not the signed canonical payload.",
+              "operationId": "getAgentObservation",
+              "parameters": [
+                {
+                  "in": "path",
+                  "name": "world",
+                  "required": true,
+                  "schema": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                {
+                  "in": "path",
+                  "name": "agent",
+                  "required": true,
+                  "schema": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              ],
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadProjection"
+                      }
+                    }
+                  },
+                  "description": "Verified current projection; integer fields are decimal strings."
+                },
+                "400": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Invalid request/proof, unsupported signed contract or historical read; not retryable."
+                },
+                "403": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Actor signature, current world authority, scope or browser Origin denied; not retryable."
+                },
+                "428": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Device-signed actor proof required; not retryable."
+                },
+                "429": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Eight backend reads are already active; retryable after an active read completes."
+                },
+                "503": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Authoritative read unavailable or untrusted; retryable except response_limit_exceeded."
+                }
+              },
+              "security": [
+                {
+                  "DeviceReadProof": []
+                }
+              ]
+            }
+          },
+          "/v1/game/worlds/{world}/agents/{agent}/task-control": {
+            "get": {
+              "description": "The current canonical owner or currently bound executor with a live matching delegation can read current task control metadata. Other delegated Agent reads do not grant task access. Uses the device-signed /v1/world/view proof; no query, body, browser Origin or historical read. Complete private goals and captured contexts use the separate native task lane.",
+              "operationId": "getAgentTaskControl",
+              "parameters": [
+                {
+                  "in": "path",
+                  "name": "world",
+                  "required": true,
+                  "schema": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                {
+                  "in": "path",
+                  "name": "agent",
+                  "required": true,
+                  "schema": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                }
+              ],
+              "responses": {
+                "200": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/ReadProjection"
+                          },
+                          {
+                            "properties": {
+                              "data": {
+                                "$ref": "#/components/schemas/TaskControlBootstrap"
+                              },
+                              "resource": {
+                                "const": "task-control"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "description": "Verified current projection; integer fields are decimal strings."
+                },
+                "400": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Invalid request/proof, unsupported signed contract or historical read; not retryable."
+                },
+                "403": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Actor signature, current world authority, scope or browser Origin denied; not retryable."
+                },
+                "404": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "No current owner-visible task control is available; not retryable."
+                },
+                "428": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Device-signed actor proof required; not retryable."
+                },
+                "429": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Eight backend reads are already active; retryable after an active read completes."
+                },
+                "503": {
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/ReadError"
+                      }
+                    }
+                  },
+                  "description": "Authoritative read unavailable or untrusted; retryable except response_limit_exceeded."
+                }
+              },
+              "security": [
+                {
+                  "DeviceReadProof": []
+                }
+              ]
+            }
+          }
+        },
+        "x-oasis7-api-revision": 1,
+        "x-oasis7-limits": {
+          "max_active_reads": 8,
+          "max_http_header_bytes": 16384,
+          "max_json_depth": 16,
+          "max_proof_header_bytes": 8192,
+          "max_response_bytes": 2097152
+        },
+        "x-oasis7-schema-revision": 5
+      },
+      "name": "openapi",
+      "path": "/v1/game/openapi.json",
+      "status": 200
+    },
+    {
+      "body": {
+        "agent_id": "a",
+        "api_revision": 1,
+        "data": {
+          "last_active": "18446744073709551615",
+          "mailbox": [],
+          "state": {
+            "agent_id": "a",
+            "body": {
+              "height_cm": "100",
+              "kind": "humanoid"
+            },
+            "body_state": {
+              "cargo_entries": [],
+              "expansion_level": "0",
+              "frame_kind": "standard_frame",
+              "slot_capacity": "7",
+              "slots": [
+                {
+                  "installed_module": "m1.power.radiation_harvest",
+                  "locked": false,
+                  "slot_id": "slot-1",
+                  "slot_type": "power"
+                },
+                {
+                  "installed_module": "m1.power.storage",
+                  "locked": false,
+                  "slot_id": "slot-2",
+                  "slot_type": "power"
+                },
+                {
+                  "installed_module": "m1.sensor.basic",
+                  "locked": false,
+                  "slot_id": "slot-3",
+                  "slot_type": "sensor"
+                },
+                {
+                  "installed_module": "m1.mobility.basic",
+                  "locked": false,
+                  "slot_id": "slot-4",
+                  "slot_type": "mobility"
+                },
+                {
+                  "installed_module": "m1.memory.core",
+                  "locked": false,
+                  "slot_id": "slot-5",
+                  "slot_type": "cognitive"
+                },
+                {
+                  "installed_module": "m1.storage.cargo",
+                  "locked": false,
+                  "slot_id": "slot-6",
+                  "slot_type": "cargo"
+                },
+                {
+                  "locked": false,
+                  "slot_id": "slot-7",
+                  "slot_type": "universal"
+                }
+              ]
+            },
+            "body_view": {
+              "cross_section_cm2": "0",
+              "mass_kg": "0",
+              "radius_cm": "0",
+              "thrust_limit": "0"
+            },
+            "pos": {
+              "x_cm": "0",
+              "y_cm": "0",
+              "z_cm": "0"
+            },
+            "resources": {
+              "amounts": {}
+            }
+          }
+        },
+        "logical_tick": "0",
+        "resource": "observation",
+        "world_binding": {
+          "commit": {
+            "binding": {
+              "authority_generation": "1",
+              "branch_id": "branch",
+              "finality_ref": "finality",
+              "governing_manifest_ref": "manifest",
+              "permission_generation": "1",
+              "provider_world_id": "world",
+              "reorg_generation": "0"
+            },
+            "execution_block_hash": "block",
+            "position": "18446744073709551615",
+            "state_root_ref": "root",
+            "world": {
+              "genesis_digest": "genesis",
+              "world_id": "world"
+            }
+          },
+          "projection_revision": "projection",
+          "visibility_scope": "agent:a"
+        }
+      },
+      "name": "observation",
+      "path": "/v1/game/worlds/world/agents/a/observation",
+      "request": {
+        "contract_version": 1,
+        "deadline_unix_ms": null,
+        "fixed_commit": null,
+        "min_commit": null,
+        "scope_id": "agent:a",
+        "world": {
+          "genesis_digest": "genesis",
+          "world_id": "world"
+        }
+      },
+      "status": 200
+    },
+    {
+      "body": {
+        "agent_id": "a",
+        "api_revision": 1,
+        "data": {
+          "audience": {
+            "branch_id": "branch",
+            "finality_epoch": "0",
+            "target_kind": "world",
+            "world_id": "world"
+          },
+          "branch_id": "branch",
+          "entries": [],
+          "finality_epoch": "0",
+          "logical_tick": "0",
+          "module_registry_hash": "registry",
+          "policy_hash": "policy",
+          "presenter": {
+            "presenter_id": "executor",
+            "presenter_kind": "agent_client"
+          },
+          "revocation_epoch": "0",
+          "snapshot_id": "catalog",
+          "subject": {
+            "agent_id": "a",
+            "generation": "1",
+            "kind": "agent",
+            "owner_binding": "owner"
+          },
+          "valid_until_tick": "18446744073709551615",
+          "world_head": "18446744073709551615",
+          "world_id": "world"
+        },
+        "logical_tick": "0",
+        "resource": "capabilities",
+        "world_binding": {
+          "commit": {
+            "binding": {
+              "authority_generation": "1",
+              "branch_id": "branch",
+              "finality_ref": "finality",
+              "governing_manifest_ref": "manifest",
+              "permission_generation": "1",
+              "provider_world_id": "world",
+              "reorg_generation": "0"
+            },
+            "execution_block_hash": "block",
+            "position": "18446744073709551615",
+            "state_root_ref": "root",
+            "world": {
+              "genesis_digest": "genesis",
+              "world_id": "world"
+            }
+          },
+          "projection_revision": "projection",
+          "visibility_scope": "agent:a"
+        }
+      },
+      "name": "capabilities",
+      "path": "/v1/game/worlds/world/agents/a/capabilities",
+      "request": {
+        "contract_version": 1,
+        "deadline_unix_ms": null,
+        "fixed_commit": null,
+        "min_commit": null,
+        "scope_id": "agent:a",
+        "world": {
+          "genesis_digest": "genesis",
+          "world_id": "world"
+        }
+      },
+      "status": 200
+    },
+    {
+      "body": {
+        "agent_id": "a",
+        "api_revision": 1,
+        "data": {
+          "active_goal_reference": {
+            "activation_committed_height": "18446744073709551615",
+            "goal_ref": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "goal_revision": "18446744073709551615",
+            "prepare_operation_id": "prepare",
+            "publish_operation_id": "publish"
+          },
+          "active_goal_revision": "18446744073709551615",
+          "agent_id": "a",
+          "branch_id": "branch",
+          "created_operation_id": "create",
+          "executor_binding": {
+            "delegation_generation": "18446744073709551615",
+            "executor_epoch": "18446744073709551615",
+            "executor_id": "executor",
+            "executor_public_key": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca"
+          },
+          "executor_epoch": "18446744073709551615",
+          "executor_id": "executor",
+          "genesis_digest": "genesis",
+          "latest_goal_revision": "18446744073709551615",
+          "owner_binding": "owner",
+          "owner_generation": "18446744073709551615",
+          "owner_public_key": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+          "reorg_epoch": "0",
+          "schema_revision": "1",
+          "task_id": "task-a",
+          "task_revision": "18446744073709551615",
+          "task_status": "active",
+          "world_id": "world"
+        },
+        "logical_tick": "0",
+        "resource": "task-control",
+        "world_binding": {
+          "commit": {
+            "binding": {
+              "authority_generation": "1",
+              "branch_id": "branch",
+              "finality_ref": "finality",
+              "governing_manifest_ref": "manifest",
+              "permission_generation": "1",
+              "provider_world_id": "world",
+              "reorg_generation": "0"
+            },
+            "execution_block_hash": "block",
+            "position": "18446744073709551615",
+            "state_root_ref": "root",
+            "world": {
+              "genesis_digest": "genesis",
+              "world_id": "world"
+            }
+          },
+          "projection_revision": "projection",
+          "visibility_scope": "agent:a"
+        }
+      },
+      "name": "task-control",
+      "path": "/v1/game/worlds/world/agents/a/task-control",
+      "request": {
+        "contract_version": 1,
+        "deadline_unix_ms": null,
+        "fixed_commit": null,
+        "min_commit": null,
+        "scope_id": "agent:a",
+        "world": {
+          "genesis_digest": "genesis",
+          "world_id": "world"
+        }
+      },
+      "status": 200
+    },
+    {
+      "body": {
+        "code": "actor_proof_required",
+        "retryable": false
+      },
+      "name": "missing-proof",
+      "path": "/v1/game/worlds/world/agents/a/observation",
+      "status": 428
+    },
+    {
+      "body": {
+        "code": "historical_read_unavailable",
+        "retryable": false
+      },
+      "name": "fixed-commit",
+      "path": "/v1/game/worlds/world/agents/a/observation",
+      "request": {
+        "contract_version": 1,
+        "deadline_unix_ms": null,
+        "fixed_commit": {
+          "binding": {
+            "authority_generation": 1,
+            "branch_id": "branch",
+            "finality_ref": "finality",
+            "governing_manifest_ref": "manifest",
+            "permission_generation": 1,
+            "provider_world_id": "world",
+            "reorg_generation": 0
+          },
+          "execution_block_hash": "block",
+          "position": 18446744073709551615,
+          "state_root_ref": "root",
+          "world": {
+            "genesis_digest": "genesis",
+            "world_id": "world"
+          }
+        },
+        "min_commit": null,
+        "scope_id": "agent:a",
+        "world": {
+          "genesis_digest": "genesis",
+          "world_id": "world"
+        }
+      },
+      "status": 400
+    },
+    {
+      "body": {
+        "code": "invalid_actor_proof",
+        "retryable": false
+      },
+      "name": "unknown-field",
+      "path": "/v1/game/worlds/world/agents/a/observation",
+      "status": 400
+    },
+    {
+      "body": {
+        "code": "invalid_actor_proof",
+        "retryable": false
+      },
+      "name": "duplicate-field",
+      "path": "/v1/game/worlds/world/agents/a/observation",
+      "status": 400
+    },
+    {
+      "body": {
+        "code": "task_control_unavailable",
+        "retryable": false
+      },
+      "name": "missing-task-control",
+      "path": "/v1/game/worlds/world/agents/a/task-control",
+      "status": 404
+    }
+  ]
+}

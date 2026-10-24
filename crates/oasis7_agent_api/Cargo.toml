@@ -1,15 +1,18 @@
 [package]
 name = "oasis7_agent_api"
 version = "0.1.0"
-edition = "2024"
-license = "MIT"
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 blake3 = "1"
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.11"
-hex = "0.4"
-serde_cbor = "0.11"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+serde_cbor.workspace = true
 unicode-normalization = "0.1"
+
+[lints]
+workspace = true

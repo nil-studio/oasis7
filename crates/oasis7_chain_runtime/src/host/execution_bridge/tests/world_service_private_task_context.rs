@@ -16,16 +16,17 @@ use std::sync::{Arc, Mutex};
 mod stack;
 use stack::{
     boxed_context_driver_fixture, boxed_context_driver_restart, boxed_context_value,
-    run_context_stage,
+    commit_empty_context_block, run_context_stage,
 };
 
 #[path = "world_service_task_authority_compat.rs"]
 mod authority_compat;
-fn complete_context_scenario(
+fn complete_context_scenario_with_revision(
     authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
     other_provider: bool,
+    prefix_revision: u16,
 ) {
-    const AGE: u64 = 34;
+    const AGE: u64 = 35;
     let (dir, mut driver, world, owner, owner_public) =
         boxed_context_driver_fixture(authority_mode.is_some(), other_provider);
     stack::assert_fixture_authorities(&driver, authority_mode.is_some(), other_provider);
@@ -161,7 +162,7 @@ fn complete_context_scenario(
         commit(&mut driver, height, create.clone());
     }
     checkpoint::task_evidence::reset_protected_height_validation_count();
-    commit(&mut driver, 40, create.clone());
+    commit_empty_context_block(&mut driver, 40);
     assert_eq!(
         checkpoint::task_evidence::protected_height_validation_count(),
         1,
@@ -338,7 +339,8 @@ fn complete_context_scenario(
         .0,
         409
     );
-    let prefix = public_prefix(&prepared).unwrap();
+    let mut prefix = public_prefix(&prepared).unwrap();
+    prefix.task_prefix_binding_revision = prefix_revision;
     // A valid bound executor cannot extend a public context past the lease
     // simply by bypassing encrypted preparation and signing another prefix.
     let mut overlong = prefix.clone();
@@ -364,6 +366,17 @@ fn complete_context_scenario(
     );
     run_context_stage(|| assert_eq!(driver.execution_world.snapshot(), *before_overlong));
 
+    // Capture and prefix admission may straddle a real empty simulation block.
+    // Preserve the original signed preparation; subsequent reads must still
+    // verify its capture receipt and return a fresh public observation bundle.
+    if prefix_revision == 1 {
+        commit_empty_context_block(&mut driver, 41);
+        assert!(driver.execution_world.state().time > prefix.captured_base_binding.base_tick);
+    } else {
+        // Legacy exact-base admission still needs contiguous commit history,
+        // but its intervening administrative block must preserve the base.
+        commit(&mut driver, 41, create.clone());
+    }
     let public = serde_json::to_string(&prefix).unwrap();
     for secret in [
         &goal.request.content.goal_text,

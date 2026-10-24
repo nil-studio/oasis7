@@ -25,6 +25,7 @@ fn old_executor_original(owner: &str, seed: u8) -> WorldServicePayloadV1 {
         executor_epoch: DecimalU64(1),
     });
     let request: TaskSchedulerIntentV1 = SchedulerIntentV1 {
+        task_prefix_binding_revision: 0,
         agent_id: "agent".into(),
         request_id: "original-prefix".into(),
         delegation_generation: 1,

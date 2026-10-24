@@ -250,7 +250,16 @@ run_oasis7_net_libp2p_clippy() {
   run_cargo_clippy -p oasis7_net --features libp2p --lib
 }
 
+run_signed_read_protocol_contract_tests() {
+  # Development-only tools; check never regenerates the committed bundle.
+  run "$ci_python" crates/oasis7_agent_api/protocol_codegen/generate.py check
+  run "$ci_python" -m unittest discover -s crates/oasis7_agent_api/protocol_codegen -p 'test_*.py'
+  run npm ci --prefix crates/oasis7_agent_api/protocol_conformance --ignore-scripts
+  run env PYTHON="$ci_python" npm test --prefix crates/oasis7_agent_api/protocol_conformance
+}
+
 run_oasis7_workspace_support_crate_tests() {
+  run_signed_read_protocol_contract_tests
   run_cargo_clippy -p oasis7_agent_api --all-targets
   run_cargo_clippy -p oasis7_agent_harness --all-targets
   run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
@@ -323,7 +332,7 @@ PY
   while IFS= read -r profile; do
     echo "+ support profile: $profile"
     case "$profile" in
-      oasis7_agent_api) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
+      oasis7_agent_api) run_signed_read_protocol_contract_tests; run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets ;;
       oasis7_agent_harness|oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
@@ -374,6 +383,7 @@ run_cargo_tooling_baseline_contract_tests() {
   run bash ./scripts/cargo-dev-worktree-isolation.test.sh
   run bash ./scripts/new-task-worktree.test.sh
   run bash ./scripts/check-launcher-p2p-dependency-surface.test.sh
+  run python3 ./scripts/cargo-dev-architecture.test.py
 }
 
 run_cargo_tooling_contract_tests() {
@@ -393,6 +403,9 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-workflow.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
+  run python3 ./scripts/ci-cache-policy.test.py
+  run python3 ./scripts/ci-cache-archive.test.py
+  run python3 ./scripts/ci-workspace-cache.test.py
   run python3 ./scripts/ci-rust-cache-toolchains.test.py
   run python3 ./scripts/ci-rust-cache-build.test.py
   run python3 ./scripts/ci-support-profiles.test.py
@@ -411,6 +424,9 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-coverage.test.py
   run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
+  run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
+  run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/codeql-health.test.py
   run python3 ./scripts/security/codeql-upload-association.test.py
   run python3 ./scripts/security/codeql-acceptance.test.py
@@ -451,6 +467,8 @@ run_operational_identity_contract_tests() {
 }
 
 run_operational_node_contract_tests() {
+  run bash ./scripts/traffic-monitor-summary.test.sh
+  run bash ./scripts/p2p-real-env-observability-monitor.test.sh
   run ./scripts/game-world-state-sync-commit-module-required.test.sh
   run ./scripts/state-sync-closure-evidence-template.test.sh
   run ./scripts/s10-five-node-game-soak-summary.test.sh
@@ -730,6 +748,10 @@ run_full_required_superset() {
 }
 
 run_rust_baseline() {
+  # Explicit preparation for the locked offline architecture inspector. A
+  # restored cache is optional and cannot stand in for dependency availability.
+  run_cargo fetch --locked
+  run python3 ./scripts/cargo-dev-architecture.py
   run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh

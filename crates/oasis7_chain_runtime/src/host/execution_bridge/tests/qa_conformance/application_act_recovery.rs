@@ -101,6 +101,7 @@ fn real_tcp_hosted_settlement_unpublished_original_replays_exactly_once_canonica
         sign_read_request(
             "scheduler",
             wire::SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent-a".into(),
                 request_id: "qa-reserve-recovery".into(),
                 delegation_generation: 1,
@@ -153,6 +154,7 @@ fn real_tcp_hosted_settlement_unpublished_original_replays_exactly_once_canonica
         sign_read_request(
             "scheduler",
             wire::SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent-a".into(),
                 request_id: "qa-settlement-recovery".into(),
                 delegation_generation: 1,

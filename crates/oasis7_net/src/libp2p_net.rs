@@ -21,6 +21,7 @@ mod peer_record;
 mod peer_record_cache;
 mod peer_record_dial_gate;
 mod peer_record_protocol_dial;
+mod peer_record_refresh;
 mod peer_record_store;
 mod peer_record_time;
 use peer_record_cache::PeerRecordCache;
@@ -52,9 +53,8 @@ use discovery::{
     handle_rendezvous_discovered, handle_routing_updated, maybe_discover_rendezvous_namespace,
     maybe_queue_discovery_peer_record, maybe_register_rendezvous_namespace,
     maybe_request_cached_discovery_peers, maybe_request_cached_peer_record,
-    maybe_request_connected_peer_record, peer_record_enables_rendezvous,
-    peer_record_matches_target, peer_record_world_id, process_discovered_peer_record,
-    publish_discovery_provider, start_peer_discovery_query,
+    maybe_request_connected_peer_record, peer_record_matches_target, peer_record_world_id,
+    process_discovered_peer_record, publish_discovery_provider, start_peer_discovery_query,
 };
 pub use discovery_budget::DiscoveryWorkMetricsSnapshot;
 use futures::{FutureExt, StreamExt, channel::mpsc};
@@ -164,11 +164,7 @@ impl Libp2pNetwork {
         let bootstrap_peers = config.bootstrap_peers.clone();
         let bootstrap_redial_peers = bootstrap_peers.clone();
         let peer_record_template = config.peer_record.clone();
-        let enable_rendezvous = config.enable_rendezvous
-            || peer_record_template
-                .as_ref()
-                .map(peer_record_enables_rendezvous)
-                .unwrap_or(false);
+        let enable_rendezvous = config.rendezvous_enabled();
         std::thread::spawn(move || {
             let runtime = runtime_support::new_current_thread_runtime("build libp2p tokio runtime");
             runtime.block_on(async move {
@@ -285,7 +281,21 @@ impl Libp2pNetwork {
                     }
                     transport_paths::prune_expired_record_paths(&mut known_transport_paths, &mut failed_transport_path_labels, &config_clone.bootstrap_peers);
                     futures::select! {
-                        () = record_expiry_tick => { record_expiry_tick = runtime_support::discovery_expiry_tick(); },
+                        () = record_expiry_tick => {
+                            peer_record_refresh::refresh_due_from_context(
+                                &mut swarm,
+                                peer_record_refresh::RefreshState {
+                                    cache: &mut discovered_peer_records,
+                                    pending_dht: &mut pending_dht,
+                                    pending_records: &mut pending_discovery_peer_records,
+                                    pending_requests: &mut pending_peer_record_requests,
+                                    pending_connected: &mut pending_connected_peer_records,
+                                    connected_cooldowns: &mut connected_peer_record_cooldowns,
+                                },
+                                &command_ctx, config_clone.discovery_query_interval_ms,
+                            );
+                            record_expiry_tick = runtime_support::discovery_expiry_tick();
+                        },
                         completed = completed_response_rx.next().fuse() => if let Some(completed) = completed {
                             response_workers.complete(completed, &mut fetch_blob_response_budget, now_ms(), &event_traffic_metrics, &mut swarm, &event_errors, max_error_messages);
                         },
@@ -1152,22 +1162,12 @@ impl Libp2pNetwork {
                                             }
                                         }
                                     }
-                                    push_bounded_clone(
-                                        &event_errors,
-                                        format!(
-                                            "libp2p outgoing connection error peer={peer_id:?}: {error:?}"
-                                        ),
-                                        max_error_messages,
-                                        "lock errors",
-                                    );
+                                    runtime_support::log_connection_error(&event_errors, max_error_messages,
+                                        format!("libp2p outgoing connection error peer={peer_id:?}: {error:?}"));
                                 }
                                 SwarmEvent::IncomingConnectionError { error, .. } => {
-                                    push_bounded_clone(
-                                        &event_errors,
-                                        format!("libp2p incoming connection error: {error:?}"),
-                                        max_error_messages,
-                                        "lock errors",
-                                    );
+                                    runtime_support::log_connection_error(&event_errors, max_error_messages,
+                                        format!("libp2p incoming connection error: {error:?}"));
                                 }
                                 _ => {}
                             }

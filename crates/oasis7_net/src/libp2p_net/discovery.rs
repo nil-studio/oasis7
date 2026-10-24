@@ -327,6 +327,31 @@ pub(super) fn maybe_queue_discovery_peer_record(
     {
         return;
     }
+    queue_refresh_peer_record(
+        swarm,
+        pending_dht,
+        pending_discovery_peer_records,
+        peer_id,
+        local_peer_id,
+        world_id,
+    );
+}
+
+/// Refresh alone bypasses the presence dedupe; identity, pending and global budget remain.
+pub(super) fn queue_refresh_peer_record(
+    swarm: &mut Swarm<Behaviour>,
+    pending_dht: &mut HashMap<kad::QueryId, PendingDhtQuery>,
+    pending_discovery_peer_records: &mut HashSet<PeerId>,
+    peer_id: PeerId,
+    local_peer_id: PeerId,
+    world_id: &str,
+) {
+    if world_id.trim().is_empty()
+        || peer_id == local_peer_id
+        || pending_discovery_peer_records.contains(&peer_id)
+    {
+        return;
+    }
     if !swarm.behaviour_mut().discovery_budget.admit() {
         return;
     }

@@ -1,8 +1,8 @@
 [package]
 name = "oasis7_model_provider"
 version = "0.1.0"
-edition = "2024"
-license = "MIT"
+edition.workspace = true
+license.workspace = true
 description = "Session-scoped model consumption and explicit legacy simulator compatibility"
 
 [dependencies]
@@ -10,15 +10,18 @@ oasis7_agent_api = { path = "../oasis7_agent_api" }
 async-openai = { version = "0.42.1", default-features = false, features = ["responses", "rustls", "middleware"] }
 eventsource-stream = "0.2.3"
 futures-util = "0.3"
-reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
+reqwest = { workspace = true, features = ["blocking", "json", "rustls"] }
 tokio = { version = "1", features = ["rt", "time"] }
 toml = "0.9.12"
-serde_json = "1"
-serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+serde.workspace = true
 getrandom = "0.4"
-hex = "0.4"
+hex.workspace = true
 zeroize = "1"
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 oasis7_agent_harness = { path = "../oasis7_agent_harness" }
+
+[lints]
+workspace = true

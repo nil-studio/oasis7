@@ -12,10 +12,11 @@
 | [AUTONOMY.md](AUTONOMY.md) | 用户授权、外部任务、隐私和规则修改边界 |
 | [WORKFLOW.md](WORKFLOW.md) | 读取上下文、分析、实施协作、核实与交付的方法 |
 | [REPORTING.md](REPORTING.md) | 面向用户的进度、评审和交付表达 |
-| [SCHEDULE.md](SCHEDULE.md) | 每天 06:00 整理 Issue、13:00 回顾前一日 CI |
+| [SCHEDULE.md](SCHEDULE.md) | 每天 06:00 整理 Issue、13:00 回顾前一日 CI；每 20 分钟 review Sites 内容 |
 | [HEARTBEAT.md](HEARTBEAT.md) | 每 20 分钟检查到期项、去重派工及收取结果的方法 |
 | [CI 回顾任务](tasks/ci-duration-review.md) | 检查前一日 CI 耗时，对卡点创建或关联 Issue |
 | [Issue 整理任务](tasks/issue-triage.md) | 整理前三天的 Issue，核实关闭、去重与合并 |
+| [Sites 内容 review](tasks/sites-content-review.md) | 检查公开来源、摘要与任务状态；有新增/过期内容时在既有入口更新，无变化不重复写 |
 
 先读本文件，再依次读取 ROLE、AUTONOMY、WORKFLOW、REPORTING。通用开发规则只由[开发流程规范](../../doc/engineering/workflow/source-of-truth.md)拥有；仓库入口为 [AGENTS.md](../../AGENTS.md)。本目录不把 Issue、Project、固定角色链或审批材料设为通用必经流程，不增加 CI 放行条件；已委托工作中的真实问题按 [WORKFLOW 的建单与跟进](WORKFLOW.md#confirmed-problem-followthrough)落实承接，授权边界见 AUTONOMY，时间表中的专项管理仍只适用于对应任务。执行时间表任务时，再读取 SCHEDULE、HEARTBEAT 和对应任务说明；仅审阅其他文件时不启动巡检。
 
@@ -43,11 +44,11 @@ OpenAI 的 [dot 入门说明](https://help.openai.com/en/articles/20001530-getti
 
 以下 20 分钟时间表属于 dot 日常巡检，采用“主 dot 协调、subagent 执行”的分工。这些例行任务不直接启动 Coding Agent 开发。
 
-时间表定义“何时做什么”，HEARTBEAT 定义“一轮如何协调”，任务说明定义“subagent 做什么”。主 Agent 在这些例行任务中只查到期状态、派工、跟踪和汇总，不代做 CI 分析或 Issue 整理。subagent 仅在对应任务授权范围内创建、关联或整理 Issue；不可用时保留待执行实例，20 分钟后再尝试，不停止协调器、不退回主 Agent 代跑。这不改变普通交互任务或仓库通用流程的分工。
+时间表定义“何时做什么”，HEARTBEAT 定义“一轮如何协调”，任务说明定义“subagent 做什么”。主 Agent 在这些例行任务中只查到期状态、派工、跟踪和汇总，不代做 CI 分析、Issue 整理或 Sites 内容更新。subagent 仅执行对应任务授权的 Issue 操作或 Sites 公开内容维护，不交叉继承权限；不可用时保留待执行实例，20 分钟后再尝试，不停止协调器、不退回主 Agent 代跑。这不改变普通交互任务或仓库通用流程的分工。
 
-当前仅提供文件约定，尚未接入或启用实际 20 分钟触发器、持久执行记录和 subagent 派工适配器。2026-10-12 核对的 [ChatGPT 定时任务说明](https://help.openai.com/en/articles/10291617-scheduled-tasks-in-chatgpt)规定付费周期任务最高每小时一次；不能用本目录保证 20 分钟周期，也不拆成多个任务绕过限制。项目内定时任务不能依赖项目附件，运行器须能通过授权的 GitHub 连接读取选定规则版本。
+本目录的 20 分钟协调流程当前仅提供文件约定，尚未接入或启用实际 20 分钟触发器、持久执行记录和 subagent 派工适配器。2026-10-12 核对的 [ChatGPT 定时任务说明](https://help.openai.com/en/articles/10291617-scheduled-tasks-in-chatgpt)规定付费周期任务最高每小时一次；不能用本目录保证 20 分钟周期，也不拆成多个任务绕过限制。项目内定时任务不能依赖项目附件，运行器须能通过授权的 GitHub 连接读取选定规则版本。
 
-接入支持该周期的运行器后，才按 HEARTBEAT 核实实际触发器、状态存储、子任务和通知。不能把时间表的一行、PR 合入或手动试读称为“已开始巡检”。
+已有独立 Sites 小时摘要任务的实际状态由其任务入口证明，不与本目录尚待接入的 20 分钟协调流程混为一谈。接入支持该周期的运行器后，才按 HEARTBEAT 核实实际触发器、状态存储、子任务、共用摘要作业去重和通知。不能把时间表的一行、PR 合入或手动试读称为“已开始巡检”。
 
 ## 初次试用
 

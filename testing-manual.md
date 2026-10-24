@@ -57,7 +57,7 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 ### ECS 缓存与完整 native 构建测量
 
-ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。达到代数或容量上限应报告跳过，不自动删其他缓存或提高额度。
+ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。两代为保留目标；容量足够时先保存第三代，再由独立维护确认当前条目并回收未保护旧代。容量不足应报告跳过，不能先删恢复点腾空间或提高额度。精确命中的成功 producer 也重新确认条目并触发维护。
 
 手动执行 `ECS Server Package`，启用 `measure_builds` 并提供明确的 `measurement_baseline`，可同时取得正常完整包和独立的 full native/no-op/Viewer 改动对照。选择相同 jobs（串行归因选 1），保留 `ecs-build-metrics` 与 `oasis7-ecs-linux-x64` 两类产物。前者测量三个生产 binary 的完整 native 闭包，后者另验证 Web/native 组合与 package source/hash；不能互相代签。
 
@@ -175,7 +175,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 ### CI 工具缓存与 local-signer 验证
 
 - Viewer 的 `viewer-js-required`、`viewer-performance-report` 只恢复当前 Cargo.lock 版本的 wasm-bindgen CLI 目录；key 包含 OS、架构、Rust 版本和两个安装 helper 的 hash，不使用宽松恢复。精确命中必须验证目录内 binary，损坏命中直接失败；冷目录以 `--ensure-cache --print-bin` 安装并验证。普通 PR 不保存该工具缓存。
-- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 大缓存身份保持 `ci-full-regression-trusted-v2`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
+- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存身份为 `ci-shared-native-trusted-v3`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
 - fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
 - CI 控制改动的 PR 仍由可信 base selector 选择全部适用组。候选 selector 的精确路由仅在合入后成为可信规则，required-gate 的组集合与失败判定保留。
@@ -195,6 +195,14 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 优化回归核对全部完整用例在逻辑 suite 与物理 shard 中恰好一次，保留长历史 70 次及健康集合 40 次连续操作。比较 producer、分包原始/压缩 bytes、下载、实际测试、重开/冷查/stop 各阶段；记录缓存来源、是否命中及 8 GiB 保存预算结果。fixture 和本地计数器只能证明对应机制，整体耗时改善须用实际 runner 结果另证。
 - workspace 缓存回归使用真实小型 Cargo workspace：分开保存依赖与本地编译单位，在相同绝对路径重建 checkout 后恢复，核对 Cargo JSON 的 fresh 和实际程序输出。修改源码、build.rs 观察的未跟踪输入、权限或刻意保留旧 mtime 的输入须正常重编；新增/删除输入、损坏、symlink、路径穿越和不完整缓存须安全回到冷路径。核对 build-script 编译与执行两类目录均完整，原始 fingerprint 不被修改。真实 producer 另记录完整 target 与所选 workspace 的逻辑/硬链接去重 bytes、目录归因、8 GiB 保存结果及两类缓存的恢复耗时；本地 fixture 不代签 main writer 已保存或后续 hosted reader 已复用。
 - `output/formal-process/results.jsonl` 记录每个命令的开始时间、耗时、退出码、超时、测试数和清理状态。只上传此安全摘要；详细输出查看 job 日志，失败世界目录不自动上传。缺摘要、缺产物和构建失败须从 Actions 失败步骤诊断，不能计为通过。
+
+### Workspace 缓存容量和滚动验收
+
+- 本地合同：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/ci-cache-policy.test.py`、`python3 scripts/ci-workspace-cache.test.py`、`python3 scripts/ci-ecs-cache.test.py`、`python3 scripts/ci-cache-maintenance.test.py`、`python3 scripts/ci-workflow.test.py`。实际 Cargo fixture 需要 Rust；缺少工具链时明确记录跳过，不能用 synthetic JSON 计数代签真实 fresh。
+- 普通构建 library-only fixture 须证明库和完整构建脚本可复用、普通 binary/test harness 不入缓存且正常重建；四个 feature variants 与测试产物不变。新增/删除输入、损坏或路径不安全继续 miss；源码内容变化仍由 Cargo 重编。检查本地与第三方 fresh/rebuilt 分组，含恢复、验证和打包成本。
+- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- compact archive 回归覆盖 zstd 与旧 gzip 往返、真实同 inode 去重、完整逻辑字节预算、损坏/截断/附加帧、非法别名和路径拒绝。使用实测 9,381,351,049 字节库存与有来源的大小样本回放 bootstrap、首次准入、后续恢复和第三代轮换；全族达到上限但仓库空间不足时必须拒绝，不能把单份上限当预留额度。
+- hosted 分别核对首次 main 保存、后续兼容 reader 的实际 fresh 和第三代回收后的库存；新格式首次冷构建、超限跳过与保护集超额均如实报告，不承诺尚未测量的耗时收益。
 
 <a id="ci-dependency-installation-validation"></a>
 ### CI 依赖安装与 Release 工具缓存核验
@@ -242,6 +250,34 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 6. builtin wasm / module release / hash：先跑对应 scope planner 与 module-set evidence；发布或跨 runner claim 才进入 release evidence 对账。
 7. playability / player continue claim：自动化只能证明“没坏/可回归”；`L4A`、`L4B`、`L5` 按 claim 强度升级，不得互相替代。
 8. release candidate：默认完整 release gate；任何 `--skip-*` 都必须写明原因，并在 summary 里保留 claim boundary。带 skip 的结果只能支撑剩余已执行步骤，不能支撑被跳过层级的 release claim。
+
+<a id="regression-oracle"></a>
+### 回归用例：公共行为与独立预期值
+
+用例先写清触发输入/状态、真实观察点和合同预期，再选择能稳定检出缺陷的最小接缝。优先经受影响的公共入口走到消费者结果，而不是对私有函数调用次数或内部对象形状做镜像断言；一次只覆盖一个清楚行为，先观察因原症状失败，再修复并验证受影响边界。
+
+- 预期值来自适用合同中的明确样例、独立手算或可核对的权威原件。不要调用被测 decoder、projection 或关联函数生成 expected，再与自身比较。
+- 最小纵向闭环要经过本次真正要验证的接线、状态持久化或授权边界。mock 可以隔离不可控外部依赖，但不能替代正在验证的边界；只有 fixture/mock 的结果不宣称真实服务、网络或 Runtime 已通过。
+- 按受影响行为复用或补充能区分正确与错误实现的正/负例。例如 cognition committed、业务 receipt rejected 时，断言候选已提交与业务已拒绝、未成功分别成立；仅断言 HTTP 200 或 committed 应不足以判成功。对原 world/request/适用 fence 做不匹配变体，核对相关校验拒绝及合同规定的无副作用结果。
+- 行为稳定时，不让测试绑定无关内部拆分；重构后应继续由同一公共行为断言保护。已有用例能检出缺陷就复用，不为方法补一套同义测试。
+
+<a id="request-recovery-regression"></a>
+### 原请求与恢复路径的定向回归
+
+只选择本次修改涉及的场景，并先确认当前实现与适用合同。API 身份、幂等作用域、错误码及保留边界以 [Game API 设计](doc/world-simulator/llm/external-agent-game-api.design.md)和[外部 Runtime 验证手册](doc/testing/manual/external-agent-runtime-contract-validation.manual.md)为准；下表是用例选型，不新增接口、统一 TTL、数据库方案或 exactly-once 承诺。尚未实现的路径保持 planned/未覆盖。
+
+| 受影响场景 | 输入或故障位置 | 观察与判据 |
+| --- | --- | --- |
+| 同意图重复 / 并发 | 在合同允许重投的入口，保留完整原身份与原 payload 重投或并发到达 | 返回原结果或明确未决，权威业务效果不重复；不能只数响应次数 |
+| 同标识异内容 | 在合同定义的同身份范围改变 payload；另保留不同合法意图作正例 | 冲突/拒绝而非误回另一意图的成功；合法不同意图不被误合并 |
+| 效果后、响应前断连或崩溃 | 原请求已发出，调用方缺最终响应，再恢复 | 先查原请求；仅在该合同已确认允许安全重投时保留原签名/nonce/payload/correlation 重投，否则只回查并报告阻塞；不换 ID、world 或 Context 绕过未决 |
+| pending / unknown / 存储暂不可读 | 返回未决、无法读回或原证据不足 | 保持未确认并遵循该合同的新写限制；不把无响应/读取失败当业务失败，不制造竞争写 |
+| 到期、Stop 或撤权 | 分别尝试原结果回读与新副作用 | 读取仍检查当前读授权；旧 grant/fence 不因恢复复活，新写按当前合同拒绝或停止 |
+| recent window / 历史保留边界 | 结果退出近期窗口，或原历史材料不可得 | 窗口缺项不证明失败；沿支持路径查原结果或当前资源，区分 HistoryUnavailable 与 Unknown，不用新请求填补失去的历史 |
+
+恢复验证应分别回答“旧请求有没有重复”“原结果能否读回”“恢复后能否继续服务”。若本次结论包含恢复后可服务，按适用的 [V-RECOVERY / J1、J2 正向继续要求](doc/testing/prd.md#qa-infrastructure-scene-families)选择实际层级：在原未决已按合同处理、当前 authority/fence/权限/资源及预算允许后执行获准的新意图，核对权威效果与后续推进；不能用只读恢复、root 相等或效果至多一次代替正向结果。不相关的接口/UI 修改不因此扩成完整基础设施恢复验收。
+
+判定记录沿用实际 PR/Task 与所选套件的原证据，标清执行/未执行和环境边界。故障注入只在授权隔离环境进行；固定 fixture 验证不代签真实 Runtime、浏览器或部署恢复。
 
 ### Rust required 范围预览
 
@@ -1667,3 +1703,95 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 - Retain the real three-node TCP signed-record forwarding/expiry flows and downstream status/filtering tests as positive-path coverage. Budget exhaustion must not itself disconnect authenticated sessions or grant source/role trust.
 
 Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, rendezvous protocol operations, application-driven operations and protocol-internal messages retain their own limits. New network instances start a new budget; no restart-resistant quota is claimed.
+
+
+<a id="discovery-record-refresh"></a>
+### Discovery record before-expiry refresh
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [refresh policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-refresh).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Check deterministic monotonic schedule boundaries and actual Swarm scheduling/record-exchange paths:
+
+- Before original expiry, refresh becomes due within the fixed margin/jitter range. Different receiver randomness can spread starts; repeated identical signed payloads preserve the original lease, due time and retry lower bound. New accepted signed payloads get a new schedule.
+- A connected publisher returns a later freshly signed local record via the existing RR endpoint; the receiver verifies and installs that immutable payload. A disconnected candidate uses the explicit DHT refresh path without bypassing pending or shared work limits.
+- Each tick attempts at most four eligible candidates; denied/failed work is delayed by at least five monotonic seconds. Shared budget exhaustion, the existing 60-second RR cooldown and identical old DHT replies must not extend the record lease or create hot retries.
+- Refresh failure retains the old valid record/path until actual expiry and preserves independently authenticated sessions. At expiry the existing response/dial/health rules still apply.
+- `discovery_query_interval_ms <= 0` disables periodic network refresh while the expiry tick continues. Short TTLs may expire before a successful refresh because tick, cooldown and budget constraints remain authoritative.
+
+This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
+
+
+<a id="traffic-durable-attempt"></a>
+### 独立 traffic 持久尝试与历史事务：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[traffic 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#traffic-durable-attempt)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，其中应包含实际入口 `scripts/p2p-real-env-traffic-durable.test.py`；另保留现有流量归约和新鲜度回归。
+
+- 实际 wrapper 与隔离 HTTP／SSH／接口替身覆盖 pre-probe pending、SIGKILL、同钟、旧 A 对新 B pending／失败、预发布／终态失败、损坏状态及恢复；类型误用／旧无类型外层兼容沿共享 helper 回归。
+- 用固定来源的真实旧 wrapper 先生成历史及时间戳 run，再用新入口在同一 root 初始化；核对 seq1 pending 不采用旧成功、旧工件逐字节保留、后续 seq2 可继续，以及混入孤立版本化工件仍拒绝。
+- 同一和不同输出 root 指向同一历史，核对 admitted 事务不丢样、不重复批次，保留顺序、失败及回退的新行，裁剪与本 run 快照是同一事务；损坏锁或写入失败不显示旧成功。未接入事务的其他 writer 不据此取得并发保证。
+- 只读外部历史回放不创建／写入源目录、锁或文件，不追加／裁剪源；原 capture／producer 时点不刷新。实际 outer→traffic→merger→canonical 保留 incomplete／unknown 与历史身份，损坏协议不回退 legacy。结果不证明角色权威、可信绝对时间、全存储物理回滚或真实环境。
+
+<a id="snapshot-durable-attempt"></a>
+### 独立 snapshot 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[snapshot 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#snapshot-durable-attempt)。执行 `bash scripts/p2p-real-env-triad-snapshot.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`；实际入口回归为 `scripts/p2p-real-env-snapshot-durable.test.py`，应接入普通运维合同选测入口。
+
+- 实际 snapshot 入口通过隔离 HTTP／SSH／服务替身验证 pending 先于探测、SIGKILL、同钟独占与 A 慢于 B pending／失败；不能只测 helper。
+- 核对错误输入不写入不采样、显式节点清单／样本计数、失败后恢复和 last-success；预发布／终态故障、锁／锚／状态缺失及摘要损坏均不能返回旧成功。三类 collector 类型不可互用，旧无类型外层状态保持兼容。
+- 实际外层读取 versioned snapshot canonical 结果，仅用验证通过的同 run raw status／WASM 样本；损坏协议或悬空链接不触发 legacy fallback。另保留受支持旧 child 的隔离兼容回归。该证据不证明 traffic、角色权威、全存储物理回滚或真实环境恢复。
+
+<a id="host-durable-attempt"></a>
+### 独立 host 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[host 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#host-durable-attempt)。执行 `bash scripts/p2p-real-env-host-monitor.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`；实际入口套件为 `scripts/p2p-real-env-host-durable.test.py`。
+
+- 以实际 host wrapper 和隔离 probe／SSH 驱动正常采集、最新失败／恢复、pending 先于采样、SIGKILL、慢 A／新 B pending 或失败、同钟独占目录与 last-success 保留。
+- 预留／工件／状态提交失败不得提前采样或恢复旧成功；共享机制继续覆盖锁替换、序号／锚损坏、摘要与 generation 不匹配。分别核对 host 与 observability 类型不能交叉使用，旧无类型外层状态仍按原边界兼容。
+- 实际外层消费新 host canonical 读取结果，保留错误状态、节点诊断和非零退出；legacy child 仅在外层该次独占目录内兼容。验证不证明其他 collector、全存储物理回滚、真实 SSH 或角色就绪，也不刷新历史测量的年龄。
+
+<a id="host-failure-report"></a>
+### Host 失败续采与报告：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[失败样本](doc/p2p/node/node-triad-operations-observability.design.md#run-failure-report)。执行 `bash scripts/p2p-real-env-host-monitor.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`。
+
+- 实际 host 入口使用隔离 probe／SSH 替身，分别注入首个、后续、全部节点失败和成功后的失败／恢复；核对所有请求轮次仍执行，失败行准确保留 label、时点、序号与有界原因，JSON／Markdown 生成后非零退出。
+- 空响应、部分字段、无效数字及 shell 文本不得成为有效样本，也不得执行响应内容；节点间不串用变量或旧成功值。正常原 helper 输出须兼容，包括空值、空格及转义字符；不增加远端运行时依赖。
+- latest 失败保持 unavailable，last-success 独立保留；恢复不擦除本 run 的失败计数。真实 host reducer→merged report 和外层条件发布保留有效其他节点、历史与 snapshot blocked，未知 host schema 不转绿。
+- 既有 all-success／缺 storage 指标 fixture 保持兼容。stub 只证明本地调用链，不证明真实 SSH、物理故障域、独立 collector 的持久尝试或目录并发安全。
+
+<a id="observability-consumer-routing"></a>
+### 外层三节点参数路由：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[消费者路由](doc/p2p/node/node-triad-operations-observability.design.md#run-routing)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，路由套件为 `scripts/p2p-real-env-observability-routing.test.py`。
+
+- 驱动实际 outer wrapper，逐项及组合覆盖 service、status、target、storage、health/env/public fallback、world 和流量专属选项；验证参数只到声明支持的消费者，WASM 仍只消费本 run 的 snapshot 样本。
+- 用实际子 collector／reducer 加隔离底层采样替身验证配置路径可完成报告；严格 argv stub 用于完整路由矩阵，不能代签真实 SSH、服务状态或任意拓扑。
+- 缺值、空值、非法数字、未知选项、子工具专属选项与 `--node` 在预留尝试和 collector 前非零拒绝；核对既有状态、目录和历史均未修改。help 不产生尝试；路径含空格／元字符保持独立 argv，外层不执行其内容。
+- 继续执行现有 freshness 历史回放及持久尝试回归，核对只读历史、原 as-of 和失败／blocked 语义；支持环境中使用 Bash 3 与当前 Bash 核对空数组行为。
+
+<a id="durable-observability-attempt"></a>
+### 外层 observability 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[持久尝试与条件发布](doc/p2p/node/node-triad-operations-observability.design.md#durable-observability-attempt)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，其中包含 `scripts/p2p-real-env-observability-attempt.test.py` 的实际外层入口／发布 helper 回归。
+
+- 正向：正常采集／归约、带 blocked 模块的执行完成、失败后的新尝试，核对 JSON／Markdown、严格递增序号与独立 last-success。
+- 并发／恢复：固定墙钟并发不覆盖 run，旧 A 晚于 B 的失败或 pending 完成不更新 latest；B 预发布后 SIGKILL 留下 pending，不能回退旧成功。
+- 持久化：分别使预发布、终态工件及状态提交失败，核对采集未提前启动或 canonical read 保持 pending／unknown；损坏或缺失初始化锚／序号状态禁止自动重置；锁丢失、替换、inode 复用或持久随机标识损坏时阻止采集。
+- 消费：验证读取核对 generation、工件摘要、状态可读性；不匹配时非零诊断，不改变历史文件，也不把缓存物化工件当实时状态。
+- 这些测试仅使用隔离本地 stub，不证明真实 SSH、授权撤销、BFT／P/R、物理故障域或单独 collector 的持久尝试。
+
+<a id="traffic-freshness-v2"></a>
+### Traffic observation freshness
+
+Trace refs: `O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b`; [schema 2 policy](doc/p2p/node/node-triad-operations-observability.design.md#traffic-freshness-v2).
+
+Use offline collector stubs and the actual reducer→merged JSON/Markdown chain. Run `bash scripts/traffic-monitor-summary.test.sh` and `bash scripts/p2p-real-env-observability-monitor.test.sh`, plus their freshness regression suites. Validate shell syntax and Python modules. Do not contact historic fleet hosts for these tests.
+
+- Success at 00:00/00:10 followed by failures through 00:30 must retain latest failure and last success separately. At as-of 00:30 the last ten minutes are not a full current window.
+- Cover all failures, recovery, normal dense full-window samples, two sparse endpoints, exact age/gap boundaries, reset or changed identity, malformed/future/regressing timestamps and per-node capture completion times.
+- A new successful capture of an old producer observation keeps producer age stale; missing observation stays unknown. Neither report generation nor HTTP 200 establishes freshness.
+- Explicit historical as-of excludes later successes/failures and leaves original history bytes unchanged. All nodes share the selected boundary; replay is distinct from a current-health claim. Summary-only without an explicit cutoff must also preserve history bytes and mtime while keeping current-time freshness checks.
+- Merge an actually generated child report, then advance report as-of. Formerly fresh metadata must become stale/uncovered; old or unknown schema warns. JSON and Markdown retain matching attempt, age, source-window and bounded error semantics.
+- Route age/gap/as-of options only to supported consumers; invalid values fail before collection. Stub invalid/empty JSON must produce failed history rather than vanish. Outer historical replay requires `--traffic-history-path` with as-of and invokes the real traffic child in summary-only mode without mutating history; host/snapshot remain current evidence.
+
+These checks do not prove persistent pending/terminal publication, SIGKILL safety of the whole collector lifecycle, profile readiness, producer authorization, real SSH/physical fault domains, trusted clocks or deployment health. Existing single-node attachment/report consumers outside the merged triad path retain their documented scope.
