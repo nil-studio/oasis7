@@ -1848,3 +1848,23 @@ Use a separately keyed simulated witness for deterministic CAS and crash tests. 
 Validate the initial hard limit with a fully signed 1,024-record history containing distinct targets; time construction and complete replay separately, then require the 1,025th prepare/reconstruction to fail without mutation. The 64 MiB encoded-log bound remains independent. This capacity check is not a sustained-throughput or production-witness latency claim.
 
 These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
+
+<a id="discovery-durable-publication-v2"></a>
+### Discovery V2 durable local publication
+
+This scope verifies the [V2 local publication contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-durable-publication-v2), not receiver anti-replay or protected hardware storage. Use one source/config candidate across proto, net, node and chain-runtime. Keep V1 wire/signature vectors fixed; exercise explicit legacy and durable V2 configurations separately.
+
+Run the matching canonical filters serially (development feedback may use `scripts/cargo-dev.sh`):
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_proto --lib -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net durable_peer_record_publisher -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api peer_record_publication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime peer_record_publication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime old_typed_node_config -- --test-threads=1
+```
+
+Verify that reserve-before-sign and signed-before-send persistence survives interruption without signing different payloads at one sequence. First initialize V2 explicitly with `--initialize-peer-record-publication` and the same `v2_durable` mode/identity/runtime root used for the later ordinary start. Verify missing state never triggers initialization during ordinary startup. Cover missing entire directory, missing state and marker together, repeated explicit initialization, reopen with the same identity/runtime root, interrupted reserve and signed-result persistence, concurrent owner refusal, corrupt/private/symlink/binding failures, overflow, expired pending payloads and a later valid publication. Unsupported private-storage platforms must reject V2 explicitly while preserving legacy V1. Cover interruption after intent, lock, state and Ready persistence: ordinary open refuses unfinished initialization, explicit same-binding initialization resumes only unissued state0, and wrong binding, corrupt intent, old Ready with missing state or issued state never reset. Manifest defaults must produce the same initialization and ordinary-start binding. Check every local refresh/address-change path and confirm remote cache forwarding preserves original signed bytes. Exercise repeated real handler/TCP local-record queries: V2 sequence and durable state bytes remain unchanged, missing/expired/current-address-mismatched records return unavailable, and a subsequent local refresh still advances the sequence. Unknown versions/states, zero sequence and sequence/state/payload tampering must reject without V1 fallback; a legacy V1 verifier must reject V2 signatures. Record actual commands, source, exit codes and the boundaries of any simulated crash or loopback network test in the PR.
+
+Ordinary local files do not prove resistance to restoring both key and publisher state from an old machine snapshot. Receiver sequence floors, conflict quarantine, tombstone retention, V2-only acceptance, trusted time and independent fault-domain evidence remain separate obligations under #4975.

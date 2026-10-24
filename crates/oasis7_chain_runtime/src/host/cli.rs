@@ -1,7 +1,8 @@
 #[path = "cli_participant_authority.rs"]
 mod participant_authority;
 pub(super) use participant_authority::{
-    devlocal_participant_config, prepare_participant_world, validate as validate_local_participant_options,
+    devlocal_participant_config, prepare_participant_world,
+    validate as validate_local_participant_options,
 };
 #[path = "cli_contract.rs"]
 pub(super) mod cli_contract;
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use oasis7::chain_pos_defaults;
+use oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1;
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
     NodeAutoNatStatus, NodeHolePunchViability, NodePublicPortReachability,
@@ -103,6 +105,9 @@ pub(super) struct CliOptions {
     pub traffic_profile: TrafficProfile,
     pub node_role: NodeRole,
     pub p2p_user_mode: NodeUserMode,
+    pub p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1,
+    /// One-time V2 publisher bootstrap action; deliberately not part of the persisted runtime config.
+    pub initialize_peer_record_publication: bool,
     pub p2p_accept_public_entry: bool,
     pub p2p_detected_reachability: Option<PeerReachabilityClass>,
     pub p2p_detected_hole_punch_viability: NodeHolePunchViability,
@@ -208,7 +213,9 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
                 ));
             }
             "--devlocal-participant-origin-root" => {
-                options.devlocal_participant_origin_root = Some(PathBuf::from(parse_required_value(&mut iter, "--devlocal-participant-origin-root")?));
+                options.devlocal_participant_origin_root = Some(PathBuf::from(
+                    parse_required_value(&mut iter, "--devlocal-participant-origin-root")?,
+                ));
             }
             "--status-bind" => {
                 options.status_bind = parse_required_value(&mut iter, "--status-bind")?;
@@ -233,6 +240,13 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             "--p2p-user-mode" => {
                 let raw = parse_required_value(&mut iter, "--p2p-user-mode")?;
                 options.p2p_user_mode = raw.parse::<NodeUserMode>()?;
+            }
+            "--p2p-peer-record-publication" => {
+                let raw = parse_required_value(&mut iter, "--p2p-peer-record-publication")?;
+                options.p2p_peer_record_publication = raw.parse()?;
+            }
+            "--initialize-peer-record-publication" => {
+                options.initialize_peer_record_publication = true;
             }
             "--p2p-accept-public-entry" => {
                 options.p2p_accept_public_entry = true;
@@ -646,6 +660,22 @@ pub(super) fn validate_effective_options(options: &CliOptions) -> Result<(), Str
     }
     if options.config_path.trim().is_empty() {
         return Err("--config requires a non-empty value".to_string());
+    }
+    if options.initialize_peer_record_publication
+        && options.p2p_peer_record_publication != DevelopmentPeerRecordPublicationModeV1::V2Durable
+    {
+        return Err(
+            "--initialize-peer-record-publication requires --p2p-peer-record-publication v2_durable"
+                .into(),
+        );
+    }
+    if options.initialize_peer_record_publication
+        && (options.formal_live_config.is_some() || options.guarded_initial_config.is_some())
+    {
+        return Err(
+            "--initialize-peer-record-publication applies only to the development host runtime"
+                .into(),
+        );
     }
     if options.reward_points_per_credit == 0 {
         return Err("--reward-points-per-credit requires a positive integer".to_string());

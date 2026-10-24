@@ -14,12 +14,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::observability::emit_stderr_or_event;
 use oasis7_node::{
-    Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, NodeConfig,
-    NodeConsensusSlashingReceiptSnapshot, NodeNetworkPolicy, NodePosConfig, NodeReplicationConfig,
-    NodeReplicationNetworkHandle, NodeRole, NodeRuntime, PosConsensusStatus, PosValidator,
-    derive_libp2p_identity_keypair,
+    Libp2pReplicationNetwork, NodeConfig, NodeConsensusSlashingReceiptSnapshot, NodeNetworkPolicy,
+    NodePosConfig, NodeReplicationConfig, NodeRole, NodeRuntime, PosConsensusStatus, PosValidator,
 };
-use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord};
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
 use oasis7_runtime::{
     NodeAssetBalance, NodeRewardMintRecord, ReleaseSecurityPolicy, RewardAssetConfig,
@@ -51,10 +48,10 @@ mod controlled_live_config;
 mod controlled_live_runtime;
 #[path = "host/dev_cli.rs"]
 mod dev_cli;
-#[path = "host/devlocal_participant_cli.rs"]
-mod devlocal_participant_cli;
 #[path = "host/development_runtime.rs"]
 mod development_runtime;
+#[path = "host/devlocal_participant_cli.rs"]
+mod devlocal_participant_cli;
 #[path = "host/distfs_probe_runtime.rs"]
 mod distfs_probe_runtime;
 #[path = "host/executable_image/mod.rs"]
@@ -129,6 +126,11 @@ mod node_keypair_config;
 mod node_lifecycle;
 #[path = "host/node_operations.rs"]
 mod node_operations;
+#[path = "host/node_points_observation.rs"]
+mod node_points_observation;
+#[cfg(test)]
+#[path = "host/node_points_runtime_closure.rs"]
+mod node_points_runtime_closure;
 #[path = "host/p2p_status.rs"]
 mod p2p_status;
 #[path = "host/preview_world_init.rs"]
@@ -144,11 +146,6 @@ mod rebuild_status;
 mod rebuild_status_tests;
 #[path = "host/reward_runtime_settlement.rs"]
 mod reward_runtime_settlement;
-#[path = "host/node_points_observation.rs"]
-mod node_points_observation;
-#[cfg(test)]
-#[path = "host/node_points_runtime_closure.rs"]
-mod node_points_runtime_closure;
 #[path = "host/reward_runtime_worker.rs"]
 mod reward_runtime_worker;
 #[path = "host/runtime_authority.rs"]
@@ -215,10 +212,18 @@ use status_server_support::{
     ChainBalancesResponse, ChainReplicationDebugStatus, poll_chain_status_server_error,
     start_chain_status_server, stop_chain_status_server, write_json_response,
 };
+use traffic_profile::apply_traffic_profile_to_node_config;
 #[cfg(test)]
 use traffic_profile::feedback_p2p_config_for_role;
-use traffic_profile::{
-    apply_traffic_profile_to_node_config, apply_traffic_profile_to_replication_network_config,
+#[path = "host/replication_network.rs"]
+mod replication_network;
+use replication_network::{
+    attach_default_replication_network, initialize_default_peer_record_publication,
+};
+#[cfg(test)]
+use replication_network::{
+    build_default_peer_record, build_default_replication_network_config,
+    create_default_replication_network,
 };
 #[cfg(test)]
 use traffic_status::ChainTrafficStatus;
@@ -387,6 +392,11 @@ pub fn run_cli(raw_args: Vec<String>) -> Result<(), String> {
 }
 
 fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
+    if options.initialize_peer_record_publication {
+        let mut initialization_options = options;
+        apply_network_tier_manifest_defaults(&mut initialization_options);
+        return initialize_default_peer_record_publication(&initialization_options);
+    }
     cli::validate_local_participant_options(&options)?;
     if let Some(config_path) = options.formal_live_config.as_deref() {
         if options.guarded_initial_config.is_some() {
@@ -593,16 +603,18 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         .exists()
         && paths.execution_records_dir.join("latest.json").exists()
     {
-        Some(execution_bridge::derive_service_execution_bootstrap_with_context(
-            &paths.execution_world_dir,
-            &paths.execution_records_dir,
-            &paths.storage_root,
-            &options.world_id,
-            &execution_bridge::world_service_read::RestoreContext::new(
-                release_security_policy.clone(),
-                participant_control.authority.clone(),
+        Some(
+            execution_bridge::derive_service_execution_bootstrap_with_context(
+                &paths.execution_world_dir,
+                &paths.execution_records_dir,
+                &paths.storage_root,
+                &options.world_id,
+                &execution_bridge::world_service_read::RestoreContext::new(
+                    release_security_policy.clone(),
+                    participant_control.authority.clone(),
+                )?,
             )?,
-        )?)
+        )
     } else {
         local_execution_bootstrap
     };
@@ -718,7 +730,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         runtime = runtime.with_execution_hook(execution_driver);
     }
     let (mut runtime, replication_network) =
-        attach_default_replication_network(runtime, &options, &keypair)?;
+        attach_default_replication_network(runtime, &options, &keypair, &paths)?;
 
     runtime
         .start()
@@ -1034,124 +1046,12 @@ fn network_tier_allows_open_observer_fetch(
         && loaded.manifest.validator_policy.allow_observer_nodes
 }
 
-fn attach_default_replication_network(
-    runtime: NodeRuntime,
-    options: &CliOptions,
-    root_keypair: &node_keypair_config::NodeKeypairConfig,
-) -> Result<(NodeRuntime, Arc<Libp2pReplicationNetwork>), String> {
-    let mut network_config = build_default_replication_network_config(options, root_keypair)?;
-    network_config.allow_local_handler_fallback_when_no_peers =
-        network_config.bootstrap_peers.is_empty();
-    let network = Arc::new(Libp2pReplicationNetwork::new(network_config));
-    let handle_network: Arc<
-        dyn oasis7_proto::distributed_net::DistributedNetwork<oasis7_proto::world_error::WorldError>
-            + Send
-            + Sync,
-    > = network.clone();
-    let handle_dht: Arc<
-        dyn oasis7_proto::distributed_dht::DistributedDht<oasis7_proto::world_error::WorldError>
-            + Send
-            + Sync,
-    > = network.clone();
-    let runtime = runtime
-        .with_replication_network(
-            NodeReplicationNetworkHandle::new(handle_network)
-                .with_dht(handle_dht.clone())
-                .with_local_provider_id(network.peer_id().to_string()),
-        )
-        .with_replica_maintenance_dht(handle_dht)
-        // ObserverLight may subscribe to signed consensus commits (the lane
-        // policy still forbids observer publication). This lets checkpoint
-        // preflight observe validated high peer heads before replication ingest.
-        .with_replication_network_consensus_enabled(true);
-    Ok((runtime, network))
-}
-
-fn build_default_replication_network_config(
-    options: &CliOptions,
-    root_keypair: &node_keypair_config::NodeKeypairConfig,
-) -> Result<Libp2pReplicationNetworkConfig, String> {
-    let mut config = Libp2pReplicationNetworkConfig::default();
-    let libp2p_identity_keypair =
-        derive_node_libp2p_identity_keypair_config(options.node_id.as_str(), root_keypair)?;
-    config.keypair = Some(
-        derive_libp2p_identity_keypair(libp2p_identity_keypair.private_key_hex.as_str())
-            .map_err(|err| format!("failed to derive libp2p identity keypair: {err:?}"))?,
-    );
-    config.peer_record = Some(build_default_peer_record(options));
-    if options.replication_network_listen_addrs.is_empty() {
-        config
-            .listen_addrs
-            .push(DEFAULT_REPLICATION_NETWORK_LISTEN.parse().map_err(|err| {
-                format!(
-                    "failed to parse default replication listen address {}: {err}",
-                    DEFAULT_REPLICATION_NETWORK_LISTEN
-                )
-            })?);
-    } else {
-        config.listen_addrs = options
-            .replication_network_listen_addrs
-            .iter()
-            .map(|raw| {
-                raw.parse()
-                    .map_err(|err| format!("invalid --replication-network-listen {raw}: {err}"))
-            })
-            .collect::<Result<_, _>>()?;
-    }
-    let bootstrap_peers = if options.replication_network_bootstrap_peers.is_empty() {
-        options
-            .loaded_network_tier_manifest
-            .as_ref()
-            .map(|loaded| loaded.bootstrap_peers.clone())
-            .unwrap_or_default()
-    } else {
-        options.replication_network_bootstrap_peers.clone()
-    };
-    config.bootstrap_peers = bootstrap_peers
-        .iter()
-        .map(|raw| {
-            raw.parse()
-                .map_err(|err| format!("invalid --replication-network-peer {raw}: {err}"))
-        })
-        .collect::<Result<_, _>>()?;
-    if let Some(limit) = options.p2p_max_ipv4_subnet_active_peers {
-        config.peer_manager_policy.max_ipv4_subnet_active_peers = Some(limit);
-    }
-    apply_traffic_profile_to_replication_network_config(&mut config, options.traffic_profile);
-    Ok(config)
-}
-
 pub(crate) fn apply_network_tier_manifest_defaults(options: &mut CliOptions) {
     let Some(loaded_manifest) = options.loaded_network_tier_manifest.as_ref() else {
         return;
     };
     if options.world_id.trim().is_empty() || options.world_id == cli::DEFAULT_WORLD_ID {
         options.world_id = loaded_manifest.manifest.chain_id.clone();
-    }
-}
-
-fn build_default_peer_record(options: &CliOptions) -> PeerRecord {
-    let network_policy = build_node_network_policy(options);
-    PeerRecord {
-        peer_id: String::new(),
-        node_id: options.node_id.clone(),
-        world_id: options.world_id.clone(),
-        network_id: options.world_id.clone(),
-        node_role: network_policy.node_role_claim.as_str().to_string(),
-        deployment_mode: network_policy.deployment_mode,
-        reachability_class: network_policy.advertised_reachability_class(),
-        direct_addrs: Vec::new(),
-        hole_punch_addrs: Vec::new(),
-        relay_addrs: Vec::new(),
-        discovery_sources: vec![
-            PeerDiscoverySource::StaticBootstrap,
-            PeerDiscoverySource::Dht,
-        ],
-        capability_lanes: network_policy.node_role_claim.default_capability_lanes(),
-        source_operator: options.p2p_source_operator.clone(),
-        source_asn: options.p2p_source_asn.clone(),
-        published_at_ms: 0,
-        ttl_ms: 60 * 60 * 1000,
     }
 }
 
@@ -1183,6 +1083,9 @@ mod observability_tests;
 #[cfg(test)]
 #[path = "host/oasis7_chain_runtime_observability_transport_tests.rs"]
 mod observability_transport_tests;
+#[cfg(test)]
+#[path = "host/peer_record_publication_tests.rs"]
+mod peer_record_publication_tests;
 #[cfg(test)]
 #[path = "host/oasis7_chain_runtime_status_payload_chain_proof_tests.rs"]
 mod status_payload_chain_proof_tests;

@@ -29,6 +29,11 @@ pub struct DevelopmentRuntimeConfigV1 {
     pub p2p_user_mode: Option<DevelopmentUserModeV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p2p_accept_public_entry: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "DevelopmentPeerRecordPublicationModeV1::is_v1_legacy"
+    )]
+    pub p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p2p_detected_reachability: Option<oasis7_proto::distributed_dht::PeerReachabilityClass>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +116,43 @@ pub struct DevelopmentRuntimeConfigV1 {
     pub replication_fetch_requester_public_keys: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub provider_backed_bootstrap_authority_paths: Vec<PathBuf>,
+}
+
+/// Selects how this local node signs the peer record it publishes.
+///
+/// V1 remains the compatibility default for existing typed configurations;
+/// V2 is an explicit opt-in and requires the host's durable local publisher.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DevelopmentPeerRecordPublicationModeV1 {
+    #[default]
+    V1Legacy,
+    V2Durable,
+}
+
+impl DevelopmentPeerRecordPublicationModeV1 {
+    pub const fn is_v1_legacy(&self) -> bool {
+        matches!(self, Self::V1Legacy)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::V1Legacy => "v1_legacy",
+            Self::V2Durable => "v2_durable",
+        }
+    }
+}
+
+impl std::str::FromStr for DevelopmentPeerRecordPublicationModeV1 {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "v1_legacy" => Ok(Self::V1Legacy),
+            "v2_durable" => Ok(Self::V2Durable),
+            _ => Err("peer record publication mode must be v1_legacy or v2_durable".into()),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -204,4 +246,50 @@ pub struct DevelopmentDistfsProbeV1 {
     pub backoff_multiplier_signature_invalid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backoff_multiplier_unknown: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_record_publication_defaults_legacy_and_roundtrips_explicit_v2() {
+        let legacy_bytes = br#"{"node_id":"node","world_id":"world"}"#;
+        let legacy: DevelopmentRuntimeConfigV1 = serde_json::from_slice(legacy_bytes).unwrap();
+        assert_eq!(
+            legacy.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        );
+        assert!(
+            serde_json::to_value(&legacy)
+                .unwrap()
+                .get("p2p_peer_record_publication")
+                .is_none()
+        );
+        assert_eq!(serde_json::to_vec(&legacy).unwrap(), legacy_bytes);
+
+        let v2: DevelopmentRuntimeConfigV1 = serde_json::from_value(serde_json::json!({
+            "node_id": "node",
+            "world_id": "world",
+            "p2p_peer_record_publication": "v2_durable"
+        }))
+        .unwrap();
+        assert_eq!(
+            v2.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V2Durable
+        );
+        assert_eq!(
+            serde_json::to_value(v2).unwrap()["p2p_peer_record_publication"],
+            "v2_durable"
+        );
+
+        assert!(
+            serde_json::from_value::<DevelopmentRuntimeConfigV1>(serde_json::json!({
+                "node_id": "node",
+                "world_id": "world",
+                "p2p_peer_record_publication": "automatic_upgrade"
+            }))
+            .is_err()
+        );
+    }
 }

@@ -1,5 +1,6 @@
 use libp2p::Multiaddr;
 use libp2p::identity::Keypair;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use oasis7_proto::distributed_dht::PeerRecord;
@@ -19,6 +20,9 @@ const DEFAULT_REQUEST_RESPONSE_TIMEOUT_MS: u64 = 30_000;
 pub struct Libp2pNetworkConfig {
     pub keypair: Option<Keypair>,
     pub peer_record: Option<PeerRecord>,
+    /// Opts local peer-record publication into durable V2 sequencing.
+    /// `None` preserves the legacy V1 publication behavior.
+    pub peer_record_publication_directory: Option<PathBuf>,
     pub enable_rendezvous: bool,
     pub enable_autonat: bool,
     pub allow_loopback_external_addrs_for_testing: bool,
@@ -51,6 +55,7 @@ impl Default for Libp2pNetworkConfig {
         Self {
             keypair: None,
             peer_record: None,
+            peer_record_publication_directory: None,
             enable_rendezvous: false,
             enable_autonat: true,
             allow_loopback_external_addrs_for_testing: false,

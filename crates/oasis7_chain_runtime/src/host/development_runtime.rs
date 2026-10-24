@@ -71,6 +71,7 @@ pub(super) fn into_options(
         world_id: r.world_id,
         ..CliOptions::default()
     };
+    o.p2p_peer_record_publication = r.p2p_peer_record_publication;
     if let Some(value) = r.storage_profile {
         o.storage_profile = value;
     }
@@ -368,6 +369,7 @@ pub(super) fn from_options(o: &CliOptions) -> Result<DevelopmentNodeConfigV1, St
         world_id: o.world_id.clone(),
         ..Default::default()
     };
+    r.p2p_peer_record_publication = o.p2p_peer_record_publication;
     r.storage_profile = Some(o.storage_profile);
     r.p2p_accept_public_entry = Some(o.p2p_accept_public_entry);
     r.node_tick_ms = Some(o.node_tick_ms);
@@ -574,6 +576,10 @@ mod tests {
         assert_eq!(result.world_id, original.world_id);
         assert_eq!(result.node_tick_ms, original.node_tick_ms);
         assert_eq!(
+            result.p2p_peer_record_publication,
+            original.p2p_peer_record_publication
+        );
+        assert_eq!(
             result.node_auto_attest_all_validators,
             original.node_auto_attest_all_validators
         );
@@ -583,6 +589,80 @@ mod tests {
         );
         assert!(result.development_runtime);
         assert!(into_options(typed, true).is_err());
+    }
+
+    #[test]
+    fn peer_record_publication_mode_is_explicit_and_roundtrips_through_host_config() {
+        let options = super::super::cli::parse_options(
+            ["--p2p-peer-record-publication", "v2_durable"].into_iter(),
+        )
+        .expect("explicit V2 publication mode should parse");
+        assert_eq!(
+            options.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V2Durable
+        );
+
+        let typed = from_options(&options).expect("V2 mode should enter typed host config");
+        assert_eq!(
+            typed.runtime.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V2Durable
+        );
+        let reopened = into_options(typed, false).expect("typed V2 config should reopen");
+        assert_eq!(
+            reopened.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V2Durable
+        );
+
+        assert!(
+            super::super::cli::parse_options(
+                ["--p2p-peer-record-publication", "unknown"].into_iter()
+            )
+            .is_err()
+        );
+        let legacy = super::super::cli::parse_options(
+            ["--p2p-peer-record-publication", "v1_legacy"].into_iter(),
+        )
+        .expect("explicit V1 mode should parse");
+        assert_eq!(
+            legacy.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        );
+        assert!(
+            super::super::cli::parse_options(
+                [
+                    "--formal-live-config",
+                    "/private/formal.json",
+                    "--p2p-peer-record-publication",
+                    "v2_durable",
+                ]
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn old_typed_node_config_reopens_in_legacy_publication_mode() {
+        let working_directory = std::env::current_dir().expect("current directory");
+        let config: DevelopmentNodeConfigV1 = serde_json::from_value(serde_json::json!({
+            "api_version": CONFIG_API,
+            "working_directory": working_directory,
+            "runtime": {
+                "node_id": "legacy-node",
+                "world_id": "legacy-world"
+            }
+        }))
+        .expect("pre-V2 typed node config should deserialize");
+        let options = into_options(config, false).expect("old typed node config should reopen");
+        assert_eq!(
+            options.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        );
+        let rewritten = from_options(&options).expect("legacy config should remain representable");
+        assert_eq!(
+            rewritten.runtime.p2p_peer_record_publication,
+            DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        );
     }
     #[test]
     fn typed_config_rejects_unknown_fields_at_each_boundary() {

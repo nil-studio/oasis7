@@ -96,6 +96,33 @@ fn expiry_removes_cache_responses_dedup_and_queued_dials_but_preserves_session()
 }
 
 #[test]
+fn cached_v2_peer_record_forwarding_preserves_the_original_signed_bytes() {
+    let key = Keypair::generate_ed25519();
+    let v1 = signed_discovery_peer_record(&key, vec![], now_ms());
+    let signed = super::super::peer_record::sign_peer_record_v2(
+        &v1.record,
+        oasis7_proto::distributed_dht::PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 47,
+            state: oasis7_proto::distributed_dht::PeerRecordPublicationStateV2::Live,
+        },
+        &key,
+    )
+    .expect("sign V2 source record");
+    let peer = PeerId::from(key.public());
+    let mut cache = PeerRecordCache::new(DiscoveryClock::default());
+    let lease = cache.prepare(peer, &signed).expect("prepare source record");
+    cache.install(peer, signed.clone(), lease);
+    let original = crate::util::to_canonical_cbor(&signed).expect("encode signed source record");
+
+    assert_eq!(
+        cached_response(&cache, peer).expect("forward cached V2 record"),
+        original,
+        "a forwarding peer must retain the remote signed record without re-signing"
+    );
+}
+
+#[test]
 fn rejected_ingress_preserves_previous_record_and_observation() {
     let key = Keypair::generate_ed25519();
     let peer = PeerId::from(key.public());
@@ -216,6 +243,198 @@ fn tcp_cached_record_expires_without_disconnecting_authenticated_sessions() {
     );
     assert!(c.connected_peers().contains(&a.peer_id()));
     assert!(a.connected_peers().contains(&b.peer_id()));
+}
+
+#[test]
+#[cfg(unix)]
+fn tcp_local_peer_record_publication_uses_durable_v2_sequence_after_restart() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let physical_temp_dir =
+        std::fs::canonicalize(std::env::temp_dir()).expect("resolve physical temporary directory");
+    let directory = physical_temp_dir.join(format!(
+        "oasis7-network-peer-record-v2-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir(&directory).expect("create private publisher directory");
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+        .expect("restrict publisher directory");
+
+    let keypair = Keypair::generate_ed25519();
+    let mut template = signed_discovery_peer_record(&keypair, vec![], now_ms()).record;
+    template.direct_addrs.clear();
+    let config = |bootstrap_peers| Libp2pNetworkConfig {
+        keypair: Some(keypair.clone()),
+        peer_record: Some(template.clone()),
+        peer_record_publication_directory: Some(directory.clone()),
+        bootstrap_peers,
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().expect("listen addr")],
+        allow_loopback_external_addrs_for_testing: true,
+        discovery_query_interval_ms: 0,
+        republish_interval_ms: 0,
+        bootstrap_redial_interval_ms: 0,
+        request_response_timeout: Duration::from_secs(3),
+        ..Default::default()
+    };
+    let uninitialized_config = config(Vec::new());
+    assert!(Libp2pNetwork::try_new(uninitialized_config).is_err());
+    assert_eq!(
+        std::fs::read_dir(&directory)
+            .expect("list publisher directory after failed startup")
+            .count(),
+        0,
+        "normal V2 startup must not auto-initialize missing durable state"
+    );
+    let client = |server: &Libp2pNetwork| {
+        let client_keypair = Keypair::generate_ed25519();
+        let client_template =
+            signed_discovery_peer_record(&client_keypair, vec![], now_ms()).record;
+        Libp2pNetwork::try_new(Libp2pNetworkConfig {
+            keypair: Some(client_keypair),
+            peer_record: Some(client_template),
+            listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().expect("client listen")],
+            bootstrap_peers: vec![timed_listen(server)],
+            allow_loopback_external_addrs_for_testing: true,
+            peer_manager_policy: PeerManagerPolicy {
+                min_active_discovery_sources: 0,
+                min_peer_discovery_sources: 0,
+                ..PeerManagerPolicy::default()
+            },
+            request_response_timeout: Duration::from_secs(3),
+            ..Default::default()
+        })
+        .expect("construct TCP client")
+    };
+    let fetch_local = |client: &Libp2pNetwork, server: &Libp2pNetwork| {
+        client
+            .request_to_peer("/aw/rr/1.0.0/get_local_peer_record", &[], server.peer_id())
+            .expect("TCP local record exchange")
+    };
+
+    let first_config = config(Vec::new());
+    Libp2pNetwork::initialize_peer_record_publication(&first_config)
+        .expect("explicitly initialize V2 publisher");
+    assert!(Libp2pNetwork::initialize_peer_record_publication(&first_config).is_err());
+    let first = Libp2pNetwork::try_new(first_config).expect("open V2 publisher");
+    let first_client = client(&first);
+    wait_until(
+        "TCP client connected to first publisher",
+        Instant::now() + Duration::from_secs(8),
+        || first_client.connected_peers().contains(&first.peer_id()),
+    );
+    wait_until(
+        "TCP client installs the publisher's signed peer record",
+        Instant::now() + Duration::from_secs(8),
+        || {
+            first_client.debug_peer_healths().iter().any(|health| {
+                health.peer_id == first.peer_id().to_string()
+                    && !has_missing_peer_record_issue(health)
+            })
+        },
+    );
+    let publication_state_path = directory.join("peer-record-publication-v2.cbor");
+    let state_before_remote_queries =
+        std::fs::read(&publication_state_path).expect("read publication state before RR queries");
+    let local_response = fetch_local(&first_client, &first);
+    let local_record =
+        super::super::discovery::decode_optional_peer_record_response(&local_response)
+            .expect("decode repeated local RR response")
+            .expect("local peer record is available");
+    let local_sequence = local_record
+        .publication
+        .as_ref()
+        .expect("V2 publication metadata")
+        .sequence;
+    assert_eq!(
+        std::fs::read(&publication_state_path).expect("read state after first remote query"),
+        state_before_remote_queries,
+        "remote local-record query must not persist or allocate a sequence"
+    );
+    for _ in 0..5 {
+        assert_eq!(
+            fetch_local(&first_client, &first),
+            local_response,
+            "remote local-record queries must return the same persisted signed bytes"
+        );
+    }
+    assert_eq!(
+        std::fs::read(&publication_state_path).expect("read state after repeated RR queries"),
+        state_before_remote_queries,
+        "repeated remote queries must not change durable publisher state"
+    );
+
+    let proxy = client(&first_client);
+    wait_until(
+        "TCP proxy connected to record-cache holder",
+        Instant::now() + Duration::from_secs(8),
+        || proxy.connected_peers().contains(&first_client.peer_id()),
+    );
+    let forwarded_bytes = proxy
+        .request_to_peer(
+            super::super::discovery::RR_GET_CACHED_PEER_RECORD,
+            first.peer_id().to_string().as_bytes(),
+            first_client.peer_id(),
+        )
+        .expect("TCP cached V2 record forwarding");
+    let first_record =
+        super::super::discovery::decode_optional_peer_record_response(&forwarded_bytes)
+            .expect("decode TCP-forwarded V2 record")
+            .expect("forwarded V2 record present");
+    super::super::peer_record::verify_signed_peer_record(&first_record)
+        .expect("verify TCP-forwarded V2 record");
+    assert_eq!(first_record.record.peer_id, first.peer_id().to_string());
+    assert_eq!(
+        forwarded_bytes,
+        crate::util::to_canonical_cbor(&first_record).expect("canonical forwarded bytes")
+    );
+    assert!(local_sequence > 0);
+    let first_sequence = local_sequence;
+
+    drop(proxy);
+    drop(first_client);
+    drop(first);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let second = loop {
+        match Libp2pNetwork::try_new(config(Vec::new())) {
+            Ok(network) => break network,
+            Err(error) if Instant::now() < deadline => {
+                let error_text = format!("{error:?}");
+                assert!(
+                    error_text.contains("already in use"),
+                    "unexpected restart error: {error_text}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("publisher lock did not release after shutdown: {error:?}"),
+        }
+    };
+    let second_client = client(&second);
+    wait_until(
+        "TCP client connected to restarted publisher",
+        Instant::now() + Duration::from_secs(8),
+        || second_client.connected_peers().contains(&second.peer_id()),
+    );
+    let second_bytes = fetch_local(&second_client, &second);
+    let second_record =
+        super::super::discovery::decode_optional_peer_record_response(&second_bytes)
+            .expect("decode restarted local peer record")
+            .expect("restarted local peer record present");
+    super::super::peer_record::verify_signed_peer_record(&second_record)
+        .expect("verify restarted V2 local peer record");
+    let second_sequence = second_record
+        .publication
+        .as_ref()
+        .expect("restarted V2 publication metadata")
+        .sequence;
+    assert!(
+        second_sequence > first_sequence,
+        "restart must not reuse a published sequence"
+    );
+
+    drop(second_client);
+    drop(second);
+    std::fs::remove_dir_all(directory).expect("remove publisher directory");
 }
 
 #[test]

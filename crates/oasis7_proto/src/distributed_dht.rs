@@ -354,6 +354,34 @@ pub struct SignedPeerRecord {
     pub record: PeerRecord,
     pub identity_public_key_protobuf_hex: String,
     pub signature_hex: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<PeerRecordPublicationV2>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PeerRecordPublicationStateV2 {
+    Live,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeerRecordPublicationV2 {
+    pub schema_version: u16,
+    pub sequence: u64,
+    pub state: PeerRecordPublicationStateV2,
+}
+
+impl PeerRecordPublicationV2 {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.schema_version != 2 {
+            return Err("unsupported peer record publication schema version");
+        }
+        if self.sequence == 0 {
+            return Err("peer record publication sequence must be positive");
+        }
+        Ok(())
+    }
 }
 
 pub trait DistributedDht<E> {
@@ -400,7 +428,7 @@ pub trait DistributedDht<E> {
 mod tests {
     use super::{
         PeerDeploymentMode, PeerDiscoverySource, PeerNodeRole, PeerReachabilityClass, PeerRecord,
-        ProviderRecord, SignedPeerRecord,
+        PeerRecordPublicationStateV2, PeerRecordPublicationV2, ProviderRecord, SignedPeerRecord,
     };
     use crate::distributed_net::NetworkLane;
 
@@ -474,12 +502,47 @@ mod tests {
             },
             identity_public_key_protobuf_hex: "abcd".to_string(),
             signature_hex: "deadbeef".to_string(),
+            publication: None,
         };
 
         let encoded = serde_json::to_string(&record).expect("serialize");
         let decoded: SignedPeerRecord =
             serde_json::from_str(encoded.as_str()).expect("deserialize");
         assert_eq!(decoded, record);
+
+        let mut legacy_value = serde_json::to_value(&record).expect("serialize v1 record");
+        legacy_value
+            .as_object_mut()
+            .expect("signed record object")
+            .remove("publication");
+        let decoded: SignedPeerRecord =
+            serde_json::from_value(legacy_value).expect("legacy record without publication");
+        assert_eq!(decoded.publication, None);
+        let encoded = serde_json::to_value(decoded).expect("serialize legacy record");
+        assert!(encoded.get("publication").is_none());
+    }
+
+    #[test]
+    fn publication_v2_rejects_unknown_version_zero_sequence_and_unknown_state() {
+        let unknown_version = PeerRecordPublicationV2 {
+            schema_version: 3,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        };
+        assert!(unknown_version.validate().is_err());
+
+        let zero_sequence = PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 0,
+            state: PeerRecordPublicationStateV2::Live,
+        };
+        assert!(zero_sequence.validate().is_err());
+
+        let unknown_state = r#"{"schema_version":2,"sequence":1,"state":"tombstone"}"#;
+        assert!(serde_json::from_str::<PeerRecordPublicationV2>(unknown_state).is_err());
+
+        let unknown_field = r#"{"schema_version":2,"sequence":1,"state":"live","extension":true}"#;
+        assert!(serde_json::from_str::<PeerRecordPublicationV2>(unknown_field).is_err());
     }
 
     #[test]

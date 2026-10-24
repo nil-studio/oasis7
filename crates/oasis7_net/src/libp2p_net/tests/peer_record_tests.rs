@@ -4,6 +4,17 @@ use super::*;
 use crate::util::to_canonical_cbor;
 use libp2p::kad::RecordKey;
 use oasis7_proto::distributed::dht_peer_record_key;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct LegacySignedPeerRecordV1<'a> {
+    record: &'a PeerRecord,
+    identity_public_key_protobuf_hex: &'a str,
+    signature_hex: &'a str,
+}
+use oasis7_proto::distributed_dht::{
+    PeerRecordPublicationStateV2, PeerRecordPublicationV2, SignedPeerRecord,
+};
 
 #[test]
 fn sign_and_verify_peer_record_round_trip() {
@@ -32,6 +43,179 @@ fn sign_and_verify_peer_record_round_trip() {
 
     let signed = sign_peer_record(&record, &keypair).expect("sign peer record");
     verify_signed_peer_record(&signed).expect("verify peer record");
+    let legacy_shape = LegacySignedPeerRecordV1 {
+        record: &signed.record,
+        identity_public_key_protobuf_hex: &signed.identity_public_key_protobuf_hex,
+        signature_hex: &signed.signature_hex,
+    };
+    assert_eq!(
+        to_canonical_cbor(&signed).expect("encode V1 struct"),
+        to_canonical_cbor(&legacy_shape).expect("encode pre-V2 wire struct"),
+        "V1 CBOR must remain byte-identical to the three-field wire shape"
+    );
+}
+
+#[test]
+fn legacy_peer_record_v1_signing_vector_remains_stable() {
+    let keypair = Keypair::ed25519_from_bytes([7u8; 32]).expect("fixed test key");
+    let record = PeerRecord {
+        peer_id: PeerId::from(keypair.public()).to_string(),
+        node_id: "node-vector".into(),
+        world_id: "world-vector".into(),
+        network_id: "network-vector".into(),
+        node_role: PeerNodeRole::FullStorage.as_str().into(),
+        deployment_mode: PeerDeploymentMode::Hybrid,
+        reachability_class: crate::dht::PeerReachabilityClass::Hybrid,
+        direct_addrs: Vec::new(),
+        hole_punch_addrs: Vec::new(),
+        relay_addrs: Vec::new(),
+        discovery_sources: vec![crate::dht::PeerDiscoverySource::Dht],
+        capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
+        source_operator: None,
+        source_asn: None,
+        published_at_ms: 42,
+        ttl_ms: 60_000,
+    };
+    let signed = sign_peer_record(&record, &keypair).expect("sign fixed V1 vector");
+    verify_signed_peer_record(&signed).expect("verify fixed V1 vector");
+    assert_eq!(signed.publication, None);
+    let mut legacy_payload = b"oasis7-peer-record-v1|".to_vec();
+    legacy_payload.extend_from_slice(&to_canonical_cbor(&record).expect("encode old V1 payload"));
+    let legacy_signature = keypair.sign(&legacy_payload).expect("sign old V1 payload");
+    let expected_signature = "72bce61a227e248f8d25b930c9a8953d85d70bdf702e40e980781090b872e786bae2e033c174a33f5f137ac91d93ef603b76749ba097cf576542c16aa1a17203";
+    assert_eq!(hex::encode(legacy_signature), expected_signature);
+    assert_eq!(signed.signature_hex, expected_signature);
+}
+
+#[test]
+fn peer_record_v2_valid_signature_uses_the_full_versioned_tuple() {
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(keypair.public());
+    let record = PeerRecord {
+        peer_id: peer_id.to_string(),
+        node_id: "node-v2".to_string(),
+        world_id: "world-v2".to_string(),
+        network_id: "network-v2".to_string(),
+        node_role: PeerNodeRole::FullStorage.as_str().to_string(),
+        deployment_mode: PeerDeploymentMode::Hybrid,
+        reachability_class: crate::dht::PeerReachabilityClass::Hybrid,
+        direct_addrs: vec!["/ip4/192.0.2.7/tcp/4103".to_string()],
+        hole_punch_addrs: Vec::new(),
+        relay_addrs: Vec::new(),
+        discovery_sources: Vec::new(),
+        capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
+        source_operator: None,
+        source_asn: None,
+        published_at_ms: 42,
+        ttl_ms: 60_000,
+    };
+    let signed = sign_v2_peer_record(&record, &keypair, 1);
+
+    verify_signed_peer_record(&signed).expect("valid V2 signature must verify");
+}
+
+#[test]
+fn peer_record_v2_rejects_sequence_and_payload_tampering() {
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(keypair.public());
+    let record = PeerRecord {
+        peer_id: peer_id.to_string(),
+        node_id: "node-v2".to_string(),
+        world_id: "world-v2".to_string(),
+        network_id: "network-v2".to_string(),
+        node_role: PeerNodeRole::FullStorage.as_str().to_string(),
+        deployment_mode: PeerDeploymentMode::Hybrid,
+        reachability_class: crate::dht::PeerReachabilityClass::Hybrid,
+        direct_addrs: vec!["/ip4/192.0.2.7/tcp/4103".to_string()],
+        hole_punch_addrs: Vec::new(),
+        relay_addrs: Vec::new(),
+        discovery_sources: Vec::new(),
+        capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
+        source_operator: None,
+        source_asn: None,
+        published_at_ms: 42,
+        ttl_ms: 60_000,
+    };
+    let signed = sign_v2_peer_record(&record, &keypair, 7);
+
+    let mut changed_sequence = signed.clone();
+    changed_sequence
+        .publication
+        .as_mut()
+        .expect("V2 publication")
+        .sequence += 1;
+    assert!(verify_signed_peer_record(&changed_sequence).is_err());
+
+    let mut changed_version = signed.clone();
+    changed_version
+        .publication
+        .as_mut()
+        .expect("V2 publication")
+        .schema_version += 1;
+    assert!(verify_signed_peer_record(&changed_version).is_err());
+
+    let mut changed_record = signed.clone();
+    changed_record.record.direct_addrs[0] = "/ip4/192.0.2.8/tcp/4103".to_string();
+    assert!(verify_signed_peer_record(&changed_record).is_err());
+}
+
+#[test]
+fn peer_record_v2_signature_is_not_accepted_by_legacy_v1_domain() {
+    let keypair = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(keypair.public());
+    let record = PeerRecord {
+        peer_id: peer_id.to_string(),
+        node_id: "node-v2".to_string(),
+        world_id: "world-v2".to_string(),
+        network_id: "network-v2".to_string(),
+        node_role: PeerNodeRole::FullStorage.as_str().to_string(),
+        deployment_mode: PeerDeploymentMode::Hybrid,
+        reachability_class: crate::dht::PeerReachabilityClass::Hybrid,
+        direct_addrs: Vec::new(),
+        hole_punch_addrs: Vec::new(),
+        relay_addrs: Vec::new(),
+        discovery_sources: Vec::new(),
+        capability_lanes: PeerNodeRole::FullStorage.default_capability_lanes(),
+        source_operator: None,
+        source_asn: None,
+        published_at_ms: 42,
+        ttl_ms: 60_000,
+    };
+    let signed = sign_v2_peer_record(&record, &keypair, 1);
+
+    let mut legacy_payload = b"oasis7-peer-record-v1|".to_vec();
+    legacy_payload.extend_from_slice(&to_canonical_cbor(&signed.record).expect("legacy payload"));
+    let signature = hex::decode(&signed.signature_hex).expect("signature hex");
+    assert!(
+        !keypair
+            .public()
+            .verify(&legacy_payload, signature.as_slice())
+    );
+}
+
+fn sign_v2_peer_record(record: &PeerRecord, keypair: &Keypair, sequence: u64) -> SignedPeerRecord {
+    let publication = PeerRecordPublicationV2 {
+        schema_version: 2,
+        sequence,
+        state: PeerRecordPublicationStateV2::Live,
+    };
+    let mut payload = b"oasis7-peer-record-v2|".to_vec();
+    payload.extend_from_slice(
+        &to_canonical_cbor(&(
+            publication.schema_version,
+            publication.sequence,
+            publication.state,
+            record,
+        ))
+        .expect("V2 signing payload"),
+    );
+    let signature = keypair.sign(&payload).expect("sign V2 record");
+    SignedPeerRecord {
+        record: record.clone(),
+        identity_public_key_protobuf_hex: hex::encode(keypair.public().encode_protobuf()),
+        signature_hex: hex::encode(signature),
+        publication: Some(publication),
+    }
 }
 
 #[test]
