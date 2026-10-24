@@ -82,9 +82,9 @@ CI= OASIS7_FORCE_RAW_CARGO=0 OASIS7_CARGO_SCCACHE=0 \
   --config "$config_path" --model test-model --base-url https://api.example.test/v1 \
   >"$forced_output"
 expected_target="${CARGO_TARGET_DIR:-unset}"
-rg -Fqx "cargo-target=$expected_target" "$forced_output"
-rg -Fqx 'cargo-arg=oasis7_provider_local_bridge' "$forced_output"
-rg -Fqx 'cargo-arg=--bind' "$forced_output"
+grep -Fqx "cargo-target=$expected_target" "$forced_output"
+grep -Fqx 'cargo-arg=oasis7_provider_local_bridge' "$forced_output"
+grep -Fqx 'cargo-arg=--bind' "$forced_output"
 
 python3 - "$check_config" "$bridge_config" "$legacy_bridge_config" <<'PY'
 from __future__ import annotations
