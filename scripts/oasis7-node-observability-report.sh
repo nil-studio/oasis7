@@ -11,7 +11,10 @@ recent traffic-window summary produced by `oasis7-node-traffic-monitor.sh`.
 Options:
   --status-url <url>            status endpoint to fetch
                                 (default: http://127.0.0.1:5633/v1/chain/status)
-  --status-json-path <path>     read status payload from a local JSON file instead of HTTP
+  --status-json-path <path>     read chain status or oasis7.local-node-status/v1 JSON
+                                instead of HTTP; formal observer/full-sync readiness
+                                uses the producer observation (maximum age: 60000ms),
+                                and file replay does not refresh that observation
   --traffic-summary-json <path> optional traffic summary json to attach
   --node-label <label>          label written into summary output
                                 (default: local_node)
@@ -110,10 +113,12 @@ else
   fi
 fi
 
-python3 - "$status_tmp" "$summary_json_path" "$summary_md_path" "$node_label" "$status_url" "$traffic_summary_json" "$status_fetch_ok" "$fetch_error" "$status_json_path" <<'PY'
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 - "$status_tmp" "$summary_json_path" "$summary_md_path" "$node_label" "$status_url" "$traffic_summary_json" "$status_fetch_ok" "$fetch_error" "$status_json_path" "$script_dir" <<'PY'
 from __future__ import annotations
 
 import json
+import importlib.util
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -166,9 +171,19 @@ def fmt_bytes(value):
 
 
 status_path, summary_json_path, summary_md_path, node_label, status_url, traffic_summary_path, status_fetch_ok_raw, fetch_error, status_json_path = sys.argv[1:10]
-generated_at = datetime.now(timezone.utc).astimezone().isoformat()
+as_of = datetime.now(timezone.utc)
+generated_at = as_of.astimezone().isoformat()
 status_fetch_ok = status_fetch_ok_raw == "1"
 status = load_json(status_path)
+spec = importlib.util.spec_from_file_location("profile_readiness", Path(sys.argv[10]) / "p2p-profile-readiness.py")
+adapter = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(adapter)
+profile_readiness = adapter.project(status, "file" if status_json_path else "http", int(as_of.timestamp() * 1000))
+# Formal CLI inputs only enter the explicit allowlist adapter; unrelated fields
+# and raw errors/configuration must not flow through the legacy HTTP projection.
+if not isinstance(status, dict) or "api_version" in status:
+    status = {}
+
 traffic_summary = None
 traffic_summary_missing = False
 if traffic_summary_path:
@@ -258,6 +273,7 @@ alerts = observability.get("alerts") or []
 
 summary = {
     "generated_at": generated_at,
+    "profile_readiness": profile_readiness,
     "node_label": node_label,
     "status_source": "file" if status_json_path else "http",
     "status_url": None if status_json_path else status_url,
@@ -558,6 +574,8 @@ else:
                     f", control_plane_wire_total=`{fmt_bytes(control_plane.get('total_wire_bytes'))}`"
                 )
         lines.append(line)
+
+lines.extend(adapter.markdown(profile_readiness))
 
 Path(summary_md_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY

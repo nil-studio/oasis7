@@ -127,3 +127,6 @@ python3 ./scripts/p2p-real-env-host-report.test.py
 bash ./scripts/p2p-real-env-triad-snapshot.test.sh
 
 python3 ./scripts/p2p-real-env-traffic-durable.test.py
+
+# The single-node CLI profile adapter shares the observability report contract.
+bash "$repo_root/scripts/oasis7-node-observability-report.test.sh"

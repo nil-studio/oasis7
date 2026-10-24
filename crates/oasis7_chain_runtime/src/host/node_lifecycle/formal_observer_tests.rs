@@ -403,6 +403,8 @@ fn schema2_process_hook_reports_verified_public_readiness_and_stops_cleanly() {
     assert_eq!(ready["can_propose"], false);
     assert_eq!(ready["blocker"], serde_json::Value::Null);
 
+    super::super::profile_report_tests::assert_report(&root, &ready, "ready").unwrap();
+
     let current: LocalInstance = serde_json::from_value(ready["instance"].clone()).unwrap();
     let stopped = super::super::process::stop_instance(&config, &current, 2000).unwrap();
     assert_eq!(stopped["instance"]["state"], "stopped");
@@ -419,6 +421,7 @@ fn schema2_process_hook_reports_verified_public_readiness_and_stops_cleanly() {
         "stopped"
     );
     assert!(final_status["formal_public_observer"]["last_verified_commit"].is_object());
+    super::super::profile_report_tests::assert_report(&root, &final_status, "blocked").unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
 
