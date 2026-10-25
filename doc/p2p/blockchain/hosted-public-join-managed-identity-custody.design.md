@@ -433,7 +433,7 @@ dev/staging 使用独立 Cloudflare Worker、DO/D1/R2 namespace、身份域、se
 <a id="cloud-custody-rust"></a>
 ### 12.13 Rust 技术栈、包组织与实现边界
 
-本节承接 [REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006)。Rust 是首版服务业务和协议逻辑的实现语言；Cloudflare 入口目标为 `wasm32-unknown-unknown`，使用官方 [workers-rs](https://developers.cloudflare.com/workers/languages/rust/)。管理 UI 的浏览器 WebAuthn 调用与展示可用 TypeScript。以下是待实施目录和职责，当前 PR 不新增 crate、空入口或依赖锁定结果。
+本节承接 [REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006)。Rust 是首版服务业务和协议逻辑的实现语言；Cloudflare 入口目标为 `wasm32-unknown-unknown`，使用官方 [workers-rs](https://developers.cloudflare.com/workers/languages/rust/)。管理 UI 的浏览器 WebAuthn 调用与展示可用 TypeScript。以下目录与职责规定完整目标。当前[基础实现](../../../crates/oasis7_custody_worker/README.md)已建立两包、纯状态原语、四角色 Wasm 构建与禁用业务的 HTTP metadata/error 合同；原生身份、事务授权、秘密适配、可信客户端与游戏执行仍待实现。基础工件不代表可用 custody 服务或部署/实玩验收。
 
 #### 包与依赖方向
 

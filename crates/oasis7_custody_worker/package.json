@@ -1,0 +1,16 @@
+{
+  "name": "oasis7-custody-worker-platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext tests/consumer.ts && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.152.0",
+    "ajv": "8.20.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "undici": "7.30.1"
+  }
+}

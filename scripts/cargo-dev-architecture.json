@@ -818,6 +818,279 @@
         "normal",
         "build"
       ]
+    },
+    {
+      "key": "custody-core",
+      "upstream": "doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust",
+      "roots": [
+        {
+          "name": "oasis7_custody_core",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_state"
+        },
+        {
+          "name": "oasis7_world_projection"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        },
+        {
+          "name": "oasis7_launcher_backend"
+        },
+        {
+          "name": "oasis7_client_launcher"
+        },
+        {
+          "name": "oasis7_provider_tools"
+        },
+        {
+          "name": "oasis7_provider_local_bridge"
+        },
+        {
+          "name": "oasis7_model_provider"
+        },
+        {
+          "name": "wasmtime"
+        },
+        {
+          "name": "libp2p"
+        },
+        {
+          "name": "reqwest"
+        },
+        {
+          "name": "tokio"
+        },
+        {
+          "name": "oasis7_custody_worker"
+        },
+        {
+          "name": "worker"
+        },
+        {
+          "name": "oasis7_client_storage"
+        },
+        {
+          "name": "oasis7_local_signer"
+        },
+        {
+          "name": "wasm-bindgen"
+        },
+        {
+          "name": "js-sys"
+        },
+        {
+          "name": "web-sys"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "host",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "unit-tests",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "test"
+        },
+        {
+          "id": "wasm",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        }
+      ],
+      "allows": [
+        "Pure custody contracts and deterministic validation"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "host",
+        "unit-tests",
+        "wasm"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
+      ]
+    },
+    {
+      "key": "custody-worker",
+      "upstream": "doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust",
+      "roots": [
+        {
+          "name": "oasis7_custody_worker",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_state"
+        },
+        {
+          "name": "oasis7_world_projection"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        },
+        {
+          "name": "oasis7_launcher_backend"
+        },
+        {
+          "name": "oasis7_client_launcher"
+        },
+        {
+          "name": "oasis7_provider_tools"
+        },
+        {
+          "name": "oasis7_provider_local_bridge"
+        },
+        {
+          "name": "oasis7_model_provider"
+        },
+        {
+          "name": "wasmtime"
+        },
+        {
+          "name": "libp2p"
+        },
+        {
+          "name": "reqwest"
+        },
+        {
+          "name": "oasis7_client_storage"
+        },
+        {
+          "name": "oasis7_local_signer"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build"
+      ],
+      "profiles": [
+        {
+          "id": "host",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "unit-tests",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "test"
+        },
+        {
+          "id": "wasm-identity",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [
+            "identity"
+          ],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-owner",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [
+            "owner"
+          ],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-executor",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [
+            "executor"
+          ],
+          "mode": "production"
+        },
+        {
+          "id": "wasm-recovery-fence",
+          "target": "wasm32-unknown-unknown",
+          "default_features": false,
+          "features": [
+            "recovery-fence"
+          ],
+          "mode": "production"
+        }
+      ],
+      "allows": [
+        "Custody Core and wasm-only Cloudflare Worker adapter",
+        "worker 0.7.5 SDK featureless Tokio synchronization dependency (default-features=false, features=[]); native clients and storage remain forbidden"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "host",
+        "unit-tests",
+        "wasm-identity",
+        "wasm-owner",
+        "wasm-executor",
+        "wasm-recovery-fence"
+      ],
+      "test_kinds": [
+        "normal",
+        "build"
+      ]
     }
   ]
 }

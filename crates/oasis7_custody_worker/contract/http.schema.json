@@ -1,0 +1,109 @@
+{
+  "error": {
+    "$defs": {
+      "ErrorCode": {
+        "enum": [
+          "not_found",
+          "not_ready",
+          "method_not_allowed"
+        ],
+        "type": "string"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "code": {
+        "$ref": "#/$defs/ErrorCode"
+      },
+      "schema_revision": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "schema_revision",
+      "code"
+    ],
+    "title": "ErrorResponse",
+    "type": "object"
+  },
+  "fixtures": {
+    "error": [
+      {
+        "code": "not_found",
+        "schema_revision": "custody-http-v1"
+      },
+      {
+        "code": "not_ready",
+        "schema_revision": "custody-http-v1"
+      },
+      {
+        "code": "method_not_allowed",
+        "schema_revision": "custody-http-v1"
+      }
+    ],
+    "metadata": [
+      {
+        "api_profile": "custody-foundation-v1",
+        "execution_enabled": false,
+        "role": "identity",
+        "schema_revision": "custody-http-v1"
+      },
+      {
+        "api_profile": "custody-foundation-v1",
+        "execution_enabled": false,
+        "role": "owner",
+        "schema_revision": "custody-http-v1"
+      },
+      {
+        "api_profile": "custody-foundation-v1",
+        "execution_enabled": false,
+        "role": "executor",
+        "schema_revision": "custody-http-v1"
+      },
+      {
+        "api_profile": "custody-foundation-v1",
+        "execution_enabled": false,
+        "role": "recovery-fence",
+        "schema_revision": "custody-http-v1"
+      }
+    ]
+  },
+  "metadata": {
+    "$defs": {
+      "Role": {
+        "enum": [
+          "identity",
+          "owner",
+          "executor",
+          "recovery-fence"
+        ],
+        "type": "string"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "api_profile": {
+        "type": "string"
+      },
+      "execution_enabled": {
+        "type": "boolean"
+      },
+      "role": {
+        "$ref": "#/$defs/Role"
+      },
+      "schema_revision": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "schema_revision",
+      "role",
+      "api_profile",
+      "execution_enabled"
+    ],
+    "title": "ServiceMetadata",
+    "type": "object"
+  }
+}
