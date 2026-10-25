@@ -124,8 +124,13 @@ pub(super) fn hosted_html_security_headers(
         ));
     }
     let scripts = hashes.into_iter().collect::<Vec<_>>().join(" ");
+    let model_origin = if config.get("browserGameClient").is_some() {
+        " https://api.deepseek.com"
+    } else {
+        ""
+    };
     Ok(format!(
-        "Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' {scripts}; connect-src 'self' {connection_origin}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n"
+        "Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' {scripts}; connect-src 'self' {connection_origin}{model_origin}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n"
     ))
 }
 
@@ -247,6 +252,22 @@ mod tests {
         assert!(headers.contains("frame-ancestors 'none'"));
         assert!(headers.contains("Cache-Control: no-store"));
         assert!(headers.contains("Referrer-Policy: no-referrer"));
+    }
+    #[test]
+    fn browser_model_origin_is_allowed_only_when_enabled() {
+        let disabled =
+            hosted_html_security_headers(b"", r#"{"viewerWsEndpoint":"wss://trusted.example"}"#)
+                .unwrap();
+        assert!(!disabled.contains("deepseek"));
+        let enabled = hosted_html_security_headers(
+            b"",
+            r#"{"viewerWsEndpoint":"wss://trusted.example","browserGameClient":{}}"#,
+        )
+        .unwrap();
+        assert!(
+            enabled.contains("connect-src 'self' wss://trusted.example https://api.deepseek.com;")
+        );
+        assert!(!enabled.contains("https:;"));
     }
     #[test]
     fn rejects_bad_config_and_ambiguous_html_instead_of_weakening_policy() {

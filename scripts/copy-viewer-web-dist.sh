@@ -95,6 +95,9 @@ viewer_js="$VIEWER_ROOT/viewer.js"
 compat_html="$VIEWER_ROOT/dist/software_safe.html"
 compat_js="$VIEWER_ROOT/dist/software_safe.js"
 compat_claim_evidence="$VIEWER_ROOT/dist/software_safe_first_agent_claim_evidence.html"
+browser_game_client_dir="$VIEWER_ROOT/dist/browser-game-client"
+require_file "$browser_game_client_dir/oasis7_browser_game_client.js"
+require_file "$browser_game_client_dir/oasis7_browser_game_client_bg.wasm"
 pixel_world_bridge_dir="$VIEWER_ROOT/dist/pixel-world-bridge"
 pixel_world_bridge_js="$pixel_world_bridge_dir/pixel_world_bridge.js"
 pixel_world_webgl2_bridge_js="$pixel_world_bridge_dir/webgl2/pixel_world_bridge.js"
@@ -159,6 +162,11 @@ if [[ -d "$pixel_world_bridge_dir" ]]; then
     rm -rf "$DIST_DIR/pixel-world-bridge"
     cp -R "$pixel_world_bridge_dir" "$DIST_DIR/pixel-world-bridge"
   fi
+fi
+
+if [[ "$browser_game_client_dir" != "$DIST_DIR/browser-game-client" ]]; then
+  rm -rf "$DIST_DIR/browser-game-client"
+  cp -R "$browser_game_client_dir" "$DIST_DIR/browser-game-client"
 fi
 
 write_optional_payload_manifest() {

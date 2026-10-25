@@ -25,6 +25,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[path = "static_http_browser_config.rs"]
+mod browser_config;
 #[path = "static_http_public_payload.rs"]
 mod public_payload;
 
@@ -974,11 +976,12 @@ pub(super) fn viewer_runtime_config_json(
     web_bind: &str,
 ) -> Result<String, String> {
     let configured = std::env::var("OASIS7_VIEWER_PUBLIC_WS_URL").ok();
-    super::viewer_runtime_config::viewer_runtime_config_json(
+    let config = super::viewer_runtime_config::viewer_runtime_config_json(
         deployment_mode,
         web_bind,
         configured.as_deref(),
-    )
+    )?;
+    browser_config::configure_browser_game(config)
 }
 
 fn strip_trunk_autoreload_script(body: &[u8]) -> Vec<u8> {

@@ -26,6 +26,8 @@ viewer_first_agent_claim_evidence.html
 software_safe_first_agent_claim_evidence.html
 favicon.ico
 pixel-world-bridge/pixel_world_bridge.js
+browser-game-client/oasis7_browser_game_client.js
+browser-game-client/oasis7_browser_game_client_bg.wasm
 EOF
 }
 
@@ -57,6 +59,10 @@ scope = [
     "crates/oasis7_viewer/scripts",
     "crates/oasis7_viewer/software_safe_src",
     "crates/oasis7_viewer/favicon.ico",
+    "crates/oasis7_browser_game_client",
+    "crates/oasis7_client_api",
+    "crates/oasis7_agent_api",
+    "crates/oasis7_wasm_abi",
     "crates/pixel_world_bridge/Cargo.toml",
     "crates/pixel_world_bridge/src",
     "crates/oasis7_proto/Cargo.toml",
