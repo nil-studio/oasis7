@@ -14,6 +14,7 @@
 | --- | --- |
 | 下次如何持续更新 | [持续更新流程](command-center.manual.md) |
 | 整体分层、部署、存储、权限与恢复 | [顶层架构索引](architecture/README.md) |
+| 云端如何看整体工程图、适用开发规范与 dot 更新状态 | [工程架构产品要求](command-center.prd.md#REQ-CC-018) · [系统设计](engineering-architecture.design.md)（目标合同，模块与持续维护待验收） |
 | 云端指挥中心与本地辅助端的产品及技术方案 | [产品设计](command-center.prd.md) · [系统设计](command-center.design.md) |
 | 如何运行和操作已有客户端 | [客户端使用说明](../../../tools/oasis7-command-center/README.md) |
 
