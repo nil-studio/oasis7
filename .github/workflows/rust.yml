@@ -318,7 +318,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Retire redundant obsolete workspace generations
+      - name: Retire redundant workspace and dependency cache snapshots
         env:
           CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-cache-maintenance.py --bootstrap --apply
@@ -1731,6 +1731,9 @@ jobs:
 
   full-regression:
     cache-mode: write
+    permissions:
+      contents: read
+      actions: read
     needs: oasis7-test-build
     if: >-
       always() && !cancelled() && needs.oasis7-test-build.result == 'success' &&
@@ -1789,11 +1792,22 @@ jobs:
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Install dependency cache admission
+        id: dependency-cache-tools
+        continue-on-error: true
+        run: python3 scripts/ci-rust-cache-admission.py install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: steps.dependency-cache-tools.outcome == 'success'
+        env:
+          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: shared-native
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: ci-shared-native-trusted-v3
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          save-if: ${{ success() && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta
