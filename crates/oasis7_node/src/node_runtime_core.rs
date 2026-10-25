@@ -403,6 +403,9 @@ impl NodeRuntime {
                 ),
             });
         }
+        if self.bft_config.is_some() {
+            self.validate_bft_payload_admission(&payload_cbor)?;
+        }
         validate_consensus_action_payload_auth(&self.config, payload_cbor.as_slice())?;
         governance_auth::preflight(self, payload_cbor.as_slice())?;
         let action = NodeConsensusAction::from_payload(

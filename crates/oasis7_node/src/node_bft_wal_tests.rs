@@ -166,9 +166,11 @@ fn proposal_signing_requires_a_durable_exact_intent_and_restart_reuses_it() {
     );
     assert!(
         wal.append_event(BftWalEventV1::Proposal {
-            proposal: machine
-                .sign_proposal_intent(&intent, &key)
-                .expect("proposal"),
+            proposal: Box::new(
+                machine
+                    .sign_proposal_intent(&intent, &key)
+                    .expect("proposal"),
+            ),
             local: true,
             now_ms: 1,
         })
@@ -215,7 +217,7 @@ fn proposal_signing_requires_a_durable_exact_intent_and_restart_reuses_it() {
             proposal,
             local: true,
             now_ms: 101
-        }] if proposal == &signed
+        }] if proposal.as_ref() == &signed
     ));
     drop(reopened);
 

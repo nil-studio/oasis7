@@ -228,6 +228,16 @@ fn test_root(domain: u8, context: &NodeBftExecutionContextV1, actions_cbor: &[u8
 }
 
 impl NodeExecutionHook for DurableTestHook {
+    fn validate_bft_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
+        let value: serde_json::Value = serde_cbor::from_slice(payload)
+            .map_err(|error| format!("test action decode: {error}"))?;
+        if value == serde_json::json!({"kind": "bft-integration-noop"}) {
+            Ok(())
+        } else {
+            Err("unsupported deterministic BFT test action".into())
+        }
+    }
+
     fn on_commit(
         &mut self,
         _context: NodeExecutionCommitContext,
@@ -676,7 +686,7 @@ fn node_runtime_needs_quorum_and_late_fourth_node_catches_up_then_reopens() {
         "late validator joins the next height",
     );
 
-    for index in 0..4 {
+    for (index, apply_count) in apply_counts.iter().enumerate() {
         let evidence = load_evidence(root.path(), index);
         assert!(evidence.certificates.len() >= target_height as usize);
         assert_eq!(
@@ -693,7 +703,7 @@ fn node_runtime_needs_quorum_and_late_fourth_node_catches_up_then_reopens() {
         );
         for height in 1..=target_height {
             assert_eq!(
-                apply_counts[index]
+                apply_count
                     .lock()
                     .expect("active apply counter")
                     .iter()

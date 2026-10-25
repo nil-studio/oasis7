@@ -179,3 +179,50 @@ fn equivocator_cannot_supply_two_units_of_any_value_quorum_power() {
     );
     assert_eq!(machine.step(), BftStepV1::Prevote);
 }
+
+#[test]
+fn prevote_timeout_arms_when_phase_enters_with_buffered_quorum() {
+    let keys = keys();
+    let set = validator_set(&keys);
+    let (local_id, local_key) = proposer(&set);
+    let mut machine =
+        BftConsensusMachineV1::new(set.clone(), local_id, 1, None, 100, TEST_TIMEOUTS)
+            .expect("machine");
+    let unrelated = BftVoteValueV1::Block {
+        block_id: "99".repeat(32),
+    };
+    for (index, key) in keys
+        .iter()
+        .enumerate()
+        .take(set.quorum_voting_power() as usize)
+    {
+        machine
+            .receive_vote(
+                vote(
+                    &set,
+                    key,
+                    &format!("v{index}"),
+                    0,
+                    BftVotePhaseV1::Prevote,
+                    unrelated.clone(),
+                ),
+                101,
+            )
+            .expect("buffer quorum while still proposing");
+    }
+    assert_eq!(machine.step(), BftStepV1::Propose);
+    assert_eq!(machine.step_deadline_ms(), Some(110));
+
+    let proposal = machine
+        .make_proposal(
+            block(scope()),
+            machine.current_proposer_id().expect("proposer"),
+            &local_key,
+        )
+        .expect("proposal");
+    machine
+        .receive_proposal(proposal, true, 105)
+        .expect("enter prevote and replay buffered tally");
+    assert_eq!(machine.step(), BftStepV1::Prevote);
+    assert_eq!(machine.step_deadline_ms(), Some(115));
+}

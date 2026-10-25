@@ -63,6 +63,10 @@ impl NodeRuntimeExecutionDriver {
         Err("durable BFT execution is unsupported on this platform".into())
     }
 
+    pub(super) fn validate_bft_action_payload(&self, _payload: &[u8]) -> Result<(), String> {
+        Err("BFT action payload admission is unsupported on this platform".into())
+    }
+
     pub(super) fn commit_bft(
         &mut self,
         _token: VerifiedBftCommitCertificateV1,

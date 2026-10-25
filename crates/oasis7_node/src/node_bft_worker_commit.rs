@@ -150,10 +150,9 @@ impl Worker {
                         proposal,
                         local: true,
                         ..
-                    } if proposal.header.round == self.machine.round() => self.broadcast(
-                        endpoint,
-                        &BftMessageV1::Proposal(Box::new(proposal.clone())),
-                    ),
+                    } if proposal.header.round == self.machine.round() => {
+                        self.broadcast(endpoint, &BftMessageV1::Proposal(proposal.clone()))
+                    }
                     BftWalEventV1::Vote {
                         vote, local: true, ..
                     } if vote.round == self.machine.round() => {

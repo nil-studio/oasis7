@@ -75,10 +75,7 @@ impl BftProposerPriorityV1 {
             }
         }
         let winner_id = winner.ok_or_else(|| "BFT validator set is empty".to_string())?;
-        let winner_power = set
-            .total_voting_power()
-            .try_into()
-            .map_err(|_| "BFT total voting power exceeds proposer arithmetic".to_string())?;
+        let winner_power = i128::from(set.total_voting_power());
         let winner_priority = self
             .priorities
             .get_mut(winner_id)
@@ -136,7 +133,11 @@ impl BftProposerPriorityV1 {
             .checked_sub(minimum)
             .ok_or_else(|| "BFT proposer priority range overflow".to_string())?;
         if distance > max_distance {
-            let ratio = distance / max_distance;
+            // Ceiling division matches the pinned CometBFT RescalePriorities;
+            // quotient + remainder avoids overflowing distance + threshold - 1.
+            let ratio = (distance / max_distance)
+                .checked_add(i128::from(distance % max_distance != 0))
+                .ok_or_else(|| "BFT proposer rescale ratio overflow".to_string())?;
             for priority in self.priorities.values_mut() {
                 *priority /= ratio;
             }
@@ -205,6 +206,21 @@ mod tests {
                 .collect(),
         )
         .expect("valid validator set")
+    }
+
+    #[test]
+    fn rescale_uses_ceiling_for_nonmultiple_ranges_without_overflow() {
+        let set = set(&[1, 1], &[[1; 32], [2; 32]]);
+        for (distance, expected) in [(5, 2), (8, 4), (i128::MAX, 3)] {
+            let mut priority = BftProposerPriorityV1::from_priorities(
+                &set,
+                BTreeMap::from([("v0".into(), distance), ("v1".into(), 0)]),
+            )
+            .expect("valid priorities");
+            priority.rescale(&set).expect("bounded rescale");
+            assert_eq!(priority.priorities["v0"], expected);
+            assert!(priority.priority_bounds().unwrap().1 <= 4);
+        }
     }
 
     #[test]

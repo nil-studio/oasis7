@@ -48,6 +48,7 @@ impl NodeRuntime {
                 reason: "Tendermint v1 configuration was already selected".into(),
             });
         }
+        self.validate_bft_pending_admission()?;
         self.bft_config = Some(config);
         Ok(self)
     }
@@ -193,6 +194,117 @@ mod tests {
                 round_delta_ms: 25,
             },
         }
+    }
+
+    struct ClosedActionHook;
+
+    impl crate::NodeExecutionHook for ClosedActionHook {
+        fn on_commit(
+            &mut self,
+            _: crate::NodeExecutionCommitContext,
+        ) -> Result<crate::NodeExecutionCommitResult, String> {
+            Err("unused legacy path".into())
+        }
+
+        fn validate_bft_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
+            let value: serde_json::Value =
+                serde_cbor::from_slice(payload).map_err(|error| error.to_string())?;
+            if value == serde_json::json!({"kind": "closed-action"}) {
+                Ok(())
+            } else {
+                Err("unsupported BFT action body".into())
+            }
+        }
+    }
+
+    fn admission_runtime() -> NodeRuntime {
+        NodeRuntime::new(
+            crate::NodeConfig::new("validator-a", "world-a", crate::NodeRole::Sequencer)
+                .expect("node config"),
+        )
+        .with_execution_hook(ClosedActionHook)
+    }
+
+    #[test]
+    fn unsupported_local_actions_are_rejected_without_poisoning_bft_queue() {
+        let runtime = admission_runtime()
+            .with_tendermint_v1(config())
+            .expect("BFT");
+        for payload in [
+            serde_json::json!({"version":1,"body":{"type":"simulator_action","data":{"action":{"type":"wait"}}}}),
+            serde_json::json!({"version":1,"body":{"type":"world_service_intent","data":{}}}),
+            serde_json::json!({"unknown_runtime_action":{}}),
+        ] {
+            assert!(
+                runtime
+                    .submit_consensus_action_payload(
+                        1,
+                        serde_cbor::to_vec(&payload).expect("payload")
+                    )
+                    .is_err()
+            );
+        }
+        assert!(
+            runtime
+                .pending_consensus_actions
+                .lock()
+                .expect("queue")
+                .is_empty()
+        );
+        assert_eq!(
+            runtime
+                .pending_consensus_action_queue_bytes
+                .load(std::sync::atomic::Ordering::Acquire),
+            0
+        );
+        runtime
+            .submit_consensus_action_payload(
+                2,
+                serde_cbor::to_vec(&serde_json::json!({"kind":"closed-action"})).expect("payload"),
+            )
+            .expect("supported action remains admissible");
+        assert_eq!(
+            runtime
+                .pending_consensus_actions
+                .lock()
+                .expect("queue")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn bft_selection_and_start_reject_preexisting_unsupported_queue() {
+        let payload = serde_cbor::to_vec(&serde_json::json!({"unknown_runtime_action":{}}))
+            .expect("legacy payload");
+        let runtime = admission_runtime();
+        runtime
+            .submit_consensus_action_payload(1, payload.clone())
+            .expect("legacy admission");
+        assert!(runtime.with_tendermint_v1(config()).is_err());
+
+        let mut runtime = admission_runtime()
+            .with_tendermint_v1(config())
+            .expect("BFT");
+        runtime
+            .pending_consensus_actions
+            .lock()
+            .expect("queue")
+            .push(
+                crate::NodeConsensusAction::from_payload(1, "validator-a", payload)
+                    .expect("action"),
+            );
+        let error = runtime.start().expect_err("preexisting unsupported action");
+        assert!(error.to_string().contains("unsupported BFT action body"));
+        assert!(runtime.worker.is_none());
+        assert_eq!(
+            runtime
+                .pending_consensus_actions
+                .lock()
+                .expect("queue")
+                .len(),
+            1
+        );
     }
 
     #[test]

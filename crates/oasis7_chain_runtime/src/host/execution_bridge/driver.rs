@@ -1187,6 +1187,10 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         self.preview_bft(expected, candidate)
     }
 
+    fn validate_bft_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
+        bft_execution::NodeRuntimeExecutionDriver::validate_bft_action_payload(self, payload)
+    }
+
     fn commit_bft_certificate(
         &mut self,
         certificate: oasis7_node::VerifiedBftCommitCertificateV1,

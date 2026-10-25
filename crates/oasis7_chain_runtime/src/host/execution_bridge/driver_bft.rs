@@ -183,6 +183,31 @@ impl NodeRuntimeExecutionDriver {
         Ok(expected)
     }
 
+    pub(super) fn validate_bft_action_payload(&self, payload: &[u8]) -> Result<(), String> {
+        if payload.is_empty() || payload.len() > BFT_MAX_ACTIONS_CBOR_BYTES_V1 {
+            return Err("BFT action payload is empty or exceeds the protocol bound".into());
+        }
+        let action =
+            NodeConsensusAction::from_payload(1, "system:bft-action-preflight", payload.to_vec())
+                .map_err(|error| format!("build BFT action admission probe: {error}"))?;
+        let context = NodeExecutionCommitContext {
+            world_id: "bft-action-preflight".into(),
+            node_id: "bft-action-preflight".into(),
+            proposer_id: "bft-action-preflight".into(),
+            height: 1,
+            slot: 0,
+            epoch: 0,
+            node_block_hash: "00".repeat(32),
+            action_root: "00".repeat(32),
+            committed_actions: vec![action],
+            committed_at_unix_ms: 0,
+        };
+        if decode_closed_runtime_actions(&context)?.len() != 1 {
+            return Err("BFT action admission requires exactly one closed RuntimeAction".into());
+        }
+        Ok(())
+    }
+
     pub(super) fn build_bft(&self, context: NodeBftBuildContextV1) -> Result<BftBlockV1, String> {
         let state = self
             .bft_execution
@@ -539,6 +564,24 @@ fn decode_actions(bytes: &[u8]) -> Result<Vec<NodeConsensusAction>, String> {
     Ok(actions)
 }
 
+type ClosedRuntimeAction = (
+    oasis7_runtime::Action,
+    Option<oasis7_runtime::CommittedRecipeOrigin>,
+    Option<oasis7_runtime::GovernanceAuthorizationV1>,
+);
+
+fn decode_closed_runtime_actions(
+    context: &NodeExecutionCommitContext,
+) -> Result<Vec<ClosedRuntimeAction>, String> {
+    let (runtime_actions, simulator_actions, provider_bootstrap, service_intents) =
+        super::super::driver_replicated_input::decode_committed_actions(context)?;
+    if !simulator_actions.is_empty() || provider_bootstrap.is_some() || !service_intents.is_empty()
+    {
+        return Err("BFT execution only accepts closed RuntimeAction inputs".into());
+    }
+    Ok(runtime_actions)
+}
+
 fn execute_candidate(
     parent: &RuntimeWorld,
     config: &NodeBftExecutionConfigV1,
@@ -598,12 +641,7 @@ fn execute_candidate(
         committed_actions: actions.clone(),
         committed_at_unix_ms: 0,
     };
-    let (runtime_actions, simulator_actions, provider_bootstrap, service_intents) =
-        super::super::driver_replicated_input::decode_committed_actions(&commit_context)?;
-    if !simulator_actions.is_empty() || provider_bootstrap.is_some() || !service_intents.is_empty()
-    {
-        return Err("BFT execution only accepts closed RuntimeAction inputs".into());
-    }
+    let runtime_actions = decode_closed_runtime_actions(&commit_context)?;
     for (action, origin, authorization) in runtime_actions {
         if let Some(authorization) = authorization {
             next_world.submit_governance_action(action, authorization);

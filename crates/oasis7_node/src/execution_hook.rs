@@ -526,6 +526,13 @@ pub trait NodeExecutionHook: Send {
         Err("BFT candidate preview is unsupported by this execution hook".into())
     }
 
+    /// Validate one action payload before BFT queue admission. This check is
+    /// independent of configuration and World state; implementations must
+    /// reject payload classes the deterministic BFT executor cannot replay.
+    fn validate_bft_action_payload(&mut self, _payload: &[u8]) -> Result<(), String> {
+        Err("BFT action payload admission is unsupported by this execution hook".into())
+    }
+
     /// Apply or recover one fully verified fixed-set BFT certificate. The
     /// opaque token is produced only by the consensus verifier; implementations
     /// must persist BFT evidence separately from legacy PoS proof and make an

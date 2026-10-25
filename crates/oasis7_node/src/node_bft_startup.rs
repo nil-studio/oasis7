@@ -41,6 +41,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .clone()
         .ok_or_else(|| error("missing explicit BFT config"))?;
     let set = bft.validate(&runtime.config.world_id).map_err(error)?;
+    runtime.validate_bft_pending_admission()?;
     worker::Worker::validate_configuration(&set, bft.authority_epoch)?;
     if runtime.config.gossip.as_ref().is_some_and(|gossip| {
         gossip.peers.len() > oasis7_consensus::tendermint_v1::BFT_MAX_VALIDATORS_V1

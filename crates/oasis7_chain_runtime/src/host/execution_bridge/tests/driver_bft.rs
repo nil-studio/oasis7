@@ -3,6 +3,9 @@ use ed25519_dalek::SigningKey;
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
+use oasis7::world_service::{
+    RequestCorrelation, RequestKey, SubmitIntentRequest, WorldIdentity, WorldServicePayloadV1,
+};
 use oasis7_node::{
     BftBlockV1, BftCommitCertificateV1, BftHeightProposerScheduleV1, BftProposalHeaderV1,
     BftProposalV1, BftScopeV1, BftValidatorSetV1, BftValidatorV1, BftVotePhaseV1, BftVoteV1,
@@ -13,6 +16,7 @@ use oasis7_node::{
 use oasis7_runtime::{
     Action as RuntimeAction, ChainResourceDerivationContext, World as RuntimeWorld,
 };
+use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
 
 pub(super) fn keys() -> Vec<SigningKey> {
@@ -73,6 +77,155 @@ fn runtime_action() -> NodeConsensusAction {
         });
     let payload = encode_consensus_action_payload(&envelope).expect("encode runtime action");
     NodeConsensusAction::from_payload(1, "v0", payload).expect("build consensus action")
+}
+
+fn world_service_request() -> SubmitIntentRequest<WorldServicePayloadV1> {
+    SubmitIntentRequest {
+        contract_version: 1,
+        correlation: RequestCorrelation {
+            key: RequestKey {
+                world: WorldIdentity {
+                    world_id: "bft-preflight-world".into(),
+                    genesis_digest: "22".repeat(32),
+                },
+                verified_subject: "bft-preflight-subject".into(),
+                operation_domain: "bft-preflight".into(),
+                nonce_scope: "bft-preflight".into(),
+                request_id_or_nonce: "bft-preflight-request".into(),
+            },
+            payload_digest: "33".repeat(32),
+        },
+        deadline_unix_ms: None,
+        signed_payload: WorldServicePayloadV1::GameplayJson(b"{}".to_vec()),
+    }
+}
+
+fn non_runtime_payloads() -> Vec<(&'static str, Vec<u8>)> {
+    let simulator = ConsensusActionPayloadEnvelope::from_simulator_action(
+        SimulatorAction::RegisterAgent {
+            agent_id: "sim-agent".into(),
+            location_id: "sim-location".into(),
+        },
+        ActionSubmitter::System,
+    );
+    let service_request = world_service_request();
+    let service_envelope = ConsensusActionPayloadEnvelope {
+        version: 1,
+        gameplay_submission_origin: None,
+        auth: None,
+        body: oasis7::consensus_action_payload::ConsensusActionPayloadBody::WorldServiceIntent {
+            request: service_request.clone(),
+        },
+    };
+    let runtime_service =
+        ConsensusActionPayloadEnvelope::from_runtime_action(RuntimeAction::WorldServiceIntent {
+            request: serde_json::to_value(service_request).expect("serialize service request"),
+        });
+    let unknown_runtime = serde_cbor::to_vec(&serde_json::json!({
+        "type": "future_runtime_action",
+        "data": {}
+    }))
+    .expect("encode unknown runtime action shape");
+
+    vec![
+        (
+            "simulator action",
+            encode_consensus_action_payload(&simulator).expect("encode simulator action"),
+        ),
+        (
+            "world service intent",
+            encode_consensus_action_payload(&service_envelope)
+                .expect("encode direct service intent"),
+        ),
+        (
+            "runtime service intent",
+            encode_consensus_action_payload(&runtime_service)
+                .expect("encode runtime service intent"),
+        ),
+        ("unknown RuntimeAction", unknown_runtime),
+    ]
+}
+
+fn consensus_action(payload: Vec<u8>) -> NodeConsensusAction {
+    NodeConsensusAction::from_payload(1, "bft-preflight-submitter", payload)
+        .expect("build BFT test action")
+}
+
+fn invalid_action_block(
+    context: &oasis7_node::NodeBftExecutionContextV1,
+    action: NodeConsensusAction,
+) -> BftBlockV1 {
+    let actions = vec![action];
+    BftBlockV1 {
+        scope: context.scope.clone(),
+        height: context.height,
+        parent_commit_ref: context.parent_commit_ref.clone(),
+        authority_epoch: context.authority_epoch,
+        manifest_hash: context.manifest_hash.clone(),
+        actions_cbor: serde_cbor::to_vec(&actions).expect("encode invalid BFT actions"),
+        action_root: compute_consensus_action_root(&actions).expect("root invalid BFT action"),
+        event_root: "00".repeat(32),
+        execution_block_hash: "00".repeat(32),
+        execution_state_root: "00".repeat(32),
+        state_root: "00".repeat(32),
+    }
+}
+
+#[test]
+fn bft_action_admission_is_closed_and_available_before_configuration() {
+    let root = temp_dir("bft-action-admission");
+    let scope = scope();
+    let mut driver = driver_for_world(&root, bft_genesis_world(&scope));
+
+    assert!(
+        driver
+            .validate_bft_action_payload(runtime_action().payload_cbor.as_slice())
+            .is_ok()
+    );
+    for (kind, payload) in non_runtime_payloads() {
+        assert!(
+            driver
+                .validate_bft_action_payload(payload.as_slice())
+                .is_err(),
+            "static BFT admission accepted {kind}"
+        );
+    }
+    let oversized = vec![0; oasis7_proto::distributed_bft::BFT_MAX_ACTIONS_CBOR_BYTES_V1 + 1];
+    assert!(
+        driver
+            .validate_bft_action_payload(oversized.as_slice())
+            .is_err()
+    );
+
+    let keys = keys();
+    let set = validator_set(&scope, &keys);
+    let config = NodeBftExecutionConfigV1::from_validator_set(&set, 9);
+    driver
+        .configure_bft_execution(&config)
+        .expect("configure BFT after the pre-configuration checks");
+    let context = driver
+        .current_bft_execution_context(&scope, 1, &scope.genesis_hash, config.authority_epoch)
+        .expect("current BFT context");
+    for (kind, payload) in non_runtime_payloads() {
+        let action = consensus_action(payload);
+        assert!(
+            driver
+                .build_bft_candidate(NodeBftBuildContextV1 {
+                    execution: context.clone(),
+                    actions: vec![action.clone()],
+                })
+                .is_err(),
+            "BFT build accepted {kind}"
+        );
+        let candidate = invalid_action_block(&context, action);
+        assert!(
+            driver.preview_bft_candidate(&context, &candidate).is_err(),
+            "BFT preview accepted {kind}"
+        );
+    }
+
+    drop(driver);
+    let _ = fs::remove_dir_all(root);
 }
 
 fn signed_certificate(

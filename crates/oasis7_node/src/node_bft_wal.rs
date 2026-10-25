@@ -48,7 +48,7 @@ pub(super) struct BftWalStateV1 {
 )]
 pub(super) enum BftWalEventV1 {
     Proposal {
-        proposal: BftProposalV1,
+        proposal: Box<BftProposalV1>,
         local: bool,
         now_ms: i64,
     },
@@ -355,14 +355,14 @@ impl BftWalStore {
         validate_event_time(
             &self.state,
             &BftWalEventV1::Proposal {
-                proposal: proposal.clone(),
+                proposal: Box::new(proposal.clone()),
                 local: true,
                 now_ms,
             },
         )?;
         let mut next = self.state.clone();
         next.events.push(BftWalEventV1::Proposal {
-            proposal,
+            proposal: Box::new(proposal),
             local: true,
             now_ms,
         });
@@ -570,7 +570,7 @@ fn local_proposal_event<'a>(
     match event {
         BftWalEventV1::Proposal {
             proposal, local, ..
-        } if *local || proposal.header.proposer_id == local_validator_id => Some(proposal),
+        } if *local || proposal.header.proposer_id == local_validator_id => Some(proposal.as_ref()),
         _ => None,
     }
 }

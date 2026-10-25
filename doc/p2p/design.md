@@ -103,6 +103,8 @@ hash-bound material仍须与verified历史/roots相符；服务operator身份、
 
 ### des-p2p-target-bft
 
+proposer 优先级缩放中的整数舍入固定采用上述 CometBFT 同一提交的 [`RescalePriorities`](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/types/validator_set.go)：`scale=ceil((max-min)/(2W))`，随后有符号整数除法向零截断。该公式明确规范伪代码除法未标注的舍入方式，保持缩放后 range 不超过 `2W`；实现须避免计算 `diff+threshold-1` 引入溢出。
+
 Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。首版采用下述完整 Tendermint 状态机；oasis7 保有应用、wire、持久化与证明消费语义，依赖可替换，不要求新增外部进程或 Go 依赖。现有 proposer/attestation threshold prototype 不作此状态机的实现证明。
 
 `BftProposalV1`、`BftVoteV1`、`BftCommitCertificateV1` 是新协议目标。所有签名绑定固定 world/chain/genesis、协议版本、height、round、消息 phase、活动 validator-set hash 及 block ID 或显式 nil；proposal 另绑定 proposer 与 validRound。block ID 承诺 parent CommitRef、authority epoch、governing manifest、有序 actions 及 execution/event/state roots，候选身份不含当前 round 或 proposal 签名，保证同一值能跨 round 重提。编码沿用[正式协议](#des-p2p-formal-controlled-authority-v1)的 canonical CBOR、domain framing 与 strict Ed25519，但使用独立 `oasis7.bft.<kind>.v1.<purpose>` 域；nil 与任意非空 hash 不可混用，旧 wire 不自动升级。
@@ -156,6 +158,8 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 同步/恢复须验证完整集合转换链并固定可信 checkpoint/minimum。长期离线的节点不能只依赖已退出 key 对“最新历史”的自证：BFT 激活配置须规定可信 checkpoint 的有效期及旧 key/stake 安全约束，有效期不得超过该约束可保证的期限；超期或约束不明时停止自动追随，重新取得独立认证的同世界 checkpoint。此信任条件及当前各集合的实际故障域须进入部署验收，不能由算法论文代签。
 
 #### 本次工程垂直切片：固定集合 NodeRuntime BFT
+
+本地动作入队、选择 BFT 前已有队列及启动前队列均由 execution hook 按同一闭合 RuntimeAction 解码规则检查；不支持的 SimulatorAction、provider/service 输入及无法解码的 runtime action 必须在接受入队或启动 worker 前拒绝，保持队列和字节预算不变。远端候选仍须独立验证，不能以本地 admission 取代执行预演。
 
 Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。此次实现为显式 opt-in 的 `engineering_tendermint_v1` NodeRuntime 路径，必须调用 `NodeRuntime::with_tendermint_v1` 提供固定集合配置；`NodeConfig` 没有 consensus-mode 输入字段，`NodeConsensusMode::TendermintV1` 只是运行快照的状态投影，不是选择或授权入口。默认 PoS prototype 行为不变；旧 Proposal/Attestation/Commit 与新 BFT 域类型互不升级或回退。集合权重与成员数使用通用 checked 整数算法，四名等权验证者、q=3 是集成验收基准，不是生产算法常量。每个高度内集合不变，任何缺少新格式证书的输入均不能走旧 `PosConsensusStatus::Committed`、replication 或恢复路径。
 

@@ -170,7 +170,7 @@ fn decide_round_zero(
         block_id: proposal.header.block_id.clone(),
     };
     let mut precommit_intent = None;
-    for index in 0..keys.len() {
+    for (index, key) in keys.iter().enumerate() {
         if index == local_index {
             continue;
         }
@@ -178,7 +178,7 @@ fn decide_round_zero(
             .receive_vote(
                 vote(
                     set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Prevote,
@@ -210,7 +210,7 @@ fn decide_round_zero(
             4,
         )
         .expect("record local precommit");
-    for index in 0..keys.len() {
+    for (index, key) in keys.iter().enumerate() {
         if index == local_index {
             continue;
         }
@@ -218,7 +218,7 @@ fn decide_round_zero(
             .receive_vote(
                 vote(
                     set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Precommit,
@@ -288,7 +288,7 @@ fn old_round_complete_certificate_remains_valid_after_round_advance() {
         .expect("proposal");
     let certificate = decide_round_zero(&mut machine, &set, &keys, &proposal);
 
-    for index in 0..keys.len() {
+    for (index, key) in keys.iter().enumerate() {
         if machine.round() == 1 {
             break;
         }
@@ -296,7 +296,7 @@ fn old_round_complete_certificate_remains_valid_after_round_advance() {
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     1,
                     BftVotePhaseV1::Prevote,
@@ -590,12 +590,12 @@ fn buffered_quorums_are_replayed_when_their_proposal_arrives_late() {
         block_id: proposal.header.block_id.clone(),
     };
     let signer_count = set.quorum_voting_power() as usize;
-    for index in 0..signer_count {
+    for (index, key) in keys.iter().enumerate().take(signer_count) {
         machine
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Prevote,
@@ -642,49 +642,6 @@ fn buffered_quorums_are_replayed_when_their_proposal_arrives_late() {
 }
 
 #[test]
-fn prevote_timeout_arms_when_phase_enters_with_buffered_quorum() {
-    let keys = keys();
-    let set = validator_set(&keys);
-    let (local_id, local_key) = proposer(&set);
-    let mut machine =
-        BftConsensusMachineV1::new(set.clone(), local_id, 1, None, 100, TEST_TIMEOUTS)
-            .expect("machine");
-    let unrelated = BftVoteValueV1::Block {
-        block_id: "99".repeat(32),
-    };
-    for index in 0..set.quorum_voting_power() as usize {
-        machine
-            .receive_vote(
-                vote(
-                    &set,
-                    &keys[index],
-                    &format!("v{index}"),
-                    0,
-                    BftVotePhaseV1::Prevote,
-                    unrelated.clone(),
-                ),
-                101,
-            )
-            .expect("buffer quorum while still proposing");
-    }
-    assert_eq!(machine.step(), BftStepV1::Propose);
-    assert_eq!(machine.step_deadline_ms(), Some(110));
-
-    let proposal = machine
-        .make_proposal(
-            block(scope()),
-            machine.current_proposer_id().expect("proposer"),
-            &local_key,
-        )
-        .expect("proposal");
-    machine
-        .receive_proposal(proposal, true, 105)
-        .expect("enter prevote and replay buffered tally");
-    assert_eq!(machine.step(), BftStepV1::Prevote);
-    assert_eq!(machine.step_deadline_ms(), Some(115));
-}
-
-#[test]
 fn precommit_timeout_waits_for_precommit_quorum_until_phase_entry() {
     let keys = keys();
     let set = validator_set(&keys);
@@ -702,12 +659,16 @@ fn precommit_timeout_waits_for_precommit_quorum_until_phase_entry() {
     let block_value = BftVoteValueV1::Block {
         block_id: proposal.header.block_id.clone(),
     };
-    for index in 0..set.quorum_voting_power() as usize {
+    for (index, key) in keys
+        .iter()
+        .enumerate()
+        .take(set.quorum_voting_power() as usize)
+    {
         machine
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Precommit,
@@ -723,12 +684,16 @@ fn precommit_timeout_waits_for_precommit_quorum_until_phase_entry() {
     assert_eq!(machine.step(), BftStepV1::Prevote);
     assert_eq!(machine.step_deadline_ms(), None);
 
-    for index in 0..set.quorum_voting_power() as usize {
+    for (index, key) in keys
+        .iter()
+        .enumerate()
+        .take(set.quorum_voting_power() as usize)
+    {
         machine
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Prevote,
@@ -766,12 +731,16 @@ fn locked_valid_round_proof_and_proposer_schedule_survive_cache_window() {
     let value = BftVoteValueV1::Block {
         block_id: proposal.header.block_id.clone(),
     };
-    for index in 0..set.quorum_voting_power() as usize {
+    for (index, key) in keys
+        .iter()
+        .enumerate()
+        .take(set.quorum_voting_power() as usize)
+    {
         machine
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Prevote,
@@ -881,12 +850,16 @@ fn advance_with_future_votes(
             .round()
             .saturating_add(BFT_MAX_TRACKED_ROUNDS_V1)
             .min(target_round);
-        for index in 0..set.future_round_voting_power() as usize {
+        for (index, key) in keys
+            .iter()
+            .enumerate()
+            .take(set.future_round_voting_power() as usize)
+        {
             machine
                 .receive_vote(
                     vote(
                         set,
-                        &keys[index],
+                        key,
                         &format!("v{index}"),
                         future_round,
                         BftVotePhaseV1::Precommit,
@@ -979,12 +952,16 @@ fn timeout_growth_is_checked_and_nil_precommit_advances_round() {
     let unrelated = BftVoteValueV1::Block {
         block_id: "99".repeat(32),
     };
-    for index in 0..set.quorum_voting_power() as usize {
+    for (index, key) in keys
+        .iter()
+        .enumerate()
+        .take(set.quorum_voting_power() as usize)
+    {
         machine
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Prevote,
@@ -1010,12 +987,16 @@ fn timeout_growth_is_checked_and_nil_precommit_advances_round() {
                 && intent.value == BftVoteValueV1::Nil)));
     assert_eq!(machine.step(), BftStepV1::Precommit);
     assert_eq!(machine.step_deadline_ms(), None);
-    for index in 0..set.quorum_voting_power() as usize {
+    for (index, key) in keys
+        .iter()
+        .enumerate()
+        .take(set.quorum_voting_power() as usize)
+    {
         machine
             .receive_vote(
                 vote(
                     &set,
-                    &keys[index],
+                    key,
                     &format!("v{index}"),
                     0,
                     BftVotePhaseV1::Precommit,

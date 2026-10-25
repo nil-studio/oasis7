@@ -10,11 +10,9 @@ impl Worker {
                     self.clock_base = self.clock_base.max(now_ms);
                     self.validate_candidate(&proposal.block)?;
                     self.seen
-                        .insert(message_key(&BftMessageV1::Proposal(Box::new(
-                            proposal.clone(),
-                        )))?);
+                        .insert(message_key(&BftMessageV1::Proposal(proposal.clone()))?);
                     self.machine
-                        .receive_proposal(proposal, true, now_ms)
+                        .receive_proposal(proposal.as_ref().clone(), true, now_ms)
                         .map_err(error)?
                 }
                 BftWalEventV1::Vote {
@@ -109,7 +107,7 @@ impl Worker {
         };
         let event = match message {
             BftMessageV1::Proposal(proposal) => BftWalEventV1::Proposal {
-                proposal: *proposal,
+                proposal,
                 local: false,
                 now_ms: now,
             },

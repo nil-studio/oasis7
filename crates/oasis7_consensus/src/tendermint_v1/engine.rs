@@ -326,13 +326,12 @@ impl BftConsensusMachineV1 {
                     return Err("local BFT prevote violates the lock/valid-round rule".into());
                 }
             }
-            (BftVotePhaseV1::Precommit, BftVoteValueV1::Block { block_id }) => {
+            (BftVotePhaseV1::Precommit, BftVoteValueV1::Block { block_id })
                 if self.locked_value.as_deref() != Some(block_id.as_str())
                     || self.locked_round != Some(vote.round)
-                    || self.proposal_by_id(vote.round, block_id).is_none()
-                {
-                    return Err("local BFT precommit lacks the current-round lock".into());
-                }
+                    || self.proposal_by_id(vote.round, block_id).is_none() =>
+            {
+                return Err("local BFT precommit lacks the current-round lock".into());
             }
             _ => {}
         }
@@ -552,8 +551,7 @@ impl BftConsensusMachineV1 {
                 value,
                 self.round,
             )?
-            .map(BftConsensusActionV1::SignVote)
-            .into_iter(),
+            .map(BftConsensusActionV1::SignVote),
         );
         output.extend(self.replay_round_tallies(proposal_round, now_ms)?);
         Ok(output)
