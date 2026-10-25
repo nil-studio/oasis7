@@ -2,6 +2,71 @@
 use super::*;
 use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
+fn canonical_outcome(rejected: Option<&str>) -> &'static str {
+    match rejected {
+        None => "committed",
+        Some("scheduler base binding changed") => "rejected_base_binding_changed",
+        Some("cognition_provisioning_binding_mismatch") => {
+            "rejected_provisioning_binding_mismatch"
+        }
+        Some(_) => "rejected_other",
+    }
+}
+
+// Failure output must survive CI without publishing the private canonical payloads.
+// Classify the authority's actual results, rather than inferring rejection from
+// a repeated Lookup or from the App's last pump error.
+pub(super) fn canonical_diagnostic<'a>(
+    values: impl Iterator<Item = &'a serde_json::Value>,
+) -> serde_json::Value {
+    let mut stages = std::collections::BTreeMap::<&str, serde_json::Value>::new();
+    let mut undecodable = 0;
+    for value in values {
+        let Ok(result) = serde_json::from_value::<wire::CanonicalIntentResultV1>(value.clone())
+        else {
+            undecodable += 1;
+            continue;
+        };
+        let WorldServicePayloadV1::Scheduler(signed) = &result.request.signed_payload else {
+            continue;
+        };
+        let stage = match &signed.request.operation {
+            SchedulerOperationV1::ReserveLease(_) => "reserve",
+            SchedulerOperationV1::ProviderPrefix { .. } => "prefix",
+            SchedulerOperationV1::SettleLease { .. } => "settle",
+            SchedulerOperationV1::ResumeWake { .. } => "resume",
+            SchedulerOperationV1::AdmitContinuation(_) => "admit",
+            SchedulerOperationV1::ConsumeContinuationBudget { .. } => "consume",
+            _ => "other",
+        };
+        let outcome = canonical_outcome(result.rejected.as_deref());
+        let counts = stages
+            .entry(stage)
+            .or_insert_with(|| serde_json::json!({}));
+        counts[outcome] = serde_json::json!(counts[outcome].as_u64().unwrap_or(0) + 1);
+    }
+    serde_json::json!({"scheduler_results": stages, "undecodable_results": undecodable})
+}
+
+#[test]
+fn final_budget_canonical_diagnostic_does_not_publish_unparsed_private_payloads() {
+    assert_eq!(canonical_outcome(None), "committed");
+    assert_eq!(
+        canonical_outcome(Some("scheduler base binding changed")),
+        "rejected_base_binding_changed"
+    );
+    assert_eq!(
+        canonical_outcome(Some("scheduler base binding changed; private detail")),
+        "rejected_other"
+    );
+    assert_eq!(canonical_outcome(Some("private rejection")), "rejected_other");
+    let private = serde_json::json!({"private_request": "must-not-appear"});
+    assert_eq!(
+        canonical_diagnostic(std::iter::once(&private)),
+        serde_json::json!({"scheduler_results": {}, "undecodable_results": 1})
+    );
+}
+
 #[test]
 fn real_tcp_hosted_final_wait_budget_consumes_once_without_new_model_or_lease() {
     application_harness::run_isolated_application_mode(
@@ -216,6 +281,10 @@ pub(super) fn report(
         .finish_http_workers()
         .expect("all actual HTTP worker joins precede completion assertions");
     let world = fixture.driver.lock().unwrap().execution_world.clone();
+    println!(
+        "hosted_final_budget_canonical_diagnostic={}",
+        canonical_diagnostic(world.capability_revocation_state().world_service_results.values())
+    );
     let results = world
         .capability_revocation_state()
         .world_service_results
