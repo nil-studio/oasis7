@@ -17,7 +17,7 @@ import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_capacity_evidence as evidence
 import codeql_rust_cargo_guard as cargo_guard
 
-SOURCE='9ab1d76982e8ab58994728d881f3d60398834ade'
+SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 BUNDLE='2.27.3'
 CAP=256*1024**2
 EXCLUDES=('third_party/','target/','node_modules/','dist/','.pm/')
