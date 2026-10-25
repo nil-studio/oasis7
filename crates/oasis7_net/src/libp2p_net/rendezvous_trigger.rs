@@ -508,7 +508,7 @@ mod tests {
         let stale = RendezvousTriggerContext::new(target, PeerId::random(), now - TRIGGER_TTL);
         assert!(
             select_rendezvous_context(
-                &[stale.clone()],
+                std::slice::from_ref(&stale),
                 MAX_RENDEZVOUS_TRIGGER_TARGETS,
                 target,
                 server,
