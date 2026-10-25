@@ -46,6 +46,61 @@ FAILURE_STAGES = frozenset((
     "completed_workflow_restart", "canonical_original_recheck"))
 
 
+# Match the entire fixed probe diagnostic, never a substring of SDK/server text.
+PROBE_FIXED_ERRORS = {
+    "private unlock unavailable": "unlock_unavailable",
+    "private unlock required": "unlock_required",
+    "original plan missing": "original_plan_missing",
+    "original operations missing": "original_operations_missing",
+    "unexpected operation manifest": "operation_manifest_mismatch",
+    "invalid operation identity": "operation_identity_invalid",
+    "invalid original participant config": "participant_config_invalid",
+    "canonical task unavailable": "canonical_task_unavailable",
+    "participant original mismatch": "participant_original_mismatch",
+    "task original mismatch": "task_original_mismatch",
+    "task not active": "task_not_active",
+    "canonical private goal missing": "private_goal_missing",
+    "goal original mismatch": "goal_original_mismatch",
+    "goal encoding failed": "goal_encoding_failed",
+    "goal content mismatch": "goal_content_mismatch",
+    "executor id missing": "executor_id_missing",
+    "binding missing": "executor_binding_missing",
+    "bind original is not canonically confirmed": "bind_original_unconfirmed",
+    "SDK task binding mismatch": "sdk_task_binding_mismatch",
+    "private context resource mismatch": "context_resource_mismatch",
+    "original action unavailable; retain original operation": "original_action_unavailable",
+    "actual action not canonically committed": "action_uncommitted",
+    "post-action task not authenticated": "post_action_task_unauthenticated",
+    "committed move did not update authenticated world position": "world_position_mismatch",
+    "probe recovery deadline exhausted; retain original operation": "recovery_deadline",
+}
+for _phase in ("context_prefix", "action"):
+    for _outcome in ("expired", "history_unavailable") + tuple("rejected:" + value for value in (
+            "unsupported_contract", "unsupported_capability", "unauthorized", "conflict",
+            "unavailable", "assurance_unavailable", "read_not_caught_up", "history_unavailable",
+            "cursor_expired", "resync_required")):
+        PROBE_FIXED_ERRORS[_phase + " " + _outcome + "; retain original operation"] = (
+            _phase + "_" + _outcome.replace(":", "_"))
+    for _category in ("configuration", "transport", "assurance", "http_rejected", "cooldown"):
+        PROBE_FIXED_ERRORS[_phase + " query " + _category + "; retain original operation"] = (
+            _phase + "_query_" + _category)
+    for _outcome in ("unobserved", "received", "pending", "unknown"):
+        PROBE_FIXED_ERRORS[_phase + " recovery deadline exhausted outcome=" + _outcome
+                           + "; retain original operation"] = _phase + "_recovery_deadline_" + _outcome
+
+
+def probe_error_category(output):
+    if len(output) > 65536:
+        return "output_limit"
+    if len(output) > 256:
+        return "unavailable"
+    try:
+        message = output.decode("ascii").rstrip("\r\n")
+    except UnicodeError:
+        return "unavailable"
+    return PROBE_FIXED_ERRORS.get(message, "unavailable")
+
+
 def safe_enum(value, allowed):
     return value if isinstance(value, str) and value in allowed else "unavailable"
 
@@ -62,6 +117,7 @@ class Smoke:
         self.stage = "initialization"
         self.retry_not_before = 0.0
         self.attempts = 0
+        self.probe_failure = None
         self.last_result = {"rc": None, **{key: "unavailable" for key in COLD_ENTRY_ENUMS}}
 
     def observe_retry_after(self, status, header):
@@ -127,6 +183,8 @@ class Smoke:
                    "last_result": dict(self.last_result),
                    "response_loss": {name: len(self.faults) > index and self.faults[index].get("hit") is True
                                      for index, name in enumerate(("registration", "executor_bind"))}}
+        if self.probe_failure is not None:
+            receipt["probe_failure"] = dict(self.probe_failure)
         (self.root / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
         return receipt
 
@@ -170,8 +228,12 @@ class Smoke:
         return process.returncode, data
 
     def probe(self, name, expected):
+        self.probe_failure = None
         code, output = self.command(self.fixture[name], private=name == "canonical_probe")
         if code or len(output) > 65536:
+            self.probe_failure = {
+                "rc": code if type(code) is int and -255 <= code <= 255 else None,
+                "output_bytes": len(output), "category": probe_error_category(output)}
             raise RuntimeError(name + " failed; inspect private process log")
         try:
             value = json.loads(output)

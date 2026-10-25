@@ -139,8 +139,13 @@ unexpected orphan descendants; verify that containment separately. The receipt
 does not certify complete descendant cleanup. A
 `receipt.json` records success only after all actual verification commands succeed.
 On failure it contains only fixed diagnostic enums, exit code, attempt count and
-the two response-loss flags; arbitrary CLI text and private response material are
-excluded. Failure receipt write errors must not prevent process cleanup.
+the two response-loss flags. A nonzero or oversized probe additionally records
+`probe_failure` with its exit code, output byte count and an exact allowlisted
+error category; unknown, decorated or multiline diagnostics become `unavailable`,
+and oversized output becomes `output_limit`. This reports the probe separately
+from the preceding cold-entry result and does not retry it. Arbitrary CLI text,
+private identifiers and response material are excluded. Failure receipt write
+errors must not prevent process cleanup.
 Fixture source revision, actual binary digests and canonical proof details belong
 in the probe evidence, not an unverified claim in this driver. CI selection is
 owned by the main task; the script does not alter workflow or test selection.
