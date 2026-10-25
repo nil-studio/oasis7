@@ -538,4 +538,12 @@ assert value['found_manifests']==[]
         self.assertIn("budget=21600 if mode=='official-default-research' else 2700",text);self.assertIn('start+budget',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
+def load_tests(loader, tests, pattern):
+    # Keep proxy regressions separate while using the already selected capacity entry.
+    spec=importlib.util.spec_from_file_location('capacity_guard_tests',P.with_name('codeql-rust-cargo-guard.test.py'))
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    tests.addTests(loader.loadTestsFromModule(module))
+    return tests
+
+
 if __name__=='__main__':unittest.main()
