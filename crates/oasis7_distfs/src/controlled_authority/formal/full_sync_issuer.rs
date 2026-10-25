@@ -621,3 +621,9 @@ fn invalid(message: impl Into<String>) -> FormalError {
 #[cfg(test)]
 #[path = "full_sync_issuer_v2_tests.rs"]
 mod tests;
+
+#[path = "full_sync_issuer_v3.rs"]
+mod durable_v3;
+pub use durable_v3::{
+    DurableFullSyncIssuerV3, FullSyncIssuerMigrationResumeV3, FullSyncIssuerV2MigrationConfig,
+};
