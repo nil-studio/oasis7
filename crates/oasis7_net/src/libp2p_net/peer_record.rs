@@ -179,7 +179,7 @@ pub(super) fn sign_peer_record_v2(
     publication: PeerRecordPublicationV2,
     keypair: &Keypair,
 ) -> Result<SignedPeerRecord, WorldError> {
-    publication.validate_for_record(&record).map_err(|reason| {
+    publication.validate_for_record(record).map_err(|reason| {
         WorldError::NetworkProtocolUnavailable {
             protocol: reason.to_string(),
         }
