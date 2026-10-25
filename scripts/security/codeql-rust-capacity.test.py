@@ -498,6 +498,34 @@ assert value['found_manifests']==[]
         self.assertEqual(condition,"if: always() && steps.snapshot.outcome == 'success'")
         self.assertIn("steps.capture.outcome == 'success'",by_id['finish'])
 
+    def test_only_analysis_enables_existing_load_cargo_failure_diagnostics(self):
+        steps,by_id=workflow_steps()
+        analyze=by_id["analyze"]
+        self.assertIn("        env:\n          RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug\n",analyze)
+        self.assertEqual(sum("RUST_LOG:" in step for step in steps),1)
+        job_env=(P.parents[2]/".github/workflows/codeql-rust-capacity.yml").read_text().split("    env:\n",1)[1].split("    steps:",1)[0]
+        self.assertNotIn("RUST_LOG",job_env)
+        self.assertNotIn("ra_ap_project_model=debug",analyze)
+
+    def test_upload_preserves_hidden_guard_controls_in_sealed_evidence(self):
+        steps,by_id=workflow_steps()
+        upload=[s for s in steps if s.startswith("uses: actions/upload-artifact@")]
+        self.assertEqual(len(upload),1)
+        self.assertIn("          include-hidden-files: true",upload[0])
+        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload[0])
+        script=textwrap.dedent(by_id["evidence"].split("python3 - <<'PY'\n",1)[1].split("          PY",1)[0])
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/"rust-capacity-evidence";audit=root/"cargo-guard-calls";audit.mkdir(parents=True)
+            controls={".counter":b"0000000000000001",".failed":b"1",".lock":b""}
+            for name,data in controls.items():(audit/name).write_bytes(data)
+            (audit/"call.json").write_text('{"status":"FAIL","exit":101}')
+            with patch.dict(os.environ,{"RUNNER_TEMP":temp,"CAPACITY_MODE":"capacity"},clear=True):
+                exec(compile(script,"workflow-evidence","exec"),{})
+            hashes=json.loads((root/"hashes.json").read_text())
+            for name,data in controls.items():
+                self.assertEqual(hashes["cargo-guard-calls/"+name],hashlib.sha256(data).hexdigest())
+            self.assertIn("cargo-guard-calls/call.json",hashes)
+
     def test_workflow_seals_partial_and_early_failure_receipts_with_hashes(self):
         _,by_id=workflow_steps();step=by_id['evidence']
         self.assertIn('        if: always()',step)
