@@ -117,6 +117,11 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。首版采用下述完�
 
 规范算法为 Buchman、Kwon、Milosevic [The latest gossip on BFT consensus, v3，Algorithm 1](https://arxiv.org/abs/1807.04938v3)；其 `n` 按 voting power 计。固定高度内 Byzantine power 须小于 `W/3`；安全性不依赖及时到达，活性依赖最终同步和可用的足额正确节点。proposer 选择采用 [CometBFT weighted round-robin 规范](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/spec/consensus/proposer-selection.md)的优先级更新、归一化与成员变更规则；oasis7 将相同优先级的 tie-break 固定为 consensus 公钥原始字节升序。优先级属于确定性持久状态，每个 `height/round` 只有一个合法 proposer。slot 仅 pacing，不替代 round。初始化、一次触发规则、nil、未来 round 跳转和三类 timeout 完整按算法实现，不混入旧 prototype 的同高替换或其他共识的解锁规则；采用的参考规范内容随协议版本冻结，上游文档变化不自动改变已激活规则。
 
+高度边界的持久 proposer priority 每提交一个 block 固定推进一次，与用于提交的 QC round 无关；当前高度的 round 只推进临时 proposer schedule。相同 parent/block ID 的不同 round 合法 QC 必须导出完全相同的下一高度 schedule，正常提交、历史重放和保护签名 journal 共用该规则。依据固定版本 CometBFT [`updateState`](https://github.com/cometbft/cometbft/blob/709fd12b4b18cf1442d43c5d34009392c7d674ed/state/execution.go#L553-L607) 的逐 block 更新，不能把 round-local priority 当作下一高度锚。
+
+签名 wire layout V1 与共识规则代次分别标识：validator-set hash 必须绑定显式 `height-seed-v2` schedule ruleset，并使用独立 hash domain；proposal、vote、QC、genesis pin、WAL 和 provider binding 均沿该 set hash 隔离旧规则。旧 round-dependent 规则的 set hash、WAL 和历史证书拒绝按新规则重解释，不自动迁移或混合集群。既有工程链需显式配置新的 scope/genesis；历史迁移或在线治理切换须另有完整协议和验收。
+
+
 下表是实现审查必须保持的安全不变量，算法原文仍定义全部触发顺序：
 
 | 事件 | 允许的动作与持久状态 |
@@ -138,6 +143,36 @@ timeout 随 round 增长，旧高度/round 的 timer 不改变当前状态；pre
 只靠本机 WAL 防崩溃，不防旧盘回滚或复制 signer。正式 custody 须把签名决定与不可回滚水位置于同一受保护签名边界，并保证该 key 同时只服务一个合法实例；远程 signer 也必须执行相同规则，不能成为任意 bytes 签名口。跨机接管须证明旧实例停签并转移原决定/WAL；无法证明时保留只读。不得以删除状态文件、清 pending、重置到 committed height、换目录或自动新建 signer-state 恢复投票。
 
 重启先校验外部最低 anchor、受保护签名水位与 WAL 完整性，重放到最后可证明状态再接网络。reserve 已落盘但签名回应丢失时，只续办原字节；已签而尚未广播时只重发原签名；材料不齐、倒退或冲突保持 blocked。进入下一高度和回收旧热 WAL 必须已有完整持久 commit 及可重建历史证据；不能丢失尚未提交高度的锁或处罚证据。
+
+#### des-p2p-bft-protected-signer-v1
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。当前工程 Remote adapter 使用 Unix OS CSPRNG 和文件生命周期能力；非 Unix 平台明确拒绝该模式，不声称新增跨平台 custody 支持。受保护 BFT signer 与现有 P/R endpoint custody 复用固定 provider key、资源授权、请求认证和独占 lease 的信任边界，但使用独立的 BFT 协议域、实例绑定和结构化命令；不能把 BFT 原文塞进 endpoint 通用签名入口。provider 的硬件与部署属性仍须独立验收，签名的 custody 声明本身不是该属性的证明。
+
+工程 API：先由独立 provisioning 将完整绑定及 genesis journal 写入满足本节持久事务合同的 backend；[`BftSignerServiceV1::open`](../../crates/oasis7_distfs/src/protected_bft/service.rs)只打开既有绑定，`serve_connection`为有生命周期的协议入口。Node 显式选择 `with_tendermint_v1` 后，通过 [`with_protected_bft_signer`](../../crates/oasis7_node/src/node_bft_protected.rs)安装带固定 trust 的 `RemoteBftSignerProviderV1`，replication 目录只保留持久镜像，不配置本机 consensus 私钥。该 API 不自动 provision key、不激活正式 BFT profile，也不替代实际 backend 的硬件与防回滚验收。
+
+绑定固定 world/chain/genesis、authority epoch、完整 validator set、local validator/key、timeout policy 和 operator 配置的 signer instance。provider 须独立预置该绑定、持有 validator 私钥并授权请求者；Node 的 acquire 不能创建、重置、替换 key 或自授权注册。一个绑定至多有一个活跃 lease；断联后旧 lease 失效，旧实例不能凭旧 lease 继续修改或签名。认证 key 与 validator key 分离，Node 不持该 validator 私钥。监听、worker 和任何签名释放前先取得 lease、核对 provider 状态并完成历史及 WAL 恢复。
+
+acquire 先用认证且只读的 PrepareAcquire 获取 provider 当前持久 generation 和本连接独有的 provider CSPRNG prepare nonce，再把该 expected generation 与 nonce 绑定到签名 Acquire 请求；服务端核对并一次性消费本连接 nonce，旧 Prepare/Acquire 帧组合不能搬到新连接使用；backend 原子比较并递增，并返回该原子点的最新完整 journal 状态；非原子预读不是 journal 不变的比较锚。CAS 可能已成功但返回无效状态或结果无法确定时，服务停签并要求权威恢复，不能当作普通可重试冲突。若 Prepare 与 Acquire 之间原连接释放使代次推进，客户端仅在收到经过认证且明确无活跃 token 的更高代次冲突时，有界重新 Prepare；新活跃 owner 或结果不确定时停止，不盲目抢租。原 Acquire 帧重放须因旧 generation 拒绝，不能再次 fence 当前实例；该拒绝跨 provider 重启仍成立。Node 在 acquire 前先持本机 WAL 生命周期锁，重复启动失败不能先撤销现有 worker。
+
+服务端 lease 同时绑定实际连接会话；原 signed frame 不能搬到其他连接使用。连接结束、响应写入失败或显式关闭时，以精确 generation/token 原子释放并推进持久 generation，连同该旧代次下预先签署的 Acquire 一并失效；PrepareAcquire 与 Acquire 由服务端绑定同一实际连接，不能信任请求自报 session ID；迟到的旧会话释放不能撤销新 generation。可调用 handler 与 TCP listener 共用有生命周期的会话入口，不保留无会话的授权旁路；释放结果不确定时停签并要求权威恢复。
+
+lease 具有 provider 持久化的单调 generation；journal CAS、签名决定提交与原签名响应的释放均在同一受保护事务中核对当前有效 generation。新 lease 生效后，旧 generation 的迟到请求不能产生新决定或覆盖新状态；客户端核对响应的 lease/generation。已提交并对外释放过的原签名仍是可重传证据，不承诺撤回网络中已有字节。分区或接管时不能按 Node 本地 PID、socket 超时或猜测旧实例死亡抢租；无法证明旧 generation 已 fenced 时拒绝新的写 lease。
+
+保护对象包含完整的当前高度签名 journal：高度、父提交、起始 proposer priority、原始计时基点、已验证事件、锁/valid 状态的可重放材料、pending proposal/vote intent 和精确 pending QC。只保存签名槽高水位而允许 Node 恢复更旧的锁状态，不满足本合同。journal 的共享纯状态转换规则由 Node 本机模式与 provider 一致使用；provider 从固定 genesis 和逐高度合法 QC 推导 schedule，并独立重放协议事件、校验转换，不能接受任意新 hash 或任意 preimage 作为状态更新。
+
+每次 journal 转换用预期 revision 与原 journal digest 作 CAS；只允许经过状态机校验的一步转换或完全相同的重试。首次高度计时通过专用 start-height 操作，由 provider 在事务内采样可信当前时间并写入原点；普通 advance 禁止调用者自行提交 None→Some 的计时原点，避免回填旧时间提前触发 timeout。首个高度时钟不可重置；事件只能合法追加；pending intent 只可按确定性决定预约，并由对应原签名事件完成；下一高度只可由精确 pending QC 导出的合法 schedule 初始化。远端事件与 timer 也须受保护，不能在改变锁状态后只更新本机文件。
+
+protected 模式使用 provider 的受保护单调时间轴，Node 不以自身 wall clock 快进 timeout。provider 用已持久化的原基点、timeout policy 和可信当前样本核对事件时间及实际到期条件，在事务中维持不回退的时间 floor；签名完成事件由 provider 记时。新 challenge 的时间读取不修改 journal revision，也不重新开始高度计时。provider 重启后若无法证明 elapsed 连续性或当前时间不早于持久 floor，则停签，不能以重置 clock 恢复服务。受控测试时钟只能证明此接口与拒绝行为，不能代替真实可信时间验收。
+
+当前高度 journal 与保留 QC 历史分别沿用 256 MiB 编码上限；保留高度仍至多 4096，round 仍至多 4096。RPC 总 frame 上限必须容纳两者及有界决定/身份 envelope，同时在读取长度后、分配 body 前拒绝超限；不能只增大总体 frame 而不验证子材料界限。旧已提交高度不再接受新的签名请求；其原 QC 按历史合同保留。容量耗尽停签，不删除锁/处罚证据以腾空间，也不宣称实现了可信 checkpoint GC。
+
+签名命令只能引用当前 journal 已预约的完整 proposal/vote intent。provider 重新检查 scope/set/key、height/round/phase、nil 或 block 值、原 canonical bytes 与重放后的协议决定，在同一受保护事务中保存精确决定及签名，再响应 Node。同槽同字节返回原签名；异字节、旧 lease、错误 revision、非法 round/lock 转换拒绝。Node 入口只接受固定 provider pin 与请求新鲜性验证的 Remote adapter，拒绝任意外部 provider/lease trait 注入；该 adapter 校验 provider 证明，Node 再独立校验返回签名与完整 journal，再持久保存本机镜像后才广播。proposal 和 vote 均须经过此路径，不留可用的本机私钥备用入口。
+
+provider 是受保护 journal 与签名决定的权威存储，本机 WAL 是有生命周期锁的持久镜像。provider 已完成而本机镜像未落盘、签名响应丢失或进程崩溃时，重连通过新 challenge 取得同一绑定的最新认证 journal 和原决定；重放验证后恢复原锁、timer 和 pending intent，不重签异字节。本机镜像水位领先 provider、相同水位不同 digest、未知绑定、缺少完整合法 QC 历史或无法重建当前 schedule 时停签。旧整盘备份若缺少 provider 已知高度的提交历史，必须先完成合法历史恢复或明确阻断，不能把 provider 水位退回旧盘位置。
+
+本机工程 WAL 与受保护镜像使用可辨识的持久格式；受保护目录缺少 provider 或误配回本机 signer 时拒绝启动。既有导出过私钥的本机工程链不能靠删除私钥文件、换目录或把同一 key 导入服务而宣称转换成不可导出 custody；本阶段不提供这种迁移。新 protected 绑定由独立 provisioning 产生；既有链的正式接入仍须适用的治理 key 轮换或权威交接合同。已有 P/R wire 与本机 BFT WAL 保持自身格式，不能静默接受新模式或降级。
+
+实际验收须覆盖真实 Node proposal/vote 调用、同槽精确重试、冲突拒绝、含锁状态的旧 WAL 恢复、provider 领先历史时停签、同 key 第二实例、签名前后和镜像发布前后的故障、provider 重启及无降级。受控测试 provider 只能证明接线、事务与恢复行为；真实 HSM/TEE 或等价服务的 key 不可导出、存储不可回滚、实例 fencing 和独立故障域仍是单独部署义务，未满足时不能发布正式 BFT readiness。
 
 #### des-p2p-bft-validator-transition-v1
 

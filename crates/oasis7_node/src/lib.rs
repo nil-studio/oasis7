@@ -234,7 +234,7 @@ fn with_execution_hook<T>(
 
 pub struct NodeRuntime {
     config: NodeConfig,
-    bft_config: Option<node_bft_runtime::NodeBftConfigV1>,
+    bft_config: Option<node_bft_runtime::SelectedNodeBftConfigV1>,
     local_execution_bootstrap: Option<execution_hook::NodeExecutionBootstrap>,
     local_execution_genesis_bootstrap: Option<execution_hook::NodeExecutionGenesisBootstrap>,
     replication_network: Option<NodeReplicationNetworkHandle>,
@@ -1181,3 +1181,6 @@ type PosDecision = NodePosDecision<NodeConsensusAction, PosConsensusStatus>;
 
 #[cfg(test)]
 include!("tests_modules.rs");
+
+#[cfg(all(test, unix))]
+mod node_bft_protected_test_provider;

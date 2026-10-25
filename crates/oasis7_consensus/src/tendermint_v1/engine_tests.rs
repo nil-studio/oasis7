@@ -10,6 +10,9 @@ use super::*;
 #[path = "engine_tests/valid_round_evidence.rs"]
 mod valid_round_evidence;
 
+#[path = "engine_tests/height_schedule.rs"]
+mod height_schedule;
+
 const TEST_TIMEOUTS: BftTimeoutsV1 = BftTimeoutsV1 {
     propose_ms: 10,
     prevote_ms: 10,

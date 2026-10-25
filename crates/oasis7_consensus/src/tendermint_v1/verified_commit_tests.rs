@@ -74,6 +74,16 @@ fn certificate(
     schedule: &BftHeightProposerScheduleV1,
     round: u64,
 ) -> BftCommitCertificateV1 {
+    certificate_with_precommit_signers(set, keys, schedule, round, &[0, 1, 2])
+}
+
+fn certificate_with_precommit_signers(
+    set: &BftValidatorSetV1,
+    keys: &[SigningKey],
+    schedule: &BftHeightProposerScheduleV1,
+    round: u64,
+    signer_indexes: &[usize],
+) -> BftCommitCertificateV1 {
     let block = block(
         schedule.height(),
         schedule.parent_commit_ref().to_string(),
@@ -97,11 +107,10 @@ fn certificate(
         block,
         valid_round_evidence: None,
     };
-    let precommits = keys
+    let precommits = signer_indexes
         .iter()
-        .enumerate()
-        .take(3)
-        .map(|(index, key)| {
+        .map(|index| {
+            let key = &keys[*index];
             BftVoteV1::sign(
                 set.scope().clone(),
                 schedule.height(),
@@ -157,6 +166,99 @@ fn round_commit_continues_height_schedule_and_cold_replay_exactly() {
     assert_eq!(cold_second.block_id(), warm.block_id());
 
     assert!(verify_commit_certificate_token_v1(&set, &genesis, &second).is_err());
+}
+
+#[test]
+fn committed_block_advances_persistent_priority_once_independent_of_qc_round() {
+    let keys = keys();
+    let set = validator_set(&keys);
+    let schedule = BftHeightProposerScheduleV1::genesis(&set, 9).expect("genesis schedule");
+    let round_zero = certificate(&set, &keys, &schedule, 0);
+    let round_one = certificate(&set, &keys, &schedule, 1);
+    assert_eq!(
+        round_zero.proposal.block, round_one.proposal.block,
+        "the two valid QCs commit the same block"
+    );
+
+    let round_zero_token =
+        verify_commit_certificate_token_v1(&set, &schedule, &round_zero).expect("round-zero QC");
+    let round_one_token =
+        verify_commit_certificate_token_v1(&set, &schedule, &round_one).expect("round-one QC");
+
+    assert_eq!(
+        round_zero_token.next_height_schedule(),
+        round_one_token.next_height_schedule(),
+        "a committed block advances the persistent proposer priority once, regardless of its QC round"
+    );
+}
+
+#[test]
+fn round_zero_and_round_one_advance_weighted_schedule_and_verify_next_height_qcs() {
+    let keys = keys();
+    let set = BftValidatorSetV1::new(
+        scope(),
+        keys.iter()
+            .enumerate()
+            .map(|(index, key)| BftValidatorV1 {
+                validator_id: format!("v{index}"),
+                public_key_hex: hex::encode(key.verifying_key().to_bytes()),
+                voting_power: (index + 1) as u64,
+            })
+            .collect(),
+    )
+    .expect("valid non-equal voting powers");
+    assert_eq!(set.total_voting_power(), 10);
+    assert_eq!(set.quorum_voting_power(), 7);
+
+    let height_one = BftHeightProposerScheduleV1::genesis(&set, 9).expect("genesis schedule");
+    let round_zero = certificate_with_precommit_signers(&set, &keys, &height_one, 0, &[0, 1, 2, 3]);
+    let round_one = certificate_with_precommit_signers(&set, &keys, &height_one, 1, &[0, 1, 2, 3]);
+    assert_eq!(round_zero.proposal.block, round_one.proposal.block);
+
+    let round_zero_token = verify_commit_certificate_token_v1(&set, &height_one, &round_zero)
+        .expect("weighted round-zero QC verifies");
+    let round_one_token = verify_commit_certificate_token_v1(&set, &height_one, &round_one)
+        .expect("weighted round-one QC verifies");
+    assert_eq!(
+        round_zero_token.next_height_schedule(),
+        round_one_token.next_height_schedule(),
+        "both QCs commit one block, so persistent priority advances once"
+    );
+
+    let height_two_round_zero = certificate_with_precommit_signers(
+        &set,
+        &keys,
+        round_zero_token.next_height_schedule(),
+        0,
+        &[0, 1, 2, 3],
+    );
+    let height_two_round_one = certificate_with_precommit_signers(
+        &set,
+        &keys,
+        round_one_token.next_height_schedule(),
+        1,
+        &[0, 1, 2, 3],
+    );
+    let round_zero_path = verify_commit_certificate_token_v1(
+        &set,
+        round_zero_token.next_height_schedule(),
+        &height_two_round_zero,
+    )
+    .expect("height-two QC verifies after round-zero commit");
+    let round_one_path = verify_commit_certificate_token_v1(
+        &set,
+        round_one_token.next_height_schedule(),
+        &height_two_round_one,
+    )
+    .expect("height-two QC verifies after round-one commit");
+
+    assert_eq!(round_zero_path.block().height, 2);
+    assert_eq!(round_one_path.block().height, 2);
+    assert_eq!(
+        round_zero_path.next_height_schedule(),
+        round_one_path.next_height_schedule(),
+        "the independently verified height-two QCs continue the same schedule"
+    );
 }
 
 #[test]

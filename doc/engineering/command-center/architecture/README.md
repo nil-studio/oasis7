@@ -90,7 +90,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 **已有实现：**
 
-- ARCH-04：正式受控 writer、公开投影和获授权完整只读同步已有[实现入口](../../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)；完整消费者、真实恢复与 BFT 验收尚未闭合。新 BFT 轮次/锁定/持久签名合同见[目标设计](../../../p2p/design.md#des-p2p-bft-round-lock-v1)，不能由现有 PoS 原型代签。
+- ARCH-04（2026-10-26 局部核对）：正式受控 writer、公开投影和获授权完整只读同步已有[实现入口](../../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)。BFT 已有独立于旧 PoS 的固定集合 NodeRuntime、完整 QC 的实际执行与冷恢复；[受保护签名工程接线](../../../p2p/design.md#des-p2p-bft-protected-signer-v1)使用独立 provider journal、实例 lease 与可信计时合同。当前仅证明工程接口和受控测试范围；真实硬件/防回滚 provider、动态治理集合、权威交接、长期 checkpoint 与完整消费者验收仍未闭合，不能升级为正式 BFT readiness。实现状态及剩余义务以 [DCS-004](../../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004) 为准。
 - ARCH-05：已有有序动作、roots、execution records、checkpoint/replay 及多种 prepare/publish 路径；[当前实现边界](../../../world-runtime/design.md#5-current-implementation-boundary-and-target-gap)仍明确整体能力为 partial。
 - ARCH-06：正式受控路径已有 qualified cut、保护服务与原请求恢复的实现切片，详见[当前实现边界](../../../p2p/design.md#des-p2p-formal-controlled-authority-v1)；同机双目录不能证明独立故障域。真实 P/R 故障、旧写者隔离和原结果恢复按[故障域验收](../../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)分别取证，受控路径不承诺 BFT 分区期间继续写入。
 - ARCH-07：已有 execution bridge v3、CAS、sidecar、retention/GC/replay 的实现合同；[本地恢复边界](../../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-accept-service-boundary)不证明分布式可得性或完整灾备。

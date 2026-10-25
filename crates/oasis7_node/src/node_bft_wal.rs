@@ -1,11 +1,10 @@
-use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use oasis7_consensus::tendermint_v1::{
     BFT_MAX_ROUNDS_PER_HEIGHT_V1, BftHeightProposerScheduleV1, BftProposalIntentV1,
-    BftVoteIntentV1, VerifiedBftCommitCertificateV1,
+    BftSigningJournalEventV1, BftSigningJournalV1, BftVoteIntentV1, VerifiedBftCommitCertificateV1,
 };
 use oasis7_proto::distributed_bft::{
     BFT_MAX_COMMIT_HISTORY_CBOR_BYTES_V1, BftCommitCertificateV1, BftProposalV1, BftScopeV1,
@@ -19,54 +18,22 @@ const BFT_WAL_SCHEMA_VERSION: u32 = 4;
 const BFT_WAL_FILE: &str = "tendermint-v1.wal.cbor";
 const BFT_WAL_LOCK_FILE: &str = "tendermint-v1.wal.lock";
 const BFT_WAL_ANCHOR_FILE: &str = "tendermint-v1.anchor.cbor";
+pub(super) const BFT_WAL_PROTECTED_FILE: &str = "tendermint-v1.protected.cbor";
+const BFT_WAL_PROTECTED_MARKER_FILE: &str = "tendermint-v1.protected-mode.cbor";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct BftWalStateV1 {
-    pub(super) schema_version: u32,
-    pub(super) scope: BftScopeV1,
-    pub(super) authority_epoch: u64,
-    pub(super) validator_set_hash: String,
-    pub(super) local_validator_id: String,
-    pub(super) local_signing_public_key: String,
-    pub(super) height: u64,
-    pub(super) parent_commit_ref: String,
-    pub(super) starting_priority: BTreeMap<String, i128>,
-    pub(super) height_started_at_ms: Option<i64>,
-    pub(super) events: Vec<BftWalEventV1>,
-    pub(super) pending_proposal_intent: Option<BftProposalIntentV1>,
-    pub(super) pending_vote_intent: Option<BftVoteIntentV1>,
-    pub(super) pending_commit: Option<BftCommitCertificateV1>,
-}
+#[path = "node_bft_wal/protected.rs"]
+mod protected;
+use protected::ProtectedWal;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "data",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub(super) enum BftWalEventV1 {
-    Proposal {
-        proposal: Box<BftProposalV1>,
-        local: bool,
-        now_ms: i64,
-    },
-    Vote {
-        vote: Box<BftVoteV1>,
-        local: bool,
-        now_ms: i64,
-    },
-    Timeout {
-        now_ms: i64,
-    },
-}
+pub(super) type BftWalStateV1 = BftSigningJournalV1;
+pub(super) type BftWalEventV1 = BftSigningJournalEventV1;
 
 pub(super) struct BftWalStore {
     directory: PathBuf,
     state: BftWalStateV1,
     local_validator_id: String,
     local_signing_public_key: String,
+    protected: Option<ProtectedWal>,
     _lock: File,
 }
 
@@ -117,30 +84,15 @@ impl BftWalStore {
             });
         }
         ensure_directory(directory)?;
-        let lock_path = directory.join(BFT_WAL_LOCK_FILE);
-        if let Ok(metadata) = fs::symlink_metadata(&lock_path)
-            && (metadata.file_type().is_symlink() || !metadata.is_file())
+        if path_exists_without_following(directory.join(BFT_WAL_PROTECTED_MARKER_FILE).as_path())
+            || path_exists_without_following(directory.join(BFT_WAL_PROTECTED_FILE).as_path())
         {
             return Err(NodeError::Consensus {
-                reason: "BFT WAL lock must be a real regular file".into(),
+                reason: "protected BFT signer state is present; refusing local WAL downgrade"
+                    .into(),
             });
         }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)
-            .map_err(|error| wal_io("open BFT WAL lock", error))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            lock.set_permissions(fs::Permissions::from_mode(0o600))
-                .map_err(|error| wal_io("set BFT WAL lock permissions", error))?;
-        }
-        lock.try_lock().map_err(|error| NodeError::Consensus {
-            reason: format!("BFT signer WAL is already in use or cannot be locked: {error}"),
-        })?;
+        let lock = acquire_wal_lock(directory)?;
 
         let state_path = directory.join(BFT_WAL_FILE);
         let anchor_path = directory.join(BFT_WAL_ANCHOR_FILE);
@@ -198,6 +150,7 @@ impl BftWalStore {
             state,
             local_validator_id: local_validator_id.to_string(),
             local_signing_public_key: local_signing_public_key.to_string(),
+            protected: None,
             _lock: lock,
         })
     }
@@ -217,6 +170,9 @@ impl BftWalStore {
     /// phase timers. Recovery must reuse this value rather than restarting
     /// timeout windows from process startup time.
     pub(super) fn ensure_height_started_at(&mut self, now_ms: i64) -> Result<i64, NodeError> {
+        if self.protected.is_some() {
+            return protected::start_height_timer(self);
+        }
         if let Some(started_at_ms) = self.state.height_started_at_ms {
             return Ok(started_at_ms);
         }
@@ -309,6 +265,9 @@ impl BftWalStore {
         proposal: BftProposalV1,
         now_ms: i64,
     ) -> Result<(), NodeError> {
+        if self.protected.is_some() {
+            return protected::accept_signed_proposal(self, intent, proposal, now_ms);
+        }
         if self.state.pending_commit.is_some() {
             return Err(NodeError::Consensus {
                 reason: "BFT WAL has a pending commit; proposal signing is closed".into(),
@@ -416,6 +375,9 @@ impl BftWalStore {
         vote: BftVoteV1,
         now_ms: i64,
     ) -> Result<(), NodeError> {
+        if self.protected.is_some() {
+            return protected::accept_signed_vote(self, intent, vote, now_ms);
+        }
         if self.state.pending_commit.is_some() {
             return Err(NodeError::Consensus {
                 reason: "BFT WAL has a pending commit; vote signing is closed".into(),
@@ -534,9 +496,50 @@ impl BftWalStore {
     }
 
     fn persist(&mut self, next: BftWalStateV1) -> Result<(), NodeError> {
+        if self.protected.is_some() {
+            return protected::persist_journal(self, next);
+        }
         persist_state(&self.directory, &next)?;
         self.state = next;
         Ok(())
+    }
+}
+
+impl BftWalStore {
+    pub(super) fn open_protected_for_recovery(
+        directory: &Path,
+        genesis_schedule: &BftHeightProposerScheduleV1,
+        binding: &oasis7_distfs::protected_bft::BftSignerBindingV1,
+        has_committed_history: bool,
+        provider: &dyn oasis7_distfs::protected_bft::BftSignerProviderV1,
+        driver_history: &[BftCommitCertificateV1],
+    ) -> Result<Self, NodeError> {
+        protected::open_for_recovery(
+            directory,
+            genesis_schedule,
+            binding,
+            has_committed_history,
+            provider,
+            driver_history,
+        )
+    }
+
+    pub(super) fn protected_time_ms(&mut self) -> Result<Option<i64>, NodeError> {
+        protected::protected_time_ms(self)
+    }
+
+    pub(super) fn sign_reserved_proposal(
+        &mut self,
+        intent: &BftProposalIntentV1,
+    ) -> Result<Option<(BftProposalV1, i64)>, NodeError> {
+        protected::sign_reserved_proposal(self, intent)
+    }
+
+    pub(super) fn sign_reserved_vote(
+        &mut self,
+        intent: &BftVoteIntentV1,
+    ) -> Result<Option<(BftVoteV1, i64)>, NodeError> {
+        protected::sign_reserved_vote(self, intent)
     }
 }
 
@@ -545,22 +548,7 @@ fn state_for_schedule(
     local_validator_id: &str,
     local_signing_public_key: &str,
 ) -> BftWalStateV1 {
-    BftWalStateV1 {
-        schema_version: BFT_WAL_SCHEMA_VERSION,
-        scope: schedule.scope().clone(),
-        authority_epoch: schedule.authority_epoch(),
-        validator_set_hash: schedule.validator_set_hash().to_string(),
-        local_validator_id: local_validator_id.to_string(),
-        local_signing_public_key: local_signing_public_key.to_string(),
-        height: schedule.height(),
-        parent_commit_ref: schedule.parent_commit_ref().to_string(),
-        starting_priority: schedule.starting_priority().priorities().clone(),
-        height_started_at_ms: None,
-        events: Vec::new(),
-        pending_proposal_intent: None,
-        pending_vote_intent: None,
-        pending_commit: None,
-    }
+    BftSigningJournalV1::for_schedule(schedule, local_validator_id, local_signing_public_key)
 }
 
 fn local_proposal_event<'a>(
@@ -884,6 +872,34 @@ fn ensure_directory(directory: &Path) -> Result<(), NodeError> {
             .map_err(|error| wal_io("set BFT WAL directory permissions", error))?;
     }
     Ok(())
+}
+
+fn acquire_wal_lock(directory: &Path) -> Result<File, NodeError> {
+    let lock_path = directory.join(BFT_WAL_LOCK_FILE);
+    if let Ok(metadata) = fs::symlink_metadata(&lock_path)
+        && (metadata.file_type().is_symlink() || !metadata.is_file())
+    {
+        return Err(NodeError::Consensus {
+            reason: "BFT WAL lock must be a real regular file".into(),
+        });
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|error| wal_io("open BFT WAL lock", error))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        lock.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|error| wal_io("set BFT WAL lock permissions", error))?;
+    }
+    lock.try_lock().map_err(|error| NodeError::Consensus {
+        reason: format!("BFT signer WAL is already in use or cannot be locked: {error}"),
+    })?;
+    Ok(lock)
 }
 
 fn path_exists_without_following(path: &Path) -> bool {

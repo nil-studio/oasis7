@@ -27,10 +27,16 @@ impl Worker {
                         continue;
                     }
                     self.setup.wal.reserve_vote_intent(intent.clone())?;
-                    let vote = intent
-                        .sign(&self.setup.set, &self.setup.key)
-                        .map_err(error)?;
-                    let now = self.now()?;
+                    let (vote, now) =
+                        if let Some(signed) = self.setup.wal.sign_reserved_vote(&intent)? {
+                            signed
+                        } else {
+                            let key = self.setup.key.as_ref().ok_or_else(|| {
+                                error("BFT signer unavailable; no local fallback")
+                            })?;
+                            let vote = intent.sign(&self.setup.set, key).map_err(error)?;
+                            (vote, self.now()?)
+                        };
                     self.setup
                         .wal
                         .append_local_vote(&intent, vote.clone(), now)?;
@@ -194,11 +200,21 @@ impl Worker {
     ) -> Result<(), NodeError> {
         self.validate_candidate_with_hook(&intent.block, execution_hook)?;
         self.setup.wal.reserve_proposal_intent(intent.clone())?;
-        let proposal = self
-            .machine
-            .sign_proposal_intent(&intent, &self.setup.key)
-            .map_err(error)?;
-        let now = self.now()?;
+        let (proposal, now) =
+            if let Some(signed) = self.setup.wal.sign_reserved_proposal(&intent)? {
+                signed
+            } else {
+                let key = self
+                    .setup
+                    .key
+                    .as_ref()
+                    .ok_or_else(|| error("BFT signer unavailable; no local fallback"))?;
+                let proposal = self
+                    .machine
+                    .sign_proposal_intent(&intent, key)
+                    .map_err(error)?;
+                (proposal, self.now()?)
+            };
         self.setup
             .wal
             .append_local_proposal(&intent, proposal.clone(), now)?;

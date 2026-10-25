@@ -4,6 +4,10 @@ use oasis7_proto::distributed_bft::BftScopeV1;
 
 use crate::{NodeError, NodeRuntime};
 
+#[path = "node_bft_protected.rs"]
+mod protected;
+pub(super) use protected::SelectedNodeBftConfigV1;
+
 /// Explicit local configuration for the fixed-set engineering BFT runtime.
 /// This is operator configuration, not a governance or validator-set proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +63,10 @@ impl NodeRuntime {
             });
         }
         self.validate_bft_pending_admission()?;
-        self.bft_config = Some(config);
+        self.bft_config = Some(SelectedNodeBftConfigV1 {
+            consensus: config,
+            protected: None,
+        });
         Ok(self)
     }
 

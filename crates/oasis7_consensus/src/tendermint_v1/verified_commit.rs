@@ -160,14 +160,18 @@ pub fn verify_commit_certificate_token_v1(
     }
 
     let round = certificate.proposal.header.round;
-    let (expected_proposers, priority_after_commit_round) =
-        schedule.proposers_through(set, round)?;
+    let (expected_proposers, _) = schedule.proposers_through(set, round)?;
     verify_commit_certificate_v1(set, &expected_proposers, certificate)?;
     let block_id = block.block_id()?;
     let next_height = schedule
         .height
         .checked_add(1)
         .ok_or_else(|| "BFT height overflow; preserve schedule state".to_string())?;
+    // The QC round selects a proposer only within this height. Persistent
+    // priority advances exactly once for the committed block, independent of
+    // how many rounds were needed to certify it.
+    let next_height_priority =
+        BftProposerPriorityV1::after_round(set, &schedule.starting_priority, 0)?;
     let next_height_schedule = BftHeightProposerScheduleV1 {
         protocol_version: schedule.protocol_version,
         scope: schedule.scope.clone(),
@@ -175,7 +179,7 @@ pub fn verify_commit_certificate_token_v1(
         validator_set_hash: schedule.validator_set_hash.clone(),
         height: next_height,
         parent_commit_ref: block_id.clone(),
-        starting_priority: priority_after_commit_round,
+        starting_priority: next_height_priority,
     };
     Ok(VerifiedBftCommitCertificateV1 {
         certificate: certificate.clone(),

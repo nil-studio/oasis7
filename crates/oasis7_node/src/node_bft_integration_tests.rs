@@ -749,3 +749,6 @@ fn node_runtime_needs_quorum_and_late_fourth_node_catches_up_then_reopens() {
     );
     cold_reopen.stop().expect("stop cold-reopened BFT node");
 }
+
+#[path = "node_bft_protected_integration_tests.rs"]
+mod protected;
