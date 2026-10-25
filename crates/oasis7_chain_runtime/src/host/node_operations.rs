@@ -210,4 +210,4 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
 
 #[cfg(all(test, unix))]
 #[path = "node_operations/admission_tests.rs"]
-mod admission_tests;
+pub(crate) mod admission_tests;

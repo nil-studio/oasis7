@@ -63,6 +63,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 - ARCH-02：环境表记录了 Hosted 登录及网络/provider lane 的映射和历史部署；内部 production lane 不等于项目已向普通用户正式开放。
 - ARCH-03：已有运维采样、部署更新与恢复脚本。runbook 的五节点 inventory 是重新核对前的执行目标，不能代替实时发现。
 
+浏览器 BYOK 局部候选（2026-10-25）：[新设计](../../../world-simulator/llm/self-supplied-model-connection.design.md)把模型调用和循环放在浏览器，模型 Key 留在本站 localStorage；协议 Rust/WASM 复用 canonical 签名合同，游戏 executor 的非可导出身份和原件日志分别保存在 IndexedDB，世界授权仍由既有 participant/owner/executor 网关与 Runtime 判定。部署信任 pin 固定注入，只有显式启用才增加 DeepSeek CSP origin。[实现 PR #5067](https://github.com/nil-studio/oasis7/pull/5067) 尚待 CI/合入及获准的 b1 部署试玩；既有服务器会话处理是历史路径，不证明新组合可玩，其他环境核验时间不变。
+
 **实际部署核验：** 本组三项均未取得当日运行窗口。[历史云上清单](../../governance/environment-lanes-and-inventory-2026-05-29.md#7-当前云上清单)只用于定位；当前节点数、版本、实际角色、健康和外部可达性保持未核对。
 
 <a id="cc-architecture-authority"></a>

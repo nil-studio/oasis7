@@ -88,7 +88,10 @@ fn scenario(
         .recv_timeout(Duration::from_secs(1))
         .map_err(|error| error.to_string())?;
     let runtime = owned.runtime.as_mut().unwrap();
-    if runtime.stop(Duration::ZERO).as_ref().map_err(String::as_str)
+    if runtime
+        .stop(Duration::ZERO)
+        .as_ref()
+        .map_err(String::as_str)
         != Err("formal Node stop is still pending; runtime remains owned")
         || runtime.stop_worker.is_some()
         || !Arc::ptr_eq(&node, &runtime.runtime)

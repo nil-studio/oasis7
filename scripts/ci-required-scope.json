@@ -292,6 +292,10 @@
       "distfs",
       "workspace_support",
       "formal_process"
+    ],
+    "oasis7_browser_game_client": [
+      "workspace_support",
+      "viewer_js_required"
     ]
   },
   "rules": [

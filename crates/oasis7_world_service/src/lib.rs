@@ -13,6 +13,7 @@ mod formal_governance;
 pub mod formal_projection;
 mod formal_projection_header;
 pub mod formal_read;
+pub mod formal_read_error;
 #[cfg(test)]
 pub(crate) mod formal_read_fixtures;
 pub mod formal_read_service;

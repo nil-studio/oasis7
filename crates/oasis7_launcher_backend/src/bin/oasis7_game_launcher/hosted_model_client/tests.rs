@@ -27,6 +27,7 @@ fn fixture() -> (HostedModelClient, Arc<AtomicBool>) {
     .unwrap();
     (
         HostedModelClient {
+            management_only: false,
             config: Config {
                 enabled: true,
                 public_origin: "https://localhost".into(),
@@ -499,4 +500,164 @@ fn stop_pre_admission_conflict_is_explicitly_not_started() {
     );
     assert_eq!(reply.status, 200);
     assert_eq!(reply.body["connection"]["version"], 3);
+}
+
+#[test]
+fn browser_mode_blocks_creation_for_two_current_sessions_and_retains_management() {
+    let (mut host, current) = fixture();
+    let mut identity = IdentityService::model_executor_test_fixture();
+    let token = "b".repeat(43);
+    let digest = |value: &str| {
+        let mut bytes = b"session\0".to_vec();
+        bytes.extend_from_slice(value.as_bytes());
+        blake3::keyed_hash(&identity.service.config.session_key, &bytes)
+            .to_hex()
+            .to_string()
+    };
+    let first_key = format!("session:{}", digest(&identity.token));
+    let second_key = format!("session:{}", digest(&token));
+    identity
+        .service
+        .store
+        .transaction(|tx| {
+            let mut session = tx
+                .get::<super::super::hosted_identity::model::AccountSession>(&first_key)?
+                .unwrap()
+                .value;
+            session.session_id = "session-two".into();
+            session.token_digest = second_key.clone();
+            tx.create(
+                &second_key,
+                "session",
+                Some("a"),
+                Some(session.expires_at),
+                &session,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let first = identity
+        .service
+        .model_principal(
+            &format!("GET /v1/agent-client/capabilities HTTP/1.1\r\nCookie: __Host-oasis7_sid={}\r\n\r\n", identity.token),
+            false,
+        )
+        .unwrap();
+    let second = identity
+        .service
+        .model_principal(&format!("GET /v1/agent-client/capabilities HTTP/1.1\r\nCookie: __Host-oasis7_sid={token}\r\n\r\n"), false)
+        .unwrap();
+    assert_ne!(first.session_id, second.session_id);
+    assert!(identity.service.model_session_current(&first));
+    assert!(identity.service.model_session_current(&second));
+    let connection = create(&host, &first);
+    host.management_only = true;
+    assert!(current.load(Ordering::SeqCst));
+    for actor in [&first, &second] {
+        let cap = request(&host, actor, "GET", "/capabilities", Value::Null);
+        assert_eq!(cap.body["legacy_execution_policy"], "management_only");
+        assert_eq!(cap.body["executor_available"], false);
+        assert_eq!(
+            request(
+                &host,
+                actor,
+                "POST",
+                "/model-connections",
+                json!({"preset_id":"test","raw_key":SECRET,"consent":true})
+            )
+            .status,
+            409
+        );
+        assert_eq!(
+            request(&host, actor, "GET", "/model-connections", Value::Null).status,
+            200
+        );
+    }
+    let path = format!("/model-connections/{}", connection["id"].as_str().unwrap());
+    for action in ["probe", "activate", "lease"] {
+        let reply = request(
+            &host,
+            &first,
+            "POST",
+            &format!("{path}/{action}"),
+            json!({"expected_version":connection["version"],"consent":true,"operation_id":"blocked"}),
+        );
+        assert_eq!(reply.status, 409);
+        assert_eq!(reply.body["error_code"], "legacy_execution_disabled");
+    }
+    let stopped = request(
+        &host,
+        &first,
+        "POST",
+        &format!("{path}/stop"),
+        json!({"expected_version":connection["version"],"operation_id":"stop-before-forget"}),
+    );
+    assert_eq!(stopped.status, 200);
+    assert_eq!(
+        request(&host, &first, "GET", &path, Value::Null).status,
+        200
+    );
+    assert_eq!(
+        request(
+            &host,
+            &first,
+            "DELETE",
+            &path,
+            json!({"expected_version":stopped.body["connection"]["version"]})
+        )
+        .status,
+        200
+    );
+    let input = serde_json::from_value(json!({"expected_version":1,"consent":true,
+        "target_ref":{"agent_id":"agent"},"limits":host.manager.limits()}))
+    .unwrap();
+    let failure = host
+        .start_execution(&second, "not-a-connection", input)
+        .unwrap_err();
+    assert_eq!(failure.body["error_code"], "legacy_execution_disabled");
+}
+
+#[test]
+fn browser_startup_uses_management_only_without_loading_legacy_devices() {
+    let (host, _) = fixture();
+    let config = json!({"enabled":true,"public_origin":"https://localhost",
+        "display_name":"Test executor","location":"Local test",
+        "memory_only_controls_confirmed":true,"limits":host.config.limits,
+        "presets":host.config.presets,"executors":[{"account_id":"a",
+        "device_config_path":"/browser-mode-must-not-read-this-private-device"}]});
+    let path =
+        std::env::temp_dir().join(format!("browser-management-{}.toml", uuid::Uuid::new_v4()));
+    std::fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .env("OASIS7_BROWSER_BYOK_ENABLED", "1")
+        .env("OASIS7_AGENT_CLIENT_CONFIG", &path)
+        .args([
+            "--ignored",
+            "--exact",
+            "hosted_model_client::tests::browser_management_startup_child",
+            "--nocapture",
+        ])
+        .output()
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(
+        output.status.success(),
+        "startup policy child failed: {} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+}
+#[test]
+#[ignore = "executed by browser_startup_uses_management_only_without_loading_legacy_devices"]
+fn browser_management_startup_child() {
+    let fixture = IdentityService::model_executor_test_fixture();
+    let identity = Arc::new(Mutex::new(Some(fixture.service)));
+    let host = HostedModelClient::from_env(&identity).unwrap().unwrap();
+    assert!(host.management_only);
+    assert_eq!(
+        host.capabilities()["legacy_execution_policy"],
+        "management_only"
+    );
+    assert!(!host.executors.available(&principal("a", "one")));
 }

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FormalError {
     Invalid(String),
+    /// A qualified historical cut or its retained closure is unavailable.
+    HistoryUnavailable(String),
     Io(String),
     Conflict(String),
     Rollback(String),

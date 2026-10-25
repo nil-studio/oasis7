@@ -30,6 +30,10 @@ not a world receipt. Provider/model costs need their separately approved limits.
 The raw `--config` examples below apply only to a trusted prepared-world device
 profile; model socket callers must use the equivalent `args` form.
 
+## Browser execution
+
+For the explicitly enabled browser BYOK profile, follow the [browser owner and execution reference](references/browser-byok.md). Its owner UI prepares canonical entry separately from model credentials and execution consent. The CLI examples below do not authorize a parallel executor for that Agent.
+
 ## Executor selection
 
 An operator may select a built-in consumer through the trusted launcher BYOK

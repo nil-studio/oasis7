@@ -2,6 +2,7 @@
 //! required source and reconstructs it locally; it never trusts a source's
 //! “verified” flag or a lease signature in isolation.
 
+use super::{FormalReadError, FormalReadResult};
 use oasis7_client_api::world_service::WorldIdentity;
 use oasis7_client_api::world_service_full_sync::{
     FormalFullSyncCutV1, FormalNodeReadGrantV1, FormalNodeReadRoleV1,
@@ -65,7 +66,7 @@ pub(crate) trait FullSyncIssuerReadEvidenceSource: Send + Sync {
     fn fetch(
         &self,
         request: &FullSyncIssuerReadEvidenceRequestV3,
-    ) -> Result<FullSyncIssuerReadEvidenceV3, String>;
+    ) -> FormalReadResult<FullSyncIssuerReadEvidenceV3>;
 }
 
 /// Dependencies explicitly supplied by a host-side issuer/witness adapter.
@@ -155,15 +156,17 @@ impl FullSyncV3ReadGate {
         grant: &FormalNodeReadGrantV1,
         requested: &FormalFullSyncCutV1,
         subject_public_key: &str,
-        make_response: impl FnOnce() -> Result<T, String>,
-    ) -> Result<T, String> {
+        make_response: impl FnOnce() -> FormalReadResult<T>,
+    ) -> FormalReadResult<T> {
         let started_at = Instant::now();
         let deadline = started_at
             .checked_add(Duration::from_millis(
                 self.v3_policy.body().max_authorization_staleness_ms,
             ))
-            .ok_or("full-sync V3 read deadline overflow")?;
-        let observation_nonce = fresh_nonce()?;
+            .ok_or_else(|| {
+                FormalReadError::Internal("full-sync V3 read deadline overflow".into())
+            })?;
+        let observation_nonce = fresh_nonce().map_err(FormalReadError::Internal)?;
         let target = FullSyncIssuerTargetV2 {
             node_public_key: grant.body.node_public_key.clone(),
             role: full_sync_role(&grant.body.role),
@@ -179,12 +182,13 @@ impl FullSyncV3ReadGate {
         };
         let evidence = self.source.fetch(&request)?;
         if Instant::now() > request.deadline {
-            return Err("full-sync V3 evidence source exceeded authorization deadline".into());
+            return Err(FormalReadError::Internal(
+                "full-sync V3 evidence source exceeded authorization deadline".into(),
+            ));
         }
-        evidence
-            .query
-            .verify(&self.v3_policy)
-            .map_err(|error| format!("verify fresh full-sync V3 query: {error}"))?;
+        evidence.query.verify(&self.v3_policy).map_err(|error| {
+            FormalReadError::Integrity(format!("verify fresh full-sync V3 query: {error}"))
+        })?;
         if evidence.query.body.observation_nonce != hex::encode(request.observation_nonce)
             || evidence.query.body.minimum_anchor != request.minimum_anchor
             || evidence.observation.body.query != evidence.query
@@ -194,16 +198,27 @@ impl FullSyncV3ReadGate {
             || request.target.role != full_sync_role(&grant.body.role)
             || Instant::now() < request.started_at
         {
-            return Err("full-sync V3 evidence does not bind the fresh query nonce/minimum".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync V3 evidence does not bind the fresh query nonce/minimum".into(),
+            ));
         }
         evidence
             .observation
             .verify(&self.v3_policy)
-            .map_err(|error| format!("verify full-sync V3 witness observation: {error}"))?;
-        let encoded_history = serde_cbor::to_vec(&evidence.history)
-            .map_err(|error| format!("encode full-sync V3 complete history bound: {error}"))?;
+            .map_err(|error| {
+                FormalReadError::Integrity(format!(
+                    "verify full-sync V3 witness observation: {error}"
+                ))
+            })?;
+        let encoded_history = serde_cbor::to_vec(&evidence.history).map_err(|error| {
+            FormalReadError::Internal(format!(
+                "encode full-sync V3 complete history bound: {error}"
+            ))
+        })?;
         if encoded_history.len() > MAX_HISTORY_BYTES {
-            return Err("full-sync V3 complete history exceeds provider read bound".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync V3 complete history exceeds provider read bound".into(),
+            ));
         }
         let candidate = VerifiedFullSyncIssuerStateV3::from_witness_observation(
             self.v2_policy.clone(),
@@ -211,14 +226,19 @@ impl FullSyncV3ReadGate {
             evidence.history,
             &evidence.observation,
         )
-        .map_err(|error| format!("replay complete full-sync V3 issuer history: {error}"))?;
+        .map_err(|error| {
+            FormalReadError::Integrity(format!(
+                "replay complete full-sync V3 issuer history: {error}"
+            ))
+        })?;
 
-        let mut installed = self
-            .installed
-            .lock()
-            .map_err(|_| "full-sync V3 provider read gate mutex poisoned")?;
+        let mut installed = self.installed.lock().map_err(|_| {
+            FormalReadError::Internal("full-sync V3 provider read gate mutex poisoned".into())
+        })?;
         if installed.poisoned {
-            return Err("full-sync V3 provider read gate is poisoned".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync V3 provider read gate is poisoned".into(),
+            ));
         }
         let current_state = installed.state.clone();
         let selected = match current_state.as_ref() {
@@ -291,11 +311,13 @@ impl FullSyncV3ReadGate {
         subject_public_key: &str,
         observation: &SignedFullSyncIssuerObservationV3,
         started_at: Instant,
-    ) -> Result<FullSyncProviderLeaseStateV3, String> {
+    ) -> FormalReadResult<FullSyncProviderLeaseStateV3> {
         if state.anchor().revision < self.minimum_anchor.revision
             || state.policy().policy_digest() != self.v3_policy.policy_digest()
         {
-            return Err("full-sync V3 state is below the externally pinned minimum/policy".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync V3 state is below the externally pinned minimum/policy".into(),
+            ));
         }
         let policy_world = &self.v3_policy.body().world;
         let expected_world = WorldIdentity {
@@ -307,15 +329,20 @@ impl FullSyncV3ReadGate {
             node_public_key: grant.body.node_public_key.clone(),
             role,
         };
+        if requested.world != expected_world || requested.chain_id != policy_world.chain_id {
+            return Err(FormalReadError::RequestRejected(
+                "full-sync request is outside the pinned World".into(),
+            ));
+        }
         if subject_public_key != grant.body.node_public_key
-            || requested.world != expected_world
-            || requested.chain_id != policy_world.chain_id
             || grant.body.world != expected_world
             || grant.body.chain_id != policy_world.chain_id
             || grant.body.authority_epoch != self.v3_policy.body().authority_epoch
             || !self.v3_policy.body().allowed_roles.contains(&role)
         {
-            return Err("full-sync V3 grant/provider scope binding mismatch".into());
+            return Err(FormalReadError::GrantRejected(
+                "full-sync V3 grant/provider scope binding mismatch".into(),
+            ));
         }
         let earliest = observation.body.protected_time.earliest_unix_ms;
         grant
@@ -328,27 +355,43 @@ impl FullSyncV3ReadGate {
                 self.v3_policy.body().authority_epoch,
                 earliest,
             )
-            .map_err(|error| format!("verify full-sync V1 grant at protected earliest: {error}"))?;
-        let target_state = state
-            .target_state(&target)
-            .ok_or("full-sync V3 target is absent from complete issuer history")?;
+            .map_err(|error| {
+                FormalReadError::GrantRejected(format!(
+                    "verify full-sync V1 grant at protected earliest: {error}"
+                ))
+            })?;
+        let target_state = state.target_state(&target).ok_or_else(|| {
+            FormalReadError::GrantRejected(
+                "full-sync V3 target is absent from complete issuer history".into(),
+            )
+        })?;
         if !target_state.active {
-            return Err("full-sync V3 target is revoked or inactive".into());
+            return Err(FormalReadError::GrantRejected(
+                "full-sync V3 target is revoked or inactive".into(),
+            ));
         }
         if target_state.generation != grant.body.grant_epoch {
-            return Err("full-sync V3 target generation differs from V1 grant".into());
+            return Err(FormalReadError::GrantRejected(
+                "full-sync V3 target generation differs from V1 grant".into(),
+            ));
         }
         let (target_not_before, target_expires) = match (
             target_state.not_before_unix_ms,
             target_state.expires_unix_ms,
         ) {
             (Some(not_before), Some(expires)) => (not_before, expires),
-            _ => return Err("full-sync V3 active target lacks a committed interval".into()),
+            _ => {
+                return Err(FormalReadError::Integrity(
+                    "full-sync V3 active target lacks a committed interval".into(),
+                ));
+            }
         };
         if target_not_before != grant.body.not_before_unix_ms
             || target_expires != grant.body.expires_unix_ms
         {
-            return Err("full-sync V1 grant differs from current V3 target interval".into());
+            return Err(FormalReadError::GrantRejected(
+                "full-sync V1 grant differs from current V3 target interval".into(),
+            ));
         }
 
         let mut selected_lease = None;
@@ -382,13 +425,17 @@ impl FullSyncV3ReadGate {
             {
                 continue;
             }
-            pair.request
-                .verify(&self.v3_policy)
-                .map_err(|error| format!("verify committed V3 provider lease request: {error}"))?;
+            pair.request.verify(&self.v3_policy).map_err(|error| {
+                FormalReadError::Integrity(format!(
+                    "verify committed V3 provider lease request: {error}"
+                ))
+            })?;
             pair.lease
                 .verify_issuer_signature(&self.v3_policy)
                 .map_err(|error| {
-                    format!("verify committed V3 provider lease signature: {error}")
+                    FormalReadError::Integrity(format!(
+                        "verify committed V3 provider lease signature: {error}"
+                    ))
                 })?;
             if self.lease_covers_observation(
                 pair,
@@ -403,7 +450,7 @@ impl FullSyncV3ReadGate {
             }
         }
         selected_lease.ok_or_else(|| {
-            "no exact committed full-sync V3 lease covers this provider, incarnation, target and protected time".into()
+            FormalReadError::GrantRejected("no exact committed full-sync V3 lease covers this provider, incarnation, target and protected time".into())
         })
     }
 
@@ -440,29 +487,31 @@ impl FullSyncV3ReadGate {
         pair: &FullSyncProviderLeaseStateV3,
         observation: &SignedFullSyncIssuerObservationV3,
         started_at: Instant,
-    ) -> Result<(), String> {
+    ) -> FormalReadResult<()> {
         let target = FullSyncIssuerTargetV2 {
             node_public_key: grant.body.node_public_key.clone(),
             role: full_sync_role(&grant.body.role),
         };
-        let target_state = state
-            .target_state(&target)
-            .ok_or("full-sync V3 target disappeared from installed history")?;
+        let target_state = state.target_state(&target).ok_or_else(|| {
+            FormalReadError::Integrity(
+                "full-sync V3 target disappeared from installed history".into(),
+            )
+        })?;
         if !self.lease_covers_observation(
             pair,
             grant,
             target_state
                 .not_before_unix_ms
-                .ok_or("V3 target not-before absent")?,
+                .ok_or_else(|| FormalReadError::Integrity("V3 target not-before absent".into()))?,
             target_state
                 .expires_unix_ms
-                .ok_or("V3 target expiry absent")?,
+                .ok_or_else(|| FormalReadError::Integrity("V3 target expiry absent".into()))?,
             observation,
             started_at,
         ) {
-            return Err(
+            return Err(FormalReadError::GrantRejected(
                 "full-sync V3 protected-time interval no longer covers response release".into(),
-            );
+            ));
         }
         Ok(())
     }
@@ -472,18 +521,20 @@ fn compare_and_install(
     current: &Arc<VerifiedFullSyncIssuerStateV3>,
     candidate: VerifiedFullSyncIssuerStateV3,
     poisoned: &mut bool,
-) -> Result<Option<Arc<VerifiedFullSyncIssuerStateV3>>, String> {
+) -> FormalReadResult<Option<Arc<VerifiedFullSyncIssuerStateV3>>> {
     let installed = current.anchor();
     let observed = candidate.anchor();
     if observed.revision < installed.revision {
-        return Err("full-sync V3 witness history is older than installed state".into());
+        return Err(FormalReadError::Integrity(
+            "full-sync V3 witness history is older than installed state".into(),
+        ));
     }
     if observed.revision == installed.revision {
         if observed != installed {
             *poisoned = true;
-            return Err(
+            return Err(FormalReadError::Integrity(
                 "full-sync V3 same-revision anchor conflict; provider gate poisoned".into(),
-            );
+            ));
         }
         return Ok(None);
     }
@@ -493,7 +544,7 @@ fn compare_and_install(
         .any(|entry| entry.record.next_anchor == *installed)
     {
         *poisoned = true;
-        return Err("full-sync V3 newer history does not contain the exact installed anchor; provider gate poisoned".into());
+        return Err(FormalReadError::Integrity("full-sync V3 newer history does not contain the exact installed anchor; provider gate poisoned".into()));
     }
     Ok(Some(Arc::new(candidate)))
 }
@@ -531,6 +582,8 @@ pub(crate) fn fresh_provider_incarnation() -> Result<String, String> {
 
 fn elapsed_millis_ceil(duration: Duration) -> Option<u64> {
     let millis = duration.as_millis();
-    let rounded = millis.checked_add(u128::from(!duration.subsec_nanos().is_multiple_of(1_000_000)))?;
+    let rounded = millis.checked_add(u128::from(
+        !duration.subsec_nanos().is_multiple_of(1_000_000),
+    ))?;
     u64::try_from(rounded).ok()
 }

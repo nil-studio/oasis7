@@ -79,7 +79,9 @@ export function ModelConnectionPanel(props) {
  const [error, setError] = createSignal("");
  const [now, setNow] = createSignal(Date.now());
  let keyInput, previousAgent, disposed = false, refreshGeneration = 0, renewing = false;
- const available = () => acceptsModelCredentials(capabilities());
+ const managementOnly = () => read(props.managementOnly) === true;
+ const manageable = (cap) => managementOnly() ? cap?.ok === true && cap.enabled === true && cap.authenticated === true : acceptsModelCredentials(cap);
+ const available = () => manageable(capabilities());
  const agentId = () => read(props.agentId) || "";
  const canControl = () => read(props.canControl) === true && !!agentId();
  const selected = () => connections().find((connection) => connection.id === selectedId());
@@ -104,7 +106,7 @@ export function ModelConnectionPanel(props) {
    if (disposed || generation !== refreshGeneration) return;
    setCapabilities(cap);
    capabilityRead = true;
-   if (!acceptsModelCredentials(cap)) { setConnections([]); if (keyInput) keyInput.value = ""; return; }
+   if (!manageable(cap)) { setConnections([]); if (keyInput) keyInput.value = ""; return; }
    const items = await client.list();
    if (disposed || generation !== refreshGeneration) return;
    setConnections(items);
@@ -132,7 +134,7 @@ export function ModelConnectionPanel(props) {
  }
  function create(event) {
   event.preventDefault();
-  if (busy() || !available() || !canControl() || !preset() || !consent()) return;
+  if (managementOnly() || busy() || !available() || !canControl() || !preset() || !consent()) return;
   let raw = keyInput.value;
   keyInput.value = "";
   void act(async () => { try { const connection = await client.create({ preset_id: preset(), raw_key: raw, consent: true }); apply(connection); setSelectedId(connection.id); setConsent(false); setProbeConsent(false); setRunConsent(false); } finally { raw = ""; } });
@@ -142,7 +144,7 @@ export function ModelConnectionPanel(props) {
   const clock = setInterval(() => setNow(Date.now()), 1000);
   const renew = setInterval(async () => {
    setNow(Date.now());
-   if (disposed || renewing || busy() || !available() || document.visibilityState !== "visible") return;
+   if (managementOnly() || disposed || renewing || busy() || !available() || document.visibilityState !== "visible") return;
    renewing = true;
    try {
     for (const connection of connections()) {
@@ -184,10 +186,12 @@ export function ModelConnectionPanel(props) {
  });
  return <details class="model-connection-panel" data-testid="model-connection-panel">
   <style>{modelConnectionStyles}</style>
-  <summary>{tr("实验模型连接 · 第一方执行方", "Experimental model connection · first-party executor")}</summary>
+  <summary>{managementOnly() ? tr("旧托管模型连接管理", "Legacy hosted connection management") : tr("实验模型连接 · 第一方执行方", "Experimental model connection · first-party executor")}</summary>
   <p>{tr("连接模型不会认领 Agent、授予游戏权限或自动开始运行。", "Connecting a model does not claim an Agent, grant game authority, or start a run.")}</p>
   <Show when={error()}><p role="alert">{error()}</p></Show>
   <Show when={available()} fallback={<p role="status">{capabilities() ? message(capabilities().reason || (capabilities().authenticated ? "untrusted_executor" : "authentication_required")) : tr("正在核对部署与登录状态；暂不接收凭证。", "Checking deployment and sign-in; credentials are not accepted yet.")}</p>}>
+   <Show when={managementOnly()}><p>{tr("仅核对、停止或忘记旧托管连接；不会检查模型、开始或续期。开始浏览器运行前必须确认旧执行已停止。", "Check, stop or forget legacy connections only. No model checks, starts or lease renewals occur. Confirm legacy execution has stopped before starting in the browser.")}</p></Show>
+   <Show when={!managementOnly()}>
    <div class="model-connection-panel__boundary">
     <p>{tr("凭证接收方", "Credential recipient")}: {capabilities()?.trusted_executor?.display_name}</p>
     <p>{tr("执行位置", "Execution location")}: {capabilities()?.trusted_executor?.location} · {capabilities()?.trusted_executor?.origin}</p>
@@ -204,20 +208,25 @@ export function ModelConnectionPanel(props) {
      <button type="submit" disabled={busy() || !consent() || !preset()}>{tr("保存本次连接", "Create session connection")}</button>
     </form>
    </Show>
-   <Show when={connections().length}><label>{tr("本会话连接", "Session connections")}<select value={selectedId()} onChange={(event) => setSelectedId(event.currentTarget.value)} disabled={busy()}><For each={connections()}>{(item) => <option value={item.id}>{capabilities()?.presets.find((value) => value.id === item.preset_id)?.model_id || tr("模型配置", "Model configuration")} · {stateLabel(item.state)}</option>}</For></select></label></Show>
+   </Show>
+   <Show when={connections().length}><label>{tr("本会话连接", "Session connections")}<select value={selectedId()} onChange={(event) => setSelectedId(event.currentTarget.value)} disabled={busy()}><For each={connections()}>{(item) => <option value={item.id}>{capabilities()?.presets?.find((value) => value.id === item.preset_id)?.model_id || tr("模型配置", "Model configuration")} · {stateLabel(item.state)}</option>}</For></select></label></Show>
    <Show when={selected()}>{(current) => <div class="model-connection-panel__connection">
     <p role="status">{current().state === "revoked" ? stateLabel("revoked") : expired(current()) ? stateLabel("expired") : stateLabel(current().state)} · {stateLabel(current().run_state)}</p>
     <Show when={current().execution}>{(execution) => <p role="status">{execution().phase === "running" ? tr("本轮正在执行", "Run in progress") : (RUN_REASON[execution().reason] || ["执行已停止，结果需核对", "Execution stopped; verify the result"])[zh() ? 0 : 1]} · {tr("已确认效果", "Confirmed effects")}: {execution().successful_effects ?? "—"}</p>}</Show>
     <Show when={modelFailure(current())}>{(diagnostic) => <p role="status">{diagnostic()} {tr("不会自动重试或重置预算；后续执行仍受原预算和期限限制。", "There is no automatic retry or budget reset; further execution remains subject to the original budget and deadline.")}</p>}</Show>
     <p>{tr("已占用调用预算 / token", "Call budget used / tokens reserved")}: {current().calls_spent ?? "—"} / {current().tokens_reserved ?? "—"}</p>
     <Show when={current().error_code}><p role="status">{message(current().error_code)}</p></Show>
-    <Show when={!capabilities()?.executor_available}><p role="status">{message("executor_unavailable")}</p></Show>
+    <Show when={!managementOnly() && !capabilities()?.executor_available}><p role="status">{message("executor_unavailable")}</p></Show>
+    <Show when={!managementOnly()}>
     <label class="model-connection-panel__check"><input type="checkbox" checked={probeConsent()} onChange={(event) => setProbeConsent(event.currentTarget.checked)} disabled={busy() || expired(current())} />{tr("同意一次有界、可能计费的模型检查；不写游戏世界。", "Consent to a bounded, potentially billable model check; it does not write the world.")}</label>
     <button type="button" disabled={busy() || expired(current()) || !probeConsent()} onClick={() => void act(async () => { apply(await client.probe(current())); setProbeConsent(false); setRunConsent(false); })}>{tr("测试连接", "Test connection")}</button>
     <label class="model-connection-panel__check"><input type="checkbox" checked={runConsent()} onChange={(event) => setRunConsent(event.currentTarget.checked)} disabled={busy() || expired(current()) || !capabilities()?.executor_available} />{tr("确认当前 Agent、目标与上述运行限制，开始后供应商账户继续计费。", "Confirm this Agent, goal and limits; starting permits further provider charges.")}</label>
+    </Show>
     <div class="model-connection-panel__actions">
+     <Show when={!managementOnly()}>
      <button type="button" disabled={busy() || expired(current()) || current().state !== "ready" || !runConsent() || !canControl() || !capabilities()?.executor_available} onClick={() => void act(async () => { apply(await client.activate(current(), { target_ref: { agent_id: agentId() }, limits: capabilities().limits })); setRunConsent(false); })}>{tr("确认开始", "Confirm start")}</button>
-     <button type="button" disabled={busy() || expired(current())} onClick={() => void act(async () => { apply(await client.stop(current())); setRunConsent(false); })}>{tr("停止新决策", "Stop new decisions")}</button>
+     </Show>
+     <button type="button" disabled={busy() || (!managementOnly() && expired(current())) || current().state === "revoked"} onClick={() => void act(async () => { apply(await client.stop(current())); setRunConsent(false); })}>{tr("停止新决策", "Stop new decisions")}</button>
      <button type="button" disabled={busy() || current().state === "revoked"} onClick={() => void act(async () => { apply(await client.forget(current())); setProbeConsent(false); setRunConsent(false); })}>{tr("断开并忘记", "Disconnect and forget")}</button>
     </div>
     <p>{tr("停止保留本次有效连接；忘记会停用凭证。两者都不撤销供应商 Key、不保证已发调用退款，也不取消已提交世界作业。未知结果须按原操作核对。", "Stop retains the valid session connection; forget disables its credential. Neither revokes the provider key, refunds sent calls, nor cancels submitted world jobs. Unknown outcomes require original-operation lookup.")}</p>

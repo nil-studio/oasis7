@@ -11,14 +11,14 @@ impl FormalLiveService {
                 .lookup
                 .request
                 .validate()
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| FormalReadError::RequestRejected(error.to_string()))?;
             let correlation =
-                correlation::derive_correlation(self.world.clone(), &request.lookup.original)?;
+                correlation::derive_correlation(self.world.clone(), &request.lookup.original).map_err(FormalReadError::RequestRejected)?;
             if request.schema_version != 1
                 || correlation.key != request.lookup.request.key
                 || request.read.request.min_commit.is_some()
             {
-                return Err("formal lookup identity/request binding".into());
+                return Err(FormalReadError::RequestRejected("formal lookup identity/request binding".into()));
             }
             // The signed view authorizes the current Agent audience. Original
             // request correlation is verified separately, without reapplying
@@ -29,7 +29,7 @@ impl FormalLiveService {
                 .request
                 .formal_anchor
                 .clone()
-                .ok_or("formal lookup anchor missing")?;
+                .ok_or_else(|| FormalReadError::RequestRejected("formal lookup anchor missing".into()))?;
             let continuation_target = anchor_ref(target_publication.anchor())?;
             let result = self.history.business_result_for_publication(
                 target_publication,
@@ -52,8 +52,8 @@ impl FormalLiveService {
                 historical_cbor_hex,
                 continuation_anchor,
             };
-            page.validate().map_err(|error| error.to_string())?;
-            Ok::<_, String>(page)
+            page.validate().map_err(|error| FormalReadError::RequestRejected(error.to_string()))?;
+            Ok::<_, FormalReadError>(page)
         })();
         match result {
             Ok(page) => signed_reply_with_digest(200, LOOKUP_PATH, digest, &page, &self.signer),
@@ -62,7 +62,7 @@ impl FormalLiveService {
                 LOOKUP_PATH,
                 digest,
                 "formal_lookup_unavailable",
-                &error,
+                &error.to_string(),
                 &self.signer,
             ),
         }
@@ -72,21 +72,21 @@ impl FormalLiveService {
 type ClassifiedLookup<T> = (Option<T>, Option<String>, Option<FormalReadAnchorRefV1>);
 
 pub(super) fn classify_lookup_result<T>(
-    result: Result<Option<(T, Option<String>)>, String>,
+    result: FormalReadResult<Option<(T, Option<String>)>>,
     can_continue: bool,
-    next_anchor: impl FnOnce() -> Result<FormalReadAnchorRefV1, String>,
-) -> Result<ClassifiedLookup<T>, String> {
+    next_anchor: impl FnOnce() -> FormalReadResult<FormalReadAnchorRefV1>,
+) -> FormalReadResult<ClassifiedLookup<T>> {
     match result {
         Ok(Some((proof, history))) => Ok((Some(proof), history, None)),
         Ok(None) if can_continue => Ok((None, None, Some(next_anchor()?))),
-        Ok(None) => Err("HistoryUnavailable: no result at the exact qualified lookup cut".into()),
+        Ok(None) => Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: no result at the exact qualified lookup cut".into())),
         Err(error) => Err(error),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::classify_lookup_result;
+    use super::{classify_lookup_result, FormalReadError};
     use oasis7_client_api::world_service::FormalReadAnchorRefV1;
     use std::cell::Cell;
 
@@ -102,12 +102,12 @@ mod tests {
     fn only_genuine_absence_uses_forward_continuation() {
         let called = Cell::new(false);
         let failed =
-            classify_lookup_result::<u8>(Err("formal CAS proof read failed".into()), true, || {
+            classify_lookup_result::<u8>(Err(FormalReadError::Internal("formal CAS proof read failed".into())), true, || {
                 called.set(true);
                 Ok(anchor(9))
             })
             .unwrap_err();
-        assert_eq!(failed, "formal CAS proof read failed");
+        assert_eq!(failed, FormalReadError::Internal("formal CAS proof read failed".into()));
         assert!(
             !called.get(),
             "a storage/proof error must not become a page"

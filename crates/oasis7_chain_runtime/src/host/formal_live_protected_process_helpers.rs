@@ -62,11 +62,14 @@ pub(super) fn assert_live_descends_from_view(
     {
         return Err("verified HTTP read differs from its exact anchor or exceeds live cut".into());
     }
-    runtime.history.history_page(
-        observed,
-        &current.anchor,
-        oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
-    )?;
+    runtime
+        .history
+        .history_page(
+            observed,
+            &current.anchor,
+            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+        )
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

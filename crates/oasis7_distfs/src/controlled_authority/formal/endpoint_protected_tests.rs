@@ -294,6 +294,29 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
         .locate_native_position(1, &fixture.authority, &fixture.authority, None)
         .unwrap();
     assert_eq!(located.reference(), first.head());
+    // A native position outside the authenticated qualified prefix is genuine
+    // history absence; exact-reference disagreement remains an integrity error.
+    assert!(matches!(
+        historical_client(first.head()).locate_native_position(
+            3,
+            &fixture.authority,
+            &fixture.authority,
+            None
+        ),
+        Err(FormalError::HistoryUnavailable(_))
+    ));
+    assert!(matches!(
+        historical_client(first.head()).restore_native_at(
+            &FormalHeadRefV1 {
+                position: 1,
+                record_id: h(250)
+            },
+            &fixture.authority,
+            &fixture.authority,
+            None
+        ),
+        Err(FormalError::Invalid(_))
+    ));
     let initial_body = fixture.authority.initial_body().cloned().unwrap();
     let initial_certificate = SignedInitialActivationV1 {
         signature_hex: signed(initial_activation_signing_bytes(&initial_body).unwrap(), 9),

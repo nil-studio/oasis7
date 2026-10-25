@@ -645,6 +645,7 @@ fn run_protected_runtime_fixture(
             module_emits_initial,
             oracle_support::survivor_tests::SurvivorResources {
                 primary_child,
+                replica_child,
                 pdir,
                 rdir,
                 replica_address,
@@ -881,14 +882,18 @@ fn run_protected_runtime_fixture(
         }
         let exact_changes = runtime
             .history
-            .fixed_publication(&changes.next_cursor().cursor().commit)?;
-        runtime.history.history_page(
-            first_view
-                .formal_read_anchor()
-                .ok_or("prior verified read anchor missing")?,
-            exact_changes.anchor(),
-            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
-        )?;
+            .fixed_publication(&changes.next_cursor().cursor().commit)
+            .map_err(|error| error.to_string())?;
+        runtime
+            .history
+            .history_page(
+                first_view
+                    .formal_read_anchor()
+                    .ok_or("prior verified read anchor missing")?,
+                exact_changes.anchor(),
+                oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+            )
+            .map_err(|error| error.to_string())?;
     }
     let (first_cut, original_result) = wait_for_canonical_request_result(&runtime, &owner_request)?;
     if genesis_mode && wasm_emit_count(&first_cut.world) <= module_emits_initial {

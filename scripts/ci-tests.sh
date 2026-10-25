@@ -146,7 +146,7 @@ PY_VIEWER
 run_oasis7_package_tests() {
   local features="$1"
   shift
-  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
 }
 
 run_oasis7_test_tier_with_viewer() {
@@ -174,7 +174,7 @@ run_scenario_regression_tests() {
 }
 
 run_oasis7_required_tier_clippy() {
-  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
+  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
 }
 
 run_oasis7_full_tier_tests() {
@@ -265,6 +265,7 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo_clippy -p oasis7_agent_api --all-targets
   run_cargo_clippy -p oasis7_agent_harness --all-targets
   run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
+  run_cargo_clippy -p oasis7_browser_game_client --all-targets
   run_cargo_clippy -p oasis7_game_client --all-targets
   run_cargo_clippy -p oasis7_model_provider --all-targets
   run_cargo test -p oasis7_agent_api
@@ -273,6 +274,7 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo test -p oasis7_game_client --lib
   run_cargo test -p oasis7_model_provider --all-targets
   run_cargo test \
+    -p oasis7_browser_game_client \
     -p oasis7_client_api \
     -p oasis7_local_signer \
     -p oasis7_launcher_ui \
@@ -336,7 +338,7 @@ PY
     case "$profile" in
       oasis7_agent_api) run_signed_read_protocol_contract_tests; run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets ;;
-      oasis7_agent_harness|oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
+      oasis7_agent_harness|oasis7_game_client|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked ;;
