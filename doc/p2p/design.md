@@ -184,6 +184,10 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 
 首版一个 world 至多有一个 scheduled 尚未激活的转换；其他 approved 意图保持未排程，待前次激活后按当时 committed policy/set 重新验证。epoch 意图须由协议确定性映射到提交高度 h 和固定 activation_height=h+2；无法映射、已错过边界或旧 set hash 不符则不排程，不能由单机解释或延后。
 
+V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(epoch_length_ticks)`，`h = activation_height.checked_sub(2)`；溢出、h 不是合法正提交高度或在 h 之后才提交的 activation 均拒绝，首版不在 genesis 排程转换。epoch 长度及映射规则版本绑定到 V2 genesis 与转换链，首版拒绝在线改变该映射的策略更新。已有转换在 A₁ 激活时，下一转换的排程高度 A₂−2 必须不早于 A₁；这按实际边界拒绝重叠，不额外禁止长度为 1 的 epoch。V1 固定集合的历史、wire 和签名域保持自身版本，不按 V2 重解释。
+
+治理集合的只读预演可以基于同一个已认证 committed World，显式解析指定未来 epoch 的 admissions 与 registry；结果必须同时保留来源 commit、真实 state root、已验证 profile、来源 epoch 和目标 epoch，不能把目标 epoch 伪装成当前 World 时间。预演复用治理选择、资格与 registry 校验，错误照常传播，不改变 World、当前集合或运行应用状态，也不构成本机安装 ACK。转换区块的最终集合仍必须从该候选真实执行后的 World 独立重算，不能直接信任调用者提交的预演结果。
+
 | 权威边界 | 集合与证明规则 |
 | --- | --- |
 | h 最终提交 | 旧集合 S_old 签 h；治理动作经同一确定性执行产生完整 S_new、权重/key 映射、旧/新 set hash、原治理决定及 h+2。更新承诺进入 h 的 block/execution roots。 |
