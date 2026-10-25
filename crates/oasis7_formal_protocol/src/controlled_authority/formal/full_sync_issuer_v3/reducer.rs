@@ -85,6 +85,14 @@ pub(super) fn prepare_migration(
             "full-sync V3 migration policy verification changed",
         ));
     }
+    if state
+        .issuer_keys
+        .contains(&verified_new_policy.body().lease_signer_public_key)
+    {
+        return Err(invalid(
+            "full-sync V3 lease signer reuses a historical V2 issuer key",
+        ));
+    }
     observation.verify(old_policy)?;
     if observation.body.current_anchor != state.anchor
         || observation.body.query.body.minimum_anchor != state.anchor

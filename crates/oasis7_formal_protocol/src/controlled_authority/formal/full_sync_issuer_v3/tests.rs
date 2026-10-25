@@ -11,6 +11,8 @@ use crate::controlled_authority::formal::{
 };
 use ed25519_dalek::SigningKey;
 
+#[path = "issuer_key_reuse_tests.rs"]
+mod issuer_key_reuse_tests;
 #[path = "migration_resume_tests.rs"]
 mod migration_resume_tests;
 
