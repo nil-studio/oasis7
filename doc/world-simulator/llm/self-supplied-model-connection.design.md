@@ -78,6 +78,10 @@ Trace refs: O7-REQ-a95a56b1-22b6-4955-b152-0c672310ddb8；[上游要求](../../p
 
 旧 `/v1/agent-client/capabilities`、model-connections/probe/activate/lease/stop/forget 不是新路径必需 API。浏览器本地管理提供对应用户动作，合法世界接口仍要求原认证、签名和服务端授权；缺失浏览器可用的统一接口时该玩法明确阻塞，不自造 wire 合同或绕权。
 
+浏览器 Game Client 的协议校验由独立 Rust/WASM 桥复用 `oasis7_client_api` 的 canonical CBOR、BLAKE3、Ed25519 与 typed validator，不复用渲染 WASM 的信任或以 JS 数值重编码替代签名原文。请求/响应原文在桥中校验后才投影为页面状态。服务公钥和 world/genesis pin 来自部署端唯一注入的 runtime config，不能从 URL、模型建议或未认证快照安装。独立 executor 的非可导出 CryptoKey 与原签名操作/恢复索引存于按账号、世界、Agent 隔离的 IndexedDB；模型 Key 仍只存 localStorage。owner 通过现有 Delegation 与 GameExecutorControl Bind 显式登记 executor，登录身份不直接冒充 executor。
+
+浏览器复用固定同源 `/api/public/hosted-account/v2` 的 participant、entry-owner/control 与 entry-executor/control 网关；部署将 World Service、world/genesis、服务公钥、identity namespace 和 participant issuer 公钥固定注入 runtime config。网关沿用登录 Cookie、CSRF、owner/admission/read 授权与路由白名单，不接收模型凭证；浏览器保留原签名、核验 typed 世界回执，登录本身不授予 executor 权限。请求和响应受大小、总期限和取消限制。启用前核对三类既有网关能力，缺失时禁用；CSP 仅在启用浏览器 BYOK 时精确增加供应商域名。部署显式设置 `OASIS7_BROWSER_BYOK_ENABLED=1`；默认关闭，开启要求 participant-entry、owner-control、executor-control 三个既有启用标记均为 1，以及完整的既有 participant trust、issuer 与 identity namespace/epoch 配置。关闭标记后不注入浏览器信任配置，也不增加模型 CSP 域名。
+
 <a id="model-management-reconciliation"></a>
 
 ### 6.1 本地存储、管理与多标签页

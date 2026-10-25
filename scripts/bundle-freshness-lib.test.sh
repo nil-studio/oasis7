@@ -21,6 +21,10 @@ mkdir -p \
 
 printf '[workspace]\nmembers = []\n' > "$tmp_repo/Cargo.toml"
 printf '# lock\n' > "$tmp_repo/Cargo.lock"
+mkdir -p "$tmp_repo/bundle/web/browser-game-client" "$tmp_repo/crates/oasis7_browser_game_client/src"
+printf 'export const protocol = true;\n' > "$tmp_repo/bundle/web/browser-game-client/oasis7_browser_game_client.js"
+printf '\0asm\n' > "$tmp_repo/bundle/web/browser-game-client/oasis7_browser_game_client_bg.wasm"
+printf 'pub fn protocol() {}\n' > "$tmp_repo/crates/oasis7_browser_game_client/src/lib.rs"
 printf 'pub const VIEWER_PROTOCOL_VERSION: u32 = 7;\n' > "$tmp_repo/crates/oasis7_proto/src/viewer.rs"
 printf '<!doctype html>viewer\n' > "$tmp_repo/crates/oasis7_viewer/viewer.html"
 printf 'console.log("viewer");\n' > "$tmp_repo/crates/oasis7_viewer/viewer.js"
@@ -171,5 +175,25 @@ grep -Fq -- '--bundle-profile "$PROFILE" --bundle-target-triple native' \
   echo "producer playtest must propagate its bundle profile and target" >&2
   exit 1
 }
+
+
+# Both generated protocol artifacts participate in bundle reuse receipts.
+for name in oasis7_browser_game_client.js oasis7_browser_game_client_bg.wasm; do
+  path="$tmp_repo/bundle/web/browser-game-client/$name"
+  printf 'original protocol\n' > "$path"
+  bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
+  printf 'mutated protocol\n' > "$path"
+  expect_asset_drift "mutating browser protocol $name"
+  bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
+  rm "$path"
+  expect_asset_drift "deleting browser protocol $name"
+  printf 'restored protocol\n' > "$path"
+done
+bundle_write_manifest "$tmp_repo" "$tmp_repo/bundle"
+printf 'pub fn changed_protocol() {}\n' >> "$tmp_repo/crates/oasis7_browser_game_client/src/lib.rs"
+if bundle_check_freshness "$tmp_repo" "$tmp_repo/bundle" > /dev/null 2>&1; then
+  echo "browser Game Client source drift must invalidate bundle reuse" >&2
+  exit 1
+fi
 
 echo "bundle freshness lib tests passed"

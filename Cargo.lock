@@ -6167,6 +6167,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oasis7_browser_game_client"
+version = "0.1.0"
+dependencies = [
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "oasis7_cas"
 version = "0.1.0"
 dependencies = [

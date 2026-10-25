@@ -93,3 +93,50 @@ it.each(["freeze", "resume"])("invalidates a visible-page check on %s", async (e
   expect(fetchImpl).toHaveBeenCalledTimes(1);
   expect(session.snapshot().checked).toBe(false);
 });
+
+it("counts connection checks and execution in one persistent account budget", async()=>{
+ const fetchImpl=vi.fn()
+  .mockImplementationOnce(async()=>reply({role:"assistant",content:null,tool_calls:[{type:"function",id:"shared",function:{name:"read_fixture",arguments:"{}"}}]},"tool_calls"))
+  .mockImplementationOnce(async()=>reply({role:"assistant",content:"OK"},"stop"));
+ const {session,storage,doc,win}=setup(fetchImpl);
+ await session.save("key",0); await session.probe(session.snapshot().revision); await session.beginExecution(session.snapshot().revision);
+ for(let i=0;i<6;i++) await session.reserveExecution({inputBytes:100,maxOutputTokens:512});
+ expect(session.snapshot().callsReserved).toBe(8);
+ await expect(session.reserveExecution({inputBytes:1,maxOutputTokens:1})).rejects.toMatchObject({code:"budget_exhausted"});
+ await session.stop(); await expect(session.reserveExecution({inputBytes:1,maxOutputTokens:1})).rejects.toMatchObject({code:"stopped"});
+ const reopened=createBrowserModelSession({accountId:"account-a",storage,locks,documentRef:doc,windowRef:win,navigatorRef:{onLine:true}}); sessions.push(reopened);
+ await reopened.save("replacement",reopened.snapshot().revision); await reopened.beginExecution(reopened.snapshot().revision);
+ await expect(reopened.reserveExecution({inputBytes:1,maxOutputTokens:1})).rejects.toMatchObject({code:"budget_exhausted"});
+});
+
+it("preserves execution on same-revision cross-tab budget settlement but stops on authority change", async()=>{
+ const {session,storage,doc,win}=setup(vi.fn());
+ await session.save("key",0);
+ const credential=await session.beginExecution(session.snapshot().revision);
+ const reservation=await session.reserveExecution({inputBytes:100,maxOutputTokens:512});
+ const second=createBrowserModelSession({accountId:"account-a",storage,locks,documentRef:doc,windowRef:new EventTarget(),navigatorRef:{onLine:true}}); sessions.push(second);
+ await second.settleExecution({reservation,usage:{prompt_tokens:10,completion_tokens:2}});
+ const storageKey="oasis7.browser-model.v1:account-a:deepseek";
+ win.dispatchEvent(Object.assign(new Event("storage"),{key:storageKey}));
+ expect(await credential()).toBe("key");
+ await expect(session.reserveExecution({inputBytes:10,maxOutputTokens:10})).resolves.toBeTruthy();
+ expect(session.snapshot()).toMatchObject({callsReserved:2,tokensReserved:32});
+ await second.stop();
+ win.dispatchEvent(Object.assign(new Event("storage"),{key:storageKey}));
+ await expect(session.reserveExecution({inputBytes:1,maxOutputTokens:1})).rejects.toMatchObject({code:"stopped"});
+ await expect(credential()).rejects.toMatchObject({code:"revision_conflict"});
+});
+
+it("retains a verified check across same-revision budget-only storage notifications", async()=>{
+ const fetchImpl=vi.fn()
+  .mockImplementationOnce(async()=>reply({role:"assistant",content:null,tool_calls:[{type:"function",id:"same-revision",function:{name:"read_fixture",arguments:"{}"}}]},"tool_calls"))
+  .mockImplementationOnce(async()=>reply({role:"assistant",content:"OK"},"stop"));
+ const {session,storage,win}=setup(fetchImpl);
+ await session.save("key",0); await session.probe(session.snapshot().revision);
+ expect(session.snapshot().checked).toBe(true);
+ win.dispatchEvent(Object.assign(new Event("storage"),{key:"oasis7.browser-model.v1:account-a:deepseek"}));
+ expect(session.snapshot().checked).toBe(true);
+ storage.setItem("oasis7.browser-model.v1:account-a:deepseek","corrupt");
+ win.dispatchEvent(Object.assign(new Event("storage"),{key:null}));
+ expect(()=>session.snapshot()).toThrow("storage_corrupt");
+});

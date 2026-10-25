@@ -8,7 +8,7 @@ export function createBrowserModelSession({ accountId, storage, locks, fetchImpl
   monotonicNow = () => globalThis.performance.now() } = {}) {
   const store = createBrowserModelStore({ accountId, storage, locks });
   const listeners = new Set();
-  let controller, generation = 0, disposed = false, checking = false, verifiedRevision = null;
+  let controller, generation = 0, disposed = false, checking = false, verifiedRevision = null, executionRevision = null;
   let lastWall = now(), lastMonotonic = monotonicNow();
   function sampleClock() {
     const wall = now(), monotonic = monotonicNow();
@@ -18,7 +18,7 @@ export function createBrowserModelSession({ accountId, storage, locks, fetchImpl
     return gap;
   }
   const notify = () => { for (const listener of listeners) listener(); };
-  const cancel = () => { generation++; controller?.abort(); controller = null; verifiedRevision = null; };
+  const cancel = () => { executionRevision = null; generation++; controller?.abort(); controller = null; verifiedRevision = null; };
   const unsubscribe = store.subscribe(() => {
     // Local writes and storage notifications carry no credential material.
     if (controller && store.snapshot().revision !== controller.revision) cancel();
@@ -40,8 +40,16 @@ export function createBrowserModelSession({ accountId, storage, locks, fetchImpl
   }, 1000);
   const storageChanged = (event) => {
     if (event.key === null || event.key === store.storageKey) {
-      cancel();
-      try { store.refresh(); } catch { notify(); }
+      try {
+        const current = store.snapshot();
+        const activeRevisions = [controller?.revision, executionRevision, verifiedRevision]
+          .filter((revision) => revision !== undefined && revision !== null);
+        // Another tab may settle usage without changing execution authority.
+        // Budget-only publications must not invalidate a live model response.
+        if (!current.hasKey || current.stopped
+          || activeRevisions.some((revision) => revision !== current.revision)) cancel();
+        store.refresh();
+      } catch { cancel(); notify(); }
     }
   };
   documentRef?.addEventListener("visibilitychange", hidden);
@@ -57,6 +65,21 @@ export function createBrowserModelSession({ accountId, storage, locks, fetchImpl
     stop,
     async forget(revision) { cancel(); return store.forget(revision); },
     async logout() { cancel(); return store.clear(); },
+    async beginExecution(revision) {
+      if (disposed || checking || documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) throw new BrowserModelStoreError("page_inactive");
+      cancel();
+      const started = await store.beginProbe(revision);
+      executionRevision = started.revision;
+      return () => store.credential(started.revision);
+    },
+    async reserveExecution({ inputBytes, maxOutputTokens }) {
+      if (disposed || executionRevision === null || documentRef?.visibilityState !== "visible"
+        || navigatorRef?.onLine === false) throw new BrowserModelStoreError("stopped");
+      return store.reserve({ revision: executionRevision, maxInputTokens: inputBytes, maxOutputTokens, purpose: "execution" });
+    },
+    settleExecution({ reservation, usage }) {
+      return store.settle(reservation, usage ? { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens } : null);
+    },
     async probe(revision) {
       if (disposed || checking) throw new BrowserModelStoreError("probe_busy");
       if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) throw new BrowserModelStoreError("page_inactive");

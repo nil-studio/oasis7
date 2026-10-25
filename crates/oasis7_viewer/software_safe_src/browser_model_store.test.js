@@ -89,3 +89,38 @@ describe("browser model account store", () => {
     expect(() => store.snapshot()).toThrow("storage_unavailable");
   });
 });
+
+it("shares persistent total calls and tokens between probes and execution across tabs", async () => {
+ const { create } = environment(), first = create(), second = create();
+ await first.save("key", 0); await reserve(first, 1, 100, 100);
+ for (let i=0;i<6;i++) await second.reserve({revision:1,maxInputTokens:100,maxOutputTokens:512,purpose:"execution"});
+ expect(first.snapshot()).toMatchObject({callsReserved:7,probeCallsReserved:1,probeTokensReserved:200});
+ const competing = await Promise.allSettled([reserve(first,1,1,1), second.reserve({revision:1,maxInputTokens:1,maxOutputTokens:1,purpose:"execution"})]);
+ expect(competing.filter(item=>item.status==="fulfilled")).toHaveLength(1);
+ expect(first.snapshot().callsReserved).toBe(8);
+ await first.stop(); await first.save("replacement",2);
+ await expect(first.reserve({revision:3,maxInputTokens:1,maxOutputTokens:1,purpose:"execution"})).rejects.toMatchObject({code:"budget_exhausted"});
+ expect(create().snapshot().callsReserved).toBe(8);
+});
+
+it("retains probe sublimits and preserves unknown execution token reservations", async()=>{
+ const { create } = environment(), store=create(); await store.save("key",0);
+ const execution = await store.reserve({revision:1,maxInputTokens:128000,maxOutputTokens:512,purpose:"execution"});
+ await store.settle(execution,null); await reserve(store,1,500,500);
+ await expect(store.reserve({revision:1,maxInputTokens:2000,maxOutputTokens:1,purpose:"execution"})).rejects.toMatchObject({code:"budget_exhausted"});
+ expect(store.snapshot().tokensReserved).toBe(129512);
+ await store.settle(execution,{inputTokens:1,outputTokens:1}); await reserve(store,1,500,500);
+ await expect(reserve(store,1,30,30)).rejects.toMatchObject({code:"budget_exhausted"});
+});
+
+it("counts existing pre-migration probe reservations without resetting their ledger", async()=>{
+ const {create,records}=environment(), store=create(); await store.save("key",0);
+ for(let i=0;i<4;i++) await reserve(store,1,1,1);
+ const original=JSON.parse(records.get(store.storageKey));
+ for(const reservation of original.reservations) delete reservation.purpose;
+ records.set(store.storageKey,JSON.stringify(original));
+ await expect(reserve(create(),1,1,1)).rejects.toMatchObject({code:"budget_exhausted"});
+ for(let i=0;i<4;i++) await create().reserve({revision:1,maxInputTokens:1,maxOutputTokens:1,purpose:"execution"});
+ expect(create().snapshot()).toMatchObject({callsReserved:8,tokensReserved:16});
+ await expect(create().reserve({revision:1,maxInputTokens:1,maxOutputTokens:1,purpose:"execution"})).rejects.toMatchObject({code:"budget_exhausted"});
+});

@@ -16,7 +16,7 @@ function fixture() {
 it("fails closed without a browser Task executor and never instantiates credential storage", () => {
   const createSession = vi.fn();
   const view = render(() => <BrowserModelConnectionPanel accountId="owner" locale="en" createSession={createSession} />);
-  expect(view.container.textContent).toContain("browser Task executor is not integrated");
+  expect(view.container.textContent).toContain("browser task is not prepared");
   expect(view.queryByLabelText("Inference API key")).toBeNull();
   expect(createSession).not.toHaveBeenCalled();
   expect(view.queryByRole("button", { name: "Confirm start" })).toBeNull();
@@ -61,4 +61,11 @@ it("renders fixed errors instead of provider or credential text", async () => {
   fireEvent.submit(view.container.querySelector("form"));
   await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
   expect(view.container.textContent).not.toContain("private-key");
+});
+
+it("distinguishes probe allowance from the shared execution budget", () => {
+ const api=fixture(); api.snapshot=()=>({revision:1,hasKey:true,checking:false,checked:false,callsReserved:7,tokensReserved:90000,probeCallsReserved:2,probeTokensReserved:48});
+ const view=render(()=><BrowserModelConnectionPanel accountId="owner" executionReady={true} locale="en" createSession={()=>api}/>);
+ expect(view.container.textContent).toContain("Check calls used / tokens reserved: 2/4 · 48/2048");
+ expect(view.container.textContent).toContain("Shared check and execution calls / tokens reserved: 7/8 · 90000/131072");
 });

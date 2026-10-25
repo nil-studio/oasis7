@@ -29,10 +29,11 @@ export function createBrowserModelStore({ accountId, storage,
     if (!integer(record.revision) || record.provider !== "deepseek"
       || !(record.key === null || (typeof record.key === "string" && record.key.length > 0))
       || typeof record.stopped !== "boolean" || !integer(record.callsReserved)
-      || record.callsReserved > 4 || !integer(record.tokensReserved) || record.tokensReserved > 2048
-      || !Array.isArray(record.reservations) || record.reservations.length > 4
+      || record.callsReserved > 8 || !integer(record.tokensReserved) || record.tokensReserved > 131072
+      || !Array.isArray(record.reservations) || record.reservations.length > 8
       || record.reservations.some((r) => !integer(r.id) || !integer(r.revision)
-        || !integer(r.tokens) || typeof r.settled !== "boolean")
+        || !integer(r.tokens) || typeof r.settled !== "boolean"
+        || ![undefined, "probe", "execution"].includes(r.purpose))
       || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length
       || record.reservations.length !== record.callsReserved
       || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved
@@ -41,7 +42,10 @@ export function createBrowserModelStore({ accountId, storage,
   }
   const safe = (r) => ({ revision: r.revision, hasKey: Boolean(r.key), provider: r.provider,
     status: !r.key ? "unconfigured" : (r.stopped || blocked ? "stopped" : "saved"),
-    callsReserved: r.callsReserved, tokensReserved: r.tokensReserved, stopped: r.stopped || blocked });
+    callsReserved: r.callsReserved, tokensReserved: r.tokensReserved,
+    probeCallsReserved: r.reservations.filter((item) => item.purpose !== "execution").length,
+    probeTokensReserved: r.reservations.filter((item) => item.purpose !== "execution").reduce((sum, item) => sum + item.tokens, 0),
+    stopped: r.stopped || blocked });
   const emit = () => { for (const listener of listeners) { try { listener(); } catch { /* observer only */ } } };
   function check(r, revision) {
     if (!integer(revision) || r.revision !== revision) fail("revision_conflict");
@@ -96,15 +100,21 @@ export function createBrowserModelStore({ accountId, storage,
         return publish(r);
       });
     },
-    reserve({ revision, maxInputTokens, maxOutputTokens }) {
+    reserve({ revision, maxInputTokens, maxOutputTokens, purpose = "probe" }) {
       return locked((r) => {
         check(r, revision);
         if (blocked || r.stopped) fail("stopped");
         if (!r.key) fail("credential_missing");
         const tokens = maxInputTokens + maxOutputTokens;
         if (!integer(maxInputTokens) || !integer(maxOutputTokens) || !integer(tokens) || tokens === 0) fail("invalid_budget");
-        if (r.callsReserved >= 4 || r.tokensReserved + tokens > 2048) fail("budget_exhausted");
-        const reservation = { id: r.callsReserved + 1, revision, tokens, settled: false };
+        if (!["probe", "execution"].includes(purpose)) fail("invalid_budget");
+        // One persistent account ledger includes probes and game inference.
+        // Existing reservations without purpose are conservatively probes.
+        const probes = r.reservations.filter((item) => item.purpose !== "execution");
+        if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072
+          || (purpose === "probe" && (probes.length >= 4
+            || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048))) fail("budget_exhausted");
+        const reservation = { id: r.callsReserved + 1, revision, tokens, settled: false, purpose };
         r.callsReserved += 1; r.tokensReserved += tokens; r.reservations.push(reservation);
         publish(r);
         return { id: reservation.id, revision };

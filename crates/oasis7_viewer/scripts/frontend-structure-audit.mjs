@@ -218,6 +218,12 @@ async function validateGeneratedRuntimeContracts() {
     failures.push("dist/software_safe_first_agent_claim_evidence.html must remain a generated compatibility view of the canonical claim fixture");
   }
 
+  for (const name of ["oasis7_browser_game_client.js", "oasis7_browser_game_client_bg.wasm"]) {
+    if (!await fileExists(resolve(viewerDistDir, "browser-game-client", name))) {
+      failures.push(`dist/browser-game-client/${name} must exist as a finalize-managed protocol artifact`);
+    }
+  }
+
   if (!await fileExists(pixelWorldRuntimeDir)) {
     failures.push("dist/pixel-world-bridge must exist when crates/oasis7_viewer/dist exists");
     return failures;

@@ -1,6 +1,6 @@
 import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
 import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
-import { BrowserModelConnectionPanel } from "./browser_model_connection_panel.jsx";
+import { BrowserByokSurface } from "./browser_byok_surface.jsx"; import { viewerRuntimeConfig } from "./viewer_runtime_config_module.js"; import { authSigningIdentity } from "./viewer_auth_session_module.js";
 import { AgentChatOwnerControls } from "./agent_chat_owner_controls.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -3395,7 +3395,7 @@ function InteractionPanel() {
         </div>
       </div>
       <AgentContextLite model={selectedAgentContextModel()} locale={locale()} fixtureMetadata={selectedAgentContextFixtureMetadata()} />
-      <BrowserModelConnectionPanel locale={locale} accountId={() => {
+      <BrowserByokSurface locale={locale} config={() => viewerRuntimeConfig().browserGameClient} agentId={agentId} ownerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} accountId={() => {
         observeViewerStateRevision();
         return core.state.auth.available ? core.state.auth.hostedAccountId : null;
       }} />

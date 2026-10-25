@@ -1094,11 +1094,11 @@ function Portal(props) {
 }
 //#endregion
 //#region software_safe_src/viewer_ui_primitives.jsx
-var _tmpl$$43 = /*#__PURE__*/ template(`<span>`);
-var _tmpl$2$40 = /*#__PURE__*/ template(`<div>`);
+var _tmpl$$45 = /*#__PURE__*/ template(`<span>`);
+var _tmpl$2$42 = /*#__PURE__*/ template(`<div>`);
 function Badge(props) {
 	return (() => {
-		var _el$ = _tmpl$$43();
+		var _el$ = _tmpl$$45();
 		insert(_el$, () => props.children);
 		createRenderEffect(() => className(_el$, props.class ?? "badge"));
 		return _el$;
@@ -1106,7 +1106,7 @@ function Badge(props) {
 }
 function EmptyState(props) {
 	return (() => {
-		var _el$2 = _tmpl$2$40();
+		var _el$2 = _tmpl$2$42();
 		insert(_el$2, () => props.children);
 		createRenderEffect((_p$) => {
 			var _v$ = `empty ${props.class ?? ""}`, _v$2 = props.style;
@@ -1122,19 +1122,19 @@ function EmptyState(props) {
 }
 //#endregion
 //#region software_safe_src/recipe_substitution_panel.jsx
-var _tmpl$$42 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$2$39 = /*#__PURE__*/ template(`<section class=panel-section style=min-width:0;overflow-wrap:anywhere><h3></h3><p>`);
-var _tmpl$3$31 = /*#__PURE__*/ template(`<p> · <!> `);
-var _tmpl$4$28 = /*#__PURE__*/ template(`<article><h4> · </h4><p>: <!> / `);
-var _tmpl$5$27 = /*#__PURE__*/ template(`<p>: <!> / <!> / `);
-var _tmpl$6$19 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
-var _tmpl$7$15 = /*#__PURE__*/ template(`<p>: <!> / <!> · `);
-var _tmpl$8$10 = /*#__PURE__*/ template(`<p>: <!> / <!> ÷ `);
-var _tmpl$9$8 = /*#__PURE__*/ template(`<p>: <!> / `);
-var _tmpl$0$7 = /*#__PURE__*/ template(`<div><strong> · </strong><p>: <!> / <!> / </p><p>: <!> / <!> / <!> </p><p>: </p><p>`);
-var _tmpl$1$5 = /*#__PURE__*/ template(`<p>: `);
-var _tmpl$10$4 = /*#__PURE__*/ template(`<p>: <!> · <!>: <!> / `);
-var _tmpl$11$3 = /*#__PURE__*/ template(`<article><p>: </p><p>`);
+var _tmpl$$44 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$2$41 = /*#__PURE__*/ template(`<section class=panel-section style=min-width:0;overflow-wrap:anywhere><h3></h3><p>`);
+var _tmpl$3$33 = /*#__PURE__*/ template(`<p> · <!> `);
+var _tmpl$4$30 = /*#__PURE__*/ template(`<article><h4> · </h4><p>: <!> / `);
+var _tmpl$5$29 = /*#__PURE__*/ template(`<p>: <!> / <!> / `);
+var _tmpl$6$21 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
+var _tmpl$7$17 = /*#__PURE__*/ template(`<p>: <!> / <!> · `);
+var _tmpl$8$12 = /*#__PURE__*/ template(`<p>: <!> / <!> ÷ `);
+var _tmpl$9$10 = /*#__PURE__*/ template(`<p>: <!> / `);
+var _tmpl$0$9 = /*#__PURE__*/ template(`<div><strong> · </strong><p>: <!> / <!> / </p><p>: <!> / <!> / <!> </p><p>: </p><p>`);
+var _tmpl$1$6 = /*#__PURE__*/ template(`<p>: `);
+var _tmpl$10$5 = /*#__PURE__*/ template(`<p>: <!> · <!>: <!> / `);
+var _tmpl$11$4 = /*#__PURE__*/ template(`<article><p>: </p><p>`);
 function RecipeSubstitutionPanel(props) {
 	const tr = (zh, en) => props.locale === "zh" ? zh : en;
 	const missing = () => tr("未发布", "Unpublished");
@@ -1156,7 +1156,7 @@ function RecipeSubstitutionPanel(props) {
 			return props.model;
 		},
 		children: (model) => (() => {
-			var _el$ = _tmpl$2$39(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling;
+			var _el$ = _tmpl$2$41(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling;
 			insert(_el$2, () => tr("配方替代", "Recipe substitution"));
 			insert(_el$3, () => tr("预览与决定不扣料、不转换，也不增加工业进度或奖励。", "Previews and decisions consume no materials, perform no conversion, and add no industrial progress or reward."));
 			insert(_el$, createComponent(For, {
@@ -1164,7 +1164,7 @@ function RecipeSubstitutionPanel(props) {
 					return model().roots;
 				},
 				children: (root) => (() => {
-					var _el$5 = _tmpl$3$31(), _el$6 = _el$5.firstChild, _el$8 = _el$6.nextSibling;
+					var _el$5 = _tmpl$3$33(), _el$6 = _el$5.firstChild, _el$8 = _el$6.nextSibling;
 					_el$8.nextSibling;
 					insert(_el$5, () => root.recipe, _el$6);
 					insert(_el$5, () => tr("工业进度", "Work"), _el$8);
@@ -1177,7 +1177,7 @@ function RecipeSubstitutionPanel(props) {
 					return model().previews;
 				},
 				children: (preview) => (() => {
-					var _el$9 = _tmpl$4$28(), _el$0 = _el$9.firstChild, _el$1 = _el$0.firstChild, _el$11 = _el$0.nextSibling, _el$12 = _el$11.firstChild, _el$14 = _el$12.nextSibling;
+					var _el$9 = _tmpl$4$30(), _el$0 = _el$9.firstChild, _el$1 = _el$0.firstChild, _el$11 = _el$0.nextSibling, _el$12 = _el$11.firstChild, _el$14 = _el$12.nextSibling;
 					_el$14.nextSibling;
 					insert(_el$0, () => preview.slot, _el$1);
 					insert(_el$0, () => status(preview.status), null);
@@ -1186,7 +1186,7 @@ function RecipeSubstitutionPanel(props) {
 							return preview.status === "unknown";
 						},
 						get children() {
-							var _el$10 = _tmpl$$42();
+							var _el$10 = _tmpl$$44();
 							insert(_el$10, () => tr("补齐权威证据后重新预览；未知兼容性不能作为安全选项。", "Restore authority evidence and preview again; unknown compatibility provides no safe option."));
 							return _el$10;
 						}
@@ -1196,7 +1196,7 @@ function RecipeSubstitutionPanel(props) {
 							return preview.candidates;
 						},
 						children: (candidate) => (() => {
-							var _el$16 = _tmpl$0$7(), _el$17 = _el$16.firstChild, _el$18 = _el$17.firstChild, _el$49 = _el$17.nextSibling, _el$50 = _el$49.firstChild, _el$53 = _el$50.nextSibling, _el$54 = _el$53.nextSibling.nextSibling;
+							var _el$16 = _tmpl$0$9(), _el$17 = _el$16.firstChild, _el$18 = _el$17.firstChild, _el$49 = _el$17.nextSibling, _el$50 = _el$49.firstChild, _el$53 = _el$50.nextSibling, _el$54 = _el$53.nextSibling.nextSibling;
 							_el$54.nextSibling;
 							var _el$55 = _el$49.nextSibling, _el$56 = _el$55.firstChild, _el$60 = _el$56.nextSibling, _el$61 = _el$60.nextSibling.nextSibling, _el$62 = _el$61.nextSibling.nextSibling;
 							_el$62.nextSibling;
@@ -1211,7 +1211,7 @@ function RecipeSubstitutionPanel(props) {
 									return candidate.kind === "new_recipe";
 								},
 								get children() {
-									var _el$19 = _tmpl$5$27(), _el$20 = _el$19.firstChild, _el$23 = _el$20.nextSibling, _el$24 = _el$23.nextSibling.nextSibling;
+									var _el$19 = _tmpl$5$29(), _el$20 = _el$19.firstChild, _el$23 = _el$20.nextSibling, _el$24 = _el$23.nextSibling.nextSibling;
 									_el$24.nextSibling;
 									insert(_el$19, () => tr("新配方投入 / 产出 / 用电", "New recipe inputs / outputs / power"), _el$20);
 									insert(_el$19, () => candidate.recipeInputs?.map((item) => `${item.kind} × ${item.amount}`).join(" · "), _el$23);
@@ -1227,7 +1227,7 @@ function RecipeSubstitutionPanel(props) {
 								get children() {
 									return [
 										(() => {
-											var _el$25 = _tmpl$6$19(), _el$26 = _el$25.firstChild, _el$30 = _el$26.nextSibling, _el$31 = _el$30.nextSibling.nextSibling, _el$32 = _el$31.nextSibling.nextSibling;
+											var _el$25 = _tmpl$6$21(), _el$26 = _el$25.firstChild, _el$30 = _el$26.nextSibling, _el$31 = _el$30.nextSibling.nextSibling, _el$32 = _el$31.nextSibling.nextSibling;
 											_el$32.nextSibling;
 											insert(_el$25, () => tr("投入 / 可执行产出", "Input / executable output"), _el$26);
 											insert(_el$25, () => n(candidate.sourceRequired), _el$30);
@@ -1237,7 +1237,7 @@ function RecipeSubstitutionPanel(props) {
 											return _el$25;
 										})(),
 										(() => {
-											var _el$33 = _tmpl$7$15(), _el$34 = _el$33.firstChild, _el$37 = _el$34.nextSibling, _el$38 = _el$37.nextSibling.nextSibling;
+											var _el$33 = _tmpl$7$17(), _el$34 = _el$33.firstChild, _el$37 = _el$34.nextSibling, _el$38 = _el$37.nextSibling.nextSibling;
 											_el$38.nextSibling;
 											insert(_el$33, () => tr("比例 / 取整", "Ratio / rounding"), _el$34);
 											insert(_el$33, () => n(candidate.ratioNumerator), _el$37);
@@ -1249,7 +1249,7 @@ function RecipeSubstitutionPanel(props) {
 											return _el$33;
 										})(),
 										(() => {
-											var _el$39 = _tmpl$8$10(), _el$40 = _el$39.firstChild, _el$43 = _el$40.nextSibling, _el$44 = _el$43.nextSibling.nextSibling;
+											var _el$39 = _tmpl$8$12(), _el$40 = _el$39.firstChild, _el$43 = _el$40.nextSibling, _el$44 = _el$43.nextSibling.nextSibling;
 											_el$44.nextSibling;
 											insert(_el$39, () => tr("损耗 / 残余", "Loss / residual"), _el$40);
 											insert(_el$39, () => n(candidate.loss), _el$43);
@@ -1266,14 +1266,14 @@ function RecipeSubstitutionPanel(props) {
 								},
 								get fallback() {
 									return (() => {
-										var _el$66 = _tmpl$1$5(), _el$67 = _el$66.firstChild;
+										var _el$66 = _tmpl$1$6(), _el$67 = _el$66.firstChild;
 										insert(_el$66, () => tr("终端容量", "Terminal capacity"), _el$67);
 										insert(_el$66, () => n(candidate.terminal), null);
 										return _el$66;
 									})();
 								},
 								get children() {
-									var _el$45 = _tmpl$9$8(), _el$46 = _el$45.firstChild, _el$48 = _el$46.nextSibling;
+									var _el$45 = _tmpl$9$10(), _el$46 = _el$45.firstChild, _el$48 = _el$46.nextSibling;
 									_el$48.nextSibling;
 									insert(_el$45, () => tr("转换用电 / 终端容量", "Conversion power / terminal capacity"), _el$46);
 									insert(_el$45, () => n(candidate.power), _el$48);
@@ -1307,7 +1307,7 @@ function RecipeSubstitutionPanel(props) {
 							return preview.blocker;
 						},
 						get children() {
-							var _el$15 = _tmpl$$42();
+							var _el$15 = _tmpl$$44();
 							insert(_el$15, () => tr("当前条件阻塞，等待补充权威证据或资源后复查。", "Conditions are blocked; recheck after authority evidence or resources become available."));
 							return _el$15;
 						}
@@ -1320,7 +1320,7 @@ function RecipeSubstitutionPanel(props) {
 					return model().decisions;
 				},
 				children: (decision) => (() => {
-					var _el$68 = _tmpl$11$3(), _el$69 = _el$68.firstChild, _el$70 = _el$69.firstChild, _el$71 = _el$69.nextSibling;
+					var _el$68 = _tmpl$11$4(), _el$69 = _el$68.firstChild, _el$70 = _el$69.firstChild, _el$71 = _el$69.nextSibling;
 					insert(_el$69, () => tr("已确认决定", "Confirmed decision"), _el$70);
 					insert(_el$69, () => decision.id, null);
 					insert(_el$71, (() => {
@@ -1333,13 +1333,13 @@ function RecipeSubstitutionPanel(props) {
 						},
 						get fallback() {
 							return (() => {
-								var _el$80 = _tmpl$$42();
+								var _el$80 = _tmpl$$44();
 								insert(_el$80, () => tr("尚无转换结算回执。", "No conversion settlement receipt."));
 								return _el$80;
 							})();
 						},
 						get children() {
-							var _el$72 = _tmpl$10$4(), _el$73 = _el$72.firstChild, _el$77 = _el$73.nextSibling, _el$78 = _el$77.nextSibling.nextSibling, _el$79 = _el$78.nextSibling.nextSibling;
+							var _el$72 = _tmpl$10$5(), _el$73 = _el$72.firstChild, _el$77 = _el$73.nextSibling, _el$78 = _el$77.nextSibling.nextSibling, _el$79 = _el$78.nextSibling.nextSibling;
 							_el$79.nextSibling;
 							insert(_el$72, () => tr("实际转换已结算", "Actual conversion settled"), _el$73);
 							insert(_el$72, () => decision.settlement, _el$77);
@@ -1357,7 +1357,7 @@ function RecipeSubstitutionPanel(props) {
 					return model().truncated;
 				},
 				get children() {
-					var _el$4 = _tmpl$$42();
+					var _el$4 = _tmpl$$44();
 					insert(_el$4, () => tr("结果超过读取上限；请按准确工作身份继续查询。", "Read limit reached; continue using an exact work identity."));
 					return _el$4;
 				}
@@ -1376,10 +1376,10 @@ var BrowserModelStoreError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$2 = (code) => {
+var fail$6 = (code) => {
 	throw new BrowserModelStoreError(code);
 };
-var integer$1 = (value) => Number.isSafeInteger(value) && value >= 0;
+var integer$2 = (value) => Number.isSafeInteger(value) && value >= 0;
 var empty = () => ({
 	schema: 1,
 	revision: 0,
@@ -1391,11 +1391,11 @@ var empty = () => ({
 	reservations: []
 });
 function createBrowserModelStore({ accountId, storage, locks = globalThis.navigator?.locks } = {}) {
-	if (typeof accountId !== "string" || !accountId.trim()) fail$2("account_required");
+	if (typeof accountId !== "string" || !accountId.trim()) fail$6("account_required");
 	if (storage === void 0) try {
 		storage = globalThis.localStorage;
 	} catch {
-		fail$2("storage_unavailable");
+		fail$6("storage_unavailable");
 	}
 	const storageKey = `oasis7.browser-model.v1:${encodeURIComponent(accountId)}:deepseek`;
 	const lockName = `${storageKey}:management`;
@@ -1406,18 +1406,22 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		try {
 			raw = storage?.getItem(storageKey);
 		} catch {
-			fail$2("storage_unavailable");
+			fail$6("storage_unavailable");
 		}
-		if (!storage || typeof storage.setItem !== "function") fail$2("storage_unavailable");
+		if (!storage || typeof storage.setItem !== "function") fail$6("storage_unavailable");
 		if (raw == null) return empty();
 		let record;
 		try {
 			record = JSON.parse(raw);
 		} catch {
-			fail$2("storage_corrupt");
+			fail$6("storage_corrupt");
 		}
-		if (record?.schema !== 1) fail$2("storage_schema_unsupported");
-		if (!integer$1(record.revision) || record.provider !== "deepseek" || !(record.key === null || typeof record.key === "string" && record.key.length > 0) || typeof record.stopped !== "boolean" || !integer$1(record.callsReserved) || record.callsReserved > 4 || !integer$1(record.tokensReserved) || record.tokensReserved > 2048 || !Array.isArray(record.reservations) || record.reservations.length > 4 || record.reservations.some((r) => !integer$1(r.id) || !integer$1(r.revision) || !integer$1(r.tokens) || typeof r.settled !== "boolean") || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$2("storage_corrupt");
+		if (record?.schema !== 1) fail$6("storage_schema_unsupported");
+		if (!integer$2(record.revision) || record.provider !== "deepseek" || !(record.key === null || typeof record.key === "string" && record.key.length > 0) || typeof record.stopped !== "boolean" || !integer$2(record.callsReserved) || record.callsReserved > 8 || !integer$2(record.tokensReserved) || record.tokensReserved > 131072 || !Array.isArray(record.reservations) || record.reservations.length > 8 || record.reservations.some((r) => !integer$2(r.id) || !integer$2(r.revision) || !integer$2(r.tokens) || typeof r.settled !== "boolean" || ![
+			void 0,
+			"probe",
+			"execution"
+		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$6("storage_corrupt");
 		return record;
 	}
 	const safe = (r) => ({
@@ -1427,6 +1431,8 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		status: !r.key ? "unconfigured" : r.stopped || blocked ? "stopped" : "saved",
 		callsReserved: r.callsReserved,
 		tokensReserved: r.tokensReserved,
+		probeCallsReserved: r.reservations.filter((item) => item.purpose !== "execution").length,
+		probeTokensReserved: r.reservations.filter((item) => item.purpose !== "execution").reduce((sum, item) => sum + item.tokens, 0),
 		stopped: r.stopped || blocked
 	});
 	const emit = () => {
@@ -1435,25 +1441,25 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		} catch {}
 	};
 	function check(r, revision) {
-		if (!integer$1(revision) || r.revision !== revision) fail$2("revision_conflict");
+		if (!integer$2(revision) || r.revision !== revision) fail$6("revision_conflict");
 	}
 	async function locked(action) {
-		if (typeof locks?.request !== "function") fail$2("locks_unavailable");
+		if (typeof locks?.request !== "function") fail$6("locks_unavailable");
 		try {
 			return await locks.request(lockName, { mode: "exclusive" }, () => action(read()));
 		} catch (error) {
 			if (error instanceof BrowserModelStoreError) throw error;
-			fail$2("locks_unavailable");
+			fail$6("locks_unavailable");
 		}
 	}
 	function publish(r) {
-		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$2("revision_exhausted");
+		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$6("revision_exhausted");
 		try {
 			storage.setItem(storageKey, JSON.stringify(r));
 		} catch {
 			blocked = true;
 			emit();
-			fail$2("storage_write_failed");
+			fail$6("storage_write_failed");
 		}
 		blocked = false;
 		emit();
@@ -1498,25 +1504,28 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		beginProbe(expectedRevision) {
 			return locked((r) => {
 				check(r, expectedRevision);
-				if (!r.key) fail$2("credential_missing");
+				if (!r.key) fail$6("credential_missing");
 				r.revision += 1;
 				r.stopped = false;
 				return publish(r);
 			});
 		},
-		reserve({ revision, maxInputTokens, maxOutputTokens }) {
+		reserve({ revision, maxInputTokens, maxOutputTokens, purpose = "probe" }) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$2("stopped");
-				if (!r.key) fail$2("credential_missing");
+				if (blocked || r.stopped) fail$6("stopped");
+				if (!r.key) fail$6("credential_missing");
 				const tokens = maxInputTokens + maxOutputTokens;
-				if (!integer$1(maxInputTokens) || !integer$1(maxOutputTokens) || !integer$1(tokens) || tokens === 0) fail$2("invalid_budget");
-				if (r.callsReserved >= 4 || r.tokensReserved + tokens > 2048) fail$2("budget_exhausted");
+				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$6("invalid_budget");
+				if (!["probe", "execution"].includes(purpose)) fail$6("invalid_budget");
+				const probes = r.reservations.filter((item) => item.purpose !== "execution");
+				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$6("budget_exhausted");
 				const reservation = {
 					id: r.callsReserved + 1,
 					revision,
 					tokens,
-					settled: false
+					settled: false,
+					purpose
 				};
 				r.callsReserved += 1;
 				r.tokensReserved += tokens;
@@ -1531,8 +1540,8 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		settle(reservation, usage) {
 			return locked((r) => {
 				const found = r.reservations.find((item) => item.id === reservation?.id && item.revision === reservation?.revision);
-				if (!found || found.settled) fail$2("reservation_invalid");
-				if (!usage || !integer$1(usage.inputTokens) || !integer$1(usage.outputTokens) || !integer$1(usage.inputTokens + usage.outputTokens) || usage.inputTokens + usage.outputTokens > found.tokens) return safe(r);
+				if (!found || found.settled) fail$6("reservation_invalid");
+				if (!usage || !integer$2(usage.inputTokens) || !integer$2(usage.outputTokens) || !integer$2(usage.inputTokens + usage.outputTokens) || usage.inputTokens + usage.outputTokens > found.tokens) return safe(r);
 				const used = usage.inputTokens + usage.outputTokens;
 				r.tokensReserved -= found.tokens - used;
 				found.tokens = used;
@@ -1543,8 +1552,8 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		credential(revision) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$2("stopped");
-				if (!r.key) fail$2("credential_missing");
+				if (blocked || r.stopped) fail$6("stopped");
+				if (!r.key) fail$6("credential_missing");
 				return r.key;
 			});
 		}
@@ -1573,7 +1582,7 @@ var BrowserModelError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$1 = (code) => {
+var fail$5 = (code) => {
 	throw new BrowserModelError(code);
 };
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1630,28 +1639,28 @@ function schemaMatches(value, schema, depth = 0) {
 	}
 }
 function normalizeResponse(raw, tools) {
-	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$1("protocol_incompatible");
+	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$5("protocol_incompatible");
 	const choice = raw.choices[0], message = choice?.message;
-	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$1("protocol_incompatible");
-	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$1("protocol_incompatible");
+	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$5("protocol_incompatible");
+	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$5("protocol_incompatible");
 	const clean = {
 		role: "assistant",
 		content: message.content ?? null
 	};
 	if (choice.finish_reason === "tool_calls") {
-		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$1("tool_invalid");
+		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$5("tool_invalid");
 		const ids = /* @__PURE__ */ new Set();
 		clean.tool_calls = message.tool_calls.map((call) => {
 			const fn = call?.function, definition = tools.find((tool) => tool.function.name === fn?.name);
-			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$1("tool_invalid");
+			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$5("tool_invalid");
 			ids.add(call.id);
 			let args;
 			try {
 				args = JSON.parse(fn.arguments);
 			} catch {
-				fail$1("tool_invalid");
+				fail$5("tool_invalid");
 			}
-			if (!schemaMatches(args, definition.function.parameters)) fail$1("tool_invalid");
+			if (!schemaMatches(args, definition.function.parameters)) fail$5("tool_invalid");
 			return {
 				id: call.id,
 				type: "function",
@@ -1661,7 +1670,7 @@ function normalizeResponse(raw, tools) {
 				}
 			};
 		});
-	} else if (message.tool_calls?.length) fail$1("tool_invalid");
+	} else if (message.tool_calls?.length) fail$5("tool_invalid");
 	let usage = null;
 	if (object(raw.usage) && [
 		"prompt_tokens",
@@ -1683,8 +1692,8 @@ function normalizeResponse(raw, tools) {
 	};
 }
 async function readBounded(response) {
-	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$1("output_limit");
-	if (!response.body?.getReader) fail$1("protocol_incompatible");
+	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$5("output_limit");
+	if (!response.body?.getReader) fail$5("protocol_incompatible");
 	const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 	let length = 0, result = "";
 	try {
@@ -1692,7 +1701,7 @@ async function readBounded(response) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			length += value.byteLength;
-			if (length > OUTPUT_LIMIT) fail$1("output_limit");
+			if (length > OUTPUT_LIMIT) fail$5("output_limit");
 			result += decoder.decode(value, { stream: true });
 		}
 		result += decoder.decode();
@@ -1704,15 +1713,15 @@ async function readBounded(response) {
 	try {
 		return JSON.parse(result);
 	} catch {
-		fail$1("protocol_incompatible");
+		fail$5("protocol_incompatible");
 	}
 }
 async function callBrowserModel({ key, getCredential, messages, tools = [], toolChoice, signal, fetchImpl = globalThis.fetch, maxOutputTokens = 128, beforeSend, afterResponse } = {}) {
 	const validKey = (value) => typeof value === "string" && value.trim() && !/[\r\n]/.test(value);
-	if (typeof getCredential !== "function" && !validKey(key)) fail$1("credential_invalid");
-	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$1("input_invalid");
-	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$1("input_invalid");
-	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$1("input_limit");
+	if (typeof getCredential !== "function" && !validKey(key)) fail$5("credential_invalid");
+	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$5("input_invalid");
+	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$5("input_invalid");
+	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$5("input_limit");
 	let body;
 	try {
 		body = JSON.stringify({
@@ -1727,11 +1736,11 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			thinking: { type: "disabled" }
 		});
 	} catch {
-		fail$1("input_invalid");
+		fail$5("input_invalid");
 	}
 	const inputBytes = bytes$1(body);
-	if (inputBytes > INPUT_LIMIT) fail$1("input_limit");
-	if (signal?.aborted) fail$1("cancelled");
+	if (inputBytes > INPUT_LIMIT) fail$5("input_limit");
+	if (signal?.aborted) fail$5("cancelled");
 	const reservation = await beforeSend?.({
 		maxOutputTokens,
 		inputBytes
@@ -1749,8 +1758,8 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 		});
 		result = await Promise.race([(async () => {
 			const sendingKey = getCredential ? await getCredential(reservation) : key;
-			if (!validKey(sendingKey)) fail$1("credential_invalid");
-			if (signal?.aborted || controller.signal.aborted) fail$1("cancelled");
+			if (!validKey(sendingKey)) fail$5("credential_invalid");
+			if (signal?.aborted || controller.signal.aborted) fail$5("cancelled");
 			sent = true;
 			const response = await fetchImpl(PRESET.endpoint, {
 				method: "POST",
@@ -1766,7 +1775,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 				body,
 				signal: controller.signal
 			});
-			if (!response.ok) fail$1(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
+			if (!response.ok) fail$5(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
 			return normalizeResponse(await readBounded(response), tools);
 		})(), timedOut]);
 	} catch (error) {
@@ -1776,7 +1785,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			status: "unknown"
 		});
 		if (error instanceof BrowserModelError) throw error;
-		fail$1(signal?.aborted ? "cancelled" : "network_or_cors");
+		fail$5(signal?.aborted ? "cancelled" : "network_or_cors");
 	} finally {
 		clearTimeout(timeout);
 		signal?.removeEventListener("abort", abort);
@@ -1817,7 +1826,7 @@ async function probeBrowserModel(options = {}) {
 			function: { name: "read_fixture" }
 		}
 	})).choices[0].message;
-	if (assistant.tool_calls?.length !== 1) fail$1("probe_incompatible");
+	if (assistant.tool_calls?.length !== 1) fail$5("probe_incompatible");
 	const final = await callBrowserModel({
 		...options,
 		maxOutputTokens: 128,
@@ -1833,7 +1842,7 @@ async function probeBrowserModel(options = {}) {
 			}
 		]
 	});
-	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$1("probe_incompatible");
+	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$5("probe_incompatible");
 	return {
 		provider_id: PRESET.provider_id,
 		model: PRESET.model,
@@ -1850,7 +1859,7 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 		locks
 	});
 	const listeners = /* @__PURE__ */ new Set();
-	let controller, generation = 0, disposed = false, checking = false, verifiedRevision = null;
+	let controller, generation = 0, disposed = false, checking = false, verifiedRevision = null, executionRevision = null;
 	let lastWall = now(), lastMonotonic = monotonicNow();
 	function sampleClock() {
 		const wall = now(), monotonic = monotonicNow();
@@ -1863,6 +1872,7 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 		for (const listener of listeners) listener();
 	};
 	const cancel = () => {
+		executionRevision = null;
 		generation++;
 		controller?.abort();
 		controller = null;
@@ -1890,13 +1900,18 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 		if (sampleClock() && checking) pagehide();
 	}, 1e3);
 	const storageChanged = (event) => {
-		if (event.key === null || event.key === store.storageKey) {
+		if (event.key === null || event.key === store.storageKey) try {
+			const current = store.snapshot();
+			const activeRevisions = [
+				controller?.revision,
+				executionRevision,
+				verifiedRevision
+			].filter((revision) => revision !== void 0 && revision !== null);
+			if (!current.hasKey || current.stopped || activeRevisions.some((revision) => revision !== current.revision)) cancel();
+			store.refresh();
+		} catch {
 			cancel();
-			try {
-				store.refresh();
-			} catch {
-				notify();
-			}
+			notify();
 		}
 	};
 	documentRef?.addEventListener("visibilitychange", hidden);
@@ -1929,6 +1944,28 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 		async logout() {
 			cancel();
 			return store.clear();
+		},
+		async beginExecution(revision) {
+			if (disposed || checking || documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) throw new BrowserModelStoreError("page_inactive");
+			cancel();
+			const started = await store.beginProbe(revision);
+			executionRevision = started.revision;
+			return () => store.credential(started.revision);
+		},
+		async reserveExecution({ inputBytes, maxOutputTokens }) {
+			if (disposed || executionRevision === null || documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) throw new BrowserModelStoreError("stopped");
+			return store.reserve({
+				revision: executionRevision,
+				maxInputTokens: inputBytes,
+				maxOutputTokens,
+				purpose: "execution"
+			});
+		},
+		settleExecution({ reservation, usage }) {
+			return store.settle(reservation, usage ? {
+				inputTokens: usage.prompt_tokens,
+				outputTokens: usage.completion_tokens
+			} : null);
 		},
 		async probe(revision) {
 			if (disposed || checking) throw new BrowserModelStoreError("probe_busy");
@@ -2001,15 +2038,16 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 var modelConnectionStyles = ".model-connection-panel { margin-block: 1rem; padding: .8rem; border: 1px solid var(--border, #777); border-radius: .5rem; min-width: 0; }\n.model-connection-panel summary { cursor: pointer; font-weight: 600; }\n.model-connection-panel p { overflow-wrap: anywhere; line-height: 1.5; }\n.model-connection-panel label { display: grid; gap: .4rem; margin-block: .7rem; min-width: 0; }\n.model-connection-panel select, .model-connection-panel input[type=password] { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; font: inherit; padding: .5rem; }\n.model-connection-panel .model-connection-panel__check { display: flex; align-items: flex-start; gap: .5rem; }\n.model-connection-panel__check input { flex: 0 0 auto; margin-top: .25rem; }\n.model-connection-panel__actions { display: flex; flex-wrap: wrap; gap: .6rem; }\n.model-connection-panel button { white-space: normal; overflow-wrap: anywhere; min-height: 2.75rem; font: inherit; margin-block: .25rem; }\n.model-connection-panel :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }\n\n";
 //#endregion
 //#region software_safe_src/browser_model_connection_panel.jsx
-var _tmpl$$41 = /*#__PURE__*/ template(`<p role=status>`);
-var _tmpl$2$38 = /*#__PURE__*/ template(`<p role=alert>`);
-var _tmpl$3$30 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$4$27 = /*#__PURE__*/ template(`<form><label><input type=password autocomplete=off></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
-var _tmpl$5$26 = /*#__PURE__*/ template(`<p role=status> `);
-var _tmpl$6$18 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
-var _tmpl$7$14 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
-var _tmpl$8$9 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button>`);
-var _tmpl$9$7 = /*#__PURE__*/ template(`<details class=model-connection-panel><style></style><summary></summary><p>`);
+var _tmpl$$43 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$2$40 = /*#__PURE__*/ template(`<p role=alert>`);
+var _tmpl$3$32 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$4$29 = /*#__PURE__*/ template(`<form><label><input type=password autocomplete=off></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
+var _tmpl$5$28 = /*#__PURE__*/ template(`<p role=status> `);
+var _tmpl$6$20 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
+var _tmpl$7$16 = /*#__PURE__*/ template(`<p>: <!>/8 · <!>/131072`);
+var _tmpl$8$11 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
+var _tmpl$9$9 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button>`);
+var _tmpl$0$8 = /*#__PURE__*/ template(`<details class=model-connection-panel><style></style><summary></summary><p>`);
 function BrowserModelConnectionPanel(props) {
 	const read = (value) => typeof value === "function" ? value() : value;
 	const zh = () => String(read(props.locale) || "en").startsWith("zh");
@@ -2022,7 +2060,7 @@ function BrowserModelConnectionPanel(props) {
 	let session, previousAccount, unsubscribe, input, alive = true, context = 0;
 	const ready = () => Boolean(read(props.accountId)) && read(props.executionReady) === true;
 	const notice = (code) => {
-		if (code === "budget_exhausted") return tr("本次检查预算已用尽，未发出新调用。", "The connection-check budget is exhausted; no new call was sent.");
+		if (code === "budget_exhausted") return tr("检查子预算或共享总预算已用尽，未发出新调用。", "The check allowance or shared total budget is exhausted; no new call was sent.");
 		if (code === "authentication_failed") return tr("供应商认证失败，请检查 Key。", "Provider authentication failed. Check your key.");
 		if (code === "revision_conflict" || code === "stopped" || code === "cancelled") return tr("配置或页面状态已改变；本次检查已停止。", "Configuration or page state changed; this check has stopped.");
 		if (String(code).startsWith("storage_") || code === "locks_unavailable") return tr("本机存储或页面互斥不可用。已停止；若忘记失败，请清除本站数据。", "Local storage or page locking is unavailable. Stopped; clear site data if forgetting failed.");
@@ -2039,6 +2077,7 @@ function BrowserModelConnectionPanel(props) {
 	createEffect(() => {
 		const account = read(props.accountId);
 		const enabled = ready();
+		const external = read(props.session);
 		context++;
 		if (input) input.value = "";
 		setConsent(false);
@@ -2048,7 +2087,7 @@ function BrowserModelConnectionPanel(props) {
 		unsubscribe?.();
 		const old = session;
 		session = null;
-		if (old) {
+		if (old && !props.session) {
 			if (previousAccount !== account) old.logout().catch((failure) => {
 				if (alive) setError(notice(failure.code));
 			});
@@ -2058,7 +2097,10 @@ function BrowserModelConnectionPanel(props) {
 			old.dispose();
 		}
 		previousAccount = account;
-		if (enabled) try {
+		if (external) {
+			session = external;
+			unsubscribe = session.subscribe(refresh);
+		} else if (enabled) try {
 			session = (props.createSession || createBrowserModelSession)({ accountId: account });
 			unsubscribe = session.subscribe(refresh);
 		} catch (failure) {
@@ -2087,12 +2129,14 @@ function BrowserModelConnectionPanel(props) {
 		alive = false;
 		context++;
 		unsubscribe?.();
-		session?.stop().catch(() => {});
-		session?.dispose();
+		if (!props.session) {
+			session?.stop().catch(() => {});
+			session?.dispose();
+		}
 		if (input) input.value = "";
 	});
 	return (() => {
-		var _el$ = _tmpl$9$7(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling;
+		var _el$ = _tmpl$0$8(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling;
 		insert(_el$2, modelConnectionStyles);
 		insert(_el$3, () => tr("自带模型连接", "Use your own model"));
 		insert(_el$4, () => tr("浏览器直接调用 DeepSeek 官方；Key 保存在本站 localStorage，刷新或关页后仍保留。同源脚本可读，共享设备请谨慎使用。Key 不上传 Oasis7 后端。", "Your browser calls DeepSeek directly. The key stays in this site's localStorage after reload or close. Same-origin scripts can read it; use care on shared devices. The key is never uploaded to the Oasis7 backend."));
@@ -2101,7 +2145,7 @@ function BrowserModelConnectionPanel(props) {
 				return !read(props.accountId);
 			},
 			get children() {
-				var _el$5 = _tmpl$$41();
+				var _el$5 = _tmpl$$43();
 				insert(_el$5, () => tr("请先登录玩家账号。", "Sign in to your player account first."));
 				return _el$5;
 			}
@@ -2111,8 +2155,8 @@ function BrowserModelConnectionPanel(props) {
 				return memo(() => !!read(props.accountId))() && !ready();
 			},
 			get children() {
-				var _el$6 = _tmpl$$41();
-				insert(_el$6, () => tr("浏览器 Task 执行客户端尚未接入，暂不接收 Key 或启动 Agent。目标授权、Context 与原操作核对必须先就绪；刷新连接不能证明世界结果。", "The browser Task executor is not integrated. Keys and Agent starts are disabled until task authorization, Context and original-operation lookup are available. Connection refresh cannot prove world outcomes."));
+				var _el$6 = _tmpl$$43();
+				insert(_el$6, () => tr("浏览器任务执行尚未准备，暂不接收 Key 或启动 Agent。请先核对实际任务并登记执行身份；刷新连接不能证明世界结果。", "The browser task is not prepared. Inspect the actual task and register this executor before saving a key or starting. Connection refresh cannot prove world outcomes."));
 				return _el$6;
 			}
 		}), null);
@@ -2121,7 +2165,7 @@ function BrowserModelConnectionPanel(props) {
 				return error();
 			},
 			get children() {
-				var _el$7 = _tmpl$2$38();
+				var _el$7 = _tmpl$2$40();
 				insert(_el$7, error);
 				return _el$7;
 			}
@@ -2133,12 +2177,12 @@ function BrowserModelConnectionPanel(props) {
 			get children() {
 				return [
 					(() => {
-						var _el$8 = _tmpl$3$30();
+						var _el$8 = _tmpl$3$32();
 						insert(_el$8, () => tr("供应商：DeepSeek 官方 · deepseek-flash。OpenRouter 尚未支持。供应商账户付费；本页预算不限制 Key 在其他应用的消费。", "Provider: official DeepSeek · deepseek-flash. OpenRouter is not supported yet. Your provider account pays; this page cannot cap spending by other apps."));
 						return _el$8;
 					})(),
 					(() => {
-						var _el$9 = _tmpl$4$27(), _el$0 = _el$9.firstChild, _el$1 = _el$0.firstChild, _el$10 = _el$0.nextSibling, _el$11 = _el$10.firstChild, _el$12 = _el$10.nextSibling;
+						var _el$9 = _tmpl$4$29(), _el$0 = _el$9.firstChild, _el$1 = _el$0.firstChild, _el$10 = _el$0.nextSibling, _el$11 = _el$10.firstChild, _el$12 = _el$10.nextSibling;
 						_el$9.addEventListener("submit", (event) => {
 							event.preventDefault();
 							if (!consent() || busy()) return;
@@ -2175,7 +2219,7 @@ function BrowserModelConnectionPanel(props) {
 						return _el$9;
 					})(),
 					(() => {
-						var _el$13 = _tmpl$5$26(), _el$14 = _el$13.firstChild;
+						var _el$13 = _tmpl$5$28(), _el$14 = _el$13.firstChild;
 						insert(_el$13, (() => {
 							var _c$ = memo(() => !!snapshot()?.hasKey);
 							return () => _c$() ? tr("Key 已保存；尚未开始 Agent。", "Key saved; Agent has not started.") : tr("尚未保存 Key。", "No key saved.");
@@ -2187,48 +2231,58 @@ function BrowserModelConnectionPanel(props) {
 						return _el$13;
 					})(),
 					(() => {
-						var _el$15 = _tmpl$6$18(), _el$16 = _el$15.firstChild, _el$19 = _el$16.nextSibling, _el$20 = _el$19.nextSibling.nextSibling;
+						var _el$15 = _tmpl$6$20(), _el$16 = _el$15.firstChild, _el$19 = _el$16.nextSibling, _el$20 = _el$19.nextSibling.nextSibling;
 						_el$20.nextSibling;
 						insert(_el$15, () => tr("已占用检查次数 / token 预留", "Check calls used / tokens reserved"), _el$16);
-						insert(_el$15, () => snapshot()?.callsReserved, _el$19);
-						insert(_el$15, () => snapshot()?.tokensReserved, _el$20);
+						insert(_el$15, () => snapshot()?.probeCallsReserved ?? snapshot()?.callsReserved, _el$19);
+						insert(_el$15, () => snapshot()?.probeTokensReserved ?? snapshot()?.tokensReserved, _el$20);
 						return _el$15;
 					})(),
 					(() => {
-						var _el$21 = _tmpl$7$14(), _el$22 = _el$21.firstChild;
-						_el$22.addEventListener("change", (event) => setProbeConsent(event.currentTarget.checked));
-						insert(_el$21, () => tr("同意一次两请求的有限付费工具检查，不写游戏世界。", "Consent to one bounded, two-request, billable tool check; no world writes."), null);
-						createRenderEffect(() => _el$22.disabled = busy() || !snapshot()?.hasKey);
-						createRenderEffect(() => _el$22.checked = probeConsent());
+						var _el$21 = _tmpl$7$16(), _el$22 = _el$21.firstChild, _el$25 = _el$22.nextSibling, _el$26 = _el$25.nextSibling.nextSibling;
+						_el$26.nextSibling;
+						insert(_el$21, () => tr("检查与运行共享总次数 / token 预留", "Shared check and execution calls / tokens reserved"), _el$22);
+						insert(_el$21, () => snapshot()?.callsReserved, _el$25);
+						insert(_el$21, () => snapshot()?.tokensReserved, _el$26);
 						return _el$21;
 					})(),
 					(() => {
-						var _el$23 = _tmpl$8$9(), _el$24 = _el$23.firstChild, _el$25 = _el$24.nextSibling, _el$26 = _el$25.nextSibling;
-						_el$24.$$click = () => void act((active) => active.probe(snapshot().revision));
-						insert(_el$24, () => tr("测试连接", "Test connection"));
-						_el$25.$$click = () => {
+						var _el$27 = _tmpl$8$11(), _el$28 = _el$27.firstChild;
+						_el$28.addEventListener("change", (event) => setProbeConsent(event.currentTarget.checked));
+						insert(_el$27, () => tr("同意一次两请求的有限付费工具检查，不写游戏世界。", "Consent to one bounded, two-request, billable tool check; no world writes."), null);
+						createRenderEffect(() => _el$28.disabled = busy() || !snapshot()?.hasKey);
+						createRenderEffect(() => _el$28.checked = probeConsent());
+						return _el$27;
+					})(),
+					(() => {
+						var _el$29 = _tmpl$9$9(), _el$30 = _el$29.firstChild, _el$31 = _el$30.nextSibling, _el$32 = _el$31.nextSibling;
+						_el$30.$$click = () => void act((active) => active.probe(snapshot().revision));
+						insert(_el$30, () => tr("测试连接", "Test connection"));
+						_el$31.$$click = () => {
+							props.onStop?.();
 							setError("");
 							session.stop().then(refresh).catch((failure) => {
 								if (alive) setError(notice(failure.code));
 							});
 						};
-						_el$25.disabled = !session;
-						insert(_el$25, () => tr("停止新决策", "Stop new decisions"));
-						_el$26.$$click = () => {
+						_el$31.disabled = !session;
+						insert(_el$31, () => tr("停止新决策", "Stop new decisions"));
+						_el$32.$$click = () => {
+							props.onStop?.();
 							setError("");
 							session.forget().then(refresh).catch((failure) => {
 								if (alive) setError(notice(failure.code));
 							});
 						};
-						_el$26.disabled = !session;
-						insert(_el$26, () => tr("断开并忘记", "Disconnect and forget"));
-						createRenderEffect(() => _el$24.disabled = busy() || !probeConsent() || !snapshot()?.hasKey);
-						return _el$23;
+						_el$32.disabled = !session;
+						insert(_el$32, () => tr("断开并忘记", "Disconnect and forget"));
+						createRenderEffect(() => _el$30.disabled = busy() || !probeConsent() || !snapshot()?.hasKey);
+						return _el$29;
 					})(),
 					(() => {
-						var _el$27 = _tmpl$3$30();
-						insert(_el$27, () => tr("停止保留 Key；忘记删除本站保存的 Key。两者不撤销供应商 Key，不保证已发请求退款，也不取消已受理的世界作业。", "Stop retains the key; Forget removes it from site data. Neither revokes the provider key, guarantees refunds for sent requests, nor cancels accepted world jobs."));
-						return _el$27;
+						var _el$33 = _tmpl$3$32();
+						insert(_el$33, () => tr("停止保留 Key；忘记删除本站保存的 Key。两者不撤销供应商 Key，不保证已发请求退款，也不取消已受理的世界作业。", "Stop retains the key; Forget removes it from site data. Neither revokes the provider key, guarantees refunds for sent requests, nor cancels accepted world jobs."));
+						return _el$33;
 					})()
 				];
 			}
@@ -2237,6 +2291,3501 @@ function BrowserModelConnectionPanel(props) {
 	})();
 }
 delegateEvents(["click"]);
+//#endregion
+//#region software_safe_src/browser_game_protocol.js
+var loaded;
+function loadBrowserGameProtocol() {
+	if (!loaded) loaded = (async () => {
+		const bridge = await import(
+			/* @vite-ignore */
+			new URL("./browser-game-client/oasis7_browser_game_client.js", "" + import.meta.url).href
+);
+		await bridge.default({ module_or_path: new URL("./browser-game-client/oasis7_browser_game_client_bg.wasm", "" + import.meta.url) });
+		if ([
+			"world_signing_bytes",
+			"world_request_digest",
+			"world_verify_response",
+			"world_verify_gateway_response",
+			"world_validate",
+			"world_build"
+		].some((name) => typeof bridge[name] !== "function")) throw new Error("game_protocol_unavailable");
+		return Object.freeze({
+			signingBytes: bridge.world_signing_bytes,
+			requestDigest: bridge.world_request_digest,
+			verifyResponse: bridge.world_verify_response,
+			verifyGatewayResponse: bridge.world_verify_gateway_response,
+			validate: bridge.world_validate,
+			build: bridge.world_build
+		});
+	})().catch(() => {
+		loaded = null;
+		throw new Error("game_protocol_unavailable");
+	});
+	return loaded;
+}
+//#endregion
+//#region software_safe_src/browser_game_identity.js
+var BrowserGameStorageError = class extends Error {
+	constructor(code) {
+		super(code);
+		this.name = "BrowserGameStorageError";
+		this.code = code;
+	}
+};
+var gameStorageFail = (code) => {
+	throw new BrowserGameStorageError(code);
+};
+function createBrowserGameDatabase(indexedDB = globalThis.indexedDB) {
+	let opening;
+	const open = () => {
+		if (!indexedDB?.open) return Promise.reject(new BrowserGameStorageError("indexeddb_unavailable"));
+		if (!opening) opening = new Promise((resolve, reject) => {
+			let request;
+			try {
+				request = indexedDB.open("oasis7-browser-game-v1", 1);
+			} catch {
+				reject(new BrowserGameStorageError("indexeddb_unavailable"));
+				return;
+			}
+			request.onupgradeneeded = () => {
+				if (!request.result.objectStoreNames.contains("records")) request.result.createObjectStore("records");
+			};
+			request.onsuccess = () => {
+				const db = request.result;
+				db.onversionchange = () => {
+					db.close();
+					opening = void 0;
+				};
+				resolve(db);
+			};
+			request.onerror = () => reject(new BrowserGameStorageError("indexeddb_unavailable"));
+			request.onblocked = () => reject(new BrowserGameStorageError("indexeddb_blocked"));
+		});
+		return opening;
+	};
+	const transaction = async (key, mutate) => {
+		const db = await open();
+		return new Promise((resolve, reject) => {
+			let tx;
+			let result;
+			let failure;
+			try {
+				tx = db.transaction("records", mutate ? "readwrite" : "readonly");
+				const store = tx.objectStore("records");
+				const request = store.get(key);
+				request.onsuccess = () => {
+					try {
+						result = mutate ? mutate(request.result) : request.result;
+						if (mutate) store.put(result, key);
+					} catch (error) {
+						failure = error;
+						tx.abort();
+					}
+				};
+				tx.oncomplete = () => resolve(result);
+				tx.onabort = tx.onerror = () => reject(failure instanceof BrowserGameStorageError ? failure : new BrowserGameStorageError("indexeddb_transaction_failed"));
+			} catch {
+				reject(new BrowserGameStorageError("indexeddb_transaction_failed"));
+			}
+		});
+	};
+	return {
+		get: (key) => transaction(key),
+		update: (key, mutate) => transaction(key, mutate)
+	};
+}
+function browserIdentityScope(scope) {
+	const fields = [
+		scope?.worldId,
+		scope?.genesisDigest,
+		scope?.accountId,
+		scope?.agentId
+	];
+	if (fields.some((value) => typeof value !== "string" || !value.trim() || value.length > 512)) gameStorageFail("identity_scope_invalid");
+	return JSON.stringify(fields);
+}
+var hex$4 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+function createBrowserExecutorIdentity({ indexedDB, storage, cryptoImpl = globalThis.crypto } = {}) {
+	const database = storage ?? createBrowserGameDatabase(indexedDB);
+	async function validate(record, scopeKey) {
+		if (record?.schema !== 1 || record.scopeKey !== scopeKey || !/^[0-9a-f]{64}$/.test(record.publicKeyHex) || record.privateKey?.type !== "private" || record.privateKey.extractable !== false || record.privateKey.algorithm?.name !== "Ed25519" || record.privateKey.usages?.length !== 1 || record.privateKey.usages[0] !== "sign") gameStorageFail("executor_identity_corrupt");
+		try {
+			const publicBytes = Uint8Array.from(record.publicKeyHex.match(/../g), (part) => parseInt(part, 16));
+			const publicKey = await cryptoImpl.subtle.importKey("raw", publicBytes, "Ed25519", false, ["verify"]);
+			const challenge = new TextEncoder().encode(`oasis7/browser-executor-storage/v1:${scopeKey}`);
+			const signature = await cryptoImpl.subtle.sign("Ed25519", record.privateKey, challenge);
+			if (!await cryptoImpl.subtle.verify("Ed25519", publicKey, signature, challenge)) gameStorageFail("executor_identity_corrupt");
+		} catch {
+			gameStorageFail("executor_identity_corrupt");
+		}
+		return Object.freeze({
+			publicKeyHex: record.publicKeyHex,
+			async sign(bytes) {
+				if (!(bytes instanceof Uint8Array)) gameStorageFail("signing_bytes_invalid");
+				try {
+					return new Uint8Array(await cryptoImpl.subtle.sign("Ed25519", record.privateKey, bytes));
+				} catch {
+					gameStorageFail("executor_signing_failed");
+				}
+			}
+		});
+	}
+	return { async getOrCreate(scope) {
+		const scopeKey = browserIdentityScope(scope);
+		if (!cryptoImpl?.subtle) gameStorageFail("webcrypto_unavailable");
+		const key = `executor:${scopeKey}`;
+		const existing = await database.get(key);
+		if (existing !== void 0) return validate(existing, scopeKey);
+		let candidate;
+		try {
+			const pair = await cryptoImpl.subtle.generateKey("Ed25519", false, ["sign", "verify"]);
+			candidate = {
+				schema: 1,
+				scopeKey,
+				privateKey: pair.privateKey,
+				publicKeyHex: hex$4(new Uint8Array(await cryptoImpl.subtle.exportKey("raw", pair.publicKey)))
+			};
+		} catch {
+			gameStorageFail("executor_crypto_unsupported");
+		}
+		return validate(await database.update(key, (stored) => stored === void 0 ? candidate : stored), scopeKey);
+	} };
+}
+//#endregion
+//#region software_safe_src/browser_game_recovery.js
+function stable(value) {
+	if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+	if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+	if (Array.isArray(value)) return value.map(stable);
+	if (value && Object.getPrototypeOf(value) === Object.prototype) return Object.fromEntries(Object.keys(value).sort().map((key) => {
+		if (/^(api_?key|model_?key|authorization|private_?key|credential)$/i.test(key)) gameStorageFail("recovery_secret_forbidden");
+		return [key, stable(value[key])];
+	}));
+	gameStorageFail("recovery_record_invalid");
+}
+var encode$1 = (value) => JSON.stringify(stable(value));
+var copy$2 = (value) => JSON.parse(JSON.stringify(value));
+var states = /* @__PURE__ */ new Set([
+	"received",
+	"pending",
+	"unknown",
+	"history_unavailable",
+	"committed",
+	"rejected",
+	"expired"
+]);
+var terminal$1 = (state) => [
+	"committed",
+	"rejected",
+	"expired"
+].includes(state);
+var integer$1 = (value) => Number.isSafeInteger(value) && value >= 0;
+var BROWSER_GAME_RUN_LIMITS = Object.freeze({
+	maxCalls: 8,
+	maxTokens: 131072,
+	maxOutputTokens: 512,
+	maxDurationMs: 12e4
+});
+function operationId(value) {
+	if (typeof value !== "string" || !value.trim() || value.length > 256) gameStorageFail("recovery_operation_invalid");
+	return value;
+}
+function createBrowserGameRecovery({ scope, indexedDB, storage, locks = globalThis.navigator?.locks, now = Date.now } = {}) {
+	const identity = browserIdentityScope(scope);
+	if (typeof scope.taskId !== "string" || !scope.taskId.trim() || scope.taskId.length > 512 || !scope.fence || typeof scope.fence !== "object" || Array.isArray(scope.fence)) gameStorageFail("recovery_scope_invalid");
+	const scopeKey = encode$1({
+		identity,
+		taskId: scope.taskId
+	});
+	const capturedScope = copy$2(stable(scope));
+	const fenceKey = encode$1(capturedScope);
+	const key = `recovery:${scopeKey}`;
+	const database = storage ?? createBrowserGameDatabase(indexedDB);
+	const initial = () => ({
+		schema: 1,
+		scopeKey,
+		operations: [],
+		runBudgets: []
+	});
+	function validate(record) {
+		if (record === void 0) return initial();
+		if (record?.schema !== 1 || record.scopeKey !== scopeKey || !Array.isArray(record.operations) || record.operations.length > 256) gameStorageFail("recovery_corrupt");
+		const ids = /* @__PURE__ */ new Set();
+		for (const entry of record.operations) {
+			validateOriginal(entry.original);
+			if (browserIdentityScope(entry.scope) !== identity || entry.scope.taskId !== scope.taskId || !entry.scope.fence) gameStorageFail("recovery_corrupt");
+			if (!states.has(entry.state) || ids.has(entry.original.operationId)) gameStorageFail("recovery_corrupt");
+			ids.add(entry.original.operationId);
+			if (entry.state === "committed" && !entry.receipt) gameStorageFail("recovery_corrupt");
+		}
+		if (record.runBudgets === void 0) record.runBudgets = [];
+		if (!Array.isArray(record.runBudgets) || record.runBudgets.length > 256) gameStorageFail("run_budget_corrupt");
+		const runs = /* @__PURE__ */ new Set();
+		const fences = /* @__PURE__ */ new Set();
+		for (const budget of record.runBudgets) {
+			operationId(budget.runId);
+			if (runs.has(budget.runId) || typeof budget.fenceKey !== "string" || fences.has(budget.fenceKey) || !integer$1(budget.startedAt) || !integer$1(budget.deadline) || budget.deadline - budget.startedAt !== BROWSER_GAME_RUN_LIMITS.maxDurationMs || !integer$1(budget.callsReserved) || budget.callsReserved > BROWSER_GAME_RUN_LIMITS.maxCalls || !integer$1(budget.tokensReserved) || budget.tokensReserved > BROWSER_GAME_RUN_LIMITS.maxTokens || !Array.isArray(budget.reservations) || budget.reservations.length !== budget.callsReserved || budget.reservations.some((r, index) => r.id !== index + 1 || !integer$1(r.inputBytes) || !integer$1(r.maxOutputTokens) || r.maxOutputTokens > BROWSER_GAME_RUN_LIMITS.maxOutputTokens || !integer$1(r.tokens) || r.tokens > r.inputBytes + r.maxOutputTokens || typeof r.settled !== "boolean") || budget.reservations.reduce((sum, r) => sum + r.tokens, 0) !== budget.tokensReserved) gameStorageFail("run_budget_corrupt");
+			runs.add(budget.runId);
+			fences.add(budget.fenceKey);
+		}
+		encode$1(record);
+		return record;
+	}
+	function validateOriginal(original) {
+		operationId(original?.operationId);
+		if (typeof original.kind !== "string" || !original.kind.trim() || original.kind.length > 128 || !original.signedRequest || typeof original.signedRequest !== "object" || !original.correlation || typeof original.correlation !== "object" || !Object.hasOwn(original, "context") || !original.runBudget || typeof original.runBudget !== "object") gameStorageFail("recovery_record_invalid");
+		if (encode$1(original).length > 1048576) gameStorageFail("recovery_record_too_large");
+	}
+	async function mutate(action) {
+		if (typeof locks?.request !== "function") gameStorageFail("recovery_locks_unavailable");
+		try {
+			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (stored) => action(validate(stored))));
+		} catch (error) {
+			if (typeof error?.code === "string") throw error;
+			gameStorageFail("recovery_storage_failed");
+		}
+	}
+	function run(record, runId, requireFence = true) {
+		operationId(runId);
+		const budget = record.runBudgets.find((item) => item.runId === runId);
+		if (!budget) gameStorageFail("run_budget_missing");
+		if (requireFence && budget.fenceKey !== fenceKey) gameStorageFail("run_fence_conflict");
+		return budget;
+	}
+	const api = {
+		async load() {
+			return copy$2(validate(await database.get(key)));
+		},
+		async initializeRun(runId, { fence } = {}) {
+			operationId(runId);
+			if (encode$1(fence) !== encode$1(capturedScope.fence)) gameStorageFail("run_fence_conflict");
+			return copy$2(run(await mutate((stored) => {
+				if (stored.runBudgets.find((item) => item.runId === runId)) {
+					run(stored, runId);
+					return stored;
+				}
+				if (stored.runBudgets.some((item) => item.fenceKey === fenceKey)) gameStorageFail("run_identity_conflict");
+				if (stored.runBudgets.length >= 256) gameStorageFail("run_budget_capacity_exhausted");
+				const startedAt = now();
+				if (!integer$1(startedAt) || !integer$1(startedAt + BROWSER_GAME_RUN_LIMITS.maxDurationMs)) gameStorageFail("run_clock_invalid");
+				stored.runBudgets.push({
+					runId,
+					fenceKey,
+					startedAt,
+					deadline: startedAt + BROWSER_GAME_RUN_LIMITS.maxDurationMs,
+					callsReserved: 0,
+					tokensReserved: 0,
+					reservations: []
+				});
+				return stored;
+			}), runId));
+		},
+		async getRunBudget(runId) {
+			return copy$2(run(validate(await database.get(key)), runId));
+		},
+		async reserveModelCall(runId, inputBytes, maxOutputTokens = 512) {
+			if (!integer$1(inputBytes) || inputBytes === 0 || !integer$1(maxOutputTokens) || maxOutputTokens === 0 || maxOutputTokens > BROWSER_GAME_RUN_LIMITS.maxOutputTokens || !integer$1(inputBytes + maxOutputTokens)) gameStorageFail("run_reservation_invalid");
+			let reservation;
+			await mutate((stored) => {
+				const budget = run(stored, runId);
+				const time = now();
+				if (!integer$1(time) || time < budget.startedAt || time >= budget.deadline) gameStorageFail("run_deadline_exceeded");
+				const tokens = inputBytes + maxOutputTokens;
+				if (budget.callsReserved >= BROWSER_GAME_RUN_LIMITS.maxCalls || budget.tokensReserved + tokens > BROWSER_GAME_RUN_LIMITS.maxTokens) gameStorageFail("run_budget_exhausted");
+				reservation = {
+					id: budget.callsReserved + 1,
+					inputBytes,
+					maxOutputTokens,
+					tokens,
+					settled: false
+				};
+				budget.reservations.push(reservation);
+				budget.callsReserved += 1;
+				budget.tokensReserved += tokens;
+				return stored;
+			});
+			return {
+				...copy$2(reservation),
+				runId
+			};
+		},
+		async settleModelCall(runId, reservation, usage) {
+			return copy$2(run(await mutate((stored) => {
+				const budget = run(stored, runId, false);
+				const found = budget.reservations.find((item) => item.id === reservation?.id);
+				if (!found || reservation.runId !== runId || found.settled) gameStorageFail("run_reservation_invalid");
+				if (!usage || !integer$1(usage.inputTokens) || !integer$1(usage.outputTokens) || !integer$1(usage.inputTokens + usage.outputTokens) || usage.inputTokens + usage.outputTokens > found.tokens) return stored;
+				const used = usage.inputTokens + usage.outputTokens;
+				budget.tokensReserved -= found.tokens - used;
+				found.tokens = used;
+				found.settled = true;
+				return stored;
+			}), runId, false));
+		},
+		async remember(original) {
+			validateOriginal(original);
+			const captured = copy$2(original);
+			return copy$2((await mutate((stored) => {
+				const previous = stored.operations.find((entry) => entry.original.operationId === captured.operationId);
+				if (previous) {
+					if (encode$1(previous.original) !== encode$1(captured) || encode$1(previous.scope) !== fenceKey) gameStorageFail("recovery_original_conflict");
+					return stored;
+				}
+				if (stored.operations.length >= 256) gameStorageFail("recovery_capacity_exhausted");
+				stored.operations.push({
+					original: captured,
+					scope: capturedScope,
+					state: "unknown",
+					receipt: null
+				});
+				return stored;
+			})).operations.find((entry) => entry.original.operationId === captured.operationId).original);
+		},
+		async settle(id, result) {
+			operationId(id);
+			if (!states.has(result?.state) || result.state === "committed" && !result.receipt) gameStorageFail("recovery_result_invalid");
+			const captured = copy$2(stable({
+				state: result.state,
+				receipt: result.receipt ?? null
+			}));
+			return copy$2((await mutate((stored) => {
+				const entry = stored.operations.find((item) => item.original.operationId === id);
+				if (!entry) gameStorageFail("recovery_original_missing");
+				if (terminal$1(entry.state)) {
+					if (entry.state !== captured.state || encode$1(entry.receipt) !== encode$1(captured.receipt)) gameStorageFail("recovery_settlement_conflict");
+					return stored;
+				}
+				entry.state = captured.state;
+				entry.receipt = captured.receipt;
+				return stored;
+			})).operations.find((entry) => entry.original.operationId === id));
+		},
+		async reconcile(lookup) {
+			if (typeof lookup !== "function") gameStorageFail("recovery_lookup_required");
+			const loaded = await api.load();
+			for (const entry of loaded.operations) {
+				if (terminal$1(entry.state)) continue;
+				let result;
+				try {
+					result = await lookup({
+						...copy$2(entry.original),
+						scope: copy$2(entry.scope)
+					});
+				} catch {
+					continue;
+				}
+				if (states.has(result?.state)) await api.settle(entry.original.operationId, result);
+			}
+			return api.load();
+		},
+		async hasUnresolved() {
+			return (await api.load()).operations.some((entry) => !terminal$1(entry.state));
+		}
+	};
+	return api;
+}
+//#endregion
+//#region software_safe_src/browser_participant_entry.js
+var BrowserParticipantError = class extends Error {
+	constructor(code) {
+		super(code);
+		this.name = "BrowserParticipantError";
+		this.code = code;
+	}
+};
+var fail$4 = (code) => {
+	throw new BrowserParticipantError(code);
+};
+var json$1 = JSON.stringify;
+var clone$1 = (value) => JSON.parse(json$1(value));
+var hex$3 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+var DOMAIN$1 = "game_participant_register_v1";
+var OWNER_VIEW = "/v1/world/participant-owner-view";
+var VIEW = "/v1/world/view-json";
+var routes = /* @__PURE__ */ new Set([
+	"/participant/authorize",
+	"/participant/submit",
+	"/participant/lookup",
+	"/participant/owner-view",
+	"/entry-owner/control",
+	"/entry-executor/control"
+]);
+async function boundedText(response, maximum) {
+	if (!response.body?.getReader) fail$4("participant_response_invalid");
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder("utf-8", { fatal: true });
+	let text = "", size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			size += value.byteLength;
+			if (size > maximum) fail$4("participant_response_limit");
+			text += decoder.decode(value, { stream: true });
+		}
+		return text + decoder.decode();
+	} finally {
+		try {
+			await reader.cancel();
+		} catch {}
+	}
+}
+function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$4("participant_configuration_invalid");
+	async function request(path, options = {}, deadline = Date.now() + 3e4, callSignal) {
+		const signals = [signal, callSignal].filter(Boolean);
+		if (signals.some((item) => item.aborted)) fail$4("participant_stopped");
+		if (Date.now() >= deadline) fail$4("participant_request_timeout");
+		const controller = new AbortController();
+		let timer;
+		const removers = [];
+		const stopped = () => {
+			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$4("participant_stopped");
+		};
+		try {
+			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
+			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$4("participant_request_limit");
+			const cancelled = new Promise((_resolve, reject) => {
+				timer = setTimeout(() => {
+					controller.abort();
+					reject(new BrowserParticipantError("participant_request_timeout"));
+				}, Math.max(0, deadline - Date.now()));
+				for (const parent of signals) {
+					const abort = () => {
+						controller.abort();
+						reject(new BrowserParticipantError("participant_stopped"));
+					};
+					parent.addEventListener("abort", abort, { once: true });
+					removers.push(() => parent.removeEventListener("abort", abort));
+					if (parent.aborted) abort();
+				}
+			});
+			const operation = (async () => {
+				stopped();
+				const { beforeSend, ...fetchOptions } = options;
+				if (beforeSend) {
+					await beforeSend();
+					stopped();
+				}
+				if (Date.now() >= deadline) fail$4("participant_request_timeout");
+				const response = await fetchImpl(`${config.endpoint}${path}`, {
+					credentials: "same-origin",
+					mode: "same-origin",
+					cache: "no-store",
+					redirect: "error",
+					referrerPolicy: "no-referrer",
+					...fetchOptions,
+					signal: controller.signal
+				});
+				stopped();
+				if (!response.ok) fail$4("participant_request_failed");
+				const declared = response.headers?.get?.("content-length");
+				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$4("participant_response_limit");
+				const raw = await boundedText(response, maximum);
+				stopped();
+				const status = JSON.parse(raw);
+				if (status.api_version !== 2 || status.ok !== true) fail$4("participant_request_failed");
+				return raw;
+			})();
+			return await Promise.race([operation, cancelled]);
+		} catch (error) {
+			if (error instanceof BrowserParticipantError) throw error;
+			fail$4("participant_response_unknown");
+		} finally {
+			clearTimeout(timer);
+			for (const remove of removers) remove();
+		}
+	}
+	return {
+		discover: () => request("/entry/discovery"),
+		async gatewayCall(path, body, { rawBody, beforeSend, signal: callSignal } = {}) {
+			const deadline = Date.now() + 3e4;
+			if (!routes.has(path)) fail$4("participant_route_forbidden");
+			if (signal?.aborted || callSignal?.aborted) fail$4("participant_stopped");
+			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$4("participant_request_invalid");
+			let encodedBody;
+			try {
+				encodedBody = rawBody ?? json$1(body);
+			} catch {
+				fail$4("participant_request_invalid");
+			}
+			if (typeof encodedBody !== "string") fail$4("participant_request_invalid");
+			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
+			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$4("participant_request_limit");
+			const session = JSON.parse(await request("/session", {}, deadline, callSignal));
+			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$4("participant_account_changed");
+			if (rawBody !== void 0 && typeof rawBody !== "string") fail$4("participant_request_invalid");
+			return request(path, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Oasis7-CSRF": session.csrf_token
+				},
+				body: encodedBody,
+				beforeSend
+			}, deadline, callSignal);
+		}
+	};
+}
+function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, agentId, indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto, signal } = {}) {
+	const namespace = config?.identity;
+	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$4("participant_configuration_invalid");
+	const scopeKey = browserIdentityScope({
+		worldId: config.world.world_id,
+		genesisDigest: config.world.genesis_digest,
+		accountId,
+		agentId
+	});
+	const key = `participant:${scopeKey}:${ownerSigner.publicKeyHex}`;
+	const database = storage ?? createBrowserGameDatabase(indexedDB);
+	const transport = createBrowserParticipantGateway({
+		config,
+		accountId,
+		fetchImpl,
+		signal
+	});
+	const decoded = (value) => typeof value === "string" ? JSON.parse(value) : value;
+	function build(kind, value) {
+		try {
+			return codec.build(kind, json$1(value));
+		} catch {
+			fail$4("participant_proof_invalid");
+		}
+	}
+	function field(raw, path) {
+		return build("field", {
+			json: raw,
+			path
+		});
+	}
+	function validate(kind, request, raw) {
+		try {
+			return codec.validate(kind, typeof request === "string" ? request : json$1(request), raw);
+		} catch {
+			fail$4("participant_proof_invalid");
+		}
+	}
+	function check(record) {
+		if (record === void 0) return null;
+		if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$4("participant_storage_corrupt");
+		const r = record.owner.request;
+		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$4("participant_storage_corrupt");
+		return record;
+	}
+	async function update(mutate) {
+		if (typeof locks?.request !== "function") fail$4("participant_locks_unavailable");
+		try {
+			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (stored) => mutate(check(stored))));
+		} catch (error) {
+			if (error instanceof BrowserParticipantError) throw error;
+			fail$4("participant_storage_failed");
+		}
+	}
+	async function load() {
+		try {
+			return check(await database.get(key));
+		} catch (error) {
+			if (error instanceof BrowserParticipantError) throw error;
+			fail$4("participant_storage_failed");
+		}
+	}
+	async function discover() {
+		const discovery = JSON.parse(await transport.discover());
+		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$4("participant_discovery_mismatch");
+		return discovery;
+	}
+	async function authorize(owner) {
+		const raw = await transport.gatewayCall("/participant/authorize", owner);
+		const reply = JSON.parse(raw);
+		if (reply.phase !== "participant_authorized") fail$4("participant_authorization_failed");
+		const admissionRaw = field(raw, ["admission"]);
+		validate("participant_admission", {
+			owner,
+			namespace,
+			issuerPublicKey: config.participantIssuerPublicKey
+		}, admissionRaw);
+		return {
+			admission: decoded(admissionRaw),
+			registrationEnabled: reply.new_registration_enabled === true
+		};
+	}
+	async function proofs(record, authorized) {
+		const readRequest = {
+			contract_version: 1,
+			observation_nonce: hex$3(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
+			formal_anchor: null,
+			world: clone$1(config.world),
+			scope_id: `agent:${agentId}`,
+			min_commit: null,
+			fixed_commit: null,
+			deadline_unix_ms: null
+		};
+		let read;
+		try {
+			read = {
+				request: readRequest,
+				subject_public_key: ownerSigner.publicKeyHex,
+				signature_hex: hex$3(await ownerSigner.sign(codec.signingBytes(VIEW, json$1(readRequest))))
+			};
+		} catch {
+			fail$4("participant_signing_failed");
+		}
+		const access = {
+			owner: record.owner,
+			admission: authorized.admission,
+			read,
+			response_profile: "owner_control_v1"
+		};
+		await update((current) => {
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$4("participant_original_conflict");
+			current.admission = clone$1(authorized.admission);
+			current.ownerRead = clone$1(access);
+			return current;
+		});
+		const reply = await transport.gatewayCall("/participant/owner-view", access);
+		let raw;
+		try {
+			raw = codec.verifyGatewayResponse(OWNER_VIEW, json$1(access), reply, config.servicePublicKey);
+		} catch {
+			fail$4("participant_binding_required");
+		}
+		validate("owner_control", access, raw);
+		if (decoded(field(raw, [
+			"view",
+			"canonical_agent_owner",
+			"agent_id"
+		])) !== agentId || decoded(field(raw, [
+			"view",
+			"canonical_agent_owner",
+			"public_key"
+		])) !== ownerSigner.publicKeyHex) fail$4("participant_binding_required");
+		await update((current) => {
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$4("participant_original_conflict");
+			current.ownerControlRaw = raw;
+			return current;
+		});
+		return {
+			owner: clone$1(record.owner),
+			admission: authorized.admission,
+			ownerControl: { rawJson: raw }
+		};
+	}
+	return {
+		discover,
+		gatewayCall: transport.gatewayCall,
+		async prepare({ existingOnly = true } = {}) {
+			if (!existingOnly) fail$4("participant_new_registration_unsupported");
+			await discover();
+			let record = await load();
+			if (!record) {
+				const request = {
+					api_rev: 1,
+					client_operation_id: `browser-participant-${hex$3(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(16)))}`,
+					identity_namespace: clone$1(namespace),
+					account_id: accountId,
+					world_id: config.world.world_id,
+					genesis_digest: config.world.genesis_digest,
+					owner_public_key: ownerSigner.publicKeyHex,
+					owner_key_version: "1"
+				};
+				let owner;
+				try {
+					owner = {
+						request,
+						subject_public_key: ownerSigner.publicKeyHex,
+						signature_hex: hex$3(await ownerSigner.sign(codec.signingBytes(DOMAIN$1, json$1(request))))
+					};
+				} catch {
+					fail$4("participant_signing_failed");
+				}
+				record = await update((current) => current ?? {
+					schema: 1,
+					scopeKey,
+					ownerPublicKey: ownerSigner.publicKeyHex,
+					owner,
+					sent: false
+				});
+			}
+			const authorized = await authorize(record.owner);
+			return proofs(record, authorized);
+		},
+		async getParticipantProofs() {
+			await discover();
+			const record = await load();
+			if (!record?.owner) fail$4("participant_prepare_required");
+			return proofs(record, await authorize(record.owner));
+		}
+	};
+}
+//#endregion
+//#region software_safe_src/browser_game_client.js
+var BrowserGameError = class extends Error {
+	constructor(code) {
+		super(code);
+		this.name = "BrowserGameError";
+		this.code = code;
+	}
+};
+var fail$3 = (code) => {
+	throw new BrowserGameError(code);
+};
+var json = (value) => JSON.stringify(value);
+var copy$1 = (value) => JSON.parse(json(value));
+var hex$2 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+var same$2 = (a, b) => json(a) === json(b);
+var WORLD_PATHS = Object.freeze({
+	describe: "/v1/world/describe",
+	owner: "/v1/world/participant-owner-view",
+	view: "/v1/world/view-json",
+	submit: "/v1/world/submit",
+	lookup: "/v1/world/lookup",
+	snapshot: "/v1/world/private-task/goal-snapshot",
+	prepare: "/v1/world/private-task/context-prepare",
+	read: "/v1/world/private-task/context-read",
+	recipe: "/v1/world/private-task/recipe-quote",
+	factory: "/v1/world/private-task/factory-quote"
+});
+var terminal = (status) => [
+	"committed",
+	"rejected",
+	"expired"
+].includes(status);
+function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, participantProofs, agentId, taskId, recovery, fetchImpl = globalThis.fetch, gatewayCall, cryptoImpl = globalThis.crypto, signal, beforeEffect = async () => {} } = {}) {
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$3("game_configuration_invalid");
+	const world = copy$1(config.world), serviceKey = config.servicePublicKey;
+	let boundFence = null;
+	const rawValues = /* @__PURE__ */ new WeakMap();
+	const json = (value) => {
+		if (value && typeof value === "object") {
+			if (rawValues.has(value)) return rawValues.get(value);
+			if (Array.isArray(value)) return `[${value.map(json).join(",")}]`;
+			return `{${Object.entries(value).filter(([, item]) => item !== void 0).map(([name, item]) => `${JSON.stringify(name)}:${json(item)}`).join(",")}}`;
+		}
+		return JSON.stringify(value);
+	};
+	const nonce = () => hex$2(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32)));
+	function decoded(value) {
+		if (typeof value !== "string") return value;
+		const result = JSON.parse(value);
+		if (result && typeof result === "object") rawValues.set(result, value);
+		return result;
+	}
+	function field(value, path) {
+		return decoded(codec.build("field", JSON.stringify({
+			json: json(value),
+			path
+		})));
+	}
+	function build(kind, value) {
+		try {
+			return decoded(codec.build(kind, json(value)));
+		} catch {
+			fail$3("game_proof_invalid");
+		}
+	}
+	function validate(kind, request, payload) {
+		try {
+			return decoded(codec.validate(kind, json(request), json(payload)));
+		} catch {
+			fail$3("game_proof_invalid");
+		}
+	}
+	async function sign(domain, request, signer = executorSigner) {
+		if (signal?.aborted) fail$3("stopped");
+		try {
+			return {
+				request,
+				subject_public_key: signer.publicKeyHex,
+				signature_hex: hex$2(await signer.sign(codec.signingBytes(domain, json(request))))
+			};
+		} catch {
+			fail$3("game_signing_failed");
+		}
+	}
+	async function ownerAccess() {
+		const proofs = typeof participantProofs === "function" ? await participantProofs() : participantProofs;
+		if (!proofs?.owner || !proofs?.admission) fail$3("participant_proofs_required");
+		return {
+			owner: proofs.owner,
+			admission: proofs.admission,
+			read: await sign(WORLD_PATHS.view, readRequest(), ownerSigner),
+			response_profile: "owner_control_v1"
+		};
+	}
+	async function gatewayEnvelope(path, wire) {
+		if (path === WORLD_PATHS.owner) return {
+			path: "/participant/owner-view",
+			body: wire
+		};
+		if (path === WORLD_PATHS.submit || path === WORLD_PATHS.lookup) {
+			const payload = path === WORLD_PATHS.submit ? wire.signed_payload : wire.original;
+			const ownerOperation = ["delegation", "game_executor_control"].includes(payload.kind);
+			if (ownerOperation || path === WORLD_PATHS.lookup) return {
+				path: "/entry-owner/control",
+				body: {
+					access: await ownerAccess(),
+					operation: {
+						kind: path === WORLD_PATHS.submit ? "submit" : ownerOperation ? "lookup" : "lookup_executor",
+						request: wire
+					}
+				}
+			};
+		}
+		const accessFence = boundFence ?? ([WORLD_PATHS.prepare, WORLD_PATHS.snapshot].includes(path) ? wire.request?.fence : null);
+		if (!accessFence) fail$3("executor_not_bound");
+		const kinds = {
+			[WORLD_PATHS.describe]: "describe",
+			[WORLD_PATHS.view]: "read_view",
+			[WORLD_PATHS.submit]: "submit",
+			[WORLD_PATHS.lookup]: "lookup",
+			[WORLD_PATHS.snapshot]: "goal_snapshot",
+			[WORLD_PATHS.prepare]: "prepare_context",
+			[WORLD_PATHS.read]: "read_context",
+			[WORLD_PATHS.recipe]: "recipe_quote",
+			[WORLD_PATHS.factory]: "factory_quote"
+		};
+		if (!kinds[path]) fail$3("game_route_unsupported");
+		return {
+			path: "/entry-executor/control",
+			body: {
+				access: {
+					read: await sign(WORLD_PATHS.view, readRequest()),
+					fence: accessFence
+				},
+				operation: {
+					kind: kinds[path],
+					request: wire
+				}
+			}
+		};
+	}
+	async function call(path, wire, digestRequest, kind, validationRequest, mutationGate) {
+		if (signal?.aborted) fail$3("stopped");
+		let response;
+		try {
+			const gateway = await gatewayEnvelope(path, wire);
+			let signed;
+			if (gatewayCall) {
+				const reply = await gatewayCall(gateway.path, gateway.body, {
+					rawBody: json(gateway.body),
+					beforeSend: mutationGate,
+					signal
+				});
+				signed = typeof reply === "string" ? reply : JSON.stringify(reply);
+			} else {
+				const cap = await fetchImpl(`${config.endpoint}/capabilities`, {
+					credentials: "same-origin",
+					mode: "same-origin",
+					cache: "no-store",
+					redirect: "error",
+					referrerPolicy: "no-referrer",
+					signal
+				});
+				const csrf = (await cap.json())?.csrf_token;
+				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$3("authentication_required");
+				await mutationGate?.();
+				if (signal?.aborted) fail$3("stopped");
+				response = await fetchImpl(`${config.endpoint}${gateway.path}`, {
+					method: "POST",
+					credentials: "same-origin",
+					mode: "same-origin",
+					redirect: "error",
+					referrerPolicy: "no-referrer",
+					cache: "no-store",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Oasis7-CSRF": csrf
+					},
+					body: json(gateway.body),
+					signal
+				});
+				if (!response.ok) fail$3("game_request_failed");
+				if (!response.body?.getReader) fail$3("game_response_invalid");
+				const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
+				let text = "", size = 0;
+				try {
+					for (;;) {
+						const { value, done } = await reader.read();
+						if (done) break;
+						size += value.byteLength;
+						if (size > 2097152) fail$3("game_response_limit");
+						text += decoder.decode(value, { stream: true });
+					}
+					text += decoder.decode();
+				} finally {
+					try {
+						await reader.cancel();
+					} catch {}
+				}
+				signed = text;
+			}
+			const payload = validate(kind, validationRequest, decoded(codec.verifyGatewayResponse(path, json(digestRequest), signed, serviceKey)));
+			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$3("unsupported_world_evidence");
+			for (const nestedPath of [
+				["identity"],
+				["prepared"],
+				["prepared", "identity"],
+				["snapshot"],
+				["current_public_context"],
+				["current_public_context", "captured_base_binding"],
+				["quote"],
+				["quote", "action"]
+			]) {
+				let parent = payload;
+				for (const name of nestedPath.slice(0, -1)) parent = parent?.[name];
+				const last = nestedPath.at(-1);
+				if (parent?.[last] && typeof parent[last] === "object") parent[last] = field(payload, nestedPath);
+			}
+			return payload;
+		} catch (error) {
+			if (error instanceof BrowserGameError) throw error;
+			fail$3("game_response_invalid");
+		}
+	}
+	const readRequest = () => ({
+		observation_nonce: nonce(),
+		contract_version: 1,
+		world,
+		scope_id: `agent:${agentId}`,
+		min_commit: null,
+		fixed_commit: null,
+		deadline_unix_ms: null
+	});
+	async function describe() {
+		const request = {
+			contract_version: 1,
+			expected_world: world,
+			trust_config_ref: serviceKey
+		};
+		const proof = await sign(WORLD_PATHS.describe, request);
+		return call(WORLD_PATHS.describe, proof, proof, "describe", world);
+	}
+	async function readTask() {
+		const request = await ownerAccess();
+		const result = await call(WORLD_PATHS.owner, request, request, "owner_control", request);
+		const task = field(result, ["view", "game_task_control"]);
+		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$3("task_unavailable");
+		const fence = build("fence", task);
+		validate("fence", null, fence);
+		return {
+			fence,
+			owner: result.view.canonical_agent_owner,
+			logicalTick: codec.build("field", JSON.stringify({
+				json: json(result),
+				path: ["logical_tick"]
+			}))
+		};
+	}
+	async function freshFence({ allowUnbound = false } = {}) {
+		const current = await readTask();
+		if (boundFence && !same$2(boundFence, current.fence)) fail$3("task_fence_changed");
+		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$3("executor_not_bound");
+		return current;
+	}
+	async function bindFence(fence) {
+		validate("fence", null, fence);
+		if (!same$2((await freshFence()).fence, fence)) fail$3("task_fence_changed");
+		boundFence = copy$1(fence);
+		return copy$1(boundFence);
+	}
+	async function publicView() {
+		const request = readRequest();
+		const proof = await sign(WORLD_PATHS.view, request);
+		return call(WORLD_PATHS.view, proof, proof, "view", request);
+	}
+	async function snapshot() {
+		const { fence } = await freshFence();
+		const request = {
+			authority_mode: "native_executor_v1",
+			schema_revision: 2,
+			fence
+		};
+		const proof = await sign(WORLD_PATHS.snapshot, request);
+		return call(WORLD_PATHS.snapshot, proof, proof, "task_snapshot", request);
+	}
+	async function record(operationId, kind, signedRequest, context = null, runBudget = null) {
+		return recovery.remember({
+			operationId,
+			kind,
+			signedRequest: { rawJson: json(signedRequest) },
+			correlation: signedRequest.correlation ?? { operationId },
+			context,
+			runBudget: runBudget ?? {}
+		});
+	}
+	async function find(operationId, lane) {
+		return (await recovery.load()).operations.find((entry) => entry.original.operationId === `${operationId}:${lane}`)?.original;
+	}
+	async function lookup(original) {
+		if (original.kind === "prepare") {
+			const proof = decoded(original.signedRequest.rawJson);
+			const payload = await call(WORLD_PATHS.prepare, proof, proof, "context_prepare", proof);
+			return {
+				state: "committed",
+				receipt: { identity: payload.identity },
+				prepared: payload
+			};
+		}
+		const submitted = decoded(original.signedRequest.rawJson);
+		const payload = field(submitted, ["signed_payload"]);
+		const expected = build("correlation", {
+			world,
+			payload_json: json(payload)
+		});
+		if (!same$2(expected, submitted.correlation)) fail$3("original_correlation_invalid");
+		const request = {
+			request: {
+				contract_version: 1,
+				key: expected.key
+			},
+			original: payload
+		};
+		const response = await call(WORLD_PATHS.lookup, request, request, "lookup", expected);
+		return {
+			state: response.outcome.status,
+			receipt: response
+		};
+	}
+	async function submitOriginal(original) {
+		await beforeEffect();
+		const request = decoded(original.signedRequest.rawJson);
+		try {
+			await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect);
+		} catch {
+			fail$3("operation_unknown");
+		}
+		const checked = await lookup(original);
+		await recovery.settle(original.operationId, {
+			state: checked.state,
+			receipt: { rawJson: json(checked.receipt) }
+		});
+		return checked.receipt;
+	}
+	async function submit(operationId, lane, payload, context = null, runBudget = null) {
+		const prior = await find(operationId, lane);
+		if (prior) {
+			const result = await lookup(prior);
+			await recovery.settle(prior.operationId, {
+				state: result.state,
+				receipt: { rawJson: json(result.receipt) }
+			});
+			return result.receipt;
+		}
+		const request = {
+			contract_version: 1,
+			correlation: build("correlation", {
+				world,
+				payload_json: json(payload)
+			}),
+			deadline_unix_ms: null,
+			signed_payload: payload
+		};
+		return submitOriginal(await record(`${operationId}:${lane}`, lane, request, context, runBudget));
+	}
+	async function recover() {
+		return recovery.reconcile(async (original) => {
+			const result = await lookup(original);
+			return {
+				state: result.state,
+				receipt: { rawJson: json(result.receipt) }
+			};
+		});
+	}
+	async function hasUnresolved() {
+		if (await recovery.hasUnresolved()) return true;
+		const { operations } = await recovery.load();
+		const actions = new Set(operations.filter((entry) => entry.original.kind === "action").map((entry) => entry.original.operationId.replace(/:action$/, "")));
+		if (operations.some((entry) => entry.original.kind === "outcome" && actions.has(entry.original.operationId.replace(/:outcome$/, "")))) return true;
+		return operations.some((entry) => entry.original.kind === "prefix" && entry.state === "committed" && !operations.some((other) => ["action", "outcome"].includes(other.original.kind) && terminal(other.state) && other.original.operationId.replace(/:(action|outcome)$/, "") === entry.original.operationId.replace(/:prefix$/, "")));
+	}
+	async function retireExpiredContexts() {
+		const loaded = await recovery.load();
+		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$3("recovery_required");
+		let retired = 0;
+		for (const entry of loaded.operations) {
+			if (entry.original.kind !== "prefix" || entry.state !== "committed") continue;
+			const operationId = entry.original.operationId.replace(/:prefix$/, "");
+			const action = await find(operationId, "action"), priorOutcome = await find(operationId, "outcome");
+			if (action || priorOutcome) continue;
+			if ((await lookup(entry.original)).state !== "committed") fail$3("recovery_required");
+			const identity = field(decoded(entry.original.signedRequest.rawJson), [
+				"signed_payload",
+				"payload",
+				"request",
+				"operation",
+				"data",
+				"context"
+			]);
+			const current = await freshFence();
+			if (!same$2(current.fence, identity.fence)) fail$3("task_fence_changed");
+			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$3("context_not_expired");
+			const view = await publicView();
+			const request = build("retire_context", {
+				context_json: json(identity),
+				view_json: json(view)
+			});
+			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$3("original_result_requires_recovery");
+			if ((await submit(operationId, "outcome", {
+				kind: "scheduler",
+				payload: await sign("scheduler", request)
+			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$3("operation_pending");
+			retired += 1;
+		}
+		return { retired };
+	}
+	async function prepareContext(operationId, runBudget = null) {
+		const prior = await find(operationId, "prepare");
+		if (prior) return (await lookup(prior)).prepared;
+		if (await hasUnresolved()) fail$3("recovery_required");
+		const { fence } = await freshFence();
+		const proof = await sign(WORLD_PATHS.prepare, {
+			authority_mode: "native_executor_v1",
+			schema_revision: 2,
+			fence,
+			client_operation_id: operationId,
+			client_nonce: nonce()
+		});
+		const original = await record(`${operationId}:prepare`, "prepare", proof, null, runBudget);
+		const result = await lookup(original);
+		await recovery.settle(original.operationId, {
+			state: result.state,
+			receipt: result.receipt
+		});
+		return result.prepared;
+	}
+	async function captureContext(operationId, prepared, runBudget = null) {
+		await freshFence();
+		const result = await submit(operationId, "prefix", {
+			kind: "scheduler",
+			payload: await sign("scheduler", build("prefix", prepared))
+		}, prepared.identity, runBudget);
+		if (result.outcome.status !== "committed") fail$3(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
+		return readContext(operationId, prepared.identity);
+	}
+	async function contextProof(operationId, identity) {
+		return sign(WORLD_PATHS.read, {
+			schema_revision: 1,
+			context: identity,
+			prepare_operation_id: operationId
+		});
+	}
+	async function readContext(operationId, identity) {
+		await freshFence();
+		const proof = await contextProof(operationId, identity);
+		return call(WORLD_PATHS.read, proof, proof, "context_read", proof);
+	}
+	async function quote(operationId, captured, kind, selection) {
+		await freshFence();
+		const current = await readContext(operationId, captured.prepared.identity);
+		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$3("unsupported_tool");
+		const proof = await sign(path, {
+			schema_revision: 1,
+			context_proof: await contextProof(operationId, captured.prepared.identity),
+			expected_base_binding: current.current_public_context.captured_base_binding,
+			...kind === "schedule" ? {
+				factory_id: selection.factory,
+				recipe_id: selection.recipe,
+				batches: selection.batches
+			} : {
+				factory_id: selection.factory,
+				factory_kind: selection.kind,
+				site_id: selection.site
+			}
+		});
+		const quoted = await call(path, proof, proof, kind === "schedule" ? "recipe_quote" : "factory_quote", proof);
+		return {
+			captured: build("replace", {
+				json: json(current),
+				path: ["current_public_context"],
+				value_json: json(quoted.current_public_context)
+			}),
+			quoted
+		};
+	}
+	async function action(operationId, captured, action, runBudget = null) {
+		const existing = await find(operationId, "action"), outcome = await find(operationId, "outcome");
+		if (existing || outcome) {
+			const original = existing ?? outcome, result = await lookup(original);
+			await recovery.settle(original.operationId, {
+				state: result.state,
+				receipt: { rawJson: json(result.receipt) }
+			});
+			return result.receipt;
+		}
+		await freshFence();
+		return submit(operationId, "action", {
+			kind: "cognition",
+			payload: await sign("cognition", build("action", {
+				captured_json: json(captured),
+				action
+			}))
+		}, captured.prepared.identity, runBudget);
+	}
+	async function outcome(operationId, captured, reason, runBudget = null) {
+		if (await find(operationId, "action")) fail$3("original_action_requires_recovery");
+		await freshFence();
+		return submit(operationId, "outcome", {
+			kind: "scheduler",
+			payload: await sign("scheduler", build("outcome", {
+				captured_json: json(captured),
+				reason
+			}))
+		}, captured.prepared.identity, runBudget);
+	}
+	async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
+		if (!confirmedFence) fail$3("run_confirmation_required");
+		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$3("delegation_revision_required");
+		await recover();
+		if (await hasUnresolved()) fail$3("recovery_required");
+		const f = (await freshFence({ allowUnbound: true })).fence;
+		if (!same$2(f, confirmedFence)) fail$3("task_fence_changed");
+		const ownerGeneration = Number(f.owner_generation);
+		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$3("delegation_revision_unsupported");
+		const prior = await find(operationId, "delegation");
+		let delegationPayload, effectiveGeneration = generation;
+		if (prior) {
+			delegationPayload = field(decoded(prior.signedRequest.rawJson), ["signed_payload"]);
+			const proof = delegationPayload.payload, request = proof?.request;
+			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$3("delegation_original_mismatch");
+			effectiveGeneration = request.generation;
+		} else delegationPayload = {
+			kind: "delegation",
+			payload: await sign("delegation", {
+				world_id: world.world_id,
+				branch_id: f.branch_id,
+				agent_id: agentId,
+				owner_binding: f.owner_binding,
+				agent_identity_generation: ownerGeneration,
+				generation,
+				delegate_public_key: executorSigner.publicKeyHex,
+				revoked: false,
+				nonce: delegationNonce
+			}, ownerSigner)
+		};
+		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$3("delegation_not_committed");
+		const next = await readTask();
+		if (!same$2(next.fence, f)) fail$3("task_fence_changed");
+		if ((await submit(operationId, "executor_bind", {
+			kind: "game_executor_control",
+			payload: await sign("game_executor_control/v1", {
+				api_rev: 1,
+				client_operation_id: `${operationId}:bind`,
+				fence: next.fence,
+				operation: {
+					operation: "bind",
+					executor_id: executorId,
+					executor_public_key: executorSigner.publicKeyHex,
+					delegation_generation: String(effectiveGeneration)
+				}
+			}, ownerSigner)
+		})).outcome.status !== "committed") fail$3("executor_not_bound");
+		const confirmed = await freshFence();
+		await bindFence(confirmed.fence);
+		return confirmed;
+	}
+	function modelContext(captured) {
+		return json({
+			goal: field(captured, [
+				"prepared",
+				"snapshot",
+				"active_goal",
+				"owner_proof",
+				"request",
+				"content"
+			]),
+			context_identity: field(captured, ["prepared", "identity"]),
+			actor_observation: field(captured, ["current_public_context", "actor_observation"]),
+			native_authority: field(captured, ["current_public_context", "native_authority"])
+		});
+	}
+	return {
+		describe,
+		readTask,
+		freshFence,
+		bindFence,
+		publicView,
+		snapshot,
+		prepareContext,
+		captureContext,
+		readContext,
+		quote,
+		action,
+		outcome,
+		lookup,
+		recover,
+		retireExpiredContexts,
+		registerExecutor,
+		hasUnresolved,
+		modelContext,
+		world: copy$1(world),
+		agentId,
+		executorPublicKey: executorSigner.publicKeyHex
+	};
+}
+//#endregion
+//#region software_safe_src/browser_agent_runner.js
+var fail$2 = (code) => {
+	throw new BrowserGameError(code);
+};
+var text$5 = {
+	type: "string",
+	minLength: 1,
+	maxLength: 256
+};
+var definition = (name, properties = {}, description = name) => ({
+	type: "function",
+	function: {
+		name,
+		description,
+		parameters: {
+			type: "object",
+			properties,
+			required: Object.keys(properties),
+			additionalProperties: false
+		}
+	}
+});
+var buildSelection = {
+	site: text$5,
+	factory: text$5,
+	kind: {
+		type: "string",
+		enum: ["factory.smelter.mk1", "factory.assembler.mk1"]
+	}
+};
+var scheduleSelection = {
+	factory: text$5,
+	recipe: text$5,
+	batches: {
+		type: "integer",
+		minimum: 1,
+		maximum: 4294967295
+	}
+};
+var BROWSER_AGENT_TOOLS = Object.freeze([
+	definition("observe", {}, "Read the current authenticated Agent observation."),
+	definition("industry", {}, "Read current authenticated industry state."),
+	definition("capabilities", {}, "Read current native action grants; grants do not guarantee admission."),
+	definition("quote_build", buildSelection),
+	definition("build", buildSelection),
+	definition("quote_schedule", scheduleSelection),
+	definition("schedule", scheduleSelection),
+	definition("move", { to: {
+		type: "array",
+		items: {
+			type: "integer",
+			minimum: -Number.MAX_SAFE_INTEGER,
+			maximum: Number.MAX_SAFE_INTEGER
+		},
+		minItems: 3,
+		maxItems: 3
+	} }),
+	definition("abort", {}, "Terminate the current Context with executor_aborted; no goal completion claim.")
+]);
+var names = new Set(BROWSER_AGENT_TOOLS.map((tool) => tool.function.name));
+var effects = /* @__PURE__ */ new Set([
+	"build",
+	"schedule",
+	"move",
+	"abort"
+]);
+var same$1 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, getCredential, budget, recovery, visibility = () => !globalThis.document?.hidden, online = () => globalThis.navigator?.onLine !== false, now = Date.now, onState = () => {} } = {}) {
+	if (!gameClient || !getCredential || !budget && !recovery) fail$2("runner_configuration_invalid");
+	let status = {
+		phase: "idle",
+		code: null
+	}, controller = null, generation = 0, active = false, starting = false;
+	function publish(phase, code = null, extra = {}) {
+		status = {
+			phase,
+			code,
+			...extra
+		};
+		onState({ ...status });
+	}
+	function assertActive(expected) {
+		if (!active || expected !== generation || controller?.signal.aborted) fail$2("stopped");
+		if (!visibility() || !online()) {
+			stop("page_paused");
+			fail$2("page_paused");
+		}
+	}
+	function stop(code = "stopped") {
+		active = false;
+		generation += 1;
+		controller?.abort();
+		publish("stopped", code);
+	}
+	async function recoverAt(expected) {
+		if (expected !== generation) return null;
+		publish("recovering");
+		await gameClient.recover();
+		if (expected !== generation) return null;
+		const unresolved = await gameClient.hasUnresolved();
+		if (expected !== generation) return null;
+		publish(unresolved ? "paused" : "idle", unresolved ? "recovery_required" : null);
+		return !unresolved;
+	}
+	async function recover() {
+		if (active || starting) fail$2("already_running");
+		starting = true;
+		const expected = ++generation;
+		try {
+			return await recoverAt(expected);
+		} finally {
+			starting = false;
+		}
+	}
+	const budgetFor = (runId) => budget ?? {
+		initialize: ({ fence }) => recovery.initializeRun(runId, { fence }),
+		reserve: ({ inputBytes, maxOutputTokens }) => recovery.reserveModelCall(runId, inputBytes, maxOutputTokens),
+		settle: ({ reservation, usage }) => recovery.settleModelCall(runId, reservation, usage ? {
+			inputTokens: usage.prompt_tokens,
+			outputTokens: usage.completion_tokens
+		} : null)
+	};
+	async function start({ confirmedFence, runId, operationId } = {}) {
+		if (active || starting) fail$2("already_running");
+		if (!confirmedFence || !runId || !visibility() || !online()) fail$2("run_confirmation_required");
+		starting = true;
+		const expected = ++generation, started = now();
+		controller = new AbortController();
+		try {
+			const recovered = await recoverAt(expected);
+			if (expected !== generation) return { ...status };
+			const current = await gameClient.freshFence();
+			if (expected !== generation) return { ...status };
+			if (!same$1(current.fence, confirmedFence)) fail$2("task_fence_changed");
+			await gameClient.bindFence(confirmedFence);
+			if (expected !== generation) return { ...status };
+			active = true;
+			publish("running");
+			if (!recovered) {
+				if (!gameClient.retireExpiredContexts) {
+					active = false;
+					publish("paused", "recovery_required");
+					return { ...status };
+				}
+				try {
+					await gameClient.retireExpiredContexts();
+				} catch (error) {
+					if (expected === generation) {
+						active = false;
+						controller.abort();
+						publish("paused", typeof error?.code === "string" ? error.code : "recovery_required");
+					}
+					return { ...status };
+				}
+				if (!active || expected !== generation) return { ...status };
+				const unresolved = await gameClient.hasUnresolved();
+				assertActive(expected);
+				if (unresolved) {
+					active = false;
+					controller.abort();
+					publish("paused", "recovery_required");
+					return { ...status };
+				}
+			}
+			const limits = budgetFor(runId);
+			try {
+				assertActive(expected);
+				await limits.initialize({
+					runId,
+					fence: confirmedFence
+				});
+				assertActive(expected);
+			} catch (error) {
+				if (expected === generation) {
+					active = false;
+					controller.abort();
+					publish("paused", typeof error?.code === "string" ? error.code : "run_failed");
+				}
+				return { ...status };
+			}
+			let captured = null, currentOperation = null, step = 0;
+			try {
+				if (recovery?.load) {
+					const prefix = operationId ? `${operationId}:` : `${runId}:context:`;
+					for (const entry of (await recovery.load()).operations) {
+						const id = entry.original.operationId;
+						if (id.startsWith(prefix)) {
+							const prior = Number(id.slice(prefix.length).split(":")[0]);
+							if (Number.isSafeInteger(prior) && prior >= step) step = prior + 1;
+						}
+					}
+				}
+				assertActive(expected);
+				while (active) {
+					assertActive(expected);
+					if (now() - started >= 12e4) fail$2("run_time_limit");
+					await gameClient.freshFence();
+					assertActive(expected);
+					currentOperation = operationId ? `${operationId}:${step}` : `${runId}:context:${step}`;
+					step += 1;
+					const prepared = await gameClient.prepareContext(currentOperation, { runId });
+					assertActive(expected);
+					captured = await gameClient.captureContext(currentOperation, prepared, { runId });
+					assertActive(expected);
+					const checkContext = async () => {
+						const control = await gameClient.freshFence();
+						assertActive(expected);
+						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$2("context_expired");
+					};
+					const context = captured.current_public_context;
+					const messages = [{
+						role: "system",
+						content: "You control only the current authorized task. Use the supplied native task tools. Model text is not a world effect or proof of goal completion. Choose one effect per Context. Never invent grants or receipts. Unsupported actions require abort."
+					}, {
+						role: "user",
+						content: gameClient.modelContext ? gameClient.modelContext(captured) : JSON.stringify({
+							goal: prepared.snapshot.active_goal.owner_proof.request.content,
+							context_identity: prepared.identity,
+							task_fence: confirmedFence,
+							actor_observation: context.actor_observation,
+							native_authority: context.native_authority,
+							capability_catalog: context.provider_authority?.capability_catalog
+						})
+					}];
+					let completed = false;
+					while (!completed) {
+						assertActive(expected);
+						await checkContext();
+						const response = await modelCall({
+							messages,
+							tools: BROWSER_AGENT_TOOLS,
+							maxOutputTokens: 512,
+							signal: controller.signal,
+							beforeSend: async (candidate) => {
+								assertActive(expected);
+								await checkContext();
+								return limits.reserve(candidate);
+							},
+							getCredential: async (reservation) => {
+								assertActive(expected);
+								const key = await getCredential(reservation);
+								assertActive(expected);
+								return key;
+							},
+							afterResponse: (result) => limits.settle(result)
+						});
+						assertActive(expected);
+						await checkContext();
+						const message = response.choices?.[0]?.message, calls = message?.tool_calls;
+						if (!Array.isArray(calls) || !calls.length) fail$2("model_tool_required");
+						let effectCount = 0;
+						for (let i = 0; i < calls.length; i += 1) {
+							const name = calls[i].function?.name;
+							if (!names.has(name) || calls[i].type !== "function") fail$2("unsupported_tool");
+							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$2("effect_batch_invalid");
+						}
+						messages.push(message);
+						for (const call of calls) {
+							assertActive(expected);
+							await checkContext();
+							let args;
+							try {
+								args = JSON.parse(call.function.arguments);
+							} catch {
+								fail$2("tool_invalid");
+							}
+							const name = call.function.name;
+							let value;
+							if (name === "observe" || name === "industry" || name === "capabilities") {
+								const view = await gameClient.publicView();
+								value = name === "observe" ? view : name === "industry" ? {
+									read_version: view.version,
+									logical_tick: view.logical_tick,
+									industry: view.view?.state ?? view.view?.observation?.state
+								} : {
+									read_version: view.version,
+									logical_tick: view.logical_tick,
+									native_delegation_authorizations: view.view?.native_delegation_authorizations ?? view.view?.observation?.native_delegation_authorizations,
+									task_control: view.view?.game_task_control ?? view.view?.observation?.game_task_control
+								};
+							} else if ([
+								"quote_build",
+								"quote_schedule",
+								"build",
+								"schedule"
+							].includes(name)) {
+								const kind = name.includes("build") ? "build" : "schedule";
+								const result = await gameClient.quote(currentOperation, captured, kind, args);
+								assertActive(expected);
+								value = result.quoted;
+								if (name === "build" || name === "schedule") {
+									if (!result.quoted.quote || result.quoted.quote.rejection) fail$2("quote_rejected");
+									assertActive(expected);
+									value = await gameClient.action(currentOperation, result.captured, result.quoted.quote.action, { runId });
+									completed = true;
+								}
+							} else if (name === "move") {
+								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$2("tool_invalid");
+								captured = await gameClient.readContext(currentOperation, captured.prepared.identity);
+								assertActive(expected);
+								value = await gameClient.action(currentOperation, captured, {
+									type: "MoveAgent",
+									data: {
+										agent_id: gameClient.agentId,
+										to: {
+											x_cm: args.to[0],
+											y_cm: args.to[1],
+											z_cm: args.to[2]
+										}
+									}
+								}, { runId });
+								completed = true;
+							} else if (name === "abort") {
+								value = await gameClient.outcome(currentOperation, captured, "executor_aborted", { runId });
+								completed = true;
+							}
+							assertActive(expected);
+							messages.push({
+								role: "tool",
+								tool_call_id: call.id,
+								content: JSON.stringify(value)
+							});
+							if (effects.has(name)) {
+								if (value?.outcome?.status !== "committed") {
+									publish("paused", "original_result_requires_recovery");
+									active = false;
+									return { ...status };
+								}
+								if (name === "abort") {
+									publish("stopped", "executor_aborted");
+									active = false;
+									return { ...status };
+								}
+							}
+						}
+					}
+				}
+			} catch (error) {
+				active = false;
+				if (expected === generation) {
+					generation += 1;
+					controller.abort();
+					publish("paused", error instanceof BrowserGameError || typeof error?.code === "string" ? error.code : "run_failed");
+				}
+				return { ...status };
+			}
+			return { ...status };
+		} catch (error) {
+			if (expected === generation) {
+				active = false;
+				controller.abort();
+				publish("paused", typeof error?.code === "string" ? error.code : "run_failed");
+			}
+			return { ...status };
+		} finally {
+			starting = false;
+		}
+	}
+	return {
+		start,
+		stop,
+		recover,
+		state: () => ({ ...status })
+	};
+}
+//#endregion
+//#region software_safe_src/viewer_model_connection_client.js
+var API$1 = "/v1/agent-client";
+var IDENTITY = "/api/public/hosted-account/v2/capabilities";
+var CODES = /* @__PURE__ */ new Set([
+	"authentication_required",
+	"authentication_failed",
+	"quota_unavailable",
+	"budget_exhausted",
+	"rate_limited",
+	"model_unavailable",
+	"capability_unsupported",
+	"transport_failed",
+	"session_expired",
+	"version_conflict",
+	"executor_unavailable",
+	"executor_busy",
+	"game_executor_unavailable",
+	"deployment_unavailable",
+	"untrusted_executor",
+	"invalid_request",
+	"request_failed",
+	"input_limit",
+	"output_limit",
+	"response_limit",
+	"model_identity_mismatch",
+	"unexpected_streaming",
+	"unsupported_finish_reason",
+	"unsupported_tool",
+	"invalid_tool_identity",
+	"unsupported_content",
+	"invalid_response",
+	"list_changed",
+	"connection_capacity_exceeded"
+]);
+var ModelConnectionError = class extends Error {
+	constructor(code, status = 0, operationState = null) {
+		super(CODES.has(code) ? code : "request_failed");
+		this.code = this.message;
+		this.status = status;
+		this.operationState = [
+			"pending",
+			"ready",
+			"failed",
+			"not_started"
+		].includes(operationState) ? operationState : null;
+	}
+};
+var text$4 = (value, max = 256) => typeof value === "string" && value.length <= max ? value : "";
+var number$2 = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
+var RUN_REASONS = /* @__PURE__ */ new Set([
+	"completed",
+	"budget_exhausted",
+	"pending_original",
+	"rejected_original",
+	"expired_original",
+	"control_changed",
+	"context_expired",
+	"model_failed",
+	"input_limit",
+	"model_timeout",
+	"invalid_model_output",
+	"aborted",
+	"host_failure"
+]);
+var MODEL_FAILURES = /* @__PURE__ */ new Set([
+	"input_limit",
+	"output_limit",
+	"model_identity_mismatch",
+	"unexpected_streaming",
+	"unsupported_finish_reason",
+	"unsupported_tool",
+	"invalid_tool_identity",
+	"unsupported_content",
+	"capability_unsupported",
+	"other"
+]);
+function executionSnapshot(value) {
+	if (!value || ![
+		"running",
+		"finished",
+		"stopped"
+	].includes(value.phase)) return null;
+	return {
+		phase: value.phase,
+		reason: RUN_REASONS.has(value.reason) ? value.reason : null,
+		model_failure: MODEL_FAILURES.has(value.model_failure) ? value.model_failure : null,
+		successful_effects: number$2(value.successful_effects),
+		model_calls_spent: number$2(value.model_calls_spent)
+	};
+}
+function modelConnectionSnapshot(value) {
+	if (!value || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.id || "") || !Number.isSafeInteger(value.version) || value.version < 1) throw new ModelConnectionError("request_failed");
+	return {
+		execution: executionSnapshot(value.execution),
+		id: value.id,
+		version: value.version,
+		preset_id: text$4(value.preset_id),
+		state: [
+			"checking",
+			"ready",
+			"blocked",
+			"revoked",
+			"expired"
+		].includes(value.state) ? value.state : "unknown",
+		run_state: [
+			"running",
+			"stopped",
+			"idle",
+			"unavailable"
+		].includes(value.run_state) ? value.run_state : "unknown",
+		run_generation: number$2(value.run_generation),
+		expires_at_ms: number$2(value.expires_at_ms),
+		absolute_expires_at_ms: number$2(value.absolute_expires_at_ms),
+		calls_spent: number$2(value.calls_spent),
+		tokens_reserved: number$2(value.tokens_reserved),
+		error_code: CODES.has(value.error_code) ? value.error_code : value.error_code ? "request_failed" : ""
+	};
+}
+function acceptsModelCredentials(capabilities, origin = globalThis.location?.origin) {
+	const executor = capabilities?.trusted_executor;
+	return capabilities?.ok === true && capabilities.enabled === true && capabilities.authenticated === true && executor?.trusted === true && executor.origin === origin && !!executor.display_name && !!executor.location && capabilities.presets?.length > 0 && [
+		"max_calls",
+		"max_input_tokens",
+		"max_output_tokens",
+		"max_concurrent",
+		"lease_ms",
+		"absolute_ms",
+		"renew_interval_ms"
+	].every((key) => Number.isSafeInteger(capabilities.limits?.[key]) && capabilities.limits[key] > 0);
+}
+function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch, operationId = () => globalThis.crypto.randomUUID() } = {}) {
+	const pending = /* @__PURE__ */ new Map();
+	async function request(path, body, method = body === void 0 ? "GET" : "POST", identity = false) {
+		let csrf;
+		if (body !== void 0) {
+			csrf = text$4((await request(IDENTITY, void 0, "GET", true)).csrf_token, 4096);
+			if (!csrf) throw new ModelConnectionError("authentication_required");
+		}
+		let response;
+		try {
+			response = await fetchImpl(identity ? path : API$1 + path, {
+				method,
+				credentials: "same-origin",
+				mode: "same-origin",
+				cache: "no-store",
+				redirect: "error",
+				referrerPolicy: "no-referrer",
+				headers: {
+					Accept: "application/json",
+					...body === void 0 ? {} : {
+						"Content-Type": "application/json",
+						"X-Oasis7-CSRF": csrf
+					}
+				},
+				...body === void 0 ? {} : { body: JSON.stringify(body) }
+			});
+		} catch {
+			throw new ModelConnectionError("transport_failed");
+		}
+		let value;
+		try {
+			value = await response.json();
+		} catch {
+			throw new ModelConnectionError("request_failed", response.status);
+		}
+		if (!response.ok || value?.ok === false) throw new ModelConnectionError(CODES.has(value?.error_code) ? value.error_code : response.status === 401 ? "authentication_required" : "request_failed", response.status, value?.operation_state);
+		return value;
+	}
+	const path = (connection) => {
+		if (!/^[a-zA-Z0-9_-]{1,128}$/.test(connection?.id || "") || !Number.isSafeInteger(connection.version) || connection.version < 1) throw new ModelConnectionError("invalid_request");
+		return `/model-connections/${encodeURIComponent(connection.id)}`;
+	};
+	async function mutate(connection, action, extra = {}, method = "POST") {
+		const key = `${connection.id}:${action}`;
+		const needsId = action === "probe" || action === "stop";
+		if (needsId && !pending.has(key)) pending.set(key, {
+			id: operationId(),
+			version: connection.version
+		});
+		const operation = pending.get(key);
+		const complete = () => {
+			if (pending.get(key) === operation) pending.delete(key);
+		};
+		try {
+			const value = await request(path(connection) + (action ? `/${action}` : ""), {
+				expected_version: needsId ? operation.version : connection.version,
+				...extra,
+				...needsId ? { operation_id: operation.id } : {}
+			}, method);
+			const result = modelConnectionSnapshot(value.connection);
+			if (value.operation_state !== "pending") complete();
+			return result;
+		} catch (failure) {
+			if ([
+				"ready",
+				"failed",
+				"not_started"
+			].includes(failure.operationState)) complete();
+			throw failure;
+		}
+	}
+	return {
+		async capabilities() {
+			const value = await request("/capabilities");
+			const executor = value.trusted_executor;
+			const limits = Object.fromEntries([
+				"max_calls",
+				"max_tokens",
+				"max_input_tokens",
+				"max_output_tokens",
+				"max_concurrent",
+				"lease_ms",
+				"absolute_ms",
+				"renew_interval_ms"
+			].map((key) => [key, number$2(value.limits?.[key])]));
+			return {
+				ok: value.ok === true,
+				enabled: value.enabled === true,
+				authenticated: value.authenticated === true,
+				executor_available: value.executor_available === true,
+				reason: CODES.has(value.reason) ? value.reason : value.reason ? "request_failed" : "",
+				trusted_executor: executor ? {
+					trusted: executor.trusted === true,
+					display_name: text$4(executor.display_name),
+					location: text$4(executor.location),
+					origin: text$4(executor.origin, 2048)
+				} : null,
+				limits,
+				presets: Array.isArray(value.presets) ? value.presets.slice(0, 64).filter((preset) => preset && /^[a-zA-Z0-9_.:-]{1,128}$/.test(preset.id || "") && ["deepseek", "openrouter"].includes(preset.provider_id)).map((preset) => ({
+					id: preset.id,
+					provider_id: preset.provider_id,
+					model_id: text$4(preset.model_id),
+					protocol: text$4(preset.protocol, 64)
+				})) : []
+			};
+		},
+		async read(connection) {
+			return modelConnectionSnapshot((await request(path(connection))).connection);
+		},
+		async list() {
+			const items = [], ids = /* @__PURE__ */ new Set(), cursors = /* @__PURE__ */ new Set();
+			let cursor = null, cut;
+			do {
+				const value = await request(cursor ? `/model-connections/pages/${encodeURIComponent(cursor)}` : "/model-connections");
+				if (value.page_limit !== 64 || !Array.isArray(value.connections) || value.connections.length > 64 || !text$4(value.list_cut, 128) || cut && cut !== value.list_cut || !(value.next_cursor === null || /^[a-zA-Z0-9_-]{1,256}$/.test(value.next_cursor || ""))) throw new ModelConnectionError("request_failed");
+				cut = value.list_cut;
+				for (const raw of value.connections) {
+					const connection = modelConnectionSnapshot(raw);
+					if (ids.has(connection.id) || items.length >= 4096) throw new ModelConnectionError("request_failed");
+					ids.add(connection.id);
+					items.push(connection);
+				}
+				cursor = value.next_cursor;
+				if (cursor && (cursors.has(cursor) || value.connections.length === 0)) throw new ModelConnectionError("request_failed");
+				cursors.add(cursor);
+			} while (cursor);
+			return items;
+		},
+		async create({ preset_id, raw_key, consent }) {
+			try {
+				return modelConnectionSnapshot((await request("/model-connections", {
+					preset_id,
+					raw_key,
+					consent: consent === true
+				})).connection);
+			} finally {
+				raw_key = "";
+			}
+		},
+		probe(connection) {
+			return mutate(connection, "probe", { consent: true });
+		},
+		activate(connection, { target_ref, limits }) {
+			return mutate(connection, "activate", {
+				consent: true,
+				target_ref,
+				limits
+			});
+		},
+		lease(connection) {
+			return mutate(connection, "lease");
+		},
+		stop(connection) {
+			return mutate(connection, "stop");
+		},
+		forget(connection) {
+			return mutate(connection, "", {}, "DELETE");
+		}
+	};
+}
+//#endregion
+//#region software_safe_src/browser_legacy_run_guard.js
+var LegacyRunGuardError = class extends Error {
+	constructor(code) {
+		super(code);
+		this.name = "LegacyRunGuardError";
+		this.code = code;
+	}
+};
+var reject = (code) => {
+	throw new LegacyRunGuardError(code);
+};
+async function assertNoLegacyRun({ client = createViewerModelConnectionClient() } = {}) {
+	try {
+		const cap = await client.capabilities();
+		if (cap?.ok !== true) reject("legacy_state_unknown");
+		if (cap.enabled === false && cap.reason === "deployment_unavailable") return;
+		if (cap.enabled !== true || cap.authenticated !== true) reject("legacy_state_unknown");
+		const connections = await client.list();
+		if (!Array.isArray(connections)) reject("legacy_state_unknown");
+		for (const item of connections) {
+			if (item?.run_state === "running" || item?.execution?.phase === "running") reject("legacy_run_active");
+			if (!item || ![
+				"stopped",
+				"idle",
+				"unavailable"
+			].includes(item.run_state) || ![
+				"checking",
+				"ready",
+				"blocked",
+				"revoked",
+				"expired"
+			].includes(item.state) || item.execution != null && !["finished", "stopped"].includes(item.execution.phase)) reject("legacy_state_unknown");
+		}
+	} catch (error) {
+		if (error instanceof LegacyRunGuardError) throw error;
+		reject("legacy_state_unknown");
+	}
+}
+//#endregion
+//#region software_safe_src/browser_game_session.js
+var same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+var fail$1 = (code) => {
+	throw new BrowserGameError(code);
+};
+function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isCurrent = () => true, locks = globalThis.navigator?.locks, documentRef = globalThis.document, windowRef = globalThis.window, navigatorRef = globalThis.navigator, now = Date.now, protocolLoader = loadBrowserGameProtocol, identityStore = createBrowserExecutorIdentity(), participantFactory = createBrowserParticipantEntry, clientFactory = createBrowserGameClient, recoveryFactory = createBrowserGameRecovery, runnerFactory = createBrowserAgentRunner, legacyGuard = assertNoLegacyRun, modelSession = createBrowserModelSession({ accountId }) } = {}) {
+	if (!config || !accountId || !agentId || !ownerSigner) fail$1("game_configuration_invalid");
+	const listeners = /* @__PURE__ */ new Set();
+	let status = {
+		phase: "unprepared",
+		ready: false,
+		code: null,
+		fence: null
+	};
+	let codec, client, recovery, runner, credential, credentialRevision, runGeneration, operationController;
+	let preparing = false, starting = null, disposed = false, generation = 0;
+	let lastWall = now();
+	const notify = () => {
+		for (const listener of listeners) listener();
+	};
+	const publish = (value) => {
+		status = {
+			...status,
+			...value
+		};
+		notify();
+	};
+	const unsubscribe = modelSession.subscribe(() => {
+		if (runGeneration === generation && credential && credentialRevision !== void 0) {
+			let current;
+			try {
+				current = modelSession.snapshot();
+			} catch {
+				stop("storage_unavailable");
+				return;
+			}
+			if (current.revision !== credentialRevision || current.stopped || !current.hasKey) {
+				stop("model_connection_changed");
+				return;
+			}
+		}
+		notify();
+	});
+	function assertCurrent() {
+		if (disposed || !isCurrent()) fail$1("game_session_changed");
+		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$1("page_paused");
+		const current = now();
+		if (current < lastWall || current - lastWall > 1e4) {
+			stop("page_paused");
+			fail$1("page_paused");
+		}
+		lastWall = current;
+	}
+	function check(expected, controller) {
+		assertCurrent();
+		if (expected !== generation || controller?.signal.aborted) fail$1("stopped");
+	}
+	function stop(code = "stopped") {
+		const stoppedGeneration = ++generation;
+		operationController?.abort();
+		preparing = false;
+		starting = null;
+		runGeneration = null;
+		runner?.stop(code);
+		credential = null;
+		credentialRevision = void 0;
+		modelSession.stop().catch(() => {
+			if (generation === stoppedGeneration && !disposed) publish({ code: "storage_write_failed" });
+		});
+		publish({
+			phase: "stopped",
+			ready: false,
+			code
+		});
+	}
+	const pause = () => {
+		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) stop("page_paused");
+	};
+	const wake = () => stop("page_paused");
+	documentRef?.addEventListener("visibilitychange", pause);
+	documentRef?.addEventListener("freeze", wake);
+	documentRef?.addEventListener("resume", wake);
+	windowRef?.addEventListener("pagehide", wake);
+	windowRef?.addEventListener("offline", wake);
+	const clock = setInterval(() => {
+		const current = now();
+		if ((current < lastWall || current - lastWall > 1e4) && runner?.state().phase === "running") stop("page_paused");
+		lastWall = current;
+	}, 1e3);
+	async function prepare({ takeover = false, inspectOnly = false, confirmedFence } = {}) {
+		if (preparing || starting === generation || runner?.state().phase === "running") fail$1("already_running");
+		if (!inspectOnly && !confirmedFence) fail$1("run_confirmation_required");
+		lastWall = now();
+		assertCurrent();
+		operationController?.abort();
+		const controller = new AbortController();
+		operationController = controller;
+		const expected = ++generation;
+		preparing = true;
+		credential = null;
+		runGeneration = null;
+		const checked = () => check(expected, controller);
+		publish({
+			phase: "preparing",
+			ready: false,
+			code: null
+		});
+		try {
+			codec ?? (codec = await protocolLoader());
+			checked();
+			const scope = {
+				worldId: config.world.world_id,
+				genesisDigest: config.world.genesis_digest,
+				accountId,
+				agentId
+			};
+			const executorSigner = await identityStore.getOrCreate(scope);
+			checked();
+			const participant = participantFactory({
+				config,
+				codec,
+				ownerSigner,
+				accountId,
+				agentId,
+				signal: controller.signal
+			});
+			await participant.prepare();
+			checked();
+			let registrationAllowed = false;
+			const dependencies = {
+				config,
+				codec,
+				ownerSigner,
+				executorSigner,
+				participantProofs: participant.getParticipantProofs,
+				agentId,
+				gatewayCall: participant.gatewayCall,
+				signal: controller.signal,
+				beforeEffect: async () => {
+					checked();
+					if (!registrationAllowed) fail$1("run_confirmation_required");
+				}
+			};
+			const readOnly = {
+				load: async () => ({ operations: [] }),
+				remember: async () => fail$1("task_scope_required")
+			};
+			const observed = await clientFactory({
+				...dependencies,
+				recovery: readOnly
+			}).readTask();
+			checked();
+			let localRecovery = recoveryFactory({ scope: {
+				...scope,
+				taskId: observed.fence.task_id,
+				fence: observed.fence
+			} });
+			let localClient = clientFactory({
+				...dependencies,
+				taskId: observed.fence.task_id,
+				recovery: localRecovery
+			});
+			await localClient.recover();
+			checked();
+			const unknown = await localRecovery.hasUnresolved();
+			checked();
+			if (inspectOnly) {
+				client = localClient;
+				recovery = localRecovery;
+				runner = null;
+				publish({
+					phase: "inspected",
+					ready: false,
+					code: unknown ? "recovery_required" : null,
+					fence: observed.fence,
+					goal: null
+				});
+				return { ...status };
+			}
+			if (!same(confirmedFence, observed.fence)) fail$1("task_fence_changed");
+			if (unknown) fail$1("recovery_required");
+			await legacyGuard({ signal: controller.signal });
+			checked();
+			registrationAllowed = true;
+			const existing = observed.fence.executor_binding;
+			if (existing?.executor_public_key !== executorSigner.publicKeyHex) {
+				if (existing && !takeover) fail$1("executor_takeover_confirmation_required");
+				const operationId = codec.requestDigest("browser-executor-registration", JSON.stringify({
+					fence: observed.fence,
+					executor: executorSigner.publicKeyHex
+				}));
+				const recorded = (await localRecovery.load()).operations;
+				checked();
+				let delegationGeneration = 1;
+				for (const entry of recorded) {
+					let wire;
+					try {
+						wire = JSON.parse(entry.original.signedRequest.rawJson);
+					} catch {
+						continue;
+					}
+					const request = wire?.signed_payload?.kind === "delegation" ? wire.signed_payload.payload?.request : null;
+					if (request?.delegate_public_key === executorSigner.publicKeyHex && Number.isSafeInteger(request.generation)) delegationGeneration = Math.max(delegationGeneration, request.generation + 1);
+				}
+				checked();
+				await localClient.registerExecutor({
+					operationId,
+					confirmedFence: observed.fence,
+					executorId: `browser:${executorSigner.publicKeyHex}`,
+					generation: delegationGeneration,
+					nonce: now()
+				});
+				checked();
+			}
+			const current = await localClient.freshFence();
+			checked();
+			registrationAllowed = false;
+			localRecovery = recoveryFactory({ scope: {
+				...scope,
+				taskId: current.fence.task_id,
+				fence: current.fence
+			} });
+			let localRunner;
+			const runtimePermit = async () => {
+				checked();
+				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$1("run_confirmation_required");
+				await credential();
+				checked();
+				if (runGeneration !== expected) fail$1("stopped");
+			};
+			localClient = clientFactory({
+				...dependencies,
+				recovery: localRecovery,
+				taskId: current.fence.task_id,
+				beforeEffect: runtimePermit
+			});
+			await localClient.bindFence(current.fence);
+			checked();
+			const taskSnapshot = await localClient.snapshot();
+			checked();
+			const goal = taskSnapshot.active_goal?.owner_proof?.request?.content;
+			let budgetRunId;
+			localRunner = runnerFactory({
+				gameClient: localClient,
+				recovery: localRecovery,
+				budget: {
+					async initialize({ runId, fence }) {
+						checked();
+						await localRecovery.initializeRun(runId, { fence });
+						checked();
+						budgetRunId = runId;
+					},
+					async reserve(candidate) {
+						checked();
+						if (!budgetRunId) fail$1("run_budget_missing");
+						const durable = await localRecovery.reserveModelCall(budgetRunId, candidate.inputBytes, candidate.maxOutputTokens);
+						checked();
+						const shared = await modelSession.reserveExecution(candidate);
+						checked();
+						return {
+							durable,
+							shared
+						};
+					},
+					async settle({ reservation, usage }) {
+						let error;
+						try {
+							await localRecovery.settleModelCall(budgetRunId, reservation.durable, usage ? {
+								inputTokens: usage.prompt_tokens,
+								outputTokens: usage.completion_tokens
+							} : null);
+						} catch (failure) {
+							error = failure;
+						}
+						try {
+							await modelSession.settleExecution({
+								reservation: reservation.shared,
+								usage
+							});
+						} catch (failure) {
+							error ?? (error = failure);
+						}
+						if (error) throw error;
+					}
+				},
+				getCredential: async () => {
+					checked();
+					if (runGeneration !== expected || !credential) fail$1("stopped");
+					const key = await credential();
+					checked();
+					return key;
+				},
+				visibility: () => documentRef?.visibilityState === "visible" && isCurrent(),
+				online: () => navigatorRef?.onLine !== false,
+				onState: (next) => {
+					if (generation === expected && !controller.signal.aborted) publish({
+						phase: next.phase,
+						code: next.code
+					});
+				}
+			});
+			checked();
+			client = localClient;
+			recovery = localRecovery;
+			runner = localRunner;
+			publish({
+				phase: "ready",
+				ready: true,
+				code: null,
+				fence: current.fence,
+				goal: typeof goal === "string" ? goal : JSON.stringify(goal ?? null)
+			});
+			return { ...status };
+		} catch (error) {
+			controller.abort();
+			if (generation === expected) publish({
+				phase: "blocked",
+				ready: false,
+				code: error.code || "game_request_failed"
+			});
+			throw error;
+		} finally {
+			if (expected === generation) preparing = false;
+		}
+	}
+	async function start() {
+		lastWall = now();
+		assertCurrent();
+		const modelState = modelSession.snapshot();
+		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$1("run_confirmation_required");
+		if (starting === generation || runner.state().phase === "running") fail$1("already_running");
+		if (typeof locks?.request !== "function") fail$1("locks_unavailable");
+		const expected = generation, confirmedFence = status.fence, controller = operationController;
+		const currentClient = client, currentRunner = runner;
+		starting = expected;
+		try {
+			return await locks.request(`oasis7:browser-agent:${JSON.stringify([
+				config.world.world_id,
+				config.world.genesis_digest,
+				accountId,
+				agentId
+			])}`, {
+				mode: "exclusive",
+				ifAvailable: true
+			}, async (lock) => {
+				if (!lock) fail$1("agent_busy");
+				check(expected, controller);
+				await legacyGuard({ signal: controller.signal });
+				check(expected, controller);
+				const current = await currentClient.freshFence();
+				check(expected, controller);
+				if (!same(current.fence, confirmedFence)) fail$1("task_fence_changed");
+				const currentModel = modelSession.snapshot();
+				if (!currentModel.hasKey || currentModel.checked !== true) fail$1("run_confirmation_required");
+				const permission = await modelSession.beginExecution(currentModel.revision);
+				check(expected, controller);
+				credential = permission;
+				credentialRevision = modelSession.snapshot().revision;
+				runGeneration = expected;
+				const runId = codec.requestDigest("browser-agent-run", JSON.stringify({
+					fence: confirmedFence,
+					executor: currentClient.executorPublicKey
+				}));
+				return currentRunner.start({
+					confirmedFence,
+					runId
+				});
+			});
+		} finally {
+			if (starting === expected) starting = null;
+			if (generation === expected) {
+				credential = null;
+				credentialRevision = void 0;
+				runGeneration = null;
+				await modelSession.stop();
+			}
+		}
+	}
+	return {
+		modelSession,
+		snapshot: () => ({ ...status }),
+		subscribe(listener) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		prepare,
+		start,
+		stop,
+		async recover() {
+			assertCurrent();
+			if (!client || operationController?.signal.aborted) fail$1("task_scope_required");
+			if (starting === generation || runner?.state().phase === "running") fail$1("already_running");
+			const expected = generation, controller = operationController, originalClient = client, originalRecovery = recovery;
+			await originalClient.recover();
+			check(expected, controller);
+			const unknown = await originalRecovery.hasUnresolved();
+			check(expected, controller);
+			publish({
+				phase: unknown ? "blocked" : "inspected",
+				ready: false,
+				code: unknown ? "recovery_required" : null,
+				goal: null
+			});
+			return !unknown;
+		},
+		async forget() {
+			stop();
+			return modelSession.forget();
+		},
+		async logout() {
+			stop();
+			return modelSession.logout();
+		},
+		dispose() {
+			disposed = true;
+			stop();
+			unsubscribe();
+			modelSession.dispose();
+			clearInterval(clock);
+			listeners.clear();
+			documentRef?.removeEventListener("visibilitychange", pause);
+			documentRef?.removeEventListener("freeze", wake);
+			documentRef?.removeEventListener("resume", wake);
+			windowRef?.removeEventListener("pagehide", wake);
+			windowRef?.removeEventListener("offline", wake);
+		}
+	};
+}
+//#endregion
+//#region software_safe_src/model_connection_panel.jsx
+var _tmpl$$42 = /*#__PURE__*/ template(`<p role=alert>`);
+var _tmpl$2$39 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$3$31 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
+var _tmpl$4$28 = /*#__PURE__*/ template(`<form class=model-connection-panel__form><label><select required><option value></option></select></label><label><input type=password name=model-inference-key autocomplete=off maxlength=4096 required></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
+var _tmpl$5$27 = /*#__PURE__*/ template(`<label><select>`);
+var _tmpl$6$19 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
+var _tmpl$7$15 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$8$10 = /*#__PURE__*/ template(`<option> · <!> · `);
+var _tmpl$9$8 = /*#__PURE__*/ template(`<option> · `);
+var _tmpl$0$7 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
+var _tmpl$1$5 = /*#__PURE__*/ template(`<button type=button>`);
+var _tmpl$10$4 = /*#__PURE__*/ template(`<div class=model-connection-panel__connection><p role=status> · </p><p>: <!> / </p><div class=model-connection-panel__actions><button type=button></button><button type=button></button></div><p>`);
+var _tmpl$11$3 = /*#__PURE__*/ template(`<p role=status> · <!>: `);
+var _tmpl$12$2 = /*#__PURE__*/ template(`<p role=status> `);
+var COPY = {
+	executor_busy: ["同一执行设备正在处理原运行，请先核对状态。", "This device is handling an existing run. Check its status first."],
+	deployment_unavailable: ["当前部署尚未启用模型连接，暂不接收凭证。", "Model connections are not enabled on this deployment; credentials are not accepted."],
+	authentication_required: ["请先登录当前玩家账号。", "Sign in to the current player account."],
+	authentication_failed: ["模型凭证认证失败，请重新输入或到供应商检查。", "Model authentication failed. Re-enter the key or check the provider account."],
+	quota_unavailable: ["供应商额度不可用，请到供应商账户处理。", "Provider quota is unavailable. Check the provider account."],
+	budget_exhausted: ["本次模型调用限制已用尽，新推理已受限。", "This session's model budget is exhausted; new inference is blocked."],
+	rate_limited: ["供应商限流；仅可在原期限和预算内重试。", "Provider rate limit reached. Retry only within the original deadline and budget."],
+	model_unavailable: ["当前模型不可用，请选择已支持配置。", "This model is unavailable. Choose a supported configuration."],
+	capability_unsupported: ["模型工具能力尚未就绪，不能开始游戏执行。", "Model tool support is not ready; game execution cannot start."],
+	transport_failed: ["请求结果尚未确认。请刷新状态；不要假定检查或停止已经完成。", "The request result is unconfirmed. Refresh status; do not assume probing or stopping completed."],
+	session_expired: ["连接会话已过期，请重新连接并确认开始。", "The connection expired. Reconnect and explicitly confirm any new run."],
+	version_conflict: ["连接已被其他页面修改，请核对刷新后的状态再操作。", "Another page changed this connection. Review the refreshed state before continuing."],
+	executor_unavailable: ["本部署尚无可用游戏执行器。可检查模型连接，但不能开始行动。", "No game executor is available on this deployment. Model checks are available; actions cannot start."],
+	untrusted_executor: ["尚未建立可信执行端，不能提交凭证。", "A trusted executor has not been established. Credentials cannot be submitted."],
+	invalid_request: ["连接请求无效，请刷新并重新确认。", "The connection request is invalid. Refresh and confirm again."],
+	connection_capacity_exceeded: ["连接存储容量已满；已有连接仍可管理，本次没有调用模型。", "Connection storage capacity is full. Existing connections remain manageable; no model call was made."],
+	list_changed: ["连接列表在读取时发生变化，请重新刷新；已知连接仍可核对和管理。", "The connection list changed while reading. Refresh again; known connections can still be checked and managed."],
+	invalid_response: ["模型响应格式无效，请核对协议兼容性。", "The model response format is invalid. Check protocol compatibility."],
+	response_limit: ["模型响应超过安全大小上限，请核对输出配置。", "The model response exceeded the safe size limit. Check output settings."],
+	request_failed: ["连接服务暂不可用，请刷新状态或稍后重试。", "The connection service is unavailable. Refresh status or try again later."]
+};
+var RUN_REASON = {
+	completed: ["本轮执行上限已达到；尚未证明目标完成", "Run limit reached; goal completion is unverified"],
+	budget_exhausted: ["调用预算已用尽", "Call budget exhausted"],
+	pending_original: ["原操作结果待确认", "Original operation result pending"],
+	rejected_original: ["原操作已拒绝", "Original operation rejected"],
+	expired_original: ["原操作已过期", "Original operation expired"],
+	control_changed: ["授权或运行状态已改变", "Authority or run state changed"],
+	context_expired: ["决策上下文已过期", "Decision context expired"],
+	model_failed: ["模型调用未完成", "Model call did not complete"],
+	input_limit: ["模型输入达到上限", "Model input reached its limit"],
+	model_timeout: ["模型调用超时", "Model call timed out"],
+	invalid_model_output: ["模型工具输出不受支持", "Unsupported model tool output"],
+	aborted: ["执行器已结束本轮", "Executor ended this run"],
+	host_failure: ["执行端暂不可用", "Executor unavailable"]
+};
+var MODEL_FAILURE = {
+	input_limit: ["模型输入达到上限。请核对上下文容量与原任务状态，再明确确认后续执行。", "Model input reached its limit. Review context capacity and the original task state before explicitly confirming further execution."],
+	output_limit: ["模型输出达到上限。截断输出不能作为可执行动作；请核对原操作状态和输出配置后再明确确认。", "Model output reached its limit. Truncated output is not an executable action; review original-operation status and output settings before explicitly confirming further execution."],
+	model_identity_mismatch: ["返回模型与所选配置不符。请核对供应商模型配置。", "The returned model differs from the selected configuration. Check the provider model settings."],
+	unexpected_streaming: ["供应商返回了不支持的流式响应。请核对兼容协议配置。", "The provider returned an unsupported streaming response. Check protocol compatibility settings."],
+	unsupported_finish_reason: ["模型结束方式不受支持。请核对模型协议兼容性。", "The model completion type is unsupported. Check model protocol compatibility."],
+	unsupported_tool: ["模型请求了不支持的工具。请核对可用游戏工具与模型配置。", "The model requested an unsupported tool. Review available game tools and model settings."],
+	invalid_tool_identity: ["模型工具调用标识无效。请核对协议兼容性与原操作状态。", "The model tool-call identity is invalid. Check protocol compatibility and original-operation status."],
+	unsupported_content: ["模型返回内容格式不受支持。请核对模型协议兼容性。", "The model returned an unsupported content format. Check model protocol compatibility."],
+	capability_unsupported: ["模型能力不满足执行要求。请核对工具协议与模型配置。", "Model capabilities do not meet execution requirements. Check tool protocol and model settings."],
+	other: ["模型调用失败。请核对连接与原操作状态。", "The model call failed. Check the connection and original-operation status."]
+};
+var STATE = {
+	checking: ["检查中", "Checking"],
+	ready: ["模型可用", "Model ready"],
+	blocked: ["模型连接受限", "Model connection blocked"],
+	revoked: ["已断开并忘记", "Disconnected and forgotten"],
+	expired: ["会话已过期", "Session expired"],
+	running: ["执行器正在运行", "Executor running"],
+	stopped: ["已停止新决策", "New decisions stopped"],
+	idle: ["尚未开始执行", "Execution not started"],
+	unavailable: ["游戏执行器不可用", "Game executor unavailable"]
+};
+function ModelConnectionPanel(props) {
+	const client = props.client || createViewerModelConnectionClient();
+	const read = (value) => typeof value === "function" ? value() : value;
+	const zh = () => String(read(props.locale) || "en").startsWith("zh");
+	const tr = (cn, en) => zh() ? cn : en;
+	const message = (code) => (COPY[code === "game_executor_unavailable" ? "executor_unavailable" : code] || MODEL_FAILURE[code] || COPY.request_failed)[zh() ? 0 : 1];
+	const modelFailure = (connection) => {
+		const execution = connection.execution;
+		if (["revoked", "expired"].includes(connection.state) || execution?.phase !== "finished" || !["model_failed", "input_limit"].includes(execution.reason)) return null;
+		return MODEL_FAILURE[execution.model_failure]?.[zh() ? 0 : 1] || null;
+	};
+	const stateLabel = (state) => (STATE[state] || ["状态未知", "Status unknown"])[zh() ? 0 : 1];
+	const [capabilities, setCapabilities] = createSignal(null);
+	const [connections, setConnections] = createSignal([]);
+	const [preset, setPreset] = createSignal("");
+	const [selectedId, setSelectedId] = createSignal("");
+	const [consent, setConsent] = createSignal(false);
+	const [probeConsent, setProbeConsent] = createSignal(false);
+	const [runConsent, setRunConsent] = createSignal(false);
+	const [busy, setBusy] = createSignal(false);
+	const [error, setError] = createSignal("");
+	const [now, setNow] = createSignal(Date.now());
+	let keyInput, previousAgent, disposed = false, refreshGeneration = 0, renewing = false;
+	const managementOnly = () => read(props.managementOnly) === true;
+	const manageable = (cap) => managementOnly() ? cap?.ok === true && cap.enabled === true && cap.authenticated === true : acceptsModelCredentials(cap);
+	const available = () => manageable(capabilities());
+	const agentId = () => read(props.agentId) || "";
+	const canControl = () => read(props.canControl) === true && !!agentId();
+	const selected = () => connections().find((connection) => connection.id === selectedId());
+	const expired = (connection) => !connection || ["expired", "revoked"].includes(connection.state) || !connection.expires_at_ms || !connection.absolute_expires_at_ms || now() >= Math.min(connection.expires_at_ms, connection.absolute_expires_at_ms);
+	const apply = (connection) => {
+		if (disposed) return;
+		refreshGeneration++;
+		setConnections((previous) => {
+			const current = previous.find((value) => value.id === connection.id);
+			if (current && current.version > connection.version) return previous;
+			return current ? previous.map((value) => value.id === connection.id ? connection : value) : [...previous, connection];
+		});
+	};
+	function discardUnavailable(connection, failure) {
+		if (failure.status !== 404 && failure.status !== 401 && !["authentication_required", "authentication_failed"].includes(failure.code)) return;
+		refreshGeneration++;
+		setConnections((previous) => previous.filter((value) => value.id !== connection.id));
+		if (selectedId() === connection.id) setSelectedId("");
+		if (failure.status === 401 || ["authentication_required", "authentication_failed"].includes(failure.code)) setCapabilities(null);
+	}
+	async function refresh() {
+		const generation = ++refreshGeneration;
+		let capabilityRead = false;
+		try {
+			const cap = await client.capabilities();
+			if (disposed || generation !== refreshGeneration) return;
+			setCapabilities(cap);
+			capabilityRead = true;
+			if (!manageable(cap)) {
+				setConnections([]);
+				if (keyInput) keyInput.value = "";
+				return;
+			}
+			const items = await client.list();
+			if (disposed || generation !== refreshGeneration) return;
+			setConnections(items);
+			if (!items.some((item) => item.id === selectedId())) setSelectedId(items[0]?.id || "");
+		} catch (failure) {
+			if (!disposed && generation === refreshGeneration) {
+				setError(message(failure.code));
+				if (!capabilityRead) setCapabilities(null);
+				if (keyInput) keyInput.value = "";
+				const current = selected();
+				if (capabilityRead && current) try {
+					const value = await client.read(current);
+					if (!disposed && generation === refreshGeneration) apply(value);
+				} catch (readFailure) {
+					if (!disposed && generation === refreshGeneration) discardUnavailable(current, readFailure);
+				}
+			}
+		}
+	}
+	async function act(action) {
+		if (busy()) return;
+		setBusy(true);
+		setError("");
+		try {
+			await action();
+		} catch (failure) {
+			if (!disposed) {
+				setError(message(failure.code));
+				setProbeConsent(false);
+				setRunConsent(false);
+				await refresh();
+			}
+		} finally {
+			if (!disposed) setBusy(false);
+		}
+	}
+	function create(event) {
+		event.preventDefault();
+		if (managementOnly() || busy() || !available() || !canControl() || !preset() || !consent()) return;
+		let raw = keyInput.value;
+		keyInput.value = "";
+		act(async () => {
+			try {
+				const connection = await client.create({
+					preset_id: preset(),
+					raw_key: raw,
+					consent: true
+				});
+				apply(connection);
+				setSelectedId(connection.id);
+				setConsent(false);
+				setProbeConsent(false);
+				setRunConsent(false);
+			} finally {
+				raw = "";
+			}
+		});
+	}
+	onMount(() => {
+		refresh();
+		const clock = setInterval(() => setNow(Date.now()), 1e3);
+		const renew = setInterval(async () => {
+			setNow(Date.now());
+			if (managementOnly() || disposed || renewing || busy() || !available() || document.visibilityState !== "visible") return;
+			renewing = true;
+			try {
+				for (const connection of connections()) {
+					if (expired(connection)) continue;
+					const interval = capabilities()?.limits?.renew_interval_ms;
+					if (!Number.isFinite(interval) || interval < 1e3) continue;
+					if (connection.expires_at_ms - Date.now() > capabilities().limits.lease_ms - interval) continue;
+					const leaseGeneration = refreshGeneration;
+					try {
+						const current = await client.lease(connection);
+						if (!disposed && leaseGeneration === refreshGeneration) apply(current);
+					} catch (failure) {
+						if (disposed || leaseGeneration !== refreshGeneration) continue;
+						setError(message(failure.code));
+						const generation = refreshGeneration;
+						try {
+							const current = await client.read(connection);
+							if (!disposed && generation === refreshGeneration) apply(current);
+						} catch (readFailure) {
+							if (!disposed && generation === refreshGeneration) {
+								setError(message(readFailure.code));
+								discardUnavailable(connection, readFailure);
+							}
+						}
+					}
+				}
+			} finally {
+				renewing = false;
+			}
+		}, 1e3);
+		const visible = () => {
+			setNow(Date.now());
+			if (document.visibilityState === "visible") refresh();
+		};
+		document.addEventListener("visibilitychange", visible);
+		onCleanup(() => {
+			disposed = true;
+			refreshGeneration++;
+			clearInterval(clock);
+			clearInterval(renew);
+			document.removeEventListener("visibilitychange", visible);
+			if (keyInput) keyInput.value = "";
+		});
+	});
+	createEffect(() => {
+		selectedId();
+		setProbeConsent(false);
+		setRunConsent(false);
+	});
+	createEffect(() => {
+		const id = agentId();
+		if (id !== previousAgent || !canControl() || !available()) {
+			if (keyInput) keyInput.value = "";
+			setConsent(false);
+			setProbeConsent(false);
+			setRunConsent(false);
+		}
+		previousAgent = id;
+	});
+	return (() => {
+		var _el$ = _tmpl$6$19(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling, _el$35 = _el$4.nextSibling;
+		insert(_el$2, modelConnectionStyles);
+		insert(_el$3, (() => {
+			var _c$ = memo(() => !!managementOnly());
+			return () => _c$() ? tr("旧托管模型连接管理", "Legacy hosted connection management") : tr("实验模型连接 · 第一方执行方", "Experimental model connection · first-party executor");
+		})());
+		insert(_el$4, () => tr("连接模型不会认领 Agent、授予游戏权限或自动开始运行。", "Connecting a model does not claim an Agent, grant game authority, or start a run."));
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return error();
+			},
+			get children() {
+				var _el$5 = _tmpl$$42();
+				insert(_el$5, error);
+				return _el$5;
+			}
+		}), _el$35);
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return available();
+			},
+			get fallback() {
+				return (() => {
+					var _el$36 = _tmpl$7$15();
+					insert(_el$36, (() => {
+						var _c$2 = memo(() => !!capabilities());
+						return () => _c$2() ? message(capabilities().reason || (capabilities().authenticated ? "untrusted_executor" : "authentication_required")) : tr("正在核对部署与登录状态；暂不接收凭证。", "Checking deployment and sign-in; credentials are not accepted yet.");
+					})());
+					return _el$36;
+				})();
+			},
+			get children() {
+				return [
+					createComponent(Show, {
+						get when() {
+							return managementOnly();
+						},
+						get children() {
+							var _el$6 = _tmpl$2$39();
+							insert(_el$6, () => tr("仅核对、停止或忘记旧托管连接；不会检查模型、开始或续期。开始浏览器运行前必须确认旧执行已停止。", "Check, stop or forget legacy connections only. No model checks, starts or lease renewals occur. Confirm legacy execution has stopped before starting in the browser."));
+							return _el$6;
+						}
+					}),
+					createComponent(Show, {
+						get when() {
+							return !managementOnly();
+						},
+						get children() {
+							return [(() => {
+								var _el$7 = _tmpl$3$31(), _el$8 = _el$7.firstChild, _el$9 = _el$8.firstChild, _el$0 = _el$8.nextSibling, _el$1 = _el$0.firstChild, _el$11 = _el$1.nextSibling;
+								_el$11.nextSibling;
+								var _el$12 = _el$0.nextSibling, _el$13 = _el$12.nextSibling, _el$14 = _el$13.nextSibling, _el$15 = _el$14.firstChild, _el$17 = _el$15.nextSibling;
+								_el$17.nextSibling;
+								var _el$18 = _el$14.nextSibling, _el$19 = _el$18.firstChild, _el$22 = _el$19.nextSibling, _el$23 = _el$22.nextSibling.nextSibling;
+								_el$23.nextSibling;
+								insert(_el$8, () => tr("凭证接收方", "Credential recipient"), _el$9);
+								insert(_el$8, () => capabilities()?.trusted_executor?.display_name, null);
+								insert(_el$0, () => tr("执行位置", "Execution location"), _el$1);
+								insert(_el$0, () => capabilities()?.trusted_executor?.location, _el$11);
+								insert(_el$0, () => capabilities()?.trusted_executor?.origin, null);
+								insert(_el$12, () => tr("模型数据将发送至所选 DeepSeek/OpenRouter 预设。供应商账户由你付费；费用未知不等于零，本应用不能限制 Key 在其他应用的支出。", "Model data goes to the selected DeepSeek/OpenRouter preset. Your provider account pays; unknown cost is not zero, and this app cannot cap spending by other apps."));
+								insert(_el$13, () => tr("Key 仅在本次执行端会话内存中使用。关闭网页后续期可能失效，不提供长期托管；已受理世界作业仍按世界规则推进。", "The key is held in executor session memory only. Closing the page may end renewal; long-term hosting is not provided. Accepted world jobs follow world rules."));
+								insert(_el$14, () => tr("会话有效期 / 绝对上限（秒）", "Session lease / absolute limit (seconds)"), _el$15);
+								insert(_el$14, () => Math.floor((capabilities()?.limits?.lease_ms || 0) / 1e3), _el$17);
+								insert(_el$14, () => Math.floor((capabilities()?.limits?.absolute_ms || 0) / 1e3), null);
+								insert(_el$18, () => tr("调用 / token / 并发上限", "Call / token / concurrency limits"), _el$19);
+								insert(_el$18, () => capabilities()?.limits?.max_calls ?? "—", _el$22);
+								insert(_el$18, () => capabilities()?.limits?.max_tokens ?? "—", _el$23);
+								insert(_el$18, () => capabilities()?.limits?.max_concurrent ?? "—", null);
+								return _el$7;
+							})(), createComponent(Show, {
+								get when() {
+									return canControl();
+								},
+								get fallback() {
+									return (() => {
+										var _el$37 = _tmpl$7$15();
+										insert(_el$37, () => tr("先选中你有权控制的 Agent；连接不能补授权限。", "Select an Agent you may control; a model connection cannot grant authority."));
+										return _el$37;
+									})();
+								},
+								get children() {
+									var _el$24 = _tmpl$4$28(), _el$25 = _el$24.firstChild, _el$26 = _el$25.firstChild, _el$27 = _el$26.firstChild, _el$28 = _el$25.nextSibling, _el$29 = _el$28.firstChild, _el$30 = _el$28.nextSibling, _el$31 = _el$30.firstChild, _el$32 = _el$30.nextSibling;
+									_el$24.addEventListener("submit", create);
+									insert(_el$25, () => tr("供应商与模型", "Provider and model"), _el$26);
+									_el$26.addEventListener("change", (event) => setPreset(event.currentTarget.value));
+									insert(_el$27, () => tr("请选择本部署配置", "Choose a configured preset"));
+									insert(_el$26, createComponent(For, {
+										get each() {
+											return capabilities()?.presets;
+										},
+										children: (item) => (() => {
+											var _el$38 = _tmpl$8$10(), _el$39 = _el$38.firstChild, _el$41 = _el$39.nextSibling;
+											_el$41.nextSibling;
+											insert(_el$38, () => item.provider_id === "deepseek" ? "DeepSeek" : "OpenRouter", _el$39);
+											insert(_el$38, () => item.model_id, _el$41);
+											insert(_el$38, (() => {
+												var _c$3 = memo(() => item.protocol === "chat_completions");
+												return () => _c$3() ? tr("工具对话", "Chat tools") : "Responses";
+											})(), null);
+											createRenderEffect(() => _el$38.value = item.id);
+											return _el$38;
+										})()
+									}), null);
+									insert(_el$28, () => tr("推理 API Key", "Inference API key"), _el$29);
+									var _ref$ = keyInput;
+									typeof _ref$ === "function" ? use(_ref$, _el$29) : keyInput = _el$29;
+									setAttribute(_el$29, "spellcheck", false);
+									_el$31.addEventListener("change", (event) => setConsent(event.currentTarget.checked));
+									insert(_el$30, () => tr("我知晓凭证接收方、会话隐私和供应商账户费用，同意本次连接使用。", "I understand the recipient, session privacy and provider charges, and consent to this connection."), null);
+									insert(_el$32, () => tr("保存本次连接", "Create session connection"));
+									createRenderEffect((_p$) => {
+										var _v$ = busy(), _v$2 = busy(), _v$3 = busy() || !consent() || !preset();
+										_v$ !== _p$.e && (_el$26.disabled = _p$.e = _v$);
+										_v$2 !== _p$.t && (_el$29.disabled = _p$.t = _v$2);
+										_v$3 !== _p$.a && (_el$32.disabled = _p$.a = _v$3);
+										return _p$;
+									}, {
+										e: void 0,
+										t: void 0,
+										a: void 0
+									});
+									createRenderEffect(() => _el$26.value = preset());
+									createRenderEffect(() => _el$31.checked = consent());
+									return _el$24;
+								}
+							})];
+						}
+					}),
+					createComponent(Show, {
+						get when() {
+							return connections().length;
+						},
+						get children() {
+							var _el$33 = _tmpl$5$27(), _el$34 = _el$33.firstChild;
+							insert(_el$33, () => tr("本会话连接", "Session connections"), _el$34);
+							_el$34.addEventListener("change", (event) => setSelectedId(event.currentTarget.value));
+							insert(_el$34, createComponent(For, {
+								get each() {
+									return connections();
+								},
+								children: (item) => (() => {
+									var _el$42 = _tmpl$9$8(), _el$43 = _el$42.firstChild;
+									insert(_el$42, () => capabilities()?.presets?.find((value) => value.id === item.preset_id)?.model_id || tr("模型配置", "Model configuration"), _el$43);
+									insert(_el$42, () => stateLabel(item.state), null);
+									createRenderEffect(() => _el$42.value = item.id);
+									return _el$42;
+								})()
+							}));
+							createRenderEffect(() => _el$34.disabled = busy());
+							createRenderEffect(() => _el$34.value = selectedId());
+							return _el$33;
+						}
+					}),
+					createComponent(Show, {
+						get when() {
+							return selected();
+						},
+						children: (current) => (() => {
+							var _el$44 = _tmpl$10$4(), _el$45 = _el$44.firstChild, _el$46 = _el$45.firstChild, _el$47 = _el$45.nextSibling, _el$48 = _el$47.firstChild, _el$50 = _el$48.nextSibling;
+							_el$50.nextSibling;
+							var _el$58 = _el$47.nextSibling, _el$60 = _el$58.firstChild, _el$61 = _el$60.nextSibling, _el$62 = _el$58.nextSibling;
+							insert(_el$45, (() => {
+								var _c$4 = memo(() => current().state === "revoked");
+								return () => _c$4() ? stateLabel("revoked") : memo(() => !!expired(current()))() ? stateLabel("expired") : stateLabel(current().state);
+							})(), _el$46);
+							insert(_el$45, () => stateLabel(current().run_state), null);
+							insert(_el$44, createComponent(Show, {
+								get when() {
+									return current().execution;
+								},
+								children: (execution) => (() => {
+									var _el$63 = _tmpl$11$3(), _el$64 = _el$63.firstChild, _el$66 = _el$64.nextSibling;
+									_el$66.nextSibling;
+									insert(_el$63, (() => {
+										var _c$5 = memo(() => execution().phase === "running");
+										return () => _c$5() ? tr("本轮正在执行", "Run in progress") : (RUN_REASON[execution().reason] || ["执行已停止，结果需核对", "Execution stopped; verify the result"])[zh() ? 0 : 1];
+									})(), _el$64);
+									insert(_el$63, () => tr("已确认效果", "Confirmed effects"), _el$66);
+									insert(_el$63, () => execution().successful_effects ?? "—", null);
+									return _el$63;
+								})()
+							}), _el$47);
+							insert(_el$44, createComponent(Show, {
+								get when() {
+									return modelFailure(current());
+								},
+								children: (diagnostic) => (() => {
+									var _el$67 = _tmpl$12$2(), _el$68 = _el$67.firstChild;
+									insert(_el$67, diagnostic, _el$68);
+									insert(_el$67, () => tr("不会自动重试或重置预算；后续执行仍受原预算和期限限制。", "There is no automatic retry or budget reset; further execution remains subject to the original budget and deadline."), null);
+									return _el$67;
+								})()
+							}), _el$47);
+							insert(_el$47, () => tr("已占用调用预算 / token", "Call budget used / tokens reserved"), _el$48);
+							insert(_el$47, () => current().calls_spent ?? "—", _el$50);
+							insert(_el$47, () => current().tokens_reserved ?? "—", null);
+							insert(_el$44, createComponent(Show, {
+								get when() {
+									return current().error_code;
+								},
+								get children() {
+									var _el$51 = _tmpl$7$15();
+									insert(_el$51, () => message(current().error_code));
+									return _el$51;
+								}
+							}), _el$58);
+							insert(_el$44, createComponent(Show, {
+								get when() {
+									return memo(() => !!!managementOnly())() && !capabilities()?.executor_available;
+								},
+								get children() {
+									var _el$52 = _tmpl$7$15();
+									insert(_el$52, () => message("executor_unavailable"));
+									return _el$52;
+								}
+							}), _el$58);
+							insert(_el$44, createComponent(Show, {
+								get when() {
+									return !managementOnly();
+								},
+								get children() {
+									return [
+										(() => {
+											var _el$53 = _tmpl$0$7(), _el$54 = _el$53.firstChild;
+											_el$54.addEventListener("change", (event) => setProbeConsent(event.currentTarget.checked));
+											insert(_el$53, () => tr("同意一次有界、可能计费的模型检查；不写游戏世界。", "Consent to a bounded, potentially billable model check; it does not write the world."), null);
+											createRenderEffect(() => _el$54.disabled = busy() || expired(current()));
+											createRenderEffect(() => _el$54.checked = probeConsent());
+											return _el$53;
+										})(),
+										(() => {
+											var _el$55 = _tmpl$1$5();
+											_el$55.$$click = () => void act(async () => {
+												apply(await client.probe(current()));
+												setProbeConsent(false);
+												setRunConsent(false);
+											});
+											insert(_el$55, () => tr("测试连接", "Test connection"));
+											createRenderEffect(() => _el$55.disabled = busy() || expired(current()) || !probeConsent());
+											return _el$55;
+										})(),
+										(() => {
+											var _el$56 = _tmpl$0$7(), _el$57 = _el$56.firstChild;
+											_el$57.addEventListener("change", (event) => setRunConsent(event.currentTarget.checked));
+											insert(_el$56, () => tr("确认当前 Agent、目标与上述运行限制，开始后供应商账户继续计费。", "Confirm this Agent, goal and limits; starting permits further provider charges."), null);
+											createRenderEffect(() => _el$57.disabled = busy() || expired(current()) || !capabilities()?.executor_available);
+											createRenderEffect(() => _el$57.checked = runConsent());
+											return _el$56;
+										})()
+									];
+								}
+							}), _el$58);
+							insert(_el$58, createComponent(Show, {
+								get when() {
+									return !managementOnly();
+								},
+								get children() {
+									var _el$59 = _tmpl$1$5();
+									_el$59.$$click = () => void act(async () => {
+										apply(await client.activate(current(), {
+											target_ref: { agent_id: agentId() },
+											limits: capabilities().limits
+										}));
+										setRunConsent(false);
+									});
+									insert(_el$59, () => tr("确认开始", "Confirm start"));
+									createRenderEffect(() => _el$59.disabled = busy() || expired(current()) || current().state !== "ready" || !runConsent() || !canControl() || !capabilities()?.executor_available);
+									return _el$59;
+								}
+							}), _el$60);
+							_el$60.$$click = () => void act(async () => {
+								apply(await client.stop(current()));
+								setRunConsent(false);
+							});
+							insert(_el$60, () => tr("停止新决策", "Stop new decisions"));
+							_el$61.$$click = () => void act(async () => {
+								apply(await client.forget(current()));
+								setProbeConsent(false);
+								setRunConsent(false);
+							});
+							insert(_el$61, () => tr("断开并忘记", "Disconnect and forget"));
+							insert(_el$62, () => tr("停止保留本次有效连接；忘记会停用凭证。两者都不撤销供应商 Key、不保证已发调用退款，也不取消已提交世界作业。未知结果须按原操作核对。", "Stop retains the valid session connection; forget disables its credential. Neither revokes the provider key, refunds sent calls, nor cancels submitted world jobs. Unknown outcomes require original-operation lookup."));
+							createRenderEffect((_p$) => {
+								var _v$4 = busy() || !managementOnly() && expired(current()) || current().state === "revoked", _v$5 = busy() || current().state === "revoked";
+								_v$4 !== _p$.e && (_el$60.disabled = _p$.e = _v$4);
+								_v$5 !== _p$.t && (_el$61.disabled = _p$.t = _v$5);
+								return _p$;
+							}, {
+								e: void 0,
+								t: void 0
+							});
+							return _el$44;
+						})()
+					})
+				];
+			}
+		}), _el$35);
+		_el$35.$$click = () => void refresh();
+		insert(_el$35, () => tr("刷新连接状态", "Refresh connection status"));
+		createRenderEffect(() => _el$35.disabled = busy());
+		return _el$;
+	})();
+}
+delegateEvents(["click"]);
+//#endregion
+//#region software_safe_src/browser_byok_surface.jsx
+var _tmpl$$41 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$2$38 = /*#__PURE__*/ template(`<button type=button>`);
+var _tmpl$3$30 = /*#__PURE__*/ template(`<label><input type=checkbox>`);
+var _tmpl$4$27 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button></button><button type=button>`);
+var _tmpl$5$26 = /*#__PURE__*/ template(`<p role=status>: `);
+var _tmpl$6$18 = /*#__PURE__*/ template(`<p role=alert>`);
+var _tmpl$7$14 = /*#__PURE__*/ template(`<section class=stack style=overflow-wrap:anywhere;min-width:0>`);
+var _tmpl$8$9 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$9$7 = /*#__PURE__*/ template(`<p role=status><br>`);
+function BrowserByokSurface(props) {
+	const read = (value) => typeof value === "function" ? value() : value;
+	const tr = (cn, en) => String(read(props.locale) || "en").startsWith("zh") ? cn : en;
+	const [driver, setDriver] = createSignal(null), [state, setState] = createSignal(null);
+	const [error, setError] = createSignal(""), [confirm, setConfirm] = createSignal(false), [runConsent, setRunConsent] = createSignal(false);
+	let contextKey, previousAccount, unsubscribe, alive = true;
+	const config = () => read(props.config);
+	const reason = (code) => {
+		if (code === "executor_takeover_confirmation_required") return tr("当前已有其他执行方。核对任务后，勾选授权以明确切换到此浏览器。", "Another executor is bound. Review the task and explicitly confirm switching to this browser.");
+		if ([
+			"operation_unknown",
+			"operation_pending",
+			"recovery_required",
+			"participant_binding_required"
+		].includes(code)) return tr("原件或绑定尚未确认。请只读核对；未知结果不能重发，也不能据最新快照判断未发生。", "An original operation or binding is unconfirmed. Use read-only lookup; do not resubmit or infer non-execution from a recent snapshot.");
+		if ([
+			"task_fence_changed",
+			"game_session_changed",
+			"executor_not_bound",
+			"task_unavailable"
+		].includes(code)) return tr("任务、目标或执行权限已改变。已停止；重新核对实际任务与执行身份后再确认。", "Task, goal or executor authority changed. Stopped; review the actual task and executor again before confirming.");
+		if (["page_paused", "stopped"].includes(code)) return tr("本页已暂停新决策。返回后先核对原件，再明确开始；已受理世界作业仍可能推进。", "New decisions are paused. Check originals before explicitly starting again; accepted world jobs may continue.");
+		if (["legacy_run_active", "legacy_state_unknown"].includes(code)) return tr("先在下方核对并停止旧执行端运行；状态未知时不能开始浏览器运行。", "Review and stop the previous executor below. Browser execution cannot start while its state is unknown.");
+		if (code === "agent_busy") return tr("同一 Agent 已在另一个页面运行。本页不会自动接管。", "This Agent is running in another page. This page will not take over automatically.");
+		if (String(code).includes("budget") || code === "run_time_limit") return tr("本轮预算或期限已到，不自动扩大或重置。", "This run's budget or deadline is exhausted; it is not automatically increased or reset.");
+		return tr("游戏客户端操作未完成。请检查本机存储、登录、合法任务及当前部署支持；原件未知仍保持未知。", "The Game Client operation did not complete. Check browser storage, sign-in, the authorized task and deployment support; unknown originals stay unknown.");
+	};
+	function refresh() {
+		const value = driver()?.snapshot();
+		setState(value || null);
+		if (value?.code) setError(reason(value.code));
+	}
+	createEffect(() => {
+		const accountId = read(props.accountId), agentId = read(props.agentId), owner = read(props.ownerSigner), trusted = config();
+		const key = `${accountId || ""}:${agentId || ""}:${owner?.identityId || owner?.publicKey || ""}:${trusted?.servicePublicKey || ""}`;
+		if (key === contextKey) return;
+		contextKey = key;
+		unsubscribe?.();
+		setError("");
+		setConfirm(false);
+		setRunConsent(false);
+		const old = driver();
+		if (old) {
+			if (previousAccount !== accountId) old.logout().catch(() => {
+				if (alive) setError(reason("storage_write_failed"));
+			});
+			old.dispose();
+		}
+		previousAccount = accountId;
+		setDriver(null);
+		setState(null);
+		if (!accountId || !agentId || !owner || !trusted) return;
+		try {
+			const captured = contextKey;
+			const signer = {
+				publicKeyHex: owner.publicKey,
+				sign: async (bytes) => {
+					if (captured !== contextKey) throw new Error("game_session_changed");
+					return owner.sign(bytes);
+				}
+			};
+			const session = (props.createSession || createBrowserGameSession)({
+				config: trusted,
+				accountId,
+				agentId,
+				ownerSigner: signer,
+				isCurrent: () => alive && captured === contextKey
+			});
+			setDriver(session);
+			unsubscribe = session.subscribe(refresh);
+			refresh();
+		} catch {
+			setError(reason("game_configuration_invalid"));
+		}
+	});
+	const modelReady = () => {
+		state();
+		return driver()?.modelSession.snapshot().checked === true;
+	};
+	const act = async (action) => {
+		setError("");
+		setRunConsent(false);
+		try {
+			await action(driver());
+		} catch (failure) {
+			if (alive) setError(reason(failure.code));
+		} finally {
+			if (alive) refresh();
+		}
+	};
+	onCleanup(() => {
+		alive = false;
+		contextKey = null;
+		unsubscribe?.();
+		driver()?.dispose();
+	});
+	return (() => {
+		var _el$ = _tmpl$7$14();
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return config();
+			},
+			get fallback() {
+				return (() => {
+					var _el$15 = _tmpl$8$9();
+					insert(_el$15, () => tr("此部署尚未启用浏览器 Game Client。不会收集本地模型 Key。", "This deployment has not enabled the browser Game Client. Model keys are not collected."));
+					return _el$15;
+				})();
+			},
+			get children() {
+				return createComponent(Show, {
+					get when() {
+						return driver();
+					},
+					get fallback() {
+						return (() => {
+							var _el$16 = _tmpl$8$9();
+							insert(_el$16, () => tr("先登录并选中自己的 Agent，才能核对游戏任务。", "Sign in and select your Agent before checking the game task."));
+							return _el$16;
+						})();
+					},
+					get children() {
+						return [
+							(() => {
+								var _el$2 = _tmpl$$41();
+								insert(_el$2, () => tr("实际执行入口：当前浏览器。模型 Key 不授予游戏权限；下面的登记仅复用既有玩家/Agent/Task，不创建新的 Agent。", "Execution location: this browser. A model key grants no game authority. Registration below reuses the existing player, Agent and Task; it creates no Agent."));
+								return _el$2;
+							})(),
+							createComponent(Show, {
+								get when() {
+									return state()?.fence;
+								},
+								children: (fence) => (() => {
+									var _el$17 = _tmpl$9$7(), _el$18 = _el$17.firstChild;
+									insert(_el$17, () => `world=${fence().world_id} · owner=${fence().owner_binding} · Agent=${fence().agent_id} · Task=${fence().task_id} · goal=${fence().active_goal_reference?.goal_ref || "—"} · executor=${fence().executor_binding?.executor_public_key || "—"}`, _el$18);
+									insert(_el$17, () => state()?.goal, null);
+									return _el$17;
+								})()
+							}),
+							(() => {
+								var _el$3 = _tmpl$2$38();
+								_el$3.$$click = () => {
+									setConfirm(false);
+									act((session) => session.prepare({ inspectOnly: true }));
+								};
+								insert(_el$3, () => tr("只读核对当前任务", "Inspect current task"));
+								createRenderEffect(() => _el$3.disabled = ["running", "preparing"].includes(state()?.phase));
+								return _el$3;
+							})(),
+							(() => {
+								var _el$4 = _tmpl$3$30(), _el$5 = _el$4.firstChild;
+								_el$5.addEventListener("change", (event) => setConfirm(event.currentTarget.checked));
+								insert(_el$4, () => tr("确认核对既有任务并授权此浏览器执行身份；若已有其他执行方，明确同意切换。", "Confirm the existing task and authorize this browser executor; explicitly switch if another executor is bound."), null);
+								createRenderEffect(() => _el$5.disabled = !state()?.fence || ["running", "preparing"].includes(state()?.phase));
+								createRenderEffect(() => _el$5.checked = confirm());
+								return _el$4;
+							})(),
+							(() => {
+								var _el$6 = _tmpl$2$38();
+								_el$6.$$click = () => {
+									const confirmedFence = state()?.fence;
+									setConfirm(false);
+									act((session) => session.prepare({
+										takeover: true,
+										confirmedFence
+									}));
+								};
+								insert(_el$6, () => tr("核对任务并登记执行身份", "Check task and register executor"));
+								createRenderEffect(() => _el$6.disabled = !state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase));
+								return _el$6;
+							})(),
+							createComponent(BrowserModelConnectionPanel, {
+								get locale() {
+									return props.locale;
+								},
+								get accountId() {
+									return props.accountId;
+								},
+								executionReady: () => state()?.ready === true,
+								session: () => driver()?.modelSession,
+								onStop: () => driver()?.stop()
+							}),
+							(() => {
+								var _el$7 = _tmpl$3$30(), _el$8 = _el$7.firstChild;
+								_el$8.addEventListener("change", (event) => setRunConsent(event.currentTarget.checked));
+								insert(_el$7, () => tr("确认上述实际 Agent、任务和目标；开始后供应商账户计费。检查与执行共享本站账号最多 8 次调用、131072 token；每次执行输出最多 512 token，本轮 120 秒。", "Confirm the actual Agent, Task and goal above. Starting charges your provider account. Checks and execution share an account limit of 8 calls and 131072 reserved tokens. Each execution call allows 512 output tokens; this run lasts 120 seconds."), null);
+								createRenderEffect(() => _el$8.disabled = !state()?.ready || state()?.phase === "running");
+								createRenderEffect(() => _el$8.checked = runConsent());
+								return _el$7;
+							})(),
+							(() => {
+								var _el$9 = _tmpl$4$27(), _el$0 = _el$9.firstChild, _el$1 = _el$0.nextSibling, _el$10 = _el$1.nextSibling, _el$11 = _el$10.nextSibling;
+								_el$0.$$click = () => void act((session) => session.start());
+								insert(_el$0, () => tr("确认开始 Agent", "Confirm Agent start"));
+								_el$1.$$click = () => driver()?.stop();
+								insert(_el$1, () => tr("停止新决策", "Stop new decisions"));
+								_el$10.$$click = () => void act((session) => session.recover());
+								insert(_el$10, () => tr("只读核对原件", "Look up original operations"));
+								_el$11.$$click = () => void act((session) => session.forget());
+								insert(_el$11, () => tr("忘记本机 Key", "Forget local key"));
+								createRenderEffect((_p$) => {
+									var _v$ = !runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running", _v$2 = state()?.phase === "running";
+									_v$ !== _p$.e && (_el$0.disabled = _p$.e = _v$);
+									_v$2 !== _p$.t && (_el$10.disabled = _p$.t = _v$2);
+									return _p$;
+								}, {
+									e: void 0,
+									t: void 0
+								});
+								return _el$9;
+							})(),
+							(() => {
+								var _el$12 = _tmpl$5$26(), _el$13 = _el$12.firstChild;
+								insert(_el$12, () => tr("运行状态", "Execution state"), _el$13);
+								insert(_el$12, () => state()?.phase || "—", null);
+								return _el$12;
+							})()
+						];
+					}
+				});
+			}
+		}), null);
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return error();
+			},
+			get children() {
+				var _el$14 = _tmpl$6$18();
+				insert(_el$14, error);
+				return _el$14;
+			}
+		}), null);
+		insert(_el$, createComponent(ModelConnectionPanel, {
+			get locale() {
+				return props.locale;
+			},
+			get agentId() {
+				return props.agentId;
+			},
+			canControl: false,
+			managementOnly: true
+		}), null);
+		createRenderEffect(() => setAttribute(_el$, "aria-label", tr("浏览器自带模型 Agent", "Browser BYOK Agent")));
+		return _el$;
+	})();
+}
+delegateEvents(["click"]);
+//#endregion
+//#region software_safe_src/viewer_runtime_config_policy.js
+var CONFIG_ID = "oasis7-viewer-runtime-config";
+var MODES = /* @__PURE__ */ new Set(["trusted_local_only", "hosted_public_join"]);
+function parseBrowserGameConfig(raw) {
+	if (raw === void 0 || raw === null) return null;
+	const identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 256;
+	if (raw.endpoint !== "/api/public/hosted-account/v2" || !/^[0-9a-f]{64}$/.test(raw.servicePublicKey || "") || !identifier(raw.world?.world_id) || !identifier(raw.world?.genesis_digest) || !/^[0-9a-f]{64}$/.test(raw.participantIssuerPublicKey || "") || !identifier(raw.identity?.service_id) || !identifier(raw.identity?.environment_id) || typeof raw.identity?.instance_epoch !== "string" || !/^[1-9][0-9]{0,19}$/.test(raw.identity?.instance_epoch || "") || BigInt(raw.identity.instance_epoch) > 18446744073709551615n) throw new Error("invalid browser Game Client trust configuration");
+	return Object.freeze({
+		endpoint: raw.endpoint,
+		servicePublicKey: raw.servicePublicKey,
+		world: Object.freeze({
+			world_id: raw.world.world_id,
+			genesis_digest: raw.world.genesis_digest
+		}),
+		participantIssuerPublicKey: raw.participantIssuerPublicKey,
+		identity: Object.freeze({
+			service_id: raw.identity.service_id,
+			environment_id: raw.identity.environment_id,
+			instance_epoch: raw.identity.instance_epoch
+		})
+	});
+}
+function normalizeTrustedWsEndpoint(value) {
+	if (typeof value !== "string" || !value) throw new Error("viewer endpoint must be a URL string");
+	const url = new URL(value);
+	if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || value.includes("#") || /^wss?:\/\/[^/?#]*@/i.test(value)) throw new Error("viewer endpoint contains a forbidden URL component");
+	return url.href;
+}
+function parseViewerRuntimeConfig(documentRef) {
+	const nodes = documentRef.querySelectorAll(`[id="${CONFIG_ID}"]`);
+	if (nodes.length !== 1 || nodes[0].type !== "application/json") throw new Error("viewer requires exactly one trusted runtime configuration");
+	const raw = JSON.parse(nodes[0].textContent);
+	if (!raw || !MODES.has(raw.deploymentMode)) throw new Error("invalid viewer deployment mode");
+	const viewerWsEndpoint = normalizeTrustedWsEndpoint(raw.viewerWsEndpoint);
+	if (raw.deploymentMode === "hosted_public_join" && !viewerWsEndpoint.startsWith("wss:") && ![
+		"127.0.0.1",
+		"localhost",
+		"[::1]"
+	].includes(new URL(viewerWsEndpoint).hostname)) throw new Error("hosted viewer requires a secure WebSocket endpoint");
+	return Object.freeze({
+		deploymentMode: raw.deploymentMode,
+		viewerWsEndpoint,
+		endpointId: viewerWsEndpoint,
+		browserGameClient: parseBrowserGameConfig(raw.browserGameClient)
+	});
+}
+function resolveViewerEndpoint(config, params) {
+	for (const key of ["ws", "addr"]) if (params.has(key) && normalizeTrustedWsEndpoint(params.get(key)) !== config.viewerWsEndpoint) throw new Error("viewer URL endpoint does not match trusted configuration");
+	return config.viewerWsEndpoint;
+}
+//#endregion
+//#region software_safe_src/viewer_runtime_config_module.js
+var fixedConfig;
+function viewerRuntimeConfig() {
+	if (!fixedConfig) fixedConfig = parseViewerRuntimeConfig(document);
+	return fixedConfig;
+}
+//#endregion
+//#region node_modules/solid-js/store/dist/store.js
+var $RAW = Symbol("store-raw");
+var $NODE = Symbol("store-node");
+var $HAS = Symbol("store-has");
+var $SELF = Symbol("store-self");
+function isWrappable(obj) {
+	let proto;
+	return obj != null && typeof obj === "object" && (obj[$PROXY] || !(proto = Object.getPrototypeOf(obj)) || proto === Object.prototype || Array.isArray(obj));
+}
+function unwrap(item, set = /* @__PURE__ */ new Set()) {
+	let result, unwrapped, v, prop;
+	if (result = item != null && item[$RAW]) return result;
+	if (!isWrappable(item) || set.has(item)) return item;
+	if (Array.isArray(item)) {
+		if (Object.isFrozen(item)) item = item.slice(0);
+		else set.add(item);
+		for (let i = 0, l = item.length; i < l; i++) {
+			v = item[i];
+			if ((unwrapped = unwrap(v, set)) !== v) item[i] = unwrapped;
+		}
+	} else {
+		if (Object.isFrozen(item)) item = Object.assign({}, item);
+		else set.add(item);
+		const keys = Object.keys(item), desc = Object.getOwnPropertyDescriptors(item);
+		for (let i = 0, l = keys.length; i < l; i++) {
+			prop = keys[i];
+			if (desc[prop].get) continue;
+			v = item[prop];
+			if ((unwrapped = unwrap(v, set)) !== v) item[prop] = unwrapped;
+		}
+	}
+	return item;
+}
+function getNodes(target, symbol) {
+	let nodes = target[symbol];
+	if (!nodes) Object.defineProperty(target, symbol, { value: nodes = Object.create(null) });
+	return nodes;
+}
+function getNode(nodes, property, value) {
+	if (nodes[property]) return nodes[property];
+	const [s, set] = createSignal(value, {
+		equals: false,
+		internal: true
+	});
+	s.$ = set;
+	return nodes[property] = s;
+}
+function trackSelf(target) {
+	getListener() && getNode(getNodes(target, $NODE), $SELF)();
+}
+function ownKeys(target) {
+	trackSelf(target);
+	return Reflect.ownKeys(target);
+}
+function setProperty(state, property, value, deleting = false) {
+	if (property === "__proto__") return;
+	if (!deleting && state[property] === value) return;
+	const prev = state[property], len = state.length;
+	if (value === void 0) {
+		delete state[property];
+		if (state[$HAS] && state[$HAS][property] && prev !== void 0) state[$HAS][property].$();
+	} else {
+		state[property] = value;
+		if (state[$HAS] && state[$HAS][property] && prev === void 0) state[$HAS][property].$();
+	}
+	let nodes = getNodes(state, $NODE), node;
+	if (node = getNode(nodes, property, prev)) node.$(() => value);
+	if (Array.isArray(state) && state.length !== len) {
+		for (let i = state.length; i < len; i++) (node = nodes[i]) && node.$();
+		(node = getNode(nodes, "length", len)) && node.$(state.length);
+	}
+	(node = nodes[$SELF]) && node.$();
+}
+function proxyDescriptor(target, property) {
+	const desc = Reflect.getOwnPropertyDescriptor(target, property);
+	if (!desc || desc.get || desc.set || !desc.configurable || property === $PROXY || property === $NODE) return desc;
+	delete desc.value;
+	delete desc.writable;
+	desc.get = () => target[$PROXY][property];
+	desc.set = (v) => target[$PROXY][property] = v;
+	return desc;
+}
+var proxyTraps = {
+	get(target, property, receiver) {
+		if (property === $RAW) return target;
+		if (property === $PROXY) return receiver;
+		if (property === $TRACK) {
+			trackSelf(target);
+			return receiver;
+		}
+		const nodes = getNodes(target, $NODE);
+		const tracked = nodes[property];
+		let value = tracked ? tracked() : target[property];
+		if (property === $NODE || property === $HAS || property === "__proto__") return value;
+		if (!tracked) {
+			const desc = Object.getOwnPropertyDescriptor(target, property);
+			const isFunction = typeof value === "function";
+			if (getListener() && (!isFunction || Object.prototype.hasOwnProperty.call(target, property)) && !(desc && desc.get)) value = getNode(nodes, property, value)();
+			else if (value != null && isFunction && value === Array.prototype[property]) return (...args) => batch(() => Array.prototype[property].apply(receiver, args));
+		}
+		return isWrappable(value) ? wrap(value) : value;
+	},
+	has(target, property) {
+		if (property === $RAW || property === $PROXY || property === $TRACK || property === $NODE || property === $HAS || property === "__proto__") return true;
+		getListener() && getNode(getNodes(target, $HAS), property)();
+		return property in target;
+	},
+	set(target, property, value) {
+		batch(() => setProperty(target, property, unwrap(value)));
+		return true;
+	},
+	deleteProperty(target, property) {
+		batch(() => setProperty(target, property, void 0, true));
+		return true;
+	},
+	ownKeys,
+	getOwnPropertyDescriptor: proxyDescriptor
+};
+function wrap(value) {
+	let p = value[$PROXY];
+	if (!p) {
+		Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, proxyTraps) });
+		const keys = Object.keys(value), desc = Object.getOwnPropertyDescriptors(value);
+		const proto = Object.getPrototypeOf(value);
+		const isClass = proto !== null && value !== null && typeof value === "object" && !Array.isArray(value) && proto !== Object.prototype;
+		if (isClass) {
+			let curProto = proto;
+			while (curProto != null) {
+				const descriptors = Object.getOwnPropertyDescriptors(curProto);
+				keys.push(...Object.keys(descriptors));
+				Object.assign(desc, descriptors);
+				curProto = Object.getPrototypeOf(curProto);
+			}
+		}
+		for (let i = 0, l = keys.length; i < l; i++) {
+			const prop = keys[i];
+			if (isClass && prop === "constructor") continue;
+			if (desc[prop].get) {
+				const get = desc[prop].get.bind(p);
+				Object.defineProperty(value, prop, {
+					get,
+					configurable: true
+				});
+			}
+			if (desc[prop].set) {
+				const og = desc[prop].set, set = (v) => batch(() => og.call(p, v));
+				Object.defineProperty(value, prop, {
+					set,
+					configurable: true
+				});
+			}
+		}
+	}
+	return p;
+}
+function createMutable(state, options) {
+	return wrap(unwrap(state || {}));
+}
 //#endregion
 //#region software_safe_src/software_safe_constants.js
 var RENDER_META_GLOBAL_NAME = "__AW_VIEWER_RENDER_META__";
@@ -2472,6 +6021,108 @@ function buildPromptControlSigningPayload(mode, request, auth) {
 		updated_by: String(request?.updated_by || "").trim() || void 0
 	};
 }
+//#endregion
+//#region software_safe_src/viewer_auth_session_module.js
+var sessions = /* @__PURE__ */ new WeakMap();
+var generations = /* @__PURE__ */ new WeakMap();
+var credentialFields = [
+	"privateKey",
+	"releaseToken",
+	"registrationGrant"
+];
+function authCredentials(auth) {
+	const held = sessions.get(unwrap(auth));
+	return held ? Object.freeze({
+		privateKey: held.privateKey,
+		releaseToken: held.releaseToken,
+		registrationGrant: held.grantGeneration === connectionGeneration ? held.registrationGrant : null
+	}) : {};
+}
+var connectionGeneration = 0;
+function invalidateAuthConnection() {
+	connectionGeneration += 1;
+}
+function authConnectionGeneration() {
+	return connectionGeneration;
+}
+function authSigningIdentity(auth) {
+	return sessions.get(unwrap(auth))?.identity || null;
+}
+function hasSigningIdentity(auth) {
+	return Boolean(authSigningIdentity(auth));
+}
+function clearSession(state, projection = {}) {
+	if (state.auth) sessions.delete(unwrap(state.auth));
+	invalidateAuthConnection();
+	generations.set(state, (generations.get(state) || 0) + 1);
+	state.auth = {
+		...projection,
+		available: false,
+		playerId: null,
+		publicKey: null
+	};
+	for (const key of credentialFields) delete state.auth[key];
+	return state.auth;
+}
+async function installSession(state, verifiedLogin, expectedAuth = state.auth) {
+	if (verifiedLogin?.source === "visual_fixture_projection") throw new Error("visual fixture projection cannot install authentication");
+	const generation = generations.get(state) || 0;
+	const login = { ...verifiedLogin };
+	const credentials = sessions.get(unwrap(verifiedLogin)) || Object.fromEntries(credentialFields.map((key) => [key, verifiedLogin[key]]));
+	const identity = credentials.privateKey && login.publicKey ? await importSigningIdentity(login.publicKey, credentials.privateKey) : null;
+	if (state.auth !== expectedAuth || (generations.get(state) || 0) !== generation) throw new Error("authentication context changed during identity installation");
+	if (credentials.privateKey && !identity) throw new Error("signing identity validation failed");
+	const projection = login;
+	for (const key of credentialFields) delete projection[key];
+	Object.defineProperties(projection, {
+		playerId: {
+			value: login.playerId || null,
+			enumerable: true,
+			writable: false,
+			configurable: false
+		},
+		publicKey: {
+			value: identity?.publicKey || login.publicKey || null,
+			enumerable: true,
+			writable: false,
+			configurable: false
+		}
+	});
+	if (state.auth) sessions.delete(unwrap(state.auth));
+	invalidateAuthConnection();
+	sessions.set(projection, {
+		identity,
+		privateKey: credentials.privateKey || null,
+		releaseToken: credentials.releaseToken || null,
+		registrationGrant: credentials.registrationGrant || null,
+		grantGeneration: connectionGeneration
+	});
+	generations.set(state, generation + 1);
+	state.auth = projection;
+	return state.auth;
+}
+function updateRegistrationGrant(auth, grant, deviceSessionId = null) {
+	const held = sessions.get(unwrap(auth));
+	if (!held) throw new Error("registration grant requires an installed session");
+	held.registrationGrant = grant;
+	held.grantGeneration = connectionGeneration;
+	if (deviceSessionId != null) auth.deviceSessionId = deviceSessionId;
+}
+function captureSessionContext(state, socketGeneration, endpointId) {
+	return Object.freeze({
+		authGeneration: generations.get(state) || 0,
+		socketGeneration,
+		endpointId,
+		identityId: authSigningIdentity(state.auth)?.identityId || null,
+		playerId: state.auth.playerId,
+		publicKey: state.auth.publicKey
+	});
+}
+function isSessionContextCurrent(state, context, socketGeneration, endpointId) {
+	const current = captureSessionContext(state, socketGeneration, endpointId);
+	return Object.keys(current).every((key) => current[key] === context[key]);
+}
+setSigningIdentityLookup(authSigningIdentity, authConnectionGeneration);
 //#endregion
 //#region software_safe_src/viewer_canonical_owner_read_module.js
 var DOMAIN = "/v1/world/view";
@@ -3145,267 +6796,6 @@ function TargetListWindow(props) {
 	})];
 }
 delegateEvents(["click"]);
-//#endregion
-//#region node_modules/solid-js/store/dist/store.js
-var $RAW = Symbol("store-raw");
-var $NODE = Symbol("store-node");
-var $HAS = Symbol("store-has");
-var $SELF = Symbol("store-self");
-function isWrappable(obj) {
-	let proto;
-	return obj != null && typeof obj === "object" && (obj[$PROXY] || !(proto = Object.getPrototypeOf(obj)) || proto === Object.prototype || Array.isArray(obj));
-}
-function unwrap(item, set = /* @__PURE__ */ new Set()) {
-	let result, unwrapped, v, prop;
-	if (result = item != null && item[$RAW]) return result;
-	if (!isWrappable(item) || set.has(item)) return item;
-	if (Array.isArray(item)) {
-		if (Object.isFrozen(item)) item = item.slice(0);
-		else set.add(item);
-		for (let i = 0, l = item.length; i < l; i++) {
-			v = item[i];
-			if ((unwrapped = unwrap(v, set)) !== v) item[i] = unwrapped;
-		}
-	} else {
-		if (Object.isFrozen(item)) item = Object.assign({}, item);
-		else set.add(item);
-		const keys = Object.keys(item), desc = Object.getOwnPropertyDescriptors(item);
-		for (let i = 0, l = keys.length; i < l; i++) {
-			prop = keys[i];
-			if (desc[prop].get) continue;
-			v = item[prop];
-			if ((unwrapped = unwrap(v, set)) !== v) item[prop] = unwrapped;
-		}
-	}
-	return item;
-}
-function getNodes(target, symbol) {
-	let nodes = target[symbol];
-	if (!nodes) Object.defineProperty(target, symbol, { value: nodes = Object.create(null) });
-	return nodes;
-}
-function getNode(nodes, property, value) {
-	if (nodes[property]) return nodes[property];
-	const [s, set] = createSignal(value, {
-		equals: false,
-		internal: true
-	});
-	s.$ = set;
-	return nodes[property] = s;
-}
-function trackSelf(target) {
-	getListener() && getNode(getNodes(target, $NODE), $SELF)();
-}
-function ownKeys(target) {
-	trackSelf(target);
-	return Reflect.ownKeys(target);
-}
-function setProperty(state, property, value, deleting = false) {
-	if (property === "__proto__") return;
-	if (!deleting && state[property] === value) return;
-	const prev = state[property], len = state.length;
-	if (value === void 0) {
-		delete state[property];
-		if (state[$HAS] && state[$HAS][property] && prev !== void 0) state[$HAS][property].$();
-	} else {
-		state[property] = value;
-		if (state[$HAS] && state[$HAS][property] && prev === void 0) state[$HAS][property].$();
-	}
-	let nodes = getNodes(state, $NODE), node;
-	if (node = getNode(nodes, property, prev)) node.$(() => value);
-	if (Array.isArray(state) && state.length !== len) {
-		for (let i = state.length; i < len; i++) (node = nodes[i]) && node.$();
-		(node = getNode(nodes, "length", len)) && node.$(state.length);
-	}
-	(node = nodes[$SELF]) && node.$();
-}
-function proxyDescriptor(target, property) {
-	const desc = Reflect.getOwnPropertyDescriptor(target, property);
-	if (!desc || desc.get || desc.set || !desc.configurable || property === $PROXY || property === $NODE) return desc;
-	delete desc.value;
-	delete desc.writable;
-	desc.get = () => target[$PROXY][property];
-	desc.set = (v) => target[$PROXY][property] = v;
-	return desc;
-}
-var proxyTraps = {
-	get(target, property, receiver) {
-		if (property === $RAW) return target;
-		if (property === $PROXY) return receiver;
-		if (property === $TRACK) {
-			trackSelf(target);
-			return receiver;
-		}
-		const nodes = getNodes(target, $NODE);
-		const tracked = nodes[property];
-		let value = tracked ? tracked() : target[property];
-		if (property === $NODE || property === $HAS || property === "__proto__") return value;
-		if (!tracked) {
-			const desc = Object.getOwnPropertyDescriptor(target, property);
-			const isFunction = typeof value === "function";
-			if (getListener() && (!isFunction || Object.prototype.hasOwnProperty.call(target, property)) && !(desc && desc.get)) value = getNode(nodes, property, value)();
-			else if (value != null && isFunction && value === Array.prototype[property]) return (...args) => batch(() => Array.prototype[property].apply(receiver, args));
-		}
-		return isWrappable(value) ? wrap(value) : value;
-	},
-	has(target, property) {
-		if (property === $RAW || property === $PROXY || property === $TRACK || property === $NODE || property === $HAS || property === "__proto__") return true;
-		getListener() && getNode(getNodes(target, $HAS), property)();
-		return property in target;
-	},
-	set(target, property, value) {
-		batch(() => setProperty(target, property, unwrap(value)));
-		return true;
-	},
-	deleteProperty(target, property) {
-		batch(() => setProperty(target, property, void 0, true));
-		return true;
-	},
-	ownKeys,
-	getOwnPropertyDescriptor: proxyDescriptor
-};
-function wrap(value) {
-	let p = value[$PROXY];
-	if (!p) {
-		Object.defineProperty(value, $PROXY, { value: p = new Proxy(value, proxyTraps) });
-		const keys = Object.keys(value), desc = Object.getOwnPropertyDescriptors(value);
-		const proto = Object.getPrototypeOf(value);
-		const isClass = proto !== null && value !== null && typeof value === "object" && !Array.isArray(value) && proto !== Object.prototype;
-		if (isClass) {
-			let curProto = proto;
-			while (curProto != null) {
-				const descriptors = Object.getOwnPropertyDescriptors(curProto);
-				keys.push(...Object.keys(descriptors));
-				Object.assign(desc, descriptors);
-				curProto = Object.getPrototypeOf(curProto);
-			}
-		}
-		for (let i = 0, l = keys.length; i < l; i++) {
-			const prop = keys[i];
-			if (isClass && prop === "constructor") continue;
-			if (desc[prop].get) {
-				const get = desc[prop].get.bind(p);
-				Object.defineProperty(value, prop, {
-					get,
-					configurable: true
-				});
-			}
-			if (desc[prop].set) {
-				const og = desc[prop].set, set = (v) => batch(() => og.call(p, v));
-				Object.defineProperty(value, prop, {
-					set,
-					configurable: true
-				});
-			}
-		}
-	}
-	return p;
-}
-function createMutable(state, options) {
-	return wrap(unwrap(state || {}));
-}
-//#endregion
-//#region software_safe_src/viewer_auth_session_module.js
-var sessions = /* @__PURE__ */ new WeakMap();
-var generations = /* @__PURE__ */ new WeakMap();
-var credentialFields = [
-	"privateKey",
-	"releaseToken",
-	"registrationGrant"
-];
-function authCredentials(auth) {
-	const held = sessions.get(unwrap(auth));
-	return held ? Object.freeze({
-		privateKey: held.privateKey,
-		releaseToken: held.releaseToken,
-		registrationGrant: held.grantGeneration === connectionGeneration ? held.registrationGrant : null
-	}) : {};
-}
-var connectionGeneration = 0;
-function invalidateAuthConnection() {
-	connectionGeneration += 1;
-}
-function authConnectionGeneration() {
-	return connectionGeneration;
-}
-function authSigningIdentity(auth) {
-	return sessions.get(unwrap(auth))?.identity || null;
-}
-function hasSigningIdentity(auth) {
-	return Boolean(authSigningIdentity(auth));
-}
-function clearSession(state, projection = {}) {
-	if (state.auth) sessions.delete(unwrap(state.auth));
-	invalidateAuthConnection();
-	generations.set(state, (generations.get(state) || 0) + 1);
-	state.auth = {
-		...projection,
-		available: false,
-		playerId: null,
-		publicKey: null
-	};
-	for (const key of credentialFields) delete state.auth[key];
-	return state.auth;
-}
-async function installSession(state, verifiedLogin, expectedAuth = state.auth) {
-	if (verifiedLogin?.source === "visual_fixture_projection") throw new Error("visual fixture projection cannot install authentication");
-	const generation = generations.get(state) || 0;
-	const login = { ...verifiedLogin };
-	const credentials = sessions.get(unwrap(verifiedLogin)) || Object.fromEntries(credentialFields.map((key) => [key, verifiedLogin[key]]));
-	const identity = credentials.privateKey && login.publicKey ? await importSigningIdentity(login.publicKey, credentials.privateKey) : null;
-	if (state.auth !== expectedAuth || (generations.get(state) || 0) !== generation) throw new Error("authentication context changed during identity installation");
-	if (credentials.privateKey && !identity) throw new Error("signing identity validation failed");
-	const projection = login;
-	for (const key of credentialFields) delete projection[key];
-	Object.defineProperties(projection, {
-		playerId: {
-			value: login.playerId || null,
-			enumerable: true,
-			writable: false,
-			configurable: false
-		},
-		publicKey: {
-			value: identity?.publicKey || login.publicKey || null,
-			enumerable: true,
-			writable: false,
-			configurable: false
-		}
-	});
-	if (state.auth) sessions.delete(unwrap(state.auth));
-	invalidateAuthConnection();
-	sessions.set(projection, {
-		identity,
-		privateKey: credentials.privateKey || null,
-		releaseToken: credentials.releaseToken || null,
-		registrationGrant: credentials.registrationGrant || null,
-		grantGeneration: connectionGeneration
-	});
-	generations.set(state, generation + 1);
-	state.auth = projection;
-	return state.auth;
-}
-function updateRegistrationGrant(auth, grant, deviceSessionId = null) {
-	const held = sessions.get(unwrap(auth));
-	if (!held) throw new Error("registration grant requires an installed session");
-	held.registrationGrant = grant;
-	held.grantGeneration = connectionGeneration;
-	if (deviceSessionId != null) auth.deviceSessionId = deviceSessionId;
-}
-function captureSessionContext(state, socketGeneration, endpointId) {
-	return Object.freeze({
-		authGeneration: generations.get(state) || 0,
-		socketGeneration,
-		endpointId,
-		identityId: authSigningIdentity(state.auth)?.identityId || null,
-		playerId: state.auth.playerId,
-		publicKey: state.auth.publicKey
-	});
-}
-function isSessionContextCurrent(state, context, socketGeneration, endpointId) {
-	const current = captureSessionContext(state, socketGeneration, endpointId);
-	return Object.keys(current).every((key) => current[key] === context[key]);
-}
-setSigningIdentityLookup(authSigningIdentity, authConnectionGeneration);
 //#endregion
 //#region software_safe_src/viewer_gameplay_recovery_scope.js
 function getGameplayRecoveryScope(state) {
@@ -6169,44 +9559,6 @@ function createViewerHostedAccountLoginIssuer({ state, canAutoIssueHostedPlayerS
 			return state.auth;
 		}
 	};
-}
-//#endregion
-//#region software_safe_src/viewer_runtime_config_policy.js
-var CONFIG_ID = "oasis7-viewer-runtime-config";
-var MODES = /* @__PURE__ */ new Set(["trusted_local_only", "hosted_public_join"]);
-function normalizeTrustedWsEndpoint(value) {
-	if (typeof value !== "string" || !value) throw new Error("viewer endpoint must be a URL string");
-	const url = new URL(value);
-	if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || value.includes("#") || /^wss?:\/\/[^/?#]*@/i.test(value)) throw new Error("viewer endpoint contains a forbidden URL component");
-	return url.href;
-}
-function parseViewerRuntimeConfig(documentRef) {
-	const nodes = documentRef.querySelectorAll(`[id="${CONFIG_ID}"]`);
-	if (nodes.length !== 1 || nodes[0].type !== "application/json") throw new Error("viewer requires exactly one trusted runtime configuration");
-	const raw = JSON.parse(nodes[0].textContent);
-	if (!raw || !MODES.has(raw.deploymentMode)) throw new Error("invalid viewer deployment mode");
-	const viewerWsEndpoint = normalizeTrustedWsEndpoint(raw.viewerWsEndpoint);
-	if (raw.deploymentMode === "hosted_public_join" && !viewerWsEndpoint.startsWith("wss:") && ![
-		"127.0.0.1",
-		"localhost",
-		"[::1]"
-	].includes(new URL(viewerWsEndpoint).hostname)) throw new Error("hosted viewer requires a secure WebSocket endpoint");
-	return Object.freeze({
-		deploymentMode: raw.deploymentMode,
-		viewerWsEndpoint,
-		endpointId: viewerWsEndpoint
-	});
-}
-function resolveViewerEndpoint(config, params) {
-	for (const key of ["ws", "addr"]) if (params.has(key) && normalizeTrustedWsEndpoint(params.get(key)) !== config.viewerWsEndpoint) throw new Error("viewer URL endpoint does not match trusted configuration");
-	return config.viewerWsEndpoint;
-}
-//#endregion
-//#region software_safe_src/viewer_runtime_config_module.js
-var fixedConfig;
-function viewerRuntimeConfig() {
-	if (!fixedConfig) fixedConfig = parseViewerRuntimeConfig(document);
-	return fixedConfig;
 }
 //#endregion
 //#region software_safe_src/viewer_runtime_ack_identity.js
@@ -31647,8 +34999,14 @@ function InteractionPanel() {
 					return selectedAgentContextFixtureMetadata();
 				}
 			}), _el$316);
-			insert(_el$303, createComponent(BrowserModelConnectionPanel, {
+			insert(_el$303, createComponent(BrowserByokSurface, {
 				locale,
+				config: () => viewerRuntimeConfig().browserGameClient,
+				agentId,
+				ownerSigner: () => {
+					observeViewerStateRevision();
+					return state.auth.available ? authSigningIdentity(state.auth) : null;
+				},
 				accountId: () => {
 					observeViewerStateRevision();
 					return state.auth.available ? state.auth.hostedAccountId : null;

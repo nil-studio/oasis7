@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/oasis7_model_provider",
 "crates/oasis7_game_client",
+    "crates/oasis7_browser_game_client",
     "crates/oasis7_client_api",
     "crates/oasis7_agent_api",
     "crates/oasis7_agent_harness",
