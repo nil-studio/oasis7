@@ -238,8 +238,8 @@ run_oasis7_net_clippy() {
 run_oasis7_net_libp2p_tests() {
   run python3 ./scripts/libp2p-security-source.test.py
   run python3 ./scripts/libp2p-compat.test.py
-  run_cargo test --locked --manifest-path "$repo_root/vendor-libp2p-rendezvous-0.18.1/Cargo.toml" \
-    --target-dir "$repo_root/target" --lib -- --test-threads=1
+  run_cargo test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml \
+    --target-dir ./target --lib -- --test-threads=1
   run_cargo test -p oasis7_net --features libp2p --lib
   if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == Linux ]]; then
     CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar run_cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked
