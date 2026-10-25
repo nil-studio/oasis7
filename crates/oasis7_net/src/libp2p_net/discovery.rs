@@ -6,18 +6,14 @@ use std::sync::{Arc, Mutex};
 
 use libp2p::identity::Keypair;
 use libp2p::kad::{self, RecordKey};
-use libp2p::rendezvous;
 use libp2p::request_response;
 use libp2p::swarm::Swarm;
 use libp2p::{Multiaddr, PeerId};
 
 use crate::error::WorldError;
 use crate::util::to_canonical_cbor;
-use oasis7_proto::distributed::{
-    dht_peer_discovery_key, dht_peer_record_key,
-    rendezvous_namespace as distributed_rendezvous_namespace,
-};
-use oasis7_proto::distributed_dht::{PeerDiscoverySource, PeerRecord, SignedPeerRecord};
+use oasis7_proto::distributed::{dht_peer_discovery_key, dht_peer_record_key};
+use oasis7_proto::distributed_dht::{PeerRecord, SignedPeerRecord};
 use oasis7_proto::distributed_net::NetworkRequest;
 
 use super::kad_queries::PendingDhtQuery;
@@ -34,6 +30,10 @@ pub(super) use super::peer_record_republish::{
     RR_GET_CACHED_DISCOVERY_PEERS, RR_GET_CACHED_PEER_RECORD, RR_GET_LOCAL_PEER_RECORD,
 };
 use super::reachability::Libp2pReachabilitySnapshot;
+pub(super) use super::rendezvous_operations::{
+    maybe_discover_rendezvous_namespace, maybe_register_rendezvous_namespace,
+    peer_record_enables_rendezvous,
+};
 use super::rendezvous_trigger::RendezvousTriggerContext;
 use super::swarm_behaviour::Behaviour;
 use super::traffic_metrics::{SharedLibp2pTrafficMetrics, record_request_outbound};
@@ -247,70 +247,6 @@ pub(super) fn publish_discovery_provider(
     {
         provider_keys.insert(key, super::now_ms());
     }
-}
-
-pub(super) fn maybe_register_rendezvous_namespace(
-    swarm: &mut Swarm<Behaviour>,
-    pending_rendezvous_registers: &mut HashSet<PeerId>,
-    registered_rendezvous_nodes: &HashSet<PeerId>,
-    peer_id: PeerId,
-    local_peer_id: PeerId,
-    template: &PeerRecord,
-) -> Result<bool, WorldError> {
-    if !peer_record_enables_rendezvous(template) {
-        return Ok(false);
-    }
-    if peer_id == local_peer_id
-        || pending_rendezvous_registers.contains(&peer_id)
-        || registered_rendezvous_nodes.contains(&peer_id)
-    {
-        return Ok(false);
-    }
-    let namespace = rendezvous_namespace(template)?;
-    swarm
-        .behaviour_mut()
-        .rendezvous_client
-        .as_mut()
-        .expect("rendezvous client enabled when peer record opts in")
-        .register(namespace, peer_id, None)
-        .map_err(|err| WorldError::NetworkProtocolUnavailable {
-            protocol: format!("rendezvous register failed: {err}"),
-        })?;
-    pending_rendezvous_registers.insert(peer_id);
-    Ok(true)
-}
-
-pub(super) fn maybe_discover_rendezvous_namespace(
-    swarm: &mut Swarm<Behaviour>,
-    pending_rendezvous_discovers: &mut HashSet<PeerId>,
-    rendezvous_cookies: &HashMap<PeerId, rendezvous::Cookie>,
-    peer_id: PeerId,
-    local_peer_id: PeerId,
-    template: &PeerRecord,
-) -> Result<bool, WorldError> {
-    if !peer_record_enables_rendezvous(template) {
-        return Ok(false);
-    }
-    if peer_id == local_peer_id || pending_rendezvous_discovers.contains(&peer_id) {
-        return Ok(false);
-    }
-    let namespace = rendezvous_namespace(template)?;
-    let cookie = rendezvous_cookies.get(&peer_id).cloned();
-    swarm
-        .behaviour_mut()
-        .rendezvous_client
-        .as_mut()
-        .expect("rendezvous client enabled when peer record opts in")
-        .discover(Some(namespace), cookie, None, peer_id);
-    pending_rendezvous_discovers.insert(peer_id);
-    Ok(true)
-}
-
-pub(super) fn peer_record_enables_rendezvous(template: &PeerRecord) -> bool {
-    template
-        .discovery_sources
-        .iter()
-        .any(|source| matches!(source, PeerDiscoverySource::Rendezvous))
 }
 
 pub(super) fn maybe_queue_discovery_peer_record(
@@ -1146,18 +1082,6 @@ pub(super) fn decode_cached_discovery_peers_response(
         }
     }
     Ok(decoded)
-}
-
-pub(super) fn rendezvous_namespace(
-    template: &PeerRecord,
-) -> Result<rendezvous::Namespace, WorldError> {
-    rendezvous::Namespace::new(distributed_rendezvous_namespace(
-        template.world_id.as_str(),
-        template.network_id.as_str(),
-    ))
-    .map_err(|_| WorldError::NetworkProtocolUnavailable {
-        protocol: "rendezvous namespace must be <= 255 bytes".to_string(),
-    })
 }
 
 #[cfg(test)]

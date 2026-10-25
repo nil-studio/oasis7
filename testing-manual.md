@@ -1715,6 +1715,8 @@ These tests do not prove absolute wall-clock trust, restart/whole-machine rollba
 
 Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [shared discovery policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget).
 
+Run the pinned-client unit suite with canonical `env -u RUSTC_WRAPPER cargo test --locked --manifest-path vendor-libp2p-rendezvous-0.18.1/Cargo.toml --target-dir target --lib -- --test-threads=1`; the target is the existing workspace target, shared with normal network verification. The net CI group runs this standalone suite because dependency unit tests are not selected by the workspace net suite.
+
 Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Use controlled monotonic instants for rolling-window boundaries and actual Swarm scheduling entrypoints for fanout and retry tests:
 
 - Exhaust the combined 32 in-flight slots across automatic discovery work; a new peer/source must create no extra pending work or request traffic. Release only terminal operations; rate tokens remain consumed.

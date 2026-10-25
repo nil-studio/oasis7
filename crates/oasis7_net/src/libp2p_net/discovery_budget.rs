@@ -1,7 +1,7 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-use libp2p::{kad, request_response};
+use libp2p::{Multiaddr, PeerId, kad, request_response};
 use serde::{Deserialize, Serialize};
 
 pub(super) const MAX_DISCOVERY_IDS: usize = 128;
@@ -11,6 +11,21 @@ const MAX_INFLIGHT: usize = 32;
 const MAX_WINDOW_STARTS: usize = 128;
 pub(super) const MAX_COOLDOWN_ENTRIES: usize = 1024;
 const WINDOW: Duration = Duration::from_secs(60);
+const MAX_RENDEZVOUS_ADDRESSES: usize = 128;
+const MAX_RENDEZVOUS_ADDRESS_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum RendezvousOperationKind {
+    Register,
+    Discover,
+}
+
+#[derive(Debug, Clone)]
+struct PendingRendezvousOperation {
+    kind: RendezvousOperationKind,
+    peer_id: PeerId,
+    external_addresses_digest: Option<[u8; 32]>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscoveryWorkMetricsSnapshot {
@@ -51,6 +66,10 @@ pub(super) struct DiscoveryWorkBudget {
     starts: VecDeque<Instant>,
     dht: HashSet<kad::QueryId>,
     requests: HashSet<request_response::OutboundRequestId>,
+    rendezvous_by_request:
+        HashMap<request_response::OutboundRequestId, Vec<PendingRendezvousOperation>>,
+    rendezvous_peers: HashSet<(RendezvousOperationKind, PeerId)>,
+    registered_rendezvous_addresses: HashMap<PeerId, [u8; 32]>,
     metrics: DiscoveryWorkMetricsSnapshot,
 }
 impl DiscoveryWorkBudget {
@@ -96,6 +115,91 @@ impl DiscoveryWorkBudget {
             self.finish_unscheduled();
         }
     }
+    pub(super) fn begin_rendezvous(
+        &mut self,
+        kind: RendezvousOperationKind,
+        peer_id: PeerId,
+    ) -> bool {
+        let key = (kind, peer_id);
+        if self.rendezvous_peers.contains(&key) || !self.admit() {
+            return false;
+        }
+        self.rendezvous_peers.insert(key);
+        true
+    }
+    pub(super) fn track_rendezvous(
+        &mut self,
+        id: request_response::OutboundRequestId,
+        kind: RendezvousOperationKind,
+        peer_id: PeerId,
+        external_addresses_digest: Option<[u8; 32]>,
+    ) {
+        self.rendezvous_by_request
+            .entry(id)
+            .or_default()
+            .push(PendingRendezvousOperation {
+                kind,
+                peer_id,
+                external_addresses_digest,
+            });
+    }
+    pub(super) fn finish_rendezvous_schedule_failure(
+        &mut self,
+        kind: RendezvousOperationKind,
+        peer_id: PeerId,
+    ) {
+        if self.rendezvous_peers.remove(&(kind, peer_id)) {
+            self.finish_unscheduled();
+        }
+    }
+    pub(super) fn finish_rendezvous(
+        &mut self,
+        id: request_response::OutboundRequestId,
+        kind: RendezvousOperationKind,
+        peer_id: PeerId,
+        current_external_addresses_digest: Option<[u8; 32]>,
+        succeeded: bool,
+    ) -> bool {
+        let Some(operations) = self.rendezvous_by_request.get_mut(&id) else {
+            return false;
+        };
+        let Some(index) = operations
+            .iter()
+            .position(|operation| operation.kind == kind && operation.peer_id == peer_id)
+        else {
+            return false;
+        };
+        let operation = operations.remove(index);
+        if operations.is_empty() {
+            self.rendezvous_by_request.remove(&id);
+        }
+        self.rendezvous_peers.remove(&(kind, peer_id));
+        if kind == RendezvousOperationKind::Register {
+            match (succeeded, operation.external_addresses_digest) {
+                (true, Some(expected)) if Some(expected) == current_external_addresses_digest => {
+                    self.registered_rendezvous_addresses
+                        .insert(peer_id, expected);
+                }
+                _ => {
+                    self.registered_rendezvous_addresses.remove(&peer_id);
+                }
+            }
+        }
+        self.finish_unscheduled();
+        true
+    }
+    pub(super) fn rendezvous_registration_matches(
+        &self,
+        peer_id: PeerId,
+        external_addresses_digest: Option<[u8; 32]>,
+    ) -> bool {
+        external_addresses_digest.is_some_and(|digest| {
+            self.registered_rendezvous_addresses.get(&peer_id) == Some(&digest)
+        })
+    }
+    pub(super) fn forget_rendezvous_registration(&mut self, peer_id: PeerId) {
+        self.registered_rendezvous_addresses.remove(&peer_id);
+    }
     // Scheduling can fail synchronously; concurrency is returned, rate is never refunded.
     pub(super) fn finish_unscheduled(&mut self) {
         self.metrics.inflight = self.metrics.inflight.saturating_sub(1);
@@ -112,6 +216,34 @@ impl DiscoveryWorkBudget {
     }
 }
 
+pub(super) fn rendezvous_external_addresses_digest(
+    addresses: impl Iterator<Item = Multiaddr>,
+) -> Option<[u8; 32]> {
+    let mut encoded_addresses = Vec::new();
+    let mut total_bytes = 0usize;
+    for address in addresses {
+        if encoded_addresses.len() >= MAX_RENDEZVOUS_ADDRESSES {
+            return None;
+        }
+        let bytes = address.to_vec();
+        total_bytes = total_bytes.checked_add(bytes.len())?;
+        if total_bytes > MAX_RENDEZVOUS_ADDRESS_BYTES {
+            return None;
+        }
+        encoded_addresses.push(bytes);
+    }
+    encoded_addresses.sort();
+    encoded_addresses.dedup();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"oasis7-rendezvous-address-set-v1\0");
+    hasher.update(&(encoded_addresses.len() as u64).to_be_bytes());
+    for address in encoded_addresses {
+        hasher.update(&(address.len() as u64).to_be_bytes());
+        hasher.update(&address);
+    }
+    Some(*hasher.finalize().as_bytes())
+}
+
 pub(super) fn publish_metrics(
     swarm: &libp2p::Swarm<super::swarm_behaviour::Behaviour>,
     metrics: &super::traffic_metrics::SharedLibp2pTrafficMetrics,
@@ -120,6 +252,14 @@ pub(super) fn publish_metrics(
         metrics.discovery_work = swarm.behaviour().discovery_budget.snapshot();
     }
 }
+
+#[cfg(test)]
+#[path = "tests/rendezvous_budget_lifecycle_tests.rs"]
+mod rendezvous_budget_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "tests/rendezvous_budget_callsite_tests.rs"]
+mod rendezvous_budget_callsite_tests;
 
 #[cfg(test)]
 mod tests {
