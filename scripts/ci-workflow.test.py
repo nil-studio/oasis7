@@ -337,13 +337,13 @@ class Workflow(unittest.TestCase):
                             actual = eval(expression, {'__builtins__': {}}, {})
                             self.assertEqual(actual, result == 'success' and not cancelled and name == expected)
 
-    def test_workspace_maintenance_waits_for_producers_and_accepts_confirmed_exact_hits(self):
+    def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
         self.assertIn('needs: [oasis7-test-build-trusted, formal-test-build-trusted, full-regression]', job)
         self.assertIn('always() && !cancelled()', job.split('    steps:', 1)[0])
         for producer in ('oasis7-test-build-trusted', 'formal-test-build-trusted'):
             self.assertIn(f"needs.{producer}.result == 'success'", job)
-            self.assertIn(f"needs.{producer}.outputs.cache_confirmed == 'true'", job)
+            self.assertNotIn(f"needs.{producer}.outputs.cache_confirmed", job.split('    steps:', 1)[0])
         for condition in ("github.ref == 'refs/heads/main'", "github.workflow_sha == github.sha",
                           "github.event_name == 'push'", "github.event_name == 'schedule'", "inputs.run_mode == 'full'"):
             self.assertIn(condition, job.split('    steps:', 1)[0])
@@ -353,7 +353,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('group: ci-cache-maintenance-main', job)
         self.assertIn('ref: ${{ github.sha }}', job)
         self.assertIn('CACHE_MAINTENANCE_TOKEN: ${{ github.token }}', job)
-        self.assertIn('ci-cache-maintenance.py --apply', job)
+        self.assertIn('ci-cache-maintenance.py --recover --apply', job)
         self.assertNotIn('Swatinem/rust-cache', job)
         self.assertNotIn('actions/cache/', job)
         self.assertNotIn('cache-maintenance', JOBS['required-gate'])
@@ -374,7 +374,46 @@ class Workflow(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual('<ordinary-key>' in result.stdout, ordinary)
             self.assertEqual('<formal-key>' in result.stdout, formal)
-            self.assertEqual('<--apply>' in result.stdout, ordinary or formal)
+            self.assertIn('<--recover>', result.stdout)
+            self.assertIn('<--apply>', result.stdout)
+
+    def test_recovery_selection_preserves_success_cancellation_and_trust_boundaries(self):
+        ecs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
+        for scope, job in (('rust', JOBS['cache-maintenance']), ('ecs', ecs['cache-maintenance'])):
+            header = job.split('    steps:', 1)[0]
+            condition = header.split('    if:', 1)[1].split('    cache-mode:', 1)[0].strip().removeprefix('>-')
+            for ordinary in ('success', 'failure', 'cancelled', 'skipped'):
+                for formal in ('success', 'failure', 'cancelled', 'skipped'):
+                    for confirmed in ('true', 'false', ''):
+                        for cancelled in (False, True):
+                            for event, ref, mode, matching_workflow, trusted in (
+                                    ('push', 'refs/heads/main', '', True, scope == 'rust'),
+                                    ('schedule', 'refs/heads/main', '', True, scope == 'rust'),
+                                    ('workflow_dispatch', 'refs/heads/main', 'full', True, True),
+                                    ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', True, scope == 'ecs'),
+                                    ('pull_request', 'refs/pull/1/merge', '', True, False),
+                                    ('push', 'refs/heads/topic', '', True, False),
+                                    ('workflow_dispatch', 'refs/heads/main', 'full', False, False)):
+                                values = {
+                                    'always()': True, 'cancelled()': cancelled,
+                                    'needs.oasis7-test-build-trusted.result': ordinary,
+                                    'needs.formal-test-build-trusted.result': formal,
+                                    'needs.native-trusted.result': ordinary,
+                                    'needs.oasis7-test-build-trusted.outputs.cache_confirmed': confirmed,
+                                    'needs.formal-test-build-trusted.outputs.cache_confirmed': confirmed,
+                                    'needs.native-trusted.outputs.cache_confirmed': confirmed,
+                                    'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
+                                    'github.workflow_sha': 'a' if matching_workflow else 'b', 'github.sha': 'a',
+                                }
+                                expression = condition
+                                for token, value in values.items():
+                                    expression = expression.replace(token, repr(value))
+                                expression = re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
+                                success = ordinary == 'success' or (scope == 'rust' and formal == 'success')
+                                with self.subTest(scope=scope, ordinary=ordinary, formal=formal,
+                                                  confirmed=confirmed, cancelled=cancelled, event=event, ref=ref):
+                                    actual = eval(' '.join(expression.split()), {'__builtins__': {}}, {})
+                                    self.assertEqual(actual, success and trusted and not cancelled)
 
     def test_bootstrap_is_trusted_and_cannot_block_or_expand_build_selection(self):
         bootstrap = JOBS.get('cache-bootstrap-maintenance', '')
@@ -385,7 +424,7 @@ class Workflow(unittest.TestCase):
         self.assertIn('cancel-in-progress: false', bootstrap)
         self.assertIn('ref: ${{ github.sha }}', bootstrap)
         self.assertIn('persist-credentials: false', bootstrap)
-        self.assertIn('ci-cache-maintenance.py --bootstrap --apply', bootstrap)
+        self.assertIn('ci-cache-maintenance.py --recover --apply', bootstrap)
         for forbidden in ('--current-key', 'actions/cache/', 'Swatinem/rust-cache', 'cargo '):
             self.assertNotIn(forbidden, bootstrap)
         for name in ('oasis7-test-build-candidate', 'formal-test-build', 'required-gate', 'explicit-full-gate'):
@@ -431,22 +470,35 @@ class Workflow(unittest.TestCase):
                                     actual = eval(' '.join(condition.split()), {'__builtins__': {}}, {})
                                     self.assertEqual(actual, select == 'success' and not cancelled and trusted and selected)
 
-    def test_ecs_maintenance_waits_for_confirmed_native_success(self):
+    def test_ecs_maintenance_recovers_after_native_success_without_a_new_save(self):
         ecs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
         writer, job = ecs['native-trusted'], ecs['cache-maintenance']
         self.assertIn('needs: native-trusted', job)
         self.assertIn("needs.native-trusted.result == 'success'", job)
-        self.assertIn("needs.native-trusted.outputs.cache_confirmed == 'true'", job)
+        self.assertIn('always() && !cancelled()', job.split('    steps:', 1)[0])
+        self.assertNotIn('needs.native-trusted.outputs.cache_confirmed', job.split('    steps:', 1)[0])
         self.assertIn('group: ci-cache-maintenance-main', job)
         self.assertIn('cache-mode: none', job)
         self.assertIn('actions: write', job)
-        self.assertIn('ci-cache-maintenance.py --apply --current-key "$CURRENT_CACHE_KEY"', job)
+        self.assertIn('ci-cache-maintenance.py --recover --apply "${args[@]}"', job)
+        self.assertIn('CI_CACHE_REPOSITORY_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}', job)
         self.assertIn("steps.ecs-workspace-cache.outputs.cache-hit == 'true'", writer)
         self.assertIn('cache_confirmed: ${{ steps.ecs-cache-observe.outputs.saved_confirmed }}', writer)
         self.assertNotIn('cache-maintenance', ecs['package'].split('    steps:', 1)[0])
         for name, body in ecs.items():
             if name != 'cache-maintenance':
                 self.assertNotIn('actions: write', body, name)
+        script = textwrap.dedent(job.split('        run: |\n', 1)[1])
+        stub = 'python3() { printf "<%s>\\n" "$@"; };\n'
+        for result in ('success', 'failure'):
+            for confirmed in ('true', 'false', ''):
+                output = subprocess.run(['bash', '-c', stub + script], text=True, capture_output=True,
+                                        env=dict(os.environ, NATIVE_RESULT=result,
+                                                 CURRENT_CACHE_CONFIRMED=confirmed, CURRENT_CACHE_KEY='ecs-key'))
+                self.assertEqual(output.returncode, 0, output.stderr)
+                self.assertIn('<--recover>', output.stdout)
+                self.assertIn('<--apply>', output.stdout)
+                self.assertEqual('<ecs-key>' in output.stdout, result == 'success' and confirmed == 'true')
 
     def test_manual_candidate_full_is_read_only_and_not_scheduled(self):
         candidate = JOBS['candidate-full-regression']

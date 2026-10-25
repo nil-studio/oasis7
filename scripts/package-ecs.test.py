@@ -652,7 +652,9 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(text.count("ref: ${{ github.sha }}"), 5)
         maintenance = text.split("  cache-maintenance:\n", 1)[1].split("  build-metrics:\n", 1)[0]
         self.assertIn("needs: native-trusted", maintenance)
-        self.assertIn("needs.native-trusted.outputs.cache_confirmed == 'true'", maintenance)
+        self.assertIn("always() && !cancelled() && needs.native-trusted.result == 'success'", maintenance)
+        self.assertNotIn("needs.native-trusted.outputs.cache_confirmed", maintenance.split("    steps:", 1)[0])
+        self.assertIn('ci-cache-maintenance.py --recover --apply "${args[@]}"', maintenance)
         self.assertNotIn("needs.web", maintenance)
         self.assertIn("ref: ${{ github.sha }}", maintenance)
         self.assertIn("cache-mode: none", maintenance)

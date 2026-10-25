@@ -143,6 +143,62 @@ class SchemaTests(unittest.TestCase):
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_rotation_headroom_is_additional_to_the_measured_upload_bound(self):
+        reserve = 5 * 1024 ** 3 // 2
+        self.assertEqual(policy.DEPENDENCY_ROTATION_HEADROOM_BYTES, reserve)
+        entries = [entry('ordinary', 1, key='shared-dependency-and-other-caches',
+                         size_in_bytes=7_308_732_735)]
+        for name, bound in (('ordinary', 764_291_602), ('formal', 798_904_222)):
+            with self.subTest(name=name):
+                push = policy.save_policy(entries, key(name, 2), bound, REPOSITORY_LIMIT)
+                full = policy.save_policy(entries, key(name, 2), bound, REPOSITORY_LIMIT,
+                                          reserved_repository_bytes=reserve)
+                self.assertTrue(push['capacity_allowed'])
+                self.assertEqual(push['reserved_repository_bytes'], 0)
+                self.assertFalse(full['capacity_allowed'])
+                self.assertEqual(full['reason'], 'dependency rotation headroom')
+                self.assertEqual(full['new_payload_upload_bound_bytes'], bound)
+                self.assertEqual(full['projected_repository_bytes'], 7_308_732_735 + bound)
+                self.assertEqual(full['projected_available_repository_bytes'],
+                                 REPOSITORY_LIMIT - 7_308_732_735 - bound)
+                self.assertEqual(full['projected_repository_bytes_with_reserve'],
+                                 7_308_732_735 + bound + reserve)
+                self.assertEqual(full['reserved_repository_bytes'], reserve)
+        self.assertEqual(entries[0]['size_in_bytes'], 7_308_732_735)
+
+    def test_rotation_headroom_equality_and_physical_quota_are_separate_boundaries(self):
+        reserve = 5 * 1024 ** 3 // 2
+        entries = [entry('ordinary', 1, key='unmanaged', size_in_bytes=100)]
+        boundary = reserve + 201
+        exact = policy.save_policy(entries, key('ordinary', 2), 101, boundary,
+                                   reserved_repository_bytes=reserve)
+        self.assertTrue(exact['capacity_allowed'])
+        self.assertEqual(exact['projected_available_repository_bytes'], reserve)
+        short = policy.save_policy(entries, key('ordinary', 2), 102, boundary,
+                                   reserved_repository_bytes=reserve)
+        self.assertFalse(short['capacity_allowed'])
+        self.assertEqual(short['reason'], 'dependency rotation headroom')
+        over = policy.save_policy(entries, key('ordinary', 2), 101, 200,
+                                  reserved_repository_bytes=reserve)
+        self.assertEqual(over['reason'], 'repository cache capacity gap')
+        self.assertEqual(over['projected_available_repository_bytes'], 0)
+        invalid_quota = policy.save_policy(entries, key('ordinary', 2), 101, None,
+                                           reserved_repository_bytes=reserve)
+        self.assertEqual(invalid_quota['reason'], 'repository cache quota unavailable or invalid')
+        self.assertIsNone(invalid_quota['projected_available_repository_bytes'])
+
+    def test_invalid_rotation_reserve_fails_closed_and_zero_preserves_default_admission(self):
+        for reserve in (True, False, None, -1, 1.5, '1'):
+            with self.subTest(reserve=reserve), self.assertRaises(ValueError):
+                policy.save_policy([], key('ordinary', 2), 100, REPOSITORY_LIMIT,
+                                   reserved_repository_bytes=reserve)
+        for name in PREFIXES:
+            with self.subTest(name=name):
+                default = policy.save_policy([], key(name, 2), 100, 100)
+                zero = policy.save_policy([], key(name, 2), 100, 100, reserved_repository_bytes=0)
+                self.assertEqual(default, zero)
+                self.assertTrue(zero['capacity_allowed'])
+
     def test_raw_staging_single_upload_resident_and_rotation_are_distinct(self):
         for name, upload, raw in (('ordinary', 768 * 1024 ** 2, 6 * 1024 ** 3),
                                   ('formal', 768 * 1024 ** 2, 8 * 1024 ** 3),
