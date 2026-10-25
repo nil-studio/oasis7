@@ -2,6 +2,71 @@
 use super::*;
 use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 
+fn canonical_outcome(rejected: Option<&str>) -> &'static str {
+    match rejected {
+        None => "committed",
+        Some("scheduler base binding changed") => "rejected_base_binding_changed",
+        Some("cognition_provisioning_binding_mismatch") => {
+            "rejected_provisioning_binding_mismatch"
+        }
+        Some(_) => "rejected_other",
+    }
+}
+
+// Failure output must survive CI without publishing the private canonical payloads.
+// Classify the authority's actual results, rather than inferring rejection from
+// a repeated Lookup or from the App's last pump error.
+pub(super) fn canonical_diagnostic<'a>(
+    values: impl Iterator<Item = &'a serde_json::Value>,
+) -> serde_json::Value {
+    let mut stages = std::collections::BTreeMap::<&str, serde_json::Value>::new();
+    let mut undecodable = 0;
+    for value in values {
+        let Ok(result) = serde_json::from_value::<wire::CanonicalIntentResultV1>(value.clone())
+        else {
+            undecodable += 1;
+            continue;
+        };
+        let WorldServicePayloadV1::Scheduler(signed) = &result.request.signed_payload else {
+            continue;
+        };
+        let stage = match &signed.request.operation {
+            SchedulerOperationV1::ReserveLease(_) => "reserve",
+            SchedulerOperationV1::ProviderPrefix { .. } => "prefix",
+            SchedulerOperationV1::SettleLease { .. } => "settle",
+            SchedulerOperationV1::ResumeWake { .. } => "resume",
+            SchedulerOperationV1::AdmitContinuation(_) => "admit",
+            SchedulerOperationV1::ConsumeContinuationBudget { .. } => "consume",
+            _ => "other",
+        };
+        let outcome = canonical_outcome(result.rejected.as_deref());
+        let counts = stages
+            .entry(stage)
+            .or_insert_with(|| serde_json::json!({}));
+        counts[outcome] = serde_json::json!(counts[outcome].as_u64().unwrap_or(0) + 1);
+    }
+    serde_json::json!({"scheduler_results": stages, "undecodable_results": undecodable})
+}
+
+#[test]
+fn final_budget_canonical_diagnostic_does_not_publish_unparsed_private_payloads() {
+    assert_eq!(canonical_outcome(None), "committed");
+    assert_eq!(
+        canonical_outcome(Some("scheduler base binding changed")),
+        "rejected_base_binding_changed"
+    );
+    assert_eq!(
+        canonical_outcome(Some("scheduler base binding changed; private detail")),
+        "rejected_other"
+    );
+    assert_eq!(canonical_outcome(Some("private rejection")), "rejected_other");
+    let private = serde_json::json!({"private_request": "must-not-appear"});
+    assert_eq!(
+        canonical_diagnostic(std::iter::once(&private)),
+        serde_json::json!({"scheduler_results": {}, "undecodable_results": 1})
+    );
+}
+
 #[test]
 fn real_tcp_hosted_final_wait_budget_consumes_once_without_new_model_or_lease() {
     application_harness::run_isolated_application_mode(
@@ -42,7 +107,9 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
     let worker = thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(25);
         let mut selected = std::collections::BTreeSet::new();
+        let mut handoff = application_hosted_final_budget_clock::Handoff::default();
         while !stopped.load(Ordering::SeqCst) && Instant::now() < deadline {
+            let mut origin_wake_created = false;
             for (file, marker) in [
                 ("hosted-wait-origin.json", "hosted-wait-selected.json"),
                 (
@@ -88,18 +155,12 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
                 let Some(continuation) = continuation else {
                     continue;
                 };
-                let wake = world
+                let mut wake = world
                     .cognition_in_flight_wakes()
                     .unwrap()
                     .into_iter()
                     .find(|wake| wake.continuation_id == continuation.continuation_id);
-                if let Some(wake) = wake {
-                    application_hosted_wait::publish_marker(&root.join(marker), &serde_json::to_vec(&serde_json::json!({
-                        "continuation_id":continuation.continuation_id,"wake_id":wake.wake_id,
-                        "origin_request_digest":digest,"remaining_budget":continuation.remaining_budget.value,
-                        "settled_before_clock":true})).unwrap()).unwrap();
-                    selected.insert(digest.to_owned());
-                } else {
+                if wake.is_none() {
                     let mut before = serde_json::to_value(guard.execution_world.state()).unwrap();
                     before["time"] = serde_json::json!(0);
                     commit_request(&mut guard, 0, None);
@@ -109,8 +170,23 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
                         before, after,
                         "canonical empty clock must preserve gameplay state"
                     );
+                    // Keep the driver locked through selection: the App may
+                    // consume this wake before the next clock poll. Missing it
+                    // would advance the old continuation again and stale the
+                    // resumed turn's already captured Reserve binding.
+                    wake = guard.execution_world.cognition_in_flight_wakes().unwrap()
+                        .into_iter().find(|wake| wake.continuation_id == continuation.continuation_id);
+                    origin_wake_created |= file == "hosted-wait-origin.json" && wake.is_some();
+                }
+                if let Some(wake) = wake {
+                    application_hosted_wait::publish_marker(&root.join(marker), &serde_json::to_vec(&serde_json::json!({
+                        "continuation_id":continuation.continuation_id,"wake_id":wake.wake_id,
+                        "origin_request_digest":digest,"remaining_budget":continuation.remaining_budget.value,
+                        "settled_before_clock":true})).unwrap()).unwrap();
+                    selected.insert(digest.to_owned());
                 }
             }
+            handoff.after_iteration(&root, origin_wake_created);
             if selected.len() == 2 {
                 return;
             }
@@ -216,6 +292,10 @@ pub(super) fn report(
         .finish_http_workers()
         .expect("all actual HTTP worker joins precede completion assertions");
     let world = fixture.driver.lock().unwrap().execution_world.clone();
+    println!(
+        "hosted_final_budget_canonical_diagnostic={}",
+        canonical_diagnostic(world.capability_revocation_state().world_service_results.values())
+    );
     let results = world
         .capability_revocation_state()
         .world_service_results

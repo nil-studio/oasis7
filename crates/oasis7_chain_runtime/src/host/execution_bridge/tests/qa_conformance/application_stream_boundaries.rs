@@ -394,9 +394,27 @@ fn requests(root: &std::path::Path) -> Vec<serde_json::Value> {
                 .file_name()
                 .to_string_lossy()
                 .starts_with("model-request-")
+                && entry.path().extension().is_some_and(|extension| extension == "json")
         })
         .map(|entry| serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap())
         .collect()
+}
+
+#[test]
+fn model_request_scan_ignores_unpublished_staging_but_rejects_malformed_json() {
+    let root = temp_dir("qa-model-request-publication");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("model-request-pending.staging-1"), b"{").unwrap();
+    assert!(requests(&root).is_empty(), "staging is not a published model request");
+    let published = root.join("model-request-actual.json");
+    let identity = serde_json::json!({"request_digest": "published-original"});
+    application_hosted_wait::publish_marker(&published, &serde_json::to_vec(&identity).unwrap())
+        .unwrap();
+    assert_eq!(requests(&root), vec![identity]);
+    fs::write(&published, b"{").unwrap();
+    let malformed = std::panic::catch_unwind(|| requests(&root));
+    fs::remove_dir_all(root).unwrap();
+    assert!(malformed.is_err(), "malformed published JSON must remain a failure");
 }
 fn repeated(shared: Arc<Mutex<ViewerRuntimeLiveServer>>, root: &std::path::Path) {
     let mut session = Session::start(&shared, false);
