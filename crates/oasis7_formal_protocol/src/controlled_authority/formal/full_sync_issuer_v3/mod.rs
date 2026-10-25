@@ -4,10 +4,11 @@
 //! signing domain. It does not provide a production witness, protected clock,
 //! or provider read gate.
 
+mod migration_resume;
+mod reducer;
 mod state;
 mod types;
 mod witness;
-mod reducer;
 
 pub use state::*;
 pub use types::*;

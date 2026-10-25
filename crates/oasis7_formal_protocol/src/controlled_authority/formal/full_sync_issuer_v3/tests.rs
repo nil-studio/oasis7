@@ -11,6 +11,9 @@ use crate::controlled_authority::formal::{
 };
 use ed25519_dalek::SigningKey;
 
+#[path = "migration_resume_tests.rs"]
+mod migration_resume_tests;
+
 fn key(value: u8) -> SigningKey {
     SigningKey::from_bytes(&[value; 32])
 }
@@ -140,6 +143,82 @@ fn current_v2_state(policy: &VerifiedFullSyncIssuerPolicyV2) -> VerifiedFullSync
     .unwrap();
     let receipt = SignedFullSyncIssuerReceiptV2::sign(observation, &record, &key(4)).unwrap();
     prepared.commit(receipt).unwrap().state().clone()
+}
+
+fn capacity_bytes(domain: u8, sequence: u64) -> [u8; 32] {
+    let mut bytes = [0; 32];
+    bytes[0] = domain;
+    bytes[24..].copy_from_slice(&sequence.to_be_bytes());
+    bytes
+}
+
+fn capacity_id(domain: u8, sequence: u64) -> String {
+    hex::encode(capacity_bytes(domain, sequence))
+}
+
+fn v2_state_with_capacity_history(
+    policy: &VerifiedFullSyncIssuerPolicyV2,
+    count: u64,
+) -> VerifiedFullSyncIssuerStateV2 {
+    let mut state =
+        VerifiedFullSyncIssuerStateV2::from_committed_records(policy.clone(), vec![]).unwrap();
+    let target = FullSyncIssuerTargetV2 {
+        node_public_key: public(5),
+        role: FullSyncReadRoleV2::StateSync,
+    };
+    for sequence in 1..=count {
+        let operation = if sequence == 1 {
+            FullSyncIssuerOperationV2::Issue {
+                not_before_unix_ms: 1_000,
+                expires_unix_ms: 1_000_000,
+            }
+        } else {
+            FullSyncIssuerOperationV2::Replace {
+                not_before_unix_ms: 1_000,
+                expires_unix_ms: 1_000_000,
+            }
+        };
+        let command = SignedFullSyncIssuerCommandV2::sign(
+            FullSyncIssuerCommandBodyV2 {
+                schema_version: 2,
+                world: policy.body().world.clone(),
+                authority_epoch: policy.body().authority_epoch,
+                scope_digest: policy.scope_digest().into(),
+                policy_digest: policy.policy_digest().into(),
+                signer_generation: policy.body().signer_generation,
+                transition: None,
+                target: target.clone(),
+                operation,
+                expected_head: state.anchor().clone(),
+                expected_target_generation: sequence - 1,
+                request_id: capacity_id(70, sequence),
+                command_nonce: capacity_id(71, sequence),
+            },
+            &key(2),
+        )
+        .unwrap();
+        let prepared = state.prepare(command).unwrap();
+        let record = prepared.record().unwrap().clone();
+        let query = SignedFullSyncIssuerQueryV2::sign(
+            policy,
+            record.previous_anchor.clone(),
+            capacity_bytes(72, sequence),
+            &key(3),
+        )
+        .unwrap();
+        let observation = SignedFullSyncIssuerObservationV2::sign(
+            FullSyncIssuerObservationBodyV2 {
+                schema_version: 2,
+                query,
+                current_anchor: record.previous_anchor.clone(),
+            },
+            &key(4),
+        )
+        .unwrap();
+        let receipt = SignedFullSyncIssuerReceiptV2::sign(observation, &record, &key(4)).unwrap();
+        state = prepared.commit(receipt).unwrap().state().clone();
+    }
+    state
 }
 
 fn v2_observation(
@@ -313,6 +392,103 @@ fn v3_migration_prepares_one_successor_after_verified_v2_prefix() {
     );
     assert_eq!(record.next_anchor.revision, expected_v2_head.revision + 1);
     assert!(matches!(&record.event, FullSyncIssuerEventV3::Migration(_)));
+}
+
+#[test]
+fn v3_migration_and_lease_share_the_lifecycle_record_capacity() {
+    let old = old_policy();
+    let v3 = new_policy(&old);
+    let full_v2 = v2_state_with_capacity_history(&old, 1_024);
+    assert_eq!(full_v2.records().len(), 1_024);
+
+    let full_anchor = full_v2.anchor().clone();
+    let migration = SignedFullSyncIssuerMigrationV3::sign(
+        FullSyncIssuerMigrationBodyV3 {
+            schema_version: 3,
+            previous_v2_policy_digest: old.policy_digest().into(),
+            previous_v2_signer_generation: old.body().signer_generation,
+            expected_v2_head: full_anchor.clone(),
+            new_policy: v3.signed().clone(),
+            request_id: hash(130),
+            manager_nonce: hash(131),
+        },
+        &key(2),
+    )
+    .unwrap();
+    let observation = v2_observation(&old, &full_anchor, 132);
+    assert!(matches!(
+        full_v2.prepare_migration_v3(v3.clone(), migration, &observation),
+        Err(FormalError::Invalid(reason))
+            if reason == "full-sync V3 total ledger record capacity"
+    ));
+    assert_eq!(full_v2.anchor(), &full_anchor);
+    assert_eq!(full_v2.records().len(), 1_024);
+
+    let v2_1023 = VerifiedFullSyncIssuerStateV2::from_committed_records(
+        old.clone(),
+        full_v2.records()[..1_023].to_vec(),
+    )
+    .unwrap();
+    let (v3_at_capacity, _) = migrated_state(&old, &v3, &v2_1023, 133);
+    assert_eq!(v3_at_capacity.v2_prefix().len(), 1_023);
+    assert_eq!(v3_at_capacity.entries().len(), 1);
+    let full_v3_anchor = v3_at_capacity.anchor().clone();
+    let target = FullSyncIssuerTargetV2 {
+        node_public_key: public(5),
+        role: FullSyncReadRoleV2::StateSync,
+    };
+    let observation = v3_observation(&v3_at_capacity, 134, 2_000, 2_100);
+    let request = provider_lease_request(&v3_at_capacity, &target, 135, 136, 137);
+    assert!(matches!(
+        v3_at_capacity.prepare_lease(request, &observation, &key(8)),
+        Err(FormalError::Invalid(reason))
+            if reason == "full-sync V3 total ledger record capacity"
+    ));
+    assert_eq!(v3_at_capacity.anchor(), &full_v3_anchor);
+    assert_eq!(
+        v3_at_capacity.v2_prefix().len() + v3_at_capacity.entries().len(),
+        1_024
+    );
+
+    let v2_1022 = VerifiedFullSyncIssuerStateV2::from_committed_records(
+        old.clone(),
+        full_v2.records()[..1_022].to_vec(),
+    )
+    .unwrap();
+    let (v3_one_slot_left, _) = migrated_state(&old, &v3, &v2_1022, 138);
+    assert_eq!(
+        v3_one_slot_left.v2_prefix().len() + v3_one_slot_left.entries().len(),
+        1_023
+    );
+    let observation = v3_observation(&v3_one_slot_left, 139, 2_000, 2_100);
+    let request = provider_lease_request(&v3_one_slot_left, &target, 140, 141, 142);
+    let prepared = v3_one_slot_left
+        .prepare_lease(request, &observation, &key(8))
+        .expect("the final lifecycle record slot must remain usable");
+    let record = prepared.record().unwrap().clone();
+    let receipt = SignedFullSyncIssuerReceiptV3::sign(
+        FullSyncIssuerReceiptObservationV3::V3(observation),
+        &record,
+        &key(4),
+    )
+    .unwrap();
+    let at_full_capacity = prepared.commit(receipt).unwrap().state().clone();
+    assert_eq!(at_full_capacity.v2_prefix().len(), 1_022);
+    assert_eq!(at_full_capacity.entries().len(), 2);
+
+    let full_anchor = at_full_capacity.anchor().clone();
+    let observation = v3_observation(&at_full_capacity, 143, 2_050, 2_150);
+    let request = provider_lease_request(&at_full_capacity, &target, 144, 145, 146);
+    assert!(matches!(
+        at_full_capacity.prepare_lease(request, &observation, &key(8)),
+        Err(FormalError::Invalid(reason))
+            if reason == "full-sync V3 total ledger record capacity"
+    ));
+    assert_eq!(at_full_capacity.anchor(), &full_anchor);
+    assert_eq!(
+        at_full_capacity.v2_prefix().len() + at_full_capacity.entries().len(),
+        1_024
+    );
 }
 
 #[test]
@@ -763,6 +939,9 @@ fn v3_migration_resume_distinguishes_v2_noncommit_from_committed_receipt() {
         FullSyncIssuerMigrationResumeResultV3::Committed(_) => {
             panic!("V2 witness mode must not report a committed migration")
         }
+        FullSyncIssuerMigrationResumeResultV3::NotCommittedV3MigrationConflict(_) => {
+            panic!("V2 witness mode cannot report a competing V3 migration")
+        }
     }
 
     let v2_prefix = v2.records().to_vec();
@@ -809,6 +988,9 @@ fn v3_migration_resume_distinguishes_v2_noncommit_from_committed_receipt() {
         }
         FullSyncIssuerMigrationResumeResultV3::NotCommittedV2 { .. } => {
             panic!("V3 witness mode must return the committed migration receipt")
+        }
+        FullSyncIssuerMigrationResumeResultV3::NotCommittedV3MigrationConflict(_) => {
+            panic!("the requested migration is committed, not a losing conflict")
         }
     }
 }

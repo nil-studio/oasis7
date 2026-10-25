@@ -134,9 +134,52 @@ pub struct FullSyncIssuerCommittedMigrationResumeV3 {
     pub anchor: FullSyncIssuerAnchorV3,
 }
 
+/// Non-serving proof that a different V3 migration won while a requested
+/// migration remained absent from the complete, verified history.
+#[derive(Debug, Clone)]
+pub struct VerifiedFullSyncIssuerMigrationConflictV3 {
+    history: FullSyncIssuerHistoryV3,
+    current_anchor: FullSyncIssuerAnchorV3,
+    migration_entry: FullSyncIssuerCommittedEntryV3,
+    policy: VerifiedFullSyncIssuerPolicyV3,
+}
+
+impl VerifiedFullSyncIssuerMigrationConflictV3 {
+    pub(super) fn new(
+        history: FullSyncIssuerHistoryV3,
+        current_anchor: FullSyncIssuerAnchorV3,
+        migration_entry: FullSyncIssuerCommittedEntryV3,
+        policy: VerifiedFullSyncIssuerPolicyV3,
+    ) -> Self {
+        Self {
+            history,
+            current_anchor,
+            migration_entry,
+            policy,
+        }
+    }
+
+    pub fn history(&self) -> &FullSyncIssuerHistoryV3 {
+        &self.history
+    }
+
+    pub fn current_anchor(&self) -> &FullSyncIssuerAnchorV3 {
+        &self.current_anchor
+    }
+
+    pub fn migration_entry(&self) -> &FullSyncIssuerCommittedEntryV3 {
+        &self.migration_entry
+    }
+
+    pub fn policy(&self) -> &VerifiedFullSyncIssuerPolicyV3 {
+        &self.policy
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FullSyncIssuerMigrationResumeResultV3 {
     Committed(Box<FullSyncIssuerCommittedMigrationResumeV3>),
+    NotCommittedV3MigrationConflict(Box<VerifiedFullSyncIssuerMigrationConflictV3>),
     NotCommittedV2 {
         current_state: Box<VerifiedFullSyncIssuerStateV2>,
         current_anchor: FullSyncIssuerAnchorV2,
@@ -152,7 +195,12 @@ pub fn recover_migration_resume_v3(
     expected_query: &SignedFullSyncIssuerMigrationResumeQueryV3,
     bundle: FullSyncIssuerMigrationResumeBundleV3,
 ) -> Result<FullSyncIssuerMigrationResumeResultV3, FormalError> {
-    super::reducer::recover_migration_resume(old_policy, new_policy, expected_query, bundle)
+    super::migration_resume::recover_migration_resume(
+        old_policy,
+        new_policy,
+        expected_query,
+        bundle,
+    )
 }
 
 /// Prepared event bytes are not committed authorization. Only `commit` with a

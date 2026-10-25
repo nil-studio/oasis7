@@ -5,7 +5,6 @@ use super::super::{
     VerifiedFullSyncIssuerStateV2, canonical, digest, encode, invalid,
 };
 use super::state::{
-    FullSyncIssuerCommittedMigrationResumeV3, FullSyncIssuerMigrationResumeResultV3,
     FullSyncIssuerRequestLocationV3, PreparedFullSyncIssuerEventV3,
     VerifiedFullSyncIssuerDecisionV3, VerifiedFullSyncIssuerStateV3,
 };
@@ -22,11 +21,7 @@ use super::types::{
     SignedFullSyncProviderLeaseRequestV3, SignedFullSyncProviderLeaseV3,
     VerifiedFullSyncIssuerPolicyV3,
 };
-use super::witness::{
-    FullSyncIssuerHistoryV3, FullSyncIssuerMigrationResumeBundleV3,
-    FullSyncIssuerWitnessModeHeadV3, SignedFullSyncIssuerMigrationResumeQueryV3,
-    SignedFullSyncIssuerObservationV3,
-};
+use super::witness::{FullSyncIssuerHistoryV3, SignedFullSyncIssuerObservationV3};
 use ed25519_dalek::SigningKey;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -223,7 +218,7 @@ pub(super) fn reconstruct(
     Ok(state)
 }
 
-fn reconstruct_history(
+pub(super) fn reconstruct_history(
     v2_policy: VerifiedFullSyncIssuerPolicyV2,
     v3_policy: VerifiedFullSyncIssuerPolicyV3,
     history: FullSyncIssuerHistoryV3,
@@ -999,135 +994,4 @@ pub(super) fn commit(
     state.encoded_bytes = encoded_bytes;
     state.entries.push(entry.clone());
     Ok(VerifiedFullSyncIssuerDecisionV3 { entry, state })
-}
-
-pub(super) fn recover_migration_resume(
-    old_policy: VerifiedFullSyncIssuerPolicyV2,
-    new_policy: VerifiedFullSyncIssuerPolicyV3,
-    expected_query: &SignedFullSyncIssuerMigrationResumeQueryV3,
-    bundle: FullSyncIssuerMigrationResumeBundleV3,
-) -> Result<FullSyncIssuerMigrationResumeResultV3, FormalError> {
-    if bundle.observation.body.query != *expected_query {
-        return Err(invalid(
-            "full-sync migration-resume reply does not match the fresh query",
-        ));
-    }
-    let query = &bundle.observation.body.query.body;
-    let migration = &query.exact_migration;
-    let v2_state = VerifiedFullSyncIssuerStateV2::from_committed_records(
-        old_policy.clone(),
-        bundle.history.v2_entries.clone(),
-    )?;
-    let (migration_policy, expected_head) =
-        v2_state_at_migration_head(&v2_state, &migration.body.expected_v2_head)?;
-    let verified_new_policy = VerifiedFullSyncIssuerPolicyV3::verify(
-        new_policy.signed(),
-        new_policy.trust(),
-        &migration_policy,
-    )?;
-    if verified_new_policy.policy_digest() != new_policy.policy_digest() {
-        return Err(invalid("full-sync V3 resume policy verification changed"));
-    }
-    expected_query.verify(&migration_policy, &verified_new_policy)?;
-    bundle
-        .observation
-        .verify(&migration_policy, &verified_new_policy)?;
-    query.original_v2_query.verify(&migration_policy)?;
-    migration.verify(&migration_policy, &verified_new_policy)?;
-    if query.original_v2_query.body.minimum_anchor != expected_head {
-        return Err(invalid(
-            "full-sync resume original V2 minimum is not qualified",
-        ));
-    }
-
-    match &bundle.observation.body.current_mode_head {
-        FullSyncIssuerWitnessModeHeadV3::V2(current_anchor) => {
-            if !bundle.history.v3_entries.is_empty() || bundle.original_migration_receipt.is_some()
-            {
-                return Err(invalid("full-sync V2 mode returned V3 migration material"));
-            }
-            if current_anchor != v2_state.anchor() {
-                return Err(FormalError::Rollback(
-                    "full-sync resume V2 history does not close current mode head".into(),
-                ));
-            }
-            let request_used = v2_state.requests.contains_key(&migration.body.request_id);
-            Ok(FullSyncIssuerMigrationResumeResultV3::NotCommittedV2 {
-                current_state: Box::new(v2_state),
-                current_anchor: current_anchor.clone(),
-                migration_head_conflict: request_used
-                    || *current_anchor != migration.body.expected_v2_head,
-            })
-        }
-        FullSyncIssuerWitnessModeHeadV3::V3(current_anchor) => {
-            let history = bundle.history;
-            let state = reconstruct_history(old_policy, verified_new_policy, history.clone())?;
-            if &state.anchor != current_anchor {
-                return Err(FormalError::Rollback(
-                    "full-sync resume V3 history does not close current mode head".into(),
-                ));
-            }
-            let migration_entry = state
-                .entries
-                .first()
-                .ok_or_else(|| invalid("full-sync resume V3 migration entry absent"))?;
-            if !matches!(
-                &migration_entry.record.event,
-                FullSyncIssuerEventV3::Migration(found) if found.as_ref() == migration
-            ) {
-                return Err(invalid(
-                    "full-sync resume requested migration differs from history",
-                ));
-            }
-            let receipt = bundle
-                .original_migration_receipt
-                .ok_or_else(|| invalid("full-sync committed migration receipt absent"))?;
-            if receipt != migration_entry.receipt {
-                return Err(invalid("full-sync resume migration receipt mismatch"));
-            }
-            Ok(FullSyncIssuerMigrationResumeResultV3::Committed(Box::new(
-                FullSyncIssuerCommittedMigrationResumeV3 {
-                    history,
-                    migration_entry: migration_entry.clone(),
-                    original_receipt: receipt,
-                    anchor: migration_entry.record.next_anchor.clone(),
-                },
-            )))
-        }
-    }
-}
-
-fn v2_state_at_migration_head(
-    state: &VerifiedFullSyncIssuerStateV2,
-    expected: &FullSyncIssuerAnchorV2,
-) -> Result<(VerifiedFullSyncIssuerPolicyV2, FullSyncIssuerAnchorV2), FormalError> {
-    expected.validate()?;
-    if expected.scope_digest != state.anchor().scope_digest {
-        return Err(invalid("full-sync resume migration V2 scope"));
-    }
-    let revision = usize::try_from(expected.revision)
-        .map_err(|_| invalid("full-sync resume migration revision conversion"))?;
-    let prefix = state
-        .entries
-        .get(..revision)
-        .ok_or_else(|| invalid("full-sync resume migration head outside V2 history"))?;
-    let prefix_state = VerifiedFullSyncIssuerStateV2::from_committed_records(
-        state.configured_policy.clone(),
-        prefix.to_vec(),
-    )?;
-    if prefix_state.anchor() != expected {
-        return Err(invalid(
-            "full-sync resume migration head is not a V2 prefix",
-        ));
-    }
-    let active = match prefix_state.active_policy.clone() {
-        Some(policy) => policy,
-        None if prefix_state.anchor().revision == 0 => prefix_state.configured_policy.clone(),
-        None => {
-            return Err(invalid(
-                "full-sync resume migration has no active V2 policy",
-            ));
-        }
-    };
-    Ok((active, expected.clone()))
 }
