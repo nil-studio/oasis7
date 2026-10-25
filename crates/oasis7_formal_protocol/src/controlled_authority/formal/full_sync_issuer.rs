@@ -1096,6 +1096,10 @@ fn digest<T: Serialize>(domain: &str, value: &T, max_bytes: usize) -> Result<Str
 mod witness;
 pub use witness::*;
 
+#[path = "full_sync_issuer_v3/mod.rs"]
+pub mod v3;
+pub use v3::*;
+
 #[cfg(test)]
 #[path = "full_sync_issuer_tests.rs"]
 mod tests;
