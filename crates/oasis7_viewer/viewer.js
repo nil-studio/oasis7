@@ -2918,7 +2918,6 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const readRequest = {
 			contract_version: 1,
 			observation_nonce: hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
-			formal_anchor: null,
 			world: clone$1(config.world),
 			scope_id: `agent:${canonicalAgentId}`,
 			min_commit: null,
@@ -5533,7 +5532,6 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const read = await signed(VIEW, JSON.stringify({
 			contract_version: 1,
 			observation_nonce: hex$2(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
-			formal_anchor: null,
 			world: config.world,
 			scope_id: `agent:${agentId}`,
 			min_commit: null,
