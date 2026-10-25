@@ -1,6 +1,6 @@
 import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
 import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
-import { ModelConnectionPanel } from "./model_connection_panel.jsx";
+import { BrowserModelConnectionPanel } from "./browser_model_connection_panel.jsx";
 import { AgentChatOwnerControls } from "./agent_chat_owner_controls.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -3395,7 +3395,10 @@ function InteractionPanel() {
         </div>
       </div>
       <AgentContextLite model={selectedAgentContextModel()} locale={locale()} fixtureMetadata={selectedAgentContextFixtureMetadata()} />
-      <ModelConnectionPanel locale={locale} agentId={agentId} canControl={canControlSelectedAgent} />
+      <BrowserModelConnectionPanel locale={locale} accountId={() => {
+        observeViewerStateRevision();
+        return core.state.auth.available ? core.state.auth.hostedAccountId : null;
+      }} />
       <Show
         when={interactionEnabled() && canControlSelectedAgent()}
         fallback={
