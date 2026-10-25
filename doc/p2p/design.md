@@ -163,6 +163,8 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 
 本地提案先按 action ID 规范排序并合并完全相同的重试；同 ID 的冲突输入在 BFT 入队或预存队列检查时拒绝。提案前与 PoS 复用当前 parent 的治理重授权与 controller nonce 高水位规则，移除已失效的治理项并释放字节预算，记录本地拒绝原因后继续有效输入；到达顺序、重复重试和过期治理 proof 不得终止 BFT worker。远端 proposal 的严格有序、去重和授权校验不因此放宽。
 
+批次上限只截取本次候选，不误删队列尾部；它不延长治理 proof 的 parent 绑定。前一子批提交后，尾批的旧 parent proof 可能失效，须被重授权检查拒绝并由调用方按当前父状态重新授权，不能自动改写或沿用旧签名。
+
 Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。此次实现为显式 opt-in 的 `engineering_tendermint_v1` NodeRuntime 路径，必须调用 `NodeRuntime::with_tendermint_v1` 提供固定集合配置；`NodeConfig` 没有 consensus-mode 输入字段，`NodeConsensusMode::TendermintV1` 只是运行快照的状态投影，不是选择或授权入口。默认 PoS prototype 行为不变；旧 Proposal/Attestation/Commit 与新 BFT 域类型互不升级或回退。集合权重与成员数使用通用 checked 整数算法，四名等权验证者、q=3 是集成验收基准，不是生产算法常量。每个高度内集合不变，任何缺少新格式证书的输入均不能走旧 `PosConsensusStatus::Committed`、replication 或恢复路径。
 
 选择 `with_tendermint_v1` 后，启动会校验固定 scope、validator set、local validator 与 NodeRuntime identity、耐久签名配置及 execution hook；多验证者配置必须提供显式 gossip transport，静态 peer 数量受 validator bound 限制。该模式所需依赖缺失时，在 listener 与 worker 启动前失败；未调用选择器仍是既有 PoS 默认路径，不把默认值描述为自动回退。每个固定集合和每个候选都会在广播或释放签名之前按完整最大 QC 的 JSON gossip envelope 预检 65,507-byte UDP payload 上限；预检失败就拒绝启动或候选。协议中的 16 MiB 单 proposal、2 MiB signed material 与 256 MiB 历史上限不是 UDP 可传输承诺，不能据此分片或放宽 datagram 限制。

@@ -326,21 +326,28 @@ fn fixed_set_bft_driver_previews_without_mutation_commits_and_replays_exact_qc_h
         .configure_bft_execution(&config)
         .expect("pin BFT config");
 
+    let legacy_context = NodeExecutionCommitContext {
+        world_id: scope.world_id.clone(),
+        node_id: "v0".into(),
+        proposer_id: "v0".into(),
+        height: 1,
+        slot: 0,
+        epoch: 9,
+        node_block_hash: "22".repeat(32),
+        action_root: compute_consensus_action_root(&[]).expect("empty root"),
+        committed_actions: Vec::new(),
+        committed_at_unix_ms: 1,
+    };
     let legacy_commit = driver
-        .on_commit(NodeExecutionCommitContext {
-            world_id: scope.world_id.clone(),
-            node_id: "v0".into(),
-            proposer_id: "v0".into(),
-            height: 1,
-            slot: 0,
-            epoch: 9,
-            node_block_hash: "22".repeat(32),
-            action_root: compute_consensus_action_root(&[]).expect("empty root"),
-            committed_actions: Vec::new(),
-            committed_at_unix_ms: 1,
-        })
+        .on_commit(legacy_context.clone())
         .expect_err("the Pos commit path must remain fenced");
     assert!(legacy_commit.contains("BFT mode fence"));
+    assert!(
+        driver
+            .retained_local_commit_time(&legacy_context)
+            .expect_err("legacy retained time recovery must remain fenced")
+            .contains("BFT mode fence")
+    );
 
     let action = runtime_action();
     let context = driver
