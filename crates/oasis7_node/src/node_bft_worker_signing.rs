@@ -97,6 +97,8 @@ impl Worker {
                 BftWalEventV1::Proposal { proposal, local: true, .. } if proposal.header.round == self.machine.round())) {
             return Ok(());
         }
+        let hook_handle = Arc::clone(&self.setup.hook);
+        let mut execution_hook = lock_hook(&hook_handle)?;
         let block = if let Some((id, _)) = self.machine.valid() {
             self.setup
                 .wal
@@ -112,25 +114,47 @@ impl Worker {
                 })
                 .ok_or_else(|| error("BFT valid value lacks its durable original block"))?
         } else {
-            let actions = {
+            let (actions, rejected_ids) = {
                 let pending = self
                     .setup
                     .pending
                     .lock()
                     .map_err(|_| error("BFT pending action queue lock poisoned"))?;
-                pending
-                    .iter()
-                    .take(self.setup.config.max_engine_pending_consensus_actions)
-                    .cloned()
-                    .collect::<Vec<_>>()
+                let mut pending = pending;
+                NodeRuntime::canonicalize_bft_local_actions(
+                    &mut pending,
+                    &self.setup.pending_bytes,
+                    &**execution_hook,
+                )?
             };
-            NodeRuntime::validate_bft_proposal_actions_with_hook(
+            if !rejected_ids.is_empty() {
+                let mut state = lock_state(&self.setup.state);
+                let status = state.bft_status.get_or_insert_with(Default::default);
+                status.rejected_local_actions = status
+                    .rejected_local_actions
+                    .saturating_add(rejected_ids.len() as u64);
+                status.last_local_action_rejection = Some(format!(
+                    "stale or unauthorized governance actions removed before proposal: {}",
+                    rejected_ids
+                        .iter()
+                        .map(u64::to_string)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ));
+            }
+            // Keep the canonicalized queue intact; the engine bound limits
+            // each proposal, not how many valid actions remain queued.
+            let actions: Vec<_> = actions
+                .into_iter()
+                .take(self.setup.config.max_engine_pending_consensus_actions)
+                .collect();
+            NodeRuntime::validate_bft_proposal_actions_with_execution_hook(
                 &self.setup.config,
-                &Some(Arc::clone(&self.setup.hook)),
+                &mut **execution_hook,
                 &actions,
                 self.machine.height(),
             )?;
-            let context = lock_hook(&self.setup.hook)?
+            let context = execution_hook
                 .current_bft_execution_context(
                     &self.setup.bft.scope,
                     self.setup.schedule.height(),
@@ -138,20 +162,18 @@ impl Worker {
                     self.setup.bft.authority_epoch,
                 )
                 .map_err(error)?;
-            lock_hook(&self.setup.hook)?
+            execution_hook
                 .build_bft_candidate(crate::NodeBftBuildContextV1 {
                     execution: context,
                     actions,
                 })
                 .map_err(error)?
         };
-        self.validate_candidate(&block)?;
         let intent = self
             .machine
             .proposal_intent(block, self.setup.bft.local_validator_id.as_str())
             .map_err(error)?;
-        self.setup.wal.reserve_proposal_intent(intent.clone())?;
-        self.sign_proposal(intent, gossip)
+        self.sign_proposal_with_hook(intent, gossip, &mut **execution_hook)
     }
 
     fn sign_proposal(
@@ -159,11 +181,23 @@ impl Worker {
         intent: oasis7_consensus::tendermint_v1::BftProposalIntentV1,
         gossip: Option<&GossipEndpoint>,
     ) -> Result<(), NodeError> {
+        let hook_handle = Arc::clone(&self.setup.hook);
+        let mut execution_hook = lock_hook(&hook_handle)?;
+        self.sign_proposal_with_hook(intent, gossip, &mut **execution_hook)
+    }
+
+    fn sign_proposal_with_hook(
+        &mut self,
+        intent: oasis7_consensus::tendermint_v1::BftProposalIntentV1,
+        gossip: Option<&GossipEndpoint>,
+        execution_hook: &mut dyn crate::NodeExecutionHook,
+    ) -> Result<(), NodeError> {
+        self.validate_candidate_with_hook(&intent.block, execution_hook)?;
+        self.setup.wal.reserve_proposal_intent(intent.clone())?;
         let proposal = self
             .machine
             .sign_proposal_intent(&intent, &self.setup.key)
             .map_err(error)?;
-        self.validate_candidate(&proposal.block)?;
         let now = self.now()?;
         self.setup
             .wal
@@ -184,3 +218,7 @@ impl Worker {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "node_bft_worker_signing_tests.rs"]
+mod tests;

@@ -31,6 +31,8 @@ pub struct NodeBftStatusV1 {
     pub durable_event_count: usize,
     pub rejected_inbound_messages: u64,
     pub last_inbound_rejection: Option<String>,
+    pub rejected_local_actions: u64,
+    pub last_local_action_rejection: Option<String>,
     pub last_transport_error: Option<String>,
     pub blocked_reason: Option<String>,
 }

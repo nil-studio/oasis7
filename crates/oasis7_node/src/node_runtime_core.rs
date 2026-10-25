@@ -418,6 +418,11 @@ impl NodeRuntime {
             .pending_consensus_actions
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.bft_config.is_some()
+            && bft_action_validation::reject_conflicting_queue_id(&pending, &action)?
+        {
+            return Ok(());
+        }
         if pending.len() >= self.config.max_pending_consensus_actions {
             return Err(NodeError::Consensus {
                 reason: format!(
@@ -1189,10 +1194,7 @@ mod governance_auth_tests;
 #[path = "node_runtime_governance_auth.rs"]
 mod governance_auth;
 
-/// Canonical-order nonce selection is performed only after the execution
-/// hook has rechecked the payload against the current qualified parent.
-pub(super) fn governance_payload_nonce(payload: &[u8]) -> Result<Option<(String, u64)>, NodeError> {
-    governance_auth::payload_nonce(payload)
-}
+pub(crate) use governance_auth::preflight_with_execution_hook;
+pub(crate) use governance_auth::retain_for_proposal as retain_governance_action_for_proposal;
 
 use governance_auth::validate_consensus_action_payload_auth;

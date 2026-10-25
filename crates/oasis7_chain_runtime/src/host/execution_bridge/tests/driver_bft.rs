@@ -69,6 +69,17 @@ pub(super) fn bft_genesis_world(scope: &BftScopeV1) -> RuntimeWorld {
         .expect("bind the existing empty World genesis identity")
 }
 
+fn bft_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let allocated = temp_dir(prefix);
+    let basename = allocated
+        .file_name()
+        .expect("generated BFT test directory has a basename");
+    std::env::temp_dir()
+        .canonicalize()
+        .expect("canonical temporary directory")
+        .join(basename)
+}
+
 fn runtime_action() -> NodeConsensusAction {
     let envelope =
         ConsensusActionPayloadEnvelope::from_runtime_action(RuntimeAction::RegisterAgent {
@@ -173,7 +184,7 @@ fn invalid_action_block(
 
 #[test]
 fn bft_action_admission_is_closed_and_available_before_configuration() {
-    let root = temp_dir("bft-action-admission");
+    let root = bft_temp_dir("bft-action-admission");
     let scope = scope();
     let mut driver = driver_for_world(&root, bft_genesis_world(&scope));
 
@@ -303,7 +314,7 @@ pub(super) fn driver_for_world(
 
 #[test]
 fn fixed_set_bft_driver_previews_without_mutation_commits_and_replays_exact_qc_history() {
-    let root = temp_dir("bft-driver-replay");
+    let root = bft_temp_dir("bft-driver-replay");
     let scope = scope();
     let keys = keys();
     let set = validator_set(&scope, &keys);
@@ -435,11 +446,14 @@ fn fixed_set_bft_driver_previews_without_mutation_commits_and_replays_exact_qc_h
     assert_eq!(driver.execution_world.state().time, 1);
 
     drop(driver);
-    let mut restarted = NodeRuntimeExecutionDriver::new(
+    let mut restarted = NodeRuntimeExecutionDriver::new_with_storage_profile(
         root.join("state.json"),
         root.join("world"),
         root.join("records"),
         root.join("cas"),
+        &oasis7_proto::storage_profile::StorageProfileConfig::for_profile(
+            oasis7_proto::storage_profile::StorageProfile::ReleaseDefault,
+        ),
     )
     .expect("BFT marker must select the BFT-aware inert startup path");
     let head = restarted

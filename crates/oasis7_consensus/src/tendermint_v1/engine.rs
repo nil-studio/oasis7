@@ -321,7 +321,7 @@ impl BftConsensusMachineV1 {
                         .header
                         .valid_round
                         .zip(self.locked_round)
-                        .is_some_and(|(valid_round, locked_round)| valid_round > locked_round);
+                        .is_some_and(|(valid_round, locked_round)| valid_round >= locked_round);
                 if !safe {
                     return Err("local BFT prevote violates the lock/valid-round rule".into());
                 }

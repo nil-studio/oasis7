@@ -1162,3 +1162,6 @@ fn local_proposal_requires_current_scope_height_identity_and_key() {
 
 #[path = "engine_timeout_tests.rs"]
 mod timeout_tests;
+
+#[path = "engine_lock_tests.rs"]
+mod lock_tests;

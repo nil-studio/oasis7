@@ -130,6 +130,15 @@ impl Worker {
         &self,
         block: &oasis7_proto::distributed_bft::BftBlockV1,
     ) -> Result<(), NodeError> {
+        let mut hook = lock_hook(&self.setup.hook)?;
+        self.validate_candidate_with_hook(block, &mut **hook)
+    }
+
+    pub(super) fn validate_candidate_with_hook(
+        &self,
+        block: &oasis7_proto::distributed_bft::BftBlockV1,
+        execution_hook: &mut dyn crate::NodeExecutionHook,
+    ) -> Result<(), NodeError> {
         block.validate().map_err(error)?;
         super::transport::validate_capacity(block, &self.setup.set)?;
         let actions: Vec<NodeConsensusAction> =
@@ -137,13 +146,13 @@ impl Worker {
         if serde_cbor::to_vec(&actions).map_err(|e| error(e.to_string()))? != block.actions_cbor {
             return Err(error("BFT candidate actions are not canonical"));
         }
-        NodeRuntime::validate_bft_proposal_actions_with_hook(
+        NodeRuntime::validate_bft_proposal_actions_with_execution_hook(
             &self.setup.config,
-            &Some(Arc::clone(&self.setup.hook)),
+            execution_hook,
             &actions,
             block.height,
         )?;
-        let context = lock_hook(&self.setup.hook)?
+        let context = execution_hook
             .current_bft_execution_context(
                 &self.setup.bft.scope,
                 self.setup.schedule.height(),
@@ -151,7 +160,7 @@ impl Worker {
                 self.setup.bft.authority_epoch,
             )
             .map_err(error)?;
-        lock_hook(&self.setup.hook)?
+        execution_hook
             .preview_bft_candidate(&context, block)
             .map_err(error)
     }

@@ -122,7 +122,7 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。首版采用下述完�
 | 事件 | 允许的动作与持久状态 |
 | --- | --- |
 | 新 proposal，无 validRound 证据 | 只有 valid(v) 且未锁定或锁定同一值才 prevote(v)；否则 nil。仅接受本 round 合法 proposer。 |
-| proposal 引用旧 round 的 validRound | 先取得该高度、该值、该旧 round 的 q 个有效 prevote；仅在 lockedRound≤validRound 或锁定同值时允许改投。裸 round 数字、超时或新 proposer 自述均不解锁。 |
+| proposal 引用旧 round 的 validRound | 先取得该高度、该值、该旧 round 的 q 个有效 prevote；仅在 lockedRound≤validRound 或锁定同值时允许改投。相等边界采用 Algorithm 1 第 29 行伪代码，proposal 转移与本地投票校验必须一致，不采用同篇说明段的严格不等号。裸 round 数字、超时或新 proposer 自述均不解锁。 |
 | 本 round 的 q 个同值 prevote | 按算法保存 validValue/validRound；尚处 prevote 时先保存 lockedValue/lockedRound 再 precommit(v)。q 个 nil prevote 或 prevote timeout 只能走相应 nil precommit，不能清锁。 |
 | 任一 phase 的投票权重 | 同一 phase 中任意值的不同合法 validator 总权重达到 q 时才启动该 phase timeout；同一 validator 的 equivocation 证据最多贡献一次权重。lock/valid/commit 仍要求相应的同值 q，混合 nil/block 票不能合并成决定。进入 phase 本身不启动 quorum timeout。 |
 | 超时、未来 round 与提交 | propose timeout→nil prevote；规范条件启动的 prevote/precommit timeout 分别→nil precommit/下一 round；未来 round 跳转须同一高度、同一未来 round 中超过 W/3 的不同合法成员消息。round 推进保留锁和有效值，只有本高度完整 commit 后才能初始化下一高度。 |
@@ -160,6 +160,8 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 #### 本次工程垂直切片：固定集合 NodeRuntime BFT
 
 本地动作入队、选择 BFT 前已有队列及启动前队列均由 execution hook 按同一闭合 RuntimeAction 解码规则检查；不支持的 SimulatorAction、provider/service 输入及无法解码的 runtime action 必须在接受入队或启动 worker 前拒绝，保持队列和字节预算不变。远端候选仍须独立验证，不能以本地 admission 取代执行预演。
+
+本地提案先按 action ID 规范排序并合并完全相同的重试；同 ID 的冲突输入在 BFT 入队或预存队列检查时拒绝。提案前与 PoS 复用当前 parent 的治理重授权与 controller nonce 高水位规则，移除已失效的治理项并释放字节预算，记录本地拒绝原因后继续有效输入；到达顺序、重复重试和过期治理 proof 不得终止 BFT worker。远端 proposal 的严格有序、去重和授权校验不因此放宽。
 
 Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。此次实现为显式 opt-in 的 `engineering_tendermint_v1` NodeRuntime 路径，必须调用 `NodeRuntime::with_tendermint_v1` 提供固定集合配置；`NodeConfig` 没有 consensus-mode 输入字段，`NodeConsensusMode::TendermintV1` 只是运行快照的状态投影，不是选择或授权入口。默认 PoS prototype 行为不变；旧 Proposal/Attestation/Commit 与新 BFT 域类型互不升级或回退。集合权重与成员数使用通用 checked 整数算法，四名等权验证者、q=3 是集成验收基准，不是生产算法常量。每个高度内集合不变，任何缺少新格式证书的输入均不能走旧 `PosConsensusStatus::Committed`、replication 或恢复路径。
 

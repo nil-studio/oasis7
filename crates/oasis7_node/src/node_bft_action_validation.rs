@@ -1,4 +1,29 @@
 use super::*;
+use crate::consensus_support::release_action_payload_bytes;
+use std::collections::BTreeMap;
+use std::sync::atomic::AtomicUsize;
+
+pub(super) fn reject_conflicting_queue_id(
+    pending: &[NodeConsensusAction],
+    action: &NodeConsensusAction,
+) -> Result<bool, NodeError> {
+    let mut found_exact = false;
+    for existing in pending
+        .iter()
+        .filter(|existing| existing.action_id == action.action_id)
+    {
+        if existing != action {
+            return Err(NodeError::Consensus {
+                reason: format!(
+                    "conflicting BFT queued action for action_id={}",
+                    action.action_id
+                ),
+            });
+        }
+        found_exact = true;
+    }
+    Ok(found_exact)
+}
 
 impl NodeRuntime {
     pub(crate) fn validate_bft_payload_admission(&self, payload: &[u8]) -> Result<(), NodeError> {
@@ -23,15 +48,84 @@ impl NodeRuntime {
             .map_err(|_| NodeError::Consensus {
                 reason: "BFT pending action queue lock poisoned".into(),
             })?;
+        let mut by_id = BTreeMap::<u64, &NodeConsensusAction>::new();
         for action in pending.iter() {
+            if let Some(previous) = by_id.get(&action.action_id) {
+                if *previous != action {
+                    return Err(NodeError::Consensus {
+                        reason: format!(
+                            "conflicting preexisting BFT queued actions for action_id={}",
+                            action.action_id
+                        ),
+                    });
+                }
+                continue;
+            }
+            by_id.insert(action.action_id, action);
             self.validate_bft_payload_admission(&action.payload_cbor)?;
         }
         Ok(())
     }
 
-    pub(crate) fn validate_bft_proposal_actions_with_hook(
+    pub(crate) fn canonicalize_bft_local_actions(
+        pending: &mut Vec<NodeConsensusAction>,
+        pending_bytes: &AtomicUsize,
+        hook: &dyn NodeExecutionHook,
+    ) -> Result<(Vec<NodeConsensusAction>, Vec<u64>), NodeError> {
+        let mut ordered = pending.clone();
+        ordered.sort_by_key(|action| action.action_id);
+        for pair in ordered.windows(2) {
+            if pair[0].action_id == pair[1].action_id && pair[0] != pair[1] {
+                return Err(NodeError::Consensus {
+                    reason: format!(
+                        "conflicting preexisting BFT queued actions for action_id={}",
+                        pair[0].action_id
+                    ),
+                });
+            }
+        }
+
+        let mut selected = Vec::with_capacity(ordered.len());
+        let mut rejected = Vec::new();
+        let mut released_bytes = 0usize;
+        let mut highwater = BTreeMap::<String, u64>::new();
+        for action in ordered {
+            if selected
+                .last()
+                .is_some_and(|previous: &NodeConsensusAction| {
+                    previous.action_id == action.action_id
+                })
+            {
+                released_bytes = released_bytes
+                    .checked_add(action.payload_cbor.len())
+                    .ok_or_else(|| NodeError::Consensus {
+                        reason: "BFT local action byte accounting overflow".into(),
+                    })?;
+                continue;
+            }
+            if crate::node_runtime_core::retain_governance_action_for_proposal(
+                &action,
+                Some(hook),
+                &mut highwater,
+            ) {
+                selected.push(action);
+            } else {
+                released_bytes = released_bytes
+                    .checked_add(action.payload_cbor.len())
+                    .ok_or_else(|| NodeError::Consensus {
+                        reason: "BFT local action byte accounting overflow".into(),
+                    })?;
+                rejected.push(action.action_id);
+            }
+        }
+        *pending = selected.clone();
+        release_action_payload_bytes(pending_bytes, released_bytes);
+        Ok((selected, rejected))
+    }
+
+    pub(crate) fn validate_bft_proposal_actions_with_execution_hook(
         config: &NodeConfig,
-        execution_hook: &Option<Arc<Mutex<Box<dyn NodeExecutionHook>>>>,
+        execution_hook: &mut dyn NodeExecutionHook,
         actions: &[NodeConsensusAction],
         height: u64,
     ) -> Result<(), NodeError> {
@@ -55,7 +149,10 @@ impl NodeRuntime {
                 });
             }
             validate_consensus_action_payload_auth(config, action.payload_cbor.as_slice())?;
-            governance_auth::preflight_with_hook(execution_hook, action.payload_cbor.as_slice())?;
+            execution_hook
+                .validate_bft_action_payload(action.payload_cbor.as_slice())
+                .map_err(|reason| NodeError::Consensus { reason })?;
+            super::preflight_with_execution_hook(execution_hook, action.payload_cbor.as_slice())?;
         }
         validate_replicated_execution_input_actions(actions, height)
             .map_err(|reason| NodeError::Consensus { reason })?;
