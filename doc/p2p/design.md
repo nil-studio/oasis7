@@ -159,6 +159,10 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 
 #### 本次工程垂直切片：固定集合 NodeRuntime BFT
 
+显式 BFT voter 仍须遵守既有本地角色策略：选择器和启动入口均要求 `network_policy.node_role_claim=ValidatorCore`。Sequencer 以及显式配置该 claim 的 Storage 可以参与；Observer 和仅声明 FullStorage 的节点拒绝参与签名，选择器不隐式覆盖角色或网络策略。
+
+该选择器只用于启动前配置，不实现运行中的 PoS→BFT 交接。有正在运行或尚未 join 的 worker 时拒绝选择，不能在旧 PoS worker 仍运行时仅改配置并显示 BFT running。它是按值消费 runtime 的 builder；返回错误会按既有 Drop 合同停止并回收被消费的 runtime。
+
 本地动作入队、选择 BFT 前已有队列及启动前队列均由 execution hook 按同一闭合 RuntimeAction 解码规则检查；不支持的 SimulatorAction、provider/service 输入及无法解码的 runtime action 必须在接受入队或启动 worker 前拒绝，保持队列和字节预算不变。远端候选仍须独立验证，不能以本地 admission 取代执行预演。
 
 本地提案先按 action ID 规范排序并合并完全相同的重试；同 ID 的冲突输入在 BFT 入队或预存队列检查时拒绝。提案前与 PoS 复用当前 parent 的治理重授权与 controller nonce 高水位规则，移除已失效的治理项并释放字节预算，记录本地拒绝原因后继续有效输入；到达顺序、重复重试和过期治理 proof 不得终止 BFT worker。远端 proposal 的严格有序、去重和授权校验不因此放宽。

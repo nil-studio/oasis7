@@ -41,10 +41,18 @@ impl NodeRuntime {
     /// Explicitly select the fixed-validator engineering BFT path. This does
     /// not authorize a formal controlled profile or change the default PoS
     /// prototype mode.
+    /// Configure before starting. Rejecting an active runtime consumes it,
+    /// so its existing worker is stopped by Drop rather than hot-switched.
     pub fn with_tendermint_v1(mut self, config: crate::NodeBftConfigV1) -> Result<Self, NodeError> {
+        if self.running.load(std::sync::atomic::Ordering::SeqCst) || self.worker.is_some() {
+            return Err(NodeError::AlreadyRunning {
+                node_id: self.config.node_id.clone(),
+            });
+        }
         config
             .validate(self.config.world_id.as_str())
             .map_err(|reason| NodeError::InvalidConfig { reason })?;
+        validate_voter_role(&self.config)?;
         if self.bft_config.is_some() {
             return Err(NodeError::InvalidConfig {
                 reason: "Tendermint v1 configuration was already selected".into(),
@@ -116,6 +124,20 @@ impl NodeRuntime {
         }
         Ok(page)
     }
+}
+
+fn validate_voter_role(config: &crate::NodeConfig) -> Result<(), NodeError> {
+    config
+        .network_policy
+        .validate_for_runtime_role(config.role)?;
+    if config.network_policy.node_role_claim
+        != oasis7_proto::distributed_dht::PeerNodeRole::ValidatorCore
+    {
+        return Err(NodeError::InvalidConfig {
+            reason: "BFT voting requires network node_role_claim=validator_core".into(),
+        });
+    }
+    Ok(())
 }
 
 impl NodeBftConfigV1 {
@@ -318,6 +340,79 @@ mod tests {
         let mut missing_local = config;
         missing_local.local_validator_id = "unknown".into();
         assert!(missing_local.validate("world-a").is_err());
+    }
+
+    #[test]
+    fn bft_voter_role_rejects_observer_and_storage_only_claims() {
+        for role in [crate::NodeRole::Observer, crate::NodeRole::Storage] {
+            let runtime = NodeRuntime::new(
+                crate::NodeConfig::new("validator-a", "world-a", role).expect("role config"),
+            );
+            let error = match runtime.with_tendermint_v1(config()) {
+                Ok(_) => panic!("non-validator network claim must not become a BFT voter"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("validator_core"));
+        }
+    }
+
+    #[test]
+    fn bft_voter_role_allows_storage_with_explicit_validator_claim() {
+        use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole};
+        let node_config =
+            crate::NodeConfig::new("validator-a", "world-a", crate::NodeRole::Storage)
+                .expect("storage config")
+                .with_network_policy(crate::NodeNetworkPolicy {
+                    deployment_mode: PeerDeploymentMode::Private,
+                    node_role_claim: PeerNodeRole::ValidatorCore,
+                })
+                .expect("explicit storage validator policy");
+        assert!(
+            NodeRuntime::new(node_config)
+                .with_tendermint_v1(config())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn bft_voter_role_is_rechecked_before_starting_listener_or_worker() {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("reserve address");
+        let address = socket.local_addr().expect("reserved address");
+        drop(socket);
+        let node_config =
+            crate::NodeConfig::new("validator-a", "world-a", crate::NodeRole::Sequencer)
+                .expect("voter config")
+                .with_gossip_optional(address, Vec::new());
+        let mut runtime = NodeRuntime::new(node_config)
+            .with_tendermint_v1(config())
+            .expect("select voter");
+        runtime.config.role = crate::NodeRole::Observer;
+        runtime.config.network_policy =
+            crate::NodeNetworkPolicy::for_runtime_role(crate::NodeRole::Observer);
+        let error = runtime.start().expect_err("stale role must be revalidated");
+        assert!(error.to_string().contains("validator_core"));
+        assert!(!runtime.snapshot().running);
+        assert!(runtime.worker.is_none());
+        assert!(std::net::UdpSocket::bind(address).is_ok());
+    }
+
+    #[test]
+    fn bft_selector_rejects_a_started_pos_runtime_without_reporting_bft() {
+        let mut runtime = admission_runtime();
+        runtime.start().expect("start existing PoS runtime");
+        assert!(runtime.worker.is_some());
+        assert!(runtime.bft_status().is_none());
+        let running = std::sync::Arc::clone(&runtime.running);
+        let state = std::sync::Arc::clone(&runtime.state);
+        let result = runtime.with_tendermint_v1(config());
+        assert!(matches!(result, Err(NodeError::AlreadyRunning { .. })));
+        // The consuming builder drops the rejected runtime, joining its old
+        // worker rather than returning an implicitly switched live runtime.
+        assert!(!running.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(
+            crate::runtime_util::lock_state(&state).consensus.mode,
+            crate::NodeConsensusMode::Pos
+        );
     }
 
     #[test]

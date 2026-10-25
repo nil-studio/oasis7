@@ -40,6 +40,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .bft_config
         .clone()
         .ok_or_else(|| error("missing explicit BFT config"))?;
+    super::validate_voter_role(&runtime.config)?;
     let set = bft.validate(&runtime.config.world_id).map_err(error)?;
     runtime.validate_bft_pending_admission()?;
     worker::Worker::validate_configuration(&set, bft.authority_epoch)?;
