@@ -63,7 +63,10 @@ pub(super) fn ensure_no_incomplete_bootstrap(directory: &Path) -> Result<(), Wor
     Ok(())
 }
 
-pub(super) fn ensure_file_is_current_path(file: &File, path: &Path) -> Result<(), WorldError> {
+pub(in crate::libp2p_net) fn ensure_file_is_current_path(
+    file: &File,
+    path: &Path,
+) -> Result<(), WorldError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;

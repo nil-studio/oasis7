@@ -31,3 +31,6 @@ pin-project = { version = "1", optional = true }
 futures = { version = "0.3", optional = true }
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca", optional = true, default-features = false, features = ["autonat", "cbor", "dcutr", "gossipsub", "kad", "macros", "noise", "quic", "relay", "rendezvous", "request-response", "tcp", "tokio", "yamux"] }
 tokio = { version = "1", optional = true, features = ["rt", "time"] }
+
+[dev-dependencies]
+tempfile = "3"

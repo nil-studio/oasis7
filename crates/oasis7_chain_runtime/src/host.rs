@@ -133,6 +133,8 @@ mod node_points_observation;
 mod node_points_runtime_closure;
 #[path = "host/p2p_status.rs"]
 mod p2p_status;
+#[path = "host/peer_record_cli.rs"]
+mod peer_record_cli;
 #[path = "host/preview_world_init.rs"]
 mod preview_world_init;
 #[path = "host/publication_lifecycle.rs"]
@@ -219,6 +221,7 @@ use traffic_profile::feedback_p2p_config_for_role;
 mod replication_network;
 use replication_network::{
     attach_default_replication_network, initialize_default_peer_record_publication,
+    initialize_default_peer_record_receiver,
 };
 #[cfg(test)]
 use replication_network::{
@@ -396,6 +399,11 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         let mut initialization_options = options;
         apply_network_tier_manifest_defaults(&mut initialization_options);
         return initialize_default_peer_record_publication(&initialization_options);
+    }
+    if options.initialize_peer_record_receiver {
+        let mut initialization_options = options;
+        apply_network_tier_manifest_defaults(&mut initialization_options);
+        return initialize_default_peer_record_receiver(&initialization_options);
     }
     cli::validate_local_participant_options(&options)?;
     if let Some(config_path) = options.formal_live_config.as_deref() {
@@ -1086,6 +1094,9 @@ mod observability_transport_tests;
 #[cfg(test)]
 #[path = "host/peer_record_publication_tests.rs"]
 mod peer_record_publication_tests;
+#[cfg(test)]
+#[path = "host/peer_record_receiver_tests.rs"]
+mod peer_record_receiver_tests;
 #[cfg(test)]
 #[path = "host/oasis7_chain_runtime_status_payload_chain_proof_tests.rs"]
 mod status_payload_chain_proof_tests;

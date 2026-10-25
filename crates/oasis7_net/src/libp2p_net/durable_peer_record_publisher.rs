@@ -13,14 +13,14 @@ use crate::error::WorldError;
 use super::peer_record::{sign_peer_record_v2, verify_signed_peer_record};
 
 #[path = "durable_peer_record_publisher/initialization.rs"]
-mod initialization;
+pub(super) mod initialization;
 
 const STATE_SCHEMA_VERSION: u16 = 2;
 const STATE_FILE_NAME: &str = "peer-record-publication-v2.cbor";
 const TEMP_FILE_NAME: &str = "peer-record-publication-v2.cbor.tmp";
 const LOCK_FILE_NAME: &str = "peer-record-publication-v2.lock";
 const LOCK_INITIALIZED_MARKER: &[u8] = b"oasis7-peer-publication-v2-initialized\n";
-const MAX_PERSISTED_STATE_BYTES: usize = 64 * 1024;
+pub(super) const MAX_PERSISTED_STATE_BYTES: usize = 64 * 1024;
 const MAX_RECORD_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -545,7 +545,7 @@ fn validate_state(
     }
 }
 
-fn canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, WorldError> {
+pub(super) fn canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, WorldError> {
     crate::util::to_canonical_cbor(value)
 }
 
@@ -566,7 +566,7 @@ fn ensure_record_is_unexpired(record: &PeerRecord) -> Result<(), WorldError> {
     Ok(())
 }
 
-fn ensure_private_directory(directory: &Path) -> Result<(), WorldError> {
+pub(super) fn ensure_private_directory(directory: &Path) -> Result<(), WorldError> {
     let absolute = absolute_path(directory)?;
     let mut current = PathBuf::new();
     for component in absolute.components() {
@@ -602,7 +602,7 @@ fn ensure_private_directory(directory: &Path) -> Result<(), WorldError> {
     Ok(())
 }
 
-fn ensure_existing_private_directory(directory: &Path) -> Result<(), WorldError> {
+pub(super) fn ensure_existing_private_directory(directory: &Path) -> Result<(), WorldError> {
     let absolute = absolute_path(directory)?;
     let mut current = PathBuf::new();
     for component in absolute.components() {
@@ -667,18 +667,18 @@ fn ensure_directory_component(path: &Path, metadata: &fs::Metadata) -> Result<()
 }
 
 #[cfg(unix)]
-fn require_private_persistence_platform() -> Result<(), WorldError> {
+pub(super) fn require_private_persistence_platform() -> Result<(), WorldError> {
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn require_private_persistence_platform() -> Result<(), WorldError> {
+pub(super) fn require_private_persistence_platform() -> Result<(), WorldError> {
     Err(protocol_error(
         "durable peer publication V2 is unsupported on this platform".into(),
     ))
 }
 
-fn ensure_not_symlink(path: &Path) -> Result<(), WorldError> {
+pub(super) fn ensure_not_symlink(path: &Path) -> Result<(), WorldError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => Err(protocol_error(format!(
             "publication path must not be a symlink: {}",
@@ -690,7 +690,7 @@ fn ensure_not_symlink(path: &Path) -> Result<(), WorldError> {
     }
 }
 
-fn path_exists(path: &Path) -> Result<bool, WorldError> {
+pub(super) fn path_exists(path: &Path) -> Result<bool, WorldError> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -698,7 +698,7 @@ fn path_exists(path: &Path) -> Result<bool, WorldError> {
     }
 }
 
-fn ensure_private_regular_file(path: &Path) -> Result<(), WorldError> {
+pub(super) fn ensure_private_regular_file(path: &Path) -> Result<(), WorldError> {
     ensure_not_symlink(path)?;
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| io_error("inspect publication file", path, error))?;
@@ -711,7 +711,7 @@ fn ensure_private_regular_file(path: &Path) -> Result<(), WorldError> {
     ensure_private_mode(metadata.permissions().mode(), "publication file")
 }
 
-fn ensure_private_open_file(file: &File, path: &Path) -> Result<(), WorldError> {
+pub(super) fn ensure_private_open_file(file: &File, path: &Path) -> Result<(), WorldError> {
     let metadata = file
         .metadata()
         .map_err(|error| io_error("inspect publication file", path, error))?;
@@ -723,7 +723,14 @@ fn ensure_private_open_file(file: &File, path: &Path) -> Result<(), WorldError> 
     ensure_private_mode(metadata.permissions().mode(), "publication lock")
 }
 
-fn read_bounded_private_file(path: &Path, maximum: usize) -> Result<Vec<u8>, WorldError> {
+pub(super) fn ensure_file_is_current_path(file: &File, path: &Path) -> Result<(), WorldError> {
+    initialization::ensure_file_is_current_path(file, path)
+}
+
+pub(super) fn read_bounded_private_file(
+    path: &Path,
+    maximum: usize,
+) -> Result<Vec<u8>, WorldError> {
     ensure_private_regular_file(path)?;
     let metadata =
         fs::metadata(path).map_err(|error| io_error("stat publication state", path, error))?;
@@ -750,7 +757,16 @@ fn atomic_write_private_file(
     target: &Path,
     bytes: &[u8],
 ) -> Result<(), WorldError> {
-    let temp = directory.join(TEMP_FILE_NAME);
+    atomic_write_private_file_named(directory, target, TEMP_FILE_NAME, bytes)
+}
+
+pub(super) fn atomic_write_private_file_named(
+    directory: &Path,
+    target: &Path,
+    temp_name: &str,
+    bytes: &[u8],
+) -> Result<(), WorldError> {
+    let temp = directory.join(temp_name);
     ensure_not_symlink(target)?;
     if path_exists(target)? {
         ensure_private_regular_file(target)?;
@@ -774,7 +790,7 @@ fn atomic_write_private_file(
     sync_directory(directory)
 }
 
-fn sync_directory(directory: &Path) -> Result<(), WorldError> {
+pub(super) fn sync_directory(directory: &Path) -> Result<(), WorldError> {
     let dir = File::open(directory)
         .map_err(|error| io_error("open publication directory", directory, error))?;
     dir.sync_all()
@@ -782,13 +798,13 @@ fn sync_directory(directory: &Path) -> Result<(), WorldError> {
 }
 
 #[cfg(unix)]
-fn set_private_file_mode(options: &mut OpenOptions) {
+pub(super) fn set_private_file_mode(options: &mut OpenOptions) {
     use std::os::unix::fs::OpenOptionsExt;
     options.mode(0o600);
 }
 
 #[cfg(not(unix))]
-fn set_private_file_mode(_options: &mut OpenOptions) {}
+pub(super) fn set_private_file_mode(_options: &mut OpenOptions) {}
 
 #[cfg(unix)]
 fn set_private_directory_permissions(directory: &Path) -> Result<(), WorldError> {
@@ -842,11 +858,11 @@ impl FilePermissionsMode for fs::Permissions {
     }
 }
 
-fn protocol_error(message: String) -> WorldError {
+pub(super) fn protocol_error(message: String) -> WorldError {
     WorldError::NetworkProtocolUnavailable { protocol: message }
 }
 
-fn io_error(operation: &str, path: &Path, error: std::io::Error) -> WorldError {
+pub(super) fn io_error(operation: &str, path: &Path, error: std::io::Error) -> WorldError {
     protocol_error(format!(
         "{operation} failed for {}: {error}",
         path.display()

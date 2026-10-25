@@ -379,7 +379,7 @@ fn encode_peer_record_signing_payload(record: &PeerRecord) -> Result<Vec<u8>, Wo
     Ok(payload)
 }
 
-fn encode_peer_record_signing_payload_v2(
+pub(super) fn encode_peer_record_signing_payload_v2(
     publication: &PeerRecordPublicationV2,
     record: &PeerRecord,
 ) -> Result<Vec<u8>, WorldError> {

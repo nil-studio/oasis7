@@ -16,12 +16,16 @@ use super::peer_record_admission::PeerRecordAdmissionBudget;
 use super::peer_record_admission::{
     AdmittedPeerRecord, PeerRecordAdmissionWorkUnit, SharedPeerRecordAdmissionBudget,
 };
+#[cfg(test)]
+use super::receiver_floor::PeerRecordReceiver;
+use super::receiver_floor::{ReceiverAdmission, SharedPeerRecordReceiver};
 
 fn decode_peer_record_for_target(
     payload: &[u8],
     requested_peer_id: PeerId,
     clock: &super::peer_record_time::DiscoveryClock,
     shared: &SharedPeerRecordAdmissionBudget,
+    receiver: &SharedPeerRecordReceiver,
     source: Option<PeerId>,
     work_unit: PeerRecordAdmissionWorkUnit,
 ) -> Result<AdmittedPeerRecord, WorldError> {
@@ -46,6 +50,7 @@ fn decode_peer_record_for_target(
                     ),
                 });
             }
+            receiver.preflight_record(&decoded)?;
             Ok(decoded)
         },
     )
@@ -129,20 +134,42 @@ pub(super) fn handle_dht_progress(
     is_last: bool,
     clock: &super::peer_record_time::DiscoveryClock,
 ) -> DhtProgressAction {
-    handle_dht_progress_with_admission(
+    let receiver = PeerRecordReceiver::legacy();
+    handle_dht_progress_with_receiver_and_admission(
         pending,
         result,
         is_last,
         clock,
+        &receiver,
         &PeerRecordAdmissionBudget::shared(),
     )
 }
 
+#[cfg(test)]
 pub(super) fn handle_dht_progress_with_admission(
     pending: &mut PendingDhtQuery,
     result: kad::QueryResult,
     is_last: bool,
     clock: &super::peer_record_time::DiscoveryClock,
+    admission_budget: &SharedPeerRecordAdmissionBudget,
+) -> DhtProgressAction {
+    let receiver = PeerRecordReceiver::legacy();
+    handle_dht_progress_with_receiver_and_admission(
+        pending,
+        result,
+        is_last,
+        clock,
+        &receiver,
+        admission_budget,
+    )
+}
+
+pub(super) fn handle_dht_progress_with_receiver_and_admission(
+    pending: &mut PendingDhtQuery,
+    result: kad::QueryResult,
+    is_last: bool,
+    clock: &super::peer_record_time::DiscoveryClock,
+    receiver: &SharedPeerRecordReceiver,
     admission_budget: &SharedPeerRecordAdmissionBudget,
 ) -> DhtProgressAction {
     match pending {
@@ -352,6 +379,7 @@ pub(super) fn handle_dht_progress_with_admission(
                         *peer_id,
                         clock,
                         admission_budget,
+                        receiver,
                         found.peer,
                         PeerRecordAdmissionWorkUnit::KadGetPeerRecordResult,
                     ) {
@@ -372,27 +400,41 @@ pub(super) fn handle_dht_progress_with_admission(
                 }
                 _ => {}
             }
-            if is_last && response.is_some() {
-                let outcome = if let Some(selected) = record.take() {
-                    match clock.check(&selected.record().record) {
-                        Ok(_) => {
+            if is_last && let Some(response) = response.take() {
+                match receiver.begin_ingress() {
+                    Ok(_transaction) => {
+                        let outcome = if let Some(selected) = record.take() {
                             let source = selected.source();
                             selected
                                 .consume(
                                     source,
                                     PeerRecordAdmissionWorkUnit::KadGetPeerRecordResult,
                                 )
-                                .map(Some)
-                        }
-                        Err(err) => Err(err),
+                                .and_then(|signed| {
+                                    clock.check(&signed.record)?;
+                                    receiver.preflight_record(&signed)?;
+                                    match receiver.admit_serialized(&signed)? {
+                                        ReceiverAdmission::Conflict => Err(
+                                            WorldError::NetworkProtocolUnavailable {
+                                                protocol: "peer record conflicts with the durable receiver floor".into(),
+                                            },
+                                        ),
+                                        _ => {
+                                            receiver.lease_guard(&signed)?;
+                                            Ok(Some(signed))
+                                        }
+                                    }
+                                })
+                        } else if let Some(err) = error.take() {
+                            Err(err)
+                        } else {
+                            Ok(None)
+                        };
+                        let _ = response.send(outcome);
                     }
-                } else if let Some(err) = error.take() {
-                    Err(err)
-                } else {
-                    Ok(None)
-                };
-                if let Some(response) = response.take() {
-                    let _ = response.send(outcome);
+                    Err(err) => {
+                        let _ = response.send(Err(err));
+                    }
                 }
             }
         }
@@ -441,6 +483,7 @@ pub(super) fn handle_dht_progress_with_admission(
                         *peer_id,
                         clock,
                         admission_budget,
+                        receiver,
                         found.peer,
                         PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
                     ) {
