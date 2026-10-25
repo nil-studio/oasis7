@@ -82,6 +82,16 @@ impl BftSignerStateV1 {
     }
 }
 
+/// A state whose full history and current-height journal have already been
+/// checked. The service may reuse its schedule only while the persisted state
+/// remains byte-for-byte equal to this value or while deriving a state through
+/// `validate_transition_cached`.
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedBftSignerStateV1 {
+    pub(crate) state: BftSignerStateV1,
+    pub(crate) schedule: BftHeightProposerScheduleV1,
+}
+
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
     schema_version: u32,
@@ -192,20 +202,41 @@ pub(crate) fn validate_state(
     Ok(schedule)
 }
 
-pub(crate) fn validate_transition(
+pub(crate) fn validate_transition_cached(
     binding: &BftSignerBindingV1,
-    previous: &BftSignerStateV1,
+    previous: &VerifiedBftSignerStateV1,
     candidate: &BftSignerCandidateV1,
     protected_now_ms: i64,
-) -> Result<BftSignerStateV1, BftSignerError> {
-    validate_transition_inner(binding, previous, candidate, protected_now_ms, false)
+) -> Result<VerifiedBftSignerStateV1, BftSignerError> {
+    validate_transition_inner(
+        binding,
+        &previous.state,
+        &previous.schedule,
+        candidate,
+        protected_now_ms,
+        false,
+    )
 }
 
-pub(crate) fn validate_height_timer_start(
+pub(crate) fn validate_height_timer_start_cached(
+    binding: &BftSignerBindingV1,
+    previous: &VerifiedBftSignerStateV1,
+    protected_now_ms: i64,
+) -> Result<VerifiedBftSignerStateV1, BftSignerError> {
+    validate_height_timer_start_with_schedule(
+        binding,
+        &previous.state,
+        &previous.schedule,
+        protected_now_ms,
+    )
+}
+
+fn validate_height_timer_start_with_schedule(
     binding: &BftSignerBindingV1,
     previous: &BftSignerStateV1,
+    old_schedule: &BftHeightProposerScheduleV1,
     protected_now_ms: i64,
-) -> Result<BftSignerStateV1, BftSignerError> {
+) -> Result<VerifiedBftSignerStateV1, BftSignerError> {
     if protected_now_ms < 0
         || previous.journal.height_started_at_ms.is_some()
         || !previous.journal.events().is_empty()
@@ -219,17 +250,24 @@ pub(crate) fn validate_height_timer_start(
     }
     let mut candidate = previous.candidate();
     candidate.journal.height_started_at_ms = Some(protected_now_ms);
-    validate_transition_inner(binding, previous, &candidate, protected_now_ms, true)
+    validate_transition_inner(
+        binding,
+        previous,
+        old_schedule,
+        &candidate,
+        protected_now_ms,
+        true,
+    )
 }
 
 fn validate_transition_inner(
     binding: &BftSignerBindingV1,
     previous: &BftSignerStateV1,
+    old_schedule: &BftHeightProposerScheduleV1,
     candidate: &BftSignerCandidateV1,
     protected_now_ms: i64,
     allow_timer_start: bool,
-) -> Result<BftSignerStateV1, BftSignerError> {
-    let old_schedule = validate_state(binding, previous)?;
+) -> Result<VerifiedBftSignerStateV1, BftSignerError> {
     let set = binding.validate()?;
     let revision = previous
         .revision
@@ -239,7 +277,7 @@ fn validate_transition_inner(
         &previous.journal,
         &candidate.journal,
         &set,
-        &old_schedule,
+        old_schedule,
         binding.timeouts,
     )
     .map_err(|error| invalid(format!("BFT signer journal transition: {error}")))?;
@@ -297,10 +335,24 @@ fn validate_transition_inner(
             return Err(invalid("BFT signer journal height regressed"));
         }
     }
-    let next =
-        BftSignerStateV1::from_candidate(binding, revision, history, candidate.journal.clone())?;
+    let mut next = BftSignerStateV1 {
+        schema_version: 1,
+        binding_digest: binding.digest()?,
+        revision,
+        history,
+        journal: candidate.journal.clone(),
+        state_digest: String::new(),
+    };
+    validate_material_bounds(&next.history, &next.journal)?;
+    next.state_digest = digest_hex(STATE_DOMAIN_V1, &StateDigestInput::from(&next))?;
+    validate_journal_schedule(binding, &next.journal, &set, &next_schedule)?;
+    replay_bft_signing_journal_v1(&next.journal, &set, &next_schedule, binding.timeouts)
+        .map_err(|error| invalid(format!("BFT signer next journal replay: {error}")))?;
     validate_event_time_transition(previous, &next, protected_now_ms)?;
-    Ok(next)
+    Ok(VerifiedBftSignerStateV1 {
+        state: next,
+        schedule: next_schedule,
+    })
 }
 
 fn validate_journal_schedule(
@@ -368,15 +420,22 @@ pub(crate) fn candidate_event_time(
 pub(crate) fn validate_candidate_bounds(
     candidate: &BftSignerCandidateV1,
 ) -> Result<(), BftSignerError> {
-    if candidate.history.len() > BFT_MAX_COMMIT_HISTORY_HEIGHTS_V1 {
+    validate_material_bounds(&candidate.history, &candidate.journal)
+}
+
+fn validate_material_bounds(
+    history: &[BftCommitCertificateV1],
+    journal: &BftSigningJournalV1,
+) -> Result<(), BftSignerError> {
+    if history.len() > BFT_MAX_COMMIT_HISTORY_HEIGHTS_V1 {
         return Err(invalid("BFT signer commit history height bound"));
     }
-    let history = serde_cbor::to_vec(&candidate.history)
+    let history = serde_cbor::to_vec(&history)
         .map_err(|error| invalid(format!("encode BFT signer history: {error}")))?;
     if history.len() > BFT_SIGNER_MAX_HISTORY_BYTES_V1 {
         return Err(invalid("BFT signer commit history byte bound"));
     }
-    let journal = serde_cbor::to_vec(&candidate.journal)
+    let journal = serde_cbor::to_vec(journal)
         .map_err(|error| invalid(format!("encode BFT signer journal: {error}")))?;
     if journal.len() > BFT_SIGNER_MAX_JOURNAL_BYTES_V1 {
         return Err(invalid("BFT signer journal byte bound"));

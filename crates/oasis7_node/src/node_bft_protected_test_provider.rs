@@ -24,6 +24,7 @@ pub(crate) struct MemoryLedger {
     pub(crate) lease_token_digest: String,
     pub(crate) protected_time_floor_ms: i64,
     pub(crate) now_ms: i64,
+    pub(crate) read_for_lease_calls: usize,
 }
 
 #[derive(Clone)]
@@ -38,6 +39,7 @@ impl MemoryBackend {
             lease_token_digest: String::new(),
             protected_time_floor_ms: 0,
             now_ms: 100,
+            read_for_lease_calls: 0,
         }))))
     }
 
@@ -120,8 +122,9 @@ impl BftSignerBackendV1 for MemoryBackend {
         lease_generation: u64,
         lease_token_digest: &str,
     ) -> Result<BftSignerBackendSnapshotV1, BftSignerError> {
-        let ledger = self.0.lock().map_err(|_| BftSignerError("lock".into()))?;
+        let mut ledger = self.0.lock().map_err(|_| BftSignerError("lock".into()))?;
         Self::require_lease(&ledger, lease_generation, lease_token_digest)?;
+        ledger.read_for_lease_calls += 1;
         Ok(Self::snapshot(&ledger))
     }
 

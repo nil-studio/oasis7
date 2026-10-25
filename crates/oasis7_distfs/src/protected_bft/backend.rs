@@ -49,9 +49,12 @@ pub trait BftSignerBackendV1: Send + Sync {
         lease_token_digest: &str,
     ) -> Result<BftSignerBackendSnapshotV1, BftSignerError>;
 
-    /// Returns a fresh provider-owned time sample after durably advancing its
-    /// separate monotonic time floor. This operation does not change the BFT
-    /// journal revision or digest.
+    /// Atomically verifies the exact active lease generation/token, samples a
+    /// fresh provider-owned time, and durably advances the separate monotonic
+    /// clock floor before returning it. This is the fencing authority for the
+    /// no-snapshot clock fast path: implementations must not accept a stale
+    /// owner, roll back the floor across restart, or change the BFT journal
+    /// revision/digest as a side effect.
     fn protected_time_ms(
         &mut self,
         lease_generation: u64,

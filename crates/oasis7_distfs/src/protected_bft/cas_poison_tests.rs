@@ -23,7 +23,10 @@ fn reserve_proposal(
     .expect("BFT machine");
     let intent = machine
         .proposal_intent(
-            block(&fixture.binding.scope, schedule.parent_commit_ref()),
+            super::protected_time_cache_tests::block(
+                &fixture.binding.scope,
+                schedule.parent_commit_ref(),
+            ),
             &fixture.binding.local_validator_id,
         )
         .expect("proposal intent");
@@ -150,7 +153,10 @@ fn journal_cas_rejects_clock_floor_regression_below_previous_floor() {
     };
     let intent = machine
         .proposal_intent(
-            block(&fixture.binding.scope, schedule.parent_commit_ref()),
+            super::protected_time_cache_tests::block(
+                &fixture.binding.scope,
+                schedule.parent_commit_ref(),
+            ),
             &fixture.binding.local_validator_id,
         )
         .expect("proposal intent");

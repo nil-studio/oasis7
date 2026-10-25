@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -28,6 +28,8 @@ use super::wire::{
 mod acquire_race_tests;
 #[path = "cas_poison_tests.rs"]
 mod cas_poison_tests;
+#[path = "protected_time_cache_tests.rs"]
+mod protected_time_cache_tests;
 
 struct MemoryLedger {
     state: BftSignerStateV1,
@@ -36,9 +38,11 @@ struct MemoryLedger {
     lease_token_digest: String,
     protected_time_floor_ms: i64,
     now_ms: i64,
+    read_for_lease_calls: usize,
     fail_next_release: bool,
     corrupt_next_acquire_snapshot: bool,
     corrupt_next_cas_snapshot: bool,
+    mutate_next_read_snapshot_without_digest: bool,
     next_cas_snapshot_floor_override_ms: Option<i64>,
 }
 
@@ -60,9 +64,11 @@ impl MemoryBackend {
                 lease_token_digest: String::new(),
                 protected_time_floor_ms: 0,
                 now_ms: 100,
+                read_for_lease_calls: 0,
                 fail_next_release: false,
                 corrupt_next_acquire_snapshot: false,
                 corrupt_next_cas_snapshot: false,
+                mutate_next_read_snapshot_without_digest: false,
                 next_cas_snapshot_floor_override_ms: None,
             })),
             Arc::new(Mutex::new(None)),
@@ -181,9 +187,25 @@ impl BftSignerBackendV1 for MemoryBackend {
         lease_generation: u64,
         lease_token_digest: &str,
     ) -> Result<BftSignerBackendSnapshotV1, BftSignerError> {
-        let ledger = self.0.lock().map_err(|_| BftSignerError("lock".into()))?;
+        let mut ledger = self.0.lock().map_err(|_| BftSignerError("lock".into()))?;
         Self::require_lease(&ledger, lease_generation, lease_token_digest)?;
-        Ok(Self::snapshot(&ledger))
+        ledger.read_for_lease_calls = ledger
+            .read_for_lease_calls
+            .checked_add(1)
+            .ok_or_else(|| BftSignerError("test read counter overflow".into()))?;
+        let mut snapshot = Self::snapshot(&ledger);
+        if ledger.mutate_next_read_snapshot_without_digest {
+            ledger.mutate_next_read_snapshot_without_digest = false;
+            snapshot.state.journal.height_started_at_ms = Some(
+                snapshot
+                    .state
+                    .journal
+                    .height_started_at_ms
+                    .unwrap_or(0)
+                    .saturating_add(1),
+            );
+        }
+        Ok(snapshot)
     }
 
     fn protected_time_ms(
@@ -249,6 +271,7 @@ struct TcpServiceServer {
     drop_next_reply: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    history_certificate_replays: Arc<AtomicUsize>,
 }
 
 impl TcpServiceServer {
@@ -260,6 +283,7 @@ impl TcpServiceServer {
         let address = listener.local_addr().expect("test provider address");
         let drop_next_reply = Arc::new(AtomicBool::new(false));
         let shutdown = Arc::new(AtomicBool::new(false));
+        let history_certificate_replays = service.history_certificate_replay_counter();
         let thread_drop_reply = drop_next_reply.clone();
         let thread_shutdown = shutdown.clone();
         let thread = thread::spawn(move || {
@@ -293,6 +317,7 @@ impl TcpServiceServer {
             drop_next_reply,
             shutdown,
             thread: Some(thread),
+            history_certificate_replays,
         }
     }
 
@@ -734,7 +759,8 @@ fn lost_proposal_reply_reopens_exact_committed_signature_and_rejects_conflict() 
         fixture.binding.timeouts,
     )
     .expect("BFT machine");
-    let block = block(&fixture.binding.scope, schedule.parent_commit_ref());
+    let block =
+        protected_time_cache_tests::block(&fixture.binding.scope, schedule.parent_commit_ref());
     let intent = machine
         .proposal_intent(block.clone(), &fixture.binding.local_validator_id)
         .expect("deterministic proposal intent");
@@ -861,7 +887,7 @@ fn provider_clock_rollback_blocks_reserved_signing() {
     .expect("BFT machine");
     let intent = machine
         .proposal_intent(
-            block(&fixture.binding.scope, schedule.parent_commit_ref()),
+            protected_time_cache_tests::block(&fixture.binding.scope, schedule.parent_commit_ref()),
             &fixture.binding.local_validator_id,
         )
         .expect("proposal intent");
@@ -1043,7 +1069,7 @@ fn provider_refuses_new_signature_for_a_committed_old_height() {
 
     let old_height_intent = machine
         .proposal_intent(
-            block(&fixture.binding.scope, schedule.parent_commit_ref()),
+            protected_time_cache_tests::block(&fixture.binding.scope, schedule.parent_commit_ref()),
             &fixture.binding.local_validator_id,
         )
         .expect("height-one proposal intent");
@@ -1160,33 +1186,4 @@ fn provider_refuses_new_signature_for_a_committed_old_height() {
         checkpoint.state,
         "rejected stale signing must leave protected state unchanged"
     );
-}
-
-#[test]
-fn wire_decoder_rejects_noncanonical_and_oversized_container_declarations() {
-    assert!(super::wire::decode_bounded::<u8>(&[0x18, 0x01]).is_err());
-    assert!(super::wire::decode_bounded::<Vec<()>>(&[0x99, 0x10, 0x01]).is_err());
-
-    let legitimate_large_array = vec![(); 5_000];
-    let encoded = super::wire::encode_bounded(&legitimate_large_array)
-        .expect("large but bounded container encodes");
-    let decoded: Vec<()> = super::wire::decode_bounded(&encoded)
-        .expect("valid protocol-sized arrays are not rejected by an arbitrary item cap");
-    assert_eq!(decoded, legitimate_large_array);
-}
-
-fn block(scope: &BftScopeV1, parent_commit_ref: &str) -> BftBlockV1 {
-    BftBlockV1 {
-        scope: scope.clone(),
-        height: 1,
-        parent_commit_ref: parent_commit_ref.into(),
-        authority_epoch: 1,
-        manifest_hash: "22".repeat(32),
-        actions_cbor: vec![0x80],
-        action_root: "33".repeat(32),
-        event_root: "44".repeat(32),
-        execution_block_hash: "55".repeat(32),
-        execution_state_root: "66".repeat(32),
-        state_root: "77".repeat(32),
-    }
 }

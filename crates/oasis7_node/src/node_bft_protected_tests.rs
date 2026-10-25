@@ -361,6 +361,32 @@ fn duplicate_wal_open_does_not_acquire_or_fence_the_live_worker() {
 }
 
 #[test]
+fn idle_worker_clock_polling_does_not_reload_the_signer_snapshot() {
+    let root = TempRoot::new();
+    let fixture = ProviderFixture::new();
+    let mut worker = fixture.worker(&root);
+    let (reads, revision) = {
+        let ledger = fixture.backend.0.lock().unwrap();
+        (ledger.read_for_lease_calls, ledger.state.revision)
+    };
+    let mut previous = worker.now().unwrap();
+    for _ in 0..8 {
+        let now = worker.now().unwrap();
+        assert!(now > previous, "the provider must still supply fresh time");
+        previous = now;
+    }
+    let ledger = fixture.backend.0.lock().unwrap();
+    assert_eq!(
+        ledger.read_for_lease_calls, reads,
+        "idle Node clock polls must not load the complete provider history"
+    );
+    assert_eq!(ledger.state.revision, revision);
+    assert!(ledger.protected_time_floor_ms >= previous);
+    drop(ledger);
+    drop(worker);
+}
+
+#[test]
 fn provider_journal_rollback_cannot_be_repaired_from_a_newer_local_mirror() {
     let root = TempRoot::new();
     let fixture = ProviderFixture::new();

@@ -164,6 +164,10 @@ lease 具有 provider 持久化的单调 generation；journal CAS、签名决定
 
 protected 模式使用 provider 的受保护单调时间轴，Node 不以自身 wall clock 快进 timeout。provider 用已持久化的原基点、timeout policy 和可信当前样本核对事件时间及实际到期条件，在事务中维持不回退的时间 floor；签名完成事件由 provider 记时。新 challenge 的时间读取不修改 journal revision，也不重新开始高度计时。provider 重启后若无法证明 elapsed 连续性或当前时间不早于持久 floor，则停签，不能以重置 clock 恢复服务。受控测试时钟只能证明此接口与拒绝行为，不能代替真实可信时间验收。
 
+已完整验证的历史前缀和 schedule 可作为进程内缓存，逐次验证新的合法扩展；缓存建立与恢复仍从固定 genesis 完整验真，不能把后端自报 digest 当作已验证凭据。同一身份但内容改变、历史倒退或分叉必须拒绝。普通时钟轮询只在 backend 对当前连接 lease 和持久时间 floor 完成精确检查后，使用本会话已验证的 revision/digest 返回轻量证明，不加载或重验整条 QC 历史；新 journal 转换、签名与重开仍保留相应完整验证。历史长度不能令每 5–100 ms 的空闲时钟读取退化为全链签名验证并触发健康节点停签。
+
+活进程重新获取租约时，也须保持此前已验证状态的连续性：同 revision 必须内容完全相等；较新状态只能沿原预约与正式 journal 转换前进，跨高度必须消费原 pending QC。无法证明中间转换的 revision 跳跃或多高度变化停签，不能以一次独立的全历史验真覆盖已观察到的预约、签名或锁。
+
 当前高度 journal 与保留 QC 历史分别沿用 256 MiB 编码上限；保留高度仍至多 4096，round 仍至多 4096。RPC 总 frame 上限必须容纳两者及有界决定/身份 envelope，同时在读取长度后、分配 body 前拒绝超限；不能只增大总体 frame 而不验证子材料界限。旧已提交高度不再接受新的签名请求；其原 QC 按历史合同保留。容量耗尽停签，不删除锁/处罚证据以腾空间，也不宣称实现了可信 checkpoint GC。
 
 签名命令只能引用当前 journal 已预约的完整 proposal/vote intent。provider 重新检查 scope/set/key、height/round/phase、nil 或 block 值、原 canonical bytes 与重放后的协议决定，在同一受保护事务中保存精确决定及签名，再响应 Node。同槽同字节返回原签名；异字节、旧 lease、错误 revision、非法 round/lock 转换拒绝。Node 入口只接受固定 provider pin 与请求新鲜性验证的 Remote adapter，拒绝任意外部 provider/lease trait 注入；该 adapter 校验 provider 证明，Node 再独立校验返回签名与完整 journal，再持久保存本机镜像后才广播。proposal 和 vote 均须经过此路径，不留可用的本机私钥备用入口。
