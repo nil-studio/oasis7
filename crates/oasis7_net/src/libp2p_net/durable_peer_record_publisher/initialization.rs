@@ -389,6 +389,7 @@ fn finish_initialization(
             binding: expected_binding.clone(),
             last_sequence: 0,
             pending: None,
+            state: super::default_publication_state(),
         };
         atomic_write_private_file(directory, &state_path, &canonical_cbor(&initial_state)?)?;
     }
@@ -437,6 +438,7 @@ fn recover_state_temp(
         binding: expected_binding.clone(),
         last_sequence: 0,
         pending: None,
+        state: super::default_publication_state(),
     };
     let expected_bytes = canonical_cbor(&expected_state)?;
     if bytes != expected_bytes

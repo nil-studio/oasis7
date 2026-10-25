@@ -1849,6 +1849,15 @@ Validate the initial hard limit with a fully signed 1,024-record history contain
 
 These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
 
+<a id="discovery-tombstone-v2"></a>
+### V2 发现撤销与恢复验证
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[持久撤销与显式恢复](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)。同一候选、正常原件和实际 host→node→net 路径执行：显式 durable 发布 live 1，使用 `--withdraw-peer-record-publication` 撤销为无路径 tombstone 2；分别在持久预留和签名后重启，原序号不得被签成 live。普通启动、周期和地址刷新不得恢复；只有 `--resume-peer-record-publication` 发布更高 live 3。两个 flag 互斥且不落入持久配置，initializer 与 formal/guarded 组合明确拒绝。撤销／恢复要求 durable publisher 与已初始化的持久 receiver；legacy 接收策略对 tombstone 必须明确拒绝，不能接纳后继续从旧 live 缓存返回候选。
+
+接收端接纳 tombstone 后重开同一原件，拒绝旧 live 与 V1，撤掉候选、发现来源和排队拨号；当前有效撤销原件可以经实际 DHT／RR 返回原签名，不进入健康／ID／拨号集合。验证更高 live 恢复、同序冲突隔离不自动解除、无路径约束、过期拒绝转发、V1 固定向量和未知状态拒绝。保留已认证会话的限制性元数据，独立静态地址不随发现撤销删除。
+
+采用 proto／net／host／node 受影响回归并扩大到必要全量；记录实际命令、source／tested tree、配置、原签名序号和状态、退出码以及故障点。至少一条真实 TCP／DHT 撤销传播及显式恢复正例贯穿消费者。Quorum::One 不作为全网撤销确认；未支持新 state 的旧节点不获得新保证，可信时间、跨故障域与恶意磁盘回滚仍需独立证据。
+
 <a id="discovery-receiver-floor-v2"></a>
 ### V2 接收端持久水位验证
 
@@ -1867,7 +1876,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib peer_record_reception
 
 验证 V1 兼容 peer 首次接受 V2 后跨重启拒绝 V1／低序号；严格 V2 拒绝所有 V1；相同序号摘要幂等且不延寿；同序号不同的有效签名持久隔离，旧缓存响应、DHT 转发、健康来源和排队发现拨号不再使用该候选，既有会话与独立静态配置按原合同保留。分别验证尚未释放的 queued dial 在新 gate 下拒绝，以及已在旧有效 gate 下启动的 transport 操作若随后完成，不恢复旧记录、来源或永久候选资格；后者仍受原 transport 超时和独立角色／资源策略约束。至少一条真实 TCP 或 DHT 正向升序安装和一条重启重放负例必须贯穿实际消费者。
 
-故障覆盖显式初始化中断、正常打开原件、缺失／损坏／未来 schema／不明临时文件、绑定不符、重复实例、禁用或换策略降级、文件或父目录同步失败；失败不发布新的内存水位或候选；原子替换后的目录同步失败按提交不确定处理，不回写旧状态，重开验证实际原件并保持防回退。容量上限拒绝新身份但允许原未隔离 peer 正向更新，不用无可信时间的 GC 腾空间。分别记录普通文件持久性与未覆盖的恶意整机回滚、可信时间、tombstone 和物理故障域边界。
+故障覆盖显式初始化中断、正常打开原件、缺失／损坏／未来 schema／不明临时文件、绑定不符、重复实例、禁用或换策略降级、文件或父目录同步失败；失败不发布新的内存水位或候选；原子替换后的目录同步失败按提交不确定处理，不回写旧状态，重开验证实际原件并保持防回退。容量上限拒绝新身份但允许原未隔离 peer 正向更新，不用无可信时间的 GC 腾空间。分别记录普通文件持久性与未覆盖的恶意整机回滚、可信时间和物理故障域边界；tombstone 另按[撤销扩展](#discovery-tombstone-v2)验证。
 
 <a id="discovery-record-admission-budget"></a>
 ### Discovery peer-record admission budget
@@ -1902,4 +1911,4 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime old_typed_node_config --
 
 Verify that reserve-before-sign and signed-before-send persistence survives interruption without signing different payloads at one sequence. First initialize V2 explicitly with `--initialize-peer-record-publication` and the same `v2_durable` mode/identity/runtime root used for the later ordinary start. Verify missing state never triggers initialization during ordinary startup. Cover missing entire directory, missing state and marker together, repeated explicit initialization, reopen with the same identity/runtime root, interrupted reserve and signed-result persistence, concurrent owner refusal, corrupt/private/symlink/binding failures, overflow, expired pending payloads and a later valid publication. Unsupported private-storage platforms must reject V2 explicitly while preserving legacy V1. Cover interruption after intent, lock, state and Ready persistence: ordinary open refuses unfinished initialization, explicit same-binding initialization resumes only unissued state0, and wrong binding, corrupt intent, old Ready with missing state or issued state never reset. Manifest defaults must produce the same initialization and ordinary-start binding. Check every local refresh/address-change path and confirm remote cache forwarding preserves original signed bytes. Exercise repeated real handler/TCP local-record queries: V2 sequence and durable state bytes remain unchanged, missing/expired/current-address-mismatched records return unavailable, and a subsequent local refresh still advances the sequence. Unknown versions/states, zero sequence and sequence/state/payload tampering must reject without V1 fallback; a legacy V1 verifier must reject V2 signatures. Record actual commands, source, exit codes and the boundaries of any simulated crash or loopback network test in the PR.
 
-Ordinary local files do not prove resistance to restoring both key and publisher state from an old machine snapshot. Receiver sequence floors, conflict quarantine, tombstone retention, V2-only acceptance, trusted time and independent fault-domain evidence remain separate obligations under #4975.
+Ordinary local files do not prove resistance to restoring both key and publisher state from an old machine snapshot. Receiver floors and conflict quarantine use the [receiver contract](#discovery-receiver-floor-v2); tombstone retention and explicit recovery use the [withdrawal contract](#discovery-tombstone-v2). Trusted time and independent fault-domain evidence remain outstanding under #4975.

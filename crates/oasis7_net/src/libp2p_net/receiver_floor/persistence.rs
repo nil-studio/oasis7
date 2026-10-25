@@ -175,7 +175,7 @@ pub(super) fn open(
     expected_mode: PeerRecordReceiverMode,
 ) -> Result<DurableReceiver, WorldError> {
     durable_files::require_private_persistence_platform()?;
-    durable_files::ensure_existing_private_directory(directory)?;
+    durable_files::ensure_existing_private_directory(directory, "receiver")?;
     let lock = open_lock(directory, false)?;
     lock.try_lock().map_err(|error| {
         protocol_error(format!("receiver directory is already in use: {error:?}"))

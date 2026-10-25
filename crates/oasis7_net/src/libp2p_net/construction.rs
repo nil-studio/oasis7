@@ -11,6 +11,14 @@ impl Libp2pNetwork {
     }
 
     pub fn try_new(config: Libp2pNetworkConfig) -> Result<Self, WorldError> {
+        if config.peer_record_publication_transition.is_some()
+            && (config.peer_record_publication_directory.is_none()
+                || config.peer_record_receiver.mode == PeerRecordReceiverMode::Legacy)
+        {
+            return Err(WorldError::NetworkProtocolUnavailable {
+                protocol: "peer-record publication transitions require durable V2 publisher and receiver state".into(),
+            });
+        }
         if config.peer_record_receiver.mode == PeerRecordReceiverMode::V2Only
             && config.peer_record.is_some()
             && config.peer_record_publication_directory.is_none()
@@ -43,11 +51,30 @@ impl Libp2pNetwork {
             &keypair,
             config.peer_record.as_ref(),
         )?;
-        let local_peer_record_publisher = Arc::new(Mutex::new(LocalPeerRecordPublisher::open(
+        let mut opened_local_peer_record_publisher = LocalPeerRecordPublisher::open(
             config.peer_record_publication_directory.as_deref(),
             &keypair,
             config.peer_record.as_ref(),
-        )?));
+        )?;
+        if opened_local_peer_record_publisher.is_withdrawn()
+            && config.peer_record_receiver.mode == PeerRecordReceiverMode::Legacy
+        {
+            return Err(WorldError::NetworkProtocolUnavailable {
+                protocol:
+                    "withdrawn peer publication requires a durable V2 receiver; refusing legacy startup"
+                        .into(),
+            });
+        }
+        if let Some(transition) = config.peer_record_publication_transition {
+            let template = config.peer_record.as_ref().ok_or_else(|| {
+                WorldError::NetworkProtocolUnavailable {
+                    protocol: "peer-record publication transition requires a configured template"
+                        .into(),
+                }
+            })?;
+            opened_local_peer_record_publisher.apply_transition(transition, template, &keypair)?;
+        }
+        let local_peer_record_publisher = Arc::new(Mutex::new(opened_local_peer_record_publisher));
         let inbox = Arc::new(Mutex::new(HashMap::<String, Vec<Vec<u8>>>::new()));
         let published = Arc::new(Mutex::new(Vec::new()));
         let listening_addrs = Arc::new(Mutex::new(Vec::new()));

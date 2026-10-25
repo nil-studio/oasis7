@@ -10,7 +10,9 @@ use oasis7_net::{
     Libp2pNetwork, Libp2pNetworkConfig, Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot,
     PeerManagerPolicy, world_error_is_missing_handler, world_error_is_retryable_connection_gap,
 };
-pub use oasis7_net::{PeerRecordReceiverConfig, PeerRecordReceiverMode};
+pub use oasis7_net::{
+    PeerRecordPublicationTransition, PeerRecordReceiverConfig, PeerRecordReceiverMode,
+};
 use oasis7_proto::distributed::WorldHeadAnnounce;
 use oasis7_proto::distributed::{DistributedErrorCode, ErrorResponse};
 use oasis7_proto::distributed_dht::{
@@ -100,6 +102,8 @@ pub struct Libp2pReplicationNetworkConfig {
     pub peer_record_publication_directory: Option<PathBuf>,
     /// Independent inbound peer-record policy and its fixed durable receiver directory.
     pub peer_record_receiver: PeerRecordReceiverConfig,
+    /// One-startup durable publisher transition; `None` preserves ordinary restart behavior.
+    pub peer_record_publication_transition: Option<PeerRecordPublicationTransition>,
     pub listen_addrs: Vec<Multiaddr>,
     pub bootstrap_peers: Vec<Multiaddr>,
     pub bootstrap_redial_interval_ms: i64,
@@ -124,6 +128,7 @@ impl Default for Libp2pReplicationNetworkConfig {
             peer_record: None,
             peer_record_publication_directory: None,
             peer_record_receiver: PeerRecordReceiverConfig::default(),
+            peer_record_publication_transition: None,
             listen_addrs: Vec::new(),
             bootstrap_peers: Vec::new(),
             bootstrap_redial_interval_ms: inner_defaults.bootstrap_redial_interval_ms,
@@ -179,6 +184,7 @@ impl Libp2pReplicationNetwork {
             peer_record: config.peer_record,
             peer_record_publication_directory: config.peer_record_publication_directory,
             peer_record_receiver: config.peer_record_receiver,
+            peer_record_publication_transition: config.peer_record_publication_transition,
             listen_addrs: config.listen_addrs,
             bootstrap_peers: config.bootstrap_peers,
             bootstrap_redial_interval_ms: config.bootstrap_redial_interval_ms,

@@ -5,6 +5,8 @@ use libp2p::identity::Keypair;
 #[cfg(unix)]
 use libp2p::{Multiaddr, PeerId};
 #[cfg(unix)]
+use oasis7_proto::distributed::{DistributedErrorCode, ErrorResponse};
+#[cfg(unix)]
 use oasis7_proto::distributed_dht::{
     DistributedDht as _, PeerRecord, PeerRecordPublicationStateV2, PeerRecordPublicationV2,
     SignedPeerRecord,
@@ -126,6 +128,25 @@ fn signed_v1(keypair: &Keypair) -> SignedPeerRecord {
 }
 
 #[cfg(unix)]
+fn signed_tombstone(keypair: &Keypair, sequence: u64) -> SignedPeerRecord {
+    let mut record = signed_v2(keypair, sequence).record;
+    record.node_id = format!("withdrawn-{}", record.peer_id);
+    record.direct_addrs.clear();
+    record.hole_punch_addrs.clear();
+    record.relay_addrs.clear();
+    super::super::peer_record::sign_peer_record_v2(
+        &record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        keypair,
+    )
+    .expect("sign V2 tombstone")
+}
+
+#[cfg(unix)]
 fn store_and_verify_source_record(source: &Libp2pNetwork, record: &SignedPeerRecord) {
     if let Err(error) = source.put_peer_record("world-a", record) {
         assert!(
@@ -244,4 +265,148 @@ fn tcp_dht_receiver_persists_v2_floor_across_restart_and_allows_higher_sequence(
     drop(source);
     std::thread::sleep(Duration::from_millis(100));
     std::fs::remove_dir_all(&scratch).expect("remove isolated TCP receiver fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn tcp_dht_tombstone_is_forwarded_verbatim_until_higher_live_replaces_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let physical_temp_dir =
+        std::fs::canonicalize(std::env::temp_dir()).expect("resolve temporary directory");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock")
+        .as_nanos();
+    let scratch = physical_temp_dir.join(format!(
+        "oasis7-peer-record-tombstone-transport-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&scratch).expect("create isolated TCP fixture directory");
+    std::fs::set_permissions(&scratch, std::fs::Permissions::from_mode(0o700))
+        .expect("restrict TCP fixture directory permissions");
+
+    let private_directory = |name: &str| {
+        let directory = scratch.join(name);
+        std::fs::create_dir(&directory).expect("create durable state directory");
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+            .expect("restrict durable state directory permissions");
+        directory
+    };
+
+    let source_keypair = Keypair::generate_ed25519();
+    let source_peer = PeerId::from(source_keypair.public());
+    let source_template =
+        super::signed_discovery_peer_record(&source_keypair, Vec::new(), super::now_ms()).record;
+    let mut source_config = config(
+        &source_keypair,
+        Some(source_template),
+        Vec::new(),
+        Some(private_directory("source-receiver")),
+    );
+    source_config.peer_record_publication_directory = Some(private_directory("source-publisher"));
+    Libp2pNetwork::initialize_peer_record_receiver(&source_config)
+        .expect("initialize source durable receiver");
+    Libp2pNetwork::initialize_peer_record_publication(&source_config)
+        .expect("initialize source durable publisher");
+    let source = Libp2pNetwork::try_new(source_config).expect("start durable TCP DHT source");
+    let source_address = tcp_peer_address(&source);
+
+    let receiver_keypair = Keypair::generate_ed25519();
+    let receiver_template =
+        super::signed_discovery_peer_record(&receiver_keypair, Vec::new(), super::now_ms()).record;
+    let mut receiver_config = config(
+        &receiver_keypair,
+        Some(receiver_template),
+        vec![source_address],
+        Some(private_directory("receiver-floor")),
+    );
+    receiver_config.peer_record_publication_directory =
+        Some(private_directory("receiver-publisher"));
+    Libp2pNetwork::initialize_peer_record_receiver(&receiver_config)
+        .expect("initialize receiver durable floor");
+    Libp2pNetwork::initialize_peer_record_publication(&receiver_config)
+        .expect("initialize receiver durable publisher");
+    let receiver = Libp2pNetwork::try_new(receiver_config).expect("start durable TCP DHT receiver");
+    connect(&receiver, source_peer);
+    let receiver_address = tcp_peer_address(&receiver);
+
+    let observer_keypair = Keypair::generate_ed25519();
+    let observer = Libp2pNetwork::try_new(config(
+        &observer_keypair,
+        None,
+        vec![receiver_address],
+        None,
+    ))
+    .expect("start TCP observer");
+    connect(&observer, receiver.peer_id());
+
+    let high = signed_v2(&source_keypair, 2);
+    store_and_verify_source_record(&source, &high);
+    let initial = receiver
+        .get_peer_record("world-a", &source_peer.to_string())
+        .expect("fetch first signed V2 record over TCP")
+        .expect("sequence 2 live record is accepted");
+    assert_eq!(initial, high);
+
+    let tombstone = signed_tombstone(&source_keypair, 3);
+    store_and_verify_source_record(&source, &tombstone);
+    let received_tombstone = receiver
+        .get_peer_record("world-a", &source_peer.to_string())
+        .expect("fetch tombstone over TCP")
+        .expect("signed tombstone advances the receiver floor");
+    assert_eq!(received_tombstone, tombstone);
+    let forwarded_bytes = observer
+        .request_to_peer(
+            super::super::discovery::RR_GET_CACHED_PEER_RECORD,
+            source_peer.to_string().as_bytes(),
+            receiver.peer_id(),
+        )
+        .expect("receiver forwards its current durable tombstone over TCP");
+    let forwarded: Option<SignedPeerRecord> =
+        serde_cbor::from_slice(&forwarded_bytes).expect("decode forwarded tombstone");
+    assert_eq!(
+        forwarded,
+        Some(tombstone.clone()),
+        "forwarding preserves the received signature and exact sequence"
+    );
+
+    let higher_live = signed_v2(&source_keypair, 4);
+    store_and_verify_source_record(&source, &higher_live);
+    let recovered = receiver
+        .get_peer_record("world-a", &source_peer.to_string())
+        .expect("fetch higher live record over TCP")
+        .expect("sequence 4 restores the live record");
+    assert_eq!(recovered, higher_live);
+    let no_stale_tombstone = observer.request_to_peer(
+        super::super::discovery::RR_GET_CACHED_PEER_RECORD,
+        source_peer.to_string().as_bytes(),
+        receiver.peer_id(),
+    );
+    match no_stale_tombstone {
+        Ok(bytes) => match super::super::discovery::decode_optional_peer_record_response(&bytes) {
+            Ok(Some(forwarded)) => assert_eq!(
+                forwarded, higher_live,
+                "the only forwarded record after recovery must be the exact higher Live"
+            ),
+            Ok(None) => {
+                let error: ErrorResponse =
+                    serde_cbor::from_slice(&bytes).expect("decode NotFound response");
+                assert_eq!(error.code, DistributedErrorCode::ErrNotFound);
+                assert_eq!(
+                    error.message,
+                    format!("cached peer record not found for peer={source_peer}")
+                );
+                assert!(error.retryable);
+            }
+            Err(error) => panic!("unexpected post-recovery RR response: {error:?}"),
+        },
+        Err(error) => panic!("unexpected post-recovery transport failure: {error:?}"),
+    }
+
+    drop(observer);
+    drop(receiver);
+    drop(source);
+    std::thread::sleep(Duration::from_millis(100));
+    std::fs::remove_dir_all(&scratch).expect("remove isolated TCP tombstone fixture");
 }

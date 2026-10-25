@@ -11,6 +11,43 @@ use oasis7_proto::distributed_dht::{
     DistributedDht as _, PeerRecordPublicationStateV2, PeerRecordPublicationV2,
 };
 
+fn sign_tombstone(
+    keypair: &Keypair,
+    sequence: u64,
+    node_id: &str,
+) -> oasis7_proto::distributed_dht::SignedPeerRecord {
+    let mut record = super::signed_discovery_peer_record(keypair, Vec::new(), now_ms()).record;
+    record.node_id = node_id.into();
+    record.direct_addrs.clear();
+    record.hole_punch_addrs.clear();
+    record.relay_addrs.clear();
+    super::super::peer_record::sign_peer_record_v2(
+        &record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        keypair,
+    )
+    .expect("sign V2 tombstone")
+}
+
+#[test]
+fn legacy_receiver_rejects_tombstones_before_acceptance() {
+    let keypair = Keypair::generate_ed25519();
+    let tombstone = sign_tombstone(&keypair, 1, "legacy-must-not-accept-tombstone");
+    let receiver = PeerRecordReceiver::legacy();
+
+    let error = receiver
+        .preflight_record(&tombstone)
+        .expect_err("legacy mode cannot safely revoke a previously cached V2 live record");
+    assert!(
+        format!("{error:?}").contains("tombstone requires a durable receiver mode"),
+        "unexpected rejection: {error:?}"
+    );
+}
+
 #[cfg(unix)]
 fn durable_relay_receiver_fixture() -> (
     tempfile::TempDir,
@@ -357,6 +394,304 @@ fn lower_v2_sequence_cannot_replace_a_higher_sequence_candidate() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn accepted_tombstone_revokes_candidate_but_rr_forwards_floor_until_higher_live() {
+    let (_root, local_keypair, local_template, receiver) = durable_relay_receiver_fixture();
+    let remote_keypair = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(remote_keypair.public());
+    let live = super::signed_discovery_peer_record(&remote_keypair, Vec::new(), now_ms());
+    let mut live_record = live.record.clone();
+    live_record.world_id = local_template.world_id.clone();
+    live_record.network_id = local_template.network_id.clone();
+    let live = super::super::peer_record::sign_peer_record_v2(
+        &live_record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_keypair,
+    )
+    .expect("sign initial V2 live record");
+    let tombstone = sign_tombstone(&remote_keypair, 2, "withdrawn");
+    // The signing helper uses this fixture's standard world/network scope.
+    assert_eq!(tombstone.record.world_id, local_template.world_id);
+    assert_eq!(tombstone.record.network_id, local_template.network_id);
+
+    let mut swarm = build_swarm_with_receiver(
+        &local_keypair,
+        false,
+        false,
+        Duration::from_secs(3),
+        super::super::wire_bytes::init_shared_wire_byte_counters(),
+        receiver.clone(),
+    );
+    let dial_policy = swarm.behaviour().discovery_dial_policy();
+    let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
+        DiscoveryClock::default(),
+        dial_policy,
+        receiver.clone(),
+    );
+    let mut observations = DiscoveryObservations::default();
+    let mut known_paths = HashMap::new();
+    let mut last_dialed = HashMap::new();
+    let active_paths = HashMap::new();
+    let mut failed_labels = HashSet::new();
+    let policy = PeerManagerPolicy {
+        min_active_discovery_sources: 0,
+        min_peer_discovery_sources: 0,
+        ..PeerManagerPolicy::default()
+    };
+    let static_peers = HashSet::new();
+
+    super::super::peer_record_candidate::process_signed_peer_record(
+        &mut swarm,
+        &mut cache,
+        &mut observations,
+        &mut known_paths,
+        &mut last_dialed,
+        &active_paths,
+        &mut failed_labels,
+        Some(&local_template),
+        &policy,
+        &static_peers,
+        live.clone(),
+        DiscoveryIngress::PeerExchange {
+            upstream: PeerId::random(),
+        },
+    )
+    .expect("install live candidate");
+    assert_eq!(cache.get(&peer_id), Some(&live));
+    assert!(!observations.observed_sources(&live).is_empty());
+    let live_path = known_paths
+        .get(&peer_id)
+        .and_then(|paths| paths.first())
+        .expect("candidate transport path")
+        .clone();
+    last_dialed.insert(peer_id, live_path.clone());
+
+    let static_address: Multiaddr = format!("/ip4/192.0.2.10/tcp/4104/p2p/{peer_id}")
+        .parse()
+        .expect("parse configured static address");
+    let static_path = super::super::transport_paths::active_transport_path_from_endpoint(
+        &HashMap::new(),
+        peer_id,
+        &static_address,
+    );
+    known_paths
+        .get_mut(&peer_id)
+        .expect("known dynamic path")
+        .push(static_path.clone());
+
+    super::super::peer_record_candidate::process_signed_peer_record(
+        &mut swarm,
+        &mut cache,
+        &mut observations,
+        &mut known_paths,
+        &mut last_dialed,
+        &active_paths,
+        &mut failed_labels,
+        Some(&local_template),
+        &policy,
+        &static_peers,
+        tombstone.clone(),
+        DiscoveryIngress::PeerExchange {
+            upstream: PeerId::random(),
+        },
+    )
+    .expect("accept the sequence-2 tombstone without candidate installation");
+
+    assert!(cache.get(&peer_id).is_none());
+    assert!(cache.values().next().is_none());
+    assert!(cache.keys().next().is_none());
+    assert!(cache.session_record(&peer_id).is_some());
+    assert!(observations.observed_sources(&live).is_empty());
+    assert!(!last_dialed.contains_key(&peer_id));
+    let remaining_paths = known_paths.get(&peer_id).expect("static path retained");
+    assert_eq!(remaining_paths.len(), 1);
+    assert!(remaining_paths[0].record_lease.is_none());
+    assert_eq!(remaining_paths[0].addr, static_path.addr);
+    assert_eq!(
+        receiver
+            .current_tombstone_for_forwarding(peer_id)
+            .expect("read current floor")
+            .expect("current tombstone floor"),
+        tombstone
+    );
+    assert_eq!(cache.get_for_forwarding(&peer_id), Some(tombstone.clone()));
+    let cached_response = super::super::discovery::handle_request_response_request(
+        &oasis7_proto::distributed_net::NetworkRequest {
+            protocol: super::super::discovery::RR_GET_CACHED_PEER_RECORD.into(),
+            payload: peer_id.to_string().into_bytes(),
+        },
+        &HashMap::new(),
+        Some(&local_template),
+        &local_keypair,
+        &Arc::new(Mutex::new(Vec::new())),
+        &Arc::new(Mutex::new(
+            super::super::reachability::Libp2pReachabilitySnapshot::default(),
+        )),
+        false,
+        &cache,
+    )
+    .expect("RR forwards exact committed tombstone");
+    assert_eq!(
+        cached_response,
+        crate::util::to_canonical_cbor(&tombstone).expect("encode signed tombstone")
+    );
+    let expired_clock_cache = PeerRecordCache::with_dial_policy_and_receiver(
+        DiscoveryClock::default(),
+        Default::default(),
+        receiver.clone(),
+    );
+    expired_clock_cache
+        .clock()
+        .observe(
+            tombstone.record.expires_at_ms().expect("tombstone expiry"),
+            Instant::now(),
+        )
+        .expect("advance only the forwarding test clock to expiry");
+    assert!(
+        expired_clock_cache.get_for_forwarding(&peer_id).is_none(),
+        "an expired floor tombstone remains durable but is no longer forwarded"
+    );
+
+    let higher_live = super::super::peer_record::sign_peer_record_v2(
+        &live_record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 3,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_keypair,
+    )
+    .expect("sign higher live record");
+    super::super::peer_record_candidate::process_signed_peer_record(
+        &mut swarm,
+        &mut cache,
+        &mut observations,
+        &mut known_paths,
+        &mut last_dialed,
+        &active_paths,
+        &mut failed_labels,
+        Some(&local_template),
+        &policy,
+        &static_peers,
+        higher_live.clone(),
+        DiscoveryIngress::PeerExchange {
+            upstream: PeerId::random(),
+        },
+    )
+    .expect("a higher live sequence restores the candidate");
+    assert_eq!(cache.get(&peer_id), Some(&higher_live));
+    assert_eq!(
+        cache.get_for_forwarding(&peer_id),
+        Some(higher_live.clone())
+    );
+    let restored_response = super::super::discovery::handle_request_response_request(
+        &oasis7_proto::distributed_net::NetworkRequest {
+            protocol: super::super::discovery::RR_GET_CACHED_PEER_RECORD.into(),
+            payload: peer_id.to_string().into_bytes(),
+        },
+        &HashMap::new(),
+        Some(&local_template),
+        &local_keypair,
+        &Arc::new(Mutex::new(Vec::new())),
+        &Arc::new(Mutex::new(
+            super::super::reachability::Libp2pReachabilitySnapshot::default(),
+        )),
+        false,
+        &cache,
+    )
+    .expect("RR returns the restored live candidate");
+    assert_eq!(
+        restored_response,
+        crate::util::to_canonical_cbor(&higher_live).expect("encode restored live record")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn dht_store_put_persists_tombstone_and_allows_a_higher_live_recovery() {
+    use super::super::peer_record_admission::PeerRecordAdmissionBudget;
+    use super::super::peer_record_store::PeerRecordStore;
+    use libp2p::kad::Record;
+    use libp2p::kad::store::{MemoryStoreConfig, RecordStore};
+
+    let (_root, _local_keypair, local_template, receiver) = durable_relay_receiver_fixture();
+    let remote_keypair = Keypair::generate_ed25519();
+    let live = super::signed_discovery_peer_record(&remote_keypair, Vec::new(), now_ms());
+    let live = super::super::peer_record::sign_peer_record_v2(
+        &live.record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_keypair,
+    )
+    .expect("sign live DHT record");
+    assert_eq!(live.record.world_id, local_template.world_id);
+    let tombstone = sign_tombstone(&remote_keypair, 2, "withdrawn-at-store");
+    let recovered_live = super::super::peer_record::sign_peer_record_v2(
+        &live.record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 3,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_keypair,
+    )
+    .expect("sign higher live DHT record");
+    let key = RecordKey::new(&oasis7_proto::distributed::dht_peer_record_key(
+        &live.record.world_id,
+        &live.record.peer_id,
+    ));
+    let mut store = PeerRecordStore::with_admission_budget_and_receiver(
+        PeerId::random(),
+        MemoryStoreConfig::default(),
+        PeerRecordAdmissionBudget::shared(),
+        receiver.clone(),
+    );
+    for signed in [&live, &tombstone] {
+        store
+            .put(Record {
+                key: key.clone(),
+                value: crate::util::to_canonical_cbor(signed).expect("encode signed record"),
+                publisher: None,
+                expires: None,
+            })
+            .expect("DHT store accepts the next signed floor record");
+    }
+    assert!(receiver.lease_guard(&live).is_err());
+    assert!(receiver.lease_guard(&tombstone).is_ok());
+    let stored_tombstone = store.get(&key).expect("stored tombstone is forwardable");
+    assert_eq!(
+        serde_cbor::from_slice::<SignedPeerRecord>(&stored_tombstone.value)
+            .expect("decode stored tombstone"),
+        tombstone
+    );
+
+    store
+        .put(Record {
+            key: key.clone(),
+            value: crate::util::to_canonical_cbor(&recovered_live)
+                .expect("encode recovered live record"),
+            publisher: None,
+            expires: None,
+        })
+        .expect("higher live floor can replace a tombstone");
+    let stored_live = store
+        .get(&key)
+        .expect("recovered live record is forwardable");
+    assert_eq!(
+        serde_cbor::from_slice::<SignedPeerRecord>(&stored_live.value)
+            .expect("decode recovered live record"),
+        recovered_live
+    );
+}
+
 #[test]
 fn v2_only_rejects_a_legacy_local_publisher_configuration_before_startup() {
     let keypair = Keypair::generate_ed25519();
@@ -571,6 +906,10 @@ fn same_sequence_conflict_revokes_queued_dial_and_keeps_inflight_connection_unve
     .expect_err("same-sequence signed fork must isolate the peer");
     assert!(error.invalidates_peer_projection());
     assert!(cache.get(&peer_id).is_none());
+    assert!(
+        cache.get_for_forwarding(&peer_id).is_none(),
+        "an isolated floor cannot forward either a live candidate or tombstone evidence"
+    );
     assert!(
         cache.session_record(&peer_id).is_some(),
         "conflict must retain metadata while the session is active"
