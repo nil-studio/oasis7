@@ -116,6 +116,32 @@ impl FormalNodeReadGrantV1 {
         current_authority_epoch: u64,
         now_unix_ms: u64,
     ) -> Result<(), String> {
+        self.verify_identity_and_signature(
+            expected_issuer_public_key,
+            expected_world,
+            expected_chain_id,
+            expected_node_public_key,
+            expected_role,
+            current_authority_epoch,
+        )?;
+        if now_unix_ms < self.body.not_before_unix_ms || now_unix_ms >= self.body.expires_unix_ms {
+            return Err("formal node read grant identity, epoch, role, or lease mismatch".into());
+        }
+        Ok(())
+    }
+
+    /// Verify signed identity and scope without relying on a caller-supplied
+    /// wall clock. Providers use this before querying protected time, then use
+    /// `verify` with the fresh authenticated interval for lease bounds.
+    pub fn verify_identity_and_signature(
+        &self,
+        expected_issuer_public_key: &str,
+        expected_world: &WorldIdentity,
+        expected_chain_id: &str,
+        expected_node_public_key: &str,
+        expected_role: &FormalNodeReadRoleV1,
+        current_authority_epoch: u64,
+    ) -> Result<(), String> {
         validate_grant_body(&self.body)?;
         if self.issuer_public_key != expected_issuer_public_key
             || !key(expected_issuer_public_key)
@@ -124,8 +150,6 @@ impl FormalNodeReadGrantV1 {
             || self.body.node_public_key != expected_node_public_key
             || self.body.role != *expected_role
             || self.body.authority_epoch != current_authority_epoch
-            || now_unix_ms < self.body.not_before_unix_ms
-            || now_unix_ms >= self.body.expires_unix_ms
         {
             return Err("formal node read grant identity, epoch, role, or lease mismatch".into());
         }
@@ -488,6 +512,55 @@ mod tests {
                 100,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn grant_identity_signature_check_is_clock_independent() {
+        let issuer = SigningKey::from_bytes(&[11; 32]);
+        let node = SigningKey::from_bytes(&[12; 32]);
+        let grant = FormalNodeReadGrantV1::sign(body(&node), &hex::encode([11; 32])).unwrap();
+        let issuer_public_key = hex::encode(issuer.verifying_key().to_bytes());
+        let node_public_key = hex::encode(node.verifying_key().to_bytes());
+        assert!(
+            grant
+                .verify_identity_and_signature(
+                    &issuer_public_key,
+                    &world(),
+                    "chain-a",
+                    &node_public_key,
+                    &FormalNodeReadRoleV1::StateSync,
+                    4,
+                )
+                .is_ok()
+        );
+        assert!(
+            grant
+                .verify(
+                    &issuer_public_key,
+                    &world(),
+                    "chain-a",
+                    &node_public_key,
+                    &FormalNodeReadRoleV1::StateSync,
+                    4,
+                    100,
+                )
+                .is_err()
+        );
+
+        let mut forged = grant;
+        forged.signature_hex = hex::encode([0; 64]);
+        assert!(
+            forged
+                .verify_identity_and_signature(
+                    &issuer_public_key,
+                    &world(),
+                    "chain-a",
+                    &node_public_key,
+                    &FormalNodeReadRoleV1::StateSync,
+                    4,
+                )
+                .is_err()
         );
     }
 

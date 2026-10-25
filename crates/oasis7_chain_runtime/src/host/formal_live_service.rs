@@ -52,6 +52,8 @@ mod tests;
 mod business_service;
 #[path = "formal_live_changes_service.rs"]
 mod changes_service;
+#[path = "formal_live_full_sync_read_gate.rs"]
+pub(crate) mod full_sync_read_gate;
 #[path = "formal_live_full_sync.rs"]
 mod full_sync_service;
 const MAX_REQUEST_BODY: usize = 256 * 1024;
@@ -381,6 +383,7 @@ pub(crate) struct FormalLiveService {
     full_sync_material_cache: Mutex<FullSyncMaterialCache>,
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
+    full_sync_read_gate: Option<Arc<full_sync_read_gate::FullSyncV3ReadGate>>,
 }
 impl FormalLiveService {
     #[expect(
@@ -409,7 +412,18 @@ impl FormalLiveService {
             full_sync_material_cache: Mutex::new(FullSyncMaterialCache::default()),
             state,
             admission_gate,
+            full_sync_read_gate: None,
         }
+    }
+
+    pub(crate) fn with_full_sync_read_gate(
+        mut self,
+        gate: Arc<full_sync_read_gate::FullSyncV3ReadGate>,
+    ) -> Result<Self, String> {
+        let provider_key = hex::encode(self.signer.verifying_key().to_bytes());
+        gate.validate_service_binding(&self.trust.initial_trust, &self.world, &provider_key)?;
+        self.full_sync_read_gate = Some(gate);
+        Ok(self)
     }
 
     pub(crate) fn serve_loopback(
@@ -637,10 +651,8 @@ impl FormalLiveService {
     fn read_view(
         &self,
         signed: &SignedReadRequest<ReadWorldViewRequest>,
-    ) -> Result<
-        ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
-        String,
-    > {
+    ) -> Result<ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>, String>
+    {
         self.read_view_with_publication(signed)
             .map(|(response, _publication)| response)
     }
@@ -911,9 +923,21 @@ impl FormalLiveService {
         }
         validate_payload(&cut.world, &request.signed_payload)
             .map_err(|error| (400, "invalid_payload", error))?;
-        if let WorldServicePayloadV1::GameParticipantRegister {owner,admission}=&request.signed_payload {
-            let binding=cut.world.current_cognition_runtime_binding().map_err(|e|(400,"invalid_payload",format!("{e:?}")))?;
-            oasis7_runtime::service_admission::participant::validate_registration(&cut.world,owner,admission,&binding.branch_id,binding.reorg_epoch).map_err(|e|(400,"invalid_payload",e))?;
+        if let WorldServicePayloadV1::GameParticipantRegister { owner, admission } =
+            &request.signed_payload
+        {
+            let binding = cut
+                .world
+                .current_cognition_runtime_binding()
+                .map_err(|e| (400, "invalid_payload", format!("{e:?}")))?;
+            oasis7_runtime::service_admission::participant::validate_registration(
+                &cut.world,
+                owner,
+                admission,
+                &binding.branch_id,
+                binding.reorg_epoch,
+            )
+            .map_err(|e| (400, "invalid_payload", e))?;
         }
         let key_digest = correlation::key_digest(&request.correlation.key)
             .map_err(|error| (400, "invalid_payload", error))?;
@@ -1043,13 +1067,28 @@ impl FormalLiveService {
 
 fn validate_payload(world: &World, payload: &WorldServicePayloadV1) -> Result<(), String> {
     match payload {
-        WorldServicePayloadV1::GameStarterClaim(signed)=>{
-            let binding=world.current_cognition_runtime_binding().map_err(|e|format!("{e:?}"))?;
-            oasis7_runtime::service_admission::starter::validate_owner(world,signed,&binding.branch_id,binding.reorg_epoch)
+        WorldServicePayloadV1::GameStarterClaim(signed) => {
+            let binding = world
+                .current_cognition_runtime_binding()
+                .map_err(|e| format!("{e:?}"))?;
+            oasis7_runtime::service_admission::starter::validate_owner(
+                world,
+                signed,
+                &binding.branch_id,
+                binding.reorg_epoch,
+            )
         }
-        WorldServicePayloadV1::GameParticipantRegister {owner,admission} => {
-            let binding=world.current_cognition_runtime_binding().map_err(|e|format!("{e:?}"))?;
-            oasis7_runtime::service_admission::participant::validate_admission(world,owner,admission,&binding.branch_id,binding.reorg_epoch)
+        WorldServicePayloadV1::GameParticipantRegister { owner, admission } => {
+            let binding = world
+                .current_cognition_runtime_binding()
+                .map_err(|e| format!("{e:?}"))?;
+            oasis7_runtime::service_admission::participant::validate_admission(
+                world,
+                owner,
+                admission,
+                &binding.branch_id,
+                binding.reorg_epoch,
+            )
         }
         WorldServicePayloadV1::GameTaskCreate(signed) => game_task::validate_owner(world, signed),
         WorldServicePayloadV1::GameGoalPublish(signed) => {
