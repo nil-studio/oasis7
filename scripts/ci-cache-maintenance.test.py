@@ -404,6 +404,185 @@ class BootstrapTests(unittest.TestCase):
             api.delete_cache.assert_not_called()
 
 
+class DependencyRetentionTests(unittest.TestCase):
+    NAMESPACES = ('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2')
+
+    @staticmethod
+    def dependency(number, namespace='ci-shared-native-trusted-v3', *, environment='a', **changes):
+        return cache(number, key=f'v0-rust-{namespace}-Linux-x64-{environment * 8}-{number:08x}', **changes)
+
+    @staticmethod
+    def plan(entries, bootstrap, **kwargs):
+        if bootstrap:
+            return maintenance.plan_bootstrap(entries, START, **kwargs)
+        anchor = WorkspaceRetentionTests.entry(90, 'ordinary')
+        return maintenance.plan_retention([*entries, anchor], anchor['key'], START, **kwargs)
+
+    @staticmethod
+    def apply(first, second, after, bootstrap, active=None):
+        if not bootstrap:
+            anchor = WorkspaceRetentionTests.entry(90, 'ordinary')
+            first, second, after = [*first, anchor], [*second, anchor], [*after, anchor]
+        api = api_with(first, second, after)
+        if active is not None:
+            api.list_active_runs.side_effect = active
+        report = maintenance.maintain(api, None if bootstrap else anchor['key'], START,
+                                      bootstrap=bootstrap, apply=True)
+        return api, report
+
+    def test_each_namespace_environment_and_version_keeps_its_own_latest_complete_snapshot(self):
+        for bootstrap in (True, False):
+            for namespace in self.NAMESPACES:
+                with self.subTest(bootstrap=bootstrap, namespace=namespace):
+                    entries = [self.dependency(1, namespace), self.dependency(2, namespace),
+                               self.dependency(3, namespace, environment='b'),
+                               self.dependency(4, namespace, environment='b'),
+                               self.dependency(5, namespace, version='other'),
+                               self.dependency(6, namespace, version='other')]
+                    plan = self.plan(entries, bootstrap)
+                    self.assertEqual([entry['id'] for entry in plan['delete']], [1, 3, 5])
+                    self.assertEqual(plan['dependencies']['recovery_ids'], [2, 4, 6])
+                    self.assertEqual(plan['dependencies']['protected_ids'], [2, 4, 6])
+                    after = [entries[i] for i in (1, 3, 5)]
+                    api, report = self.apply(entries, entries, after, bootstrap)
+                    self.assertEqual(report['deleted_ids'], [1, 3, 5])
+                    self.assertEqual(report['deleted_dependency_ids'], [1, 3, 5])
+                    self.assertEqual(report['deleted_workspace_ids'], [])
+                    self.assertEqual(report['stable_dependency_recovery_ids'], [2, 4, 6])
+                    self.assertEqual([call.args[0] for call in api.delete_cache.call_args_list], [1, 3, 5])
+
+    def test_allowlist_requires_exact_main_linux_x64_and_two_eight_hex_hashes(self):
+        valid = [self.dependency(1), self.dependency(2)]
+        outsider = self.dependency(10)
+        variants = [dict(outsider, ref='refs/pull/4/merge'), dict(outsider, ref='refs/tags/v1'),
+                    self.dependency(10, 'unregistered-trusted-v3'),
+                    dict(outsider, key=outsider['key'].replace('Linux-x64', 'Linux-arm64')),
+                    dict(outsider, key=outsider['key'].replace('Linux-x64', 'Windows-x64')),
+                    dict(outsider, key=outsider['key'].replace('aaaaaaaa', 'aaaaaaa')),
+                    dict(outsider, key=outsider['key'].replace('0000000a', '000000a')),
+                    dict(outsider, key=outsider['key'].replace('0000000a', '0000000g')),
+                    dict(outsider, key=outsider['key'] + '-extra'),
+                    WorkspaceRetentionTests.entry(10, 'ordinary'),
+                    WorkspaceRetentionTests.entry(10, 'formal'), WorkspaceRetentionTests.entry(10, 'ecs')]
+        entries = [*valid, *(dict(entry, id=20 + i) for i, entry in enumerate(variants))]
+        for bootstrap in (True, False):
+            with self.subTest(bootstrap=bootstrap):
+                plan = self.plan(entries, bootstrap)
+                self.assertEqual([entry['id'] for entry in plan['dependencies']['delete']], [1])
+                self.assertEqual(plan['dependencies']['managed_count'], 2)
+                if bootstrap:
+                    self.assertEqual([entry['id'] for entry in plan['delete']], [1])
+
+    def test_activity_zero_bytes_and_only_complete_recovery_are_never_deleted(self):
+        entries = [self.dependency(1, accessed=START), self.dependency(2, size=0),
+                   self.dependency(3), self.dependency(4), self.dependency(5, environment='b')]
+        for bootstrap in (True, False):
+            with self.subTest(bootstrap=bootstrap):
+                plan = self.plan(entries, bootstrap)
+                self.assertEqual([entry['id'] for entry in plan['dependencies']['delete']], [3])
+                self.assertEqual(plan['dependencies']['protected_ids'], [1, 2, 4, 5])
+                active = self.plan(entries, bootstrap, active_runs=[active_run()])
+                self.assertEqual(active['dependencies']['delete'], [])
+                self.assertEqual(active['protection_started_at'], '2026-10-19T07:00:00Z')
+                empty = self.plan([self.dependency(1, size=0)], bootstrap)
+                self.assertEqual(empty['dependencies']['delete'], [])
+                self.assertEqual(empty['dependencies']['recovery_ids'], [])
+
+    def test_timestamp_ties_and_exact_key_ambiguity_hold_only_the_affected_groups(self):
+        for first in ([self.dependency(1, created='2026-10-19T08:03:00Z'), self.dependency(2), self.dependency(3)],
+                      [self.dependency(1), self.dependency(2), dict(self.dependency(2), id=3, version='v2')],
+                      [self.dependency(1), self.dependency(2), dict(self.dependency(2), id=3)]):
+            entries = [*first, self.dependency(4, environment='b'), self.dependency(5, environment='b')]
+            for bootstrap in (True, False):
+                with self.subTest(first=first, bootstrap=bootstrap):
+                    plan = self.plan(entries, bootstrap)
+                    self.assertEqual([entry['id'] for entry in plan['delete']], [4])
+                    self.assertTrue(plan['dependencies']['blocked_groups'])
+                    self.assertTrue({1, 2, 3}.issubset(plan['dependencies']['protected_ids']))
+
+    def test_missing_changed_or_new_recovery_anchor_prevents_group_deletion(self):
+        first = [self.dependency(1), self.dependency(2), self.dependency(3)]
+        variations = [first[:-1], [*first[:-1], dict(first[-1], version='other')],
+                      [*first[:-1], dict(first[-1], id=30)],
+                      [*first[:-1], dict(first[-1], size_in_bytes=0)],
+                      [*first[:-1], dict(first[-1], size_in_bytes=1)],
+                      [*first[:-1], dict(first[-1], created_at='2026-10-19T08:04:00Z')],
+                      [*first, self.dependency(4)], [*first, dict(first[-1], id=30, version='other')]]
+        for second in variations:
+            for bootstrap in (True, False):
+                with self.subTest(second=second, bootstrap=bootstrap):
+                    api, report = self.apply(first, second, second, bootstrap)
+                    api.delete_cache.assert_not_called()
+                    self.assertEqual(report['deleted_dependency_ids'], [])
+
+    def test_candidate_intersection_identity_and_new_activity_only_shrink_mutations(self):
+        first = [self.dependency(1), self.dependency(2), self.dependency(3)]
+        second = [dict(first[0], last_accessed_at=START), *first[1:],
+                  self.dependency(10, environment='b'), self.dependency(11, environment='b')]
+        for bootstrap in (True, False):
+            with self.subTest(bootstrap=bootstrap):
+                api, report = self.apply(first, second, [item for item in second if item['id'] != 2], bootstrap)
+                self.assertEqual(report['deleted_dependency_ids'], [2])
+                api.delete_cache.assert_called_once_with(2)
+                changed = [dict(first[0], size_in_bytes=1), *first[1:]]
+                api, report = self.apply(first, changed, [changed[0], changed[2]], bootstrap)
+                self.assertEqual(report['deleted_dependency_ids'], [2])
+                api, report = self.apply(first, first, first, bootstrap, active=[[], [active_run()]])
+                api.delete_cache.assert_not_called()
+                self.assertEqual(report['deleted_dependency_ids'], [])
+
+    def test_either_inventory_or_active_run_failure_prevents_all_dependency_deletes(self):
+        entries = [self.dependency(1), self.dependency(2)]
+        for bootstrap in (True, False):
+            for failure_at in ('first inventory', 'second inventory', 'first active', 'second active'):
+                with self.subTest(bootstrap=bootstrap, failure_at=failure_at):
+                    anchor = WorkspaceRetentionTests.entry(90, 'ordinary')
+                    observed = entries if bootstrap else [*entries, anchor]
+                    snapshots = [observed, observed, observed]
+                    error = maintenance.MaintenanceError('incomplete API observation')
+                    if 'inventory' in failure_at:
+                        snapshots[0 if failure_at.startswith('first') else 1] = error
+                    api = api_with(*snapshots)
+                    if 'active' in failure_at:
+                        api.list_active_runs.side_effect = [error] if failure_at.startswith('first') else [[], error]
+                    result = maintenance.maintain(api, None if bootstrap else anchor['key'], START,
+                                                  bootstrap=bootstrap, apply=True)
+                    self.assertEqual(result['status'], 'skipped')
+                    api.delete_cache.assert_not_called()
+
+    def test_namespace_retirement_and_dependency_redundancy_preserve_the_recovery_anchor(self):
+        old = rust_cache(1, 'ci-full-regression-trusted-v2')
+        entries = [old, self.dependency(2), self.dependency(3)]
+        for bootstrap in (True, False):
+            with self.subTest(bootstrap=bootstrap):
+                expected = [2] if bootstrap else [1, 2]
+                after = [entry for entry in entries if entry['id'] not in expected]
+                api, report = self.apply(entries, entries, after, bootstrap)
+                self.assertEqual(report['deleted_ids'], expected)
+                self.assertEqual(report['deleted_dependency_ids'], [2])
+                self.assertEqual(report['deleted_namespace_ids'], [] if bootstrap else [1])
+                self.assertIn(3, report['plan']['dependencies']['protected_ids'])
+                self.assertNotIn(3, [entry['id'] for entry in report['plan']['retired_namespaces']['delete']])
+                self.assertEqual(report['stable_dependency_recovery_ids'], [3])
+
+    def test_summary_separates_plans_from_successful_dependency_workspace_and_namespace_deletes(self):
+        entries = [self.dependency(1), self.dependency(2), cache(3), cache(4), cache(5),
+                   rust_cache(6, 'ci-full-regression-trusted-v2')]
+        api = api_with(entries, entries, [entries[i] for i in (1, 3, 4, 5)])
+        api.delete_cache.side_effect = [True, False, maintenance.MaintenanceError('HTTP 403')]
+        report = maintenance.maintain(api, entries[4]['key'], START, apply=True)
+        self.assertEqual(report['status'], 'partial')
+        self.assertEqual(report['deleted_ids'], [1])
+        self.assertEqual(report['already_absent_ids'], [3])
+        self.assertEqual(report['deleted_dependency_ids'], [1])
+        self.assertEqual(report['deleted_workspace_ids'], [])
+        self.assertEqual(report['deleted_namespace_ids'], [])
+        summary = maintenance.render_summary(report)
+        self.assertIn('Dependency snapshots', summary)
+        self.assertIn('dependency: [1]; workspace: []; retired namespaces: []', summary)
+        self.assertIn('Planned bytes are not measured reclamation', summary)
+
+
 class RetiredNamespaceTests(unittest.TestCase):
     migrations = {
         'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',

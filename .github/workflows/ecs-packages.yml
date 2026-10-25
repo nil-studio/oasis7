@@ -100,11 +100,21 @@ jobs:
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
+      - name: Install dependency cache admission
+        id: dependency-cache-tools
+        if: hashFiles('scripts/ci-rust-cache-admission.py') != ''
+        continue-on-error: true
+        run: python3 scripts/ci-rust-cache-admission.py install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != '' && steps.dependency-cache-tools.outcome == 'success'
+        env:
+          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ecs
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: oasis7-ecs-native-linux-ecs-v2
-          save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Identify ECS workspace cache
         id: ecs-cache-identity

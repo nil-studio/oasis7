@@ -80,6 +80,32 @@ def observed_inventory():
     return result
 
 
+def dependency_growth_inventory():
+    """Replay the 2026-10-24 follow-up audit after dependency cache writes.
+
+    Source: nil-studio/oasis7 Actions cache inventory audit. Total bytes and
+    the old/new shared native (2,461,139,163 / 2,463,911,046) and ECS dependency
+    (655,840,338 / 722,718,920) sizes are observed. Each old/new pair shares
+    the same environment prefix and cache version. IDs, exact keys and dates
+    are synthetic; the retained Formal v2 and current ECS workspace entries
+    preserve the previously observed byte counts. No future archive size is
+    assumed in this recovery replay.
+    """
+    entries = [item for item in observed_inventory() if item['id'] not in (1, 3)]
+    for item in entries:
+        if item['id'] == 9:
+            item['size_in_bytes'] = 655_840_338
+        elif item['id'] == 10:
+            item.update(key='v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-aaaaaaaa-cccccccc',
+                        size_in_bytes=722_718_920,
+                        created_at='2026-10-23T00:00:00Z', last_accessed_at='2026-10-23T00:00:00Z')
+    entries.append(entry('ordinary', 15,
+        key='v0-rust-ci-shared-native-trusted-v3-Linux-x64-aaaaaaaa-cccccccc',
+        size_in_bytes=2_463_911_046,
+        created_at='2026-10-23T01:00:00Z', last_accessed_at='2026-10-23T01:00:00Z'))
+    return entries
+
+
 class SchemaTests(unittest.TestCase):
     def test_current_and_managed_historical_schemas_are_distinct(self):
         legacy = {
@@ -224,6 +250,49 @@ class InventoryLifecycleTests(unittest.TestCase):
     def apply_plan(entries, plan):
         doomed = {item['id'] for item in plan['delete']}
         return [item for item in entries if item['id'] not in doomed]
+
+    def test_dependency_growth_recovery_uses_observed_sizes_and_preserves_all_workspace_caches(self):
+        entries = dependency_growth_inventory()
+        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 10_449_165_153)
+        before = {}
+        policy.capacity_context(maintenance, capacity_api({'max_cache_size_gb': 10}, entries),
+                                REPOSITORY_LIMIT, before)
+        self.assertEqual(before['available_repository_bytes'], 0)
+        plan = maintenance.plan_bootstrap(entries, '2026-10-24T00:00:00Z')
+        self.assertEqual([item['id'] for item in plan['delete']], [8, 9])
+        self.assertEqual(plan['retired_schemas']['delete'], [])
+        self.assertEqual(plan['dependencies']['recovery_ids'], [10, 15])
+        self.assertEqual(plan['managed_count'], 6)
+        self.assertEqual(plan['managed_bytes'], 7_700_276_984)
+        self.assertEqual(plan['projected_bytes'], plan['managed_bytes'] - 3_116_979_501)
+        self.assertEqual(plan['protected_ids'], [2, 4, 10, 15])
+        self.assertEqual(sum(item['size_in_bytes'] for item in plan['delete']), 3_116_979_501)
+        remaining = self.apply_plan(entries, plan)
+        self.assertEqual(sum(item['size_in_bytes'] for item in remaining), 7_332_185_652)
+        workspaces = lambda values: [item for item in values if policy.family_for_key(item['key'])]
+        self.assertEqual(workspaces(remaining), workspaces(entries))
+        api = Mock()
+        api.list_caches.side_effect = [entries, entries, remaining]
+        api.list_active_runs.return_value = []
+        api.delete_cache.return_value = True
+        result = maintenance.maintain(api, run_started_at='2026-10-24T00:00:00Z', bootstrap=True, apply=True)
+        self.assertEqual(result['deleted_dependency_ids'], [8, 9])
+        self.assertEqual(result['deleted_workspace_ids'], [])
+        self.assertEqual(result['after']['total_bytes'], 7_332_185_652)
+        after = {}
+        policy.capacity_context(maintenance, capacity_api({'max_cache_size_gb': 10}, remaining),
+                                REPOSITORY_LIMIT, after)
+        self.assertEqual(after['available_repository_bytes'], 2_667_814_348)
+
+    def test_active_dependency_access_defers_recovery_without_a_workspace_eviction(self):
+        entries = dependency_growth_inventory()
+        run = dict(id=1, created_at='2026-10-20T00:00:00Z', status='in_progress',
+                   head_sha='a' * 40, path='.github/workflows/rust.yml',
+                   repository={'full_name': 'nil-studio/oasis7'})
+        plan = maintenance.plan_bootstrap(entries, '2026-10-24T00:00:00Z', active_runs=[run])
+        self.assertEqual(plan['delete'], [])
+        self.assertEqual(plan['dependencies']['recovery_ids'], [10, 15])
+        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 10_449_165_153)
 
     def test_observed_inventory_bootstrap_first_second_third_and_confirmed_retention(self):
         entries = observed_inventory()
