@@ -235,58 +235,29 @@ fn poll_cross_lane_batch(
     compatibility_turn: AsyncTurnId,
     production_turn: AsyncTurnId,
 ) {
-    if compatibility_first {
-        assert!(
-            runner
-                .poll_compatibility_completed()
-                .unwrap()
-                .iter()
-                .any(|outcome| outcome.turn_id == compatibility_turn)
+    let production_count = runner.completed.len();
+    let compatibility_count = runner.compatibility_completed.len();
+    let (production, compatibility) = if compatibility_first {
+        let compatibility = runner.poll_compatibility_completed().unwrap();
+        assert_eq!(
+            runner.completed.len(),
+            production_count + 1,
+            "first poll pumps production too"
         );
-        assert!(
-            runner
-                .poll_completed()
-                .unwrap()
-                .iter()
-                .any(|outcome| outcome.turn_id == production_turn)
-        );
+        (runner.poll_completed().unwrap(), compatibility)
     } else {
-        assert!(
-            runner
-                .poll_completed()
-                .unwrap()
-                .iter()
-                .any(|outcome| outcome.turn_id == production_turn)
+        let production = runner.poll_completed().unwrap();
+        assert_eq!(
+            runner.compatibility_completed.len(),
+            compatibility_count + 1,
+            "first poll pumps compatibility too"
         );
-        assert!(
-            runner
-                .poll_compatibility_completed()
-                .unwrap()
-                .iter()
-                .any(|outcome| outcome.turn_id == compatibility_turn)
-        );
-    }
-}
-
-fn wait_for_poll_order_provider_calls(
-    compatibility_calls: &AtomicUsize,
-    production_calls: &AtomicUsize,
-    expected: usize,
-) {
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while compatibility_calls.load(Ordering::SeqCst) != expected
-        || production_calls.load(Ordering::SeqCst) != expected
-    {
-        assert!(
-            Instant::now() < deadline,
-            "both providers finish their calls"
-        );
-        thread::yield_now();
-    }
-    // Give each worker time to publish its already-returned result before the
-    // first poll pumps both lanes. The contract must not depend on which
-    // lane-specific poll happens to pump a shared actor completion.
-    thread::sleep(Duration::from_millis(10));
+        (production, runner.poll_compatibility_completed().unwrap())
+    };
+    assert_eq!(production.len(), 1);
+    assert_eq!(production[0].turn_id, production_turn);
+    assert_eq!(compatibility.len(), 1);
+    assert_eq!(compatibility[0].turn_id, compatibility_turn);
 }
 
 fn start_compatibility_poll_turn(
@@ -311,7 +282,9 @@ fn start_compatibility_poll_turn(
 fn assert_cross_lane_polls_return_each_completion(compatibility_first: bool) {
     let compatibility_calls = Arc::new(AtomicUsize::new(0));
     let production_calls = Arc::new(AtomicUsize::new(0));
-    let mut runner = AsyncAgentRunner::<Value, Value, String, String, String>::new(2).unwrap();
+    let mut runner = super::completion_test_support::PublicationRunner(
+        AsyncAgentRunner::<Value, Value, String, String, String>::new(2).unwrap(),
+    );
     runner
         .register_compatibility(
             "agent-a-compat",
@@ -355,6 +328,8 @@ fn assert_cross_lane_polls_return_each_completion(compatibility_first: bool) {
         .restore_feedback_history(&FixtureAuthority::default())
         .unwrap();
 
+    runner.block_publication();
+    let mut production_turns = Vec::new();
     for (batch, compatibility_agent, production_agent) in [
         (1, "agent-a-compat", "agent-z-production"),
         (2, "agent-b-compat", "agent-y-production"),
@@ -368,7 +343,15 @@ fn assert_cross_lane_polls_return_each_completion(compatibility_first: bool) {
                 &format!("production-turn-{batch}"),
             ))
             .unwrap();
-        wait_for_poll_order_provider_calls(&compatibility_calls, &production_calls, batch);
+        production_turns.push(production_turn);
+        runner.wait_before_send(compatibility_agent, compatibility_turn);
+        runner.wait_before_send(production_agent, production_turn);
+        assert_eq!(compatibility_calls.load(Ordering::SeqCst), batch);
+        assert_eq!(production_calls.load(Ordering::SeqCst), batch);
+        runner.release_and_wait(&[
+            (compatibility_agent, compatibility_turn),
+            (production_agent, production_turn),
+        ]);
         poll_cross_lane_batch(
             &mut runner,
             compatibility_first,
@@ -379,7 +362,16 @@ fn assert_cross_lane_polls_return_each_completion(compatibility_first: bool) {
 
     assert!(runner.poll_completed().unwrap().is_empty());
     assert!(runner.poll_compatibility_completed().unwrap().is_empty());
-    assert_eq!(runner.take_completed().len(), 2);
+    assert_eq!(
+        runner
+            .take_completed()
+            .iter()
+            .map(|outcome| outcome.turn_id)
+            .collect::<Vec<_>>(),
+        production_turns
+    );
+    assert!(runner.take_completed().is_empty());
+    assert!(runner.poll_compatibility_completed().unwrap().is_empty());
     assert!(runner.poll_completed().unwrap().is_empty());
 
     let post_take_turn = runner
@@ -389,20 +381,12 @@ fn assert_cross_lane_polls_return_each_completion(compatibility_first: bool) {
             "production-turn-after-take",
         ))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while production_calls.load(Ordering::SeqCst) != 3 {
-        assert!(Instant::now() < deadline, "post-take provider finishes");
-        thread::yield_now();
-    }
-    thread::sleep(Duration::from_millis(10));
+    runner.wait_before_send("agent-m-production", post_take_turn);
+    runner.release_and_wait(&[("agent-m-production", post_take_turn)]);
     assert!(runner.poll_compatibility_completed().unwrap().is_empty());
-    assert!(
-        runner
-            .poll_completed()
-            .unwrap()
-            .iter()
-            .any(|outcome| outcome.turn_id == post_take_turn)
-    );
+    let outcomes = runner.poll_completed().unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].turn_id, post_take_turn);
     assert!(runner.poll_completed().unwrap().is_empty());
 }
 
@@ -414,6 +398,40 @@ fn compatibility_poll_then_production_poll_return_both_pumped_completions() {
 #[test]
 fn production_poll_then_compatibility_poll_return_both_pumped_completions() {
     assert_cross_lane_polls_return_each_completion(false);
+}
+
+#[test]
+fn publication_gate_is_released_and_worker_joined_on_panic_or_timeout() {
+    for timeout in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let result = std::panic::catch_unwind(|| {
+            let mut runner = super::completion_test_support::PublicationRunner(
+                AsyncAgentRunner::<Value, Value, String, String, String>::new(2).unwrap(),
+            );
+            runner
+                .register_compatibility("agent", CompatProvider(Arc::clone(&calls)))
+                .unwrap();
+            runner
+                .restore_feedback_history(&FixtureAuthority::default())
+                .unwrap();
+            runner.block_publication();
+            let turn = start_compatibility_poll_turn(&mut runner, "agent", 1);
+            runner.wait_before_send("agent", turn);
+            if timeout {
+                // A notification for this turn must never satisfy another turn's wait.
+                runner.wait_before_send("agent", AsyncTurnId::from_test_only(turn.get() + 1));
+            } else {
+                panic!("exercise cleanup while the worker is held before send");
+            }
+        });
+        assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            Arc::strong_count(&calls),
+            1,
+            "joined worker dropped its provider"
+        );
+    }
 }
 
 #[test]
