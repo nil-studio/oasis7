@@ -1893,7 +1893,7 @@ The actual `FormalLiveRuntime::open`/`start` missing-adapter guard is an ignored
 
 ```bash
 env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_durability_endpoint --release
-OASIS7_FORMAL_ENDPOINT_TEST_BIN="$PWD/target/release/oasis7_durability_endpoint" env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib v3_required_runtime_start_rejects_missing_gate_before_listener -- --ignored --test-threads=1
+OASIS7_FORMAL_ENDPOINT_TEST_BIN="$PWD/target/release/oasis7_durability_endpoint" env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_v3_required_runtime_start_rejects_missing_gate_before_listener -- --ignored --test-threads=1
 ```
 
 <a id="discovery-tombstone-v2"></a>
