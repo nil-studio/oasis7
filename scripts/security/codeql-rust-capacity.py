@@ -15,6 +15,7 @@ import time
 import zipfile
 import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_capacity_evidence as evidence
+import codeql_rust_cargo_guard as cargo_guard
 
 SOURCE='9ab1d76982e8ab58994728d881f3d60398834ade'
 BUNDLE='2.27.3'
@@ -359,6 +360,10 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
         except Exception as exc:
             terminal[name]={'status':'PARTIAL','error':repr(exc)[:2048]}
             terminal['secondary_errors'].append({'stage':name,'error':repr(exc)[:2048]})
+    try:
+        terminal['cargo_guard']=cargo_guard.inspect(out,args.deadline,SOURCE)
+    except Exception as exc:
+        terminal['cargo_guard']={'status':'FAIL','error':type(exc).__name__}
     terminal['checkout_gate']=terminal['checkout'].get('status','PARTIAL')
     terminal['resource_gate']='PASS' if 'CODEQL_THREADS' in terminal['resources'] and 'CODEQL_RAM' in terminal['resources'] else 'FAIL'
     terminal['evidence_status']=terminal['log_capture'].get('status','PARTIAL')
@@ -481,6 +486,9 @@ def main():
             save(out/'manifest-inventory.json',manifests,out)
             initial_locks=evidence.lock_inventory(source,manifests,out,end-120,SOURCE,stage='initial',fixed_deadline=args.deadline)
             if initial_locks['status']!='COMPLETE':raise RuntimeError('initial lock inventory incomplete')
+            independent=cargo_guard.standalone_locks(source,manifests,initial_locks,frozen)
+            save(out/'independent-workspace-locks.json',dict(independent,source=SOURCE),out)
+            if independent['status']!='PASS':raise RuntimeError('independent workspace locks are not frozen; see independent-workspace-locks.json')
             save(out/'target-toolchain-inputs.json',{name:value for name,value in frozen.items() if Path(name).name in ('rust-toolchain.toml','rust-toolchain') or name in manifests},out)
             save(out/'resources.json',dict(resource_values,space=shutil.disk_usage(work)._asdict()),out)
             run(['rustc','-vV'],'project-toolchain',20)
@@ -530,6 +538,8 @@ def main():
             verify_action_config(config,source,args.database)
             observed=observe_inputs(source,out,end-120,args.deadline,manifests,initial_locks,'pre-analyze')
             if observed['status']!='PASS':raise RuntimeError('pre-analysis inputs were not frozen')
+            guard_home=cargo_guard.install(work,out,args.deadline,SOURCE,[source/n for n in independent['manifests']],monotonic_deadline=end)
+            with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CARGO_HOME='+str(guard_home)+'\n')
             remaining=args.deadline-time.time()
             budget=analysis_budget(args.mode,remaining);minutes=budget['analysis_allocated_minutes']
             save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
@@ -543,7 +553,7 @@ def main():
             if args.analyze_outcome!='success':raise RuntimeError('ACTION_ANALYSIS_FAILED_OR_INCOMPLETE; no semantic child started')
             if captured.get('mode','capacity')!=args.mode:raise RuntimeError('capture assessment mode differs')
             if captured.get('source_root')!=str(source) or captured.get('fixed_job_deadline')!=args.deadline or captured.get('analyze_outcome')!='success':raise RuntimeError('failure capture identity differs')
-            if captured.get('lock_observation_gate')!='PASS' or captured.get('checkout_gate')!='PASS' or captured.get('resource_gate')!='PASS' or captured.get('evidence_status')!='COMPLETE' or captured.get('coverage_capture',{}).get('status')!='PASS':raise RuntimeError('assessment admission failed; see independent capture receipts')
+            if captured.get('cargo_guard',{}).get('status')!='PASS' or captured.get('lock_observation_gate')!='PASS' or captured.get('checkout_gate')!='PASS' or captured.get('resource_gate')!='PASS' or captured.get('evidence_status')!='COMPLETE' or captured.get('coverage_capture',{}).get('status')!='PASS':raise RuntimeError('assessment admission failed; see independent capture receipts')
             resource_values=captured['resources']
             before_resources=json.loads((out/'resources.json').read_text())
             if any(resource_values[k]!=before_resources[k] for k in ('CODEQL_RAM','CODEQL_THREADS')):raise RuntimeError('Action resource exports changed')

@@ -22,6 +22,7 @@ FILES = (
     'codeql_rust_diagnostic_runtime.py',
     LAYOUT,
     'codeql_rust_capacity_evidence.py',
+    'codeql_rust_cargo_guard.py',
 )
 
 

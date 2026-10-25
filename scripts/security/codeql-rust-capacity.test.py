@@ -243,7 +243,10 @@ class Capacity(unittest.TestCase):
     def test_metadata_failure_remains_primary_after_input_observation(self):
         self.research_prepare_case(metadata_failure=True)
 
-    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False):
+    def test_missing_independent_lock_stops_before_tool_or_graph_commands(self):
+        self.research_prepare_case(missing_vendor=True)
+
+    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
@@ -251,6 +254,13 @@ class Capacity(unittest.TestCase):
             suite.parent.mkdir(parents=True);suite.write_text('official')
             query=suite.parent.parent/'official.ql';query.write_text('/** @id rust/official */')
             action=root/'action';action.mkdir();(action/'config').write_text('{}')
+            (source/'Cargo.toml').write_text('[workspace]\n')
+            (source/'Cargo.lock').write_text('initial lock')
+            manifests=['Cargo.toml']
+            if missing_vendor:
+                (source/'vendor').mkdir();(source/'vendor/Cargo.toml').write_text('[workspace]\n')
+                manifests.append('vendor/Cargo.toml')
+            frozen={'Cargo.lock':{'sha256':hashlib.sha256(b'initial lock').hexdigest()}}
             commands=[]
             def run(argv,cwd,output,*args,**kwargs):
                 commands.append(argv)
@@ -263,10 +273,10 @@ class Capacity(unittest.TestCase):
             patches=[patch.object(sys,'argv',['capacity','prepare','--mode','official-default-research',
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
                 '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+21600)]),
-                patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs')}),
+                patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs'),'GITHUB_ENV':str(root/'github-env')}),
                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}),
                 patch.object(m.evidence,'capture_identity',side_effect=[{'status':'PASS'},{'status':'PARTIAL'}] if identity_failure else None,return_value={'status':'PASS'}),
-                patch.object(m,'snapshot',return_value={}),patch.object(m.plan,'inventory',return_value=(['Cargo.toml'],None)),
+                patch.object(m,'snapshot',return_value=frozen),patch.object(m.plan,'inventory',return_value=(manifests,None)),
                 patch.object(m,'official_snapshot',return_value={}),patch.object(m.bundle,'bundle_closure',return_value={}),
                 patch.object(m.model,'verify_metadata',return_value=Path('/libp2p')),
                 patch.object(m,'verify_action_config'),patch.object(m.runtime,'run',side_effect=run),
@@ -275,6 +285,13 @@ class Capacity(unittest.TestCase):
             for item in patches:stack.enter_context(item)
             # Layout admission still precedes expensive work.
             out.mkdir();(out/'collection-layout.json').write_text('{"status":"PASS"}')
+            if missing_vendor:
+                with self.assertRaisesRegex(RuntimeError,'independent workspace locks are not frozen'):m.main()
+                self.assertEqual(commands,[])
+                self.assertFalse((root/'outputs').exists())
+                rejected=json.loads((out/'independent-workspace-locks.json').read_text())
+                self.assertEqual(rejected['rejected_locks'],['vendor/Cargo.lock'])
+                return
             if metadata_failure:
                 with self.assertRaisesRegex(RuntimeError,'original metadata failure'):m.main()
                 self.assertEqual(len([argv for argv in commands if argv[0]=='cargo']),1)
@@ -301,7 +318,7 @@ class Capacity(unittest.TestCase):
 
     def test_research_finish_decodes_official_only_and_retains_gates(self):
         import contextlib
-        for gate in ('PASS','FAIL','LOCK_FAIL','LOCK_MISSING'):
+        for gate in ('PASS','FAIL','LOCK_FAIL','LOCK_MISSING','CARGO_FAIL','CARGO_MISSING'):
             with self.subTest(gate=gate), tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
                 root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
                 db=root/'db';(db/'temp').mkdir(parents=True);(db/'temp/config-queries.qls').write_text('official')
@@ -312,8 +329,9 @@ class Capacity(unittest.TestCase):
                 deadline=time.time()+21600
                 captured={'mode':'official-default-research','source_root':str(source),'fixed_job_deadline':deadline,
                     'analyze_outcome':'success','checkout_gate':'FAIL' if gate=='FAIL' else 'PASS','lock_observation_gate':'FAIL' if gate=='LOCK_FAIL' else 'PASS','resource_gate':'PASS','evidence_status':'COMPLETE',
-                    'coverage_capture':{'status':'PASS'},'resources':{'CODEQL_RAM':14575,'CODEQL_THREADS':4}}
+                    'coverage_capture':{'status':'PASS'},'cargo_guard':{'status':'FAIL' if gate=='CARGO_FAIL' else 'PASS'},'resources':{'CODEQL_RAM':14575,'CODEQL_THREADS':4}}
                 if gate=='LOCK_MISSING':captured.pop('lock_observation_gate')
+                if gate=='CARGO_MISSING':captured.pop('cargo_guard')
                 for name,value in [('capacity-capture-terminal.json',captured),('resources.json',captured['resources']),
                     ('coverage.json',{'status':'COVERAGE_REQUIRES_REVIEW'}),('source-before.json',{}),
                     ('default-suite.json',{'query_root':str(query_root),'queries':entries})]:
