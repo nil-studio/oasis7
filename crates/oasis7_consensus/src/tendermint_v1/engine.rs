@@ -913,11 +913,10 @@ impl BftConsensusMachineV1 {
             return Err("BFT certificate is not for current height".into());
         }
         verify_commit_certificate_v1(&self.set, &self.round_proposers, certificate)?;
-        let next_height_priority = BftProposerPriorityV1::after_round(
-            &self.set,
-            &self.height_start_priority,
-            certificate.proposal.header.round,
-        )?;
+        // Rounds select proposers inside the current height. Once any block
+        // commits, advance the persistent cross-height priority exactly once.
+        let next_height_priority =
+            BftProposerPriorityV1::after_round(&self.set, &self.height_start_priority, 0)?;
         self.height = self
             .height
             .checked_add(1)

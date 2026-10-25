@@ -36,10 +36,12 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
             node_id: runtime.config.node_id.clone(),
         });
     }
-    let bft = runtime
+    let selected = runtime
         .bft_config
         .clone()
         .ok_or_else(|| error("missing explicit BFT config"))?;
+    let bft = selected.consensus;
+    let protected = selected.protected;
     super::validate_voter_role(&runtime.config)?;
     let set = bft.validate(&runtime.config.world_id).map_err(error)?;
     runtime.validate_bft_pending_admission()?;
@@ -72,7 +74,16 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .replication
         .as_ref()
         .ok_or_else(|| error("BFT requires durable replication/signing configuration"))?;
-    let key = local_signing_key(replication, &bft)?;
+    let key = if protected.is_some() {
+        if replication.consensus_signer()?.is_some() {
+            return Err(error(
+                "protected BFT mode rejects a local consensus signing key",
+            ));
+        }
+        None
+    } else {
+        Some(local_signing_key(replication, &bft)?)
+    };
     let hook = runtime
         .execution_hook
         .clone()
@@ -101,13 +112,28 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         }
     }
     // Acquire the signer lifecycle lock before recovering any local signing state.
-    let mut wal = BftWalStore::open_for_recovery(
-        &replication.root_dir.join("tendermint-v1"),
-        &genesis,
-        &bft.local_validator_id,
-        &hex::encode(key.verifying_key().to_bytes()),
-        !history.is_empty(),
-    )?;
+    let directory = replication.root_dir.join("tendermint-v1");
+    let mut wal = if let Some(protected) = protected {
+        BftWalStore::open_protected_for_recovery(
+            &directory,
+            &genesis,
+            &protected.binding,
+            !history.is_empty(),
+            protected.provider.as_ref(),
+            &history,
+        )?
+    } else {
+        let key = key
+            .as_ref()
+            .ok_or_else(|| error("missing local BFT signer"))?;
+        BftWalStore::open_for_recovery(
+            &directory,
+            &genesis,
+            &bft.local_validator_id,
+            &hex::encode(key.verifying_key().to_bytes()),
+            !history.is_empty(),
+        )?
+    };
     let mut replay_schedule = genesis;
     let mut tip_token: Option<VerifiedBftCommitCertificateV1> = None;
     for cert in history {
