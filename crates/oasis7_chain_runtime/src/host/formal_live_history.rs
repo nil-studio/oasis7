@@ -1,7 +1,8 @@
 //! Bounded private publication recovery beneath the externally configured cut.
 //! No directory scan or service-discovered pin; long replay is paged.
 use super::{
-    formal_live_config::ValidatedFormalLiveConfigV1, formal_live_service::FormalLiveHistoryResolver,
+    formal_live_config::ValidatedFormalLiveConfigV1,
+    formal_live_service::{FormalLiveHistoryResolver, FormalReadError},
 };
 use oasis7::{
     runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World},
@@ -160,7 +161,10 @@ pub(crate) fn replay_operation_anchor_from_fixed_origin(
 ) -> Result<VerifiedFormalReadAnchorV1, String> {
     let reader = super::formal_live_runtime::business_reader_for(validated)?;
     let resolver = resolver_from_validated(validated, reader)?;
-    Ok(resolver.replay_exact_origin(requested, deadline)?.anchor)
+    Ok(resolver
+        .replay_exact_origin(requested, deadline)
+        .map_err(|e| e.to_string())?
+        .anchor)
 }
 
 fn checked_permissions(
@@ -250,7 +254,9 @@ impl NativeHistoryResolver {
         let deadline = Instant::now()
             .checked_add(self.timeout)
             .ok_or("HistoryUnavailable: healthy activation replay deadline overflow")?;
-        let replayed = self.replay_exact_origin(&requested, deadline)?;
+        let replayed = self
+            .replay_exact_origin(&requested, deadline)
+            .map_err(|e| e.to_string())?;
         if replayed.activation.is_none()
             || replayed.anchor.head().record().position != last_position
             || replayed
@@ -273,14 +279,18 @@ impl NativeHistoryResolver {
         &self,
         requested: &FormalReadAnchorRefV1,
         deadline: Instant,
-    ) -> Result<ReplayedHistoryCut, String> {
+    ) -> Result<ReplayedHistoryCut, FormalReadError> {
         if Instant::now() >= deadline {
-            return Err("HistoryUnavailable: governance replay deadline exceeded".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: governance replay deadline exceeded".into(),
+            ));
         }
         if let Some(cached) = self
             .governance_verified
             .lock()
-            .map_err(|_| "HistoryUnavailable: governance verification cache unavailable")?
+            .map_err(|_| {
+                FormalReadError::Internal("governance verification cache unavailable".into())
+            })?
             .as_ref()
             && requested_anchor_matches(&cached.anchor, requested)?
             && let Some(copy) = cached.normal_cache_copy()
@@ -300,7 +310,7 @@ impl NativeHistoryResolver {
                         &self.writer_directory,
                         position,
                     )
-                    .map_err(ReplayFailure::Invalid)?
+                    .map_err(|e| ReplayFailure::Invalid(FormalReadError::Internal(e)))?
                 {
                     return Ok(ReplayStepProof {
                         proof,
@@ -313,12 +323,12 @@ impl NativeHistoryResolver {
             |position| {
                 self.activation_markers
                     .read(position)
-                    .map_err(ReplayFailure::Invalid)?
+                    .map_err(|e| ReplayFailure::Invalid(FormalReadError::Internal(e)))?
                     .map(|marker| {
                         if marker.boundary_position != position {
-                            return Err(ReplayFailure::Invalid(
+                            return Err(ReplayFailure::Invalid(FormalReadError::Integrity(
                                 "formal durable-set marker position mismatch".into(),
-                            ));
+                            )));
                         }
                         Ok(marker.step)
                     })
@@ -336,15 +346,15 @@ impl NativeHistoryResolver {
                 .map_err(ReplayFailure::Invalid)
             },
         )
-        .map_err(ReplayFailure::into_string)?;
+        .map_err(ReplayFailure::into_read_error)?;
         if Instant::now() >= deadline {
-            return Err("HistoryUnavailable: governance replay deadline exceeded".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: governance replay deadline exceeded".into(),
+            ));
         }
-        *self
-            .governance_verified
-            .lock()
-            .map_err(|_| "HistoryUnavailable: governance verification cache unavailable")? =
-            replayed.normal_cache_copy();
+        *self.governance_verified.lock().map_err(|_| {
+            FormalReadError::Internal("governance verification cache unavailable".into())
+        })? = replayed.normal_cache_copy();
         Ok(replayed)
     }
 
@@ -378,12 +388,12 @@ impl NativeHistoryResolver {
             |position| {
                 self.activation_markers
                     .read(position)
-                    .map_err(ReplayFailure::Invalid)?
+                    .map_err(|e| ReplayFailure::Invalid(FormalReadError::Internal(e)))?
                     .map(|marker| {
                         if marker.boundary_position != position {
-                            return Err(ReplayFailure::Invalid(
+                            return Err(ReplayFailure::Invalid(FormalReadError::Integrity(
                                 "formal durable-set marker position mismatch".into(),
-                            ));
+                            )));
                         }
                         Ok(marker.step)
                     })
@@ -401,10 +411,10 @@ impl NativeHistoryResolver {
         position: u64,
         pending_permission: Option<usize>,
         deadline: Instant,
-    ) -> Result<ReplayStepProof, String> {
+    ) -> Result<ReplayStepProof, FormalReadError> {
         if cursor.authority().durable_set_activation_digest().is_some() {
             return Err(
-                "HistoryUnavailable: post-activation proof is missing from exact local publication history".into(),
+                FormalReadError::HistoryUnavailable("HistoryUnavailable: post-activation proof is missing from exact local publication history".into()),
             );
         }
         let permission = pending_permission.map(|index| &self.permissions[index]);
@@ -416,9 +426,9 @@ impl NativeHistoryResolver {
         if restored.commit().record().position != position
             || restored.minimum() != &self.external_origin.head().head()
         {
-            return Err(
+            return Err(FormalReadError::Integrity(
                 "HistoryUnavailable: native proof fallback differs from replay cursor".into(),
-            );
+            ));
         }
         // The dual native restore already authenticated the complete candidate.
         // Carry it into the semantic callback instead of downloading the same
@@ -439,19 +449,23 @@ impl NativeHistoryResolver {
             VerifiedFormalReadAnchorV1,
             oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1,
         )>,
-        String,
+        FormalReadError,
     > {
         if cursor.checkpoint() == target.checkpoint() {
             return Ok(None);
         }
         let position = cursor.head().record().position;
-        let Some(marker) = self.activation_markers.read(position)? else {
+        let Some(marker) = self
+            .activation_markers
+            .read(position)
+            .map_err(FormalReadError::Internal)?
+        else {
             return Ok(None);
         };
         let current_authority_id = cursor
             .authority()
             .authority_id()
-            .map_err(|error| error.to_string())?;
+            .map_err(FormalReadError::from)?;
         let predecessor_authority_id = marker
             .step
             .transition
@@ -474,35 +488,37 @@ impl NativeHistoryResolver {
             .body
             .successor
             .authority_id()
-            .map_err(|error| error.to_string())?;
+            .map_err(FormalReadError::from)?;
         let requested = FormalReadAnchorRefV1 {
             position,
             record_id: marker_boundary.record_id.clone(),
             active_authority_id: successor_authority_id,
         };
         let replayed = self.replay_exact_origin(&requested, deadline)?;
-        let activation = replayed
-            .activation
-            .as_ref()
-            .ok_or("HistoryUnavailable: exact healthy activation replay is missing")?;
-        let predecessor = replayed
-            .activation_predecessor
-            .as_ref()
-            .ok_or("HistoryUnavailable: exact activation predecessor is missing")?;
+        let activation = replayed.activation.as_ref().ok_or_else(|| {
+            FormalReadError::Integrity(
+                "HistoryUnavailable: exact healthy activation replay is missing".into(),
+            )
+        })?;
+        let predecessor = replayed.activation_predecessor.as_ref().ok_or_else(|| {
+            FormalReadError::Integrity(
+                "HistoryUnavailable: exact activation predecessor is missing".into(),
+            )
+        })?;
         let boundary = predecessor
             .after_verified_commit(
                 activation.predecessor().clone(),
                 activation.boundary().clone(),
             )
-            .map_err(|error| error.to_string())?;
+            .map_err(FormalReadError::from)?;
         if boundary.checkpoint() != cursor.checkpoint()
             || !requested_anchor_matches(&replayed.anchor, &requested)?
             || replayed.activation_step.as_ref() != Some(&marker.step)
         {
-            return Err(
+            return Err(FormalReadError::Integrity(
                 "HistoryUnavailable: start-position activation differs from exact verified history"
                     .into(),
-            );
+            ));
         }
         Ok(Some((replayed.anchor, marker.step)))
     }
@@ -510,35 +526,42 @@ impl NativeHistoryResolver {
 
 impl FormalLiveHistoryResolver for NativeHistoryResolver {
     fn verify_governance_history(&self, anchor: &VerifiedFormalReadAnchorV1) -> Result<(), String> {
-        if anchor.authority().definition().profile_version != 2 {
-            return Ok(());
-        }
-        let deadline = Instant::now()
-            .checked_add(self.timeout)
-            .ok_or("HistoryUnavailable: startup governance deadline overflow")?;
-        let requested = FormalReadAnchorRefV1 {
-            position: anchor.head().record().position,
-            record_id: anchor.head().head().record_id.clone(),
-            active_authority_id: anchor
-                .authority()
-                .authority_id()
-                .map_err(|e| e.to_string())?,
-        };
-        let replayed = self.replay_exact_origin(&requested, deadline)?;
-        if replayed.anchor.checkpoint() != anchor.checkpoint()
-            || replayed
-                .anchor
-                .authority()
-                .context_digest()
-                .map_err(|e| e.to_string())?
-                != anchor
+        (|| -> Result<(), FormalReadError> {
+            if anchor.authority().definition().profile_version != 2 {
+                return Ok(());
+            }
+            let deadline = Instant::now().checked_add(self.timeout).ok_or_else(|| {
+                FormalReadError::Internal(
+                    "HistoryUnavailable: startup governance deadline overflow".into(),
+                )
+            })?;
+            let requested = FormalReadAnchorRefV1 {
+                position: anchor.head().record().position,
+                record_id: anchor.head().head().record_id.clone(),
+                active_authority_id: anchor
+                    .authority()
+                    .authority_id()
+                    .map_err(FormalReadError::from)?,
+            };
+            let replayed = self.replay_exact_origin(&requested, deadline)?;
+            if replayed.anchor.checkpoint() != anchor.checkpoint()
+                || replayed
+                    .anchor
                     .authority()
                     .context_digest()
-                    .map_err(|e| e.to_string())?
-        {
-            return Err("HistoryUnavailable: startup governance cut differs from writer".into());
-        }
-        Ok(())
+                    .map_err(FormalReadError::from)?
+                    != anchor
+                        .authority()
+                        .context_digest()
+                        .map_err(FormalReadError::from)?
+            {
+                return Err(FormalReadError::Integrity(
+                    "HistoryUnavailable: startup governance cut differs from writer".into(),
+                ));
+            }
+            Ok(())
+        })()
+        .map_err(|e| e.to_string())
     }
 
     fn prewarm_qualified_business_history(
@@ -578,7 +601,7 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             oasis7_client_api::world_service::FormalBusinessResultProofV1,
             Option<String>,
         )>,
-        String,
+        FormalReadError,
     > {
         business::result_from_commit(self, cut, correlation, scope, reader)
     }
@@ -593,36 +616,42 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             oasis7_client_api::world_service::FormalBusinessResultProofV1,
             Option<String>,
         )>,
-        String,
+        FormalReadError,
     > {
         business::result(self, cut, correlation, scope, reader)
     }
     fn origin_publication(
         &self,
         anchor: &FormalReadAnchorRefV1,
-    ) -> Result<FormalReadPublication, String> {
+    ) -> Result<FormalReadPublication, FormalReadError> {
         if self.active.definition().profile_version == 2 {
             return self.publication_from_exact_replay(anchor);
         }
-        let has_healthy_markers = !self.activation_markers.positions()?.is_empty();
+        let has_healthy_markers = !self
+            .activation_markers
+            .positions()
+            .map_err(FormalReadError::Internal)?
+            .is_empty();
         if !has_healthy_markers
             && anchor.active_authority_id
-                == self.active.authority_id().map_err(|e| e.to_string())?
+                == self.active.authority_id().map_err(FormalReadError::from)?
         {
             return self.publication(&self.restore(anchor.position, Some(&anchor.record_id))?);
         }
 
-        let deadline = Instant::now()
-            .checked_add(self.timeout)
-            .ok_or("HistoryUnavailable: origin replay deadline overflow")?;
+        let deadline = Instant::now().checked_add(self.timeout).ok_or_else(|| {
+            FormalReadError::Internal("HistoryUnavailable: origin replay deadline overflow".into())
+        })?;
         let replayed = self.replay_exact_origin(anchor, deadline)?;
         if Instant::now() >= deadline {
-            return Err("HistoryUnavailable: exact origin restore deadline exceeded".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: exact origin restore deadline exceeded".into(),
+            ));
         }
         if Instant::now() >= deadline {
-            return Err(
+            return Err(FormalReadError::HistoryUnavailable(
                 "HistoryUnavailable: exact origin material validation deadline exceeded".into(),
-            );
+            ));
         }
         if has_healthy_markers {
             self.publication_from_replayed_cut(replayed, deadline)
@@ -632,12 +661,21 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             FormalReadPublication::new(replayed.anchor, world)
         }
     }
-    fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, String> {
-        let deadline = Instant::now()
-            .checked_add(self.timeout)
-            .ok_or("HistoryUnavailable: fixed publication deadline overflow")?;
+    fn fixed_publication(
+        &self,
+        commit: &CommitRef,
+    ) -> Result<FormalReadPublication, FormalReadError> {
+        let deadline = Instant::now().checked_add(self.timeout).ok_or_else(|| {
+            FormalReadError::Internal(
+                "HistoryUnavailable: fixed publication deadline overflow".into(),
+            )
+        })?;
         if self.active.definition().profile_version == 2
-            || !self.activation_markers.positions()?.is_empty()
+            || !self
+                .activation_markers
+                .positions()
+                .map_err(FormalReadError::Internal)?
+                .is_empty()
         {
             let requested = self.anchor_ref_for_position(
                 commit.position,
@@ -654,16 +692,20 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         origin: &VerifiedFormalReadAnchorV1,
         current: &VerifiedFormalReadAnchorV1,
         max_steps: usize,
-    ) -> Result<FormalReadPublication, String> {
+    ) -> Result<FormalReadPublication, FormalReadError> {
         if max_steps == 0
             || max_steps > MAX_FORMAL_HISTORY_STEPS
             || origin.head().record().position > current.head().record().position
         {
-            return Err("formal forward page bounds".into());
+            return Err(FormalReadError::Integrity(
+                "formal forward page bounds".into(),
+            ));
         }
-        let deadline = Instant::now()
-            .checked_add(self.timeout)
-            .ok_or("HistoryUnavailable: forward publication deadline overflow")?;
+        let deadline = Instant::now().checked_add(self.timeout).ok_or_else(|| {
+            FormalReadError::Internal(
+                "HistoryUnavailable: forward publication deadline overflow".into(),
+            )
+        })?;
         let position = origin
             .head()
             .record()
@@ -671,7 +713,11 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             .saturating_add(max_steps as u64)
             .min(current.head().record().position);
         if self.active.definition().profile_version == 2
-            || !self.activation_markers.positions()?.is_empty()
+            || !self
+                .activation_markers
+                .positions()
+                .map_err(FormalReadError::Internal)?
+                .is_empty()
         {
             let requested = if position == current.head().record().position {
                 FormalReadAnchorRefV1 {
@@ -680,7 +726,7 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                     active_authority_id: current
                         .authority()
                         .authority_id()
-                        .map_err(|error| error.to_string())?,
+                        .map_err(FormalReadError::from)?,
                 }
             } else {
                 self.anchor_ref_for_position(position, None, deadline)?
@@ -695,10 +741,10 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         origin: &VerifiedFormalReadAnchorV1,
         target: &VerifiedFormalReadAnchorV1,
         max_steps: usize,
-    ) -> Result<FormalReadHistoryV1, String> {
-        let deadline = Instant::now()
-            .checked_add(self.timeout)
-            .ok_or("HistoryUnavailable: formal history deadline overflow")?;
+    ) -> Result<FormalReadHistoryV1, FormalReadError> {
+        let deadline = Instant::now().checked_add(self.timeout).ok_or_else(|| {
+            FormalReadError::Internal("HistoryUnavailable: formal history deadline overflow".into())
+        })?;
         let start = origin.head().record().position;
         let end = target.head().record().position;
         if max_steps == 0
@@ -706,7 +752,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             || end < start
             || end - start > max_steps as u64
         {
-            return Err("HistoryUnavailable: formal history requires another bounded page".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: formal history requires another bounded page".into(),
+            ));
         }
         let mut cursor = origin.clone();
         let mut steps = Vec::with_capacity((end - start) as usize);
@@ -726,10 +774,10 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         )?;
         if let Some((activated, step)) = self.activation_at_start(&cursor, target, deadline)? {
             if steps.len() >= max_steps {
-                return Err(
+                return Err(FormalReadError::HistoryUnavailable(
                     "HistoryUnavailable: durable-set activation requires another bounded page"
                         .into(),
-                );
+                ));
             }
             cursor = activated;
             steps.push(FormalReadStepV1::DurableSetActivation(Box::new(step)));
@@ -737,7 +785,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         if start < end {
             for position in start + 1..=end {
                 if Instant::now() >= deadline {
-                    return Err("HistoryUnavailable: formal history page deadline exceeded".into());
+                    return Err(FormalReadError::HistoryUnavailable(
+                        "HistoryUnavailable: formal history page deadline exceeded".into(),
+                    ));
                 }
                 apply_ready_recoveries(
                     &mut cursor,
@@ -752,11 +802,13 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                 let proof = match super::execution_bridge::formal_writer::read_published_proof_at(
                     &self.writer_directory,
                     position,
-                )? {
+                )
+                .map_err(FormalReadError::Internal)?
+                {
                     Some(proof) => proof,
                     None if cursor.authority().durable_set_activation_digest().is_some() => {
                         return Err(
-                            "HistoryUnavailable: post-activation proof is missing from exact local publication history".into(),
+                            FormalReadError::HistoryUnavailable("HistoryUnavailable: post-activation proof is missing from exact local publication history".into()),
                         );
                     }
                     None => self
@@ -765,7 +817,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                         .clone(),
                 };
                 if Instant::now() >= deadline {
-                    return Err("HistoryUnavailable: formal history page deadline exceeded".into());
+                    return Err(FormalReadError::HistoryUnavailable(
+                        "HistoryUnavailable: formal history page deadline exceeded".into(),
+                    ));
                 }
                 let branch_is_normal = proof.decision.branch == FormalCompletionBranchV1::Normal;
                 let predecessor = cursor.clone();
@@ -779,25 +833,31 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                 } else if branch_is_normal {
                     cursor = advance_normal_history_proof(&cursor, &proof)?;
                 } else {
-                    return Err("history recovery permission unavailable at completion".into());
+                    return Err(FormalReadError::Integrity(
+                        "history recovery permission unavailable at completion".into(),
+                    ));
                 }
                 pending_permission = None;
                 previous_permission = None;
                 previous_emitted_in_page = false;
                 if steps.len() >= max_steps {
-                    return Err(
+                    return Err(FormalReadError::Integrity(
                         "HistoryUnavailable: recovery transitions require another bounded page"
                             .into(),
-                    );
+                    ));
                 }
                 steps.push(FormalReadStepV1::Commit(Box::new(proof)));
-                if let Some(marker) = self.activation_markers.read(position)? {
+                if let Some(marker) = self
+                    .activation_markers
+                    .read(position)
+                    .map_err(FormalReadError::Internal)?
+                {
                     // The boundary is first qualified under the old authority;
                     // an activation is a separate page step and must never
                     // replace an unresolved recovery completion.
                     if completion_permission.is_some() || !branch_is_normal {
                         return Err(
-                            "HistoryUnavailable: healthy durable-set activation overlaps recovery completion".into(),
+                            FormalReadError::Integrity("HistoryUnavailable: healthy durable-set activation overlaps recovery completion".into()),
                         );
                     }
                     if cursor.checkpoint() == target.checkpoint() {
@@ -805,8 +865,7 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                     }
                     if steps.len() >= max_steps {
                         return Err(
-                            "HistoryUnavailable: durable-set activation requires another bounded page"
-                                .into(),
+                            FormalReadError::HistoryUnavailable("HistoryUnavailable: durable-set activation requires another bounded page".into()),
                         );
                     }
                     let (activated, _) =
@@ -819,7 +878,9 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             }
         }
         if Instant::now() >= deadline {
-            return Err("HistoryUnavailable: formal history page deadline exceeded".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: formal history page deadline exceeded".into(),
+            ));
         }
         // A recovery can be sealed exactly at the requested target cut. Emit
         // its evidence after the final commit so readers can derive the target
@@ -835,16 +896,20 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             max_steps,
         )?;
         if Instant::now() >= deadline {
-            return Err("HistoryUnavailable: formal history page deadline exceeded".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: formal history page deadline exceeded".into(),
+            ));
         }
         require_exact_history_target(&cursor, target)?;
         let history = FormalReadHistoryV1 {
             schema_version: 1,
             steps,
         };
-        history.encode_hex()?;
+        history.encode_hex().map_err(FormalReadError::Integrity)?;
         if Instant::now() >= deadline {
-            return Err("HistoryUnavailable: formal history page deadline exceeded".into());
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: formal history page deadline exceeded".into(),
+            ));
         }
         Ok(history)
     }
@@ -852,21 +917,27 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
     fn full_sync_material(
         &self,
         anchor: &VerifiedFormalReadAnchorV1,
-    ) -> Result<ClosedRecord, String> {
+    ) -> Result<ClosedRecord, FormalReadError> {
         if anchor.authority().definition().profile_version == 2
             || anchor.authority().durable_set_activation_digest().is_some()
-            || !self.activation_markers.positions()?.is_empty()
+            || !self
+                .activation_markers
+                .positions()
+                .map_err(FormalReadError::Internal)?
+                .is_empty()
         {
-            let deadline = Instant::now()
-                .checked_add(self.timeout)
-                .ok_or("HistoryUnavailable: full-sync replay deadline overflow")?;
+            let deadline = Instant::now().checked_add(self.timeout).ok_or_else(|| {
+                FormalReadError::Internal(
+                    "HistoryUnavailable: full-sync replay deadline overflow".into(),
+                )
+            })?;
             let requested = FormalReadAnchorRefV1 {
                 position: anchor.head().record().position,
                 record_id: anchor.head().head().record_id.clone(),
                 active_authority_id: anchor
                     .authority()
                     .authority_id()
-                    .map_err(|error| error.to_string())?,
+                    .map_err(FormalReadError::from)?,
             };
             let replayed = self.replay_exact_origin(&requested, deadline)?;
             if replayed.anchor.checkpoint() != anchor.checkpoint()
@@ -874,15 +945,15 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                     .anchor
                     .authority()
                     .context_digest()
-                    .map_err(|e| e.to_string())?
+                    .map_err(FormalReadError::from)?
                     != anchor
                         .authority()
                         .context_digest()
-                        .map_err(|e| e.to_string())?
+                        .map_err(FormalReadError::from)?
             {
-                return Err(
+                return Err(FormalReadError::Integrity(
                     "HistoryUnavailable: full-sync target differs from external replay".into(),
-                );
+                ));
             }
             return self.governance_material_at(
                 &replayed.anchor,
@@ -898,22 +969,26 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
             || restored.commit().finalizing_authority_id()
                 != anchor.head().finalizing_authority_id()
         {
-            return Err("HistoryUnavailable: full-sync native cut differs from publication".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: full-sync native cut differs from publication".into(),
+            ));
         }
         let verified_anchor = self.anchor_for(&restored)?;
         if verified_anchor
             .authority()
             .authority_id()
-            .map_err(|e| e.to_string())?
+            .map_err(FormalReadError::from)?
             != anchor
                 .authority()
                 .authority_id()
-                .map_err(|e| e.to_string())?
+                .map_err(FormalReadError::from)?
             || verified_anchor.head().record() != anchor.head().record()
             || verified_anchor.head().finalizing_authority_id()
                 != anchor.head().finalizing_authority_id()
         {
-            return Err("HistoryUnavailable: full-sync authority context differs".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: full-sync authority context differs".into(),
+            ));
         }
         self.world_for(&verified_anchor, restored.material())?;
         Ok(restored.material().clone())
@@ -923,20 +998,27 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
         &self,
         _anchor: &VerifiedFormalReadAnchorV1,
         digest: &str,
-    ) -> Result<Option<Vec<u8>>, String> {
+    ) -> Result<Option<Vec<u8>>, FormalReadError> {
         if digest.len() != 64
             || !digest
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
-            return Err("formal full-sync CAS digest shape".into());
+            return Err(FormalReadError::Integrity(
+                "formal full-sync CAS digest shape".into(),
+            ));
         }
-        let object = self.business_reader.read_node(digest)?;
+        let object = self
+            .business_reader
+            .read_node_for_read(digest)
+            .map_err(FormalReadError::from)?;
         if object
             .as_ref()
             .is_some_and(|bytes| blake3::hash(bytes).to_hex().as_str() != digest)
         {
-            return Err("formal full-sync retained CAS hash mismatch".into());
+            return Err(FormalReadError::Integrity(
+                "formal full-sync retained CAS hash mismatch".into(),
+            ));
         }
         Ok(object)
     }

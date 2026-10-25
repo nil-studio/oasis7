@@ -129,6 +129,13 @@ fn business_reader_requires_dual_replica_content_addressed_bytes() {
         None
     );
     assert!(verify_dual_business_node(&digest, Some(bytes.clone()), None).is_err());
+    let divergent =
+        verify_dual_business_node(&digest, Some(bytes.clone()), Some(b"different".to_vec()))
+            .unwrap_err();
+    assert!(matches!(
+        crate::formal_live_service::FormalReadError::from(divergent),
+        crate::formal_live_service::FormalReadError::Integrity(_)
+    ));
     assert!(
         verify_dual_business_node(&digest, Some(bytes.clone()), Some(b"different".to_vec()))
             .is_err()

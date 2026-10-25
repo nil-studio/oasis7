@@ -168,6 +168,23 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-4
 
 provider 只是材料来源；目标 cut、原请求身份和全程预算在换 provider、分页或重试时保持。逐页/对象验签、hash、连续性及权限，完整闭包与本地持久安装前不推进对外 verified head；失败保留上一次合法 cut 和明确 blocker。private full-state 读权及撤权按[安全治理主责](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)执行，同步授权不免除最低水位或 proof 验证，也不能被 public observer 权限替代。
 
+<a id="formal-read-error-classification"></a>
+**正式读取错误与路由映射。**Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。view、full-sync manifest/object 与共享 resolver 从产生处保留请求/绑定拒绝、实际读授权拒绝、publication/runtime 未就绪、合格历史不可用、内部 I/O/缓存/编码/不变量失败、历史完整性/副本分歧六类；诊断文字仅用于展示，不参与 status/code 决策。用户输入解析失败属于请求拒绝，服务端缓存材料解析失败属于内部失败或完整性失败；经过授权函数不能将其中的 source、安装、编码或响应构造失败全部改为授权拒绝。底层已有结构化错误时按其分支和调用来源转换，不先转为文字推断。
+
+| 产生位置与内部类别 | view status/code | full-sync manifest/object status/code |
+| --- | --- | --- |
+| 严格 HTTP 请求解析失败 | 400 / `invalid_request` | 400 / `invalid_request` |
+| 请求签名、world/cut/anchor 绑定拒绝 | 400 / `formal_read_rejected` | 400 / `full_sync_rejected` |
+| 当前 audience、V1 grant 或 V3 target/lease 实际拒绝 | 400 / `formal_read_rejected` | 403 / `read_grant_rejected` |
+| runtime/publication 未就绪 | 503 / `formal_read_rejected` | 503 / `not_ready` |
+| 原语义下缺少合格历史或越过可读历史界限 | 410 / `formal_read_rejected` | 410 / `history_unavailable` |
+| 内部 I/O、缓存、编码、不变量失败 | 400 / `formal_read_rejected` | 400 / `full_sync_rejected` |
+| 历史完整性、proof 或副本分歧 | 400 / `formal_read_rejected` | 400 / `full_sync_rejected` |
+
+native `FormalError::HistoryUnavailable` 只承接缺少合格历史的明确来源；`Io` 保留为内部失败，hash/proof/副本冲突保留为完整性失败。现有 business CAS reader 提供保留 `FormalError` 的读取 hook；旧 String reader 的不透明 source 错误保守归为 I/O，复合 proof 计算用本次调用局部的 source 记录保留来源，无 source 故障的校验错误归为完整性失败，不跨请求共享错误状态。成功响应、proof、grant 和持久材料的编码保持；旧 native 客户端若不能解码新增错误分支，仍须失败关闭，不能把解码失败当成合格历史不存在。
+
+内部分类不自动将旧拒绝升级为 500/503；上表明确纠正诊断中的 `node`、`grant`、`authorized`、`not ready` 等偶然文本命中。formal lookup 保留独立的 503 / `formal_lookup_unavailable`，resolver Err 不变为 `Ok(None)` 或成功 continuation。HTTP helper 保留 api_version、path/request digest 绑定、签名及消息长度限制；request digest 或 response signing 失败仍为 500 / `signature_failure` 的普通错误 DTO，不能声称所有失败都有签名 envelope。V3 gate 保持[原始证据验证、锁内状态比较、响应构造与释放前时间复查顺序](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-read-gate-v3)，响应构造错误原类穿过 gate；不新增重试、历史恢复写入或 effect-publication 失败后的副作用机会。
+
 #### des-p2p-full-sync-checkpoint-capacity-v1
 
 Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。当前[历史页链](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_history.rs)从外部 C0 重新验证保留页：上限 65,536 页、4 GiB proof 字节、64 MiB manifest 链；[retained tree](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_cas.rs)上限 65,536 节点，[provider](../../crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync_providers.rs) 单轮总预算上限 512 MiB。这些是当前实现支持边界，不是长期规模承诺。另一路[observer/watch](blockchain/persistent-world-node-lifecycle.runbook.md#cli-与成员查询)的 32 帧/16 MiB cursor 重基仍依赖单次 C0→head inline 历史≤128 步；不能用 full-sync 页 API 证明 watch 已自动续页。

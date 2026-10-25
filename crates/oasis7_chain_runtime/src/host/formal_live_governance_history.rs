@@ -11,9 +11,11 @@ pub(super) struct GovernanceHistoryCursor {
     projection: oasis7_runtime::VerifiedGovernanceHistorySnapshot,
 }
 
-fn remaining(deadline: Instant) -> Result<(), String> {
+fn remaining(deadline: Instant) -> Result<(), FormalReadError> {
     if Instant::now() >= deadline {
-        return Err("HistoryUnavailable: governance history deadline exceeded".into());
+        return Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: governance history deadline exceeded".into(),
+        ));
     }
     Ok(())
 }
@@ -27,7 +29,7 @@ impl NativeHistoryResolver {
         proof: &FormalQualifiedCommitProofV1,
         candidate: Option<&FormalCandidateMaterialV1>,
         deadline: Instant,
-    ) -> Result<(), String> {
+    ) -> Result<(), FormalReadError> {
         remaining(deadline)?;
         let before_version = predecessor.authority().definition().profile_version;
         let after_version = anchor.authority().definition().profile_version;
@@ -35,17 +37,19 @@ impl NativeHistoryResolver {
             return Ok(());
         }
         if before_version != 2 || after_version != 2 {
-            return Err(
+            return Err(FormalReadError::Integrity(
                 "HistoryUnavailable: governance history profile transition unsupported".into(),
-            );
+            ));
         }
         if anchor.head().record().parent_record_id != predecessor.head().head().record_id {
-            return Err("HistoryUnavailable: governance history predecessor mismatch".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: governance history predecessor mismatch".into(),
+            ));
         }
         let context = predecessor
             .authority()
             .context_digest()
-            .map_err(|e| e.to_string())?;
+            .map_err(FormalReadError::from)?;
         if cursor.as_ref().is_none_or(|cached| {
             cached.checkpoint != predecessor.checkpoint() || cached.authority_context != context
         }) {
@@ -58,17 +62,25 @@ impl NativeHistoryResolver {
         let next = self.governance_projection_at(anchor, Some(proof), candidate, deadline)?;
         cursor
             .as_ref()
-            .ok_or("HistoryUnavailable: governance predecessor unavailable")?
+            .ok_or_else(|| {
+                FormalReadError::Integrity(
+                    "HistoryUnavailable: governance predecessor unavailable".into(),
+                )
+            })?
             .projection
-            .verify_successor(&next, || remaining(deadline))
-            .map_err(|e| format!("HistoryUnavailable: governance history authentication: {e}"))?;
+            .verify_successor(&next, || remaining(deadline).map_err(|e| e.to_string()))
+            .map_err(|e| {
+                FormalReadError::Integrity(format!(
+                    "HistoryUnavailable: governance history authentication: {e}"
+                ))
+            })?;
         remaining(deadline)?;
         *cursor = Some(GovernanceHistoryCursor {
             checkpoint: anchor.checkpoint(),
             authority_context: anchor
                 .authority()
                 .context_digest()
-                .map_err(|e| e.to_string())?,
+                .map_err(FormalReadError::from)?,
             projection: next,
         });
         Ok(())
@@ -80,11 +92,14 @@ impl NativeHistoryResolver {
         proof: Option<&FormalQualifiedCommitProofV1>,
         candidate: Option<&FormalCandidateMaterialV1>,
         deadline: Instant,
-    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, String> {
+    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, FormalReadError> {
         remaining(deadline)?;
         if let Some(candidate) = candidate {
-            let proof =
-                proof.ok_or("HistoryUnavailable: governance candidate lacks verified proof")?;
+            let proof = proof.ok_or_else(|| {
+                FormalReadError::Integrity(
+                    "HistoryUnavailable: governance candidate lacks verified proof".into(),
+                )
+            })?;
             let cut = self.governance_cut(anchor, Some(proof.clone()))?;
             let expanded = self.validate_material_for_replayed_cut(&cut, candidate, proof)?;
             return self.governance_projection_from_material(
@@ -105,13 +120,16 @@ impl NativeHistoryResolver {
         material: &ClosedRecord,
         expanded: Option<Vec<u8>>,
         deadline: Instant,
-    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, String> {
+    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, FormalReadError> {
         remaining(deadline)?;
         let bytes = match expanded {
             Some(bytes) => bytes,
-            None => material.snapshot_bytes().map_err(|e| e.to_string())?,
+            None => material
+                .snapshot_bytes()
+                .map_err(|e| FormalReadError::Integrity(e.to_string()))?,
         };
-        let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)?;
+        let parent = oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)
+            .map_err(FormalReadError::Integrity)?;
         let journal = replay::decode_journal_role(
             material,
             oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole::Journal,
@@ -122,7 +140,8 @@ impl NativeHistoryResolver {
                 journal,
                 parent,
                 self.business_reader.clone(),
-            )?;
+            )
+            .map_err(FormalReadError::Integrity)?;
         remaining(deadline)?;
         Ok(projection)
     }
@@ -132,7 +151,7 @@ impl NativeHistoryResolver {
         anchor: &VerifiedFormalReadAnchorV1,
         known_proof: Option<&FormalQualifiedCommitProofV1>,
         deadline: Instant,
-    ) -> Result<ClosedRecord, String> {
+    ) -> Result<ClosedRecord, FormalReadError> {
         self.governance_material_with_snapshot(anchor, known_proof, deadline)
             .map(|(material, _)| material)
     }
@@ -142,13 +161,14 @@ impl NativeHistoryResolver {
         anchor: &VerifiedFormalReadAnchorV1,
         known_proof: Option<&FormalQualifiedCommitProofV1>,
         deadline: Instant,
-    ) -> Result<(ClosedRecord, Option<Vec<u8>>), String> {
+    ) -> Result<(ClosedRecord, Option<Vec<u8>>), FormalReadError> {
         remaining(deadline)?;
         let position = anchor.head().record().position;
         let local = super::super::execution_bridge::formal_writer::read_published_candidate_at(
             &self.writer_directory,
             position,
-        )?;
+        )
+        .map_err(FormalReadError::Internal)?;
         let proof = known_proof
             .cloned()
             .or_else(|| local.as_ref().map(|(_, proof)| proof.clone()));
@@ -162,7 +182,7 @@ impl NativeHistoryResolver {
         } else {
             let restored = self.restore_exact_history_cut(&cut, deadline)?;
             let material = restored.material().clone();
-            let expanded = oasis7_distfs::controlled_authority::formal::verify_record_material_retaining_snapshot(anchor.head().record(), &material).map_err(|e| e.to_string())?;
+            let expanded = oasis7_distfs::controlled_authority::formal::verify_record_material_retaining_snapshot(anchor.head().record(), &material).map_err(FormalReadError::from)?;
             (material, expanded)
         };
         remaining(deadline)?;
@@ -173,7 +193,7 @@ impl NativeHistoryResolver {
         &self,
         anchor: &VerifiedFormalReadAnchorV1,
         proof: Option<FormalQualifiedCommitProofV1>,
-    ) -> Result<ReplayedHistoryCut, String> {
+    ) -> Result<ReplayedHistoryCut, FormalReadError> {
         let position = anchor.head().record().position;
         let recovery_digest = proof.as_ref().and_then(|p| {
             p.decision
@@ -205,9 +225,9 @@ impl NativeHistoryResolver {
             .collect::<Vec<_>>();
         let target_recovery = if needs_recovery {
             if matches.len() != 1 {
-                return Err(
+                return Err(FormalReadError::Integrity(
                     "HistoryUnavailable: governance cut lacks unique recovery context".into(),
-                );
+                ));
             }
             matches.first().copied()
         } else {

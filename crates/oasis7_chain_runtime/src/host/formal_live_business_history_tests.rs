@@ -177,7 +177,7 @@ fn corrupt_proof_error_is_not_converted_to_an_optional_warmup_miss() {
     let reader = CacheRecorder::default();
     let result = finish_hint(
         Err(super::super::ReplayFailure::Invalid(
-            "HistoryUnavailable: invalid protected proof".into(),
+            FormalReadError::Integrity("HistoryUnavailable: invalid protected proof".into()),
         )),
         &reader,
     );
@@ -490,4 +490,68 @@ fn cache_installation_crossing_deadline_cannot_issue_prewarm_receipt() {
         reader.installed.load(Ordering::SeqCst),
         "the regression must cross its deadline during actual cache installation"
     );
+}
+
+pub(super) struct LookupTiming {
+    enabled: bool,
+    started: std::time::Instant,
+}
+
+impl LookupTiming {
+    pub(super) fn new() -> Self {
+        let enabled = std::env::var_os("OASIS7_FORMAL_LOOKUP_TIMING").is_some();
+        let timing = Self {
+            enabled,
+            started: std::time::Instant::now(),
+        };
+        if enabled {
+            eprintln!("formal_lookup_timing stage=lookup event=start elapsed_ms=0");
+        }
+        timing
+    }
+
+    pub(super) fn enter(&self, stage: &'static str) -> Option<std::time::Instant> {
+        if self.enabled {
+            eprintln!(
+                "formal_lookup_timing stage={stage} event=begin elapsed_ms={}",
+                self.started.elapsed().as_millis()
+            );
+            Some(std::time::Instant::now())
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn finish(&self, stage: &'static str, started: Option<std::time::Instant>) {
+        if let Some(started) = started {
+            eprintln!(
+                "formal_lookup_timing stage={stage} event=end stage_ms={} elapsed_ms={}",
+                started.elapsed().as_millis(),
+                self.started.elapsed().as_millis()
+            );
+        }
+    }
+}
+
+#[test]
+fn full_sync_business_object_uses_typed_reader_source() {
+    use oasis7_distfs::controlled_authority::formal::FormalError;
+    struct Divergent;
+    impl BusinessIndexNodeReader for Divergent {
+        fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
+            panic!("full-sync must retain typed CAS provenance")
+        }
+        fn read_node_for_read(&self, _: &str) -> Result<Option<Vec<u8>>, FormalError> {
+            Err(FormalError::Conflict(
+                "grant node not ready HistoryUnavailable".into(),
+            ))
+        }
+    }
+    let (_, _, anchor, _) = fixtures::actual_world_initial_fixture();
+    let mut resolver = prewarm_resolver(&anchor, Arc::new(CacheRecorder::default()));
+    resolver.business_reader = Arc::new(Divergent);
+    assert!(matches!(
+        resolver.full_sync_business_object(&anchor, &fixtures::h(1)),
+        Err(FormalReadError::Integrity(_))
+    ));
 }

@@ -6,6 +6,7 @@ use super::{
     projection::WorldServiceProjection,
     wire::{SignedReadRequest, VIEW_PATH},
 };
+use crate::formal_read_error::{FormalReadError, FormalReadResult};
 use oasis7_client_api::world_service::*;
 use oasis7_formal_protocol::controlled_authority::formal::*;
 use oasis7_runtime::{World, blake3_hex};
@@ -17,31 +18,38 @@ pub struct FormalReadPublication {
     tree: ProjectionCommitmentsV1,
 }
 impl FormalReadPublication {
-    pub fn new(anchor: VerifiedFormalReadAnchorV1, world: World) -> Result<Self, String> {
+    pub fn new(anchor: VerifiedFormalReadAnchorV1, world: World) -> FormalReadResult<Self> {
         let record = anchor.head().record();
         let snapshot = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| FormalReadError::Internal(e.to_string()))?;
         let manifest = &world.snapshot().chain_resource_manifest;
         if blake3_hex(&snapshot) != record.after_state_root
             || manifest.world_id != record.world.world_id
             || manifest.chain_id != record.world.chain_id
             || manifest.genesis_ref.as_deref() != Some(record.world.genesis_digest.as_str())
         {
-            return Err("formal publication World differs from verified canonical cut".into());
+            return Err(FormalReadError::Integrity(
+                "formal publication World differs from verified canonical cut".into(),
+            ));
         }
         let governing = world
             .current_cognition_runtime_binding()
-            .map_err(|e| format!("{e:?}"))?
+            .map_err(|e| FormalReadError::Integrity(format!("{e:?}")))?
             .runtime_manifest_hash
             .to_string()
             .strip_prefix("blake3:")
-            .ok_or("formal publication governing encoding")?
+            .ok_or_else(|| {
+                FormalReadError::Integrity("formal publication governing encoding".into())
+            })?
             .to_owned();
-        let tree = crate::formal_projection::commitments_for_world(&world)?;
-        if governing != record.governing_manifest_digest || tree.root()? != record.projection_root {
-            return Err(
+        let tree = crate::formal_projection::commitments_for_world(&world)
+            .map_err(FormalReadError::Internal)?;
+        if governing != record.governing_manifest_digest
+            || tree.root().map_err(FormalReadError::Internal)? != record.projection_root
+        {
+            return Err(FormalReadError::Integrity(
                 "formal publication governing/projection root differs from canonical cut".into(),
-            );
+            ));
         }
         Ok(Self {
             anchor,
@@ -65,8 +73,8 @@ impl FormalReadPublication {
         (self.anchor, self.world)
     }
     /// Apply current owner/delegation rules before exporting even an older cut.
-    pub fn authorize_audience(&self, scope: &str, reader: &str) -> Result<(), String> {
-        self.projection(scope, reader).map(|_| ())
+    pub fn authorize_audience(&self, scope: &str, reader: &str) -> FormalReadResult<()> {
+        self.authorized_agent(scope, reader).map(|_| ())
     }
     /// Export this exact qualified cut to an already authenticated subject.
     /// HTTP adapters verify the operation signature and current authorization
@@ -75,10 +83,10 @@ impl FormalReadPublication {
         &self,
         request: &ReadWorldViewRequest,
         reader: &str,
-    ) -> Result<ReadWorldViewResponse<WorldServiceProjection>, String> {
+    ) -> FormalReadResult<ReadWorldViewResponse<WorldServiceProjection>> {
         request
             .validate_formal_shape()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| FormalReadError::RequestRejected(error.to_string()))?;
         let expected = FormalReadAnchorRefV1 {
             position: self.anchor.head().record().position,
             record_id: self.anchor.head().head().record_id,
@@ -86,7 +94,7 @@ impl FormalReadPublication {
                 .anchor
                 .authority()
                 .authority_id()
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| FormalReadError::Integrity(error.to_string()))?,
         };
         if request.formal_anchor.as_ref() != Some(&expected)
             || request.fixed_commit.is_some()
@@ -94,7 +102,9 @@ impl FormalReadPublication {
             || request.world.world_id != self.anchor.head().record().world.world_id
             || request.world.genesis_digest != self.anchor.head().record().world.genesis_digest
         {
-            return Err("exact publication request binding".into());
+            return Err(FormalReadError::RequestRejected(
+                "exact publication request binding".into(),
+            ));
         }
         self.response(
             request,
@@ -106,28 +116,43 @@ impl FormalReadPublication {
             &self.anchor,
         )
     }
-    fn projection(&self, scope: &str, reader: &str) -> Result<WorldServiceProjection, String> {
-        let agent = if scope == "public" {
-            None
+    fn authorized_agent<'a>(
+        &self,
+        scope: &'a str,
+        reader: &str,
+    ) -> FormalReadResult<Option<&'a str>> {
+        if scope == "public" {
+            return Ok(None);
+        }
+        let agent = scope
+            .strip_prefix("agent:")
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                FormalReadError::RequestRejected("unsupported formal visibility scope".into())
+            })?;
+        let generation = if agent_authority::owner_public_key(&self.world, agent)
+            .map_err(FormalReadError::GrantRejected)?
+            == reader
+        {
+            0
         } else {
-            let agent = scope
-                .strip_prefix("agent:")
-                .filter(|id| !id.is_empty())
-                .ok_or("unsupported formal visibility scope")?;
-            let generation = if agent_authority::owner_public_key(&self.world, agent)? == reader {
-                0
-            } else {
-                self.world
-                    .capability_revocation_state()
-                    .agent_signer_delegations
-                    .get(agent)
-                    .ok_or("formal scope delegation unavailable")?
-                    .generation
-            };
-            agent_authority::validate_agent_signer(&self.world, agent, reader, generation)?;
-            Some(agent)
+            self.world
+                .capability_revocation_state()
+                .agent_signer_delegations
+                .get(agent)
+                .ok_or_else(|| {
+                    FormalReadError::GrantRejected("formal scope delegation unavailable".into())
+                })?
+                .generation
         };
+        agent_authority::validate_agent_signer(&self.world, agent, reader, generation)
+            .map_err(FormalReadError::GrantRejected)?;
+        Ok(Some(agent))
+    }
+    fn projection(&self, scope: &str, reader: &str) -> FormalReadResult<WorldServiceProjection> {
+        let agent = self.authorized_agent(scope, reader)?;
         crate::projection::from_formal_committed_world(&self.world, agent, reader)
+            .map_err(FormalReadError::Internal)
     }
     fn response(
         &self,
@@ -135,7 +160,7 @@ impl FormalReadPublication {
         reader: &str,
         history: &FormalReadHistoryV1,
         origin: &VerifiedFormalReadAnchorV1,
-    ) -> Result<ReadWorldViewResponse<WorldServiceProjection>, String> {
+    ) -> FormalReadResult<ReadWorldViewResponse<WorldServiceProjection>> {
         let view = self.projection(&request.scope_id, reader)?;
         let audience = if request.scope_id == "public" {
             ProjectionAudienceV1::public()
@@ -144,16 +169,22 @@ impl FormalReadPublication {
                 request
                     .scope_id
                     .strip_prefix("agent:")
-                    .ok_or("formal agent scope")?,
+                    .ok_or_else(|| FormalReadError::RequestRejected("formal agent scope".into()))?,
                 reader.into(),
-            )?
+            )
+            .map_err(FormalReadError::Integrity)?
         };
-        let inclusion = self.tree.inclusion(&audience)?;
-        inclusion.verify(
-            &audience,
-            &view,
-            &self.anchor.head().record().projection_root,
-        )?;
+        let inclusion = self
+            .tree
+            .inclusion(&audience)
+            .map_err(FormalReadError::Integrity)?;
+        inclusion
+            .verify(
+                &audience,
+                &view,
+                &self.anchor.head().record().projection_root,
+            )
+            .map_err(FormalReadError::Integrity)?;
         let commit = committed_reference(&self.anchor, &view)?;
         let anchor = FormalReadAnchorRefV1 {
             position: origin.head().record().position,
@@ -161,23 +192,24 @@ impl FormalReadPublication {
             active_authority_id: origin
                 .authority()
                 .authority_id()
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| FormalReadError::Integrity(e.to_string()))?,
         };
         let continuation = EventCursor {
             stream_id: authority::request_digest(
                 "formal-events-v1",
                 &(&commit.world, &request.scope_id),
-            )?,
+            )
+            .map_err(FormalReadError::Internal)?,
             scope_id: request.scope_id.clone(),
             era: view
                 .formal_commit_header
                 .as_ref()
-                .ok_or("formal event header")?
+                .ok_or_else(|| FormalReadError::Integrity("formal event header".into()))?
                 .event_id_era,
             sequence: view
                 .formal_commit_header
                 .as_ref()
-                .ok_or("formal event header")?
+                .ok_or_else(|| FormalReadError::Integrity("formal event header".into()))?
                 .journal_high_watermark,
             commit: commit.clone(),
         };
@@ -189,7 +221,7 @@ impl FormalReadPublication {
                 schema_version: 1,
                 profile: FormalReadProfileV1::controlled(),
                 anchor,
-                history_cbor_hex: history.encode_hex()?,
+                history_cbor_hex: history.encode_hex().map_err(FormalReadError::Internal)?,
                 projection: FormalProjectionInclusionV1 {
                     schema_version: inclusion.schema_version,
                     audience: FormalProjectionAudienceV1 {
@@ -205,7 +237,8 @@ impl FormalReadPublication {
             version: ProjectionVersion {
                 commit,
                 visibility_scope: request.scope_id.clone(),
-                projection_revision: oasis7_world_projection::codec::projection_revision(&view)?,
+                projection_revision: oasis7_world_projection::codec::projection_revision(&view)
+                    .map_err(FormalReadError::Internal)?,
             },
             continuation,
             view,
@@ -223,8 +256,9 @@ impl FormalCommittedReadService {
     pub fn new(
         trust: InitialActivationTrustV1,
         current: FormalReadPublication,
-    ) -> Result<Self, String> {
-        FormalReadVerifier::new(&trust, current.anchor.clone())?;
+    ) -> FormalReadResult<Self> {
+        FormalReadVerifier::new(&trust, current.anchor.clone())
+            .map_err(FormalReadError::Integrity)?;
         Ok(Self { trust, current })
     }
     pub fn publication(&self) -> &FormalReadPublication {
@@ -244,19 +278,29 @@ impl FormalCommittedReadService {
         signed: &SignedReadRequest<ReadWorldViewRequest>,
         origin: &FormalReadPublication,
         history: &FormalReadHistoryV1,
-    ) -> Result<ReadWorldViewResponse<WorldServiceProjection>, String> {
-        authority::verify_read_request(VIEW_PATH, signed)?;
+    ) -> FormalReadResult<ReadWorldViewResponse<WorldServiceProjection>> {
+        authority::verify_read_request(VIEW_PATH, signed)
+            .map_err(FormalReadError::RequestRejected)?;
         let request = &signed.request;
-        request.validate_formal_shape().map_err(|e| e.to_string())?;
+        request
+            .validate_formal_shape()
+            .map_err(|e| FormalReadError::RequestRejected(e.to_string()))?;
         let world = &self.current.anchor.head().record().world;
         if request.world.world_id != world.world_id
             || request.world.genesis_digest != world.genesis_digest
         {
-            return Err("formal read fixed world identity mismatch".into());
+            return Err(FormalReadError::RequestRejected(
+                "formal read fixed world identity mismatch".into(),
+            ));
         }
-        let mut verifier = FormalReadVerifier::new(&self.trust, origin.anchor.clone())?;
-        if request.formal_anchor.as_ref() != Some(&verifier.anchor_ref()?) {
-            return Err("formal read caller anchor is unavailable in verified history".into());
+        let mut verifier = FormalReadVerifier::new(&self.trust, origin.anchor.clone())
+            .map_err(FormalReadError::Integrity)?;
+        if request.formal_anchor.as_ref()
+            != Some(&verifier.anchor_ref().map_err(FormalReadError::Integrity)?)
+        {
+            return Err(FormalReadError::RequestRejected(
+                "formal read caller anchor is unavailable in verified history".into(),
+            ));
         }
         // Certify the origin's full binding before using it as a minimum. A
         // naked height or checkpoint alias is never enough to seed this cache.
@@ -278,7 +322,8 @@ impl FormalCommittedReadService {
                 &seed,
                 &seed_request,
                 &signed.subject_public_key,
-            )?;
+            )
+            .map_err(FormalReadError::Integrity)?;
         }
         let response =
             self.current
@@ -288,17 +333,23 @@ impl FormalCommittedReadService {
             &response,
             request,
             &signed.subject_public_key,
-        )?;
+        )
+        .map_err(FormalReadError::Integrity)?;
         if proved.commit().head() != self.current.anchor.head().head()
-            || verifier.anchor_ref()?.active_authority_id
+            || verifier
+                .anchor_ref()
+                .map_err(FormalReadError::Integrity)?
+                .active_authority_id
                 != self
                     .current
                     .anchor
                     .authority()
                     .authority_id()
-                    .map_err(|e| e.to_string())?
+                    .map_err(|e| FormalReadError::Integrity(e.to_string()))?
         {
-            return Err("formal read light path differs from publisher's verified cut".into());
+            return Err(FormalReadError::Integrity(
+                "formal read light path differs from publisher's verified cut".into(),
+            ));
         }
         Ok(response)
     }
@@ -307,23 +358,23 @@ impl FormalCommittedReadService {
 fn committed_reference(
     anchor: &VerifiedFormalReadAnchorV1,
     view: &WorldServiceProjection,
-) -> Result<CommitRef, String> {
+) -> FormalReadResult<CommitRef> {
     let record = anchor.head().record();
-    let binding = view
-        .runtime_binding
-        .as_ref()
-        .ok_or("formal projection missing runtime binding")?;
-    let header = view
-        .formal_commit_header
-        .as_ref()
-        .ok_or("formal projection missing committed header")?;
+    let binding = view.runtime_binding.as_ref().ok_or_else(|| {
+        FormalReadError::Integrity("formal projection missing runtime binding".into())
+    })?;
+    let header = view.formal_commit_header.as_ref().ok_or_else(|| {
+        FormalReadError::Integrity("formal projection missing committed header".into())
+    })?;
     Ok(CommitRef {
         world: WorldIdentity {
             world_id: record.world.world_id.clone(),
             genesis_digest: record.world.genesis_digest.clone(),
         },
         position: record.position,
-        execution_block_hash: record.record_id().map_err(|e| e.to_string())?,
+        execution_block_hash: record
+            .record_id()
+            .map_err(|e| FormalReadError::Integrity(e.to_string()))?,
         state_root_ref: record.after_state_root.clone(),
         binding: ExecutionBinding {
             provider_world_id: binding.world_id.clone(),
@@ -335,7 +386,8 @@ fn committed_reference(
                     &binding.finality_status,
                     &binding.finality_block_hash,
                 ),
-            )?,
+            )
+            .map_err(FormalReadError::Internal)?,
             reorg_generation: binding.reorg_epoch,
             governing_manifest_ref: binding.runtime_manifest_hash.to_string(),
             authority_generation: header.authority_generation,
@@ -355,7 +407,7 @@ mod tests {
     fn publication_produces_verified_public_read_and_rejects_unproved_minimum() {
         let (world, trust, anchor, _) = fixtures::actual_world_initial_fixture();
         let origin = FormalReadPublication::new(anchor.clone(), world.clone()).unwrap();
-        let service = FormalCommittedReadService::new(
+        let mut service = FormalCommittedReadService::new(
             trust.clone(),
             FormalReadPublication::new(anchor.clone(), world).unwrap(),
         )
@@ -394,6 +446,34 @@ mod tests {
             .verify_view(&response, &request, &signed.subject_public_key)
             .unwrap();
         assert_eq!(verified.commit().head(), anchor.head().head());
+        assert!(matches!(
+            origin.authorize_audience("agent:missing", &signed.subject_public_key),
+            Err(FormalReadError::GrantRejected(_))
+        ));
+        let mut invalid = signed.clone();
+        invalid.request.world.world_id = "wrong-world".into();
+        assert!(matches!(
+            service.read(&invalid, &origin, &history),
+            Err(FormalReadError::RequestRejected(_))
+        ));
+        // A valid audience must not turn a broken projection proof into a grant denial.
+        service.current.tree = ProjectionCommitmentsV1::from_leaves(vec![(
+            ProjectionAudienceV1::public(),
+            "00".repeat(32),
+        )])
+        .unwrap();
+        assert!(
+            service
+                .current
+                .authorize_audience("public", &signed.subject_public_key)
+                .is_ok()
+        );
+        assert!(matches!(
+            service.read(&signed, &origin, &history),
+            Err(FormalReadError::Integrity(_))
+        ));
+        service.current.tree =
+            crate::formal_projection::commitments_for_world(&service.current.world).unwrap();
         let mut minimum = request;
         minimum.min_commit = Some(response.version.commit.clone());
         let signed =

@@ -45,7 +45,10 @@ impl FormalPublicationSink for QualifiedOutboxPublicationSink {
         // The commit is already qualified: keep that fact readable even when
         // local delivery persistence fails and the hook fences further writes.
         self.published.publish(world, anchor.clone())?;
-        let material = self.history.full_sync_material(&anchor)?;
+        let material = self
+            .history
+            .full_sync_material(&anchor)
+            .map_err(|error| error.to_string())?;
         let outbox = QualifiedEffectOutboxV1::from_qualified_material(&anchor, &material)?;
         for obligation in &outbox.obligations {
             self.store.observe(obligation)?;

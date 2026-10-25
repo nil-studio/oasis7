@@ -153,7 +153,7 @@ impl RemoteFormalEndpoint {
                         return Ok(bytes);
                     }
                     if let Some(cache) = cache
-                        && let Some(bytes) = cache.read_cached_node(id).map_err(invalid)?
+                        && let Some(bytes) = cache.read_cached_node_for_read(id)?
                     {
                         hash_hex(id)?;
                         if blake3::hash(&bytes).to_hex().as_str() != id {
@@ -180,8 +180,8 @@ impl RemoteFormalEndpoint {
                         }
                         Ok(None) => {
                             local_cache.record_source_read(fetch_started.elapsed(), None, true);
-                            return Err(invalid(
-                                "HistoryUnavailable: historical referenced object missing",
+                            return Err(FormalError::HistoryUnavailable(
+                                "HistoryUnavailable: historical referenced object missing".into(),
                             ));
                         }
                         Err(error) => {
@@ -190,7 +190,7 @@ impl RemoteFormalEndpoint {
                         }
                     };
                     if let Some(cache) = cache {
-                        cache.cache_content_node(id, &bytes).map_err(invalid)?;
+                        cache.cache_content_node_for_read(id, &bytes)?;
                     }
                     local_cache.insert(id, &bytes)?;
                     self.remaining_timeout(

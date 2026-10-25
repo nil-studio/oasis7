@@ -3,6 +3,7 @@ use crate::formal_live_service::full_sync_read_gate::{
     FullSyncIssuerReadEvidenceRequestV3, FullSyncIssuerReadEvidenceSource,
     FullSyncIssuerReadEvidenceV3, FullSyncV3ReadGate,
 };
+use crate::formal_live_service::{FormalReadError, FormalReadResult};
 use oasis7_distfs::controlled_authority::formal::full_sync_issuer::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -399,17 +400,19 @@ impl FullSyncIssuerReadEvidenceSource for SignedEvidenceSource {
     fn fetch(
         &self,
         request: &FullSyncIssuerReadEvidenceRequestV3,
-    ) -> Result<FullSyncIssuerReadEvidenceV3, String> {
+    ) -> FormalReadResult<FullSyncIssuerReadEvidenceV3> {
         self.fetches.fetch_add(1, Ordering::SeqCst);
         if *self.unavailable.lock().unwrap() {
-            return Err("test witness unavailable".into());
+            return Err(FormalReadError::NotReady("test witness unavailable".into()));
         }
         let delay = *self.delay.lock().unwrap();
         if !delay.is_zero() {
             std::thread::sleep(delay);
         }
         if Instant::now() > request.deadline {
-            return Err("test evidence deadline expired".into());
+            return Err(FormalReadError::NotReady(
+                "test evidence deadline expired".into(),
+            ));
         }
         let history = self.history.lock().unwrap().clone();
         let current_anchor = history
@@ -432,7 +435,7 @@ impl FullSyncIssuerReadEvidenceSource for SignedEvidenceSource {
             nonce,
             &key(LEASE_SIGNER_KEY),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
         let time = self.protected_time.load(Ordering::SeqCst);
         let observation = SignedFullSyncIssuerObservationV3::sign(
             FullSyncIssuerObservationBodyV3 {
@@ -447,7 +450,7 @@ impl FullSyncIssuerReadEvidenceSource for SignedEvidenceSource {
             },
             &key(WITNESS_KEY),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
         Ok(FullSyncIssuerReadEvidenceV3 {
             query,
             observation,
@@ -530,7 +533,7 @@ fn invalid_v1_grant_is_rejected_before_full_history_fetch() {
     forged_grant.signature_hex = hex::encode([0; 64]);
     let (forged_status, _) =
         post_object(&endpoint, &reader, forged_grant, cut(&anchor), hash.clone());
-    assert_ne!(forged_status, 200);
+    assert_eq!(forged_status, 403);
     assert_eq!(
         source.fetch_count(),
         0,
@@ -617,7 +620,7 @@ fn real_http_full_sync_uses_committed_lease_and_refuses_the_next_chunk_after_rev
         2,
         1,
     );
-    assert_ne!(revoked_chunk_status, 200);
+    assert_eq!(revoked_chunk_status, 403);
     let revoked_message = String::from_utf8_lossy(&body);
     assert!(
         revoked_message.contains("V3 target is revoked or inactive"),
@@ -785,3 +788,132 @@ fn gate_rejects_missing_committed_lease_and_wrong_target_generation() {
 
 #[path = "formal_full_sync_read_gate_history_tests.rs"]
 mod signed_history_tests;
+
+struct FailingEvidenceSource(Mutex<FormalReadError>);
+
+impl FullSyncIssuerReadEvidenceSource for FailingEvidenceSource {
+    fn fetch(
+        &self,
+        _request: &FullSyncIssuerReadEvidenceRequestV3,
+    ) -> FormalReadResult<FullSyncIssuerReadEvidenceV3> {
+        Err(self.0.lock().unwrap().clone())
+    }
+}
+
+#[test]
+fn full_sync_source_failure_wire_category_ignores_diagnostic_words() {
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let base = now_ms();
+    let fixture = issue_lease_fixture(trust.initial_trust.clone(), base);
+    let source = Arc::new(FailingEvidenceSource(Mutex::new(
+        FormalReadError::Internal(String::new()),
+    )));
+    let gate = Arc::new(
+        FullSyncV3ReadGate::new(
+            fixture.trust.clone(),
+            fixture.signed_v2.clone(),
+            fixture.signed_v3.clone(),
+            fixture.minimum_v3.clone(),
+            public(PROVIDER_KEY),
+            issuer_hash(PROVIDER_INCARNATION),
+            source.clone(),
+        )
+        .unwrap(),
+    );
+    let (mut server, endpoint, _, node, _, _) = start_live_service_with_read_gate(
+        world,
+        trust,
+        anchor.clone(),
+        material.clone(),
+        proof,
+        Some(gate),
+    );
+    let reader = key(READER_KEY);
+    let grant = signed_grant(&reader, base, 1);
+    let snapshot_hash = material.roots[&ArtifactRole::Snapshot].clone();
+    for diagnostic in [
+        "opaque failure",
+        "HistoryUnavailable not available not ready grant authorized node",
+    ] {
+        for (error, expected_status, expected_code) in [
+            (
+                FormalReadError::Internal(diagnostic.into()),
+                400,
+                "full_sync_rejected",
+            ),
+            (
+                FormalReadError::Integrity(diagnostic.into()),
+                400,
+                "full_sync_rejected",
+            ),
+            (
+                FormalReadError::RequestRejected(diagnostic.into()),
+                400,
+                "full_sync_rejected",
+            ),
+            (
+                FormalReadError::GrantRejected(diagnostic.into()),
+                403,
+                "read_grant_rejected",
+            ),
+            (
+                FormalReadError::NotReady(diagnostic.into()),
+                503,
+                "not_ready",
+            ),
+            (
+                FormalReadError::HistoryUnavailable(diagnostic.into()),
+                410,
+                "history_unavailable",
+            ),
+        ] {
+            *source.0.lock().unwrap() = error;
+            for (status, body) in [
+                post_manifest(&endpoint, &reader, grant.clone(), cut(&anchor)),
+                post_object(
+                    &endpoint,
+                    &reader,
+                    grant.clone(),
+                    cut(&anchor),
+                    snapshot_hash.clone(),
+                ),
+            ] {
+                assert_eq!(status, expected_status, "{diagnostic}");
+                let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(response["payload"]["code"], expected_code);
+            }
+        }
+    }
+    server.stop().unwrap();
+    node.lock().unwrap().stop().unwrap();
+}
+
+#[test]
+fn full_sync_gate_preserves_response_closure_failure_category() {
+    let (_, trust, anchor, _, _) = full_sync_fixture();
+    let base = now_ms();
+    let fixture = issue_lease_fixture(trust.initial_trust.clone(), base);
+    let source = Arc::new(SignedEvidenceSource::new(&fixture, base + 2_000));
+    let gate = test_gate(&fixture, source, PROVIDER_INCARNATION);
+    let reader = key(READER_KEY);
+    let grant = signed_grant(&reader, base, 1);
+    for diagnostic in [
+        "opaque failure",
+        "HistoryUnavailable not ready authorized grant node",
+    ] {
+        for expected in [
+            FormalReadError::Internal(diagnostic.into()),
+            FormalReadError::Integrity(diagnostic.into()),
+            FormalReadError::HistoryUnavailable(diagnostic.into()),
+            FormalReadError::NotReady(diagnostic.into()),
+        ] {
+            let result = gate.authorize_with_response::<()>(
+                &grant,
+                &cut(&anchor),
+                &public(READER_KEY),
+                || Err(expected.clone()),
+            );
+            assert_eq!(result.unwrap_err(), expected);
+        }
+    }
+}

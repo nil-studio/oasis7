@@ -3,8 +3,8 @@ use super::*;
 use crate::execution_bridge_real_tests::real_execution_bridge::governance_authorization_tests as governance;
 use crate::formal_live_service::FormalLiveHistoryResolver;
 use crate::formal_read_fixtures as fixtures;
-use oasis7_distfs::controlled_authority::formal::verify_record_material;
 use oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader;
+use oasis7_distfs::controlled_authority::formal::verify_record_material;
 use oasis7_runtime::{Action, GovernanceValidatorAdmissionStatus};
 use serde::Serialize;
 use std::{fs, os::unix::fs::PermissionsExt, sync::Arc};
@@ -83,7 +83,7 @@ impl Archive {
     fn restore(
         &self,
         target: &VerifiedFormalReadAnchorV1,
-    ) -> Result<FormalReadPublication, String> {
+    ) -> Result<FormalReadPublication, FormalReadError> {
         self.resolver
             .publication_from_exact_replay(&FormalReadAnchorRefV1 {
                 position: target.head().record().position,
@@ -242,7 +242,7 @@ fn exact_resolver_rejects_requalified_silent_controller_policy_replacement() {
         .err()
         .expect("silent policy replacement must fail before publication");
     assert!(
-        error.contains("governance"),
+        error.to_string().contains("governance"),
         "unexpected rejection layer: {error}"
     );
     assert!(
@@ -250,6 +250,7 @@ fn exact_resolver_rejects_requalified_silent_controller_policy_replacement() {
             .resolver
             .verify_governance_history(&target)
             .unwrap_err()
+            .to_string()
             .contains("governance")
     );
     let requested = FormalReadAnchorRefV1 {
@@ -269,6 +270,7 @@ fn exact_resolver_rejects_requalified_silent_controller_policy_replacement() {
         assert!(
             rejected
                 .expect("no resolver entry may publish unauthenticated governance")
+                .to_string()
                 .contains("governance")
         );
     }
@@ -277,6 +279,7 @@ fn exact_resolver_rejects_requalified_silent_controller_policy_replacement() {
             .resolver
             .full_sync_material(&target)
             .unwrap_err()
+            .to_string()
             .contains("governance")
     );
 }
@@ -505,7 +508,7 @@ fn governance_history_missing_middle_publication_restores_from_authenticated_nat
         .err()
         .expect("present corrupt closure must not fall back to healthy native replicas");
     assert!(
-        rejected.contains("local publication closure"),
+        rejected.to_string().contains("local publication closure"),
         "unexpected rejection: {rejected}"
     );
     archive.save(&valid_middle, &middle_proof);
@@ -534,7 +537,7 @@ fn governance_history_missing_middle_publication_restores_from_authenticated_nat
         .err()
         .expect("invalid present target may not fall back");
     assert!(
-        rejected.contains("local publication closure"),
+        rejected.to_string().contains("local publication closure"),
         "unexpected rejection: {rejected}"
     );
     archive.save(&candidate, &proof);
@@ -681,7 +684,33 @@ fn governance_history_runtime_open_rejects_native_qualified_silent_policy_replac
         .join()
         .unwrap();
     assert!(
-        error.contains("verify restored formal governance history: HistoryUnavailable: governance history authentication:"),
+        error.to_string().contains("verify restored formal governance history: HistoryUnavailable: governance history authentication:"),
         "unexpected startup rejection: {error}"
     );
+}
+
+#[test]
+fn malformed_present_publication_is_internal_in_the_native_read_chain() {
+    let (_, origin, _, _) = governance::history_origin(1);
+    let archive = Archive::new(&origin);
+    let path = archive
+        .root
+        .join("published")
+        .join(format!("{:020}.cbor", origin.head().record().position));
+    fs::write(&path, b"grant node not ready HistoryUnavailable").unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    // The real private publication reader fails before any endpoint fallback;
+    // diagnostic words in its malformed bytes confer no history/grant status.
+    assert!(matches!(
+        archive.resolver.full_sync_material(&origin),
+        Err(FormalReadError::Internal(_))
+    ));
+    assert!(matches!(
+        archive.resolver.origin_publication(&FormalReadAnchorRefV1 {
+            position: origin.head().record().position,
+            record_id: origin.head().head().record_id,
+            active_authority_id: origin.authority().authority_id().unwrap(),
+        }),
+        Err(FormalReadError::Internal(_))
+    ));
 }
