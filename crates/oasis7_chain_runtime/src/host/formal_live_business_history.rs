@@ -17,6 +17,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "formal_live_business_read_source.rs"]
+mod read_source;
+use read_source::with_typed_business_source;
+
 const MAX_VERIFIED_BUSINESS_SEED_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(PartialEq, Eq)]
@@ -95,72 +99,11 @@ impl VerifiedBusinessPrewarmReceipt {
 }
 
 #[cfg(test)]
-struct LookupTiming {
-    enabled: bool,
-    started: std::time::Instant,
-}
-
-#[cfg(test)]
-impl LookupTiming {
-    fn new() -> Self {
-        let enabled = std::env::var_os("OASIS7_FORMAL_LOOKUP_TIMING").is_some();
-        let timing = Self {
-            enabled,
-            started: std::time::Instant::now(),
-        };
-        if enabled {
-            eprintln!("formal_lookup_timing stage=lookup event=start elapsed_ms=0");
-        }
-        timing
-    }
-
-    fn enter(&self, stage: &'static str) -> Option<std::time::Instant> {
-        if self.enabled {
-            eprintln!(
-                "formal_lookup_timing stage={stage} event=begin elapsed_ms={}",
-                self.started.elapsed().as_millis()
-            );
-            Some(std::time::Instant::now())
-        } else {
-            None
-        }
-    }
-
-    fn finish(&self, stage: &'static str, started: Option<std::time::Instant>) {
-        if let Some(started) = started {
-            eprintln!(
-                "formal_lookup_timing stage={stage} event=end stage_ms={} elapsed_ms={}",
-                started.elapsed().as_millis(),
-                self.started.elapsed().as_millis()
-            );
-        }
-    }
-}
-
-impl BusinessIndexNodeReader for NativeHistoryResolver {
-    fn prefetch_path(
-        &self,
-        root: &oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexRootV1,
-        key: &str,
-    ) -> Result<(), String> {
-        self.business_reader.prefetch_path(root, key)
-    }
-
-    fn read_cached_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        self.business_reader.read_cached_node(digest)
-    }
-
-    fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
-        self.business_reader.cache_content_node(digest, bytes)
-    }
-
-    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        self.business_reader.read_node(digest)
-    }
-}
+use self::tests::LookupTiming;
 
 fn tree(material: &ClosedRecord) -> Result<FormalBusinessResultTreeV1, String> {
-    let envelope: FormalBusinessResultEnvelopeV1 = decode_role(material, ArtifactRole::Result)?;
+    let envelope: FormalBusinessResultEnvelopeV1 =
+        decode_role(material, ArtifactRole::Result).map_err(|e| e.to_string())?;
     FormalBusinessResultTreeV1::decode_cbor(&envelope.tree_descriptor_cbor)
 }
 
@@ -255,7 +198,7 @@ fn prewarm_history_from_origin(
                     &resolver.writer_directory,
                     position,
                 )
-                .map_err(super::ReplayFailure::Invalid)?
+                .map_err(|error| super::ReplayFailure::Invalid(FormalReadError::Internal(error)))?
             {
                 return Ok(super::ReplayStepProof {
                     proof,
@@ -278,7 +221,9 @@ fn prewarm_history_from_origin(
         |predecessor, anchor, proof, candidate| {
             if let Some(candidate) = candidate {
                 stage_verified_publication(&mut staged, predecessor, anchor, proof, candidate)
-                    .map_err(super::ReplayFailure::Invalid)?;
+                    .map_err(|error| {
+                        super::ReplayFailure::Invalid(FormalReadError::Integrity(error))
+                    })?;
             }
             Ok(())
         },
@@ -333,7 +278,7 @@ fn finish_prewarm_result(
                     .into(),
             );
         }
-        Err(super::ReplayFailure::Invalid(error)) => return Err(error),
+        Err(super::ReplayFailure::Invalid(error)) => return Err(error.to_string()),
         Err(super::ReplayFailure::TargetMismatch) => {
             return Err("HistoryUnavailable: exact writer anchor differs from replay".into());
         }
@@ -424,8 +369,10 @@ impl OriginHistoryProofPages {
                 if proof_position == position {
                     return Ok(self.buffered.pop_front());
                 }
-                return Err(super::ReplayFailure::Invalid(format!(
-                    "HistoryUnavailable: origin proof page skips requested position {position}"
+                return Err(super::ReplayFailure::Invalid(FormalReadError::Internal(
+                    format!(
+                        "HistoryUnavailable: origin proof page skips requested position {position}"
+                    ),
                 )));
             }
             if self.exhausted {
@@ -439,31 +386,33 @@ impl OriginHistoryProofPages {
                     return Ok(None);
                 }
                 Err(error) => {
-                    return Err(super::ReplayFailure::Invalid(format!(
-                        "HistoryUnavailable: origin proof page metadata: {error}"
+                    return Err(super::ReplayFailure::Invalid(FormalReadError::Internal(
+                        format!("HistoryUnavailable: origin proof page metadata: {error}"),
                     )));
                 }
                 Ok(_) => crate::controlled_live_config::require_private_owned(&page_path, false)
-                    .map_err(super::ReplayFailure::Invalid)?,
+                    .map_err(|error| {
+                        super::ReplayFailure::Invalid(FormalReadError::Internal(error))
+                    })?,
             }
             let bytes = crate::controlled_history_cli::read_bounded(
                 &page_path,
                 u64::try_from(MAX_FORMAL_PROOF_BYTES).map_err(|_| {
-                    super::ReplayFailure::Invalid(
+                    super::ReplayFailure::Invalid(FormalReadError::Integrity(
                         "HistoryUnavailable: origin proof page byte bound overflow".into(),
-                    )
+                    ))
                 })?,
             )
-            .map_err(super::ReplayFailure::Invalid)?;
+            .map_err(|error| super::ReplayFailure::Invalid(FormalReadError::Internal(error)))?;
             let page = FormalReadHistoryPageV1::decode_bytes(&bytes).map_err(|error| {
-                super::ReplayFailure::Invalid(format!(
+                super::ReplayFailure::Invalid(FormalReadError::Internal(format!(
                     "HistoryUnavailable: malformed origin proof page: {error}"
-                ))
+                )))
             })?;
             self.next_page = self.next_page.checked_add(1).ok_or_else(|| {
-                super::ReplayFailure::Invalid(
+                super::ReplayFailure::Invalid(FormalReadError::Integrity(
                     "HistoryUnavailable: origin proof page index overflow".into(),
-                )
+                ))
             })?;
             for step in page.history.steps {
                 if let FormalReadStepV1::Commit(proof) = step {
@@ -670,7 +619,7 @@ pub(super) fn result_from_commit(
     correlation: &RequestCorrelation,
     scope: &str,
     reader: &str,
-) -> Result<Option<(FormalBusinessResultProofV1, Option<String>)>, String> {
+) -> Result<Option<(FormalBusinessResultProofV1, Option<String>)>, FormalReadError> {
     let restored = resolver.restore(cut.position, Some(&cut.execution_block_hash))?;
     let anchor = resolver.anchor_for(&restored)?;
     let world = resolver.world_for(&anchor, restored.material())?;
@@ -686,7 +635,7 @@ pub(super) fn result_from_commit(
 fn historical_recovery_permission_index<'a>(
     proof: &FormalQualifiedCommitProofV1,
     permission_digests: impl Iterator<Item = &'a str>,
-) -> Result<Option<usize>, String> {
+) -> Result<Option<usize>, FormalReadError> {
     let primary = proof
         .decision
         .primary
@@ -701,22 +650,32 @@ fn historical_recovery_permission_index<'a>(
         .as_deref();
     if proof.decision.branch == FormalCompletionBranchV1::Normal {
         if primary.is_some() || replica.is_some() {
-            return Err("HistoryUnavailable: Normal historical proof has recovery receipts".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: Normal historical proof has recovery receipts".into(),
+            ));
         }
         return Ok(None);
     }
     let digest = primary
         .filter(|digest| Some(*digest) == replica)
-        .ok_or("HistoryUnavailable: historical recovery receipt digests differ or are absent")?;
+        .ok_or_else(|| {
+            FormalReadError::Integrity(
+                "HistoryUnavailable: historical recovery receipt digests differ or are absent"
+                    .into(),
+            )
+        })?;
     let mut matches = permission_digests
         .enumerate()
         .filter(|(_, candidate)| *candidate == digest);
-    let index = matches
-        .next()
-        .map(|(index, _)| index)
-        .ok_or("HistoryUnavailable: historical recovery permission is missing")?;
+    let index = matches.next().map(|(index, _)| index).ok_or_else(|| {
+        FormalReadError::Integrity(
+            "HistoryUnavailable: historical recovery permission is missing".into(),
+        )
+    })?;
     if matches.next().is_some() {
-        return Err("HistoryUnavailable: historical recovery permission is ambiguous".into());
+        return Err(FormalReadError::Integrity(
+            "HistoryUnavailable: historical recovery permission is ambiguous".into(),
+        ));
     }
     Ok(Some(index))
 }
@@ -727,7 +686,7 @@ pub(super) fn result(
     correlation: &RequestCorrelation,
     scope: &str,
     reader: &str,
-) -> Result<Option<(FormalBusinessResultProofV1, Option<String>)>, String> {
+) -> Result<Option<(FormalBusinessResultProofV1, Option<String>)>, FormalReadError> {
     #[cfg(test)]
     let timing = LookupTiming::new();
     let (anchor, world) = target.into_verified_cut();
@@ -739,10 +698,15 @@ pub(super) fn result(
 
     #[cfg(test)]
     let stage = timing.enter("current_result_proof");
-    let publication =
-        FormalBusinessResultPublication::new(anchor.clone(), world, tree(&current_material)?)?;
-    let Some(current_proof) =
-        publication.proof_for_if_present(correlation, scope, reader, resolver)?
+    let publication = FormalBusinessResultPublication::new(
+        anchor.clone(),
+        world,
+        tree(&current_material).map_err(FormalReadError::Integrity)?,
+    )
+    .map_err(FormalReadError::Integrity)?;
+    let Some(current_proof) = with_typed_business_source(resolver, |source| {
+        publication.proof_for_if_present(correlation, scope, reader, source)
+    })?
     else {
         #[cfg(test)]
         timing.finish("current_result_proof", stage);
@@ -757,18 +721,18 @@ pub(super) fn result(
 
     #[cfg(test)]
     let stage = timing.enter("current_root_inclusion");
-    let inclusion = publication.tree().historical_cut_inclusion(
-        &anchor.head().record().world,
-        position,
-        resolver,
-    )?;
+    let inclusion = with_typed_business_source(resolver, |source| {
+        publication
+            .tree()
+            .historical_cut_inclusion(&anchor.head().record().world, position, source)
+    })?;
     let included = VerifiedHistoricalCutInclusionV2::verify(
         &anchor,
         publication.tree().index_root(),
         &inclusion,
         position,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(FormalReadError::from)?;
     #[cfg(test)]
     timing.finish("current_root_inclusion", stage);
 
@@ -785,17 +749,19 @@ pub(super) fn result(
     {
         included
             .qualify_with_verified_recovery_lineage(&anchor, &resolver.permissions)
-            .map_err(|error| error.to_string())?
+            .map_err(FormalReadError::from)?
     } else {
         let historical_authority = resolver
             .authority_for_record(&included.cut().parent_record)
             .ok_or_else(|| {
-                "HistoryUnavailable: historical Normal authority is outside verified lineage"
-                    .to_owned()
+                FormalReadError::Integrity(
+                    "HistoryUnavailable: historical Normal authority is outside verified lineage"
+                        .into(),
+                )
             })?;
         included
             .qualify_normal_with_verified_authority(&anchor, historical_authority)
-            .map_err(|error| error.to_string())?
+            .map_err(FormalReadError::from)?
     };
     #[cfg(test)]
     timing.finish("historical_cut_qualification", stage);
@@ -817,7 +783,7 @@ pub(super) fn result(
             &historical,
         )
     }
-    .map_err(|error| error.to_string())?;
+    .map_err(FormalReadError::from)?;
     seed_published_business_nodes_for_cut(resolver, &historical, &old_anchor)?;
     #[cfg(test)]
     timing.finish("historical_anchor_and_local_seed", stage);
@@ -833,7 +799,7 @@ pub(super) fn result(
     let original = recovery.map_or(historical.authority(), |permission| {
         permission.original_authority()
     });
-    let restore = |address, role| -> Result<_, String> {
+    let restore = |address, role| -> Result<_, FormalReadError> {
         // Retain the current publication as the transport floor. NativeAt only
         // selects the already qualified old cut; it cannot mint a new anchor.
         let restored = RemoteFormalEndpoint::new(
@@ -844,7 +810,7 @@ pub(super) fn result(
             resolver.authentication.clone(),
             anchor.head().head(),
         )
-        .map_err(|error| error.to_string())?
+        .map_err(FormalReadError::from)?
         .restore_native_at_cached(
             &historical.commit().head(),
             historical.authority(),
@@ -852,7 +818,7 @@ pub(super) fn result(
             recovery.map(|permission| permission.recovery()),
             resolver,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(FormalReadError::from)?;
         if restored.minimum() != &anchor.head().head()
             || restored.commit().record() != historical.commit().record()
             || restored.commit().head() != historical.commit().head()
@@ -866,13 +832,13 @@ pub(super) fn result(
             || restored
                 .authority()
                 .context_digest()
-                .map_err(|error| error.to_string())?
+                .map_err(FormalReadError::from)?
                 != old_anchor
                     .authority()
                     .context_digest()
-                    .map_err(|error| error.to_string())?
+                    .map_err(FormalReadError::from)?
         {
-            return Err("HistoryUnavailable: native original material differs from the qualified historical cut".into());
+            return Err(FormalReadError::Integrity("HistoryUnavailable: native original material differs from the qualified historical cut".into()));
         }
         Ok(restored)
     };
@@ -888,7 +854,9 @@ pub(super) fn result(
     #[cfg(test)]
     timing.finish("replica_protected_restore", stage);
     if primary.candidate() != replica.candidate() || primary.proof() != replica.proof() {
-        return Err("OutcomeUnknown: original result replicas disagree".into());
+        return Err(FormalReadError::Integrity(
+            "OutcomeUnknown: original result replicas disagree".into(),
+        ));
     }
 
     #[cfg(test)]
@@ -897,16 +865,19 @@ pub(super) fn result(
     let original = FormalBusinessResultPublication::new(
         old_anchor.clone(),
         old_world.clone(),
-        tree(primary.material())?,
-    )?;
-    let (current_proof, original_proof) = publication.proofs_for_committed_history(
-        &original,
-        &historical,
-        correlation,
-        scope,
-        reader,
-        resolver,
-    )?;
+        tree(primary.material()).map_err(FormalReadError::Integrity)?,
+    )
+    .map_err(FormalReadError::Integrity)?;
+    let (current_proof, original_proof) = with_typed_business_source(resolver, |source| {
+        publication.proofs_for_committed_history(
+            &original,
+            &historical,
+            correlation,
+            scope,
+            reader,
+            source,
+        )
+    })?;
     #[cfg(test)]
     timing.finish("original_result_and_proofs", stage);
 
@@ -926,7 +897,7 @@ pub(super) fn result(
             active_authority_id: old_anchor
                 .authority()
                 .authority_id()
-                .map_err(|error| error.to_string())?,
+                .map_err(FormalReadError::from)?,
         }),
     };
     let view =
@@ -939,7 +910,8 @@ pub(super) fn result(
         original_request: request,
         original_view: view,
     }
-    .encode_hex()?;
+    .encode_hex()
+    .map_err(FormalReadError::Integrity)?;
     #[cfg(test)]
     timing.finish("historical_view_and_encode", stage);
     Ok(Some((original_proof, Some(encoded))))
@@ -953,7 +925,7 @@ fn seed_published_business_nodes_for_cut(
     resolver: &NativeHistoryResolver,
     cut: &oasis7_distfs::controlled_authority::formal::VerifiedCommittedHistoricalCutV1,
     anchor: &VerifiedFormalReadAnchorV1,
-) -> Result<bool, String> {
+) -> Result<bool, FormalReadError> {
     let record = cut.commit().record();
     let verified_head = cut.commit().head();
     if anchor.head().record() != record
@@ -961,14 +933,17 @@ fn seed_published_business_nodes_for_cut(
         || anchor.head().finalizing_authority_id() != cut.commit().finalizing_authority_id()
         || cut.proof().decision.record != *record
     {
-        return Err("HistoryUnavailable: historical cache cut differs from verified anchor".into());
+        return Err(FormalReadError::Integrity(
+            "HistoryUnavailable: historical cache cut differs from verified anchor".into(),
+        ));
     }
 
     let Some((candidate, proof)) =
         super::super::execution_bridge::formal_writer::read_published_candidate_at(
             &resolver.writer_directory,
             record.position,
-        )?
+        )
+        .map_err(FormalReadError::Internal)?
     else {
         return Ok(false);
     };
@@ -1000,20 +975,28 @@ fn seed_published_business_nodes_for_cut(
         || candidate.frozen != proof.decision.frozen
         || !receipts_match
     {
-        return Err(
+        return Err(FormalReadError::Integrity(
             "HistoryUnavailable: local published proof differs from exact historical cut".into(),
-        );
+        ));
     }
-    verify_record_material(record, &candidate.material)
-        .map_err(|error| format!("HistoryUnavailable: local historical material: {error}"))?;
+    verify_record_material(record, &candidate.material).map_err(|error| {
+        FormalReadError::Integrity(format!(
+            "HistoryUnavailable: local historical material: {error}"
+        ))
+    })?;
     match (&candidate.frozen, &candidate.frozen_material) {
         (Some(certificate), Some(material)) => {
-            verify_frozen_material(&certificate.reservation.body, material)
-                .map_err(|error| format!("HistoryUnavailable: local Frozen closure: {error}"))?
+            verify_frozen_material(&certificate.reservation.body, material).map_err(|error| {
+                FormalReadError::Integrity(format!(
+                    "HistoryUnavailable: local Frozen closure: {error}"
+                ))
+            })?
         }
         (None, None) if record.kind == FormalRecordKindV1::InitialActivation => {}
         _ => {
-            return Err("HistoryUnavailable: local historical Frozen closure is incomplete".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: local historical Frozen closure is incomplete".into(),
+            ));
         }
     }
 
@@ -1021,31 +1004,50 @@ fn seed_published_business_nodes_for_cut(
         .material
         .roots
         .get(&ArtifactRole::Result)
-        .ok_or("HistoryUnavailable: local historical Result root is missing")?;
+        .ok_or_else(|| {
+            FormalReadError::Integrity(
+                "HistoryUnavailable: local historical Result root is missing".into(),
+            )
+        })?;
     let result_object = candidate
         .material
         .objects
         .iter()
         .find(|object| &object.content_hash == result_root)
-        .ok_or("HistoryUnavailable: local historical Result object is missing")?;
+        .ok_or_else(|| {
+            FormalReadError::Integrity(
+                "HistoryUnavailable: local historical Result object is missing".into(),
+            )
+        })?;
     if hex::encode(blake3::hash(&result_object.bytes).as_bytes()) != *result_root {
-        return Err("HistoryUnavailable: local historical Result hash mismatch".into());
+        return Err(FormalReadError::Integrity(
+            "HistoryUnavailable: local historical Result hash mismatch".into(),
+        ));
     }
-    let envelope = FormalBusinessResultEnvelopeV1::decode(&result_object.bytes)
-        .map_err(|error| format!("HistoryUnavailable: local business envelope: {error}"))?;
-    let business_tree = FormalBusinessResultTreeV1::decode_cbor(&envelope.tree_descriptor_cbor)?;
+    let envelope =
+        FormalBusinessResultEnvelopeV1::decode(&result_object.bytes).map_err(|error| {
+            FormalReadError::Integrity(format!(
+                "HistoryUnavailable: local business envelope: {error}"
+            ))
+        })?;
+    let business_tree = FormalBusinessResultTreeV1::decode_cbor(&envelope.tree_descriptor_cbor)
+        .map_err(FormalReadError::Integrity)?;
     if envelope.delta.new_root != record.result_root
         || envelope
             .delta
             .new
             .canonical_result_root()
             .map_err(|error| {
-                format!("HistoryUnavailable: local business root descriptor: {error}")
+                FormalReadError::Integrity(format!(
+                    "HistoryUnavailable: local business root descriptor: {error}"
+                ))
             })?
             != record.result_root
-        || business_tree.root()? != record.result_root
+        || business_tree.root().map_err(FormalReadError::Integrity)? != record.result_root
     {
-        return Err("HistoryUnavailable: local business material differs from signed root".into());
+        return Err(FormalReadError::Integrity(
+            "HistoryUnavailable: local business material differs from signed root".into(),
+        ));
     }
 
     let mut writes: Vec<BusinessIndexNodeWriteV1> = envelope.delta.node_writes;
@@ -1062,29 +1064,35 @@ fn seed_published_business_nodes_for_cut(
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
             || hex::encode(blake3::hash(&write.bytes).as_bytes()) != write.digest
         {
-            return Err("HistoryUnavailable: local business CAS write hash mismatch".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: local business CAS write hash mismatch".into(),
+            ));
         }
         if let Some(existing) = unique.get(&write.digest) {
             if existing != &write.bytes {
-                return Err("HistoryUnavailable: local business CAS digest collision".into());
+                return Err(FormalReadError::Integrity(
+                    "HistoryUnavailable: local business CAS digest collision".into(),
+                ));
             }
             continue;
         }
-        total_bytes = total_bytes
-            .checked_add(write.bytes.len())
-            .ok_or("HistoryUnavailable: local business CAS byte count overflow")?;
+        total_bytes = total_bytes.checked_add(write.bytes.len()).ok_or_else(|| {
+            FormalReadError::Integrity(
+                "HistoryUnavailable: local business CAS byte count overflow".into(),
+            )
+        })?;
         if total_bytes > MAX_VERIFIED_BUSINESS_SEED_BYTES {
-            return Err("HistoryUnavailable: local business CAS seed exceeds bound".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: local business CAS seed exceeds bound".into(),
+            ));
         }
         unique.insert(write.digest, write.bytes);
     }
     for (digest, bytes) in unique {
         resolver
             .business_reader
-            .cache_content_node(&digest, &bytes)
-            .map_err(|error| {
-                format!("HistoryUnavailable: cache verified business node: {error}")
-            })?;
+            .cache_content_node_for_read(&digest, &bytes)
+            .map_err(FormalReadError::from)?;
     }
     Ok(true)
 }
@@ -1097,13 +1105,14 @@ fn seed_published_business_nodes_for_cut(
 fn material_for_target(
     resolver: &NativeHistoryResolver,
     anchor: &VerifiedFormalReadAnchorV1,
-) -> Result<ClosedRecord, String> {
+) -> Result<ClosedRecord, FormalReadError> {
     let position = anchor.head().record().position;
     if let Some((candidate, proof)) =
         super::super::execution_bridge::formal_writer::read_published_candidate_at(
             &resolver.writer_directory,
             position,
-        )?
+        )
+        .map_err(FormalReadError::Internal)?
     {
         let record = anchor.head().record();
         let head = anchor.head().head();
@@ -1127,13 +1136,16 @@ fn material_for_target(
             || candidate.frozen != proof.decision.frozen
             || !receipts_match
         {
-            return Err(
+            return Err(FormalReadError::Integrity(
                 "HistoryUnavailable: local published material differs from exact verified cut"
                     .into(),
-            );
+            ));
         }
-        verify_record_material(record, &candidate.material)
-            .map_err(|error| format!("HistoryUnavailable: local published material: {error}"))?;
+        verify_record_material(record, &candidate.material).map_err(|error| {
+            FormalReadError::Integrity(format!(
+                "HistoryUnavailable: local published material: {error}"
+            ))
+        })?;
         return Ok(candidate.material);
     }
 
@@ -1144,9 +1156,9 @@ fn material_for_target(
         || restored.commit().head() != anchor.head().head()
         || restored.commit().finalizing_authority_id() != anchor.head().finalizing_authority_id()
     {
-        return Err(
+        return Err(FormalReadError::Integrity(
             "HistoryUnavailable: native result material differs from exact verified cut".into(),
-        );
+        ));
     }
     Ok(restored.material().clone())
 }

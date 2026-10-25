@@ -22,6 +22,7 @@ pub(super) const PREFIX: &str = "/v1/agent-client";
 pub(super) type Identity = Arc<Mutex<Option<IdentityService>>>;
 pub(super) struct HostedModelClient {
     config: Config,
+    management_only: bool,
     pub manager: ConnectionManager,
     executors: Arc<executor::Executors>,
     executions: execution::Executions,
@@ -31,9 +32,14 @@ impl HostedModelClient {
         let Some(config) = Config::from_env()? else {
             return Ok(None);
         };
-        Self::new(config, Arc::clone(identity)).map(Some)
+        let management_only = match std::env::var("OASIS7_BROWSER_BYOK_ENABLED").as_deref() {
+            Ok("1") => true,
+            Ok("0") | Err(std::env::VarError::NotPresent) => false,
+            _ => return Err("OASIS7_BROWSER_BYOK_ENABLED must be 0 or 1".into()),
+        };
+        Self::new(config, Arc::clone(identity), management_only).map(Some)
     }
-    fn new(config: Config, identity: Identity) -> Result<Self, String> {
+    fn new(config: Config, identity: Identity, management_only: bool) -> Result<Self, String> {
         config.validate()?;
         {
             let guard = identity
@@ -56,7 +62,11 @@ impl HostedModelClient {
             return Err("duplicate model preset".into());
         }
         let executors = Arc::new(executor::Executors::load(
-            &config.executors,
+            if management_only {
+                &[]
+            } else {
+                &config.executors
+            },
             Arc::clone(&identity),
         )?);
         disable_core_dumps()?;
@@ -82,6 +92,9 @@ impl HostedModelClient {
         .map_err(|_| "invalid model session limits")?;
         Ok(Self {
             config,
+            // Immutable process-start policy. A new manager has no restored
+            // workers; deployments must terminate the previous launcher first.
+            management_only,
             manager,
             executors,
             executions: execution::Executions::default(),
@@ -91,7 +104,8 @@ impl HostedModelClient {
         json!({"ok":true,"enabled":true,"authenticated":true,
             "trusted_executor":{"trusted":true,"display_name":self.config.display_name,"location":self.config.location,"origin":self.config.public_origin},
             "presets":self.config.presets.iter().map(|p|json!({"id":p.id,"provider_id":p.provider,"model_id":p.model,"protocol":p.protocol,"revision":p.revision,"routes":p.routes,"streaming":false,"verification":"experimental_fixture_only"})).collect::<Vec<_>>(),
-            "limits":self.manager.limits(),"executor_available":false,"reason":"game_executor_unavailable"})
+            "limits":self.manager.limits(),"executor_available":false,"reason":"game_executor_unavailable",
+            "legacy_execution_policy":if self.management_only { "management_only" } else { "session_execution" }})
     }
     pub fn handle(
         &self,
@@ -138,6 +152,9 @@ impl HostedModelClient {
             return self.connection_page(p, Some(cursor));
         }
         if method == "POST" && relative == "/model-connections" {
+            if self.management_only {
+                return Err(error(409, "legacy_execution_disabled"));
+            }
             // Move the sole decoded key allocation into zeroizing storage before
             // validating the remaining JSON. Never derive Debug for this input.
             let key = body
@@ -184,6 +201,12 @@ impl HostedModelClient {
         }
         // Resolve ownership before reporting an action-specific error.
         self.manager.snapshot(p, id).map_err(connection_error)?;
+        if self.management_only
+            && method == "POST"
+            && matches!(action, "probe" | "activate" | "lease")
+        {
+            return Err(error(409, "legacy_execution_disabled"));
+        }
         match (method, action) {
             ("POST", "probe") => {
                 let input: Probe = decode(body)?;

@@ -1,6 +1,7 @@
 //! Shared immutable CAS transport and bounded content cache. Authority is only
 //! rebound during construction from a completely verified startup activation.
 use super::*;
+use oasis7_distfs::controlled_authority::formal::FormalError;
 
 /// Read-only CAS adapter for the profile-2 business tree. Every cache entry
 /// was fetched from both signed replicas and checked against its content hash;
@@ -80,22 +81,29 @@ impl RemoteBusinessIndexReader {
         &self,
         writes: Vec<BusinessIndexNodeWriteV1>,
     ) -> Result<(), String> {
+        self.seed_verified_writes_for_read(writes)
+            .map_err(|e| e.to_string())
+    }
+    pub(crate) fn seed_verified_writes_for_read(
+        &self,
+        writes: Vec<BusinessIndexNodeWriteV1>,
+    ) -> Result<(), FormalError> {
         // Validate the complete batch before mutating the shared cache. Startup
         // history prewarming stages an all-or-nothing verified suffix, so a
         // malformed later write must not leave earlier bytes installed.
         for node in &writes {
-            validate_business_node_digest(&node.digest)?;
+            validate_business_node_digest(&node.digest).map_err(FormalError::Invalid)?;
             if hex::encode(blake3::hash(&node.bytes).as_bytes()) != node.digest {
-                return Err(format!(
+                return Err(FormalError::Invalid(format!(
                     "verified formal business node {} hash mismatch",
                     node.digest
-                ));
+                )));
             }
         }
         let mut cache = self
             .cache
             .lock()
-            .map_err(|_| "formal business node cache poisoned")?;
+            .map_err(|_| FormalError::Io("formal business node cache poisoned".into()))?;
         for node in writes {
             cache.insert(node.digest, node.bytes);
         }
@@ -131,48 +139,57 @@ impl BusinessIndexNodeReader for CachedBusinessPath<'_> {
     }
 }
 
-impl BusinessIndexNodeReader for RemoteBusinessIndexReader {
-    fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+impl RemoteBusinessIndexReader {
+    pub(crate) fn prefetch_path_for_read(
+        &self,
+        root: &BusinessIndexRootV1,
+        key: &str,
+    ) -> Result<(), FormalError> {
         if root.get(key, &CachedBusinessPath(self)).is_ok() {
             return Ok(());
         }
         let primary = self
             .primary
             .lock()
-            .map_err(|_| "formal primary business reader poisoned")?
-            .business_index_path(root, key)
-            .map_err(|error| format!("formal primary business path: {error}"))?;
+            .map_err(|_| FormalError::Io("formal primary business reader poisoned".into()))?
+            .business_index_path(root, key)?;
         let replica = self
             .replica
             .lock()
-            .map_err(|_| "formal replica business reader poisoned")?
-            .business_index_path(root, key)
-            .map_err(|error| format!("formal replica business path: {error}"))?;
+            .map_err(|_| FormalError::Io("formal replica business reader poisoned".into()))?
+            .business_index_path(root, key)?;
         // Both authenticated responses must independently prove this exact
         // root/key. Stage everything before mutating the shared content cache.
-        self.seed_verified_writes(verify_dual_business_path(root, key, primary, replica)?)
+        self.seed_verified_writes_for_read(verify_dual_business_path(root, key, primary, replica)?)
     }
 
-    fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
-        self.seed_verified_writes(vec![BusinessIndexNodeWriteV1 {
+    pub(crate) fn cache_content_node_for_read(
+        &self,
+        digest: &str,
+        bytes: &[u8],
+    ) -> Result<(), FormalError> {
+        self.seed_verified_writes_for_read(vec![BusinessIndexNodeWriteV1 {
             digest: digest.to_owned(),
             bytes: bytes.to_vec(),
         }])
     }
-    fn read_cached_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        validate_business_node_digest(digest)?;
+    pub(crate) fn read_cached_node_for_read(
+        &self,
+        digest: &str,
+    ) -> Result<Option<Vec<u8>>, FormalError> {
+        validate_business_node_digest(digest).map_err(FormalError::Invalid)?;
         Ok(self
             .cache
             .lock()
-            .map_err(|_| "formal business node cache poisoned")?
+            .map_err(|_| FormalError::Io("formal business node cache poisoned".into()))?
             .get(digest))
     }
-    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        validate_business_node_digest(digest)?;
+    pub(crate) fn read_node_for_read(&self, digest: &str) -> Result<Option<Vec<u8>>, FormalError> {
+        validate_business_node_digest(digest).map_err(FormalError::Invalid)?;
         if let Some(bytes) = self
             .cache
             .lock()
-            .map_err(|_| "formal business node cache poisoned")?
+            .map_err(|_| FormalError::Io("formal business node cache poisoned".into()))?
             .get(digest)
         {
             return Ok(Some(bytes));
@@ -181,23 +198,55 @@ impl BusinessIndexNodeReader for RemoteBusinessIndexReader {
         let primary = self
             .primary
             .lock()
-            .map_err(|_| "formal primary business reader poisoned")?
-            .archive_object(digest)
-            .map_err(|error| format!("formal primary business node {digest}: {error}"))?;
+            .map_err(|_| FormalError::Io("formal primary business reader poisoned".into()))?
+            .archive_object(digest)?;
         let replica = self
             .replica
             .lock()
-            .map_err(|_| "formal replica business reader poisoned")?
-            .archive_object(digest)
-            .map_err(|error| format!("formal replica business node {digest}: {error}"))?;
+            .map_err(|_| FormalError::Io("formal replica business reader poisoned".into()))?
+            .archive_object(digest)?;
         let Some(bytes) = verify_dual_business_node(digest, primary, replica)? else {
             return Ok(None);
         };
         self.cache
             .lock()
-            .map_err(|_| "formal business node cache poisoned")?
+            .map_err(|_| FormalError::Io("formal business node cache poisoned".into()))?
             .insert(digest.to_owned(), bytes.clone());
         Ok(Some(bytes))
+    }
+}
+
+impl BusinessIndexNodeReader for RemoteBusinessIndexReader {
+    fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+        self.prefetch_path_for_read(root, key)
+            .map_err(|e| e.to_string())
+    }
+    fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
+        self.cache_content_node_for_read(digest, bytes)
+            .map_err(|e| e.to_string())
+    }
+    fn read_cached_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.read_cached_node_for_read(digest)
+            .map_err(|e| e.to_string())
+    }
+    fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.read_node_for_read(digest).map_err(|e| e.to_string())
+    }
+    fn prefetch_path_for_read(
+        &self,
+        root: &BusinessIndexRootV1,
+        key: &str,
+    ) -> Result<(), FormalError> {
+        RemoteBusinessIndexReader::prefetch_path_for_read(self, root, key)
+    }
+    fn cache_content_node_for_read(&self, digest: &str, bytes: &[u8]) -> Result<(), FormalError> {
+        RemoteBusinessIndexReader::cache_content_node_for_read(self, digest, bytes)
+    }
+    fn read_cached_node_for_read(&self, digest: &str) -> Result<Option<Vec<u8>>, FormalError> {
+        RemoteBusinessIndexReader::read_cached_node_for_read(self, digest)
+    }
+    fn read_node_for_read(&self, digest: &str) -> Result<Option<Vec<u8>>, FormalError> {
+        RemoteBusinessIndexReader::read_node_for_read(self, digest)
     }
 }
 
@@ -206,11 +255,13 @@ pub(super) fn verify_dual_business_path(
     key: &str,
     primary: BusinessIndexPathV1,
     replica: BusinessIndexPathV1,
-) -> Result<Vec<BusinessIndexNodeWriteV1>, String> {
-    primary.verify(root, key)?;
-    replica.verify(root, key)?;
+) -> Result<Vec<BusinessIndexNodeWriteV1>, FormalError> {
+    primary.verify(root, key).map_err(FormalError::Invalid)?;
+    replica.verify(root, key).map_err(FormalError::Invalid)?;
     if primary.nodes != replica.nodes {
-        return Err("formal business path differs between signed replicas".into());
+        return Err(FormalError::Invalid(
+            "formal business path differs between signed replicas".into(),
+        ));
     }
     Ok(primary.nodes)
 }
@@ -275,25 +326,25 @@ pub(super) fn verify_dual_business_node(
     digest: &str,
     primary: Option<Vec<u8>>,
     replica: Option<Vec<u8>>,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<Vec<u8>>, FormalError> {
     match (primary, replica) {
         (None, None) => Ok(None),
         (Some(bytes), Some(replica_bytes)) => {
             if bytes != replica_bytes {
-                return Err(format!(
+                return Err(FormalError::Invalid(format!(
                     "formal business node {digest} differs between signed replicas"
-                ));
+                )));
             }
             if hex::encode(blake3::hash(&bytes).as_bytes()) != digest {
-                return Err(format!(
+                return Err(FormalError::Invalid(format!(
                     "formal business node {digest} content hash mismatch"
-                ));
+                )));
             }
             Ok(Some(bytes))
         }
-        _ => Err(format!(
+        _ => Err(FormalError::Invalid(format!(
             "formal business node {digest} is missing from only one signed replica"
-        )),
+        ))),
     }
 }
 

@@ -5,9 +5,11 @@ use oasis7_distfs::controlled_authority::formal::RecoveryTailV1;
 pub(super) fn advance_normal_history_proof(
     cursor: &VerifiedFormalReadAnchorV1,
     proof: &FormalQualifiedCommitProofV1,
-) -> Result<VerifiedFormalReadAnchorV1, String> {
+) -> Result<VerifiedFormalReadAnchorV1, FormalReadError> {
     if proof.decision.branch != FormalCompletionBranchV1::Normal {
-        return Err("formal normal history step has a non-Normal completion".into());
+        return Err(FormalReadError::Integrity(
+            "formal normal history step has a non-Normal completion".into(),
+        ));
     }
     let committed = oasis7_distfs::controlled_authority::formal::verify_formal_qualified(
         proof,
@@ -15,19 +17,21 @@ pub(super) fn advance_normal_history_proof(
         Some(cursor.head()),
         None,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(FormalReadError::from)?;
     cursor
         .after_verified_commit(cursor.authority().clone(), committed)
-        .map_err(|error| error.to_string())
+        .map_err(FormalReadError::from)
 }
 
 fn append_recovery_read_step(
     permission: &VerifiedRecoveryBootstrapV1,
     steps: &mut Vec<FormalReadStepV1>,
     max_steps: usize,
-) -> Result<(), String> {
+) -> Result<(), FormalReadError> {
     if steps.len() >= max_steps {
-        return Err("HistoryUnavailable: recovery transitions require another bounded page".into());
+        return Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: recovery transitions require another bounded page".into(),
+        ));
     }
     let evidence = permission.permission_evidence();
     let fencing = match &evidence.fencing {
@@ -72,7 +76,7 @@ pub(super) fn apply_ready_recoveries(
     pending_permission: &mut Option<usize>,
     steps: &mut Vec<FormalReadStepV1>,
     max_steps: usize,
-) -> Result<(), String> {
+) -> Result<(), FormalReadError> {
     apply_ready_recoveries_until(
         cursor,
         permissions,
@@ -100,7 +104,7 @@ pub(super) fn apply_ready_recoveries_until(
     steps: &mut Vec<FormalReadStepV1>,
     max_steps: usize,
     stop_at: Option<&FormalReadAnchorRefV1>,
-) -> Result<(), String> {
+) -> Result<(), FormalReadError> {
     while *next_permission < permissions.len() {
         let index = *next_permission;
         let permission = &permissions[index];
@@ -114,21 +118,21 @@ pub(super) fn apply_ready_recoveries_until(
             // but a retained successor cannot be recreated without its prior
             // typed recovery in this page.
             if recovery.body().schema_version == 2 {
-                return Err(
+                return Err(FormalReadError::Integrity(
                     "HistoryUnavailable: retained recovery starts after its exact sealed cut"
                         .into(),
-                );
+                ));
             }
             *next_permission += 1;
             *previous_permission = Some(index);
             *previous_emitted_in_page = recovery
                 .successor()
                 .authority_id()
-                .map_err(|error| error.to_string())?
+                .map_err(FormalReadError::from)?
                 == cursor
                     .authority()
                     .authority_id()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(FormalReadError::from)?;
             *pending_permission = None;
             if let Some(target) = stop_at
                 && requested_anchor_matches(cursor, target)?
@@ -144,7 +148,9 @@ pub(super) fn apply_ready_recoveries_until(
             || permission.cut().finalizing_authority_id() != cursor.head().finalizing_authority_id()
             || recovery.body().sealed_cut != cursor.head().head()
         {
-            return Err("HistoryUnavailable: recovery exact sealed cut differs from cursor".into());
+            return Err(FormalReadError::Integrity(
+                "HistoryUnavailable: recovery exact sealed cut differs from cursor".into(),
+            ));
         }
 
         match recovery.body().schema_version {
@@ -152,11 +158,11 @@ pub(super) fn apply_ready_recoveries_until(
                 if recovery
                     .predecessor()
                     .authority_id()
-                    .map_err(|error| error.to_string())?
+                    .map_err(FormalReadError::from)?
                     != cursor
                         .authority()
                         .authority_id()
-                        .map_err(|error| error.to_string())?
+                        .map_err(FormalReadError::from)?
                 {
                     // A recovery already present in this typed cursor is not
                     // repeated in history. Its independently checked token is
@@ -164,11 +170,11 @@ pub(super) fn apply_ready_recoveries_until(
                     if recovery
                         .successor()
                         .authority_id()
-                        .map_err(|error| error.to_string())?
+                        .map_err(FormalReadError::from)?
                         == cursor
                             .authority()
                             .authority_id()
-                            .map_err(|error| error.to_string())?
+                            .map_err(FormalReadError::from)?
                     {
                         *next_permission += 1;
                         *previous_permission = Some(index);
@@ -184,16 +190,16 @@ pub(super) fn apply_ready_recoveries_until(
                         }
                         continue;
                     }
-                    return Err(
+                    return Err(FormalReadError::Integrity(
                         "HistoryUnavailable: recovery predecessor authority differs at sealed cut"
                             .into(),
-                    );
+                    ));
                 }
                 append_recovery_read_step(permission, steps, max_steps)?;
                 if recovery.body().tail == RecoveryTailV1::Empty {
                     *cursor = cursor
                         .with_empty_recovery(recovery)
-                        .map_err(|error| error.to_string())?;
+                        .map_err(FormalReadError::from)?;
                     *pending_permission = None;
                 } else {
                     // A schema-1 pending completion is replayed under its
@@ -204,26 +210,34 @@ pub(super) fn apply_ready_recoveries_until(
             }
             2 => {
                 let previous_index = previous_permission.ok_or_else(|| {
-                    "HistoryUnavailable: retained recovery lacks prior permission".to_owned()
+                    FormalReadError::Integrity(
+                        "HistoryUnavailable: retained recovery lacks prior permission".into(),
+                    )
                 })?;
                 if !*previous_emitted_in_page {
-                    return Err(
+                    return Err(FormalReadError::Integrity(
                         "HistoryUnavailable: retained recovery lacks its replayed predecessor"
                             .into(),
-                    );
+                    ));
                 }
                 let previous = &permissions[previous_index];
                 let context = permission.retained_context().ok_or_else(|| {
-                    "HistoryUnavailable: retained recovery context unavailable".to_owned()
+                    FormalReadError::Integrity(
+                        "HistoryUnavailable: retained recovery context unavailable".into(),
+                    )
                 })?;
                 *cursor = cursor
                     .with_verified_retained_recovery(previous.recovery(), context, recovery)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(FormalReadError::from)?;
                 append_recovery_read_step(permission, steps, max_steps)?;
                 *pending_permission =
                     (recovery.body().tail != RecoveryTailV1::Empty).then_some(index);
             }
-            _ => return Err("formal recovery certificate schema".into()),
+            _ => {
+                return Err(FormalReadError::Integrity(
+                    "formal recovery certificate schema".into(),
+                ));
+            }
         }
         *next_permission += 1;
         *previous_permission = Some(index);
@@ -240,12 +254,12 @@ pub(super) fn apply_ready_recoveries_until(
 fn recovery_tail_matches_normal(
     permission: &VerifiedRecoveryBootstrapV1,
     proof: &FormalQualifiedCommitProofV1,
-) -> Result<bool, String> {
+) -> Result<bool, FormalReadError> {
     let record_id = proof
         .decision
         .record
         .record_id()
-        .map_err(|error| error.to_string())?;
+        .map_err(FormalReadError::from)?;
     Ok(matches!(
         &permission.recovery().body().tail,
         RecoveryTailV1::Prepared { record_id: retained, .. }
@@ -258,11 +272,13 @@ pub(super) fn advance_history_completion(
     cursor: &VerifiedFormalReadAnchorV1,
     permission: &VerifiedRecoveryBootstrapV1,
     proof: &FormalQualifiedCommitProofV1,
-) -> Result<VerifiedFormalReadAnchorV1, String> {
+) -> Result<VerifiedFormalReadAnchorV1, FormalReadError> {
     let recovery = permission.recovery();
     let normal = proof.decision.branch == FormalCompletionBranchV1::Normal;
     if normal && !recovery_tail_matches_normal(permission, proof)? {
-        return Err("formal recovery cannot replace an unrelated Normal proof".into());
+        return Err(FormalReadError::Integrity(
+            "formal recovery cannot replace an unrelated Normal proof".into(),
+        ));
     }
     let committed = oasis7_distfs::controlled_authority::formal::verify_formal_qualified(
         proof,
@@ -270,17 +286,19 @@ pub(super) fn advance_history_completion(
         Some(cursor.head()),
         (!normal).then_some(recovery),
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(FormalReadError::from)?;
     if recovery.body().schema_version == 2 {
         let context = permission.retained_context().ok_or_else(|| {
-            "HistoryUnavailable: retained completion context unavailable".to_owned()
+            FormalReadError::Integrity(
+                "HistoryUnavailable: retained completion context unavailable".into(),
+            )
         })?;
         cursor
             .after_verified_retained_recovery_commit(context, recovery, committed)
-            .map_err(|error| error.to_string())
+            .map_err(FormalReadError::from)
     } else {
         cursor
             .after_verified_recovery_commit(recovery, committed)
-            .map_err(|error| error.to_string())
+            .map_err(FormalReadError::from)
     }
 }

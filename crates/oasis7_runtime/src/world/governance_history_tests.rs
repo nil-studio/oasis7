@@ -297,6 +297,26 @@ fn governance_history_enforces_event_byte_and_external_deadline_budgets() {
             .unwrap_err()
             .contains("event capacity")
     );
+    assert!(matches!(
+        parent.verify_governance_projection_successor_typed(
+            &next,
+            parent
+                .formal_history_reader
+                .as_ref()
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap(),
+            next.formal_history_reader
+                .as_ref()
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap(),
+            || Ok(())
+        ),
+        Err(crate::GovernanceHistoryVerificationError::Capacity(_))
+    ));
     let (parent, next) = pair();
     let mut calls = 0;
     let result = parent.verify_formal_governance_successor(&next, || {
@@ -308,7 +328,13 @@ fn governance_history_enforces_event_byte_and_external_deadline_budgets() {
         }
     });
     assert_eq!(result, Err("operation deadline".into()));
-    let mut budget = super::ByteBudget(3);
+    assert!(matches!(
+        projection(&parent)
+            .unwrap()
+            .verify_successor_typed(&projection(&next).unwrap(), || Err("deadline".into())),
+        Err(crate::GovernanceHistoryVerificationError::Budget(_))
+    ));
+    let mut budget = super::ByteBudget(3, false);
     assert!(serde_cbor::to_writer(&mut budget, &"large event").is_err());
 }
 #[test]
@@ -336,6 +362,26 @@ fn governance_history_rejects_actual_event_over_the_full_byte_budget() {
             .unwrap_err()
             .contains("byte capacity")
     );
+    assert!(matches!(
+        parent.verify_governance_projection_successor_typed(
+            &next,
+            parent
+                .formal_history_reader
+                .as_ref()
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap(),
+            next.formal_history_reader
+                .as_ref()
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap(),
+            || Ok(())
+        ),
+        Err(crate::GovernanceHistoryVerificationError::Capacity(_))
+    ));
     assert_eq!(parent.snapshot(), before);
     assert_eq!(next.snapshot(), after);
 }

@@ -342,7 +342,9 @@ fn startup_cache_observer_runs_only_after_exact_proof_advances_anchor() {
         Instant::now() + Duration::from_secs(2),
         |_, position, _, _| {
             if position != proof.decision.record.position {
-                return Err(ReplayFailure::Invalid("unexpected proof position".into()));
+                return Err(ReplayFailure::Invalid(FormalReadError::Integrity(
+                    "unexpected proof position".into(),
+                )));
             }
             Ok(ReplayStepProof {
                 proof: proof.clone(),
@@ -469,9 +471,9 @@ fn prewarm_partial_prefix_never_reaches_installable_target() {
             p if p == second.decision.record.position => {
                 Err(ReplayFailure::LocalPublicationMissing)
             }
-            _ => Err(ReplayFailure::Invalid(format!(
+            _ => Err(ReplayFailure::Invalid(FormalReadError::Integrity(format!(
                 "unexpected position {position}"
-            ))),
+            )))),
         },
         |_, anchor, _, _| {
             observed.push(anchor.head().record().position);
@@ -630,9 +632,9 @@ fn proof_only_origin_step_keeps_replay_running_to_later_local_candidate() {
                     }),
                 });
             }
-            Err(ReplayFailure::Invalid(format!(
+            Err(ReplayFailure::Invalid(FormalReadError::Integrity(format!(
                 "unexpected proof position {position}"
-            )))
+            ))))
         },
         |_, verified, proof, candidate| {
             assert_eq!(
@@ -733,9 +735,9 @@ fn only_exact_verified_pending_recovery_target_is_optional_for_prewarm() {
         .unwrap();
     let exact_target = read_anchor_ref(&pending_target);
     let no_proof_needed = |_: &VerifiedFormalReadAnchorV1, _: u64, _: Option<usize>, _: Instant| {
-        Err(ReplayFailure::Invalid(
+        Err(ReplayFailure::Invalid(FormalReadError::Integrity(
             "unexpected proof request for same-cut pending recovery".into(),
-        ))
+        )))
     };
     let exact = replay_exact_origin_after_verified(
         &origin,
@@ -781,7 +783,9 @@ fn only_exact_verified_pending_recovery_target_is_optional_for_prewarm() {
             .replay_exact_origin(&exact_target, Instant::now() + Duration::from_secs(2))
             .err()
             .expect("pending recovery must not qualify as an exact read"),
-        "HistoryUnavailable: pending recovery target is not a qualified read cut",
+        FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: pending recovery target is not a qualified read cut".into()
+        ),
         "the production exact-replay path must continue to reject pending recovery anchors"
     );
 
@@ -850,7 +854,11 @@ fn external_and_cached_epoch_origins_replay_consecutive_recovery_chain_exactly()
         &read_anchor_ref(&origin),
         &permissions,
         Instant::now() + Duration::from_secs(2),
-        |_, _, _, _| Err("unexpected proof lookup at external origin".into()),
+        |_, _, _, _| {
+            Err(FormalReadError::Integrity(
+                "unexpected proof lookup at external origin".into(),
+            ))
+        },
     )
     .unwrap();
     assert_eq!(fresh.anchor.checkpoint(), origin.checkpoint());
@@ -866,7 +874,7 @@ fn external_and_cached_epoch_origins_replay_consecutive_recovery_chain_exactly()
         |_, position, _, _| {
             (position == first_proof.decision.record.position)
                 .then(|| first_proof.clone())
-                .ok_or_else(|| "unexpected proof position".to_owned())
+                .ok_or_else(|| FormalReadError::Integrity("unexpected proof position".into()))
         },
     )
     .unwrap();
@@ -882,7 +890,7 @@ fn external_and_cached_epoch_origins_replay_consecutive_recovery_chain_exactly()
         |_, position, _, _| {
             (position == first_proof.decision.record.position)
                 .then(|| first_proof.clone())
-                .ok_or_else(|| "unexpected proof position".to_owned())
+                .ok_or_else(|| FormalReadError::Integrity("unexpected proof position".into()))
         },
     )
     .unwrap();
@@ -923,7 +931,7 @@ fn external_and_cached_epoch_origins_replay_consecutive_recovery_chain_exactly()
             |_, position, _, _| {
                 (position == fork.decision.record.position)
                     .then(|| fork.clone())
-                    .ok_or_else(|| "unexpected proof position".to_owned())
+                    .ok_or_else(|| FormalReadError::Integrity("unexpected proof position".into()))
             },
         )
         .is_err()
@@ -976,7 +984,9 @@ fn external_and_cached_epoch_origins_replay_normal_progress_between_recoveries()
         |_, position, _, _| match position {
             p if p == first_proof.decision.record.position => Ok(first_proof.clone()),
             p if p == second_proof.decision.record.position => Ok(second_proof.clone()),
-            _ => Err(format!("unexpected proof position {position}")),
+            _ => Err(FormalReadError::Integrity(format!(
+                "unexpected proof position {position}"
+            ))),
         },
     )
     .unwrap();
@@ -1004,4 +1014,63 @@ fn external_and_cached_epoch_origins_replay_normal_progress_between_recoveries()
     require_exact_history_target(&cached_cursor, &e3).unwrap();
     assert_eq!(steps.len(), 1);
     assert!(matches!(steps[0], FormalReadStepV1::Recovery(_)));
+}
+
+#[test]
+fn replay_failure_preserves_source_classification_without_diagnostic_inspection() {
+    let diagnostic = "HistoryUnavailable: grant node not ready".to_owned();
+    assert!(matches!(
+        ReplayFailure::LocalPublicationMissing.into_read_error(),
+        FormalReadError::HistoryUnavailable(_)
+    ));
+    assert!(matches!(
+        ReplayFailure::DeadlineExceeded.into_read_error(),
+        FormalReadError::HistoryUnavailable(_)
+    ));
+    assert_eq!(
+        ReplayFailure::Invalid(FormalReadError::Internal(diagnostic.clone())).into_read_error(),
+        FormalReadError::Internal(diagnostic.clone())
+    );
+    assert_eq!(
+        ReplayFailure::Invalid(FormalReadError::Integrity(diagnostic.clone())).into_read_error(),
+        FormalReadError::Integrity(diagnostic)
+    );
+}
+
+#[test]
+fn valid_recovery_page_capacity_remains_history_unavailable() {
+    let (_, trust, origin, _) = fixtures::actual_world_initial_fixture();
+    let first_proof = normal_execution_proof(origin.authority(), origin.head(), 81, [4, 5, 6]);
+    let cut = advance_normal_history_proof(&origin, &first_proof).unwrap();
+    let initial_floor = issuer::IssuerAnchorV1::initial(origin.authority().policy()).unwrap();
+    let (raw2, permission2) =
+        permission_evidence_at_cut(&cut, &trust, 2, [14, 15, 16], [5, 6], None, &initial_floor);
+    let e2 = cut.with_empty_recovery(permission2.recovery()).unwrap();
+    let (_, permission3) = permission_evidence_at_cut(
+        &e2,
+        &trust,
+        3,
+        [24, 25, 26],
+        [15, 16],
+        Some(&permission2),
+        &raw2.issuer_witness.body.current_anchor,
+    );
+    let permissions = vec![permission2, permission3];
+    let mut cursor = cut;
+    let mut steps = Vec::new();
+    let rejected = apply_ready_recoveries(
+        &mut cursor,
+        &permissions,
+        &mut 0,
+        &mut None,
+        &mut false,
+        &mut None,
+        &mut steps,
+        1,
+    );
+    assert_eq!(steps.len(), 1, "one authentic recovery consumed the page");
+    assert!(
+        matches!(rejected, Err(FormalReadError::HistoryUnavailable(_))),
+        "{rejected:?}"
+    );
 }

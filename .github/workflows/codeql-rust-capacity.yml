@@ -74,7 +74,7 @@ jobs:
       - id: source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 9ab1d76982e8ab58994728d881f3d60398834ade
+          ref: d2bf383d8c377b36de83aae4a06d9ec17612e205
           clean: true
           persist-credentials: false
       - id: layout
@@ -83,7 +83,7 @@ jobs:
           python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
             --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" \
-            --source-sha 9ab1d76982e8ab58994728d881f3d60398834ade --deadline "$CAPACITY_DEADLINE"
+            --source-sha d2bf383d8c377b36de83aae4a06d9ec17612e205 --deadline "$CAPACITY_DEADLINE"
       - id: tools
         name: Prepare pinned production tools
         timeout-minutes: 5

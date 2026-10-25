@@ -186,7 +186,10 @@ impl EffectScenario {
             return Err("C13 reopen changed independent initial origin".into());
         }
         let snapshot = serde_cbor::to_vec(&before.world.snapshot()).map_err(|e| e.to_string())?;
-        let historical = restored.history.full_sync_material(&before.anchor)?;
+        let historical = restored
+            .history
+            .full_sync_material(&before.anchor)
+            .map_err(|error| error.to_string())?;
         let outbox = QualifiedEffectOutboxV1::from_qualified_material(&before.anchor, &historical)?;
         if outbox.obligations.len() != 1 {
             return Err(format!(
@@ -227,14 +230,18 @@ impl EffectScenario {
         if restored.published.current()?.anchor.checkpoint() != frozen_head {
             return Err("C13 stopped reopen changed qualified cut".into());
         }
-        let source = restored.history.origin_publication(
-            &oasis7_client_api::world_service::FormalReadAnchorRefV1 {
+        let source = restored
+            .history
+            .origin_publication(&oasis7_client_api::world_service::FormalReadAnchorRefV1 {
                 position: first_source.position,
                 record_id: first_source.record_id.clone(),
                 active_authority_id: first_source.active_authority_id.clone(),
-            },
-        )?;
-        let source_material = restored.history.full_sync_material(source.anchor())?;
+            })
+            .map_err(|error| error.to_string())?;
+        let source_material = restored
+            .history
+            .full_sync_material(source.anchor())
+            .map_err(|error| error.to_string())?;
         let source_outbox =
             QualifiedEffectOutboxV1::from_qualified_material(source.anchor(), &source_material)?;
         if !source_outbox.obligations.iter().any(|effect| {

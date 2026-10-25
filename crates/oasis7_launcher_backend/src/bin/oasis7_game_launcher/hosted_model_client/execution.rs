@@ -35,6 +35,10 @@ impl HostedModelClient {
         id: &str,
         input: Activate,
     ) -> Result<(), IdentityReply> {
+        // Defense in depth: internal callers cannot bypass the HTTP migration gate.
+        if self.management_only {
+            return Err(error(409, "legacy_execution_disabled"));
+        }
         if !input.consent {
             return Err(error(400, "consent_required"));
         }

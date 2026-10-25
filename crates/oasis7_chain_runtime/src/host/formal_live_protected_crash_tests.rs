@@ -292,7 +292,7 @@ pub(super) fn run_crash_recovery(
                 let diagnostic = match local {
                     Ok(Some(_)) => "verified proof present".to_owned(),
                     Ok(None) => "verified tree proves absence".to_owned(),
-                    Err(error) => error,
+                    Err(error) => error.to_string(),
                 };
                 return Err(format!(
                     "C03 {phase} reopen {reopen}: {error}; retained result {retained}; local result: {diagnostic}"
@@ -306,7 +306,10 @@ pub(super) fn run_crash_recovery(
                 original_commit.position
             ));
         }
-        let exact_original = runtime.history.fixed_publication(&original_commit)?;
+        let exact_original = runtime
+            .history
+            .fixed_publication(&original_commit)
+            .map_err(|error| error.to_string())?;
         if wasm_emit_count(exact_original.world()) != initial_emits + 1 {
             return Err("C03 original Wasmtime effect did not persist exactly once".into());
         }
@@ -363,7 +366,10 @@ pub(super) fn run_crash_recovery(
         }
         let repeated = lookup_original_commit(&owner, request)?;
         scenario.report_stage("exact crash recovery repeated lookup verified")?;
-        let old = runtime.history.fixed_publication(&repeated)?;
+        let old = runtime
+            .history
+            .fixed_publication(&repeated)
+            .map_err(|error| error.to_string())?;
         if reference.as_ref() != Some(&repeated)
             || Some(first_agent_test_effect::first_agent_effect(
                 old.world(),
@@ -403,7 +409,9 @@ fn stop_after_controlled_publication(
             != Some("formal Node stop is still pending; runtime remains owned")
             || runtime.stop_worker.is_some()
         {
-            return Err(format!("C03 zero-budget stop must retain a pre-worker owner: {result:?}"));
+            return Err(format!(
+                "C03 zero-budget stop must retain a pre-worker owner: {result:?}"
+            ));
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -414,11 +422,17 @@ fn stop_after_controlled_publication(
             != Some("formal Node stop is still pending; runtime remains owned")
             || !Arc::ptr_eq(&node, &runtime.runtime)
         {
-            return Err(format!("C03 positive retry did not retain the same owner: {result:?}"));
+            return Err(format!(
+                "C03 positive retry did not retain the same owner: {result:?}"
+            ));
         }
-        let worker = runtime.stop_worker.as_ref()
+        let worker = runtime
+            .stop_worker
+            .as_ref()
             .ok_or("C03 positive retry did not start the original stop worker")?
-            .worker.thread().id();
+            .worker
+            .thread()
+            .id();
         loop {
             match runtime.runtime.try_lock() {
                 Err(std::sync::TryLockError::WouldBlock) => break,
@@ -428,19 +442,28 @@ fn stop_after_controlled_publication(
                 Ok(node) => drop(node),
             }
             if Instant::now() >= deadline {
-                return Err("C03 original stop worker did not take ownership before deadline".into());
+                return Err(
+                    "C03 original stop worker did not take ownership before deadline".into(),
+                );
             }
             thread::sleep(Duration::from_millis(1));
         }
-        let pending = runtime.stop_worker.as_ref().ok_or("C03 pending stop owner missing")?;
+        let pending = runtime
+            .stop_worker
+            .as_ref()
+            .ok_or("C03 pending stop owner missing")?;
         if pending.worker.thread().id() != worker {
             return Err("C03 stop observation replaced the original worker".into());
         }
         match pending.result.recv_timeout(
-            deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(10)),
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(10)),
         ) {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(()),
-            result => Err(format!("C03 in-flight stop completed before publication release: {result:?}")),
+            result => Err(format!(
+                "C03 in-flight stop completed before publication release: {result:?}"
+            )),
         }
     })();
     // Every assertion path releases publication before returning to runtime cleanup.
@@ -448,7 +471,9 @@ fn stop_after_controlled_publication(
     match (retained, released) {
         (Ok(()), Ok(())) => {}
         (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
-        (Err(error), Err(release)) => return Err(format!("{error}; C03 publication release: {release}")),
+        (Err(error), Err(release)) => {
+            return Err(format!("{error}; C03 publication release: {release}"));
+        }
     }
     super::durable_set_tests::stop_healthy_runtime(runtime, scenario)
 }

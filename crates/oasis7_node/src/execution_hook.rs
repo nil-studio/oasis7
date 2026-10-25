@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+use oasis7_consensus::tendermint_v1::{
+    BftValidatorSetV1, BftValidatorV1, VerifiedBftCommitCertificateV1,
+};
+pub use oasis7_proto::distributed_bft::BFT_MAX_COMMIT_HISTORY_PAGE_ENTRIES_V1;
+use oasis7_proto::distributed_bft::{BftBlockV1, BftCommitCertificateV1, BftScopeV1};
+
 use crate::NodeConsensusAction;
 
 /// Reserved consensus action identity for execution inputs that are authored
@@ -183,6 +189,73 @@ pub struct NodeExecutionCommitResult {
     pub execution_height: u64,
     pub execution_block_hash: String,
     pub execution_state_root: String,
+}
+
+/// Runtime identity and predecessor that every BFT proposal must execute
+/// against. The driver compares these values with its live parent before it
+/// previews or applies a candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeBftExecutionContextV1 {
+    pub scope: BftScopeV1,
+    pub height: u64,
+    pub parent_commit_ref: String,
+    pub authority_epoch: u64,
+    pub manifest_hash: String,
+}
+
+/// The fixed configuration the execution driver must durably pin before the
+/// NodeRuntime restores BFT history or opens its network listener.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeBftExecutionConfigV1 {
+    pub scope: BftScopeV1,
+    pub authority_epoch: u64,
+    pub validators: Vec<BftValidatorV1>,
+    pub validator_set_hash: String,
+}
+
+impl NodeBftExecutionConfigV1 {
+    pub fn from_validator_set(set: &BftValidatorSetV1, authority_epoch: u64) -> Self {
+        Self {
+            scope: set.scope().clone(),
+            authority_epoch,
+            validators: set.validators().values().cloned().collect(),
+            validator_set_hash: set.set_hash().to_string(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<BftValidatorSetV1, String> {
+        let set = BftValidatorSetV1::new(self.scope.clone(), self.validators.clone())?;
+        if set.set_hash() != self.validator_set_hash {
+            return Err("BFT execution config validator set hash mismatch".into());
+        }
+        Ok(set)
+    }
+}
+
+/// Durable execution head reported only after the fixed BFT configuration has
+/// been checked and pinned. NodeRuntime independently replays every raw
+/// certificate from the configured genesis through this exact head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeBftExecutionHeadV1 {
+    pub height: u64,
+    pub block_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeBftBuildContextV1 {
+    pub execution: NodeBftExecutionContextV1,
+    pub actions: Vec<NodeConsensusAction>,
+}
+
+/// Result returned only after the execution driver has atomically installed
+/// the certificate's deterministic execution result and BFT-specific proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeBftExecutionCommitResultV1 {
+    pub height: u64,
+    pub bft_commit_ref: String,
+    pub execution_block_hash: String,
+    pub execution_state_root: String,
+    pub state_root: String,
 }
 
 /// Local execution may wait for durable evidence after consensus has decided.
@@ -431,5 +504,78 @@ pub trait NodeExecutionHook: Send {
         _bundle: NodeExecutionCheckpointBundle,
     ) -> Result<NodeExecutionCommitResult, String> {
         Err("execution checkpoint install is not supported by this hook".to_string())
+    }
+
+    /// Build a complete BFT block from ordered actions using an isolated,
+    /// deterministic preview. Implementations must not publish live effects.
+    fn build_bft_candidate(
+        &mut self,
+        _context: NodeBftBuildContextV1,
+    ) -> Result<BftBlockV1, String> {
+        Err("BFT candidate construction is unsupported by this execution hook".into())
+    }
+
+    /// Independently preview a received BFT block against the exact local
+    /// world, manifest, and parent. `Ok(())` means every execution root matched;
+    /// it must not modify the canonical world or journal.
+    fn preview_bft_candidate(
+        &mut self,
+        _expected: &NodeBftExecutionContextV1,
+        _candidate: &BftBlockV1,
+    ) -> Result<(), String> {
+        Err("BFT candidate preview is unsupported by this execution hook".into())
+    }
+
+    /// Validate one action payload before BFT queue admission. This check is
+    /// independent of configuration and World state; implementations must
+    /// reject payload classes the deterministic BFT executor cannot replay.
+    fn validate_bft_action_payload(&mut self, _payload: &[u8]) -> Result<(), String> {
+        Err("BFT action payload admission is unsupported by this execution hook".into())
+    }
+
+    /// Apply or recover one fully verified fixed-set BFT certificate. The
+    /// opaque token is produced only by the consensus verifier; implementations
+    /// must persist BFT evidence separately from legacy PoS proof and make an
+    /// exact retry idempotent.
+    fn commit_bft_certificate(
+        &mut self,
+        _certificate: VerifiedBftCommitCertificateV1,
+    ) -> Result<NodeBftExecutionCommitResultV1, String> {
+        Err("BFT certificate execution is unsupported by this execution hook".into())
+    }
+
+    /// Persistently bind the exact local BFT scope, fixed set, and epoch. This
+    /// runs before recovery and before any listener is opened; ordinary hooks
+    /// fail closed until they implement a separate durable BFT evidence store.
+    fn configure_bft_execution(
+        &mut self,
+        _config: &NodeBftExecutionConfigV1,
+    ) -> Result<Option<NodeBftExecutionHeadV1>, String> {
+        Err("durable BFT execution configuration is unsupported by this hook".into())
+    }
+
+    /// Return the execution driver's current authenticated context for the
+    /// requested next height. In particular, `manifest_hash` must come from
+    /// the installed canonical World, never from a proposal or caller.
+    fn current_bft_execution_context(
+        &mut self,
+        _scope: &BftScopeV1,
+        _height: u64,
+        _parent_commit_ref: &str,
+        _authority_epoch: u64,
+    ) -> Result<NodeBftExecutionContextV1, String> {
+        Err("BFT execution context lookup is unsupported by this hook".into())
+    }
+
+    /// Return a bounded, height-ordered page of raw evidence after an exclusive
+    /// cursor. The NodeRuntime verifies the full contiguous chain itself and
+    /// rejects pages larger than `max_entries` or with missing heights.
+    fn load_bft_commit_history_page(
+        &mut self,
+        _config: &NodeBftExecutionConfigV1,
+        _after_height: u64,
+        _max_entries: usize,
+    ) -> Result<Vec<BftCommitCertificateV1>, String> {
+        Err("durable BFT commit history is unsupported by this execution hook".into())
     }
 }

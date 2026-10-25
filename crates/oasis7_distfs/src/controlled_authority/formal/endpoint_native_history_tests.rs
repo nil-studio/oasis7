@@ -103,3 +103,35 @@ fn historical_skip_path_is_bounded_exact_and_rejects_fork_missing_and_corrupt_no
         .is_err()
     );
 }
+
+#[test]
+fn historical_business_tree_verification_preserves_load_error_provenance() {
+    use crate::controlled_authority::formal::business_index::BusinessIndexRootV1;
+    let embedded = EmbeddedBusinessNodes::default();
+    let root = BusinessIndexRootV1 {
+        node_root: "ab".repeat(32),
+        leaf_count: 1,
+    };
+    let diagnostic = "HistoryUnavailable grant node not ready".to_owned();
+    for source in [
+        FormalError::Io(diagnostic.clone()),
+        FormalError::Invalid(diagnostic),
+    ] {
+        let mut load = |_: &str| Err(source.clone());
+        let reader = HistoryBusinessReader {
+            load: std::cell::RefCell::new(&mut load),
+            embedded: &embedded,
+            source_error: std::cell::RefCell::new(None),
+        };
+        let rejected = root
+            .get(&"cd".repeat(32), &reader)
+            .map_err(invalid)
+            .map_err(|error| reader.preserve_source(error));
+        assert_eq!(rejected.unwrap_err(), source);
+        // Error capture belongs to this one tree computation, not later work.
+        assert_eq!(
+            reader.preserve_source(invalid("pure proof failure")),
+            invalid("pure proof failure")
+        );
+    }
+}

@@ -557,7 +557,8 @@ fn commit_ref_for_opaque_cut(
             .authority_id()
             .map_err(|error| error.to_string())?,
     };
-    let publication = FormalReadPublication::new(cut.anchor.clone(), cut.world.clone())?;
+    let publication = FormalReadPublication::new(cut.anchor.clone(), cut.world.clone())
+        .map_err(|error| error.to_string())?;
     let request = ReadWorldViewRequest {
         observation_nonce: Some("07".repeat(32)),
         formal_anchor: Some(anchor_ref),
@@ -568,7 +569,9 @@ fn commit_ref_for_opaque_cut(
         fixed_commit: None,
         deadline_unix_ms: None,
     };
-    let response = publication.view_at_own_anchor(&request, &super::oracle_support::public(92))?;
+    let response = publication
+        .view_at_own_anchor(&request, &super::oracle_support::public(92))
+        .map_err(|error| error.to_string())?;
     let projection = serde_cbor::to_vec(&response.view)
         .map_err(|error| format!("C06 serialize opaque current projection: {error}"))?;
     Ok((response.version.commit, projection))

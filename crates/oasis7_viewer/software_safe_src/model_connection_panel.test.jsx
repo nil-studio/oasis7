@@ -152,3 +152,25 @@ it("ignores a delayed lease after a newer management refresh", async () => {
  expect(result.container.textContent).not.toContain("Executor running");expect(api.read).not.toHaveBeenCalled();
  if(descriptor)Object.defineProperty(document,"visibilityState",descriptor);else delete document.visibilityState;
 });
+
+it("management-only keeps legacy Stop/Forget while excluding paid controls and lease renewal", async () => {
+ vi.useFakeTimers();
+ const api = client([{ ...connection(), expires_at_ms: Date.now() + 2000, run_state: "running" }], { ok:true,enabled:true,authenticated:true,presets:[] });
+ const result = render(() => <ModelConnectionPanel client={api} locale="en" managementOnly={true} />);
+ await vi.advanceTimersByTimeAsync(0);
+ expect(api.list).toHaveBeenCalledOnce();
+ expect(result.container.querySelector("form")).toBeNull();
+ expect(result.container.querySelector("input[type=password]")).toBeNull();
+ expect(result.queryByRole("button", { name:"Test connection" })).toBeNull();
+ expect(result.queryByRole("button", { name:"Confirm start" })).toBeNull();
+ expect(result.queryByText(/Consent to a bounded/)).toBeNull();
+ await vi.advanceTimersByTimeAsync(5000);
+ expect(api.lease).not.toHaveBeenCalled();
+ fireEvent.click(result.getByRole("button", { name:"Stop new decisions" }));
+ await vi.advanceTimersByTimeAsync(0);
+ expect(api.stop).toHaveBeenCalledOnce();
+ fireEvent.click(result.getByRole("button", { name:"Disconnect and forget" }));
+ await vi.advanceTimersByTimeAsync(0);
+ expect(api.forget).toHaveBeenCalledOnce();
+ expect(api.create).not.toHaveBeenCalled(); expect(api.probe).not.toHaveBeenCalled(); expect(api.activate).not.toHaveBeenCalled();
+});
