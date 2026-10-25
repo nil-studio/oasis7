@@ -7,6 +7,9 @@ use oasis7_proto::distributed_bft::{
 use super::super::BftValidatorV1;
 use super::*;
 
+#[path = "engine_tests/valid_round_evidence.rs"]
+mod valid_round_evidence;
+
 const TEST_TIMEOUTS: BftTimeoutsV1 = BftTimeoutsV1 {
     propose_ms: 10,
     prevote_ms: 10,

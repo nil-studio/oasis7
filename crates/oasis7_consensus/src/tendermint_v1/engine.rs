@@ -593,6 +593,7 @@ impl BftConsensusMachineV1 {
         }
         self.set.validate_proposer(&evidence.proposal)?;
         let mut tally = VoteTally::new();
+        let mut seen_signers = BTreeSet::new();
         for vote in evidence.prevotes.iter() {
             if vote.height != proposal.header.height
                 || vote.round != valid_round
@@ -605,6 +606,9 @@ impl BftConsensusMachineV1 {
                 return Err("BFT valid-round evidence contains a mismatched prevote".into());
             }
             self.set.validate_vote(vote)?;
+            if !seen_signers.insert(vote.validator_id.as_str()) {
+                return Err("BFT valid-round evidence repeats a validator".into());
+            }
             tally.insert(vote.clone())?;
         }
         let power = tally.power_for(

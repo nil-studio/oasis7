@@ -1,11 +1,15 @@
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ed25519_dalek::SigningKey;
 use oasis7_consensus::tendermint_v1::{BftHeightProposerScheduleV1, BftTimeoutsV1, BftValidatorV1};
-use oasis7_proto::distributed_bft::{BftBlockV1, BftScopeV1};
+use oasis7_proto::distributed_bft::{
+    BftBlockV1, BftHistoryRequestV1, BftMessageV1, BftProposalHeaderV1, BftProposalV1, BftScopeV1,
+    BftValidRoundEvidenceV1, BftVotePhaseV1, BftVoteV1, BftVoteValueV1,
+};
 use serde_json::Value;
 
 use super::super::*;
@@ -49,6 +53,8 @@ impl Drop for TempRoot {
 
 struct ProposalHook {
     governance_authorized: Arc<AtomicBool>,
+    history_page_calls: Arc<AtomicUsize>,
+    history_page_error: Option<String>,
 }
 
 impl ProposalHook {
@@ -133,6 +139,19 @@ impl NodeExecutionHook for ProposalHook {
         }
         Ok(())
     }
+
+    fn load_bft_commit_history_page(
+        &mut self,
+        _config: &crate::NodeBftExecutionConfigV1,
+        _after_height: u64,
+        _max_entries: usize,
+    ) -> Result<Vec<oasis7_proto::distributed_bft::BftCommitCertificateV1>, String> {
+        self.history_page_calls.fetch_add(1, Ordering::AcqRel);
+        match &self.history_page_error {
+            Some(reason) => Err(reason.clone()),
+            None => Ok(Vec::new()),
+        }
+    }
 }
 
 fn bft_config(key: &SigningKey) -> super::NodeBftConfigV1 {
@@ -205,6 +224,22 @@ fn worker(
     actions: Vec<crate::NodeConsensusAction>,
     authorized: Arc<AtomicBool>,
 ) -> Worker {
+    worker_with_history_page(
+        root,
+        actions,
+        authorized,
+        Arc::new(AtomicUsize::new(0)),
+        None,
+    )
+}
+
+fn worker_with_history_page(
+    root: &TempRoot,
+    actions: Vec<crate::NodeConsensusAction>,
+    authorized: Arc<AtomicBool>,
+    history_page_calls: Arc<AtomicUsize>,
+    history_page_error: Option<String>,
+) -> Worker {
     let key = SigningKey::from_bytes(&[71; 32]);
     let bft = bft_config(&key);
     let set = bft.validate(WORLD_ID).expect("fixed validator set");
@@ -227,6 +262,8 @@ fn worker(
         key,
         hook: Arc::new(Mutex::new(Box::new(ProposalHook {
             governance_authorized: authorized,
+            history_page_calls,
+            history_page_error,
         }))),
         wal,
         pending: Arc::new(Mutex::new(actions)),
@@ -254,6 +291,29 @@ fn local_proposal_actions(worker: &Worker) -> Vec<crate::NodeConsensusAction> {
         })
         .expect("worker persisted a local proposal");
     serde_cbor::from_slice(&proposal.block.actions_cbor).expect("decode proposal actions")
+}
+
+fn history_endpoint() -> crate::gossip_udp::GossipEndpoint {
+    crate::gossip_udp::GossipEndpoint::bind(&crate::NodeGossipConfig {
+        bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+        peers: Vec::new(),
+        max_dynamic_peers: 1,
+        dynamic_peer_ttl_ms: 1_000,
+    })
+    .expect("bind history request test endpoint")
+}
+
+fn history_request(
+    worker: &Worker,
+    after_height: u64,
+    after_block_id: &str,
+) -> BftHistoryRequestV1 {
+    BftHistoryRequestV1 {
+        scope: worker.setup.bft.scope.clone(),
+        validator_set_hash: worker.setup.set.set_hash().into(),
+        after_height,
+        after_block_id: after_block_id.into(),
+    }
 }
 
 #[test]
@@ -307,6 +367,175 @@ fn maybe_propose_sorts_actions_and_collapses_exact_duplicates() {
     assert_eq!(
         proposal.block.action_root,
         compute_consensus_action_root(&actions).unwrap()
+    );
+}
+
+#[test]
+fn future_history_cursor_is_ignored_before_loading_local_history() {
+    let root = TempRoot::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut worker = worker_with_history_page(
+        &root,
+        Vec::new(),
+        Arc::new(AtomicBool::new(true)),
+        Arc::clone(&calls),
+        Some("simulated local history storage failure".into()),
+    );
+    let endpoint = history_endpoint();
+    let request = history_request(
+        &worker,
+        2,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+
+    worker
+        .serve_history(request, &endpoint)
+        .expect("future untrusted cursor is ignored");
+
+    assert_eq!(calls.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn local_history_storage_errors_remain_fatal_for_current_cursor() {
+    let root = TempRoot::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut worker = worker_with_history_page(
+        &root,
+        Vec::new(),
+        Arc::new(AtomicBool::new(true)),
+        Arc::clone(&calls),
+        Some("simulated local history storage failure".into()),
+    );
+    let endpoint = history_endpoint();
+    let request = history_request(&worker, 0, GENESIS_HASH);
+
+    let error = worker
+        .serve_history(request, &endpoint)
+        .expect_err("local history storage failures remain fatal");
+
+    assert!(
+        error
+            .to_string()
+            .contains("simulated local history storage failure")
+    );
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn receive_rejects_duplicate_valid_round_prevotes_and_keeps_processing() {
+    let root = TempRoot::new();
+    let mut worker = worker(&root, Vec::new(), Arc::new(AtomicBool::new(true)));
+    let endpoint = history_endpoint();
+    let key = worker.setup.key.clone();
+    let scope = worker.setup.bft.scope.clone();
+    let validator_set_hash = worker.setup.set.set_hash().to_string();
+    let context = NodeBftExecutionContextV1 {
+        scope: scope.clone(),
+        height: 1,
+        parent_commit_ref: GENESIS_HASH.into(),
+        authority_epoch: worker.setup.bft.authority_epoch,
+        manifest_hash: MANIFEST_HASH.into(),
+    };
+    let block = ProposalHook::block(&context, &[]).expect("deterministic BFT block");
+    let block_id = block.block_id().expect("block ID");
+    let valid_round_proposal = BftProposalHeaderV1::sign(
+        scope.clone(),
+        1,
+        0,
+        validator_set_hash.clone(),
+        VALIDATOR_ID.into(),
+        block_id.clone(),
+        None,
+        &key,
+    )
+    .expect("valid round-zero proposer signature");
+    let prevote = BftVoteV1::sign(
+        scope.clone(),
+        1,
+        0,
+        BftVotePhaseV1::Prevote,
+        validator_set_hash.clone(),
+        BftVoteValueV1::Block {
+            block_id: block_id.clone(),
+        },
+        VALIDATOR_ID.into(),
+        &key,
+    )
+    .expect("valid round-zero prevote");
+    let invalid_round_one = BftProposalV1 {
+        header: BftProposalHeaderV1::sign(
+            scope.clone(),
+            1,
+            1,
+            validator_set_hash.clone(),
+            VALIDATOR_ID.into(),
+            block_id.clone(),
+            Some(0),
+            &key,
+        )
+        .expect("valid round-one proposer signature"),
+        block: block.clone(),
+        valid_round_evidence: Some(BftValidRoundEvidenceV1 {
+            proposal: valid_round_proposal,
+            prevotes: vec![prevote.clone(), prevote],
+        }),
+    };
+
+    worker
+        .receive(
+            BftMessageV1::Proposal(Box::new(invalid_round_one)),
+            &endpoint,
+        )
+        .expect("invalid inbound evidence is rejected without stopping worker");
+    assert!(worker.setup.wal.state().events.is_empty());
+    {
+        let state = worker.setup.state.lock().expect("runtime status");
+        let status = state.bft_status.as_ref().expect("BFT status");
+        assert_eq!(status.rejected_inbound_messages, 1);
+        assert!(
+            status
+                .last_inbound_rejection
+                .as_deref()
+                .is_some_and(|reason| reason.contains("repeats a validator"))
+        );
+    }
+
+    let legal_round_zero = BftProposalV1 {
+        header: BftProposalHeaderV1::sign(
+            scope,
+            1,
+            0,
+            validator_set_hash,
+            VALIDATOR_ID.into(),
+            block_id,
+            None,
+            &key,
+        )
+        .expect("valid round-zero proposer signature"),
+        block,
+        valid_round_evidence: None,
+    };
+    worker
+        .receive(
+            BftMessageV1::Proposal(Box::new(legal_round_zero)),
+            &endpoint,
+        )
+        .expect("worker remains able to process a legal proposal");
+    assert!(matches!(
+        worker.setup.wal.state().events.as_slice(),
+        [BftWalEventV1::Proposal { local: false, .. }]
+    ));
+    assert_eq!(
+        worker
+            .setup
+            .state
+            .lock()
+            .expect("runtime status")
+            .bft_status
+            .as_ref()
+            .expect("BFT status")
+            .rejected_inbound_messages,
+        1
     );
 }
 
@@ -423,6 +652,8 @@ fn bft_ingress_is_idempotent_and_start_rejects_legacy_queue_conflicts() {
     let authorized = Arc::new(AtomicBool::new(true));
     let hook = || ProposalHook {
         governance_authorized: Arc::clone(&authorized),
+        history_page_calls: Arc::new(AtomicUsize::new(0)),
+        history_page_error: None,
     };
     let configured = NodeRuntime::new(node_config())
         .with_execution_hook(hook())

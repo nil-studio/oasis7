@@ -74,6 +74,17 @@ impl Worker {
         {
             return Ok(());
         }
+        let local_committed_height = self
+            .setup
+            .schedule
+            .height()
+            .checked_sub(1)
+            .ok_or_else(|| error("BFT next-height schedule has no committed predecessor"))?;
+        if request.after_height > local_committed_height {
+            // The cursor is an unauthenticated hint. Never ask durable history
+            // for a cursor beyond the locally verified committed tip.
+            return Ok(());
+        }
         self.last_response = Some(Instant::now());
         // A hint never establishes a trusted head. Match its cursor against
         // our own immutable certificate history before answering one page.
