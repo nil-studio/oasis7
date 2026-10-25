@@ -45,36 +45,7 @@ pub(super) fn build(kind: &str, input: &str) -> Result<String, &'static str> {
                     .map_err(|_| "encoding_failed")?
             ))
         }
-        "task_create" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct Input {
-                owner_control_json: String,
-                client_operation_id: String,
-            }
-            let input: Input = parse(input)?;
-            let control: ParticipantOwnerControlResponseV1 = parse(&input.owner_control_json)?;
-            if control.schema_revision != 1 || control.view.game_task_control.is_some() {
-                return Err("task_already_present");
-            }
-            let owner = control.view.canonical_agent_owner;
-            if owner.world_id != control.world.world_id {
-                return Err("contract_mismatch");
-            }
-            let request = GameTaskCreateV1 {
-                api_rev: 1,
-                client_operation_id: input.client_operation_id,
-                world_id: control.world.world_id,
-                genesis_digest: control.world.genesis_digest,
-                branch_id: owner.canonical_authority.branch_id,
-                reorg_epoch: DecimalU64(owner.reorg_epoch),
-                agent_id: owner.agent_id,
-                owner_binding: owner.player_id,
-                owner_generation: DecimalU64(owner.canonical_authority.agent_identity_generation),
-            };
-            request.validate().map_err(|_| "contract_mismatch")?;
-            encode(&request)
-        }
+        "task_create" => task_create(input),
         "goal_prepare" => {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -136,6 +107,37 @@ pub(super) fn build(kind: &str, input: &str) -> Result<String, &'static str> {
         }
         _ => Err("unsupported_contract"),
     }
+}
+
+fn task_create(input: &str) -> Result<String, &'static str> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Input {
+        owner_control_json: String,
+        client_operation_id: String,
+    }
+    let input: Input = parse(input)?;
+    let control: ParticipantOwnerControlResponseV1 = parse(&input.owner_control_json)?;
+    if control.schema_revision != 1 || control.view.game_task_control.is_some() {
+        return Err("task_already_present");
+    }
+    let owner = control.view.canonical_agent_owner;
+    if owner.world_id != control.world.world_id {
+        return Err("contract_mismatch");
+    }
+    let request = GameTaskCreateV1 {
+        api_rev: 1,
+        client_operation_id: input.client_operation_id,
+        world_id: control.world.world_id,
+        genesis_digest: control.world.genesis_digest,
+        branch_id: owner.canonical_authority.branch_id,
+        reorg_epoch: DecimalU64(owner.reorg_epoch),
+        agent_id: owner.agent_id,
+        owner_binding: owner.player_id,
+        owner_generation: DecimalU64(owner.canonical_authority.agent_identity_generation),
+    };
+    request.validate().map_err(|_| "contract_mismatch")?;
+    encode(&request)
 }
 
 #[cfg(test)]

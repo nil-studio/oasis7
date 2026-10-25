@@ -139,8 +139,8 @@ fn task_id_matches_native_correlation_and_task_create_keeps_u64_owner_generation
         "version":{"commit":snapshot["read_commit"],"visibility_scope":"agent:a","projection_revision":"unused"},
         "logical_tick":0,"view":{"canonical_agent_owner":{"agent_id":task.agent_id,
         "player_id":task.owner_binding,"public_key":task.owner_public_key,"world_id":task.world_id,
-        "reorg_epoch":18446744073709551615u64,"canonical_authority":{"branch_id":task.branch_id,
-        "agent_identity_generation":18446744073709551615u64},"current_intent_id":null},"game_task_control":null}});
+        "reorg_epoch":u64::MAX,"canonical_authority":{"branch_id":task.branch_id,
+        "agent_identity_generation":u64::MAX},"current_intent_id":null},"game_task_control":null}});
     let raw = build(
         "task_create",
         &json!({"owner_control_json":control.to_string(),

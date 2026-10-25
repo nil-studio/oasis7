@@ -141,6 +141,24 @@ fn owner_response(body: &Value, snapshot: &GoalExecutionSnapshotV1) -> Value {
     response.validate(&original).unwrap();
     reply(PARTICIPANT_OWNER_VIEW_PATH, body, response)
 }
+fn goal_receipt(command: &Value) -> Value {
+    let original: ws::private_goal::SignedGoalPrepareV1 =
+        serde_json::from_value(command["original"].clone()).unwrap();
+    original.verify().unwrap();
+    let salt = [42u8; 32];
+    let receipt = ws::private_goal::PreparedGoalReceiptV1 {
+        schema_revision: 1,
+        goal_ref: ws::private_goal::prepared_goal_commitment(&salt, &original).unwrap(),
+        reference_salt: "2a".repeat(32),
+        owner_proof: original,
+    };
+    receipt.validate().unwrap();
+    reply(
+        ws::private_goal_read::GOAL_PREPARE_PATH,
+        &command["original"],
+        receipt,
+    )
+}
 fn main() {
     let snapshot: GoalExecutionSnapshotV1 = serde_json::from_str(include_str!(
         "../../oasis7_game_client/testdata/task-context/native-snapshot.json"
@@ -160,24 +178,7 @@ fn main() {
                 json!({"world":world,"servicePublicKey":public(9),"ownerSeed":owner_seed,"executorSeed":73,"control":snapshot.control})
             }
             "admission" => admission_response(&command, &snapshot),
-            "goal_receipt" => {
-                let original: ws::private_goal::SignedGoalPrepareV1 =
-                    serde_json::from_value(command["original"].clone()).unwrap();
-                original.verify().unwrap();
-                let salt = [42u8; 32];
-                let receipt = ws::private_goal::PreparedGoalReceiptV1 {
-                    schema_revision: 1,
-                    goal_ref: ws::private_goal::prepared_goal_commitment(&salt, &original).unwrap(),
-                    reference_salt: "2a".repeat(32),
-                    owner_proof: original,
-                };
-                receipt.validate().unwrap();
-                reply(
-                    ws::private_goal_read::GOAL_PREPARE_PATH,
-                    &command["original"],
-                    receipt,
-                )
-            }
+            "goal_receipt" => goal_receipt(&command),
             "gateway" => {
                 let body: Value =
                     serde_json::from_str(command["rawBody"].as_str().unwrap()).unwrap();
@@ -222,7 +223,7 @@ fn main() {
                             reply(TASK_CONTEXT_READ_PATH, request, captured)
                         }
                         "submit" | "lookup_executor" | "lookup" => {
-                            let (domain, original, correlation) = if kind == "submit" {
+                            let (domain, _original, correlation) = if kind == "submit" {
                                 let original: ws::SubmitIntentRequest<WorldServicePayloadV1> =
                                     serde_json::from_value(request.clone()).unwrap();
                                 let correlation=oasis7_client_api::world_service_correlation::derive_correlation(world.clone(),&original.signed_payload).unwrap();
@@ -239,7 +240,6 @@ fn main() {
                                 assert_eq!(correlation.key, lookup.request.key);
                                 (ws::LOOKUP_PATH, lookup.original, correlation)
                             };
-                            let _ = original;
                             let result = ws::IntentResponse {
                                 contract_version: 1,
                                 formal_profile: None,
