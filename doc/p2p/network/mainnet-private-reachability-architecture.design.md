@@ -214,6 +214,8 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。`peer-record-admission
 
 [接收链](../../../crates/oasis7_net/src/libp2p_net/discovery.rs)保留发布者的 `SignedPeerRecord`，缓存、DHT republish 和 RR 转发均不添加本地来源标签。[本地观察](../../../crates/oasis7_net/src/libp2p_net/peer_discovery_observations.rs)按原 signed payload 精确关联 DHT 实际响应上游、直接 record-exchange 对端或缓存代理对端，去重保存末次观察时间；同一 peer 的新 payload 不继承旧观察。本地 seed 身份仅来自当前 bootstrap 配置，配置移除后例外消失，不从远端 `StaticBootstrap` 自述或代理节点的信任状态继承。
 
+rendezvous 的 ID-only 注册仅触发独立的签名记录查询，不作为 record ingress 或来源独立性证明。查询须有界保留触发 server 与目标 peer 的关联（最多 1024 个目标、每目标 8 个不同 server、最长 60 秒，以单调时钟到期）；同目标去重查询可合并触发来源，但不从注册地址建立 dial 候选。只有该查询或其缓存代理 fallback 得到目标一致、通过签名及当前接收策略验证的记录后，才把触发信息关联到确切 signed payload 的本地观察；实际 ingress 仍是 DHT 响应上游或 RR 对端，不增加 trusted labels、健康独立来源计数或连接权限。缓存命中不追溯补来源，查询失败、错误目标、无效记录或关联到期须丢弃触发信息，后续无关查询不能继承。容量驱逐和时钟异常不得延长关联寿命或提高信任。该条为待实现合同，保留当前实现边界中的缺口，完成验证后更新。
+
 本地观察最多保存 1024 个 peer、每个 payload 最多 8 个 ingress，单条序列化 signed payload 最多 16 KiB；到限驱逐最旧观察（不提高剩余记录信任），超大记录或已跟踪 peer 的观察时钟回退拒绝接纳且不替换原记录。该容量是本地观察预算，不是整个发现候选、连接和持久防回退状态的完整容量保证。
 
 [健康与集合准入](../../../crates/oasis7_net/src/libp2p_net/peer_manager_active_set.rs)不把远端 `discovery_sources/source_operator/source_asn` 当可信独立来源。实际通道可显示为本地观察，但没有可核验控制域依据的通道／上游不计独立来源，并输出 `DiscoveryIndependenceUnverified`；当前没有受信 operator/ASN 映射，公开归属字段为 unknown，集中度统一计入 unknown 桶。仅受信 seed 配置可贡献一类 bootstrap 来源；多个 seed 不自动证明多个控制域。即使来源计数阈值设为零，未知独立性的记录也不显示 healthy。
