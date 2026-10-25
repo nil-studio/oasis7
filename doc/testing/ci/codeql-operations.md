@@ -107,6 +107,8 @@ CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI
 
 准备阶段记录 manifest 对应 Cargo.lock 的初始存在性、每次既有 metadata 后及分析前的身份与摘要；新增锁不白名单放行，首次观察阶段不等于写入者证明，解析影响未知时继续拒绝。分析后再次比较初始锁文件，ignored 锁新增或变化、观察缺失同样阻断验收。大日志可按设计上限流式 gzip 保存完整原字节，原始与压缩摘要分开核验；达到任何上限仍为 PARTIAL，不能仅因末尾存在成功 footer 改记完整。总 artifact 256 MiB、日志落盘 128 MiB、原 job 截止及无扫描重试/无平台上传边界不变。
 
+分析前要求各独立 `[workspace]` 已有锁；缺锁直接停止，不通过预生成未跟踪锁改变旧业务基线。固定官方提取器会复制锁，故容量入口还在实际 Cargo 进程边界强制解析命令使用 `--locked`，并核验有界开始/终态记录，拒绝失败或缺失调用；不能仅靠源锁未变化或 `cargo_extra_args` 判定解析已冻结。私有 Cargo 代理位于业务树外，真实子命令恢复原 Cargo home 并尊重提取器选择的工具链；不改变官方 bundle、原缓存、生产扫描设置或现有截止。代理拒绝或 rust-analyzer fallback 不能改记成功。
+
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
 容量 helper 为 `scripts/security/codeql-rust-capacity.py`。其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。

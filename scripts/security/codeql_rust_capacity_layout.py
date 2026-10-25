@@ -20,6 +20,7 @@ TOOL_FILES = (
     'codeql_rust_diagnostic_runtime.py',
     'codeql_rust_capacity_layout.py',
     'codeql_rust_capacity_evidence.py',
+    'codeql_rust_cargo_guard.py',
 )
 ACTION_SHA = '6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee'
 FILE_LIMIT = 4 * 1024**2
