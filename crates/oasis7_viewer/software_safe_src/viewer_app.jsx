@@ -3395,7 +3395,7 @@ function InteractionPanel() {
         </div>
       </div>
       <AgentContextLite model={selectedAgentContextModel()} locale={locale()} fixtureMetadata={selectedAgentContextFixtureMetadata()} />
-      <BrowserByokSurface locale={locale} config={() => viewerRuntimeConfig().browserGameClient} agentId={agentId} ownerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} accountId={() => {
+      <BrowserByokSurface locale={locale} onCanonicalAgent={(id) => core.select({ kind: "agent", id }).ok} config={() => viewerRuntimeConfig().browserGameClient} agentId={agentId} ownerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} accountId={() => {
         observeViewerStateRevision();
         return core.state.auth.available ? core.state.auth.hostedAccountId : null;
       }} />
