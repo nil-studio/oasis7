@@ -7,7 +7,7 @@
 - 上游：[指挥客户端产品设计](command-center.prd.md)、[PRD-ENGINEERING-034](../prd.md#PRD-ENGINEERING-034)
 - 审读基线：`nil-studio/oasis7@8c0eeaefe3fb7cb39a74f514919b02f81de4c815`；Sites v6 源码基线 `326b1f452175d1d8d0f7bd4db6721f654c1ee1ac`，实现反馈见 §3；两者的实现范围分别记录，不互相代签验收
 - last_reviewed_at：2026-10-23
-- 工程架构专题局部审读：2026-10-24，`nil-studio/oasis7@16e5699881d0705ee1a137b24c47957b5b54a5a4`；新增合同见 [DES-CC-018](#DES-CC-018)，其他实现证据不据此刷新。
+- 工程架构专题局部审读：2026-10-25，`nil-studio/oasis7@0433a7c4ca2a7940005b245786bfb39005016457`；阅读与维护合同见 [DES-CC-018](#DES-CC-018)，其他实现证据不据此刷新。
 - 初始设计与评审来源：[PR #4518](https://github.com/eng-cc/oasis7/pull/4518)；架构选择与复核条件见 §12
 
 本文定义完整非本地工作台和本机辅助能力的最终技术合同。产品行为和验收由配对 PRD 主责；实现次序、迁移任务和本次交付证据留在独立迁移 Issue、PR 与实际验证记录，不把目标状态写成已交付事实。通用授权、开发、验证和交付由 [workflow/source-of-truth](../workflow/source-of-truth.md) 主责，客户端内部状态不增加上游任务准入或审批门禁。
@@ -47,7 +47,7 @@ GitHub、正式文档和原工具继续拥有其来源事实。云端工作台�
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | 本机工具、私有资料、signer及工作往返；产品适用性：N/A；reason=工程工作台合同；scope=本机工具、私有资料、signer及工作往返 | [DES-CC-015](#DES-CC-015) | 独立Tauri/Rust工具端 | 不迁移设备能力，不开放特权安装或任意后台命令 |
 | Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；[REQ-CC-016](command-center.prd.md#REQ-CC-016) | 完整文档树、明确配对、覆盖与阅读恢复；产品适用性：N/A；reason=工程工作台合同；scope=完整文档树、明确配对、覆盖与阅读恢复 | [DES-CC-016](#DES-CC-016) | GitHub已提交文档/文档树设计 | 不承诺云端索引本地未提交或私有材料 |
 | Trace refs: O7-REQ-57c9e8ba-3698-48b0-8f25-02c8f17ef0d6；[REQ-CC-017](command-center.prd.md#REQ-CC-017) | 云端个人空间、并发写入、跨设备连续性和恢复；产品适用性：N/A；reason=工程工作台合同；scope=云端个人空间、并发写入、跨设备连续性和恢复 | [DES-CC-017](#DES-CC-017) | Sites身份/Worker/D1/个人数据owner | 不设本地第二写主库，不静默合并冲突或跨scope导入 |
-| Trace refs: O7-REQ-fd086a0a-3c00-41ea-b2ac-fe7cf6cbe52a；[REQ-CC-018](command-center.prd.md#REQ-CC-018) | 全工程分层、明确关系、适用规范、版本比较与 dot 持续核对；产品适用性：N/A；reason=工程工作台阅读与内容维护；scope=已授权公开架构/规范投影 | [DES-CC-018](#DES-CC-018) | 主责文档、工程元数据、现有 Sites 内容任务 | 不另设架构权威/开发调度器，不把设计采纳当模块上线或维护已启用 |
+| Trace refs: O7-REQ-fd086a0a-3c00-41ea-b2ac-fe7cf6cbe52a；[REQ-CC-018](command-center.prd.md#REQ-CC-018) | 全工程分层、导览、准备修改、准确关系/变化与 dot 持续核对；产品适用性：N/A；reason=工程工作台阅读与内容维护；scope=已授权公开架构/规范投影 | [DES-CC-018](#DES-CC-018) | 主责文档、工程元数据、现有 Sites 内容任务 | 不另设架构权威/开发调度器，不把设计采纳当模块上线或维护已启用 |
 
 ## 3. 当前基线、目标状态与差距
 
@@ -675,7 +675,7 @@ schema 演进必须让旧 Worker 与新 schema 在发布窗口仍可安全共存
 | Trace refs: O7-REQ-fd3b34c6-4fb4-4614-8d7b-744a86d29c3a；[REQ-CC-015](command-center.prd.md#REQ-CC-015) | [DES-CC-015](#DES-CC-015) | 本机工具、私有资料、signer及工作往返 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/ui/src/LocalTools.test.tsx)仅证明其本机范围，云端另测：真实本机工具及已有signer普通调用、私有材料、未知job退出、浏览器往返；检查无配对/命令/上传通路；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 云端通过不证明本机签名/首装或暂停能力开放 |
 | Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；[REQ-CC-016](command-center.prd.md#REQ-CC-016) | [DES-CC-016](#DES-CC-016) | 完整文档树、明确配对、覆盖与阅读恢复 | [既有本机语义/交互样本](../../../tools/oasis7-command-center/ui/src/AppDocumentReading.test.tsx)仅证明其本机范围，云端另测：同commit完整树/正文/配对、分页/分块中断、指针竞争、引用逃逸、缺原版本、阅读位置恢复；按专题树验证；固定候选与实际身份/来源配置，按 §11.2 分层 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 明确不覆盖云端读取本地untracked/私有全文 |
 | Trace refs: O7-REQ-57c9e8ba-3698-48b0-8f25-02c8f17ef0d6；[REQ-CC-017](command-center.prd.md#REQ-CC-017) | [DES-CC-017](#DES-CC-017) | 云端个人空间、并发写入、跨设备连续性和恢复 | [云端与本机验证方法](command-center.manual.md#cc-cloud-local-verification)；同Site两设备CAS/幂等、不同可信subject和scope的列表/历史/导出隔离；跨Site身份映射、导出一致水位、恢复失败及schema先迁移后上传失败；固定候选与实际身份/来源配置，按 §11.2 分层；篡改作者/confirmedAt并重算摘要仍不得生成可信确认，同Site既有修订匹配与无可信匹配分别验证 | PR 的源码/构建/schema、场景、命令或动作及实际结果 | 本地SQLite与单账号顺序请求不证明真实D1/平台身份；未测部署组合不声明兼容 |
-| Trace refs: O7-REQ-fd086a0a-3c00-41ea-b2ac-fe7cf6cbe52a；[REQ-CC-018](command-center.prd.md#REQ-CC-018) | [DES-CC-018](#DES-CC-018) | 全工程图、适用规范、版本变化与 dot 核对/发布 | [工程架构验证](command-center.manual.md#cc-architecture-verification)：真实清单覆盖、条件依赖/非 Rust 工具、规范效力、原文往返、文档/元数据/规则独立变化、无变化去重、partial/last-good、CAS/回读未知、停用及窄屏/键盘 | 实现 PR 的业务 source、Site source/build/schema、来源/规则版本、真实任务状态及实际浏览器结果 | 文档检查不证明模块已上线、持续调度已启用或完整运行拓扑 |
+| Trace refs: O7-REQ-fd086a0a-3c00-41ea-b2ac-fe7cf6cbe52a；[REQ-CC-018](command-center.prd.md#REQ-CC-018) | [DES-CC-018](#DES-CC-018) | 全工程图的理解/修改/回访价值、准确关系与 dot 核对/发布 | [工程架构验证](command-center.manual.md#cc-architecture-verification)：首屏/导览、提取与非 Rust 工具、规范/方向、双版本返回与查询竞态、变化归因、已读基线、去重、partial/last-good、CAS/回读未知及窄屏/键盘 | 实现 PR 的业务 source、Site source/build/schema、来源/规则版本、真实任务状态及实际浏览器结果 | 文档检查不证明模块已上线、持续调度已启用或完整运行拓扑 |
 
 ### 11.2 实施时的验证层与关键反例
 
@@ -767,5 +767,7 @@ Trace refs: O7-REQ-729d655d-d8a8-4c44-9ea7-32578dc10f3f；承接 [REQ-CC-016](co
 Trace refs: O7-REQ-fd086a0a-3c00-41ea-b2ac-fe7cf6cbe52a；承接 [REQ-CC-018](command-center.prd.md#REQ-CC-018)。
 
 云端“规范与决策”内增加独立的工程架构阅读模块，复用 `SourceRef`/`FactCell`、来源快照、个人阅读偏好与同版本正文。完整职责由[工程架构专题](engineering-architecture.design.md)承接：声明模块与允许清单生成分层图，关系类型/条件/证据可辨，规范按主责范围关联，两个固定快照可比较，未覆盖与冲突保持可见。文档树组织资料、架构图解释工程组成，两者准确往返，不互相代称。
+
+阅读以[首屏地图](engineering-architecture.design.md#cc-architecture-first-screen)、[有依据的导览](engineering-architecture.design.md#cc-architecture-guided-reading)、准备修改和[回访变化](engineering-architecture.design.md#cc-architecture-change-cause)形成连续体验。确定性提取复用已有模块/包/边界/协议清单，按类型定义方向与遍历；导览只引用已有对象与证据，步骤不冒充真实执行。变化原因区分工程来源、提取/覆盖及纠错，个人已读基线不进入 dot 公共维护；[阅读上下文](engineering-architecture.design.md#cc-architecture-reading-context)绑定对比双方、所选侧、过滤/方向和导览步骤，旧响应不能覆盖新查询。
 
 架构快照属于 D1 可重建来源缓存，不是正式规范或个人主库；候选闭包校验后按预期版本原子发布，读取绑定同一快照。dot 沿现有已授权内容任务检查输入、增量更新及发布回读，失败保留仍可访问的 last-good，旧任务和未知结果按 CAS/幂等协调；不新增模型触发、正式文档写入或 Site 发布权限。新增元数据、缓存接口及任务范围须在实施时明确接入并验证；本设计采纳与真实维护启用分别记录。
