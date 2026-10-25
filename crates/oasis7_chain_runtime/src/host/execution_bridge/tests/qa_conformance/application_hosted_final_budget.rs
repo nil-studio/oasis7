@@ -107,7 +107,9 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
     let worker = thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(25);
         let mut selected = std::collections::BTreeSet::new();
+        let mut handoff = application_hosted_final_budget_clock::Handoff::default();
         while !stopped.load(Ordering::SeqCst) && Instant::now() < deadline {
+            let mut origin_wake_created = false;
             for (file, marker) in [
                 ("hosted-wait-origin.json", "hosted-wait-selected.json"),
                 (
@@ -153,18 +155,12 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
                 let Some(continuation) = continuation else {
                     continue;
                 };
-                let wake = world
+                let mut wake = world
                     .cognition_in_flight_wakes()
                     .unwrap()
                     .into_iter()
                     .find(|wake| wake.continuation_id == continuation.continuation_id);
-                if let Some(wake) = wake {
-                    application_hosted_wait::publish_marker(&root.join(marker), &serde_json::to_vec(&serde_json::json!({
-                        "continuation_id":continuation.continuation_id,"wake_id":wake.wake_id,
-                        "origin_request_digest":digest,"remaining_budget":continuation.remaining_budget.value,
-                        "settled_before_clock":true})).unwrap()).unwrap();
-                    selected.insert(digest.to_owned());
-                } else {
+                if wake.is_none() {
                     let mut before = serde_json::to_value(guard.execution_world.state()).unwrap();
                     before["time"] = serde_json::json!(0);
                     commit_request(&mut guard, 0, None);
@@ -174,8 +170,23 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
                         before, after,
                         "canonical empty clock must preserve gameplay state"
                     );
+                    // Keep the driver locked through selection: the App may
+                    // consume this wake before the next clock poll. Missing it
+                    // would advance the old continuation again and stale the
+                    // resumed turn's already captured Reserve binding.
+                    wake = guard.execution_world.cognition_in_flight_wakes().unwrap()
+                        .into_iter().find(|wake| wake.continuation_id == continuation.continuation_id);
+                    origin_wake_created |= file == "hosted-wait-origin.json" && wake.is_some();
+                }
+                if let Some(wake) = wake {
+                    application_hosted_wait::publish_marker(&root.join(marker), &serde_json::to_vec(&serde_json::json!({
+                        "continuation_id":continuation.continuation_id,"wake_id":wake.wake_id,
+                        "origin_request_digest":digest,"remaining_budget":continuation.remaining_budget.value,
+                        "settled_before_clock":true})).unwrap()).unwrap();
+                    selected.insert(digest.to_owned());
                 }
             }
+            handoff.after_iteration(&root, origin_wake_created);
             if selected.len() == 2 {
                 return;
             }
