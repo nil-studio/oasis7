@@ -147,6 +147,29 @@ Issue／Replace／Revoke 命令由 policy 指定的管理主体签名，覆盖 p
 
 此 API 的成功只表示授权管理决定已持久，revoke 至多进入 revocation-committed／enforcement-pending；有限 delegated provider lease、可信时间、完整 lease 签发账本、逐 chunk 串行门禁、精确实例 cutoff 与 effective 判定仍由后续读取消费者实现。
 
+<a id="readiness-full-sync-provider-lease-log-v3"></a>
+#### V3 provider lease 统一事件日志目标
+
+Trace refs: O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8。本节细化上述完整签发记录和旧实例 fencing 的编码、升级与恢复合同；尚未实现，不表示 provider 已采用新授权。交付边界为 protocol 与本地 durable adapter，生产 witness、受保护时钟和读取门禁另行验收。
+
+**同一序列升级。**V2 policy、命令、record、receipt、anchor 的编码与签名域保持原样。V3 使用新的显式 schema／签名域与 anchor／observation／receipt；仍绑定原始 initial activation trust、world／chain／genesis、authority epoch 和同一 witness scope，不能新建独立 scope 绕过旧撤销。完整 V2 committed entries 从 genesis 按原 reducer 验证，作为不可变前缀保留；其后恰有一个 migration event，再后仅允许 V3 管理或 lease 事件。revision 从 V2 head 连续推进，迁移 state/log 摘要绑定完整旧 head、原状态、新 policy 和初始空 lease 集合，后继摘要覆盖授权与全部签发历史。
+
+root 签名 V3 policy 绑定上述完整信任对象、管理 key、专用 lease signer、同一 witness key、严格上升且不复用旧 issuer key 的 signer generation、允许读取 role、明确允许的 provider 公钥集合、有限 `max_authorization_staleness_ms`、`max_clock_uncertainty_ms` 与受保护 clock profile 摘要。key 的独立性沿用 V2；lease 委托不授予 activation／治理／投票。provider 集合排序去重、有界，缺省不允许任意 provider。初始实现的 lease 上限不超过 60 秒，clock uncertainty 小于该上限；root 可进一步收窄，不能以未知／无界值启用。V3 policy 首次迁移后固定；后续 policy 轮换在交付相同原子规则前拒绝，不能自动退回 V2 轮换路径。
+
+migration event 绑定精确当前 V2 head、旧 policy／generation、新 root 签 policy，并携带当前 V2 manager 对完整迁移内容的批准。root 签 policy 不替代旧 manager 的批准；旧 manager 不可用时本切片不提供旁路恢复。witness 必须在同一个线性化存储事务中核验完整前缀及 nonce-bound 观察、CAS 提交 migration，并将原 scope 永久切为 V3 mode。所有 V2 observe／current-history／commit 路径检查同一 mode：迁移后拒绝，包括迁移前拿到的 observation。旧 commit 先赢则 migration head 冲突；migration 先赢则旧 commit 失败，不能两边成功。后端不能证明这些 API 共用同一原子 mode 时禁用迁移。模拟 witness 的通过只证明该接口的算法合同。
+
+迁移后外部最低锚必须显式 pin 到确切 V3 anchor，V3 日常 open／签发不接受仅 V2 minimum。迁移事务可以在持久提交、receipt 验证和本地 fsync 后返回原始 migration 决议供部署 pin；在 pin 之前不能继续服务或签发。旧 V2 cache 或无本地 cache 的旧程序也必须被 witness mode 拒绝；原 ledger 路径升级为 schema 3 后，旧解码器在写入前拒绝。完整 V2 前缀保留在同一 ledger 文件和可恢复 witness history 中，不建立并行授权真值。
+
+**有限 lease 事件。**首个实现采用更窄的 node／role 目标 lease：请求由 policy 允许的 provider 持钥签名，绑定 provider 公钥、随机运行 incarnation、不可复用 lease-id／request-id／nonce、精确 V3 expected head 与目标授权代际。issuer 只为当前 active、时间有效且代际精确匹配的目标签发，lease 同时绑定 world／epoch、policy／signer generation、完整授权状态摘要与决定所在 revision；该 lease 不代替客户端 grant、node 持钥证明或 provider 的逐 chunk 放行检查。V3 管理 Issue／Replace／Revoke 与签发共用一个 head、request identity 索引及 CAS，不允许另建 provider JSON 账本。
+
+nonce-bound witness 观察携带由该受保护 clock profile 认证的当前时间区间 `[earliest, latest]`；区间反序、误差超限或 profile 不符拒绝。lease `not_before` 不早于 `latest`，`expires` 不晚于 `earliest + max_authorization_staleness_ms`，也不越过目标 grant 的最晚有效界；无正的有效区间则拒绝。时间来自 witness 的签名断言，不能把 issuer 本机可回滚 wall clock 当作受保护时间。延迟观察／回复不重置这些绝对界；provider 后续仍须实现从发出请求起的单调计时和不可随 VM 快照回退的保证，本日志 API 不代签其能力。
+
+签名 lease 必须先进入确定性候选事件，并在写 pending intent 前校验签名、当前代际、scope、容量、计数与时间边界；只有 witness receipt 验证并 fsync 本地完整日志后才返回。每个 `(provider, incarnation, lease-id)` 保存完整签名、目标代际、事件身份和最晚有效界；同 provider 的重叠 lease、新 incarnation 或后继 revoke 不能覆盖／删除旧项。相同原始请求重试返回逐字节原 lease／receipt，不重签、不因新 head 自动续租；复用 identity 而内容不同拒绝。revoke 先 CAS 后，旧观察的 lease 失败且不得重基；lease 先 CAS 后，revoke 仍保留该 lease 供 enforcement-pending 枚举。记录数／字节上限沿用 1,024 条／64 MiB，V2 前缀、migration 和 V3 事件一起计量；满额在 intent／CAS 前拒绝，未交付受证明回收前不删除到期历史。
+
+**同目录恢复。**V3 沿用原目录、锁与唯一 pending 文件。pending 保存原始签名请求、原签名 lease 与确定性事件；CAS 回复丢失或本地持久化失败后只协调同一原件。遇到旧 V2 pending，先完整验证 V3 history：若前缀已有精确原命令及候选，恢复原 receipt；若精确旧 head 是迁移前缀且迁移证明原请求未赢，可在持久当前完整日志后结束该 pending，旧命令仍返回 retired／head conflict。候选不同、非前缀、日志缺失或 witness 不可达时保留 pending 并失败；不把 V2 intent 重基或改签为 V3。任何旧本地副本只能从 nonce-bound 当前完整链修复为可证明的前缀延伸，不能通过摘要直接接受缺记录的状态。
+
+验证须实际交错旧 V2 commit／migration 与 lease／revoke 的双向 CAS、迁移后旧 API 拒绝、坏签名／前缀／receipt／锚拒绝、两个旧 pending 恢复分支、掉回复／fsync 故障后原件恢复、重叠 lease 的完整枚举以及满额拒绝不变性。成功只证明管理／签发事件持久，不把本机日志、fake witness 或可回滚时钟作为生产隔离、provider cutoff 或 effective 撤销证据。
+
 **有界新鲜度。**每个 provider 只有在持有 issuer 签发的短期授权新鲜度 lease 时才能放行私有数据。lease 绑定 provider 身份、运行 incarnation、随机请求 nonce、授权 registry revision/digest、world/authority epoch 和有限有效期；长度不得超过部署授权 policy 规定的 `max_authorization_staleness`，该值及可保证的时钟误差界必须在启用服务前明确、可读且可验证，缺失或无界则禁用该读取能力。此 lease 独立于最长 30 天的客户端 grant lease，不能用后者代替撤销传播上界。
 
 issuer 原子记录每次签发的 `(provider, incarnation, lease-id)`、版本和最晚有效边界，lease-id 唯一绑定完整签名 lease；同 provider 的重叠 lease、旧 incarnation 和复制实例的未到期授权都不能被新签发覆盖。已持久 revoke 后不能再为旧授权状态续租。provider 以受校验的时间边界和从请求发出时开始计量的单调计时限制 lease，延迟响应不重置有效期，时钟回退／不确定性不能延长权限；截止判定所依赖的时间保证不能与被恢复的进程／VM 快照一同回退。进程重启必须以新 incarnation/nonce 在线取得 fresh lease，旧盘中的 lease 不可直接恢复服务。分区时只能使用尚有效的 lease；到期立即停止新的授权放行。无法验证 issuer 当前授权视图、未知 policy revision、摘要冲突或本地时钟保证失效时 fail closed，不能回退缓存 positive authorization。
