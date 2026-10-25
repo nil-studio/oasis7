@@ -101,9 +101,9 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-
 - 系统设计状态：已覆盖。
 - 系统设计依据：[发现来源证据与签名不变性](mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)。
 - 实现状态：部分实现。
-- 实现依据：[当前实现边界](mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)记录原签名转发、本地 seed/DHT/RR 观察及保守 unknown 域会话预算；远端声明不提升来源信任。
-- 验证依据：[本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)覆盖原签名三节点转发与自述／缺记录预算边界；完整来源独立性仍未验收。
-- 剩余范围：受信控制域映射、完整来源独立性和 rendezvous ID 来源链；不由本节承诺公共网络完整抗 Sybil/anti-eclipse 或 validator 授权。
+- 实现依据：[当前实现边界](mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)记录原签名转发、本地 seed/DHT/RR 观察及保守 unknown 域会话预算；rendezvous ID-only 公告通过有界一次性上下文关联到实际取得并验证的 live signed payload，既有诊断区分触发服务器与记录上游，缓存和撤销不回填来源。该关联尽力保留，明确失败后整体丢弃；远端声明及触发次数不提升来源信任。
+- 验证依据：[本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)覆盖原签名三节点转发与自述／缺记录预算边界；[rendezvous 触发关联验证](../../../testing-manual.md#discovery-rendezvous-trigger-provenance)覆盖生产回调、DHT／RR、容量、到期、失败和精确载荷诊断。完整来源独立性仍未验收。
+- 剩余范围：受信控制域映射与完整来源独立性；不由本节承诺公共网络完整抗 Sybil/anti-eclipse 或 validator 授权。
 
 <a id="peer-record-lifecycle"></a>
 ### 2.2 Peer record 新鲜度、重放与容量
