@@ -119,7 +119,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 
 ## 身份与 Agent
 
-2026-10-25 测试账号托管设计局部核对（源码基线 `73398d454082eb2106b2f1075a57bc9f377cd222`）：[产品范围](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#cloud-test-custody)与[系统边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-test-custody-design)定义受控测试 lane；[Rust 包组织](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)规划 `oasis7_custody_core` / `oasis7_custody_worker`，四角色分别构建部署，Identity 适配已有原生 Rust 认证，账号 DO 持有授权/预算/原请求、D1 仅投影。现有 Unix broker 保持原职责；新包、平台事务/签名向量、独立 Stop/Revoke 容量和恢复验收尚未实现。集中托管不改变世界权威/共识，不提供生产资产或治理 custody。
+2026-10-25 测试账号托管设计局部核对（源码基线 `73398d454082eb2106b2f1075a57bc9f377cd222`）：[产品范围](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#cloud-test-custody)与[系统边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-test-custody-design)定义受控测试 lane；[Rust 包组织](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)规划 core/worker 两包、四角色独立工件，并在既有 Game Client 增加可信 custody transport。Identity 独占托管账号原生会话并提供窄角色 forwarding，账号 DO 保持 ACL/授权/预算/原件权威；开户各阶段幂等，D1 仅投影。[客户端/PoP](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-client)、固定 native 工具和[有界自测收尾](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-selftest)已成设计合同，原生与 dot MCP 接线分 profile 实测。新包、接口、适配与真实 Agent 验收均未实现；prepared-world targeted 不代签 cold-entry 或全部 Runtime，集中托管不改变世界权威，也不提供生产资产/治理 custody。
 
 玩家进入、游戏行动委托、operator 控制和代码开发会话分别成立。相同工具名称不能合并它们的权限与完成证据。
 

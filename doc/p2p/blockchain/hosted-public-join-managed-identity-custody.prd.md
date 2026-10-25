@@ -200,18 +200,20 @@
 
 首版采用 Cloudflare Workers 承载托管控制面；世界状态、owner 归属、executor delegation、业务预算和共识仍由现有 oasis7 authority 决定。控制面只管理测试账号、保管分用途密钥、消费已授权动作并回读原结果。服务不可用时宁可暂停，不退回把密钥交给助手。文档状态为设计候选，以下功能全部待实现，不声明已部署或完成真实账号验收。
 
-范围：多账号非秘密台账、Passkey 管理登录、独立 owner 批准、受限 executor API、可追踪请求、停止/撤销、密钥轮换与冻结恢复。服务采用 Rust 优先的实现与共享协议复用方案，包边界、平台适配和管理 UI 的范围按 REQ-CLOUD-CUSTODY-006 执行。账号创建或接入仍须遵守当前身份服务公开能力、注册开关和用户授权；不能借托管服务开放注册。
+范围：多账号非秘密台账、Passkey 管理登录、独立 owner 批准、受限 executor API、可追踪请求、停止/撤销、密钥轮换与冻结恢复，以及 REQ-CLOUD-CUSTODY-007 的 Agent 自测闭环。服务采用 Rust 优先的实现与共享协议复用方案，包边界、平台适配和管理 UI 的范围按 REQ-CLOUD-CUSTODY-006 执行。首版仅新建经批准的测试身份，已有账号迁移保持关闭；开户必须遵守现有注册能力和开关，不能借托管服务开放注册。
+
+首个可交付场景固定为 `prepared_world + targeted`：可信 setup 先准备并核对一个账号、一个世界、一个 Agent/task、目标和有限资源，真实 Agent 读取正式 Skill 后自行观察、选择获准动作并核对结果。工具合同覆盖 context、工业观察、移动、转移、建厂和排产所需的原生闭环；它不证明 cold-entry、全部玩法或全部 Runtime 支持。原生可信工具宿主可先交付；dot 云端接入须单独实现并通过发送者约束的 MCP profile，不能从 HTTP 服务可用或普通 MCP Bearer 登录推导 dot 已可自测。
 
 非目标：生产资产、主网转账、validator/node/governance/treasury 密钥；修改游戏规则或共识；任意 HTTP 代理、通用签名服务、secret 读取器；替助手保存云平台管理员凭据；托管模型推理或无限后台运行；自动接管现有本地 vault、静默迁移账号、自助导出私钥。现有生产 custody 与 self-custody 目标保留，不由测试版替代。
 
 ### 6.2 核心体验与权限决策
 
-1. 负责人以 Passkey 登录管理端，看见自己有权管理的非秘密账号列表、环境、world/Agent、公开身份、状态及最近核验时间。列表隐藏不代表撤销；旧列表也不证明账号可写。
-2. 负责人选择账号，核对明确动作、参数限制、world/Agent/task、期限、总预算及风险，再以新鲜 Passkey 证明批准一次 owner 控制意图。协议 owner 签名由独立 owner custody lane 产生。登录凭证自身不成为 owner key。
-3. 管理端给指定执行客户端签发短期、最小权限 capability。dot 只获得受限调用能力与公开引用，不获得 login、owner、executor 私钥、解密口令或 Cloudflare secret。
-4. 助手提交类型化动作。界面先显示本服务接收与排队，后显示原操作权威结果；超时显示“结果未知，正在核对原请求”，不能引导重复创建新操作。
+1. 部署侧已登记的负责人以 Passkey 登录管理端，看见自己有权管理的非秘密账号列表、环境、world/Agent、公开身份、状态及最近核验时间。首个账号 ACL 来自明确的开户批准，不接受调用者自报 owner 或“第一个登录者即管理员”。列表隐藏不代表撤销；旧列表也不证明账号可写。
+2. 负责人选择已准备账号，核对 world/Agent/task、工具及参数、业务预算、执行与核对截止，并以新鲜 Passkey 证明批准一个有界 TestSession。批准包括该测试的固定 Stop/Revoke 收尾策略；后续无人值守收尾只可缩权，不能延时、换目标或重新委托。协议 owner 签名仍由独立 owner custody lane 产生。
+3. 指定 Rust 工具宿主在模型之外生成客户端证明密钥，并经已批准的私有交接领取 capability 和独立结果读取凭据；模型只见 session/resource/operation 引用和受限工具。管理者会话与托管账号的原生登录会话分开，后者只留在 Identity 角色，均不交给 Agent。
+4. 助手读取正式 Skill，提交类型化动作，自行回读并判断目标是否完成。宿主在发起前保存稳定请求 ID；界面先显示本服务接收与排队，后显示原操作权威结果。超时或宿主重启先查询同一原件，不能引导重复创建新操作。
 5. 负责人可以先暂停本服务派发，再提交世界 canonical Stop 或 delegation Revoke。普通请求占满配额或保持 unknown 时，应急停止/撤销仍有独立有界处理容量；Stop 未确认也不能阻塞独立 Revoke。界面分别显示本地暂停、世界停止确认、委托撤销确认，不能用一个绿色“已停”掩盖未确认项。
-6. 到期、预算耗尽、撤销或恢复冻结后，助手只可按仍有效的只读权限查看原结果；再次执行需要负责人重新批准。不能用“刷新连接”暗中延长原授权。
+6. 正常结束、到期、预算耗尽、取消或宿主失联触发本地停写与已预授权的有界收尾。HTTP capability 到期不等于世界 delegation 已撤销；Stop/Revoke、未决原件及清理结果分别呈现。写期限后，助手仅可在独立读取凭据的范围、预算与截止内核对本次原件；身份撤销、历史缺失或无法收尾时显示阻断，不能静默重登。再次执行需要负责人重新批准。
 
 管理界面须支持键盘操作、可读的错误文本和不依赖颜色的状态；确认页不预选所有账号或无限范围。账号切换必须清除尚未提交的其他账号草稿，提交时重验目标。负责人可选择不给权限、缩小动作/预算、先只读观察或退出；这些选项不得被自动降级流程绕过。
 
@@ -220,7 +222,7 @@
 
 Trace ID: O7-REQ-844f4b30-b7d5-4651-941e-17c21f37b4ac
 
-台账按账号与环境展示标签、用途、公开身份、world/Agent/task 绑定、密钥用途和版本引用、冻结状态，不存私钥、密码、恢复材料或 bearer token。同一负责人可管理多个账号，不能把标签或列表索引当权限。每次调用从已认证主体和批准关系核对精确 account/resource，跨账号替换必须拒绝。
+台账按账号与环境展示标签、用途、公开身份、world/Agent/task 绑定、密钥用途和版本引用、冻结状态，不存私钥、密码、恢复材料或 bearer token。同一负责人可管理多个账号，不能把标签或列表索引当权限。每次调用从已认证主体和批准关系核对精确 account/resource，跨账号替换必须拒绝。开户先持久化稳定 provisioning ID、管理关系和角色密钥原件，再调用原生注册；三角色部分成功或响应未知时只恢复原开户，不重新生成身份或密钥。所有必要绑定及原回执确认后才允许测试授权。
 
 - 系统设计状态：已覆盖
 - 实现状态：未实现
@@ -234,7 +236,7 @@ Trace ID: O7-REQ-844f4b30-b7d5-4651-941e-17c21f37b4ac
 
 Trace ID: O7-REQ-b799d81b-eafb-44e8-a0df-fda202d5d133
 
-Passkey 仅认证管理者；获得管理会话不自动批准开户、owner 绑定、任务控制或 executor 委托。login、owner、executor 使用不同密钥、签名用途、部署权限和秘密绑定。owner 操作必须与明确账号、世界、动作摘要和有效期绑定；executor 不能调用 owner 管理入口、创建新授权或提升自己的权限。Worker 运行时仍属可信持钥域，不能声称采用了 HSM 或对平台/部署管理员不可提取。
+Passkey 仅认证管理者；获得管理会话不自动批准开户、owner 绑定、任务控制或 executor 委托。login、owner、executor 使用不同密钥、签名用途、部署权限和秘密绑定。管理者身份与被托管账号身份建立明确映射，不能用管理者 cookie 替代被托管账号的原生会话；Identity 通过受限角色接口补齐当前合法 Cookie/CSRF，原生 gateway 继续核对账号主体。owner 操作必须与明确账号、世界、动作摘要和有效期绑定；executor 不能调用 owner 管理入口、创建新授权或提升自己的权限。Worker 运行时仍属可信持钥域，不能声称采用了 HSM 或对平台/部署管理员不可提取。
 
 - 系统设计状态：已覆盖
 - 实现状态：未实现
@@ -248,7 +250,7 @@ Passkey 仅认证管理者；获得管理会话不自动批准开户、owner 绑
 
 Trace ID: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c
 
-每份 capability 固定账号、世界身份、Agent/task、执行客户端、允许动作、参数范围、请求/业务预算、绝对期限和父授权。禁止递归转授与通过 refresh 自行续期；同一授权并发调用共享预算。托管服务不能签任意 bytes、调用任意 URL、改变 actor 或覆盖既有协议签名域。Cloudflare Ed25519 与 Rust 的同一类型化 payload 必须字节级互操作，通过正反向签名测试及拒绝矩阵后才可启用。
+每份 capability 固定账号、世界身份、Agent/task、执行客户端、允许动作、参数范围、请求/业务预算、绝对期限和父授权。禁止递归转授与通过 refresh 自行续期；同一授权并发调用共享预算。客户端证明与凭据交接按固定 profile 实施，不把 opaque handle 或 Bearer token 本身当作持有证明。首版原生工具明确使用 `authority_mode=native_executor_v1`，缺失或不支持时拒绝，不能退回 Provider 身份。托管服务不能签任意 bytes、调用任意 URL、改变 actor 或覆盖既有协议签名域。Cloudflare Ed25519 与 Rust 的同一类型化 payload 必须字节级互操作，通过正反向签名测试及拒绝矩阵后才可启用。
 
 - 系统设计状态：已覆盖
 - 实现状态：未实现
@@ -299,20 +301,36 @@ Trace ID: O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3
 - 核对日期与基线：2026-10-25，源码 `73398d454082eb2106b2f1075a57bc9f377cd222` 与本设计引用的固定外部来源，仅静态核对。
 - 剩余范围：包与角色工件实现、真实 Wasm 构建、平台适配、API 消费者一致性及架构边界验收。
 
+<a id="req-cloud-custody-007"></a>
+### REQ-CLOUD-CUSTODY-007：Agent 自测、接续与有界收尾
+
+Trace ID: O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb
+
+实现必须交付实际模型可消费的可信工具宿主与版本化工具 profile，打通开户/原生会话、准备环境、一次批准、上下文、动作、原件查询、效果核对和收尾。执行窗口、只读核对窗口与 cleanup 权限分别有界；到期不能阻止已批准的安全收尾，也不能触发无限续期或自动新登录。自动 Stop/Revoke 只执行预批准策略并核验当前 owner/fence，未知结果保持可见。验收复用既有 Agent 自测 RunInput/TesterInput/RunResult 与真实 Runtime 证据，必须有真实 Agent 读取 Skill、选择动作、查询权威结果及故障后的接续记录；脚本或 UI smoke 不能代签。dot、其他 Runtime 与 cold-entry 分别按实际通过范围声明。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[客户端与持有证明](hosted-public-join-managed-identity-custody.design.md#cloud-custody-client)、[原生会话与开户](hosted-public-join-managed-identity-custody.design.md#cloud-custody-provision)、[工具合同](hosted-public-join-managed-identity-custody.design.md#cloud-custody-tools)、[TestSession 与真实 Agent 验收](hosted-public-join-managed-identity-custody.design.md#cloud-custody-selftest)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；工具宿主的新 profile、云端接线、TestSession 与 CT-007/008 均待实现，不把当前 Skill/native broker 当作云端消费者证据。
+- 核对日期与基线：2026-10-25，源码 `73398d454082eb2106b2f1075a57bc9f377cd222` 与本设计固定的协议来源，仅静态核对。
+- 剩余范围：可信客户端/连接器、原生会话适配、全部工具合同与故障测试、独立真实 Agent 的有界端到端验收。
+
 <a id="cloud-custody-acceptance"></a>
 ### 6.3 验收场景与结果边界
 
 | 验收 ID | 覆盖要求 | 使用者情境与可判定结果 | 不可替代的失败检查 |
 | --- | --- | --- | --- |
-| AC-CLOUD-01 | REQ-CLOUD-CUSTODY-001 | 管理多个测试账号，列表只显示非秘密元数据，切换后仅操作所选账号 | 替换 account/resource ID、枚举他人账号、日志与错误泄密必须被拒绝/消除 |
-| AC-CLOUD-02 | REQ-CLOUD-CUSTODY-002 | 登录后先保持只读；明确批准后只由相应用途密钥签协议请求 | 登录 cookie 冒充 owner、executor 调 owner 路由、共用三类 key、跨环境秘密都失败 |
+| AC-CLOUD-01 | REQ-CLOUD-CUSTODY-001 | 管理多个测试账号，列表只显示非秘密元数据；开户故障后恢复同一账号、角色 key 和原操作 | 自封首个管理员、跨账号/环境替换、部分开户后重建身份、日志与错误泄密必须拒绝/消除 |
+| AC-CLOUD-02 | REQ-CLOUD-CUSTODY-002 | 登录后先保持只读；Owner/Executor 使用正确托管账号的当前原生会话及角色证明 | 管理者 cookie 替代托管账号 cookie、跨账号 cookie/CSRF、撤销后自动重登、executor 调 owner 路由、共用三类 key 都失败 |
 | AC-CLOUD-03 | REQ-CLOUD-CUSTODY-003 | 委托只在固定世界/Agent、动作参数、预算和期限内生效 | 并发超支、过期、跨世界、重放、续期、转授、任意 URL/raw sign 全部拒绝 |
 | AC-CLOUD-04 | REQ-CLOUD-CUSTODY-003 | 同一 Ed25519 测试向量在 Rust/Workers 双向生成和验签一致 | 域、字节、版本、整数编码、world/actor/fence 篡改与弱公钥必须拒绝 |
 | AC-CLOUD-05 | REQ-CLOUD-CUSTODY-004 | 超时/重启后回到同一原操作结果，不产生第二次业务效果 | 在提交前后各断网、并发同 ID、不同摘要、下游结果暂缺时不盲重发 |
 | AC-CLOUD-06 | REQ-CLOUD-CUSTODY-004 | 页面分别呈现本地暂停、世界 Stop、委托 Revoke 的完成或未知 | 父撤销后派生权限和未 claim 请求失效；原动作 unknown/普通配额已满时仍可 Stop/Revoke，Stop unknown 不阻塞 Revoke；迟到的旧授权不能越过已确认撤销；保留旧原件/预留，未核对不得显示全部已撤销 |
 | AC-CLOUD-07 | REQ-CLOUD-CUSTODY-005 | 恢复旧快照仍冻结；核对当前安全代、撤销和原结果后重新批准 | 旧 capability、旧 nonce、旧预算、旧 Worker 版本不能复活写权限 |
-| AC-CLOUD-08 | REQ-CLOUD-CUSTODY-005 | 真实受控测试环境完成上述闭环，证据固定服务版本、世界身份和窗口 | 本地模拟、文档检查、cloud request accepted 均不冒充 world committed 或生产发行 |
+| AC-CLOUD-08 | REQ-CLOUD-CUSTODY-005/007 | 在固定候选、prepared-world 和已声明 Runtime/profile 下，真实 Agent 读 Skill、自主完成目标并核对世界效果，生成现有 RunResult 与收尾证据 | 固定脚本、人工代填工具结果、UI smoke 或 cloud accepted 不代替 Agent 行为/world committed；未实测 dot、cold-entry 或其他工具不标通过 |
 | AC-CLOUD-09 | REQ-CLOUD-CUSTODY-006 | 两个 Rust crate 职责可核对，四种角色分别构建/部署；原生/Wasm 共用协议，管理 UI 消费实际 HTTP 合同 | 禁止 native 依赖回流、混角色产物、手写第二套签名编码；全宽整数经 FFI/SQL 回读不失真；无模型 secret 读取或响应缓存替代原操作 |
+| AC-CLOUD-10 | REQ-CLOUD-CUSTODY-003/007 | 已登记工具宿主完成私有凭据交接、PoP、重启后的原件查询及首版工具映射 | 仅偷 token、改正文/URI、重复挑战、换客户端/会话、丢失 202 后重做动作、遗漏 native authority mode 均不能执行；dot 缺宿主证明扩展时阻断 |
+| AC-CLOUD-11 | REQ-CLOUD-CUSTODY-004/007 | 结束/到期/预算耗尽/失联后停新写，独立读取预算核对旧结果，Owner 按预批准策略有界 Stop/Revoke | 不能把 HTTP 到期当 canonical Revoke，不能恢复写权查询；身份撤销或下游未知保持 cleanup blocked/unknown，不能假报 closed |
 
 ### 6.4 风险、成本与推进边界
 
