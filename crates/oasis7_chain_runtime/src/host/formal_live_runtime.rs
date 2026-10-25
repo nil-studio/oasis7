@@ -7,6 +7,10 @@ use super::{
         formal_node_hook::FormalNodeHook, formal_package, formal_writer::FormalWriter,
     },
     formal_live_config::ValidatedFormalLiveConfigV1,
+    formal_live_service::full_sync_read_gate::{
+        FullSyncV3ReadGate, FullSyncV3ReadGateConfig, fresh_provider_incarnation,
+        validate_full_sync_read_mode_gate_pair,
+    },
     formal_live_service::{
         FormalHttpServer, FormalLiveHistoryResolver, FormalLiveService, FormalLiveState,
         PublishedReadState,
@@ -681,12 +685,38 @@ impl FormalLiveRuntime {
     }
 
     pub(crate) fn start(&mut self) -> Result<(), String> {
+        self.start_with_full_sync_read_authorization(None)
+    }
+
+    /// Starts the same production host with explicit V3 read dependencies.
+    /// The ordinary `start` path passes no dependencies and therefore fails
+    /// before opening the listener when the operator selected `v3_required`.
+    pub(crate) fn start_with_full_sync_read_authorization(
+        &mut self,
+        gate_config: Option<FullSyncV3ReadGateConfig>,
+    ) -> Result<(), String> {
         if self.started {
             return Err("formal live runtime is already started".into());
         }
+        use super::formal_live_config::FullSyncProviderReadAuthorizationModeV1 as Mode;
+        let read_mode = self.validated.config.full_sync_provider_read_authorization;
+        validate_full_sync_read_mode_gate_pair(read_mode, gate_config.is_some())?;
+        let full_sync_read_gate = match (read_mode, gate_config) {
+            (Mode::LegacyV1, None) => None,
+            (Mode::V3Required, Some(config)) => Some(Arc::new(FullSyncV3ReadGate::new(
+                self.validated.trust.initial_trust.clone(),
+                config.signed_v2_policy,
+                config.signed_v3_policy,
+                config.minimum_anchor,
+                hex::encode(self.node_signer.verifying_key().to_bytes()),
+                fresh_provider_incarnation()?,
+                config.source,
+            )?)),
+            _ => unreachable!("full-sync read mode/dependency pair was validated"),
+        };
         // Bind first so a listener failure cannot leave a running Node without
         // its required operator status surface.
-        let service = Arc::new(FormalLiveService::new(
+        let service = FormalLiveService::new(
             self.validated.config.node_id.clone(),
             self.world.clone(),
             self.node_signer.clone(),
@@ -696,7 +726,12 @@ impl FormalLiveRuntime {
             Arc::clone(&self.history),
             self.state.clone(),
             Arc::clone(&self.admission_gate),
-        ));
+        );
+        let service = match full_sync_read_gate {
+            Some(gate) => service.with_full_sync_read_gate(gate)?,
+            None => service,
+        };
+        let service = Arc::new(service);
         let _admission = self
             .admission_gate
             .lock()

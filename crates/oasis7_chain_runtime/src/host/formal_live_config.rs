@@ -21,6 +21,20 @@ const MAX_INITIAL_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_NODE_ID_BYTES: usize = 256;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum FullSyncProviderReadAuthorizationModeV1 {
+    #[default]
+    LegacyV1,
+    V3Required,
+}
+
+impl FullSyncProviderReadAuthorizationModeV1 {
+    fn is_legacy(&self) -> bool {
+        matches!(self, Self::LegacyV1)
+    }
+}
+
 /// Exact schema-1 configuration. The names and required fields are intentionally
 /// separate from `GuardedConfiguration`; legacy engineering files cannot be
 /// interpreted as formal production configuration.
@@ -47,6 +61,8 @@ pub(super) struct FormalLiveConfigV1 {
     pub recovery_origin_history_directory: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_delivery: Option<FormalEffectDeliveryConfigV1>,
+    #[serde(default, skip_serializing_if = "FullSyncProviderReadAuthorizationModeV1::is_legacy")]
+    pub full_sync_provider_read_authorization: FullSyncProviderReadAuthorizationModeV1,
 }
 
 /// Routes are usable only when their complete contract digest is already

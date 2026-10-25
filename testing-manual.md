@@ -1875,6 +1875,27 @@ Inject CAS reply loss and local fsync failure, reopen the actual private directo
 
 Count legacy entries, migration and V3 events together against 1,024 entries and 64 MiB; exhaustion must leave pending, witness anchor and ledger unchanged before CAS. Also retain many distinct active targets so the accumulated registry exceeds a single-event byte bound, and verify a valid lease still commits under the full-state bound. This is a lifetime hard stop, including renewals, not a sustained-service claim. Provider read gates, protected clock deployment, nonrollback witness storage, cross-process/VM fencing, effective revocation and physical fault-domain acceptance remain separate. A simulated signed time assertion demonstrates protocol validation only; it cannot establish the asserted clock profile in production.
 
+<a id="full-sync-v3-provider-read-gate"></a>
+### V3 full-sync provider read gate
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [V3 provider full-sync 逐请求读取门禁](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-read-gate-v3). Run the real loopback HTTP consumer tests with the shared target, serially:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib grant_identity_signature_check_is_clock_independent
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib read_gate_tests:: -- --test-threads=1
+```
+
+The injected test evidence source returns raw signed query, observation and complete V2/V3 history. Require a valid manifest and two independently authorized object chunks; after a same-epoch V3 revoke, the following chunk must fail. Also require a grant with a bad issuer signature to fail before the evidence-source fetch counter changes, while a valid grant reaches both the pre-material and final-response gates. Cover exact provider signer/trust/World attachment, fresh query nonce, unavailable evidence, missing committed lease, wrong target generation and incarnation, grant/lease not-before, and `latest + elapsed` expiry bounds. Test gate installation with lower, equal-exact, equal-conflicting and higher-prefix histories; conflicts poison the gate and a lower history must not replace the installed state.
+
+Ordinary `start()` preserves `legacy_v1` and supplies no V3 dependencies. `v3_required` may start only through the explicit host dependency-injection path with root-signed policies, external V3 minimum and a real issuer/witness source; provider signer and a fresh process incarnation are derived by the host. No production source or protected-clock adapter is currently supplied, so ordinary V3-required startup must fail before listener binding. Test fakes establish route-consumer behavior only. They do not establish production witness durability, protected-clock trust across process/VM rollback, cross-fault-domain fencing, or effective revocation outside the next manifest/chunk authorization.
+
+The actual `FormalLiveRuntime::open`/`start` missing-adapter guard is an ignored process regression in the existing `runtime-protocol` suite. Build the loopback endpoint fixture and run it explicitly:
+
+```bash
+env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_durability_endpoint --release
+OASIS7_FORMAL_ENDPOINT_TEST_BIN="$PWD/target/release/oasis7_durability_endpoint" env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_v3_required_runtime_start_rejects_missing_gate_before_listener -- --ignored --test-threads=1
+```
+
 <a id="discovery-tombstone-v2"></a>
 ### V2 发现撤销与恢复验证
 

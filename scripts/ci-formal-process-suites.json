@@ -64,6 +64,11 @@
       },
       {
         "binary": "runtime-tests",
+        "name": "formal_live_runtime::tests::protected_process_tests::provider_read_gate_startup_tests::protected_endpoint_children_v3_required_runtime_start_rejects_missing_gate_before_listener",
+        "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner",
         "ignored": true
       },
