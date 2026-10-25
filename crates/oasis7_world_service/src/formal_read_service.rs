@@ -457,10 +457,15 @@ mod tests {
             Err(FormalReadError::RequestRejected(_))
         ));
         // A valid audience must not turn a broken projection proof into a grant denial.
-        service.current.tree = ProjectionCommitmentsV1::from_leaves(vec![(
-            ProjectionAudienceV1::public(),
-            "00".repeat(32),
-        )])
+        // Two leaves change the returned sibling path. A single-leaf tree
+        // has no siblings and would still prove the original public view.
+        service.current.tree = ProjectionCommitmentsV1::from_leaves(vec![
+            (ProjectionAudienceV1::public(), "00".repeat(32)),
+            (
+                ProjectionAudienceV1::agent("missing", hex::encode([7; 32])).unwrap(),
+                "00".repeat(32),
+            ),
+        ])
         .unwrap();
         assert!(
             service
