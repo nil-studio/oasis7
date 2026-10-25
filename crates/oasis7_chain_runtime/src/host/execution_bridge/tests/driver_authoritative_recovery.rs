@@ -19,7 +19,7 @@ use oasis7_node::{
 use oasis7_runtime::{LocalCasStore, blake3_hex};
 use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 
-fn simulator_committed_action(action_id: u64, max_amount: i64) -> NodeConsensusAction {
+pub(super) fn simulator_committed_action(action_id: u64, max_amount: i64) -> NodeConsensusAction {
     let payload =
         encode_consensus_action_payload(&ConsensusActionPayloadEnvelope::from_simulator_action(
             SimulatorAction::HarvestRadiation {
@@ -32,7 +32,7 @@ fn simulator_committed_action(action_id: u64, max_amount: i64) -> NodeConsensusA
     NodeConsensusAction::from_payload(action_id, "node-a", payload).expect("consensus action")
 }
 
-fn replay_context(
+pub(super) fn replay_context(
     proposer_id: &str,
     node_block_hash: &str,
     committed_actions: Vec<NodeConsensusAction>,

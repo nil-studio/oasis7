@@ -409,6 +409,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-cache-archive.test.py
   run python3 ./scripts/ci-workspace-cache.test.py
   run python3 ./scripts/ci-rust-cache-toolchains.test.py
+  run python3 ./scripts/ci-rust-cache-admission.test.py
   run python3 ./scripts/ci-rust-cache-build.test.py
   run python3 ./scripts/ci-support-profiles.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
