@@ -93,3 +93,34 @@ it("bounds a multibyte goal by UTF-8 bytes before authorizing task preparation",
   expect(view.getByRole("button", { name: "Prepare player, Agent and Task" }).disabled).toBe(true);
   expect(prepare).not.toHaveBeenCalled();
 });
+
+it("stops first entry preparation and reopens a fresh generation for read-only recovery", async () => {
+  let finish, firstSignal;
+  const first = { inspect: vi.fn(async () => ({ state: "needs_participant" })), prepare: vi.fn(() => new Promise((resolve) => { finish = resolve; })), dispose: vi.fn() };
+  const recovered = { inspect: vi.fn(async () => ({ state: "needs_goal", agentId: "actual-agent", taskId: "actual-task" })), prepare: vi.fn(), dispose: vi.fn() };
+  const createSession = vi.fn();
+  let count = 0;
+  const view = render(() => <BrowserByokSurface config={{ servicePublicKey: "key" }} accountId="account" ownerSigner={{ publicKey: "owner", sign: vi.fn() }} locale="en" protocolLoader={async () => ({})} createOwnerEntry={({ signal }) => { count++; if (count === 1) { firstSignal = signal; return first; } return recovered; }} createSession={createSession} />);
+  await waitFor(() => expect(view.getByLabelText("Task goal")).toBeTruthy());
+  fireEvent.input(view.getByLabelText("Task goal"), { target: { value: "Make one product" } });
+  fireEvent.click(view.getByLabelText(/Confirm registration or verification/));
+  fireEvent.click(view.getByRole("button", { name: "Prepare player, Agent and Task" }));
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  const stop = view.getByRole("button", { name: "Stop entry preparation" });
+  expect(stop.disabled).toBe(false);
+  fireEvent.click(stop);
+  expect(firstSignal.aborted).toBe(true);
+  expect(first.dispose).toHaveBeenCalledOnce();
+  finish({ state: "ready", agentId: "late-agent", taskId: "late-task" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(createSession).not.toHaveBeenCalled();
+  expect(view.queryByText(/late-agent/)).toBeNull();
+  expect(view.container.textContent).toContain("Already submitted originals may still commit");
+  fireEvent.click(view.getByRole("button", { name: "Reopen and inspect entry originals" }));
+  await waitFor(() => expect(recovered.inspect).toHaveBeenCalledOnce());
+  expect(first.prepare).toHaveBeenCalledOnce();
+  expect(recovered.prepare).not.toHaveBeenCalled();
+  expect(createSession).not.toHaveBeenCalled();
+  expect(view.getByLabelText(/Confirm registration or verification/).checked).toBe(false);
+  expect(view.getByRole("button", { name: "Prepare player, Agent and Task" }).disabled).toBe(true);
+});

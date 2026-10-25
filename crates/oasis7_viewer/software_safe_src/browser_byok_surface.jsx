@@ -13,10 +13,10 @@ export function BrowserByokSurface(props) {
   const [entry, setEntry] = createSignal(null), [entryState, setEntryState] = createSignal(null);
   const [entryBusy, setEntryBusy] = createSignal(false), [goal, setGoal] = createSignal("");
   const [entryConsent, setEntryConsent] = createSignal(false), [projectionPending, setProjectionPending] = createSignal(false);
-  let contextKey, entryKey, entryController, previousAccount, unsubscribe, alive = true;
+  let contextKey, entryKey, entryIdentityKey, entryController, previousAccount, unsubscribe, alive = true, entryGeneration = 0;
   const config = () => read(props.config);
   const goalBytes = () => new TextEncoder().encode(goal().trim()).byteLength;
-  const entryLabel = () => ({ needs_participant: tr("账号绑定待核对", "Account binding needs verification"), needs_task: tr("需要创建任务", "Task needs preparation"), needs_goal: tr("需要发布目标", "Goal needs publication"), ready: tr("账号任务已就绪", "Account task ready"), pending: tr("原件结果待确认", "Original result pending"), owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch") })[entryState()?.state] || "—";
+  const entryLabel = () => ({ needs_participant: tr("账号绑定待核对", "Account binding needs verification"), needs_task: tr("需要创建任务", "Task needs preparation"), needs_goal: tr("需要发布目标", "Goal needs publication"), ready: tr("账号任务已就绪", "Account task ready"), pending: tr("原件结果待确认", "Original result pending"), owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"), stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing") })[entryState()?.state] || "—";
   const reason = (code) => {
     if (["participant_registration_rejected", "owner_operation_rejected"].includes(code)) return tr("世界拒绝了该登记或任务原件。请核对原账号玩家身份和任务权限；不会切换身份或替换原 Agent。", "The world rejected this registration or task original. Check the account's original owner identity and task authority; no identity or Agent is replaced.");
     if (code === "owner_goal_invalid") return tr("请输入不超过 8192 UTF-8 字节的任务目标。", "Enter a task goal of at most 8192 UTF-8 bytes.");
@@ -43,12 +43,10 @@ export function BrowserByokSurface(props) {
     setEntryState(value);
     if (value?.state === "ready" && value.agentId) setProjectionPending(props.onCanonicalAgent?.(value.agentId) === false);
   };
-  createEffect(() => {
-    const accountId = read(props.accountId), owner = read(props.ownerSigner), trusted = config();
-    const key = `${accountId || ""}:${ownerKey(owner)}:${trustKey(trusted)}`;
-    if (key === entryKey) return;
-    entryKey = key; entryController?.abort(); entry()?.dispose?.(); setEntry(null); setEntryState(null);
-    setEntryConsent(false); setGoal(""); setProjectionPending(false); setError("");
+  function openEntry({ accountId, owner, trusted }, resetGoal = false) {
+    entryKey = `${entryIdentityKey}:${++entryGeneration}`;
+    entryController?.abort(); entry()?.dispose?.(); setEntry(null); setEntryState(null);
+    setEntryConsent(false); if (resetGoal) setGoal(""); setProjectionPending(false); setError("");
     if (!accountId || !owner || !trusted) { setEntryBusy(false); return; }
     const captured = entryKey, controller = new AbortController(); entryController = controller; setEntryBusy(true);
     void (async () => {
@@ -62,6 +60,19 @@ export function BrowserByokSurface(props) {
       } catch (failure) { if (alive && captured === entryKey) setError(reason(failure.code)); }
       finally { if (alive && captured === entryKey) setEntryBusy(false); }
     })();
+  }
+  function stopEntry() {
+    entryKey = `stopped:${++entryGeneration}`;
+    entryController?.abort(); entry()?.dispose?.(); setEntry(null); setEntryBusy(false);
+    setEntryConsent(false); setConfirm(false); setRunConsent(false); setProjectionPending(false);
+    driver()?.stop(); setEntryState({ state: "stopped" });
+  }
+  const resumeEntryReadOnly = () => openEntry({ accountId: read(props.accountId), owner: read(props.ownerSigner), trusted: config() });
+  createEffect(() => {
+    const accountId = read(props.accountId), owner = read(props.ownerSigner), trusted = config();
+    const key = `${accountId || ""}:${ownerKey(owner)}:${trustKey(trusted)}`;
+    if (key === entryIdentityKey) return;
+    entryIdentityKey = key; openEntry({ accountId, owner, trusted }, true);
   });
   createEffect(() => {
     const accountId = read(props.accountId), selectedAgent = read(props.agentId), owner = read(props.ownerSigner), trusted = config();
@@ -104,6 +115,8 @@ export function BrowserByokSurface(props) {
       <Show when={read(props.accountId) && read(props.ownerSigner)} fallback={<p role="status">{tr("先登录并恢复本机玩家身份，才能准备游戏任务。", "Sign in and restore your browser owner identity before preparing a game task.")}</p>}>
         <p>{tr("先准备本账号的合法游戏入口，再设置模型 Key。首次登记才创建玩家和 Agent；已有绑定由世界核对并复用，身份不符时停止。不会自动登记执行方或启动模型。", "Prepare this account's authorized game entry before adding a model key. First registration creates the player and Agent; the world reuses an existing binding and rejects a different owner. This does not register an executor or start a model.")}</p>
         <p role="status">{tr("账号入口状态", "Account entry state")}: {entryBusy() ? tr("只读核对或处理原件中", "Checking entry or original operation") : entryLabel()}</p>
+        <button type="button" onClick={stopEntry}>{tr("停止入口准备", "Stop entry preparation")}</button>
+        <Show when={entryState()?.state === "stopped"}><p role="status">{tr("已取消后续入口写入。已经发送的原件仍可能生效；重新打开后仅只读核对，不自动重发或继续准备。", "Further entry writes are cancelled. Already submitted originals may still commit. Reopen with read-only inspection; preparation is never automatically resumed or resubmitted.")}</p><button type="button" onClick={resumeEntryReadOnly}>{tr("重新打开并只读核对入口原件", "Reopen and inspect entry originals")}</button></Show>
         <Show when={entryState()?.agentId}><p>{tr("实际绑定 Agent", "Canonical Agent")}: {entryState()?.agentId} · Task={entryState()?.taskId || "—"}</p></Show>
         <Show when={projectionPending()}><p role="status">{tr("世界已确认实际 Agent，Viewer 投影仍待同步；以下操作使用上方正式绑定。", "The world confirmed the canonical Agent; the Viewer projection is still syncing. Operations below use the confirmed binding above.")}</p></Show>
         <Show when={entry() && entryState()?.state !== "ready"}>
