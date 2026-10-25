@@ -63,6 +63,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 - ARCH-02：环境表记录了 Hosted 登录及网络/provider lane 的映射和历史部署；内部 production lane 不等于项目已向普通用户正式开放。
 - ARCH-03：已有运维采样、部署更新与恢复脚本。runbook 的五节点 inventory 是重新核对前的执行目标，不能代替实时发现。
 
+浏览器 BYOK 局部候选（2026-10-25）：[新设计](../../../world-simulator/llm/self-supplied-model-connection.design.md)把模型调用和循环放在浏览器，模型 Key 留在本站 localStorage；协议 Rust/WASM 复用 canonical 签名合同，游戏 executor 的非可导出身份和原件日志分别保存在 IndexedDB，世界授权仍由既有 participant/owner/executor 网关与 Runtime 判定。部署信任 pin 固定注入，只有显式启用才增加 DeepSeek CSP origin。[实现 PR #5067](https://github.com/nil-studio/oasis7/pull/5067) 尚待 CI/合入及获准的 b1 部署试玩；既有服务器会话处理是历史路径，不证明新组合可玩，其他环境核验时间不变。
+
 **实际部署核验：** 本组三项均未取得当日运行窗口。[历史云上清单](../../governance/environment-lanes-and-inventory-2026-05-29.md#7-当前云上清单)只用于定位；当前节点数、版本、实际角色、健康和外部可达性保持未核对。
 
 <a id="cc-architecture-authority"></a>
@@ -120,6 +122,8 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 <a id="cc-architecture-agents"></a>
 
 ## 身份与 Agent
+
+2026-10-25 测试账号托管设计局部核对（源码基线 `73398d454082eb2106b2f1075a57bc9f377cd222`）：[产品范围](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#cloud-test-custody)与[系统边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-test-custody-design)定义受控测试 lane；[Rust 包组织](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)规划 core/worker 两包、四角色独立工件，并在既有 Game Client 增加可信 custody transport。Identity 独占托管账号原生会话并提供窄角色 forwarding，账号 DO 保持 ACL/授权/预算/原件权威；开户各阶段幂等，D1 仅投影。[客户端/PoP](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-client)、固定 native 工具和[有界自测收尾](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-selftest)已成设计合同，原生与 dot MCP 接线分 profile 实测。新包、接口、适配与真实 Agent 验收均未实现；prepared-world targeted 不代签 cold-entry 或全部 Runtime，集中托管不改变世界权威，也不提供生产资产/治理 custody。
 
 玩家进入、游戏行动委托、operator 控制和代码开发会话分别成立。相同工具名称不能合并它们的权限与完成证据。
 

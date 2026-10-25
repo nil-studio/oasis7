@@ -101,7 +101,7 @@ impl NodeRuntime {
     }
 
     pub fn stop(&mut self) -> Result<(), NodeError> {
-        if !self.running.load(Ordering::SeqCst) {
+        if !self.running.load(Ordering::SeqCst) && self.worker.is_none() {
             return Err(NodeError::NotRunning {
                 node_id: self.config.node_id.clone(),
             });
@@ -148,7 +148,7 @@ impl NodeRuntime {
 
 impl Drop for NodeRuntime {
     fn drop(&mut self) {
-        if self.running.load(Ordering::SeqCst) {
+        if self.worker.is_some() {
             if let Some(stop_tx) = self.stop_tx.take() {
                 let _ = stop_tx.send(());
             }

@@ -192,6 +192,12 @@ await mkdir(viewerDistDir, { recursive: true });
 await copyFile(canonicalHtmlPath, resolve(viewerDistDir, "viewer.html"));
 await writeFile(finalDistBundlePath, canonicalBundle, "utf8");
 await writeViewerCompatAliases(viewerRoot, viewerDistDir);
+// The Task protocol is a separate, credential-free WASM module. Generate it
+// serially with the rendering bridge; both use the repository Cargo target.
+await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", "-p", "oasis7_browser_game_client", "--target", "wasm32-unknown-unknown", "--release"]);
+const gameProtocolDir = resolve(viewerDistDir, "browser-game-client");
+await mkdir(gameProtocolDir, { recursive: true });
+await runChecked(await resolveWasmBindgenCommand(), ["--target", "web", "--out-dir", gameProtocolDir, "--out-name", "oasis7_browser_game_client", resolve(workspaceRoot, "target", "wasm32-unknown-unknown", "release", "oasis7_browser_game_client.wasm")]);
 if (visualTest) await Promise.all(["viewer_terminal_shell.css", "favicon.ico", "viewer_first_agent_claim_evidence.html"].map(name => copyFile(resolve(viewerRoot, name), resolve(viewerDistDir, name))));
 if (!visualTest) await Promise.all([
   rm(staleRootCompatHtmlPath, { force: true }),

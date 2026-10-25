@@ -48,6 +48,10 @@ scope = [
     "crates/oasis7_simulator/Cargo.toml",
     "crates/oasis7_simulator/src",
     "crates/oasis7_simulator/scenarios",
+    "crates/oasis7_browser_game_client",
+    "crates/oasis7_client_api",
+    "crates/oasis7_agent_api",
+    "crates/oasis7_wasm_abi",
     "crates/oasis7_game_client/Cargo.toml",
     "crates/oasis7_game_client/src",
     "crates/oasis7_launcher_config/Cargo.toml",
@@ -185,6 +189,8 @@ pixel_world_webgl2_bindgen_js_path, pixel_world_webgl2_bindgen_js_sha256 = hash_
 pixel_world_webgl2_bindgen_wasm_path, pixel_world_webgl2_bindgen_wasm_sha256 = hash_exact(
     "web/pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm"
 )
+browser_game_js_path, browser_game_js_sha256 = hash_exact("web/browser-game-client/oasis7_browser_game_client.js")
+browser_game_wasm_path, browser_game_wasm_sha256 = hash_exact("web/browser-game-client/oasis7_browser_game_client_bg.wasm")
 launcher_index_path, launcher_index_sha256 = hash_exact("web-launcher/index.html")
 launcher_js_path, launcher_js_sha256 = hash_first("web-launcher/*.js")
 launcher_wasm_path, launcher_wasm_sha256 = hash_first("web-launcher/*.wasm")
@@ -194,6 +200,10 @@ manifest = {
     "generatedAtUnixMs": int(time.time() * 1000),
     **source_metadata,
     "assets": {
+        "browserGameClientJsPath": browser_game_js_path,
+        "browserGameClientJsSha256": browser_game_js_sha256,
+        "browserGameClientWasmPath": browser_game_wasm_path,
+        "browserGameClientWasmSha256": browser_game_wasm_sha256,
         "viewerIndexPath": viewer_index_path,
         "viewerIndexSha256": viewer_index_sha256,
         "viewerJsPath": viewer_js_path,
@@ -272,6 +282,12 @@ if requested_target_triple and manifest.get("targetTriple") != requested_target_
         f"(bundle={manifest.get('targetTriple')}, requested={requested_target_triple})"
     )
 assets = manifest.get("assets") or {}
+for name, expected in {
+    "browserGameClientJsPath": "web/browser-game-client/oasis7_browser_game_client.js",
+    "browserGameClientWasmPath": "web/browser-game-client/oasis7_browser_game_client_bg.wasm",
+}.items():
+    if assets.get(name) != expected:
+        errors.append(f"bundle asset drift: required protocol asset {expected} missing from manifest")
 for path_key, rel_path in sorted(assets.items()):
     if not path_key.endswith("Path") or not rel_path:
         continue

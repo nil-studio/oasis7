@@ -13,6 +13,9 @@ viewer_root="$TMPDIR/viewer"
 dist_dir="$TMPDIR/dist"
 optional_payload_dir="$TMPDIR/optional-payload"
 mkdir -p "$viewer_root/dist/pixel-world-bridge/webgl2"
+mkdir -p "$viewer_root/dist/browser-game-client"
+printf 'export const protocol = true;\n' > "$viewer_root/dist/browser-game-client/oasis7_browser_game_client.js"
+printf '\0asm\n' > "$viewer_root/dist/browser-game-client/oasis7_browser_game_client_bg.wasm"
 
 printf '<!doctype html><link rel="stylesheet" href="./viewer_terminal_shell.css"><script type="module" src="./viewer.js"></script>\n' > "$viewer_root/viewer.html"
 printf '.shell { grid-template-columns: minmax(0, 1fr); }\n' > "$viewer_root/viewer_terminal_shell.css"
@@ -41,6 +44,8 @@ expect_cmp() {
   fi
 }
 
+expect_cmp "$viewer_root/dist/browser-game-client/oasis7_browser_game_client.js" "$dist_dir/browser-game-client/oasis7_browser_game_client.js"
+expect_cmp "$viewer_root/dist/browser-game-client/oasis7_browser_game_client_bg.wasm" "$dist_dir/browser-game-client/oasis7_browser_game_client_bg.wasm"
 expect_cmp "$viewer_root/viewer.js" "$dist_dir/viewer.js"
 expect_cmp "$viewer_root/dist/software_safe.js" "$dist_dir/software_safe.js"
 expect_cmp "$viewer_root/viewer.html" "$dist_dir/index.html"
@@ -343,6 +348,16 @@ if [[ "$before_fingerprint" == "$after_fingerprint" ]]; then
 fi
 
 if ((failures)); then
+  exit 1
+fi
+
+
+# Protocol artifacts are mandatory and must never silently disappear from releases.
+missing_protocol_root="$TMPDIR/missing-protocol-viewer"
+cp -R "$viewer_root" "$missing_protocol_root"
+rm "$missing_protocol_root/dist/browser-game-client/oasis7_browser_game_client_bg.wasm"
+if "$ROOT_DIR/scripts/copy-viewer-web-dist.sh" --viewer-root "$missing_protocol_root" --dist-dir "$TMPDIR/missing-protocol-dist" --optional-payload-dir "$optional_payload_dir" > /dev/null 2>&1; then
+  echo "missing browser Game Client protocol must fail delivery" >&2
   exit 1
 fi
 

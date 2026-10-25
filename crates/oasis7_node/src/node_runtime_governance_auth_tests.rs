@@ -164,3 +164,153 @@ fn governance_submission_invokes_authoritative_preflight_before_queueing() {
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(runtime.pending_consensus_actions.lock().unwrap().is_empty());
 }
+
+#[test]
+fn non_governance_submission_does_not_depend_on_a_healthy_governance_hook() {
+    struct Hook;
+    impl crate::NodeExecutionHook for Hook {
+        fn on_commit(
+            &mut self,
+            _: crate::NodeExecutionCommitContext,
+        ) -> Result<crate::NodeExecutionCommitResult, String> {
+            panic!("ingress-only test hook must not commit")
+        }
+    }
+
+    let runtime = NodeRuntime::new(
+        NodeConfig::new(
+            "node-poisoned-preflight",
+            "world-auth",
+            crate::NodeRole::Observer,
+        )
+        .expect("node config"),
+    )
+    .with_execution_hook(Hook);
+    let hook = runtime
+        .execution_hook
+        .as_ref()
+        .expect("installed execution hook")
+        .clone();
+    let poisoned = hook.clone();
+    std::thread::spawn(move || {
+        let _guard = poisoned.lock().expect("lock hook before poisoning");
+        panic!("poison governance preflight hook");
+    })
+    .join()
+    .expect_err("test thread must poison the hook mutex");
+
+    let ordinary = LocalConsensusActionPayloadEnvelope {
+        version: 1,
+        gameplay_submission_origin: None,
+        auth: None,
+        body: LocalConsensusActionPayloadBody::RuntimeAction {
+            action: serde_json::json!({
+                "type": "RegisterAgent",
+                "data": {"agent_id": "ordinary", "pos": {"x": 0.0, "y": 0.0, "z": 0.0}}
+            }),
+        },
+    };
+    runtime
+        .submit_consensus_action_payload(1, serde_cbor::to_vec(&ordinary).unwrap())
+        .expect("non-governance ingress must not touch the governance hook");
+
+    let governance = LocalConsensusActionPayloadEnvelope {
+        version: 1,
+        gameplay_submission_origin: None,
+        auth: Some(LocalConsensusActionAuthEnvelope::GovernanceAction(
+            serde_json::json!({"schema_version": 1, "signatures": {"key": "signature"}}),
+        )),
+        body: LocalConsensusActionPayloadBody::RuntimeAction {
+            action: serde_json::json!({
+                "type": "SubmitGovernanceValidatorAdmission",
+                "data": {}
+            }),
+        },
+    };
+    let error = runtime
+        .submit_consensus_action_payload(2, serde_cbor::to_vec(&governance).unwrap())
+        .expect_err("governance ingress must still require a healthy authoritative hook");
+    assert!(
+        error
+            .to_string()
+            .contains("governance authorization preflight hook lock poisoned"),
+        "{error}"
+    );
+    assert_eq!(runtime.pending_consensus_actions.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn non_governance_submission_finishes_while_the_execution_hook_is_held() {
+    struct Hook;
+    impl crate::NodeExecutionHook for Hook {
+        fn validate_governance_action_payload(&self, _: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
+        fn on_commit(
+            &mut self,
+            _: crate::NodeExecutionCommitContext,
+        ) -> Result<crate::NodeExecutionCommitResult, String> {
+            panic!("ingress-only test hook must not commit")
+        }
+    }
+
+    let runtime = NodeRuntime::new(
+        NodeConfig::new(
+            "node-held-preflight",
+            "world-auth",
+            crate::NodeRole::Observer,
+        )
+        .expect("node config"),
+    )
+    .with_execution_hook(Hook);
+    let hook = runtime
+        .execution_hook
+        .as_ref()
+        .expect("installed execution hook")
+        .clone();
+    let guard = hook.lock().expect("hold execution hook");
+    let ordinary = LocalConsensusActionPayloadEnvelope {
+        version: 1,
+        gameplay_submission_origin: None,
+        auth: None,
+        body: LocalConsensusActionPayloadBody::RuntimeAction {
+            action: serde_json::json!({
+                "type": "RegisterAgent",
+                "data": {"agent_id": "ordinary-held", "pos": {"x": 0.0, "y": 0.0, "z": 0.0}}
+            }),
+        },
+    };
+    let payload = serde_cbor::to_vec(&ordinary).unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (result_tx, result_rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        started_tx.send(()).expect("signal before submission");
+        let result = runtime.submit_consensus_action_payload(1, payload);
+        result_tx.send(result).expect("return submission result");
+    });
+    started_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("submission thread started");
+    let early_result = result_rx.recv_timeout(std::time::Duration::from_secs(1));
+    let completed_while_locked = early_result.is_ok();
+
+    // Always release the hook before waiting for or joining the worker. On the
+    // buggy path the worker is blocked on this mutex; cleanup must not leak it.
+    drop(guard);
+    let result = match early_result {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => result_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("submission finishes after releasing the hook"),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            panic!("submission worker exited without returning a result")
+        }
+    };
+    worker.join().expect("submission worker joins");
+
+    assert!(
+        completed_while_locked,
+        "ordinary ingress must not wait for the governance execution hook"
+    );
+    result.expect("ordinary ingress should succeed");
+}

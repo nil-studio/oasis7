@@ -82,6 +82,8 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 ## 当前主线与进展
 
+2026-10-25 测试账号托管设计局部核对：[hosted custody 产品/系统权威](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#cloud-test-custody)覆盖多账号、幂等开户、管理批准与托管原生会话分离；[Rust 实现边界](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)规划两个 crate、四个 Worker 工件和既有 Game Client 内的可信工具宿主。[Agent 自测合同](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-selftest)固定 prepared-world targeted、原生工具/原件接续及执行/只读/Stop-Revoke 三个有界目的；原生消费者先验收，dot 的 MCP 宿主签名扩展单独验证。源码审读基线 `73398d454082eb2106b2f1075a57bc9f377cd222`；全部新增实现与真实 Agent 验收仍待交付，外部 keyvault 仅作有界参考，不提升预览或生产 custody 口径。边界导航见[身份与 Agent](architecture/README.md#cc-architecture-agents)，其他项目/环境核验时间不变。
+
 以下主线消费既有里程碑和实际交付记录，不在这里重新排序或建立一套任务状态。
 [#4363](https://github.com/eng-cc/oasis7/issues/4363) 已以 `not_planned` 关闭，只是历史规划/文档来源；当前能力和限制回到对应主责文档与实际 PR/验证记录，不恢复旧 Issue 的剩余义务。
 “已有代码”“适用验证通过”“正式开放”“真人接受”分别表达，不用 PR 数量换算项目完成率。
@@ -141,6 +143,8 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 完整协作 TaskSnapshot、身份注册/配对及公开 Game HTTP 写入口尚未由这些切片证明；部署暂停继续有效。支持范围与证据入口见 [Game API 专业合同](../../world-simulator/llm/external-agent-game-api.design.md#当前实施候选原生任务执行链)和[协作与私有目标合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#6-接口与数据合同)。本次不刷新全局和环境核验基线。
 
 2026-10-15 局部候选核对：[#4734](https://github.com/eng-cc/oasis7/pull/4734)已合入 `25b4d211a612d783172e6266307c71c62b8c00c0`，完成共享客户端抽离；[工业任务执行器候选](https://github.com/eng-cc/oasis7/tree/50e128cbe369f8f6adca6556ff99784c7f7c93ad)由现有节点组合启动，复用受权客户端并显示运行位置、预算和阻断状态。执行器由 [#4744](https://github.com/eng-cc/oasis7/pull/4744)继续迁移，真实 HTTP 脚本工业链、独立 CLI/SDK 建厂对照与重启恢复已通过，执行器候选尚未合入；真实模型、完整生产能力迁移、性能比较和整体验收仍未完成。执行器不取得世界权威，关闭 Viewer 不代表停用节点进程，也不代表云端托管；2026-10-15 用户明确当前以 Codex 等外部 Agent 接入为主要入口，自有 Agent 入口打磨与真实模型测试留作后续 TODO，本轮未发出付费请求；剩余验证与消费者迁移仍由 [#4726](https://github.com/eng-cc/oasis7/issues/4726)跟踪。本项不刷新其他项目或部署事实。
+
+浏览器 BYOK 局部候选核对（2026-10-25）：[设计 PR #5064](https://github.com/nil-studio/oasis7/pull/5064) 将目标改为网页直连供应商、Key 仅存本站 localStorage；[实现 PR #5067](https://github.com/nil-studio/oasis7/pull/5067) 已补浏览器 Game Client、独立 executor 登记、原签名操作恢复与有界模型循环，当前仍待必要 CI 和合入。用户已授权两 PR 合入后部署 b1 并独立试玩；这不解除其他环境既有暂停，也不预先声明实机世界效果、OpenRouter 或完整首局已验收。支持边界见[产品要求](../../product/agents-world-simulation/self-supplied-model-connection.prd.md)和[系统设计](../../world-simulator/llm/self-supplied-model-connection.design.md)。
 
 <a id="cc-status-world-policy-contracts"></a>
 

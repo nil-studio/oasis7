@@ -1,5 +1,48 @@
 use super::DeploymentMode;
 
+pub(super) fn browser_game_trust(trust: &str) -> Result<serde_json::Value, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Trust {
+        endpoint: String,
+        service_public_key: String,
+        world: oasis7_client_api::world_service::WorldIdentity,
+    }
+    let trust: Trust = serde_json::from_str(trust).map_err(|_| "invalid browser world trust")?;
+    trust
+        .world
+        .validate()
+        .map_err(|_| "invalid browser world")?;
+    let bytes: [u8; 32] = hex::decode(&trust.service_public_key)
+        .map_err(|_| "invalid browser service key")?
+        .try_into()
+        .map_err(|_| "invalid browser service key")?;
+    let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes)
+        .map_err(|_| "invalid browser service key")?;
+    let upstream = reqwest::Url::parse(&trust.endpoint).map_err(|_| "invalid browser upstream")?;
+    if key.is_weak()
+        || trust.service_public_key != hex::encode(bytes)
+        || upstream.scheme() != "http"
+        || upstream.origin().ascii_serialization() != trust.endpoint
+        || !upstream.host_str().is_some_and(|host| {
+            host.parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+        })
+    {
+        return Err("browser trust must match the hosted participant gateway".into());
+    }
+    Ok(
+        serde_json::json!({"endpoint":"/api/public/hosted-account/v2", "servicePublicKey":trust.service_public_key,"world":trust.world}),
+    )
+}
+
+pub(super) fn enable_browser_game(config: &str, trust: &str) -> Result<String, String> {
+    let mut config: serde_json::Value =
+        serde_json::from_str(config).map_err(|_| "invalid viewer config")?;
+    config["browserGameClient"] = browser_game_trust(trust)?;
+    serde_json::to_string(&config).map_err(|_| "invalid viewer config".into())
+}
+
 pub(super) fn viewer_runtime_config_json(
     deployment_mode: DeploymentMode,
     web_bind: &str,
@@ -69,6 +112,20 @@ pub(super) fn inject_config(body: &[u8], config_json: &str) -> Result<Vec<u8>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn browser_trust_is_fixed_to_hosted_gateway_without_exposing_upstream() {
+        let key = hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[19; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
+        let trust = serde_json::json!({"endpoint":"http://127.0.0.1:5180","service_public_key":key,"world":{"world_id":"world","genesis_digest":"genesis"}}).to_string();
+        let value = browser_game_trust(&trust).unwrap();
+        assert_eq!(value["endpoint"], "/api/public/hosted-account/v2");
+        assert!(!value.to_string().contains("5180"));
+        assert!(browser_game_trust(&trust.replace("127.0.0.1", "remote.example")).is_err());
+        assert!(browser_game_trust(&trust.replace(&key, &"00".repeat(32))).is_err());
+    }
     #[test]
     fn local_wildcard_binds_are_explicit_loopback_targets() {
         for (bind, endpoint) in [
