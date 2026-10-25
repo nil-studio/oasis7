@@ -1,4 +1,6 @@
 //! Consensus ingress authentication and governance payload classification.
+use std::sync::{Arc, Mutex};
+
 use super::*;
 
 pub(super) fn payload_nonce(payload: &[u8]) -> Result<Option<(String, u64)>, NodeError> {
@@ -23,6 +25,33 @@ pub(super) fn payload_nonce(payload: &[u8]) -> Result<Option<(String, u64)>, Nod
             reason: "governance nonce missing".into(),
         })?;
     Ok(Some((controller.into(), nonce)))
+}
+
+/// Apply the proposal-time governance rule shared by PoS and BFT selectors.
+/// Callers must supply actions in canonical action-id order so controller
+/// nonce high-water selection is deterministic across runtimes.
+pub(crate) fn retain_for_proposal(
+    action: &NodeConsensusAction,
+    hook: Option<&dyn NodeExecutionHook>,
+    highwater: &mut std::collections::BTreeMap<String, u64>,
+) -> bool {
+    match payload_nonce(&action.payload_cbor) {
+        Ok(None) => true,
+        Err(_) => false,
+        Ok(Some((controller, nonce))) => {
+            let authorized = hook.is_some_and(|hook| {
+                hook.validate_governance_action_payload(&action.payload_cbor)
+                    .is_ok()
+            });
+            let previous = highwater.entry(controller).or_default();
+            if authorized && nonce > *previous {
+                *previous = nonce;
+                true
+            } else {
+                false
+            }
+        }
+    }
 }
 
 /// Return true when governance validation fully handles the payload.
@@ -113,23 +142,53 @@ pub(super) fn validate_consensus_action_payload_auth(
 
 /// Structural admission checks alone never establish authority to enter consensus.
 pub(super) fn preflight(runtime: &NodeRuntime, payload_cbor: &[u8]) -> Result<(), NodeError> {
-    let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
-        .map_err(|reason| NodeError::Consensus { reason })?;
-    if !matches!(
-        envelope.auth,
-        Some(LocalConsensusActionAuthEnvelope::GovernanceAction(_))
-    ) {
+    preflight_with_hook(&runtime.execution_hook, payload_cbor)
+}
+
+pub(super) fn preflight_with_hook(
+    execution_hook: &Option<Arc<Mutex<Box<dyn NodeExecutionHook>>>>,
+    payload_cbor: &[u8],
+) -> Result<(), NodeError> {
+    if !governance_preflight_required(payload_cbor)? {
         return Ok(());
     }
-    let hook = runtime
-        .execution_hook
+    let hook = execution_hook
         .as_ref()
+        .map(|hook| {
+            hook.lock().map_err(|_| NodeError::Consensus {
+                reason: "governance authorization preflight hook lock poisoned".into(),
+            })
+        })
+        .transpose()?
         .ok_or_else(|| NodeError::Consensus {
             reason: "governance authorization requires an execution preflight hook".into(),
         })?;
-    let hook = hook.lock().map_err(|_| NodeError::Consensus {
-        reason: "governance authorization preflight hook lock poisoned".into(),
-    })?;
+    validate_governance_preflight(&**hook, payload_cbor)
+}
+
+pub(crate) fn preflight_with_execution_hook(
+    hook: &dyn NodeExecutionHook,
+    payload_cbor: &[u8],
+) -> Result<(), NodeError> {
+    if !governance_preflight_required(payload_cbor)? {
+        return Ok(());
+    }
+    validate_governance_preflight(hook, payload_cbor)
+}
+
+fn governance_preflight_required(payload_cbor: &[u8]) -> Result<bool, NodeError> {
+    let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
+        .map_err(|reason| NodeError::Consensus { reason })?;
+    Ok(matches!(
+        envelope.auth,
+        Some(LocalConsensusActionAuthEnvelope::GovernanceAction(_))
+    ))
+}
+
+fn validate_governance_preflight(
+    hook: &dyn NodeExecutionHook,
+    payload_cbor: &[u8],
+) -> Result<(), NodeError> {
     hook.validate_governance_action_payload(payload_cbor)
         .map_err(|reason| NodeError::Consensus {
             reason: format!("governance authorization preflight rejected: {reason}"),
