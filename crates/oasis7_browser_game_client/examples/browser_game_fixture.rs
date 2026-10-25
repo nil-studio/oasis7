@@ -160,6 +160,24 @@ fn main() {
                 json!({"world":world,"servicePublicKey":public(9),"ownerSeed":owner_seed,"executorSeed":73,"control":snapshot.control})
             }
             "admission" => admission_response(&command, &snapshot),
+            "goal_receipt" => {
+                let original: ws::private_goal::SignedGoalPrepareV1 =
+                    serde_json::from_value(command["original"].clone()).unwrap();
+                original.verify().unwrap();
+                let salt = [42u8; 32];
+                let receipt = ws::private_goal::PreparedGoalReceiptV1 {
+                    schema_revision: 1,
+                    goal_ref: ws::private_goal::prepared_goal_commitment(&salt, &original).unwrap(),
+                    reference_salt: "2a".repeat(32),
+                    owner_proof: original,
+                };
+                receipt.validate().unwrap();
+                reply(
+                    ws::private_goal_read::GOAL_PREPARE_PATH,
+                    &command["original"],
+                    receipt,
+                )
+            }
             "gateway" => {
                 let body: Value =
                     serde_json::from_str(command["rawBody"].as_str().unwrap()).unwrap();

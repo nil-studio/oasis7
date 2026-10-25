@@ -57,21 +57,40 @@ pub(super) fn receipt(request: &str, payload: &str) -> Result<(), &'static str> 
     };
     let receipt: GameParticipantReceiptV1 =
         serde_json::from_value(receipt).map_err(|_| "contract_mismatch")?;
-    let mut original = r.clone();
-    original
-        .client_operation_id
-        .clone_from(&receipt.client_operation_id);
+    // Runtime can reuse a prior same-account binding after an identity service
+    // restart. The authenticated outer correlation belongs to this request;
+    // receipt operation/epoch may belong to that original binding.
+    let account = ws::request_digest(
+        "participant-account-world",
+        &(
+            &r.identity_namespace.service_id,
+            &r.identity_namespace.environment_id,
+            &r.account_id,
+            &r.world_id,
+            &r.genesis_digest,
+        ),
+    )
+    .map_err(|_| "contract_mismatch")?;
+    let agent = format!(
+        "participant:{}",
+        account.strip_prefix("blake3:").ok_or("contract_mismatch")?
+    );
     if commit.world.world_id != r.world_id
         || commit.world.genesis_digest != r.genesis_digest
         || receipt.api_rev != 1
-        || receipt.identity_namespace != r.identity_namespace
+        || !receipt
+            .identity_namespace
+            .same_authority(&r.identity_namespace)
         || receipt.account_id != r.account_id
         || receipt.world_id != r.world_id
         || receipt.genesis_digest != r.genesis_digest
         || receipt.owner_public_key != r.owner_public_key
-        || receipt.business_digest
-            != oasis7_client_api::world_service_correlation::participant_business_digest(&original)
-                .map_err(|_| "contract_mismatch")?
+        || receipt.business_digest.is_empty()
+        || receipt.client_operation_id.is_empty()
+        || (!receipt.imported
+            && (receipt.owner_generation.0 != 1
+                || receipt.owner_binding != account
+                || receipt.agent_id != agent))
         || receipt.agent_id.is_empty()
         || receipt.owner_binding.is_empty()
         || receipt.owner_generation.0 == 0
@@ -80,3 +99,7 @@ pub(super) fn receipt(request: &str, payload: &str) -> Result<(), &'static str> 
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "participant_tests.rs"]
+mod tests;

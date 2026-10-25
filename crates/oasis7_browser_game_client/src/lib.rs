@@ -12,6 +12,7 @@ use serde_json::Value;
 use wasm_bindgen::prelude::*;
 
 mod build;
+mod entry;
 mod participant;
 mod retire;
 pub use build::world_build;
@@ -77,7 +78,12 @@ fn verify(
             )
         }
         ws::private_goal_read::GOAL_PREPARE_PATH => {
-            typed::<ws::private_goal::PreparedGoalReceiptV1>(domain_value, &expected, response, key)
+            let original: ws::private_goal::SignedGoalPrepareV1 = parse(request)?;
+            let response: ws::SignedServiceResponse<ws::private_goal::PreparedGoalReceiptV1> =
+                parse(response)?;
+            ws::private_goal_read::verify_prepare_response(&original, &response, key)
+                .map_err(|_| "response_verification_failed")?;
+            encode(&response.payload)
         }
         ws::private_goal_read::GOAL_CURRENT_PATH => typed::<
             ws::private_goal_read::CurrentGoalResponse,
@@ -140,6 +146,7 @@ fn validate(kind: &str, request: &str, payload: &str) -> Result<String, &'static
     match kind {
         "participant_admission" => participant::admission(request, payload)?,
         "participant_receipt" => participant::receipt(request, payload)?,
+        "goal_prepared" => entry::validate_prepared(request, payload)?,
         "describe" => parse::<ws::DescribeWorldResponse>(payload)?
             .validate(&parse(request)?)
             .map_err(|_| "contract_mismatch")?,
