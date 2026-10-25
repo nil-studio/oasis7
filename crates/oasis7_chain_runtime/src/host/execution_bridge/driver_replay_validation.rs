@@ -1,10 +1,10 @@
 use oasis7_node::NodeExecutionCommitContext;
 
+use super::checkpoint::{execution_bridge_record_path, load_execution_bridge_record};
 use super::driver::NodeRuntimeExecutionDriver;
 use super::external_effect::load_execution_external_effect_materialization;
 use super::{
     EXECUTION_BRIDGE_RECORD_SCHEMA_V3, ExecutionBridgeRecord, ExecutionCommittedActionAnchor,
-    execution_bridge_record_path, load_execution_bridge_record,
 };
 
 impl NodeRuntimeExecutionDriver {
