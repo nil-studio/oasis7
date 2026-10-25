@@ -13,6 +13,8 @@ pub mod game;
 pub mod identity;
 mod provider;
 mod runtime;
+#[cfg(feature = "schema")]
+pub mod schema;
 
 pub use cognition::{
     BudgetContractV1, CognitionError, ContinuationBudgetV1, ContinuationProposalV1,

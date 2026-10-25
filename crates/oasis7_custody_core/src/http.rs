@@ -1,5 +1,8 @@
 //! Public, non-secret HTTP contracts shared by the real Worker handler.
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+#[path = "http_schema.rs"]
+mod schema_export;
 
 pub const SCHEMA_REVISION: &str = "custody-http-v1";
 
@@ -100,22 +103,7 @@ mod tests {
     fn emit_http_contract() {
         // Deliberate developer export, never executed by a build script or handler.
         if let Ok(directory) = std::env::var("OASIS7_CUSTODY_SCHEMA_OUTPUT") {
-            let directory = std::path::Path::new(&directory);
-            let document = serde_json::json!({
-                "metadata": schemars::schema_for!(ServiceMetadata),
-                "error": schemars::schema_for!(ErrorResponse),
-                "fixtures": {
-                    "metadata": ([Role::Identity, Role::Owner, Role::Executor, Role::RecoveryFence]
-                        .map(ServiceMetadata::disabled)),
-                    "error": ([ErrorCode::NotFound, ErrorCode::NotReady, ErrorCode::MethodNotAllowed]
-                        .map(ErrorResponse::new)),
-                },
-            });
-            std::fs::write(
-                directory.join("http.schema.json"),
-                format!("{}\n", serde_json::to_string_pretty(&document).unwrap()),
-            )
-            .unwrap();
+            schema_export::export(std::path::Path::new(&directory));
         }
     }
 }

@@ -75,15 +75,36 @@ impl DurableObject for ExecutorKeys {
 #[cfg(feature = "recovery-fence")]
 #[durable_object]
 pub struct RecoveryFence {
-    _state: State,
+    state: wasm_bindgen::JsValue,
+    initial_epoch: String,
 }
 #[cfg(feature = "recovery-fence")]
 impl DurableObject for RecoveryFence {
-    fn new(state: State, _env: Env) -> Self {
-        Self { _state: state }
+    fn new(state: State, env: Env) -> Self {
+        Self {
+            state: state._inner().into(),
+            initial_epoch: env
+                .var("CUSTODY_INITIAL_SERVICE_EPOCH")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| "0".into()),
+        }
     }
-    async fn fetch(&self, _request: Request) -> Result<Response> {
-        unavailable()
+    async fn fetch(&self, request: Request) -> Result<Response> {
+        let url = request.url()?;
+        if request.method() != Method::Get
+            || url.path() != "/internal/recovery-fence"
+            || url.query().is_some()
+        {
+            return Ok(
+                Response::from_json(&ErrorResponse::new(ErrorCode::NotFound))?.with_status(404),
+            );
+        }
+        // Read-only: no public route or binding can activate or roll back this fence.
+        // Fresh namespaces initialize frozen, independent of AccountAuthority data.
+        match crate::sql_store::read_frozen_fence(&self.state, &self.initial_epoch) {
+            Ok(fence) => Response::from_json(&fence),
+            Err(_) => unavailable(),
+        }
     }
 }
 

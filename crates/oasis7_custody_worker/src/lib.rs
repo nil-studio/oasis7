@@ -27,3 +27,6 @@ compile_error!("custody requires exactly one role feature; never use --all-featu
 
 #[cfg(target_arch = "wasm32")]
 mod platform;
+
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod sql_store;

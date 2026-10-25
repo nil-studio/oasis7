@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 /// Material ledger identifier used by M4 economy state.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(try_from = "String", into = "String")]
 pub enum MaterialLedgerId {
     #[default]

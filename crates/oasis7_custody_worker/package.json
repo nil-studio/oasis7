@@ -6,9 +6,10 @@
     "test": "tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext tests/consumer.ts && node --test tests/*.test.mjs"
   },
   "devDependencies": {
-    "wrangler": "4.152.0",
     "ajv": "8.20.0",
-    "typescript": "5.9.3"
+    "miniflare": "5.20261019.2-beta",
+    "typescript": "5.9.3",
+    "wrangler": "4.152.0"
   },
   "overrides": {
     "undici": "7.30.1"
