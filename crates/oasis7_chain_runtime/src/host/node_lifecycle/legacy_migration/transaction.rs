@@ -169,6 +169,29 @@ pub(super) fn status(
     }
     Ok(None)
 }
+pub(super) struct OperationWriter(fs::File);
+
+impl Drop for OperationWriter {
+    fn drop(&mut self) {
+        // This fence covers only this synchronous apply, not a runtime child.
+        // close alone leaves its open-file-description lock held by an unrelated
+        // concurrent fork until exec; unlock ends this writer's critical section.
+        let _ = self.0.unlock();
+    }
+}
+
+pub(super) fn operation_lock(destination: &Path, id: &str) -> Result<OperationWriter, String> {
+    let lock = io::private_file(
+        &destination
+            .parent()
+            .ok_or("destination parent missing")?
+            .join(format!(".legacy-migration-{id}.lock")),
+    )?;
+    lock.try_lock()
+        .map_err(|_| "migration operation writer busy")?;
+    Ok(OperationWriter(lock))
+}
+
 pub(super) fn apply(source: &Path, destination: &Path, id: &str) -> Result<Receipt, String> {
     let preview = source::plan(source, destination, id)?;
     // The SAME fence is held by legacy run_chain_runtime. A live source cannot
@@ -180,14 +203,7 @@ pub(super) fn apply(source: &Path, destination: &Path, id: &str) -> Result<Recei
     if io::digest(&preview)? != io::digest(&plan)? {
         return Err("source changed before migration writer fence".into());
     }
-    let lock = io::private_file(
-        &destination
-            .parent()
-            .ok_or("destination parent missing")?
-            .join(format!(".legacy-migration-{id}.lock")),
-    )?;
-    lock.try_lock()
-        .map_err(|_| "migration operation writer busy")?;
+    let _operation_writer = operation_lock(destination, id)?;
     let intent = if let Some(intent) = read_intent(&plan)? {
         intent
     } else {

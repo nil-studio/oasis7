@@ -11,12 +11,12 @@ use std::{
     os::{fd::AsRawFd, unix::net::UnixStream},
 };
 
-pub(super) struct InheritedDescriptors {
+pub(crate) struct InheritedDescriptors {
     pid: libc::pid_t,
     release: UnixStream,
 }
 impl InheritedDescriptors {
-    pub(super) fn fork() -> Self {
+    pub(crate) fn fork() -> Self {
         let (release, wait) = UnixStream::pair().unwrap();
         // SAFETY: Only async-signal-safe libc calls run in the forked child. Holding
         // before exec models another test's concurrent Command::spawn without
@@ -35,7 +35,7 @@ impl InheritedDescriptors {
         Self { pid, release }
     }
 
-    pub(super) fn is_waiting(&self) -> bool {
+    pub(crate) fn is_waiting(&self) -> bool {
         // SAFETY: This is our unreaped child; WNOHANG permits a null status pointer.
         unsafe { libc::waitpid(self.pid, std::ptr::null_mut(), libc::WNOHANG) == 0 }
     }
