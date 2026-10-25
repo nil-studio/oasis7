@@ -617,3 +617,50 @@ fn legacy_v2_identity_relocates_completed_metadata_for_split_and_embedded_config
         assert!(!relocated.exists());
     }
 }
+
+#[test]
+fn completed_migration_writer_releases_lock_while_fork_child_keeps_descriptor() {
+    use crate::node_operations::admission_tests::InheritedDescriptors;
+    for unwind in [false, true] {
+        let root = fs::canonicalize("/tmp").unwrap().join(format!(
+            "oasis7-migration-writer-fork-{}",
+            io::random_id().unwrap()
+        ));
+        io::private_dir(&root).unwrap();
+        let destination = root.join("destination");
+        let writer = transaction::operation_lock(&destination, "same-operation").unwrap();
+        assert!(transaction::operation_lock(&destination, "same-operation").is_err());
+        let inherited = InheritedDescriptors::fork();
+        if unwind {
+            assert!(
+                std::panic::catch_unwind(move || {
+                    let _writer = writer;
+                    panic!("exercise interrupted migration cleanup");
+                })
+                .is_err()
+            );
+        } else {
+            drop(writer);
+        }
+        let child_retained_descriptors = inherited.is_waiting();
+        let next_writer = transaction::operation_lock(&destination, "same-operation");
+        let acquired_before_child_exit = next_writer.is_ok();
+        let excluded_before_child_exit =
+            transaction::operation_lock(&destination, "same-operation").is_err();
+        drop(inherited);
+        let excluded_after_child_exit =
+            transaction::operation_lock(&destination, "same-operation").is_err();
+        drop(next_writer);
+        let final_writer = transaction::operation_lock(&destination, "same-operation");
+        let acquired_after_writer_release = final_writer.is_ok();
+        drop(final_writer);
+        fs::remove_dir_all(&root).unwrap();
+        assert!(child_retained_descriptors);
+        assert!(
+            acquired_before_child_exit,
+            "completed migration must release its writer fence before an unrelated fork child exits"
+        );
+        assert!(excluded_before_child_exit && excluded_after_child_exit);
+        assert!(acquired_after_writer_release);
+    }
+}
