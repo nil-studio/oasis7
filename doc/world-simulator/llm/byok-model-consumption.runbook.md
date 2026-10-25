@@ -7,6 +7,8 @@
 
 ## 当前交付边界
 
+适用范围：本文记录现有 Launcher 托管临时凭证实现，不是浏览器直连的目标合同。新的 [浏览器模型连接设计](self-supplied-model-connection.design.md#des-byok-001)采用 localStorage 保存 Key、页面内直接调用供应商；尚未实施，不能按本文启用步骤宣称该路径已可用。迁移时须停止旧模型循环并核对原件，不自动回退托管或将旧 Key 导出到浏览器。
+
 `oasis7_model_provider` 提供仅内存凭证、应用会话权威回调、连接 CAS、有限租约、跨连接共享的调用/token 预算、两阶段幂等检查、固定供应商传输和 Harness 适配。Launcher 的受控网页接口复用 hosted identity 的精确 Origin、CSRF、JSON 与数据库撤销校验；现有 HTML CSP/no-store 继续生效。未配置默认关闭，不显示 Key 表单。
 
 当前支持受部署配置限定的 **非流式实验组合**：DeepSeek Chat Completions / Responses、OpenRouter Chat Completions。OpenRouter Chat 必须指定路由允许集合；OpenRouter Responses 与流式输入明确拒绝，不静默删参数或切协议。协议 fixture 不证明真实模型兼容；两家真实供应商验收仍延期。协议来源：[DeepSeek Chat](https://api-docs.deepseek.com/api/create-chat-completion/)、[DeepSeek Responses](https://api-docs.deepseek.com/api/create-response/)、[OpenRouter Responses](https://openrouter.ai/docs/api/api-reference/responses/create-responses)。
