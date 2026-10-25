@@ -149,6 +149,9 @@ pub(super) fn preflight_with_hook(
     execution_hook: &Option<Arc<Mutex<Box<dyn NodeExecutionHook>>>>,
     payload_cbor: &[u8],
 ) -> Result<(), NodeError> {
+    if !governance_preflight_required(payload_cbor)? {
+        return Ok(());
+    }
     let hook = execution_hook
         .as_ref()
         .map(|hook| {
@@ -156,34 +159,38 @@ pub(super) fn preflight_with_hook(
                 reason: "governance authorization preflight hook lock poisoned".into(),
             })
         })
-        .transpose()?;
-    preflight_with_optional_execution_hook(hook.as_ref().map(|hook| &***hook), payload_cbor)
+        .transpose()?
+        .ok_or_else(|| NodeError::Consensus {
+            reason: "governance authorization requires an execution preflight hook".into(),
+        })?;
+    validate_governance_preflight(&**hook, payload_cbor)
 }
 
 pub(crate) fn preflight_with_execution_hook(
     hook: &dyn NodeExecutionHook,
     payload_cbor: &[u8],
 ) -> Result<(), NodeError> {
-    preflight_with_optional_execution_hook(Some(hook), payload_cbor)
-}
-
-fn preflight_with_optional_execution_hook(
-    hook: Option<&dyn NodeExecutionHook>,
-    payload_cbor: &[u8],
-) -> Result<(), NodeError> {
-    let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
-        .map_err(|reason| NodeError::Consensus { reason })?;
-    if !matches!(
-        envelope.auth,
-        Some(LocalConsensusActionAuthEnvelope::GovernanceAction(_))
-    ) {
+    if !governance_preflight_required(payload_cbor)? {
         return Ok(());
     }
-    hook.ok_or_else(|| NodeError::Consensus {
-        reason: "governance authorization requires an execution preflight hook".into(),
-    })?
-    .validate_governance_action_payload(payload_cbor)
-    .map_err(|reason| NodeError::Consensus {
-        reason: format!("governance authorization preflight rejected: {reason}"),
-    })
+    validate_governance_preflight(hook, payload_cbor)
+}
+
+fn governance_preflight_required(payload_cbor: &[u8]) -> Result<bool, NodeError> {
+    let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
+        .map_err(|reason| NodeError::Consensus { reason })?;
+    Ok(matches!(
+        envelope.auth,
+        Some(LocalConsensusActionAuthEnvelope::GovernanceAction(_))
+    ))
+}
+
+fn validate_governance_preflight(
+    hook: &dyn NodeExecutionHook,
+    payload_cbor: &[u8],
+) -> Result<(), NodeError> {
+    hook.validate_governance_action_payload(payload_cbor)
+        .map_err(|reason| NodeError::Consensus {
+            reason: format!("governance authorization preflight rejected: {reason}"),
+        })
 }
