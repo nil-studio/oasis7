@@ -1,18 +1,21 @@
 [package]
 name = "oasis7_agent_harness"
 version = "0.1.0"
-edition = "2024"
-license = "MIT"
+edition.workspace = true
+license.workspace = true
 description = "Portable provider and cognition harness primitives for Oasis7 agents"
 
 [dependencies]
 blake3 = "1"
 oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api" }
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 unicode-normalization = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_game_client = { version = "0.1.0", path = "../oasis7_game_client" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
+
+[lints]
+workspace = true

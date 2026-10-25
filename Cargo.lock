@@ -6370,7 +6370,6 @@ dependencies = [
  "hex",
  "serde",
  "serde_cbor",
- "serde_json",
 ]
 
 [[package]]
@@ -6841,7 +6840,6 @@ version = "0.1.0"
 dependencies = [
  "oasis7_agent_api",
  "oasis7_client_api",
- "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_proto",
  "oasis7_world_state",

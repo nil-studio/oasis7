@@ -34,6 +34,10 @@ mod runner_feedback;
 #[path = "actor_runner_handoff.rs"]
 mod runner_handoff;
 
+#[cfg(test)]
+#[path = "actor_completion_test_support.rs"]
+mod completion_test_support;
+
 const DEFAULT_MAILBOX_CAPACITY: usize = 16;
 
 /// Stable process-local identity for one logical actor turn. This is not a
@@ -398,6 +402,8 @@ struct AgentActor<A, Q, I, O, F> {
     supports_production: bool,
     supports_compatibility: bool,
     join: Option<JoinHandle<()>>,
+    #[cfg(test)]
+    publication: Arc<completion_test_support::Publication>,
 }
 
 impl<A, Q, I, O, F> AgentActor<A, Q, I, O, F>
@@ -420,6 +426,10 @@ where
         let active_turn = Arc::new(AtomicBool::new(false));
         let accepting_commands = Arc::new(AtomicBool::new(true));
         let worker_accepting = Arc::clone(&accepting_commands);
+        #[cfg(test)]
+        let publication = Arc::new(completion_test_support::Publication::default());
+        #[cfg(test)]
+        let worker_publication = Arc::clone(&publication);
         let worker = thread::Builder::new()
             .name(format!("agent-harness-{agent_id}"))
             .spawn(move || {
@@ -443,12 +453,16 @@ where
                                     ),
                                 )),
                             };
+                            #[cfg(test)]
+                            worker_publication.before_send(turn_id);
                             if completion_sender
                                 .send(ActorCompletion { turn_id, result })
                                 .is_err()
                             {
                                 break;
                             }
+                            #[cfg(test)]
+                            worker_publication.after_send(turn_id);
                         }
                         ActorCommand::DecideCompatibility { turn_id, request } => {
                             let result = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -464,12 +478,16 @@ where
                                     ),
                                 )),
                             };
+                            #[cfg(test)]
+                            worker_publication.before_send(turn_id);
                             if completion_sender
                                 .send(ActorCompletion { turn_id, result })
                                 .is_err()
                             {
                                 break;
                             }
+                            #[cfg(test)]
+                            worker_publication.after_send(turn_id);
                         }
                         ActorCommand::ProductionFeedback(feedback) => {
                             let _ = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -507,6 +525,8 @@ where
             supports_production,
             supports_compatibility,
             join: Some(worker),
+            #[cfg(test)]
+            publication,
         })
     }
 
