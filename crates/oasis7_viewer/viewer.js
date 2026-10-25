@@ -1131,9 +1131,9 @@ var _tmpl$6$21 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
 var _tmpl$7$17 = /*#__PURE__*/ template(`<p>: <!> / <!> · `);
 var _tmpl$8$12 = /*#__PURE__*/ template(`<p>: <!> / <!> ÷ `);
 var _tmpl$9$10 = /*#__PURE__*/ template(`<p>: <!> / `);
-var _tmpl$0$9 = /*#__PURE__*/ template(`<div><strong> · </strong><p>: <!> / <!> / </p><p>: <!> / <!> / <!> </p><p>: </p><p>`);
-var _tmpl$1$6 = /*#__PURE__*/ template(`<p>: `);
-var _tmpl$10$5 = /*#__PURE__*/ template(`<p>: <!> · <!>: <!> / `);
+var _tmpl$0$10 = /*#__PURE__*/ template(`<div><strong> · </strong><p>: <!> / <!> / </p><p>: <!> / <!> / <!> </p><p>: </p><p>`);
+var _tmpl$1$7 = /*#__PURE__*/ template(`<p>: `);
+var _tmpl$10$6 = /*#__PURE__*/ template(`<p>: <!> · <!>: <!> / `);
 var _tmpl$11$4 = /*#__PURE__*/ template(`<article><p>: </p><p>`);
 function RecipeSubstitutionPanel(props) {
 	const tr = (zh, en) => props.locale === "zh" ? zh : en;
@@ -1196,7 +1196,7 @@ function RecipeSubstitutionPanel(props) {
 							return preview.candidates;
 						},
 						children: (candidate) => (() => {
-							var _el$16 = _tmpl$0$9(), _el$17 = _el$16.firstChild, _el$18 = _el$17.firstChild, _el$49 = _el$17.nextSibling, _el$50 = _el$49.firstChild, _el$53 = _el$50.nextSibling, _el$54 = _el$53.nextSibling.nextSibling;
+							var _el$16 = _tmpl$0$10(), _el$17 = _el$16.firstChild, _el$18 = _el$17.firstChild, _el$49 = _el$17.nextSibling, _el$50 = _el$49.firstChild, _el$53 = _el$50.nextSibling, _el$54 = _el$53.nextSibling.nextSibling;
 							_el$54.nextSibling;
 							var _el$55 = _el$49.nextSibling, _el$56 = _el$55.firstChild, _el$60 = _el$56.nextSibling, _el$61 = _el$60.nextSibling.nextSibling, _el$62 = _el$61.nextSibling.nextSibling;
 							_el$62.nextSibling;
@@ -1266,7 +1266,7 @@ function RecipeSubstitutionPanel(props) {
 								},
 								get fallback() {
 									return (() => {
-										var _el$66 = _tmpl$1$6(), _el$67 = _el$66.firstChild;
+										var _el$66 = _tmpl$1$7(), _el$67 = _el$66.firstChild;
 										insert(_el$66, () => tr("终端容量", "Terminal capacity"), _el$67);
 										insert(_el$66, () => n(candidate.terminal), null);
 										return _el$66;
@@ -1339,7 +1339,7 @@ function RecipeSubstitutionPanel(props) {
 							})();
 						},
 						get children() {
-							var _el$72 = _tmpl$10$5(), _el$73 = _el$72.firstChild, _el$77 = _el$73.nextSibling, _el$78 = _el$77.nextSibling.nextSibling, _el$79 = _el$78.nextSibling.nextSibling;
+							var _el$72 = _tmpl$10$6(), _el$73 = _el$72.firstChild, _el$77 = _el$73.nextSibling, _el$78 = _el$77.nextSibling.nextSibling, _el$79 = _el$78.nextSibling.nextSibling;
 							_el$79.nextSibling;
 							insert(_el$72, () => tr("实际转换已结算", "Actual conversion settled"), _el$73);
 							insert(_el$72, () => decision.settlement, _el$77);
@@ -1376,7 +1376,7 @@ var BrowserModelStoreError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$6 = (code) => {
+var fail$7 = (code) => {
 	throw new BrowserModelStoreError(code);
 };
 var integer$2 = (value) => Number.isSafeInteger(value) && value >= 0;
@@ -1391,11 +1391,11 @@ var empty = () => ({
 	reservations: []
 });
 function createBrowserModelStore({ accountId, storage, locks = globalThis.navigator?.locks } = {}) {
-	if (typeof accountId !== "string" || !accountId.trim()) fail$6("account_required");
+	if (typeof accountId !== "string" || !accountId.trim()) fail$7("account_required");
 	if (storage === void 0) try {
 		storage = globalThis.localStorage;
 	} catch {
-		fail$6("storage_unavailable");
+		fail$7("storage_unavailable");
 	}
 	const storageKey = `oasis7.browser-model.v1:${encodeURIComponent(accountId)}:deepseek`;
 	const lockName = `${storageKey}:management`;
@@ -1406,22 +1406,22 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		try {
 			raw = storage?.getItem(storageKey);
 		} catch {
-			fail$6("storage_unavailable");
+			fail$7("storage_unavailable");
 		}
-		if (!storage || typeof storage.setItem !== "function") fail$6("storage_unavailable");
+		if (!storage || typeof storage.setItem !== "function") fail$7("storage_unavailable");
 		if (raw == null) return empty();
 		let record;
 		try {
 			record = JSON.parse(raw);
 		} catch {
-			fail$6("storage_corrupt");
+			fail$7("storage_corrupt");
 		}
-		if (record?.schema !== 1) fail$6("storage_schema_unsupported");
+		if (record?.schema !== 1) fail$7("storage_schema_unsupported");
 		if (!integer$2(record.revision) || record.provider !== "deepseek" || !(record.key === null || typeof record.key === "string" && record.key.length > 0) || typeof record.stopped !== "boolean" || !integer$2(record.callsReserved) || record.callsReserved > 8 || !integer$2(record.tokensReserved) || record.tokensReserved > 131072 || !Array.isArray(record.reservations) || record.reservations.length > 8 || record.reservations.some((r) => !integer$2(r.id) || !integer$2(r.revision) || !integer$2(r.tokens) || typeof r.settled !== "boolean" || ![
 			void 0,
 			"probe",
 			"execution"
-		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$6("storage_corrupt");
+		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$7("storage_corrupt");
 		return record;
 	}
 	const safe = (r) => ({
@@ -1441,25 +1441,25 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		} catch {}
 	};
 	function check(r, revision) {
-		if (!integer$2(revision) || r.revision !== revision) fail$6("revision_conflict");
+		if (!integer$2(revision) || r.revision !== revision) fail$7("revision_conflict");
 	}
 	async function locked(action) {
-		if (typeof locks?.request !== "function") fail$6("locks_unavailable");
+		if (typeof locks?.request !== "function") fail$7("locks_unavailable");
 		try {
 			return await locks.request(lockName, { mode: "exclusive" }, () => action(read()));
 		} catch (error) {
 			if (error instanceof BrowserModelStoreError) throw error;
-			fail$6("locks_unavailable");
+			fail$7("locks_unavailable");
 		}
 	}
 	function publish(r) {
-		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$6("revision_exhausted");
+		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$7("revision_exhausted");
 		try {
 			storage.setItem(storageKey, JSON.stringify(r));
 		} catch {
 			blocked = true;
 			emit();
-			fail$6("storage_write_failed");
+			fail$7("storage_write_failed");
 		}
 		blocked = false;
 		emit();
@@ -1504,7 +1504,7 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		beginProbe(expectedRevision) {
 			return locked((r) => {
 				check(r, expectedRevision);
-				if (!r.key) fail$6("credential_missing");
+				if (!r.key) fail$7("credential_missing");
 				r.revision += 1;
 				r.stopped = false;
 				return publish(r);
@@ -1513,13 +1513,13 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		reserve({ revision, maxInputTokens, maxOutputTokens, purpose = "probe" }) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$6("stopped");
-				if (!r.key) fail$6("credential_missing");
+				if (blocked || r.stopped) fail$7("stopped");
+				if (!r.key) fail$7("credential_missing");
 				const tokens = maxInputTokens + maxOutputTokens;
-				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$6("invalid_budget");
-				if (!["probe", "execution"].includes(purpose)) fail$6("invalid_budget");
+				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$7("invalid_budget");
+				if (!["probe", "execution"].includes(purpose)) fail$7("invalid_budget");
 				const probes = r.reservations.filter((item) => item.purpose !== "execution");
-				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$6("budget_exhausted");
+				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$7("budget_exhausted");
 				const reservation = {
 					id: r.callsReserved + 1,
 					revision,
@@ -1540,7 +1540,7 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		settle(reservation, usage) {
 			return locked((r) => {
 				const found = r.reservations.find((item) => item.id === reservation?.id && item.revision === reservation?.revision);
-				if (!found || found.settled) fail$6("reservation_invalid");
+				if (!found || found.settled) fail$7("reservation_invalid");
 				if (!usage || !integer$2(usage.inputTokens) || !integer$2(usage.outputTokens) || !integer$2(usage.inputTokens + usage.outputTokens) || usage.inputTokens + usage.outputTokens > found.tokens) return safe(r);
 				const used = usage.inputTokens + usage.outputTokens;
 				r.tokensReserved -= found.tokens - used;
@@ -1552,8 +1552,8 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		credential(revision) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$6("stopped");
-				if (!r.key) fail$6("credential_missing");
+				if (blocked || r.stopped) fail$7("stopped");
+				if (!r.key) fail$7("credential_missing");
 				return r.key;
 			});
 		}
@@ -1582,7 +1582,7 @@ var BrowserModelError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$5 = (code) => {
+var fail$6 = (code) => {
 	throw new BrowserModelError(code);
 };
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1639,28 +1639,28 @@ function schemaMatches(value, schema, depth = 0) {
 	}
 }
 function normalizeResponse(raw, tools) {
-	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$5("protocol_incompatible");
+	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$6("protocol_incompatible");
 	const choice = raw.choices[0], message = choice?.message;
-	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$5("protocol_incompatible");
-	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$5("protocol_incompatible");
+	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$6("protocol_incompatible");
+	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$6("protocol_incompatible");
 	const clean = {
 		role: "assistant",
 		content: message.content ?? null
 	};
 	if (choice.finish_reason === "tool_calls") {
-		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$5("tool_invalid");
+		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$6("tool_invalid");
 		const ids = /* @__PURE__ */ new Set();
 		clean.tool_calls = message.tool_calls.map((call) => {
 			const fn = call?.function, definition = tools.find((tool) => tool.function.name === fn?.name);
-			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$5("tool_invalid");
+			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$6("tool_invalid");
 			ids.add(call.id);
 			let args;
 			try {
 				args = JSON.parse(fn.arguments);
 			} catch {
-				fail$5("tool_invalid");
+				fail$6("tool_invalid");
 			}
-			if (!schemaMatches(args, definition.function.parameters)) fail$5("tool_invalid");
+			if (!schemaMatches(args, definition.function.parameters)) fail$6("tool_invalid");
 			return {
 				id: call.id,
 				type: "function",
@@ -1670,7 +1670,7 @@ function normalizeResponse(raw, tools) {
 				}
 			};
 		});
-	} else if (message.tool_calls?.length) fail$5("tool_invalid");
+	} else if (message.tool_calls?.length) fail$6("tool_invalid");
 	let usage = null;
 	if (object(raw.usage) && [
 		"prompt_tokens",
@@ -1692,8 +1692,8 @@ function normalizeResponse(raw, tools) {
 	};
 }
 async function readBounded(response) {
-	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$5("output_limit");
-	if (!response.body?.getReader) fail$5("protocol_incompatible");
+	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$6("output_limit");
+	if (!response.body?.getReader) fail$6("protocol_incompatible");
 	const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 	let length = 0, result = "";
 	try {
@@ -1701,7 +1701,7 @@ async function readBounded(response) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			length += value.byteLength;
-			if (length > OUTPUT_LIMIT) fail$5("output_limit");
+			if (length > OUTPUT_LIMIT) fail$6("output_limit");
 			result += decoder.decode(value, { stream: true });
 		}
 		result += decoder.decode();
@@ -1713,15 +1713,15 @@ async function readBounded(response) {
 	try {
 		return JSON.parse(result);
 	} catch {
-		fail$5("protocol_incompatible");
+		fail$6("protocol_incompatible");
 	}
 }
 async function callBrowserModel({ key, getCredential, messages, tools = [], toolChoice, signal, fetchImpl = globalThis.fetch, maxOutputTokens = 128, beforeSend, afterResponse } = {}) {
 	const validKey = (value) => typeof value === "string" && value.trim() && !/[\r\n]/.test(value);
-	if (typeof getCredential !== "function" && !validKey(key)) fail$5("credential_invalid");
-	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$5("input_invalid");
-	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$5("input_invalid");
-	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$5("input_limit");
+	if (typeof getCredential !== "function" && !validKey(key)) fail$6("credential_invalid");
+	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$6("input_invalid");
+	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$6("input_invalid");
+	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$6("input_limit");
 	let body;
 	try {
 		body = JSON.stringify({
@@ -1736,11 +1736,11 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			thinking: { type: "disabled" }
 		});
 	} catch {
-		fail$5("input_invalid");
+		fail$6("input_invalid");
 	}
 	const inputBytes = bytes$1(body);
-	if (inputBytes > INPUT_LIMIT) fail$5("input_limit");
-	if (signal?.aborted) fail$5("cancelled");
+	if (inputBytes > INPUT_LIMIT) fail$6("input_limit");
+	if (signal?.aborted) fail$6("cancelled");
 	const reservation = await beforeSend?.({
 		maxOutputTokens,
 		inputBytes
@@ -1758,8 +1758,8 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 		});
 		result = await Promise.race([(async () => {
 			const sendingKey = getCredential ? await getCredential(reservation) : key;
-			if (!validKey(sendingKey)) fail$5("credential_invalid");
-			if (signal?.aborted || controller.signal.aborted) fail$5("cancelled");
+			if (!validKey(sendingKey)) fail$6("credential_invalid");
+			if (signal?.aborted || controller.signal.aborted) fail$6("cancelled");
 			sent = true;
 			const response = await fetchImpl(PRESET.endpoint, {
 				method: "POST",
@@ -1775,7 +1775,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 				body,
 				signal: controller.signal
 			});
-			if (!response.ok) fail$5(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
+			if (!response.ok) fail$6(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
 			return normalizeResponse(await readBounded(response), tools);
 		})(), timedOut]);
 	} catch (error) {
@@ -1785,7 +1785,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			status: "unknown"
 		});
 		if (error instanceof BrowserModelError) throw error;
-		fail$5(signal?.aborted ? "cancelled" : "network_or_cors");
+		fail$6(signal?.aborted ? "cancelled" : "network_or_cors");
 	} finally {
 		clearTimeout(timeout);
 		signal?.removeEventListener("abort", abort);
@@ -1826,7 +1826,7 @@ async function probeBrowserModel(options = {}) {
 			function: { name: "read_fixture" }
 		}
 	})).choices[0].message;
-	if (assistant.tool_calls?.length !== 1) fail$5("probe_incompatible");
+	if (assistant.tool_calls?.length !== 1) fail$6("probe_incompatible");
 	const final = await callBrowserModel({
 		...options,
 		maxOutputTokens: 128,
@@ -1842,7 +1842,7 @@ async function probeBrowserModel(options = {}) {
 			}
 		]
 	});
-	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$5("probe_incompatible");
+	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$6("probe_incompatible");
 	return {
 		provider_id: PRESET.provider_id,
 		model: PRESET.model,
@@ -2047,7 +2047,7 @@ var _tmpl$6$20 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
 var _tmpl$7$16 = /*#__PURE__*/ template(`<p>: <!>/8 · <!>/131072`);
 var _tmpl$8$11 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
 var _tmpl$9$9 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button>`);
-var _tmpl$0$8 = /*#__PURE__*/ template(`<details class=model-connection-panel><style></style><summary></summary><p>`);
+var _tmpl$0$9 = /*#__PURE__*/ template(`<details class=model-connection-panel><style></style><summary></summary><p>`);
 function BrowserModelConnectionPanel(props) {
 	const read = (value) => typeof value === "function" ? value() : value;
 	const zh = () => String(read(props.locale) || "en").startsWith("zh");
@@ -2136,7 +2136,7 @@ function BrowserModelConnectionPanel(props) {
 		if (input) input.value = "";
 	});
 	return (() => {
-		var _el$ = _tmpl$0$8(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling;
+		var _el$ = _tmpl$0$9(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling;
 		insert(_el$2, modelConnectionStyles);
 		insert(_el$3, () => tr("自带模型连接", "Use your own model"));
 		insert(_el$4, () => tr("浏览器直接调用 DeepSeek 官方；Key 保存在本站 localStorage，刷新或关页后仍保留。同源脚本可读，共享设备请谨慎使用。Key 不上传 Oasis7 后端。", "Your browser calls DeepSeek directly. The key stays in this site's localStorage after reload or close. Same-origin scripts can read it; use care on shared devices. The key is never uploaded to the Oasis7 backend."));
@@ -2404,7 +2404,7 @@ function browserIdentityScope(scope) {
 	if (fields.some((value) => typeof value !== "string" || !value.trim() || value.length > 512)) gameStorageFail("identity_scope_invalid");
 	return JSON.stringify(fields);
 }
-var hex$4 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+var hex$5 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 function createBrowserExecutorIdentity({ indexedDB, storage, cryptoImpl = globalThis.crypto } = {}) {
 	const database = storage ?? createBrowserGameDatabase(indexedDB);
 	async function validate(record, scopeKey) {
@@ -2443,7 +2443,7 @@ function createBrowserExecutorIdentity({ indexedDB, storage, cryptoImpl = global
 				schema: 1,
 				scopeKey,
 				privateKey: pair.privateKey,
-				publicKeyHex: hex$4(new Uint8Array(await cryptoImpl.subtle.exportKey("raw", pair.publicKey)))
+				publicKeyHex: hex$5(new Uint8Array(await cryptoImpl.subtle.exportKey("raw", pair.publicKey)))
 			};
 		} catch {
 			gameStorageFail("executor_crypto_unsupported");
@@ -2693,15 +2693,15 @@ var BrowserParticipantError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$4 = (code) => {
+var fail$5 = (code) => {
 	throw new BrowserParticipantError(code);
 };
 var json$1 = JSON.stringify;
 var clone$1 = (value) => JSON.parse(json$1(value));
-var hex$3 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+var hex$4 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 var DOMAIN$1 = "game_participant_register_v1";
 var OWNER_VIEW = "/v1/world/participant-owner-view";
-var VIEW = "/v1/world/view-json";
+var VIEW$1 = "/v1/world/view-json";
 var routes = /* @__PURE__ */ new Set([
 	"/participant/authorize",
 	"/participant/submit",
@@ -2711,7 +2711,7 @@ var routes = /* @__PURE__ */ new Set([
 	"/entry-executor/control"
 ]);
 async function boundedText(response, maximum) {
-	if (!response.body?.getReader) fail$4("participant_response_invalid");
+	if (!response.body?.getReader) fail$5("participant_response_invalid");
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder("utf-8", { fatal: true });
 	let text = "", size = 0;
@@ -2720,7 +2720,7 @@ async function boundedText(response, maximum) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > maximum) fail$4("participant_response_limit");
+			if (size > maximum) fail$5("participant_response_limit");
 			text += decoder.decode(value, { stream: true });
 		}
 		return text + decoder.decode();
@@ -2731,20 +2731,20 @@ async function boundedText(response, maximum) {
 	}
 }
 function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
-	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$4("participant_configuration_invalid");
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$5("participant_configuration_invalid");
 	async function request(path, options = {}, deadline = Date.now() + 3e4, callSignal) {
 		const signals = [signal, callSignal].filter(Boolean);
-		if (signals.some((item) => item.aborted)) fail$4("participant_stopped");
-		if (Date.now() >= deadline) fail$4("participant_request_timeout");
+		if (signals.some((item) => item.aborted)) fail$5("participant_stopped");
+		if (Date.now() >= deadline) fail$5("participant_request_timeout");
 		const controller = new AbortController();
 		let timer;
 		const removers = [];
 		const stopped = () => {
-			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$4("participant_stopped");
+			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$5("participant_stopped");
 		};
 		try {
 			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
-			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$4("participant_request_limit");
+			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$5("participant_request_limit");
 			const cancelled = new Promise((_resolve, reject) => {
 				timer = setTimeout(() => {
 					controller.abort();
@@ -2767,7 +2767,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					await beforeSend();
 					stopped();
 				}
-				if (Date.now() >= deadline) fail$4("participant_request_timeout");
+				if (Date.now() >= deadline) fail$5("participant_request_timeout");
 				const response = await fetchImpl(`${config.endpoint}${path}`, {
 					credentials: "same-origin",
 					mode: "same-origin",
@@ -2778,19 +2778,19 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					signal: controller.signal
 				});
 				stopped();
-				if (!response.ok) fail$4("participant_request_failed");
+				if (!response.ok) fail$5("participant_request_failed");
 				const declared = response.headers?.get?.("content-length");
-				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$4("participant_response_limit");
+				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$5("participant_response_limit");
 				const raw = await boundedText(response, maximum);
 				stopped();
 				const status = JSON.parse(raw);
-				if (status.api_version !== 2 || status.ok !== true) fail$4("participant_request_failed");
+				if (status.api_version !== 2 || status.ok !== true) fail$5("participant_request_failed");
 				return raw;
 			})();
 			return await Promise.race([operation, cancelled]);
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$4("participant_response_unknown");
+			fail$5("participant_response_unknown");
 		} finally {
 			clearTimeout(timer);
 			for (const remove of removers) remove();
@@ -2800,21 +2800,21 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 		discover: () => request("/entry/discovery"),
 		async gatewayCall(path, body, { rawBody, beforeSend, signal: callSignal } = {}) {
 			const deadline = Date.now() + 3e4;
-			if (!routes.has(path)) fail$4("participant_route_forbidden");
-			if (signal?.aborted || callSignal?.aborted) fail$4("participant_stopped");
-			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$4("participant_request_invalid");
+			if (!routes.has(path)) fail$5("participant_route_forbidden");
+			if (signal?.aborted || callSignal?.aborted) fail$5("participant_stopped");
+			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$5("participant_request_invalid");
 			let encodedBody;
 			try {
 				encodedBody = rawBody ?? json$1(body);
 			} catch {
-				fail$4("participant_request_invalid");
+				fail$5("participant_request_invalid");
 			}
-			if (typeof encodedBody !== "string") fail$4("participant_request_invalid");
+			if (typeof encodedBody !== "string") fail$5("participant_request_invalid");
 			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
-			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$4("participant_request_limit");
+			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$5("participant_request_limit");
 			const session = JSON.parse(await request("/session", {}, deadline, callSignal));
-			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$4("participant_account_changed");
-			if (rawBody !== void 0 && typeof rawBody !== "string") fail$4("participant_request_invalid");
+			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$5("participant_account_changed");
+			if (rawBody !== void 0 && typeof rawBody !== "string") fail$5("participant_request_invalid");
 			return request(path, {
 				method: "POST",
 				headers: {
@@ -2827,16 +2827,20 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 		}
 	};
 }
-function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, agentId, indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto, signal } = {}) {
+function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, agentId, indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto, signal, isCurrent = () => true } = {}) {
 	const namespace = config?.identity;
-	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$4("participant_configuration_invalid");
+	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$5("participant_configuration_invalid");
 	const scopeKey = browserIdentityScope({
 		worldId: config.world.world_id,
 		genesisDigest: config.world.genesis_digest,
 		accountId,
-		agentId
+		agentId: "participant-account"
 	});
 	const key = `participant:${scopeKey}:${ownerSigner.publicKeyHex}`;
+	let canonicalAgentId = agentId;
+	const active = () => {
+		if (signal?.aborted || !isCurrent()) fail$5("participant_stopped");
+	};
 	const database = storage ?? createBrowserGameDatabase(indexedDB);
 	const transport = createBrowserParticipantGateway({
 		config,
@@ -2849,7 +2853,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			return codec.build(kind, json$1(value));
 		} catch {
-			fail$4("participant_proof_invalid");
+			fail$5("participant_proof_invalid");
 		}
 	}
 	function field(raw, path) {
@@ -2862,23 +2866,23 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			return codec.validate(kind, typeof request === "string" ? request : json$1(request), raw);
 		} catch {
-			fail$4("participant_proof_invalid");
+			fail$5("participant_proof_invalid");
 		}
 	}
 	function check(record) {
 		if (record === void 0) return null;
-		if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$4("participant_storage_corrupt");
+		if (record?.schema !== 1 || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$5("participant_storage_corrupt");
 		const r = record.owner.request;
-		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$4("participant_storage_corrupt");
+		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$5("participant_storage_corrupt");
 		return record;
 	}
 	async function update(mutate) {
-		if (typeof locks?.request !== "function") fail$4("participant_locks_unavailable");
+		if (typeof locks?.request !== "function") fail$5("participant_locks_unavailable");
 		try {
 			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (stored) => mutate(check(stored))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$4("participant_storage_failed");
+			fail$5("participant_storage_failed");
 		}
 	}
 	async function load() {
@@ -2886,18 +2890,19 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			return check(await database.get(key));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$4("participant_storage_failed");
+			fail$5("participant_storage_failed");
 		}
 	}
 	async function discover() {
 		const discovery = JSON.parse(await transport.discover());
-		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$4("participant_discovery_mismatch");
+		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$5("participant_discovery_mismatch");
 		return discovery;
 	}
 	async function authorize(owner) {
+		active();
 		const raw = await transport.gatewayCall("/participant/authorize", owner);
 		const reply = JSON.parse(raw);
-		if (reply.phase !== "participant_authorized") fail$4("participant_authorization_failed");
+		if (reply.phase !== "participant_authorized") fail$5("participant_authorization_failed");
 		const admissionRaw = field(raw, ["admission"]);
 		validate("participant_admission", {
 			owner,
@@ -2912,24 +2917,26 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 	async function proofs(record, authorized) {
 		const readRequest = {
 			contract_version: 1,
-			observation_nonce: hex$3(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
+			observation_nonce: hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
 			formal_anchor: null,
 			world: clone$1(config.world),
-			scope_id: `agent:${agentId}`,
+			scope_id: `agent:${canonicalAgentId}`,
 			min_commit: null,
 			fixed_commit: null,
 			deadline_unix_ms: null
 		};
+		active();
 		let read;
 		try {
 			read = {
 				request: readRequest,
 				subject_public_key: ownerSigner.publicKeyHex,
-				signature_hex: hex$3(await ownerSigner.sign(codec.signingBytes(VIEW, json$1(readRequest))))
+				signature_hex: hex$4(await ownerSigner.sign(codec.signingBytes(VIEW$1, json$1(readRequest))))
 			};
 		} catch {
-			fail$4("participant_signing_failed");
+			fail$5("participant_signing_failed");
 		}
+		active();
 		const access = {
 			owner: record.owner,
 			admission: authorized.admission,
@@ -2937,7 +2944,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			response_profile: "owner_control_v1"
 		};
 		await update((current) => {
-			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$4("participant_original_conflict");
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$5("participant_original_conflict");
 			current.admission = clone$1(authorized.admission);
 			current.ownerRead = clone$1(access);
 			return current;
@@ -2947,21 +2954,22 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			raw = codec.verifyGatewayResponse(OWNER_VIEW, json$1(access), reply, config.servicePublicKey);
 		} catch {
-			fail$4("participant_binding_required");
+			fail$5("participant_binding_required");
 		}
 		validate("owner_control", access, raw);
 		if (decoded(field(raw, [
 			"view",
 			"canonical_agent_owner",
 			"agent_id"
-		])) !== agentId || decoded(field(raw, [
+		])) !== canonicalAgentId || decoded(field(raw, [
 			"view",
 			"canonical_agent_owner",
 			"public_key"
-		])) !== ownerSigner.publicKeyHex) fail$4("participant_binding_required");
+		])) !== ownerSigner.publicKeyHex) fail$5("participant_binding_required");
 		await update((current) => {
-			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$4("participant_original_conflict");
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$5("participant_original_conflict");
 			current.ownerControlRaw = raw;
+			current.agentId = canonicalAgentId;
 			return current;
 		});
 		return {
@@ -2970,49 +2978,168 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			ownerControl: { rawJson: raw }
 		};
 	}
+	async function ensureOwner() {
+		let record = await load();
+		if (!record) {
+			const request = {
+				api_rev: 1,
+				client_operation_id: `browser-participant-${hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(16)))}`,
+				identity_namespace: clone$1(namespace),
+				account_id: accountId,
+				world_id: config.world.world_id,
+				genesis_digest: config.world.genesis_digest,
+				owner_public_key: ownerSigner.publicKeyHex,
+				owner_key_version: "1"
+			};
+			let owner;
+			try {
+				owner = {
+					request,
+					subject_public_key: ownerSigner.publicKeyHex,
+					signature_hex: hex$4(await ownerSigner.sign(codec.signingBytes(DOMAIN$1, json$1(request))))
+				};
+			} catch {
+				fail$5("participant_signing_failed");
+			}
+			active();
+			record = await update((current) => current ?? {
+				schema: 1,
+				scopeKey,
+				ownerPublicKey: ownerSigner.publicKeyHex,
+				owner,
+				sent: false
+			});
+		}
+		if (!canonicalAgentId) try {
+			canonicalAgentId = decoded(codec.build("participant_agent_id", json$1(record.owner.request)));
+		} catch {
+			fail$5("participant_proof_invalid");
+		}
+		return record;
+	}
+	function verified(domain, requestRaw, responseRaw, kind, validationRequest) {
+		let raw;
+		try {
+			raw = codec.verifyGatewayResponse(domain, requestRaw, responseRaw, config.servicePublicKey);
+		} catch {
+			fail$5("participant_response_unknown");
+		}
+		return validate(kind, validationRequest, raw);
+	}
+	async function registrationLookup(record) {
+		const originalRaw = record.registrationRaw;
+		if (!originalRaw) fail$5("participant_original_missing");
+		const payloadRaw = field(originalRaw, ["signed_payload"]);
+		const correlationRaw = build("correlation", {
+			world: config.world,
+			payload_json: payloadRaw
+		});
+		const lookupRaw = `{"request":{"contract_version":1,"key":${field(correlationRaw, ["key"])}},"original":${payloadRaw}}`;
+		const raw = verified("/v1/world/lookup", lookupRaw, await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw }), "lookup", correlationRaw);
+		const state = decoded(field(raw, ["outcome", "status"]));
+		if (state !== "committed") {
+			if (["rejected", "expired"].includes(state)) fail$5("participant_registration_rejected");
+			fail$5("participant_registration_pending");
+		}
+		validate("participant_receipt", record.owner.request, raw);
+		const receipt = decoded(field(raw, ["outcome", "receipt"]));
+		if (receipt.owner_public_key !== ownerSigner.publicKeyHex || receipt.account_id !== accountId) fail$5("participant_owner_mismatch");
+		canonicalAgentId = receipt.agent_id;
+		await update((current) => {
+			if (current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			current.receiptRaw = raw;
+			current.agentId = canonicalAgentId;
+			return current;
+		});
+		return receipt;
+	}
+	async function inspect() {
+		active();
+		await discover();
+		active();
+		const record = await ensureOwner();
+		if (record.agentId) canonicalAgentId = record.agentId;
+		if (record.registrationRaw) try {
+			await registrationLookup(record);
+		} catch (error) {
+			if (error.code === "participant_registration_pending") return {
+				state: "pending",
+				code: error.code
+			};
+			throw error;
+		}
+		try {
+			const result = await proofs(record, await authorize(record.owner));
+			return {
+				state: "bound",
+				agentId: canonicalAgentId,
+				...result
+			};
+		} catch (error) {
+			if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown") return {
+				state: "needs_participant",
+				code: "participant_binding_unverified"
+			};
+			throw error;
+		}
+	}
+	async function registerParticipant(consent) {
+		if (consent !== true) fail$5("participant_consent_required");
+		active();
+		await discover();
+		let record = await ensureOwner();
+		active();
+		if (!record.registrationRaw) {
+			const authorized = await authorize(record.owner);
+			const payload = {
+				kind: "game_participant_register",
+				payload: {
+					owner: record.owner,
+					admission: authorized.admission
+				}
+			};
+			const raw = `{"contract_version":1,"correlation":${build("correlation", {
+				world: config.world,
+				payload
+			})},"deadline_unix_ms":null,"signed_payload":${json$1(payload)}}`;
+			let created = false;
+			record = await update((current) => {
+				if (current.registrationRaw) return current;
+				created = true;
+				current.registrationRaw = raw;
+				current.sent = true;
+				return current;
+			});
+			try {
+				if (created) {
+					const response = await transport.gatewayCall("/participant/submit", null, {
+						rawBody: record.registrationRaw,
+						beforeSend: async () => active()
+					});
+					verified("/v1/world/submit", record.registrationRaw, response, "intent", field(record.registrationRaw, ["correlation"]));
+				}
+			} catch {}
+		}
+		await registrationLookup(record);
+		active();
+		return proofs(await load(), await authorize(record.owner));
+	}
 	return {
 		discover,
+		inspect,
+		registerParticipant,
 		gatewayCall: transport.gatewayCall,
-		async prepare({ existingOnly = true } = {}) {
-			if (!existingOnly) fail$4("participant_new_registration_unsupported");
+		async prepare({ existingOnly = true, consent } = {}) {
+			if (!existingOnly) return registerParticipant(consent);
 			await discover();
-			let record = await load();
-			if (!record) {
-				const request = {
-					api_rev: 1,
-					client_operation_id: `browser-participant-${hex$3(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(16)))}`,
-					identity_namespace: clone$1(namespace),
-					account_id: accountId,
-					world_id: config.world.world_id,
-					genesis_digest: config.world.genesis_digest,
-					owner_public_key: ownerSigner.publicKeyHex,
-					owner_key_version: "1"
-				};
-				let owner;
-				try {
-					owner = {
-						request,
-						subject_public_key: ownerSigner.publicKeyHex,
-						signature_hex: hex$3(await ownerSigner.sign(codec.signingBytes(DOMAIN$1, json$1(request))))
-					};
-				} catch {
-					fail$4("participant_signing_failed");
-				}
-				record = await update((current) => current ?? {
-					schema: 1,
-					scopeKey,
-					ownerPublicKey: ownerSigner.publicKeyHex,
-					owner,
-					sent: false
-				});
-			}
-			const authorized = await authorize(record.owner);
-			return proofs(record, authorized);
+			const record = await ensureOwner();
+			return proofs(record, await authorize(record.owner));
 		},
 		async getParticipantProofs() {
 			await discover();
 			const record = await load();
-			if (!record?.owner) fail$4("participant_prepare_required");
+			if (record?.agentId) canonicalAgentId = record.agentId;
+			if (!record?.owner) fail$5("participant_prepare_required");
 			return proofs(record, await authorize(record.owner));
 		}
 	};
@@ -3026,12 +3153,12 @@ var BrowserGameError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$3 = (code) => {
+var fail$4 = (code) => {
 	throw new BrowserGameError(code);
 };
 var json = (value) => JSON.stringify(value);
 var copy$1 = (value) => JSON.parse(json(value));
-var hex$2 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+var hex$3 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 var same$2 = (a, b) => json(a) === json(b);
 var WORLD_PATHS = Object.freeze({
 	describe: "/v1/world/describe",
@@ -3051,7 +3178,7 @@ var terminal = (status) => [
 	"expired"
 ].includes(status);
 function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, participantProofs, agentId, taskId, recovery, fetchImpl = globalThis.fetch, gatewayCall, cryptoImpl = globalThis.crypto, signal, beforeEffect = async () => {} } = {}) {
-	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$3("game_configuration_invalid");
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$4("game_configuration_invalid");
 	const world = copy$1(config.world), serviceKey = config.servicePublicKey;
 	let boundFence = null;
 	const rawValues = /* @__PURE__ */ new WeakMap();
@@ -3063,7 +3190,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}
 		return JSON.stringify(value);
 	};
-	const nonce = () => hex$2(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32)));
+	const nonce = () => hex$3(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32)));
 	function decoded(value) {
 		if (typeof value !== "string") return value;
 		const result = JSON.parse(value);
@@ -3080,31 +3207,31 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		try {
 			return decoded(codec.build(kind, json(value)));
 		} catch {
-			fail$3("game_proof_invalid");
+			fail$4("game_proof_invalid");
 		}
 	}
 	function validate(kind, request, payload) {
 		try {
 			return decoded(codec.validate(kind, json(request), json(payload)));
 		} catch {
-			fail$3("game_proof_invalid");
+			fail$4("game_proof_invalid");
 		}
 	}
 	async function sign(domain, request, signer = executorSigner) {
-		if (signal?.aborted) fail$3("stopped");
+		if (signal?.aborted) fail$4("stopped");
 		try {
 			return {
 				request,
 				subject_public_key: signer.publicKeyHex,
-				signature_hex: hex$2(await signer.sign(codec.signingBytes(domain, json(request))))
+				signature_hex: hex$3(await signer.sign(codec.signingBytes(domain, json(request))))
 			};
 		} catch {
-			fail$3("game_signing_failed");
+			fail$4("game_signing_failed");
 		}
 	}
 	async function ownerAccess() {
 		const proofs = typeof participantProofs === "function" ? await participantProofs() : participantProofs;
-		if (!proofs?.owner || !proofs?.admission) fail$3("participant_proofs_required");
+		if (!proofs?.owner || !proofs?.admission) fail$4("participant_proofs_required");
 		return {
 			owner: proofs.owner,
 			admission: proofs.admission,
@@ -3132,7 +3259,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			};
 		}
 		const accessFence = boundFence ?? ([WORLD_PATHS.prepare, WORLD_PATHS.snapshot].includes(path) ? wire.request?.fence : null);
-		if (!accessFence) fail$3("executor_not_bound");
+		if (!accessFence) fail$4("executor_not_bound");
 		const kinds = {
 			[WORLD_PATHS.describe]: "describe",
 			[WORLD_PATHS.view]: "read_view",
@@ -3144,7 +3271,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			[WORLD_PATHS.recipe]: "recipe_quote",
 			[WORLD_PATHS.factory]: "factory_quote"
 		};
-		if (!kinds[path]) fail$3("game_route_unsupported");
+		if (!kinds[path]) fail$4("game_route_unsupported");
 		return {
 			path: "/entry-executor/control",
 			body: {
@@ -3160,7 +3287,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		};
 	}
 	async function call(path, wire, digestRequest, kind, validationRequest, mutationGate) {
-		if (signal?.aborted) fail$3("stopped");
+		if (signal?.aborted) fail$4("stopped");
 		let response;
 		try {
 			const gateway = await gatewayEnvelope(path, wire);
@@ -3182,9 +3309,9 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					signal
 				});
 				const csrf = (await cap.json())?.csrf_token;
-				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$3("authentication_required");
+				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$4("authentication_required");
 				await mutationGate?.();
-				if (signal?.aborted) fail$3("stopped");
+				if (signal?.aborted) fail$4("stopped");
 				response = await fetchImpl(`${config.endpoint}${gateway.path}`, {
 					method: "POST",
 					credentials: "same-origin",
@@ -3199,8 +3326,8 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					body: json(gateway.body),
 					signal
 				});
-				if (!response.ok) fail$3("game_request_failed");
-				if (!response.body?.getReader) fail$3("game_response_invalid");
+				if (!response.ok) fail$4("game_request_failed");
+				if (!response.body?.getReader) fail$4("game_response_invalid");
 				const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 				let text = "", size = 0;
 				try {
@@ -3208,7 +3335,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 						const { value, done } = await reader.read();
 						if (done) break;
 						size += value.byteLength;
-						if (size > 2097152) fail$3("game_response_limit");
+						if (size > 2097152) fail$4("game_response_limit");
 						text += decoder.decode(value, { stream: true });
 					}
 					text += decoder.decode();
@@ -3220,7 +3347,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				signed = text;
 			}
 			const payload = validate(kind, validationRequest, decoded(codec.verifyGatewayResponse(path, json(digestRequest), signed, serviceKey)));
-			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$3("unsupported_world_evidence");
+			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$4("unsupported_world_evidence");
 			for (const nestedPath of [
 				["identity"],
 				["prepared"],
@@ -3239,7 +3366,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			return payload;
 		} catch (error) {
 			if (error instanceof BrowserGameError) throw error;
-			fail$3("game_response_invalid");
+			fail$4("game_response_invalid");
 		}
 	}
 	const readRequest = () => ({
@@ -3264,7 +3391,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		const request = await ownerAccess();
 		const result = await call(WORLD_PATHS.owner, request, request, "owner_control", request);
 		const task = field(result, ["view", "game_task_control"]);
-		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$3("task_unavailable");
+		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$4("task_unavailable");
 		const fence = build("fence", task);
 		validate("fence", null, fence);
 		return {
@@ -3278,13 +3405,13 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function freshFence({ allowUnbound = false } = {}) {
 		const current = await readTask();
-		if (boundFence && !same$2(boundFence, current.fence)) fail$3("task_fence_changed");
-		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$3("executor_not_bound");
+		if (boundFence && !same$2(boundFence, current.fence)) fail$4("task_fence_changed");
+		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$4("executor_not_bound");
 		return current;
 	}
 	async function bindFence(fence) {
 		validate("fence", null, fence);
-		if (!same$2((await freshFence()).fence, fence)) fail$3("task_fence_changed");
+		if (!same$2((await freshFence()).fence, fence)) fail$4("task_fence_changed");
 		boundFence = copy$1(fence);
 		return copy$1(boundFence);
 	}
@@ -3332,7 +3459,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			world,
 			payload_json: json(payload)
 		});
-		if (!same$2(expected, submitted.correlation)) fail$3("original_correlation_invalid");
+		if (!same$2(expected, submitted.correlation)) fail$4("original_correlation_invalid");
 		const request = {
 			request: {
 				contract_version: 1,
@@ -3352,7 +3479,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		try {
 			await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect);
 		} catch {
-			fail$3("operation_unknown");
+			fail$4("operation_unknown");
 		}
 		const checked = await lookup(original);
 		await recovery.settle(original.operationId, {
@@ -3400,14 +3527,14 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function retireExpiredContexts() {
 		const loaded = await recovery.load();
-		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$3("recovery_required");
+		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$4("recovery_required");
 		let retired = 0;
 		for (const entry of loaded.operations) {
 			if (entry.original.kind !== "prefix" || entry.state !== "committed") continue;
 			const operationId = entry.original.operationId.replace(/:prefix$/, "");
 			const action = await find(operationId, "action"), priorOutcome = await find(operationId, "outcome");
 			if (action || priorOutcome) continue;
-			if ((await lookup(entry.original)).state !== "committed") fail$3("recovery_required");
+			if ((await lookup(entry.original)).state !== "committed") fail$4("recovery_required");
 			const identity = field(decoded(entry.original.signedRequest.rawJson), [
 				"signed_payload",
 				"payload",
@@ -3417,18 +3544,18 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				"context"
 			]);
 			const current = await freshFence();
-			if (!same$2(current.fence, identity.fence)) fail$3("task_fence_changed");
-			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$3("context_not_expired");
+			if (!same$2(current.fence, identity.fence)) fail$4("task_fence_changed");
+			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$4("context_not_expired");
 			const view = await publicView();
 			const request = build("retire_context", {
 				context_json: json(identity),
 				view_json: json(view)
 			});
-			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$3("original_result_requires_recovery");
+			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$4("original_result_requires_recovery");
 			if ((await submit(operationId, "outcome", {
 				kind: "scheduler",
 				payload: await sign("scheduler", request)
-			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$3("operation_pending");
+			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$4("operation_pending");
 			retired += 1;
 		}
 		return { retired };
@@ -3436,7 +3563,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	async function prepareContext(operationId, runBudget = null) {
 		const prior = await find(operationId, "prepare");
 		if (prior) return (await lookup(prior)).prepared;
-		if (await hasUnresolved()) fail$3("recovery_required");
+		if (await hasUnresolved()) fail$4("recovery_required");
 		const { fence } = await freshFence();
 		const proof = await sign(WORLD_PATHS.prepare, {
 			authority_mode: "native_executor_v1",
@@ -3459,7 +3586,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			kind: "scheduler",
 			payload: await sign("scheduler", build("prefix", prepared))
 		}, prepared.identity, runBudget);
-		if (result.outcome.status !== "committed") fail$3(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
+		if (result.outcome.status !== "committed") fail$4(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
 		return readContext(operationId, prepared.identity);
 	}
 	async function contextProof(operationId, identity) {
@@ -3477,7 +3604,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	async function quote(operationId, captured, kind, selection) {
 		await freshFence();
 		const current = await readContext(operationId, captured.prepared.identity);
-		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$3("unsupported_tool");
+		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$4("unsupported_tool");
 		const proof = await sign(path, {
 			schema_revision: 1,
 			context_proof: await contextProof(operationId, captured.prepared.identity),
@@ -3522,7 +3649,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}, captured.prepared.identity, runBudget);
 	}
 	async function outcome(operationId, captured, reason, runBudget = null) {
-		if (await find(operationId, "action")) fail$3("original_action_requires_recovery");
+		if (await find(operationId, "action")) fail$4("original_action_requires_recovery");
 		await freshFence();
 		return submit(operationId, "outcome", {
 			kind: "scheduler",
@@ -3533,20 +3660,20 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}, captured.prepared.identity, runBudget);
 	}
 	async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
-		if (!confirmedFence) fail$3("run_confirmation_required");
-		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$3("delegation_revision_required");
+		if (!confirmedFence) fail$4("run_confirmation_required");
+		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$4("delegation_revision_required");
 		await recover();
-		if (await hasUnresolved()) fail$3("recovery_required");
+		if (await hasUnresolved()) fail$4("recovery_required");
 		const f = (await freshFence({ allowUnbound: true })).fence;
-		if (!same$2(f, confirmedFence)) fail$3("task_fence_changed");
+		if (!same$2(f, confirmedFence)) fail$4("task_fence_changed");
 		const ownerGeneration = Number(f.owner_generation);
-		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$3("delegation_revision_unsupported");
+		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$4("delegation_revision_unsupported");
 		const prior = await find(operationId, "delegation");
 		let delegationPayload, effectiveGeneration = generation;
 		if (prior) {
 			delegationPayload = field(decoded(prior.signedRequest.rawJson), ["signed_payload"]);
 			const proof = delegationPayload.payload, request = proof?.request;
-			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$3("delegation_original_mismatch");
+			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$4("delegation_original_mismatch");
 			effectiveGeneration = request.generation;
 		} else delegationPayload = {
 			kind: "delegation",
@@ -3562,9 +3689,9 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				nonce: delegationNonce
 			}, ownerSigner)
 		};
-		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$3("delegation_not_committed");
+		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$4("delegation_not_committed");
 		const next = await readTask();
-		if (!same$2(next.fence, f)) fail$3("task_fence_changed");
+		if (!same$2(next.fence, f)) fail$4("task_fence_changed");
 		if ((await submit(operationId, "executor_bind", {
 			kind: "game_executor_control",
 			payload: await sign("game_executor_control/v1", {
@@ -3578,7 +3705,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					delegation_generation: String(effectiveGeneration)
 				}
 			}, ownerSigner)
-		})).outcome.status !== "committed") fail$3("executor_not_bound");
+		})).outcome.status !== "committed") fail$4("executor_not_bound");
 		const confirmed = await freshFence();
 		await bindFence(confirmed.fence);
 		return confirmed;
@@ -3624,7 +3751,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 }
 //#endregion
 //#region software_safe_src/browser_agent_runner.js
-var fail$2 = (code) => {
+var fail$3 = (code) => {
 	throw new BrowserGameError(code);
 };
 var text$5 = {
@@ -3691,7 +3818,7 @@ var effects = /* @__PURE__ */ new Set([
 ]);
 var same$1 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, getCredential, budget, recovery, visibility = () => !globalThis.document?.hidden, online = () => globalThis.navigator?.onLine !== false, now = Date.now, onState = () => {} } = {}) {
-	if (!gameClient || !getCredential || !budget && !recovery) fail$2("runner_configuration_invalid");
+	if (!gameClient || !getCredential || !budget && !recovery) fail$3("runner_configuration_invalid");
 	let status = {
 		phase: "idle",
 		code: null
@@ -3705,10 +3832,10 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		onState({ ...status });
 	}
 	function assertActive(expected) {
-		if (!active || expected !== generation || controller?.signal.aborted) fail$2("stopped");
+		if (!active || expected !== generation || controller?.signal.aborted) fail$3("stopped");
 		if (!visibility() || !online()) {
 			stop("page_paused");
-			fail$2("page_paused");
+			fail$3("page_paused");
 		}
 	}
 	function stop(code = "stopped") {
@@ -3728,7 +3855,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		return !unresolved;
 	}
 	async function recover() {
-		if (active || starting) fail$2("already_running");
+		if (active || starting) fail$3("already_running");
 		starting = true;
 		const expected = ++generation;
 		try {
@@ -3746,8 +3873,8 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		} : null)
 	};
 	async function start({ confirmedFence, runId, operationId } = {}) {
-		if (active || starting) fail$2("already_running");
-		if (!confirmedFence || !runId || !visibility() || !online()) fail$2("run_confirmation_required");
+		if (active || starting) fail$3("already_running");
+		if (!confirmedFence || !runId || !visibility() || !online()) fail$3("run_confirmation_required");
 		starting = true;
 		const expected = ++generation, started = now();
 		controller = new AbortController();
@@ -3756,7 +3883,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 			if (expected !== generation) return { ...status };
 			const current = await gameClient.freshFence();
 			if (expected !== generation) return { ...status };
-			if (!same$1(current.fence, confirmedFence)) fail$2("task_fence_changed");
+			if (!same$1(current.fence, confirmedFence)) fail$3("task_fence_changed");
 			await gameClient.bindFence(confirmedFence);
 			if (expected !== generation) return { ...status };
 			active = true;
@@ -3818,7 +3945,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 				assertActive(expected);
 				while (active) {
 					assertActive(expected);
-					if (now() - started >= 12e4) fail$2("run_time_limit");
+					if (now() - started >= 12e4) fail$3("run_time_limit");
 					await gameClient.freshFence();
 					assertActive(expected);
 					currentOperation = operationId ? `${operationId}:${step}` : `${runId}:context:${step}`;
@@ -3830,7 +3957,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 					const checkContext = async () => {
 						const control = await gameClient.freshFence();
 						assertActive(expected);
-						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$2("context_expired");
+						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$3("context_expired");
 					};
 					const context = captured.current_public_context;
 					const messages = [{
@@ -3872,12 +3999,12 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 						assertActive(expected);
 						await checkContext();
 						const message = response.choices?.[0]?.message, calls = message?.tool_calls;
-						if (!Array.isArray(calls) || !calls.length) fail$2("model_tool_required");
+						if (!Array.isArray(calls) || !calls.length) fail$3("model_tool_required");
 						let effectCount = 0;
 						for (let i = 0; i < calls.length; i += 1) {
 							const name = calls[i].function?.name;
-							if (!names.has(name) || calls[i].type !== "function") fail$2("unsupported_tool");
-							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$2("effect_batch_invalid");
+							if (!names.has(name) || calls[i].type !== "function") fail$3("unsupported_tool");
+							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$3("effect_batch_invalid");
 						}
 						messages.push(message);
 						for (const call of calls) {
@@ -3887,7 +4014,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 							try {
 								args = JSON.parse(call.function.arguments);
 							} catch {
-								fail$2("tool_invalid");
+								fail$3("tool_invalid");
 							}
 							const name = call.function.name;
 							let value;
@@ -3914,13 +4041,13 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 								assertActive(expected);
 								value = result.quoted;
 								if (name === "build" || name === "schedule") {
-									if (!result.quoted.quote || result.quoted.quote.rejection) fail$2("quote_rejected");
+									if (!result.quoted.quote || result.quoted.quote.rejection) fail$3("quote_rejected");
 									assertActive(expected);
 									value = await gameClient.action(currentOperation, result.captured, result.quoted.quote.action, { runId });
 									completed = true;
 								}
 							} else if (name === "move") {
-								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$2("tool_invalid");
+								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$3("tool_invalid");
 								captured = await gameClient.readContext(currentOperation, captured.prepared.identity);
 								assertActive(expected);
 								value = await gameClient.action(currentOperation, captured, {
@@ -4321,11 +4448,11 @@ async function assertNoLegacyRun({ client = createViewerModelConnectionClient() 
 //#endregion
 //#region software_safe_src/browser_game_session.js
 var same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
-var fail$1 = (code) => {
+var fail$2 = (code) => {
 	throw new BrowserGameError(code);
 };
 function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isCurrent = () => true, locks = globalThis.navigator?.locks, documentRef = globalThis.document, windowRef = globalThis.window, navigatorRef = globalThis.navigator, now = Date.now, protocolLoader = loadBrowserGameProtocol, identityStore = createBrowserExecutorIdentity(), participantFactory = createBrowserParticipantEntry, clientFactory = createBrowserGameClient, recoveryFactory = createBrowserGameRecovery, runnerFactory = createBrowserAgentRunner, legacyGuard = assertNoLegacyRun, modelSession = createBrowserModelSession({ accountId }) } = {}) {
-	if (!config || !accountId || !agentId || !ownerSigner) fail$1("game_configuration_invalid");
+	if (!config || !accountId || !agentId || !ownerSigner) fail$2("game_configuration_invalid");
 	const listeners = /* @__PURE__ */ new Set();
 	let status = {
 		phase: "unprepared",
@@ -4363,18 +4490,18 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		notify();
 	});
 	function assertCurrent() {
-		if (disposed || !isCurrent()) fail$1("game_session_changed");
-		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$1("page_paused");
+		if (disposed || !isCurrent()) fail$2("game_session_changed");
+		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$2("page_paused");
 		const current = now();
 		if (current < lastWall || current - lastWall > 1e4) {
 			stop("page_paused");
-			fail$1("page_paused");
+			fail$2("page_paused");
 		}
 		lastWall = current;
 	}
 	function check(expected, controller) {
 		assertCurrent();
-		if (expected !== generation || controller?.signal.aborted) fail$1("stopped");
+		if (expected !== generation || controller?.signal.aborted) fail$2("stopped");
 	}
 	function stop(code = "stopped") {
 		const stoppedGeneration = ++generation;
@@ -4409,8 +4536,8 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		lastWall = current;
 	}, 1e3);
 	async function prepare({ takeover = false, inspectOnly = false, confirmedFence } = {}) {
-		if (preparing || starting === generation || runner?.state().phase === "running") fail$1("already_running");
-		if (!inspectOnly && !confirmedFence) fail$1("run_confirmation_required");
+		if (preparing || starting === generation || runner?.state().phase === "running") fail$2("already_running");
+		if (!inspectOnly && !confirmedFence) fail$2("run_confirmation_required");
 		lastWall = now();
 		assertCurrent();
 		operationController?.abort();
@@ -4459,12 +4586,12 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				signal: controller.signal,
 				beforeEffect: async () => {
 					checked();
-					if (!registrationAllowed) fail$1("run_confirmation_required");
+					if (!registrationAllowed) fail$2("run_confirmation_required");
 				}
 			};
 			const readOnly = {
 				load: async () => ({ operations: [] }),
-				remember: async () => fail$1("task_scope_required")
+				remember: async () => fail$2("task_scope_required")
 			};
 			const observed = await clientFactory({
 				...dependencies,
@@ -4498,14 +4625,14 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				});
 				return { ...status };
 			}
-			if (!same(confirmedFence, observed.fence)) fail$1("task_fence_changed");
-			if (unknown) fail$1("recovery_required");
+			if (!same(confirmedFence, observed.fence)) fail$2("task_fence_changed");
+			if (unknown) fail$2("recovery_required");
 			await legacyGuard({ signal: controller.signal });
 			checked();
 			registrationAllowed = true;
 			const existing = observed.fence.executor_binding;
 			if (existing?.executor_public_key !== executorSigner.publicKeyHex) {
-				if (existing && !takeover) fail$1("executor_takeover_confirmation_required");
+				if (existing && !takeover) fail$2("executor_takeover_confirmation_required");
 				const operationId = codec.requestDigest("browser-executor-registration", JSON.stringify({
 					fence: observed.fence,
 					executor: executorSigner.publicKeyHex
@@ -4544,10 +4671,10 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 			let localRunner;
 			const runtimePermit = async () => {
 				checked();
-				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$1("run_confirmation_required");
+				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$2("run_confirmation_required");
 				await credential();
 				checked();
-				if (runGeneration !== expected) fail$1("stopped");
+				if (runGeneration !== expected) fail$2("stopped");
 			};
 			localClient = clientFactory({
 				...dependencies,
@@ -4573,7 +4700,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 					},
 					async reserve(candidate) {
 						checked();
-						if (!budgetRunId) fail$1("run_budget_missing");
+						if (!budgetRunId) fail$2("run_budget_missing");
 						const durable = await localRecovery.reserveModelCall(budgetRunId, candidate.inputBytes, candidate.maxOutputTokens);
 						checked();
 						const shared = await modelSession.reserveExecution(candidate);
@@ -4606,7 +4733,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				},
 				getCredential: async () => {
 					checked();
-					if (runGeneration !== expected || !credential) fail$1("stopped");
+					if (runGeneration !== expected || !credential) fail$2("stopped");
 					const key = await credential();
 					checked();
 					return key;
@@ -4648,9 +4775,9 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		lastWall = now();
 		assertCurrent();
 		const modelState = modelSession.snapshot();
-		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$1("run_confirmation_required");
-		if (starting === generation || runner.state().phase === "running") fail$1("already_running");
-		if (typeof locks?.request !== "function") fail$1("locks_unavailable");
+		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$2("run_confirmation_required");
+		if (starting === generation || runner.state().phase === "running") fail$2("already_running");
+		if (typeof locks?.request !== "function") fail$2("locks_unavailable");
 		const expected = generation, confirmedFence = status.fence, controller = operationController;
 		const currentClient = client, currentRunner = runner;
 		starting = expected;
@@ -4664,15 +4791,15 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				mode: "exclusive",
 				ifAvailable: true
 			}, async (lock) => {
-				if (!lock) fail$1("agent_busy");
+				if (!lock) fail$2("agent_busy");
 				check(expected, controller);
 				await legacyGuard({ signal: controller.signal });
 				check(expected, controller);
 				const current = await currentClient.freshFence();
 				check(expected, controller);
-				if (!same(current.fence, confirmedFence)) fail$1("task_fence_changed");
+				if (!same(current.fence, confirmedFence)) fail$2("task_fence_changed");
 				const currentModel = modelSession.snapshot();
-				if (!currentModel.hasKey || currentModel.checked !== true) fail$1("run_confirmation_required");
+				if (!currentModel.hasKey || currentModel.checked !== true) fail$2("run_confirmation_required");
 				const permission = await modelSession.beginExecution(currentModel.revision);
 				check(expected, controller);
 				credential = permission;
@@ -4709,8 +4836,8 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		stop,
 		async recover() {
 			assertCurrent();
-			if (!client || operationController?.signal.aborted) fail$1("task_scope_required");
-			if (starting === generation || runner?.state().phase === "running") fail$1("already_running");
+			if (!client || operationController?.signal.aborted) fail$2("task_scope_required");
+			if (starting === generation || runner?.state().phase === "running") fail$2("already_running");
 			const expected = generation, controller = operationController, originalClient = client, originalRecovery = recovery;
 			await originalClient.recover();
 			check(expected, controller);
@@ -4758,9 +4885,9 @@ var _tmpl$6$19 = /*#__PURE__*/ template(`<details class=model-connection-panel d
 var _tmpl$7$15 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$8$10 = /*#__PURE__*/ template(`<option> · <!> · `);
 var _tmpl$9$8 = /*#__PURE__*/ template(`<option> · `);
-var _tmpl$0$7 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
-var _tmpl$1$5 = /*#__PURE__*/ template(`<button type=button>`);
-var _tmpl$10$4 = /*#__PURE__*/ template(`<div class=model-connection-panel__connection><p role=status> · </p><p>: <!> / </p><div class=model-connection-panel__actions><button type=button></button><button type=button></button></div><p>`);
+var _tmpl$0$8 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
+var _tmpl$1$6 = /*#__PURE__*/ template(`<button type=button>`);
+var _tmpl$10$5 = /*#__PURE__*/ template(`<div class=model-connection-panel__connection><p role=status> · </p><p>: <!> / </p><div class=model-connection-panel__actions><button type=button></button><button type=button></button></div><p>`);
 var _tmpl$11$3 = /*#__PURE__*/ template(`<p role=status> · <!>: `);
 var _tmpl$12$2 = /*#__PURE__*/ template(`<p role=status> `);
 var COPY = {
@@ -5165,7 +5292,7 @@ function ModelConnectionPanel(props) {
 							return selected();
 						},
 						children: (current) => (() => {
-							var _el$44 = _tmpl$10$4(), _el$45 = _el$44.firstChild, _el$46 = _el$45.firstChild, _el$47 = _el$45.nextSibling, _el$48 = _el$47.firstChild, _el$50 = _el$48.nextSibling;
+							var _el$44 = _tmpl$10$5(), _el$45 = _el$44.firstChild, _el$46 = _el$45.firstChild, _el$47 = _el$45.nextSibling, _el$48 = _el$47.firstChild, _el$50 = _el$48.nextSibling;
 							_el$50.nextSibling;
 							var _el$58 = _el$47.nextSibling, _el$60 = _el$58.firstChild, _el$61 = _el$60.nextSibling, _el$62 = _el$58.nextSibling;
 							insert(_el$45, (() => {
@@ -5230,7 +5357,7 @@ function ModelConnectionPanel(props) {
 								get children() {
 									return [
 										(() => {
-											var _el$53 = _tmpl$0$7(), _el$54 = _el$53.firstChild;
+											var _el$53 = _tmpl$0$8(), _el$54 = _el$53.firstChild;
 											_el$54.addEventListener("change", (event) => setProbeConsent(event.currentTarget.checked));
 											insert(_el$53, () => tr("同意一次有界、可能计费的模型检查；不写游戏世界。", "Consent to a bounded, potentially billable model check; it does not write the world."), null);
 											createRenderEffect(() => _el$54.disabled = busy() || expired(current()));
@@ -5238,7 +5365,7 @@ function ModelConnectionPanel(props) {
 											return _el$53;
 										})(),
 										(() => {
-											var _el$55 = _tmpl$1$5();
+											var _el$55 = _tmpl$1$6();
 											_el$55.$$click = () => void act(async () => {
 												apply(await client.probe(current()));
 												setProbeConsent(false);
@@ -5249,7 +5376,7 @@ function ModelConnectionPanel(props) {
 											return _el$55;
 										})(),
 										(() => {
-											var _el$56 = _tmpl$0$7(), _el$57 = _el$56.firstChild;
+											var _el$56 = _tmpl$0$8(), _el$57 = _el$56.firstChild;
 											_el$57.addEventListener("change", (event) => setRunConsent(event.currentTarget.checked));
 											insert(_el$56, () => tr("确认当前 Agent、目标与上述运行限制，开始后供应商账户继续计费。", "Confirm this Agent, goal and limits; starting permits further provider charges."), null);
 											createRenderEffect(() => _el$57.disabled = busy() || expired(current()) || !capabilities()?.executor_available);
@@ -5264,7 +5391,7 @@ function ModelConnectionPanel(props) {
 									return !managementOnly();
 								},
 								get children() {
-									var _el$59 = _tmpl$1$5();
+									var _el$59 = _tmpl$1$6();
 									_el$59.$$click = () => void act(async () => {
 										apply(await client.activate(current(), {
 											target_ref: { agent_id: agentId() },
@@ -5312,30 +5439,352 @@ function ModelConnectionPanel(props) {
 }
 delegateEvents(["click"]);
 //#endregion
+//#region software_safe_src/browser_owner_entry.js
+var fail$1 = (code) => {
+	throw new BrowserParticipantError(code);
+};
+var hex$2 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+var VIEW = "/v1/world/view-json";
+var SUBMIT = "/v1/world/submit";
+var LOOKUP = "/v1/world/lookup";
+var GOAL = "/v1/world/private-goal/prepare";
+function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto, signal, isCurrent = () => true } = {}) {
+	let disposed = false;
+	const participant = createBrowserParticipantEntry({
+		config,
+		codec,
+		accountId,
+		ownerSigner,
+		indexedDB,
+		storage,
+		locks,
+		fetchImpl,
+		cryptoImpl,
+		signal,
+		isCurrent: () => !disposed && isCurrent()
+	});
+	const database = storage ?? createBrowserGameDatabase(indexedDB);
+	const key = `owner-entry:${JSON.stringify([
+		config.world,
+		accountId,
+		ownerSigner.publicKeyHex
+	])}`;
+	const active = () => {
+		if (disposed || signal?.aborted || !isCurrent()) fail$1("participant_stopped");
+	};
+	const build = (kind, input) => {
+		try {
+			return codec.build(kind, typeof input === "string" ? input : JSON.stringify(input));
+		} catch {
+			fail$1("owner_proof_invalid");
+		}
+	};
+	const field = (raw, path) => build("field", {
+		json: raw,
+		path
+	});
+	const decoded = JSON.parse;
+	const freshId = (name) => `browser-${name}-${hex$2(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(16)))}`;
+	function check(record) {
+		if (record === void 0) return {
+			schema: 1,
+			key
+		};
+		if (record?.schema !== 1 || record.key !== key || JSON.stringify(record).length > 262144) fail$1("owner_storage_corrupt");
+		return record;
+	}
+	async function load() {
+		try {
+			return check(await database.get(key));
+		} catch (error) {
+			if (error instanceof BrowserParticipantError) throw error;
+			fail$1("owner_storage_failed");
+		}
+	}
+	async function update(mutate) {
+		if (!locks?.request) fail$1("participant_locks_unavailable");
+		try {
+			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => mutate(check(record))));
+		} catch (error) {
+			if (error instanceof BrowserParticipantError) throw error;
+			fail$1("owner_storage_failed");
+		}
+	}
+	async function signed(domain, requestRaw) {
+		active();
+		let signature;
+		try {
+			signature = hex$2(await ownerSigner.sign(codec.signingBytes(domain, requestRaw)));
+		} catch {
+			fail$1("participant_signing_failed");
+		}
+		active();
+		return `{"request":${requestRaw},"subject_public_key":${JSON.stringify(ownerSigner.publicKeyHex)},"signature_hex":${JSON.stringify(signature)}}`;
+	}
+	async function access() {
+		active();
+		const proofs = await participant.getParticipantProofs();
+		active();
+		const agentId = decoded(field(proofs.ownerControl.rawJson, [
+			"view",
+			"canonical_agent_owner",
+			"agent_id"
+		]));
+		const read = await signed(VIEW, JSON.stringify({
+			contract_version: 1,
+			observation_nonce: hex$2(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
+			formal_anchor: null,
+			world: config.world,
+			scope_id: `agent:${agentId}`,
+			min_commit: null,
+			fixed_commit: null,
+			deadline_unix_ms: null
+		}));
+		return `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`;
+	}
+	async function ownerCall(kind, requestRaw, mutation = false) {
+		const accessRaw = await access();
+		active();
+		const rawBody = `{"access":${accessRaw},"operation":{"kind":${JSON.stringify(kind)},"request":${requestRaw}}}`;
+		return participant.gatewayCall("/entry-owner/control", null, {
+			rawBody,
+			signal,
+			beforeSend: mutation ? async () => active() : void 0
+		});
+	}
+	function verify(domain, requestRaw, reply, kind, validationRequest = requestRaw) {
+		try {
+			const raw = codec.verifyGatewayResponse(domain, requestRaw, reply, config.servicePublicKey);
+			return codec.validate(kind, validationRequest, raw);
+		} catch {
+			fail$1("owner_response_unknown");
+		}
+	}
+	async function lookup(originalRaw) {
+		const payload = field(originalRaw, ["signed_payload"]), correlation = field(originalRaw, ["correlation"]);
+		const expected = build("correlation", {
+			world: config.world,
+			payload_json: payload
+		});
+		if (field(expected, []) !== field(correlation, [])) fail$1("owner_original_conflict");
+		const request = `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`;
+		const raw = verify(LOOKUP, request, await ownerCall("lookup", request), "lookup", correlation);
+		const state = decoded(field(raw, ["outcome", "status"]));
+		if (state !== "committed") {
+			if (["rejected", "expired"].includes(state)) fail$1("owner_operation_rejected");
+			fail$1("owner_operation_pending");
+		}
+		return raw;
+	}
+	async function originalIntent(slot, domain, kind, requestRaw) {
+		let record = await load();
+		if (record[slot]) return {
+			raw: record[slot],
+			fresh: false
+		};
+		const proof = await signed(domain, requestRaw), payload = `{"kind":${JSON.stringify(kind)},"payload":${proof}}`;
+		const raw = `{"contract_version":1,"correlation":${build("correlation", {
+			world: config.world,
+			payload_json: payload
+		})},"deadline_unix_ms":null,"signed_payload":${payload}}`;
+		record = await update((current) => {
+			if (!current[slot]) current[slot] = raw;
+			return current;
+		});
+		if (record[slot] !== raw) fail$1("owner_original_conflict");
+		return {
+			raw,
+			fresh: true
+		};
+	}
+	async function settleIntent(slot, original, send) {
+		if (send) try {
+			verify(SUBMIT, original, await ownerCall("submit", original, true), "intent", field(original, ["correlation"]));
+		} catch {}
+		const receipt = await lookup(original);
+		await update((record) => {
+			record[`${slot}Receipt`] = receipt;
+			return record;
+		});
+		return receipt;
+	}
+	async function reconcile() {
+		const record = await load();
+		for (const slot of ["taskRaw", "publishRaw"]) if (record[slot] && !record[`${slot}Receipt`]) await settleIntent(slot, record[slot], false);
+	}
+	async function inspect() {
+		active();
+		const binding = await participant.inspect();
+		active();
+		if (binding.state !== "bound") return binding;
+		try {
+			await reconcile();
+		} catch (error) {
+			if (["owner_operation_pending", "owner_response_unknown"].includes(error.code)) return {
+				state: "pending",
+				code: error.code,
+				agentId: binding.agentId
+			};
+			throw error;
+		}
+		const refreshed = await participant.getParticipantProofs();
+		active();
+		const controlRaw = refreshed.ownerControl.rawJson;
+		const taskRaw = field(controlRaw, ["view", "game_task_control"]), task = decoded(taskRaw);
+		const base = {
+			agentId: binding.agentId,
+			ownerControl: refreshed.ownerControl
+		};
+		if (!task) return {
+			...base,
+			state: "needs_task"
+		};
+		const fence = decoded(build("fence", taskRaw));
+		return {
+			...base,
+			taskId: task.task_id,
+			fence,
+			state: task.active_goal_reference && task.active_goal_revision !== "0" ? "ready" : "needs_goal"
+		};
+	}
+	async function prepare({ goal, consent } = {}) {
+		if (consent !== true) fail$1("owner_consent_required");
+		if (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192) fail$1("owner_goal_invalid");
+		if (!locks?.request) fail$1("participant_locks_unavailable");
+		return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
+			active();
+			let status = await inspect();
+			if (status.state === "ready" || status.state === "pending") return status;
+			if (status.state === "needs_participant") {
+				try {
+					await participant.registerParticipant(true);
+				} catch (error) {
+					if (["participant_registration_pending", "participant_response_unknown"].includes(error.code)) return {
+						state: "pending",
+						code: error.code
+					};
+					throw error;
+				}
+				status = await inspect();
+			}
+			if (status.state === "needs_task") {
+				const original = await originalIntent("taskRaw", "game_task_create", "game_task_create", build("task_create", {
+					owner_control_json: status.ownerControl.rawJson,
+					client_operation_id: freshId("task")
+				}));
+				await settleIntent("taskRaw", original.raw, original.fresh);
+				status = await inspect();
+			}
+			if (status.state !== "needs_goal") return status;
+			let record = await load(), original = record.goalPrepareRaw;
+			const content = {
+				goal_text: goal.trim(),
+				soft_constraints: []
+			};
+			if (original && field(original, ["request", "content"]) !== JSON.stringify(content)) {
+				const old = decoded(field(original, ["request", "content"]));
+				if (old.goal_text !== content.goal_text || JSON.stringify(old.soft_constraints) !== "[]") fail$1("owner_goal_original_conflict");
+			}
+			if (!original) {
+				const taskRaw = field(status.ownerControl.rawJson, ["view", "game_task_control"]);
+				original = await signed("game_goal_prepare_private/v1", build("goal_prepare", {
+					task_json: taskRaw,
+					client_operation_id: freshId("goal"),
+					client_nonce: hex$2(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
+					content
+				}));
+				record = await update((current) => {
+					if (!current.goalPrepareRaw) current.goalPrepareRaw = original;
+					return current;
+				});
+				if (record.goalPrepareRaw !== original) fail$1("owner_original_conflict");
+			}
+			if (!record.goalReceiptRaw) {
+				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true), "goal_prepared", original);
+				record = await update((current) => {
+					current.goalReceiptRaw = receipt;
+					return current;
+				});
+			}
+			const publish = await originalIntent("publishRaw", "game_goal_publish/v1", "game_goal_publish", build("goal_publish", {
+				original_json: original,
+				receipt_json: record.goalReceiptRaw,
+				client_operation_id: freshId("publish")
+			}));
+			await settleIntent("publishRaw", publish.raw, publish.fresh);
+			active();
+			return inspect();
+		}).catch((error) => {
+			if ([
+				"owner_operation_pending",
+				"owner_response_unknown",
+				"participant_response_unknown"
+			].includes(error.code)) return {
+				state: "pending",
+				code: error.code
+			};
+			throw error;
+		});
+	}
+	return {
+		inspect,
+		prepare,
+		recover: inspect,
+		dispose: () => {
+			disposed = true;
+		}
+	};
+}
+//#endregion
 //#region software_safe_src/browser_byok_surface.jsx
 var _tmpl$$41 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$2$38 = /*#__PURE__*/ template(`<button type=button>`);
-var _tmpl$3$30 = /*#__PURE__*/ template(`<label><input type=checkbox>`);
-var _tmpl$4$27 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button></button><button type=button>`);
-var _tmpl$5$26 = /*#__PURE__*/ template(`<p role=status>: `);
-var _tmpl$6$18 = /*#__PURE__*/ template(`<p role=alert>`);
-var _tmpl$7$14 = /*#__PURE__*/ template(`<section class=stack style=overflow-wrap:anywhere;min-width:0>`);
-var _tmpl$8$9 = /*#__PURE__*/ template(`<p role=status>`);
-var _tmpl$9$7 = /*#__PURE__*/ template(`<p role=status><br>`);
+var _tmpl$2$38 = /*#__PURE__*/ template(`<p role=status>: `);
+var _tmpl$3$30 = /*#__PURE__*/ template(`<button type=button>`);
+var _tmpl$4$27 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$5$26 = /*#__PURE__*/ template(`<p>: <!> · Task=`);
+var _tmpl$6$18 = /*#__PURE__*/ template(`<label><textarea maxlength=8192>`);
+var _tmpl$7$14 = /*#__PURE__*/ template(`<p role=status>: <!> / 8192`);
+var _tmpl$8$9 = /*#__PURE__*/ template(`<label><input type=checkbox>`);
+var _tmpl$9$7 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button></button><button type=button>`);
+var _tmpl$0$7 = /*#__PURE__*/ template(`<p role=alert>`);
+var _tmpl$1$5 = /*#__PURE__*/ template(`<section class=stack style=overflow-wrap:anywhere;min-width:0>`);
+var _tmpl$10$4 = /*#__PURE__*/ template(`<p role=status><br>`);
 function BrowserByokSurface(props) {
 	const read = (value) => typeof value === "function" ? value() : value;
 	const tr = (cn, en) => String(read(props.locale) || "en").startsWith("zh") ? cn : en;
 	const [driver, setDriver] = createSignal(null), [state, setState] = createSignal(null);
 	const [error, setError] = createSignal(""), [confirm, setConfirm] = createSignal(false), [runConsent, setRunConsent] = createSignal(false);
-	let contextKey, previousAccount, unsubscribe, alive = true;
+	const [entry, setEntry] = createSignal(null), [entryState, setEntryState] = createSignal(null);
+	const [entryBusy, setEntryBusy] = createSignal(false), [goal, setGoal] = createSignal("");
+	const [entryConsent, setEntryConsent] = createSignal(false), [projectionPending, setProjectionPending] = createSignal(false);
+	let contextKey, entryKey, entryIdentityKey, entryController, previousAccount, unsubscribe, alive = true, entryGeneration = 0;
 	const config = () => read(props.config);
+	const goalBytes = () => new TextEncoder().encode(goal().trim()).byteLength;
+	const entryLabel = () => ({
+		needs_participant: tr("账号绑定待核对", "Account binding needs verification"),
+		needs_task: tr("需要创建任务", "Task needs preparation"),
+		needs_goal: tr("需要发布目标", "Goal needs publication"),
+		ready: tr("账号任务已就绪", "Account task ready"),
+		pending: tr("原件结果待确认", "Original result pending"),
+		owner_mismatch: tr("玩家身份与原绑定不符", "Owner identity mismatch"),
+		stopped: tr("入口准备已停止，请先只读核对原件", "Entry preparation stopped; inspect originals before continuing")
+	})[entryState()?.state] || "—";
 	const reason = (code) => {
+		if (["participant_registration_rejected", "owner_operation_rejected"].includes(code)) return tr("世界拒绝了该登记或任务原件。请核对原账号玩家身份和任务权限；不会切换身份或替换原 Agent。", "The world rejected this registration or task original. Check the account's original owner identity and task authority; no identity or Agent is replaced.");
+		if (code === "owner_goal_invalid") return tr("请输入不超过 8192 UTF-8 字节的任务目标。", "Enter a task goal of at most 8192 UTF-8 bytes.");
+		if (["owner_mismatch", "participant_owner_mismatch"].includes(code)) return tr("本机玩家身份与账号原绑定不符。已停止；请恢复原身份后重试，不会替换原 Agent。", "This browser owner identity differs from the account binding. Restore the original identity; the existing Agent is not replaced.");
 		if (code === "executor_takeover_confirmation_required") return tr("当前已有其他执行方。核对任务后，勾选授权以明确切换到此浏览器。", "Another executor is bound. Review the task and explicitly confirm switching to this browser.");
 		if ([
 			"operation_unknown",
 			"operation_pending",
 			"recovery_required",
-			"participant_binding_required"
+			"participant_binding_required",
+			"owner_operation_pending",
+			"owner_response_unknown",
+			"participant_registration_pending",
+			"participant_response_unknown",
+			"owner_original_conflict",
+			"participant_original_conflict"
 		].includes(code)) return tr("原件或绑定尚未确认。请只读核对；未知结果不能重发，也不能据最新快照判断未发生。", "An original operation or binding is unconfirmed. Use read-only lookup; do not resubmit or infer non-execution from a recent snapshot.");
 		if ([
 			"task_fence_changed",
@@ -5343,7 +5792,11 @@ function BrowserByokSurface(props) {
 			"executor_not_bound",
 			"task_unavailable"
 		].includes(code)) return tr("任务、目标或执行权限已改变。已停止；重新核对实际任务与执行身份后再确认。", "Task, goal or executor authority changed. Stopped; review the actual task and executor again before confirming.");
-		if (["page_paused", "stopped"].includes(code)) return tr("本页已暂停新决策。返回后先核对原件，再明确开始；已受理世界作业仍可能推进。", "New decisions are paused. Check originals before explicitly starting again; accepted world jobs may continue.");
+		if ([
+			"page_paused",
+			"stopped",
+			"participant_stopped"
+		].includes(code)) return tr("本页已暂停新决策。返回后先核对原件，再明确开始；已受理世界作业仍可能推进。", "New decisions are paused. Check originals before explicitly starting again; accepted world jobs may continue.");
 		if (["legacy_run_active", "legacy_state_unknown"].includes(code)) return tr("先在下方核对并停止旧执行端运行；状态未知时不能开始浏览器运行。", "Review and stop the previous executor below. Browser execution cannot start while its state is unknown.");
 		if (code === "agent_busy") return tr("同一 Agent 已在另一个页面运行。本页不会自动接管。", "This Agent is running in another page. This page will not take over automatically.");
 		if (String(code).includes("budget") || code === "run_time_limit") return tr("本轮预算或期限已到，不自动扩大或重置。", "This run's budget or deadline is exhausted; it is not automatically increased or reset.");
@@ -5354,41 +5807,121 @@ function BrowserByokSurface(props) {
 		setState(value || null);
 		if (value?.code) setError(reason(value.code));
 	}
+	const ownerKey = (owner) => owner?.identityId || owner?.publicKey || "";
+	const trustKey = (trusted) => JSON.stringify(trusted || null);
+	const installedSigner = (owner, captured) => ({
+		publicKeyHex: owner.publicKey,
+		sign: async (bytes) => {
+			if (!alive || captured !== entryKey) throw new Error("game_session_changed");
+			const signature = await owner.sign(bytes);
+			if (!alive || captured !== entryKey) throw new Error("game_session_changed");
+			return signature;
+		}
+	});
+	const acceptEntry = (value, captured) => {
+		if (!alive || captured !== entryKey) return;
+		setEntryState(value);
+		if (value?.state === "ready" && value.agentId) setProjectionPending(props.onCanonicalAgent?.(value.agentId) === false);
+	};
+	function openEntry({ accountId, owner, trusted }, resetGoal = false) {
+		entryKey = `${entryIdentityKey}:${++entryGeneration}`;
+		entryController?.abort();
+		entry()?.dispose?.();
+		setEntry(null);
+		setEntryState(null);
+		setEntryConsent(false);
+		if (resetGoal) setGoal("");
+		setProjectionPending(false);
+		setError("");
+		if (!accountId || !owner || !trusted) {
+			setEntryBusy(false);
+			return;
+		}
+		const captured = entryKey, controller = new AbortController();
+		entryController = controller;
+		setEntryBusy(true);
+		(async () => {
+			try {
+				const codec = await (props.protocolLoader || loadBrowserGameProtocol)();
+				if (!alive || captured !== entryKey) return;
+				const ownerEntry = (props.createOwnerEntry || createBrowserOwnerEntry)({
+					config: trusted,
+					codec,
+					accountId,
+					ownerSigner: installedSigner(owner, captured),
+					signal: controller.signal,
+					isCurrent: () => alive && captured === entryKey
+				});
+				setEntry(ownerEntry);
+				acceptEntry(await ownerEntry.inspect(), captured);
+			} catch (failure) {
+				if (alive && captured === entryKey) setError(reason(failure.code));
+			} finally {
+				if (alive && captured === entryKey) setEntryBusy(false);
+			}
+		})();
+	}
+	function stopEntry() {
+		entryKey = `stopped:${++entryGeneration}`;
+		entryController?.abort();
+		entry()?.dispose?.();
+		setEntry(null);
+		setEntryBusy(false);
+		setEntryConsent(false);
+		setConfirm(false);
+		setRunConsent(false);
+		setProjectionPending(false);
+		driver()?.stop();
+		setEntryState({ state: "stopped" });
+	}
+	const resumeEntryReadOnly = () => openEntry({
+		accountId: read(props.accountId),
+		owner: read(props.ownerSigner),
+		trusted: config()
+	});
 	createEffect(() => {
-		const accountId = read(props.accountId), agentId = read(props.agentId), owner = read(props.ownerSigner), trusted = config();
-		const key = `${accountId || ""}:${agentId || ""}:${owner?.identityId || owner?.publicKey || ""}:${trusted?.servicePublicKey || ""}`;
+		const accountId = read(props.accountId), owner = read(props.ownerSigner), trusted = config();
+		const key = `${accountId || ""}:${ownerKey(owner)}:${trustKey(trusted)}`;
+		if (key === entryIdentityKey) return;
+		entryIdentityKey = key;
+		openEntry({
+			accountId,
+			owner,
+			trusted
+		}, true);
+	});
+	createEffect(() => {
+		const accountId = read(props.accountId), selectedAgent = read(props.agentId), owner = read(props.ownerSigner), trusted = config();
+		const canonicalAgent = entryState()?.state === "ready" ? entryState().agentId : null;
+		const key = `${entryKey}:${canonicalAgent || ""}:${selectedAgent || ""}`;
 		if (key === contextKey) return;
 		contextKey = key;
 		unsubscribe?.();
-		setError("");
 		setConfirm(false);
 		setRunConsent(false);
 		const old = driver();
 		if (old) {
-			if (previousAccount !== accountId) old.logout().catch(() => {
-				if (alive) setError(reason("storage_write_failed"));
-			});
+			if (previousAccount !== accountId) {
+				const loggedOutContext = key;
+				old.logout().catch(() => {
+					if (alive && contextKey === loggedOutContext) setError(reason("storage_write_failed"));
+				});
+			}
 			old.dispose();
 		}
 		previousAccount = accountId;
 		setDriver(null);
 		setState(null);
-		if (!accountId || !agentId || !owner || !trusted) return;
+		if (!accountId || !canonicalAgent || !owner || !trusted) return;
 		try {
-			const captured = contextKey;
-			const signer = {
-				publicKeyHex: owner.publicKey,
-				sign: async (bytes) => {
-					if (captured !== contextKey) throw new Error("game_session_changed");
-					return owner.sign(bytes);
-				}
-			};
+			const captured = contextKey, capturedEntry = entryKey;
+			const signer = installedSigner(owner, capturedEntry);
 			const session = (props.createSession || createBrowserGameSession)({
 				config: trusted,
 				accountId,
-				agentId,
+				agentId: canonicalAgent,
 				ownerSigner: signer,
-				isCurrent: () => alive && captured === contextKey
+				isCurrent: () => alive && captured === contextKey && capturedEntry === entryKey
 			});
 			setDriver(session);
 			unsubscribe = session.subscribe(refresh);
@@ -5397,91 +5930,245 @@ function BrowserByokSurface(props) {
 			setError(reason("game_configuration_invalid"));
 		}
 	});
+	const prepareEntry = async () => {
+		if (!entryConsent() || entryBusy() || !entry() || goalBytes() > 8192) return;
+		const captured = entryKey, ownerEntry = entry();
+		setEntryBusy(true);
+		setEntryConsent(false);
+		setError("");
+		try {
+			acceptEntry(await ownerEntry.prepare({
+				goal: goal().trim(),
+				consent: true
+			}), captured);
+		} catch (failure) {
+			if (alive && captured === entryKey) setError(reason(failure.code));
+		} finally {
+			if (alive && captured === entryKey) setEntryBusy(false);
+		}
+	};
 	const modelReady = () => {
 		state();
 		return driver()?.modelSession.snapshot().checked === true;
 	};
 	const act = async (action) => {
+		const captured = contextKey, current = driver();
 		setError("");
 		setRunConsent(false);
 		try {
-			await action(driver());
+			await action(current);
 		} catch (failure) {
-			if (alive) setError(reason(failure.code));
+			if (alive && captured === contextKey) setError(reason(failure.code));
 		} finally {
-			if (alive) refresh();
+			if (alive && captured === contextKey) refresh();
 		}
 	};
 	onCleanup(() => {
 		alive = false;
 		contextKey = null;
+		entryKey = null;
+		entryController?.abort();
+		entry()?.dispose?.();
 		unsubscribe?.();
 		driver()?.dispose();
 	});
 	return (() => {
-		var _el$ = _tmpl$7$14();
+		var _el$ = _tmpl$1$5();
 		insert(_el$, createComponent(Show, {
 			get when() {
 				return config();
 			},
 			get fallback() {
 				return (() => {
-					var _el$15 = _tmpl$8$9();
-					insert(_el$15, () => tr("此部署尚未启用浏览器 Game Client。不会收集本地模型 Key。", "This deployment has not enabled the browser Game Client. Model keys are not collected."));
-					return _el$15;
+					var _el$36 = _tmpl$4$27();
+					insert(_el$36, () => tr("此部署尚未启用浏览器 Game Client。不会收集本地模型 Key。", "This deployment has not enabled the browser Game Client. Model keys are not collected."));
+					return _el$36;
 				})();
 			},
 			get children() {
-				return createComponent(Show, {
+				return [createComponent(Show, {
 					get when() {
-						return driver();
+						return memo(() => !!read(props.accountId))() && read(props.ownerSigner);
 					},
 					get fallback() {
 						return (() => {
-							var _el$16 = _tmpl$8$9();
-							insert(_el$16, () => tr("先登录并选中自己的 Agent，才能核对游戏任务。", "Sign in and select your Agent before checking the game task."));
-							return _el$16;
+							var _el$37 = _tmpl$4$27();
+							insert(_el$37, () => tr("先登录并恢复本机玩家身份，才能准备游戏任务。", "Sign in and restore your browser owner identity before preparing a game task."));
+							return _el$37;
 						})();
 					},
 					get children() {
 						return [
 							(() => {
 								var _el$2 = _tmpl$$41();
-								insert(_el$2, () => tr("实际执行入口：当前浏览器。模型 Key 不授予游戏权限；下面的登记仅复用既有玩家/Agent/Task，不创建新的 Agent。", "Execution location: this browser. A model key grants no game authority. Registration below reuses the existing player, Agent and Task; it creates no Agent."));
+								insert(_el$2, () => tr("先准备本账号的合法游戏入口，再设置模型 Key。首次登记才创建玩家和 Agent；已有绑定由世界核对并复用，身份不符时停止。不会自动登记执行方或启动模型。", "Prepare this account's authorized game entry before adding a model key. First registration creates the player and Agent; the world reuses an existing binding and rejects a different owner. This does not register an executor or start a model."));
 								return _el$2;
+							})(),
+							(() => {
+								var _el$3 = _tmpl$2$38(), _el$4 = _el$3.firstChild;
+								insert(_el$3, () => tr("账号入口状态", "Account entry state"), _el$4);
+								insert(_el$3, (() => {
+									var _c$ = memo(() => !!entryBusy());
+									return () => _c$() ? tr("只读核对或处理原件中", "Checking entry or original operation") : entryLabel();
+								})(), null);
+								return _el$3;
+							})(),
+							(() => {
+								var _el$5 = _tmpl$3$30();
+								_el$5.$$click = stopEntry;
+								insert(_el$5, () => tr("停止入口准备", "Stop entry preparation"));
+								return _el$5;
+							})(),
+							createComponent(Show, {
+								get when() {
+									return entryState()?.state === "stopped";
+								},
+								get children() {
+									return [(() => {
+										var _el$6 = _tmpl$4$27();
+										insert(_el$6, () => tr("已取消后续入口写入。已经发送的原件仍可能生效；重新打开后仅只读核对，不自动重发或继续准备。", "Further entry writes are cancelled. Already submitted originals may still commit. Reopen with read-only inspection; preparation is never automatically resumed or resubmitted."));
+										return _el$6;
+									})(), (() => {
+										var _el$7 = _tmpl$3$30();
+										_el$7.$$click = resumeEntryReadOnly;
+										insert(_el$7, () => tr("重新打开并只读核对入口原件", "Reopen and inspect entry originals"));
+										return _el$7;
+									})()];
+								}
+							}),
+							createComponent(Show, {
+								get when() {
+									return entryState()?.agentId;
+								},
+								get children() {
+									var _el$8 = _tmpl$5$26(), _el$9 = _el$8.firstChild, _el$1 = _el$9.nextSibling;
+									_el$1.nextSibling;
+									insert(_el$8, () => tr("实际绑定 Agent", "Canonical Agent"), _el$9);
+									insert(_el$8, () => entryState()?.agentId, _el$1);
+									insert(_el$8, () => entryState()?.taskId || "—", null);
+									return _el$8;
+								}
+							}),
+							createComponent(Show, {
+								get when() {
+									return projectionPending();
+								},
+								get children() {
+									var _el$10 = _tmpl$4$27();
+									insert(_el$10, () => tr("世界已确认实际 Agent，Viewer 投影仍待同步；以下操作使用上方正式绑定。", "The world confirmed the canonical Agent; the Viewer projection is still syncing. Operations below use the confirmed binding above."));
+									return _el$10;
+								}
+							}),
+							createComponent(Show, {
+								get when() {
+									return memo(() => !!entry())() && entryState()?.state !== "ready";
+								},
+								get children() {
+									return [
+										(() => {
+											var _el$11 = _tmpl$6$18(), _el$12 = _el$11.firstChild;
+											insert(_el$11, () => tr("任务目标", "Task goal"), _el$12);
+											_el$12.$$input = (event) => {
+												setGoal(event.currentTarget.value);
+												setEntryConsent(false);
+											};
+											createRenderEffect((_p$) => {
+												var _v$ = tr("任务目标", "Task goal"), _v$2 = entryBusy();
+												_v$ !== _p$.e && setAttribute(_el$12, "aria-label", _p$.e = _v$);
+												_v$2 !== _p$.t && (_el$12.disabled = _p$.t = _v$2);
+												return _p$;
+											}, {
+												e: void 0,
+												t: void 0
+											});
+											createRenderEffect(() => _el$12.value = goal());
+											return _el$11;
+										})(),
+										(() => {
+											var _el$13 = _tmpl$7$14(), _el$14 = _el$13.firstChild, _el$16 = _el$14.nextSibling;
+											_el$16.nextSibling;
+											insert(_el$13, () => tr("目标按 UTF-8 字节计量", "Goal size in UTF-8 bytes"), _el$14);
+											insert(_el$13, goalBytes, _el$16);
+											return _el$13;
+										})(),
+										(() => {
+											var _el$17 = _tmpl$8$9(), _el$18 = _el$17.firstChild;
+											_el$18.addEventListener("change", (event) => setEntryConsent(event.currentTarget.checked));
+											insert(_el$17, () => tr("确认使用当前本机玩家身份登记或核对本账号原绑定，仅为缺失任务或目标使用上述目标；已有任务目标保持原状，原绑定不符时停止，不替换 Agent。", "Confirm registration or verification of this account's binding with the current browser owner identity and use this goal only for a missing Task or goal. Preserve an existing task goal. Stop on an owner mismatch; never replace the Agent."), null);
+											createRenderEffect(() => _el$18.disabled = entryBusy() || ["owner_mismatch", "pending"].includes(entryState()?.state));
+											createRenderEffect(() => _el$18.checked = entryConsent());
+											return _el$17;
+										})(),
+										(() => {
+											var _el$19 = _tmpl$3$30();
+											_el$19.$$click = () => void prepareEntry();
+											insert(_el$19, () => tr("准备玩家、Agent 与任务", "Prepare player, Agent and Task"));
+											createRenderEffect(() => _el$19.disabled = entryBusy() || !entryConsent() || !goal().trim() || goalBytes() > 8192 || ["owner_mismatch", "pending"].includes(entryState()?.state));
+											return _el$19;
+										})(),
+										(() => {
+											var _el$20 = _tmpl$3$30();
+											_el$20.$$click = () => {
+												const captured = entryKey;
+												setEntryBusy(true);
+												entry().inspect().then((value) => acceptEntry(value, captured)).catch((failure) => {
+													if (alive && captured === entryKey) setError(reason(failure.code));
+												}).finally(() => {
+													if (alive && captured === entryKey) setEntryBusy(false);
+												});
+											};
+											insert(_el$20, () => tr("只读核对账号入口原件", "Look up account entry originals"));
+											createRenderEffect(() => _el$20.disabled = entryBusy());
+											return _el$20;
+										})()
+									];
+								}
+							})
+						];
+					}
+				}), createComponent(Show, {
+					get when() {
+						return driver();
+					},
+					get children() {
+						return [
+							(() => {
+								var _el$21 = _tmpl$$41();
+								insert(_el$21, () => tr("实际执行入口：当前浏览器。模型 Key 不授予游戏权限；下面的执行身份登记仅复用上方已确认的玩家/Agent/Task，不创建新的 Agent。", "Execution location: this browser. A model key grants no game authority. Executor registration below reuses the confirmed player, Agent and Task above; it creates no Agent."));
+								return _el$21;
 							})(),
 							createComponent(Show, {
 								get when() {
 									return state()?.fence;
 								},
 								children: (fence) => (() => {
-									var _el$17 = _tmpl$9$7(), _el$18 = _el$17.firstChild;
-									insert(_el$17, () => `world=${fence().world_id} · owner=${fence().owner_binding} · Agent=${fence().agent_id} · Task=${fence().task_id} · goal=${fence().active_goal_reference?.goal_ref || "—"} · executor=${fence().executor_binding?.executor_public_key || "—"}`, _el$18);
-									insert(_el$17, () => state()?.goal, null);
-									return _el$17;
+									var _el$38 = _tmpl$10$4(), _el$39 = _el$38.firstChild;
+									insert(_el$38, () => `world=${fence().world_id} · owner=${fence().owner_binding} · Agent=${fence().agent_id} · Task=${fence().task_id} · goal=${fence().active_goal_reference?.goal_ref || "—"} · executor=${fence().executor_binding?.executor_public_key || "—"}`, _el$39);
+									insert(_el$38, () => state()?.goal, null);
+									return _el$38;
 								})()
 							}),
 							(() => {
-								var _el$3 = _tmpl$2$38();
-								_el$3.$$click = () => {
+								var _el$22 = _tmpl$3$30();
+								_el$22.$$click = () => {
 									setConfirm(false);
 									act((session) => session.prepare({ inspectOnly: true }));
 								};
-								insert(_el$3, () => tr("只读核对当前任务", "Inspect current task"));
-								createRenderEffect(() => _el$3.disabled = ["running", "preparing"].includes(state()?.phase));
-								return _el$3;
+								insert(_el$22, () => tr("只读核对当前任务", "Inspect current task"));
+								createRenderEffect(() => _el$22.disabled = ["running", "preparing"].includes(state()?.phase));
+								return _el$22;
 							})(),
 							(() => {
-								var _el$4 = _tmpl$3$30(), _el$5 = _el$4.firstChild;
-								_el$5.addEventListener("change", (event) => setConfirm(event.currentTarget.checked));
-								insert(_el$4, () => tr("确认核对既有任务并授权此浏览器执行身份；若已有其他执行方，明确同意切换。", "Confirm the existing task and authorize this browser executor; explicitly switch if another executor is bound."), null);
-								createRenderEffect(() => _el$5.disabled = !state()?.fence || ["running", "preparing"].includes(state()?.phase));
-								createRenderEffect(() => _el$5.checked = confirm());
-								return _el$4;
+								var _el$23 = _tmpl$8$9(), _el$24 = _el$23.firstChild;
+								_el$24.addEventListener("change", (event) => setConfirm(event.currentTarget.checked));
+								insert(_el$23, () => tr("确认核对既有任务并授权此浏览器执行身份；若已有其他执行方，明确同意切换。", "Confirm the existing task and authorize this browser executor; explicitly switch if another executor is bound."), null);
+								createRenderEffect(() => _el$24.disabled = !state()?.fence || ["running", "preparing"].includes(state()?.phase));
+								createRenderEffect(() => _el$24.checked = confirm());
+								return _el$23;
 							})(),
 							(() => {
-								var _el$6 = _tmpl$2$38();
-								_el$6.$$click = () => {
+								var _el$25 = _tmpl$3$30();
+								_el$25.$$click = () => {
 									const confirmedFence = state()?.fence;
 									setConfirm(false);
 									act((session) => session.prepare({
@@ -5489,9 +6176,9 @@ function BrowserByokSurface(props) {
 										confirmedFence
 									}));
 								};
-								insert(_el$6, () => tr("核对任务并登记执行身份", "Check task and register executor"));
-								createRenderEffect(() => _el$6.disabled = !state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase));
-								return _el$6;
+								insert(_el$25, () => tr("核对任务并登记执行身份", "Check task and register executor"));
+								createRenderEffect(() => _el$25.disabled = !state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase));
+								return _el$25;
 							})(),
 							createComponent(BrowserModelConnectionPanel, {
 								get locale() {
@@ -5505,43 +6192,43 @@ function BrowserByokSurface(props) {
 								onStop: () => driver()?.stop()
 							}),
 							(() => {
-								var _el$7 = _tmpl$3$30(), _el$8 = _el$7.firstChild;
-								_el$8.addEventListener("change", (event) => setRunConsent(event.currentTarget.checked));
-								insert(_el$7, () => tr("确认上述实际 Agent、任务和目标；开始后供应商账户计费。检查与执行共享本站账号最多 8 次调用、131072 token；每次执行输出最多 512 token，本轮 120 秒。", "Confirm the actual Agent, Task and goal above. Starting charges your provider account. Checks and execution share an account limit of 8 calls and 131072 reserved tokens. Each execution call allows 512 output tokens; this run lasts 120 seconds."), null);
-								createRenderEffect(() => _el$8.disabled = !state()?.ready || state()?.phase === "running");
-								createRenderEffect(() => _el$8.checked = runConsent());
-								return _el$7;
+								var _el$26 = _tmpl$8$9(), _el$27 = _el$26.firstChild;
+								_el$27.addEventListener("change", (event) => setRunConsent(event.currentTarget.checked));
+								insert(_el$26, () => tr("确认上述实际 Agent、任务和目标；开始后供应商账户计费。检查与执行共享本站账号最多 8 次调用、131072 token；每次执行输出最多 512 token，本轮 120 秒。", "Confirm the actual Agent, Task and goal above. Starting charges your provider account. Checks and execution share an account limit of 8 calls and 131072 reserved tokens. Each execution call allows 512 output tokens; this run lasts 120 seconds."), null);
+								createRenderEffect(() => _el$27.disabled = !state()?.ready || state()?.phase === "running");
+								createRenderEffect(() => _el$27.checked = runConsent());
+								return _el$26;
 							})(),
 							(() => {
-								var _el$9 = _tmpl$4$27(), _el$0 = _el$9.firstChild, _el$1 = _el$0.nextSibling, _el$10 = _el$1.nextSibling, _el$11 = _el$10.nextSibling;
-								_el$0.$$click = () => void act((session) => session.start());
-								insert(_el$0, () => tr("确认开始 Agent", "Confirm Agent start"));
-								_el$1.$$click = () => driver()?.stop();
-								insert(_el$1, () => tr("停止新决策", "Stop new decisions"));
-								_el$10.$$click = () => void act((session) => session.recover());
-								insert(_el$10, () => tr("只读核对原件", "Look up original operations"));
-								_el$11.$$click = () => void act((session) => session.forget());
-								insert(_el$11, () => tr("忘记本机 Key", "Forget local key"));
+								var _el$28 = _tmpl$9$7(), _el$29 = _el$28.firstChild, _el$30 = _el$29.nextSibling, _el$31 = _el$30.nextSibling, _el$32 = _el$31.nextSibling;
+								_el$29.$$click = () => void act((session) => session.start());
+								insert(_el$29, () => tr("确认开始 Agent", "Confirm Agent start"));
+								_el$30.$$click = () => driver()?.stop();
+								insert(_el$30, () => tr("停止新决策", "Stop new decisions"));
+								_el$31.$$click = () => void act((session) => session.recover());
+								insert(_el$31, () => tr("只读核对原件", "Look up original operations"));
+								_el$32.$$click = () => void act((session) => session.forget());
+								insert(_el$32, () => tr("忘记本机 Key", "Forget local key"));
 								createRenderEffect((_p$) => {
-									var _v$ = !runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running", _v$2 = state()?.phase === "running";
-									_v$ !== _p$.e && (_el$0.disabled = _p$.e = _v$);
-									_v$2 !== _p$.t && (_el$10.disabled = _p$.t = _v$2);
+									var _v$3 = !runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running", _v$4 = state()?.phase === "running";
+									_v$3 !== _p$.e && (_el$29.disabled = _p$.e = _v$3);
+									_v$4 !== _p$.t && (_el$31.disabled = _p$.t = _v$4);
 									return _p$;
 								}, {
 									e: void 0,
 									t: void 0
 								});
-								return _el$9;
+								return _el$28;
 							})(),
 							(() => {
-								var _el$12 = _tmpl$5$26(), _el$13 = _el$12.firstChild;
-								insert(_el$12, () => tr("运行状态", "Execution state"), _el$13);
-								insert(_el$12, () => state()?.phase || "—", null);
-								return _el$12;
+								var _el$33 = _tmpl$2$38(), _el$34 = _el$33.firstChild;
+								insert(_el$33, () => tr("运行状态", "Execution state"), _el$34);
+								insert(_el$33, () => state()?.phase || "—", null);
+								return _el$33;
 							})()
 						];
 					}
-				});
+				})];
 			}
 		}), null);
 		insert(_el$, createComponent(Show, {
@@ -5549,9 +6236,9 @@ function BrowserByokSurface(props) {
 				return error();
 			},
 			get children() {
-				var _el$14 = _tmpl$6$18();
-				insert(_el$14, error);
-				return _el$14;
+				var _el$35 = _tmpl$0$7();
+				insert(_el$35, error);
+				return _el$35;
 			}
 		}), null);
 		insert(_el$, createComponent(ModelConnectionPanel, {
@@ -5568,7 +6255,7 @@ function BrowserByokSurface(props) {
 		return _el$;
 	})();
 }
-delegateEvents(["click"]);
+delegateEvents(["click", "input"]);
 //#endregion
 //#region software_safe_src/viewer_runtime_config_policy.js
 var CONFIG_ID = "oasis7-viewer-runtime-config";
@@ -35001,6 +35688,10 @@ function InteractionPanel() {
 			}), _el$316);
 			insert(_el$303, createComponent(BrowserByokSurface, {
 				locale,
+				onCanonicalAgent: (id) => select({
+					kind: "agent",
+					id
+				}).ok,
 				config: () => viewerRuntimeConfig().browserGameClient,
 				agentId,
 				ownerSigner: () => {
