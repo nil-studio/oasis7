@@ -160,7 +160,7 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
   }
   async function proofs(record, authorized) {
     const readRequest = { contract_version: 1, observation_nonce: hex(cryptoImpl.getRandomValues(new Uint8Array(32))),
-      formal_anchor: null, world: clone(config.world), scope_id: `agent:${canonicalAgentId}`, min_commit: null,
+      world: clone(config.world), scope_id: `agent:${canonicalAgentId}`, min_commit: null,
       fixed_commit: null, deadline_unix_ms: null };
     active(); let read;
     try { read = { request: readRequest, subject_public_key: ownerSigner.publicKeyHex,

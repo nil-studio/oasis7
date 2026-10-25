@@ -33,6 +33,7 @@ function setup() {
     if (path === "/participant/owner-view") {
       expect(body.read.request.scope_id).toBe("agent:agent");
       expect(body.response_profile).toBe("owner_control_v1");
+      expect(body.read.request).not.toHaveProperty("formal_anchor");
       expect([...records.values()][0].ownerRead).toEqual(body);
       return respond({ world_response: committed ? { view: { canonical_agent_owner: {
         public_key: owner.subject_public_key, agent_id: wrongAgent ? "unexpected-agent" : "agent" } } } : null,

@@ -33,6 +33,7 @@ function fixture() {
    return respond({ world_response: { outcome: { status: rejectOwner ? "rejected" : unknown ? "unknown" : "committed", receipt: { account_id: "account", owner_public_key: originalOwner.subject_public_key, agent_id: "canonical-agent" } } } });
   }
   if (path === "/entry-owner/control") {
+   expect(body.access.read.request).not.toHaveProperty("formal_anchor");
    const operation = body.operation;
    if (operation.kind === "prepare_goal") return respond({ world_response: { owner_proof: operation.request, goal_ref: "fixture-goal" } });
    const payload = operation.kind === "submit" ? operation.request.signed_payload : operation.request.original;

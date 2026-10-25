@@ -9,12 +9,14 @@ import { createPrivateKey, createPublicKey, sign, webcrypto } from "node:crypto"
 import { createBrowserGameClient } from "../software_safe_src/browser_game_client.js";
 import { createBrowserGameRecovery } from "../software_safe_src/browser_game_recovery.js";
 import { createBrowserAgentRunner } from "../software_safe_src/browser_agent_runner.js";
+import { createBrowserParticipantEntry } from "../software_safe_src/browser_participant_entry.js";
+import { createBrowserOwnerEntry } from "../software_safe_src/browser_owner_entry.js";
 
 const wasm = createRequire(import.meta.url)(resolve(process.argv[2], "protocol.js"));
 const codec = { signingBytes: wasm.world_signing_bytes, requestDigest: wasm.world_request_digest, verifyGatewayResponse: wasm.world_verify_gateway_response, verifyResponse: wasm.world_verify_response, validate: wasm.world_validate, build: wasm.world_build };
 const processFixture = spawn(resolve(process.argv[3]), [], { stdio: ["pipe", "pipe", "pipe"] });
 const pending = []; let stderr = "";
-processFixture.stderr.on("data", (data) => { stderr += data; });
+processFixture.stderr.on("data", (data) => { stderr += data; process.stderr.write(data); });
 createInterface({ input: processFixture.stdout }).on("line", (line) => pending.shift()?.resolve(line));
 processFixture.on("exit", (code) => { if (code) while (pending.length) pending.shift().reject(new Error(`fixture exited ${code}: ${stderr}`)); });
 const rpc = (command) => new Promise((resolve, reject) => { pending.push({ resolve, reject }); processFixture.stdin.write(`${JSON.stringify(command)}\n`); });
@@ -49,6 +51,26 @@ try {
 
  const records = new Map();
  const storage = { get: async (key) => structuredClone(records.get(key)), update: async (key, mutate) => { const value = mutate(structuredClone(records.get(key))); records.set(key, structuredClone(value)); return structuredClone(value); } };
+ const entryConfig = { endpoint: "/api/public/hosted-account/v2", world: metadata.world, servicePublicKey: metadata.servicePublicKey, participantIssuerPublicKey: metadata.servicePublicKey, identity: namespace };
+ let emptyTask = false, ownerAccessCalls = 0;
+ const entryFetch = async (url, options) => {
+  const path = url.slice(entryConfig.endpoint.length);
+  const response = (value) => new Response(JSON.stringify({ api_version: 2, ok: true, ...value }));
+  if (path === "/entry/discovery") return response({ schema_revision: 1, identity: namespace, world: metadata.world, world_service_public_key: metadata.servicePublicKey, participant_policy: { policy: { issuer_public_key: metadata.servicePublicKey } }, phase_capabilities: { participant_recovery: true } });
+  if (path === "/session") return response({ account: { account_id: "fixture-account" }, authentication: { state: "authenticated" }, csrf_token: "ab".repeat(32) });
+  if (path === "/participant/authorize") return response({ phase: "participant_authorized", new_registration_enabled: true, admission: JSON.parse(await rpc({ kind: "admission", owner: JSON.parse(options.body) })) });
+  if (path === "/participant/owner-view") return new Response(await rpc({ kind: emptyTask ? "owner_empty" : "gateway", path, rawBody: options.body }));
+  if (path === "/entry-owner/control") { ownerAccessCalls += 1; return new Response(await rpc({ kind: "gateway", path, rawBody: options.body })); }
+  throw new Error(`unexpected entry protocol route ${path}`);
+ };
+ const entryOptions = { config: entryConfig, codec, accountId: "fixture-account", ownerSigner, storage, locks: { request: async (_name, _options, callback) => callback() }, fetchImpl: entryFetch, cryptoImpl: webcrypto };
+ await createBrowserParticipantEntry({ ...entryOptions, agentId: metadata.control.agent_id }).prepare();
+ emptyTask = true;
+ const ownerEntry = createBrowserOwnerEntry(entryOptions);
+ assert.equal((await ownerEntry.inspect()).state, "needs_task");
+ assert.equal((await ownerEntry.prepare({ goal: "Canonical read serialization fixture", consent: true })).state, "needs_task");
+ assert(ownerAccessCalls > 0);
+ ownerEntry.dispose();
  const fence = JSON.parse(codec.build("fence", JSON.stringify(metadata.control)));
  const recovery = createBrowserGameRecovery({ scope: { worldId: metadata.world.world_id, genesisDigest: metadata.world.genesis_digest, accountId: "fixture-account", agentId: fence.agent_id, taskId: fence.task_id, fence }, storage, locks: { request: async (_name, _options, callback) => callback() } });
  let effects = 0;
@@ -71,5 +93,5 @@ try {
  const loaded = await recovery.load(); assert.equal(loaded.operations.length, 6);
  assert(loaded.operations.every((entry) => entry.state === "committed"));
  assert.equal((await recovery.getRunBudget("interop-run")).callsReserved, 1);
- console.log("PASS real WASM + Rust typed fixture: participant admission/correlation/stable Agent, private goal prepare/publish proofs, owner discovery, signed prepare/prefix/lookup/capture/action, runner abort, durable lookup-only settlement, read-only recovery");
+ console.log("PASS real WASM + Rust typed fixture: participant admission/correlation/stable Agent, private goal prepare/publish proofs, real participant/owner access typed read signatures, owner discovery, signed prepare/prefix/lookup/capture/action, runner abort, durable lookup-only settlement, read-only recovery");
 } finally { processFixture.stdin.end(); }

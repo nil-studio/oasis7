@@ -40,7 +40,7 @@ fn reply<T: Serialize>(domain: &str, request: &Value, payload: T) -> Value {
         &key(9),
     )
     .unwrap();
-    json!({"ok":true,"world_response":response})
+    json!({"api_version":2,"ok":true,"world_response":response})
 }
 fn prepared(
     proof: ws::SignedReadRequest<TaskContextPrepareV1>,
@@ -130,12 +130,17 @@ fn admission_response(command: &Value, snapshot: &GoalExecutionSnapshotV1) -> Va
     )
     .unwrap()
 }
-fn owner_response(body: &Value, snapshot: &GoalExecutionSnapshotV1) -> Value {
+fn owner_response(body: &Value, snapshot: &GoalExecutionSnapshotV1, empty_task: bool) -> Value {
     let world = &snapshot.read_commit.world;
     let original: ParticipantOwnerViewRequestV1 = serde_json::from_value(body.clone()).unwrap();
     ws::verify_read_request(ws::VIEW_JSON_PATH, &original.read).unwrap();
     let f = &snapshot.control;
-    let owner_view = json!({"canonical_agent_owner":{"agent_id":f.agent_id,"player_id":f.owner_binding,"public_key":f.owner_public_key,"world_id":f.world_id,"reorg_epoch":f.reorg_epoch.0,"canonical_authority":{"branch_id":f.branch_id,"agent_identity_generation":f.owner_generation.0},"current_intent_id":null},"game_task_control":f});
+    let task = if empty_task {
+        Value::Null
+    } else {
+        serde_json::to_value(f).unwrap()
+    };
+    let owner_view = json!({"canonical_agent_owner":{"agent_id":f.agent_id,"player_id":f.owner_binding,"public_key":f.owner_public_key,"world_id":f.world_id,"reorg_epoch":f.reorg_epoch.0,"canonical_authority":{"branch_id":f.branch_id,"agent_identity_generation":f.owner_generation.0},"current_intent_id":null},"game_task_control":task});
     let version = snapshot.read_commit.clone();
     let response: ParticipantOwnerControlResponseV1 = serde_json::from_value(json!({"schema_revision":1,"world":world,"version":{"commit":version,"visibility_scope":original.read.request.scope_id,"projection_revision":ws::request_digest("projection",&owner_view).unwrap()},"logical_tick":snapshot.captured_base_binding.base_tick,"view":owner_view})).unwrap();
     response.validate(&original).unwrap();
@@ -159,7 +164,14 @@ fn goal_receipt(command: &Value) -> Value {
         receipt,
     )
 }
-fn main() {
+fn verify_access(body: &Value) {
+    if let Some(access) = body.get("access") {
+        let read: ws::SignedReadRequest<ws::ReadWorldViewRequest> =
+            serde_json::from_value(access["read"].clone()).unwrap();
+        ws::verify_read_request(ws::VIEW_JSON_PATH, &read).unwrap();
+    }
+}
+fn fixture_identity() -> (GoalExecutionSnapshotV1, u8) {
     let snapshot: GoalExecutionSnapshotV1 = serde_json::from_str(include_str!(
         "../../oasis7_game_client/testdata/task-context/native-snapshot.json"
     ))
@@ -168,6 +180,10 @@ fn main() {
     let owner_seed = (0u8..=255)
         .find(|seed| public(*seed) == snapshot.control.owner_public_key)
         .unwrap();
+    (snapshot, owner_seed)
+}
+fn main() {
+    let (snapshot, owner_seed) = fixture_identity();
     let world = snapshot.read_commit.world.clone();
     let mut last_prepared = None;
     let mut prefix = None;
@@ -178,13 +194,19 @@ fn main() {
                 json!({"world":world,"servicePublicKey":public(9),"ownerSeed":owner_seed,"executorSeed":73,"control":snapshot.control})
             }
             "admission" => admission_response(&command, &snapshot),
+            "owner_empty" => owner_response(
+                &serde_json::from_str(command["rawBody"].as_str().unwrap()).unwrap(),
+                &snapshot,
+                true,
+            ),
             "goal_receipt" => goal_receipt(&command),
             "gateway" => {
                 let body: Value =
                     serde_json::from_str(command["rawBody"].as_str().unwrap()).unwrap();
                 let path = command["path"].as_str().unwrap();
+                verify_access(&body);
                 if path == "/participant/owner-view" {
-                    owner_response(&body, &snapshot)
+                    owner_response(&body, &snapshot, false)
                 } else {
                     let operation = &body["operation"];
                     let request = &operation["request"];

@@ -37,7 +37,7 @@ export function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner,
  async function access() {
   active(); const proofs = await participant.getParticipantProofs(); active();
   const agentId = decoded(field(proofs.ownerControl.rawJson, ["view", "canonical_agent_owner", "agent_id"]));
-  const readRaw = JSON.stringify({ contract_version: 1, observation_nonce: hex(cryptoImpl.getRandomValues(new Uint8Array(32))), formal_anchor: null, world: config.world, scope_id: `agent:${agentId}`, min_commit: null, fixed_commit: null, deadline_unix_ms: null });
+  const readRaw = JSON.stringify({ contract_version: 1, observation_nonce: hex(cryptoImpl.getRandomValues(new Uint8Array(32))), world: config.world, scope_id: `agent:${agentId}`, min_commit: null, fixed_commit: null, deadline_unix_ms: null });
   const read = await signed(VIEW, readRaw);
   return `{"owner":${JSON.stringify(proofs.owner)},"admission":${JSON.stringify(proofs.admission)},"read":${read},"response_profile":"owner_control_v1"}`;
  }
