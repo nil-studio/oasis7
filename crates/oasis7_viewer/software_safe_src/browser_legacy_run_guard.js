@@ -10,7 +10,10 @@ export async function assertNoLegacyRun({ client = createViewerModelConnectionCl
   // A missing/unreachable endpoint is not evidence of a disabled deployment.
   if (cap.enabled === false && cap.reason === "deployment_unavailable") return;
   if (cap.enabled !== true || cap.authenticated !== true) reject("legacy_state_unknown");
-  // The client list contract traverses all pages under a stable list cut.
+  if (cap.legacy_execution_policy !== "management_only") reject("legacy_migration_required");
+  // This startup policy forbids legacy workers for every session. The list is
+  // still checked for inconsistent local projections; a session list alone
+  // never proves that another session has no worker.
   const connections = await client.list();
   if (!Array.isArray(connections)) reject("legacy_state_unknown");
   for (const item of connections) {

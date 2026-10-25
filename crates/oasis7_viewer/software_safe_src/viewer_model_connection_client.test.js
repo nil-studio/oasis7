@@ -128,3 +128,10 @@ it.each(["probe", "stop"])("starts a new explicit %s after authoritative non-adm
  const sent=fetch.mock.calls.filter(([url])=>url.endsWith(`/${action}`)).map(([,init])=>JSON.parse(init.body));
  expect(sent.map(v=>[v.operation_id,v.expected_version])).toEqual([["probe-1",1],["probe-2",2]]);
 });
+
+it("preserves only known startup legacy execution policies", async () => {
+ for (const policy of ["management_only", "session_execution", "untrusted-value", undefined]) {
+  const client=createViewerModelConnectionClient({fetch:async()=>response({ok:true,enabled:true,authenticated:true,legacy_execution_policy:policy})});
+  expect((await client.capabilities()).legacy_execution_policy).toBe(["management_only","session_execution"].includes(policy)?policy:"unknown");
+ }
+});

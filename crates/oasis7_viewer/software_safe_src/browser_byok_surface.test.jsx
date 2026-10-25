@@ -124,3 +124,15 @@ it("stops first entry preparation and reopens a fresh generation for read-only r
   expect(view.getByLabelText(/Confirm registration or verification/).checked).toBe(false);
   expect(view.getByRole("button", { name: "Prepare player, Agent and Task" }).disabled).toBe(true);
 });
+
+it("explains that missing server migration policy requires the deployment operator", async () => {
+ const fence={world_id:"world",agent_id:"agent",task_id:"task"};
+ const session={snapshot:()=>({phase:"inspected",ready:false,fence}),subscribe:()=>()=>{},dispose:vi.fn(),prepare:vi.fn(async()=>{throw Object.assign(new Error(),{code:"legacy_migration_required"});}),modelSession:{subscribe:()=>()=>{},snapshot:()=>({hasKey:false})}};
+ const view=render(()=><BrowserByokSurface {...ownerProps} config={{servicePublicKey:"key"}} accountId="account" agentId="agent" ownerSigner={{publicKey:"owner",sign:vi.fn()}} locale="en" createSession={()=>session}/>);
+ await waitFor(()=>expect(view.getByRole("button",{name:"Check task and register executor"})).toBeTruthy());
+ fireEvent.click(view.getByLabelText(/Confirm the existing task/));
+ fireEvent.click(view.getByRole("button",{name:"Check task and register executor"}));
+ await waitFor(()=>expect(view.getByRole("alert").textContent).toContain("Ask the deployment operator to complete migration"));
+ expect(view.getByRole("alert").textContent).toContain("unknown original result");
+ expect(view.getByRole("alert").textContent).not.toContain("legacy_migration_required");
+});

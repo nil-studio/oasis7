@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { assertNoLegacyRun } from "./browser_legacy_run_guard.js";
-const client = (cap = { ok:true,enabled:true,authenticated:true }, items = []) => ({capabilities:vi.fn(async()=>cap),list:vi.fn(async()=>items)});
+const client = (cap = { ok:true,enabled:true,authenticated:true,legacy_execution_policy:"management_only" }, items = []) => ({capabilities:vi.fn(async()=>cap),list:vi.fn(async()=>items)});
 describe("legacy execution migration guard", () => {
  it("allows only explicit deployment disablement without listing", async()=>{
   const api=client({ok:true,enabled:false,reason:"deployment_unavailable"}); await assertNoLegacyRun({client:api}); expect(api.list).not.toHaveBeenCalled();
@@ -17,4 +17,12 @@ describe("legacy execution migration guard", () => {
   api.capabilities.mockRejectedValue(new Error("network")); await expect(assertNoLegacyRun({client:api})).rejects.toMatchObject({code:"legacy_state_unknown"});
   for(const items of [null,[{}],[{state:"ready",run_state:"unknown"}]]) await expect(assertNoLegacyRun({client:client(undefined,items)})).rejects.toMatchObject({code:"legacy_state_unknown"});
  });
+});
+
+it("rejects an empty session list when the server can still start legacy workers", async () => {
+ for (const policy of ["session_execution", "unrecognized", undefined]) {
+  const api=client({ok:true,enabled:true,authenticated:true,legacy_execution_policy:policy},[]);
+  await expect(assertNoLegacyRun({client:api})).rejects.toMatchObject({code:"legacy_migration_required"});
+  expect(api.list).not.toHaveBeenCalled();
+ }
 });
