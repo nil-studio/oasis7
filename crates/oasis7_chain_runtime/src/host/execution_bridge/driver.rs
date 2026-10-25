@@ -1188,7 +1188,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
     }
 
     fn validate_bft_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
-        bft_execution::NodeRuntimeExecutionDriver::validate_bft_action_payload(self, payload)
+        NodeRuntimeExecutionDriver::validate_bft_action_payload(self, payload)
     }
 
     fn commit_bft_certificate(

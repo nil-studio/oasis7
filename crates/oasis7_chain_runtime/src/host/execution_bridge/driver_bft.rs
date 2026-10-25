@@ -63,12 +63,8 @@ impl NodeRuntimeExecutionDriver {
         config: &NodeBftExecutionConfigV1,
     ) -> Result<Option<NodeBftExecutionHeadV1>, String> {
         let validator_set = config.validate()?;
-        if self.bft_execution.is_some() {
+        if let Some(state) = self.bft_execution.as_mut() {
             let (head, genesis_world) = {
-                let state = self
-                    .bft_execution
-                    .as_mut()
-                    .expect("BFT state presence checked above");
                 if state.config != *config || state.validator_set != validator_set {
                     return Err("BFT execution restart changed its pinned configuration".into());
                 }
