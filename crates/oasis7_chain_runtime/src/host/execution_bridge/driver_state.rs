@@ -33,6 +33,9 @@ pub(crate) struct NodeRuntimeExecutionDriver {
     pub(crate) formal_journal_cursors: Vec<(u64, u64)>,
     /// Diagnostic resource identity only; this field grants no write authority.
     pub(crate) resource_identity: Option<ExecutionResourceIdentity>,
+    pub(crate) bft_execution: Option<super::bft_execution::BftExecutionState>,
+    /// Set when a BFT sidecar exists so legacy restore cannot consume it as a Pos history.
+    pub(crate) bft_mode_required: bool,
 }
 
 pub(crate) struct ExecutionResourceIdentity {

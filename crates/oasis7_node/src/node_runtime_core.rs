@@ -20,6 +20,8 @@ use crate::{
     NodeError, NodeExecutionHook, NodeMainTokenControllerBindingConfig,
     NodeMainTokenControllerSignerPolicy, NodeReplicationNetworkHandle, NodeRuntime,
     REPLICATED_EXECUTION_INPUT_ACTION_ID, REPLICATED_EXECUTION_INPUT_SUBMITTER,
+    compute_consensus_action_root, validate_consensus_action_root,
+    validate_replicated_execution_input_actions,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -31,8 +33,11 @@ pub(super) struct RuntimeState {
     pub(super) consensus: NodeConsensusSnapshot,
     pub(super) consensus_progress_observer_error: Option<NodeConsensusProgressObserverError>,
     pub(super) last_error: Option<String>,
+    pub(super) bft_status: Option<crate::node_bft_runtime::NodeBftStatusV1>,
 }
 
+#[path = "node_bft_action_validation.rs"]
+mod bft_action_validation;
 #[path = "node_runtime_gameplay_origin.rs"]
 mod gameplay_origin;
 
@@ -234,6 +239,9 @@ impl fmt::Debug for NodeRuntime {
 }
 
 impl NodeRuntime {
+    /// Shared BFT proposal admission for runtime methods and worker threads.
+    /// The worker must use the same installed execution hook as the runtime so
+    /// governance preflight cannot drift between ingress paths.
     pub fn new(config: NodeConfig) -> Self {
         let feedback_store = config.feedback_p2p.as_ref().and_then(|feedback_config| {
             config.replication.as_ref().map(|replication_config| {
@@ -245,6 +253,7 @@ impl NodeRuntime {
         });
         Self {
             config,
+            bft_config: None,
             local_execution_bootstrap: None,
             local_execution_genesis_bootstrap: None,
             replication_network: None,
@@ -394,6 +403,9 @@ impl NodeRuntime {
                 ),
             });
         }
+        if self.bft_config.is_some() {
+            self.validate_bft_payload_admission(&payload_cbor)?;
+        }
         validate_consensus_action_payload_auth(&self.config, payload_cbor.as_slice())?;
         governance_auth::preflight(self, payload_cbor.as_slice())?;
         let action = NodeConsensusAction::from_payload(
@@ -406,6 +418,11 @@ impl NodeRuntime {
             .pending_consensus_actions
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.bft_config.is_some()
+            && bft_action_validation::reject_conflicting_queue_id(&pending, &action)?
+        {
+            return Ok(());
+        }
         if pending.len() >= self.config.max_pending_consensus_actions {
             return Err(NodeError::Consensus {
                 reason: format!(
@@ -1177,10 +1194,7 @@ mod governance_auth_tests;
 #[path = "node_runtime_governance_auth.rs"]
 mod governance_auth;
 
-/// Canonical-order nonce selection is performed only after the execution
-/// hook has rechecked the payload against the current qualified parent.
-pub(super) fn governance_payload_nonce(payload: &[u8]) -> Result<Option<(String, u64)>, NodeError> {
-    governance_auth::payload_nonce(payload)
-}
+pub(crate) use governance_auth::preflight_with_execution_hook;
+pub(crate) use governance_auth::retain_for_proposal as retain_governance_action_for_proposal;
 
 use governance_auth::validate_consensus_action_payload_auth;

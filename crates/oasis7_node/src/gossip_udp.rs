@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::replication::GossipReplicationMessage;
 use crate::{NodeError, NodeGossipConfig};
+use oasis7_proto::distributed_bft::BftMessageV1;
 
 const MAX_GOSSIP_DATAGRAM_PAYLOAD_BYTES: usize = 65_507;
 const MAX_GOSSIP_RECV_BUFFER_BYTES: usize = 65_535;
@@ -28,6 +29,7 @@ pub(crate) enum GossipMessage {
     Attestation(GossipAttestationMessage),
     CheckpointLineageVote(GossipCheckpointLineageVoteMessage),
     Replication(GossipReplicationMessage),
+    Bft { message: BftMessageV1 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +170,12 @@ impl GossipEndpoint {
         self.broadcast_message(GossipMessage::Replication(message.clone()))
     }
 
+    pub(crate) fn broadcast_bft(&self, message: &BftMessageV1) -> Result<(), NodeError> {
+        self.broadcast_message(GossipMessage::Bft {
+            message: message.clone(),
+        })
+    }
+
     fn broadcast_message(&self, envelope: GossipMessage) -> Result<(), NodeError> {
         let kind = gossip_message_kind_label(&envelope);
         let bytes = serde_json::to_vec(&envelope).map_err(|err| NodeError::Gossip {
@@ -242,11 +250,20 @@ impl GossipEndpoint {
     }
 
     pub(crate) fn drain_messages(&self) -> Result<Vec<ReceivedGossipMessage>, NodeError> {
+        self.drain_messages_limited(usize::MAX)
+    }
+
+    pub(crate) fn drain_messages_limited(
+        &self,
+        max_messages: usize,
+    ) -> Result<Vec<ReceivedGossipMessage>, NodeError> {
         let mut buf = [0u8; MAX_GOSSIP_RECV_BUFFER_BYTES];
         let mut messages = Vec::new();
-        loop {
+        let mut datagrams = 0usize;
+        while datagrams < max_messages {
             match self.socket.recv_from(&mut buf) {
                 Ok((size, from)) => {
+                    datagrams = datagrams.saturating_add(1);
                     let payload = &buf[..size];
                     if let Ok(message) = serde_json::from_slice::<GossipMessage>(payload) {
                         self.record_inbound(gossip_message_kind_label(&message), size);
@@ -409,6 +426,7 @@ fn gossip_message_kind_label(message: &GossipMessage) -> &'static str {
         GossipMessage::Attestation(_) => "attestation",
         GossipMessage::CheckpointLineageVote(_) => "checkpoint_lineage_vote",
         GossipMessage::Replication(_) => "replication",
+        GossipMessage::Bft { .. } => "bft",
     }
 }
 
@@ -489,11 +507,33 @@ fn now_unix_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::net::UdpSocket;
     use std::thread;
     use std::time::Duration;
 
     use super::*;
     use crate::NodeGossipConfig;
+
+    #[test]
+    fn bft_envelope_roundtrips_without_colliding_with_legacy_kind_tag() {
+        let message = GossipMessage::Bft {
+            message: BftMessageV1::HistoryRequest(
+                oasis7_proto::distributed_bft::BftHistoryRequestV1 {
+                    scope: oasis7_proto::distributed_bft::BftScopeV1 {
+                        world_id: "w".into(),
+                        chain_id: "c".into(),
+                        genesis_hash: "11".repeat(32),
+                    },
+                    validator_set_hash: "22".repeat(32),
+                    after_height: 0,
+                    after_block_id: "11".repeat(32),
+                },
+            ),
+        };
+        let bytes = serde_json::to_vec(&message).expect("encode BFT envelope");
+        let decoded: GossipMessage = serde_json::from_slice(&bytes).expect("decode same envelope");
+        assert_eq!(decoded, message);
+    }
 
     fn gossip_config(bind_addr: SocketAddr, peers: Vec<SocketAddr>) -> NodeGossipConfig {
         NodeGossipConfig {
@@ -560,6 +600,47 @@ mod tests {
                 .map(|lane| lane.inbound.datagrams),
             Some(1)
         );
+    }
+
+    #[test]
+    fn limited_drain_counts_malformed_datagrams_toward_its_budget() {
+        let endpoint = GossipEndpoint::bind(&gossip_config(
+            "127.0.0.1:0".parse().expect("loopback address"),
+            Vec::new(),
+        ))
+        .expect("endpoint");
+        let destination = endpoint.socket.local_addr().expect("endpoint address");
+        let sender = UdpSocket::bind("127.0.0.1:0").expect("sender socket");
+        for _ in 0..3 {
+            sender
+                .send_to(b"not a gossip message", destination)
+                .expect("send malformed datagram");
+        }
+        let valid = GossipMessage::Hello(GossipHelloMessage {
+            version: 1,
+            world_id: "world".into(),
+            node_id: "node".into(),
+            sent_at_ms: 1,
+        });
+        sender
+            .send_to(
+                serde_json::to_vec(&valid)
+                    .expect("encode valid gossip")
+                    .as_slice(),
+                destination,
+            )
+            .expect("send valid datagram");
+        thread::sleep(Duration::from_millis(20));
+
+        assert!(
+            endpoint
+                .drain_messages_limited(2)
+                .expect("bounded malformed drain")
+                .is_empty()
+        );
+        let remaining = endpoint.drain_messages().expect("drain remaining packets");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].message, valid);
     }
 
     #[test]

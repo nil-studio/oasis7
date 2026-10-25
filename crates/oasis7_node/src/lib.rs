@@ -52,6 +52,11 @@ mod network_bridge;
 mod network_bridge_gap_sync_budget;
 mod network_bridge_gap_sync_observability;
 mod network_error_classification;
+mod node_bft_exports;
+#[cfg(test)]
+mod node_bft_integration_tests;
+mod node_bft_runtime;
+mod node_bft_wal;
 mod node_engine_core;
 mod node_engine_execution;
 mod node_engine_gap_sync_outcome;
@@ -73,6 +78,7 @@ mod node_engine_slashing;
 mod node_engine_storage_challenge;
 mod node_engine_transfer_filter;
 mod node_runtime_batch_retention;
+mod node_runtime_committed_batches;
 mod node_runtime_core;
 mod node_runtime_lifecycle;
 mod node_runtime_local_bootstrap;
@@ -102,17 +108,6 @@ use consensus_support::{
     verify_commit_message_signature, verify_proposal_message_signature,
 };
 pub use error::NodeError;
-pub use execution_hook::{
-    NodeExecutionBootstrap, NodeExecutionCheckpointBlob, NodeExecutionCheckpointBlobRef,
-    NodeExecutionCheckpointBundle, NodeExecutionCheckpointDescriptor,
-    NodeExecutionCheckpointInstallContext, NodeExecutionCommitContext, NodeExecutionCommitOutcome,
-    NodeExecutionCommitResult, NodeExecutionGenesisBootstrap, NodeExecutionHook,
-    NodeLocalExecutionContinuation, NodeReplicatedExecutionInputV1,
-    PROVIDER_BACKED_BOOTSTRAP_EXECUTION_INPUT_KIND, REPLICATED_EXECUTION_INPUT_ACTION_ID,
-    REPLICATED_EXECUTION_INPUT_SUBMITTER, REPLICATED_EXECUTION_INPUT_VERSION,
-    bind_replicated_execution_input_action, decode_replicated_execution_input_action,
-    validate_replicated_execution_input_actions,
-};
 use gossip_udp::{
     GossipAttestationMessage, GossipCommitMessage, GossipEndpoint, GossipMessage,
     GossipProposalMessage,
@@ -121,6 +116,7 @@ pub use gossip_udp::{
     GossipTrafficDirectionMetricsSnapshot, GossipTrafficLaneMetricsSnapshot,
     GossipTrafficMetricsSnapshot,
 };
+pub use node_bft_exports::*;
 #[cfg(feature = "libp2p")]
 mod libp2p_network_exports;
 #[cfg(feature = "libp2p")]
@@ -238,6 +234,7 @@ fn with_execution_hook<T>(
 
 pub struct NodeRuntime {
     config: NodeConfig,
+    bft_config: Option<node_bft_runtime::NodeBftConfigV1>,
     local_execution_bootstrap: Option<execution_hook::NodeExecutionBootstrap>,
     local_execution_genesis_bootstrap: Option<execution_hook::NodeExecutionGenesisBootstrap>,
     replication_network: Option<NodeReplicationNetworkHandle>,
@@ -268,24 +265,15 @@ pub struct NodeCommittedActionBatchesHandle {
     state: Arc<(Mutex<Vec<NodeCommittedActionBatch>>, Condvar)>,
 }
 
-impl NodeCommittedActionBatchesHandle {
-    pub fn wait_for_batches(&self, timeout: Duration) -> bool {
-        let (batches_lock, signal) = &*self.state;
-        let batches = batches_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !batches.is_empty() {
-            return true;
-        }
-        let (batches, _) = signal
-            .wait_timeout_while(batches, timeout, |pending| pending.is_empty())
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        !batches.is_empty()
-    }
-}
-
 impl NodeRuntime {
     pub fn start(&mut self) -> Result<(), NodeError> {
+        if self.bft_config.is_some() {
+            return node_bft_runtime::start(self);
+        }
+        self.start_pos()
+    }
+
+    fn start_pos(&mut self) -> Result<(), NodeError> {
         let pending_consensus_actions = self
             .pending_consensus_actions
             .lock()

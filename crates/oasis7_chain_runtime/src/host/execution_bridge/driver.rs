@@ -14,7 +14,6 @@ use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, LocalCasStore, RuntimeCommittedTickContext,
     World as RuntimeWorld, WorldError, blake3_hex,
 };
-use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter, WorldEventKind};
 use oasis7_wasm_abi::ModuleSandbox;
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
 
@@ -62,6 +61,16 @@ use crate::execution_config::{
 mod state;
 pub(crate) use state::{ExecutionResourceIdentity, NodeRuntimeExecutionDriver};
 
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "driver_bft.rs"]
+mod bft_execution;
+#[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+#[path = "driver_bft_unsupported.rs"]
+mod bft_execution;
+
+#[path = "driver_simulator_actions.rs"]
+mod simulator_actions;
+
 #[path = "driver_construction.rs"]
 mod construction;
 #[path = "driver_formal_retention.rs"]
@@ -80,6 +89,39 @@ impl NodeRuntimeExecutionDriver {
         config: ExecutionDriverConfig,
         local_execution_bootstrap: Option<NodeExecutionBootstrap>,
     ) -> Result<Self, String> {
+        // A BFT sidecar is an execution-mode fence. Do not let legacy startup
+        // clean partial World files, restore Pos records, or reconcile checkpoint
+        // transactions before NodeRuntime supplies the fixed BFT configuration.
+        if Self::has_bft_material(records_dir.as_path())? {
+            if local_execution_bootstrap.is_some()
+                || config.devlocal_participant.authority.is_some()
+                || config.devlocal_participant.startup.is_some()
+            {
+                return Err("BFT execution cannot start with local or DevLocal bootstrap".into());
+            }
+            let execution_world = oasis7::runtime_host::world::new_production_hardened()
+                .with_release_security_policy(config.release_security_policy.clone());
+            let execution_sandbox: Box<dyn ModuleSandbox + Send> = Box::new(
+                WasmExecutor::new(WasmExecutorConfig::default())
+                    .map_err(|error| error.to_string())?,
+            );
+            let mut driver = Self::new_with_sandbox(
+                state_path,
+                world_dir,
+                records_dir,
+                storage_root,
+                ExecutionBridgeState::default(),
+                execution_world,
+                execution_sandbox,
+                config.hot_window_heights,
+                config.checkpoint_interval_heights,
+                config.checkpoint_keep_latest,
+            );
+            driver.devlocal_participant = config.devlocal_participant;
+            driver.bft_mode_required = true;
+            return Ok(driver);
+        }
+
         let checkpoint_install_transaction =
             super::driver_checkpoint_install::load_checkpoint_install_transaction(
                 records_dir.as_path(),
@@ -246,107 +288,9 @@ impl NodeRuntimeExecutionDriver {
             formal_unpruned_journal: None,
             formal_journal_cursors: Vec::new(),
             resource_identity: None,
+            bft_execution: None,
+            bft_mode_required: false,
         }
-    }
-
-    fn apply_simulator_actions(
-        &mut self,
-        context: &NodeExecutionCommitContext,
-        simulator_actions: &[(SimulatorAction, ActionSubmitter)],
-    ) -> Result<
-        (
-            Option<ExecutionSimulatorMirrorRecord>,
-            SimulatorMirrorCommitObservation,
-        ),
-        String,
-    > {
-        let height = context.height;
-        if simulator_actions.is_empty() {
-            return Ok((None, SimulatorMirrorCommitObservation::default()));
-        }
-
-        let mut rejected_action_count = 0_usize;
-        for (action, submitter) in simulator_actions {
-            match submitter {
-                ActionSubmitter::System => {
-                    self.simulator_mirror
-                        .submit_action_from_system(action.clone());
-                }
-                ActionSubmitter::Agent { agent_id } => {
-                    self.simulator_mirror
-                        .submit_action_from_agent(agent_id.clone(), action.clone());
-                }
-                ActionSubmitter::Player { player_id } => {
-                    self.simulator_mirror
-                        .submit_action_from_player(player_id.clone(), action.clone());
-                }
-            }
-
-            let event = self.simulator_mirror.step().ok_or_else(|| {
-                format!(
-                    "execution driver simulator mirror step produced no event at height={height}"
-                )
-            })?;
-            if matches!(event.kind, WorldEventKind::ActionRejected { .. }) {
-                rejected_action_count = rejected_action_count.saturating_add(1);
-            }
-        }
-
-        let resource_commit_hash = execution_resource_commit_hash(&context.world_id, height);
-        let resource_context = ChainResourceDerivationContext {
-            world_id: context.world_id.as_str(),
-            chain_id: context.world_id.as_str(),
-            genesis_ref: None,
-            created_at_height: 0,
-            manifest_height: context.height,
-            commit_block_hash: Some(resource_commit_hash.as_str()),
-            tick: self.simulator_mirror.time(),
-        };
-        let snapshot_value = self
-            .simulator_mirror
-            .snapshot_with_chain_resource_context(resource_context);
-        let journal_value = self.simulator_mirror.journal_snapshot();
-        let snapshot_bytes = super::to_cbor(snapshot_value)?;
-        let journal_bytes = super::to_cbor(journal_value)?;
-
-        let snapshot_ref = self
-            .execution_store
-            .put_bytes(snapshot_bytes.as_slice())
-            .map_err(|err| {
-                format!(
-                    "execution driver simulator CAS snapshot put failed: {:?}",
-                    err
-                )
-            })?;
-        let journal_ref = self
-            .execution_store
-            .put_bytes(journal_bytes.as_slice())
-            .map_err(|err| {
-                format!(
-                    "execution driver simulator CAS journal put failed: {:?}",
-                    err
-                )
-            })?;
-        let state_root = blake3_hex(snapshot_bytes.as_slice());
-
-        let observation = SimulatorMirrorCommitObservation {
-            action_count: simulator_actions.len(),
-            rejected_action_count,
-            snapshot_bytes: snapshot_bytes.len(),
-            journal_bytes: journal_bytes.len(),
-        };
-
-        Ok((
-            Some(ExecutionSimulatorMirrorRecord {
-                action_count: simulator_actions.len(),
-                rejected_action_count,
-                journal_len: self.simulator_mirror.journal().len(),
-                snapshot_ref,
-                journal_ref,
-                state_root,
-            }),
-            observation,
-        ))
     }
 }
 
@@ -355,26 +299,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         &mut self,
         context: &NodeExecutionCommitContext,
     ) -> Result<Option<i64>, String> {
-        if context.proposer_id != context.node_id
-            || context.height != self.state.last_applied_committed_height
-        {
-            return Ok(None);
-        }
-        let record = load_execution_bridge_record(
-            execution_bridge_record_path(self.records_dir.as_path(), context.height).as_path(),
-        )?;
-        if record.schema_version < super::EXECUTION_BRIDGE_RECORD_SCHEMA_V3
-            || record.height != context.height
-            || record.world_id != context.world_id
-        {
-            return Err(
-                "retained local commit requires an exact schema-v3 world/height record".into(),
-            );
-        }
-        let mut original = context.clone();
-        original.committed_at_unix_ms = record.timestamp_ms;
-        self.validate_equal_height_replay_identity(&record, &original)?;
-        Ok(Some(record.timestamp_ms))
+        self.recover_retained_local_commit_time(context)
     }
 
     fn validate_governance_action_payload(&self, payload_cbor: &[u8]) -> Result<(), String> {
@@ -394,6 +319,9 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         expected_execution_block_hash: Option<&str>,
         expected_execution_state_root: Option<&str>,
     ) -> Result<NodeExecutionCommitResult, String> {
+        if self.bft_mode_required || self.bft_execution.is_some() {
+            return Err("legacy Pos execution is disabled by the durable BFT mode fence".into());
+        }
         if context.height < self.state.last_applied_committed_height {
             let stale_state_height = self.state.last_applied_committed_height;
             if !self
@@ -1119,6 +1047,9 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
     }
 
     fn restore_to_height(&mut self, world_id: &str, height: u64) -> Result<bool, String> {
+        if self.bft_mode_required || self.bft_execution.is_some() {
+            return Err("legacy Pos restore is disabled by the durable BFT mode fence".into());
+        }
         self.restore_execution_head_from_record(world_id, height)
     }
 
@@ -1126,6 +1057,9 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         &mut self,
         height: u64,
     ) -> Result<Option<NodeExecutionCheckpointBundle>, String> {
+        if self.bft_mode_required || self.bft_execution.is_some() {
+            return Ok(None);
+        }
         let record_path = execution_bridge_record_path(self.records_dir.as_path(), height);
         if !record_path.exists() {
             return Ok(None);
@@ -1185,7 +1119,64 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         context: NodeExecutionCheckpointInstallContext,
         bundle: NodeExecutionCheckpointBundle,
     ) -> Result<NodeExecutionCommitResult, String> {
+        if self.bft_mode_required || self.bft_execution.is_some() {
+            return Err(
+                "legacy checkpoint install is disabled by the durable BFT mode fence".into(),
+            );
+        }
         super::driver_checkpoint_install::install_checkpoint_bundle(self, context, bundle)
+    }
+
+    fn configure_bft_execution(
+        &mut self,
+        config: &oasis7_node::NodeBftExecutionConfigV1,
+    ) -> Result<Option<oasis7_node::NodeBftExecutionHeadV1>, String> {
+        self.configure_bft(config)
+    }
+
+    fn current_bft_execution_context(
+        &mut self,
+        scope: &oasis7_node::BftScopeV1,
+        height: u64,
+        parent_commit_ref: &str,
+        authority_epoch: u64,
+    ) -> Result<oasis7_node::NodeBftExecutionContextV1, String> {
+        self.current_bft_context(scope, height, parent_commit_ref, authority_epoch)
+    }
+
+    fn load_bft_commit_history_page(
+        &mut self,
+        config: &oasis7_node::NodeBftExecutionConfigV1,
+        after_height: u64,
+        max_entries: usize,
+    ) -> Result<Vec<oasis7_node::BftCommitCertificateV1>, String> {
+        self.bft_history_page(config, after_height, max_entries)
+    }
+
+    fn build_bft_candidate(
+        &mut self,
+        context: oasis7_node::NodeBftBuildContextV1,
+    ) -> Result<oasis7_node::BftBlockV1, String> {
+        self.build_bft(context)
+    }
+
+    fn preview_bft_candidate(
+        &mut self,
+        expected: &oasis7_node::NodeBftExecutionContextV1,
+        candidate: &oasis7_node::BftBlockV1,
+    ) -> Result<(), String> {
+        self.preview_bft(expected, candidate)
+    }
+
+    fn validate_bft_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
+        NodeRuntimeExecutionDriver::validate_bft_action_payload(self, payload)
+    }
+
+    fn commit_bft_certificate(
+        &mut self,
+        certificate: oasis7_node::VerifiedBftCommitCertificateV1,
+    ) -> Result<oasis7_node::NodeBftExecutionCommitResultV1, String> {
+        self.commit_bft(certificate)
     }
 }
 

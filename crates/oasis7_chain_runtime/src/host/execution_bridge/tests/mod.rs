@@ -38,6 +38,10 @@ mod determinism;
 mod driver;
 mod driver_authoritative_recovery;
 mod retained_commit_time;
+#[cfg(all(unix, feature = "wasmtime"))]
+pub(super) mod driver_bft;
+#[cfg(all(unix, feature = "wasmtime"))]
+mod driver_bft_node_runtime;
 mod driver_checkpoint;
 mod driver_checkpoint_profile;
 mod driver_checkpoint_transaction;

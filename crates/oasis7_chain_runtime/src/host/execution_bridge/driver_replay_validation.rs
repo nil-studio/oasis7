@@ -1,5 +1,6 @@
 use oasis7_node::NodeExecutionCommitContext;
 
+use super::checkpoint::{execution_bridge_record_path, load_execution_bridge_record};
 use super::driver::NodeRuntimeExecutionDriver;
 use super::external_effect::load_execution_external_effect_materialization;
 use super::{
@@ -7,6 +8,35 @@ use super::{
 };
 
 impl NodeRuntimeExecutionDriver {
+    pub(super) fn recover_retained_local_commit_time(
+        &mut self,
+        context: &NodeExecutionCommitContext,
+    ) -> Result<Option<i64>, String> {
+        if self.bft_mode_required || self.bft_execution.is_some() {
+            return Err("legacy Pos commit-time recovery is disabled by the BFT mode fence".into());
+        }
+        if context.proposer_id != context.node_id
+            || context.height != self.state.last_applied_committed_height
+        {
+            return Ok(None);
+        }
+        let record = load_execution_bridge_record(
+            execution_bridge_record_path(self.records_dir.as_path(), context.height).as_path(),
+        )?;
+        if record.schema_version < super::EXECUTION_BRIDGE_RECORD_SCHEMA_V3
+            || record.height != context.height
+            || record.world_id != context.world_id
+        {
+            return Err(
+                "retained local commit requires an exact schema-v3 world/height record".into(),
+            );
+        }
+        let mut original = context.clone();
+        original.committed_at_unix_ms = record.timestamp_ms;
+        self.validate_equal_height_replay_identity(&record, &original)?;
+        Ok(Some(record.timestamp_ms))
+    }
+
     pub(super) fn validate_equal_height_replay_identity(
         &self,
         record: &ExecutionBridgeRecord,
