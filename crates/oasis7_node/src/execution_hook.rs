@@ -352,6 +352,16 @@ pub trait NodeExecutionHook: Send {
         self.on_commit(context)
     }
 
+    /// Recover the timestamp of an already durable local decision only after
+    /// verifying its complete identity. Network and guarded execution do not
+    /// use this seam; ordinary hooks without retained history return None.
+    fn retained_local_commit_time(
+        &mut self,
+        _context: &NodeExecutionCommitContext,
+    ) -> Result<Option<i64>, String> {
+        Ok(None)
+    }
+
     /// Opt-in engineering seam. Its captured local decision must be durable
     /// before candidate execution begins. Ordinary/network hooks do not opt in.
     fn guarded_local_execution(&self) -> bool {

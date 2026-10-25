@@ -351,6 +351,32 @@ impl NodeRuntimeExecutionDriver {
 }
 
 impl NodeExecutionHook for NodeRuntimeExecutionDriver {
+    fn retained_local_commit_time(
+        &mut self,
+        context: &NodeExecutionCommitContext,
+    ) -> Result<Option<i64>, String> {
+        if context.proposer_id != context.node_id
+            || context.height != self.state.last_applied_committed_height
+        {
+            return Ok(None);
+        }
+        let record = load_execution_bridge_record(
+            execution_bridge_record_path(self.records_dir.as_path(), context.height).as_path(),
+        )?;
+        if record.schema_version < super::EXECUTION_BRIDGE_RECORD_SCHEMA_V3
+            || record.height != context.height
+            || record.world_id != context.world_id
+        {
+            return Err(
+                "retained local commit requires an exact schema-v3 world/height record".into(),
+            );
+        }
+        let mut original = context.clone();
+        original.committed_at_unix_ms = record.timestamp_ms;
+        self.validate_equal_height_replay_identity(&record, &original)?;
+        Ok(Some(record.timestamp_ms))
+    }
+
     fn validate_governance_action_payload(&self, payload_cbor: &[u8]) -> Result<(), String> {
         super::governance_authorization::validate_payload(&self.execution_world, payload_cbor)
     }

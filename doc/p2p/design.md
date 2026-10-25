@@ -272,6 +272,14 @@ Config is limited to 64 KiB and original proof JSON to 64 MiB; the existing clos
 
 Ordinary process regression seals an isolated engineering fixture before invocation, exercises early dispatch in a child process for success and failures, and verifies unchanged input bytes and directory contents. The same regression also invokes the actual built chain binary when `OASIS7_BOOTSTRAP_CLI_TEST_BINARY` is explicitly provided during final verification. The internal ignored child helper is invoked by the always-running parent; it is not an omitted acceptance test. Run `cargo test -p oasis7_chain_runtime --bin oasis7_chain_runtime --no-default-features --features node-libp2p,wasmtime,test_tier_required controlled_bootstrap_cli`.
 
+#### des-p2p-devlocal-retained-commit-recovery
+
+Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607 ([AC-DWE-001](../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-001)).
+
+An ordinary DevLocal local decision can outlive the Node acknowledgement after its execution record is durable. Before executing that same local committed decision again, the execution hook may recover its original timestamp from the retained schema-v3 record only after checking the complete decision identity against its authoritative external-effect material (world/node/proposer, height, block, action root, slot/epoch and action anchors). The recovered time must also be used for subsequent replication and Node commit metadata. A conflicting or incomplete retained identity fails closed; no replacement action, timestamp rewrite or second execution is permitted. Direct execution replay continues to reject timestamp changes.
+
+This narrow ordinary local recovery seam does not authorize network history, checkpoint-install records, legacy records, or guarded/formal continuations. Those keep their existing explicit original-context and proof contracts. It repairs continuation of an already durable matching decision; it does not make execution and Node persistence a single atomic transaction or certify an online repair.
+
 #### des-p2p-guarded-local-initial-execution-prerequisite
 
 Deployment is deferred by the user. The explicit `dev guarded-world --config <external-json>` engineering command installs the existing NodeRuntime execution hook and existing signed WorldService HTTP protocol. It does not activate the planned manifest-v2 formal profile, claim independent hardware fault domains, create an issuer/world/genesis identity, or enable Viewer/production-launcher consumption. Ordinary startup and ordinary client assurance retain their existing fail-closed boundaries.
