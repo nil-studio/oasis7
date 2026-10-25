@@ -1843,7 +1843,7 @@ async function probeBrowserModel(options = {}) {
 }
 //#endregion
 //#region software_safe_src/browser_model_session.js
-function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windowRef = globalThis.window, documentRef = globalThis.document, navigatorRef = globalThis.navigator } = {}) {
+function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windowRef = globalThis.window, documentRef = globalThis.document, navigatorRef = globalThis.navigator, now = Date.now, monotonicNow = () => globalThis.performance.now() } = {}) {
 	const store = createBrowserModelStore({
 		accountId,
 		storage,
@@ -1851,6 +1851,14 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 	});
 	const listeners = /* @__PURE__ */ new Set();
 	let controller, generation = 0, disposed = false, checking = false, verifiedRevision = null;
+	let lastWall = now(), lastMonotonic = monotonicNow();
+	function sampleClock() {
+		const wall = now(), monotonic = monotonicNow();
+		const gap = wall - lastWall > 1e4 || monotonic - lastMonotonic > 1e4 || wall < lastWall || monotonic < lastMonotonic;
+		lastWall = wall;
+		lastMonotonic = monotonic;
+		return gap;
+	}
 	const notify = () => {
 		for (const listener of listeners) listener();
 	};
@@ -1874,6 +1882,13 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 	const pagehide = () => {
 		stop().catch(() => notify());
 	};
+	const wake = () => {
+		sampleClock();
+		pagehide();
+	};
+	const clockTimer = setInterval(() => {
+		if (sampleClock() && checking) pagehide();
+	}, 1e3);
 	const storageChanged = (event) => {
 		if (event.key === null || event.key === store.storageKey) {
 			cancel();
@@ -1885,6 +1900,8 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 		}
 	};
 	documentRef?.addEventListener("visibilitychange", hidden);
+	documentRef?.addEventListener("freeze", wake);
+	documentRef?.addEventListener("resume", wake);
 	windowRef?.addEventListener("offline", hidden);
 	windowRef?.addEventListener("pagehide", pagehide);
 	windowRef?.addEventListener("storage", storageChanged);
@@ -1918,6 +1935,8 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 			if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) throw new BrowserModelStoreError("page_inactive");
 			checking = true;
 			notify();
+			lastWall = now();
+			lastMonotonic = monotonicNow();
 			const currentGeneration = ++generation;
 			try {
 				const started = await store.beginProbe(revision);
@@ -1926,6 +1945,7 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 				active.revision = started.revision;
 				controller = active;
 				const assertCurrent = () => {
+					if (sampleClock()) stop().catch(() => notify());
 					if (disposed || active.signal.aborted || generation !== currentGeneration || documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) throw new BrowserModelStoreError("stopped");
 				};
 				const result = await probeBrowserModel({
@@ -1966,7 +1986,10 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 			cancel();
 			unsubscribe();
 			listeners.clear();
+			clearInterval(clockTimer);
 			documentRef?.removeEventListener("visibilitychange", hidden);
+			documentRef?.removeEventListener("freeze", wake);
+			documentRef?.removeEventListener("resume", wake);
 			windowRef?.removeEventListener("offline", hidden);
 			windowRef?.removeEventListener("pagehide", pagehide);
 			windowRef?.removeEventListener("storage", storageChanged);
