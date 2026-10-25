@@ -115,6 +115,32 @@ jobs:
             --module-set "${{ matrix.module_set }}" \
             --runner-label "${{ matrix.runner_label }}" \
             --out "output/ci/${{ matrix.module_set }}-wasm-summary/${{ matrix.runner_label }}.json"
+      # Diagnostic branch only: preserve actual failed-check build outputs.
+      # The original checker remains failing and no deployment/write permission is added.
+      - name: Record diagnostic build source
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        run: |
+          mkdir -p output/ci/builtin-receipts
+          git rev-parse HEAD > output/ci/builtin-receipts/source.txt
+          git rev-parse HEAD^{tree} > output/ci/builtin-receipts/tree.txt
+          sha256sum Cargo.toml Cargo.lock > output/ci/builtin-receipts/workspace-inputs.sha256
+      - name: Preserve actual canonical build receipts
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostic-builtin-receipts-${{ matrix.module_set }}
+          include-hidden-files: true
+          path: |
+            .tmp/builtin-wasm-sync-modules/${{ matrix.module_set }}.*.wasm
+            .tmp/builtin-wasm-sync-modules/${{ matrix.module_set }}.*.metadata.json
+            .tmp/builtin-wasm-sync-modules/${{ matrix.module_set }}.*.build-receipt.json
+            output/ci/builtin-receipts
+            crates/oasis7_runtime/src/world/artifacts/${{ matrix.module_set }}_builtin_module_ids.txt
+            crates/oasis7_runtime/src/world/artifacts/${{ matrix.module_set }}_builtin_modules.sha256
+            crates/oasis7_runtime/src/world/artifacts/${{ matrix.module_set }}_builtin_modules.identity.json
+            crates/oasis7_runtime/src/world/artifacts/builtin_module_manifest_map.txt
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload ${{ matrix.module_set }} summary artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
