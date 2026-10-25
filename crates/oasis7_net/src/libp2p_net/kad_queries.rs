@@ -19,6 +19,7 @@ use super::peer_record_admission::{
 #[cfg(test)]
 use super::receiver_floor::PeerRecordReceiver;
 use super::receiver_floor::{ReceiverAdmission, SharedPeerRecordReceiver};
+use super::rendezvous_trigger::RendezvousTriggerContext;
 
 fn decode_peer_record_for_target(
     payload: &[u8],
@@ -99,6 +100,7 @@ pub(super) enum PendingDhtQuery {
         upstream: Option<PeerId>,
         record: Option<AdmittedPeerRecord>,
         error: Option<WorldError>,
+        rendezvous_triggers: Option<RendezvousTriggerContext>,
     },
 }
 
@@ -124,6 +126,7 @@ pub(super) enum DhtProgressAction {
         peer_id: PeerId,
         upstream: Option<PeerId>,
         result: Box<Result<Option<AdmittedPeerRecord>, WorldError>>,
+        rendezvous_triggers: Option<RendezvousTriggerContext>,
     },
 }
 
@@ -475,6 +478,7 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
             upstream,
             record,
             error,
+            rendezvous_triggers,
         } => {
             match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(found))) => {
@@ -521,6 +525,7 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     peer_id: *peer_id,
                     upstream: *upstream,
                     result: Box::new(result),
+                    rendezvous_triggers: rendezvous_triggers.clone(),
                 };
             }
         }

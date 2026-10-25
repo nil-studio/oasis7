@@ -213,6 +213,7 @@ fn admitted_list_and_128_peer_record_candidates_fit_one_actual_response_path() {
                 ask_peer: upstream,
                 peer_id,
                 tried_proxies: vec![upstream],
+                rendezvous_triggers: None,
             },
             upstream,
             payload.as_slice(),

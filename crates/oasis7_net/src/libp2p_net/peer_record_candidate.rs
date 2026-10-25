@@ -13,6 +13,7 @@ use super::peer_manager::{
 use super::peer_record::validate_discovered_peer_record;
 use super::peer_record_admission::{AdmittedPeerRecord, PeerRecordAdmissionWorkUnit};
 use super::peer_record_cache::PeerRecordCache;
+use super::rendezvous_trigger::RendezvousTriggerContext;
 use super::swarm_behaviour::Behaviour;
 use super::transport_paths::{
     TransportPath, dial_transport_path, peer_record_transport_paths,
@@ -47,6 +48,7 @@ impl From<WorldError> for PeerRecordInstallError {
     clippy::too_many_arguments,
     reason = "Candidate installation must consume the authenticated ingress permit at the shared mutation boundary"
 )]
+#[cfg(test)]
 pub(super) fn install_admitted_peer_record(
     swarm: &mut Swarm<Behaviour>,
     discovered_peer_records: &mut PeerRecordCache,
@@ -63,8 +65,7 @@ pub(super) fn install_admitted_peer_record(
     work_unit: PeerRecordAdmissionWorkUnit,
     ingress: super::peer_discovery_observations::DiscoveryIngress,
 ) -> Result<(), PeerRecordInstallError> {
-    let record: SignedPeerRecord = admitted.consume(actual_source, work_unit)?;
-    process_signed_peer_record(
+    install_admitted_peer_record_with_rendezvous_triggers(
         swarm,
         discovered_peer_records,
         discovery_observations,
@@ -75,15 +76,132 @@ pub(super) fn install_admitted_peer_record(
         template,
         peer_manager_policy,
         static_bootstrap_peer_ids,
-        record,
+        admitted,
+        actual_source,
+        work_unit,
         ingress,
+        None,
     )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Candidate installation preserves the shared admission mutation boundary"
+)]
+pub(super) fn install_admitted_peer_record_with_rendezvous_triggers(
+    swarm: &mut Swarm<Behaviour>,
+    discovered_peer_records: &mut PeerRecordCache,
+    discovery_observations: &mut DiscoveryObservations,
+    known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    active_transport_paths: &HashMap<PeerId, TransportPath>,
+    failed_transport_path_labels: &mut HashSet<String>,
+    template: Option<&PeerRecord>,
+    peer_manager_policy: &PeerManagerPolicy,
+    static_bootstrap_peer_ids: &HashSet<PeerId>,
+    admitted: AdmittedPeerRecord,
+    actual_source: Option<PeerId>,
+    work_unit: PeerRecordAdmissionWorkUnit,
+    ingress: DiscoveryIngress,
+    rendezvous_triggers: Option<&RendezvousTriggerContext>,
+) -> Result<(), PeerRecordInstallError> {
+    let evidence = rendezvous_triggers
+        .filter(|triggers| {
+            actual_source.is_some()
+                && triggers.target().to_string() == admitted.record().record.peer_id
+        })
+        .map(|triggers| triggers.active_evidence(std::time::Instant::now()))
+        .unwrap_or_default();
+    let result = admitted
+        .consume(actual_source, work_unit)
+        .map_err(PeerRecordInstallError::from)
+        .and_then(|record| {
+            process_signed_peer_record_with_rendezvous_triggers(
+                swarm,
+                discovered_peer_records,
+                discovery_observations,
+                known_transport_paths,
+                last_dialed_transport_paths,
+                active_transport_paths,
+                failed_transport_path_labels,
+                template,
+                peer_manager_policy,
+                static_bootstrap_peer_ids,
+                record,
+                ingress,
+                &evidence,
+            )
+        });
+    if let Some(triggers) = rendezvous_triggers {
+        // Completing either a live admission or a tombstone consumes the one-shot
+        // association for every concurrent DHT/RR path sharing this context.
+        triggers.clear();
+    }
+    result
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "A DHT candidate is committed with its exact ingress and local rendezvous association"
+)]
+pub(super) fn install_dht_discovered_peer_record(
+    swarm: &mut Swarm<Behaviour>,
+    discovered_peer_records: &mut PeerRecordCache,
+    discovery_observations: &mut DiscoveryObservations,
+    known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    active_transport_paths: &HashMap<PeerId, TransportPath>,
+    failed_transport_path_labels: &mut HashSet<String>,
+    template: Option<&PeerRecord>,
+    peer_manager_policy: &PeerManagerPolicy,
+    static_bootstrap_peer_ids: &HashSet<PeerId>,
+    admitted: AdmittedPeerRecord,
+    upstream: Option<PeerId>,
+    rendezvous_triggers: Option<&RendezvousTriggerContext>,
+    event_errors: &std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    max_error_messages: usize,
+) -> Result<(), PeerRecordInstallError> {
+    let observed_record = admitted.record().clone();
+    let attempt_evidence = super::rendezvous_trigger::active_attempt_evidence(
+        &observed_record,
+        upstream,
+        rendezvous_triggers,
+    );
+    install_admitted_peer_record_with_rendezvous_triggers(
+        swarm,
+        discovered_peer_records,
+        discovery_observations,
+        known_transport_paths,
+        last_dialed_transport_paths,
+        active_transport_paths,
+        failed_transport_path_labels,
+        template,
+        peer_manager_policy,
+        static_bootstrap_peer_ids,
+        admitted,
+        upstream,
+        PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
+        DiscoveryIngress::Dht { upstream },
+        rendezvous_triggers,
+    )?;
+    if !attempt_evidence.is_empty() {
+        super::rendezvous_trigger::record_linked_observation_diagnostic(
+            &observed_record,
+            &format!("dht-upstream={upstream:?}"),
+            discovery_observations,
+            &attempt_evidence,
+            event_errors,
+            max_error_messages,
+        );
+    }
+    Ok(())
 }
 
 #[expect(
     clippy::too_many_arguments,
     reason = "Candidate admission preflights all local projections before the durable floor transaction"
 )]
+#[cfg(test)]
 pub(super) fn process_signed_peer_record(
     swarm: &mut Swarm<Behaviour>,
     discovered_peer_records: &mut PeerRecordCache,
@@ -97,6 +215,42 @@ pub(super) fn process_signed_peer_record(
     static_bootstrap_peer_ids: &HashSet<PeerId>,
     record: SignedPeerRecord,
     ingress: DiscoveryIngress,
+) -> Result<(), PeerRecordInstallError> {
+    process_signed_peer_record_with_rendezvous_triggers(
+        swarm,
+        discovered_peer_records,
+        discovery_observations,
+        known_transport_paths,
+        last_dialed_transport_paths,
+        active_transport_paths,
+        failed_transport_path_labels,
+        template,
+        peer_manager_policy,
+        static_bootstrap_peer_ids,
+        record,
+        ingress,
+        &[],
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Candidate admission preflights all local projections before the durable floor transaction"
+)]
+fn process_signed_peer_record_with_rendezvous_triggers(
+    swarm: &mut Swarm<Behaviour>,
+    discovered_peer_records: &mut PeerRecordCache,
+    discovery_observations: &mut DiscoveryObservations,
+    known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    active_transport_paths: &HashMap<PeerId, TransportPath>,
+    failed_transport_path_labels: &mut HashSet<String>,
+    template: Option<&PeerRecord>,
+    peer_manager_policy: &PeerManagerPolicy,
+    static_bootstrap_peer_ids: &HashSet<PeerId>,
+    record: SignedPeerRecord,
+    ingress: DiscoveryIngress,
+    rendezvous_triggers: &[super::rendezvous_trigger::RendezvousTriggerEvidence],
 ) -> Result<(), PeerRecordInstallError> {
     let receiver = discovered_peer_records.receiver();
     let _transaction = receiver.begin_ingress()?;
@@ -171,7 +325,10 @@ pub(super) fn process_signed_peer_record(
             })
     {
         // A semantically identical signed claim is idempotent: it cannot refresh
-        // the old observation, candidate lease, or scheduled refresh.
+        // the old observation, candidate lease, or scheduled refresh. Only the
+        // exact already-observed signed payload may merge local trigger evidence.
+        discovery_observations
+            .merge_rendezvous_triggers_for_exact_record(&record, rendezvous_triggers);
         return Ok(());
     }
 
@@ -180,7 +337,12 @@ pub(super) fn process_signed_peer_record(
         .take()
         .expect("non-conflicting receiver admission has a prepared candidate lease")
         .with_receiver_guard(guard);
-    discovery_observations.record(&record, ingress, observed_at_ms)?;
+    discovery_observations.record_with_rendezvous_triggers(
+        &record,
+        ingress,
+        observed_at_ms,
+        rendezvous_triggers,
+    )?;
     discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
     discovered_peer_records.install(peer_id, record.clone(), lease.clone());
     let transport_paths: Vec<_> = paths

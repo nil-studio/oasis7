@@ -224,6 +224,22 @@ impl Libp2pNetwork {
                         );
                     };
                 }
+                macro_rules! queue_dht_peer_record_fallback {
+                    ($target:expr, $triggers:expr) => {
+                        super::rendezvous_trigger::queue_cached_record_fallback(
+                            &mut swarm,
+                            &mut pending_dht,
+                            &mut pending_peer_record_requests,
+                            &mut pending_cached_peer_records,
+                            &mut cached_peer_record_cooldowns,
+                            &event_traffic_metrics,
+                            peers.as_slice(),
+                            $target,
+                            local_peer_id,
+                            $triggers,
+                        );
+                    };
+                }
                 loop {
                     discovery_budget::publish_metrics(&swarm, &event_traffic_metrics);
                     if discovered_peer_records.prune(&active_transport_paths) {
@@ -489,28 +505,27 @@ impl Libp2pNetwork {
                                                         "lock errors",
                                                     );
                                                 }
-                                                        DhtProgressAction::DiscoverPeerRecord { peer_id, upstream, result } => {
+                                                        DhtProgressAction::DiscoverPeerRecord { peer_id, upstream, result, rendezvous_triggers } => {
                                                     pending_discovery_peer_records.remove(&peer_id);
+                                                    let rendezvous_triggers = super::rendezvous_trigger::context_for_dht_result(
+                                                        rendezvous_triggers,
+                                                        upstream,
+                                                        matches!(result.as_ref(), Ok(None)),
+                                                    );
                                                     match *result {
                                                         Ok(Some(admitted)) => {
                                                             if !peer_record_matches_target(admitted.record(), peer_id) {
+                                                                if let Some(triggers) = &rendezvous_triggers {
+                                                                    triggers.clear();
+                                                                }
                                                                 push_bounded_clone(
                                                                     &event_errors,
                                                                     format!("libp2p discovered peer record target mismatch requested={peer_id} actual={}", admitted.record().record.peer_id),
                                                                     max_error_messages,
                                                                     "lock errors",
                                                                 );
-                                                                maybe_request_cached_peer_record(
-                                                                    &mut swarm,
-                                                                    &mut pending_peer_record_requests,
-                                                                    &mut pending_cached_peer_records,
-                                                                    &mut cached_peer_record_cooldowns,
-                                                                    &event_traffic_metrics,
-                                                                    peers.as_slice(),
-                                                                    peer_id,
-                                                                    local_peer_id,
-                                                                );
-                                                            } else if let Err(err) = super::peer_record_candidate::install_admitted_peer_record(
+                                                                queue_dht_peer_record_fallback!(peer_id, None);
+                                                            } else if let Err(err) = super::peer_record_candidate::install_dht_discovered_peer_record(
                                                                 &mut swarm,
                                                                 &mut discovered_peer_records,
                                                                 &mut discovery_observations,
@@ -523,8 +538,9 @@ impl Libp2pNetwork {
                                                                 &static_bootstrap_peer_ids,
                                                                 admitted,
                                                                 upstream,
-                                                                super::peer_record_admission::PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
-                                                                peer_discovery_observations::DiscoveryIngress::Dht { upstream },
+                                                                rendezvous_triggers.as_ref(),
+                                                                &event_errors,
+                                                                max_error_messages,
                                                             ) {
                                                                 if let Some(refreshed) = super::connection_lifecycle::refresh_peer_manager_views_after_record_error(
                                                                     &err,
@@ -554,16 +570,7 @@ impl Libp2pNetwork {
                                                                     max_error_messages,
                                                                     "lock errors",
                                                                 );
-                                                                maybe_request_cached_peer_record(
-                                                                    &mut swarm,
-                                                                    &mut pending_peer_record_requests,
-                                                                    &mut pending_cached_peer_records,
-                                                                    &mut cached_peer_record_cooldowns,
-                                                                    &event_traffic_metrics,
-                                                                    peers.as_slice(),
-                                                                    peer_id,
-                                                                    local_peer_id,
-                                                                );
+                                                                queue_dht_peer_record_fallback!(peer_id, None);
                                                             } else {
                                                                 (
                                                                     peer_healths_by_id,
@@ -586,34 +593,22 @@ impl Libp2pNetwork {
                                                             }
                                                         }
                                                         Ok(None) => {
-                                                            maybe_request_cached_peer_record(
-                                                                &mut swarm,
-                                                                &mut pending_peer_record_requests,
-                                                                &mut pending_cached_peer_records,
-                                                                &mut cached_peer_record_cooldowns,
-                                                                &event_traffic_metrics,
-                                                                peers.as_slice(),
+                                                            queue_dht_peer_record_fallback!(
                                                                 peer_id,
-                                                                local_peer_id,
+                                                                rendezvous_triggers.as_ref()
                                                             );
                                                         }
                                                         Err(err) => {
+                                                            if let Some(triggers) = &rendezvous_triggers {
+                                                                triggers.clear();
+                                                            }
                                                             push_bounded_clone(
                                                                 &event_errors,
                                                                 format!("libp2p discovered peer record load failed peer={peer_id}: {err:?}"),
                                                                 max_error_messages,
                                                                 "lock errors",
                                                             );
-                                                            maybe_request_cached_peer_record(
-                                                                &mut swarm,
-                                                                &mut pending_peer_record_requests,
-                                                                &mut pending_cached_peer_records,
-                                                                &mut cached_peer_record_cooldowns,
-                                                                &event_traffic_metrics,
-                                                                peers.as_slice(),
-                                                                peer_id,
-                                                                local_peer_id,
-                                                            );
+                                                            queue_dht_peer_record_fallback!(peer_id, None);
                                                         }
                                                     }
                                                 }
@@ -732,7 +727,7 @@ impl Libp2pNetwork {
                                         } => {
                                             pending_rendezvous_discovers.remove(&rendezvous_node);
                                             rendezvous_cookies.insert(rendezvous_node, cookie);
-                                            handle_rendezvous_discovered(
+                                            super::rendezvous_trigger::handle_rendezvous_discovered(
                                                 &mut swarm,
                                                 rendezvous_node,
                                                 registrations,

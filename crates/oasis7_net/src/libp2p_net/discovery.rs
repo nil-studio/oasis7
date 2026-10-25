@@ -28,12 +28,13 @@ use super::peer_record_admission::{
     PeerRecordAdmissionPermit, PeerRecordAdmissionWorkUnit, admit_discovery_list_response,
     admit_optional_peer_record_response,
 };
-use super::peer_record_candidate::install_admitted_peer_record;
+use super::peer_record_candidate::install_admitted_peer_record_with_rendezvous_triggers;
 use super::peer_record_republish::handle_peer_record_exchange_request;
 pub(super) use super::peer_record_republish::{
     RR_GET_CACHED_DISCOVERY_PEERS, RR_GET_CACHED_PEER_RECORD, RR_GET_LOCAL_PEER_RECORD,
 };
 use super::reachability::Libp2pReachabilitySnapshot;
+use super::rendezvous_trigger::RendezvousTriggerContext;
 use super::swarm_behaviour::Behaviour;
 use super::traffic_metrics::{SharedLibp2pTrafficMetrics, record_request_outbound};
 use super::transport_paths::TransportPath;
@@ -52,6 +53,7 @@ pub(super) enum PendingPeerRecordRequest {
         ask_peer: PeerId,
         peer_id: PeerId,
         tried_proxies: Vec<PeerId>,
+        rendezvous_triggers: Option<RendezvousTriggerContext>,
     },
     CachedDiscoveryPeers {
         peer_id: PeerId,
@@ -369,6 +371,7 @@ pub(super) fn queue_refresh_peer_record(
             upstream: None,
             record: None,
             error: None,
+            rendezvous_triggers: None,
         },
     );
 }
@@ -440,7 +443,40 @@ fn request_cached_peer_record_via(
     ask_peer: PeerId,
     peer_id: PeerId,
     local_peer_id: PeerId,
+    tried_proxies: Vec<PeerId>,
+) -> bool {
+    request_cached_peer_record_via_with_triggers(
+        swarm,
+        pending_peer_record_requests,
+        pending_cached_peer_records,
+        cached_peer_record_cooldowns,
+        traffic_metrics,
+        ask_peer,
+        peer_id,
+        local_peer_id,
+        tried_proxies,
+        None,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Proxy retry state and its exact rendezvous trigger context travel together"
+)]
+fn request_cached_peer_record_via_with_triggers(
+    swarm: &mut Swarm<Behaviour>,
+    pending_peer_record_requests: &mut HashMap<
+        request_response::OutboundRequestId,
+        PendingPeerRecordRequest,
+    >,
+    pending_cached_peer_records: &mut HashSet<PeerId>,
+    cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
+    traffic_metrics: &SharedLibp2pTrafficMetrics,
+    ask_peer: PeerId,
+    peer_id: PeerId,
+    local_peer_id: PeerId,
     mut tried_proxies: Vec<PeerId>,
+    rendezvous_triggers: Option<RendezvousTriggerContext>,
 ) -> bool {
     if peer_id == local_peer_id
         || ask_peer == local_peer_id
@@ -487,6 +523,7 @@ fn request_cached_peer_record_via(
             ask_peer,
             peer_id,
             tried_proxies,
+            rendezvous_triggers,
         },
     );
     true
@@ -586,72 +623,6 @@ pub(super) fn maybe_request_cached_discovery_peers(
         PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id },
     );
     true
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Discovery state is kept explicit to preserve peer-record and routing event ordering"
-)]
-pub(super) fn handle_rendezvous_discovered(
-    swarm: &mut Swarm<Behaviour>,
-    rendezvous_node: PeerId,
-    registrations: Vec<rendezvous::Registration>,
-    pending_dht: &mut HashMap<kad::QueryId, PendingDhtQuery>,
-    pending_peer_record_requests: &mut HashMap<
-        request_response::OutboundRequestId,
-        PendingPeerRecordRequest,
-    >,
-    pending_discovery_peer_records: &mut HashSet<PeerId>,
-    pending_cached_peer_records: &mut HashSet<PeerId>,
-    cached_peer_record_cooldowns: &mut HashMap<PeerId, i64>,
-    traffic_metrics: &SharedLibp2pTrafficMetrics,
-    connected_peers: &[PeerId],
-    discovered_peer_records: &PeerRecordCache,
-    local_peer_id: PeerId,
-    template: Option<&PeerRecord>,
-    max_error_messages: usize,
-    event_errors: &Arc<Mutex<Vec<String>>>,
-) {
-    if registrations.is_empty() {
-        return;
-    }
-    push_bounded_clone(
-        event_errors,
-        format!(
-            "libp2p rendezvous discovered registrations via={rendezvous_node} count={}",
-            registrations.len()
-        ),
-        max_error_messages,
-        "lock errors",
-    );
-    let world_id = template
-        .map(|record| record.world_id.as_str())
-        .unwrap_or_default();
-    for registration in registrations {
-        let peer_id = registration.record.peer_id();
-        if peer_id == local_peer_id {
-            continue;
-        }
-        maybe_queue_discovery_peer_record(
-            swarm,
-            pending_dht,
-            pending_discovery_peer_records,
-            discovered_peer_records,
-            peer_id,
-            local_peer_id,
-            world_id,
-        );
-        maybe_request_cached_peer_record(
-            swarm,
-            pending_peer_record_requests,
-            pending_cached_peer_records,
-            cached_peer_record_cooldowns,
-            traffic_metrics,
-            connected_peers,
-            peer_id,
-            local_peer_id,
-        );
-    }
 }
 
 #[expect(
@@ -824,6 +795,13 @@ pub(super) fn handle_peer_record_response(
         PendingPeerRecordRequest::CachedPeerRecord { ask_peer, .. }
         | PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id: ask_peer } => Some(*ask_peer),
     };
+    let rendezvous_triggers = match &kind {
+        PendingPeerRecordRequest::CachedPeerRecord {
+            rendezvous_triggers,
+            ..
+        } => rendezvous_triggers.clone(),
+        _ => None,
+    };
     let admission_budget = swarm.behaviour().peer_record_admission_budget();
     if let PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id } = &kind {
         let peer_ids = match admit_discovery_list_response(
@@ -869,6 +847,9 @@ pub(super) fn handle_peer_record_response(
     }
     let expected_source = response_via_peer_id.unwrap_or(requested_peer_id);
     if response_source != expected_source {
+        if let Some(triggers) = &rendezvous_triggers {
+            triggers.clear();
+        }
         let _ = PeerRecordAdmissionPermit::admit_payload(
             &admission_budget,
             Some(response_source),
@@ -887,7 +868,15 @@ pub(super) fn handle_peer_record_response(
     match admit_optional_peer_record_response(&admission_budget, response_source, payload) {
         Ok(Some(admitted)) => {
             let record = admitted.record().clone();
+            let attempt_trigger_evidence = super::rendezvous_trigger::active_attempt_evidence(
+                &record,
+                Some(response_source),
+                rendezvous_triggers.as_ref(),
+            );
             if !peer_record_matches_target(&record, requested_peer_id) {
+                if let Some(triggers) = &rendezvous_triggers {
+                    triggers.clear();
+                }
                 push_bounded_clone(
                     event_errors,
                     format!(
@@ -897,7 +886,7 @@ pub(super) fn handle_peer_record_response(
                     max_error_messages,
                     "lock errors",
                 );
-            } else if let Err(err) = install_admitted_peer_record(
+            } else if let Err(err) = install_admitted_peer_record_with_rendezvous_triggers(
                 swarm,
                 discovered_peer_records,
                 discovery_observations,
@@ -926,6 +915,7 @@ pub(super) fn handle_peer_record_response(
                         unreachable!("ID-only response handled above")
                     }
                 },
+                rendezvous_triggers.as_ref(),
             ) {
                 push_bounded_clone(
                     event_errors,
@@ -939,6 +929,17 @@ pub(super) fn handle_peer_record_response(
                     "lock errors",
                 );
             } else {
+                if !attempt_trigger_evidence.is_empty()
+                    && let Some(diagnostic) =
+                        super::rendezvous_trigger::linked_observation_diagnostic(
+                            &record,
+                            &format!("peer-exchange-upstream={response_source}"),
+                            discovery_observations,
+                            &attempt_trigger_evidence,
+                        )
+                {
+                    push_bounded_clone(event_errors, diagnostic, max_error_messages, "lock errors");
+                }
                 let _ = republish_cached_peer_record(swarm, pending_dht, &record);
             }
         }
@@ -947,6 +948,7 @@ pub(super) fn handle_peer_record_response(
                 ask_peer: _,
                 peer_id,
                 tried_proxies,
+                ..
             } = kind
                 && let Some(next_ask_peer) = select_cached_peer_record_proxy(
                     connected_peers,
@@ -955,7 +957,7 @@ pub(super) fn handle_peer_record_response(
                     tried_proxies.as_slice(),
                 )
             {
-                let _ = request_cached_peer_record_via(
+                let started = request_cached_peer_record_via_with_triggers(
                     swarm,
                     pending_peer_record_requests,
                     pending_cached_peer_records,
@@ -965,10 +967,19 @@ pub(super) fn handle_peer_record_response(
                     peer_id,
                     local_peer_id,
                     tried_proxies,
+                    rendezvous_triggers.clone(),
                 );
+                if !started && let Some(triggers) = &rendezvous_triggers {
+                    triggers.clear();
+                }
+            } else if let Some(triggers) = &rendezvous_triggers {
+                triggers.clear();
             }
         }
         Err(err) => {
+            if let Some(triggers) = &rendezvous_triggers {
+                triggers.clear();
+            }
             push_bounded_clone(
                 event_errors,
                 format!(
@@ -1034,6 +1045,7 @@ pub(super) fn handle_peer_record_outbound_failure(
         PendingPeerRecordRequest::CachedPeerRecord {
             peer_id,
             tried_proxies,
+            rendezvous_triggers,
             ..
         } => {
             // Failure must not reset the target cooldown.
@@ -1043,7 +1055,7 @@ pub(super) fn handle_peer_record_outbound_failure(
                 local_peer_id,
                 tried_proxies.as_slice(),
             ) {
-                let _ = request_cached_peer_record_via(
+                let started = request_cached_peer_record_via_with_triggers(
                     swarm,
                     pending_peer_record_requests,
                     pending_cached_peer_records,
@@ -1053,7 +1065,13 @@ pub(super) fn handle_peer_record_outbound_failure(
                     peer_id,
                     local_peer_id,
                     tried_proxies,
+                    rendezvous_triggers.clone(),
                 );
+                if !started && let Some(triggers) = rendezvous_triggers {
+                    triggers.clear();
+                }
+            } else if let Some(triggers) = rendezvous_triggers {
+                triggers.clear();
             }
         }
         PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id: _ } => {

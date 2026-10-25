@@ -320,6 +320,7 @@ mod tests {
             upstream: None,
             record: None,
             error: None,
+            rendezvous_triggers: None,
         };
         let action = super::super::kad_queries::handle_dht_progress(
             &mut pending,
