@@ -296,7 +296,10 @@ impl FormalLiveRuntime {
                 || validated.active_authority().clone(),
                 |activation| activation.successor().clone(),
             );
-        let minimum = startup_anchor.head().head().clone();
+        let minimum = validated.recovery.as_ref().map_or_else(
+            || startup_anchor.head().head().clone(),
+            |permission| permission.external_anchor().head().head().clone(),
+        );
 
         let primary = RemoteFormalEndpoint::new(
             primary_address,
