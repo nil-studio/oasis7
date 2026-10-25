@@ -98,8 +98,18 @@ its action must use one durable original operation, reconcile its committed
 receipt and avoid creating a second action on retry.
 The SDK's bounded submit polling can return an uncommitted outcome at a slot
 boundary. The probe may continue read-only lookup of that same signed original
-within its own shared wall-clock budget; this neither extends the context's
-logical lease nor permits a replacement operation. Only a verified committed
+within one shared 90-second new-call budget covering owner prework and both
+dependent prefix/action intents. The fixture must allow separate asynchronous
+commit and visibility waits for these intents; this budget does not promise a
+protocol completion time. The reproduced failure cached its action at 25.660s,
+after the 24.180s proposal; the next slot's result was still unknown at the old
+45.150s cutoff. A successful run cached its action before the next proposal and
+verified it at 37.124s. These are fixture observations of slot phase and result
+visibility, not rejected-action or production latency guarantees.
+A gateway call already in flight can finish after the
+new-call deadline: it performs up to three sequential HTTP calls, each bounded
+by ten seconds. The parent watchdog remains the final wall-clock bound. This
+neither extends the context's logical lease nor permits a replacement operation. Only a verified committed
 result advances the probe. Terminal rejection, expiry or unavailable history
 must fail with fixed outcome categories rather than an ambiguous success claim.
 
@@ -131,8 +141,12 @@ loader used by reqwest. macOS and Windows are rejected because their platform
 trust loaders cannot be assumed to honor this isolated trust configuration.
 System certificate stores are never changed. `openssl` and Python 3 are needed.
 
-The tool has an overall deadline (30–900 seconds), a 60-second per-command bound,
-request/response size bounds and bounded termination of tracked process groups.
+The tool has an overall deadline (30–900 seconds). Ordinary commands retain a
+60-second watchdog; only the canonical SDK probe has a 130-second watchdog,
+always capped by the remaining overall deadline. The standard packaging run
+retains its 600-second overall limit. These fixture limits do not change SDK
+polling or production Context leases. Request/response size bounds and bounded
+termination of tracked process groups remain in force.
 Cleanup skips already reaped leader PIDs because their numeric IDs may have
 been reused. CI job containment or an operator-owned systemd cgroup must contain
 unexpected orphan descendants; verify that containment separately. The receipt

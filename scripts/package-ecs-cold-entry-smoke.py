@@ -205,7 +205,7 @@ class Smoke:
             return {key: self.expand(item) for key, item in value.items()}
         return value
 
-    def command(self, argv, *, private=False, start=False):
+    def command(self, argv, *, private=False, start=False, timeout_seconds=60):
         argv = self.expand(argv)
         if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
             raise RuntimeError("fixture commands must be nonempty argv arrays")
@@ -219,7 +219,7 @@ class Smoke:
         if start:
             return process
         try:
-            process.communicate(self.password if private else None, timeout=min(60, self.remaining()))
+            process.communicate(self.password if private else None, timeout=min(timeout_seconds, self.remaining()))
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
@@ -229,7 +229,8 @@ class Smoke:
 
     def probe(self, name, expected):
         self.probe_failure = None
-        code, output = self.command(self.fixture[name], private=name == "canonical_probe")
+        code, output = self.command(self.fixture[name], private=name == "canonical_probe",
+                                    timeout_seconds=130 if name == "canonical_probe" else 60)
         if code or len(output) > 65536:
             self.probe_failure = {
                 "rc": code if type(code) is int and -255 <= code <= 255 else None,
