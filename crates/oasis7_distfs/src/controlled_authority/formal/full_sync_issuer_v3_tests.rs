@@ -267,6 +267,9 @@ fn migration(
     expected_v2_head: FullSyncIssuerAnchorV2,
     request_id: u8,
 ) -> SignedFullSyncIssuerMigrationV3 {
+    let manager_seed = (2u8..=20)
+        .find(|seed| public(*seed) == old.body().management_public_key)
+        .expect("test policy manager key has a known seed");
     SignedFullSyncIssuerMigrationV3::sign(
         FullSyncIssuerMigrationBodyV3 {
             schema_version: 3,
@@ -277,7 +280,7 @@ fn migration(
             request_id: hash(request_id),
             manager_nonce: hash(request_id.wrapping_add(1)),
         },
-        &key(2),
+        &key(manager_seed),
     )
     .unwrap()
 }
@@ -322,6 +325,7 @@ impl Drop for TempDir {
 /// witness fault domain.
 struct SimulatedWitness {
     old_policy: VerifiedFullSyncIssuerPolicyV2,
+    active_v2_policy: VerifiedFullSyncIssuerPolicyV2,
     new_policy: VerifiedFullSyncIssuerPolicyV3,
     old_entries: Vec<FullSyncIssuerCommittedEntryV2>,
     new_entries: Vec<FullSyncIssuerCommittedEntryV3>,
@@ -343,6 +347,7 @@ impl SimulatedWitness {
         old_entries: Vec<FullSyncIssuerCommittedEntryV2>,
     ) -> Self {
         Self {
+            active_v2_policy: old_policy.clone(),
             old_policy,
             new_policy,
             old_entries,
@@ -361,7 +366,7 @@ impl SimulatedWitness {
 
     fn v2_state(&self) -> Result<VerifiedFullSyncIssuerStateV2, FormalError> {
         VerifiedFullSyncIssuerStateV2::from_committed_records(
-            self.old_policy.clone(),
+            self.active_v2_policy.clone(),
             self.old_entries.clone(),
         )
     }
@@ -385,7 +390,7 @@ impl SimulatedWitness {
         observation: &SignedFullSyncIssuerObservationV3,
     ) -> Result<VerifiedFullSyncIssuerStateV3, FormalError> {
         VerifiedFullSyncIssuerStateV3::from_witness_observation(
-            self.old_policy.clone(),
+            self.active_v2_policy.clone(),
             self.new_policy.clone(),
             self.history(),
             observation,
@@ -403,7 +408,7 @@ impl FullSyncIssuerWitnessV2 for SimulatedWitness {
                 "simulated V2 API is fenced after migration".into(),
             ));
         }
-        query.verify(&self.old_policy)?;
+        query.verify(&self.active_v2_policy)?;
         self.v2_query_minimums
             .push(query.body.minimum_anchor.clone());
         SignedFullSyncIssuerObservationV2::sign(
@@ -426,7 +431,7 @@ impl FullSyncIssuerWitnessV2 for SimulatedWitness {
                 "simulated V2 history API is fenced after migration".into(),
             ));
         }
-        if after != &v2_genesis(&self.old_policy) || through != self.v2_state()?.anchor() {
+        if after != &v2_genesis(&self.active_v2_policy) || through != self.v2_state()?.anchor() {
             return Err(FormalError::Rollback(
                 "simulated V2 history cursor mismatch".into(),
             ));
@@ -451,7 +456,7 @@ impl FullSyncIssuerWitnessV3 for SimulatedWitness {
         observation: &SignedFullSyncIssuerObservationV2,
         record: &FullSyncIssuerRecordV3,
     ) -> Result<SignedFullSyncIssuerReceiptV3, FormalError> {
-        observation.verify(&self.old_policy)?;
+        observation.verify(&self.active_v2_policy)?;
         if let Some(entry) = self.new_entries.first()
             && entry.record == *record
             && entry.receipt.body.observation

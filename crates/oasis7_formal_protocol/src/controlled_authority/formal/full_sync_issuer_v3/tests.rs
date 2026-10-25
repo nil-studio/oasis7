@@ -15,6 +15,8 @@ use ed25519_dalek::SigningKey;
 mod issuer_key_reuse_tests;
 #[path = "migration_resume_tests.rs"]
 mod migration_resume_tests;
+#[path = "registry_capacity_tests.rs"]
+mod registry_capacity_tests;
 
 fn key(value: u8) -> SigningKey {
     SigningKey::from_bytes(&[value; 32])

@@ -27,8 +27,8 @@ pub(super) fn recover_migration_resume(
     }
     let query = &expected_query.body;
     let migration = &query.exact_migration;
-    let v2_state = VerifiedFullSyncIssuerStateV2::from_committed_records(
-        old_policy.clone(),
+    let v2_state = VerifiedFullSyncIssuerStateV2::from_complete_history_for_resume(
+        &old_policy,
         bundle.history.v2_entries.clone(),
     )?;
     let (migration_policy, expected_head) =
@@ -78,6 +78,7 @@ pub(super) fn recover_migration_resume(
             migration,
             &current_anchor,
             bundle,
+            v2_state,
         ),
     }
 }
@@ -88,6 +89,7 @@ fn recover_v3_mode(
     requested_migration: &super::types::SignedFullSyncIssuerMigrationV3,
     current_anchor: &super::types::FullSyncIssuerAnchorV3,
     bundle: FullSyncIssuerMigrationResumeBundleV3,
+    v2_state: VerifiedFullSyncIssuerStateV2,
 ) -> Result<FullSyncIssuerMigrationResumeResultV3, FormalError> {
     let history = bundle.history;
     let migration_entry = history
@@ -100,7 +102,8 @@ fn recover_v3_mode(
     };
 
     if committed_migration == requested_migration {
-        let state = reconstruct_history(old_policy, requested_policy, history.clone())?;
+        let state =
+            reconstruct_history(v2_state.policy().clone(), requested_policy, history.clone())?;
         if &state.anchor != current_anchor {
             return Err(FormalError::Rollback(
                 "full-sync resume V3 history does not close current mode head".into(),
@@ -137,10 +140,6 @@ fn recover_v3_mode(
 
     // The winner's policy is authenticated independently under the original
     // activation trust and the V2 manager active at its own exact predecessor.
-    let v2_state = VerifiedFullSyncIssuerStateV2::from_committed_records(
-        old_policy.clone(),
-        history.v2_entries.clone(),
-    )?;
     let (winner_v2_policy, _) =
         v2_state_at_migration_head(&v2_state, &committed_migration.body.expected_v2_head)?;
     let winner_policy = VerifiedFullSyncIssuerPolicyV3::verify(
@@ -148,7 +147,11 @@ fn recover_v3_mode(
         old_policy.trust(),
         &winner_v2_policy,
     )?;
-    let state = reconstruct_history(old_policy, winner_policy.clone(), history.clone())?;
+    let state = reconstruct_history(
+        v2_state.policy().clone(),
+        winner_policy.clone(),
+        history.clone(),
+    )?;
     if &state.anchor != current_anchor {
         return Err(FormalError::Rollback(
             "full-sync competing V3 history does not close current mode head".into(),

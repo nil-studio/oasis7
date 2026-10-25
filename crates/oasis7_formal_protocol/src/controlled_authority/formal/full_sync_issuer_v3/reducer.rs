@@ -767,7 +767,7 @@ fn derive_lease_body(
     let registry_state_digest = digest(
         REGISTRY_DIGEST_DOMAIN_V3,
         &state.target_states,
-        MAX_ENTRY_BYTES_V3,
+        MAX_LEDGER_BYTES_V3,
     )?;
     Ok(FullSyncProviderLeaseBodyV3 {
         schema_version: 3,

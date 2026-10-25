@@ -41,11 +41,14 @@ impl RacingWitness {
         nonce: u8,
     ) -> Result<FullSyncIssuerCommittedEntryV2, FormalError> {
         let state = self.inner.v2_state()?;
+        let issuer_seed = (2u8..=20)
+            .find(|seed| public(*seed) == self.inner.active_v2_policy.body().issuer_public_key)
+            .ok_or_else(|| FormalError::Invalid("V2 issuer seed unavailable".into()))?;
         let query = SignedFullSyncIssuerQueryV2::sign(
-            &self.inner.old_policy,
+            &self.inner.active_v2_policy,
             state.anchor().clone(),
             [nonce; 32],
-            &key(3),
+            &key(issuer_seed),
         )?;
         let observation = SignedFullSyncIssuerObservationV2::sign(
             FullSyncIssuerObservationBodyV2 {
@@ -66,6 +69,74 @@ impl RacingWitness {
             .last()
             .cloned()
             .ok_or_else(|| FormalError::Invalid("V2 winner was not appended".into()))
+    }
+
+    fn commit_v2_policy_rotation(
+        &mut self,
+        next_policy: VerifiedFullSyncIssuerPolicyV2,
+        nonce: u8,
+    ) -> Result<FullSyncIssuerCommittedEntryV2, FormalError> {
+        let previous_policy = self.inner.active_v2_policy.clone();
+        let state = VerifiedFullSyncIssuerStateV2::from_committed_records(
+            next_policy.clone(),
+            self.inner.old_entries.clone(),
+        )?;
+        let transition = FullSyncIssuerPolicyTransitionV2 {
+            previous_policy_digest: previous_policy.policy_digest().into(),
+            previous_signer_generation: previous_policy.body().signer_generation,
+            new_policy_digest: next_policy.policy_digest().into(),
+            new_signer_generation: next_policy.body().signer_generation,
+        };
+        let command = SignedFullSyncIssuerCommandV2::sign(
+            FullSyncIssuerCommandBodyV2 {
+                schema_version: 2,
+                world: next_policy.body().world.clone(),
+                authority_epoch: next_policy.body().authority_epoch,
+                scope_digest: next_policy.scope_digest().into(),
+                policy_digest: next_policy.policy_digest().into(),
+                signer_generation: next_policy.body().signer_generation,
+                transition: Some(transition),
+                target: target(11),
+                operation: FullSyncIssuerOperationV2::Issue {
+                    not_before_unix_ms: 1_000,
+                    expires_unix_ms: 90_000,
+                },
+                expected_head: state.anchor().clone(),
+                expected_target_generation: 0,
+                request_id: hash(nonce),
+                command_nonce: hash(nonce.wrapping_add(1)),
+            },
+            &key((2u8..=20)
+                .find(|seed| public(*seed) == next_policy.body().management_public_key)
+                .ok_or_else(|| FormalError::Invalid("V2 manager seed unavailable".into()))?),
+        )?;
+        let prepared = state.prepare(command)?;
+        let record = prepared
+            .record()
+            .cloned()
+            .ok_or_else(|| FormalError::Invalid("V2 policy rotation has no candidate".into()))?;
+        let issuer_seed = (2u8..=20)
+            .find(|seed| public(*seed) == next_policy.body().issuer_public_key)
+            .ok_or_else(|| FormalError::Invalid("V2 issuer seed unavailable".into()))?;
+        let query = SignedFullSyncIssuerQueryV2::sign(
+            &next_policy,
+            state.anchor().clone(),
+            [nonce; 32],
+            &key(issuer_seed),
+        )?;
+        let observation = SignedFullSyncIssuerObservationV2::sign(
+            FullSyncIssuerObservationBodyV2 {
+                schema_version: 2,
+                query,
+                current_anchor: state.anchor().clone(),
+            },
+            &key(4),
+        )?;
+        let receipt = SignedFullSyncIssuerReceiptV2::sign(observation, &record, &key(4))?;
+        let entry = prepared.commit(receipt)?.entry().clone();
+        self.inner.old_entries.push(entry.clone());
+        self.inner.active_v2_policy = next_policy;
+        Ok(entry)
     }
 
     fn commit_v3_winner(
@@ -124,7 +195,7 @@ impl FullSyncIssuerWitnessV2 for RacingWitness {
         observation: &SignedFullSyncIssuerObservationV2,
         record: &FullSyncIssuerRecordV2,
     ) -> Result<SignedFullSyncIssuerReceiptV2, FormalError> {
-        observation.verify(&self.inner.old_policy)?;
+        observation.verify(&self.inner.active_v2_policy)?;
         if !self.inner.new_entries.is_empty() {
             return Err(FormalError::Rollback(
                 "V2 CAS is fenced after V3 migration".into(),
@@ -1027,3 +1098,7 @@ fn legacy_v2_adapter_refuses_schema_three_without_mutating_the_store() {
     assert_eq!(snapshot_store_files(directory.path()), before);
     assert_eq!(witness.inner.new_entries.len(), 1);
 }
+
+#[cfg(test)]
+#[path = "full_sync_issuer_v3_rotation_tests.rs"]
+mod rotation_tests;

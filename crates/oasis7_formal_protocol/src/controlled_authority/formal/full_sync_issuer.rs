@@ -505,6 +505,30 @@ impl VerifiedFullSyncIssuerStateV2 {
         Ok(state)
     }
 
+    /// Authenticate a complete V2 history for migration recovery without
+    /// weakening the configured-policy fence used by serving constructors.
+    /// The final record's root-signed policy is first checked against the
+    /// original trust, then the ordinary reducer replays the full history and
+    /// every manager-approved policy transition under that derived policy.
+    pub(super) fn from_complete_history_for_resume(
+        original_policy: &VerifiedFullSyncIssuerPolicyV2,
+        records: Vec<FullSyncIssuerCommittedEntryV2>,
+    ) -> Result<Self, FormalError> {
+        let configured_policy = match records.last() {
+            Some(entry) => VerifiedFullSyncIssuerPolicyV2::verify(
+                &entry.record.policy,
+                original_policy.trust(),
+            )?,
+            None => original_policy.clone(),
+        };
+        if configured_policy.scope_digest != original_policy.scope_digest {
+            return Err(invalid(
+                "full-sync resume history changed the original policy scope",
+            ));
+        }
+        Self::from_committed_records(configured_policy, records)
+    }
+
     fn genesis(configured_policy: VerifiedFullSyncIssuerPolicyV2) -> Result<Self, FormalError> {
         let empty = BTreeMap::<FullSyncIssuerTargetV2, FullSyncIssuerTargetStateV2>::new();
         let request_digests = BTreeMap::<String, String>::new();
