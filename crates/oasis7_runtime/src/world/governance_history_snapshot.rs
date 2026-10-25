@@ -5,6 +5,32 @@ use crate::{Journal, VerifiedFormalRetainedHistoryParentV1};
 use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader;
 use std::sync::Arc;
 
+/// Failure provenance of bounded governance-history verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GovernanceHistoryVerificationError {
+    Invalid(String),
+    Capacity(String),
+    Budget(String),
+}
+impl From<String> for GovernanceHistoryVerificationError {
+    fn from(message: String) -> Self {
+        Self::Invalid(message)
+    }
+}
+impl From<&str> for GovernanceHistoryVerificationError {
+    fn from(message: &str) -> Self {
+        Self::Invalid(message.into())
+    }
+}
+impl std::fmt::Display for GovernanceHistoryVerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(s) | Self::Capacity(s) | Self::Budget(s) => f.write_str(s),
+        }
+    }
+}
+impl std::error::Error for GovernanceHistoryVerificationError {}
+
 pub struct VerifiedGovernanceHistorySnapshot {
     // Never exposed: unrelated World components deliberately remain unloaded.
     projection: World,
@@ -95,9 +121,18 @@ impl VerifiedGovernanceHistorySnapshot {
     pub fn verify_successor(
         &self,
         next: &Self,
-        mut check_budget: impl FnMut() -> Result<(), String>,
+        check_budget: impl FnMut() -> Result<(), String>,
     ) -> Result<(), String> {
-        check_budget()?;
+        self.verify_successor_typed(next, check_budget)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn verify_successor_typed(
+        &self,
+        next: &Self,
+        mut check_budget: impl FnMut() -> Result<(), String>,
+    ) -> Result<(), GovernanceHistoryVerificationError> {
+        check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
         let parent = self
             .projection
             .formal_history_reader
@@ -110,11 +145,12 @@ impl VerifiedGovernanceHistorySnapshot {
             .as_ref()
             .and_then(|h| h.parent.as_ref())
             .ok_or("governance history qualified successor projection missing")?;
-        self.projection.verify_governance_projection_successor(
-            &next.projection,
-            parent,
-            successor,
-            check_budget,
-        )
+        self.projection
+            .verify_governance_projection_successor_typed(
+                &next.projection,
+                parent,
+                successor,
+                check_budget,
+            )
     }
 }

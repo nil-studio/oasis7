@@ -109,6 +109,35 @@ mod path;
 pub use path::BusinessIndexPathV1;
 
 pub trait BusinessIndexNodeReader {
+    /// Typed source hooks for read-service adapters. Legacy readers can keep
+    /// String APIs; their opaque source failures are conservatively I/O errors.
+    fn read_node_for_read(&self, digest: &str) -> Result<Option<Vec<u8>>, super::FormalError> {
+        self.read_node(digest).map_err(super::FormalError::Io)
+    }
+    fn prefetch_path_for_read(
+        &self,
+        root: &BusinessIndexRootV1,
+        key: &str,
+    ) -> Result<(), super::FormalError> {
+        self.prefetch_path(root, key)
+            .map_err(super::FormalError::Io)
+    }
+    fn read_cached_node_for_read(
+        &self,
+        digest: &str,
+    ) -> Result<Option<Vec<u8>>, super::FormalError> {
+        self.read_cached_node(digest)
+            .map_err(super::FormalError::Io)
+    }
+    fn cache_content_node_for_read(
+        &self,
+        digest: &str,
+        bytes: &[u8],
+    ) -> Result<(), super::FormalError> {
+        self.cache_content_node(digest, bytes)
+            .map_err(super::FormalError::Io)
+    }
+
     /// Optionally fetch one bounded content path. This grants no authority;
     /// get/prove still traverse and verify the caller's exact root and key.
     fn prefetch_path(&self, _root: &BusinessIndexRootV1, _key: &str) -> Result<(), String> {

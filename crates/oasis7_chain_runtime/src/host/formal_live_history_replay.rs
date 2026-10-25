@@ -35,13 +35,13 @@ impl ReplayedHistoryCut {
 pub(super) fn requested_anchor_matches(
     anchor: &VerifiedFormalReadAnchorV1,
     requested: &FormalReadAnchorRefV1,
-) -> Result<bool, String> {
+) -> Result<bool, FormalReadError> {
     Ok(anchor.head().record().position == requested.position
         && anchor.head().head().record_id == requested.record_id
         && anchor
             .authority()
             .authority_id()
-            .map_err(|error| error.to_string())?
+            .map_err(FormalReadError::from)?
             == requested.active_authority_id)
 }
 
@@ -61,8 +61,8 @@ pub(super) fn replay_exact_origin_from(
         u64,
         Option<usize>,
         Instant,
-    ) -> Result<FormalQualifiedCommitProofV1, String>,
-) -> Result<ReplayedHistoryCut, String> {
+    ) -> Result<FormalQualifiedCommitProofV1, FormalReadError>,
+) -> Result<ReplayedHistoryCut, FormalReadError> {
     replay_exact_origin_from_with_activations(
         external,
         requested,
@@ -83,15 +83,15 @@ pub(super) fn replay_exact_origin_from_with_activations(
         u64,
     ) -> Result<
         Option<oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1>,
-        String,
+        FormalReadError,
     >,
     mut proof_at: impl FnMut(
         &VerifiedFormalReadAnchorV1,
         u64,
         Option<usize>,
         Instant,
-    ) -> Result<FormalQualifiedCommitProofV1, String>,
-) -> Result<ReplayedHistoryCut, String> {
+    ) -> Result<FormalQualifiedCommitProofV1, FormalReadError>,
+) -> Result<ReplayedHistoryCut, FormalReadError> {
     replay_exact_origin_after_verified_with_activation_policy(
         external,
         requested,
@@ -109,7 +109,7 @@ pub(super) fn replay_exact_origin_from_with_activations(
         |position| activation_at(position).map_err(ReplayFailure::Invalid),
         |_, _, _, _| Ok(()),
     )
-    .map_err(ReplayFailure::into_string)
+    .map_err(ReplayFailure::into_read_error)
 }
 
 #[derive(Debug)]
@@ -118,24 +118,24 @@ pub(super) enum ReplayFailure {
     DeadlineExceeded,
     TargetMismatch,
     UnqualifiedPendingRecoveryTarget(Box<FormalReadCheckpointV1>),
-    Invalid(String),
+    Invalid(FormalReadError),
 }
 
 impl ReplayFailure {
-    pub(super) fn into_string(self) -> String {
+    pub(super) fn into_read_error(self) -> FormalReadError {
         match self {
-            Self::LocalPublicationMissing => {
-                "HistoryUnavailable: exact local formal publication is missing".into()
-            }
-            Self::DeadlineExceeded => {
-                "HistoryUnavailable: external-origin replay deadline exceeded".into()
-            }
-            Self::TargetMismatch => {
-                "HistoryUnavailable: protected head hint differs from verified replay".into()
-            }
-            Self::UnqualifiedPendingRecoveryTarget(_) => {
-                "HistoryUnavailable: pending recovery target is not a qualified read cut".into()
-            }
+            Self::LocalPublicationMissing => FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: exact local formal publication is missing".into(),
+            ),
+            Self::DeadlineExceeded => FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: external-origin replay deadline exceeded".into(),
+            ),
+            Self::TargetMismatch => FormalReadError::Integrity(
+                "HistoryUnavailable: protected head hint differs from verified replay".into(),
+            ),
+            Self::UnqualifiedPendingRecoveryTarget(_) => FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: pending recovery target is not a qualified read cut".into(),
+            ),
             Self::Invalid(error) => error,
         }
     }
@@ -250,9 +250,11 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
 ) -> Result<ReplayedHistoryCut, ReplayFailure> {
     if requested.position < external.head().record().position {
         return Err(match target_policy {
-            ReplayTargetPolicy::Exact => ReplayFailure::Invalid(
-                "HistoryUnavailable: requested origin precedes external trust".into(),
-            ),
+            ReplayTargetPolicy::Exact => {
+                ReplayFailure::Invalid(FormalReadError::HistoryUnavailable(
+                    "HistoryUnavailable: requested origin precedes external trust".into(),
+                ))
+            }
             ReplayTargetPolicy::ProtectedHeadHint => ReplayFailure::TargetMismatch,
         });
     }
@@ -286,9 +288,9 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
         }
         if cursor.head().record().position > requested.position {
             return Err(match target_policy {
-                ReplayTargetPolicy::Exact => ReplayFailure::Invalid(
+                ReplayTargetPolicy::Exact => ReplayFailure::Invalid(FormalReadError::Integrity(
                     "HistoryUnavailable: external-origin replay passed requested cut".into(),
-                ),
+                )),
                 ReplayTargetPolicy::ProtectedHeadHint => ReplayFailure::TargetMismatch,
             });
         }
@@ -331,12 +333,12 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
                         .recovery()
                         .successor()
                         .authority_id()
-                        .map_err(|error| ReplayFailure::Invalid(error.to_string()))?
+                        .map_err(|error| ReplayFailure::Invalid(FormalReadError::from(error)))?
                         == requested.active_authority_id
                 {
                     let pending = cursor
                         .with_pending_recovery(permission.recovery())
-                        .map_err(|error| ReplayFailure::Invalid(error.to_string()))?;
+                        .map_err(|error| ReplayFailure::Invalid(FormalReadError::from(error)))?;
                     return Err(ReplayFailure::UnqualifiedPendingRecoveryTarget(Box::new(
                         pending.checkpoint(),
                     )));
@@ -345,13 +347,15 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
             if target_policy == ReplayTargetPolicy::ProtectedHeadHint {
                 return Err(ReplayFailure::TargetMismatch);
             }
-            return Err(ReplayFailure::Invalid(
+            return Err(ReplayFailure::Invalid(FormalReadError::Integrity(
                 "HistoryUnavailable: requested authority is not qualified at exact cut".into(),
-            ));
+            )));
         }
 
         let position = current_position.checked_add(1).ok_or_else(|| {
-            ReplayFailure::Invalid("HistoryUnavailable: formal position overflow".into())
+            ReplayFailure::Invalid(FormalReadError::Internal(
+                "HistoryUnavailable: formal position overflow".into(),
+            ))
         })?;
         let completion_permission = pending_permission;
         let step = proof_at(&cursor, position, completion_permission, deadline)?;
@@ -381,10 +385,10 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
         }
         if let Some(marker) = activation_at(position)? {
             if completion_permission.is_some() {
-                return Err(ReplayFailure::Invalid(
+                return Err(ReplayFailure::Invalid(FormalReadError::Integrity(
                     "healthy durable set cannot activate over unresolved recovery completion"
                         .into(),
-                ));
+                )));
             }
             let (activated, token) = advance_durable_set_marker(&predecessor, &cursor, &marker)
                 .map_err(ReplayFailure::Invalid)?;
@@ -407,13 +411,13 @@ pub(super) fn advance_durable_set_marker(
     predecessor: &VerifiedFormalReadAnchorV1,
     boundary: &VerifiedFormalReadAnchorV1,
     marker: &oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1,
-) -> Result<(VerifiedFormalReadAnchorV1, VerifiedDurableSetActivationV1), String> {
+) -> Result<(VerifiedFormalReadAnchorV1, VerifiedDurableSetActivationV1), FormalReadError> {
     if boundary.head().record().position != marker.transition.body.boundary_position
         || predecessor.head().head() != marker.transition.body.predecessor
         || predecessor
             .authority()
             .authority_id()
-            .map_err(|e| e.to_string())?
+            .map_err(FormalReadError::from)?
             != marker.transition.body.predecessor_authority_id
         || boundary.head().record().kind
             != oasis7_distfs::controlled_authority::formal::FormalRecordKindV1::Execution
@@ -427,11 +431,13 @@ pub(super) fn advance_durable_set_marker(
                     .transition
                     .body
                     .digest()
-                    .map_err(|error| error.to_string())?
+                    .map_err(FormalReadError::from)?
                     .as_str(),
             )
     {
-        return Err("formal durable-set marker does not match exact H-1/H commits".into());
+        return Err(FormalReadError::Integrity(
+            "formal durable-set marker does not match exact H-1/H commits".into(),
+        ));
     }
     let transition =
         oasis7_distfs::controlled_authority::formal::verify_normal_durable_set_transition(
@@ -440,38 +446,43 @@ pub(super) fn advance_durable_set_marker(
             predecessor.head(),
             boundary.head(),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(FormalReadError::from)?;
     let activation = oasis7_distfs::controlled_authority::formal::verify_durable_set_activation(
         &transition,
         [&marker.old_seals[0], &marker.old_seals[1]],
         [&marker.new_installs[0], &marker.new_installs[1]],
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(FormalReadError::from)?;
     let successor = boundary
         .with_durable_set_activation(&activation)
-        .map_err(|error| error.to_string())?;
+        .map_err(FormalReadError::from)?;
     Ok((successor, activation))
 }
 
 fn role_bytes<'a>(
     material: &'a ClosedRecord,
     role: ArtifactRole,
-) -> Result<std::borrow::Cow<'a, [u8]>, String> {
+) -> Result<std::borrow::Cow<'a, [u8]>, FormalReadError> {
     if role == ArtifactRole::Snapshot {
-        let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
+        let bytes = material
+            .snapshot_bytes()
+            .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
         return Ok(std::borrow::Cow::Owned(bytes));
     }
-    let hash = material
-        .roots
-        .get(&role)
-        .ok_or("native publication artifact role missing")?;
+    let hash = material.roots.get(&role).ok_or_else(|| {
+        FormalReadError::Integrity("native publication artifact role missing".into())
+    })?;
     let object = material
         .objects
         .iter()
         .find(|object| &object.content_hash == hash)
-        .ok_or("native publication artifact object missing")?;
+        .ok_or_else(|| {
+            FormalReadError::Integrity("native publication artifact object missing".into())
+        })?;
     if blake3::hash(&object.bytes).to_hex().as_str() != hash {
-        return Err("native publication artifact hash mismatch".into());
+        return Err(FormalReadError::Integrity(
+            "native publication artifact hash mismatch".into(),
+        ));
     }
     Ok(std::borrow::Cow::Borrowed(&object.bytes))
 }
@@ -479,32 +490,35 @@ fn role_bytes<'a>(
 pub(super) fn decode_snapshot_role(
     material: &ClosedRecord,
     role: ArtifactRole,
-) -> Result<oasis7_runtime::Snapshot, String> {
+) -> Result<oasis7_runtime::Snapshot, FormalReadError> {
     oasis7_world_state::codec::snapshot_from_cbor(&role_bytes(material, role)?)
-        .map_err(|error| error.to_string())
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))
 }
 
 pub(super) fn decode_journal_role(
     material: &ClosedRecord,
     role: ArtifactRole,
-) -> Result<oasis7_runtime::Journal, String> {
+) -> Result<oasis7_runtime::Journal, FormalReadError> {
     oasis7_world_state::codec::journal_from_cbor(&role_bytes(material, role)?)
-        .map_err(|error| error.to_string())
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))
 }
 
 pub(super) fn decode_role<T: serde::de::DeserializeOwned>(
     material: &ClosedRecord,
     role: ArtifactRole,
-) -> Result<T, String> {
-    serde_cbor::from_slice(&role_bytes(material, role)?).map_err(|error| error.to_string())
+) -> Result<T, FormalReadError> {
+    serde_cbor::from_slice(&role_bytes(material, role)?)
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))
 }
 
 pub(super) fn require_exact_history_target(
     cursor: &VerifiedFormalReadAnchorV1,
     target: &VerifiedFormalReadAnchorV1,
-) -> Result<(), String> {
+) -> Result<(), FormalReadError> {
     if cursor.checkpoint() != target.checkpoint() {
-        return Err("formal bounded history target mismatch".into());
+        return Err(FormalReadError::Integrity(
+            "formal bounded history target mismatch".into(),
+        ));
     }
     Ok(())
 }

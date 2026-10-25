@@ -82,13 +82,17 @@ fn descend(
         hash_hex(id)?;
     }
     if position == 0 || position > body.head.position {
-        return Err(invalid("HistoryUnavailable: historical qualified position"));
+        return Err(FormalError::HistoryUnavailable(
+            "HistoryUnavailable: historical qualified position".into(),
+        ));
     }
     let mut id = body
         .head_node
         .as_ref()
         .or(body.imported_head_node.as_ref())
-        .ok_or_else(|| invalid("HistoryUnavailable: native history root"))?
+        .ok_or_else(|| {
+            FormalError::HistoryUnavailable("HistoryUnavailable: native history root".into())
+        })?
         .clone();
     let mut expected = body.head.clone();
     // Each hop removes its largest available power of two. With 64-bit positions
@@ -110,12 +114,11 @@ fn descend(
             .checked_sub(position)
             .ok_or_else(|| invalid("historical ancestry position"))?;
         let wanted = (63 - distance.leading_zeros()) as usize;
-        let level = wanted.min(
-            node.ancestors
-                .len()
-                .checked_sub(1)
-                .ok_or_else(|| invalid("HistoryUnavailable: absent historical skip link"))?,
-        );
+        let level = wanted.min(node.ancestors.len().checked_sub(1).ok_or_else(|| {
+            FormalError::HistoryUnavailable(
+                "HistoryUnavailable: absent historical skip link".into(),
+            )
+        })?);
         let link = &node.ancestors[level];
         let step = 1u64
             .checked_shl(level as u32)
@@ -173,8 +176,8 @@ pub(crate) fn restore_native_position(
     let target = &node.head;
     let entry: FormalRequestStateV1 = object(&node.entry, &mut load)?;
     let FormalRequestStateV1::Qualified { candidate, proof } = entry else {
-        return Err(invalid(
-            "HistoryUnavailable: historical entry not Qualified",
+        return Err(FormalError::HistoryUnavailable(
+            "HistoryUnavailable: historical entry not Qualified".into(),
         ));
     };
     if candidate.candidate.record != proof.decision.record
@@ -262,8 +265,8 @@ pub(crate) fn restore_native_position(
     } else if target.position == 1 {
         None
     } else {
-        return Err(invalid(
-            "HistoryUnavailable: historical immediate parent closure",
+        return Err(FormalError::HistoryUnavailable(
+            "HistoryUnavailable: historical immediate parent closure".into(),
         ));
     };
     if let Some(activation) = durable_set
@@ -302,19 +305,21 @@ pub(crate) fn restore_native_position(
     } else {
         original
     };
-    let recovery =
-        if proof.decision.branch == FormalCompletionBranchV1::Normal {
-            None
-        } else {
-            Some(recovery.ok_or_else(|| {
-                invalid("HistoryUnavailable: verified historical recovery context")
-            })?)
-        };
+    let recovery = if proof.decision.branch == FormalCompletionBranchV1::Normal {
+        None
+    } else {
+        Some(recovery.ok_or_else(|| {
+            FormalError::HistoryUnavailable(
+                "HistoryUnavailable: verified historical recovery context".into(),
+            )
+        })?)
+    };
     let commit = restore_formal_commit_from_checkpoint(&proof, origin, recovery, &verdict)?;
     {
         let reader = HistoryBusinessReader {
             load: std::cell::RefCell::new(&mut load),
             embedded: &embedded_business_nodes,
+            source_error: std::cell::RefCell::new(None),
         };
         if let Some(verified) = super::super::business_material::verify_formal_business_material(
             historical_authority,
@@ -323,14 +328,16 @@ pub(crate) fn restore_native_position(
             business_parent.as_ref(),
             candidate.frozen_material.as_ref(),
             &reader,
-        )? {
+        )
+        .map_err(|error| reader.preserve_source(error))?
+        {
             use super::super::business_index::BusinessIndexNodeReader;
             for write in verified
                 .node_writes()
                 .iter()
                 .chain(verified.retained_node_writes())
             {
-                if reader.read_node(&write.digest).map_err(invalid)?.as_deref()
+                if reader.read_node_for_read(&write.digest)?.as_deref()
                     != Some(write.bytes.as_slice())
                 {
                     return Err(invalid("historical business node missing/corrupt"));
@@ -427,17 +434,28 @@ impl super::super::business_index::BusinessIndexNodeReader for EmbeddedBusinessN
 struct HistoryBusinessReader<'a, F> {
     load: std::cell::RefCell<&'a mut F>,
     embedded: &'a EmbeddedBusinessNodes,
+    source_error: std::cell::RefCell<Option<FormalError>>,
+}
+impl<F> HistoryBusinessReader<'_, F> {
+    fn preserve_source(&self, error: FormalError) -> FormalError {
+        self.source_error.borrow_mut().take().unwrap_or(error)
+    }
 }
 impl<F: FnMut(&str) -> Result<Vec<u8>, FormalError>>
     super::super::business_index::BusinessIndexNodeReader for HistoryBusinessReader<'_, F>
 {
     fn read_node(&self, id: &str) -> Result<Option<Vec<u8>>, String> {
-        if let Some(bytes) = self.embedded.read_node(id)? {
+        self.read_node_for_read(id).map_err(|error| {
+            let diagnostic = error.to_string();
+            self.source_error.borrow_mut().get_or_insert(error);
+            diagnostic
+        })
+    }
+    fn read_node_for_read(&self, id: &str) -> Result<Option<Vec<u8>>, FormalError> {
+        if let Some(bytes) = self.embedded.read_node(id).map_err(invalid)? {
             return Ok(Some(bytes));
         }
-        (self.load.borrow_mut())(id)
-            .map(Some)
-            .map_err(|error| error.to_string())
+        (self.load.borrow_mut())(id).map(Some)
     }
 }
 

@@ -105,7 +105,8 @@ pub(super) fn boundary_selector(
     // This checks canonical Snapshot, identity, governing and projection roots
     // against the opaque qualified anchor before deriving a read selector.
     let publication =
-        oasis7::world_service::formal_read_service::FormalReadPublication::new(anchor, world)?;
+        oasis7::world_service::formal_read_service::FormalReadPublication::new(anchor, world)
+            .map_err(|error| error.to_string())?;
     let projection = fixtures::projection(publication.world());
     let fixed = fixtures::commit_ref(publication.anchor(), &projection);
     fixed.validate().map_err(|error| error.to_string())?;

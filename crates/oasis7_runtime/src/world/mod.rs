@@ -89,7 +89,9 @@ pub(crate) mod governance_registry_publication;
 mod governance_authorization;
 mod governance_history;
 mod governance_history_snapshot;
-pub use governance_history_snapshot::VerifiedGovernanceHistorySnapshot;
+pub use governance_history_snapshot::{
+    GovernanceHistoryVerificationError, VerifiedGovernanceHistorySnapshot,
+};
 #[cfg(test)]
 pub(crate) mod governance_authorization_test_support;
 #[cfg(test)]

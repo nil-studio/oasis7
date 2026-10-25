@@ -176,14 +176,16 @@ fn revoked_delegate_loses_formal_read_and_private_leaf_while_owner_and_public_re
             formal_anchor: Some(verifier.anchor_ref()?),
         };
         let signed = authority::sign_read_request(VIEW_PATH, request.clone(), reader_secret)?;
-        let response = service.read(
-            &signed,
-            publication,
-            &FormalReadHistoryV1 {
-                schema_version: 1,
-                steps: vec![],
-            },
-        )?;
+        let response = service
+            .read(
+                &signed,
+                publication,
+                &FormalReadHistoryV1 {
+                    schema_version: 1,
+                    steps: vec![],
+                },
+            )
+            .map_err(|error| error.to_string())?;
         verifier.verify_view(&response, &request, &signed.subject_public_key)?;
         Ok(response)
     }

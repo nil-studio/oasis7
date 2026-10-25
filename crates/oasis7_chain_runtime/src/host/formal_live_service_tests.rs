@@ -54,7 +54,7 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
             oasis7_client_api::world_service::FormalBusinessResultProofV1,
             Option<String>,
         )>,
-        String,
+        FormalReadError,
     > {
         assert!(same_anchor(cut.anchor(), &self.anchor)?);
         assert_eq!(
@@ -64,19 +64,19 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
         self.business_reads.fetch_add(1, Ordering::SeqCst);
         // This fixture has no business result. It proves exact-cut selection
         // without fabricating a qualified outcome or an absence proof.
-        Err("test exact fixed publication selected; business proof unavailable".into())
+        Err(FormalReadError::HistoryUnavailable("test exact fixed publication selected; business proof unavailable".into()))
     }
     fn origin_publication(
         &self,
         request: &FormalReadAnchorRefV1,
-    ) -> Result<FormalReadPublication, String> {
+    ) -> Result<FormalReadPublication, FormalReadError> {
         validate_anchor_ref(request, &self.anchor)?;
         FormalReadPublication::new(self.anchor.clone(), self.world.lock().unwrap().clone())
     }
 
-    fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, String> {
+    fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, FormalReadError> {
         if self.fixed.lock().unwrap().as_ref() != Some(commit) {
-            return Err("HistoryUnavailable: fixed commit is not in the exact test history".into());
+            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: fixed commit is not in the exact test history".into()));
         }
         FormalReadPublication::new(self.anchor.clone(), self.world.lock().unwrap().clone())
     }
@@ -86,12 +86,12 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
         origin: &VerifiedFormalReadAnchorV1,
         live: &VerifiedFormalReadAnchorV1,
         max_steps: usize,
-    ) -> Result<FormalReadPublication, String> {
+    ) -> Result<FormalReadPublication, FormalReadError> {
         if max_steps > MAX_FORMAL_HISTORY_STEPS {
-            return Err("HistoryUnavailable: test resolver page exceeds the bound".into());
+            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: test resolver page exceeds the bound".into()));
         }
         if !same_anchor(origin, &self.anchor)? || !same_anchor(live, &self.anchor)? {
-            return Err("HistoryUnavailable: current-only test has no forward history".into());
+            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: current-only test has no forward history".into()));
         }
         FormalReadPublication::new(self.anchor.clone(), self.world.lock().unwrap().clone())
     }
@@ -101,10 +101,10 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
         origin: &VerifiedFormalReadAnchorV1,
         target: &VerifiedFormalReadAnchorV1,
         max_steps: usize,
-    ) -> Result<FormalReadHistoryV1, String> {
+    ) -> Result<FormalReadHistoryV1, FormalReadError> {
         assert!(max_steps <= MAX_FORMAL_HISTORY_STEPS);
         if !same_anchor(origin, target)? {
-            return Err("HistoryUnavailable: current-only test has no intervening proof".into());
+            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: current-only test has no intervening proof".into()));
         }
         Ok(FormalReadHistoryV1 {
             schema_version: 1,
@@ -793,3 +793,6 @@ fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signatu
     }
     stop_test_node(&node);
 }
+
+#[path = "formal_live_read_error_tests.rs"]
+mod read_error_tests;

@@ -68,8 +68,8 @@ impl RemoteFormalEndpoint {
             Value::Query(outcome) => match *outcome {
                 FormalQueryOutcomeV1::Recorded(state) => *state,
                 FormalQueryOutcomeV1::NotRecorded => {
-                    return Err(invalid(
-                        "HistoryUnavailable: delegated material not recorded",
+                    return Err(FormalError::HistoryUnavailable(
+                        "HistoryUnavailable: delegated material not recorded".into(),
                     ));
                 }
             },

@@ -297,11 +297,14 @@ pub(super) fn exercise(mut case: HealthySetCase) -> Result<(), String> {
         verify_normal_durable_set_transition(&transition, &case.authority, &parent, &boundary)
             .map_err(|error| format!("verify exact signed healthy transition: {error}"))?;
 
-    let lineage_history = runtime.history.history_page(
-        &case.initial_anchor,
-        &boundary_anchor,
-        oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
-    )?;
+    let lineage_history = runtime
+        .history
+        .history_page(
+            &case.initial_anchor,
+            &boundary_anchor,
+            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+        )
+        .map_err(|error| error.to_string())?;
     let lineage_steps = lineage_history
         .steps
         .into_iter()

@@ -6,6 +6,7 @@
 //! head. A grant is checked against the current authority epoch on every
 //! request; a historical cut or provider-supplied anchor is never trust.
 use super::*;
+use super::{FormalReadError, FormalReadResult};
 use oasis7::world_service::authority;
 use oasis7_client_api::world_service_full_sync::{
     FORMAL_FULL_SYNC_MANIFEST_PATH, FORMAL_FULL_SYNC_OBJECT_PATH,
@@ -35,8 +36,11 @@ pub(super) fn handle_manifest(service: &FormalLiveService, body: &[u8]) -> HttpR
     };
     let digest = authority::request_digest(path, &signed);
     let result = (|| {
-        signed.request.validate()?;
-        authority::verify_read_request(path, &signed)?;
+        signed
+            .request
+            .validate()
+            .map_err(FormalReadError::RequestRejected)?;
+        authority::verify_read_request(path, &signed).map_err(FormalReadError::RequestRejected)?;
         let current = authorize_cut(
             service,
             &signed.request.grant,
@@ -45,7 +49,7 @@ pub(super) fn handle_manifest(service: &FormalLiveService, body: &[u8]) -> HttpR
         )?;
         let (anchor, material) = material_for_cut(service, &current.anchor, &signed.request.cut)?;
         let manifest = manifest(&anchor, &material)?;
-        Ok::<_, String>(manifest)
+        Ok::<_, FormalReadError>(manifest)
     })();
     match result {
         Ok(payload) => finish_full_sync_response(
@@ -69,8 +73,11 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
     };
     let digest = authority::request_digest(path, &signed);
     let result = (|| {
-        signed.request.validate()?;
-        authority::verify_read_request(path, &signed)?;
+        signed
+            .request
+            .validate()
+            .map_err(FormalReadError::RequestRejected)?;
+        authority::verify_read_request(path, &signed).map_err(FormalReadError::RequestRejected)?;
         let current = authorize_cut(
             service,
             &signed.request.grant,
@@ -87,12 +94,14 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
             if signed.request.business_path.is_some()
                 || signed.request.retained_history_root_digest.is_some()
             {
-                return Err("record-closure object cannot claim retained-tree metadata".into());
+                return Err(FormalReadError::RequestRejected(
+                    "record-closure object cannot claim retained-tree metadata".into(),
+                ));
             }
             object.bytes.clone()
         } else if let Some(chunk) = material
             .native_environment()
-            .map_err(|error| error.to_string())?
+            .map_err(|error| FormalReadError::Integrity(error.to_string()))?
             .and_then(|environment| {
                 environment
                     .components
@@ -104,30 +113,38 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
             if signed.request.business_path.is_some()
                 || signed.request.retained_history_root_digest.is_some()
             {
-                return Err("native chunk cannot claim a retained-tree path".into());
+                return Err(FormalReadError::RequestRejected(
+                    "native chunk cannot claim a retained-tree path".into(),
+                ));
             }
             let bytes = service
                 .history
                 .full_sync_business_object(&anchor, &chunk.digest)?
-                .ok_or("full-sync original native chunk unavailable")?;
+                .ok_or_else(|| {
+                    FormalReadError::HistoryUnavailable(
+                        "full-sync original native chunk unavailable".into(),
+                    )
+                })?;
             if bytes.len() != chunk.byte_len as usize {
-                return Err("full-sync original native chunk length".into());
+                return Err(FormalReadError::Integrity(
+                    "full-sync original native chunk length".into(),
+                ));
             }
             bytes
         } else {
-            let retained_root = retained_root
-                .as_deref()
-                .ok_or("qualified snapshot has no retained tree")?;
+            let retained_root = retained_root.as_deref().ok_or_else(|| {
+                FormalReadError::RequestRejected("qualified snapshot has no retained tree".into())
+            })?;
             if signed.request.retained_history_root_digest.as_deref() != Some(retained_root) {
-                return Err(
+                return Err(FormalReadError::RequestRejected(
                     "formal full-sync retained root differs from qualified snapshot".into(),
-                );
+                ));
             }
-            let path = signed
-                .request
-                .business_path
-                .as_deref()
-                .ok_or("full-sync CAS object is outside the qualified record closure")?;
+            let path = signed.request.business_path.as_deref().ok_or_else(|| {
+                FormalReadError::RequestRejected(
+                    "full-sync CAS object is outside the qualified record closure".into(),
+                )
+            })?;
             verify_business_path(
                 service,
                 &anchor,
@@ -140,12 +157,19 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
         if bytes.len() > MAX_FULL_SYNC_RECORD_BYTES
             || blake3::hash(&bytes).to_hex().as_str() != signed.request.content_hash
         {
-            return Err("formal full-sync object hash/size mismatch".into());
+            return Err(FormalReadError::Integrity(
+                "formal full-sync object hash/size mismatch".into(),
+            ));
         }
-        let start = usize::try_from(signed.request.offset)
-            .map_err(|_| "formal full-sync offset exceeds platform bound")?;
+        let start = usize::try_from(signed.request.offset).map_err(|_| {
+            FormalReadError::RequestRejected(
+                "formal full-sync offset exceeds platform bound".into(),
+            )
+        })?;
         if start > bytes.len() {
-            return Err("formal full-sync offset exceeds object".into());
+            return Err(FormalReadError::RequestRejected(
+                "formal full-sync offset exceeds object".into(),
+            ));
         }
         let end = start
             .saturating_add(signed.request.max_bytes as usize)
@@ -158,7 +182,7 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
             offset: signed.request.offset,
             bytes: bytes[start..end].to_vec(),
         };
-        Ok::<_, String>(payload)
+        Ok::<_, FormalReadError>(payload)
     })();
     match result {
         Ok(payload) => finish_full_sync_response(
@@ -179,11 +203,13 @@ fn authorize_cut(
     grant: &FormalNodeReadGrantV1,
     requested: &FormalFullSyncCutV1,
     subject_public_key: &str,
-) -> Result<PublishedReadCut, String> {
+) -> FormalReadResult<PublishedReadCut> {
     if !service.runtime_status().ready {
-        return Err("formal runtime is not ready for full-state sync".into());
+        return Err(FormalReadError::NotReady(
+            "formal runtime is not ready for full-state sync".into(),
+        ));
     }
-    let current = service.published.current()?;
+    let current = service.published.current_for_read()?;
     if let Some(gate) = service.full_sync_read_gate.as_ref() {
         validate_grant_scope_for_current(
             service,
@@ -214,20 +240,29 @@ fn validate_grant_scope_for_current(
     requested: &FormalFullSyncCutV1,
     subject_public_key: &str,
     current: &VerifiedFormalReadAnchorV1,
-) -> Result<(), String> {
+) -> FormalReadResult<()> {
     if !service.runtime_status().ready {
-        return Err("formal runtime is not ready for full-state sync".into());
+        return Err(FormalReadError::NotReady(
+            "formal runtime is not ready for full-state sync".into(),
+        ));
     }
     let current_cut = cut_from_anchor(current)?;
-    if subject_public_key != grant.body.node_public_key
-        || requested.world != current_cut.world
+    if requested.world != current_cut.world
         || requested.chain_id != current_cut.chain_id
         || requested.position > current_cut.position
+    {
+        return Err(FormalReadError::RequestRejected(
+            "full-sync request is outside the current qualified World history".into(),
+        ));
+    }
+    if subject_public_key != grant.body.node_public_key
         || grant.body.world != current_cut.world
         || grant.body.chain_id != current_cut.chain_id
         || grant.body.authority_epoch != current_cut.authority_epoch
     {
-        return Err("full-sync request/grant scope differs from current qualified World".into());
+        return Err(FormalReadError::GrantRejected(
+            "full-sync request/grant scope differs from current qualified World".into(),
+        ));
     }
     grant
         .verify_identity_and_signature(
@@ -238,7 +273,11 @@ fn validate_grant_scope_for_current(
             &grant.body.role,
             current_cut.authority_epoch,
         )
-        .map_err(|error| format!("verify full-sync V1 grant identity/signature before V3 query: {error}"))?;
+        .map_err(|error| {
+            FormalReadError::GrantRejected(format!(
+                "verify full-sync V1 grant identity/signature before V3 query: {error}"
+            ))
+        })?;
     Ok(())
 }
 
@@ -248,32 +287,40 @@ fn authorize_grant_for_current(
     requested: &FormalFullSyncCutV1,
     subject_public_key: &str,
     current: &VerifiedFormalReadAnchorV1,
-) -> Result<(), String> {
+) -> FormalReadResult<()> {
     if !service.runtime_status().ready {
-        return Err("formal runtime is not ready for full-state sync".into());
+        return Err(FormalReadError::NotReady(
+            "formal runtime is not ready for full-state sync".into(),
+        ));
     }
     let current_cut = cut_from_anchor(current)?;
     if subject_public_key != grant.body.node_public_key {
-        return Err("read grant node binding mismatch".into());
+        return Err(FormalReadError::GrantRejected(
+            "read grant node binding mismatch".into(),
+        ));
     }
     if requested.world != current_cut.world
         || requested.chain_id != current_cut.chain_id
         || requested.position > current_cut.position
     {
-        return Err("full-sync request is outside the current qualified World history".into());
+        return Err(FormalReadError::RequestRejected(
+            "full-sync request is outside the current qualified World history".into(),
+        ));
     }
-    grant.verify(
-        &service.trust.initial_trust.issuer_public_key,
-        &current_cut.world,
-        &current_cut.chain_id,
-        subject_public_key,
-        &grant.body.role,
-        current_cut.authority_epoch,
-        now_unix_ms(),
-    )
+    grant
+        .verify(
+            &service.trust.initial_trust.issuer_public_key,
+            &current_cut.world,
+            &current_cut.chain_id,
+            subject_public_key,
+            &grant.body.role,
+            current_cut.authority_epoch,
+            now_unix_ms(),
+        )
+        .map_err(FormalReadError::GrantRejected)
 }
 
-fn cut_from_anchor(anchor: &VerifiedFormalReadAnchorV1) -> Result<FormalFullSyncCutV1, String> {
+fn cut_from_anchor(anchor: &VerifiedFormalReadAnchorV1) -> FormalReadResult<FormalFullSyncCutV1> {
     let record = anchor.head().record();
     Ok(FormalFullSyncCutV1 {
         world: WorldIdentity {
@@ -282,12 +329,12 @@ fn cut_from_anchor(anchor: &VerifiedFormalReadAnchorV1) -> Result<FormalFullSync
         },
         chain_id: record.world.chain_id.clone(),
         position: record.position,
-        record_id: record.record_id().map_err(|error| error.to_string())?,
+        record_id: record.record_id().map_err(FormalReadError::from)?,
         after_state_root: record.after_state_root.clone(),
         active_authority_id: anchor
             .authority()
             .authority_id()
-            .map_err(|error| error.to_string())?,
+            .map_err(FormalReadError::from)?,
         finalizing_authority_id: anchor.head().finalizing_authority_id().to_owned(),
         authority_epoch: anchor.authority().definition().epoch,
     })
@@ -297,12 +344,12 @@ fn material_for_cut(
     service: &FormalLiveService,
     current: &VerifiedFormalReadAnchorV1,
     cut: &FormalFullSyncCutV1,
-) -> Result<(VerifiedFormalReadAnchorV1, ClosedRecord), String> {
+) -> FormalReadResult<(VerifiedFormalReadAnchorV1, ClosedRecord)> {
     if let Some(entry) = cached_entry(service, cut)? {
         qualify_cached_entry(service, cut, current, &entry.qualified_head)?;
         let material = decode_cached_material(&entry.serialized_material)?;
         verify_record_material(entry.anchor.head().record(), &material)
-            .map_err(|error| error.to_string())?;
+            .map_err(FormalReadError::from)?;
         return Ok((entry.anchor, material));
     }
 
@@ -313,15 +360,20 @@ fn material_for_cut(
     })?;
     let anchor = origin.anchor().clone();
     if cut_from_anchor(&anchor)? != *cut {
-        return Err("requested full-sync cut differs from externally qualified history".into());
+        return Err(FormalReadError::RequestRejected(
+            "requested full-sync cut differs from externally qualified history".into(),
+        ));
     }
     verify_descendant(service, &anchor, current)?;
     let material = service.history.full_sync_material(&anchor)?;
-    verify_record_material(anchor.head().record(), &material).map_err(|error| error.to_string())?;
-    let serialized = serde_cbor::to_vec(&material)
-        .map_err(|error| format!("serialize full-sync closure for cache: {error}"))?;
+    verify_record_material(anchor.head().record(), &material).map_err(FormalReadError::from)?;
+    let serialized = serde_cbor::to_vec(&material).map_err(|error| {
+        FormalReadError::Internal(format!("serialize full-sync closure for cache: {error}"))
+    })?;
     if serialized.len() > MAX_FULL_SYNC_CACHE_BYTES {
-        return Err("full-sync serialized closure exceeds bounded cache capacity".into());
+        return Err(FormalReadError::Internal(
+            "full-sync serialized closure exceeds bounded cache capacity".into(),
+        ));
     }
     cache_material(
         service,
@@ -336,12 +388,11 @@ fn material_for_cut(
 fn cached_entry(
     service: &FormalLiveService,
     cut: &FormalFullSyncCutV1,
-) -> Result<Option<FullSyncCacheSnapshot>, String> {
+) -> FormalReadResult<Option<FullSyncCacheSnapshot>> {
     let now = Instant::now();
-    let mut cache = service
-        .full_sync_material_cache
-        .lock()
-        .map_err(|_| "formal full-sync material cache poisoned")?;
+    let mut cache = service.full_sync_material_cache.lock().map_err(|_| {
+        FormalReadError::Internal("formal full-sync material cache poisoned".into())
+    })?;
     prune_cache(&mut cache, now);
     let Some(index) = cache.entries.iter().position(|entry| &entry.cut == cut) else {
         return Ok(None);
@@ -369,15 +420,16 @@ fn cache_material(
     anchor: VerifiedFormalReadAnchorV1,
     qualified_head: VerifiedFormalReadAnchorV1,
     serialized: Vec<u8>,
-) -> Result<(), String> {
+) -> FormalReadResult<()> {
     if serialized.len() > MAX_FULL_SYNC_CACHE_BYTES {
-        return Err("full-sync serialized closure exceeds bounded cache capacity".into());
+        return Err(FormalReadError::Internal(
+            "full-sync serialized closure exceeds bounded cache capacity".into(),
+        ));
     }
     let now = Instant::now();
-    let mut cache = service
-        .full_sync_material_cache
-        .lock()
-        .map_err(|_| "formal full-sync material cache poisoned")?;
+    let mut cache = service.full_sync_material_cache.lock().map_err(|_| {
+        FormalReadError::Internal("formal full-sync material cache poisoned".into())
+    })?;
     prune_cache(&mut cache, now);
     if let Some(index) = cache.entries.iter().position(|entry| entry.cut == cut) {
         let old = cache.entries.remove(index).expect("located cache entry");
@@ -389,7 +441,9 @@ fn cache_material(
         || cache.serialized_bytes.saturating_add(serialized.len()) > MAX_FULL_SYNC_CACHE_BYTES
     {
         let Some(evicted) = cache.entries.pop_front() else {
-            return Err("formal full-sync cache accounting invariant failed".into());
+            return Err(FormalReadError::Internal(
+                "formal full-sync cache accounting invariant failed".into(),
+            ));
         };
         cache.serialized_bytes = cache
             .serialized_bytes
@@ -410,18 +464,21 @@ fn update_cache_qualified_head(
     service: &FormalLiveService,
     cut: &FormalFullSyncCutV1,
     current: &VerifiedFormalReadAnchorV1,
-) -> Result<(), String> {
+) -> FormalReadResult<()> {
     let now = Instant::now();
-    let mut cache = service
-        .full_sync_material_cache
-        .lock()
-        .map_err(|_| "formal full-sync material cache poisoned")?;
+    let mut cache = service.full_sync_material_cache.lock().map_err(|_| {
+        FormalReadError::Internal("formal full-sync material cache poisoned".into())
+    })?;
     prune_cache(&mut cache, now);
     let index = cache
         .entries
         .iter()
         .position(|entry| &entry.cut == cut)
-        .ok_or("formal full-sync material was evicted during request")?;
+        .ok_or_else(|| {
+            FormalReadError::HistoryUnavailable(
+                "formal full-sync material was evicted during request".into(),
+            )
+        })?;
     let mut entry = cache.entries.remove(index).expect("located cache entry");
     entry.qualified_head = current.clone();
     entry.last_used = now;
@@ -440,14 +497,17 @@ fn prune_cache(cache: &mut super::FullSyncMaterialCache, now: Instant) {
         .sum();
 }
 
-fn decode_cached_material(bytes: &[u8]) -> Result<ClosedRecord, String> {
-    let material: ClosedRecord = serde_cbor::from_slice(bytes)
-        .map_err(|error| format!("decode cached full-sync closure: {error}"))?;
-    if serde_cbor::to_vec(&material)
-        .map_err(|error| format!("re-encode cached full-sync closure: {error}"))?
-        != bytes
+fn decode_cached_material(bytes: &[u8]) -> FormalReadResult<ClosedRecord> {
+    let material: ClosedRecord = serde_cbor::from_slice(bytes).map_err(|error| {
+        FormalReadError::Internal(format!("decode cached full-sync closure: {error}"))
+    })?;
+    if serde_cbor::to_vec(&material).map_err(|error| {
+        FormalReadError::Internal(format!("re-encode cached full-sync closure: {error}"))
+    })? != bytes
     {
-        return Err("cached full-sync closure is not canonical CBOR".into());
+        return Err(FormalReadError::Integrity(
+            "cached full-sync closure is not canonical CBOR".into(),
+        ));
     }
     Ok(material)
 }
@@ -457,7 +517,7 @@ fn qualify_cached_entry(
     cut: &FormalFullSyncCutV1,
     current: &VerifiedFormalReadAnchorV1,
     previously_qualified: &VerifiedFormalReadAnchorV1,
-) -> Result<(), String> {
+) -> FormalReadResult<()> {
     if cut_from_anchor(previously_qualified)? != cut_from_anchor(current)? {
         verify_descendant(service, previously_qualified, current)?;
         update_cache_qualified_head(service, cut, current)?;
@@ -469,19 +529,23 @@ fn verify_descendant(
     service: &FormalLiveService,
     ancestor: &VerifiedFormalReadAnchorV1,
     descendant: &VerifiedFormalReadAnchorV1,
-) -> Result<(), String> {
+) -> FormalReadResult<()> {
     let deadline = Instant::now()
         .checked_add(MAX_ANCESTRY_QUALIFICATION_TIME)
-        .ok_or("HistoryUnavailable: full-sync ancestry deadline overflow")?;
+        .ok_or_else(|| {
+            FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: full-sync ancestry deadline overflow".into(),
+            )
+        })?;
     let ancestor_cut = cut_from_anchor(ancestor)?;
     let descendant_cut = cut_from_anchor(descendant)?;
     if ancestor_cut.world != descendant_cut.world
         || ancestor_cut.chain_id != descendant_cut.chain_id
         || ancestor_cut.position > descendant_cut.position
     {
-        return Err(
+        return Err(FormalReadError::RequestRejected(
             "full-sync requested cut is not an ancestor of the current qualified head".into(),
-        );
+        ));
     }
     let mut cursor = ancestor.clone();
     while cursor.head().record().position < descendant.head().record().position {
@@ -498,9 +562,9 @@ fn verify_descendant(
             || next_position > descendant.head().record().position
             || next_position - cursor_position > MAX_ANCESTRY_PAGE_COMMITS as u64
         {
-            return Err(
+            return Err(FormalReadError::Integrity(
                 "full-sync ancestry resolver returned an invalid bounded page target".into(),
-            );
+            ));
         }
         let page = service.history.history_page(
             &cursor,
@@ -517,9 +581,11 @@ fn verify_descendant(
                 )
             })
         {
-            return Err("full-sync ancestry page is empty or exceeds its proof bound".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync ancestry page is empty or exceeds its proof bound".into(),
+            ));
         }
-        page.encode_hex()?;
+        page.encode_hex().map_err(FormalReadError::Integrity)?;
         cursor = next_anchor;
     }
     if cut_from_anchor(&cursor)? != descendant_cut {
@@ -534,20 +600,26 @@ fn verify_descendant(
             || page.steps.len() > oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS
             || page.steps.is_empty()
         {
-            return Err("full-sync authority transition exceeds its proof bound".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync authority transition exceeds its proof bound".into(),
+            ));
         }
-        page.encode_hex()?;
+        page.encode_hex().map_err(FormalReadError::Integrity)?;
         cursor = descendant.clone();
     }
     if cut_from_anchor(&cursor)? != descendant_cut {
-        return Err("full-sync ancestry did not reach the exact current qualified cut".into());
+        return Err(FormalReadError::Integrity(
+            "full-sync ancestry did not reach the exact current qualified cut".into(),
+        ));
     }
     Ok(())
 }
 
-fn check_ancestry_deadline(deadline: Instant) -> Result<(), String> {
+fn check_ancestry_deadline(deadline: Instant) -> FormalReadResult<()> {
     if Instant::now() >= deadline {
-        Err("HistoryUnavailable: full-sync ancestry qualification deadline exceeded".into())
+        Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: full-sync ancestry qualification deadline exceeded".into(),
+        ))
     } else {
         Ok(())
     }
@@ -556,8 +628,8 @@ fn check_ancestry_deadline(deadline: Instant) -> Result<(), String> {
 fn manifest(
     anchor: &VerifiedFormalReadAnchorV1,
     material: &ClosedRecord,
-) -> Result<FormalFullSyncManifestV1, String> {
-    verify_record_material(anchor.head().record(), material).map_err(|error| error.to_string())?;
+) -> FormalReadResult<FormalFullSyncManifestV1> {
+    verify_record_material(anchor.head().record(), material).map_err(FormalReadError::from)?;
     let retained_history_root_digest = retained_history_root(material)?;
     let cut = cut_from_anchor(anchor)?;
     let artifact_roots = material
@@ -591,7 +663,7 @@ fn manifest(
         objects,
         retained_history_root_digest,
     };
-    manifest.validate()?;
+    manifest.validate().map_err(FormalReadError::Integrity)?;
     Ok(manifest)
 }
 
@@ -610,10 +682,12 @@ fn wire_role(role: ArtifactRole) -> WireRole {
     }
 }
 
-fn retained_history_root(material: &ClosedRecord) -> Result<Option<String>, String> {
-    let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
-    let snapshot: oasis7_runtime::Snapshot =
-        serde_cbor::from_slice(&bytes).map_err(|error| error.to_string())?;
+fn retained_history_root(material: &ClosedRecord) -> FormalReadResult<Option<String>> {
+    let bytes = material
+        .snapshot_bytes()
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
+    let snapshot: oasis7_runtime::Snapshot = serde_cbor::from_slice(&bytes)
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
     Ok(snapshot
         .state
         .retained_history_root
@@ -628,31 +702,43 @@ fn verify_business_path(
     root_digest: &str,
     path: &[String],
     target: &str,
-) -> Result<Vec<u8>, String> {
-    let bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
-    let snapshot: oasis7_runtime::Snapshot =
-        serde_cbor::from_slice(&bytes).map_err(|error| error.to_string())?;
+) -> FormalReadResult<Vec<u8>> {
+    let bytes = material
+        .snapshot_bytes()
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
+    let snapshot: oasis7_runtime::Snapshot = serde_cbor::from_slice(&bytes)
+        .map_err(|error| FormalReadError::Integrity(error.to_string()))?;
     let retained = snapshot
         .state
         .retained_history_root
         .as_ref()
-        .ok_or("full-sync Snapshot has no retained history")?;
+        .ok_or_else(|| {
+            FormalReadError::Integrity("full-sync Snapshot has no retained history".into())
+        })?;
     if retained.root_digest != root_digest
         || path.len() > 257
         || path.first() != Some(&retained.index_root.node_root)
         || path.last().map(String::as_str) != Some(target)
     {
-        return Err("full-sync retained path does not start at current root".into());
+        return Err(FormalReadError::RequestRejected(
+            "full-sync retained path does not start at current root".into(),
+        ));
     }
     for (depth, pair) in path.windows(2).enumerate() {
         let parent_bytes = service
             .history
             .full_sync_business_object(anchor, &pair[0])?
-            .ok_or("full-sync retained parent object missing")?;
+            .ok_or_else(|| {
+                FormalReadError::HistoryUnavailable(
+                    "full-sync retained parent object missing".into(),
+                )
+            })?;
         if blake3::hash(&parent_bytes).to_hex().as_str() != pair[0] {
-            return Err("full-sync retained parent hash mismatch".into());
+            return Err(FormalReadError::Integrity(
+                "full-sync retained parent hash mismatch".into(),
+            ));
         }
-        let node = oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeV1::decode(&parent_bytes)?;
+        let node = oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeV1::decode(&parent_bytes).map_err(FormalReadError::Integrity)?;
         match node.kind {
             BusinessIndexNodeKindV1::Branch {
                 depth: node_depth,
@@ -660,26 +746,39 @@ fn verify_business_path(
                 right_hash,
             } if node_depth as usize == depth
                 && (pair[1] == left_hash || pair[1] == right_hash) => {}
-            _ => return Err("full-sync retained path is not a root branch chain".into()),
+            _ => {
+                return Err(FormalReadError::RequestRejected(
+                    "full-sync retained path is not a root branch chain".into(),
+                ));
+            }
         }
     }
     let bytes = service
         .history
         .full_sync_business_object(anchor, target)?
-        .ok_or("full-sync retained target object missing")?;
+        .ok_or_else(|| {
+            FormalReadError::HistoryUnavailable("full-sync retained target object missing".into())
+        })?;
     if bytes.len() > MAX_BUSINESS_INDEX_NODE_BYTES
         || blake3::hash(&bytes).to_hex().as_str() != target
     {
-        return Err("full-sync retained target hash/size mismatch".into());
+        return Err(FormalReadError::Integrity(
+            "full-sync retained target hash/size mismatch".into(),
+        ));
     }
     let node =
         oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeV1::decode(
             &bytes,
-        )?;
+        )
+        .map_err(FormalReadError::Integrity)?;
     match node.kind {
         BusinessIndexNodeKindV1::Branch { depth, .. } if depth as usize + 1 == path.len() => {}
         BusinessIndexNodeKindV1::Leaf(_) if path.len() == 257 => {}
-        _ => return Err("full-sync retained target depth/shape mismatch".into()),
+        _ => {
+            return Err(FormalReadError::RequestRejected(
+                "full-sync retained target depth/shape mismatch".into(),
+            ));
+        }
     }
     Ok(bytes)
 }
@@ -689,8 +788,8 @@ fn reauthorize_for_response(
     grant: &FormalNodeReadGrantV1,
     requested: &FormalFullSyncCutV1,
     subject_public_key: &str,
-) -> Result<(), String> {
-    let current = service.published.current()?;
+) -> FormalReadResult<()> {
+    let current = service.published.current_for_read()?;
     authorize_grant_for_current(
         service,
         grant,
@@ -698,8 +797,11 @@ fn reauthorize_for_response(
         subject_public_key,
         &current.anchor,
     )?;
-    let entry = cached_entry(service, requested)?
-        .ok_or("formal full-sync material was evicted before response")?;
+    let entry = cached_entry(service, requested)?.ok_or_else(|| {
+        FormalReadError::HistoryUnavailable(
+            "formal full-sync material was evicted before response".into(),
+        )
+    })?;
     qualify_cached_entry(service, requested, &current.anchor, &entry.qualified_head)
 }
 
@@ -719,7 +821,7 @@ fn finish_full_sync_response<T: serde::Serialize>(
         };
     };
     let reply = gate.authorize_with_response(grant, requested, subject_public_key, || {
-        let current = service.published.current()?;
+        let current = service.published.current_for_read()?;
         validate_grant_scope_for_current(
             service,
             grant,
@@ -727,8 +829,11 @@ fn finish_full_sync_response<T: serde::Serialize>(
             subject_public_key,
             &current.anchor,
         )?;
-        let entry = cached_entry(service, requested)?
-            .ok_or("formal full-sync material was evicted before response")?;
+        let entry = cached_entry(service, requested)?.ok_or_else(|| {
+            FormalReadError::HistoryUnavailable(
+                "formal full-sync material was evicted before response".into(),
+            )
+        })?;
         qualify_cached_entry(service, requested, &current.anchor, &entry.qualified_head)?;
         Ok(signed_reply_with_digest(
             200,
@@ -747,18 +852,23 @@ fn finish_full_sync_response<T: serde::Serialize>(
 fn rejected(
     path: &str,
     digest: Result<String, String>,
-    error: &str,
+    error: &FormalReadError,
     service: &FormalLiveService,
 ) -> HttpReply {
-    let (status, code) = if error.contains("HistoryUnavailable") || error.contains("not available")
-    {
-        (410, "history_unavailable")
-    } else if error.contains("not ready") {
-        (503, "not_ready")
-    } else if error.contains("grant") || error.contains("authorized") || error.contains("node") {
-        (403, "read_grant_rejected")
-    } else {
-        (400, "full_sync_rejected")
+    let (status, code) = match error {
+        FormalReadError::HistoryUnavailable(_) => (410, "history_unavailable"),
+        FormalReadError::NotReady(_) => (503, "not_ready"),
+        FormalReadError::GrantRejected(_) => (403, "read_grant_rejected"),
+        FormalReadError::RequestRejected(_)
+        | FormalReadError::Internal(_)
+        | FormalReadError::Integrity(_) => (400, "full_sync_rejected"),
     };
-    signed_error_with_digest(status, path, digest, code, error, &service.signer)
+    signed_error_with_digest(
+        status,
+        path,
+        digest,
+        code,
+        &error.to_string(),
+        &service.signer,
+    )
 }
