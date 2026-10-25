@@ -35,6 +35,17 @@ try {
  codec.validate("participant_admission", JSON.stringify({ owner, namespace, issuerPublicKey: metadata.servicePublicKey }), admissionRaw);
  const registrationCorrelation = JSON.parse(codec.build("correlation", JSON.stringify({ world: metadata.world, payload: { kind: "game_participant_register", payload: { owner, admission } } })));
  assert.equal(registrationCorrelation.key.verified_subject, ownerSigner.publicKeyHex);
+ const stableAgent = JSON.parse(codec.build("participant_agent_id", JSON.stringify(register)));
+ assert.match(stableAgent, /^participant:[a-f0-9]{64}$/);
+ const goalRaw = codec.build("goal_prepare", JSON.stringify({ task_json: JSON.stringify(metadata.control), client_operation_id: "interop-owner-goal", client_nonce: "ab".repeat(32), content: { goal_text: "Prepare a workshop", soft_constraints: [] } }));
+ const goalProofRaw = `{"request":${goalRaw},"subject_public_key":${JSON.stringify(ownerSigner.publicKeyHex)},"signature_hex":${JSON.stringify(Buffer.from(await ownerSigner.sign(codec.signingBytes("game_goal_prepare_private/v1", goalRaw))).toString("hex"))}}`;
+ const goalGateway = await rpc({ kind: "goal_receipt", original: JSON.parse(goalProofRaw) });
+ const goalReceiptRaw = codec.verifyGatewayResponse("/v1/world/private-goal/prepare", goalProofRaw, goalGateway, metadata.servicePublicKey);
+ codec.validate("goal_prepared", goalProofRaw, goalReceiptRaw);
+ const publicationRaw = codec.build("goal_publish", JSON.stringify({ original_json: goalProofRaw, receipt_json: goalReceiptRaw, client_operation_id: "interop-owner-publish" }));
+ const publicationPayload = `{"kind":"game_goal_publish","payload":{"request":${publicationRaw},"subject_public_key":${JSON.stringify(ownerSigner.publicKeyHex)},"signature_hex":${JSON.stringify(Buffer.from(await ownerSigner.sign(codec.signingBytes("game_goal_publish/v1", publicationRaw))).toString("hex"))}}}`;
+ const goalCorrelation = JSON.parse(codec.build("correlation", JSON.stringify({ world: metadata.world, payload_json: publicationPayload })));
+ assert.equal(goalCorrelation.key.verified_subject, ownerSigner.publicKeyHex);
 
  const records = new Map();
  const storage = { get: async (key) => structuredClone(records.get(key)), update: async (key, mutate) => { const value = mutate(structuredClone(records.get(key))); records.set(key, structuredClone(value)); return structuredClone(value); } };
@@ -60,5 +71,5 @@ try {
  const loaded = await recovery.load(); assert.equal(loaded.operations.length, 6);
  assert(loaded.operations.every((entry) => entry.state === "committed"));
  assert.equal((await recovery.getRunBudget("interop-run")).callsReserved, 1);
- console.log("PASS real WASM + Rust typed fixture: participant admission/correlation, owner discovery, signed prepare/prefix/lookup/capture/action, runner abort, durable lookup-only settlement, read-only recovery");
+ console.log("PASS real WASM + Rust typed fixture: participant admission/correlation/stable Agent, private goal prepare/publish proofs, owner discovery, signed prepare/prefix/lookup/capture/action, runner abort, durable lookup-only settlement, read-only recovery");
 } finally { processFixture.stdin.end(); }
