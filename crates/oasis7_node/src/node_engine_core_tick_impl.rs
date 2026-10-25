@@ -302,6 +302,33 @@ impl PosNodeEngine {
                 });
             }
         }
+        let decision_time = with_execution_hook(&mut execution_hook, |hook| {
+            let Some(hook) = hook else {
+                return Ok(decision_time);
+            };
+            if hook.guarded_local_execution()
+                || resuming_local
+                || !matches!(decision.status, PosConsensusStatus::Committed)
+                || decision.proposer_id != node_id
+            {
+                return Ok(decision_time);
+            }
+            let context = NodeExecutionCommitContext {
+                world_id: world_id.into(),
+                node_id: node_id.into(),
+                proposer_id: decision.proposer_id.clone(),
+                height: decision.height,
+                slot: decision.slot,
+                epoch: decision.epoch,
+                node_block_hash: decision.block_hash.clone(),
+                action_root: decision.action_root.clone(),
+                committed_actions: decision.committed_actions.clone(),
+                committed_at_unix_ms: decision_time,
+            };
+            hook.retained_local_commit_time(&context)
+                .map(|retained| retained.unwrap_or(decision_time))
+                .map_err(|reason| NodeError::Execution { reason })
+        })?;
         let previous_execution_height = self.last_execution_height;
         let previous_execution_block_hash = self.last_execution_block_hash.clone();
         let previous_execution_state_root = self.last_execution_state_root.clone();

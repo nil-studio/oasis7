@@ -37,6 +37,7 @@ use sha2::{Digest, Sha256};
 mod determinism;
 mod driver;
 mod driver_authoritative_recovery;
+mod retained_commit_time;
 mod driver_checkpoint;
 mod driver_checkpoint_profile;
 mod driver_checkpoint_transaction;
