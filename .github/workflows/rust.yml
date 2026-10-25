@@ -1807,7 +1807,7 @@ jobs:
           shared-key: ci-shared-native-trusted-v3
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          save-if: ${{ success() && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta

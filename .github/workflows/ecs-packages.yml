@@ -114,7 +114,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           shared-key: oasis7-ecs-native-linux-ecs-v2
-          save-if: ${{ success() && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Identify ECS workspace cache
         id: ecs-cache-identity

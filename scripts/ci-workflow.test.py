@@ -1111,6 +1111,19 @@ run_cargo() {
             'run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertEqual(governance.count('run python3 ./scripts/ci-rust-cache-admission.test.py'), 1)
 
+    def test_dependency_save_inputs_reject_step_only_status_functions(self):
+        # GitHub permits status functions in step `if`, not action inputs.
+        # The `job` context is available in `with`, so save-if uses job.status.
+        ecs_jobs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
+        for name, job in (('full-regression', JOBS['full-regression']),
+                          ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
+            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                         if 'uses: Swatinem/rust-cache@' in step)
+            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
+            self.assertIsNotNone(save, name)
+            with self.subTest(job=name):
+                self.assertNotRegex(save.group(1), r'(?i)\b(?:always|cancelled|failure|success)\s*\(')
+
     def test_dependency_save_requires_success_and_current_trusted_source(self):
         ecs_jobs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
         for name, job in (('full-regression', JOBS['full-regression']),
@@ -1120,18 +1133,18 @@ run_cargo() {
             save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
             self.assertIsNotNone(save, name)
             expression = save.group(1)
-            for successful in (False, True):
+            for status in ('success', 'failure', 'cancelled'):
                 for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge'):
                     for matching_source in (False, True):
-                        values = {'success()': successful, 'github.ref': ref, 'github.job': name,
+                        values = {'job.status': status, 'github.ref': ref, 'github.job': name,
                                   'github.workflow_sha': 'a' if matching_source else 'b', 'github.sha': 'a'}
                         predicate = expression
                         for token, value in values.items():
                             predicate = predicate.replace(token, repr(value))
                         predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
-                        with self.subTest(job=name, success=successful, ref=ref, matching=matching_source):
+                        with self.subTest(job=name, status=status, ref=ref, matching=matching_source):
                             actual = eval(predicate, {'__builtins__': {}}, {})
-                            self.assertEqual(actual, successful and ref == 'refs/heads/main'
+                            self.assertEqual(actual, status == 'success' and ref == 'refs/heads/main'
                                              and matching_source and name != 'native')
 
     def test_shared_cache_is_populated_completely_before_successful_save(self):
