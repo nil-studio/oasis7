@@ -125,7 +125,8 @@ fn decode_consensus_message(payload: &[u8]) -> Option<GossipMessage> {
             | GossipMessage::Attestation(_)
             | GossipMessage::Commit(_)
             | GossipMessage::CheckpointLineageVote(_) => return Some(message),
-            GossipMessage::Hello(_) | GossipMessage::Replication(_) | GossipMessage::Bft { .. } => {}
+            GossipMessage::Hello(_) | GossipMessage::Replication(_) | GossipMessage::Bft { .. } => {
+            }
         }
     }
     if let Ok(message) = serde_json::from_slice::<GossipProposalMessage>(payload) {
