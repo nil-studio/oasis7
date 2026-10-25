@@ -20,6 +20,7 @@ use std::{
 
 pub(in super::super) struct SurvivorResources {
     pub primary_child: super::EndpointChild,
+    pub replica_child: super::EndpointChild,
     pub pdir: PathBuf,
     pub rdir: PathBuf,
     pub replica_address: std::net::SocketAddr,
@@ -187,6 +188,13 @@ pub(in super::super) fn run(
         .map_err(|e| e.to_string())?;
     let archive = replica.archive_manifest().map_err(|e| e.to_string())?;
     drop(replica);
+    // Bootstrap below reads a local sealed archive, not the predecessor's RPC.
+    // Reap that exact endpoint first: its background physical-generation
+    // maintenance can still hold an exclusive retire fence after sealing.
+    // Keep the archive bytes and all fencing/permission witnesses unchanged.
+    let mut predecessor_replica = resources.replica_child;
+    predecessor_replica.kill_sigkill_and_wait()?;
+    drop(predecessor_replica);
     let p2 = root.join("survivor-primary-2");
     let r2 = root.join("survivor-replica-2");
     super::private_directory(&p2)?;
