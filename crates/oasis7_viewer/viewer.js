@@ -4147,7 +4147,8 @@ var CODES = /* @__PURE__ */ new Set([
 	"unsupported_content",
 	"invalid_response",
 	"list_changed",
-	"connection_capacity_exceeded"
+	"connection_capacity_exceeded",
+	"legacy_execution_disabled"
 ]);
 var ModelConnectionError = class extends Error {
 	constructor(code, status = 0, operationState = null) {
@@ -4235,7 +4236,7 @@ function modelConnectionSnapshot(value) {
 }
 function acceptsModelCredentials(capabilities, origin = globalThis.location?.origin) {
 	const executor = capabilities?.trusted_executor;
-	return capabilities?.ok === true && capabilities.enabled === true && capabilities.authenticated === true && executor?.trusted === true && executor.origin === origin && !!executor.display_name && !!executor.location && capabilities.presets?.length > 0 && [
+	return capabilities?.ok === true && capabilities.enabled === true && capabilities.authenticated === true && capabilities.legacy_execution_policy !== "management_only" && executor?.trusted === true && executor.origin === origin && !!executor.display_name && !!executor.location && capabilities.presets?.length > 0 && [
 		"max_calls",
 		"max_input_tokens",
 		"max_output_tokens",
@@ -4334,6 +4335,7 @@ function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch
 				ok: value.ok === true,
 				enabled: value.enabled === true,
 				authenticated: value.authenticated === true,
+				legacy_execution_policy: ["management_only", "session_execution"].includes(value.legacy_execution_policy) ? value.legacy_execution_policy : "unknown",
 				executor_available: value.executor_available === true,
 				reason: CODES.has(value.reason) ? value.reason : value.reason ? "request_failed" : "",
 				trusted_executor: executor ? {
@@ -4423,6 +4425,7 @@ async function assertNoLegacyRun({ client = createViewerModelConnectionClient() 
 		if (cap?.ok !== true) reject("legacy_state_unknown");
 		if (cap.enabled === false && cap.reason === "deployment_unavailable") return;
 		if (cap.enabled !== true || cap.authenticated !== true) reject("legacy_state_unknown");
+		if (cap.legacy_execution_policy !== "management_only") reject("legacy_migration_required");
 		const connections = await client.list();
 		if (!Array.isArray(connections)) reject("legacy_state_unknown");
 		for (const item of connections) {
@@ -5795,6 +5798,7 @@ function BrowserByokSurface(props) {
 			"stopped",
 			"participant_stopped"
 		].includes(code)) return tr("本页已暂停新决策。返回后先核对原件，再明确开始；已受理世界作业仍可能推进。", "New decisions are paused. Check originals before explicitly starting again; accepted world jobs may continue.");
+		if (code === "legacy_migration_required") return tr("服务端尚未确认旧托管执行已关闭。请部署方完成迁移后再继续；旧原件结果未知仍不代表未发生。", "The server has not confirmed that legacy hosted execution is closed. Ask the deployment operator to complete migration; an unknown original result still does not mean it never happened.");
 		if (["legacy_run_active", "legacy_state_unknown"].includes(code)) return tr("先在下方核对并停止旧执行端运行；状态未知时不能开始浏览器运行。", "Review and stop the previous executor below. Browser execution cannot start while its state is unknown.");
 		if (code === "agent_busy") return tr("同一 Agent 已在另一个页面运行。本页不会自动接管。", "This Agent is running in another page. This page will not take over automatically.");
 		if (String(code).includes("budget") || code === "run_time_limit") return tr("本轮预算或期限已到，不自动扩大或重置。", "This run's budget or deadline is exhausted; it is not automatically increased or reset.");
