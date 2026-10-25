@@ -152,6 +152,8 @@ fn publication_transition_switches_enforce_mode_and_startup_action_boundaries() 
         [
             "--p2p-peer-record-publication",
             "v2_durable",
+            "--p2p-peer-record-reception",
+            "v2_durable_compatible",
             "--initialize-peer-record-publication",
             "--withdraw-peer-record-publication",
         ]

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use libp2p::identity::Keypair;
 use libp2p::{Multiaddr, PeerId};
-use oasis7_net::{PeerManagerPolicy, PeerRecordPublicationTransition};
+use oasis7_net::PeerManagerPolicy;
 use oasis7_proto::distributed_dht::PeerRecord;
 use oasis7_proto::distributed_net::{DistributedNetwork, NetworkSubscription};
 use oasis7_proto::world_error::WorldError;
@@ -21,7 +21,6 @@ const FETCH_BLOB_REQUEST_RETRY_BUDGET_MS: u64 = 180_000;
 pub struct Libp2pReplicationNetworkConfig {
     pub keypair: Option<Keypair>,
     pub peer_record: Option<PeerRecord>,
-    pub peer_record_publication_transition: Option<PeerRecordPublicationTransition>,
     pub listen_addrs: Vec<Multiaddr>,
     pub bootstrap_peers: Vec<Multiaddr>,
     pub bootstrap_redial_interval_ms: i64,
@@ -43,7 +42,6 @@ impl Default for Libp2pReplicationNetworkConfig {
         Self {
             keypair: None,
             peer_record: None,
-            peer_record_publication_transition: None,
             listen_addrs: Vec::new(),
             bootstrap_peers: Vec::new(),
             bootstrap_redial_interval_ms: 1_000,
