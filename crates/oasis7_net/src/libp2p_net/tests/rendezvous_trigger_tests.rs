@@ -88,6 +88,18 @@ fn cached_peer_record_request(
     }
 }
 
+fn kad_found_record(upstream: PeerId, key: &str, signed: &SignedPeerRecord) -> kad::QueryResult {
+    kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(kad::PeerRecord {
+        peer: Some(upstream),
+        record: kad::Record {
+            key: RecordKey::new(&key.as_bytes()),
+            value: to_canonical_cbor(signed).expect("encode DHT peer record"),
+            publisher: None,
+            expires: None,
+        },
+    })))
+}
+
 #[cfg(unix)]
 fn initialized_receiver(
     local_key: &Keypair,
@@ -414,6 +426,236 @@ fn explicit_failure_clears_shared_trigger_before_parallel_valid_result() {
             .iter()
             .all(|message| !message.starts_with("rendezvous-trigger-observation"))
     );
+}
+
+#[test]
+fn outbound_failure_clears_trigger_before_retrying_next_proxy() {
+    let local_key = Keypair::generate_ed25519();
+    let local_peer = PeerId::from(local_key.public());
+    let target_key = Keypair::generate_ed25519();
+    let target = PeerId::from(target_key.public());
+    let first_proxy = PeerId::random();
+    let fallback_proxy = PeerId::random();
+    let server = PeerId::random();
+    let context = super::super::rendezvous_trigger::RendezvousTriggerContext::new(
+        target,
+        server,
+        Instant::now(),
+    );
+    let mut swarm = super::super::swarm_behaviour::build_swarm(
+        &local_key,
+        false,
+        true,
+        Duration::from_secs(30),
+        super::super::wire_bytes::init_shared_wire_byte_counters(),
+    );
+    let mut pending_requests = HashMap::new();
+    let mut pending_connected = HashSet::new();
+    let mut connected_cooldowns = HashMap::new();
+    let mut pending_cached = HashSet::from([target]);
+    let mut cached_cooldowns = HashMap::from([(target, i64::MAX)]);
+    let mut pending_discovery = HashSet::new();
+    let mut discovery_cooldowns = HashMap::new();
+    let traffic_metrics = super::super::traffic_metrics::init_shared_traffic_metrics();
+
+    super::super::discovery::handle_peer_record_outbound_failure(
+        &mut swarm,
+        cached_peer_record_request(target, first_proxy, Some(context.clone())),
+        &mut pending_requests,
+        &mut pending_connected,
+        &mut connected_cooldowns,
+        &mut pending_cached,
+        &mut cached_cooldowns,
+        &mut pending_discovery,
+        &mut discovery_cooldowns,
+        &[first_proxy, fallback_proxy],
+        &traffic_metrics,
+        local_peer,
+    );
+
+    assert!(context.active_evidence(Instant::now()).is_empty());
+    let retried = pending_requests
+        .into_values()
+        .find(|request| {
+            matches!(request, super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord { peer_id, ask_peer, .. } if *peer_id == target && *ask_peer == fallback_proxy)
+        })
+        .expect("outbound failure continues with the next connected proxy");
+    assert!(matches!(
+        &retried,
+        super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord {
+            rendezvous_triggers: None,
+            ..
+        }
+    ));
+
+    let signed = signed_discovery_peer_record(
+        &target_key,
+        vec![crate::dht::PeerDiscoverySource::PeerExchange],
+        crate::libp2p_net::now_ms(),
+    );
+    let (cache, observations, diagnostics) =
+        handle_cached_peer_exchange_response(&local_key, &signed, retried, fallback_proxy, &[]);
+    assert!(
+        cache.get(&target).is_some(),
+        "valid fallback response still installs"
+    );
+    assert_eq!(
+        observations.observed_sources(&signed),
+        vec![crate::dht::PeerDiscoverySource::PeerExchange]
+    );
+    assert!(
+        observations
+            .rendezvous_trigger_servers(&signed, Instant::now())
+            .is_empty(),
+        "explicit outbound failure consumes the one-shot before proxy retry"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .all(|message| !message.starts_with("rendezvous-trigger-observation"))
+    );
+}
+
+#[test]
+fn intermediate_invalid_dht_record_clears_trigger_before_later_valid_result() {
+    let local_key = Keypair::generate_ed25519();
+    let target_key = Keypair::generate_ed25519();
+    let target = PeerId::from(target_key.public());
+    let upstream = PeerId::random();
+    let server = PeerId::random();
+    let key = "rendezvous-intermediate-invalid";
+    let trigger = super::super::rendezvous_trigger::RendezvousTriggerContext::new(
+        target,
+        server,
+        Instant::now(),
+    );
+    let valid = signed_discovery_peer_record(
+        &target_key,
+        vec![crate::dht::PeerDiscoverySource::Dht],
+        crate::libp2p_net::now_ms(),
+    );
+    let mut invalid = valid.clone();
+    let mut signature = hex::decode(&invalid.signature_hex).expect("valid signature hex");
+    signature[0] ^= 1;
+    invalid.signature_hex = hex::encode(signature);
+    let mut pending = super::super::kad_queries::PendingDhtQuery::DiscoverPeerRecord {
+        peer_id: target,
+        upstream: None,
+        record: None,
+        error: None,
+        rendezvous_triggers: Some(trigger.clone()),
+    };
+    let clock = super::super::peer_record_time::DiscoveryClock::default();
+
+    assert!(matches!(
+        super::super::kad_queries::handle_dht_progress(
+            &mut pending,
+            kad_found_record(upstream, key, &invalid),
+            false,
+            &clock,
+        ),
+        DhtProgressAction::None
+    ));
+    assert!(
+        trigger.active_evidence(Instant::now()).is_empty(),
+        "a rejected intermediate DHT result consumes the shared trigger immediately"
+    );
+
+    let DhtProgressAction::DiscoverPeerRecord {
+        upstream: final_upstream,
+        result,
+        rendezvous_triggers,
+        ..
+    } = super::super::kad_queries::handle_dht_progress(
+        &mut pending,
+        kad_found_record(upstream, key, &valid),
+        true,
+        &clock,
+    )
+    else {
+        panic!("later valid DHT result should complete the same query");
+    };
+    assert_eq!(final_upstream, Some(upstream));
+    let admitted = result
+        .expect("valid final DHT result")
+        .expect("valid peer record found");
+    let context = super::super::rendezvous_trigger::context_for_dht_result(
+        rendezvous_triggers,
+        final_upstream,
+        false,
+    );
+    let local_template = signed_discovery_peer_record(&local_key, Vec::new(), 1).record;
+    let mut swarm = super::super::swarm_behaviour::build_swarm(
+        &local_key,
+        false,
+        false,
+        Duration::from_secs(3),
+        super::super::wire_bytes::init_shared_wire_byte_counters(),
+    );
+    let mut cache = PeerRecordCache::default();
+    let mut observations =
+        super::super::peer_discovery_observations::DiscoveryObservations::default();
+    let mut known_paths = HashMap::new();
+    let mut last_dialed_paths = HashMap::new();
+    let active_paths = HashMap::new();
+    let mut failed_path_labels = HashSet::new();
+    let event_errors = Arc::new(Mutex::new(Vec::new()));
+    super::super::peer_record_candidate::install_dht_discovered_peer_record(
+        &mut swarm,
+        &mut cache,
+        &mut observations,
+        &mut known_paths,
+        &mut last_dialed_paths,
+        &active_paths,
+        &mut failed_path_labels,
+        Some(&local_template),
+        &PeerManagerPolicy::default(),
+        &HashSet::new(),
+        admitted,
+        final_upstream,
+        context.as_ref(),
+        &event_errors,
+        16,
+    )
+    .expect("valid later DHT result still installs");
+    assert!(cache.get(&target).is_some());
+    assert!(
+        observations
+            .rendezvous_trigger_servers(&valid, Instant::now())
+            .is_empty(),
+        "later valid material cannot inherit attribution after explicit failure"
+    );
+}
+
+#[test]
+fn intermediate_dht_timeout_clears_trigger_context() {
+    let target = PeerId::random();
+    let server = PeerId::random();
+    let context = super::super::rendezvous_trigger::RendezvousTriggerContext::new(
+        target,
+        server,
+        Instant::now(),
+    );
+    let mut pending = super::super::kad_queries::PendingDhtQuery::DiscoverPeerRecord {
+        peer_id: target,
+        upstream: None,
+        record: None,
+        error: None,
+        rendezvous_triggers: Some(context.clone()),
+    };
+    let key = "rendezvous-timeout";
+    assert!(matches!(
+        super::super::kad_queries::handle_dht_progress(
+            &mut pending,
+            kad::QueryResult::GetRecord(Err(kad::GetRecordError::Timeout {
+                key: RecordKey::new(&key.as_bytes()),
+            })),
+            false,
+            &super::super::peer_record_time::DiscoveryClock::default(),
+        ),
+        DhtProgressAction::None
+    ));
+    assert!(context.active_evidence(Instant::now()).is_empty());
 }
 
 #[test]

@@ -1049,13 +1049,16 @@ pub(super) fn handle_peer_record_outbound_failure(
             ..
         } => {
             // Failure must not reset the target cooldown.
+            if let Some(triggers) = &rendezvous_triggers {
+                triggers.clear();
+            }
             if let Some(next_ask_peer) = select_cached_peer_record_proxy(
                 connected_peers,
                 peer_id,
                 local_peer_id,
                 tried_proxies.as_slice(),
             ) {
-                let started = request_cached_peer_record_via_with_triggers(
+                let _ = request_cached_peer_record_via_with_triggers(
                     swarm,
                     pending_peer_record_requests,
                     pending_cached_peer_records,
@@ -1065,13 +1068,8 @@ pub(super) fn handle_peer_record_outbound_failure(
                     peer_id,
                     local_peer_id,
                     tried_proxies,
-                    rendezvous_triggers.clone(),
+                    None,
                 );
-                if !started && let Some(triggers) = rendezvous_triggers {
-                    triggers.clear();
-                }
-            } else if let Some(triggers) = rendezvous_triggers {
-                triggers.clear();
             }
         }
         PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id: _ } => {

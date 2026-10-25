@@ -495,7 +495,12 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                             *record = Some(decoded);
                             *upstream = found.peer;
                         }
-                        Err(err) => *error = Some(err),
+                        Err(err) => {
+                            *error = Some(err);
+                            if let Some(triggers) = rendezvous_triggers.as_ref() {
+                                triggers.clear();
+                            }
+                        }
                     }
                 }
                 kad::QueryResult::GetRecord(Ok(
@@ -508,6 +513,9 @@ pub(super) fn handle_dht_progress_with_receiver_and_admission(
                     *error = Some(WorldError::NetworkProtocolUnavailable {
                         protocol: format!("kad get_record failed: {err}"),
                     });
+                    if let Some(triggers) = rendezvous_triggers.as_ref() {
+                        triggers.clear();
+                    }
                 }
                 _ => {}
             }
