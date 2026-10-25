@@ -83,12 +83,13 @@ unchanged; SDK extraction does not turn the product into a CLI-only interface.
 
 The [product PRD](../../product/agents-world-simulation/self-supplied-model-connection.prd.md)
 and [paired interaction design](../../product/agents-world-simulation/self-supplied-model-connection.design.md)
-define browser setup using a player's DeepSeek/OpenRouter inference Key.
+define browser-direct use of a player's DeepSeek/OpenRouter inference Key.
 The [model-connection system design](self-supplied-model-connection.design.md#des-byok-001)
-places credentials, protocol adapters and bounded session execution on the
-explicitly trusted first-party client side, not in World/Runtime or Token Bridge.
+places the Key in site localStorage and protocol adapters and bounded Agent
+execution in the visible browser page. The Key goes only to the selected model
+provider, never to the Oasis7 backend, World/Runtime or Token Bridge.
 This is a target with separate provider, deployment and gameplay verification;
-it does not enable an endpoint, persistent key custody or unattended hosting.
+it does not claim the browser migration is implemented or enable unattended hosting.
 
 ## Authority map
 
