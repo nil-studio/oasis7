@@ -29,7 +29,7 @@ fn append_recovery_read_step(
     max_steps: usize,
 ) -> Result<(), FormalReadError> {
     if steps.len() >= max_steps {
-        return Err(FormalReadError::Integrity(
+        return Err(FormalReadError::HistoryUnavailable(
             "HistoryUnavailable: recovery transitions require another bounded page".into(),
         ));
     }

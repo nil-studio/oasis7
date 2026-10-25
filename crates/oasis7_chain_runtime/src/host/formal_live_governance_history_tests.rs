@@ -714,3 +714,46 @@ fn malformed_present_publication_is_internal_in_the_native_read_chain() {
         Err(FormalReadError::Internal(_))
     ));
 }
+
+#[test]
+fn governance_budget_callback_deadline_remains_history_unavailable() {
+    let (world, origin, candidate, proof) = governance::history_origin(1);
+    let archive = Archive::new(&origin);
+    archive.save(&candidate, &proof);
+    let before_world = world.clone();
+    let mut world = world;
+    governance::begin(&mut world);
+    governance::execute(&mut world).unwrap();
+    let (_, anchor, candidate, proof) =
+        governance::history_successor(&before_world, &origin, world, &candidate, &proof);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let before = archive
+        .resolver
+        .governance_projection_at(&origin, None, None, deadline)
+        .unwrap();
+    let next = archive
+        .resolver
+        .governance_projection_at(&anchor, Some(&proof), Some(&candidate), deadline)
+        .unwrap();
+    let mut calls = 0;
+    let rejected = verify_governance_successor(&before, &next, || {
+        calls += 1;
+        if calls > 1 {
+            remaining(Instant::now())
+        } else {
+            Ok(())
+        }
+    });
+    assert!(
+        calls > 1,
+        "the real verifier must reach a repeated budget callback"
+    );
+    assert!(
+        matches!(rejected, Err(FormalReadError::HistoryUnavailable(_))),
+        "{rejected:?}"
+    );
+    assert!(matches!(
+        verify_governance_successor(&before, &before, || Ok(())),
+        Err(FormalReadError::Integrity(_))
+    ));
+}

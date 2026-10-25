@@ -1036,3 +1036,41 @@ fn replay_failure_preserves_source_classification_without_diagnostic_inspection(
         FormalReadError::Integrity(diagnostic)
     );
 }
+
+#[test]
+fn valid_recovery_page_capacity_remains_history_unavailable() {
+    let (_, trust, origin, _) = fixtures::actual_world_initial_fixture();
+    let first_proof = normal_execution_proof(origin.authority(), origin.head(), 81, [4, 5, 6]);
+    let cut = advance_normal_history_proof(&origin, &first_proof).unwrap();
+    let initial_floor = issuer::IssuerAnchorV1::initial(origin.authority().policy()).unwrap();
+    let (raw2, permission2) =
+        permission_evidence_at_cut(&cut, &trust, 2, [14, 15, 16], [5, 6], None, &initial_floor);
+    let e2 = cut.with_empty_recovery(permission2.recovery()).unwrap();
+    let (_, permission3) = permission_evidence_at_cut(
+        &e2,
+        &trust,
+        3,
+        [24, 25, 26],
+        [15, 16],
+        Some(&permission2),
+        &raw2.issuer_witness.body.current_anchor,
+    );
+    let permissions = vec![permission2, permission3];
+    let mut cursor = cut;
+    let mut steps = Vec::new();
+    let rejected = apply_ready_recoveries(
+        &mut cursor,
+        &permissions,
+        &mut 0,
+        &mut None,
+        &mut false,
+        &mut None,
+        &mut steps,
+        1,
+    );
+    assert_eq!(steps.len(), 1, "one authentic recovery consumed the page");
+    assert!(
+        matches!(rejected, Err(FormalReadError::HistoryUnavailable(_))),
+        "{rejected:?}"
+    );
+}

@@ -37,7 +37,17 @@ impl ScopedBusinessReader<'_> {
 }
 impl BusinessIndexNodeReader for ScopedBusinessReader<'_> {
     fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        self.capture(self.reader.read_node_for_read(digest))
+        match self.reader.read_node_for_read(digest) {
+            Ok(None) => {
+                self.error.borrow_mut().get_or_insert_with(|| {
+                    FormalReadError::HistoryUnavailable(format!(
+                        "required business node {digest} is unavailable"
+                    ))
+                });
+                Ok(None)
+            }
+            result => self.capture(result),
+        }
     }
     fn prefetch_path(
         &self,
@@ -136,5 +146,27 @@ mod tests {
             with_typed_business_source::<()>(&source, |_| Err(diagnostic.clone())),
             Err(FormalReadError::Integrity(diagnostic))
         );
+    }
+    #[test]
+    fn missing_required_business_node_is_unavailable_but_optional_absence_is_unchanged() {
+        struct Missing;
+        impl BusinessIndexNodeReader for Missing {
+            fn read_node(&self, _: &str) -> Result<Option<Vec<u8>>, String> {
+                Ok(None)
+            }
+        }
+        assert_eq!(
+            with_typed_business_source(&Missing, |reader| reader.read_node("digest")),
+            Ok(None)
+        );
+        let root =
+            oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexRootV1 {
+                node_root: "ab".repeat(32),
+                leaf_count: 1,
+            };
+        assert!(matches!(
+            with_typed_business_source(&Missing, |reader| root.get(&"cd".repeat(32), reader)),
+            Err(FormalReadError::HistoryUnavailable(_))
+        ));
     }
 }

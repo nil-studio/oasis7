@@ -1,5 +1,8 @@
 //! Semantic admission-history checks after each externally rooted proof step.
 use super::*;
+#[path = "formal_live_governance_read_source.rs"]
+mod read_source;
+use read_source::{GovernanceProjection, GovernanceProjectionReader};
 
 #[cfg(all(test, unix))]
 #[path = "formal_live_governance_history_tests.rs"]
@@ -8,7 +11,7 @@ mod tests;
 pub(super) struct GovernanceHistoryCursor {
     checkpoint: FormalReadCheckpointV1,
     authority_context: String,
-    projection: oasis7_runtime::VerifiedGovernanceHistorySnapshot,
+    projection: GovernanceProjection,
 }
 
 fn remaining(deadline: Instant) -> Result<(), FormalReadError> {
@@ -18,6 +21,42 @@ fn remaining(deadline: Instant) -> Result<(), FormalReadError> {
         ));
     }
     Ok(())
+}
+
+fn verify_governance_successor(
+    before: &GovernanceProjection,
+    next: &GovernanceProjection,
+    mut check_budget: impl FnMut() -> Result<(), FormalReadError>,
+) -> Result<(), FormalReadError> {
+    use oasis7_runtime::GovernanceHistoryVerificationError;
+    // Projections belong only to this invocation's private replay cursor. Reset
+    // both captures before each step and drain them immediately afterward.
+    before.reader.take_error()?;
+    next.reader.take_error()?;
+    let mut budget_error = None;
+    let verified = before.snapshot.verify_successor_typed(&next.snapshot, || {
+        check_budget().map_err(|error| {
+            let diagnostic = error.to_string();
+            budget_error = Some(error);
+            diagnostic
+        })
+    });
+    let source_error = before.reader.take_error()?.or(next.reader.take_error()?);
+    verified.map_err(|error| match error {
+        GovernanceHistoryVerificationError::Budget(diagnostic) => {
+            budget_error.unwrap_or(FormalReadError::HistoryUnavailable(diagnostic))
+        }
+        GovernanceHistoryVerificationError::Capacity(diagnostic) => {
+            FormalReadError::HistoryUnavailable(diagnostic)
+        }
+        GovernanceHistoryVerificationError::Invalid(diagnostic) => {
+            source_error.unwrap_or_else(|| {
+                FormalReadError::Integrity(format!(
+                    "HistoryUnavailable: governance history authentication: {diagnostic}"
+                ))
+            })
+        }
+    })
 }
 
 impl NativeHistoryResolver {
@@ -60,20 +99,15 @@ impl NativeHistoryResolver {
             });
         }
         let next = self.governance_projection_at(anchor, Some(proof), candidate, deadline)?;
-        cursor
+        let before = &cursor
             .as_ref()
             .ok_or_else(|| {
                 FormalReadError::Integrity(
                     "HistoryUnavailable: governance predecessor unavailable".into(),
                 )
             })?
-            .projection
-            .verify_successor(&next, || remaining(deadline).map_err(|e| e.to_string()))
-            .map_err(|e| {
-                FormalReadError::Integrity(format!(
-                    "HistoryUnavailable: governance history authentication: {e}"
-                ))
-            })?;
+            .projection;
+        verify_governance_successor(before, &next, || remaining(deadline))?;
         remaining(deadline)?;
         *cursor = Some(GovernanceHistoryCursor {
             checkpoint: anchor.checkpoint(),
@@ -92,7 +126,7 @@ impl NativeHistoryResolver {
         proof: Option<&FormalQualifiedCommitProofV1>,
         candidate: Option<&FormalCandidateMaterialV1>,
         deadline: Instant,
-    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, FormalReadError> {
+    ) -> Result<GovernanceProjection, FormalReadError> {
         remaining(deadline)?;
         if let Some(candidate) = candidate {
             let proof = proof.ok_or_else(|| {
@@ -120,7 +154,7 @@ impl NativeHistoryResolver {
         material: &ClosedRecord,
         expanded: Option<Vec<u8>>,
         deadline: Instant,
-    ) -> Result<oasis7_runtime::VerifiedGovernanceHistorySnapshot, FormalReadError> {
+    ) -> Result<GovernanceProjection, FormalReadError> {
         remaining(deadline)?;
         let bytes = match expanded {
             Some(bytes) => bytes,
@@ -134,16 +168,20 @@ impl NativeHistoryResolver {
             material,
             oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole::Journal,
         )?;
+        let reader = GovernanceProjectionReader::new(self.business_reader.clone());
         let projection =
             oasis7_runtime::VerifiedGovernanceHistorySnapshot::from_verified_snapshot_bytes(
                 &bytes,
                 journal,
                 parent,
-                self.business_reader.clone(),
+                reader.clone(),
             )
             .map_err(FormalReadError::Integrity)?;
         remaining(deadline)?;
-        Ok(projection)
+        Ok(GovernanceProjection {
+            snapshot: projection,
+            reader,
+        })
     }
 
     pub(super) fn governance_material_at(

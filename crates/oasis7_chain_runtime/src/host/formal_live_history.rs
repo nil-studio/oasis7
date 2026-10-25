@@ -841,7 +841,7 @@ impl FormalLiveHistoryResolver for NativeHistoryResolver {
                 previous_permission = None;
                 previous_emitted_in_page = false;
                 if steps.len() >= max_steps {
-                    return Err(FormalReadError::Integrity(
+                    return Err(FormalReadError::HistoryUnavailable(
                         "HistoryUnavailable: recovery transitions require another bounded page"
                             .into(),
                     ));

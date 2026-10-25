@@ -1,6 +1,6 @@
 //! Revalidate governance against each original qualified parent, without replaying
 //! unrelated simulation state. The host verifies the actual hash-linked chain.
-use super::World;
+use super::{GovernanceHistoryVerificationError, World};
 use crate::{GovernanceEvent, VerifiedFormalRetainedHistoryParentV1, WorldEventBody};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
@@ -47,13 +47,13 @@ fn previous(cursor: Cursor) -> Result<Cursor, String> {
 }
 
 // Counting serialization avoids allocating a second potentially large event.
-struct ByteBudget(usize);
+struct ByteBudget(usize, bool);
 impl Write for ByteBudget {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0 = self
-            .0
-            .checked_sub(bytes.len())
-            .ok_or_else(|| io::Error::other("governance history byte capacity exceeded"))?;
+        self.0 = self.0.checked_sub(bytes.len()).ok_or_else(|| {
+            self.1 = true;
+            io::Error::other("governance history byte capacity exceeded")
+        })?;
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -97,14 +97,26 @@ impl World {
         self.verify_governance_projection_successor(next, parent, successor, check_budget)
     }
 
+    #[cfg(test)]
     pub(super) fn verify_governance_projection_successor(
         &self,
         next: &World,
         parent: &VerifiedFormalRetainedHistoryParentV1,
         successor: &VerifiedFormalRetainedHistoryParentV1,
-        mut check_budget: impl FnMut() -> Result<(), String>,
+        check_budget: impl FnMut() -> Result<(), String>,
     ) -> Result<(), String> {
-        check_budget()?;
+        self.verify_governance_projection_successor_typed(next, parent, successor, check_budget)
+            .map_err(|e| e.to_string())
+    }
+
+    pub(super) fn verify_governance_projection_successor_typed(
+        &self,
+        next: &World,
+        parent: &VerifiedFormalRetainedHistoryParentV1,
+        successor: &VerifiedFormalRetainedHistoryParentV1,
+        mut check_budget: impl FnMut() -> Result<(), String>,
+    ) -> Result<(), GovernanceHistoryVerificationError> {
+        check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
         let world = parent
             .effect_world()
             .ok_or("governance history world missing")?;
@@ -129,14 +141,16 @@ impl World {
             .checked_sub(ordinal(start)?)
             .ok_or("governance history event cursor moved backward")?;
         if count > MAX_EVENTS {
-            return Err("governance history event capacity exceeded".into());
+            return Err(GovernanceHistoryVerificationError::Capacity(
+                "governance history event capacity exceeded".into(),
+            ));
         }
         // Walk only the bounded relevant hot suffix; older entries are outside
         // this commit. Missing events are fetched from the authenticated index.
         let mut hot = BTreeMap::new();
         let mut cursor = end;
         for event in next.journal.events.iter().rev().take(count as usize) {
-            check_budget()?;
+            check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
             cursor = previous(cursor)?;
             if event.id != cursor.1 {
                 return Err("governance history hot journal is not contiguous".into());
@@ -145,15 +159,15 @@ impl World {
         }
         let mut projection = self.clone();
         projection.governance_replaying = true;
-        let mut budget = ByteBudget(MAX_BYTES);
+        let mut budget = ByteBudget(MAX_BYTES, false);
         let mut touched = BTreeSet::new();
         for record in self.state.governance_validator_admissions.values() {
-            check_budget()?;
+            check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
             touched.insert(record.node_id.clone());
         }
         let mut cursor = start;
         while cursor != end {
-            check_budget()?;
+            check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
             let cold;
             let event = if let Some(event) = hot.get(&cursor) {
                 *event
@@ -170,8 +184,15 @@ impl World {
             {
                 return Err("governance history event cursor or time mismatch".into());
             }
-            serde_cbor::to_writer(&mut budget, event)
-                .map_err(|_| "governance history byte capacity exceeded".to_string())?;
+            serde_cbor::to_writer(&mut budget, event).map_err(|error| {
+                if budget.1 {
+                    GovernanceHistoryVerificationError::Capacity(
+                        "governance history byte capacity exceeded".into(),
+                    )
+                } else {
+                    GovernanceHistoryVerificationError::Invalid(error.to_string())
+                }
+            })?;
             projection.state.time = event.time;
             if let WorldEventBody::Governance(governance) = &event.body
                 && matches!(
@@ -188,7 +209,7 @@ impl World {
                 })?;
             }
             cursor = advance(cursor)?;
-            check_budget()?;
+            check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
         }
         if projection.state.governance_validator_admissions
             != next.state.governance_validator_admissions
@@ -200,11 +221,11 @@ impl World {
             return Err("governance history snapshot projection mismatch".into());
         }
         for record in projection.state.governance_validator_admissions.values() {
-            check_budget()?;
+            check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
             touched.insert(record.node_id.clone());
         }
         for node in touched {
-            check_budget()?;
+            check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
             if projection.state.node_identity_bindings.get(&node)
                 != next.state.node_identity_bindings.get(&node)
                 || projection.state.node_main_token_account_bindings.get(&node)
@@ -215,7 +236,7 @@ impl World {
                 );
             }
         }
-        check_budget()?;
+        check_budget().map_err(GovernanceHistoryVerificationError::Budget)?;
         Ok(())
     }
 }
