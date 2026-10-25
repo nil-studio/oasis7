@@ -645,6 +645,7 @@ fn run_protected_runtime_fixture(
             module_emits_initial,
             oracle_support::survivor_tests::SurvivorResources {
                 primary_child,
+                replica_child,
                 pdir,
                 rdir,
                 replica_address,
