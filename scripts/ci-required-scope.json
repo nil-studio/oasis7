@@ -296,6 +296,23 @@
   },
   "rules": [
     {
+      "match": [
+        "vendor-libp2p-rendezvous-0.18.1/**"
+      ],
+      "groups": ["rust_baseline", "net", "node"],
+      "reason": "rendezvous_patch_consumers"
+    },
+    {
+      "match": ["scripts/libp2p-security-source.test.py"],
+      "groups": ["net"],
+      "reason": "libp2p_source_contract"
+    },
+    {
+      "match": [".dockerignore", "docker/wasm-builder/Dockerfile"],
+      "groups": ["net", "packaging_contracts"],
+      "reason": "wasm_builder_patch_context"
+    },
+    {
       "match": ["scripts/cargo-dev-architecture*"],
       "groups": ["rust_baseline", "cargo_tooling_contracts"],
       "reason": "cargo_architecture_boundaries"
