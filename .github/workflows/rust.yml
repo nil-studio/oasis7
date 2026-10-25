@@ -42,6 +42,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  PYTHONDONTWRITEBYTECODE: "1"
+  # Verified repository eviction limit: 10 GB (2026-10-21 Actions cache settings).
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -285,19 +288,57 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
+          OASIS7_CI_ARCHITECTURE_PLAN: ${{ needs.select.outputs.plan }}
           OASIS7_PRODUCT_DOC_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ github.sha }}
         run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --repo-root "$GITHUB_WORKSPACE"
 
-  oasis7-test-build:
+  cache-bootstrap-maintenance:
+    cache-mode: none
+    permissions:
+      contents: read
+      actions: write
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.select.outputs.run_oasis7_required == 'true' ||
+       needs.select.outputs.run_formal_process == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full') &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'push' || github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: ci-cache-maintenance-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retire redundant workspace and dependency cache snapshots
+        env:
+          CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-cache-maintenance.py --bootstrap --apply
+
+  oasis7-test-build-candidate:
+    cache-mode: read
+    permissions:
+      contents: read
+      actions: read
     needs: select
     if: >-
       needs.select.result == 'success' &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
+       fromJSON(needs.select.outputs.plan).scope == 'full') &&
+      !(github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+        (github.event_name == 'push' || github.event_name == 'schedule' ||
+         (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps:
+    steps: &ordinary-build-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -305,6 +346,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+      - name: Report ordinary workspace cache capacity
+        env:
+          CACHE_INVENTORY_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-workspace-cache.py preflight --scope ordinary --report "$RUNNER_TEMP/ordinary-cache-preflight.json"
       - name: Install pinned Rust toolchains
         shell: bash
         run: |
@@ -323,6 +368,26 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Identify ordinary workspace cache
+        id: ordinary-cache-identity
+        run: python3 scripts/ci-workspace-cache.py identity --scope ordinary
+      - name: Restore compatible ordinary workspace cache
+        id: ordinary-workspace-cache
+        if: steps.ordinary-cache-identity.outputs.key != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
+          key: ${{ steps.ordinary-cache-identity.outputs.key }}
+          restore-keys: ${{ steps.ordinary-cache-identity.outputs.prefix }}
+      - name: Validate and restore ordinary workspace units
+        env:
+          REQUESTED_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
+          MATCHED_KEY: ${{ steps.ordinary-workspace-cache.outputs.cache-matched-key }}
+          CACHE_HIT: ${{ steps.ordinary-workspace-cache.outputs.cache-hit }}
+        run: |
+          python3 scripts/ci-workspace-cache.py restore --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
+            --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
+            --report "$RUNNER_TEMP/ordinary-cache-restore.json"
       - name: Install native libraries
         run: |
           sudo apt-get update
@@ -331,7 +396,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python3 scripts/ci-test-artifacts.py build --scope ordinary --bundle "$RUNNER_TEMP/native-tests"
+          python3 scripts/ci-test-artifacts.py build --scope ordinary --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json"
           python3 scripts/ci-test-artifacts.py pack --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -341,13 +406,94 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
+      - name: Measure ordinary workspace cache footprint
+        run: |
+          python3 scripts/ci-workspace-cache.py measure --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
+            --state "$RUNNER_TEMP/ordinary-cache-state.json" --report "$RUNNER_TEMP/ordinary-cache-measure.json"
+      - name: Stage bounded ordinary workspace units
+        id: ordinary-cache-stage
+        if: >-
+          github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-identity.outputs.key != '' &&
+          steps.ordinary-workspace-cache.outputs.cache-hit != 'true'
+        env:
+          CACHE_INVENTORY_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci-workspace-cache.py stage --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
+            --state "$RUNNER_TEMP/ordinary-cache-state.json" --report "$RUNNER_TEMP/ordinary-cache-stage.json"
+      - name: Save bounded trusted ordinary workspace cache
+        id: ordinary-cache-save
+        if: github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-stage.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
+          key: ${{ steps.ordinary-cache-identity.outputs.key }}
+      - name: Confirm ordinary workspace cache
+        id: ordinary-cache-observe
+        if: >-
+          github.job == 'oasis7-test-build-trusted' &&
+          ((steps.ordinary-cache-stage.outputs.save == 'true' && steps.ordinary-cache-save.outcome == 'success') ||
+           steps.ordinary-workspace-cache.outputs.cache-hit == 'true')
+        env:
+          CACHE_INVENTORY_TOKEN: ${{ github.token }}
+          CACHE_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
+        run: python3 scripts/ci-workspace-cache.py observe-save --scope ordinary --key "$CACHE_KEY" --report "$RUNNER_TEMP/ordinary-cache-save.json"
+      - name: Upload ordinary workspace cache diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ordinary-workspace-cache-report-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-cache-*.json
+          if-no-files-found: ignore
+          retention-days: 2
+
+  oasis7-test-build-trusted:
+    cache-mode: write
+    permissions:
+      contents: read
+      actions: read
+    needs: [select, cache-bootstrap-maintenance]
+    outputs:
+      cache_key: ${{ steps.ordinary-cache-identity.outputs.key }}
+      cache_confirmed: ${{ steps.ordinary-cache-observe.outputs.saved_confirmed }}
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      (needs.select.outputs.run_oasis7_required == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full') &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+        (github.event_name == 'push' || github.event_name == 'schedule' ||
+         (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    steps: *ordinary-build-steps
+
+  oasis7-test-build:
+    needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
+    if: >-
+      always() && needs.select.result == 'success' &&
+      (needs.select.outputs.run_oasis7_required == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require exactly one successful ordinary producer
+        env:
+          CANDIDATE_RESULT: ${{ needs.oasis7-test-build-candidate.result }}
+          TRUSTED_RESULT: ${{ needs.oasis7-test-build-trusted.result }}
+        run: |
+          case "$CANDIDATE_RESULT:$TRUSTED_RESULT" in
+            success:skipped|skipped:success) ;;
+            *) echo "::error::ordinary producer results: $CANDIDATE_RESULT / $TRUSTED_RESULT"; exit 1 ;;
+          esac
 
   formal-test-build:
     cache-mode: read
+    permissions:
+      contents: read
+      actions: read
     needs: select
     if: >-
       needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
-      !(github.ref == 'refs/heads/main' &&
+      !(github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
@@ -359,6 +505,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+      - name: Report formal workspace cache capacity
+        env:
+          CACHE_INVENTORY_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-workspace-cache.py preflight --scope formal --report "$RUNNER_TEMP/formal-cache-preflight.json"
       - name: Install pinned Rust toolchains
         shell: bash
         run: |
@@ -367,14 +517,6 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Restore compatible formal workspace cache
-        id: formal-workspace-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/formal-workspace-cache
-          key: formal-workspace-v2-ubuntu24-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ env.OASIS7_WASM_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}-${{ github.sha }}
-          restore-keys: |
-            formal-workspace-v2-ubuntu24-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-${{ env.OASIS7_WASM_TOOLCHAIN }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml', 'scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}-
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
@@ -385,8 +527,26 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Identify formal workspace cache
+        id: formal-cache-identity
+        run: python3 scripts/ci-workspace-cache.py identity --scope formal
+      - name: Restore compatible formal workspace cache
+        id: formal-workspace-cache
+        if: steps.formal-cache-identity.outputs.key != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/formal-workspace-cache/workspace-units.tar.zst
+          key: ${{ steps.formal-cache-identity.outputs.key }}
+          restore-keys: ${{ steps.formal-cache-identity.outputs.prefix }}
       - name: Validate and restore formal workspace units
-        run: python3 scripts/ci-test-artifacts.py cache-restore --cache "$RUNNER_TEMP/formal-workspace-cache"
+        env:
+          REQUESTED_KEY: ${{ steps.formal-cache-identity.outputs.key }}
+          MATCHED_KEY: ${{ steps.formal-workspace-cache.outputs.cache-matched-key }}
+          CACHE_HIT: ${{ steps.formal-workspace-cache.outputs.cache-hit }}
+        run: |
+          python3 scripts/ci-workspace-cache.py restore --scope formal --cache "$RUNNER_TEMP/formal-workspace-cache" \
+            --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
+            --report "$RUNNER_TEMP/formal-cache-restore.json"
       - name: Install native libraries
         run: |
           sudo apt-get update
@@ -438,56 +598,77 @@ jobs:
           if-no-files-found: error
           retention-days: 2
       - name: Measure formal workspace cache footprint
-        run: python3 scripts/ci-test-artifacts.py cache-stage --measure-only --max-bytes 8589934592 --cache "$RUNNER_TEMP/formal-workspace-cache" --cache-state "$RUNNER_TEMP/formal-cache-state.json"
+        run: |
+          python3 scripts/ci-workspace-cache.py measure --scope formal --cache "$RUNNER_TEMP/formal-workspace-cache" \
+            --state "$RUNNER_TEMP/formal-cache-state.json" --report "$RUNNER_TEMP/formal-cache-measure.json"
       - name: Stage bounded formal workspace units
-        id: cache-budget
+        id: formal-cache-stage
         if: >-
-          success() && github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'schedule' ||
-           (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
+          github.job == 'formal-test-build-trusted' && steps.formal-cache-identity.outputs.key != '' &&
           steps.formal-workspace-cache.outputs.cache-hit != 'true'
-        run: python3 scripts/ci-test-artifacts.py cache-stage --max-bytes 8589934592 --cache "$RUNNER_TEMP/formal-workspace-cache" --cache-state "$RUNNER_TEMP/formal-cache-state.json" --github-output "$GITHUB_OUTPUT"
+        env:
+          CACHE_INVENTORY_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci-workspace-cache.py stage --scope formal --cache "$RUNNER_TEMP/formal-workspace-cache" \
+            --state "$RUNNER_TEMP/formal-cache-state.json" --report "$RUNNER_TEMP/formal-cache-stage.json"
       - name: Save bounded trusted formal workspace cache
         id: formal-cache-save
-        if: >-
-          success() && github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'schedule' ||
-           (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
-          steps.cache-budget.outputs.save == 'true' &&
-          steps.formal-workspace-cache.outputs.cache-hit != 'true'
+        if: github.job == 'formal-test-build-trusted' && steps.formal-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/formal-workspace-cache
-          key: ${{ steps.formal-workspace-cache.outputs.cache-primary-key }}
+          path: ${{ runner.temp }}/formal-workspace-cache/workspace-units.tar.zst
+          key: ${{ steps.formal-cache-identity.outputs.key }}
+      - name: Confirm formal workspace cache
+        id: formal-cache-observe
+        if: >-
+          github.job == 'formal-test-build-trusted' &&
+          ((steps.formal-cache-stage.outputs.save == 'true' && steps.formal-cache-save.outcome == 'success') ||
+           steps.formal-workspace-cache.outputs.cache-hit == 'true')
+        env:
+          CACHE_INVENTORY_TOKEN: ${{ github.token }}
+          CACHE_KEY: ${{ steps.formal-cache-identity.outputs.key }}
+        run: python3 scripts/ci-workspace-cache.py observe-save --scope formal --key "$CACHE_KEY" --report "$RUNNER_TEMP/formal-cache-save.json"
+      - name: Upload formal workspace cache diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-workspace-cache-report-${{ github.sha }}
+          path: ${{ runner.temp }}/formal-cache-*.json
+          if-no-files-found: ignore
+          retention-days: 2
 
   formal-test-build-trusted:
     cache-mode: write
-    needs: select
+    permissions:
+      contents: read
+      actions: read
+    needs: [select, cache-bootstrap-maintenance]
     outputs:
-      cache_key: ${{ steps.formal-workspace-cache.outputs.cache-primary-key }}
-      cache_saved: ${{ steps.formal-cache-save.outcome == 'success' }}
+      cache_key: ${{ steps.formal-cache-identity.outputs.key }}
+      cache_confirmed: ${{ steps.formal-cache-observe.outputs.saved_confirmed }}
     if: >-
-      needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
-      github.ref == 'refs/heads/main' &&
+      always() && !cancelled() && needs.select.result == 'success' && needs.select.outputs.run_formal_process == 'true' &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'push' || github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps: *formal-build-steps
 
-  formal-cache-maintenance:
-    needs: formal-test-build-trusted
+  cache-maintenance:
+    needs: [oasis7-test-build-trusted, formal-test-build-trusted, full-regression]
     if: >-
-      needs.formal-test-build-trusted.result == 'success' &&
-      needs.formal-test-build-trusted.outputs.cache_saved == 'true' &&
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+      always() && !cancelled() &&
+      ((needs.oasis7-test-build-trusted.result == 'success' && needs.oasis7-test-build-trusted.outputs.cache_confirmed == 'true') ||
+       (needs.formal-test-build-trusted.result == 'success' && needs.formal-test-build-trusted.outputs.cache_confirmed == 'true')) &&
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+        (github.event_name == 'push' || github.event_name == 'schedule' ||
+         (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     cache-mode: none
     permissions:
       contents: read
       actions: write
     concurrency:
-      group: formal-cache-maintenance-main
+      group: ci-cache-maintenance-main
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -496,15 +677,34 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Report cache storage and retain trusted Formal generations
+      - name: Report storage and retain confirmed workspace generations
         env:
           CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
-          CURRENT_CACHE_KEY: ${{ needs.formal-test-build-trusted.outputs.cache_key }}
-        run: python3 scripts/ci-cache-maintenance.py --apply --current-key "$CURRENT_CACHE_KEY"
+          ORDINARY_RESULT: ${{ needs.oasis7-test-build-trusted.result }}
+          ORDINARY_CONFIRMED: ${{ needs.oasis7-test-build-trusted.outputs.cache_confirmed }}
+          ORDINARY_KEY: ${{ needs.oasis7-test-build-trusted.outputs.cache_key }}
+          FORMAL_RESULT: ${{ needs.formal-test-build-trusted.result }}
+          FORMAL_CONFIRMED: ${{ needs.formal-test-build-trusted.outputs.cache_confirmed }}
+          FORMAL_KEY: ${{ needs.formal-test-build-trusted.outputs.cache_key }}
+        shell: bash
+        run: |
+          args=()
+          if [[ "$ORDINARY_RESULT" == success && "$ORDINARY_CONFIRMED" == true ]]; then
+            args+=(--current-key "$ORDINARY_KEY")
+          fi
+          if [[ "$FORMAL_RESULT" == success && "$FORMAL_CONFIRMED" == true ]]; then
+            args+=(--current-key "$FORMAL_KEY")
+          fi
+          if (( ${#args[@]} )); then
+            python3 scripts/ci-cache-maintenance.py --apply "${args[@]}"
+          else
+            python3 scripts/ci-cache-maintenance.py
+          fi
 
   oasis7-required:
     needs: [select, oasis7-test-build]
     if: >-
+      always() && !cancelled() && needs.oasis7-test-build.result == 'success' &&
       needs.select.result == 'success' &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
@@ -1095,6 +1295,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - name: Install pinned Rust toolchains
         shell: bash
         run: |
@@ -1528,8 +1731,13 @@ jobs:
 
   full-regression:
     cache-mode: write
+    permissions:
+      contents: read
+      actions: read
     needs: oasis7-test-build
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    if: >-
+      always() && !cancelled() && needs.oasis7-test-build.result == 'success' &&
+      github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1584,11 +1792,22 @@ jobs:
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Install dependency cache admission
+        id: dependency-cache-tools
+        continue-on-error: true
+        run: python3 scripts/ci-rust-cache-admission.py install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: steps.dependency-cache-tools.outcome == 'success'
+        env:
+          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: shared-native
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: ci-shared-native-trusted-v3
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta
@@ -1689,7 +1908,9 @@ jobs:
   candidate-full-regression:
     cache-mode: read
     needs: oasis7-test-build
-    if: github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'
+    if: >-
+      always() && !cancelled() && needs.oasis7-test-build.result == 'success' &&
+      github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

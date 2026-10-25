@@ -71,9 +71,11 @@ mod identity_runtime_tests;
 #[path = "formal_live_protected_long_history_tests.rs"]
 mod long_history_tests;
 #[path = "formal_live_protected_process_oracle.rs"]
-mod oracle_support;
+pub(crate) mod oracle_support;
 #[path = "formal_live_protected_proc_sampler.rs"]
 mod proc_sampler;
+#[path = "formal_live_provider_read_gate_startup_tests.rs"]
+mod provider_read_gate_startup_tests;
 #[path = "world_initialization_process_tests.rs"]
 mod world_initialization_tests;
 
@@ -570,6 +572,9 @@ fn run_protected_runtime_fixture(
         "status_bind": status_bind,
         "approved_initial_file": approved_file,
     });
+    if crash_phase == Some("v3_read_gate_no_adapter") {
+        runtime_config["full_sync_provider_read_authorization"] = serde_json::json!("v3_required");
+    }
     if let Some(scenario) = effect_scenario {
         scenario.decorate_config(&mut runtime_config)?;
     }
@@ -662,6 +667,7 @@ fn run_protected_runtime_fixture(
                 | "healthy_fault_old_owner_sigkill"
                 | "controlled_stop_budget"
                 | "identity_runtime_lease"
+                | "v3_read_gate_no_adapter"
         )
     {
         return crash_tests::run_crash_recovery(
@@ -692,6 +698,26 @@ fn run_protected_runtime_fixture(
         None
     } else {
         let mut runtime = FormalLiveRuntime::open_with_native_history(&runtime_config_path)?;
+        if crash_phase == Some("v3_read_gate_no_adapter") {
+            let error = runtime
+                .start()
+                .expect_err("V3Required without evidence dependencies must fail before startup");
+            if !error.contains("no production witness/history and protected-clock adapter") {
+                return Err(format!(
+                    "V3Required startup failed for the wrong reason: {error}"
+                ));
+            }
+            if runtime.started || runtime.server.is_some() {
+                return Err(
+                    "V3Required without evidence dependencies opened the host listener".into(),
+                );
+            }
+            let listener = TcpListener::bind(status_bind).map_err(|error| {
+                format!("status socket was already bound after rejected startup: {error}")
+            })?;
+            drop(listener);
+            return Ok(());
+        }
         if crash_phase == Some("identity_runtime_lease") {
             return identity_runtime_tests::exercise(runtime, &runtime_config_path);
         }

@@ -586,17 +586,7 @@ run_docker_wrapper() {
   local builder_image_digest_value
   builder_image_digest_value="$(builder_image_digest "$SELECTED_BUILDER_IMAGE_ID")"
 
-  # The workspace bind includes an absolute target symlink on local machines.
-  # Mount its destination too so Cargo can follow it inside the container.
-  local cache_mount=()
-  if [[ -L "$host_workspace_root/target" ]]; then
-    local cache_target
-    cache_target="$(cd "$host_workspace_root/target" && pwd -P)"
-    cache_mount=(--mount "type=bind,src=$cache_target,dst=$cache_target")
-  fi
-
   docker run \
-    ${cache_mount[@]+"${cache_mount[@]}"} \
     --rm \
     --platform "$CANONICAL_DOCKER_PLATFORM" \
     --user "$(id -u):$(id -g)" \

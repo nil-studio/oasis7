@@ -643,13 +643,24 @@ class PackageTests(unittest.TestCase):
         self.assertIn("--web output/web", text)
         self.assertNotIn("build-game-launcher-bundle", text)
         self.assertNotIn("crates/oasis7_client_launcher", text)
-        self.assertIn("save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}", text)
+        self.assertIn("save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}", text)
         self.assertIn("!cancelled() && needs.web.result == 'success'", text)
         self.assertIn("needs.native.result == 'success' && needs.native-trusted.result == 'skipped'", text)
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)
         for section in (text.split("  web:\n", 1)[1].split("  native:", 1)[0], text.split("  native:\n", 1)[1].split("  native-trusted:", 1)[0]):
             self.assertNotIn("needs:", section)
-        self.assertEqual(text.count("ref: ${{ github.sha }}"), 4)
+        self.assertEqual(text.count("ref: ${{ github.sha }}"), 5)
+        maintenance = text.split("  cache-maintenance:\n", 1)[1].split("  build-metrics:\n", 1)[0]
+        self.assertIn("needs: native-trusted", maintenance)
+        self.assertIn("needs.native-trusted.outputs.cache_confirmed == 'true'", maintenance)
+        self.assertNotIn("needs.web", maintenance)
+        self.assertIn("ref: ${{ github.sha }}", maintenance)
+        self.assertIn("cache-mode: none", maintenance)
+        self.assertIn("actions: write", maintenance)
+        self.assertEqual(text.count("actions: write"), 1)
+        package_header = text.split("  package:\n", 1)[1].split("    steps:", 1)[0]
+        self.assertIn("needs: [web, native, native-trusted]", package_header)
+        self.assertNotIn("cache-maintenance", package_header)
 
 
 

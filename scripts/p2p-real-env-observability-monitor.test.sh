@@ -50,6 +50,8 @@ from pathlib import Path
 
 summary = json.loads(Path(sys.argv[1]).read_text())
 markdown = Path(sys.argv[2]).read_text()
+assert summary["nodes"]["sequencer_ecs"]["traffic"]["freshness"]["state"] == "unknown"
+assert "traffic_freshness_unknown" in summary["nodes"]["sequencer_ecs"]["alerts"]
 assert summary["snapshot"]["claim_status"] == "pass_candidate"
 assert summary["overall"]["status"] == "pass_with_resource_alerts"
 assert "sequencer_ecs" in summary["host"]["aggregate"]["alerted_nodes"]
@@ -111,3 +113,25 @@ assert "interface_counter_missing=`1`" in markdown
 assert "missing=`local_node, storage_ecs`" in markdown
 assert summary["overall"]["optimization_candidate_count"] >= 3
 PY
+
+python3 ./scripts/p2p-real-env-observability-freshness.test.py
+
+python3 ./scripts/p2p-real-env-observability-attempt.test.py
+
+python3 ./scripts/p2p-real-env-observability-routing.test.py
+
+bash ./scripts/p2p-real-env-host-monitor.test.sh
+
+python3 ./scripts/p2p-real-env-host-report.test.py
+
+bash ./scripts/p2p-real-env-triad-snapshot.test.sh
+
+python3 ./scripts/p2p-real-env-traffic-durable.test.py
+
+# The single-node CLI profile adapter shares the observability report contract.
+bash "$repo_root/scripts/oasis7-node-observability-report.test.sh"
+python3 "$repo_root/scripts/p2p-profile-readiness.test.py"
+
+# Explicit local CLI collection uses the same durable publication protocol.
+python3 "$repo_root/scripts/p2p-node-profile-monitor.test.py"
+python3 "$repo_root/scripts/p2p-node-profile-publication.test.py"

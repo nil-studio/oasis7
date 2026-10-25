@@ -22,11 +22,6 @@ cp "$ROOT_DIR/scripts/validate-release-platform-entrypoints.sh" "$FIXTURE_ROOT/s
 cp "$ROOT_DIR/scripts/service-readback" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/package-native-stage.py" "$FIXTURE_ROOT/scripts/"
 
-cat >"$FIXTURE_ROOT/scripts/cargo-dev.sh" <<'EOF'
-#!/usr/bin/env bash
-[[ "$*" == "--prepare-target" ]]
-EOF
-chmod +x "$FIXTURE_ROOT/scripts/cargo-dev.sh"
 
 cat >"$FIXTURE_ROOT/crates/oasis7_proto/src/viewer.rs" <<'EOF'
 pub const VIEWER_PROTOCOL_VERSION: u32 = 1;

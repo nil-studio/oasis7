@@ -10,8 +10,9 @@ use libp2p::{Multiaddr, PeerId};
 use crate::error::WorldError;
 use crate::util::to_canonical_cbor;
 use oasis7_proto::distributed::dht_peer_record_key;
-use oasis7_proto::distributed_dht::{PeerRecord, SignedPeerRecord};
+use oasis7_proto::distributed_dht::{PeerRecord, PeerRecordPublicationV2, SignedPeerRecord};
 
+use super::durable_peer_record_publisher::LocalPeerRecordPublisher;
 use super::kad_queries::PendingDhtQuery;
 use super::reachability::{
     Libp2pReachabilitySnapshot, is_loopback_direct_addr, is_public_direct_addr, snapshot_clone,
@@ -32,14 +33,16 @@ pub(super) fn publish_configured_peer_record(
     listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
     reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
     allow_loopback_external_addrs_for_testing: bool,
+    local_publisher: &Arc<Mutex<LocalPeerRecordPublisher>>,
     response: Option<CommandResponseSender<()>>,
 ) -> Result<SignedPeerRecord, WorldError> {
-    let signed = build_configured_peer_record(
+    let signed = build_configured_peer_record_with_publisher(
         keypair,
         template,
         listening_addrs,
         reachability,
         allow_loopback_external_addrs_for_testing,
+        local_publisher,
     )?;
     let key = dht_peer_record_key(
         signed.record.world_id.as_str(),
@@ -51,6 +54,7 @@ pub(super) fn publish_configured_peer_record(
     Ok(signed)
 }
 
+#[cfg(test)]
 pub(super) fn build_configured_peer_record(
     keypair: &Keypair,
     template: &PeerRecord,
@@ -65,6 +69,52 @@ pub(super) fn build_configured_peer_record(
         allow_loopback_external_addrs_for_testing,
     );
     sign_peer_record(&materialized, keypair)
+}
+
+pub(super) fn build_configured_peer_record_with_publisher(
+    keypair: &Keypair,
+    template: &PeerRecord,
+    listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
+    reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
+    allow_loopback_external_addrs_for_testing: bool,
+    local_publisher: &Arc<Mutex<LocalPeerRecordPublisher>>,
+) -> Result<SignedPeerRecord, WorldError> {
+    let materialized = materialize_peer_record(
+        template,
+        listening_addrs,
+        reachability,
+        allow_loopback_external_addrs_for_testing,
+    );
+    let mut local_publisher =
+        local_publisher
+            .lock()
+            .map_err(|_| WorldError::NetworkProtocolUnavailable {
+                protocol: "local peer-record publisher lock is poisoned".into(),
+            })?;
+    local_publisher.sign(&materialized, keypair)
+}
+
+pub(super) fn build_current_peer_record_for_remote_request(
+    keypair: &Keypair,
+    template: &PeerRecord,
+    listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
+    reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
+    allow_loopback_external_addrs_for_testing: bool,
+    local_publisher: &Arc<Mutex<LocalPeerRecordPublisher>>,
+) -> Result<SignedPeerRecord, WorldError> {
+    let current = peer_record_with_current_addresses(
+        template,
+        listening_addrs,
+        reachability,
+        allow_loopback_external_addrs_for_testing,
+    );
+    let local_publisher =
+        local_publisher
+            .lock()
+            .map_err(|_| WorldError::NetworkProtocolUnavailable {
+                protocol: "local peer-record publisher lock is poisoned".into(),
+            })?;
+    local_publisher.signed_record_for_remote_request(&current, keypair)
 }
 
 pub(super) fn validate_discovered_peer_record(
@@ -108,13 +158,7 @@ pub(super) fn sign_peer_record(
     record: &PeerRecord,
     keypair: &Keypair,
 ) -> Result<SignedPeerRecord, WorldError> {
-    let mut record = record.clone();
-    record
-        .validate_policy()
-        .map_err(|reason| WorldError::NetworkProtocolUnavailable { protocol: reason })?;
-    if record.peer_id.trim().is_empty() {
-        record.peer_id = PeerId::from(keypair.public()).to_string();
-    }
+    let record = normalized_record_for_signing(record, keypair)?;
     let payload = encode_peer_record_signing_payload(&record)?;
     let signature =
         keypair
@@ -126,7 +170,48 @@ pub(super) fn sign_peer_record(
         record,
         identity_public_key_protobuf_hex: hex::encode(keypair.public().encode_protobuf()),
         signature_hex: hex::encode(signature),
+        publication: None,
     })
+}
+
+pub(super) fn sign_peer_record_v2(
+    record: &PeerRecord,
+    publication: PeerRecordPublicationV2,
+    keypair: &Keypair,
+) -> Result<SignedPeerRecord, WorldError> {
+    publication.validate_for_record(record).map_err(|reason| {
+        WorldError::NetworkProtocolUnavailable {
+            protocol: reason.to_string(),
+        }
+    })?;
+    let record = normalized_record_for_signing(record, keypair)?;
+    let payload = encode_peer_record_signing_payload_v2(&publication, &record)?;
+    let signature =
+        keypair
+            .sign(payload.as_slice())
+            .map_err(|err| WorldError::NetworkProtocolUnavailable {
+                protocol: format!("peer record sign failed: {err}"),
+            })?;
+    Ok(SignedPeerRecord {
+        record,
+        identity_public_key_protobuf_hex: hex::encode(keypair.public().encode_protobuf()),
+        signature_hex: hex::encode(signature),
+        publication: Some(publication),
+    })
+}
+
+fn normalized_record_for_signing(
+    record: &PeerRecord,
+    keypair: &Keypair,
+) -> Result<PeerRecord, WorldError> {
+    let mut record = record.clone();
+    record
+        .validate_policy()
+        .map_err(|reason| WorldError::NetworkProtocolUnavailable { protocol: reason })?;
+    if record.peer_id.trim().is_empty() {
+        record.peer_id = PeerId::from(keypair.public()).to_string();
+    }
+    Ok(record)
 }
 
 pub(super) fn verify_signed_peer_record(record: &SignedPeerRecord) -> Result<(), WorldError> {
@@ -154,7 +239,17 @@ pub(super) fn verify_signed_peer_record(record: &SignedPeerRecord) -> Result<(),
             protocol: "peer record signature must be valid hex".to_string(),
         }
     })?;
-    let payload = encode_peer_record_signing_payload(&record.record)?;
+    let payload = match &record.publication {
+        None => encode_peer_record_signing_payload(&record.record)?,
+        Some(publication) => {
+            publication
+                .validate_for_record(&record.record)
+                .map_err(|reason| WorldError::NetworkProtocolUnavailable {
+                    protocol: reason.to_string(),
+                })?;
+            encode_peer_record_signing_payload_v2(publication, &record.record)?
+        }
+    };
     if !public_key.verify(payload.as_slice(), signature.as_slice()) {
         return Err(WorldError::NetworkProtocolUnavailable {
             protocol: "peer record signature verification failed".to_string(),
@@ -164,6 +259,22 @@ pub(super) fn verify_signed_peer_record(record: &SignedPeerRecord) -> Result<(),
 }
 
 fn materialize_peer_record(
+    template: &PeerRecord,
+    listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
+    reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
+    allow_loopback_external_addrs_for_testing: bool,
+) -> PeerRecord {
+    let mut record = peer_record_with_current_addresses(
+        template,
+        listening_addrs,
+        reachability,
+        allow_loopback_external_addrs_for_testing,
+    );
+    record.published_at_ms = super::now_ms();
+    record
+}
+
+fn peer_record_with_current_addresses(
     template: &PeerRecord,
     listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
     reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
@@ -186,7 +297,7 @@ fn materialize_peer_record(
             .map(ToString::to_string)
             .collect();
     }
-    record.published_at_ms = super::now_ms();
+    record.published_at_ms = 0;
     record
 }
 
@@ -272,5 +383,24 @@ pub(super) fn put_record_query(
 fn encode_peer_record_signing_payload(record: &PeerRecord) -> Result<Vec<u8>, WorldError> {
     let mut payload = b"oasis7-peer-record-v1|".to_vec();
     payload.extend_from_slice(&to_canonical_cbor(record)?);
+    Ok(payload)
+}
+
+pub(super) fn encode_peer_record_signing_payload_v2(
+    publication: &PeerRecordPublicationV2,
+    record: &PeerRecord,
+) -> Result<Vec<u8>, WorldError> {
+    publication.validate_for_record(record).map_err(|reason| {
+        WorldError::NetworkProtocolUnavailable {
+            protocol: reason.to_string(),
+        }
+    })?;
+    let mut payload = b"oasis7-peer-record-v2|".to_vec();
+    payload.extend_from_slice(&to_canonical_cbor(&(
+        publication.schema_version,
+        publication.sequence,
+        publication.state,
+        record,
+    ))?);
     Ok(payload)
 }

@@ -447,6 +447,17 @@ fn start_live_service(
     material: ClosedRecord,
     proof: FormalQualifiedCommitProofV1,
 ) -> LiveServiceFixture {
+    start_live_service_with_read_gate(world, trust, anchor, material, proof, None)
+}
+
+fn start_live_service_with_read_gate(
+    world: World,
+    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    anchor: VerifiedFormalReadAnchorV1,
+    material: ClosedRecord,
+    proof: FormalQualifiedCommitProofV1,
+    read_gate: Option<Arc<crate::formal_live_service::full_sync_read_gate::FullSyncV3ReadGate>>,
+) -> LiveServiceFixture {
     let mut node_config = NodeConfig::new(
         "formal-full-sync-test-node",
         &anchor.head().record().world.world_id,
@@ -485,7 +496,7 @@ fn start_live_service(
         transition_steps: Mutex::new(BTreeMap::new()),
     });
     let history_service: Arc<dyn FormalLiveHistoryResolver> = history.clone();
-    let service = Arc::new(FormalLiveService::new(
+    let mut service = FormalLiveService::new(
         "formal-full-sync-test-node".into(),
         identity,
         service_signer,
@@ -495,7 +506,11 @@ fn start_live_service(
         history_service,
         state,
         Arc::new(Mutex::new(())),
-    ));
+    );
+    if let Some(read_gate) = read_gate {
+        service = service.with_full_sync_read_gate(read_gate).unwrap();
+    }
+    let service = Arc::new(service);
     let probe = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = probe.local_addr().unwrap();
     drop(probe);
@@ -584,13 +599,33 @@ fn post_object(
     cut: FormalFullSyncCutV1,
     content_hash: String,
 ) -> (u16, Vec<u8>) {
+    post_object_range(
+        endpoint,
+        request_key,
+        grant,
+        cut,
+        content_hash,
+        0,
+        oasis7_client_api::world_service_full_sync::MAX_FULL_SYNC_CHUNK_BYTES as u32,
+    )
+}
+
+fn post_object_range(
+    endpoint: &str,
+    request_key: &SigningKey,
+    grant: FormalNodeReadGrantV1,
+    cut: FormalFullSyncCutV1,
+    content_hash: String,
+    offset: u64,
+    max_bytes: u32,
+) -> (u16, Vec<u8>) {
     let payload = FormalFullSyncObjectRequestV1 {
         schema_version: 1,
         grant,
         cut,
         content_hash,
-        offset: 0,
-        max_bytes: oasis7_client_api::world_service_full_sync::MAX_FULL_SYNC_CHUNK_BYTES as u32,
+        offset,
+        max_bytes,
         retained_history_root_digest: None,
         business_path: None,
     };
@@ -629,6 +664,9 @@ fn post_object(
         .unwrap();
     (status, response[split..].to_vec())
 }
+
+#[path = "formal_full_sync_read_gate_tests.rs"]
+mod read_gate_tests;
 
 fn cut(anchor: &VerifiedFormalReadAnchorV1) -> FormalFullSyncCutV1 {
     let record = anchor.head().record();

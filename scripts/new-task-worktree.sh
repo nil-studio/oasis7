@@ -22,7 +22,6 @@ Default conventions:
 - branch: codex/<module>-<task>
 - worktrees root: oasis7.task-worktrees-root Git config; fallback <repo-parent>/worktrees
 - worktree path: <worktrees root>/<repo-name>-<module>-<task>
-- cargo target: ignored `target` symlink to the worktree-scoped shared dev cache
 - base ref: HEAD
 
 Options:
@@ -245,9 +244,6 @@ CANONICAL_CONFIG_SOURCE="$CANONICAL_REPO_ROOT/config.toml"
 TARGET_CONFIG_PATH="$TARGET_PATH/config.toml"
 CANONICAL_CONFIG_EXISTS=0
 CANONICAL_CONFIG_COPIED=0
-CARGO_SHARED_TARGET_DIR=""
-TARGET_CARGO_TARGET_PATH="$TARGET_PATH/target"
-CARGO_TARGET_LINKED=0
 RECOVERY_COMMAND="$(printf '%q ' "$ROOT_DIR/scripts/new-task-worktree.sh" "$MODULE_INPUT" "$TASK_INPUT" --branch "$BRANCH_NAME" --path "$TARGET_PATH" --resume-setup --json)"
 
 report_failure() {
@@ -293,9 +289,9 @@ else
   mkdir -p "$(dirname "$TARGET_PATH")"
   if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
     MODE="attach_existing_branch"
-    "$PYTHON_BIN" "$ROOT_DIR/scripts/cargo-cache.py" attach --repo-root "$ROOT_DIR" -- git worktree add --quiet "$TARGET_PATH" "$BRANCH_NAME" >&2
+    git worktree add --quiet "$TARGET_PATH" "$BRANCH_NAME" >&2
   else
-    "$PYTHON_BIN" "$ROOT_DIR/scripts/cargo-cache.py" attach --repo-root "$ROOT_DIR" -- git worktree add --quiet -b "$BRANCH_NAME" "$TARGET_PATH" "$BASE_REF" >&2
+    git worktree add --quiet -b "$BRANCH_NAME" "$TARGET_PATH" "$BASE_REF" >&2
   fi
   WORKTREE_CREATED=1
 fi
@@ -325,25 +321,6 @@ finally: os.unlink(temp)
 CONFIG
 )"
 fi
-FAILED_STEP="cache_resolve"
-CARGO_SHARED_TARGET_DIR="$(cd "$TARGET_PATH" && "$ROOT_DIR/scripts/cargo-dev.sh" --print-target-dir)"
-FAILED_STEP="cache_target"
-if [[ -e "$TARGET_CARGO_TARGET_PATH" || -L "$TARGET_CARGO_TARGET_PATH" ]]; then
-  "$PYTHON_BIN" - "$TARGET_CARGO_TARGET_PATH" "$CARGO_SHARED_TARGET_DIR" <<'LINK'
-import os,sys
-if not os.path.islink(sys.argv[1]) or os.path.realpath(sys.argv[1]) != os.path.realpath(sys.argv[2]):
-    print('error: target conflicts with shared cache; preserved',file=sys.stderr)
-    raise SystemExit(1)
-LINK
-else
-  FAILED_STEP="cache_mkdir"
-  mkdir -p "$CARGO_SHARED_TARGET_DIR"
-  FAILED_STEP="cache_link"
-  ln -s "$CARGO_SHARED_TARGET_DIR" "$TARGET_CARGO_TARGET_PATH"
-fi
-FAILED_STEP="cache_mkdir"
-mkdir -p "$CARGO_SHARED_TARGET_DIR"
-CARGO_TARGET_LINKED=1
 FAILED_STEP="optional_setup"
 
 DOC_PRD_PATH=""
@@ -378,7 +355,7 @@ fi
 SETUP_STATUS="complete"
 FAILED_STEP=""
 HEAD_OID="$(git -C "$TARGET_PATH" rev-parse HEAD)"
-SUMMARY_JSON="$("$PYTHON_BIN" - "$MODULE_INPUT" "$TASK_INPUT" "$MODULE_SLUG" "$TASK_SLUG" "$BRANCH_NAME" "$TARGET_PATH" "$BASE_REF" "$MODE" "$REPO_ROOT" "$FAMILY_REPO_NAME" "$WORKTREES_ROOT" "$CANONICAL_CONFIG_SOURCE" "$CANONICAL_CONFIG_EXISTS" "$TARGET_CONFIG_PATH" "$CANONICAL_CONFIG_COPIED" "$CARGO_SHARED_TARGET_DIR" "$TARGET_CARGO_TARGET_PATH" "$CARGO_TARGET_LINKED" "$INIT_DOCS" "$DOC_PRD_PATH" "$DOC_PRD_EXISTS" "$WITH_HARNESS" "$HARNESS_BOOTSTRAP_LOG" "$HARNESS_STATE_FILE" "$HARNESS_STATUS" "$HARNESS_VIEWER_URL" "$HEAD_OID" "$RECOVERY_COMMAND" <<'PY'
+SUMMARY_JSON="$("$PYTHON_BIN" - "$MODULE_INPUT" "$TASK_INPUT" "$MODULE_SLUG" "$TASK_SLUG" "$BRANCH_NAME" "$TARGET_PATH" "$BASE_REF" "$MODE" "$REPO_ROOT" "$FAMILY_REPO_NAME" "$WORKTREES_ROOT" "$CANONICAL_CONFIG_SOURCE" "$CANONICAL_CONFIG_EXISTS" "$TARGET_CONFIG_PATH" "$CANONICAL_CONFIG_COPIED" "$INIT_DOCS" "$DOC_PRD_PATH" "$DOC_PRD_EXISTS" "$WITH_HARNESS" "$HARNESS_BOOTSTRAP_LOG" "$HARNESS_STATE_FILE" "$HARNESS_STATUS" "$HARNESS_VIEWER_URL" "$HEAD_OID" "$RECOVERY_COMMAND" <<'PY'
 from __future__ import annotations
 
 import json
@@ -386,11 +363,11 @@ import sys
 
 payload = {
     "worktree": sys.argv[6],
-    "head": sys.argv[27],
+    "head": sys.argv[24],
     "worktree_created": True,
     "setup_status": "complete",
     "failed_step": None,
-    "recovery_command": sys.argv[28],
+    "recovery_command": sys.argv[25],
     "module": sys.argv[1],
     "task": sys.argv[2],
     "module_slug": sys.argv[3],
@@ -408,22 +385,17 @@ payload = {
         "target_path": sys.argv[14],
         "copied": sys.argv[15] == "1",
     },
-    "cargo_cache": {
-        "shared_target_dir": sys.argv[16],
-        "target_path": sys.argv[17],
-        "linked": sys.argv[18] == "1",
-    },
 }
-if sys.argv[19] == "1":
+if sys.argv[16] == "1":
     payload["doc_checks"] = {
-        "prd": {"path": sys.argv[20], "exists": sys.argv[21] == "1"},
+        "prd": {"path": sys.argv[17], "exists": sys.argv[18] == "1"},
     }
-if sys.argv[22] == "1":
+if sys.argv[19] == "1":
     payload["harness"] = {
-        "bootstrap_log": sys.argv[23],
-        "state_file": sys.argv[24],
-        "status": sys.argv[25],
-        "viewer_url": sys.argv[26],
+        "bootstrap_log": sys.argv[20],
+        "state_file": sys.argv[21],
+        "status": sys.argv[22],
+        "viewer_url": sys.argv[23],
     }
 print(json.dumps(payload, ensure_ascii=False))
 PY
@@ -454,14 +426,6 @@ Repo-local config:
 - source file: $([[ "$CANONICAL_CONFIG_EXISTS" == "1" ]] && printf 'present' || printf 'missing')
 - target path: $TARGET_CONFIG_PATH
 - copied: $([[ "$CANONICAL_CONFIG_COPIED" == "1" ]] && printf 'yes' || printf 'no')
-INFO
-
-cat <<INFO
-
-Cargo dev cache:
-- shared target dir: $CARGO_SHARED_TARGET_DIR
-- target path: $TARGET_CARGO_TARGET_PATH
-- linked: $([[ "$CARGO_TARGET_LINKED" == "1" ]] && printf 'yes' || printf 'no')
 INFO
 
 if [[ "$INIT_DOCS" == "1" ]]; then

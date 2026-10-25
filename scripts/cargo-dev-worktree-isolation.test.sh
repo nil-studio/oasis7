@@ -1,200 +1,59 @@
 #!/usr/bin/env bash
-# Contract: divergent git worktrees must not share development Cargo artifacts.
+# Real Cargo proof: worktrees own their target and explicit overrides stay native.
 set -euo pipefail
-# Exercise local storage behavior even when the regression itself runs in CI.
-export CI=
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TMPDIR="$(mktemp -d)"
-REPO="$TMPDIR/repo"
-WORKTREE_A="$TMPDIR/worktree-a"
-WORKTREE_B="$TMPDIR/worktree-b"
-FAKE_BIN="$TMPDIR/fake-bin"
-REAL_CARGO="$(command -v cargo)"
-PYTHON_BIN="$("$ROOT_DIR/scripts/find-python-with-module.sh" ast)"
-
-cleanup() {
-  set +e
-  git -C "$REPO" worktree remove --force "$WORKTREE_A" >/dev/null 2>&1 || true
-  git -C "$REPO" worktree remove --force "$WORKTREE_B" >/dev/null 2>&1 || true
-  rm -rf "$TMPDIR"
-}
-trap cleanup EXIT
-
-mkdir -p "$REPO/scripts" "$FAKE_BIN"
-cp "$ROOT_DIR/scripts/cargo-cache.py" "$REPO/scripts/cargo-cache.py"
-cp "$ROOT_DIR/scripts/cargo-dev.sh" "$REPO/scripts/cargo-dev.sh"
-cp "$ROOT_DIR/scripts/find-python-with-module.sh" "$REPO/scripts/find-python-with-module.sh"
-chmod +x "$REPO/scripts/cargo-dev.sh" "$REPO/scripts/find-python-with-module.sh"
-mkdir -p "$REPO/proto/src" "$REPO/consumer/src"
-cat >"$REPO/Cargo.toml" <<'EOF'
-[workspace]
-members = ["proto", "consumer"]
-resolver = "2"
-EOF
-cat >"$REPO/proto/Cargo.toml" <<'EOF'
-[package]
-name = "proto"
-version = "0.1.0"
-edition = "2021"
-EOF
-cat >"$REPO/consumer/Cargo.toml" <<'EOF'
-[package]
-name = "consumer"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-proto = { path = "../proto" }
-EOF
-cat >"$REPO/proto/src/lib.rs" <<'EOF'
-pub struct Ack { pub field_a: u8 }
-EOF
-cat >"$REPO/consumer/src/lib.rs" <<'EOF'
-use proto::Ack;
-
-pub fn read(a: Ack) -> u8 { a.field_a }
-EOF
-
-cat >"$FAKE_BIN/cargo" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "--version" ]]; then
-  printf '%s\n' 'cargo 1.0.0-fixture'
-  exit 0
-fi
-if [[ "${2:-}" == "--target-dir" ]]; then CARGO_TARGET_DIR="$3"; fi
-mkdir -p "${CARGO_TARGET_DIR:?}/fixture-artifacts"
-printf '%s\n' "${FAKE_SOURCE_ID:?}" >"$CARGO_TARGET_DIR/fixture-artifacts/oasis7_proto-source.txt"
-EOF
-chmod +x "$FAKE_BIN/cargo"
-
-git -C "$REPO" init -q -b main
-git -C "$REPO" config user.email test@example.invalid
-git -C "$REPO" config user.name 'Cargo cache fixture'
-git -C "$REPO" add .
-git -C "$REPO" commit -qm base
-env -u RUSTC_WRAPPER "$REAL_CARGO" generate-lockfile --manifest-path "$REPO/Cargo.toml" --offline >/dev/null
-git -C "$REPO" add Cargo.lock
-git -C "$REPO" commit -qm lockfile
-git -C "$REPO" checkout -qb divergent-a
-git -C "$REPO" checkout -q main
-git -C "$REPO" checkout -qb divergent-b
-"$PYTHON_BIN" - "$REPO/proto/src/lib.rs" "$REPO/consumer/src/lib.rs" <<'PY'
-from pathlib import Path
-import sys
-
-proto, consumer = map(Path, sys.argv[1:])
-proto.write_text("pub struct Ack { pub field_b: u8 }\n", encoding="utf-8")
-consumer.write_text(
-    "use proto::Ack;\n\npub fn read(a: Ack) -> u8 { a.field_b }\n",
-    encoding="utf-8",
-)
-PY
-git -C "$REPO" add proto/src/lib.rs consumer/src/lib.rs
-git -C "$REPO" commit -qam divergent-b
-git -C "$REPO" checkout -q main
-git -C "$REPO" worktree add -q "$WORKTREE_A" divergent-a
-git -C "$REPO" worktree add -q "$WORKTREE_B" divergent-b
-
-TARGET_A="$(cd "$WORKTREE_A" && PATH="$FAKE_BIN:$PATH" ./scripts/cargo-dev.sh --print-target-dir)"
-TARGET_B="$(cd "$WORKTREE_B" && PATH="$FAKE_BIN:$PATH" ./scripts/cargo-dev.sh --print-target-dir)"
-TARGET_A_AGAIN="$(cd "$WORKTREE_A" && PATH="$FAKE_BIN:$PATH" ./scripts/cargo-dev.sh --print-target-dir)"
-if [[ "$TARGET_A" != "$TARGET_A_AGAIN" ]]; then
-  echo "same worktree did not reuse its stable Cargo target namespace" >&2
-  exit 1
-fi
-if [[ "$TARGET_A" == "$TARGET_B" ]]; then
-  echo "divergent worktrees resolved the same Cargo target namespace: $TARGET_A" >&2
-  exit 1
-fi
-
-LEGACY_CACHE="$TMPDIR/.oasis7-cache/cargo-target/git-legacy/rustc-legacy"
-mkdir -p "$LEGACY_CACHE"
-printf '%s\n' 'must-survive-wrapper-migration' >"$LEGACY_CACHE/sentinel.txt"
-ln -s "$LEGACY_CACHE" "$WORKTREE_A/target"
-
-(cd "$WORKTREE_A" && PATH="$FAKE_BIN:$PATH" FAKE_SOURCE_ID=divergent-a ./scripts/cargo-dev.sh build -p oasis7_proto)
-(cd "$WORKTREE_B" && PATH="$FAKE_BIN:$PATH" FAKE_SOURCE_ID=divergent-b ./scripts/cargo-dev.sh build -p oasis7_proto)
-
-[[ -L "$WORKTREE_B/target" ]] || { echo "missing target link" >&2; exit 1; }
-(cd "$WORKTREE_B" && ./scripts/cargo-dev.sh --prepare-target)
-
-ACTUAL_TARGET_A="$("$PYTHON_BIN" - "$WORKTREE_A/target" <<'PY'
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 - "$ROOT" <<'PYTHON'
+import json
 import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
-print(os.path.realpath(sys.argv[1]))
-PY
-)"
-if [[ "$ACTUAL_TARGET_A" != "$TARGET_A" ]]; then
-  echo "cargo-dev did not migrate the legacy target symlink: $ACTUAL_TARGET_A != $TARGET_A" >&2
-  exit 1
-fi
-if [[ "$(<"$LEGACY_CACHE/sentinel.txt")" != must-survive-wrapper-migration ]]; then
-  echo "cargo-dev changed data in the legacy target cache" >&2
-  exit 1
-fi
-(cd "$WORKTREE_A" && env -u CARGO_TARGET_DIR "$REAL_CARGO" test --manifest-path Cargo.toml --locked --offline)
-(cd "$WORKTREE_B" && env -u CARGO_TARGET_DIR "$REAL_CARGO" test --manifest-path Cargo.toml --locked --offline)
-if [[ "$(<"$TARGET_A/fixture-artifacts/oasis7_proto-source.txt")" != divergent-a ]]; then
-  echo "worktree A artifact marker was contaminated by another worktree" >&2
-  exit 1
-fi
-if [[ "$(<"$TARGET_B/fixture-artifacts/oasis7_proto-source.txt")" != divergent-b ]]; then
-  echo "worktree B artifact marker was contaminated by another worktree" >&2
-  exit 1
-fi
+import tempfile
 
-# Preparation is non-destructive and CI leaves its checkout layout unchanged.
-unlink "$WORKTREE_B/target"
-(cd "$WORKTREE_B" && CI=1 ./scripts/cargo-dev.sh --prepare-target)
-[[ ! -e "$WORKTREE_B/target" && ! -L "$WORKTREE_B/target" ]]
-mkdir "$WORKTREE_B/target"
-printf 'preserve\n' >"$WORKTREE_B/target/sentinel"
-if (cd "$WORKTREE_B" && ./scripts/cargo-dev.sh --prepare-target) >"$TMPDIR/ordinary.out" 2>&1; then
-  echo "preparation accepted an ordinary target" >&2; exit 1
-fi
-[[ "$(<"$WORKTREE_B/target/sentinel")" == preserve ]]
-rm "$WORKTREE_B/target/sentinel"
-rmdir "$WORKTREE_B/target"
-(cd "$WORKTREE_B" && ./scripts/cargo-dev.sh --prepare-target)
-
-EXTERNAL_CACHE="$TMPDIR/external-cache"
-mkdir -p "$EXTERNAL_CACHE"
-printf '%s\n' external >"$EXTERNAL_CACHE/sentinel.txt"
-unlink "$WORKTREE_B/target"
-ln -s "$EXTERNAL_CACHE" "$WORKTREE_B/target"
-set +e
-(cd "$WORKTREE_B" && PATH="$FAKE_BIN:$PATH" ./scripts/cargo-dev.sh build -p oasis7_proto) \
-  >"$TMPDIR/external.out" 2>"$TMPDIR/external.err"
-rc=$?
-set -e
-if [[ "$rc" == "0" ]] || ! grep -Fq 'outside the managed Cargo cache' "$TMPDIR/external.err"; then
-  echo "cargo-dev accepted an unmanaged target symlink" >&2
-  cat "$TMPDIR/external.err" >&2
-  exit 1
-fi
-if [[ "$(<"$EXTERNAL_CACHE/sentinel.txt")" != external ]]; then
-  echo "cargo-dev changed data in the unmanaged cache" >&2
-  exit 1
-fi
-
-# Simulate Windows privilege failure against the actual embedded link code.
-"$PYTHON_BIN" - "$ROOT_DIR/scripts/cargo-dev.sh" <<'WINTEST'
-import contextlib, io, pathlib, sys
-from unittest.mock import patch
-source = pathlib.Path(sys.argv[1]).read_text().split("<<'LINK'\n", 1)[1].split("\nLINK", 1)[0]
-error = OSError("A required privilege is not held by the client")
-error.winerror = 1314
-for command in ("build", "--prepare-target"):
-    with patch("os.name", "nt"), patch("os.symlink", side_effect=error), patch.object(sys, "argv", ["-", "cache", "target", command]), contextlib.redirect_stderr(io.StringIO()):
-        try:
-            exec(compile(source, "cargo-dev-link", "exec"), {})
-        except SystemExit:
-            assert command == "--prepare-target"
-        else:
-            assert command == "build"
-WINTEST
-
-echo "cargo-dev-worktree-isolation.test: OK"
+root = Path(sys.argv[1])
+with tempfile.TemporaryDirectory(prefix="oasis7-local-target-") as directory:
+    parent = Path(directory)
+    repo = parent / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "scripts").mkdir()
+    shutil.copy2(root / "scripts/cargo-dev.sh", repo / "scripts/cargo-dev.sh")
+    (repo / "Cargo.toml").write_text('[package]\nname="target_proof"\nversion="0.1.0"\nedition="2021"\n')
+    source = 'pub fn value() -> u8 { VALUE }\n#[test] fn verify() { assert_eq!(value(), VALUE); }\n'
+    (repo / "src/lib.rs").write_text(source.replace("VALUE", "1"))
+    def git(*args):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    git("init", "-qb", "main")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "add", ".")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "initial")
+    worktree = parent / "worktree with spaces"
+    git("worktree", "add", "-qb", "topic", str(worktree))
+    (worktree / "src/lib.rs").write_text(source.replace("VALUE", "2"))
+    env = {k: v for k, v in os.environ.items() if k not in ("CARGO_TARGET_DIR", "RUSTC_WRAPPER")}
+    env.update(CI="", OASIS7_CARGO_SCCACHE="0")
+    def cargo(path, *args, target_env=None):
+        build_env = dict(env)
+        if target_env is not None:
+            build_env["CARGO_TARGET_DIR"] = target_env
+        return subprocess.run([str(path / "scripts/cargo-dev.sh"), *args], cwd=path,
+                              env=build_env, check=True, capture_output=True, text=True).stdout
+    for path in (repo, worktree):
+        cargo(path, "test", "--offline")
+        assert (path / "target/debug").is_dir()
+        assert not (path / "target").is_symlink()
+        cargo(path, "test", "--offline")
+    # A configured directory must remain authoritative, including spaces.
+    (repo / ".cargo").mkdir()
+    (repo / ".cargo/config.toml").write_text('[build]\ntarget-dir="configured target"\n')
+    cargo(repo, "build", "--offline")
+    assert (repo / "configured target/debug").is_dir()
+    cargo(repo, "build", "--offline", target_env="environment target")
+    assert (repo / "environment target/debug").is_dir()
+    cargo(repo, "build", "--offline", "--target-dir", "argument target", target_env="environment target")
+    assert (repo / "argument target/debug").is_dir()
+    # Failed Cargo calls keep their exit status; no external registry or links exist.
+    assert not (parent / ".oasis7-cache").exists()
+    for path in (repo, worktree):
+        assert not list(path.glob("target.*"))
+    print("cargo-dev-worktree-isolation.test: OK (real Cargo)")
+PYTHON

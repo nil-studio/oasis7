@@ -5,7 +5,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 REPO="$TMP/repo with spaces"
 mkdir -p "$REPO/scripts" "$TMP/bin"
-cp "$ROOT/scripts/"{worktree-gc-report.sh,worktree-harness-lib.sh,cargo-cache.py} "$REPO/scripts/"
+cp "$ROOT/scripts/"{worktree-gc-report.sh,worktree-harness-lib.sh} "$REPO/scripts/"
 git -C "$REPO" init -qb main
 git -C "$REPO" config user.email test@example.com
 git -C "$REPO" config user.name test
@@ -58,11 +58,10 @@ assert e['missing']['unreadable_reason']=='path_missing'
 for row in p['entries']:
     assert not any('cleanup' in key or 'pm_task' in key or 'delete' in key for key in row)
 f=json.loads((root/'footprint').read_text())
-assert f['summary']['known_shared_target_bytes']>0
-assert 'cargo_cache' in f
+assert f['summary']['known_linked_target_bytes']>0
+assert 'cargo_cache' not in f
 assert 'cleanup' not in (root/'human').read_text()
 CHECK
 # Use the calling worktree's implementation before it has reached main.
-rm "$REPO/scripts/cargo-cache.py"
 "$TMP/topic/scripts/worktree-gc-report.sh" --json --footprint >"$TMP/topic-footprint"
 echo 'worktree-gc-report.test: OK'

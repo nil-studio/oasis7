@@ -250,6 +250,14 @@ fn run_cli_join_with_sources(
         cut(&anchor)
     };
     let first = cli.wait_ready(&expected)?;
+    super::super::super::profile_report_tests::assert_report(&root.0, &first, "ready")?;
+    super::super::super::profile_report_tests::assert_local_collection(
+        &root.0,
+        &cli.binary,
+        &cli.data,
+        &first,
+        "ready",
+    )?;
     let generation = first["instance"]["generation"].as_u64();
     if evolve_epoch {
         let original = if moving {
@@ -325,6 +333,16 @@ fn run_cli_join_with_sources(
             if status["formal_full_state_sync"]["last_verified_cut"] == exact_recovered_cut
                 && exact_old_epoch_grant_denied(&status)
             {
+                super::super::super::profile_report_tests::assert_report(
+                    &root.0, &status, "blocked",
+                )?;
+                super::super::super::profile_report_tests::assert_local_collection(
+                    &root.0,
+                    &cli.binary,
+                    &cli.data,
+                    &status,
+                    "blocked",
+                )?;
                 break;
             }
             if Instant::now() >= deadline {
@@ -373,6 +391,14 @@ fn run_cli_join_with_sources(
     }
     cli.start()?;
     let reopened = cli.wait_ready(&expected)?;
+    super::super::super::profile_report_tests::assert_report(&root.0, &reopened, "ready")?;
+    super::super::super::profile_report_tests::assert_local_collection(
+        &root.0,
+        &cli.binary,
+        &cli.data,
+        &reopened,
+        "ready",
+    )?;
     if reopened["formal_full_state_sync"]["node_public_key"] != node_public
         || reopened["instance"]["generation"].as_u64() == generation
     {
@@ -382,6 +408,15 @@ fn run_cli_join_with_sources(
     if std::fs::read(&chain).map_err(|e| e.to_string())? != fixed_chain {
         return Err("CLI restart replaced external C0".into());
     }
+    let stopped = cli.status()?;
+    super::super::super::profile_report_tests::assert_report(&root.0, &stopped, "blocked")?;
+    super::super::super::profile_report_tests::assert_local_collection(
+        &root.0,
+        &cli.binary,
+        &cli.data,
+        &stopped,
+        "blocked",
+    )?;
     server.stop()?;
     node_runtime
         .lock()

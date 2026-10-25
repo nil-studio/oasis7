@@ -11,7 +11,9 @@ use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
 use crate::error::WorldError;
 
-use super::discovery::handle_request_response_request;
+use super::discovery::handle_request_response_request_with_publisher;
+use super::durable_peer_record_publisher::LocalPeerRecordPublisher;
+use super::peer_record_admission::{PeerRecordAdmissionWorkUnit, admit_special_request};
 use super::response_budget::FetchBlobResponseBudget;
 use super::response_workers::ResponseWorkers;
 use super::runtime_loop::{Handler, HandlerRegistration};
@@ -92,6 +94,7 @@ pub(super) fn dispatch_inbound_request(
     max_error_messages: usize,
     peer_record_template: Option<&PeerRecord>,
     keypair: &Keypair,
+    local_peer_record_publisher: &Arc<Mutex<LocalPeerRecordPublisher>>,
     listening_addrs: &Arc<Mutex<Vec<Multiaddr>>>,
     reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
     allow_loopback_external_addrs_for_testing: bool,
@@ -103,6 +106,61 @@ pub(super) fn dispatch_inbound_request(
         request.protocol.as_str(),
         request.payload.len(),
     );
+    let peer_record_budget = swarm.behaviour().peer_record_admission_budget();
+    let special_request_permit = match admit_special_request(
+        &peer_record_budget,
+        peer,
+        request.protocol.as_str(),
+        request.payload.as_slice(),
+    ) {
+        Ok(permit) => permit,
+        Err(err) => {
+            response_workers.send_immediate(
+                channel,
+                request.protocol.as_str(),
+                peer,
+                Err(err),
+                response_budget,
+                dispatch_now_ms,
+                traffic_metrics,
+                swarm,
+            );
+            return;
+        }
+    };
+    if let Some(permit) = special_request_permit {
+        let mut reply = handle_request_response_request_with_publisher(
+            &request,
+            handlers,
+            peer_record_template,
+            keypair,
+            listening_addrs,
+            reachability,
+            allow_loopback_external_addrs_for_testing,
+            discovered_peer_records,
+            local_peer_record_publisher,
+        );
+        if reply.is_ok()
+            && let Err(err) = permit.consume(
+                Some(peer),
+                PeerRecordAdmissionWorkUnit::SpecialRequestResponseRequest,
+                request.payload.as_slice(),
+            )
+        {
+            reply = Err(err);
+        }
+        response_workers.send_immediate(
+            channel,
+            request.protocol.as_str(),
+            peer,
+            reply,
+            response_budget,
+            dispatch_now_ms,
+            traffic_metrics,
+            swarm,
+        );
+        return;
+    }
     if let Some(registration) = handlers.get(&request.protocol) {
         if let Err(reply) = admission_budget.admit(peer, request.protocol.as_str(), dispatch_now_ms)
         {
@@ -163,7 +221,7 @@ pub(super) fn dispatch_inbound_request(
         }
         return;
     }
-    let reply = handle_request_response_request(
+    let reply = handle_request_response_request_with_publisher(
         &request,
         handlers,
         peer_record_template,
@@ -172,6 +230,7 @@ pub(super) fn dispatch_inbound_request(
         reachability,
         allow_loopback_external_addrs_for_testing,
         discovered_peer_records,
+        local_peer_record_publisher,
     );
     response_workers.send_immediate(
         channel,

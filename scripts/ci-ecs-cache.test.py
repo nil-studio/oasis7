@@ -81,21 +81,61 @@ def fixture(root):
 
 
 class EcsCacheTests(unittest.TestCase):
+    def test_shared_policy_and_archive_changes_invalidate_restore_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = ('Cargo.toml', 'Cargo.lock', '.github/workflows/ecs-packages.yml',
+                     'scripts/ci-ecs-cache.py', 'scripts/package-ecs.py', 'scripts/ci-test-artifacts.py',
+                     'scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py')
+            for name in files:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('original')
+
+            def command_output(command, **kwargs):
+                if command[:2] == ['cargo', 'metadata']:
+                    return json.dumps({'packages': [{'manifest_path': str(root / 'Cargo.toml')}]})
+                if command[0] in ('rustc', 'cargo'):
+                    return command[0] + ' fixed version'
+                if command[:2] == ['git', 'rev-parse']:
+                    return 'b' * 40
+                raise AssertionError(command)
+
+            with patch.object(ecs, 'ROOT', root), patch.dict(os.environ, {}, clear=True), \
+                    patch.object(ecs.subprocess, 'check_output', side_effect=command_output):
+                baseline = ecs.identity()
+                for helper in ('scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py'):
+                    with self.subTest(helper=helper):
+                        (root / helper).write_text('changed')
+                        changed = ecs.identity()
+                        self.assertNotEqual(changed['prefix'], baseline['prefix'])
+                        self.assertTrue(changed['key'].endswith('-' + 'b' * 40))
+                        (root / helper).write_text('original')
+
     def test_budget_generation_and_main_scope(self):
         self.assertTrue(ecs.save_allowed([entry()], KEY, 100, repository_limit_bytes=100 * 1024 ** 3))
         policy = ecs.save_policy([entry(1), entry(2)], KEY, 100, 100 * 1024 ** 3)
-        self.assertFalse(policy['capacity_allowed'])
+        self.assertTrue(policy['capacity_allowed'])
         self.assertTrue(policy['rotation_required'])
         self.assertEqual(policy['compatible_cache_ids'], [1, 2])
-        self.assertFalse(ecs.save_allowed([entry(size_in_bytes=ecs.FAMILY_BYTES)], KEY, 1,
-                                         repository_limit_bytes=100 * 1024 ** 3))
+        # Rotation is post-save maintenance, never a reason to delete a recovery
+        # point before the replacement has been uploaded and confirmed.
+        self.assertFalse(ecs.save_allowed([entry(1), entry(2)], KEY, 101,
+                                         repository_limit_bytes=300))
+        self.assertTrue(ecs.save_allowed([entry(size_in_bytes=ecs.FAMILY_BYTES)], KEY, 1,
+                                        repository_limit_bytes=100 * 1024 ** 3))
+        self.assertFalse(ecs.save_allowed([entry(size_in_bytes=ecs.policy.FAMILIES['ecs']['rotation_bytes'])],
+                                         KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
         self.assertFalse(ecs.save_allowed([entry(key=KEY)], KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
         self.assertTrue(ecs.save_allowed([entry(ref='refs/heads/topic', size_in_bytes=ecs.FAMILY_BYTES),
             entry(2, key='formal-workspace-unrelated', size_in_bytes=ecs.FAMILY_BYTES)], KEY, 1,
             repository_limit_bytes=100 * 1024 ** 3))
         # The old ECS format still occupies the same bounded remote family.
-        self.assertFalse(ecs.save_allowed([entry(key=KEY.replace('v2-', 'v1-'), size_in_bytes=ecs.FAMILY_BYTES)],
-                                         KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
+        self.assertTrue(ecs.save_allowed([entry(key=KEY.replace('v2-', 'v1-'), size_in_bytes=ecs.FAMILY_BYTES)],
+                                        KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
+        self.assertFalse(ecs.save_allowed([entry(key=KEY.replace('v2-', 'v1-'),
+            size_in_bytes=ecs.policy.FAMILIES['ecs']['migration_bytes'])],
+            KEY, 1, repository_limit_bytes=100 * 1024 ** 3))
 
     def test_unrelated_caches_exhaust_repository_quota(self):
         unrelated = entry(ref='refs/heads/topic', key='formal-workspace-unrelated', size_in_bytes=999)

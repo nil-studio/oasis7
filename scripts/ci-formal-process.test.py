@@ -86,7 +86,7 @@ class Coverage(unittest.TestCase):
         suites = artifacts.resolve_suites(self.config, self.binaries)
         cases = [(e['binary'], e['name']) for entries in suites.values() for e in entries if 'binary' in e]
         self.assertEqual(len(cases), len(set(cases)))
-        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 26)
+        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 29)
         self.assertEqual(sum('script' in e for entries in suites.values() for e in entries), 2)
 
     def test_rename_duplicate_and_new_unassigned_acceptance_fail(self):
@@ -122,6 +122,70 @@ class Coverage(unittest.TestCase):
 
 
 class BuildAndBundles(unittest.TestCase):
+    def test_build_timings_include_dependency_freshness_per_variant(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / 'checkout'
+            root.mkdir()
+            config = root / 'suites.json'
+            config.write_text('{}')
+            def artifact(local, fresh):
+                return dict(reason='compiler-artifact', fresh=fresh,
+                    manifest_path=str((root if local else base / 'dependency') / 'Cargo.toml'))
+            messages = [
+                [artifact(True, False), artifact(False, True), artifact(True, True),
+                 artifact(False, False), artifact(False, False), dict(reason='build-script-executed')],
+                [artifact(False, True), artifact(True, True), dict(reason='build-finished', success=True)],
+            ]
+            class CargoOutput:
+                def __init__(self, entries):
+                    self.stdout = iter(json.dumps(entry) + '\n' for entry in entries)
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    pass
+                def wait(self):
+                    return 0
+            bundle = base / 'bundle'
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'build_variants', return_value=[('first', ['build'], []), ('second', ['test'], [])]), \
+                 patch.object(artifacts.subprocess, 'Popen', side_effect=[CargoOutput(entries) for entries in messages]), \
+                 patch.object(artifacts, 'output', return_value='host: fixture'), patch('builtins.print') as printed:
+                artifacts.build(bundle, 'ordinary')
+            timings = json.loads((bundle / 'manifest.json').read_text())['build_timings']
+            observed = [{key: value for key, value in timing.items() if key != 'elapsed_seconds'} for timing in timings]
+            self.assertEqual(observed, [
+                dict(variant='first', local_units=2, local_fresh=1, local_rebuilt=1,
+                     dependency_units=3, dependency_fresh=1, dependency_rebuilt=2),
+                dict(variant='second', local_units=1, local_fresh=1, local_rebuilt=0,
+                     dependency_units=1, dependency_fresh=1, dependency_rebuilt=0),
+            ])
+            reported = [json.loads(call.args[0].removeprefix('native_build='))
+                        for call in printed.call_args_list if call.args[0].startswith('native_build=')]
+            self.assertEqual(reported, timings)
+
+    def test_ordinary_cache_state_selects_libraries_and_other_scopes_keep_all(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / 'checkout'
+            root.mkdir()
+            config = root / 'suites.json'
+            config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
+                                             environment_formal_batches={}, shell_tests={})))
+            for scope in ('ordinary', 'formal', 'storage', 'all'):
+                with self.subTest(scope=scope), \
+                     patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                     patch.object(artifacts, 'build_variants', return_value=[]), \
+                     patch.object(artifacts, 'output', return_value='host: fixture'), \
+                     patch.object(artifacts, 'cache_begin', wraps=artifacts.cache_begin) as begin:
+                    state_path = base / (scope + '-state.json')
+                    artifacts.build(base / scope, scope, state_path)
+                    selection = 'libraries' if scope == 'ordinary' else 'all'
+                    begin.assert_called_once_with(root, selection=selection)
+                    state = json.loads(state_path.read_text())
+                    self.assertEqual(state['selection'], selection)
+                    self.assertTrue(state['complete'])
+
     def test_formal_builder_does_not_wait_for_ordinary_targets(self):
         formal = artifacts.build_variants('formal')
         ordinary = artifacts.build_variants('ordinary')
@@ -302,6 +366,104 @@ class BuildAndBundles(unittest.TestCase):
             self.assertTrue(artifacts.cache_budget(target, 101)['save'])
 
 
+class WorkspaceCacheSelection(unittest.TestCase):
+    """Cargo JSON fixtures cover unit selection without requiring a toolchain."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.root = self.base / 'checkout'
+        self.root.mkdir()
+        self.target = self.root / 'target'
+        self.cache = self.base / 'cache'
+        self.manifest = self.root / 'Cargo.toml'
+        self.manifest.write_text('[package]\nname="cache_local"\nversion="0.1.0"\n')
+        self.messages, self.library_files, self.other_files = [], set(), set()
+        for name, kinds, unit_hash, test, suffixes in [
+                ('cache_lib', ['lib'], 'a' * 16, False, ['rlib', 'rmeta']),
+                ('cache_macro', ['proc-macro'], 'b' * 16, False, ['so']),
+                ('cache_lib', ['lib'], 'c' * 16, True, ['']),
+                ('cache_tool', ['bin'], 'd' * 16, False, [''])]:
+            selected = self.library_files if not test and 'bin' not in kinds else self.other_files
+            filenames = []
+            for suffix in suffixes:
+                path = f'debug/deps/{"lib" if suffix else ""}{name}-{unit_hash}' + ('.' + suffix if suffix else '')
+                self.write(path, selected)
+                filenames.append(str(self.target / path))
+            self.write(f'debug/deps/{name}-{unit_hash}.d', selected)
+            self.write(f'debug/.fingerprint/cache_local-{unit_hash}/invoked.timestamp', selected)
+            self.write(f'debug/.fingerprint/cache_local-{unit_hash}/unit.json', selected)
+            self.messages.append(dict(reason='compiler-artifact', manifest_path=str(self.manifest),
+                package_id='cache_local', filenames=filenames, target=dict(name=name, kind=kinds),
+                profile=dict(test=test)))
+        compile_dir = 'debug/build/cache_local-' + 'e' * 16
+        run_dir = 'debug/build/cache_local-' + 'f' * 16
+        for path in (compile_dir + '/build-script-build', compile_dir + '/build_script_build.d',
+                     'debug/.fingerprint/cache_local-' + 'e' * 16 + '/build-script-build-script-build',
+                     run_dir + '/out/generated.rs', run_dir + '/output', run_dir + '/root-output',
+                     run_dir + '/invoked.timestamp', run_dir + '/stderr',
+                     'debug/.fingerprint/cache_local-' + 'f' * 16 + '/run-build-script-build-script-build'):
+            self.write(path, self.library_files)
+        self.messages += [
+            dict(reason='compiler-artifact', manifest_path=str(self.manifest), package_id='cache_local',
+                 filenames=[str(self.target / compile_dir / 'build-script-build')],
+                 target=dict(name='build-script-build', kind=['custom-build']), profile=dict(test=False)),
+            dict(reason='build-script-executed', package_id='cache_local', out_dir=str(self.target / run_dir / 'out')),
+            dict(reason='compiler-artifact', manifest_path=str(self.base / 'external/Cargo.toml')),
+            dict(reason='build-script-executed', package_id='external', out_dir=str(self.base / 'external/out')),
+        ]
+
+    def write(self, name, selection):
+        path = self.target / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(name)
+        selection.add(name)
+
+    def record(self, state):
+        for message in self.messages:
+            artifacts.cache_record(state, message)
+        artifacts.cache_finish(state)
+
+    def test_libraries_keep_complete_build_scripts_and_omit_binaries_and_harnesses(self):
+        state = artifacts.cache_begin(self.root, selection='libraries')
+        self.record(state)
+        report = artifacts.cache_stage(state, self.cache)
+        self.assertTrue(report['save'], report)
+        self.assertEqual(report['selection'], 'libraries')
+        manifest = json.loads((self.cache / 'manifest.json').read_text())
+        self.assertEqual(set(manifest['files']), self.library_files)
+        self.assertTrue(all((self.cache / 'target' / name).is_file() for name in self.library_files))
+        self.assertFalse(any((self.cache / 'target' / name).exists() for name in self.other_files))
+        self.assertEqual(report['file_count'], len(self.library_files))
+        self.assertLess(report['raw_bytes'], report['target_raw_bytes'])
+
+    def test_default_and_legacy_state_keep_all_complete_units(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                state = artifacts.cache_begin(self.root)
+                self.assertEqual(state['selection'], 'all')
+                if legacy:
+                    del state['selection']
+                self.record(state)
+                report = artifacts.cache_stage(state, self.cache)
+                self.assertTrue(report['save'], report)
+                self.assertEqual(report['selection'], 'all')
+                manifest = json.loads((self.cache / 'manifest.json').read_text())
+                self.assertEqual(set(manifest['files']), self.library_files | self.other_files)
+
+    def test_unknown_selection_and_oversize_library_units_do_not_stage(self):
+        with self.assertRaisesRegex(ValueError, 'selection'):
+            artifacts.cache_begin(self.root, selection='binaries')
+        state = artifacts.cache_begin(self.root, selection='libraries')
+        self.record(state)
+        report = artifacts.cache_stage(state, self.cache, maximum=1)
+        self.assertFalse(report['save'], report)
+        self.assertFalse(report['eligible'], report)
+        self.assertGreater(report['raw_bytes'], 1)
+        self.assertFalse(self.cache.exists())
+
+
 class WorkspaceCache(unittest.TestCase):
     """Real Cargo units, including both build-script units and a dependency cache."""
 
@@ -371,8 +533,8 @@ class WorkspaceCache(unittest.TestCase):
             value = None
         return units, value
 
-    def seed(self):
-        state = artifacts.cache_begin(self.root)
+    def seed(self, selection='all'):
+        state = artifacts.cache_begin(self.root, selection=selection)
         units, value = self.cargo(state)
         self.assertEqual(value, 'alpha:outside:one:one')
         self.assertTrue(all(not u['fresh'] for u in units))
@@ -402,6 +564,29 @@ class WorkspaceCache(unittest.TestCase):
             archive.extractall(self.base / 'restored', filter='data')
         shutil.move(self.base / 'restored/cache', self.cache)
         return state
+
+    def test_library_overlay_reuses_libraries_and_build_scripts_but_rebuilds_binary(self):
+        self.seed(selection='libraries')
+        manifest = json.loads((self.cache / 'manifest.json').read_text())
+        self.assertNotIn('debug/cache_app', manifest['files'])
+        self.assertFalse(any(name.startswith('debug/deps/cache_app-') for name in manifest['files']))
+        self.checkout()
+        restored = artifacts.cache_restore(self.root, self.cache)
+        self.assertTrue(restored['restored'], restored)
+        self.assertFalse((self.root / 'target/debug/cache_app').exists())
+        units, value = self.cargo()
+        self.assertEqual(value, 'alpha:outside:one:one')
+        for unit in units:
+            self.assertEqual(unit['fresh'], 'bin' not in unit['target']['kind'], unit)
+        self.checkout()
+        changed = self.root / 'support/src/lib.rs'
+        changed.write_text(self.sources['support/src/lib.rs'].replace('alpha', 'bravo'))
+        original_mtime = manifest['inputs']['support/src/lib.rs']['mtime_ns']
+        os.utime(changed, ns=(original_mtime, original_mtime))
+        self.assertTrue(artifacts.cache_restore(self.root, self.cache)['restored'])
+        units, value = self.cargo()
+        self.assertEqual(value, 'bravo:outside:one:one')
+        self.assertTrue(any(not unit['fresh'] and unit['target']['name'] == 'cache_support' for unit in units))
 
     def test_real_overlay_is_fresh_and_changed_inputs_rebuild(self):
         self.seed()

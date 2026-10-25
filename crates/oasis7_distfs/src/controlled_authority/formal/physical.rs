@@ -204,14 +204,30 @@ pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<File>, FormalEr
     options.read(true).write(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
-    let file = options.open(path).map_err(io)?;
-    paths::metadata(&file.metadata().map_err(io)?, false)?;
+    let file = options.open(&path).map_err(io)?;
+    let metadata = file.metadata().map_err(io)?;
+    paths::metadata(&metadata, false)?;
+    // Report the opened guard's identity, not a later path lookup. Keep the
+    // original Conflict variant and nonblocking lease behavior unchanged.
+    let lease_error = |error: fs::TryLockError| {
+        #[cfg(unix)]
+        let identity = format!("dev={} inode={}", metadata.dev(), metadata.ino());
+        #[cfg(not(unix))]
+        let identity = "dev=unknown inode=unknown";
+        let (mode, reason) = if exclusive {
+            ("exclusive", "physical reader/writer lease busy")
+        } else {
+            ("shared", "physical retire fence active")
+        };
+        FormalError::Conflict(format!(
+            "{reason}; mode={mode} root={root:?} guard={path:?} {identity} pid={} error={error:?}",
+            std::process::id()
+        ))
+    };
     if exclusive {
-        file.try_lock()
-            .map_err(|_| FormalError::Conflict("physical reader/writer lease busy".into()))?;
+        file.try_lock().map_err(lease_error)?;
     } else {
-        file.try_lock_shared()
-            .map_err(|_| FormalError::Conflict("physical retire fence active".into()))?;
+        file.try_lock_shared().map_err(lease_error)?;
     }
     Ok(Some(file))
 }

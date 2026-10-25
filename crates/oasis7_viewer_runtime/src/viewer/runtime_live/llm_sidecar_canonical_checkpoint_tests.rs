@@ -17,6 +17,7 @@ fn canonical_scheduler_checkpoint_retains_signed_request_and_rejects_tampering()
         sign_read_request(
             "scheduler",
             SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
                 agent_id: "agent-1".into(),
                 request_id: request_id.into(),
                 delegation_generation: 7,

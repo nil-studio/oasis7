@@ -50,7 +50,7 @@ if mode == 'failed':
     sys.exit(1)
 """)
         wrapper.chmod(0o755)
-        artifact = Path(temporary.name) / "shared cache/configured target/release/oasis7_context"
+        artifact = Path(temporary.name) / "configured target/release/oasis7_context"
         artifact.parent.mkdir(parents=True)
         data = b"fixture release binary"
         artifact.write_bytes(data)
@@ -99,7 +99,7 @@ if mode == 'failed':
         result = subprocess.run(["bash", str(desktop if build_args is not None else package)] + (build_args or []), cwd=root, env=environment, capture_output=True, text=True)
         return root, data, head, result
 
-    def test_configured_shared_artifact_is_packaged_without_checkout_target(self):
+    def test_configured_artifact_is_packaged_without_checkout_target(self):
         root, data, head, result = self.run_fixture("success")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((root / "target").exists())
@@ -153,7 +153,7 @@ if mode == 'failed':
                         if isinstance(node, ast.Assign)
                         and any(isinstance(target, ast.Name) and target.id == 'CONTROL'
                                 for target in node.targets))
-        for dependency in ('scripts/cargo-dev.sh', 'scripts/cargo-cache.py',
+        for dependency in ('scripts/cargo-dev.sh',
                            'scripts/find-python-with-module.sh', 'rust-toolchain.toml',
                            '.cargo/config.toml'):
             with self.subTest(dependency=dependency):

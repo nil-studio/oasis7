@@ -34,7 +34,7 @@
 
 ## 产物与解释
 
-Canonical command is `scripts/p2p-real-env-observability-monitor.sh`; it composes triad snapshot, host monitor, traffic monitor and WASM monitor. It writes machine-readable JSON and Markdown summary containing `overall.status`、per-node alerts、module breakdown and `optimization_candidates`.
+Canonical command is `scripts/p2p-real-env-observability-monitor.sh`; it composes triad snapshot, host monitor, traffic monitor and WASM monitor. It writes machine-readable JSON and Markdown summary containing `overall.status`、per-node alerts、module breakdown and `optimization_candidates`. 外层尝试的当前状态由 `python3 scripts/p2p-real-env-observability-attempt.py read --out-dir <root>` 验证读取（Markdown 加 `--format markdown`）；根目录 latest 文件是物化工件，未验证缓存不作为当前状态权威。 三节点配置选项按[消费者路由](node-triad-operations-observability.design.md#run-routing)分别传递；外层拒绝不支持的 `--node` 拓扑与未知／缺值选项，避免不同模块采样范围不一致。
 
 `pass_with_resource_alerts` 或 `pass_with_module_alerts` 仅可在 underlying snapshot 为 `pass_candidate` 时使用。summary 的可读诊断不构成 public-chain claim、长期可用性承诺或发布许可。
 
@@ -68,6 +68,7 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；本节采集新鲜度�
 
 - OPS-AC-1：真实 single-node traffic envelope 的 bytes/window/reset/last_error 能进入 merged Markdown；未知 schema、available=false 或缺文件显式不可用，不静默填 0。仅支持的旧平铺格式可走显式 adapter。
 - OPS-AC-2：最新 attempt、最近成功及窗口截止分别表达。成功后持续失败不能沿用旧成功窗口宣称当前完整覆盖；离线重算使用明确 as-of，不强制套用当前墙钟，也不抹掉有界历史成功。
+  - 当前流量子范围按[新鲜度策略](node-triad-operations-observability.design.md#traffic-freshness-v2)实现统一 as-of、最新尝试／最近成功、采样年龄／缺口和合并复核；旧报告缺证据保持 unknown。外层持久 pending／条件发布另见[编排实现子范围](node-triad-operations-observability.design.md#durable-observability-attempt)；独立 host 的持久尝试另见[host 实现子范围](node-triad-operations-observability.design.md#host-durable-attempt)；独立 snapshot 的持久尝试见[snapshot 实现子范围](node-triad-operations-observability.design.md#snapshot-durable-attempt)；traffic 的独立持久尝试与共享历史见[traffic 实现子范围](node-triad-operations-observability.design.md#traffic-durable-attempt)；单节点正式 CLI 文件报告先接通[只读角色投影](node-triad-operations-observability.design.md#single-node-profile-report)；独立本地 CLI 入口接通[持久 profile 采集与读取时新鲜度](node-triad-operations-observability.design.md#local-profile-collection)；triad 角色采集及其余目标仍未实现。
 - OPS-AC-3：p99 使用实际采样窗口和明确算法；128 个样本中 127×100ms＋1×1000ms 的 nearest-rank p99 为 100ms，max 为 1000ms。样本不足不能以 max 冒充已满足完整窗口的 p99。
 - OPS-AC-4：容量与 GC 结果按 [存储指标及 Gate 合同](../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-observation-contract) 解释；报告告警不等于发布授权，也不证明 GC 执行机制正确。
 

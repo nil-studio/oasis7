@@ -23,10 +23,9 @@
 <a id="contract-suite"></a>
 ## 契约与协议回归
 
-首次编译准备共享 target。正式记录 canonical 命令和完整结果：
+直接在当前 worktree 编译，默认使用本地 target。正式记录 canonical 命令和完整结果：
 
 ```bash
-./scripts/cargo-dev.sh --prepare-target
 env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher --no-default-features hosted_identity:: -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test -p oasis7 --lib --no-default-features hosted_authorization -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher --no-default-features identity_request_security_tests

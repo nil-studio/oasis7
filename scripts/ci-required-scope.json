@@ -72,6 +72,8 @@
     ],
     "workspace_support": [
       "rust_toolchain",
+      "node",
+      "python",
       "system_deps"
     ],
     "scenario_regression": [
@@ -299,6 +301,28 @@
   "rules": [
     {
       "match": [
+        "vendor-libp2p-rendezvous-0.18.1/**"
+      ],
+      "groups": ["rust_baseline", "net", "node"],
+      "reason": "rendezvous_patch_consumers"
+    },
+    {
+      "match": ["scripts/libp2p-security-source.test.py"],
+      "groups": ["net"],
+      "reason": "libp2p_source_contract"
+    },
+    {
+      "match": [".dockerignore", "docker/wasm-builder/Dockerfile"],
+      "groups": ["net", "packaging_contracts"],
+      "reason": "wasm_builder_patch_context"
+    },
+    {
+      "match": ["scripts/cargo-dev-architecture*"],
+      "groups": ["rust_baseline", "cargo_tooling_contracts"],
+      "reason": "cargo_architecture_boundaries"
+    },
+    {
+      "match": [
         "tests/libp2p-compat/**",
         "scripts/libp2p-compat.test.py"
       ],
@@ -329,6 +353,7 @@
         "scripts/check-active-llm-provider.sh",
         "scripts/governance-registry-live-drill.sh",
         "scripts/run-local-letai-provider-bridge.sh",
+        "scripts/local-letai-provider-bridge.test.sh",
         "scripts/provider-parity-p0.sh",
         "scripts/oasis7-liveops-grant.sh",
         "scripts/newapi-bridge-service/package-newapi-bridge-service.sh",
@@ -426,6 +451,9 @@
     {
       "match": [
         "scripts/oasis7-runtime-finality-*",
+        "scripts/oasis7-node-traffic-monitor.sh",
+        "scripts/traffic-monitor-*",
+        "scripts/traffic_monitor_freshness.py",
         "scripts/p2p-*",
         "scripts/provider-remote-https/**",
         "scripts/run-local-letai-game-test*",
@@ -637,7 +665,6 @@
       "match": [
         "tools/oasis7-command-center/**",
         "scripts/cargo-dev.sh",
-        "scripts/cargo-cache.py",
         "scripts/find-python-with-module.sh"
       ],
       "exclude": [
@@ -647,6 +674,16 @@
         "command_center"
       ],
       "reason": "command_center"
+    },
+    {
+      "match": [
+        "crates/oasis7_viewer_runtime/src/game_read_api*.rs",
+        "crates/oasis7_viewer_runtime/tests/fixtures/signed_read_bootstrap.json"
+      ],
+      "groups": [
+        "workspace_support"
+      ],
+      "reason": "signed_read_handler_conformance"
     }
   ]
 }

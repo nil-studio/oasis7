@@ -103,6 +103,7 @@ fn discovery_observation_dht_retains_only_the_selected_records_actual_upstream()
         upstream: None,
         record: None,
         error: None,
+        rendezvous_triggers: None,
     };
     let found = |signed: &SignedPeerRecord, via| {
         kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(kad::PeerRecord {
@@ -145,5 +146,15 @@ fn discovery_observation_dht_retains_only_the_selected_records_actual_upstream()
         panic!("discovery result");
     };
     assert_eq!(observed, Some(upstream));
-    assert_eq!(result.unwrap().unwrap(), signed);
+    let admitted = result.unwrap().unwrap();
+    let source = admitted.source();
+    assert_eq!(
+        admitted
+            .consume(
+                source,
+                super::super::peer_record_admission::PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
+            )
+            .expect("consume the one-use discovery result permit"),
+        signed
+    );
 }

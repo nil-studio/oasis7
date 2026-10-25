@@ -61,7 +61,7 @@ def bundle_closure(bundle, version):
     return selected
 
 
-def verify_library_path(value, query, name, closure):
+def verify_library_path(value, query, name, closure, pack_name="oasis7/rust-model-diagnostic"):
     keys = {'libraryPath', 'dbscheme', 'compilationCache', 'relativeName', 'qlPackName'}
     if not isinstance(value, dict) or set(value) != keys:
         raise RuntimeError('unknown actual library-path schema')
@@ -71,7 +71,7 @@ def verify_library_path(value, query, name, closure):
         raise RuntimeError('actual library dependency closure differs from selected bundle')
     if value['dbscheme'] != str(Path(closure['codeql/rust-all']['root']) / 'rust.dbscheme'):
         raise RuntimeError('actual dbscheme differs')
-    if value['qlPackName'] != 'oasis7/rust-model-diagnostic' or value['relativeName'] != f'oasis7/rust-model-diagnostic/{name}.ql':
+    if value['qlPackName'] != pack_name or value['relativeName'] != f'{pack_name}/{name}.ql':
         raise RuntimeError('actual query identity differs')
     if not isinstance(value['compilationCache'], list) or not all(isinstance(p, str) for p in value['compilationCache']):
         raise RuntimeError('unknown actual compilation cache schema')

@@ -231,6 +231,7 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
         .capability_authorization_root()
         .to_owned();
     let reserve = SchedulerIntentV1 {
+        task_prefix_binding_revision: 0,
         agent_id: "agent-a".into(),
         request_id: "reserve-1".into(),
         delegation_generation: 0,

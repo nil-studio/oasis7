@@ -96,6 +96,7 @@ impl RuntimeLlmSidecar {
             let signed = sign_read_request(
                 "scheduler",
                 SchedulerIntentV1 {
+                    task_prefix_binding_revision: 0,
                     agent_id: request.agent_subject.clone(),
                     request_id: id.clone(),
                     delegation_generation: signer.delegation_generation,

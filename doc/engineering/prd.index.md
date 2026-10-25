@@ -5,13 +5,14 @@
 - 模块设计总览：`doc/engineering/design.md`
 - 通用开发流程：[开发流程规范](workflow/source-of-truth.md)；当前任务与结果在 PR、实际 CI 与评审记录（Issue 按需）
 - 文档治理专题入口：`doc/engineering/doc-governance/README.md`（规范正文与 maintainer manual）
-- Rust 体量治理专题入口：`doc/engineering/rust-governance/README.md`
+- Rust 工程治理专题入口：`doc/engineering/rust-governance/README.md`
 
 ## 索引边界
-- 本页只负责工程专题的文件级精确检索与相关文档可达性；文档树问题从 `doc/engineering/doc-governance/README.md` 开始，Rust 体量与结构切片问题从 `doc/engineering/rust-governance/README.md` 开始。
+- 本页只负责工程专题的文件级精确检索与相关文档可达性；文档树问题从 `doc/engineering/doc-governance/README.md` 开始，Rust 文件结构、Workspace、架构边界与协议产物问题从 `doc/engineering/rust-governance/README.md` 开始。
 
 | 专题 PRD | 专题设计文档 | 任务与证据入口 |
 | --- | --- | --- |
+| [Rust 工程契约需求](rust-governance/rust-engineering-contracts.prd.md)（PRD-ENGINEERING-036） | [Rust 工程契约系统设计](rust-governance/rust-engineering-contracts.design.md)；[实施验证手册](rust-governance/rust-engineering-contracts.manual.md) | 目标设计与当前实现分别判断；实施、验证与剩余范围见 PR、实际 CI 与评审记录 |
 | [私有资料产品需求](private-context/private-context.prd.md)（PRD-ENGINEERING-035） | [私有资料系统设计](private-context/private-context.design.md) | PR、实际 CI 与评审记录（Issue 按需） |
 | [指挥中心产品设计](command-center/command-center.prd.md)（PRD-ENGINEERING-034） | [系统设计](command-center/command-center.design.md)；[文档树设计](command-center/document-tree.design.md)；[本机工具设计](command-center/local-tools.design.md)；[持续更新流程](command-center/command-center.manual.md) | 云端四视图与个人空间、本地设备能力分别承接；[项目状态](command-center/README.md)与[架构索引](command-center/architecture/README.md)提供派生导航，交付事实仍在 PR、实际 CI 与评审记录（Issue 按需） |
 | `doc/engineering/doc-governance/doc-structure-standard.prd.md` | `doc/engineering/doc-governance/doc-structure-standard.design.md`；`documentation-governance.manual.md`（how-to） | PR、实际 CI 与评审记录（Issue 按需） |
@@ -30,7 +31,7 @@
 - 文档配对规则：`*.prd.md`、`*.design.md` 与相关 PR 和实际验证记录。
 - 上述 standalone content standard 没有另建 PRD 或本地 project ledger；它们的规范正文由 design 文件承接，任务与执行证据使用 Git、PR 与实际 CI 记录。
 - `doc/engineering/doc-governance/README.md` 是 doc-governance 簇级分流入口；本索引保留相关规范与执行记录的可达性，不再要求读者从长表里判断治理问题归属。
-- `doc/engineering/rust-governance/README.md` 是 Rust 文件结构治理簇级分流入口；本索引保留单一当前契约的精确检索入口，不再复制已完成专题的 design / project。
+- `doc/engineering/rust-governance/README.md` 是 Rust 工程治理簇级分流入口；本索引保留文件结构及工程契约专题的精确检索，不复制已完成专题的 design / project。
 - `engineering` 根目录默认只保留 `README.md / prd.md / design.md / prd.index.md` 四个模块文件入口；PR、实际 CI 与评审记录承载交付事实，Issue 按需；治理专题已分别下沉到 `doc-governance/`、`rust-governance/` 与 `governance/`。`doc-structure-standard` 负责组织、职责和消费层边界，`governance/README.md` 负责 inventory 和维护成本 follow-up 路由；workflow source of truth 与 `.agents/skills/README.md` 分别承接 self-evolution task/evidence boundary 与 skill reachability。已完成且规则已被这些 current authorities 承接的一次性专题不再作为 live 三件套暴露。`doc/devlog` 的当前入口是 `doc/devlog/README.md` compact archive summary，不再通过 active 专题三件套暴露。
 
 ## 历史审计留痕

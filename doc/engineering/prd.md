@@ -92,7 +92,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   4. Flow-ENG-008: 需要协作 → 给出问题、上下文、允许范围和返回结果 → 按需专业分析或并行实现 → 负责人整合实际结果。
   5. Flow-ENG-009: 获得高价值反馈 → 核对事实、影响及用户范围 → 修复当前问题或记录可读建议；无需自动转任务、memory 或 stage。
   6. Flow-ENG-011: 复杂工作按需使用 Issue checklist 或 Project → 展示依赖及剩余义务 → 验收实际完成后更新；看板故障不停止开发。
-  7. Flow-ENG-014: 独立分支或按需 worktree → 保留共享 Cargo 缓存和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
+  7. Flow-ENG-014: 独立分支或按需 worktree → 保留各工作区的本地 Cargo target和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
   8. Flow-ENG-016: 只读查询或分析 → 直接提供事实或按需专业判断；不创建流程身份、工作区或远程记录。
   9. Flow-ENG-017: subagent 按需使用 → 给出清楚写入范围和上下文 → 返回结论、验证及风险；配置和模型观测不构成 PR 准入。
 - Functional Specification Matrix:
@@ -282,3 +282,11 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 ## PRD-ENGINEERING-035 私有资料管理工具
 
 机器、环境与操作说明保存在独立私有 Markdown 库，支持条件更新、本地历史与加密新目录恢复。需求与验收见 [私有资料产品需求](private-context/private-context.prd.md)，实现合同见 [系统设计](private-context/private-context.design.md)。
+
+<a id="PRD-ENGINEERING-036"></a>
+
+## PRD-ENGINEERING-036 Rust 工程契约
+
+Workspace 共性配置、现行架构边界的可执行检查与协议产物的可重现生成，由 [Rust 工程契约需求](rust-governance/rust-engineering-contracts.prd.md) 拥有稳定要求与验收，[系统设计](rust-governance/rust-engineering-contracts.design.md) 承接配置等价、合法依赖范围、服务 profile、迁移与验证。三项要求在专业原文分别声明 Trace ID；此入口不重复声明。
+
+本专题先形成目标设计，当前实现与剩余范围在专业文档分别说明；文档采纳不代表自动检查已经启用。现有文件体量规则、required/full 门禁与通用开发流程保持各自主责，实际交付事实见 PR、CI 与评审记录。

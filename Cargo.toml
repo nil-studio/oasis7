@@ -55,8 +55,20 @@ members = ["crates/oasis7_model_provider",
 exclude = ["tools/oasis7-command-center", "vendor-egui-winit-0.33.3"]
 resolver = "2"
 
+# Shared values are opt-in; package versions and publication policy stay local.
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+# Preserve Clippy's adopted local levels. CI still upgrades warnings and these
+# groups with -D warnings -D clippy::correctness -D clippy::suspicious.
+[workspace.lints.clippy]
+correctness = "deny"
+suspicious = "warn"
+
 [workspace.dependencies]
 hex = "0.4"
+reqwest = { version = "0.13.4", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 serde_json = "1"
@@ -93,6 +105,7 @@ egui-winit = { path = "vendor-egui-winit-0.33.3" }
 
 [patch."https://github.com/libp2p/rust-libp2p"]
 libp2p-swarm = { path = "vendor-libp2p-swarm-0.48.0" }
+libp2p-rendezvous = { path = "vendor-libp2p-rendezvous-0.18.1" }
 
 # Lifecycle image qualification repeatedly hashes complete executable files.
 # Keep the shipping hash checks affordable in local debug/test builds.

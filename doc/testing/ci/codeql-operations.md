@@ -99,6 +99,32 @@ CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI
 
 诊断由 Rust workflow 的 `workflow_dispatch` / `run_mode=codeql_rust_model_diagnostic` 显式触发，`model_probe` 选择上述探针，`model_bundle_version` 只接受固定 allowlist 中的 `2.27.2` 或 `2.27.3`，默认旧版；本地入口对应 `--bundle-version`。完整 bundle URL/摘要及解析包闭包随选择绑定，不能混用新版 CLI 和旧版库，也不接受任意下载 URL。派发前冻结诊断 source SHA 与业务 checkout SHA，读回唯一 run 后沿该身份观察，不重复派发。
 
+## 生产资源容量评估
+
+`.github/workflows/codeql-rust-capacity.yml` 是独立的手动入口，`execute` 默认为 false；只有明确授权并确认 true 才执行。它固定 `rust-repo/default`，不接受扩展档或旧单探针替代完整工作负载。派发前冻结评估源码 main SHA、诊断实现 SHA、官方完整 bundle 和公共见证锚点，读回唯一 run 后沿同一身份观察；一次完成或失败即停止，不自动重跑。
+
+任务复用生产固定 CodeQL Action 的初始化、资源自动选择及默认安全查询，保留全仓 Rust 上下文、独立 manifest、vendor、features、targets 与模板。记录实际线程/RAM、runner 和 cgroup、项目及分析工具链、归档标准库来源、默认查询清单与结果。分析设置 `upload: never` 并关闭数据库上传，不设置运营变量，不调用平台 SARIF 上传；本地 SARIF/原始查询结果只作为容量证据。
+
+准备阶段记录 manifest 对应 Cargo.lock 的初始存在性、每次既有 metadata 后及分析前的身份与摘要；新增锁不白名单放行，首次观察阶段不等于写入者证明，解析影响未知时继续拒绝。分析后再次比较初始锁文件，ignored 锁新增或变化、观察缺失同样阻断验收。大日志可按设计上限流式 gzip 保存完整原字节，原始与压缩摘要分开核验；达到任何上限仍为 PARTIAL，不能仅因末尾存在成功 footer 改记完整。总 artifact 256 MiB、日志落盘 128 MiB、原 job 截止及无扫描重试/无平台上传边界不变。
+
+分析前要求各独立 `[workspace]` 已有锁；缺锁直接停止，不通过预生成未跟踪锁改变旧业务基线。固定官方提取器会复制锁，故容量入口还在实际 Cargo 进程边界强制解析命令使用 `--locked`，并核验有界开始/终态记录，拒绝失败或缺失调用；不能仅靠源锁未变化或 `cargo_extra_args` 判定解析已冻结。私有 Cargo 代理位于业务树外，真实子命令恢复原 Cargo home 并尊重提取器选择的工具链；不改变官方 bundle、原缓存、生产扫描设置或现有截止。代理拒绝或 rust-analyzer fallback 不能改记成功。
+
+入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
+
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
+
+分析后的独立 `capture` 步骤先保存已有数据库日志，再分别读取 HEAD、工作区状态和 Git 根，不能由身份或资源错误跳过。`database-log-capture.json` 列出原始长度、已保存字节及摘要、变化/截断/未到达原因；部分证据可解释失败，但不能支持完整验收。步骤 outcome、最初失败与后续采证错误分别记录；失败后不继续 CodeQL 解码或公共见证。官方 Action 的进程清理保持 `UNKNOWN_RUNNER_OWNED`，需最终 runner 日志回读，不能套用 helper 自有进程组的清理结果。
+
+45 分钟从实际 job 启动计时，涵盖 Action 准备、下载、提取、查询、解码和结果保存，内部为收尾及 artifact 上传预留时间。线程和内存不沿用旧诊断的 2/3072 参数，数据库也不沿用旧诊断的单文件或总数据上限；额外的证据收集上限及观测缺口必须单列，不把采集失败当生产计算失败。实际余量不足 270 秒时记 NEAR_LIMIT，不能直接进入 PR 扫描运营。
+
+超限日志使用同一字节上限内的首尾片段；`source_ranges` / `omitted_ranges` 解释源字节位置，不能将拼接输出当作完整原始日志。进度摘要仅计保留片段内完整行，不代表完整查询结果。manifest 列表缩略、未闭合或采证部分完成时，`missing_found_manifests` 为 null，枚举完整性为 UNKNOWN；已观察到的 manifest 仍保留。Git raw status 保留，tracked 状态与未跟踪锁文件证据分列；未跟踪 Cargo.lock 不自动豁免 clean gate，其来源及依赖解析影响没有证据时保持 UNKNOWN。
+
+预算记录同时保留固定 job 截止、准备耗时、实际分析分钟数及后续 600 秒预留。分析 step 触及其内部限时只能说明本次分配未完成；没有完整、隔离且可核验的执行结果时，生产容量保持未知。修复入口与离线故障回归不构成新一轮容量运行授权。
+
+上游成本研究使用同一 workflow 的显式 `mode=official-default-research`，仍须 `execute=true` 且单独获准运行。固定原业务 pin 与官方 bundle/资源，整个 job 360 分钟（含准备、提取、查询、官方结果解码、证据上传及 post）；不生成或执行公共自定义见证。分析分配为剩余时间减 600 秒收尾预留后的整分钟，无 32/35 分钟早停；内部限时仍不等于整个六小时已耗尽。`RESEARCH_*` 与 Action outcome 分列，dirty/不完整证据/结果失败保持阻断。一次成功或失败后停止，不重试、不分享数据库；生产 45 分钟容量、180 秒诊断与 Rust HOLD 不因研究完成改判。默认 `mode=capacity` 保持原入口合同。
+
+按以下边界作决定：完整默认查询和规定公共见证均通过且预算有余量，只证明该冻结配置下计算与覆盖可行，下一步才是 hosted baseline；查询完成但覆盖缺口保留相应 HOLD；完整但接近上限先评估成本和频率；超时、OOM 或计算结果不完整说明该配置未通过容量评估，停止追加运行并保留生产规模证据。无上传不证明平台关联、provider、运营队列或启用完成。原 180 秒优化问题继续独立跟踪，不因容量结果改判成功。
+
 ## Hosted 验收与回退
 
 授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。

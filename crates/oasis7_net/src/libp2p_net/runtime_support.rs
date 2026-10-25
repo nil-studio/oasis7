@@ -17,3 +17,11 @@ pub(super) fn discovery_expiry_tick() -> impl futures::future::FusedFuture<Outpu
     use futures::FutureExt;
     Box::pin(tokio::time::sleep(std::time::Duration::from_secs(1))).fuse()
 }
+
+pub(super) fn log_connection_error(
+    errors: &std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    max_messages: usize,
+    message: String,
+) {
+    super::push_bounded_clone(errors, message, max_messages, "lock errors");
+}

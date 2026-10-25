@@ -101,9 +101,9 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-
 - 系统设计状态：已覆盖。
 - 系统设计依据：[发现来源证据与签名不变性](mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)。
 - 实现状态：部分实现。
-- 实现依据：[当前实现边界](mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)记录原签名转发、本地 seed/DHT/RR 观察及保守 unknown 域会话预算；远端声明不提升来源信任。
-- 验证依据：[本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)覆盖原签名三节点转发与自述／缺记录预算边界；完整来源独立性仍未验收。
-- 剩余范围：受信控制域映射、完整来源独立性和 rendezvous ID 来源链；不由本节承诺公共网络完整抗 Sybil/anti-eclipse 或 validator 授权。
+- 实现依据：[当前实现边界](mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)记录原签名转发、本地 seed/DHT/RR 观察及保守 unknown 域会话预算；rendezvous ID-only 公告通过有界一次性上下文关联到实际取得并验证的 live signed payload，既有诊断区分触发服务器与记录上游，缓存和撤销不回填来源。该关联尽力保留，明确失败后整体丢弃；远端声明及触发次数不提升来源信任。
+- 验证依据：[本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)覆盖原签名三节点转发与自述／缺记录预算边界；[rendezvous 触发关联验证](../../../testing-manual.md#discovery-rendezvous-trigger-provenance)覆盖生产回调、DHT／RR、容量、到期、失败和精确载荷诊断。完整来源独立性仍未验收。
+- 剩余范围：受信控制域映射与完整来源独立性；不由本节承诺公共网络完整抗 Sybil/anti-eclipse 或 validator 授权。
 
 <a id="peer-record-lifecycle"></a>
 ### 2.2 Peer record 新鲜度、重放与容量
@@ -117,9 +117,9 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-
 - 系统设计状态：已覆盖。
 - 系统设计依据：[Peer record 接纳、刷新与版本迁移](mainnet-private-reachability-architecture.design.md#peer-record-lifecycle)。
 - 实现状态：部分实现。
-- 实现依据：当前 libp2p 按 [v1 时间策略](mainnet-private-reachability-architecture.design.md#当前-v1-时间策略)检查 signed TTL、未来偏差和进程内时钟回退，限制缓存转发与发现拨号；自动查询／交换／缓存重发布另由[共享工作预算](mainnet-private-reachability-architecture.design.md#discovery-work-budget)限制并发、滚动速率与代理重试，列表输入／输出有界。协议仍无 sequence 和持久水位。
-- 验证依据：[发现记录时效验证](../../../testing-manual.md#discovery-record-v1-time-policy)覆盖时间边界、缓存／DHT 转发和拨号租约、活动会话保留；持久乱序／撤销／重启迁移仍待验收。
-- 剩余范围：版本化 wire、发布序号持久化、接收水位及安全回收、持久可信时间、跨重启累计配额、入站验证／服务总预算和有余量的抖动刷新；节点身份密钥失陷或本机受信存储被恶意回滚不由 TTL 单独解决。
+- 实现依据：当前 libp2p 按 [v1 时间策略](mainnet-private-reachability-architecture.design.md#当前-v1-时间策略)检查 signed TTL、未来偏差和进程内时钟回退，限制缓存转发与发现拨号；自动查询／交换／缓存重发布及本机 rendezvous register／discover 另由[共享工作预算](mainnet-private-reachability-architecture.design.md#discovery-work-budget)限制并发、滚动速率与代理重试，列表输入／输出有界；[到期前刷新](mainnet-private-reachability-architecture.design.md#discovery-record-refresh)在余量内尽力请求新材料，受共享预算与目标 cooldown 约束。[V2 本机发布](mainnet-private-reachability-architecture.design.md#discovery-durable-publication-v2)提供显式初始化和持久发行序号；[接收端水位](mainnet-private-reachability-architecture.design.md#discovery-receiver-floor-v2)在显式持久兼容／V2-only 配置下防止 live 记录跨重启降序、持久隔离同序冲突并退役已迁移 peer 的 V1；[共享记录准入预算](mainnet-private-reachability-architecture.design.md#discovery-record-admission-budget)限制实际入站记录处理。[显式撤销与恢复](mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)扩展无路径 tombstone：撤销保持跨重启状态，转发原签名，只有显式恢复发布更高 live。默认 legacy 行为不自动启用持久策略并拒绝 tombstone。
+- 验证依据：[发现记录时效验证](../../../testing-manual.md#discovery-record-v1-time-policy)覆盖时间边界、缓存／DHT 转发和拨号租约、活动会话保留；[接收水位验证](../../../testing-manual.md#discovery-receiver-floor-v2)覆盖持久乱序、冲突、原件重开和显式兼容策略；[显式撤销验证](../../../testing-manual.md#discovery-tombstone-v2)覆盖持久 tombstone、原签名转发和更高 live 恢复，要求显式持久接收策略。可信时间及策略转换仍待验收。
+- 剩余范围：接收水位安全回收、持久可信时间、接收策略转换、跨重启累计配额、完整协议服务总预算及跨重启刷新状态；节点身份密钥失陷或本机受信存储被恶意回滚不由 TTL 单独解决。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用。

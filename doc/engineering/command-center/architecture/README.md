@@ -1,5 +1,7 @@
 # 指挥面板架构索引
 
+2026-10-24 Rust 工程契约局部核对：[#5026](https://github.com/nil-studio/oasis7/pull/5026)、[#5027](https://github.com/nil-studio/oasis7/pull/5027)、[#5028](https://github.com/nil-studio/oasis7/pull/5028) 已合入首批 6 成员继承、9 条架构规则/37 个 profile 与 signed-read 五 GET 的 TS/schema 生成消费；API revision 1 / read schema revision 5。[现行设计](../../rust-governance/rust-engineering-contracts.design.md)保留原专业 owner 与开发期工具边界。[#5036](https://github.com/nil-studio/oasis7/issues/5036) 承接 path/status 回归、dev 范围及可信局部编译选择，尚待 PR 评审；不据此宣称部署、完整世界 schema 或全平台验收。
+
 > 指挥中心的职责与目标见[产品要求](../command-center.prd.md)和[系统设计](../command-center.design.md)：云端承载四个主视图、已提交来源与个人空间，本地承载工作树、私有资料及原生工具。来源事实与个人记录各守原义；实际实现和可用性由对应交付证据说明。
 
 
@@ -84,7 +86,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 **设计状态：** 本组是当前主责文档声明的路线与目标合同；正式 profile、完整事务和灾备目标不能因为已有前置切片而标为已验收。
 
-2026-10-21 节点生命周期局部核对（源码 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e`）：[产品角色与状态路径](../../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)区分公开读取、获授权完整只读、受控写者与目标 BFT。[治理与实际成员应用](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-membership-application)、[读取撤销](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)、[发现证据](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-evidence-boundary)、[完整恢复与 checkpoint](../../../p2p/design.md#des-p2p-full-sync-checkpoint-capacity-v1)及[监控新鲜度](../../../p2p/node/node-triad-operations-observability.design.md#report-freshness)补齐目标约束和负例。发现来源实现候选把签名载荷与本地观察分开，只有本机配置授予 seed 例外；通道或远端角色自述不证明控制域独立性，缺 record 也计入实际会话预算。现有 v1 时间字段已接入缓存、DHT 转发与发现拨号检查；2026-10-22 的[发现预算候选](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget)进一步把自动查询／交换／缓存重发布接入共享并发和滚动速率窗口，代理更换不重置消耗。持久可信时间、序号、rendezvous 协议总预算及防回退仍按[发现实现边界](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary)保留缺口。当前实现与目标逐项分列，设计覆盖不代表新保证已实现；本段没有新部署或故障域证据，不刷新其他主题的核验时间。
+2026-10-25 节点生命周期局部核对：[产品角色与状态路径](../../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#node-deployment-journey)区分公开读取、完整只读、受控写者与目标 BFT。原 parent 的治理认证已随 [#5049](https://github.com/nil-studio/oasis7/pull/5049)接入 qualified 历史恢复；[#5052](https://github.com/nil-studio/oasis7/pull/5052)的 [V2 issuer 管理账本](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-issuer-ledger)提供独立 root policy、连续原命令日志、witness CAS 和旧 issuer 代际 fencing 的管理 API。它不改变 V1 provider 的现有读取语义，生产 witness、有限新鲜度 lease、可信时间、逐实例截止和 effective 撤销仍缺实现／环境证明。发现已分离原签名与本机观察，并接入 v1 时间和共享工作预算；[本机 V2 发行合同](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-durable-publication-v2)把显式首次初始化与日常 open-existing 分开，本机发行已随 [#5053](https://github.com/nil-studio/oasis7/pull/5053)交付；[#5054](https://github.com/nil-studio/oasis7/pull/5054)交付[共享记录准入预算](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-admission-budget)；[#5055](https://github.com/nil-studio/oasis7/pull/5055)已交付[接收端水位](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-receiver-floor-v2)接入持久序号、冲突隔离和防降级；[#5056](https://github.com/nil-studio/oasis7/pull/5056)已交付的[撤销扩展](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)接入 tombstone 原件和显式恢复，legacy 模式明确拒绝该状态。[#5057](https://github.com/nil-studio/oasis7/pull/5057)已交付 rendezvous 有界一次性触发链，只关联精确 live 载荷并提供诊断，不提升健康来源或连接权限。后续本地候选为 register／discover 接入共享出站预算，仍待必要 CI 和合入；入站服务和跨重启配额仍属缺口。[V3 provider 租约日志合同](../../../p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-lease-log-v3)补充原 witness 上的迁移与有限时间租约语义，协议与本地持久 API 已随 [#5060](https://github.com/nil-studio/oasis7/pull/5060)交付，尚无生产 witness 或逐 chunk 读取接入证明。可信时间、任意磁盘回滚防护和全网撤销 ACK 仍无实现／环境证明。实际成员安装 ACK、完整同步 checkpoint 受保护 minimum 和 BFT 权威链仍以各自主责设计与 [#4975](https://github.com/nil-studio/oasis7/issues/4975) 的实现／验收缺口为准。本段没有新部署、可信时钟或独立物理故障域证据；这些边界发生变化时再核对，不刷新其他架构主题。
 
 **已有实现：**
 
@@ -169,7 +171,7 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 | --- | --- | --- | --- |
 | ARCH-11 · 云端与本地 | Sites 网页与后端承担四视图、已提交文档/GitHub 事实和云端个人记录；本地 Tauri/Rust 辅助端承担工作树、私有资料、CLI 与 signer。浏览器与本机 IPC 分离，精确导航不构成执行或上传授权 | 改 Site 身份/访问范围、记录归属、来源授权、数据格式或本机能力边界 | [职责与身份](../command-center.design.md#DES-CC-001)、[云端个人空间](../command-center.design.md#DES-CC-017)、[本机工具](../local-tools.design.md) |
 
-本主题于 2026-10-22 核对文档职责。最终产品与系统合同覆盖云端日常工作闭环、本机独立能力和两端导航；**本次文档更新没有修改或部署应用，不证明拆分已实现**。实际来源基线、已有能力及未验证范围集中见[实现核对](../command-center.design.md#cc-current-implementation)；历史原生结果仍限定于[日常验证记录](../daily-work-verification.manual.md)的构建、环境和场景。
+本主题于 2026-10-23 核对文档职责及 [v6 公开实现反馈](https://github.com/nil-studio/oasis7/issues/4983#issuecomment-6343356855)。云端已有个人空间和交付摘要，最终合同补齐[证据与结论边界](../command-center.design.md#cc-delivery-conclusion-boundaries)、[目标身份与依据版本分离](../command-center.design.md#cc-stable-goal-identity)、[完整文档候选发布](../document-tree.design.md#cc-document-snapshot-update)及[真实更新状态](../command-center.design.md#cc-update-health)；这些补充尚不构成实现或部署验收。实际来源基线、已有能力及未验证范围集中见[实现核对](../command-center.design.md#cc-current-implementation)；历史原生结果仍限定于[日常验证记录](../daily-work-verification.manual.md)的构建、环境和场景。
 
 本机 context、CLI 和既有 signer 继续遵守[工具安全合同](../local-tools.design.md)：本机资料不进入云端普通记录，未知操作按原身份核对，Apple 签名及管理员集成的用户暂停保持有效。云端个人记录可导出恢复，不代表整机资料、工具账本或凭据可上传。
 
@@ -183,3 +185,5 @@ ARCH-07 局部实现核对（2026-10-19）：[PR #4870](https://github.com/nil-s
 ### 文档全局树阅读设计
 
 [文档树合同](../document-tree.design.md)统一产品树、专业系统树、目录与明确配对关系的解释。云端读取固定提交，按可信身份保存个人阅读位置；本地工作树预览仅在设备范围索引并保存本机位置。快照与覆盖、部分读取和失效关系各自可见，来源刷新不改变条款权威或个人决定。两端验收分别核对真实浏览器与适用的原生交互，旧本地索引证据不代签云端完整文档树。
+
+2026-10-24 单节点观测实现候选局部核对：[正式 CLI 文件报告](../../../p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)接通公开 projection observer 与完整只读同步的状态投影，保留实例绑定、观察年龄与 producer 阻断；验证范围为离线文件报告及实际 producer／CLI 回归。triad HTTP profile 采集、validator／P/R、部署和现场恢复仍未据此验收；本条不刷新其他主题的证据时间。 独立本地 CLI 的持久采集和读取时年龄判断见[本地 profile 采集](../../../p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。

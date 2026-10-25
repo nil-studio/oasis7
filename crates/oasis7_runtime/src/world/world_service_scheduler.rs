@@ -90,11 +90,46 @@ impl World {
             &signed.subject_public_key,
             intent.delegation_generation,
         )?;
-        if self.current_cognition_base_binding().map_err(error)? != intent.captured_base_binding {
+        if intent.task_prefix_binding_revision > 1
+            || (intent.task_prefix_binding_revision != 0
+                && !matches!(
+                    &intent.operation,
+                    SchedulerOperationV1::TaskProviderPrefix { .. }
+                ))
+        {
+            return Err("unsupported task prefix binding revision".into());
+        }
+        let current = self.current_cognition_base_binding().map_err(error)?;
+        let captured = &intent.captured_base_binding;
+        let binding_matches = if let SchedulerOperationV1::TaskProviderPrefix { context } =
+            &intent.operation
+            && intent.task_prefix_binding_revision == 1
+        {
+            // This identity-only registration is leased, not a game action.
+            // Private reads refresh observations; action admission still uses
+            // exact MVCC. Never turn a historical hash into current authority.
+            captured.validate().map_err(|e| e.to_string())?;
+            context.validate_capture_deadline(captured.base_tick)?;
+            captured.world_id == current.world_id
+                && captured.branch_id == current.branch_id
+                && captured.finality_epoch == current.finality_epoch
+                && captured.finality_block_hash == current.finality_block_hash
+                && captured.finality_status == current.finality_status
+                && captured.reorg_epoch == current.reorg_epoch
+                && captured.runtime_manifest_hash == current.runtime_manifest_hash
+                && captured.base_tick <= current.base_tick
+                && current.base_tick <= context.valid_until_tick.0
+                && (captured.base_tick < current.base_tick
+                    || captured.base_world_hash == current.base_world_hash)
+        } else {
+            captured == &current
+        };
+        if !binding_matches {
             return Err("scheduler base binding changed".into());
         }
         let agent = intent.agent_id.as_str();
-        let identity = self.current_agent_identity(agent)
+        let identity = self
+            .current_agent_identity(agent)
             .ok_or("missing Agent identity")?
             .clone();
         // Existing operations run on a clone; publication failure cannot leave
@@ -103,7 +138,6 @@ impl World {
         let result = match intent.operation {
             SchedulerOperationV1::TaskProviderPrefix { context } => {
                 context.validate_capture_deadline(intent.captured_base_binding.base_tick)?;
-
                 crate::service_admission::game_task::prepare_task_prefix(
                     &mut transaction,
                     &context,
@@ -156,7 +190,9 @@ impl World {
                         &context.agent_turn_id,
                         &context.decision_request_id,
                         &context.request_commitment,
-                        &crate::AgentDecisionEnvelopeV1::provider_invocation_key_for_request(&context.request_commitment),
+                        &crate::AgentDecisionEnvelopeV1::provider_invocation_key_for_request(
+                            &context.request_commitment,
+                        ),
                         context.retry_seq,
                         context.transport_attempt,
                     )

@@ -5,6 +5,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
 CURL_MAX_TIME_SECS=8
+original_args=("$@")
 
 usage() {
   cat <<'USAGE'
@@ -40,7 +41,6 @@ Options:
                                    (default: http://127.0.0.1:5633/healthz)
   --local-env-file <path>          local node env file
                                    (default: /opt/oasis7/p2p-triad-local/config/node.env)
-  --observer-*                     deprecated aliases for the local-* options above
 
   --sequencer-target <user@host>   remote sequencer SSH target
                                    (default: root@39.104.204.172)
@@ -84,7 +84,7 @@ Notes:
     storage_ecs`) and do not imply the current runtime role.
   - Runtime role truth is always taken from each sampled `status.json`.
   - Artifacts are written to:
-      <out-dir>/<timestamp>/{
+      <out-dir>/runs/<sequence>-<unique-id>/{
         config.json,
         samples.ndjson,
         summary.json,
@@ -94,13 +94,16 @@ Notes:
 USAGE
 }
 
-ensure_positive_int() {
-  local flag=$1
-  local value=$2
-  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value <= 0 )); then
-    echo "invalid $flag: $value" >&2
-    exit 2
+normalize_positive_int() {
+  local flag=$1 value=$2
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "invalid $flag: expected ASCII positive integer" >&2; exit 2
   fi
+  while [[ ${#value} -gt 1 && "$value" == 0* ]]; do value=${value#0}; done
+  if [[ ${#value} -gt 10 ]] || (( 10#$value < 1 || 10#$value > 2147483647 )); then
+    echo "invalid $flag: outside 1..2147483647" >&2; exit 2
+  fi
+  printf '%s' "$value"
 }
 
 parse_node_spec() {
@@ -119,6 +122,8 @@ for part in spec.split(","):
     key, value = part.split("=", 1)
     key = key.strip()
     value = value.strip()
+    if key in fields:
+        raise SystemExit("duplicate --node key")
     if not key:
         raise SystemExit("invalid --node segment with empty key")
     fields[key] = value
@@ -140,7 +145,7 @@ if unknown:
     raise SystemExit(f"unknown --node keys: {', '.join(unknown)}")
 
 label = fields.get("label", "")
-if not re.fullmatch(r"[A-Za-z0-9_.-]+", label):
+if label in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9_.-]+", label):
     raise SystemExit("invalid --node label: use only [A-Za-z0-9_.-]+")
 
 mode = fields.get("mode") or ("remote" if fields.get("target") else "local")
@@ -155,6 +160,9 @@ if mode == "remote" and not fields.get("target"):
     raise SystemExit(f"remote --node {label} requires target")
 if mode == "local" and fields.get("target"):
     raise SystemExit(f"local --node {label} must not set target")
+
+if fields.get("password_env") and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fields["password_env"]):
+    raise SystemExit("invalid password_env name")
 
 node = {
     "label": label,
@@ -288,6 +296,33 @@ capture_health_and_status() {
   fi
 }
 
+normalize_responses() {
+  local sample_dir="$nodes_root/$1/samples/sample-$(printf '%03d' "$sample_index")"
+  python3 - "$sample_dir" <<'PYRESP'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for name in ('healthz', 'status'):
+    path = root / (name + '.json')
+    try:
+        value = json.loads(path.read_text())
+        if not isinstance(value, dict):
+            raise ValueError()
+        if 'fetch_error' in value:
+            raise ValueError()
+        if name == 'healthz':
+            if type(value.get('ok')) is not bool:
+                raise ValueError()
+        else:
+            if not all(isinstance(value.get(k), str) and value[k] for k in ('node_id', 'world_id')) or type(value.get('running')) is not bool:
+                raise ValueError()
+    except (ValueError, OSError, TypeError):
+        value = {'ok': False, 'fetch_error': 'response_unavailable_or_invalid'}
+    path.write_text(json.dumps(value) + '\n')
+    (root.parent.parent / (name + '.json')).write_text(json.dumps(value) + '\n')
+PYRESP
+}
+
 append_sample_record() {
   local label=$1
   local service=$2
@@ -315,6 +350,7 @@ append_sample_record() {
       service_state: $service_state,
       expected_world_id: $expected_world_id,
       healthz_ok: ($health[0].ok // false),
+      healthz_fetch_ok: (($health[0].fetch_error // null) == null),
       healthz_fetch_error: ($health[0].fetch_error // null),
       status_fetch_ok: (($status[0].fetch_error // null) == null),
       status_fetch_error: ($status[0].fetch_error // null),
@@ -444,17 +480,20 @@ storage_env_file="/opt/oasis7/p2p-triad/config/node.env"
 explicit_node_specs=()
 
 while [[ $# -gt 0 ]]; do
+  if [[ "$1" != "--help" && "$1" != "-h" ]] && { [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; }; then
+    echo "missing or empty value for $1" >&2; exit 2
+  fi
   case "$1" in
     --samples)
-      samples=${2:-}
+      samples=$(normalize_positive_int --samples "$2")
       shift 2
       ;;
     --interval-secs)
-      interval_secs=${2:-}
+      interval_secs=$(normalize_positive_int --interval-secs "$2")
       shift 2
       ;;
     --ssh-timeout-secs)
-      ssh_timeout_secs=${2:-}
+      ssh_timeout_secs=$(normalize_positive_int --ssh-timeout-secs "$2")
       shift 2
       ;;
     --out-dir)
@@ -553,12 +592,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ensure_positive_int --samples "$samples"
-ensure_positive_int --interval-secs "$interval_secs"
-ensure_positive_int --ssh-timeout-secs "$ssh_timeout_secs"
-
-run_id=$(date +"%Y%m%d-%H%M%S")
-run_dir="$out_root/$run_id"
+# All CLI validation precedes the first durable write or external probe.
+if (( ${#explicit_node_specs[@]} > 0 )); then
+  duplicate_labels=$(printf '%s\n' "${explicit_node_specs[@]}" | jq -sr 'group_by(.label)[] | select(length > 1) | .[0].label')
+  if [[ -n "$duplicate_labels" ]]; then echo "duplicate --node label" >&2; exit 2; fi
+fi
+attempt_helper="$repo_root/scripts/p2p-real-env-observability-attempt.py"
+scope_args=()
+for arg in ${original_args[@]+"${original_args[@]}"}; do scope_args+=("--scope-arg=$arg"); done
+reservation=$(python3 "$attempt_helper" begin --collector snapshot --out-dir "$out_root" ${scope_args[@]+"${scope_args[@]}"})
+sequence=$(jq -r '.sequence' <<<"$reservation")
+attempt_id=$(jq -r '.attempt_id' <<<"$reservation")
+run_dir=$(jq -r '.run_dir' <<<"$reservation")
+run_id="$sequence-$attempt_id"
 nodes_root="$run_dir/nodes"
 samples_ndjson="$run_dir/samples.ndjson"
 summary_json="$run_dir/summary.json"
@@ -566,10 +612,8 @@ summary_md="$run_dir/summary.md"
 config_json="$run_dir/config.json"
 nodes_json="$run_dir/nodes.json"
 node_labels_file="$run_dir/node-labels.txt"
-
-mkdir -p "$nodes_root"
+mkdir -p "$nodes_root" "$run_dir/report"
 : > "$samples_ndjson"
-
 if (( ${#explicit_node_specs[@]} > 0 )); then
   printf '%s\n' "${explicit_node_specs[@]}" | jq -s '.' > "$nodes_json"
 else
@@ -701,6 +745,7 @@ for ((sample_index = 1; sample_index <= samples; sample_index++)); do
     public_status_url=$(jq -r '.public_status_url' <<<"$node")
     password=$(node_password "$(jq -r '.password_env' <<<"$node")")
     capture_health_and_status "$label" "$mode" "$health_url" "$status_url" "$sample_index" "$target" "$password" "$public_health_url" "$public_status_url"
+    normalize_responses "$label"
     append_sample_record "$label" "$service"
   done < <(jq -c '.[]' "$nodes_json")
 
@@ -737,6 +782,8 @@ jq -s \
     {
       label: $label,
       sample_count: (map(select(.label == $label)) | length),
+      success_sample_count: (map(select(.label == $label and .healthz_fetch_ok == true and .status_fetch_ok == true)) | length),
+      failed_sample_count: (map(select(.label == $label and (.healthz_fetch_ok != true or .status_fetch_ok != true))) | length),
       service_states: (map(select(.label == $label) | .service_state) | unique),
       healthz_all_ok: (map(select(.label == $label) | .healthz_ok) | all(. == true)),
       status_fetch_all_ok: (map(select(.label == $label) | .status_fetch_ok) | all(. == true)),
@@ -1115,6 +1162,22 @@ jq -s \
     end
   ' "$samples_ndjson" > "$summary_json"
 
+# Bind collection completion to the requested inventory, not only observed rows.
+python3 - "$summary_json" "$config_json" <<'PYCOLLECTION'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1]); value = json.loads(path.read_text()); config = json.loads(Path(sys.argv[2]).read_text())
+labels = list(config['nodes']); expected = len(labels) * config['samples']
+failed = sum(n['failed_sample_count'] for n in value['nodes'].values())
+complete = len(value['samples']) == expected and set(value['nodes']) == set(labels) and failed == 0
+value['schema_version'] = 2
+value['collection'] = dict(node_labels=labels, samples_per_node=config['samples'], expected_sample_count=expected, attempted_count=len(value['samples']), failed_sample_count=failed, complete=complete)
+if not complete:
+    value['claim_status'] = 'blocked'
+    value['failure_signatures'].append('snapshot_collection_incomplete')
+path.write_text(json.dumps(value, indent=2) + '\n')
+PYCOLLECTION
+
 {
   echo "# P2P Real-Environment Triad Snapshot"
   echo
@@ -1159,3 +1222,9 @@ echo "p2p real-env triad snapshot complete"
 echo "  run_dir: $run_dir"
 echo "  summary_json: $summary_json"
 echo "  summary_md: $summary_md"
+
+cp "$summary_json" "$run_dir/report/latest_summary.json"
+cp "$summary_md" "$run_dir/report/latest_summary.md"
+errors=()
+if ! jq -e '.collection.complete == true' "$summary_json" >/dev/null; then errors+=(--error snapshot:1); fi
+python3 "$attempt_helper" finish --collector snapshot --out-dir "$out_root" --sequence "$sequence" --attempt-id "$attempt_id" ${errors[@]+"${errors[@]}"}

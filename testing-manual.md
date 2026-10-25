@@ -36,39 +36,30 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 因果延迟探针只在已验证成功的 View 响应上等待，响应字节保持原样。串行运行目标用例时，可设置 `PRE2_CONFORMANCE_VIEW_DELAY_MS=600`（低于 transport timeout），分别过滤 `real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider`、`real_tcp_fresh_admission_waits_for_successful_metadata` 和 `real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns`。日志记录原请求和阶段推进；通过仍须获得同一原请求的 canonical result、唯一结算；双 turn 还须保留各自 memory。该探针验证多阶段累计延迟，不是吞吐或性能验收。
 
-## 开发态缓存约定
+final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
-- 若当前是在同一 repo family 的多个 git worktree 之间做本地迭代，开发态 `cargo check/test/run/build` 默认优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。每个 worktree 按自身 source identity 使用稳定、隔离的 target namespace；同一 worktree 内可复用缓存，divergent worktree 不得互选 artifacts。通过 `./scripts/new-task-worktree.sh` 创建的新 task worktree 会把 git-ignored `target` 链接到该 worktree 的 namespace，使直接 cargo 与 wrapper 在同一 worktree 内复用同一开发态缓存。
-- 本地 smoke / playtest / prewarm / regression / drill / longrun 脚本若只是为了开发反馈，应优先 source `scripts/cargo-dev-lib.sh` 并调用 `oasis7_cargo_dev ...` / `oasis7_cargo_dev_debug_bin_dir`，从而与手工 `cargo-dev.sh` 使用同一个当前-worktree target；`CI=1`、`OASIS7_CARGO_DEV_SHARED=0` 或 `OASIS7_FORCE_RAW_CARGO=1` 会回退到原始 cargo target 解析。
-- 该入口只服务开发态缓存复用，不替代本手册中的正式验收命令；手册里的 canonical 验收命令仍显式写原始 `env -u RUSTC_WRAPPER cargo ...`。
-- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它、通过参数传递 target（避免 `CARGO_TARGET_DIR` 污染缓存键）并关闭该调用的 Rust incremental。本地 lean 模式统一设置 dev/test debug=0，普通 dev/test profile 下 `cargo-dev.sh check/clippy ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run` 先选择实际缓存方式：启用 sccache 时 incremental=0，未安装或显式禁用时 incremental=1。Clippy 保留自身的 `RUSTC_WORKSPACE_WRAPPER`，不保证与 check 完整共用增量产物。显式 `--release/-r` 和非 dev/test 的 `--profile` 不使用自动 sccache，也不覆盖调用者的 profile/incremental 环境；`--` 后的参数不参与 profile 解析。sccache 执行失败直接返回错误，不切换模式重试。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check/clippy` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。wrapper 首次本地调用会为缺失的 `target` 建立当前 namespace 链接；已有工作区可执行 `./scripts/cargo-dev.sh --prepare-target`，之后直接 Cargo 也复用该目录。已有普通目录须确认未使用并清理后再准备，脚本不会自动删除它。Windows 缺少符号链接权限时，普通 wrapper 调用仍通过参数使用共享缓存；`--prepare-target` 则报告失败，直接 Cargo 的链接复用需先启用符号链接权限。
+## 本地 Cargo 开发约定
+
+- 本地开发态 `cargo check/test/run/build` 优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。wrapper 只调整开发 profile 与可用的 sccache，target 沿用 Cargo 原生解析，默认在当前 worktree 的 `target/`；不建立外部缓存 namespace 或符号链接，也不需要预先准备 target。直接 Cargo 与 wrapper 使用相同的 target 解析规则。
+- 本地 smoke / playtest / prewarm / regression / drill / longrun 脚本若只是为了开发反馈，应 source `scripts/cargo-dev-lib.sh` 并调用 `oasis7_cargo_dev ...` / `oasis7_cargo_dev_debug_bin_dir`。`CI=1`、`CI=true` 或 `OASIS7_FORCE_RAW_CARGO=1` 跳过开发 profile，使用原始 Cargo。
+- 该入口只服务开发态 profile 与编译加速，不替代本手册中的正式验收命令；手册里的 canonical 验收命令仍显式写原始 `env -u RUSTC_WRAPPER cargo ...`。
+- 跨 worktree 的 registry 依赖编译结果复用由 sccache 提供，不共用 target artifacts。安装 `sccache`（macOS: `brew install sccache`）后，`cargo-dev.sh build/test/run` 自动启用它并关闭该调用的 Rust incremental；wrapper 不注入或覆盖 target 参数和环境。本地 lean 模式统一设置 dev/test debug=0，普通 dev/test profile 下 `cargo-dev.sh check/clippy ...` 启用 incremental=1 并清除 `RUSTC_WRAPPER`，以复用同一 worktree 内的增量检查状态；`build/test/run` 先选择实际缓存方式：启用 sccache 时 incremental=0，未安装或显式禁用时 incremental=1。Clippy 保留自身的 `RUSTC_WORKSPACE_WRAPPER`，不保证与 check 完整共用增量产物。显式 `--release/-r` 和非 dev/test 的 `--profile` 不使用自动 sccache，也不覆盖调用者的 profile/incremental 环境；`--` 后的参数不参与 profile 解析。sccache 执行失败直接返回错误，不切换模式重试。`OASIS7_CARGO_DEV_MODE=debug` 显式启用 debug=2、incremental=1 并关闭 sccache；不要在同一轮日常迭代反复切换模式，以免重编译。`CI=1` 或 `CI=true` 保留调用者原有的 profile/incremental 环境且不启用 sccache。`OASIS7_CARGO_SCCACHE=0` 可禁用自动 sccache，未安装时沿用 Cargo；该开关不改变本地 `check/clippy` 的增量策略。用 `sccache --show-stats` 查看命中；首次编译填充缓存，workspace/path crates 的源码路径仍进入 Rust cache key，最终链接和 proc-macro 不保证命中，`check` 不使用 sccache。
 - 本地存储验收分阶段运行：先完成所需编译（可用 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --no-run --locked`），再运行 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --locked`；时限测试执行期间不要在其他 worktree 并行编译或施加资源压力。Cargo 的构建锁不保证测试运行期间独占主机资源。压力实验单独记录负载与实际截止结果，不通过延长测试 RPC 期限消除失败。依赖释放锁后立即重开的用例在独立测试进程运行，防止并行 libtest 的其他 spawn/fork 短暂继承锁描述符；子进程失败、超时和清理失败仍算失败。
 - 磁盘有限时保留少量固定路径开发 worktree，串行任务在确认干净、独占且已保留未推送工作的工作区用 `git switch -c codex/<task> <base>` 切换独立分支；仅并行任务新建 worktree。不要编辑 main 或主工作区。`new-task-worktree.sh --with-harness` 是完整预热的显式选项，普通后端或文档任务不需要它。
-- 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或用户指定的外部工作区，首次本地编译前先运行 `./scripts/cargo-dev.sh --prepare-target`。入口选择规则见开发规范。
-- `python3 scripts/cargo-cache.py report --json` 按 native 及 target-triple 的 profile 列出 deps、incremental、build 的分配空间。关闭 incremental 不会主动清理 `check` 或 debug 模式留下的历史状态；需要回收时用 `python3 scripts/cargo-incremental-clean.py --target <report 中的 target>` 预览，明确执行再加 `--apply`。仅接受有效托管标记；取得 wrapper、注册窗口及 Cargo 排他锁并检查进程占用后只删除 incremental，忙、未知归属、符号链接及不支持平台均保留。正式编译和验收参数不变。
-- `resource-cleanup-executor.py` 移除工作区后输出对应外部缓存、默认 7 天保留期和 GC 预览命令；缓存报告失败不否认已完成的 Git 清理，也不自动删除缓存。`runtime-module-routing-perf-harness.sh --profile dev` 使用开发 wrapper，默认 release 性能测量保留原入口。
-- 最小开发反馈示例：`./scripts/cargo-dev.sh check -p oasis7_proto`；`./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>`；需要完整交互时才运行 `./scripts/worktree-harness.sh up`。不要用跳过必要验收来节省空间；正式范围仍由本手册与 CI 决定。
-- `build-game-launcher-bundle.sh --profile dev` 的 native 编译与读取目录使用相同开发缓存；默认玩家 bundle 不编译 operator binaries，只有显式 `--ops-out-dir` 才编译它们。packaging 和 wasm 构建保留原入口。
-- 本地 CI 验收和 launcher 打包入口会先准备上述链接；wasm Docker 构建会额外挂载已有链接的目标，容器宿主无需安装本地 Rust，首次构建前可手工准备链接，不修改正式 Cargo 参数或 profile；CI checkout 不建立链接。deterministic wasm / release 链路继续保持 `CARGO_TARGET_DIR` 为空；涉及 `scripts/build-wasm-module.sh`、release evidence 或 hash/receipt 对账时，不要改用 `scripts/cargo-dev.sh`。
+- 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或外部创建的工作区也直接使用本地 target，无需准备链接。入口选择规则见开发规范。
+- 盘点工作区磁盘占用使用 `./scripts/worktree-gc-report.sh --footprint`，只报告 Git 与文件系统事实。target 默认随所属 worktree 管理；关闭 incremental 不会自动删除已有增量产物。回收前停止该工作区的构建和运行进程、核对路径及资料，再执行该工作区的 `env -u RUSTC_WRAPPER cargo clean`；显式外部 target 需单独核对归属。全局 Cargo 下载缓存与 sccache 不随单个工作区清空。
 
-### 本地 Cargo 缓存盘点与回收
+- 最小开发反馈示例：`./scripts/cargo-dev.sh check -p oasis7_proto`；`./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>`；需要完整交互时才运行 `./scripts/worktree-harness.sh up`。正式范围仍由本手册与 CI 决定。
+- `runtime-module-routing-perf-harness.sh --profile dev` 与 `build-game-launcher-bundle.sh --profile dev` 使用开发 wrapper；bundle 的读取目录与编译 target 保持一致，默认玩家 bundle 不编译 operator binaries。默认 release 性能测量、packaging 和 wasm 构建保留原入口。
+- deterministic wasm / release 链路继续保持 `CARGO_TARGET_DIR` 为空；涉及 `scripts/build-wasm-module.sh`、release evidence 或 hash/receipt 对账时，不改用开发 wrapper。Docker 使用工作区内的普通 target，不额外挂载外部缓存。
 
-先执行 `python3 scripts/cargo-cache.py report --json`。报告从外部缓存反向扫描，包含没有 `target` 链接的工作区缓存；`worktree-gc-report.sh --footprint` 同时提供该缓存清单。按物理目录去重，工作区本地 target 与外部缓存分别报告，不把链接再次相加。容量预算是回收目标，不是通过删除活跃缓存强制达到的限额。体积与剩余预算按盘点快照估算，其他并行构建可能改变实际占用；需要时重新盘点。
+### 旧工作区的 target 链接迁移
 
-回收先预览，再显式执行。`--apply` 仅支持 Linux/macOS（Unix）；Windows 支持盘点、预览与编译锁，但拒绝实际回收，避免无法保证子进程继承锁时删除使用中的产物：
-
-```bash
-python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7
-python3 scripts/cargo-cache.py gc --budget-gib 60 --min-age-days 7 --apply
-```
-
-仅回收具有当前 wrapper 管理标记、所属工作区已不在 Git 注册表、没有其他 target 链接引用、超过保留期且能取得排他使用锁的缓存。仍注册（包括路径已缺失）、正在编译/运行、标记异常、身份未知和 legacy 缓存均保留。wrapper 更新最后使用时间并在 Cargo 及其运行子进程生命周期内持锁；`new-task-worktree.sh` 的 Git 注册与回收的重新检查/删除窗口使用同一仓库锁，避免固定路径重新挂接时被删除；手工 `git worktree add` 若与回收并发，应通过 `python3 scripts/cargo-cache.py attach -- git worktree add ...` 执行。worktree 清理后再次执行缓存回收，工作区清理本身不递归清空外部缓存。显式 target override 不纳入自动管理。首次报告中的历史缓存不因名称相似而自动取得删除资格。
-
-低调试配置不会清除已有大体积产物；本地普通 `target` 也不会被自动搬移或删除。报告预算无法满足时列出剩余占用与保护原因，不把未知目录视为可释放空间。
+更新前已创建的 `target` 符号链接不会因代码更新自动消失。先用 `ls -ld target` 与 `readlink target` 核对目标，停止相关构建/运行并确认没有其他使用者。对已确认指向旧集中 Cargo 缓存的链接，使用 `unlink target` 只移除链接；后续 Cargo 自动创建普通 `target/`。已有普通目录无需迁移，不要对目录执行此命令。旧链接的外部产物在确认可重建、归属和无进程/其他工作区引用后单独删除；不能递归清空 `.oasis7-cache`、全局 Cargo 或 sccache 目录。脚本不自动改写或删除未知目标。
 
 ### ECS 缓存与完整 native 构建测量
 
-ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。达到代数或容量上限应报告跳过，不自动删其他缓存或提高额度。
+ECS workspace 缓存的容量、信任边界和证据标准见[CI 设计](doc/testing/ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache)。`ecs-packages.yml` 先做只读容量预检，构建后重新清点；缓存故障继续完整构建。核对 `ecs-native-timings` 中的 preflight、stage、restore、save 及 unit 报告：配置预算不等于实时额度，action 命中不等于 payload 验证通过，`stage.save=true` 不等于远端已保存。两代为保留目标；容量足够时先保存第三代，再由独立维护确认当前条目并回收未保护旧代。容量不足应报告跳过，不能先删恢复点腾空间或提高额度。精确命中的成功 producer 也重新确认条目并触发维护。
 
 手动执行 `ECS Server Package`，启用 `measure_builds` 并提供明确的 `measurement_baseline`，可同时取得正常完整包和独立的 full native/no-op/Viewer 改动对照。选择相同 jobs（串行归因选 1），保留 `ecs-build-metrics` 与 `oasis7-ecs-linux-x64` 两类产物。前者测量三个生产 binary 的完整 native 闭包，后者另验证 Web/native 组合与 package source/hash；不能互相代签。
 
@@ -186,7 +177,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 ### CI 工具缓存与 local-signer 验证
 
 - Viewer 的 `viewer-js-required`、`viewer-performance-report` 只恢复当前 Cargo.lock 版本的 wasm-bindgen CLI 目录；key 包含 OS、架构、Rust 版本和两个安装 helper 的 hash，不使用宽松恢复。精确命中必须验证目录内 binary，损坏命中直接失败；冷目录以 `--ensure-cache --print-bin` 安装并验证。普通 PR 不保存该工具缓存。
-- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 大缓存身份保持 `ci-full-regression-trusted-v2`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
+- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存身份为 `ci-shared-native-trusted-v3`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
 - fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
 - CI 控制改动的 PR 仍由可信 base selector 选择全部适用组。候选 selector 的精确路由仅在合入后成为可信规则，required-gate 的组集合与失败判定保留。
@@ -206,6 +197,14 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 优化回归核对全部完整用例在逻辑 suite 与物理 shard 中恰好一次，保留长历史 70 次及健康集合 40 次连续操作。比较 producer、分包原始/压缩 bytes、下载、实际测试、重开/冷查/stop 各阶段；记录缓存来源、是否命中及 8 GiB 保存预算结果。fixture 和本地计数器只能证明对应机制，整体耗时改善须用实际 runner 结果另证。
 - workspace 缓存回归使用真实小型 Cargo workspace：分开保存依赖与本地编译单位，在相同绝对路径重建 checkout 后恢复，核对 Cargo JSON 的 fresh 和实际程序输出。修改源码、build.rs 观察的未跟踪输入、权限或刻意保留旧 mtime 的输入须正常重编；新增/删除输入、损坏、symlink、路径穿越和不完整缓存须安全回到冷路径。核对 build-script 编译与执行两类目录均完整，原始 fingerprint 不被修改。真实 producer 另记录完整 target 与所选 workspace 的逻辑/硬链接去重 bytes、目录归因、8 GiB 保存结果及两类缓存的恢复耗时；本地 fixture 不代签 main writer 已保存或后续 hosted reader 已复用。
 - `output/formal-process/results.jsonl` 记录每个命令的开始时间、耗时、退出码、超时、测试数和清理状态。只上传此安全摘要；详细输出查看 job 日志，失败世界目录不自动上传。缺摘要、缺产物和构建失败须从 Actions 失败步骤诊断，不能计为通过。
+
+### Workspace 缓存容量和滚动验收
+
+- 本地合同：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/ci-cache-policy.test.py`、`python3 scripts/ci-workspace-cache.test.py`、`python3 scripts/ci-ecs-cache.test.py`、`python3 scripts/ci-cache-maintenance.test.py`、`python3 scripts/ci-workflow.test.py`。实际 Cargo fixture 需要 Rust；缺少工具链时明确记录跳过，不能用 synthetic JSON 计数代签真实 fresh。
+- 普通构建 library-only fixture 须证明库和完整构建脚本可复用、普通 binary/test harness 不入缓存且正常重建；四个 feature variants 与测试产物不变。新增/删除输入、损坏或路径不安全继续 miss；源码内容变化仍由 Cargo 重编。检查本地与第三方 fresh/rebuilt 分组，含恢复、验证和打包成本。
+- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- compact archive 回归覆盖 zstd 与旧 gzip 往返、真实同 inode 去重、完整逻辑字节预算、损坏/截断/附加帧、非法别名和路径拒绝。使用实测 9,381,351,049 字节库存与有来源的大小样本回放 bootstrap、首次准入、后续恢复和第三代轮换；全族达到上限但仓库空间不足时必须拒绝，不能把单份上限当预留额度。
+- hosted 分别核对首次 main 保存、后续兼容 reader 的实际 fresh 和第三代回收后的库存；新格式首次冷构建、超限跳过与保护集超额均如实报告，不承诺尚未测量的耗时收益。
 
 <a id="ci-dependency-installation-validation"></a>
 ### CI 依赖安装与 Release 工具缓存核验
@@ -253,6 +252,34 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 6. builtin wasm / module release / hash：先跑对应 scope planner 与 module-set evidence；发布或跨 runner claim 才进入 release evidence 对账。
 7. playability / player continue claim：自动化只能证明“没坏/可回归”；`L4A`、`L4B`、`L5` 按 claim 强度升级，不得互相替代。
 8. release candidate：默认完整 release gate；任何 `--skip-*` 都必须写明原因，并在 summary 里保留 claim boundary。带 skip 的结果只能支撑剩余已执行步骤，不能支撑被跳过层级的 release claim。
+
+<a id="regression-oracle"></a>
+### 回归用例：公共行为与独立预期值
+
+用例先写清触发输入/状态、真实观察点和合同预期，再选择能稳定检出缺陷的最小接缝。优先经受影响的公共入口走到消费者结果，而不是对私有函数调用次数或内部对象形状做镜像断言；一次只覆盖一个清楚行为，先观察因原症状失败，再修复并验证受影响边界。
+
+- 预期值来自适用合同中的明确样例、独立手算或可核对的权威原件。不要调用被测 decoder、projection 或关联函数生成 expected，再与自身比较。
+- 最小纵向闭环要经过本次真正要验证的接线、状态持久化或授权边界。mock 可以隔离不可控外部依赖，但不能替代正在验证的边界；只有 fixture/mock 的结果不宣称真实服务、网络或 Runtime 已通过。
+- 按受影响行为复用或补充能区分正确与错误实现的正/负例。例如 cognition committed、业务 receipt rejected 时，断言候选已提交与业务已拒绝、未成功分别成立；仅断言 HTTP 200 或 committed 应不足以判成功。对原 world/request/适用 fence 做不匹配变体，核对相关校验拒绝及合同规定的无副作用结果。
+- 行为稳定时，不让测试绑定无关内部拆分；重构后应继续由同一公共行为断言保护。已有用例能检出缺陷就复用，不为方法补一套同义测试。
+
+<a id="request-recovery-regression"></a>
+### 原请求与恢复路径的定向回归
+
+只选择本次修改涉及的场景，并先确认当前实现与适用合同。API 身份、幂等作用域、错误码及保留边界以 [Game API 设计](doc/world-simulator/llm/external-agent-game-api.design.md)和[外部 Runtime 验证手册](doc/testing/manual/external-agent-runtime-contract-validation.manual.md)为准；下表是用例选型，不新增接口、统一 TTL、数据库方案或 exactly-once 承诺。尚未实现的路径保持 planned/未覆盖。
+
+| 受影响场景 | 输入或故障位置 | 观察与判据 |
+| --- | --- | --- |
+| 同意图重复 / 并发 | 在合同允许重投的入口，保留完整原身份与原 payload 重投或并发到达 | 返回原结果或明确未决，权威业务效果不重复；不能只数响应次数 |
+| 同标识异内容 | 在合同定义的同身份范围改变 payload；另保留不同合法意图作正例 | 冲突/拒绝而非误回另一意图的成功；合法不同意图不被误合并 |
+| 效果后、响应前断连或崩溃 | 原请求已发出，调用方缺最终响应，再恢复 | 先查原请求；仅在该合同已确认允许安全重投时保留原签名/nonce/payload/correlation 重投，否则只回查并报告阻塞；不换 ID、world 或 Context 绕过未决 |
+| pending / unknown / 存储暂不可读 | 返回未决、无法读回或原证据不足 | 保持未确认并遵循该合同的新写限制；不把无响应/读取失败当业务失败，不制造竞争写 |
+| 到期、Stop 或撤权 | 分别尝试原结果回读与新副作用 | 读取仍检查当前读授权；旧 grant/fence 不因恢复复活，新写按当前合同拒绝或停止 |
+| recent window / 历史保留边界 | 结果退出近期窗口，或原历史材料不可得 | 窗口缺项不证明失败；沿支持路径查原结果或当前资源，区分 HistoryUnavailable 与 Unknown，不用新请求填补失去的历史 |
+
+恢复验证应分别回答“旧请求有没有重复”“原结果能否读回”“恢复后能否继续服务”。若本次结论包含恢复后可服务，按适用的 [V-RECOVERY / J1、J2 正向继续要求](doc/testing/prd.md#qa-infrastructure-scene-families)选择实际层级：在原未决已按合同处理、当前 authority/fence/权限/资源及预算允许后执行获准的新意图，核对权威效果与后续推进；不能用只读恢复、root 相等或效果至多一次代替正向结果。不相关的接口/UI 修改不因此扩成完整基础设施恢复验收。
+
+判定记录沿用实际 PR/Task 与所选套件的原证据，标清执行/未执行和环境边界。故障注入只在授权隔离环境进行；固定 fixture 验证不代签真实 Runtime、浏览器或部署恢复。
 
 ### Rust required 范围预览
 
@@ -357,8 +384,8 @@ Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要
 env -u RUSTC_WRAPPER cargo fmt --all -- --check
 ```
 - S0 是适用于任何改动的快速静态基线：不运行 Viewer/Bevy、wasm 或任何其他 target-specific 编译；这类验证必须按改动面进入 scoped required（例如 S5）。
-- 本地日常迭代若只是为了更快得到开发反馈，默认把同类命令替换为 `./scripts/cargo-dev.sh check/test/run/build ...`；新 task worktree 的 ignored `target` symlink 只是降低误用直接 cargo 时的重复存储，不改变正式验收入口。但进入正式 required/full 验收、尤其是 deterministic wasm/release 相关链路时，仍以本手册列出的原始 cargo 命令为准。
-- 本地脚本内的开发态 build/test/run 应通过 `scripts/cargo-dev-lib.sh` 复用 shared target；正式验收脚本、release workflow、deterministic wasm、module release acceptance、hash/receipt evidence 仍不得被该 helper 隐式改写。
+- 本地日常迭代若只是为了更快得到开发反馈，默认把同类命令替换为 `./scripts/cargo-dev.sh check/test/run/build ...`；各 worktree 默认使用普通本地 `target/`，wrapper 不改变正式验收入口。但进入正式 required/full 验收、尤其是 deterministic wasm/release 相关链路时，仍以本手册列出的原始 cargo 命令为准。
+- 本地脚本内的开发态 build/test/run 应通过 `scripts/cargo-dev-lib.sh` 使用本地 target 与开发 profile；正式验收脚本、release workflow、deterministic wasm、module release acceptance、hash/receipt evidence 仍不得被该 helper 隐式改写。
 - `./scripts/check-rust-file-size.sh` 现同时校验超限基线、`touch-and-shrink` 和 `split_part/include!` 结构切片基线，不再只是“有没有新 >1200 文件”。
 - 可选（按需执行 builtin wasm hash 校验）：
 ```bash
@@ -457,7 +484,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib --no-default-featu
 
 `node_keypair_config::transaction::tests` 使用当前 test executable 的独立子进程，在锁持有、意图、候选文件、准备、发布与完成边界 SIGKILL；逐次重开核对同一公钥、锁 inode、原配置及候选／完成状态。另覆盖发布后注入错误、损坏候选／目标冲突拒绝、private-only 补公钥、完整旧身份迁移与原件丢失阻断、旧锁离线迁移边界。`process_worker` 是该套件的子进程入口，独立执行不构成场景覆盖。临时环境变量只在 `cfg(test)` 中生效，不提供生产故障开关，不输出私钥。
 
-迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；本机 canonical Cargo 通过 `target` 符号链接启动 test executable 时，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
+迁移消费者还须执行 `data_directory_migration_preserves_identity_and_retries_only_from_receipt` 与 `legacy_migration` 过滤组：核对 stopped 原事务、迁移后同一公钥／PeerId、完整意图路径重绑定、独立及嵌入 config、删除目标 key 后仍拒绝重生成。legacy fixture 的 `current_exe` 摘要入口拒绝 symlink；若显式配置的 target 符号链接被用于启动 test executable，记录该入口限制，并在同一已构建 artifact 的物理路径执行该过滤组，不能修改 target/cache 配置或把失败改成通过。
 
 正式 v2 运行期身份租约还须验证：
 
@@ -1613,7 +1640,7 @@ Node snapshot / filesystem reward observations are owned by the Chain reward hos
 
 Refs #4975; Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`.
 
-Run canonical commands from the candidate worktree after `./scripts/cargo-dev.sh --prepare-target`:
+Run canonical commands directly from the candidate worktree:
 
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api governance_authorization -- --nocapture
@@ -1629,6 +1656,16 @@ The host suite uses actual signed profile-v2 activation and qualified parent ver
 Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.
 
 
+### Qualified governance history across committed parents
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; contract: [qualified history authentication](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-governance-history-authentication).
+
+Run `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_history` and `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history`. Runtime fixtures use synthetic qualified-parent tokens to test original-policy/nonces, projection tampering, event cursor rollover, time, capacity, deadline and authenticated cold archive success/corruption without mutating either World. Opaque projection acceptance is compared with the original World-based validator; invalid execution-policy fields must also be rejected by full checkpoint restoration. Host fixtures form cryptographically qualified C0→signed submit→signed approve material and consume it through the production exact-history resolver, restore the same target Snapshot and continue with a signed activate action. A fully re-signed candidate with an unjournaled controller-policy replacement must fail before publication; this is distinct from merely corrupting an artifact hash.
+
+Two additional ignored process regressions use the real authenticated Primary/Replica endpoints with the test custody oracle: a missing intermediate local publication is restored across signed parents, and a native-qualified silent policy replacement is rejected by `FormalLiveRuntime::open_with_native_history`. Build `oasis7_durability_endpoint --release`, set `OASIS7_FORMAL_ENDPOINT_TEST_BIN` to that candidate executable, then run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history_ -- --ignored --test-threads=1`. Both exact cases are registered in the formal `runtime-protocol` CI suite. Also run the existing 70-request `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` process regression with the same configured operation deadline; inspect all intermediate and final reopen results rather than inferring long-history availability from short fixtures. The existing real signer-handoff process test covers the valid readback path; a separately constructed malicious signed read service for a direct negative handoff test is not covered by these fixtures. Local custody-oracle processes do not prove independent physical fault domains.
+
+The host fixtures exercise Runtime execution and the shipping history consumer; they do not claim Node committed-action ingress or the formal executor for these newly constructed candidates. Keep the existing governance authorization ingress suite and formal history/recovery suites in required CI. This change does not alter Agent gameplay entry or behavior, and does not trigger Agent self-playtest. Arbitrary raw-tail World reconstruction, BFT, component installation ACK and real isolated-fault-domain evidence remain separate obligations.
+
 <a id="discovery-observation-local-trust-boundary"></a>
 ## Discovery observations and local bootstrap trust
 
@@ -1643,6 +1680,17 @@ The net suite includes a three-node loopback TCP flow: B publishes a record with
 
 This proves the existing wire's local trust boundary, not full record freshness, sequence/tombstone persistence, authenticated operator/ASN mappings, rendezvous ID provenance, restart anti-rollback, public-network independence, BFT or deployment readiness. Unknown control domains intentionally remain degraded and share conservative quotas. Normal required CI must cover the final candidate and downstream node status/filtering consumers.
 
+
+<a id="discovery-rendezvous-trigger-provenance"></a>
+### Rendezvous ID-only trigger provenance
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3. Apply the [bounded trigger contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary). This is a local diagnostic association, separate from the actual signed-record ingress and trusted source labels.
+
+Use canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib rendezvous -- --test-threads=1`, followed by the full net suite and applicable downstream node checks. Exercise the production Discovered callback with real signed libp2p registrations, then the DHT result or authenticated RR proxy path. Assert that registration addresses are not installed for dialing and only a correctly targeted, verified live SignedPeerRecord can receive trigger metadata. Verify exact payload binding and unchanged actual ingress, source labels and health trust.
+
+Include two servers announcing the same peer under query deduplication, the 1024-target/8-server bounds (including reactivation of an expired pending context at capacity), fixed 60-second monotonic expiry, target mismatch, invalid signature, query/fallback failure and no-fallback cleanup. A DHT miss must preserve the context for its pending or newly available RR fallback; it is distinct from a successful local-cache result. If another request installs the identical signed payload first, a valid remote result of the triggered query may associate with that exact existing observation without refreshing the record lease. Confirm the existing bounded diagnostic output identifies the peer, exact-payload digest, actual ingress and trigger servers. Both direct candidate-cache hits and Kademlia local-store results with no remote upstream must discard the association. A tombstone must consume the trigger without creating an observation or transferring it to a later live record. A later unrelated query must not inherit a failed or expired trigger. Parallel DHT/RR attempts share a one-shot context: any explicit error or rejection clears it globally, and a later valid response must still install normally without trigger attribution. A normal DHT or RR material-missing result may instead preserve the same bounded fallback context; an outbound transport failure must clear it before any normal proxy retry. Attribution is best-effort diagnostics, not an exhaustive successful-attempt history.
+
+These cases prove bounded process-local trigger attribution only. They do not authenticate an independent operator/control domain, persist provenance across restart, establish trusted absolute time, or prove public-network fault independence. Report actual test results on the candidate PR; this method is not an execution receipt.
 
 <a id="discovery-record-v1-time-policy"></a>
 ### Discovery record v1 time policy
@@ -1669,12 +1717,252 @@ These tests do not prove absolute wall-clock trust, restart/whole-machine rollba
 
 Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [shared discovery policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget).
 
+Run the pinned-client unit suite with canonical `env -u RUSTC_WRAPPER cargo test --locked --manifest-path vendor-libp2p-rendezvous-0.18.1/Cargo.toml --target-dir target --lib -- --test-threads=1`; the target is the existing workspace target, shared with normal network verification. The net CI group runs this standalone suite because dependency unit tests are not selected by the workspace net suite.
+
 Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Use controlled monotonic instants for rolling-window boundaries and actual Swarm scheduling entrypoints for fanout and retry tests:
 
 - Exhaust the combined 32 in-flight slots across automatic discovery work; a new peer/source must create no extra pending work or request traffic. Release only terminal operations; rate tokens remain consumed.
+- Fill the same window with production DHT and RR scheduling, then attempt rendezvous register and discover through the real Swarm helpers. Both must be refused without protocol requests or pending markers; switching kind or server must not reset the budget. Cover ConnectionEstablished and periodic RefreshPeerDiscovery callers.
+- For rendezvous, successful and failed client terminal events release only the matching kind/peer concurrency slot; synchronous registration failure also releases only concurrency. A disconnect or pending-set cleanup must not release an outstanding operation or permit a duplicate kind/peer start. Verify late or unrelated terminal events cannot decrement another operation, and retries after a true terminal still consume the shared rolling window. Keep ordinary successful registration/discovery coverage.
+- Verify the pinned-client patch preserves default auto-refresh, while native assembly explicitly disables it without freezing the client address set. Address changes must later re-register through the shared budget; an ACK issued for an older address snapshot cannot mark the new snapshot current. Register and discover must expose their real request IDs in all four terminal outcomes. Exercise both valid-but-wrong response types and a request message returned as a response: emit the corresponding failure exactly once rather than leaking a slot or panicking. Two independent request-response behaviours may both emit ID 1; app RR and rendezvous receipts must remain separate and release only their own slots.
 - Complete 128 operations in a rolling 60-second window, switch sources and reconstruct requests, then verify refusal until the oldest start leaves the window. Moving wall time must not refill the budget.
 - Feed oversized, over-count and duplicate cached ID lists; reject beyond 16 KiB or 128 items before fanout, and schedule duplicates once. Cap cumulative DHT provider results and server output at 128 IDs.
 - Traverse cache misses and outbound failures across proxies; stop after four attempts for the target chain and retain global consumption. Exercise cooldown saturation and expiry reclamation without exceeding 1024 entries per RR category (3072 total across three maps).
 - Retain the real three-node TCP signed-record forwarding/expiry flows and downstream status/filtering tests as positive-path coverage. Budget exhaustion must not itself disconnect authenticated sessions or grant source/role trust.
 
-Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, rendezvous protocol operations, application-driven operations and protocol-internal messages retain their own limits. New network instances start a new budget; no restart-resistant quota is claimed.
+Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, inbound rendezvous server service and registration-list validation, application-driven operations and protocol-internal messages retain their own limits. Outgoing rendezvous client register/discover are included in the shared work budget. New network instances start a new budget; no restart-resistant quota is claimed.
+
+
+<a id="discovery-record-refresh"></a>
+### Discovery record before-expiry refresh
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [refresh policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-refresh).
+
+Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Check deterministic monotonic schedule boundaries and actual Swarm scheduling/record-exchange paths:
+
+- Before original expiry, refresh becomes due within the fixed margin/jitter range. Different receiver randomness can spread starts; repeated identical signed payloads preserve the original lease, due time and retry lower bound. New accepted signed payloads get a new schedule.
+- A connected publisher returns a later freshly signed local record via the existing RR endpoint; the receiver verifies and installs that immutable payload. A disconnected candidate uses the explicit DHT refresh path without bypassing pending or shared work limits.
+- Each tick attempts at most four eligible candidates; denied/failed work is delayed by at least five monotonic seconds. Shared budget exhaustion, the existing 60-second RR cooldown and identical old DHT replies must not extend the record lease or create hot retries.
+- Refresh failure retains the old valid record/path until actual expiry and preserves independently authenticated sessions. At expiry the existing response/dial/health rules still apply.
+- `discovery_query_interval_ms <= 0` disables periodic network refresh while the expiry tick continues. Short TTLs may expire before a successful refresh because tick, cooldown and budget constraints remain authoritative.
+
+This is best-effort process-local refresh, not a guarantee of uninterrupted discovery, fairness under attack, trusted absolute time, persistent sequence/tombstones or restart-resistant anti-replay. Existing three-node immutable forwarding/expiry and downstream status tests remain positive-path coverage. Do not reset jitter or receiver lease on a cache replay, and do not clear a live record merely because its refresh failed.
+
+
+<a id="traffic-durable-attempt"></a>
+### 独立 traffic 持久尝试与历史事务：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[traffic 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#traffic-durable-attempt)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，其中应包含实际入口 `scripts/p2p-real-env-traffic-durable.test.py`；另保留现有流量归约和新鲜度回归。
+
+- 实际 wrapper 与隔离 HTTP／SSH／接口替身覆盖 pre-probe pending、SIGKILL、同钟、旧 A 对新 B pending／失败、预发布／终态失败、损坏状态及恢复；类型误用／旧无类型外层兼容沿共享 helper 回归。
+- 用固定来源的真实旧 wrapper 先生成历史及时间戳 run，再用新入口在同一 root 初始化；核对 seq1 pending 不采用旧成功、旧工件逐字节保留、后续 seq2 可继续，以及混入孤立版本化工件仍拒绝。
+- 同一和不同输出 root 指向同一历史，核对 admitted 事务不丢样、不重复批次，保留顺序、失败及回退的新行，裁剪与本 run 快照是同一事务；损坏锁或写入失败不显示旧成功。未接入事务的其他 writer 不据此取得并发保证。
+- 只读外部历史回放不创建／写入源目录、锁或文件，不追加／裁剪源；原 capture／producer 时点不刷新。实际 outer→traffic→merger→canonical 保留 incomplete／unknown 与历史身份，损坏协议不回退 legacy。结果不证明角色权威、可信绝对时间、全存储物理回滚或真实环境。
+
+<a id="snapshot-durable-attempt"></a>
+### 独立 snapshot 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[snapshot 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#snapshot-durable-attempt)。执行 `bash scripts/p2p-real-env-triad-snapshot.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`；实际入口回归为 `scripts/p2p-real-env-snapshot-durable.test.py`，应接入普通运维合同选测入口。
+
+- 实际 snapshot 入口通过隔离 HTTP／SSH／服务替身验证 pending 先于探测、SIGKILL、同钟独占与 A 慢于 B pending／失败；不能只测 helper。
+- 核对错误输入不写入不采样、显式节点清单／样本计数、失败后恢复和 last-success；预发布／终态故障、锁／锚／状态缺失及摘要损坏均不能返回旧成功。三类 collector 类型不可互用，旧无类型外层状态保持兼容。
+- 实际外层读取 versioned snapshot canonical 结果，仅用验证通过的同 run raw status／WASM 样本；损坏协议或悬空链接不触发 legacy fallback。另保留受支持旧 child 的隔离兼容回归。该证据不证明 traffic、角色权威、全存储物理回滚或真实环境恢复。
+
+<a id="host-durable-attempt"></a>
+### 独立 host 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[host 持久尝试](doc/p2p/node/node-triad-operations-observability.design.md#host-durable-attempt)。执行 `bash scripts/p2p-real-env-host-monitor.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`；实际入口套件为 `scripts/p2p-real-env-host-durable.test.py`。
+
+- 以实际 host wrapper 和隔离 probe／SSH 驱动正常采集、最新失败／恢复、pending 先于采样、SIGKILL、慢 A／新 B pending 或失败、同钟独占目录与 last-success 保留。
+- 预留／工件／状态提交失败不得提前采样或恢复旧成功；共享机制继续覆盖锁替换、序号／锚损坏、摘要与 generation 不匹配。分别核对 host 与 observability 类型不能交叉使用，旧无类型外层状态仍按原边界兼容。
+- 实际外层消费新 host canonical 读取结果，保留错误状态、节点诊断和非零退出；legacy child 仅在外层该次独占目录内兼容。验证不证明其他 collector、全存储物理回滚、真实 SSH 或角色就绪，也不刷新历史测量的年龄。
+
+<a id="host-failure-report"></a>
+### Host 失败续采与报告：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[失败样本](doc/p2p/node/node-triad-operations-observability.design.md#run-failure-report)。执行 `bash scripts/p2p-real-env-host-monitor.test.sh` 与 `bash scripts/p2p-real-env-observability-monitor.test.sh`。
+
+- 实际 host 入口使用隔离 probe／SSH 替身，分别注入首个、后续、全部节点失败和成功后的失败／恢复；核对所有请求轮次仍执行，失败行准确保留 label、时点、序号与有界原因，JSON／Markdown 生成后非零退出。
+- 空响应、部分字段、无效数字及 shell 文本不得成为有效样本，也不得执行响应内容；节点间不串用变量或旧成功值。正常原 helper 输出须兼容，包括空值、空格及转义字符；不增加远端运行时依赖。
+- latest 失败保持 unavailable，last-success 独立保留；恢复不擦除本 run 的失败计数。真实 host reducer→merged report 和外层条件发布保留有效其他节点、历史与 snapshot blocked，未知 host schema 不转绿。
+- 既有 all-success／缺 storage 指标 fixture 保持兼容。stub 只证明本地调用链，不证明真实 SSH、物理故障域、独立 collector 的持久尝试或目录并发安全。
+
+<a id="observability-consumer-routing"></a>
+### 外层三节点参数路由：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[消费者路由](doc/p2p/node/node-triad-operations-observability.design.md#run-routing)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，路由套件为 `scripts/p2p-real-env-observability-routing.test.py`。
+
+- 驱动实际 outer wrapper，逐项及组合覆盖 service、status、target、storage、health/env/public fallback、world 和流量专属选项；验证参数只到声明支持的消费者，WASM 仍只消费本 run 的 snapshot 样本。
+- 用实际子 collector／reducer 加隔离底层采样替身验证配置路径可完成报告；严格 argv stub 用于完整路由矩阵，不能代签真实 SSH、服务状态或任意拓扑。
+- 缺值、空值、非法数字、未知选项、子工具专属选项与 `--node` 在预留尝试和 collector 前非零拒绝；核对既有状态、目录和历史均未修改。help 不产生尝试；路径含空格／元字符保持独立 argv，外层不执行其内容。
+- 继续执行现有 freshness 历史回放及持久尝试回归，核对只读历史、原 as-of 和失败／blocked 语义；支持环境中使用 Bash 3 与当前 Bash 核对空数组行为。
+
+<a id="durable-observability-attempt"></a>
+### 外层 observability 持久尝试：离线验证
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；合同见[持久尝试与条件发布](doc/p2p/node/node-triad-operations-observability.design.md#durable-observability-attempt)。执行 `bash scripts/p2p-real-env-observability-monitor.test.sh`，其中包含 `scripts/p2p-real-env-observability-attempt.test.py` 的实际外层入口／发布 helper 回归。
+
+- 正向：正常采集／归约、带 blocked 模块的执行完成、失败后的新尝试，核对 JSON／Markdown、严格递增序号与独立 last-success。
+- 并发／恢复：固定墙钟并发不覆盖 run，旧 A 晚于 B 的失败或 pending 完成不更新 latest；B 预发布后 SIGKILL 留下 pending，不能回退旧成功。
+- 持久化：分别使预发布、终态工件及状态提交失败，核对采集未提前启动或 canonical read 保持 pending／unknown；损坏或缺失初始化锚／序号状态禁止自动重置；锁丢失、替换、inode 复用或持久随机标识损坏时阻止采集。
+- 消费：验证读取核对 generation、工件摘要、状态可读性；不匹配时非零诊断，不改变历史文件，也不把缓存物化工件当实时状态。
+- 这些测试仅使用隔离本地 stub，不证明真实 SSH、授权撤销、BFT／P/R、物理故障域或单独 collector 的持久尝试。
+
+<a id="traffic-freshness-v2"></a>
+### Traffic observation freshness
+
+Trace refs: `O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b`; [schema 2 policy](doc/p2p/node/node-triad-operations-observability.design.md#traffic-freshness-v2).
+
+Use offline collector stubs and the actual reducer→merged JSON/Markdown chain. Run `bash scripts/traffic-monitor-summary.test.sh` and `bash scripts/p2p-real-env-observability-monitor.test.sh`, plus their freshness regression suites. Validate shell syntax and Python modules. Do not contact historic fleet hosts for these tests.
+
+- Success at 00:00/00:10 followed by failures through 00:30 must retain latest failure and last success separately. At as-of 00:30 the last ten minutes are not a full current window.
+- Cover all failures, recovery, normal dense full-window samples, two sparse endpoints, exact age/gap boundaries, reset or changed identity, malformed/future/regressing timestamps and per-node capture completion times.
+- A new successful capture of an old producer observation keeps producer age stale; missing observation stays unknown. Neither report generation nor HTTP 200 establishes freshness.
+- Explicit historical as-of excludes later successes/failures and leaves original history bytes unchanged. All nodes share the selected boundary; replay is distinct from a current-health claim. Summary-only without an explicit cutoff must also preserve history bytes and mtime while keeping current-time freshness checks.
+- Merge an actually generated child report, then advance report as-of. Formerly fresh metadata must become stale/uncovered; old or unknown schema warns. JSON and Markdown retain matching attempt, age, source-window and bounded error semantics.
+- Route age/gap/as-of options only to supported consumers; invalid values fail before collection. Stub invalid/empty JSON must produce failed history rather than vanish. Outer historical replay requires `--traffic-history-path` with as-of and invokes the real traffic child in summary-only mode without mutating history; host/snapshot remain current evidence.
+
+These checks do not prove persistent pending/terminal publication, SIGKILL safety of the whole collector lifecycle, profile readiness, producer authorization, real SSH/physical fault domains, trusted clocks or deployment health. Existing single-node attachment/report consumers outside the merged triad path retain their documented scope.
+
+### 单节点正式 profile 状态报告
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；范围见[单节点正式 CLI 报告](doc/p2p/node/node-triad-operations-observability.design.md#single-node-profile-report)。
+
+- `bash scripts/oasis7-node-observability-report.test.sh` 与 `python3 scripts/p2p-profile-readiness.test.py`：实际 file report 入口、旧 HTTP 兼容、未知 schema/profile、实例绑定、停止／阻断、缺字段、陈旧／未来观察和恢复；保留 JSON／Markdown 只读角色边界，不输出私有配置和原始 error。现有 observability 合同入口同时执行它。
+- `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib schema2_process_hook_reports_verified_public_readiness_and_stops_cleanly`：真实 observer supervisor 与 `process::status` 正／停止状态进入报告；这不是外部 CLI 进程证明。
+- `env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_chain_runtime`，再设置 `OASIS7_FORMAL_NODE_TEST_BIN` 为该候选二进制，执行 `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_full_state_sync_cli_ -- --ignored --test-threads=1`：shipping CLI 的首次就绪、重启、停止及 epoch 演进后的旧 grant 拒绝状态送入实际报告。普通不带 ignored 的 cargo test 不代签此项；沿现有 formal process CI suite 执行。
+
+文件报告保留 producer 检查时点与年龄，报告生成不更新源观察。ready 只说明受支持本地实例的最近只读观察，source freshness 不等于已证明最新 head；不证明 triad HTTP profile 接线、生产部署、撤销协议正确性、BFT 或 P/R。本次不改变 Agent 游戏接入、行为或玩法，不触发 Agent 自主试玩。
+
+### 独立本地 profile 采集
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；范围见[本地采集合同](doc/p2p/node/node-triad-operations-observability.design.md#local-profile-collection)。
+
+使用绝对可执行文件和已有 data-dir：`bash scripts/p2p-node-profile-monitor.sh --node-binary /absolute/oasis7_chain_runtime --data-dir /absolute/node-data --out-dir /absolute/profile-output`；再用 `python3 scripts/p2p-real-env-observability-attempt.py read --collector node-profile --out-dir /absolute/profile-output --format markdown` 读取当前状态。采集成功不表示角色 ready；读取时重新计算采集年龄与 producer 观察年龄，静态 latest 文件仅是历史发布物。
+
+- `python3 scripts/p2p-node-profile-monitor.test.py`：实际入口的参数和路径隔离、固定 argv、pending、成功／失败／恢复、超时、输出限额、继承 stdout 的子进程、SIGTERM／SIGKILL、并发条件发布与协议损坏；fixture executable 不代替 shipping CLI。
+- `python3 scripts/p2p-node-profile-publication.test.py`：真实 publisher 的读取时过期、时钟回退、读取不写盘、失败保留显式历史身份、scope 变化清除当前成功引用、跨 collector 与 artifact 损坏拒绝。两组测试由现有 observability 合同入口执行。
+- 上述 `formal_full_state_sync_cli_` ignored shipping CLI 测试同时覆盖直接采集与 canonical read：首次 ready、旧 epoch grant 拒绝、重开和停止；collector 本身只调用 status，不启停节点。
+
+不执行生产采集或远程节点操作；不扩大为 triad profile 接线、BFT 或 P/R 验收。
+
+
+<a id="full-sync-v2-issuer-management"></a>
+### V2 full-sync issuer management ledger
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [V2 issuer ledger and witness decision](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-issuer-ledger).
+
+Run focused protocol and durable-store tests separately, using the existing shared Cargo cache:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol full_sync_issuer
+env -u RUSTC_WRAPPER cargo test -p oasis7_distfs full_sync_issuer
+```
+
+Verify signed management Issue/Replace/Revoke against the original externally pinned activation trust, complete world/epoch scope, authorized manager and current dedicated issuer generation. Negative cases include changed initial trust pins, wrong root/role/subject, reused request identity or manager nonce with different content, stale full head, wrong target epoch, absent-target tombstones, counter/byte limits, conflicting same-generation policy and reuse of any historical issuer key. An explicit root-authorized policy transition must advance the same ledger atomically; witness-key replacement is unsupported and must fail.
+
+Use a separately keyed simulated witness for deterministic CAS and crash tests. Exercise actual private filesystem ownership/modes, symlink refusal and competing store locks; persist the original pending request before witness CAS. Inject loss before/after CAS and before the local decision fsync, reopen from both current and old valid local backups, and retry the exact original command. Require the original committed entry/receipt, with no extra mutation or automatically rebased command. Reject corrupted/forked/future local logs, missing or truncated witness history, stale nonce observations and an unavailable witness. A valid earlier local prefix may recover only from the complete history closing to a fresh witness head and the external minimum anchor.
+
+Validate the initial hard limit with a fully signed 1,024-record history containing distinct targets; time construction and complete replay separately, then require the 1,025th prepare/reconstruction to fail without mutation. The 64 MiB encoded-log bound remains independent. This capacity check is not a sustained-throughput or production-witness latency claim.
+
+These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
+
+<a id="full-sync-v3-provider-lease-log"></a>
+### V3 full-sync provider lease event log
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [unified provider lease log and migration](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-lease-log-v3). This defines the method; actual source, commands, fault points and results belong in the implementation PR.
+
+Run the protocol and durable-store `full_sync_issuer` test groups above, retaining V2 signature/history fixtures. Use a single separately keyed witness double whose V2 and V3 APIs share one atomic state. Interleave V2 commit against migration in both orders: only the first matching CAS may succeed. After migration reject every V2 observe, current-history and commit call, including a stale observation and a client with no local cache. Replay the complete original V2 prefix, unique migration and V3 suffix; reject missing/forked/truncated prefixes, changed root or manager signatures, mismatched scope/head/policy and repeated migration.
+
+Verify daily V3 open requires the external V3 minimum. Lose the migration CAS reply before that pin, then use only the explicit non-serving resume API with the original request and V2 minimum to recover the exact original receipt/anchor. Before a V3 pin, resume must expose no management or lease issuance capability. Replay a valid V2-mode and V3-mode resume response against a newly signed query nonce; both must fail before changing local history or pending intent. Exercise the opposite race too: a V2 commit makes the pending migration stale; only a fresh complete V2 chain proving non-commit permits persistent head-conflict termination. A new migration must carry a new manager approval rather than silently rebasing the old event. Include a V2 signer/manager policy rotation winning before resume, both while still in V2 mode and after another V3 migration. Authenticate the complete current history while validating the original approval at its historical prefix; the old configuration must still fail ordinary serving restore.
+
+Issue a lease for an allowed provider, exact node/role generation, incarnation and unique lease ID. Assert root policy, provider proof, delegated signer, witness nonce/time profile and conservative time bounds; reject an unknown provider, reused identity with changed body, stale authorization/head, invalid interval, excessive uncertainty and expiry beyond the grant or policy bound. Use actual shared-witness interleaving: revoke first prevents the old lease; lease first remains present after revoke. Overlapping leases and old incarnations must all remain enumerable with exact signed bytes and expiry.
+
+Inject CAS reply loss and local fsync failure, reopen the actual private directory and retry the same original request; require identical lease/receipt bytes with no extra revision. Also fail CAS before commit while retaining the same head, advance the witness clock, then reopen and assert that the second CAS receives the exact original signed observation and candidate without extending expiry. Reconcile both committed and provably uncommitted V2 pending intents across migration, retaining ambiguous or corrupt intents. Reject unavailable witness, malformed receipt, missing current history and local future/forked state without repairing from an unauthenticated digest. Verify old V2 code rejects the schema-3 local ledger before a write.
+
+Count legacy entries, migration and V3 events together against 1,024 entries and 64 MiB; exhaustion must leave pending, witness anchor and ledger unchanged before CAS. Also retain many distinct active targets so the accumulated registry exceeds a single-event byte bound, and verify a valid lease still commits under the full-state bound. This is a lifetime hard stop, including renewals, not a sustained-service claim. Provider read gates, protected clock deployment, nonrollback witness storage, cross-process/VM fencing, effective revocation and physical fault-domain acceptance remain separate. A simulated signed time assertion demonstrates protocol validation only; it cannot establish the asserted clock profile in production.
+
+<a id="full-sync-v3-provider-read-gate"></a>
+### V3 full-sync provider read gate
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [V3 provider full-sync 逐请求读取门禁](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-read-gate-v3). Run the real loopback HTTP consumer tests with the shared target, serially:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib grant_identity_signature_check_is_clock_independent
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib read_gate_tests:: -- --test-threads=1
+```
+
+The injected test evidence source returns raw signed query, observation and complete V2/V3 history. Require a valid manifest and two independently authorized object chunks; after a same-epoch V3 revoke, the following chunk must fail. Also require a grant with a bad issuer signature to fail before the evidence-source fetch counter changes, while a valid grant reaches both the pre-material and final-response gates. Cover exact provider signer/trust/World attachment, fresh query nonce, unavailable evidence, missing committed lease, wrong target generation and incarnation, grant/lease not-before, and `latest + elapsed` expiry bounds. Test gate installation with lower, equal-exact, equal-conflicting and higher-prefix histories; conflicts poison the gate and a lower history must not replace the installed state.
+
+Ordinary `start()` preserves `legacy_v1` and supplies no V3 dependencies. `v3_required` may start only through the explicit host dependency-injection path with root-signed policies, external V3 minimum and a real issuer/witness source; provider signer and a fresh process incarnation are derived by the host. No production source or protected-clock adapter is currently supplied, so ordinary V3-required startup must fail before listener binding. Test fakes establish route-consumer behavior only. They do not establish production witness durability, protected-clock trust across process/VM rollback, cross-fault-domain fencing, or effective revocation outside the next manifest/chunk authorization.
+
+The actual `FormalLiveRuntime::open`/`start` missing-adapter guard is an ignored process regression in the existing `runtime-protocol` suite. Build the loopback endpoint fixture and run it explicitly:
+
+```bash
+env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_durability_endpoint --release
+OASIS7_FORMAL_ENDPOINT_TEST_BIN="$PWD/target/release/oasis7_durability_endpoint" env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_v3_required_runtime_start_rejects_missing_gate_before_listener -- --ignored --test-threads=1
+```
+
+<a id="discovery-tombstone-v2"></a>
+### V2 发现撤销与恢复验证
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[持久撤销与显式恢复](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)。同一候选、正常原件和实际 host→node→net 路径执行：显式 durable 发布 live 1，使用 `--withdraw-peer-record-publication` 撤销为无路径 tombstone 2；分别在持久预留和签名后重启，原序号不得被签成 live。普通启动、周期和地址刷新不得恢复；只有 `--resume-peer-record-publication` 发布更高 live 3。两个 flag 互斥且不落入持久配置，initializer 与 formal/guarded 组合明确拒绝。撤销／恢复要求 durable publisher 与已初始化的持久 receiver；legacy 接收策略对 tombstone 必须明确拒绝，不能接纳后继续从旧 live 缓存返回候选。
+
+接收端接纳 tombstone 后重开同一原件，拒绝旧 live 与 V1，撤掉候选、发现来源和排队拨号；当前有效撤销原件可以经实际 DHT／RR 返回原签名，不进入健康／ID／拨号集合。验证更高 live 恢复、同序冲突隔离不自动解除、无路径约束、过期拒绝转发、V1 固定向量和未知状态拒绝。保留已认证会话的限制性元数据，独立静态地址不随发现撤销删除。
+
+采用 proto／net／host／node 受影响回归并扩大到必要全量；记录实际命令、source／tested tree、配置、原签名序号和状态、退出码以及故障点。至少一条真实 TCP／DHT 撤销传播及显式恢复正例贯穿消费者。Quorum::One 不作为全网撤销确认；未支持新 state 的旧节点不获得新保证，可信时间、跨故障域与恶意磁盘回滚仍需独立证据。
+
+<a id="discovery-receiver-floor-v2"></a>
+### V2 接收端持久水位验证
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[接收水位](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-receiver-floor-v2)。在同一 source/tested tree 使用独立接收策略和私有原目录，记录真实 host→node→net 配置、进程重启和签名 payload。本段定义验收方法；实际受测版本、命令与退出码记录于实现 PR。
+
+同候选 canonical 本地命令（共享 target，串行执行；环境参数与受测 source 在 PR 记录）：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib receiver_ -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib peer_record_reception -- --test-threads=1
+```
+
+标准 development host 使用独立 `--p2p-peer-record-reception legacy_compatible|v2_durable_compatible|v2_only`。持久模式先在相同稳定身份、world/network 与 runtime root 下执行 `--initialize-peer-record-receiver`，初始化完成即退出；日常启动移除 initializer flag，保持同一 reception mode。默认 legacy 与本机 `--p2p-peer-record-publication` 相互独立，已有 receiver 目录不能通过改回 legacy 忽略。普通启动使用 `v2_only` 接收时还需显式配置 `--p2p-peer-record-publication v2_durable` 并按其独立流程先初始化 publisher；缺少 durable publisher 的严格接收组合应在起网络前拒绝。receiver initializer 仍只创建接收原件，不顺带初始化发布器。策略转换与清空原目录不作为本次支持的迁移方法。
+
+验证 V1 兼容 peer 首次接受 V2 后跨重启拒绝 V1／低序号；严格 V2 拒绝所有 V1；相同序号摘要幂等且不延寿；同序号不同的有效签名持久隔离，旧缓存响应、DHT 转发、健康来源和排队发现拨号不再使用该候选，既有会话与独立静态配置按原合同保留。分别验证尚未释放的 queued dial 在新 gate 下拒绝，以及已在旧有效 gate 下启动的 transport 操作若随后完成，不恢复旧记录、来源或永久候选资格；后者仍受原 transport 超时和独立角色／资源策略约束。至少一条真实 TCP 或 DHT 正向升序安装和一条重启重放负例必须贯穿实际消费者。
+
+故障覆盖显式初始化中断、正常打开原件、缺失／损坏／未来 schema／不明临时文件、绑定不符、重复实例、禁用或换策略降级、文件或父目录同步失败；失败不发布新的内存水位或候选；原子替换后的目录同步失败按提交不确定处理，不回写旧状态，重开验证实际原件并保持防回退。容量上限拒绝新身份但允许原未隔离 peer 正向更新，不用无可信时间的 GC 腾空间。分别记录普通文件持久性与未覆盖的恶意整机回滚、可信时间和物理故障域边界；tombstone 另按[撤销扩展](#discovery-tombstone-v2)验证。
+
+<a id="discovery-record-admission-budget"></a>
+### Discovery peer-record admission budget
+
+Run focused admission/store checks and then the affected net suite serially:
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record_admission -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record_store -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib -- --test-threads=1
+```
+
+Verify the [process-local admission contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-admission-budget) with deterministic monotonic time and real RR/DHT entry paths. A valid response/request/store attempt charges the same shared rolling window before decoding or signature verification; invalid payloads retain their charge. The candidate installation path must consume the admission permit. Verify per-source isolation, source churn and tracking capacity, global sharing across protocol/provider changes, exact expiry, no refund on failed crypto, and positive admission after the window expires.
+
+Exercise a real 128-ID discovery list followed by its record responses without accidental double charging. Reject a throttled update without replacing prior cache/store/observations or exposing a new dial/forward candidate. Include ordinary DHT `get_peer_record` results, peer-record `RecordStore::put`, special RR requests and RR record responses; use authenticated transport/Kad source metadata, never the claimed record identity. Report unknown-source DHT store as global-only. Record commands, candidate and actual accepted/rejected work; this does not prove cross-restart quotas, total Kad throughput or durable sequence floors.
+
+<a id="discovery-durable-publication-v2"></a>
+### Discovery V2 durable local publication
+
+This scope verifies the [V2 local publication contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-durable-publication-v2), not receiver anti-replay or protected hardware storage. Use one source/config candidate across proto, net, node and chain-runtime. Keep V1 wire/signature vectors fixed; exercise explicit legacy and durable V2 configurations separately.
+
+Run the matching canonical filters serially (development feedback may use `scripts/cargo-dev.sh`):
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_proto --lib -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net durable_peer_record_publisher -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api peer_record_publication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime peer_record_publication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime old_typed_node_config -- --test-threads=1
+```
+
+Verify that reserve-before-sign and signed-before-send persistence survives interruption without signing different payloads at one sequence. First initialize V2 explicitly with `--initialize-peer-record-publication` and the same `v2_durable` mode/identity/runtime root used for the later ordinary start. Verify missing state never triggers initialization during ordinary startup. Cover missing entire directory, missing state and marker together, repeated explicit initialization, reopen with the same identity/runtime root, interrupted reserve and signed-result persistence, concurrent owner refusal, corrupt/private/symlink/binding failures, overflow, expired pending payloads and a later valid publication. Unsupported private-storage platforms must reject V2 explicitly while preserving legacy V1. Cover interruption after intent, lock, state and Ready persistence: ordinary open refuses unfinished initialization, explicit same-binding initialization resumes only unissued state0, and wrong binding, corrupt intent, old Ready with missing state or issued state never reset. Manifest defaults must produce the same initialization and ordinary-start binding. Check every local refresh/address-change path and confirm remote cache forwarding preserves original signed bytes. Exercise repeated real handler/TCP local-record queries: V2 sequence and durable state bytes remain unchanged, missing/expired/current-address-mismatched records return unavailable, and a subsequent local refresh still advances the sequence. Unknown versions/states, zero sequence and sequence/state/payload tampering must reject without V1 fallback; a legacy V1 verifier must reject V2 signatures. Record actual commands, source, exit codes and the boundaries of any simulated crash or loopback network test in the PR.
+
+Ordinary local files do not prove resistance to restoring both key and publisher state from an old machine snapshot. Receiver floors and conflict quarantine use the [receiver contract](#discovery-receiver-floor-v2); tombstone retention and explicit recovery use the [withdrawal contract](#discovery-tombstone-v2). Trusted time and independent fault-domain evidence remain outstanding under #4975.

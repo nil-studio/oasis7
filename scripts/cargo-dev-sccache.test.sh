@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="oasis7-clippy-proof-") as directory:
     config = repo / "clippy.toml"
     config.write_text('disallowed-names = []\n')
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    for filename in ("cargo-dev.sh", "cargo-cache.py", "find-python-with-module.sh"):
+    for filename in ("cargo-dev.sh",):
         shutil.copy2(root / "scripts" / filename, repo / "scripts" / filename)
     env = dict(os.environ, CI="", OASIS7_CARGO_DEV_MODE="lean", OASIS7_CARGO_SCCACHE="0")
     args = [str(repo / "scripts/cargo-dev.sh"), "clippy", "--offline", "--", "-D", "clippy::disallowed_names"]
@@ -76,7 +76,7 @@ with tempfile.TemporaryDirectory(prefix="oasis7-sccache-proof-") as directory:
             (repo / "src/lib.rs").write_text(
                 'pub fn format(n: u64) -> String { itoa::Buffer::new().format(n).to_owned() }\n')
             subprocess.run(["git", "init", "-q", str(repo)], check=True)
-            for filename in ("cargo-dev.sh", "cargo-cache.py", "find-python-with-module.sh"):
+            for filename in ("cargo-dev.sh",):
                 shutil.copy2(root / "scripts" / filename, repo / "scripts" / filename)
             subprocess.run([str(repo / "scripts/cargo-dev.sh"), "build", "--offline"],
                            cwd=repo, env=env, check=True)
@@ -96,7 +96,7 @@ fi
 FIXTURE="$(mktemp -d)"
 trap 'rm -rf "$FIXTURE"' EXIT
 mkdir -p "$FIXTURE/repo/scripts" "$FIXTURE/bin"
-cp "$ROOT_DIR/scripts/cargo-dev.sh" "$ROOT_DIR/scripts/find-python-with-module.sh" "$ROOT_DIR/scripts/cargo-cache.py" "$FIXTURE/repo/scripts/"
+cp "$ROOT_DIR/scripts/cargo-dev.sh" "$FIXTURE/repo/scripts/"
 git -C "$FIXTURE/repo" init -q
 cat >"$FIXTURE/bin/rustc" <<'EOF'
 #!/usr/bin/env bash
@@ -115,18 +115,23 @@ chmod +x "$FIXTURE/bin/"*
 cd "$FIXTURE/repo"
 export PATH="$FIXTURE/bin:$PATH"
 export CI= OASIS7_CARGO_SCCACHE=1 OASIS7_CARGO_DEV_MODE=lean
-export RUSTC_WRAPPER=hostile-wrapper CARGO_TARGET_DIR=hostile-target CARGO_INCREMENTAL=1
-expected_target="$(./scripts/cargo-dev.sh --print-target-dir)"
+export RUSTC_WRAPPER=hostile-wrapper CARGO_TARGET_DIR="caller target" CARGO_INCREMENTAL=1
+expected_target="$CARGO_TARGET_DIR"
 result="$(./scripts/cargo-dev.sh run --bin example -- --target-dir application-argument)"
 [[ "$result" == *"wrapper=$FIXTURE/bin/sccache"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 [[ "$result" == *"incremental=0"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
-[[ "$result" == *"target=unset"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
-[[ "$result" == *$'run\n--target-dir\n'* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+[[ "$result" == *"target=$expected_target"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+[[ "$result" == *$'run\n--bin\nexample\n'* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 [[ "$result" == *$'--\n--target-dir\napplication-argument' ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 [[ "$result" == *"dev-debug=0"* && "$result" == *"test-debug=0"* ]] || exit 1
+result="$(./scripts/cargo-dev.sh build --target-dir 'explicit target')"
+[[ "$result" == *"target=$expected_target"* && "$result" == *$'build\n--target-dir\nexplicit target' ]] || exit 1
+result="$(env -u CARGO_TARGET_DIR ./scripts/cargo-dev.sh build)"
+[[ "$result" == *"target=unset"* && "$result" == *$'\nbuild' ]] || exit 1
+[[ ! -e target && ! -L target ]] || { echo 'wrapper created target before Cargo' >&2; exit 1; }
 for mode in build test; do
   result="$(./scripts/cargo-dev.sh "$mode")"
-  [[ "$result" == *"wrapper=$FIXTURE/bin/sccache"* && "$result" == *"incremental=0"* && "$result" == *"target=unset"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+  [[ "$result" == *"wrapper=$FIXTURE/bin/sccache"* && "$result" == *"incremental=0"* && "$result" == *"target=$expected_target"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 done
 for sccache in 0 1; do
   result="$(OASIS7_CARGO_SCCACHE="$sccache" CARGO_INCREMENTAL=0 ./scripts/cargo-dev.sh check -p example --all-targets)"
@@ -141,7 +146,7 @@ for mode in build check; do
 done
 for setting in 'CI=1' 'CI=true' 'OASIS7_CARGO_SCCACHE=0'; do
   result="$(env "$setting" ./scripts/cargo-dev.sh build)"
-  [[ "$result" == *"wrapper=unset"* && "$result" != *"target=unset"* && "$result" == *"incremental=1"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+  [[ "$result" == *"wrapper=unset"* && "$result" == *"target=$expected_target"* && "$result" == *"incremental=1"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 done
 for ci in 1 true; do
   result="$(CI="$ci" CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=1 CARGO_PROFILE_TEST_DEBUG=2 ./scripts/cargo-dev.sh check)"
@@ -154,20 +159,68 @@ command() {
 }
 export -f command
 result="$(./scripts/cargo-dev.sh build)"
-[[ "$result" == *"wrapper=unset"* && "$result" != *"target=unset"* && "$result" == *"incremental=1"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
+[[ "$result" == *"wrapper=unset"* && "$result" == *"target=$expected_target"* && "$result" == *"incremental=1"* ]] || { echo "unexpected cargo environment or arguments: $result" >&2; exit 1; }
 unset -f command
 # Formal/custom profiles preserve the caller environment and never use sccache.
 for mode in check clippy build test run; do
-  for profile in '--release' '-r' '--profile=release' '--profile=ecs' '--profile packaging'; do
+  for profile in '--release' '-r' '--profile=release' '--profile release' '--profile=ecs' '--profile ecs' '--profile=packaging' '--profile packaging'; do
     result="$(CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=1 ./scripts/cargo-dev.sh "$mode" $profile)"
     [[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=0"* && "$result" == *"dev-debug=1"* ]] || { echo "formal profile overridden: $result" >&2; exit 1; }
   done
-  for profile in '--profile=dev' '--profile test'; do
+  for profile in '--profile=dev' '--profile dev' '--profile=test' '--profile test'; do
     result="$(OASIS7_CARGO_SCCACHE=0 ./scripts/cargo-dev.sh "$mode" $profile)"
     [[ "$result" == *"incremental=1"* && "$result" == *"dev-debug=0"* ]] || exit 1
   done
   result="$(OASIS7_CARGO_SCCACHE=0 ./scripts/cargo-dev.sh "$mode" -- --release --profile=ecs)"
   [[ "$result" == *"incremental=1"* && "$result" == *"dev-debug=0"* ]] || exit 1
+done
+# Release spellings must preserve profile env and argv in every cache state.
+for cache_state in enabled disabled missing; do
+  export OASIS7_CARGO_SCCACHE=1
+  if [[ "$cache_state" == disabled ]]; then export OASIS7_CARGO_SCCACHE=0; fi
+  if [[ "$cache_state" == missing ]]; then
+    command() {
+      if [[ "${1:-}" == "-v" && "${2:-}" == "sccache" ]]; then return 1; fi
+      builtin command "$@"
+    }
+    export -f command
+  fi
+  for mode in build test run check clippy; do
+    for release in '--release' '-r' '-v -r' '-vr' '-rv' '-qr'; do
+      read -r -a release_args <<< "$release"
+      for incremental in unset 0 1; do
+        result="$(
+          if [[ "$incremental" == unset ]]; then unset CARGO_INCREMENTAL; else export CARGO_INCREMENTAL="$incremental"; fi
+          CARGO_PROFILE_DEV_DEBUG=1 CARGO_PROFILE_TEST_DEBUG=2 RUSTC_WORKSPACE_WRAPPER=clippy-wrapper \
+            ./scripts/cargo-dev.sh "$mode" "${release_args[@]}"
+        )"
+        expected_result="$(printf '%s\n' wrapper=unset "incremental=$incremental" "target=$expected_target" dev-debug=1 test-debug=2 workspace-wrapper=clippy-wrapper "$mode" "${release_args[@]}")"
+        [[ "$result" == "$expected_result" ]] || {
+          echo "release policy mismatch ($cache_state, $mode $release, incremental=$incremental): $result" >&2; exit 1;
+        }
+      done
+    done
+  done
+  if [[ "$cache_state" == missing ]]; then unset -f command; fi
+done
+export OASIS7_CARGO_SCCACHE=1
+# Short options with values consume the rest of a cluster, or the next token.
+for args in '-p provider' '-pprovider' '-vpprovider' '-F renderer' '-Frenderer' '-vFrenderer' '-j 3' '-j3' '-vj3' '-Z rflag' '-Zrflag' '-vZrflag'; do
+  read -r -a cargo_args <<< "$args"
+  result="$(./scripts/cargo-dev.sh build "${cargo_args[@]}")"
+  expected_args="$(printf '%s\n' "${cargo_args[@]}")"
+  [[ "$result" == *"wrapper=$FIXTURE/bin/sccache"* && "$result" == *"incremental=0"* && "$result" == *"dev-debug=0"* && "$result" == *"$expected_args" ]] || { echo "option value mistaken for release ($args): $result" >&2; exit 1; }
+done
+# A release before a value option counts; a later separate release still counts.
+for args in '-vrpprovider' '-vpprovider -qr' '-p provider -vr' '-vF renderer -qr' '-vj 3 -vr' '-vZ rflag -qr'; do
+  read -r -a cargo_args <<< "$args"
+  result="$(CARGO_INCREMENTAL=0 ./scripts/cargo-dev.sh build "${cargo_args[@]}")"
+  expected_args="$(printf '%s\n' build "${cargo_args[@]}")"
+  [[ "$result" == *"wrapper=unset"* && "$result" == *"incremental=0"* && "$result" == *"$expected_args" ]] || { echo "release lost beside value option ($args): $result" >&2; exit 1; }
+done
+for mode in run test clippy; do
+  result="$(./scripts/cargo-dev.sh "$mode" -- -vr -qr --profile release)"
+  [[ "$result" == *"dev-debug=0"* && "$result" == *$'--\n-vr\n-qr\n--profile\nrelease' ]] || { echo "child arguments changed profile: $result" >&2; exit 1; }
 done
 # Cargo failures (including a failing compiler wrapper) must not trigger retry.
 printf '#!/usr/bin/env bash\nexec "$RUSTC_WRAPPER" rustc -vV\n' > "$FIXTURE/bin/cargo"

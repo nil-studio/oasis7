@@ -32,6 +32,42 @@ PR4889_DOC_PATHS = (
 
 
 class Selection(unittest.TestCase):
+    def test_architecture_inputs_have_trusted_owner_and_select_execution(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json',
+                     'scripts/cargo-dev-architecture.test.py'):
+            with self.subTest(path=path):
+                # The existing cargo-dev* owner is already trusted before this
+                # PR. It must recognize first introduction without self-enrolment.
+                trusted = copy_config = json.loads(json.dumps(config))
+                copy_config['rules'] = [r for r in config['rules']
+                                        if r['reason'] != 'cargo_architecture_boundaries']
+                self.write(path, '# input')
+                head = self.commit()
+                self.assertIn('cargo_tooling_contracts', selector.select(trusted, self.base, head)['groups'])
+                plan = selector.select(config, self.base, head)
+                self.assertTrue({'rust_baseline', 'cargo_tooling_contracts'}.issubset(plan['groups']))
+                self.base = head
+
+    def test_architecture_direct_inputs_do_not_flatten_reverse_profiles(self):
+        self.write('crates/core/src/lib.rs', '// ordinary source')
+        plan = selector.select(self.config, self.base, self.commit())
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+        self.assertIn('consumer', plan['groups'])  # ordinary CI stays conservative
+
+    def test_architecture_shared_and_checker_controls_build_full(self):
+        for path in ('Cargo.toml', 'Cargo.lock', 'crates/core/build.rs', 'rust-toolchain.toml',
+                     'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json'):
+            with self.subTest(path=path):
+                if path == 'Cargo.toml':
+                    self.write(path, Path(path).read_text() + '\n# changed\n')
+                else:
+                    self.write(path, '# control')
+                config = json.loads(json.dumps(self.config))
+                config['rules'].append({'match': ['scripts/cargo-dev*'], 'groups': ['rust_baseline'], 'reason': 'architecture'})
+                self.assertEqual(selector.select(config, self.base, self.commit())['architecture']['mode'], 'full')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.previous = Path.cwd()
@@ -83,6 +119,24 @@ class Selection(unittest.TestCase):
                 self.write(path, 'compatibility input')
                 plan = selector.select(config, case_base, self.commit())
                 self.assertIn('net', plan['groups'])
+                self.assertEqual(plan['scope'], 'targeted')
+
+    def test_rendezvous_patch_inputs_select_network_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/src/client/tests.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'scripts/libp2p-security-source.test.py',
+                     '.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'network patch input')
+                plan = selector.select(config, case_base, self.commit())
+                expected = ({'net', 'node', 'rust_baseline'} if path.startswith('vendor-')
+                            else {'net'} if path.startswith('scripts/')
+                            else {'net', 'packaging_contracts'})
+                self.assertTrue(expected.issubset(plan['groups']))
                 self.assertEqual(plan['scope'], 'targeted')
 
     def native_generated_fixture(self, register=True):
@@ -271,9 +325,23 @@ class Selection(unittest.TestCase):
         self.assertEqual(set(plan['groups']), {'baseline', 'command_center'})
         self.assertFalse(any('unknown input:' in reason for reason in plan['reasons']))
 
+    def test_existing_bridge_input_covers_modification_and_deletion(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        cases = {
+            'scripts/local-letai-provider-bridge.test.sh': {'oasis7_required', 'operational_contracts'},
+        }
+        for path, groups in cases.items():
+            with self.subTest(path=path):
+                self.write(path, 'existing input')
+                self.base = self.commit()
+                self.write(path, 'modified input')
+                self.assertTrue(groups.issubset(self.plan()['groups']))
+                Path(path).unlink()
+                self.assertTrue(groups.issubset(self.plan()['groups']))
+
     def test_command_center_shared_tools_keep_dedicated_checks(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('scripts/cargo-dev.sh', 'scripts/cargo-cache.py',
+        for path in ('scripts/cargo-dev.sh',
                      'scripts/find-python-with-module.sh'):
             with self.subTest(path=path):
                 self.write(path, 'shared tool changed')
@@ -507,6 +575,23 @@ class Selection(unittest.TestCase):
             self.assertIn('unknown.file', str(error.exception))
             self.assertNotIn('Cargo.lock', str(error.exception))
 
+    def test_invalid_merge_cannot_bypass_unknown_path(self):
+        self.write('unknown.file', 'unknown despite invalid merge topology')
+        head = self.commit()
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            selector.select(self.config, self.base, head, test_head=self.base)
+
+    def test_parse_uncertainty_cannot_register_unknown_path(self):
+        self.write('crates/core/Cargo.toml', 'broken manifest')
+        self.write('unknown.file', 'must remain unknown')
+        head = self.commit()
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            selector.select(self.config, self.base, head)
+        Path('unknown.file').unlink()
+        plan = selector.select(self.config, self.base, self.commit())
+        self.assertEqual(plan['architecture']['mode'], 'full')
+        self.assertEqual(plan['scope'], 'full')
+
     def test_unknown_deleted_and_renamed_endpoints_block(self):
         self.write('unknown-old.file', 'unique unknown file content')
         self.base = self.commit()
@@ -705,7 +790,7 @@ class Selection(unittest.TestCase):
             selector.main()
         outputs = dict(line.split('=', 1) for line in Path('outputs.txt').read_text().splitlines())
         plan = json.loads(outputs['plan'])
-        self.assertEqual(set(plan), {'groups', 'resources', 'reasons', 'scope',
+        self.assertEqual(set(plan), {'groups', 'resources', 'reasons', 'scope', 'architecture',
                                     'workspace_support_profiles', 'workspace_support_profile_version'})
         self.assertEqual(outputs['run_baseline'], 'true')
         self.assertEqual(outputs['run_other'], 'false')
@@ -816,6 +901,56 @@ class Selection(unittest.TestCase):
                     self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
                     self.assertEqual(set(plan['groups']), expected)
                     base = self.git('rev-parse', 'HEAD')
+
+    def test_bootstrap_codegen_inputs_use_existing_cargo_owner(self):
+        # These paths are already owned in the trusted baseline; no candidate
+        # path rule or full-scope override is needed for first introduction.
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_agent_api/Cargo.toml',
+                   '[package]\nname="oasis7_agent_api"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({'oasis7_agent_api': ('crates/oasis7_agent_api', {})},
+                 {'oasis7_agent_api': set()}, {})
+        inputs = (
+            'src/game/read_bootstrap.openapi.json',
+            'protocol_codegen/generate.py', 'protocol_codegen/profile.json', 'protocol_codegen/toolchain.lock.json',
+            'protocol_codegen/test_generate.py',
+            'protocol_codegen/generated/types.ts',
+            'protocol_codegen/generated/schema.json',
+            'protocol_codegen/generated/manifest.json',
+            'protocol_conformance/package.json',
+            'protocol_conformance/package-lock.json',
+            'protocol_conformance/tsconfig.json',
+            'protocol_conformance/consumer.ts', 'protocol_conformance/check-generated.mjs',
+        )
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in inputs:
+                with self.subTest(path=path):
+                    self.write('crates/oasis7_agent_api/' + path, 'fixture')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn('workspace_support', plan['groups'])
+                    self.assertIn('oasis7_agent_api', plan['workspace_support_profiles'])
+                    base = head
+
+    def test_bootstrap_handler_and_fixtures_select_ts_conformance(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_viewer_runtime/Cargo.toml',
+                   '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({'oasis7_viewer_runtime': ('crates/oasis7_viewer_runtime', {})},
+                 {'oasis7_viewer_runtime': set()}, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in ('src/game_read_api.rs', 'src/game_read_api_tests.rs',
+                         'src/game_read_api_protocol_fixtures_tests.rs',
+                         'tests/fixtures/signed_read_bootstrap.json'):
+                self.write('crates/oasis7_viewer_runtime/' + path, 'fixture')
+                head = self.commit()
+                plan = selector.select(config, base, head)
+                self.assertIn('workspace_support', plan['groups'])
+                self.assertIn('oasis7_agent_api', plan['workspace_support_profiles'])
+                base = head
 
     def test_game_client_routes_through_support_and_server_consumer(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())

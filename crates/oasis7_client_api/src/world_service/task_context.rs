@@ -185,7 +185,11 @@ impl<
             &prefix.subject_public_key,
             &prefix.signature_hex,
         )?;
-        if prefix.request != public_prefix(&self.prepared)? {
+        let mut expected_prefix = public_prefix(&self.prepared)?;
+        // A retained historical proof must verify its original signed revision,
+        // rather than being silently upgraded to the current producer revision.
+        expected_prefix.task_prefix_binding_revision = prefix.request.task_prefix_binding_revision;
+        if prefix.request != expected_prefix {
             return Err("context capture differs from prepared prefix".into());
         }
         let current = &self.current_public_context;
@@ -450,6 +454,7 @@ pub fn public_prefix<P, L, CP, ST, R, D, X>(
         agent_id: record.identity.fence.agent_id.clone(),
         request_id: record.identity.decision_request_id.clone(),
         delegation_generation: binding.delegation_generation.0,
+        task_prefix_binding_revision: 1,
         captured_base_binding: record.snapshot.captured_base_binding.clone(),
         operation: SchedulerOperationV1::TaskProviderPrefix {
             context: record.identity.clone(),
@@ -624,6 +629,7 @@ pub fn public_outcome_intent<P, L, CP, ST, R, D, X>(
         agent_id: identity.fence.agent_id.clone(),
         request_id: format!("{}:outcome", identity.decision_request_id),
         delegation_generation: binding.delegation_generation.0,
+        task_prefix_binding_revision: 0,
         captured_base_binding: current_base,
         operation: SchedulerOperationV1::TaskProviderFailure {
             context: identity.clone(),

@@ -84,14 +84,7 @@ run() {
   "$@"
 }
 
-prepare_local_cargo_target() {
-  if [[ "${CI:-}" != "1" && "${CI:-}" != "true" && -z "${CARGO_TARGET_DIR:-}" ]]; then
-    (cd "$repo_root" && "$driver_dir/cargo-dev.sh" --prepare-target)
-  fi
-}
-
 run_cargo() {
-  prepare_local_cargo_target
   if [[ "${CI_VERBOSE:-}" == "1" ]]; then
     run env -u RUSTC_WRAPPER cargo --verbose "$@"
   else
@@ -100,7 +93,6 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
-  prepare_local_cargo_target
   local lint_flags=(
     -D warnings
     -D clippy::correctness
@@ -246,6 +238,8 @@ run_oasis7_net_clippy() {
 run_oasis7_net_libp2p_tests() {
   run python3 ./scripts/libp2p-security-source.test.py
   run python3 ./scripts/libp2p-compat.test.py
+  run_cargo test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml \
+    --target-dir ./target --lib -- --test-threads=1
   run_cargo test -p oasis7_net --features libp2p --lib
   if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == Linux ]]; then
     CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar run_cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked
@@ -258,7 +252,16 @@ run_oasis7_net_libp2p_clippy() {
   run_cargo_clippy -p oasis7_net --features libp2p --lib
 }
 
+run_signed_read_protocol_contract_tests() {
+  # Development-only tools; check never regenerates the committed bundle.
+  run "$ci_python" crates/oasis7_agent_api/protocol_codegen/generate.py check
+  run "$ci_python" -m unittest discover -s crates/oasis7_agent_api/protocol_codegen -p 'test_*.py'
+  run npm ci --prefix crates/oasis7_agent_api/protocol_conformance --ignore-scripts
+  run env PYTHON="$ci_python" npm test --prefix crates/oasis7_agent_api/protocol_conformance
+}
+
 run_oasis7_workspace_support_crate_tests() {
+  run_signed_read_protocol_contract_tests
   run_cargo_clippy -p oasis7_agent_api --all-targets
   run_cargo_clippy -p oasis7_agent_harness --all-targets
   run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
@@ -333,7 +336,7 @@ PY
   while IFS= read -r profile; do
     echo "+ support profile: $profile"
     case "$profile" in
-      oasis7_agent_api) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
+      oasis7_agent_api) run_signed_read_protocol_contract_tests; run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets ;;
       oasis7_agent_harness|oasis7_game_client|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
@@ -384,12 +387,11 @@ run_cargo_tooling_baseline_contract_tests() {
   run bash ./scripts/cargo-dev-worktree-isolation.test.sh
   run bash ./scripts/new-task-worktree.test.sh
   run bash ./scripts/check-launcher-p2p-dependency-surface.test.sh
+  run python3 ./scripts/cargo-dev-architecture.test.py
 }
 
 run_cargo_tooling_contract_tests() {
   run_cargo_tooling_baseline_contract_tests
-  run python3 ./scripts/cargo-cache.test.py
-  run python3 ./scripts/cargo-incremental-clean.test.py
   run python3 ./scripts/runtime-module-routing-perf-harness.test.py
   run bash ./scripts/cargo-dev-lib.test.sh
   run bash ./scripts/check-standalone-tool-lockfiles.test.sh
@@ -405,7 +407,11 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-workflow.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
+  run python3 ./scripts/ci-cache-policy.test.py
+  run python3 ./scripts/ci-cache-archive.test.py
+  run python3 ./scripts/ci-workspace-cache.test.py
   run python3 ./scripts/ci-rust-cache-toolchains.test.py
+  run python3 ./scripts/ci-rust-cache-admission.test.py
   run python3 ./scripts/ci-rust-cache-build.test.py
   run python3 ./scripts/ci-support-profiles.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
@@ -423,6 +429,9 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-coverage.test.py
   run python3 ./scripts/security/codeql-rust-model-diagnostic.test.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
+  run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
+  run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/codeql-health.test.py
   run python3 ./scripts/security/codeql-upload-association.test.py
   run python3 ./scripts/security/codeql-acceptance.test.py
@@ -434,6 +443,7 @@ run_workflow_governance_contract_tests() {
 }
 
 run_packaging_artifact_contract_tests() {
+  run bash ./scripts/build-wasm-module.test.sh
   run python3 ./scripts/package-source-plan.test.py
   run python3 ./scripts/package-release-version.test.py
   run python3 ./scripts/safe-git-archive.test.py
@@ -463,6 +473,9 @@ run_operational_identity_contract_tests() {
 }
 
 run_operational_node_contract_tests() {
+  run bash ./scripts/local-letai-provider-bridge.test.sh
+  run bash ./scripts/traffic-monitor-summary.test.sh
+  run bash ./scripts/p2p-real-env-observability-monitor.test.sh
   run ./scripts/game-world-state-sync-commit-module-required.test.sh
   run ./scripts/state-sync-closure-evidence-template.test.sh
   run ./scripts/s10-five-node-game-soak-summary.test.sh
@@ -510,7 +523,6 @@ run_provider_bridge_live_gate() {
 }
 
 run_newapi_bridge_service_accounting_tests() {
-  prepare_local_cargo_target
   run env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
 }
 
@@ -743,6 +755,14 @@ run_full_required_superset() {
 }
 
 run_rust_baseline() {
+  # Explicit preparation for the locked offline architecture inspector. A
+  # restored cache is optional and cannot stand in for dependency availability.
+  run_cargo fetch --locked
+  local architecture_args=()
+  if [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
+    architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
+  fi
+  run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
   run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh

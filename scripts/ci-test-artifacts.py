@@ -193,16 +193,18 @@ def build(bundle, scope='all', cache_state_path=None):
     env = build_environment(scope)
     cache_state = None
     if cache_state_path:
+        selection = 'libraries' if scope == 'ordinary' else 'all'
         try:
-            cache_state = cache_begin(ROOT)
+            cache_state = cache_begin(ROOT, selection=selection)
         except (OSError, ValueError) as error:
             cache_state = dict(schema_version=CACHE_SCHEMA, checkout=str(ROOT),
-                               target=str((ROOT / 'target').resolve()), complete=False, error=str(error))
+                               target=str((ROOT / 'target').resolve()), selection=selection,
+                               complete=False, error=str(error))
     binaries, timings = {}, []
     variants = build_variants(scope)
     for variant, args, features in variants:
         started = time.monotonic()
-        local_units = local_fresh = 0
+        local_units = local_fresh = dependency_units = dependency_fresh = 0
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
         print('+ ' + ' '.join(command), flush=True)
         with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
@@ -218,10 +220,15 @@ def build(bundle, scope='all', cache_state_path=None):
                         cache_record(cache_state, artifact)
                     except (OSError, ValueError, KeyError, TypeError) as error:
                         cache_state['error'] = str(error)
-                if (artifact.get('reason') == 'compiler-artifact'
-                        and Path(artifact['manifest_path']).is_relative_to(ROOT)):
-                    local_units += 1
-                    local_fresh += bool(artifact['fresh'])
+                if artifact.get('reason') == 'compiler-artifact':
+                    # Count unit observations in this invocation, not unique
+                    # crates: features, targets and profiles can produce more.
+                    if Path(artifact['manifest_path']).is_relative_to(ROOT):
+                        local_units += 1
+                        local_fresh += bool(artifact['fresh'])
+                    else:
+                        dependency_units += 1
+                        dependency_fresh += bool(artifact['fresh'])
                 executable = artifact.get('executable')
                 if artifact.get('reason') != 'compiler-artifact' or not executable:
                     continue
@@ -255,7 +262,9 @@ def build(bundle, scope='all', cache_state_path=None):
             if process.wait() != 0:
                 raise RuntimeError(f'build failed: {variant}')
         timings.append(dict(variant=variant, elapsed_seconds=round(time.monotonic() - started, 3),
-                            local_units=local_units, local_fresh=local_fresh, local_rebuilt=local_units - local_fresh))
+                            local_units=local_units, local_fresh=local_fresh, local_rebuilt=local_units - local_fresh,
+                            dependency_units=dependency_units, dependency_fresh=dependency_fresh,
+                            dependency_rebuilt=dependency_units - dependency_fresh))
         print('native_build=' + json.dumps(timings[-1]), flush=True)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -398,6 +407,7 @@ def cache_budget(target, maximum=8 * 1024 ** 3):
 
 
 CACHE_SCHEMA = 2
+CACHE_LIBRARY_KINDS = frozenset(('lib', 'rlib', 'dylib', 'cdylib', 'staticlib', 'proc-macro'))
 
 
 def _cache_path(root, name):
@@ -450,11 +460,13 @@ def _cache_inputs(root):
     return {name: _cache_file(root / name, info) for name, info in files.items()}
 
 
-def cache_begin(root):
+def cache_begin(root, selection='all'):
+    if selection not in ('all', 'libraries'):
+        raise ValueError('unknown Cargo cache selection: ' + str(selection))
     root = root.resolve()
     return dict(schema_version=CACHE_SCHEMA, checkout=str(root),
                 target=str((root / 'target').resolve()), inputs=_cache_inputs(root),
-                packages={}, files=[], directories=[], complete=False)
+                selection=selection, packages={}, files=[], directories=[], complete=False)
 
 
 def _cache_relative(state, path):
@@ -477,6 +489,11 @@ def cache_record(state, message):
         root = Path(state['checkout'])
         if not manifest.is_relative_to(root):
             return
+        if state.get('selection', 'all') == 'libraries':
+            kinds = set(message['target']['kind'])
+            if ('custom-build' not in kinds and (message['profile']['test'] is not False
+                    or not kinds or not kinds <= CACHE_LIBRARY_KINDS)):
+                return
         manifest = _cache_path(root, manifest.relative_to(root).as_posix())
         package = tomllib.loads(manifest.read_text())['package']['name']
         state['packages'][message['package_id']] = package
@@ -604,6 +621,9 @@ def cache_stage(state, cache, maximum=8 * 1024 ** 3, measure_only=False):
     started = time.monotonic()
     report = dict(save=False, max_bytes=maximum, measure_only=measure_only)
     try:
+        report['selection'] = state.get('selection', 'all')
+        if report['selection'] not in ('all', 'libraries'):
+            raise ValueError('unknown Cargo cache selection')
         root, target = Path(state['checkout']), Path(state['target'])
         cache = _cache_location(cache, root, target)
         all_files, _ = _cache_walk(target)

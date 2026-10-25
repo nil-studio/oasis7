@@ -17,6 +17,11 @@ pub enum SourceHashError {
         stderr: String,
         status_code: Option<i32>,
     },
+    WorkspaceCommand {
+        manifest_path: PathBuf,
+        stderr: String,
+        status_code: Option<i32>,
+    },
     MetadataJson(serde_json::Error),
     MissingRootPackage(PathBuf),
     MissingResolveGraph,
@@ -43,6 +48,16 @@ impl fmt::Display for SourceHashError {
             } => write!(
                 f,
                 "cargo metadata failed for {} (status={status_code:?}): {}",
+                manifest_path.display(),
+                stderr
+            ),
+            SourceHashError::WorkspaceCommand {
+                manifest_path,
+                stderr,
+                status_code,
+            } => write!(
+                f,
+                "cargo locate-project --workspace failed for {} (status={status_code:?}): {}",
                 manifest_path.display(),
                 stderr
             ),
@@ -102,23 +117,50 @@ pub fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String,
         .to_string();
     let metadata = read_cargo_metadata(&manifest_path, target)?;
     let package_dirs = collect_local_package_dirs(&metadata, &manifest_path)?;
-    let workspace_root = workspace_root(&metadata, &manifest_path, &package_dirs);
+    let workspace_manifests = collect_owning_workspace_manifests(&package_dirs)?;
+    let mut input_dirs = package_dirs.clone();
+    input_dirs.extend(
+        workspace_manifests
+            .iter()
+            .filter_map(|path| path.parent().map(Path::to_path_buf)),
+    );
+    let workspace_root = workspace_root(&metadata, &manifest_path, &input_dirs);
     let mut hasher = Sha256::new();
     hasher.update(format!("source_manifest_rel={source_manifest_rel}\n").as_bytes());
     if let Some(lockfile) = find_lockfile_for_metadata(&manifest_path) {
         hash_metadata_lockfile(&mut hasher, &workspace_root, lockfile.as_path())?;
     }
 
+    for manifest in workspace_manifests {
+        let rel = manifest.strip_prefix(&workspace_root).map_err(|_| {
+            SourceHashError::PathOutsideWorkspace {
+                workspace_root: workspace_root.clone(),
+                path: manifest.clone(),
+            }
+        })?;
+        let bytes = fs::read(&manifest).map_err(|source| SourceHashError::Io {
+            path: Some(manifest.clone()),
+            source,
+        })?;
+        hasher.update(
+            format!(
+                "workspace_manifest:{}:{}\n",
+                portable_label(rel),
+                sha256_hex(&bytes)
+            )
+            .as_bytes(),
+        );
+    }
+
     for package_dir in package_dirs {
-        let manifest_rel = package_dir
-            .join("Cargo.toml")
+        let package_manifest = package_dir.join("Cargo.toml");
+        let manifest_rel = package_manifest
             .strip_prefix(&workspace_root)
             .map_err(|_| SourceHashError::PathOutsideWorkspace {
                 workspace_root: workspace_root.clone(),
                 path: package_dir.join("Cargo.toml"),
-            })?
-            .to_string_lossy()
-            .to_string();
+            })?;
+        let manifest_rel = portable_label(manifest_rel);
         hasher.update(format!("package_manifest_rel={manifest_rel}\n").as_bytes());
         let files = collect_source_files_for_hash(&package_dir)?;
         for file in files {
@@ -142,7 +184,7 @@ pub fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String,
                 format!(
                     "package_file:{}:{}:{}\n",
                     manifest_rel,
-                    rel.to_string_lossy(),
+                    portable_label(rel),
                     sha256_hex(&bytes)
                 )
                 .as_bytes(),
@@ -151,6 +193,62 @@ pub fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String,
     }
 
     Ok(hex::encode(hasher.finalize()))
+}
+
+fn portable_label(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn collect_owning_workspace_manifests(
+    package_dirs: &[PathBuf],
+) -> Result<Vec<PathBuf>, SourceHashError> {
+    let package_manifests = package_dirs
+        .iter()
+        .map(|dir| dir.join("Cargo.toml"))
+        .collect::<BTreeSet<_>>();
+    let mut manifests = Vec::new();
+    for manifest_path in &package_manifests {
+        let output = Command::new("cargo")
+            .env_remove("RUSTC_WRAPPER")
+            .args(["locate-project", "--workspace", "--manifest-path"])
+            .arg(manifest_path)
+            .args(["--message-format", "plain"])
+            .output()
+            .map_err(|source| SourceHashError::Io {
+                path: Some(manifest_path.clone()),
+                source,
+            })?;
+        if !output.status.success() {
+            return Err(SourceHashError::WorkspaceCommand {
+                manifest_path: manifest_path.clone(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                status_code: output.status.code(),
+            });
+        }
+        let path = String::from_utf8(output.stdout).map_err(|source| SourceHashError::Io {
+            path: Some(manifest_path.clone()),
+            source: io::Error::new(io::ErrorKind::InvalidData, source),
+        })?;
+        if path.trim().is_empty() {
+            return Err(SourceHashError::InvalidManifestPath(format!(
+                "cargo locate-project --workspace returned an empty path for {}",
+                manifest_path.display()
+            )));
+        }
+        let owner_path = Path::new(path.trim());
+        let owner = fs::canonicalize(owner_path).map_err(|source| SourceHashError::Io {
+            path: Some(owner_path.to_path_buf()),
+            source,
+        })?;
+        if !package_manifests.contains(&owner) {
+            manifests.push(owner);
+        }
+    }
+    sort_dedup_paths(&mut manifests);
+    Ok(manifests)
 }
 
 fn hash_metadata_lockfile(
@@ -174,13 +272,13 @@ fn hash_metadata_lockfile(
 fn stable_lockfile_label(workspace_root: &Path, lockfile: &Path) -> String {
     let workspace_root = canonical_or_original(workspace_root);
     if let Ok(rel) = lockfile.strip_prefix(workspace_root.as_path()) {
-        return rel.to_string_lossy().to_string();
+        return portable_label(rel);
     }
     let paths = [workspace_root, lockfile.to_path_buf()];
     if let Some(anchor) = common_ancestor(&paths)
         && let Ok(rel) = lockfile.strip_prefix(anchor.as_path())
     {
-        return rel.to_string_lossy().to_string();
+        return portable_label(rel);
     }
     lockfile
         .file_name()
@@ -509,6 +607,51 @@ mod tests {
         );
     }
 
+    fn write_fixture_inherited_workspace(root: &Path, edition: &str) -> PathBuf {
+        let manifest = write_fixture_split_workspace(&root.join("crates"));
+        write_file(
+            &root.join("Cargo.toml"),
+            &format!(
+                "[workspace]\nmembers = [\"crates/shared\"]\nexclude = [\"crates/module\"]\nresolver = \"2\"\n\n[workspace.package]\nedition = \"{edition}\"\nlicense = \"MIT\"\n"
+            ),
+        );
+        write_file(
+            &root.join("crates/shared/Cargo.toml"),
+            "[package]\nname = \"fixture_shared\"\nversion = \"0.1.0\"\nedition.workspace = true\nlicense.workspace = true\n",
+        );
+        manifest
+    }
+
+    #[test]
+    fn source_hash_tracks_dependency_owning_workspace_and_is_portable() {
+        let root = unique_temp_dir("oasis7-wasm-build-inherited-workspace");
+        let relocated = unique_temp_dir("oasis7-wasm-build-inherited-relocated");
+        let manifest = write_fixture_inherited_workspace(&root, "2021");
+        let initial = compute_source_hash(&manifest, DEFAULT_WASM_TARGET).expect("initial hash");
+        let local_manifest = fs::read(root.join("crates/shared/Cargo.toml")).unwrap();
+        let lockfile = fs::read(root.join("crates/module/Cargo.lock")).unwrap();
+        write_fixture_inherited_workspace(&root, "2024");
+        let changed = compute_source_hash(&manifest, DEFAULT_WASM_TARGET).expect("changed hash");
+        assert_eq!(
+            local_manifest,
+            fs::read(root.join("crates/shared/Cargo.toml")).unwrap()
+        );
+        assert_eq!(
+            lockfile,
+            fs::read(root.join("crates/module/Cargo.lock")).unwrap()
+        );
+        assert_ne!(initial, changed, "inherited edition must be a source input");
+        let relocated_manifest = write_fixture_inherited_workspace(&relocated, "2024");
+        let relocated_hash =
+            compute_source_hash(&relocated_manifest, DEFAULT_WASM_TARGET).expect("relocated hash");
+        assert_eq!(
+            changed, relocated_hash,
+            "labels must not contain absolute paths"
+        );
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(relocated);
+    }
+
     #[test]
     fn source_hash_changes_when_local_path_dependency_changes() {
         let root = unique_temp_dir("oasis7-wasm-build-source-hash");
@@ -579,6 +722,40 @@ mod tests {
         assert_eq!(found.as_deref(), Some(workspace_lock.as_path()));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn owning_workspace_lookup_fails_closed_for_invalid_manifest() {
+        let root = unique_temp_dir("oasis7-wasm-build-invalid-owner");
+        write_file(&root.join("Cargo.toml"), "invalid manifest");
+        let error = collect_owning_workspace_manifests(std::slice::from_ref(&root)).unwrap_err();
+        assert!(matches!(error, SourceHashError::WorkspaceCommand { .. }));
+        assert!(
+            error
+                .to_string()
+                .contains("cargo locate-project --workspace failed")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owning_workspace_manifests_are_distinct_and_skip_local_manifests() {
+        let root = unique_temp_dir("oasis7-wasm-build-owner-dedup");
+        write_fixture_workspace(&root, "pub fn value() -> u32 { 1 }\n", None);
+        let dirs = [root.join("module"), root.join("shared")];
+        assert_eq!(
+            collect_owning_workspace_manifests(&dirs).unwrap(),
+            vec![canonical_or_original(&root.join("Cargo.toml"))]
+        );
+        // A package manifest already in the closure must not be hashed a second time.
+        let manifest = write_fixture_split_workspace(&root.join("standalone"));
+        let standalone = canonical_or_original(manifest.parent().unwrap());
+        assert!(
+            collect_owning_workspace_manifests(&[standalone])
+                .unwrap()
+                .is_empty()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
