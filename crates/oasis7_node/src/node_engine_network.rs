@@ -1062,7 +1062,7 @@ impl PosNodeEngine {
                         replication.as_deref_mut(),
                     )?;
                 }
-                GossipMessage::Replication(_) => {}
+                GossipMessage::Replication(_) | GossipMessage::Bft { .. } => {}
             }
         }
         Ok(())
@@ -1191,6 +1191,7 @@ impl PosNodeEngine {
                         endpoint.remember_peer(from)?;
                     }
                 }
+                GossipMessage::Bft { .. } => {}
             }
         }
         Ok(())

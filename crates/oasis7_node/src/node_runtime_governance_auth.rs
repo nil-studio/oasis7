@@ -1,4 +1,6 @@
 //! Consensus ingress authentication and governance payload classification.
+use std::sync::{Arc, Mutex};
+
 use super::*;
 
 pub(super) fn payload_nonce(payload: &[u8]) -> Result<Option<(String, u64)>, NodeError> {
@@ -113,6 +115,13 @@ pub(super) fn validate_consensus_action_payload_auth(
 
 /// Structural admission checks alone never establish authority to enter consensus.
 pub(super) fn preflight(runtime: &NodeRuntime, payload_cbor: &[u8]) -> Result<(), NodeError> {
+    preflight_with_hook(&runtime.execution_hook, payload_cbor)
+}
+
+pub(super) fn preflight_with_hook(
+    execution_hook: &Option<Arc<Mutex<Box<dyn NodeExecutionHook>>>>,
+    payload_cbor: &[u8],
+) -> Result<(), NodeError> {
     let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
         .map_err(|reason| NodeError::Consensus { reason })?;
     if !matches!(
@@ -121,8 +130,7 @@ pub(super) fn preflight(runtime: &NodeRuntime, payload_cbor: &[u8]) -> Result<()
     ) {
         return Ok(());
     }
-    let hook = runtime
-        .execution_hook
+    let hook = execution_hook
         .as_ref()
         .ok_or_else(|| NodeError::Consensus {
             reason: "governance authorization requires an execution preflight hook".into(),

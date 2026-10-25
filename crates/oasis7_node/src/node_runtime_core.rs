@@ -20,6 +20,8 @@ use crate::{
     NodeError, NodeExecutionHook, NodeMainTokenControllerBindingConfig,
     NodeMainTokenControllerSignerPolicy, NodeReplicationNetworkHandle, NodeRuntime,
     REPLICATED_EXECUTION_INPUT_ACTION_ID, REPLICATED_EXECUTION_INPUT_SUBMITTER,
+    compute_consensus_action_root, validate_consensus_action_root,
+    validate_replicated_execution_input_actions,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -31,8 +33,11 @@ pub(super) struct RuntimeState {
     pub(super) consensus: NodeConsensusSnapshot,
     pub(super) consensus_progress_observer_error: Option<NodeConsensusProgressObserverError>,
     pub(super) last_error: Option<String>,
+    pub(super) bft_status: Option<crate::node_bft_runtime::NodeBftStatusV1>,
 }
 
+#[path = "node_bft_action_validation.rs"]
+mod bft_action_validation;
 #[path = "node_runtime_gameplay_origin.rs"]
 mod gameplay_origin;
 
@@ -234,6 +239,9 @@ impl fmt::Debug for NodeRuntime {
 }
 
 impl NodeRuntime {
+    /// Shared BFT proposal admission for runtime methods and worker threads.
+    /// The worker must use the same installed execution hook as the runtime so
+    /// governance preflight cannot drift between ingress paths.
     pub fn new(config: NodeConfig) -> Self {
         let feedback_store = config.feedback_p2p.as_ref().and_then(|feedback_config| {
             config.replication.as_ref().map(|replication_config| {
@@ -245,6 +253,7 @@ impl NodeRuntime {
         });
         Self {
             config,
+            bft_config: None,
             local_execution_bootstrap: None,
             local_execution_genesis_bootstrap: None,
             replication_network: None,

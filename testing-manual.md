@@ -473,6 +473,20 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib
 env -u RUSTC_WRAPPER cargo test -p oasis7_net --features runtime_bridge --lib
 ```
 
+#### 固定集合 NodeRuntime BFT 工程路径
+
+当改动触及显式 `engineering_tendermint_v1` 路径时，在同一 source tree 串行执行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_proto --lib distributed_bft
+env -u RUSTC_WRAPPER cargo test -p oasis7_consensus --lib tendermint_v1
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib node_bft
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib node_bft_integration_tests::node_runtime_needs_quorum_and_late_fourth_node_catches_up_then_reopens -- --exact --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib four_node_runtime_commits_and_replays_through_real_execution_drivers -- --test-threads=1
+```
+
+这些过滤器必须实际选中测试；零匹配不构成证据。覆盖固定集合上的 Alg1 proposer/lock/valid/nil/quorum 与 round 证据、任意值 unique-power phase timeout（同值 q 仍单独决定 lock/commit）、持久签名前意图和 exact-slot 重开、genesis-anchor 完整 QC 历史恢复、pending commit 与执行侧已提交的精确崩溃接续、持久高度计时基点、bounded gossip cursor 和 NodeRuntime 接线。`node_bft_integration_tests` 使用真实 loopback UDP/quorum/catch-up/restart 与明确标注的确定性 test execution hook；chain-runtime 的四节点过滤器再覆盖真实 execution driver 和运行时动作，二者不可互相代签。四节点/q=3 是集成 fixture，不是算法硬编码。BFT gossip 使用外层 `kind=bft` 与内层 BFT `kind`/`message`；容量判定针对完整 JSON envelope 的 65,507-byte 单 UDP datagram，不把协议的 16 MiB 或历史 256 MiB 上限当作 UDP 传输能力。HistoryRequest 仅为未授权 hint；`raw_bft_commit_history_page` 返回的 QC 与 `bft_status` 的 phase/lock/valid/计数/传输诊断均不能替代从固定 genesis 重验完整 QC 链；status 计数不是受保护或持久证据。以上本机测试不证明正式 authority profile、磁盘回滚抵抗、生产 signer custody、独立故障域或无分片大证书传输。
+
 #### 本机身份发布回归（NIR bootstrap）
 
 针对普通启动 ensure 与专用身份 helper 的本机持久化修改，运行：
