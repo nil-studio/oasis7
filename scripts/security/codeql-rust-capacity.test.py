@@ -2,6 +2,7 @@
 """Capacity assessment source, completeness and resource-boundary regressions."""
 import importlib.util
 import json
+import hashlib
 import os
 from pathlib import Path
 import resource
@@ -231,6 +232,18 @@ class Capacity(unittest.TestCase):
         with self.assertRaises(RuntimeError):m.validate('CallsCandidate',[row[:3]+['/registry/libp2p/src/builder.rs']],ROOT,roots)
 
     def test_research_prepare_never_generates_or_compiles_custom_queries(self):
+        self.research_prepare_case()
+
+    def test_metadata_created_lock_stops_before_analysis_even_if_git_gate_is_clean(self):
+        self.research_prepare_case(create_lock=True)
+
+    def test_incomplete_identity_observation_stops_metadata_preparation(self):
+        self.research_prepare_case(identity_failure=True)
+
+    def test_metadata_failure_remains_primary_after_input_observation(self):
+        self.research_prepare_case(metadata_failure=True)
+
+    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
@@ -241,16 +254,19 @@ class Capacity(unittest.TestCase):
             commands=[]
             def run(argv,cwd,output,*args,**kwargs):
                 commands.append(argv)
+                if create_lock and argv[0]=='cargo':(source/'Cargo.lock').write_text('created during metadata')
                 self.assertNotIn('compile',argv)
                 value={'version':m.BUNDLE} if 'version' in argv else ({'resolve':{'nodes':[1]}} if argv[0]=='cargo' else [str(query)])
-                output.write_text(json.dumps(value));return {'exit':0}
+                output.write_text(json.dumps(value))
+                if metadata_failure and argv[0]=='cargo':raise RuntimeError('original metadata failure')
+                return {'exit':0}
             patches=[patch.object(sys,'argv',['capacity','prepare','--mode','official-default-research',
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
                 '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+21600)]),
                 patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs')}),
                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}),
-                patch.object(m.evidence,'capture_identity',return_value={'status':'PASS'}),
-                patch.object(m,'snapshot',return_value={}),patch.object(m.plan,'inventory',return_value=([],None)),
+                patch.object(m.evidence,'capture_identity',side_effect=[{'status':'PASS'},{'status':'PARTIAL'}] if identity_failure else None,return_value={'status':'PASS'}),
+                patch.object(m,'snapshot',return_value={}),patch.object(m.plan,'inventory',return_value=(['Cargo.toml'],None)),
                 patch.object(m,'official_snapshot',return_value={}),patch.object(m.bundle,'bundle_closure',return_value={}),
                 patch.object(m.model,'verify_metadata',return_value=Path('/libp2p')),
                 patch.object(m,'verify_action_config'),patch.object(m.runtime,'run',side_effect=run),
@@ -259,8 +275,25 @@ class Capacity(unittest.TestCase):
             for item in patches:stack.enter_context(item)
             # Layout admission still precedes expensive work.
             out.mkdir();(out/'collection-layout.json').write_text('{"status":"PASS"}')
+            if metadata_failure:
+                with self.assertRaisesRegex(RuntimeError,'original metadata failure'):m.main()
+                self.assertEqual(len([argv for argv in commands if argv[0]=='cargo']),1)
+                self.assertTrue((out/'input-observation-after-metadata-workspace.json').is_file())
+                self.assertFalse((root/'outputs').exists())
+                return
+            if create_lock or identity_failure:
+                with self.assertRaisesRegex(RuntimeError,'metadata changed or obscured frozen inputs'):m.main()
+                self.assertEqual(len([argv for argv in commands if argv[0]=='cargo']),1)
+                self.assertFalse((root/'outputs').exists())
+                observed=json.loads((out/'input-observation-after-metadata-workspace.json').read_text())
+                self.assertEqual(observed['changed_locks'],['Cargo.lock'] if create_lock else [])
+                self.assertEqual(observed['dependency_resolution_impact'],'UNKNOWN')
+                return
             m.main()
             self.assertFalse((work/'queries').exists())
+            self.assertEqual([call.kwargs['prefix'] for call in m.evidence.capture_identity.call_args_list],
+                ['prepare','after-metadata-workspace','after-metadata-candidate',
+                 'after-metadata-legacy','after-metadata-common','pre-analyze'])
             terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
             self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
             self.assertEqual(terminal['production_capacity'],'UNKNOWN')
@@ -268,7 +301,7 @@ class Capacity(unittest.TestCase):
 
     def test_research_finish_decodes_official_only_and_retains_gates(self):
         import contextlib
-        for gate in ('PASS','FAIL'):
+        for gate in ('PASS','FAIL','LOCK_FAIL','LOCK_MISSING'):
             with self.subTest(gate=gate), tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
                 root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
                 db=root/'db';(db/'temp').mkdir(parents=True);(db/'temp/config-queries.qls').write_text('official')
@@ -278,8 +311,9 @@ class Capacity(unittest.TestCase):
                 sarif=root/'sarif';sarif.mkdir();(sarif/'result.sarif').write_text(json.dumps({'version':'2.1.0','runs':[{'invocations':[{'executionSuccessful':True}]}]}))
                 deadline=time.time()+21600
                 captured={'mode':'official-default-research','source_root':str(source),'fixed_job_deadline':deadline,
-                    'analyze_outcome':'success','checkout_gate':gate,'resource_gate':'PASS','evidence_status':'COMPLETE',
+                    'analyze_outcome':'success','checkout_gate':'FAIL' if gate=='FAIL' else 'PASS','lock_observation_gate':'FAIL' if gate=='LOCK_FAIL' else 'PASS','resource_gate':'PASS','evidence_status':'COMPLETE',
                     'coverage_capture':{'status':'PASS'},'resources':{'CODEQL_RAM':14575,'CODEQL_THREADS':4}}
+                if gate=='LOCK_MISSING':captured.pop('lock_observation_gate')
                 for name,value in [('capacity-capture-terminal.json',captured),('resources.json',captured['resources']),
                     ('coverage.json',{'status':'COVERAGE_REQUIRES_REVIEW'}),('source-before.json',{}),
                     ('default-suite.json',{'query_root':str(query_root),'queries':entries})]:
@@ -295,7 +329,7 @@ class Capacity(unittest.TestCase):
                 for item in [patch.object(sys,'argv',argv),patch.object(m,'snapshot',return_value={}),
                     patch.object(m.runtime,'run',side_effect=run),patch.object(m,'semantic_queries',side_effect=AssertionError('custom forbidden')),
                     patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'})]:stack.enter_context(item)
-                if gate=='FAIL':
+                if gate!='PASS':
                     with self.assertRaisesRegex(RuntimeError,'admission failed'):m.main()
                     self.assertEqual(commands,[])
                 else:m.main()
@@ -304,6 +338,42 @@ class Capacity(unittest.TestCase):
                 self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
                 self.assertEqual(terminal['production_capacity'],'UNKNOWN')
                 self.assertEqual(terminal['full_rust_coverage'],'HOLD')
+
+    def test_gzip_progress_and_manifest_sections_survive_chunk_boundaries_and_reiteration(self):
+        import gzip
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'logs.gz'
+            raw=(f'found manifests:\n  {ROOT}/Cargo.toml\nend list\n'
+                 'Starting evaluation of /official/one.ql.\n'
+                 'Evaluation done; writing results to /official/one.bqrs.\n').encode()
+            stored=gzip.compress(raw,mtime=0);path.write_bytes(stored)
+            record={'encoding':'gzip','status':'COMPLETE','raw_bytes':len(raw),
+                'raw_sha256':hashlib.sha256(raw).hexdigest(),'copied_bytes':len(stored),
+                'sha256':hashlib.sha256(stored).hexdigest()}
+            with patch.object(m.evidence,'CHUNK_BYTES',7):
+                texts=m.captured_segments(path,record,end=time.monotonic()+30)
+                self.assertEqual(m.query_progress(texts)['completed_count'],1)
+                coverage=m.coverage_report(ROOT,['Cargo.toml'],texts)
+                self.assertEqual(coverage['manifest_enumeration'],'COMPLETE')
+                self.assertEqual(coverage['missing_found_manifests'],[])
+
+    def test_post_analysis_ignored_lock_change_rejects_even_with_clean_git_identity(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
+            db=root/'db';(db/'log').mkdir(parents=True)
+            deadline=time.time()+1000;end=time.monotonic()+1000
+            (out/'manifest-inventory.json').write_text('["Cargo.toml"]')
+            initial=m.evidence.lock_inventory(source,['Cargo.toml'],out,end,m.SOURCE,stage='initial',fixed_deadline=deadline)
+            m.observe_inputs(source,out,end,deadline,['Cargo.toml'],initial,'pre-analyze',identity={'status':'PASS'})
+            (source/'Cargo.lock').write_text('new ignored bytes')
+            terminal={'secondary_errors':[]}
+            with patch.object(m.evidence,'capture_identity',return_value={'status':'PASS'}), \
+                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}):
+                m.capture_failure_evidence(SimpleNamespace(database=db,deadline=deadline),source,out,end,{},terminal)
+            self.assertEqual(terminal['checkout_gate'],'PASS')
+            self.assertEqual(terminal['lock_observation_gate'],'FAIL')
+            self.assertEqual(json.loads((out/'input-observation-post-analyze.json').read_text())['changed_locks'],['Cargo.lock'])
 
     def test_research_allocation_is_distinct_and_bounded(self):
         self.assertEqual(m.analysis_budget('capacity',2547)['analysis_allocated_minutes'],32)

@@ -36,6 +36,8 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 因果延迟探针只在已验证成功的 View 响应上等待，响应字节保持原样。串行运行目标用例时，可设置 `PRE2_CONFORMANCE_VIEW_DELAY_MS=600`（低于 transport timeout），分别过滤 `real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider`、`real_tcp_fresh_admission_waits_for_successful_metadata` 和 `real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns`。日志记录原请求和阶段推进；通过仍须获得同一原请求的 canonical result、唯一结算；双 turn 还须保留各自 memory。该探针验证多阶段累计延迟，不是吞吐或性能验收。
 
+final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
+
 ## 本地 Cargo 开发约定
 
 - 本地开发态 `cargo check/test/run/build` 优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。wrapper 只调整开发 profile 与可用的 sccache，target 沿用 Cargo 原生解析，默认在当前 worktree 的 `target/`；不建立外部缓存 namespace 或符号链接，也不需要预先准备 target。直接 Cargo 与 wrapper 使用相同的 target 解析规则。
@@ -1654,6 +1656,16 @@ The host suite uses actual signed profile-v2 activation and qualified parent ver
 Legacy unsigned history remains an explicitly historical replay prefix. Signed replay requires the original qualified parent; a missing parent and unsigned suffix after signed governance must fail closed. These tests do not establish multi-parent journal-tail restoration, BFT authorization, key rotation, actual component installation ACK, real fault-domain separation or production deployment readiness.
 
 
+### Qualified governance history across committed parents
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; contract: [qualified history authentication](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-governance-history-authentication).
+
+Run `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_history` and `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history`. Runtime fixtures use synthetic qualified-parent tokens to test original-policy/nonces, projection tampering, event cursor rollover, time, capacity, deadline and authenticated cold archive success/corruption without mutating either World. Opaque projection acceptance is compared with the original World-based validator; invalid execution-policy fields must also be rejected by full checkpoint restoration. Host fixtures form cryptographically qualified C0→signed submit→signed approve material and consume it through the production exact-history resolver, restore the same target Snapshot and continue with a signed activate action. A fully re-signed candidate with an unjournaled controller-policy replacement must fail before publication; this is distinct from merely corrupting an artifact hash.
+
+Two additional ignored process regressions use the real authenticated Primary/Replica endpoints with the test custody oracle: a missing intermediate local publication is restored across signed parents, and a native-qualified silent policy replacement is rejected by `FormalLiveRuntime::open_with_native_history`. Build `oasis7_durability_endpoint --release`, set `OASIS7_FORMAL_ENDPOINT_TEST_BIN` to that candidate executable, then run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history_ -- --ignored --test-threads=1`. Both exact cases are registered in the formal `runtime-protocol` CI suite. Also run the existing 70-request `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` process regression with the same configured operation deadline; inspect all intermediate and final reopen results rather than inferring long-history availability from short fixtures. The existing real signer-handoff process test covers the valid readback path; a separately constructed malicious signed read service for a direct negative handoff test is not covered by these fixtures. Local custody-oracle processes do not prove independent physical fault domains.
+
+The host fixtures exercise Runtime execution and the shipping history consumer; they do not claim Node committed-action ingress or the formal executor for these newly constructed candidates. Keep the existing governance authorization ingress suite and formal history/recovery suites in required CI. This change does not alter Agent gameplay entry or behavior, and does not trigger Agent self-playtest. Arbitrary raw-tail World reconstruction, BFT, component installation ACK and real isolated-fault-domain evidence remain separate obligations.
+
 <a id="discovery-observation-local-trust-boundary"></a>
 ## Discovery observations and local bootstrap trust
 
@@ -1668,6 +1680,17 @@ The net suite includes a three-node loopback TCP flow: B publishes a record with
 
 This proves the existing wire's local trust boundary, not full record freshness, sequence/tombstone persistence, authenticated operator/ASN mappings, rendezvous ID provenance, restart anti-rollback, public-network independence, BFT or deployment readiness. Unknown control domains intentionally remain degraded and share conservative quotas. Normal required CI must cover the final candidate and downstream node status/filtering consumers.
 
+
+<a id="discovery-rendezvous-trigger-provenance"></a>
+### Rendezvous ID-only trigger provenance
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3. Apply the [bounded trigger contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary). This is a local diagnostic association, separate from the actual signed-record ingress and trusted source labels.
+
+Use canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib rendezvous -- --test-threads=1`, followed by the full net suite and applicable downstream node checks. Exercise the production Discovered callback with real signed libp2p registrations, then the DHT result or authenticated RR proxy path. Assert that registration addresses are not installed for dialing and only a correctly targeted, verified live SignedPeerRecord can receive trigger metadata. Verify exact payload binding and unchanged actual ingress, source labels and health trust.
+
+Include two servers announcing the same peer under query deduplication, the 1024-target/8-server bounds (including reactivation of an expired pending context at capacity), fixed 60-second monotonic expiry, target mismatch, invalid signature, query/fallback failure and no-fallback cleanup. A DHT miss must preserve the context for its pending or newly available RR fallback; it is distinct from a successful local-cache result. If another request installs the identical signed payload first, a valid remote result of the triggered query may associate with that exact existing observation without refreshing the record lease. Confirm the existing bounded diagnostic output identifies the peer, exact-payload digest, actual ingress and trigger servers. Both direct candidate-cache hits and Kademlia local-store results with no remote upstream must discard the association. A tombstone must consume the trigger without creating an observation or transferring it to a later live record. A later unrelated query must not inherit a failed or expired trigger. Parallel DHT/RR attempts share a one-shot context: any explicit error or rejection clears it globally, and a later valid response must still install normally without trigger attribution. A normal DHT or RR material-missing result may instead preserve the same bounded fallback context; an outbound transport failure must clear it before any normal proxy retry. Attribution is best-effort diagnostics, not an exhaustive successful-attempt history.
+
+These cases prove bounded process-local trigger attribution only. They do not authenticate an independent operator/control domain, persist provenance across restart, establish trusted absolute time, or prove public-network fault independence. Report actual test results on the candidate PR; this method is not an execution receipt.
 
 <a id="discovery-record-v1-time-policy"></a>
 ### Discovery record v1 time policy
@@ -1694,15 +1717,20 @@ These tests do not prove absolute wall-clock trust, restart/whole-machine rollba
 
 Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [shared discovery policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget).
 
+Run the pinned-client unit suite with canonical `env -u RUSTC_WRAPPER cargo test --locked --manifest-path vendor-libp2p-rendezvous-0.18.1/Cargo.toml --target-dir target --lib -- --test-threads=1`; the target is the existing workspace target, shared with normal network verification. The net CI group runs this standalone suite because dependency unit tests are not selected by the workspace net suite.
+
 Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstream `env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication_network`. Use controlled monotonic instants for rolling-window boundaries and actual Swarm scheduling entrypoints for fanout and retry tests:
 
 - Exhaust the combined 32 in-flight slots across automatic discovery work; a new peer/source must create no extra pending work or request traffic. Release only terminal operations; rate tokens remain consumed.
+- Fill the same window with production DHT and RR scheduling, then attempt rendezvous register and discover through the real Swarm helpers. Both must be refused without protocol requests or pending markers; switching kind or server must not reset the budget. Cover ConnectionEstablished and periodic RefreshPeerDiscovery callers.
+- For rendezvous, successful and failed client terminal events release only the matching kind/peer concurrency slot; synchronous registration failure also releases only concurrency. A disconnect or pending-set cleanup must not release an outstanding operation or permit a duplicate kind/peer start. Verify late or unrelated terminal events cannot decrement another operation, and retries after a true terminal still consume the shared rolling window. Keep ordinary successful registration/discovery coverage.
+- Verify the pinned-client patch preserves default auto-refresh, while native assembly explicitly disables it without freezing the client address set. Address changes must later re-register through the shared budget; an ACK issued for an older address snapshot cannot mark the new snapshot current. Register and discover must expose their real request IDs in all four terminal outcomes. Exercise both valid-but-wrong response types and a request message returned as a response: emit the corresponding failure exactly once rather than leaking a slot or panicking. Two independent request-response behaviours may both emit ID 1; app RR and rendezvous receipts must remain separate and release only their own slots.
 - Complete 128 operations in a rolling 60-second window, switch sources and reconstruct requests, then verify refusal until the oldest start leaves the window. Moving wall time must not refill the budget.
 - Feed oversized, over-count and duplicate cached ID lists; reject beyond 16 KiB or 128 items before fanout, and schedule duplicates once. Cap cumulative DHT provider results and server output at 128 IDs.
 - Traverse cache misses and outbound failures across proxies; stop after four attempts for the target chain and retain global consumption. Exercise cooldown saturation and expiry reclamation without exceeding 1024 entries per RR category (3072 total across three maps).
 - Retain the real three-node TCP signed-record forwarding/expiry flows and downstream status/filtering tests as positive-path coverage. Budget exhaustion must not itself disconnect authenticated sessions or grant source/role trust.
 
-Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, rendezvous protocol operations, application-driven operations and protocol-internal messages retain their own limits. New network instances start a new budget; no restart-resistant quota is claimed.
+Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, inbound rendezvous server service and registration-list validation, application-driven operations and protocol-internal messages retain their own limits. Outgoing rendezvous client register/discover are included in the shared work budget. New network instances start a new budget; no restart-resistant quota is claimed.
 
 
 <a id="discovery-record-refresh"></a>
@@ -1817,3 +1845,124 @@ Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；范围见[本地采集
 - 上述 `formal_full_state_sync_cli_` ignored shipping CLI 测试同时覆盖直接采集与 canonical read：首次 ready、旧 epoch grant 拒绝、重开和停止；collector 本身只调用 status，不启停节点。
 
 不执行生产采集或远程节点操作；不扩大为 triad profile 接线、BFT 或 P/R 验收。
+
+
+<a id="full-sync-v2-issuer-management"></a>
+### V2 full-sync issuer management ledger
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [V2 issuer ledger and witness decision](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-issuer-ledger).
+
+Run focused protocol and durable-store tests separately, using the existing shared Cargo cache:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol full_sync_issuer
+env -u RUSTC_WRAPPER cargo test -p oasis7_distfs full_sync_issuer
+```
+
+Verify signed management Issue/Replace/Revoke against the original externally pinned activation trust, complete world/epoch scope, authorized manager and current dedicated issuer generation. Negative cases include changed initial trust pins, wrong root/role/subject, reused request identity or manager nonce with different content, stale full head, wrong target epoch, absent-target tombstones, counter/byte limits, conflicting same-generation policy and reuse of any historical issuer key. An explicit root-authorized policy transition must advance the same ledger atomically; witness-key replacement is unsupported and must fail.
+
+Use a separately keyed simulated witness for deterministic CAS and crash tests. Exercise actual private filesystem ownership/modes, symlink refusal and competing store locks; persist the original pending request before witness CAS. Inject loss before/after CAS and before the local decision fsync, reopen from both current and old valid local backups, and retry the exact original command. Require the original committed entry/receipt, with no extra mutation or automatically rebased command. Reject corrupted/forked/future local logs, missing or truncated witness history, stale nonce observations and an unavailable witness. A valid earlier local prefix may recover only from the complete history closing to a fresh witness head and the external minimum anchor.
+
+Validate the initial hard limit with a fully signed 1,024-record history containing distinct targets; time construction and complete replay separately, then require the 1,025th prepare/reconstruction to fail without mutation. The 64 MiB encoded-log bound remains independent. This capacity check is not a sustained-throughput or production-witness latency claim.
+
+These tests establish the management protocol and local persistence behavior under a simulated independent witness. They do not prove production nonrollback storage, physical isolation, provider lease freshness, per-chunk enforcement, effective revocation or V1 migration. Until those consumers and their acceptance evidence exist, successful Revoke means a committed management decision and cannot be reported as stopped private reads. No production witness adapter means no production issuance capability.
+
+<a id="full-sync-v3-provider-lease-log"></a>
+### V3 full-sync provider lease event log
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [unified provider lease log and migration](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-lease-log-v3). This defines the method; actual source, commands, fault points and results belong in the implementation PR.
+
+Run the protocol and durable-store `full_sync_issuer` test groups above, retaining V2 signature/history fixtures. Use a single separately keyed witness double whose V2 and V3 APIs share one atomic state. Interleave V2 commit against migration in both orders: only the first matching CAS may succeed. After migration reject every V2 observe, current-history and commit call, including a stale observation and a client with no local cache. Replay the complete original V2 prefix, unique migration and V3 suffix; reject missing/forked/truncated prefixes, changed root or manager signatures, mismatched scope/head/policy and repeated migration.
+
+Verify daily V3 open requires the external V3 minimum. Lose the migration CAS reply before that pin, then use only the explicit non-serving resume API with the original request and V2 minimum to recover the exact original receipt/anchor. Before a V3 pin, resume must expose no management or lease issuance capability. Replay a valid V2-mode and V3-mode resume response against a newly signed query nonce; both must fail before changing local history or pending intent. Exercise the opposite race too: a V2 commit makes the pending migration stale; only a fresh complete V2 chain proving non-commit permits persistent head-conflict termination. A new migration must carry a new manager approval rather than silently rebasing the old event. Include a V2 signer/manager policy rotation winning before resume, both while still in V2 mode and after another V3 migration. Authenticate the complete current history while validating the original approval at its historical prefix; the old configuration must still fail ordinary serving restore.
+
+Issue a lease for an allowed provider, exact node/role generation, incarnation and unique lease ID. Assert root policy, provider proof, delegated signer, witness nonce/time profile and conservative time bounds; reject an unknown provider, reused identity with changed body, stale authorization/head, invalid interval, excessive uncertainty and expiry beyond the grant or policy bound. Use actual shared-witness interleaving: revoke first prevents the old lease; lease first remains present after revoke. Overlapping leases and old incarnations must all remain enumerable with exact signed bytes and expiry.
+
+Inject CAS reply loss and local fsync failure, reopen the actual private directory and retry the same original request; require identical lease/receipt bytes with no extra revision. Also fail CAS before commit while retaining the same head, advance the witness clock, then reopen and assert that the second CAS receives the exact original signed observation and candidate without extending expiry. Reconcile both committed and provably uncommitted V2 pending intents across migration, retaining ambiguous or corrupt intents. Reject unavailable witness, malformed receipt, missing current history and local future/forked state without repairing from an unauthenticated digest. Verify old V2 code rejects the schema-3 local ledger before a write.
+
+Count legacy entries, migration and V3 events together against 1,024 entries and 64 MiB; exhaustion must leave pending, witness anchor and ledger unchanged before CAS. Also retain many distinct active targets so the accumulated registry exceeds a single-event byte bound, and verify a valid lease still commits under the full-state bound. This is a lifetime hard stop, including renewals, not a sustained-service claim. Provider read gates, protected clock deployment, nonrollback witness storage, cross-process/VM fencing, effective revocation and physical fault-domain acceptance remain separate. A simulated signed time assertion demonstrates protocol validation only; it cannot establish the asserted clock profile in production.
+
+<a id="full-sync-v3-provider-read-gate"></a>
+### V3 full-sync provider read gate
+
+Trace refs: `O7-REQ-cb84969d-dd7f-4782-ab30-167ffc59a0c8`; contract: [V3 provider full-sync 逐请求读取门禁](doc/p2p/blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-provider-read-gate-v3). Run the real loopback HTTP consumer tests with the shared target, serially:
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib grant_identity_signature_check_is_clock_independent
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib read_gate_tests:: -- --test-threads=1
+```
+
+The injected test evidence source returns raw signed query, observation and complete V2/V3 history. Require a valid manifest and two independently authorized object chunks; after a same-epoch V3 revoke, the following chunk must fail. Also require a grant with a bad issuer signature to fail before the evidence-source fetch counter changes, while a valid grant reaches both the pre-material and final-response gates. Cover exact provider signer/trust/World attachment, fresh query nonce, unavailable evidence, missing committed lease, wrong target generation and incarnation, grant/lease not-before, and `latest + elapsed` expiry bounds. Test gate installation with lower, equal-exact, equal-conflicting and higher-prefix histories; conflicts poison the gate and a lower history must not replace the installed state.
+
+Ordinary `start()` preserves `legacy_v1` and supplies no V3 dependencies. `v3_required` may start only through the explicit host dependency-injection path with root-signed policies, external V3 minimum and a real issuer/witness source; provider signer and a fresh process incarnation are derived by the host. No production source or protected-clock adapter is currently supplied, so ordinary V3-required startup must fail before listener binding. Test fakes establish route-consumer behavior only. They do not establish production witness durability, protected-clock trust across process/VM rollback, cross-fault-domain fencing, or effective revocation outside the next manifest/chunk authorization.
+
+The actual `FormalLiveRuntime::open`/`start` missing-adapter guard is an ignored process regression in the existing `runtime-protocol` suite. Build the loopback endpoint fixture and run it explicitly:
+
+```bash
+env -u RUSTC_WRAPPER cargo build -p oasis7_chain_runtime --bin oasis7_durability_endpoint --release
+OASIS7_FORMAL_ENDPOINT_TEST_BIN="$PWD/target/release/oasis7_durability_endpoint" env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib protected_endpoint_children_v3_required_runtime_start_rejects_missing_gate_before_listener -- --ignored --test-threads=1
+```
+
+<a id="discovery-tombstone-v2"></a>
+### V2 发现撤销与恢复验证
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[持久撤销与显式恢复](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-tombstone-v2)。同一候选、正常原件和实际 host→node→net 路径执行：显式 durable 发布 live 1，使用 `--withdraw-peer-record-publication` 撤销为无路径 tombstone 2；分别在持久预留和签名后重启，原序号不得被签成 live。普通启动、周期和地址刷新不得恢复；只有 `--resume-peer-record-publication` 发布更高 live 3。两个 flag 互斥且不落入持久配置，initializer 与 formal/guarded 组合明确拒绝。撤销／恢复要求 durable publisher 与已初始化的持久 receiver；legacy 接收策略对 tombstone 必须明确拒绝，不能接纳后继续从旧 live 缓存返回候选。
+
+接收端接纳 tombstone 后重开同一原件，拒绝旧 live 与 V1，撤掉候选、发现来源和排队拨号；当前有效撤销原件可以经实际 DHT／RR 返回原签名，不进入健康／ID／拨号集合。验证更高 live 恢复、同序冲突隔离不自动解除、无路径约束、过期拒绝转发、V1 固定向量和未知状态拒绝。保留已认证会话的限制性元数据，独立静态地址不随发现撤销删除。
+
+采用 proto／net／host／node 受影响回归并扩大到必要全量；记录实际命令、source／tested tree、配置、原签名序号和状态、退出码以及故障点。至少一条真实 TCP／DHT 撤销传播及显式恢复正例贯穿消费者。Quorum::One 不作为全网撤销确认；未支持新 state 的旧节点不获得新保证，可信时间、跨故障域与恶意磁盘回滚仍需独立证据。
+
+<a id="discovery-receiver-floor-v2"></a>
+### V2 接收端持久水位验证
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；合同见[接收水位](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-receiver-floor-v2)。在同一 source/tested tree 使用独立接收策略和私有原目录，记录真实 host→node→net 配置、进程重启和签名 payload。本段定义验收方法；实际受测版本、命令与退出码记录于实现 PR。
+
+同候选 canonical 本地命令（共享 target，串行执行；环境参数与受测 source 在 PR 记录）：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib receiver_ -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib libp2p_replication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api --lib peer_record_reception -- --test-threads=1
+```
+
+标准 development host 使用独立 `--p2p-peer-record-reception legacy_compatible|v2_durable_compatible|v2_only`。持久模式先在相同稳定身份、world/network 与 runtime root 下执行 `--initialize-peer-record-receiver`，初始化完成即退出；日常启动移除 initializer flag，保持同一 reception mode。默认 legacy 与本机 `--p2p-peer-record-publication` 相互独立，已有 receiver 目录不能通过改回 legacy 忽略。普通启动使用 `v2_only` 接收时还需显式配置 `--p2p-peer-record-publication v2_durable` 并按其独立流程先初始化 publisher；缺少 durable publisher 的严格接收组合应在起网络前拒绝。receiver initializer 仍只创建接收原件，不顺带初始化发布器。策略转换与清空原目录不作为本次支持的迁移方法。
+
+验证 V1 兼容 peer 首次接受 V2 后跨重启拒绝 V1／低序号；严格 V2 拒绝所有 V1；相同序号摘要幂等且不延寿；同序号不同的有效签名持久隔离，旧缓存响应、DHT 转发、健康来源和排队发现拨号不再使用该候选，既有会话与独立静态配置按原合同保留。分别验证尚未释放的 queued dial 在新 gate 下拒绝，以及已在旧有效 gate 下启动的 transport 操作若随后完成，不恢复旧记录、来源或永久候选资格；后者仍受原 transport 超时和独立角色／资源策略约束。至少一条真实 TCP 或 DHT 正向升序安装和一条重启重放负例必须贯穿实际消费者。
+
+故障覆盖显式初始化中断、正常打开原件、缺失／损坏／未来 schema／不明临时文件、绑定不符、重复实例、禁用或换策略降级、文件或父目录同步失败；失败不发布新的内存水位或候选；原子替换后的目录同步失败按提交不确定处理，不回写旧状态，重开验证实际原件并保持防回退。容量上限拒绝新身份但允许原未隔离 peer 正向更新，不用无可信时间的 GC 腾空间。分别记录普通文件持久性与未覆盖的恶意整机回滚、可信时间和物理故障域边界；tombstone 另按[撤销扩展](#discovery-tombstone-v2)验证。
+
+<a id="discovery-record-admission-budget"></a>
+### Discovery peer-record admission budget
+
+Run focused admission/store checks and then the affected net suite serially:
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record_admission -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record_store -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib -- --test-threads=1
+```
+
+Verify the [process-local admission contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-record-admission-budget) with deterministic monotonic time and real RR/DHT entry paths. A valid response/request/store attempt charges the same shared rolling window before decoding or signature verification; invalid payloads retain their charge. The candidate installation path must consume the admission permit. Verify per-source isolation, source churn and tracking capacity, global sharing across protocol/provider changes, exact expiry, no refund on failed crypto, and positive admission after the window expires.
+
+Exercise a real 128-ID discovery list followed by its record responses without accidental double charging. Reject a throttled update without replacing prior cache/store/observations or exposing a new dial/forward candidate. Include ordinary DHT `get_peer_record` results, peer-record `RecordStore::put`, special RR requests and RR record responses; use authenticated transport/Kad source metadata, never the claimed record identity. Report unknown-source DHT store as global-only. Record commands, candidate and actual accepted/rejected work; this does not prove cross-restart quotas, total Kad throughput or durable sequence floors.
+
+<a id="discovery-durable-publication-v2"></a>
+### Discovery V2 durable local publication
+
+This scope verifies the [V2 local publication contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-durable-publication-v2), not receiver anti-replay or protected hardware storage. Use one source/config candidate across proto, net, node and chain-runtime. Keep V1 wire/signature vectors fixed; exercise explicit legacy and durable V2 configurations separately.
+
+Run the matching canonical filters serially (development feedback may use `scripts/cargo-dev.sh`):
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_proto --lib -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net peer_record -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_net durable_peer_record_publisher -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_client_api peer_record_publication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime peer_record_publication -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime old_typed_node_config -- --test-threads=1
+```
+
+Verify that reserve-before-sign and signed-before-send persistence survives interruption without signing different payloads at one sequence. First initialize V2 explicitly with `--initialize-peer-record-publication` and the same `v2_durable` mode/identity/runtime root used for the later ordinary start. Verify missing state never triggers initialization during ordinary startup. Cover missing entire directory, missing state and marker together, repeated explicit initialization, reopen with the same identity/runtime root, interrupted reserve and signed-result persistence, concurrent owner refusal, corrupt/private/symlink/binding failures, overflow, expired pending payloads and a later valid publication. Unsupported private-storage platforms must reject V2 explicitly while preserving legacy V1. Cover interruption after intent, lock, state and Ready persistence: ordinary open refuses unfinished initialization, explicit same-binding initialization resumes only unissued state0, and wrong binding, corrupt intent, old Ready with missing state or issued state never reset. Manifest defaults must produce the same initialization and ordinary-start binding. Check every local refresh/address-change path and confirm remote cache forwarding preserves original signed bytes. Exercise repeated real handler/TCP local-record queries: V2 sequence and durable state bytes remain unchanged, missing/expired/current-address-mismatched records return unavailable, and a subsequent local refresh still advances the sequence. Unknown versions/states, zero sequence and sequence/state/payload tampering must reject without V1 fallback; a legacy V1 verifier must reject V2 signatures. Record actual commands, source, exit codes and the boundaries of any simulated crash or loopback network test in the PR.
+
+Ordinary local files do not prove resistance to restoring both key and publisher state from an old machine snapshot. Receiver floors and conflict quarantine use the [receiver contract](#discovery-receiver-floor-v2); tombstone retention and explicit recovery use the [withdrawal contract](#discovery-tombstone-v2). Trusted time and independent fault-domain evidence remain outstanding under #4975.

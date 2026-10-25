@@ -354,6 +354,47 @@ pub struct SignedPeerRecord {
     pub record: PeerRecord,
     pub identity_public_key_protobuf_hex: String,
     pub signature_hex: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<PeerRecordPublicationV2>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PeerRecordPublicationStateV2 {
+    Live,
+    Tombstone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeerRecordPublicationV2 {
+    pub schema_version: u16,
+    pub sequence: u64,
+    pub state: PeerRecordPublicationStateV2,
+}
+
+impl PeerRecordPublicationV2 {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.schema_version != 2 {
+            return Err("unsupported peer record publication schema version");
+        }
+        if self.sequence == 0 {
+            return Err("peer record publication sequence must be positive");
+        }
+        Ok(())
+    }
+
+    pub fn validate_for_record(&self, record: &PeerRecord) -> Result<(), &'static str> {
+        self.validate()?;
+        if self.state == PeerRecordPublicationStateV2::Tombstone
+            && (!record.direct_addrs.is_empty()
+                || !record.hole_punch_addrs.is_empty()
+                || !record.relay_addrs.is_empty())
+        {
+            return Err("peer record tombstone must not contain transport addresses");
+        }
+        Ok(())
+    }
 }
 
 pub trait DistributedDht<E> {
@@ -400,7 +441,7 @@ pub trait DistributedDht<E> {
 mod tests {
     use super::{
         PeerDeploymentMode, PeerDiscoverySource, PeerNodeRole, PeerReachabilityClass, PeerRecord,
-        ProviderRecord, SignedPeerRecord,
+        PeerRecordPublicationStateV2, PeerRecordPublicationV2, ProviderRecord, SignedPeerRecord,
     };
     use crate::distributed_net::NetworkLane;
 
@@ -474,12 +515,99 @@ mod tests {
             },
             identity_public_key_protobuf_hex: "abcd".to_string(),
             signature_hex: "deadbeef".to_string(),
+            publication: None,
         };
 
         let encoded = serde_json::to_string(&record).expect("serialize");
         let decoded: SignedPeerRecord =
             serde_json::from_str(encoded.as_str()).expect("deserialize");
         assert_eq!(decoded, record);
+
+        let mut legacy_value = serde_json::to_value(&record).expect("serialize v1 record");
+        legacy_value
+            .as_object_mut()
+            .expect("signed record object")
+            .remove("publication");
+        let decoded: SignedPeerRecord =
+            serde_json::from_value(legacy_value).expect("legacy record without publication");
+        assert_eq!(decoded.publication, None);
+        let encoded = serde_json::to_value(decoded).expect("serialize legacy record");
+        assert!(encoded.get("publication").is_none());
+    }
+
+    #[test]
+    fn publication_v2_rejects_unknown_version_zero_sequence_and_unknown_state() {
+        let unknown_version = PeerRecordPublicationV2 {
+            schema_version: 3,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        };
+        assert!(unknown_version.validate().is_err());
+
+        let zero_sequence = PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 0,
+            state: PeerRecordPublicationStateV2::Live,
+        };
+        assert!(zero_sequence.validate().is_err());
+
+        let unknown_state = r#"{"schema_version":2,"sequence":1,"state":"unknown_state"}"#;
+        assert!(serde_json::from_str::<PeerRecordPublicationV2>(unknown_state).is_err());
+
+        let unknown_field = r#"{"schema_version":2,"sequence":1,"state":"live","extension":true}"#;
+        assert!(serde_json::from_str::<PeerRecordPublicationV2>(unknown_field).is_err());
+    }
+
+    #[test]
+    fn signed_peer_record_v2_accepts_tombstone_state_on_the_existing_wire_shape() {
+        let tombstone = r#"{
+            "record": {
+                "peer_id": "12D3KooWExample",
+                "node_id": "node-a",
+                "world_id": "world-a",
+                "network_id": "network-a",
+                "node_role": "validator_core",
+                "deployment_mode": "private",
+                "reachability_class": "private",
+                "direct_addrs": [],
+                "hole_punch_addrs": [],
+                "relay_addrs": [],
+                "discovery_sources": [],
+                "capability_lanes": [],
+                "source_operator": null,
+                "source_asn": null,
+                "published_at_ms": 42,
+                "ttl_ms": 60000
+            },
+            "identity_public_key_protobuf_hex": "abcd",
+            "signature_hex": "deadbeef",
+            "publication": {"schema_version": 2, "sequence": 2, "state": "tombstone"}
+        }"#;
+
+        let decoded: SignedPeerRecord =
+            serde_json::from_str(tombstone).expect("V2 tombstones use the existing envelope");
+        assert_eq!(
+            decoded
+                .publication
+                .as_ref()
+                .map(|publication| publication.sequence),
+            Some(2)
+        );
+        let encoded = serde_json::to_value(&decoded).expect("serialize tombstone");
+        assert_eq!(
+            encoded
+                .get("publication")
+                .and_then(|value| value.get("state"))
+                .and_then(serde_json::Value::as_str),
+            Some("tombstone")
+        );
+        let publication = decoded.publication.as_ref().expect("V2 publication");
+        assert!(publication.validate_for_record(&decoded.record).is_ok());
+        let mut invalid_record = decoded.record.clone();
+        invalid_record
+            .relay_addrs
+            .push("/dns4/relay.example/tcp/443".to_string());
+        assert!(publication.validate_for_record(&invalid_record).is_err());
     }
 
     #[test]

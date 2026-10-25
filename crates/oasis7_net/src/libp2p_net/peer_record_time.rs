@@ -106,6 +106,7 @@ impl DiscoveryClock {
             clock: self.clone(),
             expiry,
             deadline,
+            receiver_guard: None,
         })
     }
 }
@@ -115,6 +116,7 @@ pub(super) struct RecordLease {
     clock: DiscoveryClock,
     expiry: i64,
     deadline: Instant,
+    receiver_guard: Option<super::receiver_floor::ReceiverLeaseGuard>,
 }
 
 impl RecordLease {
@@ -140,7 +142,18 @@ impl RecordLease {
         if now >= self.expiry || instant >= self.deadline {
             return Err(invalid("record lease expired"));
         }
+        if let Some(guard) = &self.receiver_guard {
+            guard.validate()?;
+        }
         Ok(())
+    }
+
+    pub(super) fn with_receiver_guard(
+        mut self,
+        guard: super::receiver_floor::ReceiverLeaseGuard,
+    ) -> Self {
+        self.receiver_guard = Some(guard);
+        self
     }
 }
 

@@ -64,12 +64,27 @@
       },
       {
         "binary": "runtime-tests",
+        "name": "formal_live_runtime::tests::protected_process_tests::provider_read_gate_startup_tests::protected_endpoint_children_v3_required_runtime_start_rejects_missing_gate_before_listener",
+        "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::protected_stop_deadline_accounts_for_admission_and_join_without_losing_owner",
         "ignored": true
       },
       {
         "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::protected_endpoint_children_runtime_identity_lease_excludes_duplicates_and_survives_outer_drop",
+        "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
+        "name": "formal_live_history::governance_history::tests::governance_history_missing_middle_publication_restores_from_authenticated_native_pair",
+        "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
+        "name": "formal_live_history::governance_history::tests::governance_history_runtime_open_rejects_native_qualified_silent_policy_replacement",
         "ignored": true
       }
     ],
@@ -175,7 +190,8 @@
       "formal_protected_healthy_durable_set_",
       "healthy_durable_set_owner_",
       "formal_world_initialization_cli_",
-      "formal_full_state_sync_cli"
+      "formal_full_state_sync_cli",
+      "governance_history_"
     ],
     "distfs-tests": [
       "formal_endpoint_child_process_dual_qualification_sigkill_reopen_original",

@@ -9,6 +9,8 @@
 !scripts/build-wasm-module.sh
 !vendor-libp2p-swarm-0.48.0/
 !vendor-libp2p-swarm-0.48.0/**
+!vendor-libp2p-rendezvous-0.18.1/
+!vendor-libp2p-rendezvous-0.18.1/**
 !vendor-egui-winit-0.33.3/
 !vendor-egui-winit-0.33.3/**
 !tools/

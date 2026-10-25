@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small-boundary evidence regressions; no CodeQL, extractor, or capacity run."""
 import contextlib
+import gzip
 import hashlib
 import json
 import os
@@ -78,6 +79,151 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual((self.out / record['destination']).read_bytes(), original)
         self.assertEqual(record['sha256'], hashlib.sha256(original).hexdigest())
         self.assertEqual(report, self.receipt())
+
+    def test_large_log_is_saved_completely_without_expanding_artifact_budget(self):
+        chunk = b'original evaluator log line\n' * 40000
+        path = self.logs / 'execute.log'
+        raw_hash = hashlib.sha256()
+        with path.open('wb') as stream:
+            for _ in range(20):
+                stream.write(chunk)
+                raw_hash.update(chunk)
+        with patch.object(evidence.runtime, 'CAP', 8 * 1024**2), \
+                patch.object(evidence.runtime, 'WRITE_CAP', 4 * 1024**2):
+            report = self.capture()
+        self.assertEqual(report['status'], 'COMPLETE')
+        record = report['files'][0]
+        self.assertEqual(record['encoding'], 'gzip')
+        self.assertEqual(record['raw_bytes'], path.stat().st_size)
+        self.assertEqual(record['raw_sha256'], raw_hash.hexdigest())
+        self.assertLess(record['copied_bytes'], 4 * 1024**2)
+        stored = self.out / record['destination']
+        self.assertEqual(record['sha256'], hashlib.sha256(stored.read_bytes()).hexdigest())
+        decoded = hashlib.sha256()
+        with gzip.open(stored, 'rb') as stream:
+            while data := stream.read(65536):
+                decoded.update(data)
+        self.assertEqual(decoded.hexdigest(), raw_hash.hexdigest())
+        self.assertEqual(record['omitted_ranges'], [])
+
+    def gzip_artifact(self, raw):
+        stored = gzip.compress(raw, mtime=0)
+        path = self.out / 'complete.log.gz'
+        path.write_bytes(stored)
+        record = {'status': 'COMPLETE', 'encoding': 'gzip', 'raw_bytes': len(raw),
+                  'raw_sha256': hashlib.sha256(raw).hexdigest(), 'copied_bytes': len(stored),
+                  'sha256': hashlib.sha256(stored).hexdigest()}
+        return path, record
+
+    def test_gzip_reader_is_streamed_reiterable_and_validates_original_hash(self):
+        path, record = self.gzip_artifact(b'first\nsecond\nunterminated')
+        text = evidence.CompressedLogText(path, record, self.deadline)
+        with patch.object(Path, 'read_bytes', side_effect=AssertionError('whole file read')):
+            self.assertEqual(list(text), ['first', 'second'])
+            self.assertEqual(list(text), ['first', 'second'])
+        record['raw_sha256'] = '0' * 64
+        with self.assertRaisesRegex(RuntimeError, 'original length/hash'):
+            list(text)
+
+    def test_gzip_reader_rejects_truncation_bad_crc_expansion_and_long_lines(self):
+        for problem in ('truncated', 'crc', 'expanded', 'line', 'partial', 'deadline'):
+            with self.subTest(problem=problem):
+                path, record = self.gzip_artifact(b'first\nsecond\n')
+                stored = path.read_bytes()
+                if problem in ('truncated', 'crc'):
+                    stored = stored[:-2] if problem == 'truncated' else stored[:-8] + bytes([stored[-8] ^ 1]) + stored[-7:]
+                    path.write_bytes(stored)
+                    record.update(copied_bytes=len(stored), sha256=hashlib.sha256(stored).hexdigest())
+                if problem == 'expanded': record['raw_bytes'] = 2
+                if problem == 'partial': record['status'] = 'PARTIAL'
+                with patch.object(evidence, 'MAX_LOG_LINE_BYTES', 2 if problem == 'line' else 1024):
+                    with self.assertRaises((RuntimeError, OSError, EOFError, TimeoutError)):
+                        list(evidence.CompressedLogText(path, record, 0 if problem == 'deadline' else self.deadline))
+
+    def test_gzip_stored_limit_includes_header_and_partial_payload(self):
+        (self.logs / 'large.log').write_bytes(b'large original bytes\n' * 100)
+        with patch.object(evidence, 'COMPRESS_MIN_BYTES', 1), patch.object(evidence, 'MAX_COMPRESSED_FILE_BYTES', 8):
+            report = self.capture()
+        record = report['files'][0]
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(record['status'], 'PARTIAL')
+        self.assertEqual(record['copied_bytes'], 8)
+        self.assertEqual((self.out / record['destination']).stat().st_size, 8)
+        self.assertIn('COMPRESSED_SIZE_LIMIT', record['reasons'])
+        self.assertEqual(report['copied_bytes'], 8)
+
+    def test_gzip_short_writes_preserve_exact_bytes(self):
+        raw = b'bounded log line\n' * 100
+        (self.logs / 'large.log').write_bytes(raw)
+        write = os.write
+        with patch.object(evidence, 'COMPRESS_MIN_BYTES', 1), \
+                patch.object(evidence.os, 'write', side_effect=lambda fd, data: write(fd, data[:3])):
+            report = self.capture()
+        self.assertEqual(report['status'], 'COMPLETE')
+        record = report['files'][0]
+        self.assertEqual(gzip.decompress((self.out / record['destination']).read_bytes()), raw)
+
+    def test_gzip_reader_rejects_symlink_ancestors(self):
+        path, record = self.gzip_artifact(b'original\n')
+        alias = self.root / 'alias'; alias.symlink_to(self.out, target_is_directory=True)
+        with self.assertRaises(OSError):
+            list(evidence.CompressedLogText(alias / path.name, record, self.deadline))
+
+    def test_gzip_copy_does_not_certify_a_replaced_source_directory(self):
+        nested = self.logs / 'rust'; nested.mkdir()
+        (nested / 'large.log').write_bytes(b'original data\n' * 100)
+        read = os.read
+        changed = False
+        def replace(fd, count):
+            nonlocal changed
+            data = read(fd, count)
+            if not changed:
+                changed = True
+                nested.rename(self.logs / 'old-rust')
+                nested.mkdir()
+                (nested / 'large.log').write_bytes(b'replaced')
+            return data
+        with patch.object(evidence, 'COMPRESS_MIN_BYTES', 1), patch.object(evidence.os, 'read', side_effect=replace):
+            report = self.capture()
+        self.assertEqual(report['status'], 'PARTIAL')
+        record = next(item for item in report['files'] if item['source'] == 'rust/large.log')
+        self.assertEqual(record['status'], 'PARTIAL')
+        self.assertIn('source log parent changed', record['error'])
+
+    def test_raw_read_budget_is_separate_from_stored_byte_budget(self):
+        (self.logs / 'first.log').write_bytes(b'12345678')
+        with patch.object(evidence, 'MAX_RAW_CAPTURE_BYTES', 4):
+            report = self.capture()
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['raw_bytes_read'], 4)
+        self.assertIn('RAW_CAPTURE_BYTE_LIMIT', report['reasons'])
+
+    def test_lock_inventory_observes_absence_and_ignored_files_without_git_or_cargo(self):
+        vendor = self.source / 'vendor'; vendor.mkdir()
+        (self.source / '.gitignore').write_text('Cargo.lock\n')
+        (self.source / 'Cargo.lock').write_bytes(b'root lock')
+        initial = evidence.lock_inventory(self.source, ['Cargo.toml', 'vendor/Cargo.toml'], self.out,
+                                          self.deadline, self.expected, stage='initial', fixed_deadline=123)
+        self.assertEqual(initial['status'], 'COMPLETE')
+        self.assertEqual([x['status'] for x in initial['locks']], ['CAPTURED', 'ABSENT'])
+        (vendor / 'Cargo.lock').write_bytes(b'new ignored lock')
+        later = evidence.lock_inventory(self.source, ['Cargo.toml', 'vendor/Cargo.toml'], self.out,
+                                        self.deadline, self.expected, stage='later', fixed_deadline=123)
+        self.assertEqual(later['locks'][1]['status'], 'CAPTURED')
+        self.assertEqual(later['dependency_resolution_impact'], 'UNKNOWN')
+        self.fake_git({'status': {'stdout': b'?? vendor/Cargo.lock\n'}})
+        report = evidence.capture_identity(self.source, self.out, self.deadline, self.expected, initial_locks=initial)
+        self.assertEqual(report['untracked_locks'][0]['initial_presence'], 'ABSENT')
+        self.assertEqual(report['clean_gate'], 'FAIL')
+        self.assertEqual(report['untracked_locks'][0]['origin'], 'UNKNOWN')
+
+    def test_lock_inventory_never_calls_unsafe_or_missing_parent_absent(self):
+        (self.source / 'Cargo.lock').symlink_to(self.root / 'foreign')
+        for manifests, stage in [(['Cargo.toml'], 'symlink'), (['missing/Cargo.toml'], 'missing-parent')]:
+            report = evidence.lock_inventory(self.source, manifests, self.out, self.deadline,
+                                             self.expected, stage=stage, fixed_deadline=123)
+            self.assertEqual(report['status'], 'PARTIAL')
+            self.assertEqual(report['locks'][0]['status'], 'UNKNOWN')
 
     def test_oversize_log_keeps_head_tail_and_later_small_log(self):
         (self.logs / 'large.log').write_bytes(b'abcdefgh')

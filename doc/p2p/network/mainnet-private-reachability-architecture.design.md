@@ -53,7 +53,7 @@
 | `public_addrs` | 可公开 direct dial 的地址 |
 | `relay_addrs` | 可通过 relay 抵达的地址或 reservation 引用 |
 | `capability_lanes` | `consensus_gossip/sync/blob_state/control` 可服务能力；缺省时按角色回填默认 lane 集 |
-| `published_at_ms` / `ttl_ms` / `sequence` | 有效期及刷新、撤销、地址漂移顺序；sequence 是待实现的版本化 wire 合同，不能由接收端为旧记录回填 |
+| `published_at_ms` / `ttl_ms` / `sequence` | 有效期及刷新、撤销、地址漂移顺序；sequence 由可选 V2 签名 envelope 与本机持久发行提供；接收端水位由显式 durable receiver 模式独立保护，不能为旧记录回填 |
 | `signature` | 链域隔离签名 |
 
 设计约束:
@@ -99,7 +99,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接 [PRD 生命周�
 2. 验证 identity public key 与 peer ID 绑定、完整签名载荷、固定网络域及角色/公开地址 policy。链路身份通过不能代替 record 验签。
 3. 验证 `0 < ttl_ms <= 1h`，时间加法使用检查溢出的运算。版本化本地策略显式给出允许的未来偏差；超过偏差拒绝，`now >= published_at_ms + ttl_ms` 即过期。容差不延长已声明的到期时间。已知时钟倒退或时间来源不可信时暂停依赖新鲜性的接纳并报告 degraded；已判过期的同一载荷不因时钟倒退恢复。
 4. 按 `(network_domain, peer_id)` 比较已接纳的 sequence/digest：更低拒绝；相等且 digest 相同为幂等命中；相等且 digest 不同为签名冲突，保留旧记录作证据并隔离该 peer 候选，不按到达顺序选胜者或继续贡献健康来源；更高且其他检查通过才更新。时间戳不能覆盖 sequence，也不能用重新收到旧记录延长 TTL。
-5. 将新记录、关联观察和防回退水位作为一致的接纳结果安装；需要跨重启保存的水位在候选成为可拨号/可转发前持久化。任何验证/保存失败均不替换原已验证记录，不改变原水位。
+5. 将新记录、关联观察和防回退水位作为一致的接纳结果安装；需要跨重启保存的水位在候选成为可拨号/可转发前持久化。任何验证失败均不替换原已验证记录或水位；保存失败不发布新的候选，提交结果不确定时按[接收端持久水位合同](#discovery-receiver-floor-v2)阻断并验证实际原件，不能回写旧水位。
 
 撤销使用同身份、同网络域、更高 sequence 的签名 tombstone，撤销所覆盖的低序记录和其候选地址；tombstone 不携带可用路径。重新发布必须使用更高序号并重新满足当前策略。该撤销只管理发现声明，不撤销 validator membership、治理权或已固定历史；密钥失陷/正式角色撤销由各自 authority 合同处理。
 
@@ -129,13 +129,15 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 现有 libp2p 网络实例采用固定 `v1-discovery-budget-1`，在自动发现工作排入底层协议前统一接纳。目标是限制候选 fanout 和代理重试放大；不改变签名 wire，也不将预算余量视为健康或授权依据。
 
 - 同一实例、所有发现来源共享单调时钟的滚动 60 秒窗口，最多启动 128 项工作，并发最多 32 项。完成或失败只释放并发，不返还窗口消耗；切换代理、DHT／RR 入口或重建工作项不能重置窗口。新实例重新计数，不声称跨重启限速。
-- 自动 provider 查询、记录查询、记录交换和缓存转发重发布属于发现工作。本机发布／provider 公告、应用显式 DHT／业务 RR、rendezvous register／discover 协议操作及底层协议内部报文不由此预算逐项／逐包计量；现有 transport／协议限制继续适用。该边界不等于全网连接、字节或验证 CPU 的总预算。
+- 自动 provider 查询、记录查询、记录交换、缓存转发重发布及本机 rendezvous client 的 register／discover 请求属于发现工作。本机发布／provider 公告、应用显式 DHT／业务 RR、入站 rendezvous server 服务和底层协议内部报文不由此预算逐项／逐包计量；现有 transport／协议限制继续适用。该边界不等于全网连接、字节或验证 CPU 的总预算。
+- rendezvous 的连接建立与周期刷新入口须经同一 register／discover helper，在去重检查后、协议实际发起前接纳。预算拒绝不发送请求、不创建 pending；后续普通周期可重试，仍受同一窗口限制。register 同步调度失败只释放并发，不退还窗口。两种操作以独立 rendezvous 客户端命名空间中的真实 request ID 保留有界 outstanding（request ID 只在单个 behaviour 内唯一，不能与应用 RR 的相同数值合并），同时按 kind 与 rendezvous peer 去重，与 DHT／RR 共用 32 并发；只能由匹配该 request ID 的客户端协议成功／失败终态释放。连接断开或本机 pending 清理不释放预算，也不能使尚未终态的同 kind／peer 重复发起；迟到或重复终态不得释放别的操作。没有对应 outstanding 的终态不得扣减通用并发。到限不全量断开既有会话，不新建后台重试路径。本机网络组装已接入该扩展；[验证方法](../../../testing-manual.md#discovery-work-budget)包含共享窗口、请求终态与调用入口，不包含入站服务预算。
+- 固定 libp2p client 原有的外部地址变化自动重注册必须在本机网络组装中显式关闭，地址集合仍正常更新；后续连接／周期刷新通过上述预算 helper 重新注册。地址变更使旧成功注册不再满足新地址集合；变更前已在途操作须先结清其真实 ID，旧 ACK 不得掩盖仍需刷新的状态。仓库沿用已有依赖补丁机制，为固定 client 增加默认行为保持兼容的 auto-refresh opt-out、request ID 发起／终态信息和只读地址视图；本机显式选择受预算控制的路径，不改 wire／codec／server。客户端收到与原请求种类不匹配的合法响应也必须产生对应唯一失败终态并移除原 waiting 项，不能因底层请求已结束而永久泄漏并发。终态释放不得依赖本机超时猜测。
 - 单目标缓存代理链最多尝试 4 个不同代理；成功或失败后的新逻辑请求仍受实例滚动窗口约束。到限延后，保持现有已认证会话；不为腾预算全量断连，也不承诺攻击下的公平性或收敛期限。
 - 缓存发现列表 wire 输入最多 16 KiB、128 项，先核输入尺寸并有界解码，再去重和派生工作。响应端最多返回 128 个当前有效的 ID；这不是完整分页枚举 API。DHT provider 结果累积也最多 128 个候选。
 - 三类 RR 请求各自的 cooldown 表最多 1024 个 peer（direct record、cached record、cached ID list，合计最多 3072 项）；到期项先回收，无安全空位则拒绝新增调度，不驱逐仍有效的限速记录。拒绝不能制造 pending 标记或请求流量统计。
 - 并发／窗口占用、容量上限、累计启动数及并发／窗口拒绝计数通过既有网络 metrics 的 `discovery_work` 摘要投影，禁止 peer ID 或远端字符串作为无限维度 label。预算拒绝不替代签名、域、TTL、peer health 或角色检查。
 
-并发仅在对应协议实际终态释放；不能按本机超时清空账本而让仍在运行的协议工作失去计量。上述速率窗口和代理链限制承接累计工作上限；跨轮次持久配额、rendezvous 协议操作总预算、入站服务／验证总预算、抖动刷新以及受信控制域依据仍属后续范围。
+并发仅在对应协议实际终态释放；不能按本机超时清空账本而让仍在运行的协议工作失去计量。上述速率窗口和代理链限制承接累计工作上限；跨轮次持久配额、入站 rendezvous 服务／响应列表及其他入站服务／验证总预算、抖动刷新以及受信控制域依据仍属后续范围。
 
 <a id="discovery-record-refresh"></a>
 ### 当前 v1 到期前刷新
@@ -155,10 +157,66 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 3. 已接纳新版本的 peer 不接受旧版覆盖。兼容许可和已迁移状态须跨重启保持；不能因清 cache 或重建本地观察重新得到旧版许可。兼容窗口结束后严格拒绝旧版；不在旧签名下填充新字段，也不对远端记录重新签名掩盖变更。
 4. net/proto 共同完成 wire 与接纳，chain-runtime 完成发布序号持久化，node/status 消费本地派生视图；实现 PR 同时覆盖迁移、原签名转发、各入口的时间检查及高 churn 容量用例后再升级支持声明。
 
+<a id="discovery-tombstone-v2"></a>
+### V2 发现撤销与显式恢复实施合同
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本段规定显式启用的发布撤销与接收执行，标准 development host→node→net 已接入这些路径。扩展 `PeerRecordPublicationStateV2` 为 `live|tombstone`，保留 schema 2、V1 字段与签名域，V2 仍签完整 `(schema_version, sequence, state, PeerRecord)`。tombstone 必须绑定原 peer/world/network、使用正且更高序号并清空 direct、hole-punch、relay 地址；TTL／未来偏差和输入预算仍适用。旧 live-only 实现遇到未知 state 拒绝，不回退 V1，也不声称旧节点已执行撤销；legacy 接收策略明确拒绝 tombstone，不以成功接纳却保留旧 live 候选的方式降级；显式 durable-compatible／V2-only 接收策略才启用本撤销语义。
+
+标准 development host 提供互斥、显式的一次启动操作 `--withdraw-peer-record-publication` 与 `--resume-peer-record-publication`，要求 durable V2 publisher、显式持久接收策略和各自已初始化原件，不隐式建身份或账本；操作参数不落入持久配置。该操作沿 host→node→net 传递，在启动共享发布器时持久执行，之后按原运行入口继续；普通启动无操作参数。日常重开已撤销的 publisher 也要求持久 receiver，不能因未再传 transition flag 而静默降为 legacy；不支持的组合在起网前明确拒绝。撤销先持久预留更高序号、完整无路径 payload 及 tombstone 意图，再签名并持久原件，最后允许网络 put。撤销意图及状态随原 publisher 保存；预留后或签名后崩溃恢复只能完成同一撤销，不得把原序号签成 live。正常重启、周期刷新、地址变化和远端查询不得自动把已撤销发布器恢复为 live。显式 resume 才允许以更高序号发布当前合法 live 模板。原状态缺少新增撤销字段时按旧 live 状态兼容读取；旧实现无法识别新持久状态时必须阻断，不能清空或降级。
+
+撤销后本机周期和重试只可重发同一仍有效的签名 tombstone，不因远端查询重新签名或分配序号；过期后可以停止转发，持久撤销状态保持，普通启动仍不恢复 live。明确恢复前不自动续签 tombstone，因而不承诺离线新节点最终观察到该撤销；旧 live 最大 TTL 与接收端持久水位仍独立约束重放。DHT Quorum::One、发送完成或本机状态均不代表全网撤销确认。
+
+接收端以同一事务比较、持久提交 tombstone 和最高水位，随后撤销旧候选、来源观察和自动发现拨号授权；tombstone 不安装为健康／可拨号候选，也不进入发现 ID 列表。保留已有会话的限制性元数据与静态地址独立生命周期，不将发现撤销扩大为角色撤销。低序 live、V1 与同序异内容按原水位／冲突规则拒绝，未隔离 peer 的更高 live 可恢复候选；已有同序冲突隔离不因 tombstone 自动解除。
+
+撤销证据转发与 live 候选读取分离。当前签名 tombstone 从有界接收账本原件读取，经本进程时间、绑定与当前最高水位检查后可用于 RR 缓存响应／公开记录结果，保持远端签名与序号，不另建无界 tombstone map；该读取不授予发现健康或拨号租约。DHT StorePut 接纳、缓存转发、RR 原件转发和查询结果须分别验证，查询得到的记录未实际进入 store 时不声称可由 Kademlia 转发。失效后不转发，但水位继续保留；无可信时间不执行 GC，也不宣称跨重启绝对到期或恶意磁盘回滚安全。
+
+验收沿实际发布和接收入口：live 1→显式 tombstone 2→发布预留／签名后重启仍为原 tombstone→普通刷新不复活；接收撤销后拒绝旧 live／V1，清理来源与队列拨号但可返回当前有效撤销原件；重开接收原件后水位不降；显式 resume 为 live 3 后恢复候选。覆盖无地址约束、V1 固定向量、未知状态／篡改、同序冲突、过期转发拒绝和真实 TCP／DHT 正向传播。可信时间、全网 ACK 与物理故障域仍为独立义务。
+
+<a id="discovery-receiver-floor-v2"></a>
+### V2 接收端持久水位实施合同
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本切片目标为显式启用的 `receiver-floor-v2-1`，独立于本机 publisher 模式。legacy 默认保持现有接纳；持久兼容策略只允许尚未迁移的 peer 使用 V1，同 peer 首次接纳 V2 后永久拒绝 V1；严格 V2 策略拒绝所有 V1。初始化时固定策略，日常打开必须匹配，不能用换 publisher 模式或清缓存退回旧许可。两个模式不相互推断或自动升级，但普通网络启动的严格 V2 接收策略要求本机配置的发布器也使用 durable V2：Kad 本机 put 与远端 store 共用接收边界，不能按本机 peer ID 豁免 V1，否则远端重放本机旧声明可绕过严格策略。不支持的组合须在启动前明确拒绝，而非启动后持续发布失败；receiver-only 显式初始化不启动网络，可先于 publisher 初始化单独完成。标准 host 在稳定 `runtime_root/p2p/peer-record-receiver` 发现 receiver 目录（即使为空）、初始化意图、锁或 sentinel 任一残留时，拒绝禁用 receiver 模式；原目录整体丢失或恶意替换属于外部恢复边界，不能声称本机文件能检测任意整机回滚。
+
+首次初始化是显式、只建 receiver 状态后退出的操作；日常启动只打开原件。状态绑定接收实例身份、world/network、schema 和接纳策略；稳定 OS 锁、私有路径／文件检查、有限输入、文件 fsync、原子替换及父目录 fsync 在网络实例启动前生效。初始化中断仅允许显式恢复可证明尚未接纳任何记录的原始空状态；已初始化原件丢失、未知版本、损坏、绑定不符或不明临时材料均阻断，保留原件而不重建。平台不支持所需持久语义时拒绝启用该模式。
+
+一个实例的 DHT store、DHT/RR 候选及公开记录查询结果共享同一个接收账本。同一 `(world, network, peer)` 的读取当前水位、比较、冲突判断、持久替换及内存 gate 发布必须在同一串行事务边界内完成；纯预检所得旧快照不能覆盖后来已提交的更高水位。候选发布须绑定该事务的有效 gate，不能暴露已被并发推进或隔离的旧 generation；读路径不得看见半完成状态。在共享准入预算及现有签名／身份／域／时间／路径检查后，以 `(world, network, peer)` 比较 V2 sequence。摘要使用原协议规范签名载荷，不以 CBOR envelope 字段顺序或本机补字段制造新声明。低序号拒绝；相同 sequence 和摘要为幂等，可增加有界的真实认证 ingress 观察，但不延长或重建已安装租约；相同 sequence 不同摘要必须先持久保留两份有效签名声明，再隔离该 peer 候选；DHT store 与候选安装复用签名、身份、域、时间和地址／路径的共同纯预检，不把未经路径检查的存储记录提前用于转发。更高 sequence 在纯预检通过后持久提交，之后才能暴露新缓存／观察／路径或公开查询结果。保存失败不发布新的内存水位或候选，原已验证记录保留作证据，接收账本进入 fail-closed 状态，不能凭内存成功继续。原子替换后父目录 fsync 失败属于提交结果不确定：磁盘可能已是更高水位，不能回写旧状态假装事务未发生；重开必须完整验证实际原件并遵循该原件的更高水位或阻断。此时不承诺失败意味着磁盘字节从未改变，也不向调用方报告接纳成功。
+
+序号冲突隔离跨重启保留，本切片不提供自动解除；即使随后出现更高序号也保持隔离，后续显式修复策略另行定义。现有 lease 的读时检查须同时核对当前 receiver 水位／隔离，使旧缓存、DHT 转发及已排队的发现拨号不能在账本推进或冲突后继续贡献候选与健康来源。静态配置地址仍按独立配置合同；既有认证会话不因记录失效自动断开，发现隔离不冒充角色／validator 权限撤销。排队拨号在交给原始 transport 前检查 receiver gate；已经在当时有效 gate 下释放的握手延续现有 transport 超时合同，不作追溯取消。若其在水位推进或隔离后完成，只能作为独立认证和资源策略下的无有效发现声明连接处理，不得恢复旧记录、旧地址的永久候选资格或健康来源，也不自动取得角色权限。此边界与当前时间策略对已启动连接操作的处理一致。
+
+账本最多保存 1024 个 peer，每份签名声明最多 16 KiB，每个 peer 最多原声明和首份冲突证据，完整持久文件最多 64 MiB（含编码与绑定元数据）。没有可信时间下界时不 GC 水位，不驱逐活跃或旧水位给新身份腾位置；到限拒绝新 peer，但允许已有未隔离 peer 的合法升序更新。重启重新验证格式、绑定、签名和摘要；持久声明只作为反重放证据，不在重新打开时自动安装为可用候选；重新收到的材料仍须通过本进程 DiscoveryClock 检查。该时钟不提供跨重启的可信绝对时间下界，因此本切片不保证重启伴随系统时钟回拨时同摘要记录的绝对到期语义。兼容模式尚未迁移的 V1 peer 不占用持久 V2 floor 数量，但仍受独立的候选缓存与接收预算上限约束。发现撤销 wire 与原件转发按[撤销扩展](#discovery-tombstone-v2)执行；本合同不交付可信时间、恶意磁盘回滚防护或跨故障域验收；这些仍为 #4975 后续义务。
+
+验证必须覆盖真实 host→node→net 的独立接收配置、TCP/DHT 接收后重启拒绝低序号与 V1、同序号冲突后缓存／转发／排队拨号失效、原件丢失／损坏／绑定／重复实例、容量拒绝与既有 peer 正向升序，以及持久提交失败不暴露新候选。纯 helper 测试不代替上述生产路径。
+
+<a id="discovery-record-admission-budget"></a>
+### 本进程 peer-record 准入预算
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。`peer-record-admission-1` 为本机网络实例的记录解析／验签／接纳建立一个共享滚动窗口：60 秒内最多 512 次准入，有真实可识别上游时每个 peer 最多 256 次；上游跟踪表最多 512 项，只清理窗口内已无计费事件的项，不驱逐活跃项以重置配额。计时使用单调时钟，准入前移除 age >= 60 秒的计费事件；换 provider、协议入口或查询重试不重建预算，每个实际收到的重试／重复 payload 都单独计费；单进程重启后的新窗口不宣称跨重启配额或持久防回退能力。
+
+同一 `Arc<Mutex<PeerRecordAdmissionBudget>>` 覆盖 peer-record DHT store put、DHT 自动发现与公开 `get_peer_record` 结果，以及特殊 RR 请求／响应。准入发生在首个 payload 解码／验签前，拒绝不修改旧 store、候选 cache 或 DiscoveryObservation；已准入但随后格式／签名失败的尝试不返还额度。一个请求／响应／put 为一次有界工作单元，其中的固定次数重复验证不重复收费；候选安装入口须线性消费绑定真实来源、原始 payload digest、工作单元与准入时间的不可复制凭据，不能被新的生产调用方直接绕过或误配到其他载荷。后续持久 floor 写入仍须在同一已授权 candidate 安装路径内，不从本凭据推导独立写入权。DHT store 后的另一次查询结果是新的工作单元。RR ID 列表最多 128 项，一次合法列表及后续 128 条记录响应可在默认单上游额度内完成，但仍受共享总量及已有出站工作预算约束。
+
+上游仅取自 libp2p 认证的 RR 外层 peer、或 Kademlia 结果的实际来源 peer，不能使用记录自述的 peer ID、publisher、operator 或 ASN。`RecordStore::put` 不提供发送者、Kad 本地记录来源为 None 时，只能使用 global 额度，不宣称这些路径具有逐来源限额。逐 peer 拒绝不消耗其他 peer 的 global 额度；新来源只有在总量与跟踪容量均允许时才加入表。预算锁不覆盖验签、网络或存储操作。拒绝通过现有错误／有界诊断区分总量、来源与跟踪容量，观测不能产生无界来源标签。
+
+该预算不等同于整个 Kademlia 入站吞吐、所有公开 API 查询启动／并发、跨重启配额或永久 sequence-floor 容量管理；已有出站发现工作预算继续独立生效。接收端 live-record 持久水位、冲突隔离与已迁移 peer 的 V1 退役由[独立 receiver 合同](#discovery-receiver-floor-v2)承接，发现撤销另由[状态扩展](#discovery-tombstone-v2)执行，可信时间仍待实现，不能凭本预算代签。验证见[记录准入预算](../../../testing-manual.md#discovery-record-admission-budget)。
+
+<a id="discovery-durable-publication-v2"></a>
+### V2 本机发布序号与兼容边界
+
+本机发布切片沿用 Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。`SignedPeerRecord` 保留 V1 原字段，增加可选严格 `publication` 元数据：`schema_version = 2`、正且单调的 `sequence`、显式的 `state = live|tombstone`。没有元数据时继续使用原 canonical CBOR 与 `oasis7-peer-record-v1|` 签名域；存在元数据时只按 `oasis7-peer-record-v2|` 和完整 `(schema_version, sequence, state, PeerRecord)` 签名／验证。未知版本、未知状态、零序号或 V2 验证失败均拒绝，不回退 V1 验签，也不为旧记录补序号。tombstone 的无路径约束、持久撤销与显式恢复按[撤销扩展](#discovery-tombstone-v2)执行；不支持该状态的旧实现拒绝，不退回 V1。
+
+启用由本机网络配置显式选择。legacy V1 保持原行为；V2 要求固定 identity key、record 模板与私有持久发布目录，已发布的标准 host 网络路径通过 typed `DevelopmentRuntimeConfigV1.p2p_peer_record_publication`／CLI `--p2p-peer-record-publication` 显式选择 `v1_legacy` 或 `v2_durable`，旧配置默认 legacy；V2 使用稳定 runtime root 下的 `p2p/peer-record-publication`，经 node adapter 传给 net。独立 `FormalLiveConfigV1` 当前不构造该 libp2p 网络，此开关不宣称已给正式 authority profile 接通 P2P。持久绑定只固定 peer/public key 与 world/network，不把整个可变声明模板当成身份锚；同域同身份调整 TTL、role 或来源等声明后可重开并以更高序号发布，仍须通过本机当前角色／地址 policy。旧未决载荷按其原始完整字节与固定域验证，不能拿新模板改写旧序号。初始化创建的目录链逐层持久同步父目录，并在写入前拒绝 symlink 祖先；目录持有稳定 OS 生命周期锁；并发第二实例、symlink、权限或绑定异常、损坏状态与序号耗尽均阻断 V2 启动／发布，不自动重建或降级 V1。
+
+首次启用须以一次性的 `--initialize-peer-record-publication` 操作显式建立绑定的私有发布状态；该操作要求选择 `v2_durable`、持久 identity 与固定 runtime root，只初始化后退出，不启动世界或网络，也不把初始化动作写入可重复执行的 typed runtime 配置。初始化和普通启动须应用相同 manifest 默认值后再固定 world/network，不能以默认 world 初始化另一绑定。初始化在创建永久锁和状态前，以私有、有界、canonical 的同域 `Initializing` 意图原子落盘并同步目录；初始化者持有该意图 inode 的独占锁，续办者必须先获得该锁并验证完整意图。锁后及发布前核对 fd 与当前路径的 device/inode 相同；意图发布使用原子 no-replace 语义，绝不覆盖已有意图，防止已 unlink 的旧 fd 与替换路径分属不同锁。仅当同绑定且没有已发行材料（状态缺失且无 Ready，或状态为零序号且无 pending）时，显式初始化可续办中断阶段；损坏／错绑定意图、已发行状态或 Ready 缺失原状态均拒绝归零。完整 state0 与 Ready 同步后，仍持锁持久清除意图；普通打开在取得稳定锁前后都拒绝未完成意图。最早暂存文件仅在无永久锁／state／Ready、文件有界且私有、独占锁可得时处理，不能泛删目录。初始化续办中，完整但未知版本／字段／状态或损坏的临时意图与临时 state 必须保留原件并拒绝；仅可证明为写入截断的未发行暂存内容可按上述前置条件续办，不能把 schema 解码失败统称为崩溃残片。重复初始化已有完整状态须在创建意图前无副作用拒绝，包括普通实例正在持锁时；不得留下新的意图阻塞后续正常打开。日常 V2 启动只打开既有目录、稳定锁与状态；完整目录、state 或 marker 丢失／不一致均报错，不能重新建空目录和零序号作为恢复。丢失原状态时恢复原件；初始化入口不是同身份重置或丢失状态的修复方式。显式持钥者恶意重建／回滚整个存储不由普通本地存储保证覆盖。首版仅在已实现私有权限与目录 fsync 合同的平台启用 V2，其他平台明确拒绝该模式，legacy V1 不受影响。
+
+统一发布器覆盖初始、周期、监听地址、relay 与外部地址变化等本机入口：先以文件和父目录 fsync 原子预留递增序号及完整物化 payload，再签名并持久保存原 signed record，之后才允许对外 put。崩溃恢复只能重签同一预留 payload，或明确消耗该序号留下空洞；不能以新地址／时间覆盖旧序号。网络重试与恢复重发保持原 signed bytes；新地址或下一周期属于新发布意图，可用更高序号替代发送结果不确定的旧意图。过期预留不得通过重写时间重新生效，须消耗原号后另分配。Kademlia `Quorum::One` 不是全网安装确认，不以丢失 ACK 无限阻塞后续新发布；状态和未决材料有固定字节上限，不保存无界发布历史。V2 的远端 `RR_GET_LOCAL_PEER_RECORD` 查询只读取内存中已有、未过期且匹配当前声明与地址的持久签名原件；缺失或过期时返回不可用，等待本机刷新。远端查询不得签发新序号、签名或触发磁盘读写／fsync，避免未受信 peer 驱动同步持久化。转发远端缓存记录保持远端原签名与序号，不经过本机分配器。
+
+该切片只提供正常持久存储上的本机发行连续性，普通文件与 OS 锁不抵抗同密钥／磁盘的恶意快照回滚。接收端跨重启 sequence 高水位、同序冲突隔离与显式 V2-only 接纳由[独立接收账本](#discovery-receiver-floor-v2)承接；[发现撤销](#discovery-tombstone-v2)要求显式持久接收策略；策略转换和可信时间仍待实现，能够验证 V2 签名不表示已具备完整防重放保证。验证方法见 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2)。
+
 <a id="discovery-peer-record-implementation-boundary"></a>
 ### 当前实现边界
 
 [接收链](../../../crates/oasis7_net/src/libp2p_net/discovery.rs)保留发布者的 `SignedPeerRecord`，缓存、DHT republish 和 RR 转发均不添加本地来源标签。[本地观察](../../../crates/oasis7_net/src/libp2p_net/peer_discovery_observations.rs)按原 signed payload 精确关联 DHT 实际响应上游、直接 record-exchange 对端或缓存代理对端，去重保存末次观察时间；同一 peer 的新 payload 不继承旧观察。本地 seed 身份仅来自当前 bootstrap 配置，配置移除后例外消失，不从远端 `StaticBootstrap` 自述或代理节点的信任状态继承。
+
+rendezvous 的 ID-only 注册仅触发独立的签名记录查询，不作为 record ingress 或来源独立性证明。查询须有界保留触发 server 与目标 peer 的关联（最多 1024 个目标、每目标 8 个不同 server、最长 60 秒，以单调时钟到期）；同目标去重查询可合并触发来源，但不从注册地址建立 dial 候选。只有该查询或其缓存代理 fallback 得到目标一致、通过签名及当前接收策略验证的记录后，才把触发信息关联到成功安装且仍有本地观察的确切 live signed payload；tombstone 消费并丢弃触发信息，不新建观察，也不向后续 live 载荷传递关联；实际 ingress 仍是 DHT 响应上游或 RR 对端；成功关联通过既有有界诊断事件展示目标 peer、精确 signed payload 的 BLAKE3 摘要、实际 ingress 与触发 server，不修改或转发本地标签到 wire，不增加 trusted labels、健康独立来源计数或连接权限。缓存命中不追溯补来源，包括 Kademlia 本地 store 返回、没有实际远端上游的成功结果；这种结果须丢弃触发关联且不改变原候选行为。查询失败、错误目标、无效记录或关联到期须丢弃触发信息，后续无关查询不能继承。并行 DHT／RR 尝试共享一次性的诊断关联；任一路明确错误、无效材料或 policy 拒绝均整体丢弃该关联，另一条稍后成功仍可按原准入安装记录，但不补回触发来源。DHT 或 RR 未找到材料的正常结果可把关联交给同链 RR fallback，不等同于命中本地缓存或明确错误。该关联为尽力诊断，不保证并行失败后每条成功结果仍有来源；首次成功安装后同样消费关联。容量驱逐和时钟异常不得延长关联寿命或提高信任。该合同已接入实际 Discovered → DHT／RR → 候选安装与有界诊断路径，验证方法见 [rendezvous 触发关联](../../../testing-manual.md#discovery-rendezvous-trigger-provenance)。
 
 本地观察最多保存 1024 个 peer、每个 payload 最多 8 个 ingress，单条序列化 signed payload 最多 16 KiB；到限驱逐最旧观察（不提高剩余记录信任），超大记录或已跟踪 peer 的观察时钟回退拒绝接纳且不替换原记录。该容量是本地观察预算，不是整个发现候选、连接和持久防回退状态的完整容量保证。
 
@@ -166,7 +224,7 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 
 来源不足的健康状态与已建立会话的传输准入分开：允许符合实际路径及 unknown 域预算的既有会话继续获取材料，健康仍降级。每个会话都计入路径、relay、operator/ASN 分母与桶；无 record 或远端自报 `observer_light` 不能豁免这些预算。候选按稳定 peer ID 顺序准入，配额拒绝进入 quarantine，不以缺 record 提前跳过统计。该策略改变旧版依赖自述标签的 healthy 结果及 observer 配额豁免；没有新增 wire 字段或重签旧记录。
 
-[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs)仍为既有 wire，包含 `published_at_ms/ttl_ms` 而没有 sequence。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。持久可信时间、首次观察与配置版本、rendezvous ID-only 来源链、持久 sequence/tombstone/高水位、rendezvous 协议操作总预算、跨重启配额和跨重启迁移仍待实现；自动 DHT／RR／缓存重发布采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。缓存候选按[到期前刷新策略](#discovery-record-refresh)尽力提前获取新材料，保留短 TTL／cooldown 和失败时可能到期的限制。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
+[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs) body 保留既有 `published_at_ms/ttl_ms`；legacy V1 签名不含 sequence。新增可选 V2 envelope 与[本机持久发布器](../../../crates/oasis7_net/src/libp2p_net/durable_peer_record_publisher.rs)，由标准 host 显式配置、首次初始化后打开现存状态，覆盖正常重启发行连续性；正式 authority profile 的 P2P 组装不由该入口代签。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。显式[接收端账本](../../../crates/oasis7_net/src/libp2p_net/receiver_floor.rs)在标准 host→node→net 路径保护 live V2 sequence、同序冲突隔离和已迁移 peer 的 V1 退役，并在租约读时限制旧候选。[显式撤销与恢复](#discovery-tombstone-v2)已接入持久发布、接收水位和原件转发；legacy 接收模式拒绝 tombstone，撤销状态重开也要求持久 receiver。rendezvous ID-only 触发链已按上述有界、一次性、精确 live payload 规则保留本地诊断，不增加独立来源。持久可信时间、首次观察与配置版本、入站 rendezvous 服务／响应列表预算、跨重启配额及 reception 策略转换仍待实现；自动 DHT／RR／缓存重发布及本机 rendezvous register／discover 采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。缓存候选按[到期前刷新策略](#discovery-record-refresh)尽力提前获取新材料，保留短 TTL／cooldown 和失败时可能到期的限制。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
 
 ## Peer Reachability Contract Normalization
 本节是 2026-06-15 iroh-inspired follow-up 的设计落点。借鉴点只限于 identity-first address boundary、显式 selected path 与 reachability evidence；不引入 iroh 依赖，不替换 libp2p，也不采用 iroh relay/DNS/Pkarr 默认。
@@ -328,7 +386,12 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 公网 IP 不是通用参与前提；保持 direct、hole-punched、relay 顺序及 delayed-sync 的 lane 限制 | [设计条款](#路径选择与传输策略) | runtime path selector；operator 维护允许的部署 profile | 不保证任意 NAT pair 可直连，不由 relay reservation 推导公网可达 |
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | peer manager 根据既有 source/operator/ASN/subnet/relay-domain 与 budget 规则隔离异常 peer，远端不得覆盖本地 admission | [设计条款](#anti-eclipse-anti-spam-基线) | P2P peer manager；QA fail-signature cases | 不证明跨重启 banlist、经济安全或完整抗攻击能力 |
 | [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 来源独立性由本机实际观察及可核验控制域依据建立；seed 例外不改签名、不授予世界或角色权威 | [发现来源证据与签名不变性](#discovery-evidence-boundary) | net ingress/peer manager；本地 seed policy 与受信 operator/ASN 依据 | 已接入不变签名、本地 seed 与 DHT/RR 观察、未知域健康和会话预算；受信控制域映射、持久时间与完整生命周期仍待实现，不覆盖完整抗 Sybil |
-| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | TTL/时钟/序号/撤销在接纳、缓存、转发及拨号入口一致；水位重启不降、缓存有界、版本迁移不改旧签名 | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | proto wire；net 验证与缓存；chain-runtime 发布持久化；受信时钟/本机存储 | 现有 v1 时效接纳／缓存／转发／拨号已接线；新 sequence wire 和持久迁移待实现；不把普通本地存储当硬件防回滚或 validator 防双签机制 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | TTL/时钟/序号/撤销在接纳、缓存、转发及拨号入口一致；水位重启不降、缓存有界、版本迁移不改旧签名 | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | proto wire；net 验证与缓存；chain-runtime 发布持久化；受信时钟/本机存储 | 现有 v1 时效接纳／缓存／转发／拨号已接线；V2 本机发行 wire／持久化按下列独立条款接入，live-record 接收端水位和 V1 退役按下列独立条款启用，撤销扩展按下列独立条款接入，可信时间仍待实现；不把普通本地存储当硬件防回滚或 validator 防双签机制 |
+
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 记录解析／验签／接纳共享有界窗口，真实来源限额与 global 限额不因入口切换重置。 | [本进程准入预算](#discovery-record-admission-budget) | net DHT store、DHT 结果与 RR 实际入口 | 不证明跨重启配额、全 Kad 请求预算或接收端持久防重放。 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 显式撤销跨重启不复活，原签名 tombstone 撤掉候选，更高 live 显式恢复。 | [发现撤销与恢复](#discovery-tombstone-v2) | host 一次启动参数 / node adapter / net durable publisher、receiver、DHT 与 RR | 要求已初始化持久 receiver；不代表角色撤销或全网确认。 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 接收水位跨重启单调，同序冲突持久隔离，已迁移 peer 拒绝 V1。 | [V2 接收端水位](#discovery-receiver-floor-v2) | host 配置、node adapter、net store／候选／公开结果与租约读时 gate | 撤销见独立扩展；不交付可信时间或任意磁盘回滚防护。 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | 本机 V2 发布预留／签名先持久化，所有重发布入口共享绑定与递增序号；V1 原签名语义保持不变。 | [V2 本机发布序号](#discovery-durable-publication-v2) | chain-runtime / node adapter / net publisher / proto；本机私有存储与 OS 锁 | 不证明接收端持久防重放、tombstone、可信时间或恶意整机回滚安全。 |
 
 ### 11.1 验证映射表
 
@@ -339,6 +402,11 @@ Status observability 只投影 contract 与 runtime-selected path 的 bounded su
 | [REQ-DCS-003](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-003) | [设计条款](#anti-eclipse-anti-spam-基线) | peer manager 根据既有 source/operator/ASN/subnet/relay-domain 与 budget 规则隔离异常 peer，远端不得覆盖本地 admission | [testing-manual S9B](../../../testing-manual.md#testing-p2p-mixed-topology-matrix)；同候选 required bootstrap-poisoning、relay-exhaustion 与角色边界 cases；核对 suspect record 的 dial dedupe、预算与集中度判定；required 不证明 live 隔离执行或公网抗攻击 | case stdout/stderr/log、测试断言与 summary | 不证明跨重启 banlist、经济安全或完整抗攻击能力；本轮未运行行为测试 |
 | [PRD 发现证据边界](mainnet-private-reachability-architecture.prd.md#discovery-evidence-boundary) | [发现来源证据与签名不变性](#discovery-evidence-boundary) | 自述不能成为独立来源；本地 seed 标记不能改变原签名或被第三节点继承 | 已实现签名不变与本地信任切片：按 [验证手册](../../../testing-manual.md#discovery-observation-local-trust-boundary) 执行；后续按同一手册补齐 PRA-EVIDENCE-01～03 的剩余条件；同一实现候选使用固定配置和可控时钟，执行 net 单元及三节点 record-exchange 合同测试，分别核对 cache、转发、selection 结果 | 原签名载荷 digest、第三方验签结果、实际来源分组及 degraded reason；记录 source/config/test ID | 三节点 loopback TCP 覆盖原签名经缓存转发及 seed 不继承；控制域映射、观察到期和完整 PRA-EVIDENCE-03 仍待实现，不证明公网来源独立性 |
 | [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle) | [Peer record 接纳、刷新与版本迁移](#peer-record-lifecycle) | 所有入口拒绝过期、回退、冲突及降级；持久水位与缓存容量安全，失败不污染旧记录 | planned：在现有 [peer record 测试文件](../../../crates/oasis7_net/src/libp2p_net/tests/peer_record_tests.rs) 增补 PRA-RECORD-01～05；同一 proto/net/chain-runtime 候选使用确定性时钟、崩溃注入和超过配置上限的高 churn 输入，实际 TCP record-exchange 另核排队后到期 | 每入口拒绝/接纳状态、旧 digest/水位不变、重开后序号、缓存/字节/重试峰值；明确预算及 wire 版本 | 新 wire 与场景待实现，本次未运行；不声称真实公网时钟、恶意主机回滚或无限规模支持 |
+
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | [本进程准入预算](#discovery-record-admission-budget) | 所有记录入口共享窗口，真实上游限额不可由自述身份绕过，拒绝不安装候选。 | [准入预算验证](../../../testing-manual.md#discovery-record-admission-budget)；确定性窗口、真实 TCP RR/DHT 与 store/API 共享路径 | 受测 candidate、入口／实际来源、准入与拒绝原因、窗口和跟踪数量、原候选不变；未知来源只报告 global 证据 | 不是跨重启配额、所有 Kad 操作预算或持久 floor 验收。 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | [发现撤销与恢复](#discovery-tombstone-v2) | 持久撤销、幂等恢复与无候选原件转发。 | [撤销验证](../../../testing-manual.md#discovery-tombstone-v2)；真实 host 重开及 TCP/Kad/RR 撤销与恢复 | 原签名状态/序号、缺接收原件不修改发布器、低序拒绝与更高 live 恢复；实际版本和结果归当前 PR。 | 无可信时间不 GC；不代表全网撤销 ACK。 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | [V2 接收端水位](#discovery-receiver-floor-v2) | 原件打开、升序接纳、幂等、不降级与冲突隔离先持久后暴露。 | [接收端验证](../../../testing-manual.md#discovery-receiver-floor-v2)；同候选真实 host／TCP／DHT 和存储故障注入 | source／配置、原始签名、重启与旧候选可见性、持久失败状态和正向升级；实际命令、受测版本和结果记录于当前 PR。 | 无可信时间不 GC，不扩展为角色撤销或 BFT 证明。 |
+| [PRD 生命周期条款](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)；Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3 | [V2 本机发布序号](#discovery-durable-publication-v2) | 预留、签名持久化与发送之间崩溃不复用序号签不同内容；生产 host 显式启用并传递稳定目录，远端转发保持原件。 | 按 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2) 执行同候选 proto/net/node/chain-runtime 测试；覆盖重启、并发、状态损坏／权限／绑定、序号耗尽、V1 固定向量、V2 篡改／未知版本、实际发布入口和原签名转发。 | 固定配置与 source、原始 payload／签名、重开前后序号、故障点与退出码；分别记录本地存储和真实网络证据范围。 | 普通文件不证明快照防回退；接收端高水位、tombstone、长期运行容量与公网故障域未由本机发布测试代签。 |
 
 <a id="discovery-peer-record-validation"></a>
 ### 11.2 增量验收场景（待实现）

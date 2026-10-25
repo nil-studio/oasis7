@@ -18,7 +18,19 @@ fn phase_code(phase_digest: &str) -> u64 {
         "resume" => 9,
         "handoff_wake" => 10,
         "handoff_view" => 11,
+        "admission" => 12,
         _ => 0,
+    }
+}
+
+fn apply_error_class(execute_error: Option<&str>, apply_error: Option<&str>) -> u64 {
+    match apply_error {
+        None => 0,
+        // WorldServiceClientError's Display preserves the variant name. Only
+        // the unchanged transport error qualifies; a token/config rejection
+        // before response consumption must remain an application failure.
+        Some(error) if execute_error == Some(error) && error.starts_with("Transport(") => 1,
+        Some(_) => 2,
     }
 }
 
@@ -32,6 +44,8 @@ pub(super) struct IoDiagnostics {
     applied: AtomicU64,
     execute_errors: AtomicU64,
     apply_errors: AtomicU64,
+    last_apply_error: AtomicU64,
+    last_apply_error_phase: AtomicU64,
     current_operation: AtomicU64,
     started_us: AtomicU64,
     elapsed_us: AtomicU64,
@@ -57,6 +71,8 @@ impl Default for IoDiagnostics {
             applied: AtomicU64::new(0),
             execute_errors: AtomicU64::new(0),
             apply_errors: AtomicU64::new(0),
+            last_apply_error: AtomicU64::new(0),
+            last_apply_error_phase: AtomicU64::new(0),
             current_operation: AtomicU64::new(0),
             started_us: AtomicU64::new(0),
             elapsed_us: AtomicU64::new(0),
@@ -85,7 +101,19 @@ impl IoDiagnostics {
         result: AgentServiceIoResult,
     ) -> Result<AgentServiceProgress, String> {
         self.consumed();
+        let execute_error = result.response.as_ref().err().cloned();
+        let phase = phase_code(&result.token.phase_digest);
         let applied = server.apply_agent_service_io(result);
+        self.last_apply_error.store(
+            apply_error_class(
+                execute_error.as_deref(),
+                applied.as_ref().err().map(String::as_str),
+            ),
+            Ordering::Relaxed,
+        );
+        if applied.is_err() {
+            self.last_apply_error_phase.store(phase, Ordering::Relaxed);
+        }
         self.applied(applied.is_err());
         applied
     }
@@ -180,6 +208,17 @@ impl IoDiagnostics {
             "same_phase_launch_count": self.same_phase_launches.load(Ordering::Relaxed),
             "execute_error_count": self.execute_errors.load(Ordering::Relaxed),
             "apply_error_count": self.apply_errors.load(Ordering::Relaxed),
+            "last_apply_error_class": match self.last_apply_error.load(Ordering::Relaxed) {
+                0 => "absent",
+                1 => "transport",
+                _ => "application",
+            },
+            "last_apply_error_phase": match self.last_apply_error_phase.load(Ordering::Relaxed) {
+                1 => "act", 2 => "act_view", 3 => "act_settled_view", 4 => "act_settle",
+                5 => "feedback", 6 => "feedback_ack", 7 => "feedback_ack_view",
+                8 => "wait", 9 => "resume", 10 => "handoff_wake", 11 => "handoff_view",
+                12 => "admission", _ => "unknown",
+            },
             "last_execute_us": self.elapsed_us.load(Ordering::Relaxed),
             "max_execute_us": self.max_execute_us.load(Ordering::Relaxed),
             "total_execute_us": self.total_execute_us.load(Ordering::Relaxed),
@@ -213,6 +252,25 @@ mod tests {
         thread,
         time::Duration,
     };
+
+    #[test]
+    fn only_unchanged_transport_errors_are_recoverable_diagnostics() {
+        let transport = "Transport(\"private request\")";
+        assert_eq!(apply_error_class(Some(transport), Some(transport)), 1);
+        assert_eq!(
+            apply_error_class(Some(transport), Some("completion token mismatch")),
+            2
+        );
+        for error in [
+            "Assurance(\"signature mismatch\")",
+            "Configuration(\"missing\")",
+            "unknown",
+        ] {
+            assert_eq!(apply_error_class(Some(error), Some(error)), 2);
+        }
+        assert_eq!(apply_error_class(None, Some(transport)), 2);
+        assert_eq!(apply_error_class(Some(transport), None), 0);
+    }
 
     #[test]
     fn handoff_phases_have_distinct_diagnostic_codes() {

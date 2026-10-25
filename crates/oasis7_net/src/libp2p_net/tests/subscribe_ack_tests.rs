@@ -1,3 +1,4 @@
+use crate::libp2p_net::durable_peer_record_publisher::LocalPeerRecordPublisher;
 use crate::libp2p_net::peer_record_cache::PeerRecordCache;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -86,6 +87,7 @@ fn handle_command_subscribe_acknowledges_success() {
             event_traffic_metrics: &event_traffic_metrics,
             keypair: &keypair,
             peer_record_template: None,
+            local_peer_record_publisher: &Arc::new(Mutex::new(LocalPeerRecordPublisher::Legacy)),
             local_peer_id: PeerId::from(keypair.public()),
             max_published_messages: 8,
             max_error_messages: 8,
@@ -236,6 +238,7 @@ fn handle_command_request_uses_swarm_connections_when_runtime_peers_are_empty() 
             event_traffic_metrics: &event_traffic_metrics,
             keypair: &dialer_keypair,
             peer_record_template: None,
+            local_peer_record_publisher: &Arc::new(Mutex::new(LocalPeerRecordPublisher::Legacy)),
             local_peer_id: PeerId::from(dialer_keypair.public()),
             max_published_messages: 8,
             max_error_messages: 8,
@@ -349,6 +352,7 @@ fn handle_command_request_uses_active_transport_peer_when_snapshots_are_empty() 
             event_traffic_metrics: &event_traffic_metrics,
             keypair: &keypair,
             peer_record_template: None,
+            local_peer_record_publisher: &Arc::new(Mutex::new(LocalPeerRecordPublisher::Legacy)),
             local_peer_id: PeerId::from(keypair.public()),
             max_published_messages: 8,
             max_error_messages: 8,
@@ -466,6 +470,7 @@ fn handle_command_request_to_peer_accepts_active_transport_peer() {
             event_traffic_metrics: &event_traffic_metrics,
             keypair: &keypair,
             peer_record_template: None,
+            local_peer_record_publisher: &Arc::new(Mutex::new(LocalPeerRecordPublisher::Legacy)),
             local_peer_id: PeerId::from(keypair.public()),
             max_published_messages: 8,
             max_error_messages: 8,

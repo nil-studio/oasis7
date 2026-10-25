@@ -54,9 +54,21 @@ fn assert_mismatched_peer_record_response_is_rejected(
         }
     }
 
+    let response_source = match &kind {
+        super::super::discovery::PendingPeerRecordRequest::ConnectedPeerRecord {
+            peer_id, ..
+        } => *peer_id,
+        super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord {
+            ask_peer, ..
+        } => *ask_peer,
+        super::super::discovery::PendingPeerRecordRequest::CachedDiscoveryPeers { peer_id } => {
+            *peer_id
+        }
+    };
     super::super::discovery::handle_peer_record_response(
         &mut swarm,
         kind,
+        response_source,
         payload.as_slice(),
         &mut pending_peer_record_requests,
         &mut pending_dht,
@@ -109,6 +121,7 @@ fn cached_peer_record_response_rejects_signed_record_for_wrong_target() {
             ask_peer,
             peer_id: target_peer_id,
             tried_proxies: vec![ask_peer],
+            rendezvous_triggers: None,
         },
         target_peer_id,
     );
@@ -166,7 +179,8 @@ fn connected_peer_record_outbound_failure_falls_back_via_another_connected_peer(
         super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord {
             ask_peer,
             peer_id,
-            tried_proxies
+            tried_proxies,
+            ..
         } if *ask_peer == fallback_proxy
             && *peer_id == target_peer_id
             && *tried_proxies == vec![fallback_proxy]

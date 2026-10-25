@@ -121,15 +121,10 @@ pub use gossip_udp::{
     GossipTrafficDirectionMetricsSnapshot, GossipTrafficLaneMetricsSnapshot,
     GossipTrafficMetricsSnapshot,
 };
-#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
-pub use libp2p_replication_network::{
-    Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, ReplicationNetworkDebugSnapshot,
-    derive_libp2p_identity_keypair,
-};
-#[cfg(all(feature = "libp2p", target_arch = "wasm32"))]
-pub use libp2p_replication_network_wasm::{
-    Libp2pReplicationNetwork, Libp2pReplicationNetworkConfig, derive_libp2p_identity_keypair,
-};
+#[cfg(feature = "libp2p")]
+mod libp2p_network_exports;
+#[cfg(feature = "libp2p")]
+pub use libp2p_network_exports::*;
 pub use network_bridge::NodeReplicationNetworkHandle;
 use node_runtime_batch_retention::{action_payload_bytes, push_committed_action_batch};
 #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]

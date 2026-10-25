@@ -110,6 +110,12 @@ pub(super) fn redundant_connection_ids_for_peer(
     redundant
 }
 
+pub(super) type PeerManagerViews = (
+    HashMap<PeerId, PeerManagerPeerHealth>,
+    HashSet<PeerId>,
+    HashSet<PeerId>,
+);
+
 #[expect(
     clippy::too_many_arguments,
     reason = "Connection lifecycle state is passed explicitly to preserve transport ordering and lifetimes"
@@ -277,11 +283,7 @@ pub(super) fn refresh_peer_manager_views(
     event_errors: &Arc<Mutex<Vec<String>>>,
     max_error_messages: usize,
     event_reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
-) -> (
-    HashMap<PeerId, PeerManagerPeerHealth>,
-    HashSet<PeerId>,
-    HashSet<PeerId>,
-) {
+) -> PeerManagerViews {
     let (peer_healths_by_id, quarantined_active_peers, admitted_active_peers) =
         refresh_peer_manager_healths(
             discovered_peer_records,
@@ -307,6 +309,44 @@ pub(super) fn refresh_peer_manager_views(
         quarantined_active_peers,
         admitted_active_peers,
     )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Conflict recovery refreshes the exact runtime projection owned by the current event loop"
+)]
+pub(super) fn refresh_peer_manager_views_after_record_error(
+    error: &super::peer_record_candidate::PeerRecordInstallError,
+    swarm: &mut libp2p::Swarm<Behaviour>,
+    discovered_peer_records: &PeerRecordCache,
+    discovery_observations: &DiscoveryObservations,
+    active_transport_paths: &HashMap<PeerId, TransportPath>,
+    admitted_active_peers: &HashSet<PeerId>,
+    peer_manager_policy: &PeerManagerPolicy,
+    event_peer_healths: &Arc<Mutex<HashMap<String, PeerManagerPeerHealth>>>,
+    event_block_artifacts: &Arc<Mutex<HashMap<String, PeerManagerBlockArtifact>>>,
+    pending_quarantine_disconnects: &mut HashSet<PeerId>,
+    event_errors: &Arc<Mutex<Vec<String>>>,
+    max_error_messages: usize,
+    event_reachability: &Arc<Mutex<Libp2pReachabilitySnapshot>>,
+) -> Option<PeerManagerViews> {
+    if !error.invalidates_peer_projection() {
+        return None;
+    }
+    Some(refresh_peer_manager_views(
+        swarm,
+        discovered_peer_records,
+        discovery_observations,
+        active_transport_paths,
+        admitted_active_peers,
+        peer_manager_policy,
+        event_peer_healths,
+        event_block_artifacts,
+        pending_quarantine_disconnects,
+        event_errors,
+        max_error_messages,
+        event_reachability,
+    ))
 }
 
 #[expect(

@@ -1,7 +1,8 @@
 #[path = "cli_participant_authority.rs"]
 mod participant_authority;
 pub(super) use participant_authority::{
-    devlocal_participant_config, prepare_participant_world, validate as validate_local_participant_options,
+    devlocal_participant_config, prepare_participant_world,
+    validate as validate_local_participant_options,
 };
 #[path = "cli_contract.rs"]
 pub(super) mod cli_contract;
@@ -19,6 +20,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use oasis7::chain_pos_defaults;
+use oasis7::development_node_config::{
+    DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
+};
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
     NodeAutoNatStatus, NodeHolePunchViability, NodePublicPortReachability,
@@ -103,6 +107,15 @@ pub(super) struct CliOptions {
     pub traffic_profile: TrafficProfile,
     pub node_role: NodeRole,
     pub p2p_user_mode: NodeUserMode,
+    pub p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1,
+    pub p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1,
+    /// One-time V2 publisher bootstrap action; deliberately not part of the persisted runtime config.
+    pub initialize_peer_record_publication: bool,
+    /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
+    pub initialize_peer_record_receiver: bool,
+    /// One-startup durable publisher action; deliberately not persisted in runtime config.
+    pub withdraw_peer_record_publication: bool,
+    pub resume_peer_record_publication: bool,
     pub p2p_accept_public_entry: bool,
     pub p2p_detected_reachability: Option<PeerReachabilityClass>,
     pub p2p_detected_hole_punch_viability: NodeHolePunchViability,
@@ -208,7 +221,9 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
                 ));
             }
             "--devlocal-participant-origin-root" => {
-                options.devlocal_participant_origin_root = Some(PathBuf::from(parse_required_value(&mut iter, "--devlocal-participant-origin-root")?));
+                options.devlocal_participant_origin_root = Some(PathBuf::from(
+                    parse_required_value(&mut iter, "--devlocal-participant-origin-root")?,
+                ));
             }
             "--status-bind" => {
                 options.status_bind = parse_required_value(&mut iter, "--status-bind")?;
@@ -233,6 +248,26 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             "--p2p-user-mode" => {
                 let raw = parse_required_value(&mut iter, "--p2p-user-mode")?;
                 options.p2p_user_mode = raw.parse::<NodeUserMode>()?;
+            }
+            "--p2p-peer-record-publication" => {
+                let raw = parse_required_value(&mut iter, "--p2p-peer-record-publication")?;
+                options.p2p_peer_record_publication = raw.parse()?;
+            }
+            "--p2p-peer-record-reception" => {
+                let raw = parse_required_value(&mut iter, "--p2p-peer-record-reception")?;
+                options.p2p_peer_record_reception = raw.parse()?;
+            }
+            "--initialize-peer-record-publication" => {
+                options.initialize_peer_record_publication = true;
+            }
+            "--initialize-peer-record-receiver" => {
+                options.initialize_peer_record_receiver = true;
+            }
+            "--withdraw-peer-record-publication" => {
+                options.withdraw_peer_record_publication = true;
+            }
+            "--resume-peer-record-publication" => {
+                options.resume_peer_record_publication = true;
             }
             "--p2p-accept-public-entry" => {
                 options.p2p_accept_public_entry = true;
@@ -626,8 +661,14 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
         || (options.deployment_inventory_path.is_some()
             && options.network_tier_manifest_path.is_none())
     {
-        let typed = super::development_runtime::from_options(&options)?;
-        super::development_runtime::into_options(typed, false)?;
+        let has_one_shot_peer_record_action = options.initialize_peer_record_publication
+            || options.initialize_peer_record_receiver
+            || options.withdraw_peer_record_publication
+            || options.resume_peer_record_publication;
+        if !has_one_shot_peer_record_action {
+            let typed = super::development_runtime::from_options(&options)?;
+            super::development_runtime::into_options(typed, false)?;
+        }
         options.development_runtime = true;
         participant_authority::validate(&options)?;
         return Ok(options);
@@ -647,6 +688,7 @@ pub(super) fn validate_effective_options(options: &CliOptions) -> Result<(), Str
     if options.config_path.trim().is_empty() {
         return Err("--config requires a non-empty value".to_string());
     }
+    super::peer_record_cli::validate_options(options)?;
     if options.reward_points_per_credit == 0 {
         return Err("--reward-points-per-credit requires a positive integer".to_string());
     }

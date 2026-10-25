@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -8,6 +9,9 @@ use libp2p::{Multiaddr, PeerId};
 use oasis7_net::{
     Libp2pNetwork, Libp2pNetworkConfig, Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot,
     PeerManagerPolicy, world_error_is_missing_handler, world_error_is_retryable_connection_gap,
+};
+pub use oasis7_net::{
+    PeerRecordPublicationTransition, PeerRecordReceiverConfig, PeerRecordReceiverMode,
 };
 use oasis7_proto::distributed::WorldHeadAnnounce;
 use oasis7_proto::distributed::{DistributedErrorCode, ErrorResponse};
@@ -93,6 +97,13 @@ struct RequestPeerScore {
 pub struct Libp2pReplicationNetworkConfig {
     pub keypair: Option<Keypair>,
     pub peer_record: Option<PeerRecord>,
+    /// Enables durable V2 publication for the local signed peer record.
+    /// `None` preserves the legacy V1 publication behavior.
+    pub peer_record_publication_directory: Option<PathBuf>,
+    /// Independent inbound peer-record policy and its fixed durable receiver directory.
+    pub peer_record_receiver: PeerRecordReceiverConfig,
+    /// One-startup durable publisher transition; `None` preserves ordinary restart behavior.
+    pub peer_record_publication_transition: Option<PeerRecordPublicationTransition>,
     pub listen_addrs: Vec<Multiaddr>,
     pub bootstrap_peers: Vec<Multiaddr>,
     pub bootstrap_redial_interval_ms: i64,
@@ -115,6 +126,9 @@ impl Default for Libp2pReplicationNetworkConfig {
         Self {
             keypair: None,
             peer_record: None,
+            peer_record_publication_directory: None,
+            peer_record_receiver: PeerRecordReceiverConfig::default(),
+            peer_record_publication_transition: None,
             listen_addrs: Vec::new(),
             bootstrap_peers: Vec::new(),
             bootstrap_redial_interval_ms: inner_defaults.bootstrap_redial_interval_ms,
@@ -156,12 +170,21 @@ pub struct Libp2pReplicationNetwork {
 
 impl Libp2pReplicationNetwork {
     pub fn new(config: Libp2pReplicationNetworkConfig) -> Self {
+        Self::try_new(config).expect("libp2p replication network configuration must be valid")
+    }
+
+    /// Constructs a replication network and reports synchronous local setup
+    /// failures, including publisher and receiver persistence setup.
+    pub fn try_new(config: Libp2pReplicationNetworkConfig) -> Result<Self, WorldError> {
         let bootstrap_addrs_by_peer_id =
             bootstrap_peer_addrs_by_peer_id(config.bootstrap_peers.as_slice());
         let request_response_timeout = request_response_timeout_for_config(&config);
-        let inner = Libp2pNetwork::new(Libp2pNetworkConfig {
+        let inner = Libp2pNetwork::try_new(Libp2pNetworkConfig {
             keypair: config.keypair,
             peer_record: config.peer_record,
+            peer_record_publication_directory: config.peer_record_publication_directory,
+            peer_record_receiver: config.peer_record_receiver,
+            peer_record_publication_transition: config.peer_record_publication_transition,
             listen_addrs: config.listen_addrs,
             bootstrap_peers: config.bootstrap_peers,
             bootstrap_redial_interval_ms: config.bootstrap_redial_interval_ms,
@@ -172,9 +195,9 @@ impl Libp2pReplicationNetwork {
             peer_manager_policy: config.peer_manager_policy,
             request_response_timeout,
             ..Libp2pNetworkConfig::default()
-        });
+        })?;
 
-        Self {
+        Ok(Self {
             inner,
             allow_local_handler_fallback_when_no_peers: config
                 .allow_local_handler_fallback_when_no_peers,
@@ -189,7 +212,59 @@ impl Libp2pReplicationNetwork {
             protocol_retry_cooldown_peers: Arc::new(Mutex::new(HashMap::new())),
             transport_retry_cooldown_peers: Arc::new(Mutex::new(HashMap::new())),
             request_peer_scores: Arc::new(Mutex::new(HashMap::new())),
-        }
+        })
+    }
+
+    /// Initializes the durable V2 publisher state without starting a network.
+    /// This is a one-time bootstrap operation; ordinary construction only opens
+    /// existing state and never calls this implicitly.
+    pub fn initialize_peer_record_publication(
+        config: &Libp2pReplicationNetworkConfig,
+    ) -> Result<(), WorldError> {
+        let publication_directory = config
+            .peer_record_publication_directory
+            .as_ref()
+            .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                protocol: "durable peer publication initialization requires a configured directory"
+                    .into(),
+            })?;
+        let keypair =
+            config
+                .keypair
+                .as_ref()
+                .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                    protocol: "durable peer publication initialization requires a stable keypair"
+                        .into(),
+                })?;
+        let peer_record =
+            config
+                .peer_record
+                .as_ref()
+                .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                    protocol:
+                        "durable peer publication initialization requires a peer record template"
+                            .into(),
+                })?;
+
+        Libp2pNetwork::initialize_peer_record_publication(&Libp2pNetworkConfig {
+            keypair: Some(keypair.clone()),
+            peer_record: Some(peer_record.clone()),
+            peer_record_publication_directory: Some(publication_directory.clone()),
+            ..Libp2pNetworkConfig::default()
+        })
+    }
+
+    /// Creates the durable receiver floor without starting a network.
+    /// Ordinary construction only opens the existing receiver state.
+    pub fn initialize_peer_record_receiver(
+        config: &Libp2pReplicationNetworkConfig,
+    ) -> Result<(), WorldError> {
+        Libp2pNetwork::initialize_peer_record_receiver(&Libp2pNetworkConfig {
+            keypair: config.keypair.clone(),
+            peer_record: config.peer_record.clone(),
+            peer_record_receiver: config.peer_record_receiver.clone(),
+            ..Libp2pNetworkConfig::default()
+        })
     }
 
     pub fn peer_id(&self) -> PeerId {

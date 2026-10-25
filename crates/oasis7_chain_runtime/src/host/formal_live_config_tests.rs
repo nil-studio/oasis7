@@ -97,6 +97,8 @@ impl Fixture {
             recovery_origin_history_directory: None,
             approved_initial_file: None,
             effect_delivery: None,
+            full_sync_provider_read_authorization:
+                FullSyncProviderReadAuthorizationModeV1::LegacyV1,
         };
         let config_path = root.0.join("formal-live.json");
         (root, config_path, config, anchor)
@@ -133,6 +135,23 @@ fn formal_loader_rejects_legacy_or_unknown_configuration_without_promoting_it() 
 }
 
 #[test]
+fn existing_formal_configuration_defaults_to_legacy_v1_without_serializing_a_new_mode() {
+    let fixture = Fixture::new();
+    let mut old_shape = serde_json::to_value(&fixture.config).unwrap();
+    old_shape
+        .as_object_mut()
+        .unwrap()
+        .remove("full_sync_provider_read_authorization");
+    let loaded: FormalLiveConfigV1 = serde_json::from_value(old_shape.clone()).unwrap();
+    assert_eq!(
+        loaded.full_sync_provider_read_authorization,
+        FullSyncProviderReadAuthorizationModeV1::LegacyV1
+    );
+    let serialized = serde_json::to_value(loaded).unwrap();
+    assert_eq!(serialized, old_shape);
+}
+
+#[test]
 fn formal_loader_rejects_v1_authorities_with_an_explicit_profile_reason() {
     let fixture = Fixture::new();
     fixture.save();
@@ -166,6 +185,7 @@ fn missing_private_paths_are_rejected_without_creating_or_repairing_them() {
         recovery_origin_history_directory: None,
         approved_initial_file: None,
         effect_delivery: None,
+        full_sync_provider_read_authorization: FullSyncProviderReadAuthorizationModeV1::LegacyV1,
     };
     write_private(&config_path, &serde_json::to_vec(&config).unwrap());
     assert!(FormalLiveConfigV1::load(&config_path).is_err());

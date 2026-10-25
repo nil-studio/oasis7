@@ -865,7 +865,9 @@ fn cached_peer_record_not_found_retries_via_another_connected_peer() {
             ask_peer: first_proxy,
             peer_id: target_peer_id,
             tried_proxies: vec![first_proxy],
+            rendezvous_triggers: None,
         },
+        first_proxy,
         not_found_payload.as_slice(),
         &mut pending_peer_record_requests,
         &mut pending_dht,
@@ -901,7 +903,8 @@ fn cached_peer_record_not_found_retries_via_another_connected_peer() {
         super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord {
             ask_peer,
             peer_id,
-            tried_proxies
+            tried_proxies,
+            ..
         } if *ask_peer == fallback_proxy
             && *peer_id == target_peer_id
             && *tried_proxies == vec![first_proxy, fallback_proxy]
@@ -936,6 +939,7 @@ fn cached_peer_record_outbound_failure_retries_via_another_connected_peer() {
             ask_peer: first_proxy,
             peer_id: target_peer_id,
             tried_proxies: vec![first_proxy],
+            rendezvous_triggers: None,
         },
         &mut pending_peer_record_requests,
         &mut pending_connected_peer_records,
@@ -961,7 +965,8 @@ fn cached_peer_record_outbound_failure_retries_via_another_connected_peer() {
         super::super::discovery::PendingPeerRecordRequest::CachedPeerRecord {
             ask_peer,
             peer_id,
-            tried_proxies
+            tried_proxies,
+            ..
         } if *ask_peer == fallback_proxy
             && *peer_id == target_peer_id
             && *tried_proxies == vec![first_proxy, fallback_proxy]
@@ -996,6 +1001,7 @@ fn cached_peer_record_outbound_failure_preserves_cooldown_when_proxy_sweep_is_ex
             ask_peer: fallback_proxy,
             peer_id: target_peer_id,
             tried_proxies: vec![first_proxy, fallback_proxy],
+            rendezvous_triggers: None,
         },
         &mut pending_peer_record_requests,
         &mut pending_connected_peer_records,
@@ -1054,7 +1060,9 @@ fn cached_peer_record_not_found_stops_after_all_connected_proxies_are_tried() {
             ask_peer: fallback_proxy,
             peer_id: target_peer_id,
             tried_proxies: vec![first_proxy, fallback_proxy],
+            rendezvous_triggers: None,
         },
+        fallback_proxy,
         not_found_payload.as_slice(),
         &mut pending_peer_record_requests,
         &mut pending_dht,

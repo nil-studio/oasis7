@@ -120,6 +120,124 @@ fn shared_discovery_budget_survives_dht_to_rr_switch_and_terminal_release() {
 }
 
 #[test]
+fn rendezvous_register_and_discover_share_the_dht_rr_window() {
+    super::super::runtime_support::run_on_libp2p_test_runtime(|| {
+        let keypair = Keypair::generate_ed25519();
+        let local_peer_id = PeerId::from(keypair.public());
+        let mut swarm = super::super::swarm_behaviour::build_swarm(
+            &keypair,
+            true,
+            false,
+            std::time::Duration::from_secs(30),
+            super::super::wire_bytes::init_shared_wire_byte_counters(),
+        );
+        swarm.add_external_address(
+            "/ip4/127.0.0.1/tcp/43001"
+                .parse()
+                .expect("valid rendezvous registration address"),
+        );
+        let cache = PeerRecordCache::default();
+        let traffic_metrics = super::super::traffic_metrics::init_shared_traffic_metrics();
+        let mut pending_dht = HashMap::new();
+        let mut pending_discovery_peer_records = HashSet::new();
+        let mut pending_peer_record_requests = HashMap::new();
+        let mut pending_connected_peer_records = HashSet::new();
+        let mut connected_peer_record_cooldowns = HashMap::new();
+
+        // Exercise the production DHT and RR schedulers. Simulate terminal
+        // completion between batches so the 32-operation concurrency limit
+        // does not hide the 128-start rolling-window limit.
+        for _ in 0..4 {
+            for _ in 0..16 {
+                super::super::discovery::maybe_queue_discovery_peer_record(
+                    &mut swarm,
+                    &mut pending_dht,
+                    &mut pending_discovery_peer_records,
+                    &cache,
+                    PeerId::random(),
+                    local_peer_id,
+                    "world-a",
+                );
+                assert!(
+                    super::super::discovery::maybe_request_connected_peer_record(
+                        &mut swarm,
+                        &mut pending_peer_record_requests,
+                        &mut pending_connected_peer_records,
+                        &mut connected_peer_record_cooldowns,
+                        &traffic_metrics,
+                        PeerId::random(),
+                        local_peer_id,
+                        false,
+                    )
+                );
+            }
+
+            assert_eq!(pending_dht.len(), 16);
+            assert_eq!(pending_peer_record_requests.len(), 16);
+            for query_id in pending_dht.keys().copied().collect::<Vec<_>>() {
+                swarm.behaviour_mut().discovery_budget.finish_dht(query_id);
+            }
+            for request_id in pending_peer_record_requests
+                .keys()
+                .copied()
+                .collect::<Vec<_>>()
+            {
+                swarm
+                    .behaviour_mut()
+                    .discovery_budget
+                    .finish_request(request_id);
+            }
+            pending_dht.clear();
+            pending_discovery_peer_records.clear();
+            pending_peer_record_requests.clear();
+            pending_connected_peer_records.clear();
+        }
+
+        let template = super::signed_discovery_peer_record(
+            &keypair,
+            vec![crate::dht::PeerDiscoverySource::Rendezvous],
+            super::super::now_ms(),
+        )
+        .record;
+        let mut pending_rendezvous_registers = HashSet::new();
+        let registered_rendezvous_nodes = HashSet::new();
+        let mut pending_rendezvous_discovers = HashSet::new();
+        let rendezvous_cookies = HashMap::new();
+        let register_result = super::super::discovery::maybe_register_rendezvous_namespace(
+            &mut swarm,
+            &mut pending_rendezvous_registers,
+            &registered_rendezvous_nodes,
+            PeerId::random(),
+            local_peer_id,
+            &template,
+        )
+        .expect("rendezvous register helper");
+        let discover_result = super::super::discovery::maybe_discover_rendezvous_namespace(
+            &mut swarm,
+            &mut pending_rendezvous_discovers,
+            &rendezvous_cookies,
+            PeerId::random(),
+            local_peer_id,
+            &template,
+        )
+        .expect("rendezvous discover helper");
+
+        assert_eq!(
+            (register_result, discover_result),
+            (false, false),
+            "rendezvous operations must be refused after shared DHT/RR work exhausts the window"
+        );
+        assert!(pending_rendezvous_registers.is_empty());
+        assert!(pending_rendezvous_discovers.is_empty());
+        let snapshot = swarm.behaviour().discovery_budget.snapshot();
+        assert_eq!(snapshot.admitted, 128);
+        assert_eq!(snapshot.window_starts, 128);
+        assert_eq!(snapshot.rejected_window, 2);
+        assert_eq!(snapshot.inflight, 0);
+    });
+}
+
+#[test]
 fn cached_discovery_list_is_bounded_and_deduplicated() {
     use super::super::discovery::decode_cached_discovery_peers_response as decode;
     let peer = PeerId::random();

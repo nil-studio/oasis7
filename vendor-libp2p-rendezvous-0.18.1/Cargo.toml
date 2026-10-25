@@ -1,0 +1,40 @@
+[package]
+name = "libp2p-rendezvous"
+edition = "2024"
+rust-version = "1.88.0"
+description = "Rendezvous protocol for libp2p"
+version = "0.18.1"
+authors = ["The COMIT guys <hello@comit.network>"]
+license = "MIT"
+repository = "https://github.com/libp2p/rust-libp2p"
+keywords = ["peer-to-peer", "libp2p", "networking"]
+categories = ["network-programming", "asynchronous"]
+
+[dependencies]
+asynchronous-codec = "0.7"
+bimap = "0.6"
+futures = { version = "0.3", features = ["std"] }
+futures-timer = "3.0"
+hashlink = "0.12"
+web-time = "1.1"
+libp2p-core = { version = "0.44.0", git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
+libp2p-swarm = { version = "0.48.0", git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
+libp2p-identity = "0.3.0"
+libp2p-request-response = { version = "0.30.0", git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
+prost = "0.14"
+prost-codec = { version = "0.4.0", git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
+rand = "0.10"
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+libp2p-identity = { version = "0.3.0", features = ["ed25519", "rand", "peerid"] }
+tokio = { version = "1.53", default-features = false, features = ["rt-multi-thread", "time", "macros"] }
+
+[workspace]
+
+[package.metadata.oasis7-compat]
+upstream-revision = "2d8497b2615086bd88018ef3a1fb32bc613a07ca"
+
+[patch."https://github.com/libp2p/rust-libp2p"]
+libp2p-swarm = { path = "../vendor-libp2p-swarm-0.48.0" }

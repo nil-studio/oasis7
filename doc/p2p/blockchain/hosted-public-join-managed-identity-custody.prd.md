@@ -200,7 +200,7 @@
 
 首版采用 Cloudflare Workers 承载托管控制面；世界状态、owner 归属、executor delegation、业务预算和共识仍由现有 oasis7 authority 决定。控制面只管理测试账号、保管分用途密钥、消费已授权动作并回读原结果。服务不可用时宁可暂停，不退回把密钥交给助手。文档状态为设计候选，以下功能全部待实现，不声明已部署或完成真实账号验收。
 
-范围：多账号非秘密台账、Passkey 管理登录、独立 owner 批准、受限 executor API、可追踪请求、停止/撤销、密钥轮换与冻结恢复。账号创建或接入仍须遵守当前身份服务公开能力、注册开关和用户授权；不能借托管服务开放注册。
+范围：多账号非秘密台账、Passkey 管理登录、独立 owner 批准、受限 executor API、可追踪请求、停止/撤销、密钥轮换与冻结恢复。服务采用 Rust 优先的实现与共享协议复用方案，包边界、平台适配和管理 UI 的范围按 REQ-CLOUD-CUSTODY-006 执行。账号创建或接入仍须遵守当前身份服务公开能力、注册开关和用户授权；不能借托管服务开放注册。
 
 非目标：生产资产、主网转账、validator/node/governance/treasury 密钥；修改游戏规则或共识；任意 HTTP 代理、通用签名服务、secret 读取器；替助手保存云平台管理员凭据；托管模型推理或无限后台运行；自动接管现有本地 vault、静默迁移账号、自助导出私钥。现有生产 custody 与 self-custody 目标保留，不由测试版替代。
 
@@ -210,7 +210,7 @@
 2. 负责人选择账号，核对明确动作、参数限制、world/Agent/task、期限、总预算及风险，再以新鲜 Passkey 证明批准一次 owner 控制意图。协议 owner 签名由独立 owner custody lane 产生。登录凭证自身不成为 owner key。
 3. 管理端给指定执行客户端签发短期、最小权限 capability。dot 只获得受限调用能力与公开引用，不获得 login、owner、executor 私钥、解密口令或 Cloudflare secret。
 4. 助手提交类型化动作。界面先显示本服务接收与排队，后显示原操作权威结果；超时显示“结果未知，正在核对原请求”，不能引导重复创建新操作。
-5. 负责人可以先暂停本服务派发，再提交世界 canonical Stop 或 delegation Revoke。界面分别显示本地暂停、世界停止确认、委托撤销确认，不能用一个绿色“已停”掩盖未确认项。
+5. 负责人可以先暂停本服务派发，再提交世界 canonical Stop 或 delegation Revoke。普通请求占满配额或保持 unknown 时，应急停止/撤销仍有独立有界处理容量；Stop 未确认也不能阻塞独立 Revoke。界面分别显示本地暂停、世界停止确认、委托撤销确认，不能用一个绿色“已停”掩盖未确认项。
 6. 到期、预算耗尽、撤销或恢复冻结后，助手只可按仍有效的只读权限查看原结果；再次执行需要负责人重新批准。不能用“刷新连接”暗中延长原授权。
 
 管理界面须支持键盘操作、可读的错误文本和不依赖颜色的状态；确认页不预选所有账号或无限范围。账号切换必须清除尚未提交的其他账号草稿，提交时重验目标。负责人可选择不给权限、缩小动作/预算、先只读观察或退出；这些选项不得被自动降级流程绕过。
@@ -262,7 +262,7 @@ Trace ID: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c
 
 Trace ID: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede
 
-每个请求保留稳定 operation ID、原正文/签名摘要、原下游请求和结果。重试不得变成新的业务动作；同 ID 不同正文必须拒绝。结果未知不能显示成功或默认重发。暂停本服务派发、世界 canonical Stop、delegation Revoke 是三个不同结果，后两者必须用原请求权威回执和当前 fence/委托状态证明。父授权撤销在账号权威提交后阻断本服务全部派生 capability 与尚未取得派发 claim 的请求；已取得 claim 即按在途请求处理，即使尚未实际发送，仍需核对，不能承诺撤销过去的世界效果。
+每个请求保留稳定 operation ID、原正文/签名摘要、原下游请求和结果。重试不得变成新的业务动作；同 ID 不同正文必须拒绝。结果未知不能显示成功或默认重发。暂停本服务派发、世界 canonical Stop、delegation Revoke 是三个不同结果，后两者必须用原请求权威回执和当前 fence/委托状态证明。父授权撤销在账号权威提交后阻断本服务全部派生 capability 与尚未取得派发 claim 的请求；已取得 claim 即按在途请求处理，即使尚未实际发送，仍需核对，不能承诺撤销过去的世界效果。Stop/Revoke 的安全控制容量独立于普通执行和普通 owner intent 的配额；旧动作或 Stop 结果未知，不得阻塞独立 Revoke，也不得为腾出容量而删除未知原件或释放其业务预留。应急 Revoke 必须覆盖已经签发但尚未确认的授权序号，防止其迟到后恢复委托；序号历史不全时保持冻结。
 
 - 系统设计状态：已覆盖
 - 实现状态：未实现
@@ -285,6 +285,20 @@ Trace ID: O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945
 - 核对日期与基线：2026-10-24，源码 `73398d454082eb2106b2f1075a57bc9f377cd222`，仅静态核对。
 - 剩余范围：灾备隔离、轮换、观测、真实恢复与受控账号端到端验收。
 
+<a id="req-cloud-custody-006"></a>
+### REQ-CLOUD-CUSTODY-006：Rust 实现与可核对的包边界
+
+Trace ID: O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3
+
+托管业务、协议编码与校验优先使用 Rust，首版规划 `oasis7_custody_core` 与 `oasis7_custody_worker` 两个新 crate；现有协议类型和 canonical 编码保持单一声明。平台 I/O、原生身份服务、浏览器 UI 和部署角色的边界必须明确，不能把 Unix broker 整包移入 Workers，或为每个内部模块另造 crate。四个 Worker 角色分别构建和部署，外部参考代码不得改变既有秘密不出模型、DO 授权权威与原操作恢复合同。
+
+- 系统设计状态：已覆盖
+- 实现状态：未实现
+- 系统设计依据：[Rust 包组织与平台适配](hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)、[外部实现参考边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-reference)
+- 实现与验证依据：[实现边界](hosted-public-join-managed-identity-custody.design.md#cloud-custody-baseline)；新 crate、Workers 构建组合及协议生成支持均待实现，本次不创建占位包。
+- 核对日期与基线：2026-10-25，源码 `73398d454082eb2106b2f1075a57bc9f377cd222` 与本设计引用的固定外部来源，仅静态核对。
+- 剩余范围：包与角色工件实现、真实 Wasm 构建、平台适配、API 消费者一致性及架构边界验收。
+
 <a id="cloud-custody-acceptance"></a>
 ### 6.3 验收场景与结果边界
 
@@ -295,9 +309,10 @@ Trace ID: O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945
 | AC-CLOUD-03 | REQ-CLOUD-CUSTODY-003 | 委托只在固定世界/Agent、动作参数、预算和期限内生效 | 并发超支、过期、跨世界、重放、续期、转授、任意 URL/raw sign 全部拒绝 |
 | AC-CLOUD-04 | REQ-CLOUD-CUSTODY-003 | 同一 Ed25519 测试向量在 Rust/Workers 双向生成和验签一致 | 域、字节、版本、整数编码、world/actor/fence 篡改与弱公钥必须拒绝 |
 | AC-CLOUD-05 | REQ-CLOUD-CUSTODY-004 | 超时/重启后回到同一原操作结果，不产生第二次业务效果 | 在提交前后各断网、并发同 ID、不同摘要、下游结果暂缺时不盲重发 |
-| AC-CLOUD-06 | REQ-CLOUD-CUSTODY-004 | 页面分别呈现本地暂停、世界 Stop、委托 Revoke 的完成或未知 | 父撤销后所有派生权限、未 claim 排队请求失效；已 claim 一律按 in-flight，未核对不得显示全部已撤销 |
+| AC-CLOUD-06 | REQ-CLOUD-CUSTODY-004 | 页面分别呈现本地暂停、世界 Stop、委托 Revoke 的完成或未知 | 父撤销后派生权限和未 claim 请求失效；原动作 unknown/普通配额已满时仍可 Stop/Revoke，Stop unknown 不阻塞 Revoke；迟到的旧授权不能越过已确认撤销；保留旧原件/预留，未核对不得显示全部已撤销 |
 | AC-CLOUD-07 | REQ-CLOUD-CUSTODY-005 | 恢复旧快照仍冻结；核对当前安全代、撤销和原结果后重新批准 | 旧 capability、旧 nonce、旧预算、旧 Worker 版本不能复活写权限 |
 | AC-CLOUD-08 | REQ-CLOUD-CUSTODY-005 | 真实受控测试环境完成上述闭环，证据固定服务版本、世界身份和窗口 | 本地模拟、文档检查、cloud request accepted 均不冒充 world committed 或生产发行 |
+| AC-CLOUD-09 | REQ-CLOUD-CUSTODY-006 | 两个 Rust crate 职责可核对，四种角色分别构建/部署；原生/Wasm 共用协议，管理 UI 消费实际 HTTP 合同 | 禁止 native 依赖回流、混角色产物、手写第二套签名编码；全宽整数经 FFI/SQL 回读不失真；无模型 secret 读取或响应缓存替代原操作 |
 
 ### 6.4 风险、成本与推进边界
 

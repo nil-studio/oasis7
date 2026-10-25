@@ -45,16 +45,18 @@ pub(super) fn handle_manifest(service: &FormalLiveService, body: &[u8]) -> HttpR
         )?;
         let (anchor, material) = material_for_cut(service, &current.anchor, &signed.request.cut)?;
         let manifest = manifest(&anchor, &material)?;
-        reauthorize_for_response(
-            service,
-            &signed.request.grant,
-            &signed.request.cut,
-            &signed.subject_public_key,
-        )?;
         Ok::<_, String>(manifest)
     })();
     match result {
-        Ok(payload) => signed_reply_with_digest(200, path, digest, &payload, &service.signer),
+        Ok(payload) => finish_full_sync_response(
+            service,
+            path,
+            digest,
+            &signed.request.grant,
+            &signed.request.cut,
+            &signed.subject_public_key,
+            &payload,
+        ),
         Err(error) => rejected(path, digest, &error, service),
     }
 }
@@ -156,16 +158,18 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
             offset: signed.request.offset,
             bytes: bytes[start..end].to_vec(),
         };
-        reauthorize_for_response(
-            service,
-            &signed.request.grant,
-            &signed.request.cut,
-            &signed.subject_public_key,
-        )?;
         Ok::<_, String>(payload)
     })();
     match result {
-        Ok(payload) => signed_reply_with_digest(200, path, digest, &payload, &service.signer),
+        Ok(payload) => finish_full_sync_response(
+            service,
+            path,
+            digest,
+            &signed.request.grant,
+            &signed.request.cut,
+            &signed.subject_public_key,
+            &payload,
+        ),
         Err(error) => rejected(path, digest, &error, service),
     }
 }
@@ -180,14 +184,62 @@ fn authorize_cut(
         return Err("formal runtime is not ready for full-state sync".into());
     }
     let current = service.published.current()?;
-    authorize_grant_for_current(
-        service,
-        grant,
-        requested,
-        subject_public_key,
-        &current.anchor,
-    )?;
+    if let Some(gate) = service.full_sync_read_gate.as_ref() {
+        validate_grant_scope_for_current(
+            service,
+            grant,
+            requested,
+            subject_public_key,
+            &current.anchor,
+        )?;
+        // Verify the fresh issuer/witness history before retrieving cached
+        // snapshots, native chunks, or retained-tree material. Final response
+        // construction repeats this gate after material work is complete.
+        gate.authorize_with_response(grant, requested, subject_public_key, || Ok(()))?;
+    } else {
+        authorize_grant_for_current(
+            service,
+            grant,
+            requested,
+            subject_public_key,
+            &current.anchor,
+        )?;
+    }
     Ok(current)
+}
+
+fn validate_grant_scope_for_current(
+    service: &FormalLiveService,
+    grant: &FormalNodeReadGrantV1,
+    requested: &FormalFullSyncCutV1,
+    subject_public_key: &str,
+    current: &VerifiedFormalReadAnchorV1,
+) -> Result<(), String> {
+    if !service.runtime_status().ready {
+        return Err("formal runtime is not ready for full-state sync".into());
+    }
+    let current_cut = cut_from_anchor(current)?;
+    if subject_public_key != grant.body.node_public_key
+        || requested.world != current_cut.world
+        || requested.chain_id != current_cut.chain_id
+        || requested.position > current_cut.position
+        || grant.body.world != current_cut.world
+        || grant.body.chain_id != current_cut.chain_id
+        || grant.body.authority_epoch != current_cut.authority_epoch
+    {
+        return Err("full-sync request/grant scope differs from current qualified World".into());
+    }
+    grant
+        .verify_identity_and_signature(
+            &service.trust.initial_trust.issuer_public_key,
+            &current_cut.world,
+            &current_cut.chain_id,
+            subject_public_key,
+            &grant.body.role,
+            current_cut.authority_epoch,
+        )
+        .map_err(|error| format!("verify full-sync V1 grant identity/signature before V3 query: {error}"))?;
+    Ok(())
 }
 
 fn authorize_grant_for_current(
@@ -649,6 +701,47 @@ fn reauthorize_for_response(
     let entry = cached_entry(service, requested)?
         .ok_or("formal full-sync material was evicted before response")?;
     qualify_cached_entry(service, requested, &current.anchor, &entry.qualified_head)
+}
+
+fn finish_full_sync_response<T: serde::Serialize>(
+    service: &FormalLiveService,
+    path: &str,
+    digest: Result<String, String>,
+    grant: &FormalNodeReadGrantV1,
+    requested: &FormalFullSyncCutV1,
+    subject_public_key: &str,
+    payload: &T,
+) -> HttpReply {
+    let Some(gate) = service.full_sync_read_gate.as_ref() else {
+        return match reauthorize_for_response(service, grant, requested, subject_public_key) {
+            Ok(()) => signed_reply_with_digest(200, path, digest, payload, &service.signer),
+            Err(error) => rejected(path, digest, &error, service),
+        };
+    };
+    let reply = gate.authorize_with_response(grant, requested, subject_public_key, || {
+        let current = service.published.current()?;
+        validate_grant_scope_for_current(
+            service,
+            grant,
+            requested,
+            subject_public_key,
+            &current.anchor,
+        )?;
+        let entry = cached_entry(service, requested)?
+            .ok_or("formal full-sync material was evicted before response")?;
+        qualify_cached_entry(service, requested, &current.anchor, &entry.qualified_head)?;
+        Ok(signed_reply_with_digest(
+            200,
+            path,
+            digest.clone(),
+            payload,
+            &service.signer,
+        ))
+    });
+    match reply {
+        Ok(reply) => reply,
+        Err(error) => rejected(path, digest, &error, service),
+    }
 }
 
 fn rejected(

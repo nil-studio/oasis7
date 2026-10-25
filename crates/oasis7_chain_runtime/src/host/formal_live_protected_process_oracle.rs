@@ -95,14 +95,14 @@ pub(super) struct Ledger {
     seal: Option<EpochSealBodyV1>,
 }
 
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     pub path: PathBuf,
     pub pdir: PathBuf,
     pub rdir: PathBuf,
     pub authority: formal::VerifiedAuthorityV1,
 }
 impl Fixture {
-    pub(super) fn new(
+    pub(crate) fn new(
         path: PathBuf,
         pdir: PathBuf,
         rdir: PathBuf,
@@ -156,20 +156,20 @@ fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<
 #[path = "../../../oasis7_distfs/src/controlled_authority/formal/endpoint_test_oracle.rs"]
 pub(super) mod oracle;
 
-pub(super) struct OracleHandle(oracle::Oracle);
+pub(crate) struct OracleHandle(oracle::Oracle);
 impl OracleHandle {
-    pub(super) fn address(&self) -> std::net::SocketAddr {
+    pub(crate) fn address(&self) -> std::net::SocketAddr {
         self.0.address
     }
 }
 
-pub(super) fn start_oracle(fixture: &Fixture, role: EndpointRole) -> OracleHandle {
+pub(crate) fn start_oracle(fixture: &Fixture, role: EndpointRole) -> OracleHandle {
     OracleHandle(oracle::Oracle::start(fixture, role))
 }
 
 pub(super) struct PrivateRoot(PathBuf);
 impl PrivateRoot {
-    pub(super) fn new() -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         unique_private_root().map(Self)
     }
 
@@ -187,7 +187,7 @@ impl Drop for PrivateRoot {
     }
 }
 
-pub(super) struct EndpointChild(std::process::Child);
+pub(crate) struct EndpointChild(std::process::Child);
 impl EndpointChild {
     pub(super) fn pid(&self) -> u32 {
         self.0.id()
@@ -209,7 +209,7 @@ impl Drop for EndpointChild {
     }
 }
 
-pub(super) fn start_endpoint(
+pub(crate) fn start_endpoint(
     binary: &std::ffi::OsStr,
     config: &Path,
 ) -> Result<(EndpointChild, std::net::SocketAddr), String> {
@@ -244,7 +244,7 @@ pub(super) fn start_endpoint(
     Ok((endpoint, address))
 }
 
-pub(super) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -260,7 +260,7 @@ pub(super) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|error| format!("sync private fixture {}: {error}", path.display()))
 }
 
-pub(super) fn private_directory(path: &Path) -> Result<(), String> {
+pub(crate) fn private_directory(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     fs::create_dir(path).map_err(|error| format!("create fixture dir: {error}"))?;

@@ -468,6 +468,7 @@ mod tests {
             },
             identity_public_key_protobuf_hex: "abcd".to_string(),
             signature_hex: "beef".to_string(),
+            publication: None,
         }
     }
 

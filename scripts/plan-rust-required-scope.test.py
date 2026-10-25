@@ -121,6 +121,24 @@ class Selection(unittest.TestCase):
                 self.assertIn('net', plan['groups'])
                 self.assertEqual(plan['scope'], 'targeted')
 
+    def test_rendezvous_patch_inputs_select_network_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/src/client/tests.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'scripts/libp2p-security-source.test.py',
+                     '.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'network patch input')
+                plan = selector.select(config, case_base, self.commit())
+                expected = ({'net', 'node', 'rust_baseline'} if path.startswith('vendor-')
+                            else {'net'} if path.startswith('scripts/')
+                            else {'net', 'packaging_contracts'})
+                self.assertTrue(expected.issubset(plan['groups']))
+                self.assertEqual(plan['scope'], 'targeted')
+
     def native_generated_fixture(self, register=True):
         # Retain the real producer and its three OUT_DIR consumers. A workspace
         # without these sources failed to reproduce the docs-only over-selection.

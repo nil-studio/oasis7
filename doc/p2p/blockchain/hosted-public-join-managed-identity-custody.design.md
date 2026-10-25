@@ -43,6 +43,7 @@
 | Trace refs: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c；[REQ-CLOUD-CUSTODY-003](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-003)  产品 N/A：reason=本节是受控测试账号运维服务的专业要求，不新增玩家功能或公开发行承诺；scope=Cloudflare 测试账号托管与受限执行；| 短期能力受范围/期限/共享预算约束，类型化 API 与现有 Ed25519 canonical wire 兼容。 | [Cloudflare 条款](#cloud-custody-api) | blockchain_ops_engineer / runtime_engineer | 测试服务待实现；不证明部署、生产资产或治理托管。 |
 | Trace refs: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede；[REQ-CLOUD-CUSTODY-004](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-004)  产品 N/A：reason=本节是受控测试账号运维服务的专业要求，不新增玩家功能或公开发行承诺；scope=Cloudflare 测试账号托管与受限执行；| 持久原操作、unknown 恢复以及 quiesce/Stop/Revoke 分开判定，父撤销阻断派生。 | [Cloudflare 条款](#cloud-custody-state) | blockchain_ops_engineer / runtime_engineer | 测试服务待实现；不证明部署、生产资产或治理托管。 |
 | Trace refs: O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945；[REQ-CLOUD-CUSTODY-005](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-005)  产品 N/A：reason=本节是受控测试账号运维服务的专业要求，不新增玩家功能或公开发行承诺；scope=Cloudflare 测试账号托管与受限执行；| 恢复先冻结并核对安全代、撤销和原操作；轮换与回退不复活旧授权。 | [Cloudflare 条款](#cloud-custody-operations) | blockchain_ops_engineer / runtime_engineer | 测试服务待实现；不证明部署、生产资产或治理托管。 |
+| Trace refs: O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3；[REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006) 产品 N/A：reason=受控测试托管服务的工程实现边界，不新增玩家功能或发行承诺；scope=Rust 包组织、平台适配与实现复用； | 两个 Rust crate、四个独立角色工件、共享协议与窄平台适配；外部实现不改变授权与秘密边界。 | [Rust 实现](#cloud-custody-rust) | runtime_engineer / blockchain_ops_engineer | 包、构建、UI/API 生成与真实平台适配均待实现；不是已有 Wasm 构建证据。 |
 
 ## 3. 目标平面拆分
 - `public player plane`
@@ -196,7 +197,7 @@
 | Trace refs: O7-REQ-f837065c-4da5-4e6f-8a53-f4e5900cf26c；[REQ-CLOUD-CUSTODY-003](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-003)  产品 N/A：reason=本节是受控测试账号运维服务的专业要求，不新增玩家功能或公开发行承诺；scope=Cloudflare 测试账号托管与受限执行；| [Cloudflare 条款](#cloud-custody-api) | 短期能力受范围/期限/共享预算约束，类型化 API 与现有 Ed25519 canonical wire 兼容。 | N/A; reason=Cloudflare 测试服务尚未实现，没有匹配的 Worker 测试或运维手册; scope=REQ-CLOUD-CUSTODY-003 的 CT-003 正反例/故障验收; owner_role=blockchain_ops_engineer; evidence_ref=hosted-public-join-managed-identity-custody.design.md#cloud-custody-validation; re-evaluate=首次实现并执行 CT-003 时 | 实现 PR 的测试输出、原请求权威回执和安全审读。 | 本次只提交设计，不证明测试通过或生产可用。 |
 | Trace refs: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede；[REQ-CLOUD-CUSTODY-004](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-004)  产品 N/A：reason=本节是受控测试账号运维服务的专业要求，不新增玩家功能或公开发行承诺；scope=Cloudflare 测试账号托管与受限执行；| [Cloudflare 条款](#cloud-custody-state) | 持久原操作、unknown 恢复以及 quiesce/Stop/Revoke 分开判定，父撤销阻断派生。 | N/A; reason=Cloudflare 测试服务尚未实现，没有匹配的 Worker 测试或运维手册; scope=REQ-CLOUD-CUSTODY-004 的 CT-004 正反例/故障验收; owner_role=blockchain_ops_engineer; evidence_ref=hosted-public-join-managed-identity-custody.design.md#cloud-custody-validation; re-evaluate=首次实现并执行 CT-004 时 | 实现 PR 的测试输出、原请求权威回执和安全审读。 | 本次只提交设计，不证明测试通过或生产可用。 |
 | Trace refs: O7-REQ-b67f1215-00f3-4fbd-b8df-1c2ead4b3945；[REQ-CLOUD-CUSTODY-005](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-005)  产品 N/A：reason=本节是受控测试账号运维服务的专业要求，不新增玩家功能或公开发行承诺；scope=Cloudflare 测试账号托管与受限执行；| [Cloudflare 条款](#cloud-custody-operations) | 恢复先冻结并核对安全代、撤销和原操作；轮换与回退不复活旧授权。 | N/A; reason=Cloudflare 测试服务尚未实现，没有匹配的 Worker 测试或运维手册; scope=REQ-CLOUD-CUSTODY-005 的 CT-005 正反例/故障验收; owner_role=blockchain_ops_engineer; evidence_ref=hosted-public-join-managed-identity-custody.design.md#cloud-custody-validation; re-evaluate=首次实现并执行 CT-005 时 | 实现 PR 的测试输出、原请求权威回执和安全审读。 | 本次只提交设计，不证明测试通过或生产可用。 |
-
+| Trace refs: O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3；[REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006) 产品 N/A：reason=受控测试托管服务的工程实现边界，不新增玩家功能或发行承诺；scope=Rust 包组织、平台适配与实现复用； | [Rust 实现](#cloud-custody-rust) | 两个包保持单向依赖，四种角色产物独立；共享 Rust 协议与实际 HTTP 消费者一致，FFI/存储无整数失真。 | N/A; reason=新增 Rust custody 包及 Workers adapter 尚未实现; scope=CT-006 和 AC-CLOUD-09; owner_role=runtime_engineer; evidence_ref=hosted-public-join-managed-identity-custody.design.md#cloud-custody-validation; re-evaluate=首次实现并执行 CT-006 时 | 实现 PR 的实际构建、依赖/exports 清单、workerd 故障测试与消费者验证。 | 文档、源码参考和已有 native 测试均不证明新 Worker 已构建或部署。 |
 
 <a id="cloud-test-custody-design"></a>
 ## 12. Cloudflare 测试账号托管与受限执行系统设计
@@ -227,7 +228,7 @@
 | Login/owner/executor | `identity_store.rs`、`entry_owner_client.rs`、`executor_gateway.rs` 已隔离用途；owner 请求先保存原意图后联网 | 云端分 Worker 密钥、批准、预算及 outbox 待实现；不自动搬运现有 vault |
 | 世界协议 | `oasis7_client_api` / `oasis7_agent_api` 已定义签名请求、完整 task fence、委托和回执 | Workers 必须复用同一字节与语义，不能把 JSON 可解析当 wire 兼容 |
 | Hosted custody | 本文 §11 明确正式 managed custody sign、self-custody 与冻结恢复缺口 | 新 Cloudflare 测试 lane 不补写为已有生产能力 |
-| 实现/验收 | 无本节服务、云端签名向量、故障恢复及真实受控账号证据 | PRD 五项功能均未实现；本次检查仅证明文档合同/关系 |
+| 实现/验收 | 无本节服务、云端签名向量、故障恢复及真实受控账号证据 | PRD 六项功能均未实现；本次检查仅证明文档合同/关系 |
 
 <a id="cloud-custody-boundaries"></a>
 ### 12.4 边界与结构
@@ -236,7 +237,7 @@
 
 | 组件 | 可持有/可做 | 不可做与信任边界 |
 | --- | --- | --- |
-| Management UI + Identity Worker | Passkey challenge/登录、凭证安全版本与管理会话；仅自己的 login key wrapping secret 与身份协议适配 | 不持 owner/executor wrapping secret，不把登录 session 当协议 owner 签名；不从模型参数决定账户 ACL |
+| Management UI + Identity Worker | Passkey/管理会话的受限适配，复用既有原生 Rust identity authority 的验证与凭证安全版本；仅持自己的 login key wrapping secret | 不建立第二份凭证权威；不持 owner/executor wrapping secret，不把登录 session 当协议 owner 签名；不从模型参数决定账户 ACL |
 | Owner Control Worker | 新鲜操作批准、owner typed intent/sign/send；按账号托管 owner key；管理 grant/Stop/Revoke | 不暴露通用签名或私钥；不能从 executor capability 推导 owner 批准 |
 | AccountAuthority DO（Owner 服务私有 namespace） | 每账号唯一权威：账号管理 ACL/批准消费、授权树/撤销版本、预算、请求/outbox 状态、账户冻结及安全代；受限 RPC 为 executor 做原子 admission/claim/settle | D1、缓存和调用者不能覆盖它；executor binding 只暴露 typed admission/claim/result，不能调用 owner sign/grant/恢复方法 |
 | Executor Worker | 仅持 executor wrapping secret 和获准账号的 executor key ciphertext；签类型化执行请求、经固定 adapter 发送/回读 | 没有 owner/login secret、grant 创建/续期权限或任意网络代理；不跳过世界当前委托/fence |
@@ -293,14 +294,17 @@ Workers 使用标准 `Ed25519` WebCrypto，不使用 legacy `NODE-ED25519`。以
 | 记录 | 最小字段/持有方 | 原子性与生命周期 |
 | --- | --- | --- |
 | `AccountRecord` | account/environment、用途标签、公开 login/owner/executor key refs、world/Agent/task refs、status/security_epoch/policy_version | DO 权威；非秘密投影可发 D1；删除标签/投影不删除撤销事实 |
-| `KeyEnvelope` | role/key_id/key_version、algorithm、ciphertext、nonce、AAD、wrapping_key_version | 按角色 namespace；AES-GCM 新随机 nonce，AAD 绑定环境/账号/角色/key version；用途 Worker secret 才可解密，禁止交换角色 |
+| `KeyEnvelope` | schema、environment/account、role/key_id/key_version、algorithm、ciphertext/value_nonce、wrapped_dek/wrap_nonce、wrapping_key_version | 每协议 key version 独立随机 DEK，角色 KEK 包装 DEK；两层 AES-GCM 使用独立随机 nonce 和分域 AAD，绑定环境/账号/角色/key ID/version/schema；重包仅替换 DEK 包装，不改变协议公钥 |
 | `OwnerApproval` | 管理者/credential security version、intent digest、challenge、expiry、consumed operation | 一次消费；不可复用于另一账号、动作、参数或授权范围 |
 | `Grant` / `Budget` | 上述 capability 字段、token digest、revoked_at、reserved/consumed、version | 同一账号 DO 内共享 root 预算；issue/admit/revoke/settle 条件事务，拒绝欠额/溢出 |
 | `Operation` / `Outbox` | request ID、request digest、typed body、原签名/nonce/correlation、service/world pin、state、attempt/lease/epoch、receipt | 原件先持久化再联网；相同 ID 不同 digest 冲突；同 request 重试不重记业务扣费，不换 actor/nonce |
+| `DelegationSequence` | account/environment/world/Agent、owner/history 范围、generation/nonce 分配水位、原 operation 引用与撤销 barrier | 同一 canonical delegation 资源共用，不按 executor key 分开；签名前事务预留，撤销覆盖全部已保留/可能在途授权，已分配值不回收；历史缺失/溢出冻结 |
 | `AuditEvent` / `ProjectionOutbox` | account sequence、actor/action、非秘密摘要、policy/key/security version、结果引用 | 与授权/预算/请求提交同事务；异步投影按 account sequence 幂等，缺序不伪造完整 |
 | `RecoveryFence` | environment service epoch、disabled、恢复事件与墓碑 | 独立于账号备份；只收紧执行，不保存可恢复的 active grant 或预算 |
 
 私钥只在对应 Worker 生成/解密/签名的短生命周期内使用，不返回 dot、UI 或通用日志。秘密台账与元数据可在同一账号逻辑关联，但只能经不同的用途访问面读取。生产 key 不允许进入此服务；测试 key 创建/导入是独立授权动作。本版不自动导入旧 vault。密钥备份仅限经授权的加密恢复材料，wrapping secret 不与密文一起归档；否则不得声称加密备份形成独立保护。
+
+新托管 HTTP DTO、需经 JS 值传递的 FFI/RPC 以及 DO SQL/D1 投影，对全宽 u64（nonce、generation、epoch、sequence 和预算）使用规范十进制字符串/TEXT 或固定长度 bytes，Rust 做 checked arithmetic，不经 JS Number/f64 或 SQL 数字往返，也不用字符串字典序比较数值。既有 World Service JSON/CBOR schema 保持不变：原 schema 的数值型 u64 由 Rust 从原始 bytes 直接序列化/解析，不能改成字符串，也不经过 JS JSON.parse/stringify 重编码；既有 DecimalU64 仍按其字符串合同。[Rust 平台约束](#cloud-custody-rust-platform)覆盖这些不同边界的往返验收。
 
 D1 以 DO 事件流重建列表，延迟/丢失不影响授权结果；页面展示 stale 并回 DO 取当前状态，不以投影恢复 active。R2 可按需保存加密归档/完整性摘要，无归档需求时不引入。队列/alarm 只唤醒持久 outbox；重复投递按记录消费，不以一次 alarm 当唯一执行保证。
 
@@ -321,7 +325,11 @@ D1 以 DO 事件流重建列表，延迟/丢失不影响授权结果；页面展
 
 下游 HTTP 不与 DO 事务原子提交。恢复必须复用 Game API 既有原请求恢复合同：先查 durable original-operation receipt，确认 digest、原 actor、service/world pin、结果关联；只有下游明确保证该操作持久查重、恢复仍保留同一去重历史且当前授权允许时，才可发送原 bytes。单次 not-found、502、超时或 Worker lease 过期不是未执行证明。协议不提供可靠原请求查询/去重时，此动作在首版禁用或停在人工 recovery_required，不宣称“恰好一次”。
 
-父/根撤销在 DO 事务增加版本并使全部派生 capability 和未 claim outbox 失效，不要求先逐行扫描所有子记录才能阻断。已经 claim 的请求仍在网络交接竞态内，本服务无法撤回已离开的 bytes；应立即 quiesce 并提交 canonical Stop/Revoke，由世界当前 fence/委托最终拒绝后续执行。Stop 与 Revoke 分别保留 operation ID、submitted/unknown/confirmed 和权威状态；Revoke 按既有合同严格递增 generation/nonce，同一原件重复仍按原操作处理。停止任务不自动撤销全部签名委托，撤销能力也不回滚过去世界结果。
+父/根撤销在 DO 事务增加版本并使全部派生 capability 和未 claim outbox 失效，不要求先逐行扫描所有子记录才能阻断。已经 claim 的请求仍在网络交接竞态内，本服务无法撤回已离开的 bytes；应立即 quiesce 并通过独立安全控制容量提交 canonical Stop/Revoke，由世界当前 fence/委托最终拒绝后续执行。Stop 与 Revoke 分别保留 operation ID、submitted/unknown/confirmed 和权威状态；Revoke 按既有合同严格递增 generation/nonce，同一原件重复仍按原操作处理。停止任务不自动撤销全部签名委托，撤销能力也不回滚过去世界结果。
+
+**应急准入和派发容量：** 普通 executor 在途写上限、8 个普通未决动作上限与 1 个普通 owner intent 上限均不占用安全控制槽。每账号分别保留 1 个 Stop 槽和 1 个 Revoke 槽；槽位在 Account DO 条件事务中分配，相同动作/摘要复用其原 operation，不允许靠不同 ID 反复占位。同类操作仍 unknown 时先查原件；Stop unknown 不阻断独立 Revoke，反向亦然。二者各自读取/核验当前合法 owner 与 fence；Revoke 序号还必须覆盖下述本服务全部已分配授权水位，不只读取当前世界值，不替换已经签好的原件。独立应急预算、有限次数/截止和同类去重继续生效；普通配额已满或执行预算耗尽不阻塞安全控制。quiesce 是本地拒绝条件更新，不等待远端写槽。轮换只有在相关 Stop/Revoke、旧 writer 及原件已按恢复合同核对后才进入普通 owner 串行槽；它不能挤占停止/撤销容量。任何旧 unknown 及其业务预留都继续保留，不伪造终态或清空记录来腾槽。
+
+**委托撤销的序号屏障：** [Runtime 委托校验](../../../crates/oasis7_runtime/src/service_admission/agent_authority.rs) 按 Agent 保存当前 delegation，接受 generation 和 nonce 都严格递增的变更。Account DO 按同一 canonical delegation 资源（account/environment/world/Agent 及合法 owner/history 范围）维护持久分配水位，不按 executor 公钥分别计数。任何授权原件在签名前先事务保留 generation/nonce 与 operation 关联；取消或未派发也不回收号码。受理 Revoke 时冻结该资源新的授权签发，取分别严格大于“当前 canonical 值”和“所有已保留/已签/prepared/claimed/unknown 授权原件”的 generation 与 nonce，原子登记后再出签。旧分配即使签名尚未返回也在水位内，事务 B 仍重验撤销版本；只有撤销确认并取得新鲜 owner 批准才可再授权。恢复必须保全/核对这一水位和全部可能在途原件；历史不全、其他 owner 写者未隔离或任一计数溢出时保持冻结，不能猜测序号或宣称撤销完成。这样 Revoke committed 后迟到的旧授权会被递增规则拒绝；Stop 仍使用原完整 task fence，不套用委托序号替代其协议。
 
 预算是两层：本服务请求次数/资源上限与世界业务资源预算。DO 持久预留保证本服务并发不超支，世界权威仍独立核业务预算；不同账号没有隐含共享原子总额。未知请求保留最坏业务预留，只有权威拒绝/未执行或明确结算才释放/转消耗。HTTP 请求次数、重试成本与业务动作成本分开记录；budget 耗尽不能通过换 token/Worker 重置。
 
@@ -350,7 +358,7 @@ dev/staging 使用独立 Cloudflare Worker、DO/D1/R2 namespace、身份域、se
 - **轮换**：分别轮换 login、owner、executor 与 wrapping key。重包密文不改协议公钥；协议密钥轮换必须走对应身份/owner/delegation 正式流程并确认世界状态。保留旧 key version 仅用于必要原件验证/受限查询，绝不以旧密钥新签写请求。轮换响应未知仍查原请求。
 - **回退**：代码回退只能回到理解当前 schema/security epoch 的已验证版本；不降 schema、不回退预算/撤销、不恢复旧 secrets 或 grant。不能理解新状态时维持只读冻结，已提交世界效果不可回滚。
 
-**冻结下的恢复控制通道：** 冻结禁止普通 login/owner 业务签名、executor 写入与创建/续期 grant，不关闭独立人工批准的最小恢复通道。该通道只允许固定账号/世界的 canonical Stop、delegation Revoke、协议明确允许的密钥轮换及必要原结果只读核对，重新做 intent-bound 身份验证、审计和当前权威检查；无玩法、转账、governance、通用签名或解冻自授权。恢复操作使用独立有界应急预算，不被已耗尽的执行预算锁死，也不允许无限重试。owner key/身份本身不可恢复或已不受信时保持阻塞，按既有世界/身份恢复权威处理，不能临时发明另一个 owner。
+**冻结下的恢复控制通道：** 冻结禁止普通 login/owner 业务签名、executor 写入与创建/续期 grant，不关闭独立人工批准的最小恢复通道。该通道只允许固定账号/世界的 canonical Stop、delegation Revoke、协议明确允许的密钥轮换及必要原结果只读核对，重新做 intent-bound 身份验证、审计和当前权威检查；无玩法、转账、governance、通用签名或解冻自授权。恢复操作使用独立有界应急预算和上述 Stop/Revoke 控制槽，不被普通在途写、待确认 owner intent 或已耗尽的执行预算锁死；Stop/Revoke 可各自未知，但不能互相阻塞首次独立派发，也不允许无限重试。owner key/身份本身不可恢复或已不受信时保持阻塞，按既有世界/身份恢复权威处理，不能临时发明另一个 owner。
 
 安全审计建议保留 90 天，运行诊断 30 天；账号退役冻结所有写后，保留最小撤销 tombstone、operation digest/原结果引用，直到下游持久查重/回读保留合同足以阻断重放。需要删除完整私密原件前，先核完 unknown 并销毁相关写能力；不得因 TTL 清理而把旧 ID 当全新可执行。任何具体保留例外与删除责任在实施运维合同中明确，R2 不是默认永久保存个人资料。
 
@@ -361,9 +369,9 @@ dev/staging 使用独立 Cloudflare Worker、DO/D1/R2 namespace、身份域、se
 
 | 场景 | 环境、刺激/规模 | 预期响应与指标 | 验证/当前范围 |
 | --- | --- | --- | --- |
-| 多账号 | 单测试环境最多 100 账号；每账号 4 个 active root grant、1 个待确认 owner intent、8 个未决动作 | 列表分页且每账号强隔离；未决上限包含 unknown，达到上限拒绝新写 | CT-001/005，待实现 |
+| 多账号 | 单测试环境最多 100 账号；每账号 4 个 active root grant、1 个普通待确认 owner intent、8 个普通未决动作 | 列表分页且账号隔离；普通未决包含 unknown，满额拒绝普通新写；独立 Stop/Revoke 各保留 1 槽 | CT-001/004/005，待实现 |
 | 受限执行 | capability TTL 默认 5 分钟、根绝对期限最多 30 分钟；每根最多 100 次工具请求；可进一步缩小 | 到期判定使用服务时间并校验下游协议时限；无续期，无并发穿透 | CT-003，待实现；这些值不改变世界 lease/业务数值 |
-| 请求/传输 | 请求至多 32 KiB；每账号最多 1 个写请求 in-flight；下游单次超时 10 秒，整体核对截止 2 分钟 | 大小超限拒绝；超时进入 unknown，截止后 recovery_required，后续人工可继续只读核对 | CT-004，待实现；当前 broker response 上限不被静默改写 |
+| 请求/传输 | 请求至多 32 KiB；每账号最多 1 个普通 executor 写 in-flight，另有上述有界 owner 控制容量；下游单次超时 10 秒，整体核对截止 2 分钟 | 大小超限拒绝；超时 unknown，截止后 recovery_required；保留原件/业务预留且 Stop/Revoke 仍可独立推进，人工可继续只读核对 | CT-004，待实现；当前 broker response 上限不被静默改写 |
 | 控制面延迟 | staging 100 账号/20 并发请求、持续 10 分钟；不含 Passkey 用户耗时与世界提交 | admission p95 目标 <500 ms；单账号暂停提交后下一次 admission 拒绝；无成功吞错 | 实施 PR 提供分位数、地区/版本/样本，未测 |
 | 审计/隔离 | malformed、跨账号、重复、超额、撤销/恢复故障注入 | 每安全转移有 account sequence；secret 扫描零原始秘密；失败原因可分类 | CT-001~005，待实现 |
 
@@ -382,15 +390,16 @@ dev/staging 使用独立 Cloudflare Worker、DO/D1/R2 namespace、身份域、se
 <a id="cloud-custody-validation"></a>
 ### 12.11 验证设计与可追溯性
 
-以下 CT 是本设计规定的未来验收场景，不是已存在或已运行的测试名称。对应 PRD [AC-CLOUD-01~08](hosted-public-join-managed-identity-custody.prd.md#cloud-custody-acceptance)；当前 PR 仅执行文档治理、链接/Trace 关系与独立安全审读。实现 PR 必须固定 Rust/Workers 源版本、Cloudflare compatibility date、schema、真实 world/service pin、环境和观测窗口，并区分 fixture、本地模拟、Workers staging 与世界权威回执。
+以下 CT 是本设计规定的未来验收场景，不是已存在或已运行的测试名称。对应 PRD [AC-CLOUD-01~09](hosted-public-join-managed-identity-custody.prd.md#cloud-custody-acceptance)；当前 PR 仅执行文档治理、链接/Trace 关系与独立安全审读。实现 PR 必须固定 Rust/Workers 源版本、Cloudflare compatibility date、schema、真实 world/service pin、环境和观测窗口，并区分 fixture、本地模拟、Workers staging 与世界权威回执。
 
 | 场景 ID | 正例、负例与故障切点 | 要核对的实际结果 | 覆盖 AC |
 | --- | --- | --- | --- |
 | CT-001 | 2 管理者/多账号切换、跨账号 ID 替换、D1 延迟/污染、日志/备份检查 | 只能读取/操作自身账号；D1 丢失可重建但不改变授权；无长期秘密泄漏 | AC-CLOUD-01 |
 | CT-002 | Passkey 正常/错误 RP/origin/UV、stale approval、executor token 调 owner route、错误角色 key/发布身份；证明已消费发出 grant、当前无在途，再撤销凭证但未收齐 DO 确认 | login 不等 owner；一次批准绑定精确摘要；Executor 无 owner secret/发布/调用能力；等待证明过期不能显示 custody closed，账号侧撤销后旧 capability 不能新 claim | AC-CLOUD-02 |
 | CT-003 | 并发使用同根预算、父撤销、过期、递归派生/续期、跨 world/Agent/fence；Rust→Worker 与 Worker→Rust 全量 golden vectors | 权限只能收缩且不超支；canonical CBOR/digest/signature 精确一致；不支持组合 fail closed | AC-CLOUD-03/04 |
-| CT-004 | admission、保存原件、claim、下游提交、回执落盘各切点杀进程/断网；同 ID 同/异 body；Stop/Revoke 分别丢响应 | 原操作只有可证明的原结果；unknown 不换 nonce 重发；quiesce/Stop/Revoke 三态独立；新 executor 只读原件不提交旧 actor 请求 | AC-CLOUD-05/06 |
+| CT-004 | admission/保存原件/claim/提交/回执切点故障；同 ID 同/异 body；普通配额满且 executor unknown 后发 Stop/Revoke；Stop unknown 后独立 Revoke，反向亦然；高序号授权原件延迟到 Revoke committed 后 | 原件/预留保留，unknown 不换 nonce；安全控制槽独立且有界、同类去重；Revoke 覆盖全部签发水位，迟到旧授权被拒绝；三态分别确认；新 executor 只读旧原件不重提旧 actor | AC-CLOUD-05/06 |
 | CT-005 | 恢复撤销前备份、旧 Worker 尚存、Recovery Fence 不可用、wrapping/protocol key 轮换、代码回退、预算/审计耗尽 | 恢复默认冻结、旧 epoch/grant 不能派发、世界撤销核对与新批准后才接续；全链受控测试，不冒称生产 | AC-CLOUD-07/08 |
+| CT-006 | 两包 host/Wasm；四个真实角色构建与无/多角色负例；SDK 事务中途失败；u64 全链往返；真实 HTTP DTO/TS 消费者；跨角色路由/DO export/发布身份尝试 | 单向依赖、四个隔离工件；事务完整回滚、无整数失真；旧协议 fixture 不变、新 HTTP 合同同源；Executor 无 Owner/Identity/Fence 权限；参考加密的 AAD/换包/轮换负例成立 | AC-CLOUD-09，并补强 AC-CLOUD-02/03/04/07 |
 
 可复用的基线回归包括 `hosted_identity/entry_executor_control_tests.rs` 的 `executor_dispatch_denies_owner_intents_and_checks_current_delegation_and_complete_fence`、`rotated_current_executor_can_query_verified_old_original_but_cannot_submit_it`、`stopped_current_owner_can_query_original_without_reenabling_executor`；`oasis7_game_client/src/entry_owner_client_tests.rs` 的 `restart_retains_original_fence_and_wire_before_any_network_and_isolates_vaults`、`owner_signed_history_unavailable_blocks_and_preserves_original_without_submit`。这些已有 Rust 测试只证明自身层，不能代替新增 Worker adapter、网络重放、角色发布权限或灾备演练。本设计没有运行它们，不记录虚假 PASS。
 
@@ -402,5 +411,70 @@ dev/staging 使用独立 Cloudflare Worker、DO/D1/R2 namespace、身份域、se
 | Owner/Identity/Executor 分部署，测试版 Worker 可信持钥 | 降低助手持钥与误接线风险；仍信任平台和发布者，不等于 HSM | 任何真实资产/治理或更强不可提取需求出现即停止扩面，由 blockchain_ops_engineer 另审生产 custody |
 | 持久 outbox + 原请求查重/回读 | 保存未知状态和原副作用身份，避免“重试一次”产生重复动作 | 下游持久去重/查询合同缺失或保留期改变时禁用相应写，由 runtime_engineer 解决 |
 | 恢复单独 epoch 与冻结，重新批准 | 防旧权限复活，牺牲自动恢复可用性 | 变更 restore 路径或 fence 发布权限时由 blockchain_ops_engineer 复核，不能靠旧备份自行解冻 |
+| [Rust 核心 + Workers 适配两包](#cloud-custody-rust)，四角色分别构建 | 复用现有 Rust 协议、集中业务判定，兼顾宿主测试与部署隔离 | wasm target、SDK/FFI 或角色工件不能满足边界时由 runtime_engineer 先修适配；不扩为第二套协议或多角色动态通用 Worker |
+| [agentic-keyvault 的有界参考](#cloud-custody-reference) | 借鉴封装加密、版本化和薄客户端，不引入其 secret 读取及响应缓存语义 | 采用外部实质代码或上游版本变化时重核来源、许可、AAD 与权限合同 |
 
 实施前仍需在具体任务冻结：capability 客户端 PoP 的标准协议/向量与 dot 接线支持、Passkey 验证库与现有 identity 服务的部署复用方式、每类 typed action 的下游持久去重/回读/保留能力、真实 Cloudflare 套餐预算和地区容量。各缺口分别阻断对应能力开放，不阻断文档评审，也不通过伪造默认值或新增流程台账掩盖。长期风险仍包括平台/发布链攻陷、账户恢复误授、撤销与已发请求竞态、未知操作造成预算冻结；这些风险必须在测试验收和管理界面中可见。
+
+<a id="cloud-custody-rust"></a>
+### 12.13 Rust 技术栈、包组织与实现边界
+
+本节承接 [REQ-CLOUD-CUSTODY-006](hosted-public-join-managed-identity-custody.prd.md#req-cloud-custody-006)。Rust 是首版服务业务和协议逻辑的实现语言；Cloudflare 入口目标为 `wasm32-unknown-unknown`，使用官方 [workers-rs](https://developers.cloudflare.com/workers/languages/rust/)。管理 UI 的浏览器 WebAuthn 调用与展示可用 TypeScript。以下是待实施目录和职责，当前 PR 不新增 crate、空入口或依赖锁定结果。
+
+#### 包与依赖方向
+
+| 拟新增 package / 位置 | 持有的职责 | 依赖边界 |
+| --- | --- | --- |
+| `crates/oasis7_custody_core` | 托管 HTTP DTO、批准摘要、grant/预算与原请求/outbox 状态变换、恢复判定、key envelope/AAD 格式；同步纯逻辑供 host/Wasm 测试 | 复用 `oasis7_client_api` / `oasis7_agent_api` 的类型/验证和 `oasis7_wasm_abi` 的 canonical 编码；无 Workers SDK、JS、真实时钟/随机、HTTP/文件/进程或世界执行器依赖 |
+| `crates/oasis7_custody_worker` | Rust fetch/DO/alarm 入口，SQLite 事务、WebCrypto、Fetch/窄 service binding、D1 投影与可选 R2；只在本层出现 `JsValue` 和平台 I/O | 依赖 custody core 和锁定的 `worker`/Wasm bindings；不依赖整个 `oasis7_game_client`、Client Storage、local signer、launcher/backend 或 world runtime/service |
+| `oasis7_custody_worker/deploy/{identity,owner,executor,recovery-fence}/` | 各角色 Wrangler 配置、migration、bindings、构建和无秘密运维说明 | 四套独立发布身份/secret/namespace；Recovery Fence 不并入 Owner 部署或账号恢复快照 |
+| `oasis7_custody_worker/ui/` | 管理确认页、浏览器 Passkey 调用、非秘密状态；消费 Rust HTTP 合同产物 | 不持协议私钥，不实现授权、预算、canonical 编码或世界操作签名；无额外 TS/Go custody 服务 |
+
+新增 package 数为两个；`policy`、`budget`、`operations`、`recovery`、`envelope` 是 core 内部模块，DO/crypto/transport 是 worker 内部适配模块。依赖只从 worker 指向 core、再指向既有 API/codec；现有 API 不反向依赖 custody，core 不回拉世界执行层。通过显式上下文/端口注入当前时间、安全随机源、签名器、持久事务与网络，不让核心自行读取环境或访问操作系统。
+
+`oasis7_custody_worker` 使用 `cdylib`（测试所需可同时 `rlib`），按 `identity`、`owner`、`executor`、`recovery-fence` 四种 feature 分别构建。Wasm 发布构建恰好启用一个角色，无角色/多角色均拒绝；host 检查不导出可部署服务。各角色只编入自己的 handler/DO exports：Owner 持有 AccountAuthority，Recovery 持有独立 Fence。四份输出保存在不同角色目录、核对各自产物摘要；共享源码不等于共享运行时秘密。禁止用一个含全部能力的动态 role/env 参数程序替代隔离，也不能用 `--all-features` 代替四个真实构建组合。
+
+#### 既有 Rust 的复用与窄提取
+
+固定源码基线中，[Client API manifest](../../../crates/oasis7_client_api/Cargo.toml) 与 [Agent API manifest](../../../crates/oasis7_agent_api/Cargo.toml) 已持有协议类型/验证依赖；直接调用 [authority.rs](../../../crates/oasis7_client_api/src/world_service/authority.rs) 的 `signing_bytes`/`request_digest`、现有 typed payload、correlation 和 fence 校验。Rust canonical bytes 以字节数组交给 WebCrypto，禁止先变成 JS object/Number 后重新构造签名原像。HTTP 新 DTO 属 custody core，不复制现有 World Service 类型。
+
+[Game Client manifest](../../../crates/oasis7_game_client/Cargo.toml) 含 `reqwest::blocking`/rustls、Client Storage、原生随机源；`runtime_broker` 和 identity/owner/executor 客户端还依赖 Unix vault、文件和进程行为，不能整包链接到 Worker。如需要复用 `entry_owner_client` / `executor_gateway` 中的原 actor、历史/当前 fence、原请求/响应关联验证，先把纯验证函数窄提取到既有 Client API 合适模块，再由原生和云端调用同一实现；不复制验证器、不新增通用 client-core crate。原生调用方与已有负例同步回归，Unix vault/transport 保持原职责。
+
+Client API 中的文件读取、`SystemTime` 等便利 API 也不因 crate 可编译就变成 Worker 可调用；实现需登记纯协议入口，核验实际 target/feature 依赖。首个构建切片验证两新包及其传递依赖，必要时在原 API 包内隔离宿主辅助方法，保留当前协议字节和原生消费者；当前文档不声称已通过 Wasm 编译。
+
+<a id="cloud-custody-rust-platform"></a>
+#### 平台、身份与密码学适配
+
+- **DO 事务**：以 [Rust Storage API](https://docs.rs/worker/0.8.7/worker/durable/struct.Storage.html) 和 [SQLite DO 合同](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/) 为实现参考。优先使用 SDK `Storage::transaction()`，回调内只执行同步 SQL/完整消费 cursor 与纯 Rust 状态计算，无网络、WebCrypto、计时器或其他异步 I/O；外层等待事务完成后再返回可派发状态。回调错误须使全部修改回滚，不能用手写 SQL `BEGIN/SAVEPOINT` 或进程内锁代替。必须在 workerd 验证中途报错、并发 admission 与崩溃切点；若选 `transactionSync`，其窄 FFI 及异常回滚语义单独验证，不假设 Rust SDK 已有同名高层方法。
+- **整数**：[Rust SQL value](https://docs.rs/worker/0.8.7/worker/enum.SqlStorageValue.html) 的整数桥接仍经 JS 数值，Rust 类型不能自动保护全宽 u64。仅在 §12.7 指定的新 DTO/JS 值桥接/存储边界使用字符串/TEXT/bytes；既有协议数值字段仍由 Rust 直接编码/解析原始 JSON/CBOR bytes。在事务内以 Rust 解析、比较和 checked arithmetic 更新；覆盖 `2^53+1`、u64 最大值、溢出及审计/投影回读，禁止以 SQL 数字运算或字符串排序重新解释。
+- **角色接口**：优先采用经验证的窄 Rust binding；[Rust RPC](https://docs.rs/worker/0.8.7/worker/#rpc-support) 的实验性支持不等于已有完整复杂类型生成。确需命名 `WorkerEntrypoint` 时，只允许薄 JS/TS 胶水暴露固定 `admit/claim/settle/read_result`，把静态服务身份和有界 bytes 交给 Rust；不承载业务判断、签名编码或秘密。Executor 不持 AccountAuthority 直接 namespace，也不获可访问全部 Owner routes 的通用 binding。角色不能由请求字段/header 自报；验证最终 exports、binding 与发布权限。
+- **密码学**：WebCrypto Ed25519/AES-GCM 经 Rust `web-sys`/`wasm-bindgen` 调用；CSPRNG 和时间来自 worker 适配。需要 `getrandom` 时，unknown-Wasm 的 `wasm_js` 支持只在 worker 叶子依赖启用。核心不使用全局 env secret 或 native fallback。Rust/native、Rust/Wasm、WebCrypto 仍执行 §12.6 的双向向量和拒绝矩阵；签名器只消费内部类型化构造得到的 bytes，平台持钥残余风险不变。
+- **Passkey 与登录会话**：当前 [Cargo.lock](../../../Cargo.lock) 的 `webauthn-rs-core 0.5.5` 带 OpenSSL 依赖；首版不把现有验证器直接编到 unknown-Wasm。Identity Worker 通过固定 HTTPS origin/service pin 的窄适配复用既有原生 Rust `hosted_identity` authority；Passkey ceremony、凭证/会话安全版本、撤销和恢复继续由这一份权威判定。批准证明在该权威校验并原子消费后签发，Owner DO 仍按 §12.5 单独消费，不由代理自报验证成功。需增加的批准证明接口在现有身份模块实现，不另建身份 crate/凭证数据库。域名、RP/origin、Cookie/CSRF 和服务 audience 必须显式匹配，不能透明代理后放宽来源校验。托管 login key 与下游 session 按账号/环境隔离并留可信适配层，Owner/Executor 的 gateway 调用仍须当前合法会话与角色证明；不能因已有托管 capability 就绕过登录撤销。后续迁移 Passkey verifier 到边缘须另审标准库支持与撤销/恢复等价性。
+
+#### HTTP 产物、构建与现有工程入口
+
+托管 HTTP 接口的真实 Rust DTO 是唯一类型声明，路由/auth/error/limits 使用独立 custody profile。当前 [协议生成器](../../../crates/oasis7_agent_api/protocol_codegen/README.md) 只支持固定 `signed-read-bootstrap` 五个 GET roots，不生成通用 Rust DTO 或 JS 签名 codec。实施时先增加真实 Rust DTO 到 schema/components 的导出入口，再扩展独立 profile、POST/requestBody/auth/error 支持及负例，导出管理 UI 所用 JSON Schema/TypeScript，验证真实 Rust handler fixture 与 TS 消费者；不能只改 profile 就宣称支持，不建立脱离实际 handler 的镜像 DTO。保留旧 bootstrap profile 和其既有产物。生成器仅属开发工具，不进入 Worker normal/build 依赖，不在 `build.rs` 或请求路径运行。
+
+实施在根 `Cargo.toml` 注册两个成员并继承 workspace edition/license/lints，更新同一 `Cargo.lock`；依赖版本遵循现有 workspace 策略。为新增包在 [cargo-dev-architecture.json](../../../scripts/cargo-dev-architecture.json) 登记指向本节的 host/Wasm/test 与四角色 profiles，禁止传递回拉 native client/storage、launcher 与世界执行层；core 另禁止 worker/JS 依赖。包内角色隔离不能仅靠 Cargo 图证明，仍做 exports/bindings 负例。
+
+同步 [ci-required-scope.json](../../../scripts/ci-required-scope.json) 的 package/input 归属、[SUPPORT_PROFILES](../../../scripts/plan-rust-required-scope.py)、[ci-tests.sh](../../../scripts/ci-tests.sh) 及现有选择器测试，覆盖部署配置、schema/profile、UI/生成产物及 Rust 依赖变化。普通文档改动继续只选适用文档检查；不为本设计预建空 CI profile 或新增通用审批。
+
+实现必须固定 Rust toolchain、worker/worker-build、wasm-bindgen、Wrangler、features 和 compatibility date；以所选版本实际生成并经 dry-run 验证的入口为准，不沿用未经核对的历史 shim 路径。Rust/Cargo 管理服务依赖；Node 工具仅用于 Wrangler、必要 glue 和 UI/平台测试，并锁定版本。首批验证包括 core host tests、`cargo check -p oasis7_custody_core --target wasm32-unknown-unknown --locked`、worker 四角色分别构建和 workerd 故障测试；所有命令均是未来包存在后的验收入口，当前未执行。
+
+实施顺序为：两包最小 host/Wasm 与独立角色产物；共享协议/必要纯验证提取和平台事务/加密适配；身份批准与 owner 原操作；有界 executor、应急控制槽及故障恢复；管理 UI/真实 HTTP 消费者与受控单账号验收。沿同一实现任务原子更新适用协议/CI入口，部署及凭据操作继续按原授权边界，不自动创建后续 Issue 或开放服务。
+
+<a id="cloud-custody-reference"></a>
+### 12.14 agentic-keyvault 的实现参考与采用边界
+
+参考固定为 [Hitesh-Sisara/agentic-keyvault@f39c1cf859e79a30b684291f1a2a599cc8527a96](https://github.com/Hitesh-Sisara/agentic-keyvault/tree/f39c1cf859e79a30b684291f1a2a599cc8527a96)。它是 TS Worker/D1 的秘密存取服务；以下结论来自实际源码，不作为 oasis7 协议签名、权限隔离或真实部署验收证据。本次仅采用设计方法，不引入上游服务、Go/TS backend、运行依赖或源代码副本。
+
+| 已核对来源 | 可借鉴的具体实现 | 本项目采用方式与限制 |
+| --- | --- | --- |
+| [crypto.ts](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/worker/src/crypto.ts)：`sealValue/openValue/rewrapDek` | 每版本随机 DEK、AES-GCM 封装、分版本 KEK、只重包 DEK | Rust core 定义 envelope/AAD，worker 执行 WebCrypto；两层 AAD 分域并绑定环境/账号/角色/key ID/version/schema，不照搬仅 secretName/固定常量的绑定；重包不改变协议公钥 |
+| [ids.ts](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/worker/src/ids.ts) 与 [store/tokens.ts](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/worker/src/store/tokens.ts) | 随机 opaque token、digest 落盘、非秘密列表 | 保留本服务 PoP、精确资源、root budget、绝对 TTL 和撤销代；不采用 bearer-only、可空 expires_at 或通用 admin token |
+| [shared/client.ts](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/shared/src/client.ts) 与 [secret-service.ts](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/worker/src/secret-service.ts) | 薄 typed transport、crypto/service/store 分层、不可变版本 | 在两个 Rust 包内以模块/端口复用；授权/预算/原件/审计仍在 Account DO 同事务，D1 仅投影；上游手写 TS types 不替代本项目真实 DTO 产物 |
+| [crypto.test.ts](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/worker/test/crypto.test.ts) | 随机往返、Unicode、错误 AAD/KEK、篡改拒绝、重包连续性 | 转为 Rust/native/Wasm 测试类别，再补跨账号/角色/环境换包、协议签名与恢复负例；不把上游测试当作本项目已运行证据 |
+
+明确不采用 [MCP 的 get_secret/get_secret_version](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/mcp/src/index.ts) 及批量明文导出/命令环境注入方式：本项目模型只获类型化动作、opaque 引用和脱敏结果。也不采用其 [idempotency middleware](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/packages/worker/src/idempotency.ts) 的“查询缓存→执行 handler→waitUntil 保存响应”：该步骤不能提供副作用前的持久 claim、正文绑定及故障原件恢复，不能替代 §12.7 的 DO 原子状态/outbox。完整响应缓存也不能保存新发 capability 等原始秘密。
+
+上游 [LICENSE](https://github.com/Hitesh-Sisara/agentic-keyvault/blob/f39c1cf859e79a30b684291f1a2a599cc8527a96/LICENSE) 为 MIT，署名 Hitesh Sisara。将来复制实质代码时随代码保留版权/许可通知并记录来源；本设计的概念参考不引入许可或安全性的整体背书。

@@ -171,9 +171,9 @@ impl MetadataServer {
                                     "request_digest": incoming.request_digest
                                 });
                                 let digest = blake3::hash(incoming.decision_request_id.as_bytes());
-                                fs::write(
-                                    accounting_root.join(format!("model-request-{digest}.json")),
-                                    serde_json::to_vec(&identity).unwrap(),
+                                application_hosted_wait::publish_marker(
+                                    &accounting_root.join(format!("model-request-{digest}.json")),
+                                    &serde_json::to_vec(&identity).unwrap(),
                                 )
                                 .unwrap();
                             }
