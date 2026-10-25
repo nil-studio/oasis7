@@ -127,6 +127,8 @@ jobs:
         name: Extraction and complete official default queries
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
+        env:
+          RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
         with:
           checkout_path: ${{ github.workspace }}
           category: oasis7/rust-repo/default
@@ -210,4 +212,5 @@ jobs:
         with:
           name: rust-capacity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-capacity-evidence
+          include-hidden-files: true
           retention-days: 14
