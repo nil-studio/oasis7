@@ -1,8 +1,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use crate::error::WorldError;
 use libp2p::PeerId;
 use oasis7_proto::distributed_dht::{PeerDiscoverySource, SignedPeerRecord};
+
+use super::rendezvous_trigger::RendezvousTriggerEvidence;
 
 const MAX_RECORD_OBSERVATIONS: usize = 1024;
 const MAX_SIGNED_PAYLOAD_BYTES: usize =
@@ -20,6 +23,7 @@ pub(super) enum DiscoveryIngress {
 struct RecordObservation {
     signed_payload: Vec<u8>,
     ingresses: Vec<DiscoveryIngress>,
+    rendezvous_triggers: Vec<RendezvousTriggerEvidence>,
     observed_at_ms: i64,
 }
 
@@ -35,11 +39,22 @@ impl DiscoveryObservations {
         self.static_bootstrap_peers = peers;
     }
 
+    #[cfg(test)]
     pub(super) fn record(
         &mut self,
         record: &SignedPeerRecord,
         ingress: DiscoveryIngress,
         now_ms: i64,
+    ) -> Result<(), WorldError> {
+        self.record_with_rendezvous_triggers(record, ingress, now_ms, &[])
+    }
+
+    pub(super) fn record_with_rendezvous_triggers(
+        &mut self,
+        record: &SignedPeerRecord,
+        ingress: DiscoveryIngress,
+        now_ms: i64,
+        rendezvous_triggers: &[RendezvousTriggerEvidence],
     ) -> Result<(), WorldError> {
         let payload = self.preflight_record(record, &ingress, now_ms)?;
         let peer = record
@@ -53,6 +68,11 @@ impl DiscoveryObservations {
             if !previous.ingresses.contains(&ingress) && previous.ingresses.len() < MAX_INGRESSES {
                 previous.ingresses.push(ingress);
             }
+            merge_rendezvous_triggers(
+                &mut previous.rendezvous_triggers,
+                rendezvous_triggers,
+                Instant::now(),
+            );
             previous.observed_at_ms = now_ms;
             return Ok(());
         }
@@ -71,10 +91,27 @@ impl DiscoveryObservations {
             RecordObservation {
                 signed_payload: payload,
                 ingresses: vec![ingress],
+                rendezvous_triggers: bounded_rendezvous_triggers(rendezvous_triggers),
                 observed_at_ms: now_ms,
             },
         );
         Ok(())
+    }
+
+    pub(super) fn merge_rendezvous_triggers_for_exact_record(
+        &mut self,
+        record: &SignedPeerRecord,
+        rendezvous_triggers: &[RendezvousTriggerEvidence],
+    ) -> bool {
+        let Some(observation) = self.matching_mut(record) else {
+            return false;
+        };
+        merge_rendezvous_triggers(
+            &mut observation.rendezvous_triggers,
+            rendezvous_triggers,
+            Instant::now(),
+        );
+        true
     }
 
     /// Check every fallible observation condition without mutating local evidence.
@@ -120,6 +157,13 @@ impl DiscoveryObservations {
         (observation.signed_payload == payload).then_some(observation)
     }
 
+    fn matching_mut(&mut self, record: &SignedPeerRecord) -> Option<&mut RecordObservation> {
+        let peer = record.record.peer_id.parse::<PeerId>().ok()?;
+        let payload = serde_cbor::to_vec(record).ok()?;
+        let observation = self.records.get_mut(&peer)?;
+        (observation.signed_payload == payload).then_some(observation)
+    }
+
     pub(super) fn is_static_bootstrap(&self, record: &SignedPeerRecord) -> bool {
         record
             .record
@@ -160,6 +204,70 @@ impl DiscoveryObservations {
         } else {
             BTreeSet::new()
         }
+    }
+
+    pub(super) fn rendezvous_trigger_servers(
+        &self,
+        record: &SignedPeerRecord,
+        now: Instant,
+    ) -> Vec<PeerId> {
+        let Some(observation) = self.matching(record) else {
+            return Vec::new();
+        };
+        let mut servers = observation
+            .rendezvous_triggers
+            .iter()
+            .filter_map(|trigger| {
+                now.checked_duration_since(trigger.observed_at)
+                    .filter(|age| *age < Duration::from_secs(60))
+                    .map(|_| trigger.server)
+            })
+            .collect::<Vec<_>>();
+        servers.sort_by_key(|peer| peer.to_bytes());
+        servers.dedup();
+        servers
+    }
+}
+
+fn bounded_rendezvous_triggers(
+    triggers: &[RendezvousTriggerEvidence],
+) -> Vec<RendezvousTriggerEvidence> {
+    let mut result = Vec::new();
+    for trigger in triggers {
+        if result
+            .iter()
+            .any(|existing: &RendezvousTriggerEvidence| existing.server == trigger.server)
+        {
+            continue;
+        }
+        if result.len() == 8 {
+            break;
+        }
+        result.push(*trigger);
+    }
+    result
+}
+
+fn merge_rendezvous_triggers(
+    existing: &mut Vec<RendezvousTriggerEvidence>,
+    incoming: &[RendezvousTriggerEvidence],
+    now: Instant,
+) {
+    existing.retain(|trigger| {
+        now.checked_duration_since(trigger.observed_at)
+            .is_some_and(|age| age < Duration::from_secs(60))
+    });
+    for trigger in incoming {
+        if existing
+            .iter()
+            .any(|current| current.server == trigger.server)
+        {
+            continue;
+        }
+        if existing.len() == 8 {
+            break;
+        }
+        existing.push(*trigger);
     }
 }
 

@@ -33,6 +33,7 @@ mod peer_record_receiver_floor_tests;
 mod peer_record_receiver_transport_tests;
 mod peer_record_tests;
 mod peer_record_tombstone_startup_tests;
+mod rendezvous_trigger_tests;
 mod rendezvous_ttl_tests;
 mod request_peer_filter_tests;
 mod response_worker_tests;

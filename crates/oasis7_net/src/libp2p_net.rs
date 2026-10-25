@@ -30,6 +30,7 @@ mod peer_record_refresh;
 mod peer_record_store;
 mod peer_record_time;
 mod receiver_floor;
+mod rendezvous_trigger;
 use peer_record_cache::PeerRecordCache;
 mod peer_record_republish;
 mod reachability;
@@ -61,11 +62,11 @@ use constructor_support::{
 use discovery::process_discovered_peer_record;
 use discovery::{
     PendingPeerRecordRequest, handle_peer_record_outbound_failure, handle_peer_record_response,
-    handle_rendezvous_discovered, handle_routing_updated, maybe_discover_rendezvous_namespace,
-    maybe_queue_discovery_peer_record, maybe_register_rendezvous_namespace,
-    maybe_request_cached_discovery_peers, maybe_request_cached_peer_record,
-    maybe_request_connected_peer_record, peer_record_matches_target, peer_record_world_id,
-    publish_discovery_provider, start_peer_discovery_query,
+    handle_routing_updated, maybe_discover_rendezvous_namespace, maybe_queue_discovery_peer_record,
+    maybe_register_rendezvous_namespace, maybe_request_cached_discovery_peers,
+    maybe_request_cached_peer_record, maybe_request_connected_peer_record,
+    peer_record_matches_target, peer_record_world_id, publish_discovery_provider,
+    start_peer_discovery_query,
 };
 pub use discovery_budget::DiscoveryWorkMetricsSnapshot;
 use futures::{FutureExt, StreamExt, channel::mpsc};

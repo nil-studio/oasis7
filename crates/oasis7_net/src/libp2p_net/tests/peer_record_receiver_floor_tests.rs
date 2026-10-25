@@ -353,6 +353,7 @@ fn lower_v2_sequence_cannot_replace_a_higher_sequence_candidate() {
                 ask_peer: upstream,
                 peer_id,
                 tried_proxies: vec![upstream],
+                rendezvous_triggers: None,
             },
             upstream,
             payload.as_slice(),

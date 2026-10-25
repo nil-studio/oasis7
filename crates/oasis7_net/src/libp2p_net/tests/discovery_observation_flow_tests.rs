@@ -103,6 +103,7 @@ fn discovery_observation_dht_retains_only_the_selected_records_actual_upstream()
         upstream: None,
         record: None,
         error: None,
+        rendezvous_triggers: None,
     };
     let found = |signed: &SignedPeerRecord, via| {
         kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(kad::PeerRecord {
