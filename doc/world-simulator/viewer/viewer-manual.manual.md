@@ -13,7 +13,7 @@
 - 明确当前仓库已不再提供退役的第二 Viewer 工具链。
 
 ## 适用范围
-- live server：`crates/oasis7 --bin oasis7_viewer_live`
+- live server：`crates/oasis7_viewer_runtime --bin oasis7_viewer_live`
 - Web 静态入口：源码只保留 canonical `crates/oasis7_viewer/viewer.html`；build 将其复制到 dist 并生成 compat `software_safe.html`、`software_safe.js` 与 claim evidence route
 - Web 启动脚本：`scripts/run-viewer-web.sh`
 - Web 回归脚本：
@@ -24,14 +24,82 @@
 - 本地真实 LetAI provider-backed 游戏试玩不从裸 `run-viewer-web.sh` 开始；统一使用 `./scripts/run-local-letai-game-test.sh` 启动完全本地的 bridge + runtime/game 栈。该入口不连接 formal/public testnet。
 
 ## 本地真实 LLM 游戏测试
-```bash
-./scripts/run-local-letai-game-test.sh --local-world-playtest
+
+以下为 Bash 下的源码启动路径，使用 LetAI provider 和本地 standalone world，不连接 formal/public testnet。首次构建与已有产物后的日常启动分开操作。
+
+### 首次运行准备
+
+- 在仓库根目录使用[指定 Rust 工具链](../../../rust-toolchain.toml)，准备 Node.js/npm、Python 3 和 curl。首次构建需要可下载依赖的网络；本地端口须未被其他进程占用。
+- 准备自己的有效 LetAI 配置文件，存放在仓库外，用 `--config` 传入绝对路径。已有项目 token 可按下面的格式填写；账号需要不同模型时，在启动命令加 `--model <可用模型>`。
+- 没有本机默认代理时使用 `--no-default-proxy`；它只禁止脚本补入默认代理，保留已有 HTTP/SOCKS 代理环境。需要代理时使用自己的可用配置。
+
+```text
+base_url = https://api.letai.run/v1
+token_key = <自己的有效项目 token>
 ```
 
+配置规范化见[现有 helper](../../../scripts/ensure-letai-local-token-config.sh)：已有 `token_key/api_key` 时生成本地规范化配置；只有 `platform_key` 时会调用平台 API 创建或更新测试用户/项目。真实 provider smoke 与 Agent 决策会使用账号额度。脚本的 `--auto-topup-usd` 默认金额为 `0.1` USD；遇到额度错误，且最终配置或继承环境同时提供平台 key 与用户 ID 时，bridge 才会尝试补充平台用户额度。启动前确认已有平台环境与账号额度策略，具体条件见[自动补额实现](../../../crates/oasis7_provider_local_bridge/src/bin/oasis7_provider_local_bridge/letai_direct_topup.rs)。不要提交凭据文件或把密钥贴进 Issue。
+
+可以先检查本地启动条件：
+
+```bash
+./scripts/run-local-letai-game-test.sh \
+  --config /absolute/path/to/letai.env \
+  --no-default-proxy \
+  --preflight-only \
+  -- \
+  --viewer-port 48420 \
+  --web-bind 127.0.0.1:48421 \
+  --live-bind 127.0.0.1:48422
+```
+
+`--preflight-only` 在 provider 启动前退出，只检查配置文件存在、端口、Node/npm 与所选模式的构建产物；不验证模型凭据、额度或真实玩法。
+
+### 首次前台启动
+
+首次下载源码或缺少构建产物时，**不要使用 `--local-world-playtest`**。该 preset 强制启用 `--reuse-existing-build`，仅删除同名显式参数不能恢复构建。
+
+先编译 provider bridge，避免把首次冷编译放进 bridge 的短就绪等待窗口：
+
+```bash
+./scripts/cargo-dev.sh build \
+  -p oasis7_provider_local_bridge \
+  --bin oasis7_provider_local_bridge
+```
+
+再以前台方式启动。此命令不跳过 launcher 的 Cargo 构建步骤；Cargo 按源码状态复用或更新缓存，launcher 按需准备后端二进制和 Viewer 资产。默认 strict provider smoke 会请求真实模型，`--no-auto-play` 只要求进入页面后手动 Play。
+
+```bash
+./scripts/run-local-letai-game-test.sh \
+  --config /absolute/path/to/letai.env \
+  --no-default-proxy \
+  --no-auto-play \
+  -- \
+  --viewer-port 48420 \
+  --web-bind 127.0.0.1:48421 \
+  --live-bind 127.0.0.1:48422 \
+  --json-ready
+```
+
+保留启动终端。等待本次输出目录的 `launcher/session.meta` 出现 `STACK_READY=1`，打开其中的 `GAME_URL`；该字段只说明 HTTP/WebSocket listener 就绪。本地 chain 的持久化就绪还要核对下方的 `snapshot.json` 和 `journal.json`，真实玩法则要观察 provider 决策、动作与世界结果，不能只以页面打开判定成功。
+
+停止这条**前台运行**时，在原终端按 `Ctrl+C`，由现有 cleanup 回收本次 launcher 与 bridge。不要将它当作后台 preset 的停止方法。
+
+### 已有构建后的日常启动
+
+```bash
+./scripts/run-local-letai-game-test.sh \
+  --local-world-playtest \
+  --config /absolute/path/to/letai.env \
+  --no-default-proxy
+```
+
+该 preset 默认后台运行，关闭终端不会停止服务；运行元数据、supervisor PID/脚本和日志在本次输出目录，macOS 还可能使用 launchctl。它没有统一的跨平台停止入口。首次使用或需要明确的终端停止方式时，继续使用上面的前台路径；不要按进程名称批量结束其他任务。
+
 - 该入口负责 LetAI token config 规范化、默认 Rust direct `127.0.0.1:5841` provider bridge、Rust bridge chat probe/provider contract smoke 与 launcher/runtime/viewer 启动。
-- 日常手工试玩只用 `--local-world-playtest`。该 preset 固化以下易错项：`--startup-profile playtest`、`--provider-smoke-mode skip`、`--reuse-existing-build`、`--detach`、默认 `--auto-play`、viewer/web/live 端口 `48420/48421/48422`、`--json-ready`，以及 wrapper 默认的本地 standalone chain。若需要复现暂停态或手动 Play 调试，可显式传 `--no-auto-play`。
+- 已有与当前源码匹配的构建后，可使用 `--local-world-playtest` 日常 preset。它固化 `--startup-profile playtest`、`--provider-smoke-mode skip`、`--reuse-existing-build`、`--detach`、默认 `--auto-play`、viewer/web/live 端口 `48420/48421/48422`、`--json-ready`，以及 wrapper 默认的本地 standalone chain。若需要复现暂停态或手动 Play 调试，可显式传 `--no-auto-play`。
 - 启动后等 `<output-dir>/launcher/session.meta` 出现 `STACK_READY=1`，再打开其中 `GAME_URL`。默认日常 URL 形如 `http://127.0.0.1:48420/?ws=ws://127.0.0.1:48421&test_api=1&locale=zh`。
-- 需要冷构建、严格 provider smoke 或换端口时，再显式展开参数；例如第一次构建可去掉 `--local-world-playtest` 或去掉 `--reuse-existing-build`，临时换 HTTP 端口可在末尾透传 `-- --viewer-port 4174 --json-ready`。
+- 更新源码后先重新构建，再使用日常 preset；首次冷构建采用上面的前台路径。需要严格 provider smoke 时显式传 `--provider-smoke-mode strict`；临时换 HTTP 端口可在末尾透传 `-- --viewer-port 4174 --json-ready`。
 - 默认 chain-enabled 路径会启动 launcher-managed chain runtime，并通过 `--chain-local-standalone-test` 保持本地 submit -> commit -> snapshot 闭环可在单节点试玩栈内完成。该路径只有在 `output/chain-runtime/<node-id>/reward-runtime-execution-world/snapshot.json` 与 `journal.json` 都出现后，才算 chain-enabled 本地世界就绪。
 - launcher 的 `--chain-execution-world-dir` 统一 writer/Observer 的本地 root，默认是 `output/chain-runtime/<node-id>/reward-runtime-execution-world`。外部 status 必须由操作者显式传入本地 root；远端 `execution_world_dir` 不参与读文件。Observer 等待可验证的 immutable generation checkpoint，缺失显示初始化中；`RecoveryRequired` 等待 writer 修复，`ResourceLimited` 拒收并保留上一观察状态，不能裁剪队列或修改世界。
 - launcher 管理 `oasis7_chain_runtime`、进程编排与持久 execution-world readiness；Viewer 只观察 runtime/world 输出。snapshot/event 是观测面，恢复与 replay 仍以权威 state + journal/event chain 为准。
@@ -43,7 +111,8 @@
 需要初始暂停并手动点击 Play 时使用：
 
 ```bash
-./scripts/run-local-letai-game-test.sh --local-world-playtest --no-auto-play
+./scripts/run-local-letai-game-test.sh --local-world-playtest --no-auto-play \
+  --config /absolute/path/to/letai.env --no-default-proxy
 ```
 
 `--no-auto-play` 只改变启动后的自动播放选择，不跳过该启动 profile 仍会执行的预检或远端请求；
