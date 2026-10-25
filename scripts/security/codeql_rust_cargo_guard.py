@@ -148,7 +148,7 @@ def verify_config(config):
         if hashlib.sha256(read(Path(config[path]), 1024**2)).hexdigest() != config[expected]:
             raise RuntimeError('guard implementation changed')
     real = Path(config['real_cargo'])
-    if str(real.resolve()) != config['real_target'] or digest(real, config['deadline']) != config['real_sha256']:
+    if str(real.resolve()) != config['real_target'] or digest(real, time.time() + max(0, remaining(config))) != config['real_sha256']:
         raise RuntimeError('real Cargo identity changed')
     if remaining(config) <= 0:
         raise RuntimeError('guard deadline expired during identity check')
@@ -319,11 +319,13 @@ def invoke(argv, config_path):
                 raise
 
 
-def inspect(out, deadline, source_sha):
+def inspect(out, deadline, source_sha, *, end=None):
     config_path = out / 'cargo-guard.json'
     raw = read(config_path, MAX_CONFIG); config = json.loads(raw)
     if config.get('deadline') != deadline or config.get('source_sha') != source_sha:
         raise RuntimeError('guard assessment identity differs')
+    if end is not None:
+        config = dict(config, monotonic_deadline=min(config['monotonic_deadline'], end))
     verify_config(config)
     audit = Path(config['audit'])
     if audit != out / 'cargo-guard-calls' or audit.resolve() != audit:

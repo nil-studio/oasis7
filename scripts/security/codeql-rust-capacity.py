@@ -361,7 +361,7 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
             terminal[name]={'status':'PARTIAL','error':repr(exc)[:2048]}
             terminal['secondary_errors'].append({'stage':name,'error':repr(exc)[:2048]})
     try:
-        terminal['cargo_guard']=cargo_guard.inspect(out,args.deadline,SOURCE)
+        terminal['cargo_guard']=cargo_guard.inspect(out,args.deadline,SOURCE,end=capture_end)
     except Exception as exc:
         terminal['cargo_guard']={'status':'FAIL','error':type(exc).__name__}
     terminal['checkout_gate']=terminal['checkout'].get('status','PARTIAL')

@@ -151,6 +151,14 @@ class Guard(unittest.TestCase):
             with self.assertRaises(RuntimeError):m.reserve(c,{'data':'x'*m.MAX_RECORD})
             with self.assertRaises(RuntimeError):self.audit(out,c)
 
+    def test_capture_deadline_cannot_be_extended_to_the_job_deadline(self):
+        with tempfile.TemporaryDirectory() as d:
+            home,out,c=self.setup_guard(Path(d))
+            self.assertEqual(self.run_guard(home,['metadata']).returncode,0)
+            self.assertEqual(self.audit(out,c)['status'],'PASS')
+            with self.assertRaisesRegex(RuntimeError,'deadline expired'):
+                m.inspect(out,c['deadline'],'source-sha',end=time.monotonic()-1)
+
     def test_wall_clock_rollback_cannot_extend_the_original_monotonic_deadline(self):
         config={'deadline':time.time()+60,'monotonic_deadline':time.monotonic()-1}
         self.assertLess(m.remaining(config),0)
