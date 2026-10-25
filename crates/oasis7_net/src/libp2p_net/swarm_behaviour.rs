@@ -312,9 +312,10 @@ pub(super) fn build_swarm_with_receiver(
         })),
         relay_client: ProtocolDialBehaviour::new(relay_client, protocol_dials.clone()),
         dcutr: ProtocolDialBehaviour::new(dcutr::Behaviour::new(peer_id), protocol_dials.clone()),
-        rendezvous_client: Toggle::from(
-            enable_rendezvous.then(|| rendezvous_client::Behaviour::new(keypair.clone())),
-        ),
+        rendezvous_client: Toggle::from(enable_rendezvous.then(|| {
+            rendezvous_client::Behaviour::new(keypair.clone())
+                .with_automatic_registration_refresh(false)
+        })),
         rendezvous_server: Toggle::from(
             enable_rendezvous.then(|| rendezvous_server::Behaviour::new(Default::default())),
         ),

@@ -104,6 +104,7 @@ egui-winit = { path = "vendor-egui-winit-0.33.3" }
 
 [patch."https://github.com/libp2p/rust-libp2p"]
 libp2p-swarm = { path = "vendor-libp2p-swarm-0.48.0" }
+libp2p-rendezvous = { path = "vendor-libp2p-rendezvous-0.18.1" }
 
 # Lifecycle image qualification repeatedly hashes complete executable files.
 # Keep the shipping hash checks affordable in local debug/test builds.

@@ -703,63 +703,28 @@ impl Libp2pNetwork {
                                     );
                                 }
                                 SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(event)) => {
-                                    match event {
-                                        rendezvous::client::Event::Registered { rendezvous_node, .. } => {
-                                            pending_rendezvous_registers.remove(&rendezvous_node);
-                                            registered_rendezvous_nodes.insert(rendezvous_node);
-                                        }
-                                        rendezvous::client::Event::RegisterFailed { rendezvous_node, namespace, error } => {
-                                            pending_rendezvous_registers.remove(&rendezvous_node);
-                                            registered_rendezvous_nodes.remove(&rendezvous_node);
-                                            push_bounded_clone(
-                                                &event_errors,
-                                                format!(
-                                                    "libp2p rendezvous register rejected peer={rendezvous_node} namespace={namespace}: {error:?}"
-                                                ),
-                                                max_error_messages,
-                                                "lock errors",
-                                            );
-                                        }
-                                        rendezvous::client::Event::Discovered {
-                                            rendezvous_node,
-                                            registrations,
-                                            cookie,
-                                        } => {
-                                            pending_rendezvous_discovers.remove(&rendezvous_node);
-                                            rendezvous_cookies.insert(rendezvous_node, cookie);
-                                            super::rendezvous_trigger::handle_rendezvous_discovered(
-                                                &mut swarm,
-                                                rendezvous_node,
-                                                registrations,
-                                                &mut pending_dht,
-                                                &mut pending_peer_record_requests,
-                                                &mut pending_discovery_peer_records,
-                                                &mut pending_cached_peer_records,
-                                                &mut cached_peer_record_cooldowns,
-                                                &event_traffic_metrics,
-                                                peers.as_slice(),
-                                                &discovered_peer_records,
-                                                local_peer_id,
-                                                peer_record_template.as_ref(),
-                                                max_error_messages,
-                                                &event_errors,
-                                            );
-                                        }
-                                        rendezvous::client::Event::DiscoverFailed { rendezvous_node, namespace, error } => {
-                                            pending_rendezvous_discovers.remove(&rendezvous_node);
-                                            push_bounded_clone(
-                                                &event_errors,
-                                                format!(
-                                                    "libp2p rendezvous discover rejected peer={rendezvous_node} namespace={namespace:?}: {error:?}"
-                                                ),
-                                                max_error_messages,
-                                                "lock errors",
-                                            );
-                                        }
-                                        rendezvous::client::Event::Expired { peer } => {
-                                            rendezvous_cookies.remove(&peer);
-                                        }
-                                    }
+                                    super::rendezvous_operations::handle_client_event(
+                                        event,
+                                        super::rendezvous_operations::ClientEventContext {
+                                            swarm: &mut swarm,
+                                            pending_registers: &mut pending_rendezvous_registers,
+                                            registered_nodes: &mut registered_rendezvous_nodes,
+                                            pending_discovers: &mut pending_rendezvous_discovers,
+                                            cookies: &mut rendezvous_cookies,
+                                            pending_dht: &mut pending_dht,
+                                            pending_peer_record_requests: &mut pending_peer_record_requests,
+                                            pending_discovery_peer_records: &mut pending_discovery_peer_records,
+                                            pending_cached_peer_records: &mut pending_cached_peer_records,
+                                            cached_peer_record_cooldowns: &mut cached_peer_record_cooldowns,
+                                            traffic_metrics: &event_traffic_metrics,
+                                            peers: peers.as_slice(),
+                                            discovered_peer_records: &discovered_peer_records,
+                                            local_peer_id,
+                                            peer_record_template: peer_record_template.as_ref(),
+                                            max_error_messages,
+                                            event_errors: &event_errors,
+                                        },
+                                    );
                                 }
                                 SwarmEvent::Behaviour(BehaviourEvent::RendezvousServer(
                                     rendezvous::server::Event::PeerNotRegistered {
@@ -1050,6 +1015,10 @@ impl Libp2pNetwork {
                                             &mut registered_rendezvous_nodes,
                                             &mut rendezvous_cookies,
                                             &event_connected_peers,
+                                            peer_id,
+                                        );
+                                        super::rendezvous_operations::forget_rendezvous_registration(
+                                            &mut swarm,
                                             peer_id,
                                         );
                                         if quarantined {
