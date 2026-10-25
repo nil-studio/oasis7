@@ -94,7 +94,7 @@ export function createBrowserParticipantGateway({ config, accountId, fetchImpl =
 
 export function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, agentId,
   indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch,
-  cryptoImpl = globalThis.crypto, signal } = {}) {
+  cryptoImpl = globalThis.crypto, signal, isCurrent = () => true } = {}) {
   const namespace = config?.identity;
   if (!config?.world?.world_id || !config?.world?.genesis_digest
     || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "")
@@ -102,8 +102,10 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "")
     || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function"
     || typeof codec?.verifyGatewayResponse !== "function") fail("participant_configuration_invalid");
-  const scopeKey = browserIdentityScope({ worldId: config.world.world_id, genesisDigest: config.world.genesis_digest, accountId, agentId });
+  const scopeKey = browserIdentityScope({ worldId: config.world.world_id, genesisDigest: config.world.genesis_digest, accountId, agentId: "participant-account" });
   const key = `participant:${scopeKey}:${ownerSigner.publicKeyHex}`;
+  let canonicalAgentId = agentId;
+  const active = () => { if (signal?.aborted || !isCurrent()) fail("participant_stopped"); };
   const database = storage ?? createBrowserGameDatabase(indexedDB);
   const transport = createBrowserParticipantGateway({ config, accountId, fetchImpl, signal });
   const decoded = (value) => typeof value === "string" ? JSON.parse(value) : value;
@@ -148,6 +150,7 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     return discovery;
   }
   async function authorize(owner) {
+    active();
     const raw = await transport.gatewayCall("/participant/authorize", owner);
     const reply = JSON.parse(raw);
     if (reply.phase !== "participant_authorized") fail("participant_authorization_failed");
@@ -157,13 +160,13 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
   }
   async function proofs(record, authorized) {
     const readRequest = { contract_version: 1, observation_nonce: hex(cryptoImpl.getRandomValues(new Uint8Array(32))),
-      formal_anchor: null, world: clone(config.world), scope_id: `agent:${agentId}`, min_commit: null,
+      formal_anchor: null, world: clone(config.world), scope_id: `agent:${canonicalAgentId}`, min_commit: null,
       fixed_commit: null, deadline_unix_ms: null };
-    let read;
+    active(); let read;
     try { read = { request: readRequest, subject_public_key: ownerSigner.publicKeyHex,
       signature_hex: hex(await ownerSigner.sign(codec.signingBytes(VIEW, json(readRequest)))) }; }
     catch { fail("participant_signing_failed"); }
-    const access = { owner: record.owner, admission: authorized.admission, read, response_profile: "owner_control_v1" };
+    active(); const access = { owner: record.owner, admission: authorized.admission, read, response_profile: "owner_control_v1" };
     // Persist local proof material before the read. This is not a registration
     // submission or a settlement receipt; it grants no new participant binding.
     await update((current) => {
@@ -175,22 +178,15 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
     try { raw = codec.verifyGatewayResponse(OWNER_VIEW, json(access), reply, config.servicePublicKey); }
     catch { fail("participant_binding_required"); }
     validate("owner_control", access, raw);
-    if (decoded(field(raw, ["view", "canonical_agent_owner", "agent_id"])) !== agentId
+    if (decoded(field(raw, ["view", "canonical_agent_owner", "agent_id"])) !== canonicalAgentId
       || decoded(field(raw, ["view", "canonical_agent_owner", "public_key"])) !== ownerSigner.publicKeyHex) fail("participant_binding_required");
     await update((current) => {
       if (!current || json(current.owner) !== json(record.owner)) fail("participant_original_conflict");
-      current.ownerControlRaw = raw; return current;
+      current.ownerControlRaw = raw; current.agentId = canonicalAgentId; return current;
     });
     return { owner: clone(record.owner), admission: authorized.admission, ownerControl: { rawJson: raw } };
   }
-  return {
-    discover,
-    gatewayCall: transport.gatewayCall,
-    async prepare({ existingOnly = true } = {}) {
-      // This entry targets an already selected Agent. Registration can create a
-      // different Agent, so this surface never submits a participant mutation.
-      if (!existingOnly) fail("participant_new_registration_unsupported");
-      await discover();
+  async function ensureOwner() {
       let record = await load();
       if (!record) {
         const operation = `browser-participant-${hex(cryptoImpl.getRandomValues(new Uint8Array(16)))}`;
@@ -200,13 +196,96 @@ export function createBrowserParticipantEntry({ config, codec, ownerSigner, acco
         try { owner = { request, subject_public_key: ownerSigner.publicKeyHex,
           signature_hex: hex(await ownerSigner.sign(codec.signingBytes(DOMAIN, json(request)))) }; }
         catch { fail("participant_signing_failed"); }
-        record = await update((current) => current ?? { schema: 1, scopeKey, ownerPublicKey: ownerSigner.publicKeyHex, owner, sent: false });
+        active(); record = await update((current) => current ?? { schema: 1, scopeKey, ownerPublicKey: ownerSigner.publicKeyHex, owner, sent: false });
       }
+    if (!canonicalAgentId) {
+      try { canonicalAgentId = decoded(codec.build("participant_agent_id", json(record.owner.request))); }
+      catch { fail("participant_proof_invalid"); }
+    }
+    return record;
+  }
+  function verified(domain, requestRaw, responseRaw, kind, validationRequest) {
+    let raw;
+    try { raw = codec.verifyGatewayResponse(domain, requestRaw, responseRaw, config.servicePublicKey); }
+    catch { fail("participant_response_unknown"); }
+    return validate(kind, validationRequest, raw);
+  }
+  async function registrationLookup(record) {
+    const originalRaw = record.registrationRaw;
+    if (!originalRaw) fail("participant_original_missing");
+    const payloadRaw = field(originalRaw, ["signed_payload"]);
+    const correlationRaw = build("correlation", { world: config.world, payload_json: payloadRaw });
+    const keyRaw = field(correlationRaw, ["key"]);
+    const lookupRaw = `{"request":{"contract_version":1,"key":${keyRaw}},"original":${payloadRaw}}`;
+    const response = await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw });
+    const raw = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
+    const state = decoded(field(raw, ["outcome", "status"]));
+    if (state !== "committed") {
+      if (["rejected", "expired"].includes(state)) fail("participant_registration_rejected");
+      fail("participant_registration_pending");
+    }
+    validate("participant_receipt", record.owner.request, raw);
+    const receipt = decoded(field(raw, ["outcome", "receipt"]));
+    if (receipt.owner_public_key !== ownerSigner.publicKeyHex || receipt.account_id !== accountId) fail("participant_owner_mismatch");
+    canonicalAgentId = receipt.agent_id;
+    await update((current) => {
+      if (current.registrationRaw !== originalRaw) fail("participant_original_conflict");
+      current.receiptRaw = raw; current.agentId = canonicalAgentId; return current;
+    });
+    return receipt;
+  }
+  async function inspect() {
+    active(); await discover(); active(); const record = await ensureOwner();
+    if (record.agentId) canonicalAgentId = record.agentId;
+    if (record.registrationRaw) {
+      try { await registrationLookup(record); }
+      catch (error) { if (error.code === "participant_registration_pending") return { state: "pending", code: error.code }; throw error; }
+    }
+    try {
+      const result = await proofs(record, await authorize(record.owner));
+      return { state: "bound", agentId: canonicalAgentId, ...result };
+    } catch (error) {
+      if (error.code === "participant_binding_required" || error.code === "participant_request_failed" || error.code === "participant_response_unknown") return { state: "needs_participant", code: "participant_binding_unverified" };
+      throw error;
+    }
+  }
+  async function registerParticipant(consent) {
+    if (consent !== true) fail("participant_consent_required");
+    active(); await discover(); let record = await ensureOwner(); active();
+    if (!record.registrationRaw) {
+      const authorized = await authorize(record.owner);
+      const payload = { kind: "game_participant_register", payload: { owner: record.owner, admission: authorized.admission } };
+      const correlationRaw = build("correlation", { world: config.world, payload });
+      const raw = `{"contract_version":1,"correlation":${correlationRaw},"deadline_unix_ms":null,"signed_payload":${json(payload)}}`;
+      let created = false;
+      record = await update((current) => { if (current.registrationRaw) return current; created = true; current.registrationRaw = raw; current.sent = true; return current; });
+      // Persist exact owner, admission, operation identity and request before send.
+      // A lost response is reconciled by lookup; it never creates another draft.
+      try { if (created) {
+        const response = await transport.gatewayCall("/participant/submit", null, { rawBody: record.registrationRaw, beforeSend: async () => active() });
+        verified("/v1/world/submit", record.registrationRaw, response, "intent", field(record.registrationRaw, ["correlation"]));
+      }
+      } catch { /* retain original and query it below */ }
+    }
+    await registrationLookup(record); active();
+    return proofs(await load(), await authorize(record.owner));
+  }
+  return {
+    discover, inspect,
+    registerParticipant,
+    gatewayCall: transport.gatewayCall,
+    async prepare({ existingOnly = true, consent } = {}) {
+      // The existing-only Game Client consumer cannot create a participant.
+      // Account entry explicitly opts into canonical registration and consent.
+      if (!existingOnly) return registerParticipant(consent);
+      await discover();
+      const record = await ensureOwner();
       const authorized = await authorize(record.owner);
       return proofs(record, authorized);
     },
     async getParticipantProofs() {
       await discover(); const record = await load();
+      if (record?.agentId) canonicalAgentId = record.agentId;
       if (!record?.owner) fail("participant_prepare_required");
       return proofs(record, await authorize(record.owner));
     },

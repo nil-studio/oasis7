@@ -5,7 +5,7 @@ const config = { endpoint: "/api/public/hosted-account/v2", servicePublicKey: "1
   world: { world_id: "world", genesis_digest: "genesis" }, identity: { service_id: "identity", environment_id: "test", instance_epoch: "1" },
   participantIssuerPublicKey: "22".repeat(32) };
 function setup() {
-  const records = new Map(); let committed = false; let wrongAgent = false; let badPin = false;
+  const records = new Map(); let committed = false; let wrongAgent = false; let badPin = false; let lookupState = "committed"; let registrationOwnerMismatch = false;
   const storage = { get: async (key) => structuredClone(records.get(key)), update: async (key, mutate) => {
     const next = mutate(structuredClone(records.get(key))); records.set(key, structuredClone(next)); return structuredClone(next);
   } };
@@ -21,6 +21,15 @@ function setup() {
     const body = JSON.parse(options.body);
     if (path === "/participant/authorize") { owner = body;
       return respond({ phase: "participant_authorized", new_registration_enabled: true, admission: { request: { ...body.request, business_digest: "digest" }, signature_hex: "admission", subject_public_key: config.participantIssuerPublicKey } }); }
+    if (path === "/participant/submit" || path === "/participant/lookup") {
+      const original = path === "/participant/submit" ? body.signed_payload : body.original;
+      expect(original.kind).toBe("game_participant_register");
+      if (path === "/participant/submit" && !registrationOwnerMismatch) committed = true;
+      return respond({ world_response: { correlation: { key: { id: "original-key" } }, outcome: {
+        status: registrationOwnerMismatch ? "rejected" : lookupState,
+        receipt: { account_id: "account", owner_public_key: owner.subject_public_key, agent_id: "agent" }
+      } } });
+    }
     if (path === "/participant/owner-view") {
       expect(body.read.request.scope_id).toBe("agent:agent");
       expect(body.response_profile).toBe("owner_control_v1");
@@ -35,10 +44,12 @@ function setup() {
     signingBytes: vi.fn(() => new Uint8Array([1, 2, 3])),
     build: vi.fn((kind, raw) => { const input = JSON.parse(raw);
       if (kind === "correlation") {
-        expect(input.payload.kind).toBe("game_participant_register");
-        expect(input.payload.payload.owner.request.owner_key_version).toBe("1");
+        const payload = input.payload ?? JSON.parse(input.payload_json);
+        expect(payload.kind).toBe("game_participant_register");
+        expect(payload.payload.owner.request.owner_key_version).toBe("1");
         return JSON.stringify({ key: { id: "original-key" } });
       }
+      if (kind === "participant_agent_id") return JSON.stringify("agent");
       if (kind === "field") return JSON.stringify(input.path.reduce((value, field) => value[field], JSON.parse(input.json)));
       throw new Error("unsupported build");
     }),
@@ -53,7 +64,7 @@ function setup() {
   const create = (override = {}) => createBrowserParticipantEntry({ config, codec, ownerSigner, accountId: "account", agentId: "agent", storage,
     locks: { request: async (_key, _options, action) => action() }, fetchImpl, cryptoImpl: { getRandomValues: (bytes) => bytes.fill(7) }, ...override });
   return { create, storage, records, calls, codec, ownerSigner, fetchImpl,
-    setCommitted: (value) => { committed = value; }, setWrongAgent: (value) => { wrongAgent = value; }, setBadPin: (value) => { badPin = value; } };
+    setLookup: (value) => { lookupState = value; }, setOwnerMismatch: () => { registrationOwnerMismatch = true; }, setCommitted: (value) => { committed = value; }, setWrongAgent: (value) => { wrongAgent = value; }, setBadPin: (value) => { badPin = value; } };
 }
 describe("browser participant entry", () => {
   it("requires explicit preparation and only restores an existing confirmed binding", async () => {
@@ -81,7 +92,7 @@ describe("browser participant entry", () => {
     expect([...env.records.values()][0].owner).toEqual(original);
     expect(env.calls.some(({ path }) => path === "/participant/lookup")).toBe(false);
     expect(env.codec.signingBytes.mock.calls.filter(([domain]) => domain === "game_participant_register_v1")).toHaveLength(1);
-    await expect(env.create().prepare({ existingOnly: false })).rejects.toMatchObject({ code: "participant_new_registration_unsupported" });
+    await expect(env.create().prepare({ existingOnly: false })).rejects.toMatchObject({ code: "participant_consent_required" });
   });
   it("preserves old business operation identity while renewing read-only proofs", async () => {
     const env = setup(); env.setCommitted(true); await env.create().prepare();
@@ -106,6 +117,34 @@ describe("browser participant entry", () => {
     await expect(env.create().prepare()).rejects.toMatchObject({ code: "participant_storage_failed" });
     expect(env.calls.some(({ path }) => path === "/participant/submit")).toBe(false);
     await expect(env.create({ locks: {} }).prepare()).rejects.toMatchObject({ code: "participant_locks_unavailable" });
+  });
+  it("registers a fresh account explicitly and uses the canonical receipt Agent", async () => {
+    const env = setup(); const entry = env.create({ agentId: undefined });
+    expect(await entry.inspect()).toMatchObject({ state: "needs_participant" });
+    expect(env.calls.some(({ path }) => path === "/participant/submit")).toBe(false);
+    const result = await entry.prepare({ existingOnly: false, consent: true });
+    expect(JSON.parse(result.ownerControl.rawJson).view.canonical_agent_owner.agent_id).toBe("agent");
+    expect(env.calls.filter(({ path }) => path === "/participant/submit")).toHaveLength(1);
+    expect(await env.create({ agentId: undefined }).inspect()).toMatchObject({ state: "bound", agentId: "agent" });
+  });
+  it("only looks up an unknown original registration on reload without submitting another operation", async () => {
+    const env = setup(); env.setLookup("unknown");
+    await expect(env.create({ agentId: undefined }).prepare({ existingOnly: false, consent: true })).rejects.toMatchObject({ code: "participant_registration_pending" });
+    const original = [...env.records.values()][0].registrationRaw;
+    expect(await env.create({ agentId: undefined }).inspect()).toMatchObject({ state: "pending" });
+    await expect(env.create({ agentId: undefined }).prepare({ existingOnly: false, consent: true })).rejects.toMatchObject({ code: "participant_registration_pending" });
+    expect(env.calls.filter(({ path }) => path === "/participant/submit")).toHaveLength(1);
+    expect([...env.records.values()][0].registrationRaw).toBe(original);
+    env.setLookup("committed");
+    expect(await env.create({ agentId: undefined }).inspect()).toMatchObject({ state: "bound", agentId: "agent" });
+  });
+  it("never replaces an existing account's mismatched owner after canonical rejection", async () => {
+    const env = setup(); env.setOwnerMismatch();
+    await expect(env.create({ agentId: undefined }).prepare({ existingOnly: false, consent: true })).rejects.toMatchObject({ code: "participant_registration_rejected" });
+    const original = [...env.records.values()][0].registrationRaw;
+    await expect(env.create({ agentId: undefined }).prepare({ existingOnly: false, consent: true })).rejects.toMatchObject({ code: "participant_registration_rejected" });
+    expect(env.calls.filter(({ path }) => path === "/participant/submit")).toHaveLength(1);
+    expect([...env.records.values()][0].registrationRaw).toBe(original);
   });
   it("uses cookie+CSRF on fixed same-origin routes and preserves raw signed JSON", async () => {
     const rawReply = '{"api_version":2,"ok":true,"world_response":{"height":18446744073709551615}}';
