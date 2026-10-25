@@ -22,11 +22,12 @@ impl Worker {
                 } => {
                     self.clock_base = self.clock_base.max(now_ms);
                     self.seen
-                        .insert(message_key(&BftMessageV1::Vote(vote.clone()))?);
+                        .insert(message_key(&BftMessageV1::Vote(vote.as_ref().clone()))?);
                     if local {
-                        self.machine.record_local_vote(vote, now_ms)
+                        self.machine
+                            .record_local_vote(vote.as_ref().clone(), now_ms)
                     } else {
-                        self.machine.receive_vote(vote, now_ms)
+                        self.machine.receive_vote(vote.as_ref().clone(), now_ms)
                     }
                     .map_err(error)?
                 }
@@ -112,7 +113,7 @@ impl Worker {
                 now_ms: now,
             },
             BftMessageV1::Vote(vote) => BftWalEventV1::Vote {
-                vote,
+                vote: Box::new(vote),
                 local: false,
                 now_ms: now,
             },

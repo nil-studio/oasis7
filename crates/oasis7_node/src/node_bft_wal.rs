@@ -53,7 +53,7 @@ pub(super) enum BftWalEventV1 {
         now_ms: i64,
     },
     Vote {
-        vote: BftVoteV1,
+        vote: Box<BftVoteV1>,
         local: bool,
         now_ms: i64,
     },
@@ -455,14 +455,14 @@ impl BftWalStore {
         validate_event_time(
             &self.state,
             &BftWalEventV1::Vote {
-                vote: vote.clone(),
+                vote: Box::new(vote.clone()),
                 local: true,
                 now_ms,
             },
         )?;
         let mut next = self.state.clone();
         next.events.push(BftWalEventV1::Vote {
-            vote,
+            vote: Box::new(vote),
             local: true,
             now_ms,
         });
@@ -583,7 +583,7 @@ fn local_vote_event<'a>(
         BftWalEventV1::Vote { vote, local, .. }
             if *local || vote.validator_id == local_validator_id =>
         {
-            Some(vote)
+            Some(vote.as_ref())
         }
         _ => None,
     }

@@ -156,7 +156,7 @@ impl Worker {
                     BftWalEventV1::Vote {
                         vote, local: true, ..
                     } if vote.round == self.machine.round() => {
-                        self.broadcast(endpoint, &BftMessageV1::Vote(vote.clone()))
+                        self.broadcast(endpoint, &BftMessageV1::Vote(vote.as_ref().clone()))
                     }
                     _ => {}
                 }
