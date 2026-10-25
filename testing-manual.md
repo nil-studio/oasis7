@@ -1679,6 +1679,17 @@ The net suite includes a three-node loopback TCP flow: B publishes a record with
 This proves the existing wire's local trust boundary, not full record freshness, sequence/tombstone persistence, authenticated operator/ASN mappings, rendezvous ID provenance, restart anti-rollback, public-network independence, BFT or deployment readiness. Unknown control domains intentionally remain degraded and share conservative quotas. Normal required CI must cover the final candidate and downstream node status/filtering consumers.
 
 
+<a id="discovery-rendezvous-trigger-provenance"></a>
+### Rendezvous ID-only trigger provenance
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3. Apply the [bounded trigger contract](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-peer-record-implementation-boundary). This is a local diagnostic association, separate from the actual signed-record ingress and trusted source labels.
+
+Use canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib rendezvous -- --test-threads=1`, followed by the full net suite and applicable downstream node checks. Exercise the production Discovered callback with real signed libp2p registrations, then the DHT result or authenticated RR proxy path. Assert that registration addresses are not installed for dialing and only a correctly targeted, verified live SignedPeerRecord can receive trigger metadata. Verify exact payload binding and unchanged actual ingress, source labels and health trust.
+
+Include two servers announcing the same peer under query deduplication, the 1024-target/8-server bounds, fixed 60-second monotonic expiry, target mismatch, invalid signature, query/fallback failure and no-fallback cleanup. Both direct candidate-cache hits and Kademlia local-store results with no remote upstream must discard the association. A tombstone must consume the trigger without creating an observation or transferring it to a later live record. A later unrelated query must not inherit a failed or expired trigger.
+
+These cases prove bounded process-local trigger attribution only. They do not authenticate an independent operator/control domain, persist provenance across restart, establish trusted absolute time, or prove public-network fault independence. Report actual test results on the candidate PR; this method is not an execution receipt.
+
 <a id="discovery-record-v1-time-policy"></a>
 ### Discovery record v1 time policy
 
