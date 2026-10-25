@@ -6,6 +6,7 @@ Captured streams are original bytes, including any prefix left by a limit or
 failure; a PARTIAL receipt must not be treated as complete coverage evidence.
 """
 import hashlib
+import gzip
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,11 @@ MAX_DIRECTORY_DEPTH = 32
 MAX_RELATIVE_PATH_BYTES = 512
 MAX_FILE_BYTES = 16 * 1024**2
 MAX_CAPTURE_BYTES = 128 * 1024**2
+COMPRESS_MIN_BYTES = 16 * 1024**2
+MAX_COMPRESSED_FILE_BYTES = 64 * 1024**2
+MAX_RAW_FILE_BYTES = 512 * 1024**2
+MAX_RAW_CAPTURE_BYTES = 1024**3
+MAX_LOG_LINE_BYTES = 1024**2
 CHUNK_BYTES = 64 * 1024
 MAX_RECEIPT_BYTES = 256 * 1024
 MAX_REASON_COUNT = 64
@@ -154,17 +160,20 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
     """
     start = time.monotonic()
     report = {'status': 'NOT_REACHED', 'source': str(database / 'log'),
-              'files': [], 'reasons': [], 'scanned_entries': 0, 'copied_bytes': 0,
+              'files': [], 'reasons': [], 'scanned_entries': 0, 'copied_bytes': 0, 'raw_bytes_read': 0,
               'limits': {'files': MAX_LOG_FILES, 'scan_entries': MAX_SCAN_ENTRIES,
                          'directory_depth': MAX_DIRECTORY_DEPTH,
                          'relative_path_bytes': MAX_RELATIVE_PATH_BYTES,
                          'per_file_bytes': MAX_FILE_BYTES, 'capture_bytes': MAX_CAPTURE_BYTES,
+                         'compressed_file_bytes': MAX_COMPRESSED_FILE_BYTES,
+                         'raw_file_bytes': MAX_RAW_FILE_BYTES, 'raw_capture_bytes': MAX_RAW_CAPTURE_BYTES,
                          'write_cap_bytes': runtime.WRITE_CAP, 'terminal_cap_bytes': runtime.CAP,
                          'deadline_monotonic': end, 'read_chunk_bytes': CHUNK_BYTES},
               'producer_cleanup': 'NOT_OBSERVED_BY_THIS_HELPER'}
     root_fd = out_fd = destination_fd = None
     stop = False
     remaining_bytes = 0
+    remaining_source_bytes = MAX_RAW_CAPTURE_BYTES
 
     def limited(reason):
         nonlocal stop
@@ -172,7 +181,7 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
         stop = True
 
     def copy_file(parent_fd, target_parent_fd, name, relative):
-        nonlocal remaining_bytes
+        nonlocal remaining_bytes, remaining_source_bytes
         record = {'source': relative, 'destination': 'database-logs/' + relative,
                   'status': 'PARTIAL', 'artifact_created': False, 'copied_bytes': 0, 'reasons': [],
                   'source_ranges': [], 'omitted_ranges': []}
@@ -186,66 +195,138 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
             if not stat.S_ISREG(before.st_mode):
                 raise RuntimeError('source log is not a regular file')
             record['initial'] = _stat(before)
-            planned = min(before.st_size, MAX_FILE_BYTES, remaining_bytes)
-            if planned < before.st_size:
+            compress = (COMPRESS_MIN_BYTES < before.st_size <= MAX_RAW_FILE_BYTES
+                        and before.st_size <= remaining_source_bytes)
+            planned = min(before.st_size, MAX_FILE_BYTES, remaining_bytes, remaining_source_bytes)
+            if not compress and planned < min(before.st_size, MAX_FILE_BYTES, remaining_bytes):
+                record['reasons'].append('RAW_CAPTURE_BYTE_LIMIT')
+            if not compress and planned < before.st_size:
                 record['reasons'].append('FILE_SIZE_LIMIT' if before.st_size > MAX_FILE_BYTES
                                          and MAX_FILE_BYTES <= remaining_bytes else 'CAPTURE_BYTE_LIMIT')
             if time.monotonic() >= end:
                 record['reasons'].append('DEADLINE_EXHAUSTED')
                 limited('DEADLINE_EXHAUSTED')
                 return
-            dst_fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            target_name = name + '.gz' if compress else name
+            if compress:
+                record.update(encoding='gzip', range_coordinates='decoded_bytes', gzip_mtime=0, compression_level=1,
+                              destination='database-logs/' + relative + '.gz')
+            dst_fd = os.open(target_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                              0o600, dir_fd=target_parent_fd)
             record['artifact_created'] = True
-            # Keep disjoint initial-length head/tail ranges under the same cap.
-            head = (planned + 1) // 2 if planned < before.st_size else planned
-            ranges = [(0, head)]
-            if planned > head:
-                ranges.append((before.st_size - (planned - head), planned - head))
-            record['source_ranges'] = []
-            record['omitted_ranges'] = []
-            for offset, length in ranges:
-                os.lseek(src_fd, offset, os.SEEK_SET)
-                segment = {'source_offset': offset, 'destination_offset': record['copied_bytes'],
-                           'length': 0, 'sha256': None}
-                record['source_ranges'].append(segment)
-                segment_hash = hashlib.sha256()
-                while segment['length'] < length:
-                    if time.monotonic() >= end:
-                        record['reasons'].append('DEADLINE_EXHAUSTED')
-                        limited('DEADLINE_EXHAUSTED')
+            if compress:
+                class Sink:
+                    def write(self, data):
+                        nonlocal remaining_bytes
+                        view = memoryview(data)
+                        while view:
+                            if time.monotonic() >= end:
+                                record['reasons'].append('DEADLINE_EXHAUSTED')
+                                limited('DEADLINE_EXHAUSTED')
+                                raise TimeoutError('gzip evidence deadline')
+                            available = min(remaining_bytes, MAX_COMPRESSED_FILE_BYTES - record['copied_bytes'])
+                            if available <= 0:
+                                record['reasons'].append('COMPRESSED_SIZE_LIMIT' if remaining_bytes else 'CAPTURE_BYTE_LIMIT')
+                                if not remaining_bytes:
+                                    limited('CAPTURE_BYTE_LIMIT')
+                                raise RuntimeError('gzip stored byte limit')
+                            written = os.write(dst_fd, view[:available])
+                            if not written:
+                                raise OSError('zero-byte gzip write')
+                            digest.update(view[:written])
+                            record['copied_bytes'] += written
+                            report['copied_bytes'] += written
+                            remaining_bytes -= written
+                            view = view[written:]
+                        return len(data)
+                raw_hash = hashlib.sha256()
+                raw_bytes = 0
+                with gzip.GzipFile(filename='', mode='wb', fileobj=Sink(), compresslevel=1, mtime=0) as compressed:
+                    while raw_bytes < before.st_size:
+                        if time.monotonic() >= end:
+                            record['reasons'].append('DEADLINE_EXHAUSTED')
+                            limited('DEADLINE_EXHAUSTED')
+                            raise TimeoutError('gzip source deadline')
+                        data = os.read(src_fd, min(CHUNK_BYTES, before.st_size - raw_bytes))
+                        if not data:
+                            raise RuntimeError('gzip source short read')
+                        raw_hash.update(data)
+                        raw_bytes += len(data)
+                        remaining_source_bytes -= len(data)
+                        report['raw_bytes_read'] += len(data)
+                        record['raw_bytes_read'] = raw_bytes
+                        compressed.write(data)
+                os.fsync(dst_fd)
+                if time.monotonic() >= end:
+                    record['reasons'].append('DEADLINE_EXHAUSTED')
+                    limited('DEADLINE_EXHAUSTED')
+                    raise TimeoutError('gzip finalization deadline')
+                record.update(raw_bytes=raw_bytes, raw_sha256=raw_hash.hexdigest())
+                record['source_ranges'] = [{'source_offset': 0, 'destination_offset': 0,
+                                           'length': raw_bytes, 'sha256': raw_hash.hexdigest()}]
+            else:
+                # Keep disjoint initial-length head/tail ranges under the same cap.
+                head = (planned + 1) // 2 if planned < before.st_size else planned
+                ranges = [(0, head)]
+                if planned > head:
+                    ranges.append((before.st_size - (planned - head), planned - head))
+                record['source_ranges'] = []
+                record['omitted_ranges'] = []
+                for offset, length in ranges:
+                    os.lseek(src_fd, offset, os.SEEK_SET)
+                    segment = {'source_offset': offset, 'destination_offset': record['copied_bytes'],
+                               'length': 0, 'sha256': None}
+                    record['source_ranges'].append(segment)
+                    segment_hash = hashlib.sha256()
+                    while segment['length'] < length:
+                        if time.monotonic() >= end:
+                            record['reasons'].append('DEADLINE_EXHAUSTED')
+                            limited('DEADLINE_EXHAUSTED')
+                            break
+                        data = os.read(src_fd, min(CHUNK_BYTES, length - segment['length']))
+                        if not data:
+                            record['reasons'].append('SOURCE_SHORT_READ')
+                            break
+                        remaining_source_bytes -= len(data)
+                        report['raw_bytes_read'] += len(data)
+                        view = memoryview(data)
+                        while view:
+                            written = os.write(dst_fd, view)
+                            if not written:
+                                raise OSError('zero-byte log write')
+                            digest.update(view[:written])
+                            segment_hash.update(view[:written])
+                            segment['sha256'] = segment_hash.hexdigest()
+                            segment['length'] += written
+                            record['copied_bytes'] += written
+                            report['copied_bytes'] += written
+                            remaining_bytes -= written
+                            view = view[written:]
+                    segment['sha256'] = segment_hash.hexdigest()
+                    if segment['length'] < length:
                         break
-                    data = os.read(src_fd, min(CHUNK_BYTES, length - segment['length']))
-                    if not data:
-                        record['reasons'].append('SOURCE_SHORT_READ')
-                        break
-                    view = memoryview(data)
-                    while view:
-                        written = os.write(dst_fd, view)
-                        if not written:
-                            raise OSError('zero-byte log write')
-                        digest.update(view[:written])
-                        segment_hash.update(view[:written])
-                        segment['sha256'] = segment_hash.hexdigest()
-                        segment['length'] += written
-                        record['copied_bytes'] += written
-                        report['copied_bytes'] += written
-                        remaining_bytes -= written
-                        view = view[written:]
-                segment['sha256'] = segment_hash.hexdigest()
-                if segment['length'] < length:
-                    break
             record['final'] = _stat(os.fstat(src_fd))
-            current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            fresh_parent = _open_directory((database / 'log').joinpath(*Path(relative).parts[:-1]))
+            try:
+                held = os.fstat(parent_fd)
+                fresh = os.fstat(fresh_parent)
+                if (held.st_dev, held.st_ino) != (fresh.st_dev, fresh.st_ino):
+                    raise RuntimeError('source log parent changed during capture')
+                current = os.stat(name, dir_fd=fresh_parent, follow_symlinks=False)
+            finally:
+                os.close(fresh_parent)
             record['path_final'] = _stat(current)
             if record['initial'] != record['final'] or record['final'] != record['path_final']:
                 record['reasons'].append('SOURCE_CHANGED_DURING_CAPTURE')
             if stat.S_ISLNK(current.st_mode):
                 record['reasons'].append('SOURCE_PATH_BECAME_SYMLINK')
-            if record['copied_bytes'] == before.st_size and not record['reasons']:
+            observed = record.get('raw_bytes') if compress else record['copied_bytes']
+            if observed == before.st_size and not record['reasons']:
                 record['status'] = 'COMPLETE'
             if remaining_bytes <= 0:
                 limited('CAPTURE_BYTE_LIMIT')
+            if remaining_source_bytes <= 0:
+                limited('RAW_CAPTURE_BYTE_LIMIT')
         except Exception as exc:
             record['error'] = _error(exc)
             record['reasons'].append('LOG_CAPTURE_ERROR')
@@ -351,6 +432,84 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
     return _save_terminal(out, 'database-log-capture.json', report)
 
 
+
+class CompressedLogText:
+    """Reiterable verified lines; every traversal validates both byte identities."""
+    def __init__(self, path, record, end):
+        self.path, self.record, self.end = path, record, end
+
+    def __iter__(self):
+        record = self.record
+        if record.get('status') != 'COMPLETE' or record.get('encoding') != 'gzip':
+            raise RuntimeError('partial/unknown gzip is not a complete text stream')
+        expected = record.get('raw_bytes')
+        if type(expected) is not int or not 0 <= expected <= MAX_RAW_FILE_BYTES:
+            raise RuntimeError('gzip raw size bound')
+        def check():
+            if time.monotonic() >= self.end:
+                raise TimeoutError('gzip evidence reader deadline')
+        check()
+        parent = _open_directory(self.path.parent)
+        try:
+            parent_info = os.fstat(parent)
+            fd = os.open(self.path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        finally:
+            os.close(parent)
+        with os.fdopen(fd, 'rb') as stream:
+            before = os.fstat(stream.fileno())
+            if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_COMPRESSED_FILE_BYTES:
+                raise RuntimeError('gzip stored file type/size bound')
+            if before.st_size != record.get('copied_bytes'):
+                raise RuntimeError('gzip stored length mismatch')
+            stored_hash = hashlib.sha256()
+            while True:
+                check()
+                chunk = stream.read(CHUNK_BYTES)
+                if not chunk:
+                    break
+                stored_hash.update(chunk)
+            if stored_hash.hexdigest() != record.get('sha256'):
+                raise RuntimeError('gzip stored hash mismatch')
+            stream.seek(0)
+            raw_hash = hashlib.sha256()
+            count = 0
+            pending = b''
+            with gzip.GzipFile(fileobj=stream, mode='rb') as decoded:
+                while True:
+                    check()
+                    chunk = decoded.read(min(CHUNK_BYTES, expected - count + 1))
+                    if not chunk:
+                        break
+                    count += len(chunk)
+                    if count > expected:
+                        raise RuntimeError('gzip expanded length exceeds declared bound')
+                    raw_hash.update(chunk)
+                    pending += chunk
+                    lines = pending.split(b'\n')
+                    pending = lines.pop()
+                    for line in lines:
+                        if len(line) > MAX_LOG_LINE_BYTES:
+                            raise RuntimeError('gzip log line bound')
+                        yield line.decode(errors='replace').rstrip('\r')
+                    if len(pending) > MAX_LOG_LINE_BYTES:
+                        raise RuntimeError('gzip log line bound')
+            # Ignore an unterminated final line, but include all bytes in SHA.
+            if count != expected or raw_hash.hexdigest() != record.get('raw_sha256'):
+                raise RuntimeError('gzip original length/hash mismatch')
+            after = os.fstat(stream.fileno())
+            parent = _open_directory(self.path.parent)
+            try:
+                final_parent = os.fstat(parent)
+                if (parent_info.st_dev, parent_info.st_ino) != (final_parent.st_dev, final_parent.st_ino):
+                    raise RuntimeError('gzip artifact parent changed')
+                current = os.stat(self.path.name, dir_fd=parent, follow_symlinks=False)
+            finally:
+                os.close(parent)
+            if _stat(before) != _stat(after) or _stat(after) != _stat(current):
+                raise RuntimeError('gzip artifact changed during verification')
+            check()
+
+
 def _raw_stream(out, name, read_limit=0):
     """Return a raw-artifact reference; optional gate reads are small and exact."""
     metadata = {'path': name, 'bytes': None, 'status': 'UNAVAILABLE'}
@@ -386,7 +545,94 @@ def _raw_stream(out, name, read_limit=0):
     return metadata, data
 
 
-def describe_status(raw, source, end):
+def _lock_record(source, name, end, *, allow_absent=False, maximum=1024**2):
+    record = {'path': name, 'status': 'UNKNOWN', 'origin': 'UNKNOWN',
+              'initial_presence': 'UNKNOWN', 'dependency_resolution_impact': 'UNKNOWN'}
+    fd = parent = None
+    try:
+        parts = Path(name).parts
+        if (not parts or Path(name).is_absolute() or any(x in ('.', '..') for x in parts)
+                or len(os.fsencode(name)) > MAX_RELATIVE_PATH_BYTES):
+            raise RuntimeError('unsafe lock path')
+        parent_path = source.joinpath(*parts[:-1])
+        parent = _open_directory(parent_path)
+        parent_info = os.fstat(parent)
+        try:
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        except FileNotFoundError:
+            if allow_absent:
+                fresh = _open_directory(parent_path)
+                try:
+                    current_parent = os.fstat(fresh)
+                    if (parent_info.st_dev, parent_info.st_ino) != (current_parent.st_dev, current_parent.st_ino):
+                        raise RuntimeError('lock parent changed during observation')
+                    try:
+                        os.stat(parts[-1], dir_fd=fresh, follow_symlinks=False)
+                    except FileNotFoundError:
+                        record['status'] = 'ABSENT'
+                        return record
+                    raise RuntimeError('lock appeared during absence observation')
+                finally:
+                    os.close(fresh)
+            raise
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > maximum:
+            raise RuntimeError('lock is not a bounded regular file')
+        digest = hashlib.sha256()
+        size = 0
+        while size < before.st_size:
+            if time.monotonic() >= end:
+                raise TimeoutError('lock evidence deadline')
+            data = os.read(fd, min(CHUNK_BYTES, before.st_size - size))
+            if not data:
+                raise RuntimeError('short lock read')
+            digest.update(data)
+            size += len(data)
+        after = os.fstat(fd)
+        fresh = _open_directory(parent_path)
+        try:
+            current_parent = os.fstat(fresh)
+            if (parent_info.st_dev, parent_info.st_ino) != (current_parent.st_dev, current_parent.st_ino):
+                raise RuntimeError('lock parent changed during observation')
+            current = os.stat(parts[-1], dir_fd=fresh, follow_symlinks=False)
+        finally:
+            os.close(fresh)
+        if _stat(before) != _stat(after) or _stat(after) != _stat(current):
+            raise RuntimeError('lock changed during capture')
+        record.update(status='CAPTURED', bytes=size, sha256=digest.hexdigest(), identity=_stat(before))
+    except Exception as exc:
+        record['error'] = _error(exc)
+    finally:
+        for descriptor in (fd, parent):
+            if descriptor is not None:
+                os.close(descriptor)
+    return record
+
+
+def lock_inventory(source, manifests, out, end, expected, *, stage, fixed_deadline):
+    """Observe only fixed manifest siblings; no Cargo, traversal or provenance inference."""
+    paths = sorted({str(Path(name).with_name('Cargo.lock')) for name in manifests})
+    report = {'source': str(source), 'expected_head': expected, 'stage': stage,
+              'fixed_job_deadline': fixed_deadline, 'status': 'PARTIAL', 'locks': [],
+              'origin': 'UNKNOWN', 'dependency_resolution_impact': 'UNKNOWN'}
+    if len(paths) > 256:
+        raise RuntimeError('lock candidate count bound')
+    remaining = 16 * 1024**2
+    for name in paths:
+        if time.monotonic() >= end:
+            report['error'] = 'lock inventory deadline'
+            break
+        record = _lock_record(source, name, end, allow_absent=True, maximum=min(1024**2, remaining))
+        report['locks'].append(record)
+        if record['status'] not in ('CAPTURED', 'ABSENT'):
+            break
+        remaining -= record.get('bytes', 0)
+    if time.monotonic() < end and len(report['locks']) == len(paths) and all(x['status'] in ('CAPTURED', 'ABSENT') for x in report['locks']):
+        report['status'] = 'COMPLETE'
+    return _save_terminal(out, 'lock-inventory-' + stage + '.json', report)
+
+
+def describe_status(raw, source, end, initial_locks=None):
     """Supplement raw porcelain; never exempts untracked files from clean gate."""
     result = {'tracked_status_gate': 'UNKNOWN', 'untracked_locks': []}
     if raw is None:
@@ -395,51 +641,20 @@ def describe_status(raw, source, end):
     if any(len(line) < 3 or line[2] != ' ' for line in lines):
         return result
     result['tracked_status_gate'] = 'FAIL' if any(not line.startswith('?? ') for line in lines) else 'PASS'
+    initial = {x['path']: x for x in (initial_locks or {}).get('locks', [])}
     for line in lines[:128]:
-        if not line.startswith('?? ') or not line.endswith('/Cargo.lock'):
+        if not line.startswith('?? ') or not (line.endswith('/Cargo.lock') or line == '?? Cargo.lock'):
             continue
         name = line[3:]
-        record = {'path': name, 'status': 'UNKNOWN', 'origin': 'UNKNOWN', 'initial_presence': 'UNKNOWN',
-                  'dependency_resolution_impact': 'UNKNOWN',
-                  'observation': 'untracked at this Git status observation; not a producer attribution'}
+        record = _lock_record(source, name, end)
+        record['observation'] = 'untracked at this Git status observation; not a producer attribution'
+        if name in initial:
+            record['initial_presence'] = initial[name]['status']
         result['untracked_locks'].append(record)
-        fd = parent = None
-        try:
-            parts = Path(name).parts
-            if not parts or Path(name).is_absolute() or any(x in ('.', '..') for x in parts):
-                raise RuntimeError('unsafe untracked path')
-            parent = _open_directory(source)
-            for part in parts[:-1]:
-                child = _child_directory(parent, part)
-                os.close(parent)
-                parent = child
-            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-            before = os.fstat(fd)
-            if not stat.S_ISREG(before.st_mode) or before.st_size > 1024**2:
-                raise RuntimeError('lock is not a bounded regular file')
-            digest = hashlib.sha256(); size = 0
-            while size < before.st_size:
-                if time.monotonic() >= end:
-                    raise TimeoutError('lock evidence deadline')
-                data = os.read(fd, min(CHUNK_BYTES, before.st_size - size))
-                if not data:
-                    raise RuntimeError('short lock read')
-                digest.update(data); size += len(data)
-            after = os.fstat(fd)
-            current = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
-            if _stat(before) != _stat(after) or _stat(after) != _stat(current):
-                raise RuntimeError('lock changed during capture')
-            record.update(status='CAPTURED', bytes=size, sha256=digest.hexdigest())
-        except Exception as exc:
-            record['error'] = _error(exc)
-        finally:
-            for descriptor in (fd, parent):
-                if descriptor is not None:
-                    os.close(descriptor)
     return result
 
 
-def capture_identity(source: Path, out: Path, end: float, expected: str, *, prefix='checkout') -> dict:
+def capture_identity(source: Path, out: Path, end: float, expected: str, *, prefix='checkout', initial_locks=None) -> dict:
     """Independently capture HEAD, status and repository root under one budget.
 
     status is PASS only when identity_gate, clean_gate and repository_gate all
@@ -447,6 +662,8 @@ def capture_identity(source: Path, out: Path, end: float, expected: str, *, pref
     commands[*].stdout/stderr reference unchanged raw files relative to out.
     These process receipts supervise only the helper's own Git process groups.
     """
+    if initial_locks is not None and (initial_locks.get('status') != 'COMPLETE' or initial_locks.get('source') != str(source) or initial_locks.get('expected_head') != expected):
+        initial_locks = None
     start = time.monotonic()
     report = {'status': 'NOT_REACHED', 'expected_head': expected, 'actual_head': None,
               'identity_gate': 'UNKNOWN', 'clean_gate': 'UNKNOWN', 'repository_gate': 'UNKNOWN',
@@ -535,7 +752,7 @@ def capture_identity(source: Path, out: Path, end: float, expected: str, *, pref
                 continue
             if name == 'status':
                 report['clean_gate'] = 'PASS' if stdout['bytes'] == 0 else 'FAIL'
-                report.update(describe_status(raw, source, end))
+                report.update(describe_status(raw, source, end, initial_locks))
             elif raw is None:
                 result['reasons'].append('GATE_OUTPUT_LIMIT')
                 result['status'] = 'PARTIAL'

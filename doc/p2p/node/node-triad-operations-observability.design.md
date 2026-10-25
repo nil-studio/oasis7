@@ -18,6 +18,7 @@
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | traffic 预采集 pending、类型绑定、共享历史事务与只读回放 | [traffic 持久尝试](#traffic-durable-attempt) | traffic collector／history publisher | 不证明角色就绪、未接入事务的历史 writer、真实 SSH 或物理回滚 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | 区分实例存活、读取范围、授权、成员采用和签名/追加阻断 | [角色就绪投影](#report-profile-readiness) | 各 profile producer、ops 与 QA | 单节点正式 CLI 文件报告先接通只读角色；triad、写者与 validator 适配仍待实现 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | 单节点正式只读角色的状态、实例绑定与观察年龄 | [单节点正式 CLI 报告](#single-node-profile-report) | node lifecycle producer／ops report | 不证明 triad profile 接线、validator、P/R 或现场恢复 |
+| Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | 显式本地 CLI 采集、持久尝试及读取年龄复核 | [本地 profile 采集](#local-profile-collection) | node lifecycle producer／ops collector | 不证明 triad、部署、物理回滚或协议授权正确性 |
 | [独占 run](node-triad-operations-observability.prd.md#observability-run-contract) | 写入前原子独占；冲突写前拒绝/重分配，同 run 工件所属一致。 | [编排目标](#run-exclusive) | runtime / blockchain ops / QA；上游各自 owning module | 未运行目标故障/并发回归；不证明 producer 修复、真实 SSH 或现场恢复。  产品适用性：N/A；理由：本行是旧接口维护或 operator 技术观测合同，本身不新增玩家承诺；范围：本行所列专业机制，不免除现行产品恢复、经济或可用性义务。 |
 | [参数路由](node-triad-operations-observability.prd.md#observability-run-contract) | service/status/shared target 先校验再按消费者分配，非法参数写前失败。 | [编排目标](#run-routing) | ops collector／QA；子工具各自 owning module | 限受支持 triad 参数；不证明任意拓扑、host 内部失败续采或现场恢复。产品适用性：N/A；理由：本行为 operator 技术接口，不新增玩家承诺；范围：受支持的三节点参数路由，不替代现行可用性义务。 |
 | [失败后报告](node-triad-operations-observability.prd.md#observability-run-contract) | 首个／后续／全部节点采样失败保留不可用样本、继续其余采样并生成非零终态。 | [编排目标](#run-failure-report) | ops collector／report publisher／QA | 不证明独立入口的持久 pending、目录并发安全或真实故障域恢复。产品适用性：N/A；理由：本行为 operator 诊断接口；范围：本地采集与报告，不替代现行产品可用性义务。 |
@@ -228,6 +229,19 @@ adapter 核对顶层／角色 schema 以及 chain anchor 的 profile、world/cha
 
 本子范围沿实际单节点入口执行 schema／身份／阻断／旧观察与恢复反例，并由现有正式 observer／full-sync 进程回归将 producer 状态喂给实际报告脚本。triad HTTP collector、validator／storage profile、授权撤销协议、BFT 和 P/R 仍待后续实现与各自验收。
 
+<a id="local-profile-collection"></a>
+### 本地正式 profile 采集与验证读取
+
+独立入口 `scripts/p2p-node-profile-monitor.sh --node-binary <absolute-executable> --data-dir <absolute-existing-directory> --out-dir <root>` 只执行显式选择的 `node status --data-dir`，不启动、停止或修复节点。输出目录不能与节点数据目录重叠，不能包住所选二进制。binary／data-dir／参数先验证，再通过既有持久发布器的独立 `node-profile` 类型预留单调序号和 pending；预发布失败不执行 CLI，旧慢任务不能覆盖新 pending／失败。该类型不能读取其他 collector 的存储。候选二进制内容摘要、数据目录摘要和超时绑定报告范围；路径／配置／grant 不复制到报告。范围改变时不沿用另一范围的 last-success；已取得的实例身份显式记录，跨实例历史不能填作当前读取。
+
+本地执行不经 shell 求值，stdout 以管道流式限制为 4 MiB，stderr 丢弃，不把完整 CLI 输出落入 run 或临时文件。默认 10000ms、可选 1–60000ms 的单调截止包含等待退出与管道关闭；超时／超限终止自建进程组。spawn、非零退出、超时、超限、无效 UTF-8／JSON／状态 schema 仅输出固定错误类别。失败仍发布同次 failed 与 unknown profile，不回退旧成功。SIGKILL／发布失败留下 pending 或 unknown，不能取得新就绪。
+
+成功状态经现有 profile adapter 生成 allowlist JSON／Markdown，collection 执行结果与 producer 的读取资格分开：CLI 成功取得 blocked 状态是有效诊断，不代表角色 ready。保存当次采集起止时点、producer 检查／已验证位置、实例绑定与各自年龄，后续读取不更新这些原始时点。仅受支持的公开 observer 与完整只读 profile 可显示其适用 ready；其他 profile／缺字段保持 unknown，不推断 validator、P/R 或私有权限。
+
+canonical 入口为 `python3 scripts/p2p-real-env-observability-attempt.py read --collector node-profile --out-dir <root>`（Markdown 加 `--format markdown`）。在验证类型、状态、generation、摘要与历史引用后，按读取时点重算 collection 和 producer 年龄；60000ms 预算以外、未来观察或采集墙钟回退不能显示当前 ready。存储报告保持不可变，读取重新生成当前诊断，不把 frozen Markdown 中的旧 ready 当当前状态。read 的成功退出只表示 canonical 采集记录可验证，具体角色资格仍由 profile 状态说明。
+
+离线测试驱动实际入口覆盖预发布先于 CLI、成功／失败／恢复、输出超限、超时与管道持有者、SIGKILL、A 慢／B 新、损坏协议、跨类型、范围变化及读取年龄重算；现有正式进程回归再运行真实 shipping CLI→collector→adapter→canonical，验证 ready、停止和旧 grant 拒绝。该切片不接入 triad SSH／HTTP，不部署节点，不证明可信绝对时间、物理回滚或各授权／共识协议本身。
+
 容量报告保留当前占用/配置上限、接近边界的告警与最近真实恢复耗时；没有测量时明确未知，不把测试超时预算当生产 SLO。默认只输出有界角色/错误类别标签，不导出完整 grant、密钥、私有状态或高基数 peer 标识。观察结果不能直接改变 runtime admission，自动 remediation 仍不在范围内。
 
 取得独占 run 后、启动任何 collector 前，在对应 candidate/inventory/profile 的报告范围内持久记录 `attempt_id`、单调分配的尝试序号、开始时点与 `pending` 状态，并原子推进 `latest_attempt`；该预发布失败则不开始采集并非零退出。序号分配与指针更新须在同一互斥/条件更新边界内完成，不以结束先后判断尝试新旧；序号状态无法安全恢复时显示 unknown，不能回退到旧成功冒充本轮结果。
@@ -255,6 +269,7 @@ adapter 核对顶层／角色 schema 以及 chain anchor 的 profile、world/cha
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | [traffic 持久尝试](#traffic-durable-attempt) | traffic 尝试发布、共享历史事务及回放隔离 | [traffic 实际入口回归](../../../scripts/p2p-real-env-traffic-durable.test.py)：中断、并发、故障、恢复、共享历史／回放及实际消费 | 当前实现 PR 的 source HEAD、本地／CI 命令及 JSON／Markdown 断言 | 不证明角色就绪、其他 writer、真实 SSH 或物理回滚 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | [角色就绪投影](#report-profile-readiness) | OPS-AC-5 与失败终态指针不掩盖阻断 | planned：扩展 [observability 回归](../../../scripts/p2p-real-env-observability-monitor.test.sh)，走 collector→adapter→report，注入失效 grant、未采用成员、签名失败、P/R 故障、容量和旧样本，以及 A 慢/B 快、pending 中止与终态写入失败；现有 fixture 不覆盖该编排链 | 未来实现 PR 的同候选输出、退出码和各角色断言；当前仅设计 | 不证明协议撤销/BFT/物理故障域或任意拓扑已支持 |
 | Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | [单节点正式 CLI 报告](#single-node-profile-report) | observer／full-sync 的只读边界、身份和年龄，阻断与恢复 | [单节点 profile 回归](../../../scripts/p2p-profile-readiness.test.py)、原 chain status 报告回归与 formal observer producer／shipping full-sync CLI 回归输出到实际报告；后者需显式 ignored suite | 当前实现 PR 的同 source HEAD 命令、JSON／Markdown 与实际 CI | 不证明 triad profile 接线、密码学协议、部署、BFT 或 P/R |
+| Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；[角色观测](node-triad-operations-observability.prd.md#ops-profile-readiness) | [本地 profile 采集](#local-profile-collection) | pending／条件发布、真实 CLI 诊断与读取年龄 | [实际采集与发布读取回归入口](../../../scripts/p2p-real-env-observability-monitor.test.sh) 及 shipping full-sync CLI→canonical | 当前实现 PR 的同 source HEAD 命令、退出码、JSON／Markdown 与必要 CI | 不证明 triad、部署、可信绝对时间、BFT 或 P/R |
 | [独占 run](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-exclusive) | 外层写入前原子分配独占 run，同 run 工件关联一致 | [实际编排回归](../../../scripts/p2p-real-env-observability-attempt.test.py)：固定时钟并发、输出别名和预存工件／内部 symlink 拒绝 | 当前实现 PR 的本地／CI 命令、退出码与断言 | 不证明独立 snapshot 等入口的目录隔离、真实 SSH 或现场恢复 |
 | [参数路由](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-routing) | 三节点参数按消费者分配，非法参数采集与写入前失败 | [实际路由回归](../../../scripts/p2p-real-env-observability-routing.test.py)：严格 argv 消费检查与真实子工具离线集成，覆盖 service／status／target／storage 等单项及组合、help、缺值与不支持拓扑 | 当前实现 PR 的 source HEAD、本地／CI 命令、退出码及 JSON／Markdown 断言 | 不证明任意拓扑、host 内部失败续采、producer 修复、真实 SSH 或现场恢复 |
 | [失败后报告](node-triad-operations-observability.prd.md#observability-run-contract) | [编排目标](#run-failure-report) | 节点失败不跳过后续采样，保留本 run 失败及非零终态 | [host 实际采集回归](../../../scripts/p2p-real-env-host-failure.test.py)：首个／后续／全部失败、部分响应、失败后恢复及真实 reducer／merged 消费；另执行现有持久尝试回归 | 当前实现 PR 的 source HEAD、本地／CI 命令及 JSON／Markdown 断言 | 不证明独立 collector 持久尝试、目录隔离、真实 SSH 或物理故障域恢复 |

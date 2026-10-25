@@ -132,6 +132,15 @@ pub(super) fn finish(
         .values()
         .cloned()
         .collect::<Vec<_>>();
+    println!(
+        "hosted_final_budget_canonical_diagnostic={}",
+        application_hosted_final_budget::canonical_diagnostic(canonical.iter())
+    );
+    println!(
+        "hosted_final_budget_fault_boundaries before_persist={} rollback={}",
+        root.join("final-budget-before-persist").exists(),
+        root.join("final-budget-rollback").exists()
+    );
     for (name, bytes) in [
         ("stdout.log", output.stdout.clone()),
         ("stderr.log", output.stderr.clone()),

@@ -643,7 +643,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("--web output/web", text)
         self.assertNotIn("build-game-launcher-bundle", text)
         self.assertNotIn("crates/oasis7_client_launcher", text)
-        self.assertIn("save-if: ${{ github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}", text)
+        self.assertIn("save-if: ${{ job.status == 'success' && github.job == 'native-trusted' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}", text)
         self.assertIn("!cancelled() && needs.web.result == 'success'", text)
         self.assertIn("needs.native.result == 'success' && needs.native-trusted.result == 'skipped'", text)
         self.assertIn("needs.native.result == 'skipped' && needs.native-trusted.result == 'success'", text)

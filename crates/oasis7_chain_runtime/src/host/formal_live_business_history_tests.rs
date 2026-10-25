@@ -78,6 +78,7 @@ fn native_resolver_preserves_content_cache_hooks_without_endpoint_io() {
                 PathBuf::new(),
             ),
         prewarm_scope: Arc::new(()),
+        governance_verified: std::sync::Mutex::new(None),
     };
     let bytes = BusinessIndexNodeV1::branch(0, "0".repeat(64), "1".repeat(64))
         .unwrap()
@@ -232,6 +233,7 @@ fn prewarm_resolver(
                 PathBuf::new(),
             ),
         prewarm_scope: Arc::new(()),
+        governance_verified: std::sync::Mutex::new(None),
     }
 }
 

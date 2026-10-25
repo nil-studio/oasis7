@@ -72,7 +72,12 @@ impl RecoveryBootstrap {
             &verified.active_predecessor,
             source,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            format!(
+                "recovery archive verification source={:?}: {e}",
+                self.archive_directory
+            )
+        })?;
         Ok(RecoveryAuthorization {
             authorization: formal::endpoint::FormalEndpointAuthorizationV1 {
                 authority: recovery.successor().clone(),

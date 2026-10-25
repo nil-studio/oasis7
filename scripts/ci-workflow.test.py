@@ -30,6 +30,19 @@ def workflow_jobs(workflow):
 JOBS = workflow_jobs(WORKFLOW)
 
 
+def without_optional_dependency_cache_install(workflow):
+    # Only this exact cache setup in the trusted writer may fail into a cold
+    # build. A renamed command, another step or another job is not exempt.
+    full = re.search(r'^  full-regression:\n.*?(?=^  [a-z][a-z0-9-]*:|\Z)', workflow, re.M | re.S)
+    if not full:
+        return workflow
+    installer = ('      - name: Install dependency cache admission\n'
+                 '        id: dependency-cache-tools\n'
+                 '        continue-on-error: true\n'
+                 '        run: python3 scripts/ci-rust-cache-admission.py install\n')
+    return workflow[:full.start()] + full[0].replace(installer, '', 1) + workflow[full.end():]
+
+
 def validate_candidate_graph(workflow, config):
     jobs = dict(re.findall(r'^  ([a-z][a-z0-9-]*):\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)',
                            workflow.split('\njobs:\n', 1)[1], re.M | re.S))
@@ -38,7 +51,7 @@ def validate_candidate_graph(workflow, config):
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
-    if 'always()' not in gate or 'continue-on-error:' in workflow:
+    if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
     if ('os: [ubuntu-24.04, windows-2022, macos-15]' not in fleet
@@ -458,6 +471,11 @@ class Workflow(unittest.TestCase):
         writer = re.sub(r'      - name: Prepare trusted cache sentinel\n.*?(?=      - (?:name: Run full|uses: actions/download-artifact))', '', writer, flags=re.S)
         writer = re.sub(r'      - name: Complete shared native cache\n.*?(?=      - name:)', '\n', writer, flags=re.S)
         writer = re.sub(r'      - name: Save prepared wasm-bindgen tool cache\n.*?(?=      - name:)', '', writer, flags=re.S)
+        writer = re.sub(r'^      - name: Install dependency cache admission\n.*?(?=^      - |\Z)', '', writer, flags=re.M | re.S)
+        # Cache identity and writer admission have separate contracts; retain
+        # equality for the compiler setup, build, test and artifact steps.
+        writer = re.sub(r'^      - uses: Swatinem/rust-cache@.*?(?=^      - |\Z)', '', writer, flags=re.M | re.S)
+        candidate = re.sub(r'^      - uses: Swatinem/rust-cache@.*?(?=^      - |\Z)', '', candidate, flags=re.M | re.S)
         candidate = candidate.replace('          save-if: false\n', '')
         candidate = candidate.replace('actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0',
                                       'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0')
@@ -556,6 +574,54 @@ class Workflow(unittest.TestCase):
         self.assertEqual(len(set(identities)), 1)
         self.assertNotIn('bindgen-meta', JOBS['launcher-web'])
 
+    def test_local_cargo_contract_regressions_execute_and_propagate_failures(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = ('run_packaging_artifact_contract_tests', 'run_packaging_contract_tests',
+                 'run_operational_identity_contract_tests', 'run_operational_node_contract_tests',
+                 'run_operational_contract_tests')
+        functions = '\n'.join(re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                              for name in names)
+        setup = 'set -euo pipefail\nrun_provider_remote_https_smoke() { :; }\n'
+        setup += 'run() { echo "$*"; if [[ -n "$FAIL_TEST" && "$*" == *"$FAIL_TEST"* ]]; then return 37; fi; }\n'
+        calls = '\nrun_operational_contract_tests\nrun_packaging_contract_tests\necho contracts-complete\n'
+        tests = ('local-letai-provider-bridge.test.sh', 'build-wasm-module.test.sh')
+        for failing in ('', *tests):
+            result = subprocess.run(['bash', '-c', setup + functions + calls], text=True,
+                                    capture_output=True, env=dict(os.environ, FAIL_TEST=failing))
+            if failing:
+                self.assertEqual(result.returncode, 37, result.stdout + result.stderr)
+                self.assertNotIn('contracts-complete', result.stdout)
+            else:
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for test in tests:
+                    self.assertEqual(result.stdout.count('./scripts/' + test), 1, result.stdout)
+
+    def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            repo = (temporary / 'build repo').resolve()
+            (repo / 'scripts').mkdir(parents=True)
+            bin_dir = temporary / 'build-bin'
+            bin_dir.mkdir()
+            for path, mode in ((repo / 'scripts/cargo-dev.sh', 'wrapper'), (bin_dir / 'cargo', 'raw')):
+                path.write_text('#!/usr/bin/env bash\n{ printf "' + mode + '\\n"; printf "%s\\n" "$PWD" "$@"; } > "$BUILD_TRACE"\nexit "${BUILD_EXIT:-0}"\n')
+                path.chmod(0o755)
+            source = (ROOT / 'scripts/run-local-public-testnet-letai-test-environment.sh').read_text()
+            function = re.search(r'^build_bins\(\) \{\n.*?^\}', source, re.M | re.S).group()
+            script = 'set -euo pipefail\nROOT_DIR="$1"; source "$2"; BUILD=1; log() { :; }\n' + function + '\nbuild_bins\n'
+            for ci, raw in (('', '0'), ('1', '0'), ('true', '0'), ('', '1')):
+                trace = temporary / ('build-trace-' + (ci or 'dev') + raw)
+                env = dict(os.environ, CI=ci, OASIS7_FORCE_RAW_CARGO=raw,
+                           OASIS7_CARGO_DEV_REPO_ROOT=str(temporary / 'unrelated-repo'), BUILD_TRACE=str(trace),
+                           PATH=str(bin_dir) + os.pathsep + os.environ['PATH'])
+                for code in (0, 37):
+                    result = subprocess.run(['bash', '-c', script, '_', str(repo), str(ROOT / 'scripts/cargo-dev-lib.sh')],
+                                            cwd=temporary, env=dict(env, BUILD_EXIT=str(code)), capture_output=True, text=True)
+                    assert result.returncode == code, result.stderr
+                    records = trace.read_text().splitlines()
+                    assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
+                    assert 'oasis7_viewer_live' in records, records
+
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
         self.assertIn("if: runner.os == 'macOS'", fleet)
@@ -604,7 +670,9 @@ class Workflow(unittest.TestCase):
         script = "set -euo pipefail\nrun() { printf '%s\\n' \"$*\"; }\nrun_cargo() { run cargo \"$@\"; }\n" + network + "\nrun_oasis7_net_libp2p_tests\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux'))
         self.assertEqual(result.returncode, 0, result.stderr)
-        for command in ('libp2p-security-source.test.py', 'libp2p-compat.test.py', 'check -p oasis7_net', 'check -p oasis7_node'):
+        for command in ('libp2p-security-source.test.py', 'libp2p-compat.test.py',
+                        'test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml --target-dir ./target --lib -- --test-threads=1',
+                        'check -p oasis7_net', 'check -p oasis7_node'):
             self.assertEqual(result.stdout.count(command), 1)
         failure = subprocess.run(['bash', '-c', script.replace("printf '%s\\n' \"$*\"", 'return 42')], text=True, capture_output=True, env=dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux'))
         self.assertEqual(failure.returncode, 42)
@@ -994,6 +1062,93 @@ run_cargo() {
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
         self.assertNotIn('ordinary-required-v2', WORKFLOW)
 
+    def test_dependency_admission_is_local_to_the_two_cache_actions(self):
+        admission = (ROOT / 'scripts/ci-rust-cache-admission.py').read_text()
+        revision = re.search(r"^ACTION_REVISION = '([0-9a-f]{40})'$", admission, re.M)
+        self.assertIsNotNone(revision)
+        # Tar-before-reserve behavior was verified on this exact upstream
+        # package. A pin upgrade must review/update the guard and this contract.
+        self.assertEqual(revision[1], '6323deb102c322ba6fcbdcafc7e3dddab59af2b6')
+        ecs_text = (ROOT / '.github/workflows/ecs-packages.yml').read_text()
+        ecs_jobs = workflow_jobs(ecs_text)
+        lanes = ((JOBS['full-regression'], 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
+                 (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
+                 (ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
+        for job, family, budget in lanes:
+            with self.subTest(family=family, trusted='cache-mode: write' in job):
+                steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                installs = [step for step in steps if 'id: dependency-cache-tools\n' in step]
+                self.assertEqual(len(installs), 1)
+                install = installs[0]
+                self.assertIn('continue-on-error: true', install)
+                self.assertIn('run: python3 scripts/ci-rust-cache-admission.py install', install)
+                self.assertNotIn('GITHUB_PATH', install)
+                cache = next(step for step in steps if 'uses: Swatinem/rust-cache@' in step)
+                self.assertIn('uses: Swatinem/rust-cache@' + revision[1] + ' # v2', cache)
+                self.assertLess(steps.index(install), steps.index(cache))
+                self.assertIn("steps.dependency-cache-tools.outcome == 'success'", cache)
+                self.assertIn('PATH: ${{ steps.dependency-cache-tools.outputs.path }}', cache)
+                self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family, cache)
+                self.assertIn('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.' + budget + ' }}', cache)
+                self.assertIn('GH_TOKEN: ${{ github.token }}', cache)
+                self.assertIn('cache-on-failure: false', cache)
+                self.assertNotIn('lookup-only:', cache)
+                condition = re.search(r'^        if: (.*)$', cache, re.M).group(1)
+                for outcome in ('success', 'failure', 'skipped', 'cancelled'):
+                    for has_toolchains in (False, True):
+                        predicate = condition.replace('steps.dependency-cache-tools.outcome', repr(outcome))
+                        predicate = predicate.replace("hashFiles('scripts/ci-rust-cache-toolchains.py')",
+                                                      repr('hash' if has_toolchains else ''))
+                        allowed = eval(predicate.replace('&&', ' and '), {'__builtins__': {}}, {})
+                        self.assertEqual(allowed, outcome == 'success' and (family != 'ecs' or has_toolchains))
+                for step in steps:
+                    if step != cache:
+                        self.assertNotIn('steps.dependency-cache-tools.outputs.path', step)
+                        self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
+                self.assertNotIn('steps.dependency-cache-tools.outputs.path', job.split('    steps:', 1)[0])
+        self.assertIn('permissions:\n      contents: read\n      actions: read', JOBS['full-regression'])
+        self.assertNotIn('dependency-cache-tools', JOBS['candidate-full-regression'])
+        self.assertNotIn('dependency-cache-tools', ecs_jobs['web'])
+        governance = (ROOT / 'scripts/ci-tests.sh').read_text().split(
+            'run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
+        self.assertEqual(governance.count('run python3 ./scripts/ci-rust-cache-admission.test.py'), 1)
+
+    def test_dependency_save_inputs_reject_step_only_status_functions(self):
+        # GitHub permits status functions in step `if`, not action inputs.
+        # The `job` context is available in `with`, so save-if uses job.status.
+        ecs_jobs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
+        for name, job in (('full-regression', JOBS['full-regression']),
+                          ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
+            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                         if 'uses: Swatinem/rust-cache@' in step)
+            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
+            self.assertIsNotNone(save, name)
+            with self.subTest(job=name):
+                self.assertNotRegex(save.group(1), r'(?i)\b(?:always|cancelled|failure|success)\s*\(')
+
+    def test_dependency_save_requires_success_and_current_trusted_source(self):
+        ecs_jobs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
+        for name, job in (('full-regression', JOBS['full-regression']),
+                          ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
+            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                         if 'uses: Swatinem/rust-cache@' in step)
+            save = re.search(r'          save-if: \$\{\{ (.*?) \}\}', cache)
+            self.assertIsNotNone(save, name)
+            expression = save.group(1)
+            for status in ('success', 'failure', 'cancelled'):
+                for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge'):
+                    for matching_source in (False, True):
+                        values = {'job.status': status, 'github.ref': ref, 'github.job': name,
+                                  'github.workflow_sha': 'a' if matching_source else 'b', 'github.sha': 'a'}
+                        predicate = expression
+                        for token, value in values.items():
+                            predicate = predicate.replace(token, repr(value))
+                        predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
+                        with self.subTest(job=name, status=status, ref=ref, matching=matching_source):
+                            actual = eval(predicate, {'__builtins__': {}}, {})
+                            self.assertEqual(actual, status == 'success' and ref == 'refs/heads/main'
+                                             and matching_source and name != 'native')
+
     def test_shared_cache_is_populated_completely_before_successful_save(self):
         writer = JOBS['full-regression']
         cache = re.search(r'      - uses: Swatinem/rust-cache@.*?(?=      - name:)', writer, re.S)[0]
@@ -1080,7 +1235,7 @@ run_cargo() {
                 self.assertNotIn('strategy:', job)
             self.assertNotIn('ci-authority', job)
         self.assertNotIn('needs: required-gate', WORKFLOW)
-        self.assertNotIn('continue-on-error:', WORKFLOW)
+        self.assertNotIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW))
         self.assertNotIn('paths-ignore:', WORKFLOW)
 
     def test_platform_product_jobs_still_gate(self):
@@ -1112,7 +1267,11 @@ run_cargo() {
         self.assertNotIn('matrix.group', WORKFLOW)
         self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', WORKFLOW)), WORKFLOW.count('persist-credentials: false'))
         self.assertNotIn('secrets.', WORKFLOW)
-        self.assertNotIn('GH_TOKEN:', WORKFLOW)
+        dependency_cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
+                                                             JOBS['full-regression'], re.M | re.S)
+                                if 'uses: Swatinem/rust-cache@' in step)
+        self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
+        self.assertNotIn('GH_TOKEN:', WORKFLOW.replace(dependency_cache, '', 1))
         self.assertNotIn('scripts/pm/', WORKFLOW)
         self.assertNotIn('task_uid', WORKFLOW)
         self.assertIn('permissions:\n  contents: read', WORKFLOW)
@@ -1212,6 +1371,7 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
                      WORKFLOW.replace('windows-2022, macos-15]', 'windows-2022]'),
                      WORKFLOW.replace('    runs-on: ${{ matrix.os }}', '    runs-on: windows-2022'),
                      WORKFLOW.replace('      fail-fast: false', '      continue-on-error: true'),
+                     WORKFLOW.replace('scripts/ci-rust-cache-admission.py install', 'scripts/ci-tests.sh full'),
                      WORKFLOW.replace(' --host-smoke', ''),
                      WORKFLOW.replace('    if: always()', '    if: success()'),
                      WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1)]

@@ -26,6 +26,41 @@ pub(super) fn object(bytes: Vec<u8>) -> (String, Vec<u8>) {
     (blake3::hash(&bytes).to_hex().to_string(), bytes)
 }
 #[test]
+fn physical_lease_conflict_identifies_guard_and_preserves_exclusion() {
+    let fixture = Fixture::new();
+    let writer = pin(&fixture.0, true).unwrap().unwrap();
+    let error = pin(&fixture.0, false).unwrap_err();
+    let FormalError::Conflict(message) = error else {
+        panic!("lock contention must remain Conflict: {error:?}");
+    };
+    assert!(
+        message.contains(&format!("root={:?}", fixture.0)),
+        "{message}"
+    );
+    assert!(message.contains("mode=shared"), "{message}");
+    assert!(message.contains("WouldBlock"), "{message}");
+    assert!(
+        message.contains(&format!("pid={}", std::process::id())),
+        "{message}"
+    );
+    #[cfg(unix)]
+    {
+        let metadata = writer.metadata().unwrap();
+        assert!(
+            message.contains(&format!("dev={} inode={}", metadata.dev(), metadata.ino())),
+            "{message}"
+        );
+    }
+    drop(writer);
+    let reader = pin(&fixture.0, false).unwrap().unwrap();
+    assert!(matches!(
+        pin(&fixture.0, true),
+        Err(FormalError::Conflict(_))
+    ));
+    drop(reader);
+    assert!(pin(&fixture.0, true).is_ok());
+}
+#[test]
 #[cfg(unix)]
 fn physical_publication_readback_decodes_each_shared_frame_once() {
     let fixture = Fixture::new();

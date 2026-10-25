@@ -107,9 +107,15 @@ pub(in super::super) fn run(
     );
     wait_file(&mut child, &ready, b"ready")?;
     let client = RemoteWorldServiceClient::new(public).map_err(|e| e.to_string())?;
-    if read_current(&client, world)?.version().commit.position < 1 {
-        return Err("survivor missing qualified initial head".into());
-    }
+    // Require a recovery cut beyond C0 instead of racing the first empty tick.
+    let advanced_position = resources
+        .anchor
+        .head()
+        .head()
+        .position
+        .checked_add(1)
+        .ok_or("survivor initial position overflow")?;
+    read_until_position(&client, world, advanced_position)?;
     let admitted = client.submit(request.clone()).map_err(|e| e.to_string())?;
     assert_volatile_admission(admitted, &request.correlation)?;
     wait_file(&mut child, &marker, phase.as_bytes())?;
@@ -362,7 +368,10 @@ pub(in super::super) fn run(
         if reference.position != target_position {
             return Err("survivor changed original first position".into());
         }
-        let publication = runtime.history.fixed_publication(&reference)?;
+        let publication = runtime
+            .history
+            .fixed_publication(&reference)
+            .map_err(|error| format!("survivor initial original fixed publication: {error}"))?;
         if wasm_emit_count(publication.world()) != initial_emits + 1 {
             return Err("survivor Wasmtime effect not exactly once".into());
         }
@@ -438,7 +447,10 @@ pub(in super::super) fn run(
         {
             return Err("survivor duplicate request produced a second original effect".into());
         }
-        let original = runtime.history.fixed_publication(&reference)?;
+        let original = runtime
+            .history
+            .fixed_publication(&reference)
+            .map_err(|error| format!("survivor later original fixed publication: {error}"))?;
         if Some(first_agent_test_effect::first_agent_effect(
             original.world(),
             request,

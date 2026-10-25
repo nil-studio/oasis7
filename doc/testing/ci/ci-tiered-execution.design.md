@@ -186,11 +186,17 @@ workspace 受管范围限于 `refs/heads/main`：当前格式为 `{ordinary-work
 
 ordinary/Formal 的 compact 归档使用单线程 zstd level 3、8 MiB window 和 checksum；归档内仍只有 manifest 与扁平 regular-file payload，不接受 tar link 或扩展头。manifest 中有版本的 aliases 映射仅去重 staging 中同 device/inode 的文件；别名只能指向排序靠前的非别名文件，且长度、摘要、权限和纳秒时间戳完全相同。先校验全部原始逻辑字节、路径和别名关系，解包后仅在受控目录内为已验证 canonical 文件创建硬链接，再由现有 Cargo 单位、摘要和源码校验决定是否恢复。zstd decoder 使用 64 MiB 窗口/内存参数上限（非进程 RSS 承诺），压缩输入、物理 payload、逻辑展开和 tar 终止均有界；拒绝附加帧、截断、校验失败、路径穿越及多余成员。共享 reader 保留 gzip 支持供 ECS 使用。归档与外层 actions/cache 上传包装分别量测，不能直接把压缩文件大小当上传上界。
 
-额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v3` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。替代族所有条目均保留，不按最新时间推断其中的旧环境 hash 可删；近似命名、其他 ref 和其他族只统计。
+额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v3` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。该规则不删除替代族；替代族的同环境依赖冗余由下面的独立规则处理。近似命名、其他 ref 和其他族只统计，不按最新时间推断整个环境 hash 可删。
+
+依赖冗余白名单为 `ci-shared-native-trusted-v3` 和 `oasis7-ecs-native-linux-ecs-v2`。按去掉最后一个 8hex 依赖 hash 后的完整 restore 前缀与 cache version 分组，与固定 Swatinem action 已有的回退边界一致，不扩大消费者恢复范围。每组保留唯一最新非零条目及活动保护集，只回收更旧的依赖快照；不跨环境、平台或 archive version 回收。最新创建只是该兼容组的可用恢复锚点，不代表最新 source SHA 或依赖超集；回滚与依赖变更仍由 Cargo 正常验证、补编。此规则同时用于启动和通常维护，在新 workspace 首次保存前即可回收冗余依赖，不以一个尚不存在的 workspace current key 为前提。
+
+这两个依赖 writer 通过 `ci-rust-cache-admission.py` 在最终归档边界准入。原固定 `Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6` 保留指纹、恢复及 post 清理；仅该 action 的 PATH 使用 runner 临时目录中的 tar 适配器，不修改全 job PATH 或 action 代码。适配器接受固定 Linux cache-create 参数，调用真实 `/usr/bin/tar`，成功生成 `cache.tzst` 或 gzip fallback `cache.tgz` 后检查普通文件身份及真实字节。固定上游 [GitHub cache 实现](https://github.com/Swatinem/rust-cache/blob/6323deb102c322ba6fcbdcafc7e3dddab59af2b6/dist/cache-CTfQoCTL.js) 在 `createTar` 成功后才预留和上传；适配器拒绝会在远端预留前停止该次保存，由原 action 报告 warning 并清理本地归档。未知创建参数、非临时目录、缺失或变化的归档均拒绝；版本查询、列表与恢复命令透传。更新 action pin 时必须复核此调用及失败传播合同。
+
+上传前验证当前可信 main 的仓库、workflow、source、job、事件及 REST run 身份，然后复用完整库存与额度规则；最终归档已经包含 action 的 tar/压缩包装，不再以比例推测，也不重复加一层不存在的包装。清点后重新确认文件身份和长度，只有实际库存加该归档不超过有效预算才允许 tar 调用返回成功。Rust `full-regression` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。其他依赖 writer、工具缓存和跨 job 写入没有原子互斥，库存是此次上传前观察值；不为此串行化所有构建。报告区分实际压缩字节、观察总量、投影总量、实时/配置预算及拒绝原因，不把允许上传当成保存已确认。
 
 容量允许时，writer 可先保存临时第三代，再由维护回到两代；禁止先删当前格式恢复点来腾出保存空间。通常清理在可信 main producer 的必要构建、产物上传及保存或精确命中核验成功后进入独立维护 job。Rust 通常维护等待普通、Formal 和本轮 full producer 全部结束，包括依赖缓存 post-job 保存；各族只使用成功 producer 输出并已确认的精确 current key。ECS 维护等待可信 native producer 成功，不依赖 Web 结果。Rust 增加启动维护 `cache-bootstrap-maintenance`，只在选中构建的可信 main push、schedule 或 manual-full 使用 `--bootstrap --apply`；trusted producer 等待它结束，但显式允许维护失败或跳过后继续原构建，候选不依赖此入口。启动与通常维护共用固定 `ci-cache-maintenance-main` concurrency 组、`cancel-in-progress: false` 与 `cache-mode: none`，不恢复或执行缓存 payload。两种模式都先通过 REST 查询当前 `GITHUB_RUN_ID` 并核对仓库、source 与可信运行身份，以该 run 的 `created_at` 作为并发保护起点；不能使用客户端时间或当前缓存落盘时间。
 
-启动维护无需尚不存在的新 current key，也不接受 current key。它仅对 Formal v2 和 ECS v1 的每个完整兼容前缀与 cache version 组保留最新非零完整恢复锚点；创建时间并列、同 key 多 version 等歧义组不删。该组更旧的未保护冗余代才可列入计划。当前格式、未知 key、其他 ref、零字节及活跃/近期访问始终保留。两次完整清点中恢复锚点和候选的不可变身份须相同，锚点消失或变化使该组停止删除，第二次计划只能缩小。2026-10-23 观测的四份 Formal v2 分属两个兼容组，各保留一份可释放 1,396,096,942 字节；9,381,351,049 字节的总库存相应降至 7,985,254,107 字节。这是没有后续变化且活跃保护未阻挡时的回放结果，实际删除和容量须重新清点证明。确认新 current 后仍由通常维护退役剩余旧组。
+启动维护无需尚不存在的新 current key，也不接受 current key。它对 Formal v2、ECS v1 和上述两类依赖缓存各自的完整兼容前缀与 cache version 组保留最新非零完整恢复锚点；创建时间并列、同 key 多 version 等歧义组不删。该组更旧的未保护冗余代才可列入计划。当前 workspace 格式、未知 key、其他 ref、零字节及活跃/近期访问始终保留。两次完整清点中恢复锚点和候选的不可变身份须相同，锚点消失或变化使该组停止删除，第二次计划只能缩小；依赖恢复锚点不能同时成为命名空间退役的删除对象。容量回放包含后续依赖写入，不能把上次库存当作当前可用空间；实际删除和剩余容量须重新清点证明。确认新 current 后仍由通常维护退役剩余旧 workspace 组。
 
 保存 action 成功或构建后的精确命中只决定是否进入核验，精确 key 在同 ref 的完整库存中须对应唯一、合法且非零字节的条目，才视为保存已确认。预留竞争可能只产生 warning；若并发 writer 已保存同一精确条目且 API 核验通过，可以维护。保存未确认、当前 key 缺失、同 key 跨 version 多条或 API 结果不完整时跳过删除。
 
@@ -255,11 +261,11 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 ### 9.2 WASM 与 wrapper 分层证明
 
-维护实际 native/WASM 消费者到 stable smoke、确定性构建入口、输入/产物及 hash 核验的映射。fake Docker 只检验 build wrapper 传参和错误传播；真实 builtin 容器构建与 hash 比较独立执行。`build-wasm-module.test.sh` 有测试文件不等于被 CI 调用，应能从实际选中 job 追到该命令和结果。缺必要 target 或把所有 lane 改为 `BUILD_STD=0` 不能压掉真实消费者；明确已退役且无消费者的旧 lane 不重新激活。
+维护实际 native/WASM 消费者到 stable smoke、确定性构建入口、输入/产物及 hash 核验的映射。fake Docker 只检验 build wrapper 传参和错误传播；真实 builtin 容器构建与 hash 比较独立执行。`build-wasm-module.test.sh` 由 `ci-tests.sh required --group packaging_contracts` 执行；本地 provider bridge 回归由 `operational_contracts` 执行。两条链路都须保留实际调用与失败传播，不能仅凭测试文件存在宣称 CI 覆盖。缺必要 target 或把所有 lane 改为 `BUILD_STD=0` 不能压掉真实消费者；明确已退役且无消费者的旧 lane 不重新激活。
 
-构建 wrapper 在启动子命令前冻结一个有效 target-dir，并区分 wrapper/Cargo 参数与 `--` 后的应用参数。保留含空格参数及 sccache 开/关、环境与显式参数的既有边界；冲突输入统一解析或明确拒绝。退出清理使用保存的 child exit status，释放自己持有的 lease；仅更新仍存在且归属有效的元数据，不能在 target 被合法删除后重新 mkdir 或用记账错误遮蔽原退出结果。不得以保退出码为由遗留占用/GC 锁。
+本地 `cargo-dev.sh` 只设置开发 profile 与可用的 sccache，不设置或覆盖 target-dir。Cargo 参数及 `--` 后的应用参数原样透传，包括含空格路径；显式参数、环境与配置的优先级由 Cargo 决定。默认产物位于各 worktree 的 `target/`。入口不维护外部缓存、租约或退出记账，直接传递 Cargo 的退出码。
 
-原生 Windows 用两个真实进程验证超过平台默认短重试窗口的锁等待、释放后只执行一次、等待可取消、非阻塞模式及非争用 I/O 错误立即失败。WSL、fake lock 或短等待仅证明各自条件；这些合同不授权清理其他 worktree 或未知缓存。
+原生 Windows 保留 Git Bash 的工具链发现与执行验证；本地入口不再要求符号链接权限或实现额外的缓存锁。并发构建使用 Cargo 自身的锁；不得清理使用中的 target 或其他 worktree 的资料。
 
 ### 9.3 CodeQL 结果是独立证据链
 

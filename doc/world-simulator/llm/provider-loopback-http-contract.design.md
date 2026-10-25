@@ -88,7 +88,7 @@ inner DTO is legacy-route only, and a committed Runtime outcome is still require
 
 ### 6.1 产物与有效配置
 
-预检和实际启动必须使用同一个 canonical Cargo target/产物解析结果。共享 target 中存在合法产物而 checkout 没有 `target/` 时应可选择；checkout 遗留同名旧 binary 不能优先于已选的有效产物。保留现有默认、自定义 target、raw/CI 与显式 `SOURCE_BIN_DIR` 的各自适用范围，不新设全局绝对路径，也不以补符号链接掩盖选择器差异。没有可执行产物时输出对应 preset/入口的构建下一步，不把 `cargo build` 泛化为任意 binary 已可启动。
+预检和实际启动必须使用同一个 canonical Cargo target/产物解析结果。显式配置的 target 中存在合法产物而 checkout 没有 `target/` 时应可选择；checkout 遗留同名旧 binary 不能优先于已选的有效产物。保留现有默认、自定义 target、raw/CI 与显式 `SOURCE_BIN_DIR` 的各自适用范围，不新设全局绝对路径，也不以补符号链接掩盖选择器差异。没有可执行产物时输出对应 preset/入口的构建下一步，不把 `cargo build` 泛化为任意 binary 已可启动。
 
 bootstrap 的模型 base URL 在其自身边界内遵循：显式 `--base-url` 优先，否则取受支持配置文件中的值，再取已有环境/默认回退。`url`、`OASIS7_LLM_BASE_URL` 等兼容输入按同一解析结果归一化；供子进程使用的已净化配置和环境不能保留另一份覆盖显式参数的旧值。下游 Runtime 的 `config.toml > env` 规则保持独立，不能用 bootstrap 优先级静默改写。诊断仅说明来源类别与是否应用，不输出 key 或敏感配置内容。
 
@@ -123,7 +123,7 @@ transport 与 adapter 使用一致的 retryable 分类。对现有允许重试�
 
 | 设计边界 | 最小正例 | 关键反例/结果 |
 | --- | --- | --- |
-| 产物解析 | 仅共享 target 有产物；默认/自定义/raw/CI 入口选择一致 | checkout 陈旧产物不被误选；无产物给准确构建指引 |
+| 产物解析 | 仅显式配置的 target 有产物；默认/自定义/raw/CI 入口选择一致 | checkout 陈旧产物不被误选；无产物给准确构建指引 |
 | 有效配置 | 显式 URL 与文件/环境冲突时，净化文件和真实 child env 均采用显式值 | 无显式参数保留文件与兼容回退；不更改下游 Runtime 优先级 |
 | 停止 | 实际生成入口的返回 PID 接收 TERM；自己的后代退出、端口释放 | Ready 前停止、失败退出、HUP 分别覆盖；未知/独立进程不被清理 |
 | 重试 | 首次 429、第二次成功，关联不变且尝试数为二 | 不可重试错误仅一次；重试耗尽与取消不产生新回合或假成功 |

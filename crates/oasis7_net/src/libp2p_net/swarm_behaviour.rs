@@ -18,6 +18,7 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, Transport as _};
 use oasis7_proto::distributed::RR_PROTOCOL_PREFIX;
 use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
+use super::peer_record_admission::{PeerRecordAdmissionBudget, SharedPeerRecordAdmissionBudget};
 use super::peer_record_dial_gate::DiscoveryDialPolicy;
 use super::peer_record_protocol_dial::{ProtocolDialBehaviour, ProtocolDialOrigins};
 use super::peer_record_store::PeerRecordStore;
@@ -46,16 +47,22 @@ pub(super) struct InnerBehaviour {
 pub(super) struct Behaviour {
     inner: InnerBehaviour,
     pub(super) discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
+    peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
     dial_policy: DiscoveryDialPolicy,
     protocol_dials: ProtocolDialOrigins,
     automatic_dials: std::collections::HashSet<libp2p::swarm::ConnectionId>,
 }
 
 impl Behaviour {
-    fn new(inner: InnerBehaviour, protocol_dials: ProtocolDialOrigins) -> Self {
+    fn new(
+        inner: InnerBehaviour,
+        protocol_dials: ProtocolDialOrigins,
+        peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
+    ) -> Self {
         Self {
             inner,
             discovery_budget: Default::default(),
+            peer_record_admission_budget,
             dial_policy: DiscoveryDialPolicy::default(),
             protocol_dials,
             automatic_dials: Default::default(),
@@ -64,6 +71,10 @@ impl Behaviour {
 
     pub(super) fn discovery_dial_policy(&self) -> DiscoveryDialPolicy {
         self.dial_policy.clone()
+    }
+
+    pub(super) fn peer_record_admission_budget(&self) -> SharedPeerRecordAdmissionBudget {
+        std::sync::Arc::clone(&self.peer_record_admission_budget)
     }
 }
 
@@ -229,12 +240,31 @@ impl From<rendezvous_server::Event> for BehaviourEvent {
     }
 }
 
+#[cfg(test)]
 pub(super) fn build_swarm(
     keypair: &Keypair,
     enable_rendezvous: bool,
     enable_autonat: bool,
     request_response_timeout: std::time::Duration,
     wire_byte_counters: SharedLibp2pWireByteCounters,
+) -> Swarm<Behaviour> {
+    build_swarm_with_receiver(
+        keypair,
+        enable_rendezvous,
+        enable_autonat,
+        request_response_timeout,
+        wire_byte_counters,
+        super::receiver_floor::PeerRecordReceiver::legacy(),
+    )
+}
+
+pub(super) fn build_swarm_with_receiver(
+    keypair: &Keypair,
+    enable_rendezvous: bool,
+    enable_autonat: bool,
+    request_response_timeout: std::time::Duration,
+    wire_byte_counters: SharedLibp2pWireByteCounters,
+    peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
 ) -> Swarm<Behaviour> {
     let swarm_config = libp2p::swarm::Config::with_tokio_executor()
         .with_idle_connection_timeout(std::time::Duration::from_secs(30));
@@ -259,7 +289,13 @@ pub(super) fn build_swarm(
         max_provided_keys: KAD_MAX_PROVIDED_KEYS,
         ..MemoryStoreConfig::default()
     };
-    let store = PeerRecordStore::with_config(peer_id, store_config);
+    let peer_record_admission_budget = PeerRecordAdmissionBudget::shared();
+    let store = PeerRecordStore::with_admission_budget_and_receiver(
+        peer_id,
+        store_config,
+        std::sync::Arc::clone(&peer_record_admission_budget),
+        std::sync::Arc::clone(&peer_record_receiver),
+    );
     let kademlia = kad::Behaviour::new(peer_id, store);
     let (relay_transport, relay_client) = relay::client::new(peer_id);
 
@@ -276,15 +312,16 @@ pub(super) fn build_swarm(
         })),
         relay_client: ProtocolDialBehaviour::new(relay_client, protocol_dials.clone()),
         dcutr: ProtocolDialBehaviour::new(dcutr::Behaviour::new(peer_id), protocol_dials.clone()),
-        rendezvous_client: Toggle::from(
-            enable_rendezvous.then(|| rendezvous_client::Behaviour::new(keypair.clone())),
-        ),
+        rendezvous_client: Toggle::from(enable_rendezvous.then(|| {
+            rendezvous_client::Behaviour::new(keypair.clone())
+                .with_automatic_registration_refresh(false)
+        })),
         rendezvous_server: Toggle::from(
             enable_rendezvous.then(|| rendezvous_server::Behaviour::new(Default::default())),
         ),
     };
 
-    let behaviour = Behaviour::new(inner, protocol_dials);
+    let behaviour = Behaviour::new(inner, protocol_dials, peer_record_admission_budget);
 
     let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair));
     let tcp_transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())

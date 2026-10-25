@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Durable observability, host, snapshot and traffic collection ordering. Read this canonical state, not an unvalidated cache."""
+"""Durable collector ordering and validated report publication. Read this canonical state, not an unvalidated cache."""
 import argparse
 from datetime import datetime
 import re
@@ -196,7 +196,7 @@ def validate_attempt_identity(attempt):
 
 
 def validate_collector(value, collector):
-    if collector not in ('observability', 'host', 'snapshot', 'traffic') or value.get('collector', 'observability') != collector:
+    if collector not in ('observability', 'host', 'snapshot', 'traffic', 'node-profile') or value.get('collector', 'observability') != collector:
         raise AttemptError('collector profile mismatch')
 
 
@@ -343,6 +343,13 @@ def load_state(root, collector='observability'):
     return state
 
 
+def node_profile_report():
+    spec = importlib.util.spec_from_file_location('local_profile_report', Path(__file__).with_name('p2p-node-profile-report.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def scope_fingerprint(args, collector='observability'):
     sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-observability-monitor.sh').resolve())]
     if collector == 'host':
@@ -353,6 +360,9 @@ def scope_fingerprint(args, collector='observability'):
     if collector == 'traffic':
         sources = [str(Path(__file__).resolve()), *[str(Path(__file__).with_name(name).resolve()) for name in
             ('p2p-real-env-traffic-monitor.sh', 'traffic-monitor-summary.py', 'traffic_monitor_freshness.py')]]
+    if collector == 'node-profile':
+        sources = [str(Path(__file__).resolve()), *[str(Path(__file__).with_name(name).resolve()) for name in
+            ('p2p-node-profile-monitor.sh', 'p2p-node-profile-monitor.py', 'p2p-node-profile-report.py', 'p2p-profile-readiness.py')]]
     candidate = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).parent.parent,
                                capture_output=True, text=True)
     material = {'candidate': candidate.stdout.strip() if candidate.returncode == 0 else 'unknown',
@@ -387,6 +397,12 @@ def report_for(attempt, last_success, source=None, collector='observability'):
                 node = nodes.setdefault(label, {})
                 node['available'] = False
                 node['freshness'] = dict(node.get('freshness') or {}, state='unknown')
+    if collector == 'node-profile':
+        report['schema_version'] = 2
+        if attempt['result'] != 'success':
+            report['collection'] = dict(report.get('collection') or {}, complete=False)
+            report['profile_readiness'] = node_profile_report().unknown('collection_' + attempt['result'])
+        report = node_profile_report().refresh(report, time.time_ns() // 1_000_000)
     report['collection_attempt'] = dict(attempt)
     report['attempt'] = dict(attempt)
     report['latest_attempt'] = dict(attempt)
@@ -452,6 +468,8 @@ def begin(root, arguments, collector='observability'):
         attempt = {'collector': collector, 'sequence': sequence, 'attempt_id': attempt_id, 'result': 'pending',
                    'scope_fingerprint': scope_fingerprint(arguments, collector), 'started_at_unix_ms': time.time_ns() // 1_000_000,
                    'generation': str(uuid.uuid4()), 'run_directory': 'runs/' + str(sequence).zfill(12) + '-' + attempt_id}
+        if collector == 'node-profile' and state.get('latest_attempt') and state['latest_attempt'].get('scope_fingerprint') != attempt['scope_fingerprint']:
+            state['last_success'] = None
         directory = root / attempt['run_directory']
         reject_symlinks(directory)
         anchor = read_json(root / ANCHOR)
@@ -866,6 +884,10 @@ def finish(root, sequence, attempt_id, errors, collector='observability'):
                     validate_snapshot_source(source, own_directory)
                     if source['collection']['complete'] is not True and not any(row.get('stage') == 'snapshot' for row in errors):
                         raise AttemptError('incomplete snapshot collection lacks failure result')
+                if collector == 'node-profile':
+                    node_profile_report().validate_source(source, own_directory)
+                    if source['collection']['complete'] is not True and not any(row.get('stage') == 'node-profile' for row in errors):
+                        raise AttemptError('incomplete node-profile collection lacks failure result')
                 if collector == 'host':
                     validate_host_source(source)
                     if source['aggregate']['complete'] is not True and not any(row.get('stage') == 'host' for row in errors):
@@ -896,6 +918,13 @@ def finish(root, sequence, attempt_id, errors, collector='observability'):
                        error=errors[0]['error'] if errors else None,
                        finished_at_unix_ms=time.time_ns() // 1_000_000, generation=str(uuid.uuid4()))
         previous_success = state.get('last_success')
+        if collector == 'node-profile' and source is not None:
+            identity = node_profile_report().identity(source.get('profile_readiness') or {})
+            if identity is not None:
+                attempt['source_identity'] = identity
+                if previous_success is not None and previous_success.get('source_identity') != identity:
+                    previous_success = None
+                    state['last_success'] = None
         report = report_for(attempt, previous_success, source, collector)
         markdown = '# ' + collector.capitalize() + ' attempt ' + attempt['result'] + '\n'
         if errors:
@@ -957,7 +986,13 @@ def read(root, collector='observability'):
                     + '- Sequence: `' + str(attempt['sequence']) + '`; result: `' + attempt['result'] + '`\n'
                     + '- Generation: `' + attempt['generation'] + '`\n'
                     + '- Last successful sequence: `' + str((state.get('last_success') or {}).get('sequence')) + '`\n\n'
-                    + artifacts['md'].decode())
+                    )
+        if collector == 'node-profile':
+            report = node_profile_report().refresh(report, report['canonical_state']['read_at_unix_ms'])
+            report['canonical_state']['validation_scope'] = 'attempt_order_artifact_integrity_and_observation_age'
+            markdown += node_profile_report().markdown(report)
+        else:
+            markdown += artifacts['md'].decode()
         return report, markdown, 0 if attempt['result'] == 'success' else 1
 
 
@@ -965,7 +1000,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('begin', 'finish', 'read', 'history', 'history-validate'))
     parser.add_argument('--out-dir', required=True)
-    parser.add_argument('--collector', choices=('observability', 'host', 'snapshot', 'traffic'), default='observability')
+    parser.add_argument('--collector', choices=('observability', 'host', 'snapshot', 'traffic', 'node-profile'), default='observability')
     parser.add_argument('--sequence', type=int)
     parser.add_argument('--attempt-id')
     parser.add_argument('--scope-arg', action='append', default=[])
@@ -1005,7 +1040,7 @@ def main():
             errors = []
             for value in args.error:
                 stage, code = value.split(':', 1)
-                if stage not in ('snapshot', 'host', 'traffic', 'wasm_local_node', 'wasm_sequencer_ecs', 'wasm_storage_ecs', 'summary'):
+                if stage not in ('snapshot', 'host', 'traffic', 'wasm_local_node', 'wasm_sequencer_ecs', 'wasm_storage_ecs', 'summary') and not (args.collector == 'node-profile' and stage == 'node-profile'):
                     raise AttemptError('unsupported collector stage')
                 errors.append({'stage': stage, 'exit_code': int(code), 'error': 'summary_failed' if stage == 'summary' else 'collector_failed'})
             return finish(root, args.sequence, args.attempt_id, errors, args.collector)
@@ -1020,6 +1055,9 @@ def main():
             if args.collector == 'traffic':
                 unknown.update(schema_version=2, collection={'complete': False}, nodes={label: {
                     'available': False, 'freshness': {'state': 'unknown'}} for label in ('local_node', 'sequencer_ecs', 'storage_ecs')})
+            if args.collector == 'node-profile':
+                unknown.update(schema_version=2, collection={'complete': False},
+                               profile_readiness=node_profile_report().unknown('state_unavailable'))
             if args.collector == 'host':
                 unknown.update(schema_version=2, aggregate={'complete': False})
             if args.collector == 'snapshot':

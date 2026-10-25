@@ -55,6 +55,11 @@ fn parse_options_defaults() {
     assert_eq!(options.storage_profile, StorageProfile::DevLocal);
     assert_eq!(options.traffic_profile, TrafficProfile::Default);
     assert_eq!(options.p2p_user_mode, NodeUserMode::AutoJoin);
+    assert_eq!(
+        options.p2p_peer_record_publication,
+        oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
+    );
+    assert!(!options.initialize_peer_record_publication);
     assert!(!options.p2p_accept_public_entry);
     assert_eq!(options.p2p_detected_reachability, None);
     assert_eq!(
@@ -642,7 +647,9 @@ fn default_replication_network_config_uses_loopback_ephemeral_listen() {
         private_key_hex: hex::encode(signing_key.to_bytes()),
         public_key_hex: hex::encode(signing_key.verifying_key().to_bytes()),
     };
-    let config = build_default_replication_network_config(&CliOptions::default(), &keypair)
+    let options = CliOptions::default();
+    let paths = super::resolve_runtime_paths(&options);
+    let config = build_default_replication_network_config(&options, &keypair, &paths)
         .expect("default replication network config should build");
     assert_eq!(config.listen_addrs.len(), 1);
     assert_eq!(
@@ -692,7 +699,8 @@ fn default_replication_network_config_uses_explicit_topology_addrs() {
         .into_iter(),
     )
     .expect("parse should succeed");
-    let config = build_default_replication_network_config(&options, &keypair)
+    let paths = super::resolve_runtime_paths(&options);
+    let config = build_default_replication_network_config(&options, &keypair, &paths)
         .expect("explicit replication network config should build");
 
     assert_eq!(
@@ -735,7 +743,8 @@ fn triad_low_traffic_replication_network_config_slows_control_plane_churn() {
         .into_iter(),
     )
     .expect("parse should succeed");
-    let config = build_default_replication_network_config(&options, &keypair)
+    let paths = super::resolve_runtime_paths(&options);
+    let config = build_default_replication_network_config(&options, &keypair, &paths)
         .expect("low-traffic replication network config should build");
 
     assert_eq!(config.bootstrap_redial_interval_ms, 10_000);
@@ -761,7 +770,8 @@ fn replication_network_config_applies_ipv4_subnet_active_peer_limit() {
         .into_iter(),
     )
     .expect("parse should succeed");
-    let config = build_default_replication_network_config(&options, &keypair)
+    let paths = super::resolve_runtime_paths(&options);
+    let config = build_default_replication_network_config(&options, &keypair, &paths)
         .expect("replication network config should build");
 
     assert_eq!(

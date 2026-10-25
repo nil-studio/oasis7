@@ -1,0 +1,10 @@
+{
+  "LICENSE": "e10098b8c52fd18ad0f116aac2c0dba1e99ca125d6848640c00688e160a3ee7d",
+  "src/client.rs": "59f6973824b886f8e3de037601f20798136ee687bfa13ad61c0c671db6c292c8",
+  "src/codec.rs": "389305a55187e44d4985f84f03cd1380497c1407cf4bc17ba9bd59dd7548ec91",
+  "src/generated/mod.rs": "ddddf40173b17998b4efc873f77fbdf4537d6a04299e6641a87bb1c5ca5e7d52",
+  "src/generated/rendezvous.pb.rs": "dcaa54ebc6703705ae6d4ea6f946b02728786f8716d6f1dc83971783f2d49d5c",
+  "src/generated/rpc.proto": "bc3a63957fc7c175487017f31ca44fde70f25d67444f3bbfc0bd5b7d10c83495",
+  "src/lib.rs": "c3243f2c835348ffef541abffbce0760578423dff5012edbd4a5c56d37c9acc4",
+  "src/server.rs": "a56cb4e8e8c4a8fa48a58e72fceb3081673ad5495e16ecef66ea66c655aec687"
+}

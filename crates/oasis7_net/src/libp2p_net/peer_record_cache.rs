@@ -3,9 +3,10 @@ use super::peer_record_time::{DiscoveryClock, RecordLease};
 use super::transport_paths::TransportPath;
 use crate::error::WorldError;
 use libp2p::PeerId;
-use oasis7_proto::distributed_dht::SignedPeerRecord;
+use oasis7_proto::distributed_dht::{PeerRecordPublicationStateV2, SignedPeerRecord};
 use std::collections::{HashMap, hash_map::RandomState};
 use std::hash::{BuildHasher, Hash, Hasher};
+use std::sync::Arc;
 use std::time::Instant;
 
 const MAX_RECORDS: usize = 1024;
@@ -21,12 +22,25 @@ struct CachedRecord {
 
 /// Candidate freshness is checked at every read. Expired metadata retained for an
 /// established session restricts that session's capabilities, never new discovery.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct PeerRecordCache {
     records: HashMap<PeerId, CachedRecord>,
     clock: DiscoveryClock,
     refresh_random: RandomState,
     dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+    receiver: super::receiver_floor::SharedPeerRecordReceiver,
+}
+
+impl Default for PeerRecordCache {
+    fn default() -> Self {
+        Self {
+            records: HashMap::new(),
+            clock: DiscoveryClock::default(),
+            refresh_random: RandomState::new(),
+            dial_policy: Default::default(),
+            receiver: super::receiver_floor::PeerRecordReceiver::legacy(),
+        }
+    }
 }
 
 impl PeerRecordCache {
@@ -37,17 +51,32 @@ impl PeerRecordCache {
             clock,
             refresh_random: RandomState::new(),
             dial_policy: Default::default(),
+            receiver: super::receiver_floor::PeerRecordReceiver::legacy(),
         }
     }
+    #[cfg(test)]
     pub(super) fn with_dial_policy(
         clock: DiscoveryClock,
         dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+    ) -> Self {
+        Self::with_dial_policy_and_receiver(
+            clock,
+            dial_policy,
+            super::receiver_floor::PeerRecordReceiver::legacy(),
+        )
+    }
+
+    pub(super) fn with_dial_policy_and_receiver(
+        clock: DiscoveryClock,
+        dial_policy: super::peer_record_dial_gate::DiscoveryDialPolicy,
+        receiver: super::receiver_floor::SharedPeerRecordReceiver,
     ) -> Self {
         Self {
             records: HashMap::new(),
             clock,
             refresh_random: RandomState::new(),
             dial_policy,
+            receiver,
         }
     }
     pub(super) fn clock(&self) -> &DiscoveryClock {
@@ -57,6 +86,27 @@ impl PeerRecordCache {
         let cached = self.records.get(peer)?;
         cached.lease.validate().ok()?;
         Some(&cached.signed)
+    }
+    /// Return a live cache candidate or, when one exists, the current bounded
+    /// receiver-floor tombstone. Tombstones are forwarding evidence only: they
+    /// are time-checked on every read and never enter the discovery cache.
+    pub(super) fn get_for_forwarding(&self, peer: &PeerId) -> Option<SignedPeerRecord> {
+        if let Some(record) = self.get(peer)
+            && record
+                .publication
+                .as_ref()
+                .map(|publication| publication.state)
+                != Some(PeerRecordPublicationStateV2::Tombstone)
+        {
+            return Some(record.clone());
+        }
+        let tombstone = self
+            .receiver
+            .current_tombstone_for_forwarding(*peer)
+            .ok()??;
+        self.clock.check(&tombstone.record).ok()?;
+        self.receiver.lease_guard(&tombstone).ok()?;
+        Some(tombstone)
     }
     pub(super) fn session_record(&self, peer: &PeerId) -> Option<&SignedPeerRecord> {
         self.records.get(peer).map(|cached| &cached.signed)
@@ -88,7 +138,7 @@ impl PeerRecordCache {
         }
         let mut lease = self.clock.check(&signed.record)?;
         if let Some(old) = self.records.get(&peer) {
-            if &old.signed == signed {
+            if super::receiver_floor::same_publication_identity(&old.signed, signed) {
                 old.lease.validate()?;
                 lease = old.lease.clone();
             }
@@ -98,11 +148,9 @@ impl PeerRecordCache {
         Ok(lease)
     }
     pub(super) fn install(&mut self, peer: PeerId, signed: SignedPeerRecord, lease: RecordLease) {
-        if self
-            .records
-            .get(&peer)
-            .is_some_and(|old| old.signed == signed)
-        {
+        if self.records.get(&peer).is_some_and(|old| {
+            super::receiver_floor::same_publication_identity(&old.signed, &signed)
+        }) {
             return;
         }
         let mut hash = self.refresh_random.build_hasher();
@@ -126,6 +174,18 @@ impl PeerRecordCache {
                 refresh,
             },
         );
+    }
+
+    pub(super) fn receiver(&self) -> super::receiver_floor::SharedPeerRecordReceiver {
+        Arc::clone(&self.receiver)
+    }
+
+    /// Revoke discovery and autonomous dial authority without discarding metadata
+    /// still needed to constrain an already established session. The receiver
+    /// lease makes candidate reads fail immediately; `prune` removes the record
+    /// once no active transport path depends on its session restrictions.
+    pub(super) fn invalidate_candidate(&mut self, peer: PeerId) {
+        self.dial_policy.remove_record_paths(peer);
     }
     pub(super) fn take_due_refreshes(&mut self, now: Instant) -> Vec<PeerId> {
         let mut due: Vec<_> = self
@@ -260,6 +320,7 @@ mod tests {
             upstream: None,
             record: None,
             error: None,
+            rendezvous_triggers: None,
         };
         let action = super::super::kad_queries::handle_dht_progress(
             &mut pending,
@@ -283,6 +344,13 @@ mod tests {
             panic!("DHT refresh must decode the original signed response");
         };
         let replayed = result.unwrap().unwrap();
+        let source = replayed.source();
+        let replayed = replayed
+            .consume(
+                source,
+                super::super::peer_record_admission::PeerRecordAdmissionWorkUnit::KadDiscoveryPeerRecordResult,
+            )
+            .unwrap();
         let lease = cache.prepare(peer, &replayed).unwrap();
         cache.install(peer, replayed, lease);
         assert_eq!(cache.records[&peer].lease.deadline(), deadline);

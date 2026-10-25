@@ -58,7 +58,7 @@
 
 ## 可重复检查入口
 
-在仓库根运行，使用共享 Cargo 缓存，不修改 CARGO_TARGET_DIR：
+在仓库根运行，使用各工作区的本地 Cargo target，不修改 CARGO_TARGET_DIR：
 
 ```sh
 env -u RUSTC_WRAPPER cargo test --manifest-path tools/oasis7-command-center/Cargo.toml --workspace

@@ -7,6 +7,10 @@ use super::{
         formal_node_hook::FormalNodeHook, formal_package, formal_writer::FormalWriter,
     },
     formal_live_config::ValidatedFormalLiveConfigV1,
+    formal_live_service::full_sync_read_gate::{
+        FullSyncV3ReadGate, FullSyncV3ReadGateConfig, fresh_provider_incarnation,
+        validate_full_sync_read_mode_gate_pair,
+    },
     formal_live_service::{
         FormalHttpServer, FormalLiveHistoryResolver, FormalLiveService, FormalLiveState,
         PublishedReadState,
@@ -18,7 +22,8 @@ use ed25519_dalek::SigningKey;
 use oasis7_client_api::world_service::WorldIdentity;
 use oasis7_distfs::controlled_authority::{
     formal::{
-        SignedNormalDurableSetTransitionV1, VerifiedAuthorityV1,
+        RecoveryTailV1, SignedNormalDurableSetTransitionV1, VerifiedAuthorityV1,
+        VerifiedFormalReadAnchorV1, VerifiedRecoveryBootstrapV1,
         business_index::{
             BusinessIndexNodeReader, BusinessIndexNodeWriteV1, BusinessIndexPathV1,
             BusinessIndexRootV1,
@@ -120,6 +125,94 @@ impl PendingNodeStop {
     }
 }
 
+pub(super) fn startup_governance_history_anchor(
+    writer_anchor: &VerifiedFormalReadAnchorV1,
+    recovery: Option<&VerifiedRecoveryBootstrapV1>,
+    trust: &oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1,
+    initial: &oasis7_distfs::controlled_authority::formal::SignedInitialActivationV1,
+) -> Result<VerifiedFormalReadAnchorV1, String> {
+    let Some(recovery) = recovery else {
+        return Ok(writer_anchor.clone());
+    };
+
+    let recovery_cut = recovery.cut();
+    let writer_position = writer_anchor.head().record().position;
+    let recovery_position = recovery_cut.record().position;
+    if writer_position < recovery_position {
+        return Err("HistoryUnavailable: restored writer precedes its recovery cut".into());
+    }
+    if writer_position > recovery_position {
+        // A completed recovery may already have advanced this writer. Leave
+        // that qualified descendant on the ordinary exact-replay path.
+        return Ok(writer_anchor.clone());
+    }
+
+    let successor_context = recovery
+        .recovery()
+        .successor()
+        .context_digest()
+        .map_err(|error| error.to_string())?;
+    let writer_context = writer_anchor
+        .authority()
+        .context_digest()
+        .map_err(|error| error.to_string())?;
+    if writer_context != successor_context {
+        return Err(
+            "HistoryUnavailable: restored writer authority differs from recovery successor".into(),
+        );
+    }
+
+    if writer_anchor.head().record() != recovery_cut.record()
+        || writer_anchor.head().head() != recovery_cut.head()
+        || writer_anchor.head().finalizing_authority_id() != recovery_cut.finalizing_authority_id()
+    {
+        return Err("HistoryUnavailable: restored writer differs from exact recovery cut".into());
+    }
+    let expected_pending = recovery
+        .external_anchor()
+        .with_pending_recovery(recovery.recovery())
+        .map_err(|error| error.to_string())?;
+    if writer_anchor.checkpoint() != expected_pending.checkpoint()
+        || writer_context
+            != expected_pending
+                .authority()
+                .context_digest()
+                .map_err(|error| error.to_string())?
+    {
+        return Err(
+            "HistoryUnavailable: restored pending writer differs from its verified recovery permission"
+                .into(),
+        );
+    }
+
+    if recovery.recovery().body().tail == RecoveryTailV1::Empty {
+        // An empty recovery qualifies its successor at the same cut; replay
+        // that exact successor normally.
+        return Ok(writer_anchor.clone());
+    }
+
+    // A non-empty tail is still pending and therefore cannot be used as a
+    // read target. The entire retained chain shares this sealed cut; its
+    // oldest schema-1 permission identifies the cursor before any retained
+    // recovery context was installed.
+    let mut first_evidence = recovery.permission_evidence();
+    while let Some(prior) = first_evidence.prior_permission.as_deref() {
+        first_evidence = prior;
+    }
+    let first = first_evidence
+        .verify(trust, initial)
+        .map_err(|error| format!("HistoryUnavailable: recovery chain root: {error}"))?;
+    if first.cut().record() != recovery_cut.record()
+        || first.cut().head() != recovery_cut.head()
+        || first.cut().finalizing_authority_id() != recovery_cut.finalizing_authority_id()
+    {
+        return Err(
+            "HistoryUnavailable: retained recovery chain differs from exact pending cut".into(),
+        );
+    }
+    Ok(first.external_anchor().clone())
+}
+
 #[path = "formal_live_business_reader.rs"]
 mod business_reader;
 #[cfg(test)]
@@ -207,7 +300,10 @@ impl FormalLiveRuntime {
                 || validated.active_authority().clone(),
                 |activation| activation.successor().clone(),
             );
-        let minimum = startup_anchor.head().head().clone();
+        let minimum = validated.recovery.as_ref().map_or_else(
+            || startup_anchor.head().head().clone(),
+            |permission| permission.external_anchor().head().head().clone(),
+        );
 
         let primary = RemoteFormalEndpoint::new(
             primary_address,
@@ -357,6 +453,15 @@ impl FormalLiveRuntime {
             .map_err(|error| format!("read exact qualified formal business nodes: {error}"))?;
         business_reader.seed_verified_writes(committed_business_nodes)?;
         drop(seed);
+        let governance_anchor = startup_governance_history_anchor(
+            writer.anchor(),
+            validated.recovery.as_ref(),
+            &validated.trust.initial_trust,
+            &validated.trust.checkpoint.initial_certificate,
+        )?;
+        history
+            .verify_governance_history(&governance_anchor)
+            .map_err(|error| format!("verify restored formal governance history: {error}"))?;
 
         let _bootstrap = timing.stage("publication_and_node_bootstrap");
         let published = Arc::new(PublishedReadState::default());
@@ -580,12 +685,38 @@ impl FormalLiveRuntime {
     }
 
     pub(crate) fn start(&mut self) -> Result<(), String> {
+        self.start_with_full_sync_read_authorization(None)
+    }
+
+    /// Starts the same production host with explicit V3 read dependencies.
+    /// The ordinary `start` path passes no dependencies and therefore fails
+    /// before opening the listener when the operator selected `v3_required`.
+    pub(crate) fn start_with_full_sync_read_authorization(
+        &mut self,
+        gate_config: Option<FullSyncV3ReadGateConfig>,
+    ) -> Result<(), String> {
         if self.started {
             return Err("formal live runtime is already started".into());
         }
+        use super::formal_live_config::FullSyncProviderReadAuthorizationModeV1 as Mode;
+        let read_mode = self.validated.config.full_sync_provider_read_authorization;
+        validate_full_sync_read_mode_gate_pair(read_mode, gate_config.is_some())?;
+        let full_sync_read_gate = match (read_mode, gate_config) {
+            (Mode::LegacyV1, None) => None,
+            (Mode::V3Required, Some(config)) => Some(Arc::new(FullSyncV3ReadGate::new(
+                self.validated.trust.initial_trust.clone(),
+                config.signed_v2_policy,
+                config.signed_v3_policy,
+                config.minimum_anchor,
+                hex::encode(self.node_signer.verifying_key().to_bytes()),
+                fresh_provider_incarnation()?,
+                config.source,
+            )?)),
+            _ => unreachable!("full-sync read mode/dependency pair was validated"),
+        };
         // Bind first so a listener failure cannot leave a running Node without
         // its required operator status surface.
-        let service = Arc::new(FormalLiveService::new(
+        let service = FormalLiveService::new(
             self.validated.config.node_id.clone(),
             self.world.clone(),
             self.node_signer.clone(),
@@ -595,7 +726,12 @@ impl FormalLiveRuntime {
             Arc::clone(&self.history),
             self.state.clone(),
             Arc::clone(&self.admission_gate),
-        ));
+        );
+        let service = match full_sync_read_gate {
+            Some(gate) => service.with_full_sync_read_gate(gate)?,
+            None => service,
+        };
+        let service = Arc::new(service);
         let _admission = self
             .admission_gate
             .lock()

@@ -22,7 +22,7 @@ Git、PR、实际 CI 结果和评审记录承载代码交付事实。Issue 和 P
 
 本地编译优先复用少量固定路径的开发 worktree：串行任务在干净、未被其他执行者占用的开发工作区切换独立分支；并行任务才新增隔离工作区，不在 main 或主工作区修改。切换前保留未提交和未推送工作；不强制重置或替他人切换分支。固定路径复用该工作区的 Cargo target，跨工作区由 sccache 复用支持的编译结果。日常命令按受影响 crate、测试或 binary 执行，完整 launcher/playtest 和预热仅按需启动。操作及磁盘回收见 [testing-manual.md](../../../testing-manual.md)。
 
-工作区入口统一使用仓库脚本和 Git 配置：先用 `git worktree list --porcelain` 检查已有工作区、分支和使用情况；当前聊天的附件列表不能代替仓库工作区清单。确需新增时使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`，根目录取 `git config --local --get oasis7.task-worktrees-root`，未配置时按脚本默认值解析。Agent 不用 Codex App 的 `create_worktree`、worktree fork 或 handoff 代替该入口；用户明确指定时遵从用户要求，并在首次本地编译前执行 `./scripts/cargo-dev.sh --prepare-target`。复用或外部创建的工作区也先准备 target；已有普通 target 不自动删除，保留占用中和身份不明确的资源。日常反馈使用开发 wrapper，正式验收保留 canonical 命令和参数。
+工作区入口统一使用仓库脚本和 Git 配置：先用 `git worktree list --porcelain` 检查已有工作区、分支和使用情况；当前聊天的附件列表不能代替仓库工作区清单。确需新增时使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`，根目录取 `git config --local --get oasis7.task-worktrees-root`，未配置时按脚本默认值解析。Agent 不用 Codex App 的 `create_worktree`、worktree fork 或 handoff 代替该入口；用户明确指定时遵从用户要求。Cargo 默认使用工作区内的 `target/`，不预建缓存链接；已有 target 不自动删除，保留占用中和身份不明确的资源。日常反馈使用开发 wrapper，正式验收保留 canonical 命令和参数。
 
 一个 PR 围绕一个清楚的交付目的，可以同时修改多个 crate、测试、配置和相关文档。原子修复不按包数量强行拆分；确有独立目的或独立交付价值时再拆 PR。
 
@@ -160,7 +160,7 @@ Issue 和 Project 用于展示和管理。同步失败不改变代码已经合�
 
 任务验收完成且相关 PR 实际合入后，收尾时必须删除本任务产生的本地验收输出（包括临时日志、截图、fixture、运行目录和验收回执）及分支备份（包括备份分支、Git bundle 和补丁归档）。同一材料位于工作树外、临时目录或另建归档目录时，也属于清理范围；不得以迁移目录、压缩归档或创建备份代替删除。PR/Task 保留受测版本、验证结果及未覆盖范围，不要求为此继续保留本地副本。
 
-清理范围还包括本任务写入共享缓存根目录、但不能供其他 worktree 复用的缓存，例如按任务或 worktree 隔离的 Cargo target、增量编译和构建中间产物；不能因存放在“共享缓存”目录就默认保留，也不能只删除工作树内的 target 符号链接而留下其专属缓存。删除前核对实际目标、归属、可复用性和进程占用；仍在使用、可供其他 worktree 复用或归属不明的缓存不得随本任务清空，不能递归删除共享缓存根目录。
+清理范围还包括本任务的 Cargo target、增量编译和构建中间产物。默认目录位于工作区内；显式配置到外部的任务专属产物也须核对实际目标、归属、可复用性和进程占用后处理。仍在使用、可供其他 worktree 复用或归属不明的缓存不得随本任务清空，不能递归删除全局 Cargo 或 sccache 缓存。
 
 只有用户明确要求保留，或适用的发行、审计、证据保留合同明确要求保留的材料，才按指定范围和期限保留；在 PR/Task 说明依据、位置和到期清理条件，不因“可能复核或恢复”默认留存。尚未完成验收、仍用于排障或被其他任务使用的资源，待用途结束后再清理；本条不授权删除正式发行资产、仓库内受版本管理的证据或其他任务的材料。
 

@@ -1094,7 +1094,7 @@ impl World {
     }
 }
 
-fn validate_journal_event_sequence(journal: &Journal) -> Result<(), WorldError> {
+pub(super) fn validate_journal_event_sequence(journal: &Journal) -> Result<(), WorldError> {
     for pair in journal.events.windows(2) {
         let previous = pair[0].id;
         let expected = if previous == u64::MAX {

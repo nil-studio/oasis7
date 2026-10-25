@@ -4,7 +4,8 @@
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
 No cache payload is restored here. Remote maintenance is advisory, defaults to
 read-only, and only deletes explicitly anchored main workspaces, enumerated
-retired schema generations with recovery, or migrated Rust namespaces.
+retired schema generations, compatible dependency redundancy with recovery,
+or migrated Rust namespaces.
 """
 import argparse
 from collections import Counter, defaultdict
@@ -39,6 +40,7 @@ ECS_WORKFLOW_PATH = '.github/workflows/ecs-packages.yml'
 # The pinned Swatinem action's src/config.ts uses HASH_LENGTH=8 for both hashes.
 RUST_KEY = re.compile(r'v0-rust-(?P<family>[a-z0-9]+(?:-[a-z0-9]+)*)-Linux-x64-'
                       r'[0-9a-f]{8}-[0-9a-f]{8}\Z', re.ASCII)
+DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2'))
 RETIRED_NAMESPACES = {
     'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
     **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v3'
@@ -188,7 +190,7 @@ def rust_namespace(entry):
     return match['family'] if match else None
 
 
-def plan_namespace_retirement(entries, cutoff):
+def plan_namespace_retirement(entries, cutoff, *, protected_ids=()):
     replacements = defaultdict(list)
     owned, protected, deletions = [], [], []
     for entry in entries:
@@ -196,13 +198,14 @@ def plan_namespace_retirement(entries, cutoff):
         if namespace in RETIRED_NAMESPACES:
             owned.append(entry)
         elif namespace in RETIRED_NAMESPACES.values() and entry['size_in_bytes'] > 0:
-            # Keep every complete replacement identity. Neither creation order nor
-            # an arbitrary environment hash establishes one "current" Rust cache.
+            # Record every complete replacement identity. The independent
+            # dependency rule may prune within a restore-compatible group;
+            # neither rule chooses an entire environment hash to retire.
             replacements[namespace].append(entry)
     missing = set()
     for entry in owned:
         replacement = RETIRED_NAMESPACES[rust_namespace(entry)]
-        if protected_by_activity(entry, cutoff):
+        if entry['id'] in protected_ids or protected_by_activity(entry, cutoff):
             protected.append(entry['id'])
         elif not replacements[replacement]:
             missing.add(replacement)
@@ -216,30 +219,28 @@ def plan_namespace_retirement(entries, cutoff):
             'delete': deletions}
 
 
-def plan_retired_schemas(entries, cutoff):
+def plan_redundant_generations(owned, cutoff, reason):
+    """Preserve recovery in each already-allowlisted full prefix/version group."""
     groups = defaultdict(list)
-    for entry in entries:
-        if entry['ref'] == MAIN_REF and any(pattern.fullmatch(entry['key'])
-                                           for pattern in RETIRED_WORKSPACE_SCHEMAS.values()):
-            groups[compatibility(entry)].append(entry)
-    owned = [entry for group in groups.values() for entry in group]
+    for entry in owned:
+        groups[compatibility(entry)].append(entry)
     key_counts = Counter(entry['key'] for entry in owned)
     protected, recoveries, blocked, deletions = set(), [], [], []
     for (prefix, version), group in sorted(groups.items()):
         complete = [entry for entry in group if entry['size_in_bytes'] > 0]
         created = [timestamp(entry['created_at']) for entry in complete]
-        reason = None
+        blocked_reason = None
         if any(key_counts[entry['key']] != 1 for entry in group):
-            reason = 'ambiguous exact cache key'
+            blocked_reason = 'ambiguous exact cache key'
         elif len(created) != len(set(created)):
-            reason = 'ambiguous generation timestamps'
+            blocked_reason = 'ambiguous generation timestamps'
         elif not complete:
-            reason = 'no complete recovery snapshot'
-        if reason:
+            blocked_reason = 'no complete recovery snapshot'
+        if blocked_reason:
             protected.update(entry['id'] for entry in group)
-            blocked.append({'prefix': prefix, 'version': version, 'reason': reason})
+            blocked.append({'prefix': prefix, 'version': version, 'reason': blocked_reason})
             continue
-        # Select within a fully identified retired compatibility/version only.
+        # Select within a fully identified restore compatibility/version only.
         # Creation order never chooses one environment group for elimination.
         recovery = max(complete, key=lambda entry: timestamp(entry['created_at']))
         recoveries.append(recovery)
@@ -247,8 +248,7 @@ def plan_retired_schemas(entries, cutoff):
             if entry['id'] == recovery['id'] or protected_by_activity(entry, cutoff):
                 protected.add(entry['id'])
             else:
-                deletions.append(dict(entry, reason='older retired workspace schema generation',
-                                      recovery_id=recovery['id']))
+                deletions.append(dict(entry, reason=reason, recovery_id=recovery['id']))
     managed_bytes = sum(entry['size_in_bytes'] for entry in owned)
     return {'managed_bytes': managed_bytes, 'managed_count': len(owned),
             'keep_per_compatibility': 1, 'protected_ids': sorted(protected),
@@ -259,26 +259,44 @@ def plan_retired_schemas(entries, cutoff):
             'delete': deletions}
 
 
+def plan_retired_schemas(entries, cutoff):
+    owned = [entry for entry in entries if entry['ref'] == MAIN_REF
+             and any(pattern.fullmatch(entry['key']) for pattern in RETIRED_WORKSPACE_SCHEMAS.values())]
+    return plan_redundant_generations(owned, cutoff, 'older retired workspace schema generation')
+
+
+def plan_dependency_retention(entries, cutoff):
+    # RUST_KEY and the main ref identify the exact action restore boundary:
+    # remove only the final dependency hash, preserving namespace, platform,
+    # architecture, environment hash and cache version in every group.
+    owned = [entry for entry in entries if rust_namespace(entry) in DEPENDENCY_NAMESPACES]
+    return plan_redundant_generations(owned, cutoff, 'older compatible dependency snapshot')
+
+
 def plan_bootstrap(entries, run_started_at, *, active_runs=None):
-    """Prune only enumerated retired formats while every group keeps recovery."""
+    """Prune enumerated retired formats and compatible dependency redundancy."""
     validate_inventory(entries)
     active_runs = validate_active_runs([] if active_runs is None else active_runs)
     protection_started_at = min([run_started_at, *(run['created_at'] for run in active_runs)], key=timestamp)
     cutoff = timestamp(protection_started_at)
     schemas = plan_retired_schemas(entries, cutoff)
+    dependencies = plan_dependency_retention(entries, cutoff)
     # Bootstrap has a narrower allowlist than confirmed-save maintenance.
     # Native Rust namespace retirement remains tied to the post-save path.
     retired = plan_namespace_retirement([], cutoff)
-    deletions = sorted([*schemas['delete'], *retired['delete']],
+    deletions = sorted([*schemas['delete'], *dependencies['delete']],
                        key=lambda entry: (timestamp(entry['created_at']), entry['id']))
-    return {field: schemas[field] for field in
-            ('managed_bytes', 'managed_count', 'protected_bytes', 'projected_bytes', 'protected_ids')} | {
+    totals = {field: schemas[field] + dependencies[field] for field in
+              ('managed_bytes', 'managed_count', 'protected_bytes', 'projected_bytes')}
+    return totals | {
+        'protected_ids': sorted(set(schemas['protected_ids']) | set(dependencies['protected_ids'])),
         'max_bytes': 0, 'protected_over_budget_bytes': 0,
         'current_key': None, 'current_keys': [], 'families': {},
         'unanchored_families': sorted(policy.FAMILIES),
         'run_created_at': run_started_at, 'protection_started_at': protection_started_at,
         'active_run_ids': sorted(run['id'] for run in active_runs),
-        'retired_schemas': schemas, 'retired_namespaces': retired, 'delete': deletions}
+        'retired_schemas': schemas, 'dependencies': dependencies,
+        'retired_namespaces': retired, 'delete': deletions}
 
 
 def current_keys(value):
@@ -356,8 +374,10 @@ def plan_retention(entries, current_key, run_started_at, *, max_bytes=None,
         name = policy.family_for_key(key)
         families[name] = plan_family_retention(entries, key, cutoff,
             policy.FAMILIES[name]['max_bytes'] if max_bytes is None else max_bytes, keep_generations)
-    retired = plan_namespace_retirement(entries, cutoff)
+    dependencies = plan_dependency_retention(entries, cutoff)
+    retired = plan_namespace_retirement(entries, cutoff, protected_ids=dependencies['protected_ids'])
     deletions = [entry for plan in families.values() for entry in plan['delete']]
+    deletions.extend(dependencies['delete'])
     deletions.extend(retired['delete'])
     # Oldest first; stop on the first unexpected deletion error.
     deletions.sort(key=lambda entry: (timestamp(entry['created_at']), entry['id']))
@@ -370,7 +390,7 @@ def plan_retention(entries, current_key, run_started_at, *, max_bytes=None,
             'run_created_at': run_started_at, 'protection_started_at': protection_started_at,
             'active_run_ids': sorted(run['id'] for run in active_runs),
             'protected_ids': sorted(entry_id for plan in families.values() for entry_id in plan['protected_ids']),
-            'retired_namespaces': retired, 'delete': deletions}
+            'dependencies': dependencies, 'retired_namespaces': retired, 'delete': deletions}
 
 
 
@@ -565,10 +585,12 @@ def empty_report(apply, *, bootstrap=False):
                             'staging_bytes', 'keep_generations')}
                            for name, values in policy.FAMILIES.items()},
                        'retired_namespaces': RETIRED_NAMESPACES,
+                       'dependency_namespaces': sorted(DEPENDENCY_NAMESPACES),
                        'bootstrap_retired_schemas': sorted(RETIRED_WORKSPACE_SCHEMAS)},
             'before': None, 'after': None, 'plan': None, 'delete_candidates': [],
-            'stable_replacement_ids': {}, 'stable_recovery_ids': [],
-            'deleted_ids': [], 'already_absent_ids': [], 'warnings': []}
+            'stable_replacement_ids': {}, 'stable_recovery_ids': [], 'stable_dependency_recovery_ids': [],
+            'deleted_ids': [], 'deleted_dependency_ids': [], 'deleted_workspace_ids': [],
+            'deleted_namespace_ids': [], 'already_absent_ids': [], 'warnings': []}
 
 
 def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstrap=False):
@@ -606,18 +628,24 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstr
             stable[namespace] = sorted(entry['id'] for entry in second_replacements.get(namespace, [])
                                        if immutable_identity(entry) in identities)
         report['stable_replacement_ids'] = stable
-        if bootstrap:
-            identities = {immutable_identity(entry) for entry in report['plan']['retired_schemas']['recoveries']}
-            report['stable_recovery_ids'] = sorted(entry['id'] for entry in latest_plan['retired_schemas']['recoveries']
-                                                   if immutable_identity(entry) in identities)
-            if set(report['plan']['retired_schemas']['recovery_ids']) - set(report['stable_recovery_ids']):
-                report['warnings'].append('retired workspace recovery changed between inventories; affected groups deferred')
+        for section, result_field, label in (
+                ('retired_schemas', 'stable_recovery_ids', 'retired workspace'),
+                ('dependencies', 'stable_dependency_recovery_ids', 'dependency')):
+            if section not in report['plan']:
+                continue
+            first_group, second_group = report['plan'][section], latest_plan[section]
+            identities = {immutable_identity(entry) for entry in first_group['recoveries']}
+            report[result_field] = sorted(entry['id'] for entry in second_group['recoveries']
+                                          if immutable_identity(entry) in identities)
+            if set(first_group['recovery_ids']) - set(report[result_field]):
+                report['warnings'].append(label + ' recovery changed between inventories; affected groups deferred')
+        stable_recoveries = set(report['stable_recovery_ids']) | set(report['stable_dependency_recovery_ids'])
         # Revalidation may only shrink the original mutation set. A recent read,
         # new cache or archive identity change cannot expand this invocation.
         candidates = [entry for entry in latest_plan['delete'] if entry['id'] in initial
                       and immutable_identity(entry) == immutable_identity(initial[entry['id']])
                       and (not entry.get('replacement_family') or stable.get(entry['replacement_family']))
-                      and (not entry.get('recovery_id') or entry['recovery_id'] in report['stable_recovery_ids'])]
+                      and (not entry.get('recovery_id') or entry['recovery_id'] in stable_recoveries)]
         report['plan'] = latest_plan
         report['delete_candidates'] = candidates
         report['status'] = 'completed'
@@ -625,6 +653,10 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstr
             try:
                 deleted = api.delete_cache(entry['id'])
                 report['deleted_ids' if deleted else 'already_absent_ids'].append(entry['id'])
+                if deleted:
+                    category = ('workspace' if managed(entry) else
+                                'dependency' if rust_namespace(entry) in DEPENDENCY_NAMESPACES else 'namespace')
+                    report['deleted_' + category + '_ids'].append(entry['id'])
             except MaintenanceError as error:
                 report['status'] = 'partial'
                 report['warnings'].append(str(error))
@@ -646,13 +678,15 @@ def render_summary(report):
 
     lines = ['## CI cache storage', '', f"Mode: **{report['mode']}**; status: **{report['status']}**.", '']
     if report.get('bootstrap'):
-        lines += ['Bootstrap only prunes enumerated retired workspace formats.',
+        lines += ['Bootstrap prunes enumerated retired workspace formats and redundant compatible dependency snapshots.',
                   'Every full compatibility prefix and cache version retains its newest complete recovery snapshot.',
-                  'Current schemas and native Rust caches are preserved; ambiguous, concurrent and actively accessed entries are protected.', '']
+                  'Current workspace schemas and other dependency environments are preserved; ambiguous, concurrent and actively accessed entries are protected.', '']
     else:
         lines += ['Each anchored main workspace family targets two current-compatible generations.',
                   'Current, previous compatible, concurrent and actively accessed caches take priority over these limits.',
                   'Retired Rust namespaces require a complete main replacement with the same identity in both inventories.', '']
+    lines += ['Allowlisted dependency namespaces retain one complete recovery per existing restore prefix and cache version.',
+              'A later dependency snapshot is a fallback candidate, not a promise to contain all older dependencies.', '']
     for label in ('before', 'after'):
         inventory = report[label]
         if inventory is None:
@@ -686,12 +720,21 @@ def render_summary(report):
                       f"protected excess: {plan['protected_over_budget_bytes']:,}.", '']
         lines += [f"Activity protection starts at {cell(plan['protection_started_at'])}; "
                   f"unfinished repository runs: {cell(plan['active_run_ids'])}.", '',
+                  f"Dependency snapshots: {plan['dependencies']['managed_count']:,} entries, "
+                  f"{plan['dependencies']['managed_bytes']:,} compressed bytes; "
+                  f"protected bytes: {plan['dependencies']['protected_bytes']:,}; "
+                  f"planned remaining bytes: {plan['dependencies']['projected_bytes']:,}.", '',
+                  f"Dependency recovery IDs: {cell(plan['dependencies']['recovery_ids'])}; "
+                  f"stable in both inventories: {cell(report['stable_dependency_recovery_ids'])}; "
+                  f"ambiguous or incomplete groups deferred: {len(plan['dependencies']['blocked_groups'])}.", '',
                   f"Retired namespaces: {retired['managed_count']:,} entries, {retired['managed_bytes']:,} compressed bytes; "
                   f"protected IDs: {cell(retired['protected_ids'])}; "
                   f"missing complete replacement families: {cell(retired['missing_replacements'])}.", '',
                   f"Stable replacement IDs: {cell(report['stable_replacement_ids'])}.", '',
                   f"Verified DELETE candidates: {len(report['delete_candidates'])}; "
                   f"confirmed deleted IDs: {cell(report['deleted_ids'])}; already absent IDs: {cell(report['already_absent_ids'])}.", '',
+                  f"Confirmed deleted IDs by category — dependency: {cell(report['deleted_dependency_ids'])}; "
+                  f"workspace: {cell(report['deleted_workspace_ids'])}; retired namespaces: {cell(report['deleted_namespace_ids'])}.", '',
                   'The complete plan and per-ID results are in the step log. Planned bytes are not measured reclamation.', '']
     for warning in report['warnings']:
         lines += ['Warning: ' + cell(warning), '']
@@ -702,7 +745,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true', help='delete only after trusted main run and recovery/anchor verification')
     parser.add_argument('--bootstrap', action='store_true',
-                        help='retire redundant generations in known retired workspace formats without a new saved key')
+                        help='prune known retired workspace and compatible dependency redundancy without a new saved key')
     parser.add_argument('--current-key', action='append',
                         help='exact confirmed workspace key; repeat for distinct families; omit for inventory-only dry-run')
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY'))

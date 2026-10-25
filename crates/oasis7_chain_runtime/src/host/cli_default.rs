@@ -17,6 +17,13 @@ impl Default for CliOptions {
             traffic_profile: TrafficProfile::Default,
             node_role: NodeRole::Sequencer,
             p2p_user_mode: NodeUserMode::AutoJoin,
+            p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1::V1Legacy,
+            p2p_peer_record_reception:
+                oasis7::development_node_config::DevelopmentPeerRecordReceptionModeV1::LegacyCompatible,
+            initialize_peer_record_publication: false,
+            initialize_peer_record_receiver: false,
+            withdraw_peer_record_publication: false,
+            resume_peer_record_publication: false,
             p2p_accept_public_entry: false,
             p2p_detected_reachability: None,
             p2p_detected_hole_punch_viability: NodeHolePunchViability::Unknown,

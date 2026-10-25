@@ -51,8 +51,8 @@ def project(status, source, as_of_unix_ms):
         return result
     if "api_version" not in status:
         return finish("unsupported", "legacy_chain_status")
-    if source != "file":
-        return finish("unsupported", "formal_status_requires_file")
+    if source not in ("file", "local_cli"):
+        return finish("unsupported", "formal_status_requires_supported_source")
     if status.get("api_version") != "oasis7.local-node-status/v1":
         return finish("unknown", "unsupported_status_schema")
     profile = status.get("runtime_profile")

@@ -121,6 +121,24 @@ class Selection(unittest.TestCase):
                 self.assertIn('net', plan['groups'])
                 self.assertEqual(plan['scope'], 'targeted')
 
+    def test_rendezvous_patch_inputs_select_network_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/src/client/tests.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'scripts/libp2p-security-source.test.py',
+                     '.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'network patch input')
+                plan = selector.select(config, case_base, self.commit())
+                expected = ({'net', 'node', 'rust_baseline'} if path.startswith('vendor-')
+                            else {'net'} if path.startswith('scripts/')
+                            else {'net', 'packaging_contracts'})
+                self.assertTrue(expected.issubset(plan['groups']))
+                self.assertEqual(plan['scope'], 'targeted')
+
     def native_generated_fixture(self, register=True):
         # Retain the real producer and its three OUT_DIR consumers. A workspace
         # without these sources failed to reproduce the docs-only over-selection.
@@ -307,9 +325,23 @@ class Selection(unittest.TestCase):
         self.assertEqual(set(plan['groups']), {'baseline', 'command_center'})
         self.assertFalse(any('unknown input:' in reason for reason in plan['reasons']))
 
+    def test_existing_bridge_input_covers_modification_and_deletion(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        cases = {
+            'scripts/local-letai-provider-bridge.test.sh': {'oasis7_required', 'operational_contracts'},
+        }
+        for path, groups in cases.items():
+            with self.subTest(path=path):
+                self.write(path, 'existing input')
+                self.base = self.commit()
+                self.write(path, 'modified input')
+                self.assertTrue(groups.issubset(self.plan()['groups']))
+                Path(path).unlink()
+                self.assertTrue(groups.issubset(self.plan()['groups']))
+
     def test_command_center_shared_tools_keep_dedicated_checks(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('scripts/cargo-dev.sh', 'scripts/cargo-cache.py',
+        for path in ('scripts/cargo-dev.sh',
                      'scripts/find-python-with-module.sh'):
             with self.subTest(path=path):
                 self.write(path, 'shared tool changed')
