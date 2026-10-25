@@ -23,11 +23,15 @@ use std::{
 fn check(value: bool, message: &str) -> Result<(), String> {
     if value { Ok(()) } else { Err(message.into()) }
 }
+const PROBE_NEW_CALL_BUDGET: Duration = Duration::from_secs(90);
+
 fn run() -> Result<Value, String> {
-    // Shared new-call budget includes owner prework and both original intents.
-    // Existing SDK polling reserves eight seconds; a bounded I/O already in
-    // flight may add about five seconds, staying below the 60-second watchdog.
-    let deadline = Instant::now() + Duration::from_secs(45);
+    // One fixture-only new-call budget covers owner prework and two dependent
+    // commit/visibility waits. Calls already in flight may finish after it:
+    // authenticated gateway I/O uses up to three sequential ten-second HTTP
+    // calls. The parent's 130-second watchdog is the final wall-clock bound.
+    // This neither extends the Context's logical lease nor changes SDK polling.
+    let deadline = Instant::now() + PROBE_NEW_CALL_BUDGET;
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.len() != 2 {
         return Err("cold_entry_probe <orchestration-directory> <executor.json>".into());
@@ -128,8 +132,9 @@ fn run() -> Result<Value, String> {
         };
         recover_original(&client, &prefix, first, deadline, "context_prefix")?;
         let context = client.captured(operation)?;
-        // submit_action performs one more bounded context read before its
-        // single send and existing eight-second polling window.
+        // Keep admission headroom before the extra context read and one send.
+        // Thirteen seconds is not an upper bound for the nested gateway calls;
+        // those remain subject to the parent's overall probe watchdog.
         require_time(deadline, Duration::from_secs(13))?;
         check(
             context.prepared.prepare_proof.request.fence.task_id == task.task_id,
@@ -282,6 +287,17 @@ mod tests {
                 ProbeOutcome::Recover(_)
             ));
         }
+    }
+    #[test]
+    fn dependent_intents_can_recover_past_the_previous_shared_cutoff() {
+        // Two sequential commit/visibility waits share one budget; the second
+        // phase must still have headroom after a minute spent in this probe.
+        let started = Instant::now() - Duration::from_secs(60);
+        let deadline = started + PROBE_NEW_CALL_BUDGET;
+        assert!(require_time(deadline, Duration::from_secs(13)).is_ok());
+        // Later phases keep that exact deadline, rather than renewing it.
+        let exhausted = Instant::now() - PROBE_NEW_CALL_BUDGET;
+        assert!(require_time(exhausted + PROBE_NEW_CALL_BUDGET, Duration::ZERO).is_err());
     }
     #[test]
     fn shared_deadline_is_not_renewed_for_later_phase() {
