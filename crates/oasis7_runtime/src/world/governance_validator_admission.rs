@@ -138,10 +138,20 @@ impl World {
         &self,
         admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
     ) -> Result<Option<GovernanceFinalitySignerRegistry>, WorldError> {
+        self.resolve_governance_effective_finality_signer_registry_from_admissions_at_epoch(
+            admissions,
+            self.current_governance_epoch(),
+        )
+    }
+
+    pub(crate) fn resolve_governance_effective_finality_signer_registry_from_admissions_at_epoch(
+        &self,
+        admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+        effective_epoch: u64,
+    ) -> Result<Option<GovernanceFinalitySignerRegistry>, WorldError> {
         let Some(mut registry) = self.state.governance_finality_signer_registry.clone() else {
             return Ok(None);
         };
-        let current_epoch = self.current_governance_epoch();
         for record in Self::governance_effective_validator_admission_records(admissions).values() {
             match record.status {
                 GovernanceValidatorAdmissionStatus::Revoked => {
@@ -150,8 +160,8 @@ impl World {
                 }
                 GovernanceValidatorAdmissionStatus::ProbationReady
                 | GovernanceValidatorAdmissionStatus::Active => {
-                    let activation_epoch = record.activation_epoch.unwrap_or(current_epoch);
-                    if activation_epoch <= current_epoch {
+                    let activation_epoch = record.activation_epoch.unwrap_or(effective_epoch);
+                    if activation_epoch <= effective_epoch {
                         registry.signer_bindings.insert(
                             record.node_id.clone(),
                             record.finality_signer_public_key.clone(),

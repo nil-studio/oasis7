@@ -213,3 +213,184 @@ fn unapproved_candidates_and_missing_registry_do_not_gain_membership() {
     assert_eq!(result.effective_registry, None);
     assert_eq!(result.candidates.len(), 1);
 }
+
+#[test]
+fn future_epoch_projection_is_provenanced_and_does_not_mutate_world() {
+    let world = world(1, vec![candidate("future", Status::ProbationReady, 2, 1)]);
+    let source_commit = commit(&world);
+    let source_root = world.current_state_root_hash().unwrap();
+    let before_state = world.state().clone();
+    let before_registry = world
+        .resolve_governance_effective_finality_signer_registry()
+        .unwrap();
+
+    let at_activation = WorldGovernanceMembershipView::read_for_future_epoch(
+        &world,
+        &source_commit,
+        &source_root,
+        "controlled_single_authority",
+        2,
+    )
+    .unwrap();
+    let after_activation = WorldGovernanceMembershipView::read_for_future_epoch(
+        &world,
+        &source_commit,
+        &source_root,
+        "controlled_single_authority",
+        3,
+    )
+    .unwrap();
+    let committed_at_boundary = view(&self::world(
+        2,
+        vec![candidate("future", Status::ProbationReady, 2, 1)],
+    ))
+    .unwrap();
+
+    assert_eq!(world.state(), &before_state);
+    assert_eq!(
+        world
+            .resolve_governance_effective_finality_signer_registry()
+            .unwrap(),
+        before_registry
+    );
+    assert_eq!(at_activation.source_commit, source_commit);
+    assert_eq!(at_activation.source_state_root_hash, source_root);
+    assert_eq!(at_activation.source_profile, "controlled_single_authority");
+    assert_eq!(at_activation.source_governance_epoch, 1);
+    assert_eq!(at_activation.target_governance_epoch, 2);
+    assert_eq!(after_activation.target_governance_epoch, 3);
+    assert_eq!(
+        at_activation.effective_registry,
+        after_activation.effective_registry
+    );
+    assert_eq!(
+        at_activation.effective_registry,
+        committed_at_boundary.effective_registry
+    );
+    assert_eq!(
+        at_activation.effective_registry_digest,
+        committed_at_boundary.effective_registry_digest
+    );
+    assert!(
+        at_activation
+            .effective_registry
+            .as_ref()
+            .unwrap()
+            .signer_bindings
+            .contains_key("candidate-node")
+    );
+    assert!(
+        !before_registry
+            .as_ref()
+            .unwrap()
+            .signer_bindings
+            .contains_key("candidate-node")
+    );
+    assert_eq!(
+        at_activation.effective_registry_digest,
+        oasis7_client_api::world_service::request_digest(
+            "governance-membership-registry-v1",
+            &at_activation.effective_registry,
+        )
+        .unwrap()
+    );
+    assert_ne!(
+        at_activation.provenance_digest,
+        after_activation.provenance_digest
+    );
+    assert_eq!(
+        at_activation.provenance_digest,
+        oasis7_client_api::world_service::request_digest(
+            "governance-membership-future-registry-projection-v1",
+            &(
+                &at_activation.source_commit,
+                &at_activation.source_state_root_hash,
+                &at_activation.source_profile,
+                at_activation.source_governance_epoch,
+                at_activation.target_governance_epoch,
+                &at_activation.effective_registry,
+            ),
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn future_epoch_projection_reuses_source_validation_and_never_falls_back() {
+    let world = world(2, vec![candidate("future", Status::ProbationReady, 3, 1)]);
+    let source_commit = commit(&world);
+    let root = world.current_state_root_hash().unwrap();
+
+    assert!(
+        WorldGovernanceMembershipView::read_for_future_epoch(
+            &world,
+            &source_commit,
+            &root,
+            "controlled_single_authority",
+            2,
+        )
+        .is_err()
+    );
+    assert!(
+        WorldGovernanceMembershipView::read_for_future_epoch(
+            &world,
+            &source_commit,
+            &root,
+            "controlled_single_authority",
+            1,
+        )
+        .is_err()
+    );
+    assert!(
+        WorldGovernanceMembershipView::read_for_future_epoch(
+            &world,
+            &source_commit,
+            "wrong-root",
+            "controlled_single_authority",
+            3,
+        )
+        .unwrap_err()
+        .contains("root mismatch")
+    );
+    assert!(WorldGovernanceMembershipView::read_for_future_epoch(
+        &world,
+        &source_commit,
+        &root,
+        " ",
+        3,
+    )
+    .unwrap_err()
+    .contains("profile is missing"));
+    let mut wrong_commit = source_commit.clone();
+    wrong_commit.world.world_id = "other-world".into();
+    assert!(
+        WorldGovernanceMembershipView::read_for_future_epoch(
+            &world,
+            &wrong_commit,
+            &root,
+            "controlled_single_authority",
+            3,
+        )
+        .unwrap_err()
+        .contains("binding mismatch")
+    );
+
+    let mut no_registry_state = WorldState::default();
+    no_registry_state.governance_validator_admissions.insert(
+        "candidate".into(),
+        candidate("candidate", Status::Active, 0, 1),
+    );
+    let mut no_registry = World::new_with_state(no_registry_state);
+    no_registry
+        .bind_cognition_runtime("world", "main", 0, None, "pending", 0)
+        .unwrap();
+    let projection = WorldGovernanceMembershipView::read_for_future_epoch(
+        &no_registry,
+        &commit(&no_registry),
+        &no_registry.current_state_root_hash().unwrap(),
+        "controlled_single_authority",
+        1,
+    )
+    .unwrap();
+    assert_eq!(projection.effective_registry, None);
+}
