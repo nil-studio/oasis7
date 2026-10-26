@@ -295,7 +295,7 @@ fn libp2p_publish_surfaces_gossipsub_failures() {
     let err = net
         .publish("aw.publish.fail", b"payload")
         .expect_err("publish without peers should fail");
-    match err {
+    match err.diagnostic_source() {
         WorldError::NetworkProtocolUnavailable { protocol } => {
             assert!(protocol.contains("libp2p publish failed topic=aw.publish.fail"));
         }

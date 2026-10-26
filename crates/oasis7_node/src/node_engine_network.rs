@@ -243,11 +243,15 @@ impl PosNodeEngine {
     }
 
     fn annotate_fetch_blob_gap_sync_error(height: u64, err: NodeError) -> NodeError {
-        let NodeError::Replication { reason } = err else {
-            return err;
-        };
-        NodeError::Replication {
-            reason: format!("{reason}; gap sync height {height} fetch-blob"),
+        match err {
+            NodeError::Replication { reason } => NodeError::Replication {
+                reason: format!("{reason}; gap sync height {height} fetch-blob"),
+            },
+            NodeError::ReplicationNetwork { reason, failure } => NodeError::ReplicationNetwork {
+                reason: format!("{reason}; gap sync height {height} fetch-blob"),
+                failure,
+            },
+            err => err,
         }
     }
 

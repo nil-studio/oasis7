@@ -38,11 +38,11 @@
 - `oasis7_net` 不得反向依赖 node；wasm stub 的所有网络动作必须结构化失败，不能静默转成本地成功路径。
 
 <a id="typed-failure-contract"></a>
-### 4.1 Net → Node typed failure 合同（目标，尚未实现验收）
+### 4.1 Net → Node typed failure 合同（#5097 候选实现，独立评审与 CI 待完成）
 
 Trace ID: O7-REQ-9b6f5d9f-b86b-4b30-957a-6a7a5fe301c0
 
-本专业要求限定 replication 请求错误的内部跨层语义：诊断文案不拥有 fallback、重试或拒绝策略。Net/request producer 保留真实失败来源，Node bridge 传递事实，replication policy 消费事实；不得仅把旧 reason 包装成 enum。产品层不另立要求：本条是 [REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 可用性反馈的内部工程边界，不新增玩家可用性承诺。以下为迁移目标，不表示现有 `network_error_classification.rs` 或 `error_mapping.rs` 已消除文本分类。
+本专业要求限定 replication 请求错误的内部跨层语义：诊断文案不拥有 fallback、重试或拒绝策略。Net/request producer 保留真实失败来源，Node bridge 传递事实，replication policy 消费事实；不得仅把旧 reason 包装成 enum。产品层不另立要求：本条是 [REQ-DCS-005](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-005) 可用性反馈的内部工程边界，不新增玩家可用性承诺。候选实现由 `oasis7_proto::network_failure` 保留内部事实，Net 原生 outbound/command/DHT/publish 与 Node provider/decode 路径赋值，Node policy 消费事实；保留的文本解释见下述兼容范围。此状态不表示已合入、部署或完成独立安全/兼容验收。
 
 内部 outcome 至少区分以下信息；这些是语义职责，不是新增 wire 字段或 Rust 类型名的承诺：
 
@@ -78,7 +78,11 @@ Trace ID: O7-REQ-9b6f5d9f-b86b-4b30-957a-6a7a5fe301c0
 
 迁移验收须在相同候选、native/libp2p 配置下做参数化新旧策略对照，分别覆盖 get-head、fetch-commit、fetch-blob 和上述全部来源：missing handler 与 business unsupported 的同 code/同协议反例、generic `ErrNotAvailable`、预算耗尽、timeout 后 provider gap、publish、malformed response、未知 wire code、拒绝与 availability 文案冲突。合法输入记录旧/新 fallback、wait/retry、错误优先序及验证结论一致；有意硬化案例单列期望差异和理由。事实提取完成后单独替换纯诊断文案，断言策略不变；不能对仍承载兼容语义的原 message 假定该性质。
 
-现有源码锚点为 `crates/oasis7_node/src/replication_probe_gate.rs` 的 `provider_aware_fallback_does_not_hide_business_unsupported`、`provider_aware_fallback_treats_fetch_blob_unsupported_as_retryable_without_debug_text`，以及 `crates/oasis7_net/src/libp2p_net/error_mapping.rs`、`crates/oasis7_node/src/network_error_classification.rs` 的分类测试。它们仅提供旧行为对照起点，不证明全来源矩阵或新的 typed 合同；完整参数化对照仍待新增及实际执行，不以本设计宣称实现或通过。
+候选验证入口为 `crates/oasis7_node/src/network_bridge_typed_failure_tests.rs`（三协议 × 六来源的事实/诊断/恢复对照、合法旧输入与独立硬化反例）、`crates/oasis7_net/src/libp2p_net/outbound_failure.rs`（真实 typed outbound）、`crates/oasis7_net/src/libp2p_net/tests.rs`（真实 DHT progress），以及既有 provider/budget/head/root/hash/authority 回归。以同候选 `cargo test -p oasis7_net --lib`、`cargo test -p oasis7_node --lib --features libp2p -- --test-threads=4` 实际结果验收；参数化事实 fixtures 不代替真实本地 TCP/运行时回归，不代表 production 故障注入或 Agent 实玩。
+
+兼容适配器范围：Proto adapter 接收旧 `WorldError` 结构及历史 transport/provider 消息；保留 `NetworkProtocolUnavailable` 的旧 route-unavailable 语义但不提升为本地 connection gap，generic `ErrNotAvailable` 不推导 gap，远端 `ErrTimeout` 与 connection gap 分开。Node `network_error_legacy.rs` 仅解释旧 Node reason 与现有 snapshot 的 `blocked_reason`；新写入在同一字符串字段末尾携带版本化内部事实，恢复后证据级别为 legacy interpretation，合法结构优先于诊断，未知/损坏版本保守拒绝资格。wire response 的旧文案到 code 映射只用于保持旧编码，不供 Node policy 读取。退出 adapter 的条件仍为 §兼容迁移所述 producer 替换及等价对照。
+
+独立行为修正：拒绝 code 不能被 availability 文本覆盖；宽泛含协议的 business-unsupported 不成为 missing-handler；未知非 EOF outbound I/O 不新增 fallback；DHT malformed head/membership 记录作为 decode/validation 拒绝，不能被后续 timeout/not-found 清除或当作查询不可用 fallback。有效 head 仍按原验证链处理；闭合 wire enum 与 `ErrOverloaded` → `ErrBusy` 编码不变。以上硬化须与合法旧输入等价性分开评审。
 
 ## 5. 设计演进计划
 - 先冻结设计与执行计划。

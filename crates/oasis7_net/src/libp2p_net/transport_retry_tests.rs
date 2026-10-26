@@ -221,7 +221,7 @@ fn request_with_providers_does_not_fallback_outside_provider_subset() {
         .expect("request response")
         .expect_err("provider subset mismatch must fail");
     assert!(matches!(
-        err,
+        err.diagnostic_source(),
         WorldError::NetworkProtocolUnavailable { protocol }
             if protocol.contains("no connected providers")
     ));

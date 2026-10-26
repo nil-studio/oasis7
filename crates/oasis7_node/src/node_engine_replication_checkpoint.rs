@@ -556,7 +556,7 @@ impl PosNodeEngine {
     }
 
     pub(super) fn high_replication_checkpoint_probe_can_continue(err: &NodeError) -> bool {
-        let NodeError::Replication { reason } = err else {
+        let Some(reason) = err.replication_reason() else {
             return false;
         };
         let fetch_commit_route_error =
@@ -578,11 +578,11 @@ impl PosNodeEngine {
     pub(super) fn high_replication_checkpoint_closure_missing_reason(
         err: &NodeError,
     ) -> Option<String> {
-        let NodeError::Replication { reason } = err else {
+        let Some(reason) = err.replication_reason() else {
             return None;
         };
         if reason.contains("execution checkpoint blob not found hash=") {
-            return Some(reason.clone());
+            return Some(reason.to_owned());
         }
         if reason.contains("gap sync height ") && reason.contains(" blob not found for hash ") {
             let content_hash = reason
