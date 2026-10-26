@@ -104,7 +104,9 @@ impl fmt::Display for SourceHashError {
 
 impl std::error::Error for SourceHashError {}
 
+mod build_manifest;
 mod source_inputs;
+pub use build_manifest::{BuildManifest, compute_build_manifest_hash};
 pub use source_inputs::{
     SOURCE_INPUT_RULE_VERSION, SourceInputRecord, SourceInputs, compute_source_inputs,
     validate_source_evidence,
@@ -235,6 +237,28 @@ fn collect_local_package_dirs(
     metadata: &CargoMetadata,
     manifest_path: &Path,
 ) -> Result<Vec<PathBuf>, SourceHashError> {
+    let mut directories = Vec::new();
+    for package in collect_reachable_packages(metadata, manifest_path)? {
+        if package.source.is_none() {
+            let manifest = canonical_or_original(Path::new(&package.manifest_path));
+            directories.push(
+                manifest
+                    .parent()
+                    .ok_or_else(|| {
+                        SourceHashError::InvalidManifestPath("package manifest lacks parent".into())
+                    })?
+                    .to_path_buf(),
+            );
+        }
+    }
+    sort_dedup_paths(&mut directories);
+    Ok(directories)
+}
+
+fn collect_reachable_packages<'a>(
+    metadata: &'a CargoMetadata,
+    manifest_path: &Path,
+) -> Result<Vec<&'a CargoPackage>, SourceHashError> {
     let canonical_manifest = canonical_or_original(manifest_path);
     let root_package = metadata
         .packages
@@ -258,7 +282,7 @@ fn collect_local_package_dirs(
         .map(|node| (node.id.clone(), node))
         .collect::<BTreeMap<_, _>>();
     let mut visited = BTreeSet::new();
-    let mut ordered_dirs = Vec::new();
+    let mut ordered_packages = Vec::new();
     let mut queue = VecDeque::from([root_package.id.clone()]);
 
     while let Some(package_id) = queue.pop_front() {
@@ -269,16 +293,7 @@ fn collect_local_package_dirs(
             .get(&package_id)
             .copied()
             .ok_or_else(|| SourceHashError::MissingPackageNode(package_id.clone()))?;
-        if package.source.is_none() {
-            let manifest_path = canonical_or_original(Path::new(package.manifest_path.as_str()));
-            let package_dir = manifest_path.parent().ok_or_else(|| {
-                SourceHashError::InvalidManifestPath(format!(
-                    "package manifest has no parent: {}",
-                    manifest_path.display()
-                ))
-            })?;
-            ordered_dirs.push(package_dir.to_path_buf());
-        }
+        ordered_packages.push(package);
         if let Some(node) = node_by_id.get(&package_id) {
             for dep in &node.dependencies {
                 queue.push_back(dep.clone());
@@ -286,8 +301,7 @@ fn collect_local_package_dirs(
         }
     }
 
-    sort_dedup_paths(&mut ordered_dirs);
-    Ok(ordered_dirs)
+    Ok(ordered_packages)
 }
 
 fn collect_source_files_for_hash(package_dir: &Path) -> Result<Vec<PathBuf>, SourceHashError> {
@@ -340,6 +354,23 @@ fn common_ancestor(paths: &[PathBuf]) -> Option<PathBuf> {
 }
 
 fn collect_files_recursively(dir: &Path, output: &mut Vec<PathBuf>) -> Result<(), SourceHashError> {
+    match fs::symlink_metadata(dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(SourceHashError::UnsupportedInput(format!(
+                "unsupported-input: symlink directory {}",
+                dir.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(SourceHashError::Io {
+                path: Some(dir.into()),
+                source,
+            });
+        }
+    }
+
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -396,11 +427,23 @@ struct CargoMetadata {
 #[derive(Debug, Deserialize)]
 struct CargoPackage {
     id: String,
+    name: String,
     manifest_path: String,
     #[serde(default)]
     source: Option<String>,
     #[serde(default)]
     targets: Vec<CargoTarget>,
+    #[serde(default)]
+    dependencies: Vec<CargoDependency>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoDependency {
+    kind: Option<String>,
+    name: String,
+    rename: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -501,9 +544,17 @@ mod tests {
             &root.join("templates/value.rs"),
             "pub fn value() -> u32 { 1 }",
         );
+        let manifest_text = fs::read_to_string(&manifest).unwrap();
         write_file(
-            &root.join("module/source-inputs.json"),
-            r#"{"rule_version":2,"includes":[{"from":"module/src/lib.rs","to":"templates/value.rs"}],"build_inputs":{}}"#,
+            &manifest,
+            &format!(
+                "{manifest_text}
+[package.metadata.oasis7_source_inputs]
+rule_version=2
+includes=[{{from=\"module/src/lib.rs\",to=\"templates/value.rs\"}}]
+build_inputs={{}}
+"
+            ),
         );
         let before = compute_source_hash(&manifest, DEFAULT_WASM_TARGET).unwrap();
         write_file(

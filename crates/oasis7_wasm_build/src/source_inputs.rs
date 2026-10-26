@@ -5,7 +5,7 @@ use std::path::Component;
 use syn::visit::Visit;
 
 pub const SOURCE_INPUT_RULE_VERSION: u32 = 2;
-const DECLARATION: &str = "source-inputs.json";
+const DECLARATION_KEY: &str = "oasis7_source_inputs";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -191,6 +191,54 @@ pub fn compute_source_inputs(
     let manifest = fs::canonicalize(manifest_path).map_err(unsupported)?;
     let metadata = read_cargo_metadata(&manifest, target)?;
     let packages = collect_local_package_dirs(&metadata, &manifest)?;
+    for package in collect_reachable_packages(&metadata, &manifest)? {
+        let crates_io = package.source.as_deref()
+            == Some("registry+https://github.com/rust-lang/crates.io-index");
+        if matches!(package.name.as_str(), "serde" | "serde_json") && !crates_io {
+            return Err(unsupported(
+                "unknown owner for the supported serde macro lane",
+            ));
+        }
+        if package.name == "oasis7_wasm_sdk" && package.source.is_some() {
+            return Err(unsupported(
+                "SDK macro definitions must be in the checked local closure",
+            ));
+        }
+        for dependency in package
+            .dependencies
+            .iter()
+            .filter(|_| package.source.is_none())
+        {
+            let binding = dependency
+                .rename
+                .as_deref()
+                .unwrap_or(&dependency.name)
+                .replace('-', "_");
+            if matches!(binding.as_str(), "std" | "core" | "alloc")
+                || matches!(binding.as_str(), "serde" | "serde_json" | "oasis7_wasm_sdk")
+                    && binding != dependency.name
+            {
+                return Err(unsupported(
+                    "dependency aliases cannot impersonate a supported macro owner",
+                ));
+            }
+        }
+
+        if package
+            .targets
+            .iter()
+            .any(|target| target.kind.iter().any(|kind| kind == "proc-macro"))
+            && !(package.name == "serde_derive"
+                && package.source.as_deref()
+                    == Some("registry+https://github.com/rust-lang/crates.io-index"))
+        {
+            return Err(unsupported(format!(
+                "unknown procedural-macro input lane: {}",
+                package.name
+            )));
+        }
+    }
+
     let owners = collect_owning_workspace_manifests(&packages)?;
     let mut dirs = packages.clone();
     dirs.extend(
@@ -227,10 +275,15 @@ pub fn compute_source_inputs(
     let mut build_inputs = BTreeMap::new();
     for package in &packages {
         files.extend(collect_source_files_for_hash(package)?);
-        let path = package.join(DECLARATION);
-        if fs::symlink_metadata(&path).is_ok() {
+        let path = package.join("Cargo.toml");
+        let cargo_package = metadata
+            .packages
+            .iter()
+            .find(|p| Path::new(&p.manifest_path) == path)
+            .ok_or_else(|| unsupported("missing local package metadata"))?;
+        if let Some(value) = cargo_package.metadata.get(DECLARATION_KEY) {
             validate_file(&root, &path)?;
-            let mut declaration: Declaration = serde_json::from_slice(&read(&path)?)
+            let mut declaration: Declaration = serde_json::from_value(value.clone())
                 .map_err(|e| unsupported(format!("{}: {e}", path.display())))?;
             if declaration.rule_version != SOURCE_INPUT_RULE_VERSION {
                 return Err(unsupported("unknown declaration rule version"));
@@ -262,6 +315,7 @@ pub fn compute_source_inputs(
         }
     }
     let mut rust_roots = BTreeSet::new();
+    let mut build_roots = BTreeMap::new();
     for package in metadata.packages.iter().filter(|p| p.source.is_none()) {
         if !packages
             .iter()
@@ -285,12 +339,23 @@ pub fn compute_source_inputs(
                     source.display()
                 )));
             }
-            if target.kind.iter().any(|k| k == "custom-build")
-                && source.file_name().is_none_or(|v| v != "build.rs")
-            {
-                return Err(unsupported(
-                    "custom build-script paths require a supported input rule",
-                ));
+            if target.kind.iter().any(|k| k == "custom-build") {
+                build_roots.insert(
+                    source.to_path_buf(),
+                    Path::new(&package.manifest_path)
+                        .parent()
+                        .ok_or_else(|| unsupported("build package lacks parent"))?
+                        .to_path_buf(),
+                );
+                if package
+                    .dependencies
+                    .iter()
+                    .any(|dependency| dependency.kind.as_deref() == Some("build"))
+                {
+                    return Err(unsupported(
+                        "external build dependencies are outside the supported literal-input lane",
+                    ));
+                }
             }
         }
     }
@@ -301,22 +366,29 @@ pub fn compute_source_inputs(
         roots: &rust_roots,
         files,
         edges: &edges,
-        builds: &build_inputs,
+        build_roots: &build_roots,
         used: BTreeSet::new(),
-        used_builds: BTreeSet::new(),
+        actual_build_inputs: BTreeMap::new(),
         visited: BTreeSet::new(),
         active: BTreeSet::new(),
     };
     for file in initial {
-        closure.walk(&file, rust_roots.contains(&file), false)?;
+        closure.walk(&file, rust_roots.contains(&file), None)?;
     }
     if closure.used != edges {
         return Err(unsupported(
             "declared include edge is not an actual reachable literal include",
         ));
     }
-    if closure.used_builds != build_inputs.keys().cloned().collect() {
-        return Err(unsupported("unused build input declaration"));
+    let observed = closure
+        .actual_build_inputs
+        .iter()
+        .map(|(script, inputs)| (script.clone(), inputs.iter().cloned().collect::<Vec<_>>()))
+        .collect::<BTreeMap<_, _>>();
+    if observed != build_inputs {
+        return Err(unsupported(
+            "build.rs requires exact explicit build_inputs for the Cargo script and package working directory",
+        ));
     }
     let files = closure.files;
     let mut records = declarations;
@@ -388,15 +460,29 @@ struct Closure<'a> {
     package_files: BTreeSet<PathBuf>,
     roots: &'a BTreeSet<PathBuf>,
     edges: &'a BTreeSet<Edge>,
-    builds: &'a BTreeMap<String, Vec<String>>,
+    build_roots: &'a BTreeMap<PathBuf, PathBuf>,
     used: BTreeSet<Edge>,
-    used_builds: BTreeSet<String>,
-    visited: BTreeSet<(PathBuf, bool)>,
-    active: BTreeSet<(PathBuf, bool)>,
+    actual_build_inputs: BTreeMap<String, BTreeSet<String>>,
+    visited: BTreeSet<(PathBuf, bool, Option<PathBuf>)>,
+    active: BTreeSet<(PathBuf, bool, Option<PathBuf>)>,
 }
 impl Closure<'_> {
-    fn walk(&mut self, file: &Path, rust: bool, build_lane: bool) -> Result<(), SourceHashError> {
-        let key = (file.to_path_buf(), rust);
+    fn walk(
+        &mut self,
+        file: &Path,
+        rust: bool,
+        build_script: Option<&Path>,
+    ) -> Result<(), SourceHashError> {
+        let script = if rust {
+            if self.build_roots.contains_key(file) {
+                Some(file.to_path_buf())
+            } else {
+                build_script.map(Path::to_path_buf)
+            }
+        } else {
+            None
+        };
+        let key = (file.to_path_buf(), rust, script.clone());
         if self.active.contains(&key) {
             return Err(unsupported("include cycle"));
         }
@@ -410,7 +496,7 @@ impl Closure<'_> {
             let text = std::str::from_utf8(&bytes).map_err(unsupported)?;
             let syntax = syn::parse_file(text)
                 .map_err(|e| unsupported(format!("{}: {e}", file.display())))?;
-            let build = build_lane || file.file_name().is_some_and(|v| v == "build.rs");
+            let build = script.is_some();
             let parent = file
                 .parent()
                 .ok_or_else(|| unsupported("Rust file lacks parent"))?;
@@ -441,17 +527,26 @@ impl Closure<'_> {
             let from = label(self.root, file)?;
             let mut actual_reads = Vec::new();
             for value in scanner.reads {
-                actual_reads.push(label(self.root, &include_path(self.root, file, &value)?)?);
+                let script_path = script
+                    .as_deref()
+                    .ok_or_else(|| unsupported("file read outside build context"))?;
+                let package = self
+                    .build_roots
+                    .get(script_path)
+                    .ok_or_else(|| unsupported("unknown Cargo build package context"))?;
+                let origin = package.join("Cargo.toml");
+                actual_reads.push(label(
+                    self.root,
+                    &include_path(self.root, &origin, &value)?,
+                )?);
             }
             actual_reads.sort();
             actual_reads.dedup();
-            if build && self.builds.get(&from) != Some(&actual_reads) {
-                return Err(unsupported(format!(
-                    "build.rs requires exact explicit build_inputs: {from}"
-                )));
-            }
-            if build {
-                self.used_builds.insert(from.clone());
+            if let Some(script) = &script {
+                self.actual_build_inputs
+                    .entry(label(self.root, script)?)
+                    .or_default()
+                    .extend(actual_reads.iter().cloned());
             }
             for (value, parse_rust) in scanner.includes {
                 let next = include_path(self.root, file, &value)?;
@@ -469,7 +564,7 @@ impl Closure<'_> {
                     self.used.insert(edge);
                 }
                 self.files.insert(next.clone());
-                self.walk(&next, parse_rust, build)?;
+                self.walk(&next, parse_rust, script.as_deref())?;
             }
             for (directory, name) in scanner.modules {
                 let plain = directory.join(format!("{name}.rs"));
@@ -482,7 +577,7 @@ impl Closure<'_> {
                 if !self.package_files.contains(&next) {
                     return Err(unsupported("module outside supported source roots"));
                 }
-                self.walk(&next, true, build)?;
+                self.walk(&next, true, script.as_deref())?;
             }
             for input in actual_reads {
                 self.files.insert(self.root.join(input));
@@ -493,186 +588,9 @@ impl Closure<'_> {
     }
 }
 
-struct Scanner {
-    includes: Vec<(String, bool)>,
-    reads: Vec<String>,
-    modules: Vec<(PathBuf, String)>,
-    module_dir: PathBuf,
-    error: Option<String>,
-    build: bool,
-}
-impl<'ast> Visit<'ast> for Scanner {
-    fn visit_macro(&mut self, node: &'ast syn::Macro) {
-        let name = node
-            .path
-            .segments
-            .last()
-            .map(|v| v.ident.to_string())
-            .unwrap_or_default();
-        // This lane does not evaluate arbitrary user/procedural macros. The SDK export
-        // definition is itself in the local package closure and scanned for input tokens.
-        if !matches!(
-            name.as_str(),
-            "include"
-                | "include_str"
-                | "include_bytes"
-                | "env"
-                | "option_env"
-                | "macro_rules"
-                | "export_wasm_module"
-                | "format"
-                | "format_args"
-                | "json"
-                | "vec"
-                | "assert"
-                | "assert_eq"
-                | "assert_ne"
-                | "debug_assert"
-                | "debug_assert_eq"
-                | "debug_assert_ne"
-                | "matches"
-                | "panic"
-                | "unreachable"
-                | "todo"
-                | "println"
-                | "eprintln"
-                | "print"
-                | "eprint"
-                | "write"
-                | "writeln"
-                | "cfg"
-                | "stringify"
-                | "concat"
-                | "line"
-                | "column"
-                | "file"
-        ) {
-            self.error = Some(format!("unsupported macro shape: {name}"));
-        }
-        if self.build
-            && !matches!(
-                name.as_str(),
-                "include"
-                    | "include_str"
-                    | "include_bytes"
-                    | "println"
-                    | "eprintln"
-                    | "assert"
-                    | "assert_eq"
-                    | "assert_ne"
-                    | "panic"
-                    | "cfg"
-            )
-        {
-            self.error = Some("unsupported build-script macro/input".into());
-        }
-        if matches!(name.as_str(), "include" | "include_str" | "include_bytes") {
-            match syn::parse2::<syn::LitStr>(node.tokens.clone()) {
-                Ok(value) => self.includes.push((value.value(), name == "include")),
-                Err(_) => self.error = Some("include requires a single literal path".into()),
-            }
-        } else if matches!(name.as_str(), "env" | "option_env")
-            || contains_input_tokens(node.tokens.clone())
-        {
-            self.error = Some("environment/generated or nested macro input is unsupported".into());
-        }
-        if self.build
-            && matches!(
-                name.as_str(),
-                "println" | "eprintln" | "assert" | "assert_eq" | "assert_ne" | "panic"
-            )
-        {
-            use syn::parse::Parser;
-            match syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated
-                .parse2(node.tokens.clone())
-            {
-                Ok(args) => {
-                    for expr in args {
-                        self.visit_expr(&expr);
-                    }
-                }
-                Err(_) => self.error = Some("unsupported build-script macro arguments".into()),
-            }
-        }
-        syn::visit::visit_macro(self, node);
-    }
-    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
-        if node.content.is_none() {
-            self.modules
-                .push((self.module_dir.clone(), node.ident.to_string()));
-        }
-        let previous = self.module_dir.clone();
-        self.module_dir.push(node.ident.to_string());
-        syn::visit::visit_item_mod(self, node);
-        self.module_dir = previous;
-    }
-    fn visit_attribute(&mut self, node: &'ast syn::Attribute) {
-        if node.path().is_ident("path") {
-            self.error = Some("path attributes require a supported input rule".into());
-        }
-        syn::visit::visit_attribute(self, node);
-    }
-    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
-        if self.build && !matches!(node.method.to_string().as_str(), "unwrap" | "expect") {
-            self.error = Some("unsupported build-script method/input".into());
-        }
-        syn::visit::visit_expr_method_call(self, node);
-    }
-    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
-        if self.build {
-            let allowed = if let syn::Expr::Path(path) = &*node.func {
-                let name = path
-                    .path
-                    .segments
-                    .iter()
-                    .map(|v| v.ident.to_string())
-                    .collect::<Vec<_>>()
-                    .join("::");
-                if matches!(
-                    name.as_str(),
-                    "fs::read"
-                        | "std::fs::read"
-                        | "fs::read_to_string"
-                        | "std::fs::read_to_string"
-                        | "File::open"
-                        | "std::fs::File::open"
-                ) {
-                    if let Some(syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(value),
-                        ..
-                    })) = node.args.first()
-                    {
-                        self.reads.push(value.value());
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if !allowed {
-                self.error = Some(
-                    "build script supports only explicitly declared literal file reads".into(),
-                );
-            }
-        }
-        syn::visit::visit_expr_call(self, node);
-    }
-}
-
-fn contains_input_tokens(tokens: proc_macro2::TokenStream) -> bool {
-    tokens.into_iter().any(|token| match token {
-        proc_macro2::TokenTree::Ident(ident) => matches!(
-            ident.to_string().as_str(),
-            "include" | "include_str" | "include_bytes" | "env" | "option_env"
-        ),
-        proc_macro2::TokenTree::Group(group) => contains_input_tokens(group.stream()),
-        _ => false,
-    })
-}
+#[path = "source_input_scan.rs"]
+mod scan;
+use scan::Scanner;
 
 #[cfg(test)]
 #[path = "source_inputs_tests.rs"]

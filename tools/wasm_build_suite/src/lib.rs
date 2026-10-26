@@ -1,3 +1,4 @@
+use oasis7_wasm_build::BuildManifest;
 #[cfg(test)]
 mod artifact_pipeline_contract_tests;
 
@@ -239,23 +240,6 @@ struct BuildStdConfig {
     enabled: bool,
     components: String,
     features: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct BuildManifest {
-    source_input_rule_version: u32,
-    profile: String,
-    target: String,
-    wasm_toolchain: String,
-    wasm_build_std: String,
-    wasm_build_std_components: String,
-    wasm_build_std_features: String,
-    wasm_deterministic_guard: String,
-    canonicalizer_version: String,
-    container_platform: String,
-    builder_image_ref: String,
-    builder_image_digest: String,
-    build_suite_version: String,
 }
 
 impl BuildStdConfig {
@@ -736,11 +720,8 @@ fn compute_build_manifest_hash(
         builder_image_digest: builder_image_digest.to_string(),
         build_suite_version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    let bytes = serde_json::to_vec(&payload).map_err(|source| BuildError::Json {
-        source,
-        context: "serialize build manifest".to_string(),
-    })?;
-    Ok(sha256_hex(bytes.as_slice()))
+    oasis7_wasm_build::compute_build_manifest_hash(&payload)
+        .map_err(|error| BuildError::MetadataInvalid(format!("build manifest failed: {error}")))
 }
 
 #[cfg(test)]

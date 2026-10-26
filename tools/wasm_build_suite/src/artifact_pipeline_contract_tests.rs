@@ -13,6 +13,44 @@ const SYNC_M1: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifa
 const SYNC_TEST: &str = include_str!("../../../scripts/sync-m1-builtin-wasm-artifacts.test.sh");
 const SYNC_M4: &str = include_str!("../../../scripts/sync-m4-builtin-wasm-artifacts.sh");
 const SYNC_M5: &str = include_str!("../../../scripts/sync-m5-builtin-wasm-artifacts.sh");
+const VERIFY_SUMMARY: &str = include_str!("../../../scripts/ci-verify-m1-wasm-summaries.py");
+
+#[test]
+fn summary_verifier_requires_current_input_evidence_for_every_module_set() {
+    assert_compiled_input("scripts/ci-verify-m1-wasm-summaries.py", VERIFY_SUMMARY);
+    let scratch = Scratch::new();
+    assert_success(Command::new("python3").args(["-c", r#"
+import copy, json, pathlib, subprocess, sys
+repo, root = map(pathlib.Path, sys.argv[1:])
+script = repo / 'scripts/ci-verify-m1-wasm-summaries.py'
+def summary(module, runner):
+    return dict(schema_version=1, module_set=module, runner=runner,
+        current_platform='linux-x86_64', host_platform=runner, canonical_platform='linux-x86_64', module_count=1,
+        module_hashes={module+'.module':'wasm'}, manifest_platform_hashes={module+'.module':'wasm'},
+        identity_hashes={module+'.module':'identity'},
+        identity_build_recipe=dict(builder_image_digest='builder', container_platform='linux-x86_64', canonicalizer_version='v1'),
+        receipt_evidence={module+'.module':dict(source_input_rule_version=2,
+            source_inputs=[dict(kind='source-file',path='module/src/lib.rs',sha256='0'*64)],
+            source_hash='source',build_manifest_hash='build',wasm_hash='wasm',builder_image_digest='builder',container_platform='linux-x86_64',canonicalizer_version='v1')})
+def run(module, directory):
+    return subprocess.run([sys.executable,str(script),'--module-set',module,'--summary-dir',str(directory)],capture_output=True,text=True)
+for module in ('m1','m4','m5'):
+    directory=root/module; directory.mkdir()
+    for runner in ('linux-x86_64','darwin-arm64'):
+        (directory/(runner+'.json')).write_text(json.dumps(summary(module,runner)))
+    result=run(module,directory); assert result.returncode==0,result.stderr
+original=summary('m1','linux-x86_64')
+for mutation in ('legacy','unknown','missing-details','invalid-path','invalid-digest'):
+    candidate=copy.deepcopy(original); evidence=candidate['receipt_evidence']['m1.module']
+    if mutation=='legacy': del evidence['source_input_rule_version']
+    elif mutation=='unknown': evidence['source_input_rule_version']=99
+    elif mutation=='missing-details': evidence['source_inputs']=[]
+    elif mutation=='invalid-path': evidence['source_inputs'][0]['path']='../escape'
+    else: evidence['source_inputs'][0]['sha256']='not-a-digest'
+    (root/'m1/linux-x86_64.json').write_text(json.dumps(candidate))
+    result=run('m1',root/'m1'); assert result.returncode!=0,mutation
+"#]).arg(repo_root()).arg(&scratch.0).output().expect("run actual summary verifier positive/negative vectors"));
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
