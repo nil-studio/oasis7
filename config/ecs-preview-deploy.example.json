@@ -1,6 +1,7 @@
 {
   "ssh_host": "root@preview.example.test",
   "repository": "nil-studio/oasis7",
+  "backup_mode": "remote",
   "local_backup_root": "~/.local/share/oasis7/preview-backups",
   "release_root": "/opt/oasis7-preview/releases",
   "ops_root": "/root/oasis7-preview-ops",

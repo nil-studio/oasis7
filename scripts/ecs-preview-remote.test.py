@@ -67,6 +67,24 @@ def make_archive(files=None, *, extra_members=()):
     return blob, expanded
 
 
+class FakeProcess:
+    def __init__(self, stdout=None, returncode=0):
+        self.stdout = stdout
+        self.returncode = returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = -15
+
+    def kill(self):
+        self.returncode = -9
+
+
 class PackageTests(unittest.TestCase):
     def extract(self, blob, expanded, root):
         return remote._extract_streaming_archive(
@@ -155,6 +173,7 @@ class PackageTests(unittest.TestCase):
             engine.config = {"release_root": releases}
             engine.release = releases / f"ecs-42-{SOURCE[:12]}"
             engine.archive_meta = {"bytes": len(blob), "sha256": digest, "expanded_bytes": expanded}
+            engine.config["backup_mode"] = "local"
             engine._require_reserve = lambda _extra=0: None
             result = engine._install({"bytes": len(blob), "sha256": digest})
             self.assertEqual(result["source"], SOURCE)
@@ -163,6 +182,190 @@ class PackageTests(unittest.TestCase):
 
 
 class EngineTests(unittest.TestCase):
+    def make_remote_backup_engine(self, base, archive_blob):
+        operation_dir = Path(base) / "ops" / "deploy-42"
+        operation_dir.mkdir(parents=True, mode=0o700)
+        output = io.BytesIO()
+        stdin = io.BytesIO(b"")
+        calls = []
+
+        def popen(argv, **kwargs):
+            if "--create" in argv:
+                partial = operation_dir / "world-backup.tar.gz.partial"
+                final = operation_dir / "world-backup.tar.gz"
+                calls.append(("create", list(argv), partial.exists(), final.exists()))
+                return FakeProcess(io.BytesIO(archive_blob))
+            if "--compare" in argv:
+                calls.append(("compare", list(argv)))
+                return FakeProcess()
+            raise AssertionError(f"unexpected process: {argv}")
+
+        engine = remote.Engine(stdin=stdin, stdout=output, stderr=io.BytesIO(),
+                               popen=popen, enforce_root=False)
+        engine.config = {"backup_mode": "remote", "backup_paths": [Path("/world")],
+                         "player_service": "player.service", "chain_service": "chain.service"}
+        engine.phase = "installed"
+        engine.operation_dir = operation_dir
+        engine._measure_backup_source_bytes = lambda: 4096
+        engine._require_deployment_capacity = lambda _expanded, _backup: None
+        engine._assert_stopped = lambda: calls.append(("stopped",))
+        engine._systemctl = lambda *args, **_kwargs: calls.append(("systemctl", *args)) or b""
+        engine._record = lambda name, data: calls.append(("record", name, dict(data)))
+        return engine, calls, stdin, output, operation_dir
+
+    def test_remote_backup_stays_on_target_and_tar_compare_precedes_switch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive_blob = b"verified remote archive contents"
+            engine, calls, stdin, output, operation_dir = self.make_remote_backup_engine(temp, archive_blob)
+            result = engine._begin_backup({"max_bytes": 8192})
+            archive_path = operation_dir / "world-backup.tar.gz"
+            digest = hashlib.sha256(archive_blob).hexdigest()
+            response = json.loads(output.getvalue())
+            self.assertEqual(response, {"ok": True, "stream": False, "bytes": len(archive_blob),
+                                         "sha256": digest, "remote_archive": str(archive_path)})
+            self.assertEqual(result["remote_archive"], str(archive_path))
+            self.assertEqual(archive_path.read_bytes(), archive_blob)
+            self.assertEqual(archive_path.stat().st_mode & 0o777, 0o600)
+            self.assertFalse((operation_dir / "world-backup.tar.gz.partial").exists())
+            create_event = next(call for call in calls if call[0] == "create")
+            self.assertTrue(create_event[2])
+            self.assertFalse(create_event[3])
+            self.assertEqual(stdin.tell(), 0)
+            self.assertFalse(engine.backup_verified)
+            with self.assertRaisesRegex(remote.RemoteError, "protocol_state"):
+                engine._switch()
+
+            compared = engine._compare_backup({"op": "compare", "bytes": len(archive_blob),
+                                               "sha256": digest, "remote": True})
+            compare_event = next(call for call in calls if call[0] == "compare")
+            self.assertIn("--file=" + str(archive_path), compare_event[1])
+            self.assertEqual(stdin.tell(), 0)
+            self.assertTrue(compared["tar_compare_verified"])
+            self.assertTrue(engine.backup_verified)
+            self.assertEqual(engine.phase, "backup_verified")
+            self.assertLess(calls.index(create_event), calls.index(compare_event))
+
+    def test_remote_backup_corruption_is_rejected_before_tar_compare(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive_blob = b"verified remote archive contents"
+            engine, calls, _stdin, _output, operation_dir = self.make_remote_backup_engine(temp, archive_blob)
+            engine._begin_backup({"max_bytes": 8192})
+            archive_path = operation_dir / "world-backup.tar.gz"
+            archive_path.write_bytes(b"x" * len(archive_blob))
+            with self.assertRaisesRegex(remote.RemoteError, "backup_digest_mismatch"):
+                engine._compare_backup({"op": "compare", "bytes": len(archive_blob),
+                                        "sha256": hashlib.sha256(archive_blob).hexdigest(), "remote": True})
+            self.assertFalse(any(call[0] == "compare" for call in calls))
+            self.assertFalse(engine.backup_verified)
+            self.assertEqual(engine.phase, "backup_streamed")
+
+    def test_failed_remote_backup_removes_only_its_partial_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive_blob = b"partial archive"
+            engine, _calls, _stdin, _output, operation_dir = self.make_remote_backup_engine(
+                temp, archive_blob)
+            engine.popen = lambda _argv, **_kwargs: FakeProcess(
+                io.BytesIO(archive_blob), returncode=2)
+            with self.assertRaisesRegex(remote.RemoteError, "backup_archive_failed"):
+                engine._write_remote_backup(1024)
+            self.assertFalse((operation_dir / "world-backup.tar.gz.partial").exists())
+            self.assertFalse((operation_dir / "world-backup.tar.gz").exists())
+
+    def test_remote_backup_conflict_preserves_completed_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine, _calls, _stdin, _output, operation_dir = self.make_remote_backup_engine(
+                temp, b"new archive")
+            archive_path = operation_dir / "world-backup.tar.gz"
+            archive_path.write_bytes(b"previous verified archive")
+            with self.assertRaisesRegex(remote.RemoteError, "backup_archive_exists"):
+                engine._write_remote_backup(1024)
+            self.assertEqual(archive_path.read_bytes(), b"previous verified archive")
+            self.assertFalse((operation_dir / "world-backup.tar.gz.partial").exists())
+
+    def test_remote_compare_rejects_even_dangling_partial_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive_blob = b"verified remote archive contents"
+            engine, calls, _stdin, _output, operation_dir = self.make_remote_backup_engine(
+                temp, archive_blob)
+            engine._begin_backup({"max_bytes": 8192})
+            partial_path = operation_dir / "world-backup.tar.gz.partial"
+            partial_path.symlink_to("missing-target")
+            with self.assertRaisesRegex(remote.RemoteError, "backup_archive_incomplete"):
+                engine._compare_backup({"op": "compare", "bytes": len(archive_blob),
+                                        "sha256": hashlib.sha256(archive_blob).hexdigest(),
+                                        "remote": True})
+            self.assertFalse(any(call[0] == "compare" for call in calls))
+            self.assertFalse(engine.backup_verified)
+
+    def test_remote_preflight_rejects_low_space_before_install_or_operation_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            release_root = root / "releases"
+            release_root.mkdir()
+            source_path = root / "world"
+            source_path.mkdir()
+            backup_bytes, expanded_bytes = 4096, 8192
+
+            class Usage:
+                free = remote.MIN_FREE_BYTES + backup_bytes + expanded_bytes - 1
+
+            config = {
+                "release_root": release_root,
+                "ops_root": root / "ops",
+                "deploy_lock": root / "deploy.lock",
+                "controller_lock": None,
+                "backup_mode": "remote",
+                "backup_paths": [source_path],
+            }
+            events = []
+            engine = remote.Engine(disk_usage=lambda _path: Usage(), enforce_root=False)
+            engine._prepare_paths = lambda: events.append("prepare")
+            engine._acquire_lock = lambda _path: events.append("lock")
+            engine._measure_backup_source_bytes = lambda: backup_bytes
+            engine._preflight_probe = lambda: events.append("probe")
+            engine._create_operation_dir = lambda: events.append("create_operation")
+            engine._snapshot_services = lambda: events.append("snapshot_services")
+            engine._record = lambda *_args: events.append("record")
+            request = {"op": "init", "source": SOURCE, "run_id": 42,
+                       "archive": {"bytes": 1, "sha256": "c" * 64,
+                                   "expanded_bytes": expanded_bytes},
+                       "config": {}}
+            with patch.object(remote, "_validate_config", lambda _raw: config):
+                with self.assertRaisesRegex(remote.RemoteError, "disk_reserve"):
+                    engine._init(request)
+            self.assertEqual(engine.phase, "new")
+            self.assertEqual(events, ["prepare", "lock"])
+            self.assertNotIn("snapshot_services", events)
+            self.assertNotIn("create_operation", events)
+
+    def test_local_backup_mode_keeps_existing_framed_stream_protocol(self):
+        with tempfile.TemporaryDirectory() as temp:
+            operation_dir = Path(temp) / "ops"
+            operation_dir.mkdir()
+            archive_blob = b"local fallback archive"
+            output = io.BytesIO()
+            engine = remote.Engine(stdin=io.BytesIO(), stdout=output, stderr=io.BytesIO(),
+                                   popen=lambda _argv, **_kwargs: FakeProcess(io.BytesIO(archive_blob)),
+                                   enforce_root=False)
+            engine.config = {"backup_mode": "local", "backup_paths": [Path("/world")],
+                             "player_service": "player.service", "chain_service": "chain.service"}
+            engine.phase = "installed"
+            engine.operation_dir = operation_dir
+            engine._require_reserve = lambda _extra=0: None
+            engine._assert_stopped = lambda: None
+            engine._systemctl = lambda *_args, **_kwargs: b""
+            result = engine._begin_backup({"max_bytes": 1024})
+            wire = output.getvalue()
+            header, framed = wire.split(b"\n", 1)
+            self.assertTrue(json.loads(header)["stream"])
+            self.assertEqual(framed[:4], len(archive_blob).to_bytes(4, "big"))
+            self.assertEqual(framed[4:4 + len(archive_blob)], archive_blob)
+            self.assertEqual(framed[4 + len(archive_blob):8 + len(archive_blob)], b"\0\0\0\0")
+            self.assertEqual(json.loads(framed[8 + len(archive_blob):]),
+                             {"ok": True, "bytes": len(archive_blob),
+                              "sha256": hashlib.sha256(archive_blob).hexdigest()})
+            self.assertEqual(result["bytes"], len(archive_blob))
+
     def test_reserve_is_enforced_before_expansion(self):
         class Usage:
             free = remote.MIN_FREE_BYTES + 10
@@ -254,7 +457,7 @@ class EngineTests(unittest.TestCase):
             snippets.mkdir()
             include = snippets / "skills.conf"
             include.write_text("# managed")
-            config = remote._validate_config({
+            raw = {
                 "release_root": str(release_root), "ops_root": str(root / "ops"),
                 "deploy_lock": str(root / "locks/deploy.lock"),
                 "chain_service": chain, "player_service": player,
@@ -263,8 +466,16 @@ class EngineTests(unittest.TestCase):
                 "public_origin": "https://preview.example.test", "launcher_http_port": 4173,
                 "nginx_include": str(include),
                 "probe": {"reader_key_file": str(key)},
-            })
+            }
+            config = remote._validate_config(raw)
+            self.assertEqual(config["backup_mode"], "remote")
             self.assertEqual(config["controller_lock"], root / "locks/deploy.lock.controller")
+            raw["ops_root"] = str(world / "ops")
+            with self.assertRaisesRegex(remote.RemoteError, "backup_ops_root_nested"):
+                remote._validate_config(raw)
+            raw["backup_mode"] = "local"
+            local_config = remote._validate_config(raw)
+            self.assertEqual(local_config["backup_mode"], "local")
 
     def test_all_relevant_cgroup_executables_are_hash_checked(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -502,7 +713,8 @@ class EngineTests(unittest.TestCase):
 
     def test_init_accepts_controller_json_integer_run_id(self):
         engine = remote.Engine(enforce_root=False)
-        engine.config = {"deploy_lock": Path("/unused"), "controller_lock": None}
+        engine.config = {"deploy_lock": Path("/unused"), "controller_lock": None,
+                         "backup_mode": "local"}
         engine._prepare_paths = lambda: None
         engine._acquire_lock = lambda _path: None
         engine._require_reserve = lambda _extra=0: None
@@ -524,7 +736,8 @@ class EngineTests(unittest.TestCase):
             sentinel = operation / "operator-state.json"
             sentinel.write_text("keep")
             engine = remote.Engine(enforce_root=False)
-            engine.config = {"deploy_lock": Path(temp) / "deploy.lock", "controller_lock": None}
+            engine.config = {"deploy_lock": Path(temp) / "deploy.lock", "controller_lock": None,
+                             "backup_mode": "local"}
             engine._prepare_paths = lambda: setattr(engine, "operation_dir", operation)
             engine._acquire_lock = lambda _path: None
             engine._require_reserve = lambda _extra=0: None

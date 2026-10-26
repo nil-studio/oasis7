@@ -21,7 +21,7 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 <a id="deployment-contract"></a>
 ## 设计条款：执行顺序与失败
 
-一个 SSH stdio 会话承载有界 JSON 控制帧与有界二进制流：init → install → backup → compare → switch → verify → accept。控制器本地保存 0700 目录 / 0600 停机备份；接收端校验流长度与 SHA256，并将同一备份传回仍停机的目标，以 `tar --compare` 对照原文件。未比较成功不得切换。备份包含现有世界和身份、SQLite sidecars、两个 unit、部署配置与 Skill include；不会改写历史。安装流解压到独立 staging，只接受普通文件/目录、限制总展开长度、拒绝路径逃逸/链接/重复路径。安装前后均至少留 528 MiB，保留旧 release。
+一个 SSH stdio 会话承载有界 JSON 控制帧与有界二进制流：init → install → backup → compare → switch → verify → accept。默认 remote 模式在目标本轮 operation 目录保存 0700 目录 / 0600 停机备份，fsync 后就地核对 SHA256、长度并以 `tar --compare` 对照原文件；控制器本地持久保存其身份和验收结果，不往返传输整个世界。init 在停服务前为源文件的保守备份字节估算、新版本和 528 MiB 余量做容量预检，停机前重新检查。备份输出目录不得落在备份源树内。显式 local 模式保留本机接收及回传比对协议，其两次整库公网传输增加停机时间，仅适用于调用者选择的环境。未比较成功不得切换。备份包含现有世界和身份、SQLite sidecars、两个 unit、部署配置与 Skill include；不会改写历史。安装流解压到独立 staging，只接受普通文件/目录、限制总展开长度、拒绝路径逃逸/链接/重复路径。安装前后均至少留 528 MiB，保留旧 release。
 
 目标端持有维护锁，核对两个实际 unit 和完整进程范围；停止 player 再停止 chain，检查 cgroup 没有残留写入者。保存完整旧 unit，路径替换只发生在明确 old-release prefix，保留其他参数和环境；任何部分 unit 替换前即标记已修改，切换前失败原子恢复并复核旧字节，启动旧 chain 再启动旧 player。新 chain 启动是不可混淆的写入边界：此后失败或连接丢失先隔离当前候选写入者并保留历史，不直接让旧代码接管可能变化的数据，不将 binary rollback 称为数据 rollback。隔离失败记录真实错误；不终止身份已变化的其他部署。
 
@@ -31,7 +31,7 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 
 ## 固定会话协议
 
-首行为 bootstrap JSON，包含受测 remote/probe 源；remote 程序随后读 JSON 行。普通响应为 `{ok:true,...}` 或 `{ok:false,error:<bounded-code>}`。`install` 请求声明 archive bytes/digest/expanded bytes/source，随后恰好传输 archive bytes；`backup` 先返回 stream header，随后传输 big-endian u32 长度与 chunk，长度 0 结束，再返回 bytes/digest；`compare` 声明同一备份 bytes/digest 后传输恰好该长度。默认 chunk≤1 MiB；总长和超时受已验证配置与本地可用空间约束。未知 op、缺帧、越界或错误均拒绝，不解释数据为命令。stdout 只作协议，进度与脱敏错误走 stderr。
+首行为 bootstrap JSON，包含受测 remote/probe 源；remote 程序随后读 JSON 行。普通响应为 `{ok:true,...}` 或 `{ok:false,error:<bounded-code>}`。`install` 请求声明 archive bytes/digest/expanded bytes/source，随后恰好传输 archive bytes；remote 模式 `backup` 返回 `{stream:false,bytes,sha256,remote_archive}`，`compare` 发送同一 bytes/digest 及 `remote:true`，不传输备份载荷，目标只验证本轮自己的固定归档。显式 local 模式 `backup` 先返回 stream header，随后传输 big-endian u32 长度与 chunk，长度 0 结束，再返回 bytes/digest；`compare` 声明同一备份 bytes/digest 后传输恰好该长度。默认 chunk≤1 MiB；总长和超时受已验证配置与本地可用空间约束。未知 op、缺帧、越界或错误均拒绝，不解释数据为命令。stdout 只作协议，进度与脱敏错误走 stderr。
 
 ## 验证
 
@@ -46,3 +46,5 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 ## 决策与风险
 
 使用单一 SSH stdio 会话减少重复认证和中间文件，同时让断连对应明确的失败恢复边界。停机备份换取原始文件的一致性；新写入后的恢复需要保留当前历史并另行处理，不能自动启动旧代码。备份路径由运维配置完整覆盖世界、身份和 SQLite 目录；机器空间、已有 Python crypto 依赖和有效 SSH 认证属于部署前置条件，缺失时停止，不能由 fixture 验证代替。
+
+公网往返完整世界的方案对低带宽、大历史世界会将停机时间放大到数小时，且可能超过阶段超时，因此采用原机一致备份及原机比对为默认。磁盘不足仍在停服务前阻塞；历史备份的离机迁移在服务在线期间完成，完整恢复链和记录验证保存后才释放远端副本。自动部署不猜测或删除旧备份，不承诺云扩容或零停机。

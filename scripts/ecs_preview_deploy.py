@@ -25,7 +25,8 @@ CHUNK = 1024**2
 BINS = ("oasis7_chain_runtime", "oasis7_game_launcher", "oasis7_viewer_live", "oasis7_game_client")
 LOCAL_FIELDS = {"ssh_host", "repository", "local_backup_root", "phase_timeout_seconds", "max_backup_bytes"}
 REMOTE_FIELDS = {"release_root", "ops_root", "deploy_lock", "controller_lock", "chain_service", "player_service",
-                 "unit_dir", "backup_paths", "public_origin", "launcher_http_port", "nginx_include", "probe"}
+                 "unit_dir", "backup_paths", "public_origin", "launcher_http_port", "nginx_include", "probe",
+                 "backup_mode"}
 
 
 def digest(path):
@@ -52,7 +53,7 @@ def profile(path):
     if not isinstance(cfg, dict) or set(cfg) - LOCAL_FIELDS - REMOTE_FIELDS:
         raise ValueError("unknown deployment profile fields")
     required = LOCAL_FIELDS - {"repository", "phase_timeout_seconds", "max_backup_bytes"}
-    required |= REMOTE_FIELDS - {"controller_lock", "unit_dir"}
+    required |= REMOTE_FIELDS - {"controller_lock", "unit_dir", "backup_mode"}
     if required - set(cfg):
         raise ValueError("deployment profile fields missing")
     host = cfg["ssh_host"]
@@ -62,6 +63,9 @@ def profile(path):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise ValueError("invalid repository")
     cfg["repository"] = repo
+    backup_mode = cfg.setdefault("backup_mode", "remote")
+    if not isinstance(backup_mode, str) or backup_mode not in {"remote", "local"}:
+        raise ValueError("backup_mode must be remote or local")
     for key in ("release_root", "ops_root", "deploy_lock", "nginx_include", "unit_dir", "controller_lock"):
         if key in cfg and (not isinstance(cfg[key], str) or not cfg[key].startswith("/") or "\x00" in cfg[key]):
             raise ValueError("invalid absolute deployment path")
@@ -156,6 +160,32 @@ def package_info(directory, source):
             raise ValueError("incomplete ECS deployment package")
         expanded = sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
     return archive, {"bytes": archive.stat().st_size, "sha256": actual, "expanded_bytes": expanded}
+
+
+def persist_receipt(path, value):
+    """Atomically save a private deployment receipt and its directory entry."""
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            descriptor = -1
+            output.write(json.dumps(value, indent=2) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
 
 
 class Session:
@@ -254,6 +284,9 @@ class Session:
 
 
 def execute(cfg, run_id, source, archive, info, *, session_factory=Session):
+    backup_mode = cfg.get("backup_mode", "remote")
+    if not isinstance(backup_mode, str) or backup_mode not in {"remote", "local"}:
+        raise ValueError("backup_mode must be remote or local")
     backup_root = Path(cfg["local_backup_root"])
     backup_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     if backup_root.is_symlink() or backup_root.stat().st_mode & 0o077 or backup_root.stat().st_uid != os.getuid():
@@ -261,6 +294,7 @@ def execute(cfg, run_id, source, archive, info, *, session_factory=Session):
     attempt = backup_root / f"ecs-{run_id}-{source[:12]}-{time.time_ns()}"
     attempt.mkdir(mode=0o700)
     remote = {key: value for key, value in cfg.items() if key in REMOTE_FIELDS}
+    remote["backup_mode"] = backup_mode
     session = session_factory(cfg)
     accepted = False
     try:
@@ -268,50 +302,70 @@ def execute(cfg, run_id, source, archive, info, *, session_factory=Session):
         session.send({"op": "install", "bytes": info["bytes"], "sha256": info["sha256"]})
         session.upload(archive)
         session.response()
-        bound = min(cfg["max_backup_bytes"], shutil.disk_usage(backup_root).free - RESERVE)
-        if bound < RESERVE:
-            raise ValueError("insufficient local backup reserve")
-        header = session.call("backup", max_bytes=bound)
-        if header.get("stream") is not True:
-            raise ValueError("missing backup stream")
-        backup = attempt / "pre-upgrade.tar.gz"
-        h = hashlib.sha256()
-        size = 0
-        with backup.open("xb") as output:
-            os.chmod(backup, 0o600)
-            while True:
-                count = struct.unpack(">I", session.read(4))[0]
-                if not count:
-                    break
-                if count > CHUNK or size + count > bound:
-                    raise ValueError("backup stream exceeds bound")
-                block = session.read(count)
-                output.write(block)
-                h.update(block)
-                size += count
-            output.flush()
-            os.fsync(output.fileno())
-        receipt = session.response()
-        sha = h.hexdigest()
-        if receipt.get("bytes") != size or receipt.get("sha256") != sha or size == 0:
-            raise ValueError("backup transfer mismatch")
-        session.send({"op": "compare", "bytes": size, "sha256": sha})
-        session.upload(backup)
-        session.response()
+        max_backup_bytes = cfg["max_backup_bytes"]
+        if backup_mode == "remote":
+            header = session.call("backup", max_bytes=max_backup_bytes)
+            if not isinstance(header, dict) or header.get("stream") is not False:
+                raise ValueError("remote backup mode mismatch")
+            size = header.get("bytes")
+            sha = header.get("sha256")
+            remote_archive = header.get("remote_archive")
+            archive_path = PurePosixPath(remote_archive) if isinstance(remote_archive, str) else None
+            if type(size) is not int or not 0 < size <= max_backup_bytes:
+                raise ValueError("remote backup size invalid")
+            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+                raise ValueError("remote backup digest invalid")
+            if (archive_path is None or len(remote_archive) > 4096 or not archive_path.is_absolute()
+                    or archive_path == PurePosixPath("/") or ".." in archive_path.parts
+                    or str(archive_path) != remote_archive or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in remote_archive)):
+                raise ValueError("remote backup path invalid")
+            backup_identity = {"mode": "remote", "remote_archive": remote_archive,
+                               "bytes": size, "sha256": sha}
+            session.call("compare", bytes=size, sha256=sha, remote=True)
+        else:
+            bound = min(max_backup_bytes, shutil.disk_usage(backup_root).free - RESERVE)
+            if bound < RESERVE:
+                raise ValueError("insufficient local backup reserve")
+            header = session.call("backup", max_bytes=bound)
+            if not isinstance(header, dict) or header.get("stream") is not True:
+                raise ValueError("local backup mode mismatch")
+            backup = attempt / "pre-upgrade.tar.gz"
+            h = hashlib.sha256()
+            size = 0
+            with backup.open("xb") as output:
+                os.chmod(backup, 0o600)
+                while True:
+                    count = struct.unpack(">I", session.read(4))[0]
+                    if not count:
+                        break
+                    if count > CHUNK or size + count > bound:
+                        raise ValueError("backup stream exceeds bound")
+                    block = session.read(count)
+                    output.write(block)
+                    h.update(block)
+                    size += count
+                output.flush()
+                os.fsync(output.fileno())
+            receipt = session.response()
+            sha = h.hexdigest()
+            if receipt.get("bytes") != size or receipt.get("sha256") != sha or size == 0:
+                raise ValueError("backup transfer mismatch")
+            backup_identity = {"mode": "local", "path": str(backup), "bytes": size, "sha256": sha}
+            session.send({"op": "compare", "bytes": size, "sha256": sha})
+            session.upload(backup)
+            session.response()
+        result = {"source": source, "run_id": run_id, "archive_sha256": info["sha256"],
+                  "backup": backup_identity}
+        receipt_path = attempt / "deployment.json"
+        persist_receipt(receipt_path, result)
         session.call("switch")
         checks = session.call("verify")
-        result = {"source": source, "run_id": run_id, "archive_sha256": info["sha256"],
-                  "backup": {"path": str(backup), "bytes": size, "sha256": sha}, "verification": checks}
-        # Keep the actual backup identity durable before asking the target to commit.
-        receipt_path = attempt / "deployment.json"
-        receipt_path.write_text(json.dumps(result, indent=2) + "\n")
-        receipt_path.chmod(0o600)
-        with receipt_path.open("rb") as saved:
-            os.fsync(saved.fileno())
+        result["verification"] = checks
+        persist_receipt(receipt_path, result)
         result["acceptance"] = session.call("accept")
         accepted = True
         try:
-            receipt_path.write_text(json.dumps(result, indent=2) + "\n")
+            persist_receipt(receipt_path, result)
         except OSError:
             print("deployment accepted; local final receipt update failed", file=sys.stderr)
         return result

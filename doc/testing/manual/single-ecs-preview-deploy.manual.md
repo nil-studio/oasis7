@@ -18,7 +18,7 @@ python3 scripts/deploy-ecs-preview.py \
 
 入口自动核对 GitHub main ECS run 与同 source 的 main Rust workflow / required-gate，下载并验证最终包，通过**一个 SSH 进程**传包、预检、停止写入、一致备份、比对备份、切换两个服务、读取签名世界结果并观察完整 60 秒推进、复查公开 API，再调用同包 Skill 发布工具。配置变更、锁占用、低空间或身份校验失败即停止，不扩大公网白名单，不重建世界。各部署阶段只选同一完整 SHA，main 后续前进不重启整轮。
 
-完整停机备份保存到配置的 `local_backup_root`（目录 0700，归档 0600），并传回目标 `tar --compare` 验证后才切换。远端安装采用已在本地校验的归档流，避免同时占用压缩包和新版本的空间；仍保留至少 528 MiB 余量及原 release。新 chain 开始写入后失败或断连会隔离候选并保留历史，不能将旧程序直接指向可能变化的数据。成功输出 source、run、包/备份哈希和实际验收结果。该部署验收不代替后文的外部浏览器、真实登录及玩法验证。
+默认 `backup_mode=remote`：完整停机备份保存在目标机本轮 `ops_root` 部署目录（目录 0700，归档 0600），在原机运行 `tar --compare` 后才切换；本机 `local_backup_root` 保存备份身份和部署结果，不跨公网往返传输世界。预检在停服务前为完整备份、新版本和至少 528 MiB 余量保留空间；不足时应先在服务在线期间迁移已验证的旧备份或扩容。只有明确选择 `backup_mode=local` 才将完整备份传到本机并回传比对，该模式需承担两次整库网络传输的停机时间，不适合低带宽大世界。远端安装采用已在本地校验的归档流，避免同时占用压缩包和新版本的空间；仍保留至少 528 MiB 余量及原 release。新 chain 开始写入后失败或断连会隔离候选并保留历史，不能将旧程序直接指向可能变化的数据。成功输出 source、run、包/备份哈希和实际验收结果。该部署验收不代替后文的外部浏览器、真实登录及玩法验证。
 
 Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；实现边界见[单命令部署设计](../../scripts/deployment/ecs-preview-deployment.design.md)。
 
@@ -220,3 +220,7 @@ Retain actual trusted main native producer and compatible consumer run/job links
 Inspect the live quota, configured and effective budgets, capacity basis, complete usage across all refs/families, measured archive bytes and conservative outer upload bound. A live positive integer quota is converted conservatively to decimal bytes. Only recognized quota-access denial without rate limiting may use an explicitly configured, independently verified repository budget; the report must still identify the live quota as unknown. Other quota failures, an absent verified fallback or insufficient capacity skip saving without changing settings or deleting caches. See the [capacity policy and configuration source](../ci/ci-tiered-execution.design.md#ecs-workspace-artifact-cache). Concurrent writers and later dependency-cache post-job saves can change capacity after this point-in-time guard, so it does not reserve space atomically.
 
 Candidate native jobs run archive/capacity preview with `save=false`. Confirm actual trusted main uploads through the separate `observe-save` report and a subsequent compatible consumer; preview, a successful action or local tests alone do not establish cross-run reuse. Record pending remote evidence explicitly.
+
+### 备份轮换与清理
+
+正式备份、增量恢复链、旧 release 与安装缓存分别处理。远端优先保留最近一次已验证的部署前备份和仍被引用的回滚版本；旧备份连同基线、增量及恢复记录完整迁移到私有备份目录，逐文件 SHA256 比对、落盘并复读验证后，才能释放对应远端文件。恢复链依赖未核实前不拆删增量或旧世界副本。正在运行、配置或 symlink 引用的版本保留；无引用的安装缓存和已结束用途的诊断临时输出才可清理。部署入口不自动删除身份未知的历史备份，也不以省空间为由省略本轮一致备份。

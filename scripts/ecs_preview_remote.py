@@ -38,6 +38,7 @@ MAX_TAR_MEMBERS = 100_000
 MAX_CHUNK_BYTES = 1024 * 1024
 MIN_FREE_BYTES = 528 * 1024**2
 TRANSFER_TIMEOUT_SECONDS = 30 * 60
+BACKUP_ESTIMATE_TIMEOUT_SECONDS = 5 * 60
 SERVICE_TIMEOUT_SECONDS = 90
 SERVICE_START_TIMEOUT_SECONDS = 15
 WORLD_READ_TIMEOUT_SECONDS = 15
@@ -158,7 +159,7 @@ def _validate_config(raw: object) -> dict:
         "player_service", "backup_paths", "public_origin", "launcher_http_port",
         "nginx_include", "probe",
     }
-    optional = {"controller_lock", "unit_dir"}
+    optional = {"controller_lock", "unit_dir", "backup_mode"}
     if not required.issubset(raw) or set(raw) - required - optional:
         raise RemoteError("config_invalid")
     config = dict(raw)
@@ -221,6 +222,15 @@ def _validate_config(raw: object) -> dict:
            for path in required_backup):
         raise RemoteError("backup_paths_incomplete")
     config["backup_paths"] = normalized
+    backup_mode = raw.get("backup_mode", "remote")
+    if backup_mode not in ("remote", "local"):
+        raise RemoteError("config_invalid")
+    config["backup_mode"] = backup_mode
+    if backup_mode == "remote" and any(
+        config["ops_root"] == backup or backup in config["ops_root"].parents
+        for backup in normalized
+    ):
+        raise RemoteError("backup_ops_root_nested")
     return config
 
 
@@ -453,6 +463,8 @@ class Engine:
         self.backup_digest = ""
         self.backup_bytes = 0
         self.max_backup_bytes = 0
+        self.backup_estimate_bytes = 0
+        self.remote_archive: Path | None = None
         self.backup_verified = False
         self.units_changed = False
         self.writer_boundary = False
@@ -512,11 +524,73 @@ class Engine:
         except OSError:
             raise RemoteError("disk_space_unknown") from None
 
-    def _require_reserve(self, extra: int = 0) -> None:
-        if extra < 0 or extra > MAX_EXPANDED_BYTES:
+    @staticmethod
+    def _existing_parent(path: Path) -> Path:
+        current = path
+        while not current.exists():
+            parent = current.parent
+            if parent == current:
+                raise RemoteError("disk_space_unknown")
+            current = parent
+        return current
+
+    def _require_capacity_at(self, path: Path, extra: int) -> None:
+        if (type(extra) is not int or extra < 0
+                or extra > MAX_EXPANDED_BYTES + MAX_BACKUP_BYTES):
             raise RemoteError("disk_space_unknown")
-        if self._space(self.config["release_root"]) < MIN_FREE_BYTES + extra:
+        if self._space(path) < MIN_FREE_BYTES + extra:
             raise RemoteError("disk_reserve")
+
+    def _require_deployment_capacity(self, expanded_bytes: int, backup_bytes: int) -> None:
+        if (type(expanded_bytes) is not int or not 0 <= expanded_bytes <= MAX_EXPANDED_BYTES
+                or type(backup_bytes) is not int or not 0 <= backup_bytes <= MAX_BACKUP_BYTES):
+            raise RemoteError("disk_space_unknown")
+        release_root = self.config["release_root"]
+        ops_root = self._existing_parent(self.config["ops_root"])
+        try:
+            same_filesystem = release_root.stat().st_dev == ops_root.stat().st_dev
+        except OSError:
+            raise RemoteError("disk_space_unknown") from None
+        if same_filesystem:
+            self._require_capacity_at(release_root, expanded_bytes + backup_bytes)
+        else:
+            self._require_capacity_at(release_root, expanded_bytes)
+            self._require_capacity_at(ops_root, backup_bytes)
+
+    def _measure_backup_source_bytes(self) -> int:
+        paths = self.config["backup_paths"]
+        argv = ["du", "--summarize", "--apparent-size", "--count-links",
+                "--block-size=1", "--null", "--",
+                *(str(path) for path in paths)]
+        try:
+            output = self._run(argv, timeout=BACKUP_ESTIMATE_TIMEOUT_SECONDS)
+        except RemoteError:
+            raise RemoteError("backup_estimate_failed") from None
+        expected = {os.fsencode(path) for path in paths}
+        seen: set[bytes] = set()
+        total = 0
+        records = output.split(b"\0")
+        if records and records[-1] == b"":
+            records.pop()
+        if len(records) != len(expected):
+            raise RemoteError("backup_estimate_invalid")
+        for record in records:
+            size_raw, separator, name = record.partition(b"\t")
+            if not separator or not size_raw.isdecimal() or name not in expected or name in seen:
+                raise RemoteError("backup_estimate_invalid")
+            size = int(size_raw)
+            total += size
+            if total > MAX_BACKUP_BYTES:
+                raise RemoteError("backup_limit_exceeded")
+            seen.add(name)
+        if seen != expected:
+            raise RemoteError("backup_estimate_invalid")
+        return total
+
+    def _require_reserve(self, extra: int = 0) -> None:
+        if type(extra) is not int or extra < 0 or extra > MAX_EXPANDED_BYTES:
+            raise RemoteError("disk_space_unknown")
+        self._require_capacity_at(self.config["release_root"], extra)
 
     def _acquire_lock(self, path: Path) -> None:
         flags = os.O_RDWR | os.O_CREAT
@@ -697,7 +771,12 @@ class Engine:
                 locks.append(self.config["controller_lock"])
             for path in locks:
                 self._acquire_lock(path)
-            self._require_reserve(self.archive_meta["expanded_bytes"])
+            if self.config["backup_mode"] == "remote":
+                self.backup_estimate_bytes = self._measure_backup_source_bytes()
+                self._require_deployment_capacity(
+                    self.archive_meta["expanded_bytes"], self.backup_estimate_bytes)
+            else:
+                self._require_reserve(self.archive_meta["expanded_bytes"])
             self._preflight_probe()
             self._create_operation_dir()
             self._snapshot_services()
@@ -705,6 +784,8 @@ class Engine:
                 "source": self.source,
                 "run_id": self.run_id,
                 "release": str(self.release),
+                "backup_mode": self.config["backup_mode"],
+                "backup_estimate_bytes": self.backup_estimate_bytes,
                 "archive_sha256": self.archive_meta["sha256"],
                 "archive_bytes": self.archive_meta["bytes"],
                 "started_unix": int(time.time()),
@@ -912,7 +993,11 @@ class Engine:
         if (type(count) is not int or not isinstance(digest, str)
                 or count != self.archive_meta["bytes"] or digest != self.archive_meta["sha256"]):
             raise RemoteError("archive_metadata_mismatch")
-        self._require_reserve(self.archive_meta["expanded_bytes"])
+        if self.config["backup_mode"] == "remote":
+            self._require_deployment_capacity(
+                self.archive_meta["expanded_bytes"], self.backup_estimate_bytes)
+        else:
+            self._require_reserve(self.archive_meta["expanded_bytes"])
         staging = self.config["release_root"] / (".staging-" + self.source + "-" + str(os.getpid()))
         try:
             staging.mkdir(mode=0o700)
@@ -932,7 +1017,10 @@ class Engine:
                     if path.lstat().st_uid != 0:
                         raise RemoteError("package_owner_invalid")
             os.chmod(staging, 0o755)
-            self._require_reserve()
+            if self.config["backup_mode"] == "remote":
+                self._require_deployment_capacity(0, self.backup_estimate_bytes)
+            else:
+                self._require_reserve()
             if self.release.exists():
                 if not self.release.is_dir() or self.release.is_symlink():
                     raise RemoteError("release_conflict")
@@ -944,7 +1032,10 @@ class Engine:
                 _fsync_tree_directories(staging)
                 os.replace(staging, self.release)
                 self._fsync_dir(self.config["release_root"])
-            self._require_reserve()
+            if self.config["backup_mode"] == "remote":
+                self._require_deployment_capacity(0, self.backup_estimate_bytes)
+            else:
+                self._require_reserve()
         except BaseException:
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
@@ -959,12 +1050,35 @@ class Engine:
         if type(limit) is not int or not 1 <= limit <= MAX_BACKUP_BYTES:
             raise RemoteError("backup_limit_invalid")
         self.max_backup_bytes = limit
-        self._require_reserve()
+        remote_mode = self.config["backup_mode"] == "remote"
+        if remote_mode:
+            self.backup_estimate_bytes = self._measure_backup_source_bytes()
+            if self.backup_estimate_bytes > limit:
+                raise RemoteError("backup_limit_exceeded")
+            self._require_deployment_capacity(0, self.backup_estimate_bytes)
+        else:
+            self._require_reserve()
         self.stage = "stop_old_services"
         self._systemctl("stop", self.config["player_service"], timeout=SERVICE_TIMEOUT_SECONDS)
         self._systemctl("stop", self.config["chain_service"], timeout=SERVICE_TIMEOUT_SECONDS)
         self._assert_stopped()
         self.phase = "stopped"
+        if remote_mode:
+            self.backup_estimate_bytes = self._measure_backup_source_bytes()
+            if self.backup_estimate_bytes > limit:
+                raise RemoteError("backup_limit_exceeded")
+            self._require_deployment_capacity(0, self.backup_estimate_bytes)
+            self.stage = "write_remote_backup"
+            count, digest = self._write_remote_backup(limit)
+            self._require_deployment_capacity(0, 0)
+            self.backup_bytes = count
+            self.backup_digest = digest
+            self.phase = "backup_streamed"
+            self.stage = "backup_streamed"
+            response = {"ok": True, "stream": False, "bytes": count,
+                        "sha256": digest, "remote_archive": str(self.remote_archive)}
+            self._json_line(response)
+            return {key: value for key, value in response.items() if key != "ok"}
         self._json_line({"ok": True, "stream": True, "format": "u32be-chunks-v1", "chunk_max": MAX_CHUNK_BYTES})
         self.stage = "stream_backup"
         relative = [path.relative_to("/").as_posix() for path in self.config["backup_paths"]]
@@ -1023,6 +1137,127 @@ class Engine:
         self._json_line({"ok": True, "bytes": count, "sha256": self.backup_digest})
         return {"bytes": count, "sha256": self.backup_digest}
 
+    def _write_remote_backup(self, limit: int) -> tuple[int, str]:
+        if self.operation_dir is None:
+            raise RemoteError("backup_path_invalid")
+        partial_path = self.operation_dir / "world-backup.tar.gz.partial"
+        archive_path = self.operation_dir / "world-backup.tar.gz"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(partial_path, flags, 0o600)
+        except OSError:
+            raise RemoteError("backup_archive_create_failed") from None
+        process = None
+        digest = hashlib.sha256()
+        count = 0
+        error: BaseException | None = None
+        try:
+            if self.enforce_root:
+                os.fchown(fd, 0, 0)
+            os.fchmod(fd, 0o600)
+            relative = [source.relative_to("/").as_posix() for source in self.config["backup_paths"]]
+            argv = ["tar", "--create", "--gzip", "--file=-", "--format=pax", "--acls",
+                    "--xattrs", "--numeric-owner", "--directory=/", "--", *relative]
+            process = self.popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if process.stdout is None:
+                raise RemoteError("backup_archive_failed")
+            while True:
+                block = process.stdout.read(MAX_CHUNK_BYTES)
+                if not block:
+                    break
+                if count + len(block) > min(limit, MAX_BACKUP_BYTES):
+                    raise RemoteError("backup_limit_exceeded")
+                _write_all(fd, block)
+                digest.update(block)
+                count += len(block)
+            code = process.wait(timeout=TRANSFER_TIMEOUT_SECONDS)
+            if code != 0:
+                raise RemoteError("backup_archive_failed")
+            self._assert_stopped()
+            os.fsync(fd)
+            os.close(fd)
+            fd = -1
+            self._fsync_dir(self.operation_dir)
+            actual_digest = hashlib.sha256()
+            actual_count = 0
+            read_flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                read_flags |= os.O_NOFOLLOW
+            read_fd = os.open(partial_path, read_flags)
+            try:
+                metadata = os.fstat(read_fd)
+                path_metadata = partial_path.lstat()
+                if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+                        or (metadata.st_dev, metadata.st_ino) !=
+                        (path_metadata.st_dev, path_metadata.st_ino)
+                        or stat.S_IMODE(metadata.st_mode) != 0o600
+                        or (self.enforce_root and metadata.st_uid != 0)):
+                    raise RemoteError("backup_archive_invalid")
+                while True:
+                    block = os.read(read_fd, MAX_CHUNK_BYTES)
+                    if not block:
+                        break
+                    actual_count += len(block)
+                    if actual_count > min(limit, MAX_BACKUP_BYTES):
+                        raise RemoteError("backup_limit_exceeded")
+                    actual_digest.update(block)
+            finally:
+                os.close(read_fd)
+            if actual_count != count or actual_digest.hexdigest() != digest.hexdigest():
+                raise RemoteError("backup_digest_mismatch")
+            try:
+                os.link(partial_path, archive_path, follow_symlinks=False)
+            except FileExistsError:
+                raise RemoteError("backup_archive_exists") from None
+            except OSError:
+                raise RemoteError("backup_archive_publish_failed") from None
+            partial_path.unlink()
+            self._fsync_dir(self.operation_dir)
+            published = archive_path.lstat()
+            if (not stat.S_ISREG(published.st_mode) or published.st_nlink != 1
+                    or stat.S_IMODE(published.st_mode) != 0o600
+                    or (self.enforce_root and published.st_uid != 0)):
+                raise RemoteError("backup_archive_invalid")
+        except BaseException as caught:
+            error = caught
+        finally:
+            if process is not None:
+                try:
+                    if process.stdout is not None:
+                        process.stdout.close()
+                except OSError:
+                    pass
+                if process.poll() is None:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=10)
+                    except (OSError, subprocess.TimeoutExpired):
+                        try:
+                            process.kill()
+                            process.wait(timeout=10)
+                        except (OSError, subprocess.TimeoutExpired):
+                            pass
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        if error is not None:
+            try:
+                partial_path.unlink(missing_ok=True)
+                self._fsync_dir(self.operation_dir)
+            except OSError:
+                raise RemoteError("backup_archive_cleanup_failed") from None
+            if isinstance(error, RemoteError):
+                raise error
+            raise RemoteError("backup_archive_failed") from None
+        if not 0 < count <= MAX_BACKUP_BYTES:
+            raise RemoteError("backup_archive_invalid")
+        self.remote_archive = archive_path
+        return count, digest.hexdigest()
+
     def _compare_backup(self, request: dict) -> dict:
         if self.phase != "backup_streamed":
             raise RemoteError("protocol_state")
@@ -1031,6 +1266,12 @@ class Engine:
                 or size != self.backup_bytes or digest != self.backup_digest):
             raise RemoteError("backup_metadata_mismatch")
         self._assert_stopped()
+        if self.config["backup_mode"] == "remote":
+            if request.get("remote") is not True:
+                raise RemoteError("backup_metadata_mismatch")
+            return self._compare_remote_backup(size, digest)
+        if "remote" in request:
+            raise RemoteError("backup_metadata_mismatch")
         argv = ["tar", "--compare", "--gzip", "--acls", "--xattrs", "--numeric-owner",
                 "--file=-", "--directory=/"]
         try:
@@ -1078,6 +1319,73 @@ class Engine:
         self.phase = "backup_verified"
         self._record("backup.json", {"bytes": size, "sha256": digest, "tar_compare_verified": True})
         return {"bytes": size, "sha256": digest, "tar_compare_verified": True}
+
+    def _compare_remote_backup(self, size: int, digest: str) -> dict:
+        if self.operation_dir is None:
+            raise RemoteError("backup_path_invalid")
+        expected_path = self.operation_dir / "world-backup.tar.gz"
+        partial_path = self.operation_dir / "world-backup.tar.gz.partial"
+        if self.remote_archive != expected_path or os.path.lexists(partial_path):
+            raise RemoteError("backup_archive_incomplete")
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            fd = os.open(expected_path, flags)
+        except OSError:
+            raise RemoteError("backup_archive_unavailable") from None
+        try:
+            metadata = os.fstat(fd)
+            path_metadata = expected_path.lstat()
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+                    or (metadata.st_dev, metadata.st_ino) !=
+                    (path_metadata.st_dev, path_metadata.st_ino)
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or (self.enforce_root and metadata.st_uid != 0)
+                    or metadata.st_size != size or not 0 < size <= self.max_backup_bytes):
+                raise RemoteError("backup_archive_invalid")
+            actual_digest = hashlib.sha256()
+            actual_size = 0
+            while True:
+                block = os.read(fd, MAX_CHUNK_BYTES)
+                if not block:
+                    break
+                actual_size += len(block)
+                if actual_size > size:
+                    raise RemoteError("backup_archive_invalid")
+                actual_digest.update(block)
+            if actual_size != size or actual_digest.hexdigest() != digest:
+                raise RemoteError("backup_digest_mismatch")
+        except OSError:
+            raise RemoteError("backup_archive_unavailable") from None
+        finally:
+            os.close(fd)
+        argv = ["tar", "--compare", "--gzip", "--acls", "--xattrs", "--numeric-owner",
+                "--file=" + str(expected_path), "--directory=/"]
+        try:
+            process = self.popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            raise RemoteError("backup_compare_failed") from None
+        try:
+            code = process.wait(timeout=TRANSFER_TIMEOUT_SECONDS)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                process.kill()
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            raise RemoteError("backup_compare_failed") from None
+        if code != 0:
+            raise RemoteError("backup_compare_mismatch")
+        self._assert_stopped()
+        self.backup_verified = True
+        self.phase = "backup_verified"
+        self._record("backup.json", {
+            "bytes": size, "sha256": digest, "tar_compare_verified": True,
+            "backup_mode": "remote", "remote_archive": str(expected_path),
+        })
+        return {"bytes": size, "sha256": digest, "tar_compare_verified": True,
+                "remote_archive": str(expected_path)}
 
     def _assert_stopped(self) -> None:
         for service in (self.config["player_service"], self.config["chain_service"]):
@@ -1517,7 +1825,12 @@ class Engine:
                 raise RemoteError("request_invalid")
             return self._begin_backup(request), False
         if op == "compare":
-            if set(request) != {"op", "bytes", "sha256"}:
+            if self.config is None:
+                raise RemoteError("protocol_state")
+            if self.config["backup_mode"] == "remote":
+                if set(request) != {"op", "bytes", "sha256", "remote"} or request.get("remote") is not True:
+                    raise RemoteError("request_invalid")
+            elif set(request) != {"op", "bytes", "sha256"}:
                 raise RemoteError("request_invalid")
             return self._compare_backup(request), False
         if op == "switch":
