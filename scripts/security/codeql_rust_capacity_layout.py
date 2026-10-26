@@ -13,6 +13,7 @@ import time
 
 
 TOOL_FILES = (
+    'codeql_rust_cfg_graph.py',
     'codeql-rust-capacity.py',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',
