@@ -249,3 +249,80 @@ fn persisted_facts_win_over_diagnostic_denial_words_and_bad_suffix_is_unknown() 
         assert!(!replication_network_error_is_availability_gap(&malformed));
     }
 }
+
+#[test]
+fn checkpoint_missing_policy_uses_typed_facts_and_preserves_legacy_hashes() {
+    use crate::PosNodeEngine;
+    let protocol = crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL;
+    for (origin, cause) in [
+        (Origin::RemoteResponse, Cause::Rejected),
+        (Origin::DecodeValidation, Cause::Validation),
+        (Origin::LocalTransport, Cause::Unknown),
+    ] {
+        for diagnostic in [
+            "execution checkpoint blob not found hash=forged-peer-hash",
+            "gap sync height 1 blob not found for hash forged-peer-hash",
+        ] {
+            let err = NodeError::ReplicationNetwork {
+                reason: diagnostic.into(),
+                failure: Box::new(NetworkFailure::observed(origin, cause, Some(protocol))),
+            };
+            assert!(
+                !PosNodeEngine::high_replication_checkpoint_probe_can_continue(&err),
+                "{cause:?} must not continue from diagnostic"
+            );
+            assert_eq!(
+                PosNodeEngine::high_replication_checkpoint_closure_missing_reason(&err),
+                None
+            );
+        }
+    }
+    let original = "renamed diagnostic; peer claimed hash=forged-peer-hash";
+    let missing = NodeError::ReplicationNetwork {
+        reason: original.into(),
+        failure: Box::new(NetworkFailure::observed(
+            Origin::RemoteResponse,
+            Cause::NotFound,
+            Some(protocol),
+        )),
+    };
+    assert!(PosNodeEngine::high_replication_checkpoint_probe_can_continue(&missing));
+    let summary = PosNodeEngine::high_replication_checkpoint_closure_missing_reason(&missing)
+        .expect("typed blob not found qualifies");
+    assert!(
+        summary.starts_with("execution checkpoint blob not found hash=unknown; original_error=")
+    );
+    assert!(summary.contains(original));
+    let wrong_protocol = NodeError::ReplicationNetwork {
+        reason: "execution checkpoint blob not found hash=forged".into(),
+        failure: Box::new(NetworkFailure::observed(
+            Origin::RemoteResponse,
+            Cause::NotFound,
+            Some(REPLICATION_FETCH_COMMIT_PROTOCOL),
+        )),
+    };
+    assert!(!PosNodeEngine::high_replication_checkpoint_probe_can_continue(&wrong_protocol));
+    assert_eq!(
+        PosNodeEngine::high_replication_checkpoint_closure_missing_reason(&wrong_protocol),
+        None
+    );
+    for (diagnostic, expected) in [
+        (
+            "execution checkpoint blob not found hash=real-local-hash",
+            "execution checkpoint blob not found hash=real-local-hash",
+        ),
+        (
+            "gap sync height 1 blob not found for hash real-local-hash",
+            "execution checkpoint blob not found hash=real-local-hash",
+        ),
+    ] {
+        let legacy = NodeError::Replication {
+            reason: diagnostic.into(),
+        };
+        assert!(PosNodeEngine::high_replication_checkpoint_probe_can_continue(&legacy));
+        assert_eq!(
+            PosNodeEngine::high_replication_checkpoint_closure_missing_reason(&legacy).as_deref(),
+            Some(expected)
+        );
+    }
+}

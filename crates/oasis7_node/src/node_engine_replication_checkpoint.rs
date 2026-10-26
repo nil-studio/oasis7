@@ -556,9 +556,6 @@ impl PosNodeEngine {
     }
 
     pub(super) fn high_replication_checkpoint_probe_can_continue(err: &NodeError) -> bool {
-        let Some(reason) = err.replication_reason() else {
-            return false;
-        };
         let fetch_commit_route_error =
             crate::network_bridge::replication_network_error_is_protocol_unavailable(
                 err,
@@ -567,33 +564,37 @@ impl PosNodeEngine {
                 err,
                 REPLICATION_FETCH_COMMIT_PROTOCOL,
             );
-        let checkpoint_blob_missing = reason.contains("execution checkpoint blob not found hash=")
-            || (reason.contains("gap sync height ")
-                && reason.contains(" blob not found for hash "));
-        fetch_commit_route_error
-            || checkpoint_blob_missing
+        let checkpoint_blob_missing = match err {
+            NodeError::ReplicationNetwork { .. } => Self::typed_checkpoint_blob_not_found(err),
+            NodeError::Replication { reason } => {
+                crate::network_error_legacy::checkpoint_blob_missing_reason(reason).is_some()
+            }
+            _ => false,
+        };
+        fetch_commit_route_error || checkpoint_blob_missing
             || crate::node_engine_replication_provider_route::replication_gap_sync_fetch_blob_rate_limited(err)
+    }
+
+    fn typed_checkpoint_blob_not_found(err: &NodeError) -> bool {
+        let facts = crate::network_error_classification::replication_network_failure(err);
+        facts.cause == oasis7_proto::network_failure::FailureCause::NotFound
+            && facts.matches_protocol(crate::replication::REPLICATION_FETCH_BLOB_PROTOCOL)
     }
 
     pub(super) fn high_replication_checkpoint_closure_missing_reason(
         err: &NodeError,
     ) -> Option<String> {
-        let Some(reason) = err.replication_reason() else {
-            return None;
-        };
-        if reason.contains("execution checkpoint blob not found hash=") {
-            return Some(reason.to_owned());
+        match err {
+            NodeError::ReplicationNetwork { .. } if Self::typed_checkpoint_blob_not_found(err) => {
+                Some(format!(
+                    "execution checkpoint blob not found hash=unknown; original_error={err}"
+                ))
+            }
+            NodeError::Replication { reason } => {
+                crate::network_error_legacy::checkpoint_blob_missing_reason(reason)
+            }
+            _ => None,
         }
-        if reason.contains("gap sync height ") && reason.contains(" blob not found for hash ") {
-            let content_hash = reason
-                .rsplit_once(" hash ")
-                .map(|(_, content_hash)| content_hash)
-                .unwrap_or("unknown");
-            return Some(format!(
-                "execution checkpoint blob not found hash={content_hash}"
-            ));
-        }
-        None
     }
 
     pub(super) fn replication_gap_sync_fetch_blob_rate_limited_in_cooldown(

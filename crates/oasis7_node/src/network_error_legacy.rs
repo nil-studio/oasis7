@@ -232,3 +232,21 @@ fn mentions_exact_protocol(reason: &str, protocol: &str) -> bool {
                 .is_none_or(|ch| ch.is_whitespace() || matches!(ch, '\"' | ',' | '}'))
     })
 }
+
+/// Old local domain errors carry a precise blob hash in their established diagnostic shape.
+/// Callers must not pass ReplicationNetwork diagnostics through this boundary.
+pub(crate) fn checkpoint_blob_missing_reason(reason: &str) -> Option<String> {
+    if reason.contains("execution checkpoint blob not found hash=") {
+        return Some(reason.to_owned());
+    }
+    if reason.contains("gap sync height ") && reason.contains(" blob not found for hash ") {
+        let content_hash = reason
+            .rsplit_once(" hash ")
+            .map(|(_, content_hash)| content_hash)
+            .unwrap_or("unknown");
+        return Some(format!(
+            "execution checkpoint blob not found hash={content_hash}"
+        ));
+    }
+    None
+}
