@@ -241,11 +241,11 @@ This contract consumes current governance grant and ownership-transfer sources; 
 
 
 <a id="owner-delegation-result-replay-contract"></a>
-### 6.0 本地 owner delegation 的结果、重试与 profile（目标接口）
+### 6.0 本地 owner delegation 的结果、重试与 profile
 
 Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad；承接 [REQ-AGENT-AUTH-001](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) 及 DES-WR-IA-010 的同一授权/预算责任，不新增玩家权限或产品动作。本节只收敛 install/revoke 用例；memory correction、task fence、signer delegation、interrupt/override 的既有接口及 effect-time 重验不借此重构。
 
-**现状与 owner。** 当前 [`owner_control_admission.rs`](../../../crates/oasis7_runtime/src/world/owner_control_admission.rs) 的 signed mutation 返回 `Result<(), WorldError>`；Viewer 在 [`agent_memory_correction.rs`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/agent_memory_correction.rs) 自行构造 grant 并裁决新/旧 nonce 的历史匹配。下述 typed result/read 接缝尚待实现。目标由现有 Runtime owner-control 模块唯一拥有 command→grant、同 ID equality、scope reservation、revision transition 和 exact-replay matching；Viewer 只拥有入口 profile、transport、session/nonce/write-fence 及既有 JSON/error 映射。列表读取可用于显示，不得用于 Viewer 再裁决 mutation。无需新增 crate、服务、账本或通用 capability registry。
+**现状与 owner。** [`owner_control_admission.rs`](../../../crates/oasis7_runtime/src/world/owner_control_admission.rs) 负责完整 signed request 与当前 host/owner 认证；[`owner_delegation_control.rs`](../../../crates/oasis7_runtime/src/world/owner_delegation_control.rs) 实现下述 typed result/read 接缝，并唯一拥有 command→grant、同 ID equality、scope reservation、revision transition 和 exact-replay matching。[`agent_memory_correction.rs`](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/agent_memory_correction.rs) 消费该结果，只拥有入口 profile、transport、session/nonce/write-fence 及既有 JSON/error 映射。列表读取可用于显示，不得用于 Viewer 再裁决 mutation。无需新增 crate、服务、账本或通用 capability registry。
 
 | 目标进程内接口（名称示意） | 输入/返回 | 行为与权限 |
 | --- | --- | --- |

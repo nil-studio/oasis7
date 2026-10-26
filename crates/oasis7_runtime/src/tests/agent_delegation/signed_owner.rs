@@ -389,3 +389,198 @@ fn signed_replaced_recipe_grant_survives_restore_and_only_debits_replacement_onc
         8
     );
 }
+
+#[test]
+fn signed_delegation_typed_outcome_and_readonly_replay_share_identity() {
+    let mut world = fixture();
+    let host = registry();
+    let signed = request(install(), 1);
+    let before = serde_json::to_vec(&world).unwrap();
+    assert_eq!(
+        world
+            .signed_delegation_control_replay(&signed, &host)
+            .unwrap(),
+        DelegationReplayMatch::NoMatch
+    );
+    assert_eq!(serde_json::to_vec(&world).unwrap(), before);
+    let applied = world
+        .apply_signed_delegation_control(&signed, &host)
+        .unwrap();
+    assert_eq!(applied.operation, DelegationControlOperation::Install);
+    assert_eq!(applied.disposition, DelegationControlDisposition::Applied);
+    assert_eq!(applied.authorization.grant, grant());
+    let after = serde_json::to_vec(&world).unwrap();
+    assert_eq!(
+        world
+            .signed_delegation_control_replay(&signed, &host)
+            .unwrap(),
+        DelegationReplayMatch::ExactReplay(applied.authorization.clone())
+    );
+    let replay = world
+        .apply_signed_delegation_control(&signed, &host)
+        .unwrap();
+    assert_eq!(
+        replay.disposition,
+        DelegationControlDisposition::ExactReplay
+    );
+    assert_eq!(serde_json::to_vec(&world).unwrap(), after);
+}
+
+#[test]
+fn delegation_readonly_replay_reauthenticates_and_preserves_action_order_and_source() {
+    let mut world = fixture();
+    let host = registry();
+    let mut command = install();
+    if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &mut command {
+        *action_kinds = vec!["MoveAgent".into(), "TransferMaterial".into()];
+    }
+    let signed = request(command.clone(), 1);
+    world
+        .apply_signed_delegation_control(&signed, &host)
+        .unwrap();
+    let baseline = serde_json::to_vec(&world).unwrap();
+    let calls = host.calls.get();
+    assert!(matches!(
+        world
+            .signed_delegation_control_replay(&signed, &host)
+            .unwrap(),
+        DelegationReplayMatch::ExactReplay(_)
+    ));
+    assert_eq!(host.calls.get(), calls + 1);
+    for field in [
+        "request", "player", "key", "agent", "world", "epoch", "command",
+    ] {
+        let mut tampered = signed.clone();
+        match field {
+            "request" => tampered.request_id.push('x'),
+            "player" => tampered.player_id.push('x'),
+            "key" => tampered.public_key = "00".repeat(32),
+            "agent" => tampered.agent_id.push('x'),
+            "world" => tampered.world_id.push('x'),
+            "epoch" => tampered.reorg_epoch += 1,
+            "command" => {
+                if let AgencyControlOperation::InstallDelegation { limit_units, .. } =
+                    &mut tampered.command
+                {
+                    *limit_units += 1;
+                }
+            }
+            _ => unreachable!(),
+        }
+        let calls = host.calls.get();
+        assert_eq!(
+            world
+                .signed_delegation_control_replay(&tampered, &host)
+                .unwrap_err()
+                .stage,
+            DelegationControlStage::Authentication,
+            "{field}"
+        );
+        assert_eq!(host.calls.get(), calls, "signature before host: {field}");
+    }
+    let rejected_host = Registry {
+        public: "rotated-key".into(),
+        calls: Cell::new(0),
+    };
+    assert_eq!(
+        world
+            .signed_delegation_control_replay(&signed, &rejected_host)
+            .unwrap_err()
+            .stage,
+        DelegationControlStage::Authentication
+    );
+    if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &mut command {
+        action_kinds.reverse();
+    }
+    let reordered = request(command, 2);
+    assert_eq!(
+        world
+            .signed_delegation_control_replay(&reordered, &host)
+            .unwrap(),
+        DelegationReplayMatch::IdentityConflict
+    );
+    assert_eq!(
+        world
+            .apply_signed_delegation_control(&reordered, &host)
+            .unwrap_err()
+            .stage,
+        DelegationControlStage::Identity
+    );
+    assert_eq!(serde_json::to_vec(&world).unwrap(), baseline);
+    let mut snapshot = world.snapshot();
+    snapshot
+        .state
+        .starter_oc_claims
+        .get_mut(AGENT_ID)
+        .unwrap()
+        .claimed_at += 1;
+    let changed_source = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    assert_eq!(
+        changed_source
+            .signed_delegation_control_replay(&signed, &host)
+            .unwrap(),
+        DelegationReplayMatch::IdentityConflict
+    );
+    let mut snapshot = world.snapshot();
+    snapshot
+        .state
+        .starter_oc_claims
+        .get_mut(AGENT_ID)
+        .unwrap()
+        .player_id = "new-owner".into();
+    let changed_owner = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    assert_eq!(
+        changed_owner
+            .signed_delegation_control_replay(&signed, &host)
+            .unwrap_err()
+            .stage,
+        DelegationControlStage::Authentication
+    );
+}
+
+#[test]
+fn delegation_signed_runtime_profile_does_not_inherit_storage_actions() {
+    for (kind, allowed) in [("WorldRule", true), ("BuildFactory", false)] {
+        let mut world = fixture();
+        let mut command = install();
+        if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &mut command {
+            *action_kinds = vec![kind.into()];
+        }
+        let result = world.apply_signed_delegation_control(&request(command, 1), &registry());
+        if allowed {
+            assert_eq!(result.unwrap().authorization.grant.action_kinds, vec![kind]);
+        } else {
+            assert_eq!(result.unwrap_err().stage, DelegationControlStage::Scope);
+        }
+    }
+}
+
+#[test]
+fn delegation_revoke_exact_replay_preserves_saturating_revision_boundary() {
+    let mut world = fixture();
+    let mut old = grant();
+    old.revision = u64::MAX;
+    old.revoked = true;
+    world.install_agent_delegation_grant(old.clone()).unwrap();
+    let command = AgencyControlOperation::RevokeDelegation {
+        grant_id: old.grant_id.clone(),
+        expected_revision: u64::MAX,
+    };
+    let signed = request(command, 1);
+    let before = serde_json::to_vec(&world).unwrap();
+    let outcome = world
+        .apply_signed_delegation_control(&signed, &registry())
+        .unwrap();
+    assert_eq!(
+        outcome.disposition,
+        DelegationControlDisposition::ExactReplay
+    );
+    assert_eq!(outcome.authorization.grant, old);
+    assert_eq!(
+        world
+            .signed_delegation_control_replay(&signed, &registry())
+            .unwrap(),
+        DelegationReplayMatch::ExactReplay(outcome.authorization)
+    );
+    assert_eq!(serde_json::to_vec(&world).unwrap(), before);
+}

@@ -192,6 +192,21 @@ impl World {
         Ok(())
     }
 
+    pub(super) fn install_agent_delegation_with_authorization(
+        &mut self,
+        grant: AgentDelegationGrantV1,
+    ) -> Result<AgentDelegationAuthorizationV1, WorldError> {
+        let mut transaction = self.clone();
+        transaction.install_agent_delegation_grant_inner(grant.clone())?;
+        // Project before persistence/publication: projection failure cannot turn a
+        // successfully published mutation into an error.
+        let authorization =
+            transaction.delegation_authorization(&transaction.delegation_ledger()?, &grant)?;
+        transaction.persist_runtime_transaction_if_configured()?;
+        *self = transaction;
+        Ok(authorization)
+    }
+
     fn install_agent_delegation_grant_inner(
         &mut self,
         grant: AgentDelegationGrantV1,
@@ -748,6 +763,23 @@ impl World {
         .map_err(|_| denied("native_authority_digest_unavailable"))
     }
 
+    fn delegation_authorization(
+        &self,
+        ledger: &Ledger,
+        grant: &AgentDelegationGrantV1,
+    ) -> Result<AgentDelegationAuthorizationV1, WorldError> {
+        let spent = *ledger.spent.get(&budget_key(grant)?).unwrap_or(&0);
+        Ok(AgentDelegationAuthorizationV1 {
+            grant: grant.clone(),
+            cost_units: 0,
+            spent_units: spent,
+            remaining_units: grant
+                .limit_units
+                .checked_sub(spent)
+                .ok_or_else(|| denied("budget_corrupt"))?,
+        })
+    }
+
     pub fn agent_delegation_authorizations(
         &self,
         agent_id: &str,
@@ -757,18 +789,7 @@ impl World {
             .grants
             .values()
             .filter(|g| g.agent_id == agent_id)
-            .map(|grant| {
-                let spent = *ledger.spent.get(&budget_key(grant)?).unwrap_or(&0);
-                Ok(AgentDelegationAuthorizationV1 {
-                    grant: grant.clone(),
-                    cost_units: 0,
-                    spent_units: spent,
-                    remaining_units: grant
-                        .limit_units
-                        .checked_sub(spent)
-                        .ok_or_else(|| denied("budget_corrupt"))?,
-                })
-            })
+            .map(|grant| self.delegation_authorization(&ledger, grant))
             .collect()
     }
 

@@ -1,7 +1,7 @@
 use super::super::agency_control::{
     AgencyControlOperation, AgencyControlRequest, AgencyControlResponse,
 };
-use crate::runtime::{AgentDelegationGrantV1, AgentOwnerControlKindV1, AgentOwnerControlV1};
+use crate::runtime::{AgentOwnerControlKindV1, AgentOwnerControlV1};
 use crate::viewer::ViewerRuntimeLiveServer;
 use crate::viewer::auth::verify_agency_control_auth_proof;
 use serde_json::{Value, json};
@@ -165,7 +165,6 @@ impl ViewerRuntimeLiveServer {
             );
         }
         let owner_id = claim.player_id.clone();
-        let source_id = claim.source_id.clone();
         if let Err(message) = self
             .llm_sidecar
             .validate_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
@@ -175,7 +174,7 @@ impl ViewerRuntimeLiveServer {
             // monotonic and cannot replay a previous signed payload.
             if !matches!(request.command, AgencyControlOperation::Inspect) {
                 return self
-                    .handle_agency_mutation_idempotency(&request, &owner_id, &source_id)
+                    .handle_agency_mutation_idempotency(&request, &owner_id)
                     .unwrap_or_else(|| agency_error(request_id, "auth_nonce_replay", message));
             }
             return agency_error(request_id, "auth_nonce_replay", message);
@@ -198,36 +197,10 @@ impl ViewerRuntimeLiveServer {
                 replacement_summary,
                 &verified,
             ),
-            AgencyControlOperation::InstallDelegation {
-                grant_id,
-                object_id,
-                action_kinds,
-                period_id,
-                valid_from_tick,
-                valid_until_tick,
-                limit_units,
-            } => self.install_agent_delegation_for_owner(
-                &request,
-                &owner_id,
-                &source_id,
-                grant_id,
-                object_id,
-                action_kinds,
-                period_id,
-                valid_from_tick,
-                valid_until_tick,
-                limit_units,
-                &verified,
-            ),
-            AgencyControlOperation::RevokeDelegation {
-                grant_id,
-                expected_revision,
-            } => self.revoke_agent_delegation_for_owner(
-                &request,
-                grant_id,
-                expected_revision,
-                &verified,
-            ),
+            AgencyControlOperation::InstallDelegation { .. }
+            | AgencyControlOperation::RevokeDelegation { .. } => {
+                self.apply_delegation_for_owner(&request, &verified)
+            }
             AgencyControlOperation::OverridePendingIntent {
                 control_id,
                 intent_id,
@@ -267,7 +240,6 @@ impl ViewerRuntimeLiveServer {
         &mut self,
         request: &AgencyControlRequest,
         owner_id: &str,
-        source_id: &str,
     ) -> Option<AgencyControlResponse> {
         match &request.command {
             AgencyControlOperation::CorrectMemory {
@@ -299,43 +271,34 @@ impl ViewerRuntimeLiveServer {
                         )
                     }
                 }),
-            AgencyControlOperation::InstallDelegation { grant_id, .. } => self
-                .world
-                .agent_delegation_authorizations(request.agent_id.as_str())
-                .ok()
-                .and_then(|rows| rows.into_iter().find(|row| row.grant.grant_id == *grant_id))
-                .map(|row| {
-                    let expected = grant_from_request(request, owner_id, source_id);
-                    if expected.is_ok_and(|expected| expected == row.grant) {
-                        AgencyControlResponse::success(
+            AgencyControlOperation::InstallDelegation { .. }
+            | AgencyControlOperation::RevokeDelegation { .. } => {
+                use crate::runtime::{DelegationControlStage, DelegationReplayMatch};
+                match self.world.signed_delegation_control_replay(
+                    request,
+                    &CurrentOwnerAuthority { server: self },
+                ) {
+                    Ok(DelegationReplayMatch::ExactReplay(authorization)) => {
+                        Some(AgencyControlResponse::success(
                             request.request_id.clone(),
-                            json!({"authorization": row, "idempotent_replay": true}),
-                        )
-                    } else {
-                        agency_error(
-                            &request.request_id,
-                            "grant_identity_conflict",
-                            "grant id already belongs to a different payload",
-                        )
+                            json!({"authorization": authorization, "idempotent_replay": true}),
+                        ))
                     }
-                }),
-            AgencyControlOperation::RevokeDelegation {
-                grant_id,
-                expected_revision,
-            } => self
-                .world
-                .agent_delegation_authorizations(request.agent_id.as_str())
-                .ok()
-                .and_then(|rows| rows.into_iter().find(|row| row.grant.grant_id == *grant_id))
-                .and_then(|row| {
-                    (row.grant.revoked && row.grant.revision == expected_revision.saturating_add(1))
-                        .then(|| {
-                            AgencyControlResponse::success(
-                                request.request_id.clone(),
-                                json!({"authorization": row, "idempotent_replay": true}),
-                            )
-                        })
-                }),
+                    Ok(DelegationReplayMatch::IdentityConflict) => Some(agency_error(
+                        &request.request_id,
+                        "grant_identity_conflict",
+                        "grant id already belongs to a different payload",
+                    )),
+                    // Preserve the old nonce branch's read-failure/no-match behavior.
+                    Ok(DelegationReplayMatch::NoMatch) => None,
+                    Err(error) if error.stage == DelegationControlStage::Read => None,
+                    Err(error) => Some(agency_error(
+                        &request.request_id,
+                        "agent_control_forbidden",
+                        format!("{:?}", error.source),
+                    )),
+                }
+            }
             AgencyControlOperation::OverridePendingIntent {
                 control_id,
                 intent_id,
@@ -614,240 +577,69 @@ impl ViewerRuntimeLiveServer {
         )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Keep the exact authenticated owner grant fields explicit at the control boundary"
-    )]
-    fn install_agent_delegation_for_owner(
+    fn apply_delegation_for_owner(
         &mut self,
         request: &AgencyControlRequest,
-        owner_id: &str,
-        source_id: &str,
-        grant_id: String,
-        object_id: String,
-        action_kinds: Vec<String>,
-        period_id: String,
-        valid_from_tick: u64,
-        valid_until_tick: u64,
-        limit_units: u64,
         verified: &crate::viewer::VerifiedPlayerAuth,
     ) -> AgencyControlResponse {
-        if grant_id.trim().is_empty()
-            || object_id.trim().is_empty()
-            || period_id.trim().is_empty()
-            || action_kinds.is_empty()
-            || action_kinds.iter().any(|kind| !action_kind_valid(kind))
-            || action_kinds
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len()
-                != action_kinds.len()
-        {
-            return agency_error(
-                &request.request_id,
-                "grant_scope_invalid",
-                "grant identity, object, period, or action scope is invalid or unsupported",
-            );
-        }
-        let grant = AgentDelegationGrantV1 {
-            grant_id,
-            source_id: source_id.to_string(),
-            issuer_id: owner_id.to_string(),
-            owner_id: owner_id.to_string(),
-            organization_id: None,
-            agent_id: request.agent_id.clone(),
-            object_id,
-            action_kinds,
-            revision: 1,
-            period_id,
-            valid_from_tick,
-            valid_until_tick,
-            limit_units,
-            resource_kind: "electricity".to_string(),
-            revoked: false,
-        };
-        let existing = match self
-            .world
-            .agent_delegation_authorizations(request.agent_id.as_str())
-        {
-            Ok(rows) => rows,
-            Err(error) => {
+        use crate::runtime::{DelegationControlDisposition, DelegationControlStage};
+        // This is the local Viewer issuance profile, deliberately narrower than
+        // signed Runtime and storage. Old nonces never enter this fresh path.
+        if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &request.command {
+            if action_kinds.iter().any(|kind| !action_kind_valid(kind)) {
                 return agency_error(
                     &request.request_id,
-                    "runtime_agency_read_failed",
-                    format!("{error:?}"),
+                    "grant_scope_invalid",
+                    "grant identity, object, period, or action scope is invalid or unsupported",
                 );
             }
-        };
-        if let Some(row) = existing
-            .iter()
-            .find(|row| row.grant.grant_id == grant.grant_id)
-        {
-            if row.grant == grant {
-                if let Err(error) = self
-                    .llm_sidecar
-                    .consume_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
-                {
-                    return agency_error(&request.request_id, "auth_nonce_replay", error);
-                }
-                return AgencyControlResponse::success(
-                    request.request_id.clone(),
-                    json!({"authorization": row, "idempotent_replay": true}),
-                );
-            }
-            return agency_error(
-                &request.request_id,
-                "grant_identity_conflict",
-                "grant id already exists with different terms",
-            );
-        }
-        if existing.iter().any(|row| {
-            row.grant.source_id == grant.source_id
-                && !row.grant.revoked
-                && row.grant.object_id == grant.object_id
-                && row
-                    .grant
-                    .action_kinds
-                    .iter()
-                    .any(|kind| grant.action_kinds.contains(kind))
-        }) {
-            return agency_error(
-                &request.request_id,
-                "grant_scope_already_reserved",
-                "this source/object/action scope already has a grant history; changing identity or period cannot reset its allowance",
-            );
         }
         let mut candidate = self.world.clone();
-        if let Err(error) = candidate
+        let outcome = match candidate
             .apply_signed_delegation_control(request, &CurrentOwnerAuthority { server: self })
         {
-            return agency_error(
-                &request.request_id,
-                "grant_install_rejected",
-                format!("{error:?}"),
-            );
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let install = matches!(
+                    request.command,
+                    AgencyControlOperation::InstallDelegation { .. }
+                );
+                let (code, message) = match error.stage {
+                    DelegationControlStage::Scope => ("grant_scope_invalid",
+                        "grant identity, object, period, or action scope is invalid or unsupported".to_string()),
+                    DelegationControlStage::Read => ("runtime_agency_read_failed", format!("{:?}", error.source)),
+                    DelegationControlStage::Identity => ("grant_identity_conflict", "grant id already exists with different terms".to_string()),
+                    DelegationControlStage::Reservation => ("grant_scope_already_reserved",
+                        "this source/object/action scope already has a grant history; changing identity or period cannot reset its allowance".to_string()),
+                    DelegationControlStage::NotFound => ("grant_not_found", "delegation grant was not found".to_string()),
+                    DelegationControlStage::Revision => ("grant_revision_stale", "delegation grant revision changed or is already revoked".to_string()),
+                    DelegationControlStage::Authentication | DelegationControlStage::Apply => (
+                        if install { "grant_install_rejected" } else { "grant_revoke_rejected" },
+                        format!("{:?}", error.source)),
+                };
+                return agency_error(&request.request_id, code, message);
+            }
+        };
+        if outcome.disposition == DelegationControlDisposition::Applied {
+            self.world = candidate;
         }
-        self.world = candidate;
         if let Err(error) = self
             .llm_sidecar
             .consume_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
         {
             return agency_error(&request.request_id, "auth_nonce_replay", error);
         }
+        if outcome.disposition == DelegationControlDisposition::ExactReplay {
+            return AgencyControlResponse::success(
+                request.request_id.clone(),
+                json!({"authorization": outcome.authorization, "idempotent_replay": true}),
+            );
+        }
+        // Display only: no lifecycle decisions depend on this compatibility read.
         let rows = self
             .world
-            .agent_delegation_authorizations(request.agent_id.as_str())
+            .agent_delegation_authorizations(&request.agent_id)
             .unwrap_or_default();
         AgencyControlResponse::success(request.request_id.clone(), json!({"authorizations": rows}))
     }
-
-    fn revoke_agent_delegation_for_owner(
-        &mut self,
-        request: &AgencyControlRequest,
-        grant_id: String,
-        expected_revision: u64,
-        verified: &crate::viewer::VerifiedPlayerAuth,
-    ) -> AgencyControlResponse {
-        let mut rows = match self
-            .world
-            .agent_delegation_authorizations(request.agent_id.as_str())
-        {
-            Ok(rows) => rows,
-            Err(error) => {
-                return agency_error(
-                    &request.request_id,
-                    "runtime_agency_read_failed",
-                    format!("{error:?}"),
-                );
-            }
-        };
-        let Some(index) = rows.iter().position(|row| row.grant.grant_id == grant_id) else {
-            return agency_error(
-                &request.request_id,
-                "grant_not_found",
-                "delegation grant was not found",
-            );
-        };
-        let current = rows.remove(index);
-        if current.grant.revoked && current.grant.revision == expected_revision.saturating_add(1) {
-            if let Err(error) = self
-                .llm_sidecar
-                .consume_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
-            {
-                return agency_error(&request.request_id, "auth_nonce_replay", error);
-            }
-            return AgencyControlResponse::success(
-                request.request_id.clone(),
-                json!({"authorization": current, "idempotent_replay": true}),
-            );
-        }
-        if current.grant.revision != expected_revision || current.grant.revoked {
-            return agency_error(
-                &request.request_id,
-                "grant_revision_stale",
-                "delegation grant revision changed or is already revoked",
-            );
-        }
-        let mut candidate = self.world.clone();
-        if let Err(error) = candidate
-            .apply_signed_delegation_control(request, &CurrentOwnerAuthority { server: self })
-        {
-            return agency_error(
-                &request.request_id,
-                "grant_revoke_rejected",
-                format!("{error:?}"),
-            );
-        }
-        self.world = candidate;
-        if let Err(error) = self
-            .llm_sidecar
-            .consume_player_auth_nonce(verified.player_id.as_str(), verified.nonce)
-        {
-            return agency_error(&request.request_id, "auth_nonce_replay", error);
-        }
-        let result = self
-            .world
-            .agent_delegation_authorizations(request.agent_id.as_str())
-            .unwrap_or_default();
-        AgencyControlResponse::success(
-            request.request_id.clone(),
-            json!({"authorizations": result}),
-        )
-    }
-}
-
-fn grant_from_request(
-    request: &AgencyControlRequest,
-    owner_id: &str,
-    source_id: &str,
-) -> Result<AgentDelegationGrantV1, String> {
-    let AgencyControlOperation::InstallDelegation {
-        grant_id,
-        object_id,
-        action_kinds,
-        period_id,
-        valid_from_tick,
-        valid_until_tick,
-        limit_units,
-    } = &request.command
-    else {
-        return Err("not install delegation".to_string());
-    };
-    Ok(AgentDelegationGrantV1 {
-        grant_id: grant_id.clone(),
-        source_id: source_id.to_string(),
-        issuer_id: owner_id.to_string(),
-        owner_id: owner_id.to_string(),
-        organization_id: None,
-        agent_id: request.agent_id.clone(),
-        object_id: object_id.clone(),
-        action_kinds: action_kinds.clone(),
-        revision: 1,
-        period_id: period_id.clone(),
-        valid_from_tick: *valid_from_tick,
-        valid_until_tick: *valid_until_tick,
-        limit_units: *limit_units,
-        resource_kind: "electricity".to_string(),
-        revoked: false,
-    })
 }
