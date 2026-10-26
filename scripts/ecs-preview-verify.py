@@ -12,10 +12,10 @@ from ecs_preview_update import binding, digest, load_config, module, preflight, 
 
 
 def verify_web_bytes(path, expected, actual, identity):
-    if actual == expected:
-        return
     if path.suffix != ".html":
-        raise ValueError("public Web bytes do not match selected release")
+        if actual != expected:
+            raise ValueError("public Web bytes do not match selected release")
+        return
     # static_http.rs injects this one data node into HTML. Compare the entire
     # remaining document; never discard arbitrary scripts or versioned assets.
     pattern = rb'<script id="oasis7-viewer-runtime-config" type="application/json">([^<]*)</script>'

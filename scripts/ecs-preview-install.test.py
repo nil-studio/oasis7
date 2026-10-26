@@ -86,7 +86,7 @@ class SignedVerifierTests(unittest.TestCase):
         node = b'<script id="oasis7-viewer-runtime-config" type="application/json">{"deploymentMode":"hosted_public_join","viewerWsEndpoint":"wss://preview.invalid/runtime"}</script>'
         public = source.replace(b"</head>", node + b"</head>")
         self.verifier.verify_web_bytes(Path("index.html"), source, public, {})
-        for bad in (public.replace(b"version A", b"version B"), public + node, public.replace(b"hosted_public_join", b"trusted_local_only")):
+        for bad in (source, public.replace(b"version A", b"version B"), public + node, public.replace(b"hosted_public_join", b"trusted_local_only")):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.verifier.verify_web_bytes(Path("index.html"), source, bad, {})
         with self.assertRaises(ValueError):
