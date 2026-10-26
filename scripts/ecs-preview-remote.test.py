@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from ecs_preview_probe import ProbeError
 import ecs_preview_remote as remote
 
 
@@ -83,6 +84,19 @@ class FakeProcess:
 
     def kill(self):
         self.returncode = -9
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
 
 
 class PackageTests(unittest.TestCase):
@@ -182,6 +196,27 @@ class PackageTests(unittest.TestCase):
 
 
 class EngineTests(unittest.TestCase):
+    @staticmethod
+    def process(pid, name, *, start_ticks=1, parent_pid=1):
+        return {"pid": pid, "start_ticks": start_ticks, "parent_pid": parent_pid,
+                "name": name, "executable": f"/candidate/bin/{name}",
+                "sha256": f"{pid:064x}"}
+
+    def make_readiness_engine(self, clock=None):
+        clock = clock or FakeClock()
+        engine = remote.Engine(monotonic=clock.monotonic, sleep=clock.sleep, enforce_root=False)
+        engine.config = {
+            "chain_service": "chain.service", "player_service": "player.service",
+            "release_root": Path("/releases"), "launcher_http_port": 4173,
+            "probe": {"expected_world": {"world_id": WORLD["world_id"],
+                                           "genesis_digest": WORLD["genesis_digest"]}},
+        }
+        engine.release = Path("/releases/candidate")
+        engine.world_identity = dict(WORLD)
+        engine.service_public_key = WORLD["service_public_key"]
+        engine.expected_viewer_count = 1
+        return engine, clock
+
     def make_remote_backup_engine(self, base, archive_blob):
         operation_dir = Path(base) / "ops" / "deploy-42"
         operation_dir.mkdir(parents=True, mode=0o700)
@@ -203,9 +238,14 @@ class EngineTests(unittest.TestCase):
         engine = remote.Engine(stdin=stdin, stdout=output, stderr=io.BytesIO(),
                                popen=popen, enforce_root=False)
         engine.config = {"backup_mode": "remote", "backup_paths": [Path("/world")],
-                         "player_service": "player.service", "chain_service": "chain.service"}
+                         "player_service": "player.service", "chain_service": "chain.service",
+                         "probe": {"expected_world": {"world_id": WORLD["world_id"],
+                                                       "genesis_digest": WORLD["genesis_digest"]}}}
         engine.phase = "installed"
         engine.operation_dir = operation_dir
+        engine.world_identity = dict(WORLD)
+        engine.service_public_key = WORLD["service_public_key"]
+        engine.probe_ns = {"read_world": lambda _probe: dict(WORLD)}
         engine._measure_backup_source_bytes = lambda: 4096
         engine._require_deployment_capacity = lambda _expanded, _backup: None
         engine._assert_stopped = lambda: calls.append(("stopped",))
@@ -281,6 +321,248 @@ class EngineTests(unittest.TestCase):
                 engine._write_remote_backup(1024)
             self.assertEqual(archive_path.read_bytes(), b"previous verified archive")
             self.assertFalse((operation_dir / "world-backup.tar.gz.partial").exists())
+
+    def test_fresh_pre_stop_world_rewind_refuses_to_stop_services(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine, calls, _stdin, _output, _operation_dir = self.make_remote_backup_engine(
+                temp, b"unused")
+            engine.probe_ns["read_world"] = lambda _probe: {**WORLD, "logical_tick": 6}
+            with self.assertRaisesRegex(remote.RemoteError, "world_history_rewind"):
+                engine._begin_backup({"max_bytes": 8192})
+            self.assertFalse(any(call[0] == "systemctl" and call[1] == "stop" for call in calls))
+            self.assertFalse(any(call[0] == "create" for call in calls))
+
+    def test_chain_readiness_retries_only_startup_and_probe_transport_errors(self):
+        engine, clock = self.make_readiness_engine()
+        processes = {"chain.service:101": self.process(101, "oasis7_chain_runtime")}
+        service_results = iter([
+            remote.RemoteError("service_inactive"), processes, processes, processes,
+        ])
+        world_results = iter([
+            ProbeError("probe_http_timeout"), ProbeError("probe_http_failed"),
+            {**WORLD, "logical_tick": 8},
+        ])
+        service_calls, world_calls = [], []
+
+        def verify(service, release):
+            service_calls.append((service, release))
+            result = next(service_results)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        def read_world(_probe):
+            world_calls.append(True)
+            result = next(world_results)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        engine._verify_service = verify
+        engine.probe_ns = {"read_world": read_world}
+        ready, world = engine._wait_for_chain_ready(180)
+        self.assertEqual(ready, processes)
+        self.assertEqual(world["logical_tick"], 8)
+        self.assertEqual(len(service_calls), 4)
+        self.assertEqual(len(world_calls), 3)
+        self.assertEqual(clock.now, 6)
+
+    def test_chain_readiness_fails_fast_on_wrong_process_hash_or_world_identity(self):
+        for error_code, world in (
+            ("process_hash_mismatch", WORLD),
+            (None, {**WORLD, "world_id": "other-world"}),
+        ):
+            with self.subTest(error_code=error_code):
+                engine, _clock = self.make_readiness_engine()
+                process = {"chain.service:101": self.process(101, "oasis7_chain_runtime")}
+                service_calls, world_calls = [], []
+
+                def verify(_service, _release):
+                    service_calls.append(True)
+                    if error_code:
+                        raise remote.RemoteError(error_code)
+                    return process
+
+                engine._verify_service = verify
+                engine.probe_ns = {"read_world": lambda _probe: world_calls.append(True) or world}
+                expected = error_code or "world_identity_mismatch"
+                with self.assertRaisesRegex(remote.RemoteError, expected):
+                    engine._wait_for_chain_ready(180)
+                self.assertEqual(len(service_calls), 1)
+                self.assertEqual(len(world_calls), 0 if error_code else 1)
+
+    def test_chain_readiness_deadline_is_bounded(self):
+        engine, clock = self.make_readiness_engine()
+        calls = []
+
+        def inactive(_service, _release):
+            calls.append(True)
+            raise remote.RemoteError("service_inactive")
+
+        engine._verify_service = inactive
+        engine.probe_ns = {"read_world": lambda _probe: self.fail("world read before chain start")}
+        with self.assertRaisesRegex(remote.RemoteError, "chain_readiness_timeout"):
+            engine._wait_for_chain_ready(5)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(clock.now, 5)
+
+    def test_player_readiness_waits_for_delayed_viewer_and_transient_admission(self):
+        engine, clock = self.make_readiness_engine()
+        chain = {"chain.service:101": self.process(101, "oasis7_chain_runtime")}
+        launcher = self.process(202, "oasis7_game_launcher", start_ticks=2)
+        viewer = self.process(203, "oasis7_viewer_live", start_ticks=3, parent_pid=202)
+        snapshots = iter([
+            {"player.service:202": launcher},
+            {"player.service:202": launcher, "player.service:203": viewer},
+            {"player.service:202": launcher, "player.service:203": viewer},
+            {"player.service:202": launcher, "player.service:203": viewer},
+        ])
+        engine._verify_service = lambda service, _release: chain if service == "chain.service" else next(snapshots)
+        admission = iter([False, True, True])
+        engine._loopback_admission_ready = lambda: next(admission)
+        ready = engine._wait_for_player_ready(chain, 180)
+        self.assertEqual(set(ready), {"chain.service:101", "player.service:202", "player.service:203"})
+        self.assertEqual(ready["player.service:203"]["parent_pid"], 202)
+        self.assertEqual(clock.now, 6)
+
+    def test_player_readiness_fails_if_observed_viewer_pid_is_replaced(self):
+        for replacement_pid, replacement_ticks in ((204, 4), (203, 4)):
+            with self.subTest(replacement_pid=replacement_pid, replacement_ticks=replacement_ticks):
+                engine, _clock = self.make_readiness_engine()
+                chain = {"chain.service:101": self.process(101, "oasis7_chain_runtime")}
+                launcher = self.process(202, "oasis7_game_launcher", start_ticks=2)
+                first_viewer = self.process(203, "oasis7_viewer_live", start_ticks=3, parent_pid=202)
+                replacement = self.process(replacement_pid, "oasis7_viewer_live",
+                                           start_ticks=replacement_ticks, parent_pid=202)
+                snapshots = iter([
+                    {"player.service:202": launcher, "player.service:203": first_viewer},
+                    {"player.service:202": launcher,
+                     f"player.service:{replacement_pid}": replacement},
+                ])
+                engine._verify_service = lambda service, _release: (
+                    chain if service == "chain.service" else next(snapshots))
+                engine._loopback_admission_ready = lambda: False
+                with self.assertRaisesRegex(remote.RemoteError, "service_identity_changed"):
+                    engine._wait_for_player_ready(chain, 180)
+
+    def test_loopback_readiness_requires_admission_runtime_probe_ok(self):
+        class Response:
+            def __init__(self, status, body):
+                self.status, self.body = status, body
+
+            def read(self, _limit):
+                return self.body
+
+        class Connection:
+            def __init__(self, host, port, **_kwargs):
+                self.host, self.port = host, port
+                self.response = None
+
+            def request(self, method, path, headers):
+                self.request_args = (method, path, headers)
+
+            def getresponse(self):
+                return next(responses)
+
+            def close(self):
+                pass
+
+        ready_body = json.dumps({
+            "ok": True,
+            "deployment_mode": "hosted_public_join",
+            "admission": {"runtime_probe_status": "ok"},
+        }).encode()
+        warming_body = json.dumps({
+            "ok": True,
+            "deployment_mode": "hosted_public_join",
+            "admission": {"runtime_probe_status": "warming"},
+        }).encode()
+        responses = iter([Response(503, b""), Response(200, warming_body), Response(200, ready_body)])
+        engine, _clock = self.make_readiness_engine()
+        with patch.object(remote.http.client, "HTTPConnection", Connection):
+            self.assertFalse(engine._loopback_admission_ready())
+            self.assertFalse(engine._loopback_admission_ready())
+            self.assertTrue(engine._loopback_admission_ready())
+
+    def test_verify_rejects_tick_below_frozen_readiness_baseline(self):
+        engine, _clock = self.make_readiness_engine()
+        chain = {"chain.service:101": self.process(101, "oasis7_chain_runtime")}
+        player = {"player.service:202": self.process(202, "oasis7_game_launcher", start_ticks=2)}
+        engine.phase = "switched"
+        engine.readiness_world = {**WORLD, "logical_tick": 8}
+        engine.candidate_processes = {**chain, **player}
+        engine._verify_service = lambda service, _release: chain if service == "chain.service" else player
+        engine.probe_ns = {"read_world": lambda _probe: dict(WORLD)}
+        engine._verify_public_api = lambda: self.fail("verification must stop at a rewind")
+        with self.assertRaisesRegex(remote.RemoteError, "world_history_rewind"):
+            engine._verify_all()
+
+    def test_switch_uses_chain_then_player_readiness_and_freezes_same_process_set(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old_root, release = root / "old", root / "candidate"
+            old_root.mkdir()
+            release.mkdir()
+            chain, player = "chain.service", "player.service"
+            paths = {chain: root / chain, player: root / player}
+            before = {
+                chain: f"ExecStart={old_root}/bin/oasis7_chain_runtime\n".encode(),
+                player: f"ExecStart={old_root}/bin/oasis7_game_launcher\n".encode(),
+            }
+            for service, path in paths.items():
+                path.write_bytes(before[service])
+            clock = FakeClock()
+            engine = remote.Engine(monotonic=clock.monotonic, sleep=clock.sleep, enforce_root=False)
+            engine.config = {"chain_service": chain, "player_service": player,
+                             "release_root": root}
+            engine.phase = "backup_verified"
+            engine.backup_verified = True
+            engine.release = release
+            engine.units = paths
+            engine.before_units = before
+            engine.old_roots = {chain: old_root, player: old_root}
+            engine._assert_stopped = lambda: None
+            engine._require_reserve = lambda _extra=0: None
+            engine._record = lambda _name, _data: None
+            chain_processes = {f"{chain}:101": self.process(101, "oasis7_chain_runtime")}
+            all_processes = {**chain_processes,
+                             f"{player}:202": self.process(202, "oasis7_game_launcher", start_ticks=2)}
+            calls = []
+
+            def systemctl(*args, **_kwargs):
+                calls.append(args)
+                if args[:2] == ("start", chain):
+                    clock.now += 4
+                elif args[:2] == ("start", player):
+                    clock.now += 5
+                return b""
+
+            engine._systemctl = systemctl
+            engine._atomic_unit = lambda service, content: paths[service].write_bytes(content)
+            readiness_deadlines = []
+
+            def wait_chain(deadline):
+                calls.append(("chain-ready", deadline))
+                readiness_deadlines.append(deadline)
+                return chain_processes, {**WORLD, "logical_tick": 8}
+
+            def wait_player(current_chain, deadline):
+                calls.append(("player-ready", deadline))
+                self.assertEqual(current_chain, chain_processes)
+                self.assertEqual(deadline, readiness_deadlines[0])
+                return all_processes
+
+            engine._wait_for_chain_ready = wait_chain
+            engine._wait_for_player_ready = wait_player
+            result = engine._switch()
+            self.assertEqual(result["process_hashes_verified"], True)
+            self.assertEqual(engine.candidate_processes, all_processes)
+            self.assertEqual(engine.phase, "switched")
+            chain_index = next(i for i, call in enumerate(calls) if call[0] == "chain-ready")
+            player_index = next(i for i, call in enumerate(calls) if call[0] == "player-ready")
+            self.assertLess(calls.index(("start", chain)), chain_index)
+            self.assertLess(chain_index, calls.index(("start", player)))
+            self.assertLess(calls.index(("start", player)), player_index)
 
     def test_remote_compare_rejects_even_dangling_partial_path(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -370,9 +652,14 @@ class EngineTests(unittest.TestCase):
                                    popen=lambda _argv, **_kwargs: FakeProcess(io.BytesIO(archive_blob)),
                                    enforce_root=False)
             engine.config = {"backup_mode": "local", "backup_paths": [Path("/world")],
-                             "player_service": "player.service", "chain_service": "chain.service"}
+                             "player_service": "player.service", "chain_service": "chain.service",
+                             "probe": {"expected_world": {"world_id": WORLD["world_id"],
+                                                           "genesis_digest": WORLD["genesis_digest"]}}}
             engine.phase = "installed"
             engine.operation_dir = operation_dir
+            engine.world_identity = dict(WORLD)
+            engine.service_public_key = WORLD["service_public_key"]
+            engine.probe_ns = {"read_world": lambda _probe: dict(WORLD)}
             engine._require_reserve = lambda _extra=0: None
             engine._assert_stopped = lambda: None
             engine._systemctl = lambda *_args, **_kwargs: b""

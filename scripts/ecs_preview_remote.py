@@ -41,6 +41,11 @@ TRANSFER_TIMEOUT_SECONDS = 30 * 60
 BACKUP_ESTIMATE_TIMEOUT_SECONDS = 5 * 60
 SERVICE_TIMEOUT_SECONDS = 90
 SERVICE_START_TIMEOUT_SECONDS = 15
+SERVICE_READINESS_TIMEOUT_SECONDS = 180
+SERVICE_READINESS_INTERVAL_SECONDS = 2
+LOOPBACK_READINESS_TIMEOUT_SECONDS = 3
+STARTUP_PROCESS_TRANSIENT_ERRORS = frozenset({"service_inactive", "process_identity_unavailable"})
+STARTUP_WORLD_TRANSIENT_ERRORS = frozenset({"probe_http_failed", "probe_http_timeout"})
 WORLD_READ_TIMEOUT_SECONDS = 15
 SKILL_TIMEOUT_SECONDS = 60
 WORLD_SAMPLE_COUNT = 4
@@ -460,6 +465,8 @@ class Engine:
         self.candidate_processes: dict[str, dict] = {}
         self.service_public_key = ""
         self.world_identity: dict | None = None
+        self.readiness_world: dict | None = None
+        self.expected_viewer_count: int | None = None
         self.backup_digest = ""
         self.backup_bytes = 0
         self.max_backup_bytes = 0
@@ -728,7 +735,7 @@ class Engine:
     def _record(self, name: str, data: dict) -> None:
         if self.operation_dir is None:
             return
-        allowed = {"started.json", "backup.json", "units-changing.json", "writer-boundary.json",
+        allowed = {"started.json", "pre-stop-world.json", "backup.json", "units-changing.json", "writer-boundary.json",
                    "prewriter-restored.json", "prewriter-restore-failed.json", "failed-fenced.json",
                    "fence-failed.json", "accepted.json", "abort.json"}
         if name not in allowed:
@@ -858,14 +865,17 @@ class Engine:
             raise RemoteError("cgroup_unavailable") from None
         return pids
 
-    def _start_ticks(self, pid: int) -> int:
+    def _process_stat(self, pid: int) -> tuple[int, int]:
         try:
             raw = (self.proc_root / str(pid) / "stat").read_text()
             closing = raw.rfind(")")
             fields = raw[closing + 2:].split()
-            return int(fields[19])
+            return int(fields[19]), int(fields[1])
         except (OSError, ValueError, IndexError):
             raise RemoteError("process_identity_unavailable") from None
+
+    def _start_ticks(self, pid: int) -> int:
+        return self._process_stat(pid)[0]
 
     def _process_identity(self, pid: int) -> dict:
         exe_link = self.proc_root / str(pid) / "exe"
@@ -873,11 +883,11 @@ class Engine:
             executable = exe_link.resolve(strict=True)
             name = executable.name
             digest = _sha256(exe_link)
-            start_ticks = self._start_ticks(pid)
+            start_ticks, parent_pid = self._process_stat(pid)
         except (OSError, RuntimeError):
             raise RemoteError("process_identity_unavailable") from None
         return {"pid": pid, "start_ticks": start_ticks, "name": name,
-                "executable": str(executable), "sha256": digest}
+                "parent_pid": parent_pid, "executable": str(executable), "sha256": digest}
 
     def _service_expected(self, name: str) -> str:
         if name == self.config["chain_service"]:
@@ -961,6 +971,11 @@ class Engine:
                 if identity["name"] in {"oasis7_game_launcher", "oasis7_viewer_live", "oasis7_chain_runtime"}:
                     self.old_processes[f"{service}:{identity['pid']}"] = identity
             self.old_roots[service] = root
+        player_prefix = self.config["player_service"] + ":"
+        self.expected_viewer_count = sum(
+            1 for key, identity in self.old_processes.items()
+            if key.startswith(player_prefix) and identity["name"] == "oasis7_viewer_live"
+        )
         try:
             baseline = self.probe_ns["read_world"](self.config["probe"])
         except (KeyError, TypeError, ValueError, OSError):
@@ -1058,6 +1073,13 @@ class Engine:
             self._require_deployment_capacity(0, self.backup_estimate_bytes)
         else:
             self._require_reserve()
+        if self.world_identity is None:
+            raise RemoteError("world_preflight_missing")
+        pre_stop_world = self._read_signed_world()
+        if pre_stop_world["logical_tick"] < self.world_identity["logical_tick"]:
+            raise RemoteError("world_history_rewind")
+        self.world_identity = pre_stop_world
+        self._record("pre-stop-world.json", pre_stop_world)
         self.stage = "stop_old_services"
         self._systemctl("stop", self.config["player_service"], timeout=SERVICE_TIMEOUT_SECONDS)
         self._systemctl("stop", self.config["chain_service"], timeout=SERVICE_TIMEOUT_SECONDS)
@@ -1468,10 +1490,12 @@ class Engine:
         self.phase = "writer_boundary"
         self.stage = "start_candidate_chain"
         self._systemctl("start", self.config["chain_service"], timeout=SERVICE_START_TIMEOUT_SECONDS)
-        self.candidate_processes.update(self._verify_service(self.config["chain_service"], self.release))
+        readiness_deadline = self.monotonic() + SERVICE_READINESS_TIMEOUT_SECONDS
+        chain_processes, self.readiness_world = self._wait_for_chain_ready(readiness_deadline)
+        self.candidate_processes = dict(chain_processes)
         self.stage = "start_candidate_player"
         self._systemctl("start", self.config["player_service"], timeout=SERVICE_START_TIMEOUT_SECONDS)
-        self.candidate_processes.update(self._verify_service(self.config["player_service"], self.release))
+        self.candidate_processes = self._wait_for_player_ready(chain_processes, readiness_deadline)
         self.phase = "switched"
         self.stage = "switched"
         return {"source": self.source, "release": str(self.release), "process_hashes_verified": True}
@@ -1480,6 +1504,149 @@ class Engine:
         _, identities = self._service_processes(service, expected_root=release)
         prefix = service + ":"
         return {prefix + pid: identity for pid, identity in identities.items()}
+
+    @staticmethod
+    def _probe_error_code(error: BaseException) -> str | None:
+        if isinstance(error, RemoteError):
+            return error.code
+        if type(error).__name__ == "ProbeError" and len(error.args) == 1:
+            code = error.args[0]
+            if isinstance(code, str) and re.fullmatch(r"[a-z0-9_]{1,64}", code):
+                return code
+        return None
+
+    def _read_signed_world(self) -> dict:
+        try:
+            response = self.probe_ns["read_world"](self.config["probe"])
+        except Exception as error:
+            code = self._probe_error_code(error)
+            if code in STARTUP_WORLD_TRANSIENT_ERRORS:
+                raise RemoteError(code) from None
+            raise RemoteError("world_read_failed") from None
+        return self._validate_world(response)
+
+    def _readiness_pause(self, deadline: float, timeout_code: str) -> None:
+        remaining = deadline - self.monotonic()
+        if remaining <= 0:
+            raise RemoteError(timeout_code)
+        self.sleep(min(SERVICE_READINESS_INTERVAL_SECONDS, remaining))
+
+    def _wait_for_chain_ready(self, deadline: float) -> tuple[dict[str, dict], dict]:
+        service = self.config["chain_service"]
+        observed_processes: dict[str, dict] | None = None
+        while self.monotonic() < deadline:
+            try:
+                processes = self._verify_service(service, self.release)
+            except RemoteError as error:
+                if observed_processes is not None or error.code not in STARTUP_PROCESS_TRANSIENT_ERRORS:
+                    raise
+                self._readiness_pause(deadline, "chain_readiness_timeout")
+                continue
+            if observed_processes is not None and not self._same_processes(observed_processes, processes):
+                raise RemoteError("service_identity_changed")
+            observed_processes = processes
+            try:
+                world = self._read_signed_world()
+            except RemoteError as error:
+                if error.code not in STARTUP_WORLD_TRANSIENT_ERRORS:
+                    raise
+                self._readiness_pause(deadline, "chain_readiness_timeout")
+                continue
+            if self.world_identity is None:
+                raise RemoteError("world_preflight_missing")
+            if world["logical_tick"] < self.world_identity["logical_tick"]:
+                raise RemoteError("world_history_rewind")
+            if self.monotonic() >= deadline:
+                raise RemoteError("chain_readiness_timeout")
+            return processes, world
+        raise RemoteError("chain_readiness_timeout")
+
+    def _loopback_admission_ready(self) -> bool:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.config["launcher_http_port"],
+            timeout=LOOPBACK_READINESS_TIMEOUT_SECONDS)
+        try:
+            connection.request("GET", "/api/public/player-session/admission",
+                               headers={"Host": "127.0.0.1", "Connection": "close"})
+            response = connection.getresponse()
+            body = response.read(65537)
+            if response.status in (502, 503, 504):
+                return False
+            if response.status != 200 or len(body) > 65536:
+                raise RemoteError("public_api_admission_failed")
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError):
+                raise RemoteError("public_api_admission_failed") from None
+            admission = payload.get("admission") if isinstance(payload, dict) else None
+            if (not isinstance(payload, dict) or payload.get("ok") is not True
+                    or payload.get("deployment_mode") != "hosted_public_join"
+                    or not isinstance(admission, dict)
+                    or not isinstance(admission.get("runtime_probe_status"), str)):
+                raise RemoteError("public_api_admission_failed")
+            return admission["runtime_probe_status"] == "ok"
+        except RemoteError:
+            raise
+        except (OSError, http.client.HTTPException):
+            return False
+        finally:
+            try:
+                connection.close()
+            except OSError:
+                pass
+
+    def _wait_for_player_ready(self, chain_processes: dict[str, dict], deadline: float) -> dict[str, dict]:
+        if type(self.expected_viewer_count) is not int or self.expected_viewer_count < 0:
+            raise RemoteError("viewer_role_baseline_missing")
+        chain_service = self.config["chain_service"]
+        player_service = self.config["player_service"]
+        observed_processes: dict[str, dict] = {}
+        previous_ready: dict[str, dict] | None = None
+        while self.monotonic() < deadline:
+            current_chain = self._verify_service(chain_service, self.release)
+            if not self._same_processes(chain_processes, current_chain):
+                raise RemoteError("service_identity_changed")
+            try:
+                current_player = self._verify_service(player_service, self.release)
+            except RemoteError as error:
+                if observed_processes or error.code not in STARTUP_PROCESS_TRANSIENT_ERRORS:
+                    raise
+                previous_ready = None
+                self._readiness_pause(deadline, "player_readiness_timeout")
+                continue
+            launchers = {key: identity for key, identity in current_player.items()
+                         if identity["name"] == SERVICE_BINS["player"]}
+            viewers = {key: identity for key, identity in current_player.items()
+                       if identity["name"] == "oasis7_viewer_live"}
+            if len(launchers) != 1 or len(current_player) != len(launchers) + len(viewers):
+                raise RemoteError("player_process_roles_invalid")
+            launcher = next(iter(launchers.values()))
+            if len(viewers) > self.expected_viewer_count:
+                raise RemoteError("viewer_role_count_mismatch")
+            for identity in viewers.values():
+                if identity.get("parent_pid") != launcher["pid"]:
+                    raise RemoteError("viewer_parent_mismatch")
+            for key, identity in observed_processes.items():
+                current = current_player.get(key)
+                if current is None or not self._same_processes({key: identity}, {key: current}):
+                    raise RemoteError("service_identity_changed")
+            observed_processes.update(current_player)
+            if len(viewers) != self.expected_viewer_count:
+                previous_ready = None
+                self._readiness_pause(deadline, "player_readiness_timeout")
+                continue
+            current = {**current_chain, **current_player}
+            if not self._loopback_admission_ready():
+                previous_ready = None
+                self._readiness_pause(deadline, "player_readiness_timeout")
+                continue
+            if self.monotonic() >= deadline:
+                raise RemoteError("player_readiness_timeout")
+            if previous_ready is not None and self._same_processes(previous_ready, current):
+                return current
+            previous_ready = current
+            self._readiness_pause(deadline, "player_readiness_timeout")
+        raise RemoteError("player_readiness_timeout")
 
     def _verify_all(self) -> dict:
         if self.phase != "switched":
@@ -1498,11 +1665,10 @@ class Engine:
             delay = target - self.monotonic()
             if delay > 0:
                 self.sleep(delay)
-            try:
-                response = self.probe_ns["read_world"](self.config["probe"])
-            except (KeyError, TypeError, ValueError, OSError):
-                raise RemoteError("world_read_failed") from None
-            checked = self._validate_world(response)
+            checked = self._read_signed_world()
+            if (index == 0 and self.readiness_world is not None
+                    and checked["logical_tick"] < self.readiness_world["logical_tick"]):
+                raise RemoteError("world_history_rewind")
             if samples and checked["logical_tick"] <= samples[-1]["logical_tick"]:
                 raise RemoteError("world_not_advancing")
             samples.append(checked)
@@ -1532,7 +1698,7 @@ class Engine:
 
     @staticmethod
     def _same_processes(left: dict[str, dict], right: dict[str, dict]) -> bool:
-        keys = ("pid", "start_ticks", "name", "executable", "sha256")
+        keys = ("pid", "start_ticks", "parent_pid", "name", "executable", "sha256")
         return set(left) == set(right) and all(
             all(left[key].get(field) == right[key].get(field) for field in keys)
             for key in left

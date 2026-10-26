@@ -25,7 +25,7 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 
 目标端持有维护锁，核对两个实际 unit 和完整进程范围；停止 player 再停止 chain，检查 cgroup 没有残留写入者。保存完整旧 unit，路径替换只发生在明确 old-release prefix，保留其他参数和环境；任何部分 unit 替换前即标记已修改，切换前失败原子恢复并复核旧字节，启动旧 chain 再启动旧 player。新 chain 启动是不可混淆的写入边界：此后失败或连接丢失先隔离当前候选写入者并保留历史，不直接让旧代码接管可能变化的数据，不将 binary rollback 称为数据 rollback。隔离失败记录真实错误；不终止身份已变化的其他部署。
 
-验收核对 chain/launcher/Viewer 子进程的实际 executable 哈希，基于原 reader/service pin 的签名只读世界响应保持 world/genesis/service identity，并在完整 60 秒内至少观察 3 次推进。probe 的 Python crypto 依赖在目标预先安装；缺失时在停服务前阻塞，不运行 pip 或下载依赖。公开 admission 路由、HEAD/POST/未知路径/Origin 边界按[部署手册](../../testing/manual/single-ecs-preview-deploy.manual.md)验证。
+切换前重新读取签名世界 tick，作为本轮不可倒退的基线。启动阶段使用独立的有界 readiness 等待：先确认 chain 与签名世界可读，再确认 launcher、Viewer 与 loopback admission 就绪；身份、签名或哈希错误立即失败，进程身份稳定后才冻结验收范围。启动等待不计入后续 60 秒观察。验收核对 chain/launcher/Viewer 子进程的实际 executable 哈希，基于原 reader/service pin 的签名只读世界响应保持 world/genesis/service identity，并在完整 60 秒内至少观察 3 次推进。probe 的 Python crypto 依赖在目标预先安装；缺失时在停服务前阻塞，不运行 pip 或下载依赖。公开 admission 路由、HEAD/POST/未知路径/Origin 边界按[部署手册](../../testing/manual/single-ecs-preview-deploy.manual.md)验证。
 
 同版本 Skill 复用包内 `ecs-skill-release.py activate/verify`。调用它前释放外层同名维护锁，保留控制器锁；调用后重新获取维护锁并复核候选服务身份。并发状态变化时不覆盖新部署。只有全部部署验收成功才 accept；保留本轮一致备份、旧 release 和脱敏部署结果。此自动验收不代替外部 Chrome、Ed25519 登录、原请求回读或真实玩法完成。
 
