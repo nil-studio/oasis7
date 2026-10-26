@@ -31,3 +31,22 @@ entrypoint = "OwnerRevocations"
 
 [triggers]
 crons = ["* * * * *"]
+
+# Role-local immutable key storage; activation and KEK are intentionally absent.
+[[durable_objects.bindings]]
+name = "ROLE_KEYS"
+class_name = "RoleKeyVault"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RoleKeyVault"]
+
+[[services]]
+binding = "ACCOUNT_KEY_PERMITS"
+service = "oasis7-custody-owner-staging"
+entrypoint = "IdentityKeyPermits"
+
+[[services]]
+binding = "RECOVERY_FENCE"
+service = "oasis7-custody-recovery-fence-staging"
+entrypoint = "RecoveryFenceReader"

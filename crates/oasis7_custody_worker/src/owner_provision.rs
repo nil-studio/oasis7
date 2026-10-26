@@ -19,6 +19,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::prelude::*;
 use worker::{Env, Result};
 
+#[path = "owner_provision_drive.rs"]
+mod drive;
+pub(crate) use drive::{advance, progress, verify_role_permit};
+
 #[wasm_bindgen(module = "/platform/provision_rpc.mjs")]
 extern "C" {
     #[wasm_bindgen(catch, js_name = verifyNativeApproval)]

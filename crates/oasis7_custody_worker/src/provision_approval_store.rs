@@ -13,6 +13,10 @@ use oasis7_custody_core::{
         ProvisionPolicy, ProvisionRoleKeyResultV1, ProvisionRoutes, PublicRoleKey,
     },
 };
+use oasis7_custody_core::{
+    http::Role,
+    provisioning::{ProvisionOriginInspectionV1, ProvisionRoleKeyPermitViewV1},
+};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, prelude::*};
 
@@ -192,6 +196,289 @@ impl OwnerProvisionApprovalStore {
     }
     pub fn snapshot(&self) -> Result<ProvisionApprovalSnapshot> {
         decode(&read(&self.state, KEY)?)
+    }
+    // Budget/nonce reservations only. This port cannot return a send or key permit.
+    fn local_reservation<R, T>(&self, event: &str, reference: &str, mut transition: T) -> Result<R>
+    where
+        T: FnMut(&mut AccountProvisionApprovalState, u64) -> Result<R>,
+    {
+        let initial = read(&self.state, KEY)?;
+        let mut returned = None;
+        let mut callback = |old: String, inventory: String| -> Result<Array> {
+            let mut next = decode(&old)?;
+            validate_inventory(&inventory, next.state.draft(), true)?;
+            let result = transition(&mut next.state, now()?)?;
+            let array = if next.state == decode(&old)?.state {
+                unchanged(&old)
+            } else {
+                next.audit_sequence =
+                    DecimalU64(next.audit_sequence.0.checked_add(1).ok_or_else(rejected)?);
+                let audit = serde_json::to_string(&(next.audit_sequence, event, reference))
+                    .map_err(|_| rejected())?;
+                let array = Array::new();
+                array.push(&encode(&next)?.into());
+                array.push(&next.audit_sequence.0.to_string().into());
+                array.push(&audit.into());
+                array
+            };
+            returned = Some(result);
+            Ok(array)
+        };
+        let closure = Closure::borrow_mut(&mut callback);
+        update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
+        drop(closure);
+        returned.ok_or_else(rejected)
+    }
+    pub fn reserve_origin_inspection(&self, id: &str) -> Result<ProvisionOriginInspectionV1> {
+        let nonce = crate::approval_crypto::verification_nonce().map_err(|_| rejected())?;
+        self.local_reservation("origin_transport_reserved", id, |state, time| {
+            state
+                .reserve_origin_inspection(id, &nonce, time)
+                .map_err(|_| rejected())
+        })
+    }
+    pub fn reserve_role_key_permit_read(&self, permit_id: &str, role: Role) -> Result<u8> {
+        self.local_reservation("role_oracle_reserved", permit_id, |state, time| {
+            state
+                .reserve_role_key_permit_read(permit_id, role, time)
+                .map_err(|_| rejected())
+        })
+    }
+    pub async fn authorize_reserved_role_key_permit_read<F>(
+        &self,
+        permit_id: &str,
+        ticket: u8,
+        role: Role,
+        current: F,
+    ) -> Result<ProvisionRoleKeyPermitViewV1>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        use oasis7_custody_core::approval_admission::ApprovalSignatureVerifier;
+        let snapshot = self.snapshot()?;
+        let trusted = current()?;
+        let checks = snapshot
+            .state
+            .role_key_permit_checks(permit_id, role, &trusted.as_core(), now()?)
+            .map_err(|_| rejected())?;
+        let mut cache = verify(checks).await?;
+        self.provision_step(
+            &current,
+            "role_oracle_authorized",
+            permit_id,
+            |state, context, time| {
+                let dispatch = state
+                    .role_key_dispatches()
+                    .values()
+                    .find(|d| d.permit_id == permit_id)
+                    .ok_or_else(rejected)?;
+                if ticket == 0 || ticket > dispatch.permit_reads {
+                    return Err(rejected());
+                }
+                cache
+                    .verify(
+                        &state
+                            .role_key_permit_checks(permit_id, role, context, time)
+                            .map_err(|_| rejected())?,
+                    )
+                    .map_err(|_| rejected())?;
+                state
+                    .validate_role_key_permit(permit_id, role, context, time)
+                    .map_err(|_| rejected())
+            },
+        )
+    }
+
+    fn provision_step<F, R, T>(
+        &self,
+        current: &F,
+        event: &str,
+        reference: &str,
+        mut transition: T,
+    ) -> Result<R>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+        T: FnMut(
+            &mut AccountProvisionApprovalState,
+            &ProvisionApprovalContext<'_>,
+            u64,
+        ) -> Result<R>,
+    {
+        let initial = read(&self.state, KEY)?;
+        let mut returned = None;
+        let mut callback = |old: String, inventory: String| -> Result<Array> {
+            let mut next = decode(&old)?;
+            let trusted = current()?;
+            let result = transition(&mut next.state, &trusted.as_core(), now()?)?;
+            let array = if next.state == decode(&old)?.state {
+                validate_inventory(&inventory, next.state.draft(), false)?;
+                unchanged(&old)
+            } else {
+                validate_inventory(&inventory, next.state.draft(), true)?;
+                next.audit_sequence =
+                    DecimalU64(next.audit_sequence.0.checked_add(1).ok_or_else(rejected)?);
+                let audit = serde_json::to_string(&(
+                    next.audit_sequence,
+                    event,
+                    reference,
+                    trusted.approval.authority.service_epoch,
+                ))
+                .map_err(|_| rejected())?;
+                let array = Array::new();
+                array.push(&encode(&next)?.into());
+                array.push(&next.audit_sequence.0.to_string().into());
+                array.push(&audit.into());
+                array
+            };
+            returned = Some(result);
+            Ok(array)
+        };
+        let closure = Closure::borrow_mut(&mut callback);
+        update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
+        drop(closure);
+        returned.ok_or_else(rejected)
+    }
+
+    pub fn begin_origin_inspection<F>(
+        &self,
+        id: &str,
+        current: F,
+    ) -> Result<ProvisionOriginInspectionV1>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        let nonce = crate::approval_crypto::verification_nonce().map_err(|_| rejected())?;
+        self.provision_step(
+            &current,
+            "origin_inspection_pending",
+            id,
+            |state, context, time| {
+                state
+                    .begin_origin_inspection(id, &nonce, context, time)
+                    .map_err(|_| rejected())
+            },
+        )
+    }
+    pub fn claim_origin_inspection<F>(&self, id: &str, current: F) -> Result<String>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        self.provision_step(
+            &current,
+            "origin_inspection_claimed",
+            id,
+            |state, context, time| {
+                state
+                    .claim_origin_inspection(id, context, time)
+                    .map_err(|_| rejected())?;
+                state
+                    .origin_inspection_request_bytes(id)
+                    .map(str::to_owned)
+                    .map_err(|_| rejected())
+            },
+        )
+    }
+    pub async fn complete_origin_inspection<F>(
+        &self,
+        id: &str,
+        signed: SignedApprovalVerificationV1,
+        current: F,
+    ) -> Result<ProvisionOriginInspectionV1>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        let snapshot = self.snapshot()?;
+        let trusted = current()?;
+        let checks = snapshot
+            .state
+            .origin_inspection_checks(id, &signed, &trusted.as_core(), now()?)
+            .map_err(|_| rejected())?;
+        let mut cache = verify(checks).await?;
+        self.provision_step(
+            &current,
+            "origin_inspection_verified",
+            id,
+            |state, context, time| {
+                state
+                    .complete_origin_inspection(id, signed.clone(), context, time, &mut cache)
+                    .map_err(|_| rejected())
+            },
+        )
+    }
+    pub async fn claim_role_key_dispatch<F>(
+        &self,
+        id: &str,
+        role: Role,
+        inspection_id: &str,
+        current: F,
+    ) -> Result<ProvisionRoleKeyPermitViewV1>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        let snapshot = self.snapshot()?;
+        let trusted = current()?;
+        let checks = snapshot
+            .state
+            .role_key_dispatch_checks(role, inspection_id, &trusted.as_core(), now()?)
+            .map_err(|_| rejected())?;
+        let mut cache = verify(checks).await?;
+        self.provision_step(
+            &current,
+            "role_dispatch_claimed",
+            id,
+            |state, context, time| {
+                state
+                    .claim_role_key_dispatch(id, role, inspection_id, context, time, &mut cache)
+                    .map_err(|_| rejected())
+            },
+        )
+    }
+    pub async fn claim_role_key_permit_read<F>(
+        &self,
+        permit_id: &str,
+        role: Role,
+        current: F,
+    ) -> Result<ProvisionRoleKeyPermitViewV1>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        let snapshot = self.snapshot()?;
+        let trusted = current()?;
+        let checks = snapshot
+            .state
+            .role_key_permit_checks(permit_id, role, &trusted.as_core(), now()?)
+            .map_err(|_| rejected())?;
+        let mut cache = verify(checks).await?;
+        self.provision_step(
+            &current,
+            "role_permit_read",
+            permit_id,
+            |state, context, time| {
+                state
+                    .claim_role_key_permit_read(permit_id, role, context, time, &mut cache)
+                    .map_err(|_| rejected())
+            },
+        )
+    }
+    pub fn record_dispatched_role_key_result<F>(
+        &self,
+        dispatch_id: &str,
+        result: oasis7_custody_core::provisioning::ProvisionRoleKeyResultV1,
+        current: F,
+    ) -> Result<oasis7_custody_core::provisioning::PublicRoleKey>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        self.provision_step(
+            &current,
+            "role_dispatch_settled",
+            dispatch_id,
+            |state, context, time| {
+                state
+                    .record_dispatched_role_key_result(dispatch_id, result.clone(), context, time)
+                    .map_err(|_| rejected())
+            },
+        )
     }
 
     fn transaction<F, C, T>(

@@ -1,8 +1,59 @@
 //! Fixed private service entrypoints. No caller-selected route or actor role.
 use wasm_bindgen::prelude::*;
 use worker::Env;
+#[cfg(feature = "owner")]
+#[path = "owner_provision_entrypoints.rs"]
+mod provisioning;
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_advance_provision(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::management(&env, &raw, true).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_read_provision_progress(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::management(&env, &raw, false).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_identity_key_permit(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::permit(&env, &raw, oasis7_custody_core::http::Role::Identity).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_owner_key_permit(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    provisioning::permit(&env, &raw, oasis7_custody_core::http::Role::Owner).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_executor_key_permit(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::permit(&env, &raw, oasis7_custody_core::http::Role::Executor).await
+}
 fn rejected() -> JsValue {
     JsValue::from_str("custody service request rejected")
+}
+#[cfg(any(feature = "identity", feature = "owner", feature = "executor"))]
+#[wasm_bindgen]
+pub async fn ensure_role_key(env: Env, raw: String) -> std::result::Result<String, JsValue> {
+    if raw.len() > 32768 {
+        return Err(rejected());
+    }
+    crate::role_provision::ensure_role_key(&env, &raw)
+        .await
+        .map_err(|_| rejected())
 }
 #[cfg(feature = "recovery-fence")]
 #[wasm_bindgen]

@@ -676,6 +676,10 @@ AccountAuthority 持久保存 ProvisionRecord：provision_id、client_request_id
 
 每一步派发前都重验原 plan 截止/调用预算、管理来源安全版本、Account DO 状态与 Recovery Fence。30 秒是批准证明的消费窗口；已经消费的 provision 计划仍只能在其明确的动作范围/截止内推进，不构成无限授权。provision 使用普通 owner 工作容量，不占用 Stop/Revoke 的独立安全控制槽。
 
+开户计划的 `transport_limit` 首版显式限制为 1–400，完整签入批准；它与 TestSession 的 execute/read/cleanup 预算分开，不能互相借用。旧已批准计划不自动扩大额度。派发前对固定调用图保守预留：一次来源检查原件 claim 扣 8 个传输额度，一次角色密钥派发 claim 扣 32 个，覆盖该步骤的目录、Fence、native 核验或角色/oracle/DO 路由等有限调用；未发出或 unknown 的已 claim 尝试不自动退回。该上界不能作为无限内部重试许可，每个角色 permit 最多允许三次当前 oracle 核验（factory、角色存储前、加密后），恢复使用同一 task/key/version/vault 身份，新传输 attempt 另行预留。三角色首轮至少需要 104 个额度，额度不足明确拒绝或保留 pending，不能静默提升原计划或换新身份；后续注册、登录和 participant 阶段仍须从同一开户余额预留各自固定调用图，不挪用独立收尾槽。
+
+来源检查只能针对 Account 已登记并消费的原批准，在任何远端预检前本地预留额度并持久保存独立 `inspect_origin` nonce，真实目录/Fence 预检后才原子登记原请求 bytes 和发送 claim；重复已预留原件不再次取得预检或发送权。nonce 原件最多 pending 30 秒且不越原计划/来源截止，独立于签名观察的五秒新鲜度。原 proof 的 30 秒消费窗口过期后可报告来源，但当前 origin、原来源版本、计划截止和 service fence 仍须有效，签名响应必须绑定本次 nonce/purpose/原 proof digest 且观察不超过五秒；角色 permit 截止还须限制在该 native 观察时刻加五秒内，不能按后续 oracle 响应时间续期。角色许可从已保存的精确 task、typed 请求原 bytes/digest、attempt、已认证来源检查和安全代计算，角色通过自己的窄静态 Account oracle 核对，不接受请求自报的 active 状态或摘要回显；oracle 先本地耗用有界读信用，再执行远端核验，预留信用本身不返回任何授权。加密前后重读许可/Fence，最终本地 SQL 重验完整绑定与时钟；无远端 timestamp 时，新鲜度从 RPC 发出前保守计时，慢响应不能更新观察年龄。跨角色已发布密钥保持不可替换；unknown 收据保持原件和预算占用，不因撤销删除或重造密钥。
+
 跨角色 DO、native authority 与世界不构成一个原子事务；协调依据是稳定 provision ID、每角色不可替换的 key ref 与每个副作用的原件/回执。未在任何对外请求中使用的临时密码学计算可丢弃；已经持久发布的 role key 或可能已注册的原件不可因重试换新。取消 provisioning 先停新阶段，保留已产生身份/绑定与原件的真实状态，不假装全局回滚或默认删除 native account。已有世界写能力的清理沿原 Stop/Revoke/冻结合同。
 
 只有 prepared 状态和当前世界/身份核验均通过，且另一次明确的 grant/测试会话批准被消费后，才发行执行能力。native 注册成功、列表可见、key 已生成或 participant_bound 均不是 Agent 已获执行权。
