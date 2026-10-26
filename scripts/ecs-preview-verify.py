@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from ecs_preview_update import binding, digest, load_config, module, preflight, trusted_path
 
@@ -103,7 +104,6 @@ def verify(request, config, device):
     # Verify exact public Web bytes, including versioned assets. No URL, command,
     # credentials or allowlist is accepted from the remote release manifest.
     web = Path(components["web"]["path"])
-    import urllib.parse
     for path in sorted(web.rglob("*")):
         if path.is_file() and "skills" not in path.relative_to(web).parts:
             url = "/" + urllib.parse.quote(path.relative_to(web).as_posix(), safe="/")

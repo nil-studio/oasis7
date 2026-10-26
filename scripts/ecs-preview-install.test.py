@@ -6,6 +6,7 @@ import io
 import json
 import sys
 import tempfile
+from types import SimpleNamespace
 import subprocess
 from unittest.mock import patch
 import importlib.util
@@ -107,6 +108,32 @@ class SignedVerifierTests(unittest.TestCase):
             self.verifier.main()
         self.assertEqual(json.loads(stdout.getvalue()), {"nonce": "fresh", "checks": {"skill": True}})
         self.assertIn("Public Skill", stderr.getvalue())
+
+    def test_real_verifier_reaches_http_web_skill_and_observation_consumers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            web = root / "web-dist"
+            web.mkdir()
+            (web / "asset with space.js").write_bytes(b"release bytes")
+            device = root / "device.json"
+            identity = {"world_id": "world", "genesis_hash": "genesis", "service_public_key": "key", "identity": "reader"}
+            device.write_text(json.dumps({"world_id": "world", "genesis_digest": "genesis", "service_public_key": "key", "agent_id": "reader"}))
+            components = {"player": {"release": str(root), "source_sha": "a" * 40}, "web": {"path": str(web)}}
+            config = {"world_identity": identity, "components": {"player": {"path": "player", "service": "player.service"}, "web": {"path": "web"}}, "skill": {"origin": "https://preview.invalid"}}
+            skills = self.verifier.module("package-ecs-skills")
+            helper = SimpleNamespace(public_origin=skills.public_origin, NoRedirect=skills.NoRedirect,
+                checked_release=lambda *args: (None, {}), verify=skills.verify)
+            def fetch(url, **kwargs):
+                if url.endswith("/admission"):
+                    return io.BytesIO(b'{"ok":true,"deployment_mode":"hosted_public_join","admission":{"runtime_probe_status":"ok"}}')
+                self.assertEqual(url, "https://preview.invalid/asset%20with%20space.js")
+                return io.BytesIO(b"release bytes")
+            samples = [{"timestamp": n * 20, "world_tick": n + 10, "identity": identity, "signed_world": True} for n in range(4)]
+            with patch.object(self.verifier, "trusted_path"), patch.object(self.verifier, "preflight") as preflight, patch.object(self.verifier, "binding", side_effect=lambda path: components[path]), patch.object(self.verifier.subprocess, "check_output", return_value="123"), patch.object(self.verifier, "digest", return_value="hash"), patch.object(self.verifier, "descendants", return_value={123}), patch.object(Path, "exists", return_value=True), patch.object(self.verifier, "module", return_value=helper), patch.object(self.verifier.urllib.request, "build_opener", return_value=SimpleNamespace(open=fetch)), patch.object(self.verifier, "signed_sample", side_effect=samples), patch.object(self.verifier.time, "sleep"), patch.object(self.verifier.time, "monotonic", return_value=0):
+                evidence = self.verifier.verify({"nonce": "fresh", "identity": identity, "components": components}, config, device)
+            self.assertEqual(evidence["samples"], samples)
+            self.assertTrue(all(evidence["checks"].values()))
+            self.assertEqual(preflight.call_count, 2)
 
     def test_uses_real_signed_capabilities_entry_and_requires_tick(self):
         result = subprocess.CompletedProcess([], 0, '{"api_revision":1,"logical_tick":19}')
