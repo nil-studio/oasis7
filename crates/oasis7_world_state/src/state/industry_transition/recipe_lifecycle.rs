@@ -1071,19 +1071,10 @@ fn refresh_progress(
         .iter()
         .any(|factory| factory_has_canonical_stable_line(factory));
     let current = progress.stage;
-    let mut next = if stable {
-        IndustryStage::ScaleOut
-    } else {
-        IndustryStage::Bootstrap
-    };
     let governed =
         state.gameplay_policy.electricity_tax_bps > 0 || state.gameplay_policy.data_tax_bps > 0;
-    if next == IndustryStage::ScaleOut
-        && governed
-        && (jobs >= 6 || progress.completed_material_transits >= 3)
-    {
-        next = IndustryStage::Governance;
-    }
+    let next =
+        industry_stage_for_progress(stable, jobs, progress.completed_material_transits, governed);
     if next != current {
         progress.stage = next;
         progress.stage_updated_at = now;
