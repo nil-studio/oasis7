@@ -34,6 +34,7 @@ pub use oasis7_world_state::formal_retained_history;
 mod gameplay;
 pub use oasis7_world_state::gameplay_state;
 pub use oasis7_world_state::governance;
+mod governance_candidate_projection;
 mod governance_membership;
 mod governance_projection;
 mod m1_builtin_wasm_artifact;
@@ -409,6 +410,7 @@ pub use world_event::{
 };
 
 // Committed governance queries and explicit runtime adoption status.
+pub use governance_candidate_projection::WorldGovernanceCandidateRegistryProjectionV2;
 pub use governance_membership::{
     RuntimeMembershipApplicationView, WorldGovernanceFinalityRegistryProjectionV1,
     WorldGovernanceMembershipView,

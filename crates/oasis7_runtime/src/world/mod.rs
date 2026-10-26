@@ -79,6 +79,10 @@ pub(crate) use runtime_support::SharedFormalHistoryReader;
 mod gameplay_layer;
 mod gameplay_loop;
 mod governance;
+mod governance_authorization;
+mod governance_bft_parent;
+mod governance_history;
+mod governance_history_snapshot;
 mod governance_identity_penalty;
 pub(crate) mod governance_meta_publication;
 #[cfg(test)]
@@ -86,9 +90,6 @@ mod governance_proposal_status_publication_transaction_regressions;
 mod governance_publication;
 mod governance_quote;
 pub(crate) mod governance_registry_publication;
-mod governance_authorization;
-mod governance_history;
-mod governance_history_snapshot;
 pub use governance_history_snapshot::{
     GovernanceHistoryVerificationError, VerifiedGovernanceHistorySnapshot,
 };
@@ -424,6 +425,10 @@ pub struct World {
     /// snapshots and survives only in-memory World clones.
     #[serde(skip, default)]
     formal_history_reader: Option<formal_retention::AttachedFormalHistory>,
+    /// Process-local BFT parent and execution phase, rebuilt from the driver's
+    /// independently verified cursor; never restored from a Snapshot.
+    #[serde(skip, default)]
+    bft_governance_parent: Option<governance_bft_parent::BftGovernanceParentV2>,
     journal: Journal,
     next_event_id: WorldEventId,
     #[serde(default)]
@@ -618,6 +623,7 @@ impl World {
             latest_chain_resource_delta: None,
             state,
             formal_history_reader: None,
+            bft_governance_parent: None,
             journal: Journal::new(),
             next_event_id: 1,
             next_event_id_era: 0,

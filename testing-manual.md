@@ -487,6 +487,24 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib four_node_runtime_
 
 这些过滤器必须实际选中测试；零匹配不构成证据。覆盖固定集合上的 Alg1 proposer/lock/valid/nil/quorum 与 round 证据、任意值 unique-power phase timeout（同值 q 仍单独决定 lock/commit）、持久签名前意图和 exact-slot 重开、genesis-anchor 完整 QC 历史恢复、pending commit 与执行侧已提交的精确崩溃接续、持久高度计时基点、bounded gossip cursor 和 NodeRuntime 接线。`node_bft_integration_tests` 使用真实 loopback UDP/quorum/catch-up/restart 与明确标注的确定性 test execution hook；chain-runtime 的四节点过滤器再覆盖真实 execution driver 和运行时动作，二者不可互相代签。四节点/q=3 是集成 fixture，不是算法硬编码。BFT gossip 使用外层 `kind=bft` 与内层 BFT `kind`/`message`；容量判定针对完整 JSON envelope 的 65,507-byte 单 UDP datagram，不把协议的 16 MiB 或历史 256 MiB 上限当作 UDP 传输能力。HistoryRequest 仅为未授权 hint；`raw_bft_commit_history_page` 返回的 QC 与 `bft_status` 的 phase/lock/valid/计数/传输诊断均不能替代从固定 genesis 重验完整 QC 链；status 计数不是受保护或持久证据。以上本机测试不证明正式 authority profile、磁盘回滚抵抗、生产 signer custody、独立故障域或无分片大证书传输。
 
+#### 动态集合 NodeRuntime BFT V2 工程路径
+
+V2 修改须在同一 source tree 串行运行以下最小回归，并按实际影响完成相应 crate、required/full tier 与独立评审；过滤器零匹配不构成通过：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_proto --lib distributed_bft::v2 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_consensus --lib tendermint_v2 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_bft_parent -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib candidate_projection -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib protected_bft_v2 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib node_bft_v2 -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib driver_bft_v2 -- --test-threads=1
+```
+
+核对 h/h+1 的旧集合证书、h+2 的新集合证书、真实签名者去重权重与严格 quorum，而不只比较状态中的 set hash。新成员安装确认须绑定当前适用转换、原 h+1 确认祖先、实际安装 head 和 journal/driver 回执；覆盖迟到安装、缺失或丢失 ACK、原请求恢复、移除及同 ID 换 key，旧 key 不再签名但合法历史可追赶。恢复正例须先停机确认原有高度，再证明此前不存在的新高度确实提交，不能把重启前已有证书当作恢复后续高。
+
+Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和网络接线，其 test hook/内存 backend 不证明磁盘耐久性、实际 World 或硬件隔离。`driver_bft_v2` 另用真实 Runtime World、OS 生命周期锁与持久 execution ledger 验证 build/preview/commit/replay；冷重启用例须核对原证书前缀和已安装记录字节不变，并通过真实 Node 再提交新高度。两类用例的证明范围分别记录，不能互相代签。正式 profile、H/H+1 权威交接、checkpoint 消费者、长期可信 checkpoint 与跨故障域 custody 的整体验收仍须单独完成，不能据这些工程回归宣称 #4975 完成。
+
 #### 本机身份发布回归（NIR bootstrap）
 
 针对普通启动 ensure 与专用身份 helper 的本机持久化修改，运行：

@@ -13,28 +13,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::consensus_support::reserve_action_payload_bytes;
+pub(crate) use crate::node_runtime_state::RuntimeState;
 use crate::runtime_util::now_unix_ms;
 use crate::{
     NodeCommittedActionBatch, NodeCommittedActionBatchesHandle, NodeConfig, NodeConsensusAction,
-    NodeConsensusProgressObserver, NodeConsensusProgressObserverError, NodeConsensusSnapshot,
-    NodeError, NodeExecutionHook, NodeMainTokenControllerBindingConfig,
-    NodeMainTokenControllerSignerPolicy, NodeReplicationNetworkHandle, NodeRuntime,
-    REPLICATED_EXECUTION_INPUT_ACTION_ID, REPLICATED_EXECUTION_INPUT_SUBMITTER,
-    compute_consensus_action_root, validate_consensus_action_root,
-    validate_replicated_execution_input_actions,
+    NodeConsensusProgressObserver, NodeError, NodeExecutionHook,
+    NodeMainTokenControllerBindingConfig, NodeMainTokenControllerSignerPolicy,
+    NodeReplicationNetworkHandle, NodeRuntime, REPLICATED_EXECUTION_INPUT_ACTION_ID,
+    REPLICATED_EXECUTION_INPUT_SUBMITTER, compute_consensus_action_root,
+    validate_consensus_action_root, validate_replicated_execution_input_actions,
 };
-
-#[derive(Debug, Clone, Default)]
-pub(super) struct RuntimeState {
-    pub(super) generation: u64,
-    pub(super) tick_count: u64,
-    pub(super) last_tick_unix_ms: Option<i64>,
-    pub(super) replica_maintenance_last_polled_at_ms: Option<i64>,
-    pub(super) consensus: NodeConsensusSnapshot,
-    pub(super) consensus_progress_observer_error: Option<NodeConsensusProgressObserverError>,
-    pub(super) last_error: Option<String>,
-    pub(super) bft_status: Option<crate::node_bft_runtime::NodeBftStatusV1>,
-}
 
 #[path = "node_bft_action_validation.rs"]
 mod bft_action_validation;
@@ -254,6 +242,7 @@ impl NodeRuntime {
         Self {
             config,
             bft_config: None,
+            bft_v2_config: None,
             local_execution_bootstrap: None,
             local_execution_genesis_bootstrap: None,
             replication_network: None,
@@ -406,8 +395,17 @@ impl NodeRuntime {
         if self.bft_config.is_some() {
             self.validate_bft_payload_admission(&payload_cbor)?;
         }
+        if self.bft_v2_config.is_some() {
+            self.validate_bft_v2_payload_admission(&payload_cbor)?;
+        }
         validate_consensus_action_payload_auth(&self.config, payload_cbor.as_slice())?;
-        governance_auth::preflight(self, payload_cbor.as_slice())?;
+        // BFT V2 admission above is stateful: its execution hook validates the
+        // signed governance action against the exact verified V2 parent cursor.
+        // The legacy preflight uses the ordinary governance path and can reject
+        // a valid V2 transition under a different, non-BFT parent projection.
+        if self.bft_v2_config.is_none() {
+            governance_auth::preflight(self, payload_cbor.as_slice())?;
+        }
         let action = NodeConsensusAction::from_payload(
             action_id,
             self.config.player_id.clone(),
@@ -418,7 +416,7 @@ impl NodeRuntime {
             .pending_consensus_actions
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if self.bft_config.is_some()
+        if (self.bft_config.is_some() || self.bft_v2_config.is_some())
             && bft_action_validation::reject_conflicting_queue_id(&pending, &action)?
         {
             return Ok(());
@@ -1196,5 +1194,4 @@ mod governance_auth;
 
 pub(crate) use governance_auth::preflight_with_execution_hook;
 pub(crate) use governance_auth::retain_for_proposal as retain_governance_action_for_proposal;
-
-use governance_auth::validate_consensus_action_payload_auth;
+pub(crate) use governance_auth::validate_consensus_action_payload_auth;

@@ -184,9 +184,15 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 
 首版一个 world 至多有一个 scheduled 尚未激活的转换；其他 approved 意图保持未排程，待前次激活后按当时 committed policy/set 重新验证。epoch 意图须由协议确定性映射到提交高度 h 和固定 activation_height=h+2；无法映射、已错过边界或旧 set hash 不符则不排程，不能由单机解释或延后。
 
-V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(epoch_length_ticks)`，`h = activation_height.checked_sub(2)`；溢出、h 不是合法正提交高度或在 h 之后才提交的 activation 均拒绝，首版不在 genesis 排程转换。epoch 长度及映射规则版本绑定到 V2 genesis 与转换链，首版拒绝在线改变该映射的策略更新。已有转换在 A₁ 激活时，下一转换的排程高度 A₂−2 必须不早于 A₁；这按实际边界拒绝重叠，不额外禁止长度为 1 的 epoch。V1 固定集合的历史、wire 和签名域保持自身版本，不按 V2 重解释。
+V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(epoch_length_ticks)`，`h = activation_height.checked_sub(2)`；溢出、h 不是合法正提交高度或在 h 之后才提交的 activation 均拒绝，首版不在 genesis 排程转换。epoch 长度及映射规则版本绑定到 V2 genesis 与转换链，首版拒绝在线改变该映射的策略更新。已有转换在 A₁ 激活时，下一转换的排程高度 A₂−2 必须不早于 A₁；这按实际边界拒绝重叠，不额外禁止长度为 1 的 epoch。V1 固定集合的历史、wire 和签名域保持自身版本，不按 V2 重解释。 治理可以在 h 之前提交目标 epoch 的签名 activation 意图；它只进入未来治理状态，不提前取得投票权，集合转换仍须在 h 从当时真实 World 重算并最终提交。已错过 h 的新 activation 不得留待下一边界自动生效；入队预检与候选执行均须拒绝迟到意图。
 
 治理集合的只读预演可以基于同一个已认证 committed World，显式解析指定未来 epoch 的 admissions 与 registry；结果必须同时保留来源 commit、真实 state root、已验证 profile、来源 epoch 和目标 epoch，不能把目标 epoch 伪装成当前 World 时间。预演复用治理选择、资格与 registry 校验，错误照常传播，不改变 World、当前集合或运行应用状态，也不构成本机安装 ACK。转换区块的最终集合仍必须从该候选真实执行后的 World 独立重算，不能直接信任调用者提交的预演结果。
+
+V2 的候选执行和 committed 读取分属不同证明阶段。候选在固定已验证 parent 上独立执行完整 canonical actions，再从真实执行后的 World 解析目标 epoch 集合；该阶段绑定 parent、治理 action 身份、原策略及 execution/state roots，不伪造尚不存在的本块 CommitRef。h 区块承诺完整转换材料及其摘要，不能把自身最终 QC CommitRef 放入自身 block ID；在 h 的 QC 验证成功后才派生对应的 committed 来源。h+1 的证明继续绑定同一转换，并从该高度真实执行后的 World 重算 activation epoch 的集合，必须仍与已提交的新集合 hash 相同；不能通过其他治理入口改写 pending 转换。安装只能消费这条从固定 genesis 延伸的合法证明链。
+
+BFT 治理动作复用既有完整动作签名域、controller 阈值、nonce 和父策略规则。其运行时 parent 上下文由真实 driver 已恢复的 opaque BFT cursor 与逐项匹配的 World root、time、manifest 和固定 epoch 映射建立；固定 genesis 信任仍由启动配置及 driver 独立检查，cursor 本身不认证任意调用者给定的 genesis。该上下文与受控模式的 qualified parent 分开，不能伪造 formal reader。执行前固定父 controller registry，显式开始对应 successor tick，在同一 detached World 上验证并执行批次，完成后结束阶段；上下文不进入 Snapshot。没有匹配 parent/tick 的普通 step 不得应用 admission 治理，新 controller policy 不能在同批次为自身或后续动作授权。
+
+受保护签名器的 V2 genesis 绑定固定初始集合、epoch 映射策略和本机不可导出 key 身份；运行中活动集合由逐高度证书与转换链导出，不允许普通 acquire 改写集合。集合安装原子推进持久 signer generation，隔离旧 owner，并返回绑定转换来源、激活高度、集合摘要、runtime 实例和新 generation 的真实安装确认。本机 consensus、WAL 与 provider 均完成安装并持久记录后才能报告本机 adopted；中途崩溃只能续完同一安装或停签。 V2 以 provider 的受保护 journal 作为签名前 WAL 的唯一持久权威，不再维护另一份可独立推进的 Node 日志。 启动必须先固定本机 driver 的模式／genesis 并取得其稳定载体上的 OS 生命周期锁，再执行远端 provider acquire；本机重复实例不能在本地锁失败之前推进远端租约代际、隔离原实例。节点必须从该 journal 与已验证 schedule 实际恢复目标高度的共识状态，并核对 driver 的持久执行记录，之后才签安装 ACK；WAL 安装摘要绑定同一 journal 和 schedule。重启须重做独立协议／执行重放并核对适用的持久安装回执，不能仅凭 DTO 摘要或旧 ACK 恢复投票；原请求恢复不得产生不同的安装证据。未被当前集合纳入、已被移除或尚未安装的 key 不得签名，但合法历史验证与只读追赶仍可继续。软件测试的安装确认不证明硬件不可回滚或真实故障域。
 
 | 权威边界 | 集合与证明规则 |
 | --- | --- |
@@ -194,7 +200,7 @@ V2 转换使用固定映射：`activation_height = activation_epoch.checked_mul(
 | h+1 | 仍由 S_old 签，header/证明绑定下一高度的 S_new hash 和 h 的转换承诺。新节点取得 h+1 的完整合法状态/证明，恢复签名水位并安装 S_new。 |
 | h+2 及以后 | 只以 S_new 验票；退出/旧 key 权重为零。未安装或未同步完成的节点停止签名，不能让全网边界等待本机 ACK，也不能临时沿用旧集合。 |
 
-排程和安装记录至少含治理决定 CommitRef、world/manifest、旧/新集合 hash、activation height、runtime 实例与 signer binding，安装 ACK 持久化后只报告对应的本机采用事实。ACK 引用的 head 须属于当前 verified head 的合法祖先链，且其 set/activation 与当前签名高度及受保护 signer 状态一致；旧实例、已被后继集合替代、部分安装和重启丢失 ACK 均不授予投票权，不要求每个新块重做同一集合安装。重复 validator/key、负权重、空集合和总权重溢出在 h 的有效性检查时拒绝。轮换、移除与 stake 改动同样适用；发现作恶不允许本地先改分母。
+排程和安装记录至少含治理决定 CommitRef、world/manifest、旧/新集合 hash、activation height、runtime 实例与 signer binding，安装 ACK 持久化后只报告对应的本机采用事实。迟到节点须从完整合法历史定位当前活动集合的 h+1 确认证书，重放至当前 head 后补做安装；不能要求 h+1 仍是当前 tip。安装意图分别固定转换确认 h+1 与实际已安装 head T，T 可以是 h+1 的合法后继；pending 意图保持同一请求和证据，不随重试改写。ACK 引用的 head 须属于当前 verified head 的合法祖先链，且其 set/activation 与当前签名高度及受保护 signer 状态一致；旧实例、已被后继集合替代、部分安装和重启丢失 ACK 均不授予投票权，不要求每个新块重做同一集合安装。重复 validator/key、负权重、空集合和总权重溢出在 h 的有效性检查时拒绝。轮换、移除与 stake 改动同样适用；发现作恶不允许本地先改分母。
 
 安全性沿旧集合最终提交的唯一历史传递到新集合，每个活动集合分别满足 Byzantine 权重限制；不要求把新旧票混合凑一个阈值，也不把独立治理批准当作共识证书。该规则与[单权威在 H 提交、BFT 从 H+1 开始](prd.md#p2p-authority-handoff)的 profile 交接不同。
 
@@ -223,6 +229,14 @@ NodeRuntime 的 BFT 分支使用 Algorithm 1 的 propose/prevote/precommit、val
 BFT gossip 使用与旧 PoS gossip 不同的消息变体。线上 envelope 外层使用 `kind: "bft"`，BFT payload 再以自己的 `kind` 与 `message` 字段编码，例如 `{"kind":"bft","message":{"kind":"history_request","message":{...}}}`；两个 tag 位于不同对象层，避免与旧 gossip 的 `kind` 冲突。在线追赶请求只是未签名的有界 cursor hint：响应端必须把 scope、validator-set hash 与请求的精确 `(height, block_id)` 和已验证本地历史核对，再至多返回一个完整 QC；请求本身不授权历史、投票、执行或状态安装。NodeRuntime 的 `raw_bft_commit_history_page` 只返回连续、范围受限的原始 QC 对象，不返回 verified token 或权威判断；`bft_status` 提供当前 phase/round、lock/valid 投影、拒绝计数和 transport 诊断。两者都是进程级观察接口：状态计数、last error 与 durable-event-count 不是受保护或可独立验证的持久证据；消费者仍须从固定 genesis 与配置重验完整 QC 链。worker 对请求与响应限速，收到的 QC 仍须完整重验、隔离预执行并通过唯一 commit hook。实际 gossip 是单 UDP datagram，不做 IP 分片或可靠传输；签名前按完整 JSON envelope 计算并拒绝超过 65,507 字节的消息。协议/CBOR 的 16 MiB 或历史 256 MiB 上限不代表它们可经此 UDP 路径传输，无法放入单 datagram 的证书或结果必须明确阻断，不能先签后发现无法广播。
 
 此切片不激活正式 `bft` authority profile，不实现 h/h+1/h+2 validator-set transition、治理成员生效、controlled-to-BFT authority handoff、跨故障域 signer custody 或部署 readiness；formal controlled profile 必须继续拒绝该工程模式。静态集合上的 NodeRuntime 正向闭环和对抗回归只能证明当前实现路径，不得写成正式链可用、主网安全或 BFT readiness。
+
+#### 动态集合 NodeRuntime V2 工程入口
+
+Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。动态集合使用独立的 `NodeRuntime::with_tendermint_v2` API、V2 wire/signing 域、QC 历史与 execution ledger；调用者提供固定 genesis 的 `BftSignerBindingV2`、带固定 trust 的 `RemoteBftSignerProviderV2` 和实际 execution hook。该入口直接运行 Node worker、gossip 与确定性提交；不是 `NodeConsensusMode` 状态字段或正式 profile 的选择器。V1/V2 不共用 ledger，也不从旧签名、旧 WAL 或旧证书推断新集合权限；混用、配置漂移或缺少材料均阻断，迁移不静默降级。 V2 journal 与 schedule 的 proposer priority 保留完整 checked i128 算术，线上使用规范十进制字符串；拒绝整数、正号、前导零、负零、空白、溢出及重复 key。该编码须通过实际 kind/body tagged command 的 canonical CBOR 往返验证，不能只验证裸 journal；V1 编码保持独立。
+
+`NodeRuntimeExecutionDriver` 从原始 V2 QC 链独立重放真实 World，复核治理 parent、动作认证和实际候选 roots，按本节 h/h+1/h+2 合同应用集合。Node 在释放新集合签名前，恢复 provider 的受保护 journal 并对照实际 driver 持久记录完成安装确认；迟到安装与原请求重试沿用前述祖先及 pending 合同。`raw_bft_v2_commit_history_page` 返回原始证书，`bft_v2_status` 只投影进程状态；消费者仍须独立验证完整链及自己的信任起点。历史响应只查询已经验证的连续历史，不在每个轮询请求中重复验证整个证书前缀。
+
+对应验证入口见[动态集合 V2 工程路径](../../testing-manual.md#动态集合-noderuntime-bft-v2-工程路径)。Node 网络用例的确定性 test hook 与内存 signer backend 不证明实际 World、磁盘耐久性或硬件防回滚；真实 World/ledger 由 chain-runtime 用例另行验证。V2 工程入口仍不激活正式 `bft` authority profile，不完成 controlled-to-BFT H/H+1 权威交接、checkpoint/消费者全链路、跨故障域 custody 或部署 readiness；这些是 #4975 保留的后续实现与验收义务。
 
 ### des-p2p-target-recovery
 

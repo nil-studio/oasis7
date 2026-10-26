@@ -22,6 +22,9 @@ use serde::{Deserialize, Serialize};
 
 #[path = "driver_bft_storage.rs"]
 mod storage;
+#[path = "driver_bft_v2.rs"]
+mod v2;
+pub(crate) use v2::BftExecutionStateV2;
 
 const BFT_EXECUTION_TICK_AUTHORITY: &str = "system:bft-execution-v1";
 const BFT_EXECUTION_HASH_DOMAIN_V1: &str = "oasis7.bft.execution.v1";
@@ -62,6 +65,10 @@ impl NodeRuntimeExecutionDriver {
         &mut self,
         config: &NodeBftExecutionConfigV1,
     ) -> Result<Option<NodeBftExecutionHeadV1>, String> {
+        if self.bft_execution_v2.is_some() || Self::has_bft_v2_material(self.records_dir.as_path())?
+        {
+            return Err("V1 BFT execution refuses an existing V2 execution ledger".into());
+        }
         let validator_set = config.validate()?;
         if let Some(state) = self.bft_execution.as_mut() {
             let (head, genesis_world) = {
@@ -117,7 +124,7 @@ impl NodeRuntimeExecutionDriver {
     }
 
     pub(super) fn has_bft_material(records_dir: &Path) -> Result<bool, String> {
-        storage::has_bft_material(records_dir)
+        Ok(storage::has_bft_material(records_dir)? || Self::has_bft_v2_material(records_dir)?)
     }
 
     pub(super) fn bft_history_page(
@@ -540,14 +547,14 @@ fn validate_candidate_binding(
     Ok(())
 }
 
-fn action_root(actions: &[NodeConsensusAction]) -> Result<String, String> {
+pub(super) fn action_root(actions: &[NodeConsensusAction]) -> Result<String, String> {
     for action in actions {
         action.validate().map_err(|error| error.to_string())?;
     }
     compute_consensus_action_root(actions).map_err(|error| format!("{error:?}"))
 }
 
-fn decode_actions(bytes: &[u8]) -> Result<Vec<NodeConsensusAction>, String> {
+pub(super) fn decode_actions(bytes: &[u8]) -> Result<Vec<NodeConsensusAction>, String> {
     if bytes.is_empty() || bytes.len() > BFT_MAX_ACTIONS_CBOR_BYTES_V1 {
         return Err("BFT action bytes are empty or exceed the protocol bound".into());
     }
@@ -560,13 +567,13 @@ fn decode_actions(bytes: &[u8]) -> Result<Vec<NodeConsensusAction>, String> {
     Ok(actions)
 }
 
-type ClosedRuntimeAction = (
+pub(super) type ClosedRuntimeAction = (
     oasis7_runtime::Action,
     Option<oasis7_runtime::CommittedRecipeOrigin>,
     Option<oasis7_runtime::GovernanceAuthorizationV1>,
 );
 
-fn decode_closed_runtime_actions(
+pub(super) fn decode_closed_runtime_actions(
     context: &NodeExecutionCommitContext,
 ) -> Result<Vec<ClosedRuntimeAction>, String> {
     let (runtime_actions, simulator_actions, provider_bootstrap, service_intents) =

@@ -123,6 +123,70 @@ impl NodeRuntime {
         Ok((selected, rejected))
     }
 
+    pub(crate) fn canonicalize_bft_v2_local_actions(
+        pending: &mut Vec<NodeConsensusAction>,
+        pending_bytes: &AtomicUsize,
+        hook: &mut dyn NodeExecutionHook,
+        schedule: &oasis7_consensus::tendermint_v2::BftHeightProposerScheduleV2,
+    ) -> Result<(Vec<NodeConsensusAction>, Vec<u64>), NodeError> {
+        let mut ordered = pending.clone();
+        ordered.sort_by_key(|action| action.action_id);
+        for pair in ordered.windows(2) {
+            if pair[0].action_id == pair[1].action_id && pair[0] != pair[1] {
+                return Err(NodeError::Consensus {
+                    reason: format!(
+                        "conflicting preexisting BFT queued actions for action_id={}",
+                        pair[0].action_id
+                    ),
+                });
+            }
+        }
+
+        // Check the cursor even when the queue is empty. Candidate-by-candidate
+        // validation below may discard a stale action, but must not disguise a
+        // broken execution cursor as an empty proposal.
+        hook.validate_bft_v2_action_batch(schedule, &[])
+            .map_err(|reason| NodeError::Consensus { reason })?;
+
+        let mut selected = Vec::with_capacity(ordered.len());
+        let mut rejected = Vec::new();
+        let mut released_bytes = 0usize;
+        for action in ordered {
+            if selected
+                .last()
+                .is_some_and(|previous: &NodeConsensusAction| {
+                    previous.action_id == action.action_id
+                })
+            {
+                released_bytes = released_bytes
+                    .checked_add(action.payload_cbor.len())
+                    .ok_or_else(|| NodeError::Consensus {
+                        reason: "BFT V2 local action byte accounting overflow".into(),
+                    })?;
+                continue;
+            }
+
+            let mut candidate = selected.clone();
+            candidate.push(action.clone());
+            if hook
+                .validate_bft_v2_action_batch(schedule, &candidate)
+                .is_ok()
+            {
+                selected.push(action);
+            } else {
+                released_bytes = released_bytes
+                    .checked_add(action.payload_cbor.len())
+                    .ok_or_else(|| NodeError::Consensus {
+                        reason: "BFT V2 local action byte accounting overflow".into(),
+                    })?;
+                rejected.push(action.action_id);
+            }
+        }
+        *pending = selected.clone();
+        release_action_payload_bytes(pending_bytes, released_bytes);
+        Ok((selected, rejected))
+    }
+
     pub(crate) fn validate_bft_proposal_actions_with_execution_hook(
         config: &NodeConfig,
         execution_hook: &mut dyn NodeExecutionHook,

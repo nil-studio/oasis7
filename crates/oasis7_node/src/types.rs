@@ -479,6 +479,7 @@ impl FromStr for NodeRole {
 pub enum NodeConsensusMode {
     Pos,
     TendermintV1,
+    TendermintV2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

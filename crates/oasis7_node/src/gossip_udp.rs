@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::replication::GossipReplicationMessage;
 use crate::{NodeError, NodeGossipConfig};
 use oasis7_proto::distributed_bft::BftMessageV1;
+use oasis7_proto::distributed_bft::v2::BftMessageV2;
 
 const MAX_GOSSIP_DATAGRAM_PAYLOAD_BYTES: usize = 65_507;
 const MAX_GOSSIP_RECV_BUFFER_BYTES: usize = 65_535;
@@ -30,6 +31,7 @@ pub(crate) enum GossipMessage {
     CheckpointLineageVote(GossipCheckpointLineageVoteMessage),
     Replication(GossipReplicationMessage),
     Bft { message: BftMessageV1 },
+    BftV2 { message: BftMessageV2 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +174,12 @@ impl GossipEndpoint {
 
     pub(crate) fn broadcast_bft(&self, message: &BftMessageV1) -> Result<(), NodeError> {
         self.broadcast_message(GossipMessage::Bft {
+            message: message.clone(),
+        })
+    }
+
+    pub(crate) fn broadcast_bft_v2(&self, message: &BftMessageV2) -> Result<(), NodeError> {
+        self.broadcast_message(GossipMessage::BftV2 {
             message: message.clone(),
         })
     }
@@ -427,6 +435,7 @@ fn gossip_message_kind_label(message: &GossipMessage) -> &'static str {
         GossipMessage::CheckpointLineageVote(_) => "checkpoint_lineage_vote",
         GossipMessage::Replication(_) => "replication",
         GossipMessage::Bft { .. } => "bft",
+        GossipMessage::BftV2 { .. } => "bft_v2",
     }
 }
 

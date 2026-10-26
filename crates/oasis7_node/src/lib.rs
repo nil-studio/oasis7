@@ -56,6 +56,10 @@ mod node_bft_exports;
 #[cfg(test)]
 mod node_bft_integration_tests;
 mod node_bft_runtime;
+mod node_bft_v2_runtime;
+#[cfg(all(test, unix))]
+mod node_bft_v2_test_provider;
+mod node_bft_v2_transport;
 mod node_bft_wal;
 mod node_engine_core;
 mod node_engine_execution;
@@ -64,6 +68,7 @@ mod node_engine_guarded_local;
 mod node_engine_local_bootstrap;
 mod node_engine_network;
 mod node_engine_network_hash;
+mod node_engine_network_observations;
 mod node_engine_peer_types;
 mod node_engine_proposal_reservation;
 mod node_engine_replicated_input;
@@ -83,6 +88,7 @@ mod node_runtime_core;
 mod node_runtime_lifecycle;
 mod node_runtime_local_bootstrap;
 mod node_runtime_replicated_input;
+mod node_runtime_state;
 mod pos_engine_gossip;
 mod pos_schedule;
 mod pos_state_store;
@@ -235,6 +241,7 @@ fn with_execution_hook<T>(
 pub struct NodeRuntime {
     config: NodeConfig,
     bft_config: Option<node_bft_runtime::SelectedNodeBftConfigV1>,
+    bft_v2_config: Option<node_bft_v2_runtime::SelectedNodeBftConfigV2>,
     local_execution_bootstrap: Option<execution_hook::NodeExecutionBootstrap>,
     local_execution_genesis_bootstrap: Option<execution_hook::NodeExecutionGenesisBootstrap>,
     replication_network: Option<NodeReplicationNetworkHandle>,
@@ -267,6 +274,9 @@ pub struct NodeCommittedActionBatchesHandle {
 
 impl NodeRuntime {
     pub fn start(&mut self) -> Result<(), NodeError> {
+        if self.bft_v2_config.is_some() {
+            return node_bft_v2_runtime::start(self);
+        }
         if self.bft_config.is_some() {
             return node_bft_runtime::start(self);
         }
