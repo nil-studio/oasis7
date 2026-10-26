@@ -4,6 +4,8 @@ use super::*;
 use serde_json::Value;
 #[path = "formal_full_sync_cli_recovery_fixture.rs"]
 mod recovery_fixture;
+#[path = "formal_full_sync_sampling_fixture.rs"]
+mod sampling_fixture;
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -175,6 +177,14 @@ fn run_cli_join_with_sources(
     } else {
         (endpoint, vec![])
     };
+    let mut sampling_proxy = if !moving {
+        Some(sampling_fixture::SamplingProxy::start(&endpoint)?)
+    } else {
+        None
+    };
+    let endpoint = sampling_proxy
+        .as_ref()
+        .map_or(endpoint, |proxy| proxy.endpoint.clone());
     let config = FormalFullSyncConfigV1 {
         api_version: API_VERSION.into(),
         endpoint,
@@ -186,8 +196,18 @@ fn run_cli_join_with_sources(
         formal_read_trust: trust.clone(),
         grant: None,
         expected_role: FormalNodeReadRoleV1::StateSync,
-        poll_interval_ms: 100,
-        request_timeout_ms: 2000,
+        // Only the controlled sampling case needs a quiet ready window and a
+        // request budget longer than its 30s pause (and old helper's 10s retry).
+        poll_interval_ms: if sampling_proxy.is_some() {
+            20_000
+        } else {
+            100
+        },
+        request_timeout_ms: if sampling_proxy.is_some() {
+            60_000
+        } else {
+            2000
+        },
         max_total_sync_bytes: 64 * 1024 * 1024,
     };
     super::super::super::local_io::write(
@@ -251,13 +271,50 @@ fn run_cli_join_with_sources(
     };
     let first = cli.wait_ready(&expected)?;
     super::super::super::profile_report_tests::assert_report(&root.0, &first, "ready")?;
-    super::super::super::profile_report_tests::assert_local_collection(
-        &root.0,
-        &cli.binary,
-        &cli.data,
-        &first,
-        "ready",
-    )?;
+    if let Some(proxy) = sampling_proxy.as_ref() {
+        let pause = proxy.pause_next_request()?;
+        pause.wait_entered()?;
+        let during = cli.status()?;
+        require_original_inflight(&during, &first)?;
+        let collected = super::super::super::profile_report_tests::assert_local_collection(
+            &root.0,
+            &cli.binary,
+            &cli.data,
+            &first,
+            "ready",
+        );
+        // Even a red baseline must still be the same paused attempt; a client
+        // timeout/blocked state is not evidence for the sampling regression.
+        require_original_inflight(&cli.status()?, &first)?;
+        drop(pause);
+        let transient = collected?;
+        if transient["status"] != "unknown" || transient["reason"] != "missing_sync_cut" {
+            return Err(format!(
+                "paused collector did not report exact transient: {transient}"
+            ));
+        }
+        let recovered = cli.wait_ready(&expected)?;
+        let live_ready = super::super::super::profile_report_tests::assert_local_collection(
+            &root.0,
+            &cli.binary,
+            &cli.data,
+            &recovered,
+            "ready",
+        )?;
+        if live_ready["status"] != "ready" {
+            return Err(format!(
+                "released collector did not observe real ready: {live_ready}"
+            ));
+        }
+    } else {
+        super::super::super::profile_report_tests::assert_local_collection(
+            &root.0,
+            &cli.binary,
+            &cli.data,
+            &first,
+            "ready",
+        )?;
+    }
     let generation = first["instance"]["generation"].as_u64();
     if evolve_epoch {
         let original = if moving {
@@ -417,6 +474,9 @@ fn run_cli_join_with_sources(
         &stopped,
         "blocked",
     )?;
+    if let Some(proxy) = sampling_proxy.as_mut() {
+        proxy.stop()?;
+    }
     server.stop()?;
     node_runtime
         .lock()
@@ -541,4 +601,24 @@ fn exact_old_epoch_grant_denied(status: &Value) -> bool {
                     || error
                         .contains("formal node read grant identity, epoch, role, or lease mismatch")
             })
+}
+
+fn require_original_inflight(status: &Value, ready: &Value) -> Result<(), String> {
+    let sync = &status["formal_full_state_sync"];
+    if status["instance"] != ready["instance"]
+        || sync["last_verified_cut"] != ready["formal_full_state_sync"]["last_verified_cut"]
+        || sync["state"] != "syncing"
+        || !sync["error"].is_null()
+        || sync["ready"] != false
+        || sync["world_loaded"] != false
+        || sync["state_root_verified"] != false
+        || !sync["loaded_cut"].is_null()
+        || status["formal_readiness"] != false
+    {
+        return Err(format!(
+            "controlled request was not the original in-flight sync: {}",
+            compact_status(status)
+        ));
+    }
+    Ok(())
 }
