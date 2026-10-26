@@ -4,6 +4,7 @@ use crate::client::WorldServicePort;
 use oasis7_game_client::operation_lifecycle::*;
 
 fn read_lookup(stream: &mut std::net::TcpStream) -> (String, FormalAuthenticatedLookupV1) {
+    stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(10)))
         .unwrap();
