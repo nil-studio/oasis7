@@ -29,7 +29,10 @@ compile_error!("custody requires exactly one role feature; never use --all-featu
 compile_error!("approval-harness requires owner and is not a deployment profile");
 
 // Pure Rust adapter API only: no JS export and no production fetch/RPC caller.
-#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "owner", feature = "identity", feature = "recovery-fence")
+))]
 pub mod approval_crypto;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 pub mod approval_store;
@@ -40,6 +43,10 @@ pub mod approval_store;
 pub mod envelope_crypto;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 pub mod provision_approval_store;
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod recovery_fence_control;
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod recovery_fence_store;
 #[cfg(all(
     target_arch = "wasm32",
     any(feature = "identity", feature = "owner", feature = "executor")

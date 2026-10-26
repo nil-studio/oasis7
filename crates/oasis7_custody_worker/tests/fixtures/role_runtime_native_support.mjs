@@ -8,6 +8,7 @@ import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Miniflare, convertV4MiniflareOptions, Response as MiniflareResponse} from 'miniflare';
+import {fixtureRecoveryPolicy,signFixtureRecoveryActivation} from './fence_activation_signer.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const world={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
 const routes={environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:world.world_id};
@@ -17,6 +18,7 @@ function roleBindings(role, wrongKek=false) {
 }
 function options(persist, data, bridge, mode) {
   const native = mode.startsWith('native-');
+  const realFence = mode==='native-real-fence';
   const nativeBindings = native ? {CUSTODY_NATIVE_PROVISION_ENABLED:'true',
     CUSTODY_NATIVE_PRIVATE_KEK:Buffer.alloc(32,94).toString('hex'),CUSTODY_NATIVE_PRIVATE_WRAPPING_KEY_VERSION:'1'} : {};
   const moduleOptions={modulesRoot:root,compatibilityDate:'2026-10-25',cf:false};
@@ -58,11 +60,12 @@ function options(persist, data, bridge, mode) {
     serviceBindings:{ACCOUNT_KEY_PERMITS:{name:'owner',entrypoint:'ExecutorKeyPermits'},RECOVERY_FENCE:{name:'fence',entrypoint:'RecoveryFenceReader'}},
     durableObjects:{ROLE_KEYS:{className:'RoleKeyVault',useSQLite:true}},
   },{
-    name:'fence',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/provision_fence_fixture.mjs')}],
+    name:'fence',...moduleOptions,modules:realFence?artifact('recovery-fence'):[{type:'ESModule',path:resolve(root,'tests/fixtures/provision_fence_fixture.mjs')}],
+    ...(realFence?{bindings:{CUSTODY_INITIAL_SERVICE_EPOCH:'0',CUSTODY_RECOVERY_CONTROL_ENABLED:'true',CUSTODY_RECOVERY_AUTHORITY_POLICY:JSON.stringify(fixtureRecoveryPolicy)},durableObjects:{FENCES:{className:'RecoveryFence',useSQLite:true}}}:{}),
   },{
     name:'oracle-proxy',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/role_runtime_oracle_proxy.mjs')}],bindings:{FIXTURE_MODE:mode},
     serviceBindings:{IDENTITY_REAL:{name:'owner',entrypoint:'IdentityKeyPermits'},EXECUTOR_REAL:{name:'owner',entrypoint:'ExecutorKeyPermits'},EXECUTOR_DEFAULT:'executor',FENCE:'fence'},
-  }]}),resourcePersistencePath:persist,unsafeDevRegistryPath:resolve(persist,'registry')};
+  },...(realFence?[{name:'fence-controller',...moduleOptions,modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/fence_controller.mjs')}],serviceBindings:{CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'},READER:{name:'fence',entrypoint:'RecoveryFenceReader'}}}]:[])]}),resourcePersistencePath:persist,unsafeDevRegistryPath:resolve(persist,'registry')};
 }
 async function authority(directory, nativeMode=false) {
   const ready=resolve(directory,'native-ready.json'), stop=resolve(directory,'native-stop');
@@ -119,6 +122,12 @@ export async function withRoleRuntime(mode, run) {
     };
     const restart=async nextMode=>{await mf?.dispose();mf=new Miniflare(options(persist,native.data,bridge,nextMode));};
     await restart(mode);
+    if(mode==='native-real-fence') {
+      const controller=await mf.getWorker('fence-controller');
+      const description=await (await controller.fetch('https://fixture.test/describe',{method:'POST'})).json();
+      const activation=await controller.fetch('https://fixture.test/activate',{method:'POST',body:JSON.stringify(signFixtureRecoveryActivation(description,'native-fixture-bootstrap'))});
+      assert.equal(activation.status,200,'the real independent Fence must consume the synthetic offline quorum');
+    }
     const headers={Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
     const draft={api_version:1,client_request_id:'negative-runtime',plan:{...routes,purpose:'isolated actual runtime negative cases',expires_at:String(Date.now()+(mode==='native-lost-login'?6000:180000)),transport_limit:'400'}};
     let identity=await mf.getWorker('identity');

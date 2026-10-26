@@ -84,6 +84,94 @@ fn fixture() -> (RecoveryAuthorityPolicyV1, SignedRecoveryActivationV1) {
         },
     )
 }
+fn signed_for(ledger: &RecoveryFenceLedgerV1, operation: &str) -> SignedRecoveryActivationV1 {
+    let (_, mut value) = fixture();
+    value.manifest.operation_id = operation.into();
+    value.manifest.previous_state_digest = ledger.digest().unwrap();
+    value.manifest.from_epoch = DecimalU64(ledger.fence().epoch());
+    value.manifest.to_epoch = DecimalU64(ledger.fence().epoch() + 1);
+    let bytes = value.manifest.signing_bytes().unwrap();
+    for (index, seed) in [81u8, 82u8].into_iter().enumerate() {
+        value.signatures[index].signature =
+            URL_SAFE_NO_PAD.encode(SigningKey::from_bytes(&[seed; 32]).sign(&bytes).to_bytes());
+    }
+    value
+}
+#[test]
+fn consumed_originals_and_old_epoch_tombstones_survive_freeze_and_restore() {
+    let (policy, _) = fixture();
+    let mut ledger = RecoveryFenceLedgerV1::new(
+        policy,
+        "physical-fence-one".into(),
+        RecoveryFence::new(0, true),
+    )
+    .unwrap();
+    let original = signed_for(&ledger, "first-activation");
+    ledger
+        .activate(original.clone(), 1001, &mut Strict)
+        .unwrap();
+    assert_eq!(ledger.fence().epoch(), 1);
+    ledger.disable().unwrap();
+    let before = ledger.clone();
+    assert!(
+        ledger
+            .activate(original.clone(), u64::MAX, &mut Strict)
+            .unwrap()
+            .disabled()
+    );
+    assert_eq!(ledger, before); // Retry cannot use the historical active receipt to thaw.
+    let second = signed_for(&ledger, "second-activation");
+    ledger.activate(second, 1002, &mut Strict).unwrap();
+    assert_eq!(ledger.frozen_epochs(), &[DecimalU64(0), DecimalU64(1)]);
+    assert_eq!(ledger.fence().epoch(), 2);
+    let audits = ledger.audit_history().unwrap();
+    assert_eq!(audits.len(), 3);
+    assert!(audits[1].disabled);
+    assert_eq!(audits[1].epoch, DecimalU64(1));
+    assert_eq!(audits[2].state_digest, ledger.digest().unwrap());
+    let restored: RecoveryFenceLedgerV1 =
+        serde_json::from_value(serde_json::to_value(&ledger).unwrap()).unwrap();
+    assert_eq!(restored, ledger);
+    let mut tampered = serde_json::to_value(&ledger).unwrap();
+    tampered["frozen_epochs"] = serde_json::json!(["0"]);
+    assert!(serde_json::from_value::<RecoveryFenceLedgerV1>(tampered).is_err());
+    let mut changed = original;
+    changed.manifest.evidence_digest = "01".repeat(32);
+    assert!(ledger.activate(changed, 1003, &mut Strict).is_err());
+}
+#[test]
+fn history_capacity_never_prevents_disable_and_unknown_active_cannot_bootstrap() {
+    let (policy, _) = fixture();
+    assert!(
+        RecoveryFenceLedgerV1::new(
+            policy.clone(),
+            "physical-fence-one".into(),
+            RecoveryFence::new(1, false)
+        )
+        .is_err()
+    );
+    let mut ledger = RecoveryFenceLedgerV1::new(
+        policy,
+        "physical-fence-one".into(),
+        RecoveryFence::new(0, true),
+    )
+    .unwrap();
+    for i in 0..MAX_RECOVERY_ACTIVATIONS {
+        let signed = signed_for(&ledger, &format!("activation-{i}"));
+        ledger.activate(signed, 1001, &mut Strict).unwrap();
+    }
+    let extra = signed_for(&ledger, "over-capacity");
+    assert!(ledger.activate(extra, 1001, &mut Strict).is_err());
+    ledger.disable().unwrap();
+    assert!(ledger.fence().disabled());
+    assert_eq!(ledger.activations().len(), MAX_RECOVERY_ACTIVATIONS);
+    assert!(
+        ledger
+            .frozen_epochs()
+            .iter()
+            .any(|v| v.0 == MAX_RECOVERY_ACTIVATIONS as u64)
+    );
+}
 fn current(fence: &RecoveryFence) -> RecoveryActivationCurrent<'_> {
     RecoveryActivationCurrent {
         environment: "test",

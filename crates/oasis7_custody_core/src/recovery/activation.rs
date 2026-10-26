@@ -142,6 +142,12 @@ pub struct RecoveryActivationCurrent<'a> {
 pub trait RecoveryActivationVerifier {
     fn verify(&mut self, public_key: &str, signature: &str, bytes: &[u8]) -> Result<()>;
 }
+#[derive(Clone, PartialEq, Eq)]
+pub struct RecoveryActivationSignatureCheck {
+    pub public_key: String,
+    pub signature: String,
+    pub bytes: Vec<u8>,
+}
 impl SignedRecoveryActivationV1 {
     /// A verified next fence is a service rejection boundary, not an account grant.
     /// The adapter must atomically retain the old frozen epoch and signed original.
@@ -152,6 +158,18 @@ impl SignedRecoveryActivationV1 {
         now: u64,
         verifier: &mut impl RecoveryActivationVerifier,
     ) -> Result<RecoveryFence> {
+        for check in self.signature_checks(policy, current, now)? {
+            verifier.verify(&check.public_key, &check.signature, &check.bytes)?;
+        }
+        Ok(RecoveryFence::new(self.manifest.to_epoch.0, false))
+    }
+    /// Only constructs exact checks; the adapter must actually verify every check.
+    pub fn signature_checks(
+        &self,
+        policy: &RecoveryAuthorityPolicyV1,
+        current: &RecoveryActivationCurrent<'_>,
+        now: u64,
+    ) -> Result<Vec<RecoveryActivationSignatureCheck>> {
         policy.validate()?;
         let m = &self.manifest;
         let bytes = m.signing_bytes()?;
@@ -170,15 +188,27 @@ impl SignedRecoveryActivationV1 {
                 && self.signatures.len() <= policy.keys.len(),
         )?;
         let mut seen = BTreeSet::new();
+        let mut checks = Vec::new();
         for signature in &self.signatures {
-            require(seen.insert(&signature.key_id))?;
+            require(
+                seen.insert(&signature.key_id)
+                    && signature.signature.len() == 86
+                    && signature
+                        .signature
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b)),
+            )?;
             let key = policy
                 .keys
                 .iter()
                 .find(|key| key.key_id == signature.key_id)
                 .ok_or(InvalidRecoveryActivation)?;
-            verifier.verify(&key.public_key, &signature.signature, &bytes)?;
+            checks.push(RecoveryActivationSignatureCheck {
+                public_key: key.public_key.clone(),
+                signature: signature.signature.clone(),
+                bytes: bytes.clone(),
+            });
         }
-        Ok(RecoveryFence::new(m.to_epoch.0, false))
+        Ok(checks)
     }
 }
