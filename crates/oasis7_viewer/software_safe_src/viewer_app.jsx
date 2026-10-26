@@ -3395,10 +3395,6 @@ function InteractionPanel() {
         </div>
       </div>
       <AgentContextLite model={selectedAgentContextModel()} locale={locale()} fixtureMetadata={selectedAgentContextFixtureMetadata()} />
-      <BrowserByokSurface locale={locale} onCanonicalAgent={(id) => core.select({ kind: "agent", id }).ok} config={() => viewerRuntimeConfig().browserGameClient} agentId={agentId} ownerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} accountId={() => {
-        observeViewerStateRevision();
-        return core.state.auth.available ? core.state.auth.hostedAccountId : null;
-      }} />
       <Show
         when={interactionEnabled() && canControlSelectedAgent()}
         fallback={
@@ -3755,6 +3751,9 @@ function DetailsPanel() {
         <Badge class="badge badge--accent">{tr(locale(), "当前命令目标", "Current Command Target")}</Badge>
         <Badge>{selectedLabel()}</Badge>
       </div>
+      <Show when={viewerRuntimeConfig().browserGameClient}>
+        <BrowserByokSurface locale={locale} onCanonicalAgent={(id) => core.select({ kind: "agent", id }).ok} config={() => viewerRuntimeConfig().browserGameClient} agentId={() => { observeViewerStateRevision(); return core.state.selectedKind === "agent" ? core.state.selectedId : null; }} ownerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} accountId={() => { observeViewerStateRevision(); return core.state.auth.available ? core.state.auth.hostedAccountId : null; }} />
+      </Show>
       <Show
         when={!hiddenSelectedAgent() && core.state.selectedKind !== "module_visual"}
         fallback={

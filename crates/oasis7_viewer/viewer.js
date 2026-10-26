@@ -35688,23 +35688,6 @@ function InteractionPanel() {
 					return selectedAgentContextFixtureMetadata();
 				}
 			}), _el$316);
-			insert(_el$303, createComponent(BrowserByokSurface, {
-				locale,
-				onCanonicalAgent: (id) => select({
-					kind: "agent",
-					id
-				}).ok,
-				config: () => viewerRuntimeConfig().browserGameClient,
-				agentId,
-				ownerSigner: () => {
-					observeViewerStateRevision();
-					return state.auth.available ? authSigningIdentity(state.auth) : null;
-				},
-				accountId: () => {
-					observeViewerStateRevision();
-					return state.auth.available ? state.auth.hostedAccountId : null;
-				}
-			}), _el$316);
 			insert(_el$303, createComponent(Show, {
 				get when() {
 					return memo(() => !!interactionEnabled())() && canControlSelectedAgent();
@@ -36262,6 +36245,33 @@ function DetailsPanel() {
 		insert(_el$368, createComponent(Badge, { get children() {
 			return selectedLabel();
 		} }), null);
+		insert(_el$367, createComponent(Show, {
+			get when() {
+				return viewerRuntimeConfig().browserGameClient;
+			},
+			get children() {
+				return createComponent(BrowserByokSurface, {
+					locale,
+					onCanonicalAgent: (id) => select({
+						kind: "agent",
+						id
+					}).ok,
+					config: () => viewerRuntimeConfig().browserGameClient,
+					agentId: () => {
+						observeViewerStateRevision();
+						return state.selectedKind === "agent" ? state.selectedId : null;
+					},
+					ownerSigner: () => {
+						observeViewerStateRevision();
+						return state.auth.available ? authSigningIdentity(state.auth) : null;
+					},
+					accountId: () => {
+						observeViewerStateRevision();
+						return state.auth.available ? state.auth.hostedAccountId : null;
+					}
+				});
+			}
+		}), _el$369);
 		insert(_el$367, createComponent(Show, {
 			get when() {
 				return memo(() => !!!hiddenSelectedAgent())() && state.selectedKind !== "module_visual";
