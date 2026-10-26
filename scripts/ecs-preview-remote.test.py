@@ -336,7 +336,9 @@ class EngineTests(unittest.TestCase):
         engine, clock = self.make_readiness_engine()
         processes = {"chain.service:101": self.process(101, "oasis7_chain_runtime")}
         service_results = iter([
-            remote.RemoteError("service_inactive"), processes, processes, processes,
+            remote.RemoteError("service_inactive"),
+            remote.RemoteError("process_identity_unavailable"),
+            processes, processes, processes,
         ])
         world_results = iter([
             ProbeError("probe_http_timeout"), ProbeError("probe_http_failed"),
@@ -363,14 +365,15 @@ class EngineTests(unittest.TestCase):
         ready, world = engine._wait_for_chain_ready(180)
         self.assertEqual(ready, processes)
         self.assertEqual(world["logical_tick"], 8)
-        self.assertEqual(len(service_calls), 4)
+        self.assertEqual(len(service_calls), 5)
         self.assertEqual(len(world_calls), 3)
-        self.assertEqual(clock.now, 6)
+        self.assertEqual(clock.now, 8)
 
     def test_chain_readiness_fails_fast_on_wrong_process_hash_or_world_identity(self):
         for error_code, world in (
             ("process_hash_mismatch", WORLD),
             (None, {**WORLD, "world_id": "other-world"}),
+            (None, {**WORLD, "signature_verified": False}),
         ):
             with self.subTest(error_code=error_code):
                 engine, _clock = self.make_readiness_engine()
