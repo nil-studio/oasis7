@@ -4,7 +4,7 @@ use oasis7_proto::world_error::WorldError;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BlobStore, FileIndexFile, FileMetadata, LocalCasStore, normalize_file_path, to_canonical_cbor,
+    FileIndexFile, FileMetadata, LocalCasStore, normalize_file_path, to_canonical_cbor,
     validate_hash,
 };
 
@@ -24,6 +24,7 @@ pub struct FileIndexManifestRef {
 
 impl LocalCasStore {
     pub fn export_file_index_manifest(&self) -> Result<FileIndexManifestRef, WorldError> {
+        let _retention = self.lock_retention()?;
         let file_index = self.load_file_index()?;
         let files: Vec<FileMetadata> = file_index.files.into_values().collect();
 
@@ -32,7 +33,7 @@ impl LocalCasStore {
             files,
         };
         let bytes = to_canonical_cbor(&manifest)?;
-        let content_hash = self.put_bytes(&bytes)?;
+        let content_hash = self.put_bytes_without_retention_lock(&bytes)?;
         Ok(FileIndexManifestRef {
             content_hash,
             size_bytes: bytes.len() as u64,
@@ -43,6 +44,7 @@ impl LocalCasStore {
         &self,
         manifest_ref: &FileIndexManifestRef,
     ) -> Result<usize, WorldError> {
+        let _retention = self.lock_retention()?;
         validate_hash(manifest_ref.content_hash.as_str())?;
         let bytes = self.get_verified(manifest_ref.content_hash.as_str())?;
         if bytes.len() as u64 != manifest_ref.size_bytes {
