@@ -122,10 +122,13 @@ fn check_gate(view: &ProvisionGateView, draft: &AccountDraftV1, now: u64) -> Res
     Ok(())
 }
 async fn fence(env: &Env) -> Result<(RecoveryFence, DecimalU64)> {
+    // The response has no remote timestamp. Start before RPC as a conservative
+    // lower bound on observation time; slow transport cannot renew freshness.
+    let observed_at = DecimalU64(clock()?);
     let fence: RecoveryFence =
         serde_json::from_str(&text(read_fence(env).await.map_err(|_| denied())?)?)
             .map_err(|_| denied())?;
-    Ok((fence, DecimalU64(clock()?)))
+    Ok((fence, observed_at))
 }
 fn current(
     env: &Env,
