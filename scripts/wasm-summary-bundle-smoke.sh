@@ -44,6 +44,8 @@ summary = {
     },
     "receipt_evidence": {
         f"{module_set}.module": {
+            "source_input_rule_version": 2,
+            "source_inputs": [{"kind": "source-file", "path": "module/src/lib.rs", "sha256": "0" * 64}],
             "source_hash": "source-hash",
             "build_manifest_hash": "build-manifest-hash",
             "wasm_hash": "wasm-hash",
@@ -84,7 +86,44 @@ for module_set in m1 m4 m5; do
 
   test -f "$staged_dir/linux-x86_64.json"
   test -f "$staged_dir/darwin-arm64.json"
+  python3 ./scripts/ci-verify-m1-wasm-summaries.py --module-set "$module_set" --summary-dir "$staged_dir"
 done
+
+python3 - "$source_root/m1/darwin-arm64.json" <<'PY'
+import contextlib
+import copy
+import importlib.util
+import io
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("verify_wasm", "scripts/ci-verify-m1-wasm-summaries.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original = json.loads(path.read_text())
+for mutation in ("legacy", "unknown", "missing-details", "invalid-path", "invalid-digest"):
+    payload = copy.deepcopy(original)
+    record = payload["receipt_evidence"]["m1.module"]
+    if mutation == "legacy":
+        del record["source_input_rule_version"]
+    elif mutation == "unknown":
+        record["source_input_rule_version"] = 99
+    elif mutation == "missing-details":
+        record["source_inputs"] = []
+    elif mutation == "invalid-path":
+        record["source_inputs"][0]["path"] = "../escape"
+    else:
+        record["source_inputs"][0]["sha256"] = "not-a-digest"
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            module.verify_summary_shape(path, payload, "m1")
+    except SystemExit as error:
+        assert error.code == 1
+    else:
+        raise AssertionError(f"accepted {mutation} source-input evidence")
+PY
 
 bad_source_root="$tmp_root/bad-source"
 for module_set in m1 m4 m5; do

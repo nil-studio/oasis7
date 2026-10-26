@@ -116,6 +116,9 @@ fn print_build_output(output: &BuildOutput) {
     if output.dry_run {
         println!("mode=dry-run");
     } else {
+        if let Some(rule) = output.source_input_rule_version {
+            println!("source_input_rule_version={rule}");
+        }
         if let Some(source_hash) = &output.source_hash {
             println!("source_hash={source_hash}");
         }

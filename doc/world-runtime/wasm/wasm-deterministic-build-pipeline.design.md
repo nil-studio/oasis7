@@ -132,9 +132,13 @@ Trace ID: O7-REQ-6bf0b127-1fdf-4912-9106-48f146b9f867
 
 **旧证据不重新解释。** 缺少规则版本的 receipt 按原格式/原算法标为 legacy；它不是 v2 的完整输入证明。当前源码新鲜度校验或新 identity 生成要求 v2 时，legacy、版本不一致和源码摘要不一致分别显式拒绝，并给出按既有授权重新 canonical build 的指引，不能仅补 version 字段、重算 source hash 配旧 wasm，或绕过 source check。已发布历史 receipt/manifest/identity 保留原字节与原语义；历史验证若仍支持旧格式，只按明确的旧验证路径报告其覆盖不足，不自动撤销历史 activation，也不声称历史工件符合新闭包。新规则重建可能改变 source/build/identity，即使 wasm bytes 不变；更新 tracked manifest/identity、签名或发布仍需原授权，文档修改不触发重建或迁移历史。
 
-**现状与验收。** 静态基线 `b9bc4b2a6df858e27f94754d227b0fdc23ae3639` 的 [共享 hasher](../../../crates/oasis7_wasm_build/src/lib.rs) 尚未覆盖上述包外模板；22 个 M4 wrapper 引入三类模板；[suite](../../../tools/wasm_build_suite/src/lib.rs) 与 [identity sync](../../../crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs) 复用同一旧 hasher，因此不能互相证明遗漏已解决。独立 WASM hash 校验仍存在，不据此宣称任意二进制替换或签名绕过。
+**实现与使用边界。** [共享 hasher](../../../crates/oasis7_wasm_build/src/source_inputs.rs) 提供 `compute_source_inputs` 与 `validate_source_evidence`；22 个 M4 wrapper 各自的 `source-inputs.json` 声明实际模板边。声明字段为 `rule_version=2`、`includes=[{from,to}]` 与 `build_inputs={源码根相对build脚本路径:[精确数据路径]}`；路径相对于 Cargo 本地包与 owning workspace 的共同源码根。边和列表排序去重，以 `oasis7-source-input-declaration-v2`、u64 BE 记录数及长度前缀的种类/from/to 字符串摘要；种类为 `include-edge`、`build-script` 或 `build-input`，脚本声明的 to 为空。空声明不隐含包外输入许可。包内固定根文件仍全部取内容摘要；Rust 输入从 Cargo target 与静态 module/include 图核对，`include_str!`/`include_bytes!` 数据不当 Rust 源码解析。
 
-实现验收逐项要求：factory/product/recipe 模板分别单独变化使所有实际依赖模块失效，不相关模块稳定；合法传递 include/声明的 build 输入变化可检出，越界、丢失、未声明和不支持形态拒绝；重复计算、输入顺序及 cwd 改变不改变摘要；suite/producer/consumer 的同版本向量完全一致；缺版本、未知版本、旧 receipt 配新源码和只补字段均拒绝新规则身份生成。保留现有依赖/workspace/lockfile 与独立 WASM hash 回归；真实构建/跨宿主、版本迁移结果另行记录，新增用例尚未执行。
+当前 lane 使用 Rust token/语法解析接受字面量 include。标准无外部文件输入宏与 SDK export 的有界集合受检查，未知宏、嵌套输入宏、环境路径与 `#[path]` 不支持。build 脚本只支持明确声明的字面量 `std::fs`/`fs` 文件读取及受检查的日志/assert 表达式，不支持任意辅助调用、方法、未知宏或生成输出；没有外部读取也须显式声明空列表。路径解析在消去 `..` 前拒绝 symlink/非目录组件，manifest 原始路径也核对 source-root 内的祖先路径。新增支持形式须扩充同一规则实现与回归，不能省略检查后继续生成 receipt。
+
+[suite](../../../tools/wasm_build_suite/src/lib.rs) 在构建前核对闭包，构建后复核相同明细，并输出 receipt schema 3 与规则 2；这可检出普通构建期输入变化，不是原子源码快照或对改后又改回的完全证明。[identity sync](../../../crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs) 新生成 schema 2，每项保留规则与输入明细；summary producer/reader 同样要求规则 2。旧 receipt 与 tracked identity 不自动改写，显式新构建及既有发布授权仍是迁移前提。独立 WASM hash 校验保留，不据此宣称任意二进制替换或签名绕过。
+
+实现验收逐项要求：factory/product/recipe 模板分别单独变化使所有实际依赖模块失效，不相关模块稳定；合法传递 include/声明的 build 输入变化可检出，越界、丢失、未声明和不支持形态拒绝；重复计算、输入顺序及 cwd 改变不改变摘要；suite/producer/consumer 的同版本向量完全一致；缺版本、未知版本、旧 receipt 配新源码和只补字段均拒绝新规则身份生成。保留现有依赖/workspace/lockfile 与独立 WASM hash 回归；候选构建、跨宿主及版本迁移结果记录在适用 PR/发布证据，不用算法回归代签历史工件迁移或跨宿主发布验收。
 
 <a id="build-publish-hash-contract"></a>
 ### 单 canonical 发布 hash
@@ -301,7 +305,7 @@ Project 和 Git history 追溯。可长期复用的验证入口收敛在
 | --- | --- | --- |
 | 容器基础设施 | `docker/wasm-builder/Dockerfile`、`scripts/build-wasm-module.sh` 与 canonical builder digest 已落地。 | canonical builder 已存在，跨宿主证据已由 self-hosted Darwin Docker workflow 产出；repo 内保留 run/job 索引，不提交 workflow artifact 二进制。 |
 | 构建入口 | `scripts/build-wasm-module.sh` 已强制 `docker run --platform linux/amd64`，且显式拒绝 host-native fallback。 | 入口已收敛，但仍需把“stable gate”和“cross-host full closure”严格区分。 |
-| 构建工具 | `tools/wasm_build_suite` 已在容器内输出 `build receipt`、`source_hash`、`build_manifest_hash`、`builder_image_digest` 与 `container_platform`。 | 已有 receipt 字段不证明共享模板闭包完整；[版本化输入规则](#build-source-input-rule)仍待实现，evidence 汇总与 release gate 另行验证。 |
+| 构建工具 | `tools/wasm_build_suite` 输出 `build receipt`、`source_hash`、`build_manifest_hash`、`builder_image_digest` 与 `container_platform`。 | [版本化输入规则](#build-source-input-rule)由共享 hasher、receipt 与 identity/summary 消费者承接；历史 receipt 保持 legacy，容器候选、evidence 汇总与 release gate 分别验证。 |
 | manifest 策略 | builtin hash manifest 已改为单 canonical token `linux-x86_64=<sha256>`；identity 生成已切换为 receipt 驱动。 | 写路径已收敛，cross-host report 已拿到真实 `darwin-arm64` Docker evidence。 |
 | source compile | `compile_module_artifact_from_source` 仍保留源码包编译能力，但 production `ReleaseSecurityPolicy` 已默认拒绝该 action；仅 dev/test 可显式使用。 | external builder worker 仍未落地，当前以 production default-disable 先收敛 runtime 权限面。 |
 | CI 校验 | `.github/workflows/wasm-determinism-gate.yml` 当前已收敛为 GitHub-hosted `linux-x86_64` stable gate，并支持导入外部 summaries；`.github/workflows/wasm-darwin-docker-evidence.yml` 可手动调度 self-hosted Darwin Docker runner 产出真实 `darwin-arm64` bundle 并触发 Linux cross-host verify。 | `WDBP-3` 的真实 `linux-x86_64 + darwin-arm64` evidence 已在 main run `28297899706` 产出；GitHub-hosted macOS 仍不作为 Docker evidence producer。 |

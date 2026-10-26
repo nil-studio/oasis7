@@ -1,0 +1,679 @@
+//! The v2 source-input contract shared by build producers and identity readers.
+use super::*;
+use serde::{Deserialize, Serialize};
+use std::path::Component;
+use syn::visit::Visit;
+
+pub const SOURCE_INPUT_RULE_VERSION: u32 = 2;
+const DECLARATION: &str = "source-inputs.json";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceInputRecord {
+    pub kind: String,
+    pub path: String,
+    pub sha256: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceInputs {
+    pub source_input_rule_version: u32,
+    pub source_hash: String,
+    pub source_inputs: Vec<SourceInputRecord>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Edge {
+    from: String,
+    to: String,
+}
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Declaration {
+    rule_version: u32,
+    includes: Vec<Edge>,
+    build_inputs: BTreeMap<String, Vec<String>>,
+}
+
+fn unsupported(detail: impl fmt::Display) -> SourceHashError {
+    SourceHashError::UnsupportedInput(format!("unsupported-input: {detail}"))
+}
+fn read(path: &Path) -> Result<Vec<u8>, SourceHashError> {
+    fs::read(path).map_err(|source| SourceHashError::Io {
+        path: Some(path.into()),
+        source,
+    })
+}
+fn label(root: &Path, path: &Path) -> Result<String, SourceHashError> {
+    let rel = path
+        .strip_prefix(root)
+        .map_err(|_| unsupported(format!("path outside source root: {}", path.display())))?;
+    let mut labels = Vec::new();
+    for part in rel.components() {
+        let Component::Normal(value) = part else {
+            return Err(unsupported("ambiguous relative path"));
+        };
+        let text = value
+            .to_str()
+            .ok_or_else(|| unsupported("non-UTF-8 path"))?;
+        if text.contains('\\') || text.is_empty() {
+            return Err(unsupported("ambiguous path component"));
+        }
+        labels.push(text);
+    }
+    if labels.is_empty() {
+        return Err(unsupported("empty input path"));
+    }
+    Ok(labels.join("/"))
+}
+fn declared_path(root: &Path, value: &str) -> Result<PathBuf, SourceHashError> {
+    let path = root.join(value);
+    if label(root, &path)? != value || Path::new(value).is_absolute() {
+        return Err(unsupported(format!("noncanonical declared path {value}")));
+    }
+    validate_file(root, &path)?;
+    Ok(path)
+}
+fn validate_file(root: &Path, path: &Path) -> Result<(), SourceHashError> {
+    label(root, path)?;
+    let rel = path
+        .strip_prefix(root)
+        .map_err(|_| unsupported("outside root"))?;
+    let mut current = root.to_path_buf();
+    for part in rel.components() {
+        current.push(part);
+        let meta = fs::symlink_metadata(&current).map_err(|source| SourceHashError::Io {
+            path: Some(current.clone()),
+            source,
+        })?;
+        if meta.file_type().is_symlink() {
+            return Err(unsupported(format!("symlink input {}", current.display())));
+        }
+    }
+    if !path.is_file() {
+        return Err(unsupported(format!(
+            "input is not a file: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+fn include_path(root: &Path, from: &Path, value: &str) -> Result<PathBuf, SourceHashError> {
+    if Path::new(value).is_absolute() || value.contains('\\') {
+        return Err(unsupported("absolute/ambiguous include path"));
+    }
+    let mut resolved = from
+        .parent()
+        .ok_or_else(|| unsupported("input lacks parent"))?
+        .to_path_buf();
+    let components = Path::new(value).components().collect::<Vec<_>>();
+    for (index, part) in components.iter().enumerate() {
+        match part {
+            Component::Normal(v) => {
+                resolved.push(v);
+                let metadata =
+                    fs::symlink_metadata(&resolved).map_err(|source| SourceHashError::Io {
+                        path: Some(resolved.clone()),
+                        source,
+                    })?;
+                if metadata.file_type().is_symlink() {
+                    return Err(unsupported("symlink include component"));
+                }
+                if index + 1 < components.len() && !metadata.is_dir() {
+                    return Err(unsupported("include traverses a non-directory"));
+                }
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if resolved == root || !resolved.pop() {
+                    return Err(unsupported("include escapes source root"));
+                }
+            }
+            _ => return Err(unsupported("unsupported include path")),
+        }
+    }
+    validate_file(root, &resolved)?;
+    Ok(resolved)
+}
+
+/// Missing version is legacy, never a new-rule proof. No reader falls back to v1.
+pub fn validate_source_evidence(
+    version: Option<u32>,
+    records: Option<&[SourceInputRecord]>,
+    hash: &str,
+    expected: &SourceInputs,
+) -> Result<(), SourceHashError> {
+    match version {
+        None => {
+            return Err(unsupported(
+                "legacy receipt lacks source_input_rule_version; canonical rebuild required",
+            ));
+        }
+        Some(SOURCE_INPUT_RULE_VERSION) => {}
+        Some(value) => {
+            return Err(unsupported(format!(
+                "unknown/mismatched source_input_rule_version={value}; canonical rebuild required"
+            )));
+        }
+    }
+    if records != Some(expected.source_inputs.as_slice()) {
+        return Err(unsupported(
+            "source input details mismatch; canonical rebuild required",
+        ));
+    }
+    if hash != expected.source_hash {
+        return Err(unsupported(
+            "source hash mismatch; canonical rebuild required",
+        ));
+    }
+    Ok(())
+}
+
+pub fn compute_source_inputs(
+    manifest_path: &Path,
+    target: &str,
+) -> Result<SourceInputs, SourceHashError> {
+    if fs::symlink_metadata(manifest_path)
+        .map_err(unsupported)?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(unsupported("symlink manifest"));
+    }
+    let original_manifest = std::path::absolute(manifest_path).map_err(unsupported)?;
+    if original_manifest
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(unsupported(
+            "manifest path must not contain parent traversal",
+        ));
+    }
+    let manifest = fs::canonicalize(manifest_path).map_err(unsupported)?;
+    let metadata = read_cargo_metadata(&manifest, target)?;
+    let packages = collect_local_package_dirs(&metadata, &manifest)?;
+    let owners = collect_owning_workspace_manifests(&packages)?;
+    let mut dirs = packages.clone();
+    dirs.extend(
+        owners
+            .iter()
+            .filter_map(|v| v.parent().map(Path::to_path_buf)),
+    );
+    if let Some(lock) = find_lockfile_for_metadata(&manifest) {
+        dirs.push(lock.parent().unwrap().to_path_buf());
+    }
+    let root = workspace_root(&metadata, &manifest, &dirs);
+    let anchor = original_manifest
+        .ancestors()
+        .find(|ancestor| fs::canonicalize(ancestor).is_ok_and(|path| path == root))
+        .ok_or_else(|| unsupported("manifest path has no unambiguous source-root anchor"))?;
+    if fs::symlink_metadata(anchor)
+        .map_err(unsupported)?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(unsupported("symlink manifest source-root anchor"));
+    }
+    let relative = original_manifest
+        .strip_prefix(anchor)
+        .map_err(unsupported)?;
+    validate_file(&root, &root.join(relative))?;
+    validate_file(&root, &manifest)?;
+    let mut files = owners.into_iter().collect::<BTreeSet<_>>();
+    if let Some(lock) = find_lockfile_for_metadata(&manifest) {
+        files.insert(lock);
+    }
+    let mut declarations = Vec::new();
+    let mut edges = BTreeSet::new();
+    let mut build_inputs = BTreeMap::new();
+    for package in &packages {
+        files.extend(collect_source_files_for_hash(package)?);
+        let path = package.join(DECLARATION);
+        if fs::symlink_metadata(&path).is_ok() {
+            validate_file(&root, &path)?;
+            let mut declaration: Declaration = serde_json::from_slice(&read(&path)?)
+                .map_err(|e| unsupported(format!("{}: {e}", path.display())))?;
+            if declaration.rule_version != SOURCE_INPUT_RULE_VERSION {
+                return Err(unsupported("unknown declaration rule version"));
+            }
+            declaration.includes.sort();
+            declaration.includes.dedup();
+            for edge in &declaration.includes {
+                declared_path(&root, &edge.from)?;
+                declared_path(&root, &edge.to)?;
+                edges.insert(edge.clone());
+            }
+            for (from, inputs) in &mut declaration.build_inputs {
+                declared_path(&root, from)?;
+                inputs.sort();
+                inputs.dedup();
+                for input in inputs.iter() {
+                    declared_path(&root, input)?;
+                }
+                if build_inputs.insert(from.clone(), inputs.clone()).is_some() {
+                    return Err(unsupported("duplicate build input declaration"));
+                }
+            }
+            let declaration_hash = hash_declaration(&declaration);
+            declarations.push(SourceInputRecord {
+                kind: "input-declaration".into(),
+                path: label(&root, &path)?,
+                sha256: declaration_hash,
+            });
+        }
+    }
+    let mut rust_roots = BTreeSet::new();
+    for package in metadata.packages.iter().filter(|p| p.source.is_none()) {
+        if !packages
+            .iter()
+            .any(|dir| dir.join("Cargo.toml") == Path::new(&package.manifest_path))
+        {
+            continue;
+        }
+        for target in &package.targets {
+            if target
+                .kind
+                .iter()
+                .any(|kind| matches!(kind.as_str(), "test" | "bench" | "example"))
+            {
+                continue;
+            }
+            let source = Path::new(&target.src_path);
+            rust_roots.insert(source.to_path_buf());
+            if !files.contains(source) {
+                return Err(unsupported(format!(
+                    "Cargo target outside supported source roots: {}",
+                    source.display()
+                )));
+            }
+            if target.kind.iter().any(|k| k == "custom-build")
+                && source.file_name().is_none_or(|v| v != "build.rs")
+            {
+                return Err(unsupported(
+                    "custom build-script paths require a supported input rule",
+                ));
+            }
+        }
+    }
+    let initial = files.clone();
+    let mut closure = Closure {
+        root: &root,
+        package_files: files.clone(),
+        roots: &rust_roots,
+        files,
+        edges: &edges,
+        builds: &build_inputs,
+        used: BTreeSet::new(),
+        used_builds: BTreeSet::new(),
+        visited: BTreeSet::new(),
+        active: BTreeSet::new(),
+    };
+    for file in initial {
+        closure.walk(&file, rust_roots.contains(&file), false)?;
+    }
+    if closure.used != edges {
+        return Err(unsupported(
+            "declared include edge is not an actual reachable literal include",
+        ));
+    }
+    if closure.used_builds != build_inputs.keys().cloned().collect() {
+        return Err(unsupported("unused build input declaration"));
+    }
+    let files = closure.files;
+    let mut records = declarations;
+    for file in files {
+        validate_file(&root, &file)?;
+        records.push(SourceInputRecord {
+            kind: "source-file".into(),
+            path: label(&root, &file)?,
+            sha256: sha256_hex(&read(&file)?),
+        });
+    }
+    records.sort_by(|a, b| (&a.path, &a.kind).cmp(&(&b.path, &b.kind)));
+    let source_hash = hash_records(&label(&root, &manifest)?, target, &records)?;
+    Ok(SourceInputs {
+        source_input_rule_version: SOURCE_INPUT_RULE_VERSION,
+        source_hash,
+        source_inputs: records,
+    })
+}
+fn hash_records(
+    manifest: &str,
+    target: &str,
+    records: &[SourceInputRecord],
+) -> Result<String, SourceHashError> {
+    let mut hash = Sha256::new();
+    hash.update(b"oasis7-source-input-v2");
+    put_string(&mut hash, manifest);
+    put_string(&mut hash, target);
+    hash.update((records.len() as u64).to_be_bytes());
+    for record in records {
+        put_string(&mut hash, &record.kind);
+        put_string(&mut hash, &record.path);
+        hash.update(hex::decode(&record.sha256).map_err(unsupported)?);
+    }
+    Ok(hex::encode(hash.finalize()))
+}
+fn hash_declaration(declaration: &Declaration) -> String {
+    let mut records = declaration
+        .includes
+        .iter()
+        .map(|edge| ("include-edge", edge.from.as_str(), edge.to.as_str()))
+        .collect::<Vec<_>>();
+    for (from, inputs) in &declaration.build_inputs {
+        records.push(("build-script", from.as_str(), ""));
+        for to in inputs {
+            records.push(("build-input", from.as_str(), to.as_str()));
+        }
+    }
+    records.sort_by(|a, b| (a.1, a.2, a.0).cmp(&(b.1, b.2, b.0)));
+    let mut hash = Sha256::new();
+    hash.update(b"oasis7-source-input-declaration-v2");
+    hash.update((records.len() as u64).to_be_bytes());
+    for (kind, from, to) in records {
+        put_string(&mut hash, kind);
+        put_string(&mut hash, from);
+        put_string(&mut hash, to);
+    }
+    hex::encode(hash.finalize())
+}
+
+fn put_string(hash: &mut Sha256, value: &str) {
+    hash.update((value.len() as u64).to_be_bytes());
+    hash.update(value.as_bytes());
+}
+
+struct Closure<'a> {
+    root: &'a Path,
+    files: BTreeSet<PathBuf>,
+    package_files: BTreeSet<PathBuf>,
+    roots: &'a BTreeSet<PathBuf>,
+    edges: &'a BTreeSet<Edge>,
+    builds: &'a BTreeMap<String, Vec<String>>,
+    used: BTreeSet<Edge>,
+    used_builds: BTreeSet<String>,
+    visited: BTreeSet<(PathBuf, bool)>,
+    active: BTreeSet<(PathBuf, bool)>,
+}
+impl Closure<'_> {
+    fn walk(&mut self, file: &Path, rust: bool, build_lane: bool) -> Result<(), SourceHashError> {
+        let key = (file.to_path_buf(), rust);
+        if self.active.contains(&key) {
+            return Err(unsupported("include cycle"));
+        }
+        if !self.visited.insert(key.clone()) {
+            return Ok(());
+        }
+        validate_file(self.root, file)?;
+        self.active.insert(key.clone());
+        if rust {
+            let bytes = read(file)?;
+            let text = std::str::from_utf8(&bytes).map_err(unsupported)?;
+            let syntax = syn::parse_file(text)
+                .map_err(|e| unsupported(format!("{}: {e}", file.display())))?;
+            let build = build_lane || file.file_name().is_some_and(|v| v == "build.rs");
+            let parent = file
+                .parent()
+                .ok_or_else(|| unsupported("Rust file lacks parent"))?;
+            let module_dir = if self.roots.contains(file)
+                || matches!(
+                    file.file_name().and_then(|v| v.to_str()),
+                    Some("lib.rs" | "main.rs" | "mod.rs" | "build.rs")
+                ) {
+                parent.to_path_buf()
+            } else {
+                parent.join(
+                    file.file_stem()
+                        .ok_or_else(|| unsupported("Rust file lacks stem"))?,
+                )
+            };
+            let mut scanner = Scanner {
+                includes: Vec::new(),
+                reads: Vec::new(),
+                modules: Vec::new(),
+                module_dir,
+                error: None,
+                build,
+            };
+            scanner.visit_file(&syntax);
+            if let Some(error) = scanner.error {
+                return Err(unsupported(error));
+            }
+            let from = label(self.root, file)?;
+            let mut actual_reads = Vec::new();
+            for value in scanner.reads {
+                actual_reads.push(label(self.root, &include_path(self.root, file, &value)?)?);
+            }
+            actual_reads.sort();
+            actual_reads.dedup();
+            if build && self.builds.get(&from) != Some(&actual_reads) {
+                return Err(unsupported(format!(
+                    "build.rs requires exact explicit build_inputs: {from}"
+                )));
+            }
+            if build {
+                self.used_builds.insert(from.clone());
+            }
+            for (value, parse_rust) in scanner.includes {
+                let next = include_path(self.root, file, &value)?;
+                let edge = Edge {
+                    from: from.clone(),
+                    to: label(self.root, &next)?,
+                };
+                if !self.package_files.contains(&next) && !self.edges.contains(&edge) {
+                    return Err(unsupported(format!(
+                        "undeclared include {} -> {}",
+                        edge.from, edge.to
+                    )));
+                }
+                if self.edges.contains(&edge) {
+                    self.used.insert(edge);
+                }
+                self.files.insert(next.clone());
+                self.walk(&next, parse_rust, build)?;
+            }
+            for (directory, name) in scanner.modules {
+                let plain = directory.join(format!("{name}.rs"));
+                let nested = directory.join(&name).join("mod.rs");
+                let next = match (plain.exists(), nested.exists()) {
+                    (true, false) => plain,
+                    (false, true) => nested,
+                    _ => return Err(unsupported(format!("missing/ambiguous module {name}"))),
+                };
+                if !self.package_files.contains(&next) {
+                    return Err(unsupported("module outside supported source roots"));
+                }
+                self.walk(&next, true, build)?;
+            }
+            for input in actual_reads {
+                self.files.insert(self.root.join(input));
+            }
+        }
+        self.active.remove(&key);
+        Ok(())
+    }
+}
+
+struct Scanner {
+    includes: Vec<(String, bool)>,
+    reads: Vec<String>,
+    modules: Vec<(PathBuf, String)>,
+    module_dir: PathBuf,
+    error: Option<String>,
+    build: bool,
+}
+impl<'ast> Visit<'ast> for Scanner {
+    fn visit_macro(&mut self, node: &'ast syn::Macro) {
+        let name = node
+            .path
+            .segments
+            .last()
+            .map(|v| v.ident.to_string())
+            .unwrap_or_default();
+        // This lane does not evaluate arbitrary user/procedural macros. The SDK export
+        // definition is itself in the local package closure and scanned for input tokens.
+        if !matches!(
+            name.as_str(),
+            "include"
+                | "include_str"
+                | "include_bytes"
+                | "env"
+                | "option_env"
+                | "macro_rules"
+                | "export_wasm_module"
+                | "format"
+                | "format_args"
+                | "json"
+                | "vec"
+                | "assert"
+                | "assert_eq"
+                | "assert_ne"
+                | "debug_assert"
+                | "debug_assert_eq"
+                | "debug_assert_ne"
+                | "matches"
+                | "panic"
+                | "unreachable"
+                | "todo"
+                | "println"
+                | "eprintln"
+                | "print"
+                | "eprint"
+                | "write"
+                | "writeln"
+                | "cfg"
+                | "stringify"
+                | "concat"
+                | "line"
+                | "column"
+                | "file"
+        ) {
+            self.error = Some(format!("unsupported macro shape: {name}"));
+        }
+        if self.build
+            && !matches!(
+                name.as_str(),
+                "include"
+                    | "include_str"
+                    | "include_bytes"
+                    | "println"
+                    | "eprintln"
+                    | "assert"
+                    | "assert_eq"
+                    | "assert_ne"
+                    | "panic"
+                    | "cfg"
+            )
+        {
+            self.error = Some("unsupported build-script macro/input".into());
+        }
+        if matches!(name.as_str(), "include" | "include_str" | "include_bytes") {
+            match syn::parse2::<syn::LitStr>(node.tokens.clone()) {
+                Ok(value) => self.includes.push((value.value(), name == "include")),
+                Err(_) => self.error = Some("include requires a single literal path".into()),
+            }
+        } else if matches!(name.as_str(), "env" | "option_env")
+            || contains_input_tokens(node.tokens.clone())
+        {
+            self.error = Some("environment/generated or nested macro input is unsupported".into());
+        }
+        if self.build
+            && matches!(
+                name.as_str(),
+                "println" | "eprintln" | "assert" | "assert_eq" | "assert_ne" | "panic"
+            )
+        {
+            use syn::parse::Parser;
+            match syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated
+                .parse2(node.tokens.clone())
+            {
+                Ok(args) => {
+                    for expr in args {
+                        self.visit_expr(&expr);
+                    }
+                }
+                Err(_) => self.error = Some("unsupported build-script macro arguments".into()),
+            }
+        }
+        syn::visit::visit_macro(self, node);
+    }
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if node.content.is_none() {
+            self.modules
+                .push((self.module_dir.clone(), node.ident.to_string()));
+        }
+        let previous = self.module_dir.clone();
+        self.module_dir.push(node.ident.to_string());
+        syn::visit::visit_item_mod(self, node);
+        self.module_dir = previous;
+    }
+    fn visit_attribute(&mut self, node: &'ast syn::Attribute) {
+        if node.path().is_ident("path") {
+            self.error = Some("path attributes require a supported input rule".into());
+        }
+        syn::visit::visit_attribute(self, node);
+    }
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if self.build && !matches!(node.method.to_string().as_str(), "unwrap" | "expect") {
+            self.error = Some("unsupported build-script method/input".into());
+        }
+        syn::visit::visit_expr_method_call(self, node);
+    }
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if self.build {
+            let allowed = if let syn::Expr::Path(path) = &*node.func {
+                let name = path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|v| v.ident.to_string())
+                    .collect::<Vec<_>>()
+                    .join("::");
+                if matches!(
+                    name.as_str(),
+                    "fs::read"
+                        | "std::fs::read"
+                        | "fs::read_to_string"
+                        | "std::fs::read_to_string"
+                        | "File::open"
+                        | "std::fs::File::open"
+                ) {
+                    if let Some(syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(value),
+                        ..
+                    })) = node.args.first()
+                    {
+                        self.reads.push(value.value());
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if !allowed {
+                self.error = Some(
+                    "build script supports only explicitly declared literal file reads".into(),
+                );
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+}
+
+fn contains_input_tokens(tokens: proc_macro2::TokenStream) -> bool {
+    tokens.into_iter().any(|token| match token {
+        proc_macro2::TokenTree::Ident(ident) => matches!(
+            ident.to_string().as_str(),
+            "include" | "include_str" | "include_bytes" | "env" | "option_env"
+        ),
+        proc_macro2::TokenTree::Group(group) => contains_input_tokens(group.stream()),
+        _ => false,
+    })
+}
+
+#[cfg(test)]
+#[path = "source_inputs_tests.rs"]
+mod tests;

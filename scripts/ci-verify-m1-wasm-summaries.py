@@ -130,6 +130,8 @@ def verify_summary_shape(path: pathlib.Path, payload: dict, module_set: str) -> 
         if not isinstance(evidence, dict):
             fail(f"summary {path} receipt evidence for module {module_id} must be an object")
         required_evidence_keys = {
+            "source_input_rule_version",
+            "source_inputs",
             "source_hash",
             "build_manifest_hash",
             "wasm_hash",
@@ -142,6 +144,27 @@ def verify_summary_shape(path: pathlib.Path, payload: dict, module_set: str) -> 
             fail(
                 f"summary {path} receipt evidence for module {module_id} missing keys: {missing_evidence}"
             )
+        if type(evidence["source_input_rule_version"]) is not int or evidence["source_input_rule_version"] != 2:
+            fail(f"summary {path} legacy/unknown source input rule for module {module_id}; canonical rebuild required")
+        records = evidence["source_inputs"]
+        if not isinstance(records, list) or not records:
+            fail(f"summary {path} missing source input details for module {module_id}")
+        paths = []
+        for record in records:
+            if not isinstance(record, dict) or set(record) != {"kind", "path", "sha256"} or record["kind"] not in {"source-file", "input-declaration"}:
+                fail(f"summary {path} invalid source input record for module {module_id}")
+            label, digest = record["path"], record["sha256"]
+            if not isinstance(label, str) or not label or "\\" in label or any(part in {"", ".", ".."} for part in label.split("/")):
+                fail(f"summary {path} invalid source input path for module {module_id}")
+            try:
+                label.encode("utf-8")
+            except UnicodeEncodeError:
+                fail(f"summary {path} non-UTF-8 source input path for module {module_id}")
+            if not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+                fail(f"summary {path} invalid source input digest for module {module_id}")
+            paths.append((label, record["kind"]))
+        if paths != sorted(set(paths)):
+            fail(f"summary {path} noncanonical source input ordering for module {module_id}")
         if evidence["wasm_hash"] != module_hash:
             fail(
                 f"summary {path} receipt wasm_hash mismatch for module {module_id}: receipt={evidence['wasm_hash']} built={module_hash}"

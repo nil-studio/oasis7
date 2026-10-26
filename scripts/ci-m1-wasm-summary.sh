@@ -208,6 +208,7 @@ if not metadata_files:
     raise SystemExit(f"error: no metadata files found in {metadata_dir}")
 
 module_hashes = {}
+metadata_source_evidence = {}
 for path in metadata_files:
     payload = json.loads(pathlib.Path(path).read_text())
     module_id = payload.get("module_id")
@@ -216,6 +217,9 @@ for path in metadata_files:
         raise SystemExit(f"error: invalid metadata payload in {path}")
     if module_id not in manifest_module_ids:
         continue
+    if type(payload.get("source_input_rule_version")) is not int or payload["source_input_rule_version"] != 2 or not isinstance(payload.get("source_inputs"), list) or not payload["source_inputs"]:
+        raise SystemExit(f"error: legacy/unknown metadata source input rule in {path}; canonical rebuild required")
+    metadata_source_evidence[module_id] = (payload["source_inputs"], payload.get("source_hash"), payload.get("build_manifest_hash"))
     module_hashes[module_id] = wasm_hash
 
 identity_payload = json.loads(identity_manifest_path.read_text())
@@ -228,6 +232,7 @@ if not isinstance(identity_build_recipe, dict):
 
 identity_hashes = {}
 identity_source_hashes = {}
+identity_source_inputs = {}
 identity_build_manifest_hashes = {}
 for entry in identity_modules:
     module_id = entry.get("module_id")
@@ -241,6 +246,9 @@ for entry in identity_modules:
     if module_id not in manifest_module_ids:
         continue
     identity_hashes[module_id] = identity_hash
+    if type(entry.get("source_input_rule_version")) is not int or entry["source_input_rule_version"] != 2 or not isinstance(entry.get("source_inputs"), list) or not entry["source_inputs"]:
+        raise SystemExit(f"error: legacy/unknown identity source input rule for {module_id}; canonical rebuild required")
+    identity_source_inputs[module_id] = entry["source_inputs"]
     identity_source_hashes[module_id] = source_hash
     identity_build_manifest_hashes[module_id] = build_manifest_hash
 
@@ -272,7 +280,11 @@ for path in receipt_files:
         raise SystemExit(f"error: invalid build receipt payload in {path}")
     if module_id not in manifest_module_ids:
         continue
+    if type(payload.get("schema_version")) is not int or payload["schema_version"] != 3 or type(payload.get("source_input_rule_version")) is not int or payload["source_input_rule_version"] != 2 or not isinstance(payload.get("source_inputs"), list) or not payload["source_inputs"]:
+        raise SystemExit(f"error: legacy/unknown receipt source input rule in {path}; canonical rebuild required")
     receipt_evidence[module_id] = {
+        "source_input_rule_version": payload["source_input_rule_version"],
+        "source_inputs": payload["source_inputs"],
         "source_hash": source_hash,
         "build_manifest_hash": build_manifest_hash,
         "wasm_hash": wasm_hash,
@@ -310,10 +322,14 @@ for module_id, built_hash in sorted(module_hashes.items()):
             f"error: built hash does not match manifest for module {module_id} built={built_hash} expected={expected_hash}"
         )
     receipt = receipt_evidence[module_id]
+    if metadata_source_evidence[module_id] != (receipt["source_inputs"], receipt["source_hash"], receipt["build_manifest_hash"]):
+        raise SystemExit(f"error: metadata source input evidence mismatch for {module_id}")
     if receipt["wasm_hash"] != built_hash:
         raise SystemExit(
             f"error: build receipt wasm hash mismatch for module {module_id} receipt={receipt['wasm_hash']} built={built_hash}"
         )
+    if receipt["source_inputs"] != identity_source_inputs[module_id]:
+        raise SystemExit(f"error: receipt source input details mismatch for {module_id}")
     if receipt["source_hash"] != identity_source_hashes[module_id]:
         raise SystemExit(
             f"error: build receipt source hash mismatch for module {module_id} receipt={receipt['source_hash']} identity={identity_source_hashes[module_id]}"

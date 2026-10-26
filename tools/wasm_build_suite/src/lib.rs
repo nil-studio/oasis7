@@ -32,7 +32,7 @@ pub const DEFAULT_OUT_DIR: &str = ".tmp/wasm-build-suite";
 pub const DEFAULT_CANONICALIZER_VERSION: &str = "strip-custom-sections-v1";
 pub const DEFAULT_CONTAINER_PLATFORM: &str = "linux-x86_64";
 const WASM_ENV_PREFIX: &str = "OASIS7_WASM_";
-const BUILD_RECEIPT_SCHEMA_VERSION: u32 = 2;
+const BUILD_RECEIPT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
@@ -72,6 +72,10 @@ pub struct BuildMetadata {
     pub source_artifact_path: String,
     pub packaged_wasm_path: String,
     pub build_receipt_path: String,
+    #[serde(default)]
+    pub source_input_rule_version: Option<u32>,
+    #[serde(default)]
+    pub source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     pub source_hash: String,
     pub build_manifest_hash: String,
     pub canonicalizer_version: String,
@@ -99,6 +103,10 @@ pub struct BuildReceipt {
     pub source_manifest_path: String,
     pub source_artifact_path: String,
     pub packaged_wasm_path: String,
+    #[serde(default)]
+    pub source_input_rule_version: Option<u32>,
+    #[serde(default)]
+    pub source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     pub source_hash: String,
     pub build_manifest_hash: String,
     pub canonicalizer_version: String,
@@ -118,6 +126,8 @@ pub struct BuildOutput {
     pub metadata_path: PathBuf,
     pub receipt_path: PathBuf,
     pub wasm_hash_sha256: Option<String>,
+    pub source_input_rule_version: Option<u32>,
+    pub source_inputs: Option<Vec<oasis7_wasm_build::SourceInputRecord>>,
     pub source_hash: Option<String>,
     pub build_manifest_hash: Option<String>,
     pub build_timing: Option<BuildTimingSnapshot>,
@@ -233,6 +243,7 @@ struct BuildStdConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct BuildManifest {
+    source_input_rule_version: u32,
     profile: String,
     target: String,
     wasm_toolchain: String,
@@ -316,6 +327,8 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
             metadata_path,
             receipt_path,
             wasm_hash_sha256: None,
+            source_input_rule_version: None,
+            source_inputs: None,
             source_hash: None,
             build_manifest_hash: None,
             build_timing: None,
@@ -324,6 +337,10 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         });
     }
 
+    let source_evidence =
+        oasis7_wasm_build::compute_source_inputs(&request.manifest_path, &request.target).map_err(
+            |e| BuildError::MetadataInvalid(format!("source input closure failed: {e}")),
+        )?;
     let cargo_started = Instant::now();
     run_cargo_build(
         manifest_path.as_path(),
@@ -348,7 +365,14 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
     })?;
     let wasm_hash_sha256 = sha256_hex(&canonical_wasm_bytes);
     let source_manifest_path = manifest_path.to_string_lossy().to_string();
-    let source_hash = compute_source_hash(&manifest_path, request.target.as_str())?;
+    let after_build = oasis7_wasm_build::compute_source_inputs(&manifest_path, &request.target)
+        .map_err(|e| BuildError::MetadataInvalid(format!("source input closure failed: {e}")))?;
+    if source_evidence != after_build {
+        return Err(BuildError::MetadataInvalid(
+            "source inputs changed during build; rebuild required".into(),
+        ));
+    }
+    let source_hash = source_evidence.source_hash.clone();
     let wasm_toolchain = wasm_env_value_or_default("TOOLCHAIN", "");
     let wasm_build_std = wasm_env_value_or_default("BUILD_STD", "0");
     let wasm_build_std_components =
@@ -414,6 +438,8 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         source_manifest_path: source_manifest_path.clone(),
         source_artifact_path: artifact_path.to_string_lossy().to_string(),
         packaged_wasm_path: packaged_wasm_path.to_string_lossy().to_string(),
+        source_input_rule_version: Some(source_evidence.source_input_rule_version),
+        source_inputs: Some(source_evidence.source_inputs.clone()),
         source_hash: source_hash.clone(),
         build_manifest_hash: build_manifest_hash.clone(),
         canonicalizer_version: canonicalizer_version.clone(),
@@ -450,6 +476,8 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         source_artifact_path: artifact_path.to_string_lossy().to_string(),
         packaged_wasm_path: packaged_wasm_path.to_string_lossy().to_string(),
         build_receipt_path: receipt_path.to_string_lossy().to_string(),
+        source_input_rule_version: Some(source_evidence.source_input_rule_version),
+        source_inputs: Some(source_evidence.source_inputs.clone()),
         source_hash: source_hash.clone(),
         build_manifest_hash: build_manifest_hash.clone(),
         canonicalizer_version,
@@ -537,6 +565,8 @@ pub fn run_build(request: &BuildRequest) -> Result<BuildOutput, BuildError> {
         metadata_path,
         receipt_path,
         wasm_hash_sha256: Some(wasm_hash_sha256),
+        source_input_rule_version: Some(source_evidence.source_input_rule_version),
+        source_inputs: Some(source_evidence.source_inputs),
         source_hash: Some(source_hash),
         build_manifest_hash: Some(build_manifest_hash),
         build_timing: Some(build_timing),
@@ -692,6 +722,7 @@ fn compute_build_manifest_hash(
     builder_image_digest: &str,
 ) -> Result<String, BuildError> {
     let payload = BuildManifest {
+        source_input_rule_version: oasis7_wasm_build::SOURCE_INPUT_RULE_VERSION,
         profile: profile.to_string(),
         target: target.to_string(),
         wasm_toolchain: wasm_toolchain.to_string(),
@@ -712,6 +743,7 @@ fn compute_build_manifest_hash(
     Ok(sha256_hex(bytes.as_slice()))
 }
 
+#[cfg(test)]
 fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String, BuildError> {
     oasis7_wasm_build::compute_source_hash(manifest_path, target).map_err(|error| {
         BuildError::MetadataInvalid(format!("source hash closure failed: {error}"))

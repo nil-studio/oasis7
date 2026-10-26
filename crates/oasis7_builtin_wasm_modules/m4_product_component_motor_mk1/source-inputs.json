@@ -1,0 +1,10 @@
+{
+  "rule_version": 2,
+  "includes": [
+    {
+      "from": "crates/oasis7_builtin_wasm_modules/m4_product_component_motor_mk1/src/lib.rs",
+      "to": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs"
+    }
+  ],
+  "build_inputs": {}
+}
