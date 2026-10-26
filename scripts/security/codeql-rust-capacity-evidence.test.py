@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -263,6 +264,105 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(report['clean_gate'],'FAIL')
         self.assertEqual(report['untracked_locks'][0]['status'],'UNKNOWN')
         self.assertNotIn('sha256',report['untracked_locks'][0])
+
+    def settled_capture(self, change=None, deadline=60):
+        clock=[0.0]
+        def sleep(seconds):
+            clock[0]+=seconds
+            if change:change(clock[0])
+        with patch.object(evidence.time,'monotonic',side_effect=lambda:clock[0]), \
+                patch.object(evidence.time,'sleep',side_effect=sleep):
+            return evidence.collect_logs(self.database,self.out,deadline,settle=True)
+
+    def test_settlement_includes_delayed_tail_before_copy(self):
+        path=self.logs/'execute.log';path.write_bytes(b'first')
+        def append(now):
+            if now<0.3:path.write_bytes(b'first tail')
+        report=self.settled_capture(append)
+        self.assertEqual(report['settlement']['status'],'STABLE_WINDOW')
+        self.assertEqual(report['status'],'COMPLETE')
+        self.assertEqual((self.out/'database-logs/execute.log').read_bytes(),b'first tail')
+        self.assertEqual(report['producer_cleanup'],'NOT_OBSERVED_BY_THIS_HELPER')
+
+    def test_real_delayed_writer_tail_is_captured(self):
+        path=self.logs/'execute.log';path.write_bytes(b'first')
+        def write_tail():
+            time.sleep(0.1)
+            with path.open('ab') as stream:stream.write(b' tail')
+        writer=threading.Thread(target=write_tail)
+        writer.start()
+        try:
+            report=evidence.collect_logs(self.database,self.out,self.deadline,settle=True)
+        finally:
+            writer.join(timeout=2)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(report['status'],'COMPLETE')
+        self.assertEqual((self.out/'database-logs/execute.log').read_bytes(),b'first tail')
+
+    def test_continuing_writer_remains_partial_but_keeps_bytes(self):
+        path=self.logs/'execute.log';path.write_bytes(b'first')
+        def append(now):
+            with path.open('ab') as stream:stream.write(b'x')
+        report=self.settled_capture(append)
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertIn('LOG_STABILITY_NOT_OBSERVED',report['reasons'])
+        self.assertTrue((self.out/'database-logs/execute.log').read_bytes().startswith(b'first'))
+        self.assertLessEqual(report['settlement']['elapsed_seconds'],5.001)
+
+    def test_settlement_replacement_is_partial_without_following_old_inode(self):
+        path=self.logs/'execute.log';path.write_bytes(b'old')
+        replaced=[]
+        def replace(now):
+            if not replaced:
+                path.rename(self.logs/'old.txt')
+                path.write_bytes(b'new')
+                replaced.append(True)
+        report=self.settled_capture(replace)
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertIn('path replaced',report['settlement']['reason'])
+        self.assertEqual((self.out/'database-logs/execute.log').read_bytes(),b'new')
+
+    def test_insufficient_settlement_budget_preserves_available_snapshot(self):
+        (self.logs/'execute.log').write_bytes(b'available')
+        report=self.settled_capture(deadline=0.5)
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertIn('insufficient settlement budget',report['settlement']['reason'])
+        self.assertEqual((self.out/'database-logs/execute.log').read_bytes(),b'available')
+
+    def test_empty_final_sample_cannot_admit_after_settlement_deadline(self):
+        clock=[0.0];calls=[];real_open=evidence._open_directory
+        def late_open(path):
+            calls.append(path)
+            if len(calls)==2:clock[0]=6.0
+            return real_open(path)
+        def sleep(seconds):clock[0]+=seconds
+        with patch.object(evidence.time,'monotonic',side_effect=lambda:clock[0]), \
+                patch.object(evidence.time,'sleep',side_effect=sleep), \
+                patch.object(evidence,'_open_directory',side_effect=late_open):
+            report=evidence._settle_logs(self.database,60)
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertIn('deadline',report['reason'])
+
+    def test_settlement_scan_limit_still_collects_bounded_bytes(self):
+        (self.logs/'execute.log').write_bytes(b'available')
+        with patch.object(evidence,'MAX_SCAN_ENTRIES',2):
+            report=self.settled_capture()
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertIn('settlement scan limit',report['settlement']['reason'])
+        self.assertEqual((self.out/'database-logs/execute.log').read_bytes(),b'available')
+
+    def test_quiet_window_does_not_hide_growth_during_copy(self):
+        source=self.logs/'execute.log';source.write_bytes(b'initial')
+        real_read=os.read
+        def grow(fd,size):
+            data=real_read(fd,size)
+            with source.open('ab') as writer:writer.write(b'tail')
+            return data
+        with patch.object(evidence.os,'read',side_effect=grow):
+            report=self.settled_capture()
+        self.assertEqual(report['settlement']['status'],'STABLE_WINDOW')
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertIn('SOURCE_CHANGED_DURING_CAPTURE',report['files'][0]['reasons'])
 
     def test_growing_file_captures_only_initial_length_and_marks_change(self):
         source = self.logs / 'live.log'

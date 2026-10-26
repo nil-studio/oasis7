@@ -150,7 +150,93 @@ def _stat(info):
             'mtime_ns': info.st_mtime_ns, 'ctime_ns': info.st_ctime_ns}
 
 
-def collect_logs(database: Path, out: Path, end: float) -> dict:
+def _settle_logs(database, end):
+    """Observe metadata only; a quiet interval never proves producer exit."""
+    started = time.monotonic()
+    deadline = min(end - 1, started + 5)
+    report = {'status': 'PARTIAL', 'samples': 0, 'scanned_entries': 0,
+              'maximum_seconds': 5, 'required_quiet_seconds': 1,
+              'producer_exit': 'NOT_OBSERVED', 'reason': 'STABILITY_WINDOW_EXHAUSTED'}
+
+    def snapshot():
+        if time.monotonic() >= deadline:
+            raise TimeoutError('settlement deadline')
+        values = {}
+        logs = 0
+        def visit(fd, parts=()):
+            nonlocal logs
+            if len(parts) > MAX_DIRECTORY_DEPTH:
+                raise RuntimeError('settlement directory depth limit')
+            values['/'.join(parts)] = (stat.S_IFDIR, _stat(os.fstat(fd)))
+            with os.scandir(fd) as entries:
+                for entry in entries:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('settlement deadline')
+                    report['scanned_entries'] += 1
+                    if report['scanned_entries'] > MAX_SCAN_ENTRIES:
+                        raise RuntimeError('settlement scan limit')
+                    relative = '/'.join((*parts, entry.name))
+                    if len(json.dumps(relative).encode()) > MAX_RELATIVE_PATH_BYTES:
+                        raise RuntimeError('settlement relative path limit')
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISDIR(info.st_mode):
+                        child = _child_directory(fd, entry.name)
+                        try:
+                            if _stat(os.fstat(child)) != _stat(info):
+                                raise RuntimeError('settlement directory changed')
+                            visit(child, (*parts, entry.name))
+                        finally:
+                            os.close(child)
+                    elif stat.S_ISREG(info.st_mode):
+                        if entry.name.endswith('.log'):
+                            logs += 1
+                            if logs > MAX_LOG_FILES:
+                                raise RuntimeError('settlement log limit')
+                            values[relative] = (stat.S_IFREG, _stat(info))
+                    else:
+                        raise RuntimeError('settlement unsafe entry')
+        fd = _open_directory(database / 'log')
+        try:
+            visit(fd)
+        finally:
+            os.close(fd)
+        if time.monotonic() >= deadline:
+            raise TimeoutError('settlement deadline')
+        return values
+
+    try:
+        if deadline - started < 1:
+            raise TimeoutError('insufficient settlement budget')
+        previous = snapshot()
+        report['samples'] = 1
+        quiet_since = time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            current = snapshot()
+            report['samples'] += 1
+            if previous.keys() - current.keys():
+                raise RuntimeError('settlement entry disappeared')
+            for name in previous.keys() & current.keys():
+                before, after = previous[name], current[name]
+                if (before[0], before[1]['device'], before[1]['inode']) != (after[0], after[1]['device'], after[1]['inode']):
+                    raise RuntimeError('settlement path replaced')
+            now = time.monotonic()
+            if now >= deadline:
+                raise TimeoutError('settlement deadline')
+            if current != previous:
+                quiet_since = now
+            elif now - quiet_since >= 1:
+                report.update(status='STABLE_WINDOW', reason=None,
+                              quiet_seconds=now - quiet_since)
+                break
+            previous = current
+    except Exception as exc:
+        report['reason'] = _error(exc)
+    report['elapsed_seconds'] = time.monotonic() - started
+    return report
+
+
+def collect_logs(database: Path, out: Path, end: float, *, settle=False) -> dict:
     """Copy a bounded initial-length snapshot of regular database/log/*.log files.
 
     files[].destination is relative to out.  COMPLETE means all log candidates
@@ -170,6 +256,10 @@ def collect_logs(database: Path, out: Path, end: float) -> dict:
                          'write_cap_bytes': runtime.WRITE_CAP, 'terminal_cap_bytes': runtime.CAP,
                          'deadline_monotonic': end, 'read_chunk_bytes': CHUNK_BYTES},
               'producer_cleanup': 'NOT_OBSERVED_BY_THIS_HELPER'}
+    if settle:
+        report['settlement'] = _settle_logs(database, end)
+        if report['settlement']['status'] != 'STABLE_WINDOW':
+            _reason(report, 'LOG_STABILITY_NOT_OBSERVED')
     root_fd = out_fd = destination_fd = None
     stop = False
     remaining_bytes = 0
