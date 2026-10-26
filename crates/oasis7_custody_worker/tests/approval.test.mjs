@@ -58,6 +58,65 @@ async function provisionInput(mf, name, path = 'prepare') {
   result.input.approval.signature = await sign(result.canonical_bytes);
   return result.input;
 }
+test('role-local encrypted key slot commits once, survives restart and authenticates the original material', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current(); const name = 'role-slot-original';
+  const results = await Promise.all(Array.from({length: 3}, () => ok(mf, name, '/role-key/ensure')));
+  assert.deepEqual(results[0], results[1]); assert.deepEqual(results[0], results[2]);
+  assert.deepEqual(Object.keys(results[0]).sort(), ['key_id', 'key_version', 'public_key']);
+  assert.match(results[0].public_key, /^[0-9a-f]{64}$/);
+  const raw = await ok(mf, name, '/role-key/raw');
+  const saved = JSON.parse(raw[0].payload);
+  assert.equal(saved.audit_sequence, '1');
+  assert.equal(saved.slot.envelope.ciphertext.length, 96, '32-byte seed plus GCM tag only');
+  assert.equal(saved.slot.envelope.context.identity.role, 'owner');
+  assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 1, audits: 1});
+  const audit = await ok(mf, name, '/role-key/audit');
+  assert.doesNotMatch(JSON.stringify(audit), /ciphertext|wrapped_dek|seed|signature|kek/i);
+  const proof = await ok(mf, name, '/role-key/verify-material');
+  assert.equal(proof.public_key, results[0].public_key);
+  const publicKey = await webcrypto.subtle.importKey('raw', Buffer.from(proof.public_key, 'hex'), 'Ed25519', false, ['verify']);
+  assert.equal(await webcrypto.subtle.verify('Ed25519', publicKey, Buffer.from(proof.signature, 'hex'), Uint8Array.from(proof.message)), true);
+  mf = await restart();
+  assert.deepEqual(await ok(mf, name, '/role-key/ensure'), results[0]);
+  assert.deepEqual(await ok(mf, name, '/role-key/raw'), raw);
+  assert.deepEqual(await ok(mf, name, '/role-key/audit'), audit);
+  assert.equal((await call(mf, name, '/role-key/ensure-scope')).status, 409);
+  assert.equal((await call(mf, name, '/role-key/ensure-role')).status, 409);
+  assert.equal((await call(mf, name, '/role-key/ensure-wrong-kek')).status, 409);
+  assert.deepEqual(await ok(mf, name, '/role-key/raw'), raw, 'failure cannot replace the original');
+}));
+test('role slot audit failure rolls back candidate; final authority changes cannot publish a key', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current();
+  for (const suffix of ['expired', 'frozen', 'cancelled', 'revision', 'unapproved', 'clock']) {
+    const name = 'role-final-' + suffix;
+    assert.equal((await call(mf, name, '/role-key/ensure-' + suffix)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 0, audits: 0});
+  }
+  const name = 'role-audit-rollback';
+  await ok(mf, name, '/role-key/fault');
+  assert.equal((await call(mf, name, '/role-key/ensure')).status, 409);
+  assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 0, audits: 0});
+  await ok(mf, name, '/role-key/clear-fault');
+  await ok(mf, name, '/role-key/ensure');
+  const original = await ok(mf, name, '/role-key/raw');
+  for (const suffix of ['frozen', 'cancelled', 'revision', 'expired']) {
+    assert.equal((await call(mf, name, '/role-key/ensure-' + suffix)).status, 409);
+    assert.deepEqual(await ok(mf, name, '/role-key/raw'), original);
+  }
+}));
+test('damaged role slot ciphertext, public key or schema fails closed without replacement', { timeout: 90000 }, async () => fixture(async (current, restart) => {
+  let mf = current();
+  for (const field of ['public', 'ciphertext', 'schema']) {
+    const name = 'role-corrupt-' + field;
+    await ok(mf, name, '/role-key/ensure');
+    await ok(mf, name, '/role-key/corrupt-' + field);
+    const corrupt = await ok(mf, name, '/role-key/raw');
+    mf = await restart();
+    assert.equal((await call(mf, name, '/role-key/ensure')).status, 409);
+    assert.deepEqual(await ok(mf, name, '/role-key/raw'), corrupt);
+    assert.deepEqual(await ok(mf, name, '/role-key/counts'), {slots: 1, audits: 1});
+  }
+}));
 async function provisionVerification(mf, name) {
   const result = await ok(mf, name, '/provision/verification');
   return { verification: result.verification, signature: await sign(result.canonical_bytes) };

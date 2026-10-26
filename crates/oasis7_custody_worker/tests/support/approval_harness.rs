@@ -9,6 +9,8 @@ use worker::*;
 mod envelope_harness;
 #[path = "provision_approval_harness.rs"]
 mod provision_approval_harness;
+#[path = "role_key_harness.rs"]
+mod role_key_harness;
 
 fn failure(value: impl std::fmt::Debug) -> Error {
     Error::RustError(format!("fixture: {value:?}"))
@@ -65,6 +67,9 @@ impl DurableObject for TestApprovalAuthority {
     }
     async fn fetch(&self, mut request: Request) -> Result<Response> {
         let path = request.path();
+        if path.starts_with("/role-key/") {
+            return role_key_harness::handle(self.state.clone(), request).await;
+        }
         if path.starts_with("/provision/") {
             return provision_approval_harness::handle(self.state.clone(), request).await;
         }
