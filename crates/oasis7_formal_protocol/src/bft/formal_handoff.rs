@@ -2,7 +2,7 @@
 //! formal BFT V2 schedule. This verifies the signed handoff declaration; it
 //! does not replace execution-driver replay of the H closure.
 
-use oasis7_formal_protocol::controlled_authority::formal::{
+use crate::controlled_authority::formal::{
     FORMAL_PROFILE, FormalHeadRefV1, FormalRecordKindV1, FormalWorldIdentityV1,
     VerifiedFormalReadAnchorV1,
 };
@@ -607,11 +607,27 @@ fn canonical_bytes<T: Serialize>(
     maximum: usize,
     context: &str,
 ) -> Result<Vec<u8>, String> {
-    let bytes = oasis7_cas::to_canonical_cbor(value)
-        .map_err(|error| format!("encode {context}: {error:?}"))?;
+    let bytes = canonical_cbor_with_self_describe(value)
+        .map_err(|error| format!("encode {context}: {error}"))?;
     if bytes.is_empty() || bytes.len() > maximum {
         return Err(format!("{context} exceeds its canonical byte bound"));
     }
+    Ok(bytes)
+}
+
+/// Match the canonical-CBOR bytes historically produced by oasis7_cas without
+/// making storage part of this portable proof crate's normal dependency graph.
+fn canonical_cbor_with_self_describe<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
+    let canonical_value = serde_cbor::value::to_value(value)
+        .map_err(|error| format!("canonicalize value: {error}"))?;
+    let mut bytes = Vec::with_capacity(256);
+    let mut serializer = serde_cbor::ser::Serializer::new(&mut bytes);
+    serializer
+        .self_describe()
+        .map_err(|error| format!("write self-describe tag: {error}"))?;
+    canonical_value
+        .serialize(&mut serializer)
+        .map_err(|error| format!("serialize canonical value: {error}"))?;
     Ok(bytes)
 }
 

@@ -1,14 +1,14 @@
+use super::super::BftSchedulePolicyV2;
 use super::{
     BFT_FORMAL_EXECUTION_DOMAIN_V1, BFT_FORMAL_PROFILE_V1, BFT_FORMAL_PROFILE_VERSION_V1,
     BftProfileTargetV1, FormalBftExecutionCommitmentV1, verify_formal_bft_handoff_v1,
 };
-use crate::tendermint_v2::BftSchedulePolicyV2;
-use ed25519_dalek::SigningKey;
-use oasis7_formal_protocol::controlled_authority::formal::test_fixtures as formal_fixtures;
-use oasis7_formal_protocol::controlled_authority::formal::{
+use crate::controlled_authority::formal::test_fixtures as formal_fixtures;
+use crate::controlled_authority::formal::{
     FormalCompletionBranchV1, InitialActivationTrustV1, ProfileHandoffV1,
     VerifiedFormalReadAnchorV1, verify_formal_qualified,
 };
+use ed25519_dalek::SigningKey;
 use oasis7_proto::distributed_bft::v2::{
     BFT_MAX_SIGNED_MATERIAL_BYTES_V2, BFT_PROTOCOL_VERSION_V2, BftBlockV2, BftScopeV2,
     BftValidatorV2,
@@ -149,6 +149,19 @@ fn cap_and_target() -> (
 #[test]
 fn qualified_handoff_derives_h_plus_one_schedule_from_formal_preimage() {
     let (cap, target, raw_snapshot_root) = cap_and_target();
+    assert_eq!(
+        target.canonical_bytes().unwrap(),
+        oasis7_cas::to_canonical_cbor(&target).unwrap(),
+        "moved target bytes remain identical to the historical CAS encoder"
+    );
+    assert_eq!(
+        target.target_digest().unwrap(),
+        "cd82956be58f748793a19a29f675b298dda09290fa91b7a9bfaac39e863990b6"
+    );
+    assert_eq!(
+        cap.activation_digest(),
+        "cc4e2d3c96fba8c1310da86e672197ca4788577ac8dcf343eb2c7fc126cbb04f"
+    );
     let replayed_schedule = cap
         .initial_schedule_after_handoff_replay(&hash(101), cap.governing_manifest_digest())
         .unwrap();
@@ -161,6 +174,15 @@ fn qualified_handoff_derives_h_plus_one_schedule_from_formal_preimage() {
 
     let mut block = first_block(&cap, &target);
     let preimage = commitment(&cap, &block);
+    assert_eq!(
+        preimage.canonical_bytes().unwrap(),
+        oasis7_cas::to_canonical_cbor(&preimage).unwrap(),
+        "moved commitment bytes remain identical to the historical CAS encoder"
+    );
+    assert_eq!(
+        preimage.digest().unwrap(),
+        "4f4753e84bf53a0dee43c15f5feba5bbff045dc248525c766a0d9dfbd9e1faf6"
+    );
     block.execution_block_hash = preimage.digest().unwrap();
     let schedule = cap
         .initial_schedule_for_commitment(&preimage, &block)

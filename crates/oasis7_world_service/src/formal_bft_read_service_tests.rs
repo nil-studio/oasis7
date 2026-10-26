@@ -9,7 +9,7 @@ use ed25519_dalek::SigningKey;
 use oasis7_client_api::world_service::{
     FORMAL_BFT_READ_PATH_V2, FormalBftReadRequestV2, FormalBftReadTargetV2,
 };
-use oasis7_consensus::tendermint_v2::{
+use oasis7_formal_protocol::bft::{
     BFT_FORMAL_EXECUTION_DOMAIN_V1, BFT_FORMAL_PROFILE_V1, BFT_FORMAL_PROFILE_VERSION_V1,
     BftProfileTargetV1, BftSchedulePolicyV2, FormalBftExecutionCommitmentV1,
     verify_formal_bft_handoff_v1,

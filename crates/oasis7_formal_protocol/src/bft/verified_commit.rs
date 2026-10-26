@@ -3,7 +3,7 @@ use oasis7_proto::distributed_bft::v2::{
 };
 use serde::Serialize;
 
-use super::engine::verify_commit_certificate_v2;
+use super::certificate::verify_commit_certificate_v2;
 use super::proposer::BftProposerPriorityV2;
 use super::validator_set::{BftSchedulePolicyV2, BftValidatorSetV2};
 
@@ -199,7 +199,7 @@ impl BftHeightProposerScheduleV2 {
         proposer.ok_or_else(|| "BFT V2 proposer schedule is empty".into())
     }
 
-    pub(super) fn validate_for_commit(&self, block: &BftBlockV2) -> Result<(), String> {
+    pub fn validate_for_commit(&self, block: &BftBlockV2) -> Result<(), String> {
         if self.height == 0
             || self.scope != *self.active_set.scope()
             || self.policy.hash()? != self.policy_hash

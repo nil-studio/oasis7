@@ -9,7 +9,7 @@ use oasis7_client_api::{
         SignedReadRequest, WorldIdentity,
     },
 };
-use oasis7_consensus::tendermint_v2::{
+use oasis7_formal_protocol::bft::{
     BftProfileTargetV1, FormalBftExecutionCommitmentV1, VerifiedBftCommitCertificateV2,
     VerifiedBftHandoffTargetV1, verify_commit_certificate_token_v2, verify_formal_bft_handoff_v1,
 };

@@ -510,12 +510,16 @@ Node 的 loopback UDP/TCP 用例验证真实 worker、remote signer service 和�
 合同见 [des-p2p-formal-bft-read-handoff-v1](doc/p2p/design.md#des-p2p-formal-bft-read-handoff-v1)。本切片只验证由外部固定 H 与 H+1 block ID 选择的历史读取，不把工程 V2 历史或服务自报 head 升级为正式信任。
 
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7_consensus --lib formal_handoff -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_formal_protocol --lib bft:: -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test -p oasis7_world_service --lib formal_bft -- --test-threads=1
 env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_read::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_dependencies::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib formal_storage::tests -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib bft_transport_tests -- --test-threads=1
+./scripts/ci-tests.sh required --group cargo_tooling_contracts --repo-root "$PWD"
 ```
 
-过滤器必须实际选中测试。验收核对 qualified H 的完整 Snapshot/Journal/执行材料与结果索引、实际 World tick 等于 H position、H+1 隔离执行与 QC 绑定的原始 Snapshot/semantic/projection/result roots、持久提交后重开回读，以及新读取路径到实际客户端的证明校验。负例覆盖错误 H 目标、父引用、manifest、根与投影，工程历史冒充正式历史，交接前 World 不符且不得重写 tick，旧 controlled 权威在 H 后追加，以及当前授权撤销后的私有读取拒绝。
+过滤器必须实际选中测试。纯 BFT 证明由 `oasis7_formal_protocol::bft` 提供，consensus facade 与宿主继续共用同一类型；保留既有 CBOR 字节（包括 self-describe tag）和摘要向量，普通客户端依赖闭包不包含 CAS/World/Node/执行后端。验收核对 qualified H 的完整 Snapshot/Journal/执行材料与结果索引、实际 World tick 等于 H position、H+1 隔离执行与 QC 绑定的原始 Snapshot/semantic/projection/result roots、持久提交后重开回读，以及新读取路径到实际客户端的证明校验。负例覆盖错误 H 目标、父引用、manifest、根与投影，工程历史冒充正式历史，交接前 World 不符且不得重写 tick，旧 controlled 权威在 H 后追加，以及当前授权撤销后的私有读取拒绝。
 
 固定 cut 的读取证据不证明最新状态、自动追随、正式写入接线、完整 checkpoint/full-sync 消费者或真实 signer custody。缺少独立当前授权 World 时私有读取必须拒绝，不能使用历史 World 代替。#4975 的其余实施与验收义务保持独立。
 

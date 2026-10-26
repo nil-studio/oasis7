@@ -6418,8 +6418,11 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "hex",
+ "oasis7_cas",
+ "oasis7_proto",
  "serde",
  "serde_cbor",
+ "serde_json",
 ]
 
 [[package]]
@@ -6434,7 +6437,6 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_client_storage",
- "oasis7_consensus",
  "oasis7_formal_protocol",
  "oasis7_proto",
  "oasis7_wasm_abi",
@@ -6917,7 +6919,6 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_client_storage",
- "oasis7_consensus",
  "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_proto",
