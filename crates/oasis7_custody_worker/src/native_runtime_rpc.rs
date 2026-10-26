@@ -85,3 +85,20 @@ pub(crate) struct NativeRuntimeRpc {
     pub call: NativeRuntimeCall,
     pub action: NativeRuntimeAction,
 }
+
+/// A separate capability: readonly status recovery cannot be used as a login permit.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NativeRecoveryRpc {
+    pub request: oasis7_custody_core::provisioning::SessionStatusRecoveryRequestV1,
+    pub action: NativeRecoveryAction,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum NativeRecoveryAction {
+    GetPermit,
+    RecordResult {
+        status: Box<oasis7_custody_core::native_binding::SignedManagedNativeSessionStatusV1>,
+        session: oasis7_custody_core::native_history::NativeSessionStorageAttestationV1,
+    },
+}

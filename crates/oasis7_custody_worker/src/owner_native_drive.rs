@@ -53,7 +53,6 @@ pub(super) async fn continue_provision(
     if !enabled(env) {
         return Ok(());
     }
-    NativeConfig::load(env)?;
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     for _ in 0..3 {
         let saved = store.snapshot().map_err(|_| denied())?;
@@ -93,12 +92,24 @@ pub(super) async fn continue_provision(
             ProvisionStage::NativeRegistered => {
                 // Initial login is one logical descriptor operation. An unknown or
                 // explicit old login is never relaunched under a new management ID.
-                if saved
+                if let Some(old) = saved
                     .state
                     .native_stages()
                     .values()
-                    .any(|v| v.request.stage == NativeStageKindV1::Login)
+                    .find(|v| v.request.stage == NativeStageKindV1::Login)
                 {
+                    if old.result.is_none() {
+                        super::reconcile::reconcile(
+                            state,
+                            &store,
+                            env,
+                            &NativeRuntimeCall::Provision {
+                                request: old.request.clone(),
+                            },
+                            management_operation,
+                        )
+                        .await?;
+                    }
                     return Ok(());
                 }
                 (
@@ -172,7 +183,12 @@ pub(super) async fn continue_provision(
 }
 fn managed_view(saved: &ProvisionApprovalSnapshot, id: &str) -> Result<ManagedLoginApprovalViewV1> {
     let task = saved.state.managed_login_task(id).ok_or_else(denied)?;
+    let recovered = saved.state.session_status_recoveries().values().any(|v| {
+        matches!(&v.funding, SessionStatusRecoveryFundingV1::ManagedLogin { operation_id } if operation_id == id)
+            && v.result.is_some()
+    });
     let stage = match &task.result {
+        None if recovered => ManagedLoginStageV1::NativeSessionReady,
         None => ManagedLoginStageV1::Approved,
         Some(NativeStageResultV1::SessionStatus(_)) => ManagedLoginStageV1::NativeSessionReady,
         Some(NativeStageResultV1::ExplicitLoginRequired) => {
@@ -200,7 +216,6 @@ pub(super) async fn continue_managed_login(
     if !enabled(env) {
         return Err(denied());
     }
-    NativeConfig::load(env)?;
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let saved = store.snapshot().map_err(|_| denied())?;
     let input = saved
@@ -216,14 +231,17 @@ pub(super) async fn continue_managed_login(
         .state
         .managed_login_task(operation_id)
         .ok_or_else(denied)?;
-    if task.claimed_at.is_some() || task.result.is_some() {
-        return managed_view(&saved, operation_id);
-    }
     let call = NativeRuntimeCall::ManagedLogin {
         custody_account_id: saved.state.draft().entry.custody_account_id.clone(),
         provision_id: provision_id.into(),
         operation_id: operation_id.into(),
     };
+    if task.claimed_at.is_some() || task.result.is_some() {
+        if task.result.is_none() {
+            super::reconcile::reconcile(state, &store, env, &call, operation_id).await?;
+        }
+        return managed_view(&store.snapshot().map_err(|_| denied())?, operation_id);
+    }
     let raw = serde_json::to_string(&call)?;
     // The fixed actor's GetPermit performs source/signature/Directory/RF checks;
     // the response itself cannot manufacture a task result or a Cookie.

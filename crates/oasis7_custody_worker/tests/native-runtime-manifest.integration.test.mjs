@@ -55,3 +55,15 @@ test('concurrent actual SQLite dispatch claims grant exactly one initial-login s
   assert.equal(lost.retry_rejected, true);
   assert.equal((await invoke(get(), 'single-dispatch', 'dispatch-initial-login')).status, 409);
 }));
+
+test('history read neither initializes unknown SQLite nor mutates completed facts', { timeout: 60000 }, async () => withFixture(async get => {
+  const unknown = await (await invoke(get(), 'unknown-history', 'read-only-unknown-history')).json();
+  assert.equal(unknown.unchanged, true);
+  assert.equal(unknown.history_result, null);
+  assert.deepEqual(unknown.inventory.records, [], 'history must not initialize an empty manifest');
+  assert.equal(unknown.inventory.table_names.includes('table:custody_records'), false);
+  const original = await (await invoke(get(), 'known-history', 'complete-registration-before-account-submit')).json();
+  const known = await (await invoke(get(), 'known-history', 'read-only-registration-history')).json();
+  assert.equal(known.unchanged, true, 'fact history must not append audit or update metadata');
+  assert.deepEqual(known.history_result, original.original);
+}));

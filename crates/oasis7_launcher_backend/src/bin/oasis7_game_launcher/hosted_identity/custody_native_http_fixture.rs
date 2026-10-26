@@ -68,6 +68,12 @@ fn serve_native_identity_http_fixture() {
     if managed_binding {
         fixture.service.custody.as_mut().unwrap().managed_binding =
             Some(managed_binding::ManagedBindingConfig::native_http_fixture());
+        fixture
+            .service
+            .custody
+            .as_mut()
+            .unwrap()
+            .managed_binding_state = managed_binding::ManagedBindingConfigState::Ready;
         fixture.service.config.registration_enabled = true;
         fixture.service.config.machine_registration_enabled = true;
     }

@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import RustWorker from './index.js';
 export class OwnerNativePermits extends WorkerEntrypoint {
   async call(raw) { return new RustWorker(this.ctx, this.env).owner_native_call(this.env, raw); }
+  async recover(raw) { return new RustWorker(this.ctx, this.env).owner_native_recovery_call(this.env, raw); }
 }
 export { AccountAuthority, ManagerAssociations, RoleKeyVault } from './index.js';
 // Default ingress exposes fetch only, never the generated Rust management RPCs.

@@ -379,3 +379,6 @@ impl NativeBindingCompleteV1 {
 }
 mod session;
 pub use session::*;
+
+mod pin_rotation;
+pub use pin_rotation::*;

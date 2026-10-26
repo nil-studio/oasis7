@@ -267,6 +267,13 @@ impl IdentityService {
             };
             return match result {
                 Ok(value) => IdentityReply::ok(value),
+                Err(StoreError::Rejected(code))
+                    if relative == "/custody/managed-bindings/lookup" && code == "not_found" =>
+                {
+                    let mut reply = IdentityReply::error(StoreError::Rejected(code));
+                    reply.status = 404;
+                    reply
+                }
                 Err(error) => IdentityReply::error(error),
             };
         }

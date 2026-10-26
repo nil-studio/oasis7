@@ -2,7 +2,7 @@
   "record": {
     "authority_entry": "doc/p2p/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "d8f5e8eb022cff23d932682f68aed152321bff08a5bd0d7f3b6b1cf7fcc4c008",
+    "content_sha256": "31eaa28d3cd8f2d74a2c411b7b437dc7f08cd9610373df97fc981eb539c436a3",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "active_candidate",
     "object_kind": "design",
@@ -13,6 +13,5 @@
     "semantic_decision_owner": "blockchain_ops_engineer",
     "structural_owner": "blockchain_ops_engineer"
   },
-  "schema": "oasis7.document-corpus-object/v1",
-  "content_sha256": "3d33e3b9006a1f06f3848e7b68de6611f42cdfb34dd592a22daaa86e91b2836f"
+  "schema": "oasis7.document-corpus-object/v1"
 }

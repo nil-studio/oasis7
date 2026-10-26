@@ -5,6 +5,7 @@ use crate::{
     native_private_store::{NativePrivateScope, manifest::*},
     native_provision_challenge::*,
 };
+use oasis7_custody_core::native_history::stable_native_intent_digest;
 use oasis7_custody_core::{DecimalU64, approval::bytes_digest, native_binding::*, provisioning::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -300,13 +301,8 @@ impl<P: NativeProvisionPorts> Phase<'_, P> {
                         .clone(),
                     initial_login_operation_id: v.descriptor.login_request_id.clone(),
                 };
-                let stable = oasis7_wasm_abi::encode_canonical_cbor(&(
-                    "oasis7.custody.native-manifest-intent.v1",
-                    &scope,
-                    phase,
-                    &operation,
-                ))
-                .map_err(|_| rejected())?;
+                let stable = stable_native_intent_digest(&scope, phase, &operation)
+                    .map_err(|_| rejected())?;
                 (
                     scope,
                     phase,
@@ -327,12 +323,11 @@ impl<P: NativeProvisionPorts> Phase<'_, P> {
                     registration_operation_id: v.binding.registration_operation_id.clone(),
                     initial_login_operation_id: v.initial_login_operation_id.clone(),
                 };
-                let stable = oasis7_wasm_abi::encode_canonical_cbor(&(
-                    "oasis7.custody.native-manifest-intent.v1",
+                let stable = stable_native_intent_digest(
                     &scope,
                     NativePhase::ManagedLogin,
                     &v.task.login_operation_id,
-                ))
+                )
                 .map_err(|_| rejected())?;
                 (
                     scope,
@@ -350,7 +345,7 @@ impl<P: NativeProvisionPorts> Phase<'_, P> {
             phase,
             operation_id,
             permit_id,
-            request_digest: bytes_digest(&stable),
+            request_digest: stable,
             authority_revision: revision,
             expires_at: expires,
         })
@@ -739,7 +734,7 @@ impl<P: NativeProvisionPorts> Phase<'_, P> {
             let options = self
                 .original(
                     PrivateRecordKind::OptionsRequest,
-                    body(&json!({"operation_id":current.operation_id,"public_key":public_key}))?,
+                    body(&json!({"intent":"login","managed_operation_id":current.operation_id,"public_key":public_key}))?,
                 )
                 .await?;
             let reply = self

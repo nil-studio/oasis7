@@ -501,3 +501,6 @@ fn reserved_native_read_credit_precedes_io_and_never_authorizes_unclaimed_origin
         s
     );
 }
+
+#[path = "native_history_recovery.rs"]
+mod native_history_recovery;

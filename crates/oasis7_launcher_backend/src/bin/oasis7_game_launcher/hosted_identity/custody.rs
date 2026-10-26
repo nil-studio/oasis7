@@ -29,6 +29,7 @@ pub(super) struct CustodyConfig {
     audience: String,
     adapter_secret: [u8; 32],
     managed_binding: Option<managed_binding::ManagedBindingConfig>,
+    managed_binding_state: managed_binding::ManagedBindingConfigState,
     pub(super) revocation: Option<revocation::RevocationConfig>,
 }
 impl CustodyConfig {
@@ -52,10 +53,11 @@ impl CustodyConfig {
             "OASIS7_CUSTODY_NATIVE_ADAPTER_SECRET",
         ];
         if names.iter().all(|name| std::env::var_os(name).is_none()) {
-            if std::env::vars_os().any(|(name, _)| {
-                name.to_string_lossy()
-                    .starts_with("OASIS7_CUSTODY_MANAGED_BINDING")
-            }) {
+            if std::env::var("OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED")
+                .ok()
+                .as_deref()
+                == Some("true")
+            {
                 return Err(
                     "custody root signing configuration required for managed bindings".into(),
                 );
@@ -91,18 +93,34 @@ impl CustodyConfig {
         if &seed == session_secret || seed == adapter_secret || &adapter_secret == session_secret {
             return Err("custody signing, adapter and session secrets must be independent".into());
         }
+        let (managed_binding, managed_binding_state) =
+            match managed_binding::ManagedBindingConfig::from_env() {
+                Ok(Some(config)) => (
+                    Some(config),
+                    managed_binding::ManagedBindingConfigState::Ready,
+                ),
+                Ok(None) => (None, managed_binding::ManagedBindingConfigState::Disabled),
+                Err(reason) => (
+                    None,
+                    managed_binding::ManagedBindingConfigState::invalid(&reason),
+                ),
+            };
         let mut config = Self {
             key: SigningKey::from_bytes(&seed),
             key_id: values[1].clone(),
             audience: values[2].clone(),
             adapter_secret,
-            managed_binding: managed_binding::ManagedBindingConfig::from_env()?,
+            managed_binding,
+            managed_binding_state,
             revocation: None,
         };
         if config.managed_binding.as_ref().is_some_and(|binding| {
             binding.owner_public_key() == hex::encode(config.key.verifying_key().to_bytes())
         }) {
-            return Err("managed binding Owner signer must be independent from native root".into());
+            config.managed_binding = None;
+            config.managed_binding_state = managed_binding::ManagedBindingConfigState::invalid(
+                "invalid managed binding Owner pin alias",
+            );
         }
         config.revocation = revocation::RevocationConfig::from_env(&config, session_secret)?;
         Ok(Some(config))

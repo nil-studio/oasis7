@@ -2,7 +2,7 @@
 //! each referenced secret is encrypted in a separate immutable record DO.
 use super::{NativePrivatePurpose, NativePrivateScope};
 use oasis7_custody_core::provisioning::NativeStageResultV1;
-use oasis7_custody_core::{DecimalU64, approval::bytes_digest, role_key_slot::RoleKeySlotScopeV1};
+use oasis7_custody_core::{DecimalU64, approval::bytes_digest};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, prelude::*};
 type Result<T> = std::result::Result<T, JsValue>;
@@ -19,38 +19,9 @@ fn digest(v: &str) -> bool {
         && v.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ManifestScope {
-    pub role_scope: RoleKeySlotScopeV1,
-    pub identity_namespace: String,
-    pub identity_instance_epoch: DecimalU64,
-    pub registration_operation_id: String,
-    pub initial_login_operation_id: String,
-}
-impl ManifestScope {
-    fn validate(&self) -> Result<()> {
-        self.role_scope.validate().map_err(|_| rejected())?;
-        if self.role_scope.context.identity.role != oasis7_custody_core::http::Role::Identity
-            || !id(&self.identity_namespace)
-            || self.identity_instance_epoch.0 == 0
-            || !id(&self.registration_operation_id)
-            || !id(&self.initial_login_operation_id)
-            || self.registration_operation_id == self.initial_login_operation_id
-        {
-            return Err(rejected());
-        }
-        Ok(())
-    }
-}
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum NativePhase {
-    Register,
-    Binding,
-    InitialLogin,
-    ManagedLogin,
-}
+pub(crate) use oasis7_custody_core::native_history::{
+    NativeHistoryPhaseV1 as NativePhase, NativeHistoryScopeV1 as ManifestScope,
+};
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PhaseState {
@@ -74,7 +45,7 @@ pub(crate) struct ManifestCurrent {
 }
 impl ManifestCurrent {
     fn check(&self, scope: &ManifestScope) -> Result<()> {
-        scope.validate()?;
+        scope.validate().map_err(|_| rejected())?;
         let now = js_sys::Date::now();
         if !now.is_finite()
             || now < 0.0
@@ -111,6 +82,8 @@ struct PhaseRecord {
     state: PhaseState,
     recovery_attempts: Vec<String>,
     result: Option<NativeStageResultV1>,
+    #[serde(default)]
+    result_permit_id: Option<String>,
     result_private_sid_generation: Option<DecimalU64>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,7 +133,7 @@ struct Manifest {
 }
 impl Manifest {
     fn validate(&self, expected: &ManifestScope) -> Result<()> {
-        expected.validate()?;
+        expected.validate().map_err(|_| rejected())?;
         if self.schema_version != 1
             || self.scope != *expected
             || self.phases.len() > 16
@@ -175,6 +148,16 @@ impl Manifest {
                         || !self::id(id)
                         || phase.recovery_attempts[..i].contains(id)
                 })
+            {
+                return Err(rejected());
+            }
+            if phase.request_digest
+                != oasis7_custody_core::native_history::stable_native_intent_digest(
+                    expected,
+                    phase.phase,
+                    &phase.operation_id,
+                )
+                .map_err(|_| rejected())?
             {
                 return Err(rejected());
             }
@@ -267,6 +250,15 @@ impl Manifest {
             if phase.state == PhaseState::Complete && phase.result.is_none() {
                 return Err(rejected());
             }
+            if let Some(result_permit_id) = &phase.result_permit_id {
+                if !id(result_permit_id)
+                    || phase.result.is_none()
+                    || (result_permit_id != &phase.permit_id
+                        && !phase.recovery_attempts.contains(result_permit_id))
+                {
+                    return Err(rejected());
+                }
+            }
             if let Some(result) = &phase.result {
                 let expected_state = if matches!(result, NativeStageResultV1::ExplicitLoginRequired)
                 {
@@ -355,6 +347,11 @@ fn encode(manifest: &Manifest) -> Result<String> {
     }
     Ok(raw)
 }
+#[wasm_bindgen(module = "/platform/identity_native_rpc.mjs")]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = readNativeManifest)]
+    fn read_manifest(state: &JsValue) -> Result<String>;
+}
 #[wasm_bindgen(module = "/platform/sql.mjs")]
 extern "C" {
     #[wasm_bindgen(catch, js_name = accountTransition)]
@@ -376,6 +373,34 @@ struct Inventory {
 struct Row {
     id: String,
     payload: String,
+}
+pub(crate) struct NativeHistoryLookup<'a> {
+    pub environment: &'a str,
+    pub account_id: &'a str,
+    pub provision_id: &'a str,
+    pub result_permit_id: &'a str,
+    pub phase: NativePhase,
+    pub native_operation_id: Option<&'a str>,
+}
+#[derive(Clone)]
+pub(crate) struct NativeSessionReadRefs {
+    pub cookie: NativePrivateScope,
+    pub cookie_digest: String,
+    pub csrf: NativePrivateScope,
+    pub csrf_digest: String,
+    pub private_sid_generation: DecimalU64,
+}
+#[derive(Clone)]
+pub(crate) struct NativeHistorySnapshot {
+    pub scope: ManifestScope,
+    pub phase: NativePhase,
+    pub native_operation_id: String,
+    pub original_permit_id: String,
+    pub result_permit_id: String,
+    pub stable_intent_digest: String,
+    pub result: NativeStageResultV1,
+    pub private_sid_generation: Option<DecimalU64>,
+    pub session_refs: Option<NativeSessionReadRefs>,
 }
 pub(crate) struct NativeManifestStore {
     state: JsValue,
@@ -494,6 +519,7 @@ impl NativeManifestStore {
                 state: PhaseState::Prepared,
                 recovery_attempts: vec![],
                 result: None,
+                result_permit_id: None,
                 result_private_sid_generation: None,
             });
             manifest.validate(&authority.scope)?;
@@ -858,6 +884,7 @@ impl NativeManifestStore {
             let phase = &mut manifest.phases[index];
             phase.state = next;
             phase.result = Some(result.clone());
+            phase.result_permit_id = Some(authority.permit_id.clone());
             phase.result_private_sid_generation = private_sid_generation;
             Ok(())
         })
@@ -883,5 +910,112 @@ impl NativeManifestStore {
                 .clone()
                 .map(|result| (result, phase.result_private_sid_generation)))
         })
+    }
+    /// Pure historical read: no initialization, authority issuance, crypto or writes.
+    /// Stored scope validates local metadata; Account must independently match and
+    /// verify this public fact against its own original plan and Root pins.
+    pub(crate) fn read_completed_history(
+        &self,
+        lookup: &NativeHistoryLookup<'_>,
+    ) -> Result<Option<NativeHistorySnapshot>> {
+        let raw = read_manifest(&self.state)?;
+        let inventory: Inventory = serde_json::from_str(&raw).map_err(|_| rejected())?;
+        if inventory.table_names.iter().any(|n| {
+            !matches!(
+                n.as_str(),
+                "table:custody_records"
+                    | "table:custody_audit"
+                    | "table:sqlite_sequence"
+                    | "table:_cf_METADATA"
+            )
+        }) {
+            return Err(rejected());
+        }
+        if inventory.records.is_empty() {
+            return Ok(None);
+        }
+        if inventory.records.len() != 1
+            || inventory.records[0].id != KEY
+            || inventory.records[0].payload.len() > MAX_BYTES
+        {
+            return Err(rejected());
+        }
+        let manifest: Manifest =
+            serde_json::from_str(&inventory.records[0].payload).map_err(|_| rejected())?;
+        manifest.validate(&manifest.scope)?;
+        let role = &manifest.scope.role_scope;
+        if role.context.identity.environment != lookup.environment
+            || role.context.identity.account_id != lookup.account_id
+            || role.provision_id != lookup.provision_id
+        {
+            return Err(rejected());
+        }
+        let matching: Vec<_> = manifest
+            .phases
+            .iter()
+            .filter(|phase| {
+                let permit_id = phase.result_permit_id.as_deref().or({
+                    if phase.recovery_attempts.is_empty() {
+                        Some(phase.permit_id.as_str())
+                    } else {
+                        None
+                    }
+                });
+                phase.result.is_some() && permit_id == Some(lookup.result_permit_id)
+            })
+            .collect();
+        if matching.len() > 1 {
+            return Err(rejected());
+        }
+        let Some(phase) = matching.first() else {
+            return Ok(None);
+        };
+        let expected_native_operation = match lookup.phase {
+            NativePhase::Register => Some(manifest.scope.registration_operation_id.as_str()),
+            NativePhase::InitialLogin => Some(manifest.scope.initial_login_operation_id.as_str()),
+            _ => lookup.native_operation_id,
+        };
+        if phase.phase != lookup.phase
+            || expected_native_operation.is_some_and(|id| id != phase.operation_id)
+        {
+            return Err(rejected());
+        }
+        let result = phase.result.clone().ok_or_else(rejected)?;
+        let session_refs = if let Some(generation) = phase.result_private_sid_generation {
+            let find = |kind| {
+                manifest
+                    .records
+                    .iter()
+                    .find(|r| {
+                        r.operation_id == phase.operation_id
+                            && r.kind == kind
+                            && r.stored
+                            && r.private_session_generation == generation
+                    })
+                    .ok_or_else(rejected)
+            };
+            let cookie = find(PrivateRecordKind::SessionCookie)?;
+            let csrf = find(PrivateRecordKind::SessionCsrf)?;
+            Some(NativeSessionReadRefs {
+                cookie: manifest.secret_scope(cookie),
+                cookie_digest: cookie.plaintext_digest.clone(),
+                csrf: manifest.secret_scope(csrf),
+                csrf_digest: csrf.plaintext_digest.clone(),
+                private_sid_generation: generation,
+            })
+        } else {
+            None
+        };
+        Ok(Some(NativeHistorySnapshot {
+            scope: manifest.scope.clone(),
+            phase: phase.phase,
+            native_operation_id: phase.operation_id.clone(),
+            original_permit_id: phase.permit_id.clone(),
+            result_permit_id: lookup.result_permit_id.into(),
+            stable_intent_digest: phase.request_digest.clone(),
+            result,
+            private_sid_generation: phase.result_private_sid_generation,
+            session_refs,
+        }))
     }
 }

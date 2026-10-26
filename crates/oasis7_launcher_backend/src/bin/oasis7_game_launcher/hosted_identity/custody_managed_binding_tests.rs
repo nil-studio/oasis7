@@ -18,7 +18,9 @@ fn setup() -> (
         audience: "owner".into(),
         adapter_secret: [74; 32],
         revocation: None,
+        managed_binding_state: ManagedBindingConfigState::Ready,
         managed_binding: Some(ManagedBindingConfig {
+            rotation: None,
             owner: NativeBindingPinV1 {
                 key_id: "owner-binding".into(),
                 public_key: hex::encode(owner.verifying_key().to_bytes()),
@@ -28,7 +30,11 @@ fn setup() -> (
             },
         }),
     });
-    let context = "ab".repeat(32);
+    let context = digest(
+        &f.service.config.session_key,
+        "preauth",
+        &URL_SAFE_NO_PAD.encode([75u8; 32]),
+    );
     let op = random_token();
     let options = f.service.machine_registration_route("POST", "/machine-registration/options", &context, &json!({"operation_id":op,"public_key":hex::encode(login.verifying_key().to_bytes()),"display_name":"managed"}), "source", "https://localhost", 100).unwrap().unwrap();
     let bytes = URL_SAFE_NO_PAD
@@ -515,4 +521,41 @@ fn challenge_capacity_is_per_registration_and_never_blocks_original_fact_or_revo
             )
         })
         .unwrap();
+}
+
+#[test]
+fn binding_lookup_http_reports_absence_as_404_and_committed_expired_fact_as_200() {
+    let (mut f, owner, op, context) = setup();
+    let pre = URL_SAFE_NO_PAD.encode([75u8; 32]);
+    let csrf = digest(
+        &f.service.config.session_key,
+        "csrf",
+        &pre,
+    );
+    let headers = format!(
+        "POST /api/public/hosted-account/v2/custody/managed-bindings/lookup HTTP/1.1\r\nOrigin: https://localhost\r\nContent-Type: application/json\r\nX-Oasis7-CSRF: {csrf}\r\nCookie: __Host-oasis7_pre={pre}\r\n\r\n"
+    );
+    let mut issuer = crate::hosted_player_session::HostedPlayerSessionIssuer::default();
+    let lookup =
+        |service: &mut IdentityService,
+         issuer: &mut crate::hosted_player_session::HostedPlayerSessionIssuer| {
+            service.handle(
+                "POST",
+                "/api/public/hosted-account/v2/custody/managed-bindings/lookup",
+                &headers,
+                json!({"registration_operation_id":op}),
+                "fixture",
+                issuer,
+            )
+        };
+    let absent = lookup(&mut f.service, &mut issuer);
+    assert_eq!(absent.status, 404, "{}", absent.body);
+    assert_eq!(absent.body["error_code"], "not_found");
+    let c = challenge(&mut f.service, &op, &context);
+    let signed = statement(&f.service, c.challenge, &owner);
+    let original = complete(&mut f.service, &signed, &context, 104).unwrap();
+    let historical = lookup(&mut f.service, &mut issuer);
+    assert_eq!(historical.status, 200);
+    assert_eq!(historical.body, original);
+    assert!(historical.cookies.is_empty());
 }

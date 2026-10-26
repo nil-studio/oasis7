@@ -84,3 +84,53 @@ pub(crate) fn append_native_history_checks(
     )?;
     Ok(source)
 }
+
+/// Historical Root facts require no current source grant. The typed entry fixes the signing domain.
+pub(crate) fn native_history_signature_checks(
+    entry: &crate::native_history::NativeHistoryEntryV1,
+    key_id: &str,
+    public_key: &str,
+) -> Result<ExactSignatureChecks> {
+    entry
+        .validate()
+        .map_err(|_| ApprovalAdmissionError::Invalid)?;
+    let (actual_key, signature, bytes) = match &entry.result {
+        crate::provisioning::NativeStageResultV1::RegistrationChallenge(v) => {
+            (&v.key_id, &v.signature, v.challenge.signing_bytes())
+        }
+        crate::provisioning::NativeStageResultV1::BindingReceipt(v) => {
+            (&v.key_id, &v.signature, v.receipt.signing_bytes())
+        }
+        crate::provisioning::NativeStageResultV1::SessionStatus(v) => {
+            (&v.key_id, &v.signature, v.status.signing_bytes())
+        }
+        _ => return Err(ApprovalAdmissionError::Invalid),
+    };
+    if actual_key != key_id
+        || public_key.len() != 64
+        || !public_key
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(ApprovalAdmissionError::UnknownKey);
+    }
+    let digest = entry
+        .digest()
+        .map_err(|_| ApprovalAdmissionError::Invalid)?;
+    Ok(ExactSignatureChecks {
+        operation_id: entry.result_permit_id.clone(),
+        body_digest: digest.clone(),
+        context_digest: canonical_digest(
+            "oasis7.custody.native-history-root-context.v1",
+            &(&entry.scope, key_id, public_key),
+        )?,
+        verify_nonce: entry.native_operation_id.clone(),
+        verification_digest: Some(digest),
+        checks: vec![SignatureCheck {
+            key_id: key_id.into(),
+            public_key_hex: public_key.into(),
+            signature_base64url: signature.clone(),
+            canonical_bytes: bytes.map_err(|_| ApprovalAdmissionError::Invalid)?,
+        }],
+    })
+}

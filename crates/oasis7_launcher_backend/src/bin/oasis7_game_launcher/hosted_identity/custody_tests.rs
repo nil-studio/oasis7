@@ -21,6 +21,7 @@ pub(super) fn fixture() -> (model_session_tests::Fixture, PKey<Private>) {
         key_id: "approval-test-1".into(),
         audience: "account-authority:test".into(),
         managed_binding: None,
+        managed_binding_state: managed_binding::ManagedBindingConfigState::Disabled,
         adapter_secret: [52; 32],
     });
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();

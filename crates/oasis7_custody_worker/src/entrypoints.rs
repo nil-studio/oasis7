@@ -8,6 +8,26 @@ pub async fn identity_run_native(env: Env, raw: String) -> std::result::Result<S
         .await
         .map_err(|_| rejected())
 }
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_read_native_history(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::history::read_native_history_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_recover_native_status(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::recovery::recover_native_status_raw(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
 #[cfg(feature = "owner")]
 #[path = "owner_provision_entrypoints.rs"]
 mod provisioning;
@@ -33,6 +53,14 @@ pub async fn owner_continue_managed_login(
 #[wasm_bindgen]
 pub async fn owner_native_call(env: Env, raw: String) -> std::result::Result<String, JsValue> {
     provisioning::native(&env, &raw).await
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_recovery_call(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    provisioning::native_recovery(&env, &raw).await
 }
 
 #[cfg(feature = "owner")]

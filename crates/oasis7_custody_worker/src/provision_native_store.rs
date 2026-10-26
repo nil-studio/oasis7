@@ -1,5 +1,9 @@
 //! Account-local native stage transitions. All authority/config inputs are Rust-owned.
 use super::*;
+#[path = "provision_native_history_store.rs"]
+pub mod history;
+#[path = "provision_native_recovery_store.rs"]
+pub mod recovery;
 use crate::approval_store::ExactCache;
 use oasis7_custody_core::{
     approval::{ApprovalVerifyRequestV1, SignedApprovalVerificationV1},
@@ -105,6 +109,75 @@ impl OwnerProvisionApprovalStore {
         self.native_stage_original(request)?
             .binding_statement
             .ok_or_else(rejected)
+    }
+    /// Read an already registered B1 statement from this exact Account/plan/native
+    /// registration for B2 receipt lookup. This does not re-sign or authorize B2.
+    pub fn native_binding_statement_archive(
+        &self,
+        request: &NativeStageRequestV1,
+        binding_operation_id: &str,
+    ) -> Result<SignedOwnerNativeBindingStatementV1> {
+        let current = self.native_stage_original(request)?;
+        let saved = self.snapshot()?;
+        let draft = saved.state.draft();
+        let mut found = None;
+        for original in saved.state.native_stages().values() {
+            let Some(signed) = &original.binding_statement else {
+                continue;
+            };
+            let statement = &signed.statement;
+            if statement.binding_operation_id != binding_operation_id {
+                continue;
+            }
+            let registration = &current.descriptor.registration;
+            if original.descriptor.registration != *registration
+                || original.descriptor.identity_key != current.descriptor.identity_key
+                || statement.environment != draft.entry.environment
+                || statement.custody_account_id != request.custody_account_id
+                || statement.provision_id != request.provision_id
+                || statement.approved_plan_digest != draft.entry.plan_digest
+                || statement.login_key_ref != current.descriptor.identity_key.key_id
+                || statement.challenge.identity_namespace != registration.identity_namespace
+                || statement.challenge.identity_instance_epoch
+                    != registration.identity_instance_epoch
+                || statement.challenge.registration_operation_id
+                    != registration.registration_operation_id
+                || statement.challenge.registration_request_digest
+                    != registration.digest().map_err(|_| rejected())?
+                || statement.challenge.login_public_key != registration.login_public_key
+            {
+                return Err(rejected());
+            }
+            let known_root_challenge = original
+                .binding_challenge
+                .as_ref()
+                .or_else(|| {
+                    saved
+                        .state
+                        .native_stages()
+                        .values()
+                        .find_map(|stage| match &stage.result {
+                            Some(NativeStageResultV1::RegistrationChallenge(challenge))
+                                if challenge.challenge == statement.challenge =>
+                            {
+                                Some(challenge)
+                            }
+                            _ => None,
+                        })
+                })
+                .ok_or_else(rejected)?;
+            if known_root_challenge.challenge != statement.challenge
+                || known_root_challenge.validate().is_err()
+                || signed.validate().is_err()
+            {
+                return Err(rejected());
+            }
+            if found.as_ref().is_some_and(|old| old != signed) {
+                return Err(rejected());
+            }
+            found = Some(signed.clone());
+        }
+        found.ok_or_else(rejected)
     }
     /// Tightening reservation only: charge and persist before remote Current/RF I/O.
     pub fn reserve_native_stage(
@@ -488,6 +561,47 @@ impl OwnerProvisionApprovalStore {
             .map(Some)
             .ok_or_else(rejected)
         })
+    }
+    /// A charged current Binding attempt may recover only an Account-known old
+    /// statement's root-signed receipt. The core factory owns B2/B1 reconciliation.
+    pub async fn recover_native_binding_receipt<F>(
+        &self,
+        id: &str,
+        receipt: oasis7_custody_core::native_binding::SignedNativeBindingReceiptV1,
+        current: F,
+    ) -> Result<NativeStageResultV1>
+    where
+        F: Fn() -> Result<NativeStageCurrent>,
+    {
+        let result = NativeStageResultV1::BindingReceipt(receipt.clone());
+        if let Some(original) = self.recover_native_result(id, &result, None)? {
+            return Ok(original);
+        }
+        self.native_verified(
+            &current,
+            "native_binding_receipt_recovered",
+            id,
+            |state, scope, context, time| {
+                Ok(vec![
+                    state
+                        .native_binding_recovery_checks(id, &receipt, scope, context, time)
+                        .map_err(|_| rejected())?,
+                ])
+            },
+            |state, scope, context, time, cache| {
+                state
+                    .recover_native_binding_receipt(
+                        id,
+                        receipt.clone(),
+                        scope,
+                        context,
+                        time,
+                        cache,
+                    )
+                    .map_err(|_| rejected())
+            },
+        )
+        .await
     }
     pub async fn complete_native_stage<F>(
         &self,

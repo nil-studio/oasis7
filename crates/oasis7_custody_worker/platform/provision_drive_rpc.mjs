@@ -3,3 +3,5 @@ export async function ensureIdentityKey(env, raw) { return env.IDENTITY_PROVISIO
 export async function ensureOwnerKey(env, raw) { return env.OWNER_PROVISION_KEYS.ensureKey(raw); }
 export async function ensureExecutorKey(env, raw) { return env.EXECUTOR_PROVISION_KEYS.ensureKey(raw); }
 export async function runNativeStage(env, raw) { return env.IDENTITY_NATIVE_PROVISION.run(raw); }
+export async function readNativeHistory(env, raw) { return env.IDENTITY_NATIVE_HISTORY.read(raw); }
+export async function recoverNativeStatus(env, raw) { return env.IDENTITY_NATIVE_STATUS_RECOVERY.recover(raw); }

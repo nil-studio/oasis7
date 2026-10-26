@@ -1,0 +1,14 @@
+// Test-only fault after Identity has durably retained its complete Root fact.
+import deployed, {OwnerNativePermits as RealOwnerNativePermits} from '../../artifacts/owner/entry.mjs';
+export * from '../../artifacts/owner/entry.mjs';
+export default deployed;
+export class OwnerNativePermits extends RealOwnerNativePermits {
+  async call(raw) {
+    const rpc=JSON.parse(raw);
+    if(this.env.FIXTURE_DROP_NATIVE_RESULT==='true' && rpc.action.kind==='record_result'
+      && rpc.action.result.kind==='session_status') {
+      throw new Error('fixture lost Account submission before commit');
+    }
+    return super.call(raw);
+  }
+}

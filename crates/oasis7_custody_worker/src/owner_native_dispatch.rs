@@ -188,12 +188,11 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
             let NativeRuntimeCall::Provision { request } = &rpc.call else {
                 return Err(denied());
             };
-            if binding_operation_id != request.binding_operation_id {
-                return Err(denied());
-            }
+            // A native lookup may report immutable B1 while this charged attempt
+            // is B2. Select only Account's own same-plan/same-registration archive.
             encode(
                 &store
-                    .native_binding_statement(request)
+                    .native_binding_statement_archive(request, &binding_operation_id)
                     .map_err(|_| denied())?,
             )
         }
@@ -231,14 +230,26 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
             }
             let current = observation(&store, env, &rpc.call).await?;
             match &rpc.call {
-                NativeRuntimeCall::Provision { .. } => encode(
-                    &store
-                        .complete_native_stage(id, result, session.as_ref(), || {
-                            authority::current(state, env, &current, true)
-                        })
-                        .await
-                        .map_err(|_| denied())?,
-                ),
+                NativeRuntimeCall::Provision { .. } => {
+                    let committed = if let NativeStageResultV1::BindingReceipt(receipt) = result {
+                        if session.is_some() {
+                            return Err(denied());
+                        }
+                        store
+                            .recover_native_binding_receipt(id, receipt, || {
+                                authority::current(state, env, &current, true)
+                            })
+                            .await
+                    } else {
+                        store
+                            .complete_native_stage(id, result, session.as_ref(), || {
+                                authority::current(state, env, &current, true)
+                            })
+                            .await
+                    }
+                    .map_err(|_| denied())?;
+                    encode(&committed)
+                }
                 NativeRuntimeCall::ManagedLogin { .. } => encode(
                     &store
                         .complete_managed_login(id, result, session.as_ref(), || {

@@ -350,7 +350,9 @@ impl AccountProvisionApprovalState {
                     return Err(ProvisionApprovalError::InvalidPersistence);
                 }
                 let mut expected = BudgetLedger::new(transport_limit.0);
-                expected.charge(64).map_err(|_| ProvisionError::Exhausted)?;
+                expected
+                    .charge(64 + self.managed_recovery_transport_cost(id))
+                    .map_err(|_| ProvisionError::Exhausted)?;
                 if task.reads > 8
                     || task.result.is_some() && task.claimed_at.is_none()
                     || task.status_nonce.len() != 64

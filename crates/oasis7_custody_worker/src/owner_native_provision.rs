@@ -26,6 +26,17 @@ use config::NativeConfig;
 mod authority;
 #[path = "owner_native_dispatch.rs"]
 mod dispatch;
+#[path = "owner_native_reconcile.rs"]
+mod reconcile;
+#[path = "owner_native_recovery.rs"]
+mod recovery;
+pub(crate) async fn recover(
+    state: &JsValue,
+    env: &Env,
+    rpc: crate::native_runtime_rpc::NativeRecoveryRpc,
+) -> Result<String> {
+    recovery::recover(state, env, rpc).await
+}
 #[path = "owner_native_managed_approval.rs"]
 mod managed_approval;
 pub(crate) async fn approve_managed_login(

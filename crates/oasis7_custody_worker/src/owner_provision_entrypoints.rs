@@ -3,6 +3,42 @@ use super::rejected;
 use wasm_bindgen::JsValue;
 use worker::{Env, Method, Request, RequestInit};
 
+pub(super) async fn native_recovery(env: &Env, raw: &str) -> std::result::Result<String, JsValue> {
+    if raw.len() > 32768 {
+        return Err(rejected());
+    }
+    let rpc: crate::native_runtime_rpc::NativeRecoveryRpc =
+        serde_json::from_str(raw).map_err(|_| rejected())?;
+    rpc.request.validate().map_err(|_| rejected())?;
+    let stub = env
+        .durable_object("ACCOUNTS")
+        .map_err(|_| rejected())?
+        .id_from_name(&rpc.request.custody_account_id)
+        .map_err(|_| rejected())?
+        .get_stub()
+        .map_err(|_| rejected())?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_body(Some(raw.into()));
+    let mut request =
+        Request::new_with_init("https://account.internal/internal/native-recovery", &init)
+            .map_err(|_| rejected())?;
+    request
+        .headers_mut()
+        .map_err(|_| rejected())?
+        .set("Content-Type", "application/json")
+        .map_err(|_| rejected())?;
+    let response = stub
+        .fetch_with_request(request)
+        .await
+        .map_err(|_| rejected())?;
+    if response.status_code() != 200 {
+        return Err(rejected());
+    }
+    crate::owner_directory::read_response(response)
+        .await
+        .map_err(|_| rejected())
+}
+
 pub(super) async fn managed_login_continue(
     env: &Env,
     raw: &str,

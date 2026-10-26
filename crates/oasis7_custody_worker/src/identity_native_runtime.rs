@@ -4,6 +4,10 @@
 #[cfg(feature = "native-runtime-harness")]
 #[path = "../tests/support/native_runtime_harness.rs"]
 mod harness;
+#[path = "identity_native_history.rs"]
+pub(crate) mod history;
+#[path = "identity_native_recovery.rs"]
+pub(crate) mod recovery;
 use crate::{
     envelope_crypto,
     native_identity::provision_transport::NativeProvisionTransport,
@@ -47,6 +51,8 @@ fn raw_text(raw: JsValue, bound: usize) -> JResult<Zeroizing<String>> {
 extern "C" {
     #[wasm_bindgen(catch, js_name = ownerNativeCall)]
     async fn owner_call(env: &Env, raw: &str) -> JResult<JsValue>;
+    #[wasm_bindgen(catch, js_name = readNativeCipher)]
+    fn read_cipher(state: &JsValue) -> JResult<String>;
 }
 #[wasm_bindgen(module = "/platform/role_provision_rpc.mjs")]
 extern "C" {
@@ -858,6 +864,32 @@ struct InventoryRow {
     id: String,
     payload: String,
 }
+fn cipher_read_existing(
+    state: &JsValue,
+    scope: &NativePrivateScope,
+) -> JResult<Option<KeyEnvelopeV1>> {
+    scope.context()?;
+    let raw = read_cipher(state)?;
+    let inventory: Inventory = serde_json::from_str(&raw).map_err(|_| js_denied())?;
+    if inventory.table_names.iter().any(|n| {
+        !matches!(
+            n.as_str(),
+            "table:custody_records"
+                | "table:custody_audit"
+                | "table:sqlite_sequence"
+                | "table:_cf_METADATA"
+        )
+    }) {
+        return Err(js_denied());
+    }
+    if inventory.records.is_empty() {
+        return Ok(None);
+    }
+    if inventory.records.len() != 1 || inventory.records[0].id != RECORD {
+        return Err(js_denied());
+    }
+    Ok(cipher_snapshot(&inventory.records[0].payload, scope)?.envelope)
+}
 fn cipher_transition(
     state: &JsValue,
     scope: &NativePrivateScope,
@@ -930,6 +962,34 @@ fn cipher_transition(
     drop(closure);
     returned.ok_or_else(js_denied)
 }
+fn manifest_name(env: &Env, call: &NativeRuntimeCall) -> Result<String> {
+    if !call.validate() {
+        return Err(denied());
+    }
+    manifest_name_parts(env, call.account_id(), call.provision_id())
+}
+fn manifest_name_parts(env: &Env, account_id: &str, provision_id: &str) -> Result<String> {
+    let valid = |v: &str| {
+        !v.is_empty()
+            && v.len() <= 256
+            && v.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
+    };
+    if !valid(account_id) || !valid(provision_id) {
+        return Err(denied());
+    }
+    let environment = env.var("CUSTODY_ROLE_KEY_ENVIRONMENT")?.to_string();
+    let name = bytes_digest(
+        &oasis7_wasm_abi::encode_canonical_cbor(&(
+            "oasis7.custody.native-manifest-address.v1",
+            environment,
+            account_id,
+            provision_id,
+        ))
+        .map_err(|_| denied())?,
+    );
+    Ok(format!("manifest:{name}"))
+}
 /// Router address contains static environment/account/provision only. It does
 /// not authorize or write; the actor's first action is the real Owner permit.
 pub(crate) async fn run_native_raw(env: &Env, raw: &str) -> Result<String> {
@@ -949,18 +1009,8 @@ pub(crate) async fn run_native_raw(env: &Env, raw: &str) -> Result<String> {
     {
         return Err(denied());
     }
-    let environment = env.var("CUSTODY_ROLE_KEY_ENVIRONMENT")?.to_string();
-    let name = bytes_digest(
-        &oasis7_wasm_abi::encode_canonical_cbor(&(
-            "oasis7.custody.native-manifest-address.v1",
-            environment,
-            call.account_id(),
-            call.provision_id(),
-        ))
-        .map_err(|_| denied())?,
-    );
     let result: NativeStageResultV1 =
-        actor(env, &format!("manifest:{name}"), "/internal/run", &call)
+        actor(env, &manifest_name(env, &call)?, "/internal/run", &call)
             .await
             .map_err(|_| denied())?;
     serde_json::to_string(&result).map_err(|_| denied())
@@ -988,6 +1038,16 @@ impl DurableObject for NativeSession {
         {
             return Response::error("not found", 404);
         }
+        let raw = raw_text(
+            bounded_body(request.inner().as_ref(), MAX as u32)
+                .await
+                .map_err(|_| denied())?,
+            MAX,
+        )
+        .map_err(|_| denied())?;
+        if url.path() == "/internal/history" {
+            return history::response(self.state.clone(), &self.env, &raw);
+        }
         if self
             .env
             .var("CUSTODY_NATIVE_PROVISION_ENABLED")
@@ -998,16 +1058,12 @@ impl DurableObject for NativeSession {
         {
             return Response::error("disabled", 409);
         }
-        let raw = raw_text(
-            bounded_body(request.inner().as_ref(), MAX as u32)
-                .await
-                .map_err(|_| denied())?,
-            MAX,
-        )
-        .map_err(|_| denied())?;
         #[cfg(feature = "native-runtime-harness")]
         if url.path() == "/internal/harness" {
             return harness::handle(self.state.clone(), &raw).await;
+        }
+        if url.path() == "/internal/recover-status" {
+            return recovery::response(self.state.clone(), &self.env, &raw).await;
         }
         let response = match url.path() {
             "/internal/run" => {
@@ -1036,7 +1092,7 @@ impl DurableObject for NativeSession {
             "/internal/cipher-read" => {
                 let req: CipherRead = serde_json::from_str(&raw).map_err(|_| denied())?;
                 serde_json::to_string(
-                    &cipher_transition(&self.state, &req.scope, None).map_err(|_| denied())?,
+                    &cipher_read_existing(&self.state, &req.scope).map_err(|_| denied())?,
                 )
                 .map_err(|_| denied())?
             }

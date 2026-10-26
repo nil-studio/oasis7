@@ -236,3 +236,25 @@ pub use managed_login::*;
 mod binding_recovery;
 #[path = "native_stages/managed_login_runtime.rs"]
 mod managed_login_runtime;
+
+#[path = "native_stages/status_recovery_types.rs"]
+mod status_recovery_types;
+pub use status_recovery_types::*;
+
+#[path = "native_stages/history_archive.rs"]
+mod history_archive;
+
+#[path = "native_stages/status_recovery.rs"]
+mod status_recovery;
+
+#[path = "native_stages/status_recovery_source.rs"]
+mod status_recovery_source;
+
+#[path = "native_stages/status_recovery_result.rs"]
+mod status_recovery_result;
+
+#[path = "native_stages/status_recovery_restore.rs"]
+mod status_recovery_restore;
+
+pub use history_archive::MAX_NATIVE_HISTORY_ENTRIES;
+pub use status_recovery::MAX_SESSION_STATUS_RECOVERIES;

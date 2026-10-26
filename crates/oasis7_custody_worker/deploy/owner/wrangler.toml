@@ -70,3 +70,13 @@ entrypoint = "RoleKeyProvision"
 binding = "IDENTITY_NATIVE_PROVISION"
 service = "oasis7-custody-identity-staging"
 entrypoint = "IdentityNativeProvision"
+
+[[services]]
+binding = "IDENTITY_NATIVE_HISTORY"
+service = "oasis7-custody-identity-staging"
+entrypoint = "NativeProvisionHistory"
+
+[[services]]
+binding = "IDENTITY_NATIVE_STATUS_RECOVERY"
+service = "oasis7-custody-identity-staging"
+entrypoint = "NativeProvisionRecovery"

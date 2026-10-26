@@ -100,8 +100,8 @@ fn fixture() -> (ApprovalAdmissionInput, ApprovalAdmissionContext) {
             login_key_ref: "login-one".into(),
             native_identity_namespace: "identity:test".into(),
             blocked_operation_ref: "blocked-one".into(),
-            login_request_id:"managed-login-one".into(),
-            transport_limit:DecimalU64(64),
+            login_request_id: "managed-login-one".into(),
+            transport_limit: DecimalU64(64),
             deadline: DecimalU64(100_000),
         },
     };

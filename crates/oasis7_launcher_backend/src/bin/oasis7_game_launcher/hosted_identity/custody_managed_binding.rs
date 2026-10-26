@@ -3,13 +3,43 @@ use super::*;
 use ed25519_dalek::VerifyingKey;
 use oasis7_custody_core::native_binding::*;
 
+#[path = "custody_owner_pin.rs"]
+pub(in super::super) mod owner_pin;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ManagedBindingConfigState {
+    Disabled,
+    Ready,
+    InvalidPending(&'static str),
+}
+impl ManagedBindingConfigState {
+    pub(super) fn invalid(reason: &str) -> Self {
+        // Parser messages are classified into fixed codes, never copied from input values.
+        Self::InvalidPending(if reason.contains("rotation") {
+            "owner_pin_rotation_configuration_invalid_pending"
+        } else if reason.contains("true/false") {
+            "owner_pin_enable_configuration_invalid_pending"
+        } else {
+            "owner_pin_configuration_invalid_pending"
+        })
+    }
+    pub(super) fn pending_code(self) -> Option<&'static str> {
+        match self {
+            Self::InvalidPending(code) => Some(code),
+            _ => None,
+        }
+    }
+}
+
 pub(super) struct ManagedBindingConfig {
     owner: NativeBindingPinV1,
+    rotation: Option<SignedOwnerPinRotationManifestV1>,
 }
 impl ManagedBindingConfig {
     #[cfg(test)]
     pub(super) fn native_http_fixture() -> Self {
         Self {
+            rotation: None,
             owner: NativeBindingPinV1 {
                 key_id: "owner-native-test".into(),
                 public_key: hex::encode(
@@ -29,29 +59,46 @@ impl ManagedBindingConfig {
         &self.owner.public_key
     }
     pub(super) fn from_env() -> Result<Option<Self>, String> {
-        let enabled = std::env::var("OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED").ok();
-        let pin = std::env::var("OASIS7_CUSTODY_MANAGED_BINDING_OWNER_PIN").ok();
-        match (enabled.as_deref(), pin) {
-            (None | Some("false"), None) => Ok(None),
-            (Some("true"), Some(pin)) => {
-                let owner: NativeBindingPinV1 =
-                    serde_json::from_str(&pin).map_err(|_| "invalid managed binding Owner pin")?;
-                owner
-                    .validate()
-                    .map_err(|_| "invalid managed binding Owner pin")?;
-                let bytes: [u8; 32] = hex::decode(&owner.public_key)
-                    .map_err(|_| "invalid managed binding Owner key")?
-                    .try_into()
-                    .map_err(|_| "invalid managed binding Owner key")?;
-                let key = VerifyingKey::from_bytes(&bytes)
-                    .map_err(|_| "invalid managed binding Owner key")?;
-                if key.is_weak() {
-                    return Err("weak managed binding Owner key".into());
-                }
-                Ok(Some(Self { owner }))
-            }
-            _ => Err("managed bindings require explicit enabled flag and fixed Owner pin".into()),
+        match std::env::var("OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED")
+            .ok()
+            .as_deref()
+        {
+            None | Some("false") => return Ok(None),
+            Some("true") => {}
+            _ => return Err("managed bindings require an explicit true/false flag".into()),
         }
+        let pin = std::env::var("OASIS7_CUSTODY_MANAGED_BINDING_OWNER_PIN")
+            .map_err(|_| "managed binding Owner pin required")?;
+        let owner: NativeBindingPinV1 =
+            serde_json::from_str(&pin).map_err(|_| "invalid managed binding Owner pin")?;
+        owner
+            .validate()
+            .map_err(|_| "invalid managed binding Owner pin")?;
+        let public: [u8; 32] = hex::decode(&owner.public_key)
+            .map_err(|_| "invalid managed binding Owner key")?
+            .try_into()
+            .map_err(|_| "invalid managed binding Owner key")?;
+        if VerifyingKey::from_bytes(&public)
+            .map_err(|_| "invalid managed binding Owner key")?
+            .is_weak()
+        {
+            return Err("weak managed binding Owner key".into());
+        }
+        let rotation = std::env::var("OASIS7_CUSTODY_MANAGED_BINDING_OWNER_ROTATION_MANIFEST")
+            .ok()
+            .map(|raw| {
+                if raw.len() > 32768 {
+                    return Err("managed Owner rotation manifest too large");
+                }
+                let signed: SignedOwnerPinRotationManifestV1 = serde_json::from_str(&raw)
+                    .map_err(|_| "invalid managed Owner rotation manifest")?;
+                signed
+                    .validate()
+                    .map_err(|_| "invalid managed Owner rotation manifest")?;
+                Ok(signed)
+            })
+            .transpose()?;
+        Ok(Some(Self { owner, rotation }))
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -221,6 +268,28 @@ fn verify_statement(
     .map_err(|_| reject("authentication_failed"))
 }
 impl IdentityService {
+    pub(in super::super) fn managed_adapter_configuration_error(&self) -> Option<&'static str> {
+        self.custody
+            .as_ref()
+            .and_then(|c| c.managed_binding_state.pending_code())
+    }
+    pub(in super::super) fn managed_login_adapter_enabled(&self) -> bool {
+        self.custody
+            .as_ref()
+            .is_some_and(|c| c.managed_binding.is_some())
+    }
+    #[cfg(test)]
+    pub(in super::super) fn enable_managed_login_test_adapter(&mut self) {
+        self.custody = Some(CustodyConfig {
+            key: SigningKey::from_bytes(&[95; 32]),
+            key_id: "native-managed-test-root".into(),
+            audience: "native-managed-test".into(),
+            adapter_secret: [94; 32],
+            revocation: None,
+            managed_binding: Some(ManagedBindingConfig::native_http_fixture()),
+            managed_binding_state: ManagedBindingConfigState::Ready,
+        });
+    }
     pub(in super::super) fn managed_binding_route(
         &mut self,
         method: &str,
@@ -230,6 +299,15 @@ impl IdentityService {
         origin: &str,
         now: u64,
     ) -> Result<Value, StoreError> {
+        if method == "POST" && path == "/custody/managed-bindings/lookup" {
+            return self.managed_binding_lookup(owner, payload, origin);
+        }
+        if method == "POST" && path == "/custody/managed-bindings/complete" {
+            return self.managed_binding_complete(owner, payload, origin, now);
+        }
+        if let Some(code) = self.managed_adapter_configuration_error() {
+            return Err(reject(code));
+        }
         let config = self
             .custody
             .as_ref()
@@ -288,7 +366,9 @@ impl IdentityService {
             .ok_or_else(|| reject("custody_disabled"))?;
         let namespace = self.config.namespace.clone();
         let epoch = self.config.rp.identity_instance_epoch;
+        let native_config = &self.config;
         self.store.transaction(|tx| {
+            owner_pin::guard(tx, config, native_config, now)?;
             let (receipt, account, credential) =
                 original_registration(tx, &request.registration_operation_id, owner, origin)?;
             let key = format!("custody_managed_challenge:{}", request.binding_operation_id);
@@ -450,10 +530,8 @@ impl IdentityService {
         let signed = request.statement;
         let statement = &signed.statement;
         let c = &statement.challenge;
-        let config = self
-            .custody
-            .as_ref()
-            .ok_or_else(|| reject("custody_disabled"))?;
+        let config = self.custody.as_ref();
+        let native_config = &self.config;
         let namespace = self.config.namespace.clone();
         let epoch = self.config.rp.identity_instance_epoch;
         let statement_digest = statement.digest().map_err(|_| reject("invalid_request"))?;
@@ -467,6 +545,10 @@ impl IdentityService {
                 if record.value.statement != signed || record.value.login_key_signature != request.login_key_signature || original.consumed_statement.as_ref() != Some(&statement_digest) || original.origin != origin || original.signed.challenge != *c { return Err(reject("idempotency_conflict")); }
                 return serde_json::to_value(record.value.receipt).map_err(|_| StoreError::Corrupt);
             }
+            let config = config.ok_or_else(|| reject("custody_disabled"))?;
+            if let Some(code) = config.managed_binding_state.pending_code() { return Err(reject(code)); }
+            let config = Some(config).filter(|c| c.managed_binding.is_some()).ok_or_else(|| reject("custody_disabled"))?;
+            owner_pin::guard(tx, config, native_config, now)?;
             let (registration, account, credential) = original_registration(tx, &c.registration_operation_id, owner, origin)?;
             let mut original = tx.get::<ChallengeRecord>(&challenge_key)?.ok_or_else(|| reject("authentication_failed"))?;
             if original.value.signed.challenge != *c || original.value.origin != origin || c.owner_context_ref != owner
@@ -675,6 +757,9 @@ impl IdentityService {
         }
         let sid = sid.ok_or_else(|| reject("session_expired"))?;
         let storage_key = session_key(&self.config.session_key, sid);
+        if let Some(code) = self.managed_adapter_configuration_error() {
+            return Err(reject(code));
+        }
         let config = self
             .custody
             .as_ref()
@@ -700,7 +785,8 @@ impl IdentityService {
                 tx.create(&pending_key, "custody_managed_invalidation", Some(&session.account_id), None, &fact)?;
                 pending = tx.get::<ManagedInvalidationPending>(&pending_key)?;
             }
-            let active = valid_session(tx, &storage_key, epoch, now).is_ok()
+            let pin_current = owner_pin::binding_is_current(tx, config, &self.config, &binding);
+            let active = pin_current && valid_session(tx, &storage_key, epoch, now).is_ok()
                 && credential.state == "active" && account.status == "active"
                 && matches!(credential.public_material, CredentialMaterial::NativeKey { public_key } if hex::encode(public_key) == receipt.login_public_key)
                 && pending.is_none();
@@ -708,7 +794,7 @@ impl IdentityService {
                 api_version: 1, receipt: receipt.clone(), service_epoch: binding.statement.statement.service_epoch,
                 native_account_security_epoch: DecimalU64(account.security_epoch), native_credential_version: DecimalU64(credential.version),
                 session_ref: session.session_id, nonce: request.nonce.clone(), generation: DecimalU64(pending.as_ref().map_or(1, |p| p.value.generation)),
-                active, frozen: pending.as_ref().is_some_and(|p| p.value.frozen), pending: pending.is_some(), observed_at: DecimalU64(now), expires_at: DecimalU64(now.checked_add(5_000).ok_or(StoreError::Corrupt)?),
+                active, frozen: !pin_current || pending.as_ref().is_some_and(|p| p.value.frozen), pending: !pin_current || pending.is_some(), observed_at: DecimalU64(now), expires_at: DecimalU64(now.checked_add(5_000).ok_or(StoreError::Corrupt)?),
             };
             let signed = SignedManagedNativeSessionStatusV1 { signature: URL_SAFE_NO_PAD.encode(config.key.sign(&status.signing_bytes().map_err(|_| reject("authentication_failed"))?).to_bytes()), key_id: config.key_id.clone(), status };
             serde_json::to_value(signed).map_err(|_| StoreError::Corrupt)
@@ -727,6 +813,9 @@ impl IdentityService {
         }
         let request: Request =
             serde_json::from_value(payload.clone()).map_err(|_| reject("invalid_request"))?;
+        if let Some(code) = self.managed_adapter_configuration_error() {
+            return Err(reject(code));
+        }
         let config = self
             .custody
             .as_ref()

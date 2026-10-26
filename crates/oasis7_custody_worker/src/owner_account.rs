@@ -227,6 +227,7 @@ impl DurableObject for AccountAuthority {
                     | "/internal/provision-progress"
                     | "/internal/role-permit"
                     | "/internal/native"
+                    | "/internal/native-recovery"
                     | "/internal/managed-login-approve"
                     | "/internal/managed-login-continue"
             )
@@ -245,6 +246,27 @@ impl DurableObject for AccountAuthority {
             None => return Response::error("invalid or oversized body", 400),
         };
         match url.path() {
+            "/internal/native-recovery" => {
+                let Some(env) = &self.env else {
+                    return Response::error("recovery authority unavailable", 409);
+                };
+                let rpc = match serde_json::from_str::<crate::native_runtime_rpc::NativeRecoveryRpc>(
+                    &body,
+                ) {
+                    Ok(value) if value.request.validate().is_ok() => value,
+                    _ => return Response::error("invalid recovery request", 400),
+                };
+                match crate::owner_provision::native::recover(&self.state, env, rpc).await {
+                    Ok(raw) => {
+                        let mut response = Response::ok(raw)?;
+                        response
+                            .headers_mut()
+                            .set("Content-Type", "application/json")?;
+                        Ok(response)
+                    }
+                    Err(_) => Response::error("recovery rejected or pending", 409),
+                }
+            }
             "/internal/managed-login-continue" => {
                 let Some(env) = &self.env else {
                     return Response::error("native authority unavailable", 409);

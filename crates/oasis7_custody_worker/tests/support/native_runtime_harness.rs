@@ -4,12 +4,16 @@ use crate::native_private_store::manifest::*;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signer, SigningKey};
 use oasis7_custody_core::{
-    DecimalU64, approval::bytes_digest, http::Role, native_binding::*, provisioning::*,
-    role_key_slot::*,
+    DecimalU64, http::Role, native_binding::*, provisioning::*, role_key_slot::*,
 };
 use serde_json::{Value, json};
 use wasm_bindgen::JsValue;
 use worker::{Error, Response, Result};
+#[wasm_bindgen::prelude::wasm_bindgen(module = "/platform/identity_native_rpc.mjs")]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = readNativeManifest)]
+    fn inventory(state: &JsValue) -> std::result::Result<String, JsValue>;
+}
 fn denied() -> Error {
     Error::RustError("synthetic native lifecycle fixture rejected".into())
 }
@@ -39,15 +43,9 @@ fn scope() -> Result<ManifestScope> {
 }
 fn current(phase: NativePhase, operation: &str) -> Result<ManifestCurrent> {
     let scope = scope()?;
-    let request_digest = bytes_digest(
-        &oasis7_wasm_abi::encode_canonical_cbor(&(
-            "synthetic-native-fixture-intent-v1",
-            &scope,
-            phase,
-            operation,
-        ))
-        .map_err(|_| denied())?,
-    );
+    let request_digest =
+        oasis7_custody_core::native_history::stable_native_intent_digest(&scope, phase, operation)
+            .map_err(|_| denied())?;
     Ok(ManifestCurrent {
         scope,
         phase,
@@ -154,8 +152,27 @@ fn prepare_registration(store: &NativeManifestStore) -> Result<NativeStageResult
     Ok(result)
 }
 async fn run(state: JsValue, mode: &str) -> Result<Value> {
-    let store = NativeManifestStore::new(state);
+    let store = NativeManifestStore::new(state.clone());
     match mode {
+        "read-only-registration-history" | "read-only-unknown-history" => {
+            let before = inventory(&state).map_err(|_| denied())?;
+            let authority = registration_current()?;
+            let history = store
+                .read_completed_history(&NativeHistoryLookup {
+                    environment: "fixture-only",
+                    account_id: "fixture-account",
+                    provision_id: "fixture-provision",
+                    result_permit_id: &authority.permit_id,
+                    phase: NativePhase::Register,
+                    native_operation_id: None,
+                })
+                .map_err(|_| denied())?;
+            let after = inventory(&state).map_err(|_| denied())?;
+            Ok(
+                json!({"fixture_only":true,"unchanged":before==after,"history_result":history.map(|h|h.result),
+                "inventory":serde_json::from_str::<Value>(&after).map_err(|_|denied())?}),
+            )
+        }
         "complete-registration-before-account-submit" => {
             let original = prepare_registration(&store)?;
             Ok(json!({"fixture_only":true,"original":original}))
