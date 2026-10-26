@@ -321,7 +321,12 @@ def execute(cfg, run_id, source, archive, info, *, session_factory=Session):
                 raise ValueError("remote backup path invalid")
             backup_identity = {"mode": "remote", "remote_archive": remote_archive,
                                "bytes": size, "sha256": sha}
-            session.call("compare", bytes=size, sha256=sha, remote=True)
+            comparison = session.call("compare", bytes=size, sha256=sha, remote=True)
+            if (not isinstance(comparison, dict) or comparison.get("bytes") != size
+                    or comparison.get("sha256") != sha
+                    or comparison.get("remote_archive") != remote_archive
+                    or comparison.get("tar_compare_verified") is not True):
+                raise ValueError("remote backup compare receipt mismatch")
         else:
             bound = min(max_backup_bytes, shutil.disk_usage(backup_root).free - RESERVE)
             if bound < RESERVE:

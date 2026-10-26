@@ -175,11 +175,12 @@ class FakeSession:
 
 
 class FakeRemoteSession:
-    def __init__(self, *, header=None, refuse_compare=False):
+    def __init__(self, *, header=None, refuse_compare=False, compare_response=None):
         self.calls = []
         self.uploads = []
         self.closed = None
         self.refuse_compare = refuse_compare
+        self.compare_response = compare_response
         self.header = header or {
             "ok": True,
             "stream": False,
@@ -200,6 +201,14 @@ class FakeRemoteSession:
             return self.header
         if op == "compare" and self.refuse_compare:
             raise RuntimeError("remote backup compare refused")
+        if op == "compare":
+            return self.compare_response or {
+                "ok": True,
+                "bytes": self.header["bytes"],
+                "sha256": self.header["sha256"],
+                "tar_compare_verified": True,
+                "remote_archive": self.header["remote_archive"],
+            }
         if op == "switch" and self.receipt_root is not None:
             receipt = next(self.receipt_root.glob("ecs-*/deployment.json"))
             self.receipt_at_switch = json.loads(receipt.read_text())
@@ -307,6 +316,20 @@ class ControllerTests(unittest.TestCase):
             self.assertNotIn("switch", session.calls)
             self.assertNotIn("accept", session.calls)
             self.assertFalse(session.closed)
+
+    def test_remote_compare_receipt_must_match_backup_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            session = FakeRemoteSession(compare_response={
+                "ok": True,
+                "bytes": 6_392_429_837,
+                "sha256": "c" * 64,
+                "tar_compare_verified": True,
+                "remote_archive": "/var/lib/oasis7-preview-ops/other-backup.tar.gz",
+            })
+            with self.assertRaisesRegex(ValueError, "compare receipt mismatch"):
+                self.run_remote_fixture(Path(temp), session)
+            self.assertNotIn("switch", session.calls)
+            self.assertNotIn("accept", session.calls)
 
     def test_backup_mode_mismatch_and_invalid_remote_identity_fail_closed(self):
         cases = [
@@ -422,6 +445,7 @@ with open(os.environ['DEPLOY_TEST_LOG'],'a') as log:log.write('ssh-start\n')
 assert 'probe_source' in json.loads(s.readline())
 payload_bytes=0
 refuse=os.environ.get('DEPLOY_TEST_REFUSE_COMPARE')=='1'
+remote_archive='/var/lib/oasis7-preview-ops/run-123/pre-upgrade.tar.gz'
 while True:
  line=s.readline()
  if not line:break
@@ -433,10 +457,12 @@ while True:
   emit({'ok':True})
  elif op=='backup':
   emit({'ok':True,'stream':False,'bytes':6392429837,'sha256':'c'*64,
-        'remote_archive':'/var/lib/oasis7-preview-ops/run-123/pre-upgrade.tar.gz'})
+        'remote_archive':remote_archive})
  elif op=='compare':
   assert frame.get('remote') is True and 'archive' not in frame
-  emit({'ok':not refuse,'error':'remote_compare_refused' if refuse else None})
+  emit({'ok':not refuse,'error':'remote_compare_refused' if refuse else None,
+        'bytes':6392429837,'sha256':'c'*64,'tar_compare_verified':not refuse,
+        'remote_archive':remote_archive})
   if refuse:break
  elif op=='accept':
   emit({'ok':True});break

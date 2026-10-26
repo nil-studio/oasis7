@@ -297,6 +297,28 @@ class EngineTests(unittest.TestCase):
             self.assertFalse(any(call[0] == "compare" for call in calls))
             self.assertFalse(engine.backup_verified)
 
+    def test_backup_estimate_counts_links_and_parses_each_null_delimited_path(self):
+        paths = [Path("/srv/world one"), Path("/etc/oasis\npreview")]
+        stdout = b"17\t" + os.fsencode(paths[0]) + b"\0" + b"29\t" + os.fsencode(paths[1]) + b"\0"
+        calls = []
+
+        class Result:
+            returncode = 0
+
+            def __init__(self, output):
+                self.stdout = output
+
+        def runner(argv, **_kwargs):
+            calls.append(argv)
+            return Result(stdout)
+
+        engine = remote.Engine(runner=runner, enforce_root=False)
+        engine.config = {"backup_paths": paths}
+        self.assertEqual(engine._measure_backup_source_bytes(), 46)
+        self.assertIn("--count-links", calls[0])
+        self.assertIn("--null", calls[0])
+        self.assertEqual(calls[0][-len(paths):], [str(path) for path in paths])
+
     def test_remote_preflight_rejects_low_space_before_install_or_operation_creation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -587,6 +609,10 @@ class EngineTests(unittest.TestCase):
             base = Path(temp)
             release = base / "candidate"
             release.mkdir()
+            operation_dir = base / "operation"
+            operation_dir.mkdir()
+            completed_backup = operation_dir / "world-backup.tar.gz"
+            completed_backup.write_bytes(b"durable completed archive")
             chain, player = "chain.service", "player.service"
             paths = {chain: base / chain, player: base / player}
             new = {chain: b"new chain unit", player: b"new player unit"}
@@ -618,6 +644,7 @@ class EngineTests(unittest.TestCase):
             engine.writer_boundary = True
             engine.deploy_lock_held = True
             engine.release = release
+            engine.operation_dir = operation_dir
             engine.units = paths
             engine.new_units = new
             engine.old_processes = {f"{chain}:201": {"pid": 201, "start_ticks": 1}}
@@ -634,6 +661,7 @@ class EngineTests(unittest.TestCase):
             engine._systemctl = systemctl
             result = engine._abort("verify_failed")
             self.assertTrue(result["fenced"])
+            self.assertEqual(completed_backup.read_bytes(), b"durable completed archive")
             self.assertEqual([call[:2] for call in calls], [("stop", chain)])
             self.assertFalse(any(call[0] == "start" for call in calls))
 

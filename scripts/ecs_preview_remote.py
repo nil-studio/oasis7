@@ -576,7 +576,7 @@ class Engine:
             raise RemoteError("backup_estimate_invalid")
         for record in records:
             size_raw, separator, name = record.partition(b"\t")
-            if not separator or not size_raw.isdecimal() or name not in expected or name in seen:
+            if not separator or not size_raw.isdigit() or name not in expected or name in seen:
                 raise RemoteError("backup_estimate_invalid")
             size = int(size_raw)
             total += size
