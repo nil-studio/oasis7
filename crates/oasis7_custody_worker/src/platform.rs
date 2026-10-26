@@ -13,11 +13,7 @@ const ROLE: Role = Role::RecoveryFence;
 #[event(fetch)]
 async fn main(request: Request, _env: Env, _ctx: Context) -> Result<Response> {
     let url = request.url()?;
-    match http::route(
-        &request.method().to_string(),
-        url.path(),
-        url.query().is_some(),
-    ) {
+    match http::route(request.method().as_ref(), url.path(), url.query().is_some()) {
         Ok(()) => Response::from_json(&ServiceMetadata::disabled(ROLE)),
         Err((status, code)) => {
             Ok(Response::from_json(&ErrorResponse::new(code))?.with_status(status))

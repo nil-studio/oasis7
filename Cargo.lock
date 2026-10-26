@@ -6358,6 +6358,8 @@ dependencies = [
 name = "oasis7_custody_core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
  "oasis7_agent_api",
  "oasis7_wasm_abi",
  "schemars",
@@ -6371,10 +6373,16 @@ dependencies = [
 name = "oasis7_custody_worker"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "js-sys",
  "oasis7_custody_core",
  "serde",
  "serde_json",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "worker",
 ]
 

@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 pub use oasis7_agent_api::game::DecimalU64;
 pub mod approval;
+pub mod approval_admission;
 pub mod budget;
 pub mod envelope;
 pub mod http;

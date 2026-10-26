@@ -15,6 +15,8 @@ identity = []
 owner = []
 executor = []
 recovery-fence = []
+# Component verification only. Never enabled by any deployment role/configuration.
+approval-harness = []
 
 [dependencies]
 oasis7_custody_core = { path = "../oasis7_custody_core" }
@@ -24,6 +26,12 @@ serde_json.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 worker = "=0.7.5"
 wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "=0.4.77"
+js-sys = "=0.3.104"
+web-sys = { version = "=0.3.104", features = ["Crypto", "CryptoKey", "SubtleCrypto"] }
+base64 = "0.22"
+hex.workspace = true
+ed25519-dalek = "3"
 
 [lints]
 workspace = true
