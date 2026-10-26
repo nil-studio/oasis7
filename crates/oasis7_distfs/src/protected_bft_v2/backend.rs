@@ -9,10 +9,11 @@ pub struct BftSignerBackendSnapshotV2 {
     pub protected_time_floor_ms: i64,
 }
 
-/// The only acquire failure that is safe for a client to retry. `Conflict`
-/// must mean the backend proved the expected generation was stale and that
-/// the attempted lease token was not installed; generic errors remain
-/// ambiguous and the service poisons itself.
+/// A proved acquire conflict never installs the attempted lease token. It
+/// returns either a newer generation or the expected generation with an
+/// existing active owner. Only a newer generation without an active owner
+/// permits a bounded retry; an active owner must not be fenced or poisoned.
+/// Generic errors remain ambiguous and the service poisons itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BftSignerAcquireOutcomeV2 {
     Acquired(BftSignerBackendSnapshotV2),

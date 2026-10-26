@@ -249,7 +249,8 @@ impl BftSignerProviderV2 for RemoteBftSignerProviderV2 {
                     lease_active,
                 } if reply.body.checkpoint.is_none() && reply.body.lease_token.is_none() => {
                     if *current_generation != reply.body.lease_generation
-                        || *current_generation <= expected_generation
+                        || *current_generation < expected_generation
+                        || (*current_generation == expected_generation && !*lease_active)
                     {
                         return Err(invalid(
                             "BFT V2 acquire conflict did not advance generation",

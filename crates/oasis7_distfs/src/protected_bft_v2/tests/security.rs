@@ -806,3 +806,146 @@ fn append_removing_transition(
     );
     history
 }
+
+#[test]
+fn acquired_snapshot_cannot_regress_the_observed_protected_time_floor() {
+    let fixture = harness();
+    fixture
+        .backend
+        .0
+        .lock()
+        .unwrap()
+        .regress_time_on_next_acquire = true;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let service = fixture.service.clone();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        // Rejected acquisition never installs a session lease to release.
+        service.serve_connection(&mut stream).unwrap();
+    });
+    let mut stream = TcpStream::connect(address).unwrap();
+    let (_, prepared) = super::direct_exchange(
+        &mut stream,
+        &fixture.binding,
+        &fixture.requester,
+        None,
+        BftSignerCommandV2::PrepareAcquire {
+            binding: Box::new(fixture.binding.clone()),
+        },
+        201,
+        &fixture.trust,
+    );
+    let BftSignerReplyKindV2::Prepared {
+        expected_generation,
+        prepare_nonce,
+    } = prepared.body.result
+    else {
+        panic!("lease should prepare before injected acquire rollback");
+    };
+    let (_, acquired) = super::direct_exchange(
+        &mut stream,
+        &fixture.binding,
+        &fixture.requester,
+        None,
+        BftSignerCommandV2::Acquire {
+            binding: Box::new(fixture.binding.clone()),
+            expected_generation,
+            prepare_nonce,
+        },
+        202,
+        &fixture.trust,
+    );
+    assert!(
+        matches!(acquired.body.result, BftSignerReplyKindV2::Rejected { .. }),
+        "regressed acquired snapshot must not release a lease credential"
+    );
+    assert!(acquired.body.lease_token.is_none());
+    let (_, poisoned) = super::direct_exchange(
+        &mut stream,
+        &fixture.binding,
+        &fixture.requester,
+        None,
+        BftSignerCommandV2::PrepareAcquire {
+            binding: Box::new(fixture.binding.clone()),
+        },
+        203,
+        &fixture.trust,
+    );
+    assert!(matches!(
+        poisoned.body.result,
+        BftSignerReplyKindV2::Rejected { .. }
+    ));
+    drop(stream);
+    server.join().unwrap();
+}
+
+#[test]
+fn competing_acquire_reports_active_owner_without_poisoning_its_lease() {
+    let fixture = harness();
+    let (address, server) = super::spawn_tcp_server(fixture.service.clone(), 3);
+    let provider = RemoteBftSignerProviderV2::new(
+        address,
+        Duration::from_secs(3),
+        fixture.binding.clone(),
+        fixture.requester.clone(),
+        fixture.trust.clone(),
+    )
+    .unwrap();
+    let mut owner = provider.acquire(&fixture.binding).unwrap();
+    let owner_snapshot = fixture.backend.snapshot();
+    let mut contender = TcpStream::connect(address).unwrap();
+    let (_, prepared) = super::direct_exchange(
+        &mut contender,
+        &fixture.binding,
+        &fixture.requester,
+        None,
+        BftSignerCommandV2::PrepareAcquire {
+            binding: Box::new(fixture.binding.clone()),
+        },
+        211,
+        &fixture.trust,
+    );
+    let BftSignerReplyKindV2::Prepared {
+        expected_generation,
+        prepare_nonce,
+    } = prepared.body.result
+    else {
+        panic!("competing authenticated session should receive a preparation");
+    };
+    assert_eq!(expected_generation, owner_snapshot.lease_generation);
+    let (_, rejected) = super::direct_exchange(
+        &mut contender,
+        &fixture.binding,
+        &fixture.requester,
+        None,
+        BftSignerCommandV2::Acquire {
+            binding: Box::new(fixture.binding.clone()),
+            expected_generation,
+            prepare_nonce,
+        },
+        212,
+        &fixture.trust,
+    );
+    assert!(
+        matches!(rejected.body.result, BftSignerReplyKindV2::AcquireConflict { current_generation, lease_active: true } if current_generation == expected_generation),
+        "active-owner conflict must not poison the service"
+    );
+    assert!(rejected.body.lease_token.is_none());
+    assert_eq!(fixture.backend.snapshot(), owner_snapshot);
+    assert_eq!(owner.checkpoint().unwrap().state, owner_snapshot.state);
+    assert!(owner.protected_time_ms().unwrap() >= owner_snapshot.protected_time_floor_ms);
+    drop(contender);
+    let competing_error = match provider.acquire(&fixture.binding) {
+        Ok(_) => panic!("remote client must not replace the active owner"),
+        Err(error) => error,
+    };
+    assert!(
+        competing_error.0.contains("already has an active owner"),
+        "{competing_error}"
+    );
+    owner.checkpoint().unwrap();
+    drop(owner);
+    server.join().unwrap();
+    assert!(fixture.backend.snapshot().lease_token_digest.is_empty());
+}

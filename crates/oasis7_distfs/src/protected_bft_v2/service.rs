@@ -430,7 +430,8 @@ impl BftSignerServiceV2 {
                     }
                 };
                 let active = !snapshot.lease_token_digest.is_empty();
-                if snapshot.lease_generation <= expected_generation
+                if snapshot.lease_generation < expected_generation
+                    || (snapshot.lease_generation == expected_generation && !active)
                     || snapshot.lease_generation < runtime.observed_generation
                     || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
                 {
@@ -469,6 +470,14 @@ impl BftSignerServiceV2 {
         {
             runtime.poisoned = true;
             return Err(invalid("BFT V2 acquire CAS returned an unexpected lease"));
+        }
+        if snapshot.lease_generation <= runtime.observed_generation
+            || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
+        {
+            runtime.poisoned = true;
+            return Err(invalid(
+                "BFT V2 acquired snapshot regressed; provider poisoned",
+            ));
         }
         let verified = match self.verify_snapshot_against_cache(runtime, &snapshot) {
             Ok(verified) => verified,
