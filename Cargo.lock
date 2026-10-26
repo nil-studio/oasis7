@@ -6379,6 +6379,7 @@ dependencies = [
  "hex",
  "js-sys",
  "oasis7_custody_core",
+ "oasis7_wasm_abi",
  "serde",
  "serde_json",
  "wasm-bindgen",

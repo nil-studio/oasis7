@@ -1,4 +1,6 @@
-use oasis7_custody_core::http::{self, ErrorCode, ErrorResponse, Role, ServiceMetadata};
+#[cfg(not(feature = "owner"))]
+use oasis7_custody_core::http::ErrorCode;
+use oasis7_custody_core::http::{self, ErrorResponse, Role, ServiceMetadata};
 use worker::*;
 
 #[cfg(feature = "identity")]
@@ -13,6 +15,10 @@ const ROLE: Role = Role::RecoveryFence;
 #[event(fetch)]
 async fn main(request: Request, _env: Env, _ctx: Context) -> Result<Response> {
     let url = request.url()?;
+    #[cfg(feature = "identity")]
+    if crate::management::is_management_path(url.path()) {
+        return crate::management::handle(request, _env).await;
+    }
     match http::route(request.method().as_ref(), url.path(), url.query().is_some()) {
         Ok(()) => Response::from_json(&ServiceMetadata::disabled(ROLE)),
         Err((status, code)) => {
@@ -23,21 +29,6 @@ async fn main(request: Request, _env: Env, _ctx: Context) -> Result<Response> {
 
 // No grant/secret/network RPC is exported by these role-local storage classes.
 // In this foundation slice they reject all requests, including service bindings.
-#[cfg(feature = "owner")]
-#[durable_object]
-pub struct AccountAuthority {
-    _state: State,
-}
-#[cfg(feature = "owner")]
-impl DurableObject for AccountAuthority {
-    fn new(state: State, _env: Env) -> Self {
-        Self { _state: state }
-    }
-    async fn fetch(&self, _request: Request) -> Result<Response> {
-        unavailable()
-    }
-}
-
 #[cfg(feature = "identity")]
 #[durable_object]
 pub struct NativeSession {
@@ -104,6 +95,7 @@ impl DurableObject for RecoveryFence {
     }
 }
 
+#[cfg(not(feature = "owner"))]
 fn unavailable() -> Result<Response> {
     Ok(Response::from_json(&ErrorResponse::new(ErrorCode::NotReady))?.with_status(503))
 }

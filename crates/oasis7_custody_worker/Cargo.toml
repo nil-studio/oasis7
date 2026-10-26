@@ -20,6 +20,7 @@ approval-harness = []
 
 [dependencies]
 oasis7_custody_core = { path = "../oasis7_custody_core" }
+oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 serde.workspace = true
 serde_json.workspace = true
 

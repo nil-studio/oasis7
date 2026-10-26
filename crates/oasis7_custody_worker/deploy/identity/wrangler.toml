@@ -1,6 +1,6 @@
 # Isolated staging artifact. Use a separate scoped publisher for this role.
 name = "oasis7-custody-identity-staging"
-main = "../../artifacts/identity/index.js"
+main = "../../artifacts/identity/entry.mjs"
 compatibility_date = "2026-10-25"
 workers_dev = false
 preview_urls = false
@@ -16,3 +16,9 @@ class_name = "NativeSession"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["NativeSession"]
+
+# Fixed named entrypoint; default Owner fetch and Account DO are not exposed.
+[[services]]
+binding = "OWNER_MANAGEMENT"
+service = "oasis7-custody-owner-staging"
+entrypoint = "OwnerManagement"

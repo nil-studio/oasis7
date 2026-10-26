@@ -29,7 +29,7 @@ compile_error!("custody requires exactly one role feature; never use --all-featu
 compile_error!("approval-harness requires owner and is not a deployment profile");
 
 // Pure Rust adapter API only: no JS export and no production fetch/RPC caller.
-#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
 pub mod approval_crypto;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 pub mod approval_store;
@@ -47,3 +47,19 @@ mod sql_store;
 ))]
 #[path = "../tests/support/approval_harness.rs"]
 mod approval_harness;
+
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod native_identity;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_account;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod directory_config;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod directory_rpc;
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod entrypoints;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod management;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_directory;

@@ -1,6 +1,6 @@
 # Isolated staging artifact. Use a separate scoped publisher for this role.
 name = "oasis7-custody-owner-staging"
-main = "../../artifacts/owner/index.js"
+main = "../../artifacts/owner/entry.mjs"
 compatibility_date = "2026-10-25"
 workers_dev = false
 preview_urls = false
@@ -16,3 +16,11 @@ class_name = "AccountAuthority"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AccountAuthority"]
+
+[[durable_objects.bindings]]
+name = "MANAGER_ASSOCIATIONS"
+class_name = "ManagerAssociations"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ManagerAssociations"]

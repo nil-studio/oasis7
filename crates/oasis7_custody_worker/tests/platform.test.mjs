@@ -15,8 +15,9 @@ const roles = { identity: 'NativeSession', owner: 'AccountAuthority', executor: 
 
 for (const [role, ownClass] of Object.entries(roles)) {
   test(role + ': real Wasm exports and HTTP contract stay isolated', { timeout: 60_000 }, async () => {
-    const entry = resolve(root, 'artifacts', role, 'index.js');
-    const source = readFileSync(entry, 'utf8');
+    const index = resolve(root, 'artifacts', role, 'index.js');
+    const entry = ['identity', 'owner'].includes(role) ? resolve(root, 'artifacts', role, 'entry.mjs') : index;
+    const source = readFileSync(index, 'utf8');
     assert.doesNotMatch(source, /\bTestApprovalAuthority\b/);
     // worker-build bundles only the selected Rust DO class into this ES module.
     for (const name of Object.values(roles)) {
@@ -30,9 +31,11 @@ for (const [role, ownClass] of Object.entries(roles)) {
     const server = new Miniflare({ ...convertV4MiniflareOptions({
       name: 'custody-production-role-' + role,
       modules: [{ type: 'ESModule', path: entry },
+        ...(entry !== index ? [{ type: 'ESModule', path: index }] : []),
         { type: 'CompiledWasm', path: resolve(root, 'artifacts', role, 'index_bg.wasm') }],
       modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
-      durableObjects: { ROLE: { className: ownClass, useSQLite: true } },
+      durableObjects: { ROLE: { className: ownClass, useSQLite: true },
+        ...(role === 'owner' ? { DIRECTORY: { className: 'ManagerAssociations', useSQLite: true } } : {}) },
     }), resourcePersistencePath: persist, unsafeDevRegistryPath: resolve(persist, 'registry') });
     try {
       const response = await server.dispatchFetch('https://fixture.test/v1/metadata');
