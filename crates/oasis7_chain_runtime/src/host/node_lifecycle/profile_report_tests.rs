@@ -71,7 +71,7 @@ pub(super) fn assert_local_collection(
     data: &Path,
     status: &Value,
     expected: &str,
-) -> Result<(), String> {
+) -> Result<Value, String> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = root.join("local-profile-collection");
     let read = |format: &str| {
@@ -90,9 +90,10 @@ pub(super) fn assert_local_collection(
             .output()
             .map_err(|e| format!("local profile canonical read spawn: {e}"))
     };
-    // A successful status probe may observe an intermediate sync tick after
-    // wait_ready returned. Retry only the observed role state, never a failed
-    // command, malformed output, or invalid canonical publication.
+    // This collector takes a new sample; an earlier ready status is no lease.
+    // Accept only the exact full-sync in-flight projection below, retaining its
+    // actual unknown result. All other mismatches keep the existing deadline;
+    // command/schema/canonical-publication failures still fail immediately.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let summary = loop {
         let collected = Command::new("bash")
@@ -131,7 +132,9 @@ pub(super) fn assert_local_collection(
                 "local profile publication contract failed: {profile}"
             ));
         }
-        if profile["status"] == expected {
+        if profile["status"] == expected
+            || (expected == "ready" && same_full_sync_inflight(profile, status))
+        {
             break summary;
         }
         if std::time::Instant::now() >= deadline {
@@ -157,9 +160,113 @@ pub(super) fn assert_local_collection(
     if !markdown.status.success()
         || !rendered.contains("Profile Readiness")
         || !rendered.contains("local_cli")
-        || !rendered.contains(expected)
+        || !rendered.contains(profile["status"].as_str().ok_or("profile status missing")?)
     {
         return Err("local profile canonical Markdown omitted readiness".into());
     }
-    Ok(())
+    Ok(profile.clone())
+}
+
+// The public projection omits the cut's World object. Its world/chain and the
+// exact config/instance binding accompany every allowlisted cut identity field;
+// the controlled process case additionally compares the complete raw cut.
+fn same_full_sync_inflight(profile: &Value, prior: &Value) -> bool {
+    let sync = &prior["formal_full_state_sync"];
+    let cut = &sync["last_verified_cut"];
+    let identity = &prior["instance"];
+    profile["runtime_profile"] == "formal_full_state_sync_read_only_v1"
+        && profile["status"] == "unknown"
+        && profile["reason"] == "missing_sync_cut"
+        && profile["producer_state"] == "syncing"
+        && profile["instance_state"] == "running"
+        && profile["observation_freshness"] == "fresh"
+        && profile["configured_role"] == "full_state_sync"
+        && profile["scope"] == "issuer_granted_full_state_read_only"
+        && profile["incarnation"] == identity["incarnation"]
+        && profile["generation"] == identity["generation"]
+        && profile["config_digest"] == identity["config_digest"]
+        && profile["world_id"] == cut["world"]["world_id"]
+        && profile["chain_id"] == cut["chain_id"]
+        && profile["grant_epoch"] == sync["grant_epoch"]
+        && profile["producer_ready"] == false
+        && profile["formal_readiness"] == false
+        && profile["can_propose"] == false
+        && profile["state_root_verified"] == false
+        && profile["world_loaded"] == false
+        && profile["catch_up_pending"] == false
+        && profile["lag_positions"].is_null()
+        && profile["loaded_cut"].is_null()
+        && cut.is_object()
+        && [
+            "position",
+            "authority_epoch",
+            "record_id",
+            "after_state_root",
+            "active_authority_id",
+            "finalizing_authority_id",
+        ]
+        .iter()
+        .all(|key| !cut[key].is_null() && profile["last_verified_cut"][key] == cut[key])
+}
+
+#[test]
+fn full_sync_sampling_accepts_only_the_bound_unloaded_inflight_projection() {
+    use serde_json::json;
+    let cut = json!({"world":{"world_id":"world","genesis_digest":"genesis"},
+        "chain_id":"chain","position":2,"authority_epoch":1,"record_id":"record",
+        "after_state_root":"root","active_authority_id":"authority","finalizing_authority_id":"authority"});
+    let identity = json!({"incarnation":"instance","generation":2,"config_digest":"config"});
+    let prior = json!({"instance":identity,"formal_full_state_sync":{"last_verified_cut":cut,"grant_epoch":1}});
+    let profile = json!({"runtime_profile":"formal_full_state_sync_read_only_v1",
+        "status":"unknown","reason":"missing_sync_cut","producer_state":"syncing",
+        "instance_state":"running","observation_freshness":"fresh","configured_role":"full_state_sync",
+        "scope":"issuer_granted_full_state_read_only","incarnation":"instance","generation":2,
+        "config_digest":"config","world_id":"world","chain_id":"chain","grant_epoch":1,
+        "producer_ready":false,"formal_readiness":false,"can_propose":false,"state_root_verified":false,
+        "world_loaded":false,"catch_up_pending":false,"lag_positions":null,
+        "last_verified_cut":{"position":2,"authority_epoch":1,"record_id":"record","after_state_root":"root",
+        "active_authority_id":"authority","finalizing_authority_id":"authority"}});
+    assert!(same_full_sync_inflight(&profile, &prior));
+    for (field, wrong) in [
+        ("reason", json!("producer_blocked")),
+        ("producer_state", json!("sync_unavailable")),
+        ("status", json!("blocked")),
+        ("observation_freshness", json!("stale")),
+        ("incarnation", json!("replacement")),
+        ("generation", json!(3)),
+        ("config_digest", json!("other")),
+        ("world_id", json!("other")),
+        ("chain_id", json!("other")),
+        ("grant_epoch", json!(2)),
+        ("producer_ready", json!(true)),
+        ("formal_readiness", json!(true)),
+        ("can_propose", json!(true)),
+        ("state_root_verified", json!(true)),
+        ("world_loaded", json!(true)),
+        ("loaded_cut", json!({"position":2})),
+        ("catch_up_pending", json!(true)),
+        ("lag_positions", json!(0)),
+    ] {
+        let mut wrong_profile = profile.clone();
+        wrong_profile[field] = wrong;
+        assert!(
+            !same_full_sync_inflight(&wrong_profile, &prior),
+            "must reject changed {field}"
+        );
+    }
+    for field in [
+        "position",
+        "authority_epoch",
+        "record_id",
+        "after_state_root",
+        "active_authority_id",
+        "finalizing_authority_id",
+    ] {
+        let mut wrong_profile = profile.clone();
+        wrong_profile["last_verified_cut"][field] = json!("different");
+        assert!(
+            !same_full_sync_inflight(&wrong_profile, &prior),
+            "must reject changed cut {field}"
+        );
+    }
 }
