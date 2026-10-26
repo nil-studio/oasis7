@@ -198,6 +198,12 @@ def verify_originals(terminal, originals):
         terminal['status']='INCOMPLETE'
 
 
+def command_file_limit(argv):
+    # Evaluator page files belong to the private database, not the evidence stream.
+    # Keep the existing direct-file bound for decode and other small outputs.
+    return None if list(map(str, argv[1:3])) == ["query", "run"] else 64*1024**2
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     for key in ('codeql','database','source','output','work'):ap.add_argument('--'+key,type=Path,required=True)
@@ -209,7 +215,7 @@ def main():
     originals={}
     def run(argv,name):
         runtime.run(list(map(str,argv)),args.source,out/(name+'.log'),end,min(900,max(0,end-time.monotonic())),out,
-                    {k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN')},file_limit=64*1024**2)
+                    {k:v for k,v in os.environ.items() if k not in ('GH_TOKEN','GITHUB_TOKEN')},file_limit=command_file_limit(argv))
     try:
         if end<=time.monotonic() or args.threads!=4 or args.ram<=0:raise RuntimeError('resource/deadline admission')
         spec=importlib.util.spec_from_file_location('model',Path(__file__).with_name('codeql-rust-model-diagnostic.py'))
