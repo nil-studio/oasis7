@@ -103,7 +103,7 @@ fn view(store: &OwnerProvisionApprovalStore, operation: &str) -> Result<Provisio
     let mut pending_operations = state
         .origin_inspections()
         .values()
-        .filter(|v| v.claimed_at.is_some() && v.verification.is_none())
+        .filter(|v| v.verification.is_none())
         .map(|v| v.operation_id.clone())
         .collect::<Vec<_>>();
     pending_operations.extend(

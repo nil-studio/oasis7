@@ -289,6 +289,13 @@ test('slow Fence response cannot renew the five-second authority window', {timeo
     assert.equal(nativeVerifications,1,'stale authority must fail before native inspection is dispatched');
     const progress=await (await identity.fetch(base+'/progress',{headers})).json();
     assert.equal(progress.transport_remaining,'120','failed remote observations retain their reservation');
+    assert.equal(progress.pending_operations.length,1,'reserved but unclaimed inspection must remain visible');
+    const history=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify(drive)});
+    assert.equal(history.status,200);
+    const originalHistory=await history.json();
+    assert.deepEqual(originalHistory.pending_operations,progress.pending_operations);
+    assert.equal(originalHistory.transport_remaining,'120');
+    assert.equal(nativeVerifications,1,'same failed precheck cannot regain send permission');
   } finally { await mf?.dispose(); await native?.close(); rmSync(directory,{recursive:true,force:true}); }
 });
 
