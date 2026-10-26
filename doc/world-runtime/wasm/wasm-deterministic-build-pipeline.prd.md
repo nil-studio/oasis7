@@ -1,6 +1,9 @@
 # oasis7 Runtime：WASM Docker 确定性构建与工件治理管线
 
 - 专业 owner：`wasm_platform_engineer`；状态：active professional authority（目标合同不等于已实现）。
+
+SC-3/AC-5 的[共享模板与版本化输入规则](wasm-deterministic-build-pipeline.design.md#build-source-input-rule)补齐包外声明输入的目标设计；当前 hasher、receipt 与消费者迁移仍待实现。已有 path dependency closure/receipt 字段不证明模板闭包完整，旧证据不被重新解释为新规则通过；本说明不触发重建或历史 identity 更新。
+
 - 内容审读基线：`eng-cc/oasis7`，源提交 `9c41d57b4436f71f0cf9b481043d882cfdc551ed`；内容整理日期：2026-09-26。
 - 独立审读与实际实现/测试候选证据由该 task evidence 记录；此处不预报审读通过、runtime capability、发布或 full proof。下方既有条款仍有效；仅显式日期/历史基线条款按其证据范围解释。
 
