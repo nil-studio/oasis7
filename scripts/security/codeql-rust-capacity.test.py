@@ -567,10 +567,11 @@ assert value['found_manifests']==[]
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
 def load_tests(loader, tests, pattern):
-    # Keep proxy regressions separate while using the already selected capacity entry.
-    spec=importlib.util.spec_from_file_location('capacity_guard_tests',P.with_name('codeql-rust-cargo-guard.test.py'))
-    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-    tests.addTests(loader.loadTestsFromModule(module))
+    # Keep diagnostic regressions separate, using the existing selected entry.
+    for name in ('codeql-rust-cargo-guard.test.py', 'codeql-rust-cargo-check.test.py'):
+        spec=importlib.util.spec_from_file_location(name,P.with_name(name))
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        tests.addTests(loader.loadTestsFromModule(module))
     return tests
 
 

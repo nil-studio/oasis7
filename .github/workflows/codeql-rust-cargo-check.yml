@@ -1,0 +1,80 @@
+name: CodeQL Rust Cargo Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Run the single fixed Cargo check diagnostic
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    name: Cargo check diagnostic
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: oasis7-codeql-scan-slot-1
+      queue: max
+      cancel-in-progress: false
+    env:
+      RUSTUP_TOOLCHAIN: '1.99.0'
+      RUSTC_WRAPPER: ''
+    steps:
+      - name: Bind the deadline to the actual job start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import datetime,json,os,time,urllib.request
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.urlopen(req,timeout=20) as response: value=json.load(response)
+          jobs=[j for j in value['jobs'] if j['name']=='Cargo check diagnostic' and j['status']=='in_progress']
+          if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual diagnostic job start')
+          start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
+          if not 0<=time.time()-start<120:raise SystemExit('invalid job clock')
+          with open(os.environ['GITHUB_ENV'],'a') as out:out.write(f"CHECK_DEADLINE={start+900}\n")
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Freeze the existing helper closure outside the business checkout
+        run: |
+          python3 scripts/security/codeql_rust_capacity_layout.py stage \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
+            --output "$RUNNER_TEMP/rust-cargo-check-evidence" \
+            --tool-sha "$GITHUB_SHA" --deadline "$CHECK_DEADLINE"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d2bf383d8c377b36de83aae4a06d9ec17612e205
+          clean: true
+          persist-credentials: false
+      - name: Verify the source and helper identities
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
+            --output "$RUNNER_TEMP/rust-cargo-check-evidence" \
+            --source-sha d2bf383d8c377b36de83aae4a06d9ec17612e205 --deadline "$CHECK_DEADLINE"
+      - name: Install the recorded analysis toolchain
+        timeout-minutes: 3
+        run: timeout 120 rustup toolchain install 1.99.0 --profile minimal
+      - name: Execute one locked compile-time dependency check
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-cargo-check.py" \
+            --source "$GITHUB_WORKSPACE" --work "$RUNNER_TEMP/rust-cargo-check-work" \
+            --output "$RUNNER_TEMP/rust-cargo-check-evidence" --deadline "$CHECK_DEADLINE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        timeout-minutes: 2
+        with:
+          name: cargo-check-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-cargo-check-evidence
+          include-hidden-files: true
+          retention-days: 14
