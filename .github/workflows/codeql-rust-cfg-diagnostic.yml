@@ -1,0 +1,231 @@
+name: CodeQL Rust CFG Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Run one bounded CFG graph diagnostic without security queries or uploads
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  capacity:
+    name: CodeQL Rust CFG diagnostic
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: oasis7-codeql-scan-slot-1
+      queue: max
+      cancel-in-progress: false
+    env:
+      CAPACITY_MODE: official-default-research
+      RUSTC_WRAPPER: ''
+      RUSTUP_TOOLCHAIN: '1.96.0'
+      CODEQL_RAM: ''
+      CODEQL_THREADS: ''
+      CODEQL_OVERLAY_DATABASE_MODE: none
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
+      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '["${{ github.workspace }}/crates/oasis7_builtin_wasm_modules/_templates"]'
+    steps:
+      - name: Bind fixed deadline to actual hosted job start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import datetime,json,os,time,urllib.request
+          url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
+          request=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.urlopen(request,timeout=20) as response: value=json.load(response)
+          jobs=[job for job in value['jobs'] if job['name']=='CodeQL Rust CFG diagnostic' and job['status']=='in_progress']
+          if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
+          mode=os.environ['CAPACITY_MODE']
+          if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
+          budget=2700
+          start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
+          if not 0<=time.time()-start<120:raise SystemExit('invalid or stale job clock')
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+              out.write(f"CAPACITY_DEADLINE={start+budget}\nCAPACITY_JOB_ID={jobs[0]['id']}\n")
+              out.write(f"CODEQL_ACTION_TEMP={os.environ['RUNNER_TEMP']}/rust-capacity-action\n")
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: snapshot
+        name: Freeze the helper closure outside the collection tree
+        run: |
+          python3 scripts/security/codeql_rust_capacity_layout.py stage \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
+            --output "$RUNNER_TEMP/rust-capacity-evidence" \
+            --tool-sha "$GITHUB_SHA" --deadline "$CAPACITY_DEADLINE"
+      - id: source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: d2bf383d8c377b36de83aae4a06d9ec17612e205
+          clean: true
+          persist-credentials: false
+      - id: layout
+        name: Verify actual collection cwd and the isolated helper snapshot
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_capacity_layout.py" check \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/rust-capacity-helper" \
+            --output "$RUNNER_TEMP/rust-capacity-evidence" \
+            --source-sha d2bf383d8c377b36de83aae4a06d9ec17612e205 --deadline "$CAPACITY_DEADLINE"
+      - id: tools
+        name: Prepare pinned production tools
+        timeout-minutes: 5
+        run: |
+          mkdir "$RUNNER_TEMP/rust-capacity-tools"
+          curl --fail --location --max-time 120 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.3/codeql-bundle-rust-linux64.tar.zst \
+            --output "$RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst"
+          echo "218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
+          timeout 120 rustup toolchain install 1.96.0 --profile minimal
+      - id: init
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        timeout-minutes: 5
+        with:
+          languages: rust
+          build-mode: none
+          source-root: ${{ github.workspace }}
+          db-location: ${{ runner.temp }}/rust-capacity-databases
+          tools: ${{ runner.temp }}/rust-capacity-tools/bundle.tar.zst
+          dependency-caching: false
+          trap-caching: false
+          config: |
+            paths-ignore:
+              - third_party/**
+              - target/**
+              - node_modules/**
+              - dist/**
+              - .pm/**
+      - id: prepare
+        name: Freeze source, Cargo inputs, native prerequisites and resources
+        timeout-minutes: 8
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" prepare --mode "$CAPACITY_MODE" \
+            --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
+            --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
+            --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
+            --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
+      - id: query_check
+        name: Check exact diagnostic imports before extraction
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py" --check-only             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
+      - id: finalize
+        name: Extract and finalize only; no security queries
+        timeout-minutes: 21
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 - <<'PYCODE'
+          import importlib.util,os,pathlib,time
+          tools=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-helper'
+          spec=importlib.util.spec_from_file_location('capacity',tools/'codeql-rust-capacity.py')
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-evidence'
+          end=time.monotonic()+float(os.environ['CAPACITY_DEADLINE'])-time.time()-180
+          m.runtime.CAP=m.CAP;m.runtime.WRITE_CAP=m.CAP-8*1024**2
+          phase_end=min(end,time.monotonic()+1200)
+          source=pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          database=str(pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-databases/rust')
+          m.runtime.run([os.environ['CAPACITY_CLI'],'database','trace-command','--use-build-mode',
+            '--working-dir',str(source),database],source,out/'cfg-extract.log',phase_end,
+            max(0,phase_end-time.monotonic()),out,dict(os.environ),file_limit=None)
+          m.runtime.run([os.environ['CAPACITY_CLI'],'database','finalize','--finalize-dataset',database,
+            '--threads='+os.environ['CODEQL_THREADS'],'--ram='+os.environ['CODEQL_RAM']],
+            source,out/'cfg-finalize.log',phase_end,max(0,phase_end-time.monotonic()),out,dict(os.environ),file_limit=None)
+          PYCODE
+      - id: graph
+        name: Measure original CFG inputs and bounded source graph contributors
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql_rust_cfg_graph.py"             --codeql "$CAPACITY_CLI" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-capacity-evidence"             --work "$RUNNER_TEMP/rust-cfg-private" --deadline "$CAPACITY_DEADLINE"             --threads "$CODEQL_THREADS" --ram "$CODEQL_RAM"
+      - id: integrity
+        name: Recheck frozen business and official inputs
+        if: always() && steps.prepare.outcome == 'success'
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 - <<'PYCODE'
+          import importlib.util,os,pathlib,time
+          tools=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-helper'
+          spec=importlib.util.spec_from_file_location('capacity',tools/'codeql-rust-capacity.py')
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          m.runtime.CAP=m.CAP;m.runtime.WRITE_CAP=m.CAP-8*1024**2
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-evidence'
+          end=min(time.monotonic()+30,time.monotonic()+float(os.environ['CAPACITY_DEADLINE'])-time.time()-120)
+          result={'source':'UNKNOWN','official':'UNKNOWN'}
+          try:
+              result=m.after_identity(pathlib.Path(os.environ['GITHUB_WORKSPACE']),pathlib.Path(os.environ['CAPACITY_CLI']).parent,out,end=end)
+          except Exception as exc:result['error']=str(exc)
+          m.runtime.save(out/'cfg-after-identity.json',result,out,terminal=True)
+          if result.get('source')!='UNCHANGED' or result.get('official')!='UNCHANGED':raise SystemExit('CFG evidence input integrity incomplete')
+          PYCODE
+      - id: capture
+        name: Preserve source, official input and database-log observations
+        if: always() && steps.prepare.outcome == 'success'
+        timeout-minutes: 2
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-capacity.py" capture --mode "$CAPACITY_MODE"             --checkout-outcome "${{ steps.source.outcome }}" --layout-outcome "${{ steps.layout.outcome }}"             --tools-outcome "${{ steps.tools.outcome }}" --init-outcome "${{ steps.init.outcome }}"             --prepare-outcome "${{ steps.prepare.outcome }}" --analyze-outcome "${{ steps.finalize.outcome }}"             --source "$GITHUB_WORKSPACE" --database "$RUNNER_TEMP/rust-capacity-databases/rust"             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data"             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
+      - id: evidence
+        name: Seal available bounded CFG evidence
+        if: always()
+        env:
+          SNAPSHOT_OUTCOME: ${{ steps.snapshot.outcome }}
+          CHECKOUT_OUTCOME: ${{ steps.source.outcome }}
+          LAYOUT_OUTCOME: ${{ steps.layout.outcome }}
+          TOOLS_OUTCOME: ${{ steps.tools.outcome }}
+          INIT_OUTCOME: ${{ steps.init.outcome }}
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          QUERY_CHECK_OUTCOME: ${{ steps.query_check.outcome }}
+          FINALIZE_OUTCOME: ${{ steps.finalize.outcome }}
+          CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
+          GRAPH_OUTCOME: ${{ steps.graph.outcome }}
+          INTEGRITY_OUTCOME: ${{ steps.integrity.outcome }}
+          ANALYSIS_MINUTES: ${{ steps.prepare.outputs.analysis_minutes }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,time
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'rust-capacity-evidence'
+          if root.is_symlink():raise SystemExit('EVIDENCE_INCOMPLETE unsafe evidence root')
+          root.mkdir(exist_ok=True)
+          files=list(root.rglob('*'))
+          if any(p.is_symlink() or not (p.is_file() or p.is_dir()) for p in files):raise SystemExit('EVIDENCE_INCOMPLETE unsafe evidence')
+          def write(name,value):
+              data=(json.dumps(value,indent=2)+'\n').encode();path=root/name
+              previous=path.stat().st_size if path.is_file() else 0
+              if sum(p.stat().st_size for p in root.rglob('*') if p.is_file())-previous+len(data)>256*1024**2:raise SystemExit('EVIDENCE_INCOMPLETE artifact cap including receipts')
+              path.write_bytes(data)
+          stages=('snapshot','checkout','layout','tools','init','prepare','query_check','finalize','graph','integrity','capture')
+          write('workflow-outcomes.json',{'outcomes':{s:os.environ.get(s.upper()+'_OUTCOME','unknown') for s in stages},
+              'action_cleanup':'UNKNOWN_RUNNER_OWNED','scope':'step outcomes; missing verification is not a capacity result'})
+          deadline=float(os.environ['CAPACITY_DEADLINE']) if os.environ.get('CAPACITY_DEADLINE') else None
+          minutes=int(os.environ['ANALYSIS_MINUTES']) if os.environ.get('ANALYSIS_MINUTES') else None
+          write('job-clock.json',{'job_id':os.environ.get('CAPACITY_JOB_ID'),'fixed_job_deadline':deadline,
+              'analysis_allocated_minutes':minutes,'remaining_before_upload':deadline-time.time() if deadline is not None else None,
+              'mode':'cfg-graph-diagnostic','final_job_duration_requires_terminal_readback':True})
+          hashes={}
+          for path in sorted(root.rglob('*')):
+              if path.is_file() and path.name!='hashes.json':
+                  with path.open('rb') as stream:hashes[str(path.relative_to(root))]=hashlib.file_digest(stream,'sha256').hexdigest()
+          write('hashes.json',hashes)
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+        if: always() && steps.evidence.outcome == 'success'
+        timeout-minutes: 2
+        with:
+          name: rust-cfg-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-capacity-evidence
+          include-hidden-files: true
+          retention-days: 14
