@@ -802,6 +802,26 @@ class EngineTests(unittest.TestCase):
 
             self.assertEqual(engine.new_units[player].count(b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN"), 1)
 
+    def test_viewer_unset_after_last_reset_is_effective_and_idempotent(self):
+        unit = (b"[Service]\n"
+                b"UnsetEnvironment=OTHER_VAR OASIS7_VIEWER_LIVE_BIN\n"
+                b"UnsetEnvironment=\n"
+                b"[Install]\nWantedBy=multi-user.target\n")
+
+        updated = remote.Engine._unset_player_viewer_binary_override(unit)
+
+        self.assertEqual(updated.count(b"OASIS7_VIEWER_LIVE_BIN"), 2)
+        self.assertGreater(updated.rindex(b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN"),
+                           updated.index(b"UnsetEnvironment=\n"))
+        self.assertEqual(remote.Engine._unset_player_viewer_binary_override(updated), updated)
+
+        already_effective = (b"[Service]\n"
+                             b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN\n"
+                             b"UnsetEnvironment=\n"
+                             b"UnsetEnvironment=OTHER_VAR OASIS7_VIEWER_LIVE_BIN\n")
+        self.assertEqual(remote.Engine._unset_player_viewer_binary_override(already_effective),
+                         already_effective)
+
     def test_remote_compare_rejects_even_dangling_partial_path(self):
         with tempfile.TemporaryDirectory() as temp:
             archive_blob = b"verified remote archive contents"

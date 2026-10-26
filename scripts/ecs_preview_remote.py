@@ -1628,7 +1628,20 @@ class Engine:
                     if re.fullmatch(rb"\s*\[[^\]]+\]\s*(?:[#;].*)?(?:\r?\n)?", lines[index])),
                    len(lines))
         directive = b"UnsetEnvironment=OASIS7_VIEWER_LIVE_BIN"
-        if any(line.strip() == directive for line in lines[start + 1:end]):
+        effective_unsets: set[bytes] = set()
+        for line in lines[start + 1:end]:
+            stripped = line.strip()
+            if not stripped or stripped.startswith((b"#", b";")):
+                continue
+            match = re.fullmatch(rb"UnsetEnvironment\s*=\s*(.*?)\s*", stripped)
+            if match is None:
+                continue
+            entries = match.group(1).split()
+            if not entries:
+                effective_unsets.clear()
+            else:
+                effective_unsets.update(entries)
+        if b"OASIS7_VIEWER_LIVE_BIN" in effective_unsets:
             return unit
         newline = b"\r\n" if b"\r\n" in unit else b"\n"
         if end > start and lines[end - 1] and not lines[end - 1].endswith((b"\n", b"\r")):
