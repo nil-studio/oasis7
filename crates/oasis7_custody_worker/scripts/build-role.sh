@@ -15,3 +15,7 @@ env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-fe
 mkdir -p artifacts
 if [[ -e "artifacts/$role" ]]; then rm -rf "artifacts/$role"; fi
 cp -R build "artifacts/$role"
+
+case "$role" in
+  identity|owner) cp "platform/$role-entry.mjs" "artifacts/$role/entry.mjs" ;;
+esac

@@ -633,11 +633,15 @@ complete 丢响应时，客户端保留原 approval_request_id、ceremony 和 co
 
 | 接口 | 最小合同 |
 | --- | --- |
+| GET /v1/management/session-status | 同原生 RP 的固定 HTTPS origin，经原生 Passkey management_session 返回当前非秘密元数据；不续期，不以 native-key session 建管理者。 |
 | POST /v1/account-provisions | 当前合法管理会话、client_request_id、environment、固定 world/identity route refs、用途及有界 provision 计划；校验 bootstrap allowlist。按 environment + verified manager principal + client_request_id 稳定定位同一个 custody account/provision，Account DO 条件创建 draft ACL/原 intent/digest；相同 ID 同 body 返回原 draft，不同 body 冲突。该步骤不生成 key、不创建 native account、不派发世界写。 |
+| POST /v1/manager-revocations | 当前管理者主动冻结自己的整个 custody 关联目录；只接受 schema version 与稳定 operation_id，沿原生 POST Origin/CSRF 管理认证。先关闭关联，再持久记录全部账号目标；每次最多确认八个，原请求重试接续，未确认或在途原件未核清保持 pending。该动作不撤销原生 identity credential，也不代替原生撤销事件的自动传播。 |
 | POST /v1/account-provisions/{id}/approve | 对原 intent digest、custody account、环境、完整步骤范围/预算/截止及 policy/security version 的新鲜 Passkey proof；Account DO 同事务消费批准并把 draft 转为 provisioning，登记原 outbox 和审计，重复同批准不产生第二套步骤。 |
 | GET /v1/account-provisions/{id} | 当前仍有 ACL 的管理主体读取非秘密阶段、公开 refs、原 operation/receipt 引用和 blocked/unknown；不返回 seed、cookie、完整 assertion 或重新领取秘密。 |
 
 稳定定位映射由服务端固定版本计算/存储；调用者不能以路径参数选择并初始化一个已存在的任意 Account DO。空 draft 的 ACL 仅限创建者读取/批准该草稿；native account 尚未建立，不能据此发 grant。allowlist 配置变化与当前管理凭证有效性在批准/派发前重验。
+
+管理认证适配复用原生固定 GET/POST `/api/public/hosted-account/v2/custody/management-session-status` 与 `CustodySessionStatusV1`。GET 只读；POST 空正文仍经过现有 Origin/CSRF 与 `management_session`。Identity 只转发当前唯一 SID 和原始精确 Origin/CSRF；Worker 须位于同一 HTTPS RP origin，不伪造跨域身份。Owner 的 `ManagerAssociations` DO 只协调关联与冻结，`AccountAuthority` 仍是账号权威。Identity→Owner 只配置 `OwnerManagement` 的固定命名方法；原生 proof verify 使用单独 `IdentityNativeApproval`。实际 builder 会把 Rust free function 挂到默认 entrypoint，因此部署使用仅 fetch 的 wrapper，不能把 raw 产物作为部署入口而额外开放默认 RPC。
 
 Owner 保留权威的 manager→custody account 关联目录，包括 pending provisioning。关联登记须先于任何 key 生成、native/world 副作用或可用 grant，并与稳定 provision identity 一起持久化；D1 只投影，不拿异步列表当全集。目录登记与 Account DO 初始化可分阶段幂等完成，不能假定跨 DO 原子提交。撤销处理先关闭该管理来源的新关联/批准，再对已登记全部 Account DO 执行冻结/升代并收齐确认。冻结 tombstone 可以先于账号初始化，迟到 provisioning 不得覆盖它。目录缺失、版本不明或未收齐确认时不宣称 custody authorization closed，也不继续新增授权。该目录是 Owner 内的路由/撤销协调记录，不另设 grant/预算 authority。
 

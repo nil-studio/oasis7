@@ -288,6 +288,20 @@ def validate_config(config):
         excluded = rule.get('exclude', [])
         if not isinstance(excluded, list) or any(not isinstance(pattern, str) or not pattern for pattern in excluded):
             raise ValueError('invalid directory exclusions')
+    profile_paths = config.get('workspace_support_profile_paths', {})
+    if not isinstance(profile_paths, dict) or (profile_paths and 'workspace_support' not in groups):
+        raise ValueError('invalid workspace support profile paths')
+    for profile, patterns in profile_paths.items():
+        if profile not in SUPPORT_PROFILES or not isinstance(patterns, list) or not patterns:
+            raise ValueError('invalid workspace support profile mapping')
+        if any(
+                not isinstance(pattern, str) or not pattern
+                or posixpath.isabs(pattern) or posixpath.normpath(pattern) != pattern
+                or '\\' in pattern or '..' in pattern.split('/')
+                for pattern in patterns):
+            raise ValueError('invalid workspace support profile path')
+        if len(patterns) != len(set(patterns)):
+            raise ValueError('duplicate workspace support profile path')
     generated = config.get('generated_inputs', [])
     if not isinstance(generated, list):
         raise ValueError('invalid generated input inventory')
@@ -323,6 +337,7 @@ def select(config, base, source_head, test_head=None, additions=()):
     unknown_paths = []
     full = False
     support_rule = False
+    path_support_profiles = set()
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
         # exclude target history already present in the actual first parent.
@@ -392,6 +407,13 @@ def select(config, base, source_head, test_head=None, additions=()):
                     support_rule |= 'workspace_support' in rule.get('groups', [])
                     full |= rule.get('full', False)
                     reasons.append(rule['reason'] + ': ' + path)
+            # Add an audited cross-package test consumer without flattening the
+            # support group. This does not register ownership for unknown paths.
+            for profile, patterns in config.get('workspace_support_profile_paths', {}).items():
+                if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+                    chosen.add('workspace_support')
+                    path_support_profiles.add(profile)
+                    reasons.append('workspace support profile consumer ' + profile + ': ' + path)
             if any(embedded.get('__unresolved_embed__') for _, _, embedded in graphs) and not any(
                     directory and path.startswith(directory + '/') for manifests, _, _ in graphs
                     for directory, _ in manifests.values()):
@@ -431,7 +453,7 @@ def select(config, base, source_head, test_head=None, additions=()):
     resources = sorted({resource for group in chosen for resource in config['resources'][group]})
     support_profiles = []
     if 'workspace_support' in chosen:
-        support_profiles = sorted(set(affected).intersection(SUPPORT_PROFILES))
+        support_profiles = sorted(set(affected).intersection(SUPPORT_PROFILES) | path_support_profiles)
         # Non-package rules and explicit group requests retain the complete group.
         # Control/uncertain inputs must never narrow the old command inventory.
         unmapped_support = any(

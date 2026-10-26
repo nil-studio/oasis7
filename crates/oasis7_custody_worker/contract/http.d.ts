@@ -170,6 +170,30 @@ export type PurposeBudgetV1 = {
   "transport": DecimalU64;
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
+export type ManagerClosureStatus = "open" | "pending" | "closed";
+export type ProvisionPlan = {
+  "environment": string;
+  "expires_at": DecimalU64;
+  "identity_route": string;
+  "purpose": string;
+  "transport_limit": DecimalU64;
+  "world_identity": string;
+  "world_route": string;
+};
+export type DirectoryEntry = {
+  "bootstrap_config_version": DecimalU64;
+  "client_request_id": string;
+  "custody_account_id": string;
+  "environment": string;
+  "manager": ManagerPrincipal;
+  "plan_digest": string;
+  "provision_id": string;
+};
+export type DraftPhase = "draft_pending" | "draft_initialized" | "frozen";
+export type ManagerPrincipal = {
+  "identity_namespace": string;
+  "native_account_id": string;
+};
 export type ApprovalVerificationV1 = {
   "approval_request_id": string;
   "audience": string;
@@ -254,6 +278,30 @@ export type CustodySessionStatusV1 = {
   "security_version": DecimalU64;
   "server_time": DecimalU64;
   "session_ref": string;
+};
+export type ManagerClosureViewV1 = {
+  "api_version": number;
+  "associated_accounts": DecimalU64;
+  "pending_accounts": Array<string>;
+  "pending_operations": Array<string>;
+  "status": ManagerClosureStatus;
+};
+export type ManagerFreezeRequestV1 = {
+  "api_version": number;
+  "operation_id": string;
+};
+export type ProvisionDraftRequestV1 = {
+  "api_version": number;
+  "client_request_id": string;
+  "plan": ProvisionPlan;
+};
+export type ProvisionDraftViewV1 = {
+  "api_version": number;
+  "entry": DirectoryEntry;
+  "phase": DraftPhase;
+  "plan": ProvisionPlan;
+  "security_epoch": DecimalU64;
+  "world_identity": ApprovedWorldV1;
 };
 export type SignedApprovalVerificationV1 = {
   "signature": string;

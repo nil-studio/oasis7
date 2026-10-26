@@ -154,8 +154,22 @@ impl IdentityService {
             ("POST", "/custody/approvals/complete") => {
                 self.custody_complete(sid, payload, source, now)
             }
-            ("GET", "/custody/session-status") => {
-                let (a, s) = self.session(sid, now)?;
+            ("GET", "/custody/session-status")
+            | ("GET" | "POST", "/custody/management-session-status") => {
+                let (a, s) = if path == "/custody/management-session-status" {
+                    if !payload.as_object().is_some_and(|v| v.is_empty()) {
+                        return Err(reject("invalid_request"));
+                    }
+                    let key = session_key(
+                        &self.config.session_key,
+                        sid.ok_or_else(|| reject("session_expired"))?,
+                    );
+                    self.store.transaction(|tx| {
+                        management_session(tx, &key, self.config.rp.identity_instance_epoch, now)
+                    })?
+                } else {
+                    self.session(sid, now)?
+                };
                 serde_json::to_value(CustodySessionStatusV1 {
                     api_version: 1,
                     identity_namespace: self.config.namespace.key(),

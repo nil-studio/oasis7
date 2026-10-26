@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ManagerPrincipal {
     pub identity_namespace: String,
@@ -10,6 +11,7 @@ pub struct ManagerPrincipal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct BootstrapManager {
     pub principal: ManagerPrincipal,
@@ -18,6 +20,7 @@ pub struct BootstrapManager {
 
 /// These are configuration-owned route IDs, not caller-selected URLs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ProvisionPlan {
     pub environment: String,
@@ -30,6 +33,7 @@ pub struct ProvisionPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ProvisionRoutes {
     pub environment: String,

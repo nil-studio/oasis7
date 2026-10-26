@@ -328,3 +328,234 @@ fn expired_same_body_draft_retry_returns_original_without_new_authority() {
     );
     assert_eq!(index.entries().count(), 1);
 }
+
+fn revocation_notice() -> ManagerRevocationNotice {
+    ManagerRevocationNotice {
+        operation_id: "native-revocation-one".into(),
+        manager: manager("manager"),
+        environment: "staging".into(),
+        identity_instance_epoch: DecimalU64(3),
+        source_security_version: DecimalU64(9_007_199_254_740_993),
+        source_credential_ref: Some("credential-one".into()),
+        source_credential_version: Some(DecimalU64(u64::MAX)),
+    }
+}
+fn freeze_receipt(target: AccountFreezeTarget, operations: &[&str]) -> AccountFreezeReceipt {
+    AccountFreezeReceipt {
+        frozen_security_epoch: target.minimum_security_epoch,
+        target,
+        authorization_closure: AccountAuthorizationClosure::AllManagerRootsAndChildrenRevoked {
+            inventory_digest: "a".repeat(64),
+        },
+        dispatch_barrier: AccountDispatchBarrier::AllUnclaimedBlocked {
+            barrier_digest: "b".repeat(64),
+        },
+        receipt_digest: "c".repeat(64),
+        claimed_operation_ids: operations.iter().map(|id| (*id).into()).collect(),
+    }
+}
+#[test]
+fn complete_directory_freezes_pending_and_initialized_before_late_initialization() {
+    let mut index =
+        ManagerAccountIndex::new_for_environment(manager("manager"), "staging".into()).unwrap();
+    let pending = reserve(&mut index, "pending", &plan()).unwrap();
+    let ready = reserve(&mut index, "ready", &plan()).unwrap();
+    index
+        .mark_initialized(&ready.custody_account_id, 9_007_199_254_740_993)
+        .unwrap();
+    let notice = revocation_notice();
+    index.begin_revocation(notice.clone()).unwrap();
+    assert_eq!(index.begin_revocation(notice), Ok(()));
+    assert_eq!(index.closure_status(), ManagerClosureStatus::Pending);
+    assert_eq!(
+        reserve(&mut index, "new", &plan()),
+        Err(ProvisionError::Frozen)
+    );
+    assert_eq!(
+        index.mark_initialized(&pending.custody_account_id, 0),
+        Err(ProvisionError::Frozen)
+    );
+    let targets: Vec<_> = index.freeze_targets().cloned().collect();
+    assert_eq!(targets.len(), 2);
+    assert_eq!(
+        targets
+            .iter()
+            .find(|t| t.custody_account_id == pending.custody_account_id)
+            .unwrap()
+            .minimum_security_epoch
+            .0,
+        1
+    );
+    assert_eq!(
+        targets
+            .iter()
+            .find(|t| t.custody_account_id == ready.custody_account_id)
+            .unwrap()
+            .minimum_security_epoch
+            .0,
+        9_007_199_254_740_994
+    );
+    for target in targets {
+        index
+            .record_freeze_receipt(freeze_receipt(target, &[]))
+            .unwrap();
+    }
+    assert_eq!(index.closure_status(), ManagerClosureStatus::Closed);
+    let restored: ManagerAccountIndex =
+        serde_json::from_slice(&serde_json::to_vec(&index).unwrap()).unwrap();
+    assert_eq!(restored, index);
+    assert_eq!(restored.closure_status(), ManagerClosureStatus::Closed);
+}
+#[test]
+fn fanout_confirmation_does_not_hide_claimed_unknown_operations() {
+    let mut index = ManagerAccountIndex::new(manager("manager")).unwrap();
+    reserve(&mut index, "one", &plan()).unwrap();
+    index.begin_revocation(revocation_notice()).unwrap();
+    let target = index.freeze_targets().next().unwrap().clone();
+    let receipt = freeze_receipt(target.clone(), &["claimed-one", "claimed-two"]);
+    index.record_freeze_receipt(receipt.clone()).unwrap();
+    index.record_freeze_receipt(receipt).unwrap();
+    assert_eq!(index.closure_status(), ManagerClosureStatus::Pending);
+    let applied = InFlightResult {
+        outcome: ConfirmedOriginalOutcome::Applied,
+        receipt_digest: "d".repeat(64),
+    };
+    index
+        .record_inflight_result(
+            &target.revocation_digest,
+            &target.custody_account_id,
+            "claimed-one",
+            applied.clone(),
+        )
+        .unwrap();
+    index
+        .record_inflight_result(
+            &target.revocation_digest,
+            &target.custody_account_id,
+            "claimed-one",
+            applied,
+        )
+        .unwrap();
+    assert_eq!(index.closure_status(), ManagerClosureStatus::Pending);
+    let mut restored: ManagerAccountIndex =
+        serde_json::from_slice(&serde_json::to_vec(&index).unwrap()).unwrap();
+    restored
+        .record_inflight_result(
+            &target.revocation_digest,
+            &target.custody_account_id,
+            "claimed-two",
+            InFlightResult {
+                outcome: ConfirmedOriginalOutcome::NotApplied,
+                receipt_digest: "e".repeat(64),
+            },
+        )
+        .unwrap();
+    assert_eq!(restored.closure_status(), ManagerClosureStatus::Closed);
+}
+#[test]
+fn closure_requires_exact_source_target_epoch_and_immutable_proofs() {
+    let mut index = ManagerAccountIndex::new(manager("manager")).unwrap();
+    reserve(&mut index, "one", &plan()).unwrap();
+    let before = index.clone();
+    let mut wrong = revocation_notice();
+    wrong.environment = "other".into();
+    assert_eq!(
+        index.begin_revocation(wrong),
+        Err(ProvisionError::Forbidden)
+    );
+    assert_eq!(index, before);
+    index.begin_revocation(revocation_notice()).unwrap();
+    let target = index.freeze_targets().next().unwrap().clone();
+    let before = index.clone();
+    let mut invalid = freeze_receipt(target.clone(), &[]);
+    invalid.frozen_security_epoch = DecimalU64(0);
+    assert_eq!(
+        index.record_freeze_receipt(invalid),
+        Err(ProvisionError::Invalid)
+    );
+    let mut wrong = freeze_receipt(target.clone(), &[]);
+    wrong.target.environment = "other".into();
+    assert_eq!(
+        index.record_freeze_receipt(wrong),
+        Err(ProvisionError::Conflict)
+    );
+    assert_eq!(index, before);
+    let receipt = freeze_receipt(target.clone(), &["claimed"]);
+    index.record_freeze_receipt(receipt.clone()).unwrap();
+    let before = index.clone();
+    let mut changed = receipt;
+    changed.claimed_operation_ids.clear();
+    assert_eq!(
+        index.record_freeze_receipt(changed),
+        Err(ProvisionError::Conflict)
+    );
+    assert_eq!(
+        index.record_inflight_result(
+            &target.revocation_digest,
+            &target.custody_account_id,
+            "unregistered",
+            InFlightResult {
+                outcome: ConfirmedOriginalOutcome::Applied,
+                receipt_digest: "d".repeat(64)
+            }
+        ),
+        Err(ProvisionError::Forbidden)
+    );
+    assert_eq!(index, before);
+}
+#[test]
+fn restored_directory_rejects_missing_associations_targets_and_false_closure() {
+    let mut index = ManagerAccountIndex::new(manager("manager")).unwrap();
+    reserve(&mut index, "one", &plan()).unwrap();
+    index.begin_revocation(revocation_notice()).unwrap();
+    let original = serde_json::to_value(&index).unwrap();
+    for field in ["entries", "accounts"] {
+        let mut wrong = original.clone();
+        wrong[field] = serde_json::json!({});
+        assert!(serde_json::from_value::<ManagerAccountIndex>(wrong).is_err());
+    }
+    let mut wrong = original.clone();
+    wrong["revocation"]["accounts"] = serde_json::json!({});
+    assert!(serde_json::from_value::<ManagerAccountIndex>(wrong).is_err());
+    let mut wrong = original.clone();
+    wrong["frozen"] = false.into();
+    assert!(serde_json::from_value::<ManagerAccountIndex>(wrong).is_err());
+    let mut wrong = original;
+    wrong["revocation"]["notice"]["source_security_version"] =
+        serde_json::json!(9007199254740993u64);
+    assert!(serde_json::from_value::<ManagerAccountIndex>(wrong).is_err());
+    let old = serde_json::json!({"manager": manager("manager"), "frozen":true,"entries":{}});
+    assert!(serde_json::from_value::<ManagerAccountIndex>(old).is_err());
+    let mut empty =
+        ManagerAccountIndex::new_for_environment(manager("manager"), "staging".into()).unwrap();
+    empty.freeze();
+    assert_eq!(empty.closure_status(), ManagerClosureStatus::Pending);
+}
+#[test]
+fn directory_capacity_and_environment_pin_preserve_stable_originals() {
+    let mut index =
+        ManagerAccountIndex::new_for_environment(manager("manager"), "other".into()).unwrap();
+    assert_eq!(
+        reserve(&mut index, "one", &plan()),
+        Err(ProvisionError::Forbidden)
+    );
+    let mut index = ManagerAccountIndex::new(manager("manager")).unwrap();
+    for n in 0..MAX_MANAGER_ASSOCIATIONS {
+        reserve(&mut index, &format!("request-{n}"), &plan()).unwrap();
+    }
+    assert_eq!(
+        reserve(&mut index, "overflow", &plan()),
+        Err(ProvisionError::Exhausted)
+    );
+    assert!(reserve(&mut index, "request-0", &plan()).is_ok());
+    let account = index.entries().next().unwrap().custody_account_id.clone();
+    let before = index.clone();
+    assert_eq!(
+        index.mark_initialized(&account, u64::MAX),
+        Err(ProvisionError::Overflow)
+    );
+    assert_eq!(index, before);
+    let restored: ManagerAccountIndex =
+        serde_json::from_slice(&serde_json::to_vec(&index).unwrap()).unwrap();
+    assert_eq!(restored, index);
+}

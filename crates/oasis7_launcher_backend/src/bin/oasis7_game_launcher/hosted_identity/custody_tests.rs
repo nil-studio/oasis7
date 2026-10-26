@@ -447,3 +447,92 @@ fn pending_retry_cannot_change_body_or_refresh_expired_ceremony() {
             .is_err()
     );
 }
+
+#[path = "custody_native_http_fixture.rs"]
+mod native_http_fixture;
+
+#[test]
+fn management_status_requires_passkey_and_post_keeps_native_origin_csrf_contract() {
+    let (mut f, _) = fixture();
+    let now = now_ms();
+    let path = format!(
+        "{}/custody/management-session-status",
+        crate::hosted_identity::service::PREFIX
+    );
+    let mut issuer = crate::hosted_player_session::HostedPlayerSessionIssuer::default();
+    let cookie = format!("Cookie: __Host-oasis7_sid={}\r\n", f.token);
+    let csrf = digest(&f.service.config.session_key, "csrf", &f.token);
+    let good = format!(
+        "POST / HTTP/1.1\r\n{cookie}Origin: https://localhost\r\nContent-Type: application/json\r\nX-Oasis7-CSRF: {csrf}\r\n\r\n"
+    );
+    assert_eq!(
+        f.service
+            .handle("POST", &path, &good, json!({}), "fixture", &mut issuer)
+            .status,
+        200
+    );
+    for bad in [
+        good.replace("https://localhost", "https://other.test"),
+        good.replace(&csrf, "wrong"),
+        format!("POST / HTTP/1.1\r\n{cookie}Content-Type: application/json\r\n\r\n"),
+    ] {
+        assert_ne!(
+            f.service
+                .handle("POST", &path, &bad, json!({}), "fixture", &mut issuer)
+                .status,
+            200
+        );
+    }
+    assert!(
+        f.service
+            .custody_browser_route(
+                "GET",
+                "/custody/management-session-status",
+                Some(&f.token),
+                &json!({"account_id":"other"}),
+                "fixture",
+                now
+            )
+            .is_err()
+    );
+    let session = session_key(&f.service.config.session_key, &f.token);
+    f.service
+        .store
+        .transaction(|tx| {
+            let mut saved = tx.get::<AccountSession>(&session)?.unwrap();
+            saved.value.auth_method = "native_key".into();
+            tx.replace(
+                &session,
+                saved.row_version,
+                "session",
+                Some("a"),
+                Some(saved.value.expires_at),
+                &saved.value,
+            )
+        })
+        .unwrap();
+    assert!(
+        f.service
+            .custody_browser_route(
+                "GET",
+                "/custody/management-session-status",
+                Some(&f.token),
+                &json!({}),
+                "fixture",
+                now
+            )
+            .is_err()
+    );
+    assert!(
+        f.service
+            .custody_browser_route(
+                "GET",
+                "/custody/session-status",
+                Some(&f.token),
+                &json!({}),
+                "fixture",
+                now
+            )
+            .is_ok()
+    );
+}

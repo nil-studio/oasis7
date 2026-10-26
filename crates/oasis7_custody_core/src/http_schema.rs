@@ -1,6 +1,6 @@
 //! Explicit developer export from real HTTP DTOs. No handler/build.rs invokes this.
 use super::*;
-use crate::{DecimalU64, approval::*};
+use crate::{DecimalU64, approval::*, provisioning::*};
 use serde_json::{Value, json};
 
 fn context() -> ApprovalContextV1 {
@@ -172,6 +172,74 @@ pub(super) fn export(directory: &std::path::Path) {
         expires_at: DecimalU64(u64::MAX),
         idle_expires_at: DecimalU64(100000),
     };
+    let manager = ManagerPrincipal {
+        identity_namespace: "identity:test".into(),
+        native_account_id: "manager-one".into(),
+    };
+    let routes = ProvisionRoutes {
+        environment: "test".into(),
+        identity_route: "native-test".into(),
+        world_route: "world-test".into(),
+        world_identity: "world-one".into(),
+    };
+    let managers = vec![BootstrapManager {
+        principal: manager.clone(),
+        environments: vec!["test".into()],
+    }];
+    let plan = ProvisionPlan {
+        environment: routes.environment.clone(),
+        identity_route: routes.identity_route.clone(),
+        world_route: routes.world_route.clone(),
+        world_identity: routes.world_identity.clone(),
+        purpose: "prepared_world".into(),
+        expires_at: DecimalU64(100_000),
+        transport_limit: DecimalU64(24),
+    };
+    let draft_request = ProvisionDraftRequestV1 {
+        api_version: 1,
+        client_request_id: "client-one".into(),
+        plan: plan.clone(),
+    };
+    let mut index =
+        ManagerAccountIndex::new_for_environment(manager.clone(), "test".into()).unwrap();
+    let entry = index
+        .reserve(
+            &manager,
+            "client-one",
+            &plan,
+            &ProvisionPolicy {
+                routes: &routes,
+                managers: &managers,
+                version: 1,
+            },
+            1000,
+        )
+        .unwrap();
+    let draft_view = ProvisionDraftViewV1 {
+        api_version: 1,
+        phase: DraftPhase::DraftInitialized,
+        entry,
+        plan,
+        world_identity: ApprovedWorldV1 {
+            world_id: "world-one".into(),
+            genesis_digest: "genesis-one".into(),
+            branch_id: "branch-one".into(),
+            reorg_epoch: DecimalU64(0),
+            service_public_key: "aa".repeat(32),
+        },
+        security_epoch: DecimalU64(0),
+    };
+    let freeze_request = ManagerFreezeRequestV1 {
+        api_version: 1,
+        operation_id: "freeze-one".into(),
+    };
+    let closure_view = ManagerClosureViewV1 {
+        api_version: 1,
+        status: ManagerClosureStatus::Open,
+        associated_accounts: DecimalU64(1),
+        pending_accounts: vec![],
+        pending_operations: vec![],
+    };
     let schemas = json!({
         "ApprovalOptionsRequestV1":schemars::schema_for!(ApprovalOptionsRequestV1),
         "ApprovalOptionsResponseV1":schemars::schema_for!(ApprovalOptionsResponseV1),
@@ -180,11 +248,15 @@ pub(super) fn export(directory: &std::path::Path) {
         "ApprovalVerifyRequestV1":schemars::schema_for!(ApprovalVerifyRequestV1),
         "SignedApprovalVerificationV1":schemars::schema_for!(SignedApprovalVerificationV1),
         "CustodySessionStatusV1":schemars::schema_for!(CustodySessionStatusV1),
+        "ProvisionDraftRequestV1":schemars::schema_for!(ProvisionDraftRequestV1),
+        "ProvisionDraftViewV1":schemars::schema_for!(ProvisionDraftViewV1),
+        "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
+        "ManagerClosureViewV1":schemars::schema_for!(ManagerClosureViewV1),
     });
     let fixtures = json!({"metadata":([Role::Identity,Role::Owner,Role::Executor,Role::RecoveryFence].map(ServiceMetadata::disabled)),
         "error":([ErrorCode::NotFound,ErrorCode::NotReady,ErrorCode::MethodNotAllowed].map(ErrorResponse::new)),
         "ApprovalOptionsRequestV1":requests,"ApprovalOptionsResponseV1":[options_response],"ApprovalCompleteRequestV1":[complete],
-        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status]});
+        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),

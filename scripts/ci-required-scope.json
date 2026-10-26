@@ -301,6 +301,24 @@
       "viewer_js_required"
     ]
   },
+  "workspace_support_profile_paths": {
+    "oasis7_custody_worker": [
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_complete.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_tests.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/custody_native_http_fixture.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/mod.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/config.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/model.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/model_session.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/model_session_tests.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/webauthn.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/store.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/store/migration.rs",
+      "crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/store/snapshot.rs"
+    ]
+  },
   "rules": [
     {
       "match": [

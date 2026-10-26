@@ -378,6 +378,71 @@
         "session_ref": "session-one"
       }
     ],
+    "ManagerClosureViewV1": [
+      {
+        "api_version": 1,
+        "associated_accounts": "1",
+        "pending_accounts": [],
+        "pending_operations": [],
+        "status": "open"
+      }
+    ],
+    "ManagerFreezeRequestV1": [
+      {
+        "api_version": 1,
+        "operation_id": "freeze-one"
+      }
+    ],
+    "ProvisionDraftRequestV1": [
+      {
+        "api_version": 1,
+        "client_request_id": "client-one",
+        "plan": {
+          "environment": "test",
+          "expires_at": "100000",
+          "identity_route": "native-test",
+          "purpose": "prepared_world",
+          "transport_limit": "24",
+          "world_identity": "world-one",
+          "world_route": "world-test"
+        }
+      }
+    ],
+    "ProvisionDraftViewV1": [
+      {
+        "api_version": 1,
+        "entry": {
+          "bootstrap_config_version": "1",
+          "client_request_id": "client-one",
+          "custody_account_id": "account-0577a40c595aa1535ecf8ffb2c3aeaeb0ed8ec2a688bf0dfed0a00f02310d7b4",
+          "environment": "test",
+          "manager": {
+            "identity_namespace": "identity:test",
+            "native_account_id": "manager-one"
+          },
+          "plan_digest": "2a19d19e1d9ff0e4e185ce4a6fc617285559c5398d8feaf3287be1a0d78a0bfa",
+          "provision_id": "provision-0577a40c595aa1535ecf8ffb2c3aeaeb0ed8ec2a688bf0dfed0a00f02310d7b4"
+        },
+        "phase": "draft_initialized",
+        "plan": {
+          "environment": "test",
+          "expires_at": "100000",
+          "identity_route": "native-test",
+          "purpose": "prepared_world",
+          "transport_limit": "24",
+          "world_identity": "world-one",
+          "world_route": "world-test"
+        },
+        "security_epoch": "0",
+        "world_identity": {
+          "branch_id": "branch-one",
+          "genesis_digest": "genesis-one",
+          "reorg_epoch": "0",
+          "service_public_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "world_id": "world-one"
+        }
+      }
+    ],
     "SignedApprovalVerificationV1": [
       {
         "signature": "structural-fixture-only",
@@ -1698,6 +1763,323 @@
         "idle_expires_at"
       ],
       "title": "CustodySessionStatusV1",
+      "type": "object"
+    },
+    "ManagerClosureViewV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "ManagerClosureStatus": {
+          "enum": [
+            "open",
+            "pending",
+            "closed"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "associated_accounts": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "pending_accounts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pending_operations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/ManagerClosureStatus"
+        }
+      },
+      "required": [
+        "api_version",
+        "status",
+        "associated_accounts",
+        "pending_accounts",
+        "pending_operations"
+      ],
+      "title": "ManagerClosureViewV1",
+      "type": "object"
+    },
+    "ManagerFreezeRequestV1": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "operation_id"
+      ],
+      "title": "ManagerFreezeRequestV1",
+      "type": "object"
+    },
+    "ProvisionDraftRequestV1": {
+      "$defs": {
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "ProvisionPlan": {
+          "additionalProperties": false,
+          "description": "These are configuration-owned route IDs, not caller-selected URLs.",
+          "properties": {
+            "environment": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_route": {
+              "type": "string"
+            },
+            "purpose": {
+              "type": "string"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "world_identity": {
+              "type": "string"
+            },
+            "world_route": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "environment",
+            "identity_route",
+            "world_route",
+            "world_identity",
+            "purpose",
+            "expires_at",
+            "transport_limit"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "client_request_id": {
+          "type": "string"
+        },
+        "plan": {
+          "$ref": "#/$defs/ProvisionPlan"
+        }
+      },
+      "required": [
+        "api_version",
+        "client_request_id",
+        "plan"
+      ],
+      "title": "ProvisionDraftRequestV1",
+      "type": "object"
+    },
+    "ProvisionDraftViewV1": {
+      "$defs": {
+        "ApprovedWorldV1": {
+          "additionalProperties": false,
+          "description": "Full world pins and task fence are signed, not supplied as opaque client claims.",
+          "properties": {
+            "branch_id": {
+              "type": "string"
+            },
+            "genesis_digest": {
+              "type": "string"
+            },
+            "reorg_epoch": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "service_public_key": {
+              "type": "string"
+            },
+            "world_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "world_id",
+            "genesis_digest",
+            "branch_id",
+            "reorg_epoch",
+            "service_public_key"
+          ],
+          "type": "object"
+        },
+        "DecimalU64": {
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$",
+          "type": "string"
+        },
+        "DirectoryEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "bootstrap_config_version": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "client_request_id": {
+              "type": "string"
+            },
+            "custody_account_id": {
+              "type": "string"
+            },
+            "environment": {
+              "type": "string"
+            },
+            "manager": {
+              "$ref": "#/$defs/ManagerPrincipal"
+            },
+            "plan_digest": {
+              "type": "string"
+            },
+            "provision_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "provision_id",
+            "custody_account_id",
+            "manager",
+            "client_request_id",
+            "environment",
+            "plan_digest",
+            "bootstrap_config_version"
+          ],
+          "type": "object"
+        },
+        "DraftPhase": {
+          "enum": [
+            "draft_pending",
+            "draft_initialized",
+            "frozen"
+          ],
+          "type": "string"
+        },
+        "ManagerPrincipal": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_namespace": {
+              "type": "string"
+            },
+            "native_account_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "identity_namespace",
+            "native_account_id"
+          ],
+          "type": "object"
+        },
+        "ProvisionPlan": {
+          "additionalProperties": false,
+          "description": "These are configuration-owned route IDs, not caller-selected URLs.",
+          "properties": {
+            "environment": {
+              "type": "string"
+            },
+            "expires_at": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "identity_route": {
+              "type": "string"
+            },
+            "purpose": {
+              "type": "string"
+            },
+            "transport_limit": {
+              "$ref": "#/$defs/DecimalU64"
+            },
+            "world_identity": {
+              "type": "string"
+            },
+            "world_route": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "environment",
+            "identity_route",
+            "world_route",
+            "world_identity",
+            "purpose",
+            "expires_at",
+            "transport_limit"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entry": {
+          "$ref": "#/$defs/DirectoryEntry"
+        },
+        "phase": {
+          "$ref": "#/$defs/DraftPhase"
+        },
+        "plan": {
+          "$ref": "#/$defs/ProvisionPlan"
+        },
+        "security_epoch": {
+          "$ref": "#/$defs/DecimalU64"
+        },
+        "world_identity": {
+          "$ref": "#/$defs/ApprovedWorldV1"
+        }
+      },
+      "required": [
+        "api_version",
+        "phase",
+        "entry",
+        "plan",
+        "world_identity",
+        "security_epoch"
+      ],
+      "title": "ProvisionDraftViewV1",
       "type": "object"
     },
     "SignedApprovalVerificationV1": {

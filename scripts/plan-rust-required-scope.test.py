@@ -899,6 +899,75 @@ class Selection(unittest.TestCase):
                     self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
                     base = head
 
+    def test_native_custody_inputs_add_only_actual_worker_platform_profile(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        backend, worker = 'oasis7_launcher_backend', 'oasis7_custody_worker'
+        for package in (backend, worker):
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in (backend, worker)},
+                 {backend: set(), worker: set()}, {})
+        paths = config['workspace_support_profile_paths'][worker]
+        self.assertIn('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs', paths)
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '// authority input only')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn('workspace_support', plan['groups'])
+                    self.assertEqual(plan['workspace_support_profiles'], [worker])
+                    self.assertTrue({'node', 'wasm_target', 'system_deps'}.issubset(plan['resources']))
+                    self.assertIn(backend, plan['architecture']['packages'])
+                    base = head
+            self.write('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/world.rs', '// unrelated identity world feature')
+            head = self.commit()
+            plan = selector.select(config, base, head)
+            self.assertNotIn(worker, plan['workspace_support_profiles'])
+            self.assertNotIn('workspace_support', plan['groups'])
+            base = head
+            self.git('mv', paths[0], paths[0] + '.retired')
+            head = self.commit()
+            self.assertEqual(selector.select(config, base, head)['workspace_support_profiles'], [worker])
+            base = head
+            Path(paths[1]).unlink()
+            self.assertEqual(selector.select(config, base, self.commit())['workspace_support_profiles'], [worker])
+
+    def test_profile_path_mapping_is_additive_and_does_not_bypass_full_or_ownership(self):
+        config = json.loads(json.dumps(self.config))
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        profile = selector.SUPPORT_PROFILES[0]
+        config['workspace_support_profile_paths'] = {profile: ['crates/core/src/lib.rs', 'unknown/input.rs']}
+        self.write('crates/core/src/lib.rs', '// consumer input')
+        head = self.commit()
+        selected = selector.select(config, self.base, head)
+        self.assertEqual(selected['workspace_support_profiles'], [profile])
+        self.assertEqual(set(selector.select(config, self.base, head, additions=['workspace_support'])['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+        config['rules'].append({'match': ['crates/core/src/lib.rs'], 'groups': ['workspace_support'], 'reason': 'legacy group'})
+        self.assertEqual(set(selector.select(config, self.base, head)['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+        self.write('Cargo.lock', '# shared control')
+        self.assertEqual(set(selector.select(config, self.base, self.commit())['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+        self.write('unknown/input.rs', '// no owner')
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(config, self.base, self.commit())
+
+    def test_profile_path_mapping_rejects_unknown_profiles_and_malformed_paths(self):
+        for mapping in [[], {'unknown-profile': ['crates/core/src/lib.rs']},
+                        {selector.SUPPORT_PROFILES[0]: []},
+                        *[{selector.SUPPORT_PROFILES[0]: [path]} for path in
+                          ['', '/tmp/source.rs', '../source.rs', 'crates/../source.rs', 'crates\\source.rs', './source.rs', {}, None]],
+                        {selector.SUPPORT_PROFILES[0]: ['source.rs', 'source.rs']}]:
+            with self.subTest(mapping=mapping):
+                config = json.loads(json.dumps(self.config))
+                config['groups'].append('workspace_support')
+                config['resources']['workspace_support'] = []
+                config['workspace_support_profile_paths'] = mapping
+                with self.assertRaises(ValueError):
+                    selector.validate_config(config)
+
     def test_agent_api_and_harness_route_through_support_and_oasis7_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
