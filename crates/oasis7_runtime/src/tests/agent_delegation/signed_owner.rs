@@ -414,7 +414,7 @@ fn signed_delegation_typed_outcome_and_readonly_replay_share_identity() {
         world
             .signed_delegation_control_replay(&signed, &host)
             .unwrap(),
-        DelegationReplayMatch::ExactReplay(applied.authorization.clone())
+        DelegationReplayMatch::ExactReplay(Box::new(applied.authorization.clone()))
     );
     let replay = world
         .apply_signed_delegation_control(&signed, &host)
@@ -580,7 +580,7 @@ fn delegation_revoke_exact_replay_preserves_saturating_revision_boundary() {
         world
             .signed_delegation_control_replay(&signed, &registry())
             .unwrap(),
-        DelegationReplayMatch::ExactReplay(outcome.authorization)
+        DelegationReplayMatch::ExactReplay(Box::new(outcome.authorization))
     );
     assert_eq!(serde_json::to_vec(&world).unwrap(), before);
 }

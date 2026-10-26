@@ -21,7 +21,7 @@ pub struct DelegationControlOutcome {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DelegationReplayMatch {
-    ExactReplay(AgentDelegationAuthorizationV1),
+    ExactReplay(Box<AgentDelegationAuthorizationV1>),
     IdentityConflict,
     NoMatch,
 }
@@ -102,7 +102,7 @@ fn history_match(
         AgencyControlOperation::InstallDelegation { grant_id, .. } => {
             match rows.iter().find(|row| row.grant.grant_id == *grant_id) {
                 Some(row) if Some(&row.grant) == grant => {
-                    DelegationReplayMatch::ExactReplay(row.clone())
+                    DelegationReplayMatch::ExactReplay(Box::new(row.clone()))
                 }
                 Some(_) => DelegationReplayMatch::IdentityConflict,
                 None => DelegationReplayMatch::NoMatch,
@@ -118,7 +118,7 @@ fn history_match(
                     && row.grant.revoked
                     && row.grant.revision == expected_revision.saturating_add(1)
             })
-            .map(|row| DelegationReplayMatch::ExactReplay(row.clone()))
+            .map(|row| DelegationReplayMatch::ExactReplay(Box::new(row.clone())))
             .unwrap_or(DelegationReplayMatch::NoMatch),
         _ => DelegationReplayMatch::NoMatch,
     }
@@ -171,8 +171,8 @@ impl World {
                 ));
             }
         };
-        if let Some(grant) = &grant {
-            if grant.grant_id.trim().is_empty()
+        if let Some(grant) = &grant
+            && (grant.grant_id.trim().is_empty()
                 || grant.object_id.trim().is_empty()
                 || grant.period_id.trim().is_empty()
                 || grant.action_kinds.is_empty()
@@ -187,13 +187,12 @@ impl World {
                     .iter()
                     .collect::<std::collections::BTreeSet<_>>()
                     .len()
-                    != grant.action_kinds.len()
-            {
-                return Err(DelegationControlError::denied(
-                    Stage::Scope,
-                    "grant_scope_invalid",
-                ));
-            }
+                    != grant.action_kinds.len())
+        {
+            return Err(DelegationControlError::denied(
+                Stage::Scope,
+                "grant_scope_invalid",
+            ));
         }
         let rows = self
             .agent_delegation_authorizations(&request.agent_id)
@@ -203,7 +202,7 @@ impl World {
                 return Ok(DelegationControlOutcome {
                     operation,
                     disposition: DelegationControlDisposition::ExactReplay,
-                    authorization,
+                    authorization: *authorization,
                 });
             }
             DelegationReplayMatch::IdentityConflict => {

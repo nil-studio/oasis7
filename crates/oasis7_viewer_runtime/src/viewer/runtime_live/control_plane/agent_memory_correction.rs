@@ -585,14 +585,14 @@ impl ViewerRuntimeLiveServer {
         use crate::runtime::{DelegationControlDisposition, DelegationControlStage};
         // This is the local Viewer issuance profile, deliberately narrower than
         // signed Runtime and storage. Old nonces never enter this fresh path.
-        if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &request.command {
-            if action_kinds.iter().any(|kind| !action_kind_valid(kind)) {
-                return agency_error(
-                    &request.request_id,
-                    "grant_scope_invalid",
-                    "grant identity, object, period, or action scope is invalid or unsupported",
-                );
-            }
+        if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &request.command
+            && action_kinds.iter().any(|kind| !action_kind_valid(kind))
+        {
+            return agency_error(
+                &request.request_id,
+                "grant_scope_invalid",
+                "grant identity, object, period, or action scope is invalid or unsupported",
+            );
         }
         let mut candidate = self.world.clone();
         let outcome = match candidate
