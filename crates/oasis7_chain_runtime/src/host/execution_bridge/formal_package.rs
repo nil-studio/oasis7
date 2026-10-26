@@ -549,6 +549,10 @@ pub(super) fn restore_executable(
         (frozen.input().body.schema_version >= 2).then_some(material),
         Some(verified_snapshot),
     )?;
+    // The handoff is a signed intent on the original Frozen input, not a
+    // field derived from the replayed World. Preserve that exact authenticated
+    // intent while rebuilding every execution-derived field and artifact.
+    expected.handoff = frozen.input().body.handoff.clone();
     if let Some(descriptor) = super::formal_native_environment::descriptor(material)? {
         super::formal_native_environment::attach_frozen_for_exact_restore(
             &mut expected,

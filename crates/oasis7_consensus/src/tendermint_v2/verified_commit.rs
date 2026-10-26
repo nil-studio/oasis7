@@ -14,6 +14,15 @@ struct PendingTransitionV2 {
     new_height_start_priority: BftProposerPriorityV2,
 }
 
+pub(super) struct FormalHandoffScheduleAnchorV1 {
+    pub(super) authority_epoch: u64,
+    pub(super) height: u64,
+    pub(super) parent_commit_ref: String,
+    pub(super) parent_tick: u64,
+    pub(super) parent_state_root: String,
+    pub(super) parent_manifest_hash: String,
+}
+
 /// Opaque read/replay schedule. It contains protocol membership only and is
 /// independent of whether this process currently has a signing key in the set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -62,6 +71,49 @@ impl BftHeightProposerScheduleV2 {
             parent_manifest_hash: genesis_manifest_hash,
             active_set,
             height: 1,
+            starting_priority,
+            pending_transition: None,
+            last_activation_height: 0,
+        })
+    }
+
+    /// Construct the first V2 schedule from an already verified formal
+    /// handoff. This keeps the ordinary engineering genesis constructor
+    /// separate and preserves the invariant parent_tick + 1 == height.
+    pub(super) fn from_formal_handoff_v1(
+        active_set: BftValidatorSetV2,
+        policy: BftSchedulePolicyV2,
+        anchor: FormalHandoffScheduleAnchorV1,
+    ) -> Result<Self, String> {
+        policy.validate()?;
+        if anchor.height == 0 || anchor.parent_tick.checked_add(1) != Some(anchor.height) {
+            return Err("formal BFT handoff schedule cursor binding".into());
+        }
+        validate_hash(
+            "formal handoff parent commit ref",
+            &anchor.parent_commit_ref,
+        )?;
+        validate_hash(
+            "formal handoff parent state root",
+            &anchor.parent_state_root,
+        )?;
+        validate_hash(
+            "formal handoff parent manifest hash",
+            &anchor.parent_manifest_hash,
+        )?;
+        let policy_hash = policy.hash()?;
+        let starting_priority = BftProposerPriorityV2::new(&active_set)?;
+        Ok(Self {
+            scope: active_set.scope().clone(),
+            authority_epoch: anchor.authority_epoch,
+            policy,
+            policy_hash,
+            active_set,
+            height: anchor.height,
+            parent_commit_ref: anchor.parent_commit_ref,
+            parent_tick: anchor.parent_tick,
+            parent_state_root: anchor.parent_state_root,
+            parent_manifest_hash: anchor.parent_manifest_hash,
             starting_priority,
             pending_transition: None,
             last_activation_height: 0,

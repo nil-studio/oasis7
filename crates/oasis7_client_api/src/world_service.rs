@@ -537,6 +537,9 @@ pub use formal_governance::*;
 #[path = "world_service_formal.rs"]
 mod formal;
 pub use formal::*;
+#[path = "world_service_formal_bft.rs"]
+mod formal_bft;
+pub use formal_bft::*;
 #[path = "world_service_formal_result.rs"]
 mod formal_result;
 pub use formal_result::*;

@@ -2,6 +2,7 @@
 //! domains and never reinterprets V1 histories.
 
 mod engine;
+mod formal_handoff;
 mod priority_wire;
 mod proposer;
 mod signing_journal;
@@ -12,6 +13,12 @@ pub use engine::{
     BFT_MAX_CACHED_PROPOSAL_BYTES_V2, BFT_MAX_CACHED_VOTES_V2, BFT_MAX_EQUIVOCATIONS_V2,
     BFT_MAX_PROPOSAL_EQUIVOCATIONS_V2, BftConsensusActionV2, BftConsensusMachineV2,
     BftProposalIntentV2, BftStepV2, BftVoteIntentV2, verify_commit_certificate_v2,
+};
+pub use formal_handoff::{
+    BFT_FORMAL_EXECUTION_COMMITMENT_MAX_BYTES_V1, BFT_FORMAL_EXECUTION_DOMAIN_V1,
+    BFT_FORMAL_PROFILE_V1, BFT_FORMAL_PROFILE_VERSION_V1, BFT_FORMAL_TICK_MAPPING_RULESET_V1,
+    BftProfileTargetV1, FormalBftExecutionCommitmentV1, VerifiedBftHandoffTargetV1,
+    verify_formal_bft_handoff_v1,
 };
 pub use proposer::{BftProposerPriorityV2, BftProposerV2};
 pub use signing_journal::{

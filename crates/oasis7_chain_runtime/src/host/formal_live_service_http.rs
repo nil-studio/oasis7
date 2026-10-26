@@ -111,7 +111,7 @@ pub(super) fn serve_connection(
     write_http_reply(stream, reply.status, &reply.body)
 }
 
-pub(super) fn read_http_request(
+pub(crate) fn read_http_request(
     stream: &mut TcpStream,
     deadline: std::time::Instant,
 ) -> Result<(String, String, Vec<u8>), String> {
@@ -218,7 +218,7 @@ pub(super) fn parse_http_headers(header: &[u8]) -> Result<(String, String, usize
     Ok((method.to_owned(), path.to_owned(), length))
 }
 
-pub(super) fn write_http_reply(
+pub(crate) fn write_http_reply(
     stream: &mut TcpStream,
     status: u16,
     body: &[u8],

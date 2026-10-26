@@ -16,6 +16,20 @@ use std::path::Path;
 pub(crate) struct BftExecutionState;
 pub(crate) struct BftExecutionStateV2;
 
+pub(super) fn has_formal_bft_material(records_dir: &Path) -> Result<bool, String> {
+    for path in [
+        records_dir.join("formal-bft-read-required-v1"),
+        records_dir.join("formal-bft-read-v1"),
+    ] {
+        match fs::symlink_metadata(path.as_path()) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("inspect formal BFT read marker: {error}")),
+        }
+    }
+    Ok(false)
+}
+
 impl NodeRuntimeExecutionDriver {
     pub(super) fn has_bft_material(records_dir: &Path) -> Result<bool, String> {
         for path in [

@@ -905,6 +905,7 @@ pub(crate) enum CommandKind {
     LegacyMigration,
     LegacyRuntime,
     DurableSetControl,
+    BftRead,
     Dev,
     Inspect,
 }
@@ -929,6 +930,11 @@ pub(crate) const OFFLINE_COMMANDS: &[CommandSpec] = &[
         name: "durable-set",
         kind: CommandKind::DurableSetControl,
         usage: "arm|query --config <formal.json> --owner-instance <instance.json> --operation-id <id> (exact local owner; no activation grant)",
+    },
+    CommandSpec {
+        name: "bft-read",
+        kind: CommandKind::BftRead,
+        usage: "install --config <read.json> --certificate <qc.cbor> | serve --config <read.json> (install the externally pinned H+1 QC or serve an existing verified fixed cut)",
     },
     CommandSpec {
         name: "legacy-migrate",

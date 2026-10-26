@@ -83,6 +83,9 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
     world.apply_proposal(proposal_id).unwrap();
 }
 
+// This file is instantiated by multiple sibling test modules with `#[path]`;
+// only the formal package tests use this helper in every instance.
+#[allow(dead_code)]
 pub(super) fn world_and_anchor() -> (World, VerifiedFormalReadAnchorV1) {
     let (_, mut trust, old, _) = fixtures::actual_world_initial_fixture();
     let identity = &old.authority().definition().world;

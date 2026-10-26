@@ -3,6 +3,9 @@
 use super::NodeRuntimeExecutionDriver;
 use std::path::Path;
 
+#[cfg(test)]
+pub(crate) use super::super::formal_initial;
+
 use oasis7_node::{
     BftBlockV1, BftCommitCertificateV1, BftValidatorSetV1, NodeBftBuildContextV1,
     NodeBftExecutionCommitResultV1, NodeBftExecutionConfigV1, NodeBftExecutionContextV1,
@@ -20,11 +23,15 @@ use oasis7_runtime::{
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
 use serde::{Deserialize, Serialize};
 
+pub(super) fn has_formal_bft_material(records_dir: &std::path::Path) -> Result<bool, String> {
+    v2::has_formal_bft_material(records_dir)
+}
+
 #[path = "driver_bft_storage.rs"]
 mod storage;
 #[path = "driver_bft_v2.rs"]
 mod v2;
-pub(crate) use v2::BftExecutionStateV2;
+pub(crate) use v2::{BftExecutionStateV2, FormalBftReadExecutionV1};
 
 const BFT_EXECUTION_TICK_AUTHORITY: &str = "system:bft-execution-v1";
 const BFT_EXECUTION_HASH_DOMAIN_V1: &str = "oasis7.bft.execution.v1";
@@ -65,6 +72,9 @@ impl NodeRuntimeExecutionDriver {
         &mut self,
         config: &NodeBftExecutionConfigV1,
     ) -> Result<Option<NodeBftExecutionHeadV1>, String> {
+        if has_formal_bft_material(self.records_dir.as_path())? {
+            return Err("BFT V1 execution refuses a formal BFT read ledger".into());
+        }
         if self.bft_execution_v2.is_some() || Self::has_bft_v2_material(self.records_dir.as_path())?
         {
             return Err("V1 BFT execution refuses an existing V2 execution ledger".into());

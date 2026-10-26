@@ -533,7 +533,12 @@ fn quote_error_category(path: &str, status: u16, reader: &mut impl Read) -> Opti
     }
 }
 
+mod formal_bft_read_v2;
 pub mod formal_read;
+pub use formal_bft_read_v2::{
+    FormalBftReadClientConfigV2, FormalBftReadClientV2, FormalBftReadVerifierV2,
+    VerifiedFormalBftReadPageV2,
+};
 
 pub mod verified_world_view;
 

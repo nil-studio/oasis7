@@ -865,6 +865,8 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) use self::driver::ExecutionResourceIdentity;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub(crate) use self::driver::FormalBftReadExecutionV1;
 #[allow(unused_imports)]
 pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 #[cfg(not(test))]

@@ -10,6 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7_cas = { version = "0.1.0", path = "../oasis7_cas" }
+oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol" }
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -18,3 +19,6 @@ hmac = "0.13"
 sha2 = "0.11"
 hex = "0.4"
 ed25519-dalek = "3"
+
+[dev-dependencies]
+oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol", features = ["test-support"] }
