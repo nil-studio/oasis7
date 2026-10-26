@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from ecs_preview_update import binding, digest, load_config, module, preflight, trusted_path
 
@@ -42,6 +43,15 @@ def verify_web_bytes(path, expected, actual, identity):
                 expected = expected[:start] + expected[end + len(b"</script>"):]
     if re.sub(pattern, b"", actual) != expected:
         raise ValueError("public HTML bytes differ beyond the launcher runtime data node")
+
+
+def public_web_resource(path):
+    # These are package metadata, generated declarations, transport sidecars
+    # and dedicated self-test pages; the public proxy deliberately excludes them.
+    return ("skills" not in path.parts and path.name != ".oasis7-viewer-dist-manifest.json"
+            and not path.name.endswith((".d.ts", ".gz"))
+            and path.name not in {"viewer_first_agent_claim_evidence.html",
+                                  "software_safe_first_agent_claim_evidence.html"})
 
 
 def signed_sample(client, device, identity):
@@ -103,9 +113,8 @@ def verify(request, config, device):
     # Verify exact public Web bytes, including versioned assets. No URL, command,
     # credentials or allowlist is accepted from the remote release manifest.
     web = Path(components["web"]["path"])
-    import urllib.parse
     for path in sorted(web.rglob("*")):
-        if path.is_file() and "skills" not in path.relative_to(web).parts:
+        if path.is_file() and public_web_resource(path.relative_to(web)):
             url = "/" + urllib.parse.quote(path.relative_to(web).as_posix(), safe="/")
             verify_web_bytes(path, path.read_bytes(), fetch(url), identity)
     _, public = skills.checked_release(player, components["player"]["source_sha"])

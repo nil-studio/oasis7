@@ -4,6 +4,44 @@ use worker::Env;
 fn rejected() -> JsValue {
     JsValue::from_str("custody service request rejected")
 }
+#[cfg(feature = "recovery-fence")]
+#[wasm_bindgen]
+pub async fn read_recovery_fence(env: Env) -> std::result::Result<String, JsValue> {
+    use worker::{Method, Request};
+    let stub = env
+        .durable_object("FENCES")
+        .map_err(|_| rejected())?
+        .id_from_name("service-fence-v1")
+        .map_err(|_| rejected())?
+        .get_stub()
+        .map_err(|_| rejected())?;
+    let response = stub
+        .fetch_with_request(
+            Request::new(
+                "https://fence.internal/internal/recovery-fence",
+                Method::Get,
+            )
+            .map_err(|_| rejected())?,
+        )
+        .await
+        .map_err(|_| rejected())?;
+    if response.status_code() != 200 {
+        return Err(rejected());
+    }
+    #[wasm_bindgen(module = "/platform/sql.mjs")]
+    extern "C" {
+        #[wasm_bindgen(catch, js_name = readBoundedText)]
+        async fn read_body(body: &JsValue, limit: u32) -> std::result::Result<JsValue, JsValue>;
+    }
+    let raw: web_sys::Response = response.into();
+    let text = read_body(raw.as_ref(), 1024)
+        .await?
+        .as_string()
+        .ok_or_else(rejected)?;
+    let _: oasis7_custody_core::recovery::RecoveryFence =
+        serde_json::from_str(&text).map_err(|_| rejected())?;
+    Ok(text)
+}
 #[cfg(feature = "identity")]
 #[wasm_bindgen]
 pub async fn native_verify_approval(env: Env, raw: String) -> std::result::Result<String, JsValue> {
@@ -53,6 +91,19 @@ pub async fn owner_freeze_manager(env: Env, raw: String) -> std::result::Result<
     let rpc: crate::directory_rpc::FreezeRpc =
         serde_json::from_str(&raw).map_err(|_| rejected())?;
     crate::owner_directory::call_directory(&env, "/internal/freeze", &raw, &rpc.manager_session)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_approve_provision(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    if raw.len() > 32768 {
+        return Err(rejected());
+    }
+    crate::owner_directory::approve_provision(&env, &raw)
         .await
         .map_err(|_| rejected())
 }

@@ -157,7 +157,7 @@ pub(super) fn export(directory: &std::path::Path) {
     let complete_response = ApprovalCompleteResponseV1 {
         api_version: 1,
         phase: ApprovalPhaseV1::Completed,
-        approval,
+        approval: approval.clone(),
         proof_bytes: "structural-fixture-only".into(),
     };
     let status = CustodySessionStatusV1 {
@@ -230,6 +230,42 @@ pub(super) fn export(directory: &std::path::Path) {
             service_public_key: "aa".repeat(32),
         },
         security_epoch: DecimalU64(0),
+    };
+    let mut provision_options = requests[1].clone();
+    provision_options.context.custody_account_id = draft_view.entry.custody_account_id.clone();
+    provision_options.context.security_version = DecimalU64(0);
+    provision_options.intent = CustodyIntentV1::Provision {
+        provision_id: draft_view.entry.provision_id.clone(),
+        purpose: draft_view.plan.purpose.clone(),
+        plan_digest: draft_view.plan.digest().unwrap(),
+        bootstrap_config_version: draft_view.entry.bootstrap_config_version,
+        world_identity: draft_view.world_identity.clone(),
+        identity_route: draft_view.plan.identity_route.clone(),
+        world_route: draft_view.plan.world_route.clone(),
+        native_identity_namespace: "identity:test".into(),
+        register_request_id: "register-one".into(),
+        login_request_id: "login-one".into(),
+        deadline: draft_view.plan.expires_at,
+        transport_limit: draft_view.plan.transport_limit,
+    };
+    let mut provision_approval = approval.clone();
+    provision_approval.proof.context = provision_options.context.clone();
+    provision_approval.proof.intent_digest = provision_options.intent_digest().unwrap();
+    let provision_approve = ProvisionApproveRequestV1 {
+        api_version: 1,
+        input: crate::approval_admission::ApprovalAdmissionInput {
+            operation_id: "approve-one".into(),
+            request: provision_options,
+            approval: provision_approval,
+        },
+    };
+    provision_approve.validate().unwrap();
+    let provision_approved = ProvisionApprovalViewV1 {
+        api_version: 1,
+        provision_id: draft_view.entry.provision_id.clone(),
+        custody_account_id: draft_view.entry.custody_account_id.clone(),
+        operation_id: "approve-one".into(),
+        stage: ProvisionStage::Approved,
     };
     let freeze_request = ManagerFreezeRequestV1 {
         api_version: 1,
@@ -326,6 +362,8 @@ pub(super) fn export(directory: &std::path::Path) {
         "ApprovalVerifyRequestV1":schemars::schema_for!(ApprovalVerifyRequestV1),
         "SignedApprovalVerificationV1":schemars::schema_for!(SignedApprovalVerificationV1),
         "CustodySessionStatusV1":schemars::schema_for!(CustodySessionStatusV1),
+        "ProvisionApproveRequestV1":schemars::schema_for!(ProvisionApproveRequestV1),
+        "ProvisionApprovalViewV1":schemars::schema_for!(ProvisionApprovalViewV1),
         "ProvisionDraftRequestV1":schemars::schema_for!(ProvisionDraftRequestV1),
         "ProvisionDraftViewV1":schemars::schema_for!(ProvisionDraftViewV1),
         "ManagerFreezeRequestV1":schemars::schema_for!(ManagerFreezeRequestV1),
@@ -339,7 +377,7 @@ pub(super) fn export(directory: &std::path::Path) {
         "SourceRevocationAckResultV1":[SourceRevocationAckResultV1{api_version:1,event_id:signed_source.event.event_id.clone(),event_digest:signed_source.digest().unwrap(),status:SourceClosureStateV1::Closed}],"metadata":([Role::Identity,Role::Owner,Role::Executor,Role::RecoveryFence].map(ServiceMetadata::disabled)),
         "error":([ErrorCode::NotFound,ErrorCode::NotReady,ErrorCode::MethodNotAllowed].map(ErrorResponse::new)),
         "ApprovalOptionsRequestV1":requests,"ApprovalOptionsResponseV1":[options_response],"ApprovalCompleteRequestV1":[complete],
-        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
+        "ApprovalCompleteResponseV1":[complete_response],"ApprovalVerifyRequestV1":[verify],"SignedApprovalVerificationV1":[response],"CustodySessionStatusV1":[status],"ProvisionApproveRequestV1":[provision_approve],"ProvisionApprovalViewV1":[provision_approved],"ProvisionDraftRequestV1":[draft_request],"ProvisionDraftViewV1":[draft_view],"ManagerFreezeRequestV1":[freeze_request],"ManagerClosureViewV1":[closure_view]});
     let decimal_fixtures = [
         json!(0),
         json!(9007199254740992_u64),

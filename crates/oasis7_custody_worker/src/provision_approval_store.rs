@@ -1,5 +1,5 @@
 //! Private Account component: approval consumption and provision preparation share one SQL row.
-//! No production caller, dispatch, key generation, or closure acknowledgement is installed.
+//! The fixed Account approval consumer is wired; no dispatch, key generation, or closure acknowledgement is installed.
 use crate::approval_store::{now, verify};
 use js_sys::Array;
 use oasis7_custody_core::{
@@ -10,7 +10,7 @@ use oasis7_custody_core::{
     },
     provisioning::{
         AccountDraftV1, AccountProvisionApprovalState, BootstrapManager, ProvisionApprovalContext,
-        ProvisionPolicy, ProvisionRoutes,
+        ProvisionPolicy, ProvisionRoleKeyResultV1, ProvisionRoutes, PublicRoleKey,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -93,6 +93,11 @@ fn decode(value: &str) -> Result<ProvisionApprovalSnapshot> {
     }
     Ok(value)
 }
+/// Recognize private persisted approval state solely for exact historical draft retry.
+pub(crate) fn matches_persisted_draft(state: &JsValue, draft: &AccountDraftV1) -> bool {
+    read(state, KEY).is_ok_and(|raw| decode(&raw).is_ok_and(|saved| saved.state.draft() == draft))
+}
+
 fn encode(value: &ProvisionApprovalSnapshot) -> Result<String> {
     let value = serde_json::to_string(value).map_err(|_| rejected())?;
     if value.len() > MAX_BYTES {
@@ -300,6 +305,68 @@ impl OwnerProvisionApprovalStore {
                 .cancel(operation_id, epoch, clock()?)
                 .map_err(|_| rejected())
         })
+    }
+    /// Only the fixed-role coordinator may supply an authenticated role response.
+    /// Current source observations must come from separately verified inspect_origin,
+    /// not an expired approval proof or a caller-provided active flag.
+    pub fn record_role_key_result<F>(
+        &self,
+        result: ProvisionRoleKeyResultV1,
+        current: F,
+    ) -> Result<PublicRoleKey>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+    {
+        self.record_role_key_result_with_clock(result, current, now)
+    }
+    pub fn record_role_key_result_with_clock<F, C>(
+        &self,
+        result: ProvisionRoleKeyResultV1,
+        current: F,
+        clock: C,
+    ) -> Result<PublicRoleKey>
+    where
+        F: Fn() -> Result<ProvisionApprovalCurrent>,
+        C: Fn() -> Result<u64>,
+    {
+        let initial = read(&self.state, KEY)?;
+        let mut returned = None;
+        let mut callback = |old: String, inventory: String| -> Result<Array> {
+            let mut next = decode(&old)?;
+            let trusted = current()?;
+            let public = next
+                .state
+                .record_role_key_result(result.clone(), &trusted.as_core(), clock()?)
+                .map_err(|_| rejected())?;
+            let response = if next.state == decode(&old)?.state {
+                validate_inventory(&inventory, next.state.draft(), false)?;
+                unchanged(&old)
+            } else {
+                validate_inventory(&inventory, next.state.draft(), true)?;
+                next.audit_sequence =
+                    DecimalU64(next.audit_sequence.0.checked_add(1).ok_or_else(rejected)?);
+                let audit = serde_json::to_string(&(
+                    next.audit_sequence,
+                    "role_key_recorded",
+                    &result.scope.operation_id,
+                    &result.scope.provision_id,
+                    result.scope.context.identity.role,
+                    &public,
+                ))
+                .map_err(|_| rejected())?;
+                let response = Array::new();
+                response.push(&encode(&next)?.into());
+                response.push(&next.audit_sequence.0.to_string().into());
+                response.push(&audit.into());
+                response
+            };
+            returned = Some(public);
+            Ok(response)
+        };
+        let closure = Closure::borrow_mut(&mut callback);
+        update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
+        drop(closure);
+        returned.ok_or_else(rejected)
     }
     pub async fn begin<F>(
         &self,

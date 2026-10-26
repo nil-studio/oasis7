@@ -20,12 +20,16 @@ impl LocalCasStore {
         write_json_atomic(pins, &self.pins_path)
     }
 
-    fn pin_scope_dir(&self, scope: &str) -> Result<PathBuf, WorldError> {
+    pub(super) fn pin_scope_dir(&self, scope: &str) -> Result<PathBuf, WorldError> {
         validate_pin_path_component(scope, "pin scope")?;
         Ok(self.root.join(PIN_SCOPES_DIR).join(scope))
     }
 
-    fn pin_scope_shard_path(&self, scope: &str, shard: &str) -> Result<PathBuf, WorldError> {
+    pub(super) fn pin_scope_shard_path(
+        &self,
+        scope: &str,
+        shard: &str,
+    ) -> Result<PathBuf, WorldError> {
         validate_pin_path_component(shard, "pin scope shard")?;
         Ok(self.pin_scope_dir(scope)?.join(format!("{shard}.json")))
     }
@@ -65,6 +69,7 @@ impl LocalCasStore {
     }
 
     pub fn pin(&self, content_hash: &str) -> Result<(), WorldError> {
+        let _retention = self.lock_retention()?;
         validate_hash(content_hash)?;
         if !self.has(content_hash)? {
             return Err(WorldError::BlobNotFound {
@@ -77,6 +82,7 @@ impl LocalCasStore {
     }
 
     pub fn unpin(&self, content_hash: &str) -> Result<bool, WorldError> {
+        let _retention = self.lock_retention()?;
         validate_hash(content_hash)?;
         let mut pins = self.load_pins()?;
         let removed = pins.pins.remove(content_hash);
@@ -104,6 +110,7 @@ impl LocalCasStore {
 
     /// Atomically replaces the legacy global pin set in one write.
     pub fn replace_pins(&self, pins: &BTreeSet<String>) -> Result<(), WorldError> {
+        let _retention = self.lock_retention()?;
         for pin in pins {
             validate_hash(pin.as_str())?;
             if !self.has(pin.as_str())? {
@@ -122,6 +129,7 @@ impl LocalCasStore {
         shard: &str,
         pins: &BTreeSet<String>,
     ) -> Result<(), WorldError> {
+        let _retention = self.lock_retention()?;
         for pin in pins {
             validate_hash(pin.as_str())?;
             if !self.has(pin.as_str())? {
@@ -141,6 +149,7 @@ impl LocalCasStore {
     }
 
     pub fn remove_pin_scope_shard(&self, scope: &str, shard: &str) -> Result<bool, WorldError> {
+        let _retention = self.lock_retention()?;
         let path = self.pin_scope_shard_path(scope, shard)?;
         match fs::remove_file(path) {
             Ok(()) => Ok(true),
@@ -172,6 +181,7 @@ impl LocalCasStore {
     }
 
     pub fn clear_pin_scope(&self, scope: &str) -> Result<(), WorldError> {
+        let _retention = self.lock_retention()?;
         let path = self.pin_scope_dir(scope)?;
         match fs::remove_dir_all(path) {
             Ok(()) => Ok(()),

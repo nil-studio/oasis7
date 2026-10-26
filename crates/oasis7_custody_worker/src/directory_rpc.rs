@@ -1,5 +1,5 @@
 //! Private, fixed service-entrypoint DTOs. Identity supplies authenticated metadata.
-use oasis7_custody_core::{approval::CustodySessionStatusV1, provisioning::*};
+use oasis7_custody_core::{DecimalU64, approval::CustodySessionStatusV1, provisioning::*};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 #[cfg(feature = "identity")]
@@ -22,6 +22,29 @@ pub(crate) struct ReadRpc {
 pub(crate) struct FreezeRpc {
     pub manager_session: CustodySessionStatusV1,
     pub request: ManagerFreezeRequestV1,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ApproveRpc {
+    pub manager_session: CustodySessionStatusV1,
+    pub provision_id: String,
+    pub request: ProvisionApproveRequestV1,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProvisionGateRpc {
+    pub manager_session: CustodySessionStatusV1,
+    pub provision_id: String,
+    pub custody_account_id: String,
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProvisionGateView {
+    pub api_version: u8,
+    pub draft: AccountDraftV1,
+    pub security_epoch: DecimalU64,
+    pub observed_at: DecimalU64,
+    pub directory_revision: String,
 }
 #[wasm_bindgen(module = "/platform/sql.mjs")]
 extern "C" {
@@ -49,4 +72,9 @@ extern "C" {
     #[wasm_bindgen(catch, js_name = freezeOwnerManager)]
     pub(crate) async fn freeze_owner(env: &Env, raw: &str)
     -> std::result::Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = approveOwnerProvision)]
+    pub(crate) async fn approve_owner(
+        env: &Env,
+        raw: &str,
+    ) -> std::result::Result<JsValue, JsValue>;
 }

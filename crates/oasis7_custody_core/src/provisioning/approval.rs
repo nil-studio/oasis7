@@ -5,6 +5,7 @@ use crate::{
     approval::{ApprovedWorldV1, CustodyIntentV1, SignedApprovalVerificationV1},
     approval_admission::*,
     http::Role,
+    role_key_slot::RoleKeySlotScopeV1,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -70,6 +71,15 @@ pub struct ProvisionRoleKeyTaskV1 {
     pub state: ProvisionRoleKeyTaskStateV1,
 }
 
+/// The adapter accepts this only from the fixed, authenticated role RPC.
+/// This receipt is not a signature, a permit, or proof of key possession itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProvisionRoleKeyResultV1 {
+    pub scope: RoleKeySlotScopeV1,
+    pub public_ref: PublicRoleKey,
+}
+
 /// A single persisted value is committed with its audit by the storage adapter.
 /// Restoring it checks cross-record consistency, but does not grant dispatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +90,7 @@ pub struct AccountProvisionApprovalState {
     provision: ProvisionRecord,
     accepted_operation_id: Option<String>,
     role_key_tasks: BTreeMap<String, ProvisionRoleKeyTaskV1>,
+    role_key_results: BTreeMap<String, ProvisionRoleKeyResultV1>,
     cancellation_operation_id: Option<String>,
 }
 #[derive(Deserialize)]
@@ -90,6 +101,10 @@ struct RawAccountProvisionApprovalState {
     provision: ProvisionRecord,
     accepted_operation_id: Option<String>,
     role_key_tasks: BTreeMap<String, ProvisionRoleKeyTaskV1>,
+    // Legacy approved snapshots contain no results. Defaulting empty does not
+    // permit a later stage: reconstructed ProvisionRecord must still match.
+    #[serde(default)]
+    role_key_results: BTreeMap<String, ProvisionRoleKeyResultV1>,
     cancellation_operation_id: Option<String>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
@@ -101,6 +116,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             provision: raw.provision,
             accepted_operation_id: raw.accepted_operation_id,
             role_key_tasks: raw.role_key_tasks,
+            role_key_results: raw.role_key_results,
             cancellation_operation_id: raw.cancellation_operation_id,
         };
         state.validate_persistence()?;
@@ -117,6 +133,7 @@ impl AccountProvisionApprovalState {
             book: ApprovalAdmissionBook::default(),
             accepted_operation_id: None,
             role_key_tasks: BTreeMap::new(),
+            role_key_results: BTreeMap::new(),
             cancellation_operation_id: None,
         })
     }
@@ -131,6 +148,131 @@ impl AccountProvisionApprovalState {
     }
     pub fn role_key_tasks(&self) -> &BTreeMap<String, ProvisionRoleKeyTaskV1> {
         &self.role_key_tasks
+    }
+    pub fn role_key_results(&self) -> &BTreeMap<String, ProvisionRoleKeyResultV1> {
+        &self.role_key_results
+    }
+    /// Current source facts must come from fresh authenticated inspect_origin,
+    /// not the old approval proof's thirty-second handoff window.
+    pub fn check_role_key_current(
+        &self,
+        current: &ProvisionApprovalContext<'_>,
+        now: u64,
+    ) -> Result<()> {
+        self.current(current, now)?;
+        let id = self
+            .accepted_operation_id
+            .as_deref()
+            .ok_or(ApprovalAdmissionError::Missing)?;
+        let original = self.original(id).ok_or(ApprovalAdmissionError::Missing)?;
+        self.historical_scope(id, current)?;
+        let proof = &original.input().approval.proof;
+        let source = &current.approval.source;
+        if original.stage() != ApprovalAdmissionStage::Consumed
+            || current.approval.authority != proof.context
+            || current.approval.frozen
+            || current
+                .approval
+                .fence
+                .check_epoch(proof.context.service_epoch.0)
+                .is_err()
+            || source.manager_session_ref != proof.manager_session_ref
+            || source.origin_credential_id != proof.origin_credential_id
+            || source.origin_credential_version != proof.origin_credential_version
+            || source.passkey_credential_id != proof.passkey_credential_id
+            || source.passkey_credential_version != proof.passkey_credential_version
+            || source.manager_policy_version != proof.manager_policy_version
+            || source.manager_security_version != proof.manager_security_version
+            || now >= source.session_expires_at.0
+            || now >= source.session_idle_expires_at.0
+        {
+            return Err(ProvisionApprovalError::BindingMismatch);
+        }
+        let CustodyIntentV1::Provision {
+            native_identity_namespace,
+            ..
+        } = &original.input().request.intent
+        else {
+            return Err(ProvisionApprovalError::BindingMismatch);
+        };
+        if native_identity_namespace != current.native_identity_namespace {
+            return Err(ProvisionApprovalError::BindingMismatch);
+        }
+        Ok(())
+    }
+    /// Records a fixed-role adapter result in the same persisted Account value.
+    /// Exact retries are historical reads; they do not authorize another action.
+    pub fn record_role_key_result(
+        &mut self,
+        result: ProvisionRoleKeyResultV1,
+        current: &ProvisionApprovalContext<'_>,
+        now: u64,
+    ) -> Result<PublicRoleKey> {
+        let name = self.validate_role_key_result(&result)?;
+        if let Some(original) = self.role_key_results.get(name) {
+            let id = self
+                .accepted_operation_id
+                .as_deref()
+                .ok_or(ApprovalAdmissionError::Missing)?;
+            self.historical_scope(id, current)?;
+            return if original == &result {
+                Ok(original.public_ref.clone())
+            } else {
+                Err(ProvisionApprovalError::Conflict)
+            };
+        }
+        self.check_role_key_current(current, now)?;
+        if self
+            .role_key_tasks
+            .get(name)
+            .is_none_or(|t| t.state != ProvisionRoleKeyTaskStateV1::Pending)
+        {
+            return Err(ProvisionApprovalError::Conflict);
+        }
+        let mut candidate = self.clone();
+        candidate.provision.record_key(
+            result.scope.context.identity.role,
+            result.public_ref.clone(),
+            current.approval.authority.security_version.0,
+            now,
+        )?;
+        candidate
+            .role_key_results
+            .insert(name.into(), result.clone());
+        candidate.validate_persistence()?;
+        *self = candidate;
+        Ok(result.public_ref)
+    }
+    fn validate_role_key_result(&self, result: &ProvisionRoleKeyResultV1) -> Result<&'static str> {
+        result
+            .scope
+            .validate()
+            .map_err(|_| ProvisionApprovalError::BindingMismatch)?;
+        let name = match result.scope.context.identity.role {
+            Role::Identity => "identity",
+            Role::Owner => "owner",
+            Role::Executor => "executor",
+            Role::RecoveryFence => return Err(ProvisionApprovalError::BindingMismatch),
+        };
+        let task = self
+            .role_key_tasks
+            .get(name)
+            .ok_or(ProvisionApprovalError::BindingMismatch)?;
+        if result.scope
+            != RoleKeySlotScopeV1::from_task(task)
+                .map_err(|_| ProvisionApprovalError::BindingMismatch)?
+            || result.public_ref.key_id != task.key_id
+            || result.public_ref.key_version != task.key_version
+            || result.public_ref.public_key.len() != 64
+            || !result
+                .public_ref
+                .public_key
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(ProvisionApprovalError::BindingMismatch);
+        }
+        Ok(name)
     }
     pub fn accepted_operation_id(&self) -> Option<&str> {
         self.accepted_operation_id.as_deref()
@@ -346,7 +488,10 @@ impl AccountProvisionApprovalState {
             }
             Some(consumed[0].input().approval.proof.nonce.as_str())
         } else {
-            if !consumed.is_empty() || !self.role_key_tasks.is_empty() {
+            if !consumed.is_empty()
+                || !self.role_key_tasks.is_empty()
+                || !self.role_key_results.is_empty()
+            {
                 return Err(ProvisionApprovalError::InvalidPersistence);
             }
             None
@@ -358,7 +503,18 @@ impl AccountProvisionApprovalState {
         {
             return Err(ProvisionApprovalError::InvalidPersistence);
         }
-        self.provision.validate_approval_only(&self.draft, nonce)?;
+        let mut keys = Vec::new();
+        for (name, result) in &self.role_key_results {
+            if self.validate_role_key_result(result)? != name {
+                return Err(ProvisionApprovalError::InvalidPersistence);
+            }
+            keys.push((
+                result.scope.context.identity.role,
+                result.public_ref.clone(),
+            ));
+        }
+        self.provision
+            .validate_approval_progress(&self.draft, nonce, &keys)?;
         Ok(())
     }
 }

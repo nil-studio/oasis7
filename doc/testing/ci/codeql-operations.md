@@ -83,6 +83,10 @@ archive 下载上限 1 MiB、超时 30 秒，并校验平台 `sha256` digest；Z
 
 CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI 声明及生效保护决定。必需安全检查未成功时不得合入，不通过本地解释改写远端结果。
 
+## Tauri 上下文生成覆盖例外
+
+Rust 的 CodeQL、容量及 CFG 诊断入口仅精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
+
 ## Rust 公共模型性能诊断
 
 本入口用于已授权的候选源码测量，遵循[有界公共模型性能诊断](codeql-integration.design.md#72-rust)，不执行安全查询集、不上传 SARIF、不修改批次设置或 required policy。源码与诊断程序分别固定 OID；每轮开始前记录探针要区分的假设、预期观察和停止条件，保留旧失败，不自动重试。

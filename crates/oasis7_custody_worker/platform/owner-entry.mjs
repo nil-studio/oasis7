@@ -7,6 +7,7 @@ export class OwnerManagement extends WorkerEntrypoint {
   async reserveDraft(raw) { return new RustWorker(this.ctx, this.env).owner_reserve_draft(this.env, raw); }
   async getDraft(raw) { return new RustWorker(this.ctx, this.env).owner_read_draft(this.env, raw); }
   async freezeManager(raw) { return new RustWorker(this.ctx, this.env).owner_freeze_manager(this.env, raw); }
+  async approveProvision(raw) { return new RustWorker(this.ctx, this.env).owner_approve_provision(this.env, raw); }
 }
 
 export class OwnerRevocations extends WorkerEntrypoint {

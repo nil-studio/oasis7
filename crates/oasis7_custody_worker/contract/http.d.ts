@@ -173,6 +173,17 @@ export type PurposeBudgetV1 = {
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
 export type ManagerClosureStatus = "open" | "pending" | "closed";
+export type ProvisionStage = "draft" | "approved" | "role_keys_ready" | "native_registered" | "native_session_ready" | "participant_bound" | "ready_for_setup" | "prepared";
+export type ApprovalAdmissionInput = {
+  "approval": SignedCustodyApprovalV1;
+  "operation_id": string;
+  "request": ApprovalOptionsRequestV1;
+};
+export type ApprovalOptionsRequestV1 = {
+  "approval_request_id": string;
+  "context": ApprovalContextV1;
+  "intent": CustodyIntentV1;
+};
 export type ProvisionPlan = {
   "environment": string;
   "expires_at": DecimalU64;
@@ -310,11 +321,6 @@ export type ApprovalCompleteResponseV1 = {
   "phase": ApprovalPhaseV1;
   "proof_bytes": string;
 };
-export type ApprovalOptionsRequestV1 = {
-  "approval_request_id": string;
-  "context": ApprovalContextV1;
-  "intent": CustodyIntentV1;
-};
 export type ApprovalOptionsResponseV1 = {
   "api_version": number;
   "approval_id": string;
@@ -358,6 +364,17 @@ export type ManagerClosureViewV1 = {
 export type ManagerFreezeRequestV1 = {
   "api_version": number;
   "operation_id": string;
+};
+export type ProvisionApprovalViewV1 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "operation_id": string;
+  "provision_id": string;
+  "stage": ProvisionStage;
+};
+export type ProvisionApproveRequestV1 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
 };
 export type ProvisionDraftRequestV1 = {
   "api_version": number;

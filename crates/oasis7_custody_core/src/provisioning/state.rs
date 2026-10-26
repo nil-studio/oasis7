@@ -4,6 +4,7 @@ use crate::{DecimalU64, budget::BudgetLedger, http::Role};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionStage {
@@ -72,14 +73,18 @@ impl ProvisionRecord {
     pub(super) fn frozen(&self) -> bool {
         self.frozen
     }
-    pub(super) fn validate_approval_only(
+    pub(super) fn validate_approval_progress(
         &self,
         draft: &super::AccountDraftV1,
         nonce: Option<&str>,
+        keys: &[(Role, PublicRoleKey)],
     ) -> Result<(), ProvisionError> {
         let mut expected = Self::draft(draft.entry.clone(), draft.plan.clone())?;
         if let Some(nonce) = nonce {
             expected.approve(&draft.entry.plan_digest, nonce, 0, 0)?;
+        }
+        for (role, key) in keys {
+            expected.record_key(*role, key.clone(), 0, 0)?;
         }
         if self.frozen {
             expected.freeze(self.security_epoch.0)?;

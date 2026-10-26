@@ -2,5 +2,6 @@
 export async function reserveOwnerDraft(env, raw) { return env.OWNER_MANAGEMENT.reserveDraft(raw); }
 export async function readOwnerDraft(env, raw) { return env.OWNER_MANAGEMENT.getDraft(raw); }
 export async function freezeOwnerManager(env, raw) { return env.OWNER_MANAGEMENT.freezeManager(raw); }
+export async function approveOwnerProvision(env, raw) { return env.OWNER_MANAGEMENT.approveProvision(raw); }
 
 export async function closeSourceEvent(env, raw) { return env.OWNER_REVOCATIONS.closeSourceEvent(raw); }

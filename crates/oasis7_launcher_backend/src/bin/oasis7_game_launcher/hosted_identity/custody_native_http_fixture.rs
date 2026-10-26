@@ -90,6 +90,7 @@ fn serve_native_identity_http_fixture() {
         )
         .unwrap();
     let request = verify_request(&complete);
+    let mut authenticator_counter = 1_u32;
     let authority = fixture.service.custody.as_ref().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -141,7 +142,34 @@ fn serve_native_identity_http_fixture() {
         } else {
             serde_json::from_slice(&body).unwrap()
         };
-        let reply = if method == "GET" && path == "/_fixture/revocation-status" {
+        let reply = if method == "POST" && path == "/_fixture/approve-intent" {
+            // Test-only authenticator owns this synthetic Passkey. The real
+            // options/UV completion and SQLite proof persistence are unchanged.
+            let now = now_ms();
+            match fixture.service.custody_options(
+                Some(&fixture.token),
+                &payload,
+                "provision-fixture",
+                now,
+            ) {
+                Ok(start) => {
+                    authenticator_counter = authenticator_counter.checked_add(1).unwrap();
+                    let mut payload = complete_payload(&start, &key, 0x05);
+                    payload["response"] =
+                        assertion_with_counter(&start, &key, 0x05, authenticator_counter);
+                    match fixture.service.custody_complete(
+                        Some(&fixture.token),
+                        &payload,
+                        "provision-fixture",
+                        now,
+                    ) {
+                        Ok(value) => crate::hosted_identity::service::IdentityReply::ok(value),
+                        Err(error) => crate::hosted_identity::service::IdentityReply::error(error),
+                    }
+                }
+                Err(error) => crate::hosted_identity::service::IdentityReply::error(error),
+            }
+        } else if method == "GET" && path == "/_fixture/revocation-status" {
             let (pending, acknowledged) = fixture
                 .service
                 .store

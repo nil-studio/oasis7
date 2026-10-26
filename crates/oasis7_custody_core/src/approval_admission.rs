@@ -37,6 +37,7 @@ pub struct ApprovalAdmissionContext {
     pub handoff_until: DecimalU64,
 }
 
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalAdmissionInput {

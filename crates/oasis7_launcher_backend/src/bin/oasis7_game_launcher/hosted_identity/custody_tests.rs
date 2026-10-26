@@ -186,6 +186,9 @@ fn provision_bootstrap_zero_target_epoch_requires_complete_signed_scope() {
         .unwrap();
 }
 fn assertion(options: &Value, key: &PKey<Private>, flags: u8) -> Value {
+    assertion_with_counter(options, key, flags, 1)
+}
+fn assertion_with_counter(options: &Value, key: &PKey<Private>, flags: u8, counter: u32) -> Value {
     let client = serde_json::to_vec(
         &json!({"type":"webauthn.get","challenge":options["options"]["publicKey"]["challenge"],
         "origin":"https://localhost","crossOrigin":false}),
@@ -193,7 +196,7 @@ fn assertion(options: &Value, key: &PKey<Private>, flags: u8) -> Value {
     .unwrap();
     let mut auth = Sha256::digest(b"localhost").to_vec();
     auth.push(flags);
-    auth.extend_from_slice(&1_u32.to_be_bytes());
+    auth.extend_from_slice(&counter.to_be_bytes());
     let mut bytes = auth.clone();
     bytes.extend_from_slice(&Sha256::digest(&client));
     let mut signer = openssl::sign::Signer::new(MessageDigest::sha256(), key).unwrap();
