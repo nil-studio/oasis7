@@ -63,6 +63,25 @@ class RustCoverageTests(unittest.TestCase):
         self.assertNotIn("_templates", ignored)
         self.assertNotIn("CODEQL_EXTRACTOR_RUST_OPTION_CARGO_TARGET:", workflow)
 
+    def test_generated_tauri_context_is_the_only_new_rust_exclusion(self):
+        excluded="tools/oasis7-command-center/src-tauri/src/generated_context.rs"
+        for name in ("codeql.yml","codeql-rust-capacity.yml","codeql-rust-cfg-diagnostic.yml"):
+            text=(ROOT/".github/workflows"/name).read_text()
+            block=re.split(r"(?m)^      - ",text.split("paths-ignore:\n",1)[1],maxsplit=1)[0]
+            paths=re.findall(r"^              - (.+)$",block,re.M)
+            self.assertEqual(paths,["third_party/**","target/**","node_modules/**","dist/**",".pm/**",excluded],name)
+        main=(ROOT/"tools/oasis7-command-center/src-tauri/src/main.rs").read_text()
+        self.assertNotIn("tauri::generate_context!",main)
+        self.assertIn(".build(generated_context::create())",main)
+        self.assertIn("mod generated_context;",main)
+        source=(ROOT/excluded).read_text()
+        self.assertEqual(source.count("tauri::generate_context!()"),1)
+        self.assertIn("pub(super) fn create() -> tauri::Context<tauri::Wry>",source)
+        self.assertNotIn("cfg(",source)
+        self.assertNotIn("panic!",source)
+        substantive=[line.strip() for line in source.splitlines() if line.strip() and not line.lstrip().startswith("//")]
+        self.assertEqual(substantive,["pub(super) fn create() -> tauri::Context<tauri::Wry> {","tauri::generate_context!()","}"])
+
     def test_extra_include_array_resolves_to_existing_checkout_templates(self):
         workflow = (ROOT / ".github/workflows/codeql.yml").read_text()
         encoded = re.search(r"OPTION_EXTRA_INCLUDES: .*format\('([^']+)'", workflow).group(1)
