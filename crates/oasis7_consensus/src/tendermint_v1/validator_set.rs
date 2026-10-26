@@ -8,6 +8,10 @@ use serde::Serialize;
 
 pub use oasis7_proto::distributed_bft::BFT_MAX_VALIDATORS_V1;
 
+/// Persistent height seeds advance once per block, independently of QC round.
+/// Bound into the signed validator-set hash to reject legacy schedule semantics.
+pub const BFT_HEIGHT_SCHEDULE_RULESET_V2: &str = "height-seed-v2";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftValidatorV1 {
@@ -29,6 +33,7 @@ pub struct BftValidatorSetV1 {
 #[derive(Serialize)]
 struct ValidatorSetHashPayload<'a> {
     protocol_version: u16,
+    schedule_ruleset: &'static str,
     scope: &'a BftScopeV1,
     validators: Vec<&'a BftValidatorV1>,
 }
@@ -83,11 +88,12 @@ impl BftValidatorSetV1 {
         let future_round_voting_power = total_voting_power / 3 + 1;
         let encoded = serde_cbor::to_vec(&ValidatorSetHashPayload {
             protocol_version: BFT_PROTOCOL_VERSION_V1,
+            schedule_ruleset: BFT_HEIGHT_SCHEDULE_RULESET_V2,
             scope: &scope,
             validators: by_id.values().collect(),
         })
         .map_err(|err| format!("encode BFT validator set: {err}"))?;
-        let domain = "oasis7.bft.validator_set.v1.hash";
+        let domain = "oasis7.bft.validator_set.height-seed-v2.hash";
         let framed_len = 8usize
             .checked_add(domain.len())
             .and_then(|size| size.checked_add(encoded.len()))
@@ -189,4 +195,70 @@ fn decode_public_key(value: &str) -> Result<[u8; 32], String> {
         return Err("BFT validator public key is weak".into());
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod schedule_ruleset_tests {
+    use super::*;
+    use ed25519_dalek::SigningKey;
+
+    #[test]
+    fn legacy_schedule_hash_cannot_authorize_new_ruleset_proposals() {
+        // Reproduce the legacy commitment independently, without the new helper.
+        #[derive(Serialize)]
+        struct LegacySet<'a> {
+            protocol_version: u16,
+            scope: &'a BftScopeV1,
+            validators: Vec<&'a BftValidatorV1>,
+        }
+        let key = SigningKey::from_bytes(&[91; 32]);
+        let scope = BftScopeV1 {
+            world_id: "ruleset-test".into(),
+            chain_id: "ruleset-chain".into(),
+            genesis_hash: "ab".repeat(32),
+        };
+        let member = BftValidatorV1 {
+            validator_id: "v0".into(),
+            public_key_hex: hex::encode(key.verifying_key().to_bytes()),
+            voting_power: 1,
+        };
+        let encoded = serde_cbor::to_vec(&LegacySet {
+            protocol_version: 1,
+            scope: &scope,
+            validators: vec![&member],
+        })
+        .unwrap();
+        let domain = "oasis7.bft.validator_set.v1.hash";
+        let mut legacy = (domain.len() as u64).to_be_bytes().to_vec();
+        legacy.extend_from_slice(domain.as_bytes());
+        legacy.extend_from_slice(&encoded);
+        let old_hash = blake3::hash(&legacy).to_hex().to_string();
+        let set = BftValidatorSetV1::new(scope.clone(), vec![member]).unwrap();
+        assert_ne!(set.set_hash(), old_hash);
+        let old = BftProposalHeaderV1::sign(
+            scope.clone(),
+            1,
+            0,
+            old_hash,
+            "v0".into(),
+            "cd".repeat(32),
+            None,
+            &key,
+        )
+        .unwrap();
+        assert!(old.verify_signature().is_ok());
+        assert!(set.validate_proposer(&old).is_err());
+        let current = BftProposalHeaderV1::sign(
+            scope,
+            1,
+            0,
+            set.set_hash().into(),
+            "v0".into(),
+            "cd".repeat(32),
+            None,
+            &key,
+        )
+        .unwrap();
+        assert!(set.validate_proposer(&current).is_ok());
+    }
 }

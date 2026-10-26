@@ -259,7 +259,7 @@ fn worker_with_history_page(
         bft,
         set,
         schedule,
-        key,
+        key: Some(key),
         hook: Arc::new(Mutex::new(Box::new(ProposalHook {
             governance_authorized: authorized,
             history_page_calls,
@@ -426,7 +426,7 @@ fn receive_rejects_duplicate_valid_round_prevotes_and_keeps_processing() {
     let root = TempRoot::new();
     let mut worker = worker(&root, Vec::new(), Arc::new(AtomicBool::new(true)));
     let endpoint = history_endpoint();
-    let key = worker.setup.key.clone();
+    let key = worker.setup.key.clone().expect("local fixture key");
     let scope = worker.setup.bft.scope.clone();
     let validator_set_hash = worker.setup.set.set_hash().to_string();
     let context = NodeBftExecutionContextV1 {
@@ -710,7 +710,10 @@ fn bft_ingress_is_idempotent_and_start_rejects_legacy_queue_conflicts() {
     let legacy_bytes = legacy
         .pending_consensus_action_queue_bytes
         .load(Ordering::Acquire);
-    legacy.bft_config = Some(bft_config(&key));
+    legacy.bft_config = Some(crate::node_bft_runtime::SelectedNodeBftConfigV1 {
+        consensus: bft_config(&key),
+        protected: None,
+    });
 
     let error = legacy
         .start()
@@ -737,3 +740,7 @@ fn bft_ingress_is_idempotent_and_start_rejects_legacy_queue_conflicts() {
         legacy_bytes
     );
 }
+
+#[cfg(unix)]
+#[path = "node_bft_protected_tests.rs"]
+mod protected;

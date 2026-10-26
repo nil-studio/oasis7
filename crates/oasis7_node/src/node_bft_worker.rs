@@ -34,7 +34,7 @@ pub(super) struct WorkerSetup {
     pub bft: NodeBftConfigV1,
     pub set: BftValidatorSetV1,
     pub schedule: BftHeightProposerScheduleV1,
-    pub key: SigningKey,
+    pub key: Option<SigningKey>,
     pub hook: Hook,
     pub wal: BftWalStore,
     pub pending: Arc<Mutex<Vec<NodeConsensusAction>>>,
@@ -64,7 +64,8 @@ impl Worker {
         transport::validate_configuration(set, epoch)
     }
     pub(super) fn restore(mut setup: WorkerSetup) -> Result<Self, NodeError> {
-        let origin = setup.wal.ensure_height_started_at(now_unix_ms())?;
+        let now = setup.wal.protected_time_ms()?.unwrap_or_else(now_unix_ms);
+        let origin = setup.wal.ensure_height_started_at(now)?;
         let machine = BftConsensusMachineV1::new(
             setup.set.clone(),
             setup.bft.local_validator_id.clone(),
@@ -87,7 +88,9 @@ impl Worker {
             last_commit: None,
         };
         this.replay()?;
-        this.clock_base = this.clock_base.max(now_unix_ms());
+        if this.setup.key.is_some() {
+            this.clock_base = this.clock_base.max(now_unix_ms());
+        }
         this.clock_origin = Instant::now();
         this.publish_status(None);
         Ok(this)
@@ -147,7 +150,10 @@ impl Worker {
         }
     }
 
-    fn now(&self) -> Result<i64, NodeError> {
+    fn now(&mut self) -> Result<i64, NodeError> {
+        if let Some(now) = self.setup.wal.protected_time_ms()? {
+            return Ok(now);
+        }
         let elapsed = i64::try_from(self.clock_origin.elapsed().as_millis())
             .map_err(|_| error("BFT elapsed clock overflow"))?;
         self.clock_base

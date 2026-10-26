@@ -21,6 +21,105 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_canonical_probe_selects_longer_watchdog_without_retry(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_probe_watchdog_selection", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = module.Smoke({"canonical_probe": ["canonical"], "initial_probe": ["initial"]},
+                                 Path(directory), time.monotonic() + 600)
+            for name, seconds in [("canonical_probe", 130), ("initial_probe", 60)]:
+                with self.subTest(probe=name), patch.object(smoke, "command", return_value=(0, b'{}')) as command:
+                    self.assertEqual(smoke.probe(name, {}), {})
+                    command.assert_called_once_with(smoke.fixture[name], private=name == "canonical_probe",
+                                                    timeout_seconds=seconds)
+
+    def test_smoke_command_watchdogs_remain_capped_by_global_deadline(self):
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_probe_watchdog_deadline", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        for seconds, remaining, wanted in [(130, 600, 130), (60, 600, 60), (None, 600, 60),
+                                           (130, 25, 25), (60, 25, 25)]:
+            with self.subTest(seconds=seconds, remaining=remaining), tempfile.TemporaryDirectory() as directory:
+                smoke = module.Smoke({}, Path(directory), 100 + remaining)
+                child = Mock(returncode=0)
+                with patch.object(module.time, "monotonic", return_value=100), \
+                        patch.object(module.subprocess, "Popen", return_value=child):
+                    kwargs = {} if seconds is None else {"timeout_seconds": seconds}
+                    self.assertEqual(smoke.command(["fixture"], **kwargs), (0, b""))
+                child.communicate.assert_called_once_with(None, timeout=wanted)
+        # The longer probe watchdog still terminates its one tracked child.
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = module.Smoke({}, Path(directory), 700)
+            child = Mock(pid=4242)
+            child.communicate.side_effect = subprocess.TimeoutExpired("fixture", 130)
+            with patch.object(module.time, "monotonic", return_value=100), \
+                    patch.object(module.subprocess, "Popen", return_value=child) as spawn, \
+                    patch.object(module.os, "killpg") as kill:
+                with self.assertRaisesRegex(RuntimeError, "bounded child command timed out"):
+                    smoke.command(["fixture"], timeout_seconds=130)
+            spawn.assert_called_once()
+            kill.assert_called_once_with(4242, module.signal.SIGKILL)
+            child.wait.assert_called_once()
+
+    def test_smoke_probe_failure_receipt_classifies_only_exact_safe_errors(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_probe_diagnostics", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        cases = [
+            (1, b"context_prefix query transport; retain original operation\n", "context_prefix_query_transport"),
+            (1, b"action rejected:conflict; retain original operation\n", "action_rejected_conflict"),
+            (1, b"probe recovery deadline exhausted; retain original operation\n", "recovery_deadline"),
+            (-9, b"", "unavailable"),
+            (1, b"SECRET_KEY_CANARY owner=private-agent operation=private-id", "unavailable"),
+            (1, b"SECRET_KEY_CANARY\naction rejected:conflict; retain original operation\n", "unavailable"),
+            (1, b"action query transport; retain original operation SECRET_KEY_CANARY", "unavailable"),
+            (1, b"\xffSECRET_KEY_CANARY", "unavailable"),
+            (0, b"SECRET_KEY_CANARY" * 5000, "output_limit"),
+        ]
+        for code, output, category in cases:
+            with self.subTest(category=category, code=code), tempfile.TemporaryDirectory() as directory:
+                smoke = module.Smoke({"canonical_probe": ["unused"]}, Path(directory), time.monotonic() + 10)
+                smoke.stage = "canonical_sdk_action"
+                with patch.object(smoke, "command", return_value=(code, output)) as command:
+                    with self.assertRaisesRegex(RuntimeError, "canonical_probe failed; inspect private process log"):
+                        smoke.probe("canonical_probe", {"canonical_verified": True})
+                    command.assert_called_once_with(["unused"], private=True, timeout_seconds=130)
+                receipt = smoke.write_failure_receipt()
+                self.assertEqual(receipt["probe_failure"], {
+                    "rc": code, "output_bytes": len(output), "category": category})
+                self.assertEqual(receipt["attempts"], 0)
+                rendered = (Path(directory) / "receipt.json").read_text()
+                for secret in ("SECRET_KEY_CANARY", "private-agent", "private-id", "retain original operation"):
+                    self.assertNotIn(secret, rendered)
+                self.assertEqual(json.loads(rendered), receipt)
+
+    def test_smoke_probe_success_and_evidence_mismatch_do_not_reuse_old_failure(self):
+        import time
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_probe_diagnostics_reset", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = module.Smoke({"canonical_probe": ["unused"]}, Path(directory), time.monotonic() + 10)
+            with patch.object(smoke, "command", return_value=(1, b"SDK task binding mismatch\n")):
+                with self.assertRaises(RuntimeError):
+                    smoke.probe("canonical_probe", {"canonical_verified": True})
+            self.assertEqual(smoke.write_failure_receipt()["probe_failure"]["category"], "sdk_task_binding_mismatch")
+            with patch.object(smoke, "command", return_value=(0, b'{"canonical_verified":true}')):
+                self.assertEqual(smoke.probe("canonical_probe", {"canonical_verified": True}), {"canonical_verified": True})
+            self.assertNotIn("probe_failure", smoke.write_failure_receipt())
+            with patch.object(smoke, "command", return_value=(0, b'{"canonical_verified":false}')) as command:
+                with self.assertRaisesRegex(RuntimeError, "missing required evidence: canonical_verified"):
+                    smoke.probe("canonical_probe", {"canonical_verified": True})
+                command.assert_called_once()
+            self.assertNotIn("probe_failure", smoke.write_failure_receipt())
+
     def test_smoke_failure_receipt_projects_only_fixed_safe_values(self):
         import time
         module_spec = importlib.util.spec_from_file_location(
