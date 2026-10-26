@@ -2,6 +2,62 @@ use super::*;
 
 #[test]
 #[cfg(unix)]
+fn qualified_handoff_private_client_constructor_enforces_transport_policy() {
+    std::thread::Builder::new()
+        .name("formal-bft-client-transport-handoff".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(qualified_handoff_private_client_transport_case)
+        .expect("spawn large-stack qualified H client fixture")
+        .join()
+        .expect("qualified H private client transport case");
+}
+
+#[cfg(unix)]
+fn qualified_handoff_private_client_transport_case() {
+    let handoff = qualified_handoff();
+    for (endpoint, accepted) in [
+        ("http://192.0.2.1:9080", false),
+        ("http://localhost:9080", false),
+        ("https://service.example", true),
+        ("http://127.0.0.1:9080", true),
+        ("http://[::1]:9080", true),
+    ] {
+        let result = FormalBftReadClientV2::new(
+            FormalBftReadClientConfigV2 {
+                endpoint: endpoint.into(),
+                trusted_service_public_key: fixtures::public(72),
+                read_private_key_hex: hex::encode([73; 32]),
+                timeout: Duration::from_secs(1),
+                scope_id: "agent:reader".into(),
+                exact_target: oasis7_client_api::world_service::FormalBftReadTargetV2 {
+                    height: handoff.anchor.head().record().position + 1,
+                    block_id: fixtures::h(74),
+                },
+            },
+            handoff.anchor.clone(),
+            handoff.target.clone(),
+        );
+        match (accepted, result) {
+            (true, Ok(_)) => {}
+            (true, Err(error)) => {
+                panic!("qualified H client rejected endpoint {endpoint}: {error}");
+            }
+            (false, Ok(_)) => {
+                panic!("private agent client accepted plaintext endpoint {endpoint}");
+            }
+            (false, Err(error)) => {
+                let error = error.to_string();
+                assert!(
+                    error.contains("HTTPS or a literal loopback HTTP address"),
+                    "qualified H must reach the private transport policy for {endpoint}, got {error}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[cfg(unix)]
 fn formal_read_ledger_refuses_engineering_and_legacy_entrypoints() {
     std::thread::Builder::new()
         .name("formal-bft-profile-isolation".into())

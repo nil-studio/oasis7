@@ -247,6 +247,10 @@ impl WorldServiceTransport {
                 WorldServiceClientError::Configuration("private transport unavailable".into())
             })
     }
+    pub(crate) fn use_private_connection(&mut self) -> Result<(), WorldServiceClientError> {
+        self.http = self.private_connection()?;
+        Ok(())
+    }
     /// Fetch confidential bytes without proxies or redirects. The caller must
     /// strictly decode and verify the exact original request's response proof.
     pub fn private_response_bytes<Q: Serialize>(

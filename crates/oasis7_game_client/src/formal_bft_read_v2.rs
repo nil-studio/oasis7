@@ -251,7 +251,8 @@ impl FormalBftReadClientV2 {
             &config.read_private_key_hex,
         )
         .map_err(WorldServiceClientError::Configuration)?;
-        let transport = WorldServiceTransport::new(crate::WorldServiceClientConfig {
+        let private_scope = config.scope_id.starts_with("agent:");
+        let mut transport = WorldServiceTransport::new(crate::WorldServiceClientConfig {
             endpoint: config.endpoint,
             trusted_service_public_key: config.trusted_service_public_key,
             expected_world: verifier.world.clone(),
@@ -261,6 +262,11 @@ impl FormalBftReadClientV2 {
             max_response_bytes:
                 oasis7_client_api::world_service::MAX_FORMAL_BFT_READ_RESPONSE_BYTES_V2,
         })?;
+        if private_scope {
+            // Keep the generic signed response codec and its 8 MiB bound, but
+            // route confidential reads through the no-proxy, no-redirect client.
+            transport.use_private_connection()?;
+        }
         Ok(Self {
             transport,
             verifier,
