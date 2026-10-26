@@ -584,3 +584,69 @@ fn delegation_revoke_exact_replay_preserves_saturating_revision_boundary() {
     );
     assert_eq!(serde_json::to_vec(&world).unwrap(), before);
 }
+
+#[test]
+fn delegation_orphan_spend_rejects_unrepresentable_signed_result_before_publication() {
+    let original = fixture();
+    let mut snapshot = original.snapshot();
+    let grant = grant();
+    let key = serde_json::to_string(&(
+        &grant.grant_id,
+        &grant.source_id,
+        &grant.object_id,
+        &grant.period_id,
+    ))
+    .unwrap();
+    snapshot.cognition["agent_delegation"] =
+        json!({"grants": {}, "spent": {key: grant.limit_units + 1}});
+    let mut world = World::from_snapshot(snapshot, original.journal().clone()).unwrap();
+    let mut legacy = world.clone();
+    // The RED experiment asserted rejection here and failed: the old unit
+    // mutation succeeds, then cannot project its newly installed grant.
+    legacy
+        .install_agent_delegation_grant(grant.clone())
+        .unwrap();
+    assert!(legacy.agent_delegation_authorizations(AGENT_ID).is_err());
+    let root = std::env::temp_dir().join(format!(
+        "oasis7-orphan-spend-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    world.save_to_dir(&root).unwrap();
+    let persisted = std::fs::read(root.join("snapshot.json")).unwrap();
+    let journal = std::fs::read(root.join("journal.json")).unwrap();
+    let before = serde_json::to_value(world.snapshot()).unwrap();
+    let signed = request(install(), 1);
+    assert_eq!(
+        world
+            .signed_delegation_control_replay(&signed, &registry())
+            .unwrap(),
+        DelegationReplayMatch::NoMatch
+    );
+    let error = world
+        .apply_signed_delegation_control(&signed, &registry())
+        .unwrap_err();
+    assert_eq!(error.stage, DelegationControlStage::Apply);
+    assert_eq!(
+        error.source,
+        WorldError::ResourceBalanceInvalid {
+            reason: "agent_delegation:budget_corrupt".into()
+        }
+    );
+    assert_eq!(serde_json::to_value(world.snapshot()).unwrap(), before);
+    assert_eq!(
+        std::fs::read(root.join("snapshot.json")).unwrap(),
+        persisted
+    );
+    assert_eq!(std::fs::read(root.join("journal.json")).unwrap(), journal);
+}

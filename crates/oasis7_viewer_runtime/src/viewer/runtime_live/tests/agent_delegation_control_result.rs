@@ -554,3 +554,71 @@ fn delegation_old_nonce_can_only_read_exact_runtime_profile_result() {
         before
     );
 }
+
+#[test]
+fn delegation_orphan_spend_rejects_install_without_world_persistence_or_nonce_publication() {
+    let _lock = lock_test_llm_env();
+    let (mut server, agent, public, private) = owner_server(146);
+    let source = server
+        .world
+        .current_agent_owner(&agent)
+        .unwrap()
+        .source_id
+        .clone();
+    // The grant ID is part of the budget key: this is deliberately corrupt
+    // state, not the ordinary revoke/new-ID reauthorization case.
+    let key =
+        serde_json::to_string(&("orphan-grant", source, &agent, "owner-test-period")).unwrap();
+    let mut snapshot = server.world.snapshot();
+    snapshot.cognition["agent_delegation"]["spent"][key] = json!(5);
+    server.world =
+        crate::runtime::World::from_snapshot(snapshot, server.world.journal().clone()).unwrap();
+    let root = std::env::temp_dir().join(format!(
+        "oasis7-viewer-orphan-spend-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    server.world.save_to_dir(&root).unwrap();
+    let persisted = std::fs::read(root.join("snapshot.json")).unwrap();
+    let journal = std::fs::read(root.join("journal.json")).unwrap();
+    let before = serde_json::to_value(server.world.snapshot()).unwrap();
+    let mut command = install_command(&server, &agent);
+    if let AgencyControlOperation::InstallDelegation {
+        grant_id,
+        action_kinds,
+        ..
+    } = &mut command
+    {
+        *grant_id = "orphan-grant".into();
+        *action_kinds = vec!["TransferMaterial".into()];
+    }
+    let request = sign(&server, &agent, command, 2_000, &public, &private);
+    let response = server.handle_agency_control_request(request);
+    assert_eq!(response.status, "error");
+    assert_eq!(response.error.unwrap().code, "grant_install_rejected");
+    assert!(
+        server
+            .llm_sidecar
+            .validate_player_auth_nonce(PLAYER_ID, 2_000)
+            .is_ok()
+    );
+    assert_eq!(
+        serde_json::to_value(server.world.snapshot()).unwrap(),
+        before
+    );
+    assert_eq!(
+        std::fs::read(root.join("snapshot.json")).unwrap(),
+        persisted
+    );
+    assert_eq!(std::fs::read(root.join("journal.json")).unwrap(), journal);
+}

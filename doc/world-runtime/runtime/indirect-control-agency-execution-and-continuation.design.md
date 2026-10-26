@@ -270,6 +270,8 @@ Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad；承接 [REQ-AGENT-AUTH
 | 授权列表读取失败 | `runtime_agency_read_failed` | 保留原分支的无匹配→`auth_nonce_replay`，内部可保留读取诊断；不得用错误结果放行 |
 | 新应用在底层 grant 校验或持久化失败 | `grant_install_rejected` / `grant_revoke_rejected`，不发布 candidate、不消耗 nonce | 不调用应用/持久化路径 |
 
+**损坏 ledger 的有意收紧。** `Applied` 必须携带可表示的 authorization，因此对应投影在 candidate 持久化与发布前完成。若 ledger 缺少该 grant，却已有同一 budget key 的 orphan `spent`，且超过新 grant 的 limit，则返回应用阶段的原 `budget_corrupt` 原因（Viewer 为 `grant_install_rejected`）；不发布 World、不持久化 candidate、不消费 nonce，不能伪造 remaining 或省略 authorization。旧 unit mutation 在这种不完整状态下可能先成功，而后列表显示读取失败并 fallback 空列表；这项损坏状态的收紧不宣称全状态等价。budget key 包含 grant ID，合法历史及撤销后使用新 ID 的普通重授权不受影响。底层 unit API、预算键、正常 grant/revision 规则不变；首次应用后的纯显示列表读取仍保留既有失败 fallback。
+
 该表的 replay 是当前权威状态上的匹配，不是另建历史 receipt store；被撤销的 install 不恢复为原成功，新的 owner/source 不继承旧 grant。`ExactReplay` 不产生新 revision、usage debit、world action 或 receipt。
 
 **入口顺序和映射保持。** Viewer 继续按现有顺序检查：chain-linked local control 禁止 → request identity → recovery write fence → world/reorg → proof 存在/command 编码/签名 → session key → Agent access → current owner source → nonce。只有新鲜 nonce 才进入 install 的 scope/profile 校验和 mutation；旧 nonce 进入上述只读匹配，不挪入新请求 allowlist/校验来改变现有拒绝优先级。共享 matcher 不要求两分支完全相同的错误。
