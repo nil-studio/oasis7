@@ -29,6 +29,7 @@ def load(name,file):
 plan=load('capacity_plan','codeql-plan.py')
 model=load('capacity_model','codeql-rust-refactored-source.py')
 bundle=load('capacity_bundle','codeql-rust-model-diagnostic.py')
+native=load('capacity_native','codeql-rust-cargo-check.py')
 
 def check_time(end):
     if end is not None and time.monotonic()>=end:raise TimeoutError('NOT_REACHED fixed evidence deadline reserve')
@@ -491,6 +492,11 @@ def main():
             if independent['status']!='PASS':raise RuntimeError('independent workspace locks are not frozen; see independent-workspace-locks.json')
             save(out/'target-toolchain-inputs.json',{name:value for name,value in frozen.items() if Path(name).name in ('rust-toolchain.toml','rust-toolchain') or name in manifests},out)
             save(out/'resources.json',dict(resource_values,space=shutil.disk_usage(work)._asdict()),out)
+            terminal['native_preparation']='INCOMPLETE'
+            # Reuse only native preparation, never the standalone Cargo check.
+            # Its end-90 reserve becomes the capacity end-120 reserve.
+            native.prepare_native(source,out,end-30,env)
+            terminal['native_preparation']='PASS'
             run(['rustc','-vV'],'project-toolchain',20)
             run([args.codeql,'version','--format=json'],'version',20)
             if json.loads((out/'version.log').read_text())['version']!=BUNDLE:raise RuntimeError('wrong official CLI')

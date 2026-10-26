@@ -362,6 +362,8 @@ Rust 公共模型的有界诊断承接 [CQ-R03](#cq-r03)、[CQ-R05](#cq-r05) 与
 
 单独定位已记录的 Cargo check 失败时，使用默认关闭的手动 `CodeQL Rust Cargo Check` 入口：固定原业务提交、原分析 Cargo 1.99 的 release/commit/host 身份，以及从旧调用摘要核对的 compile-time-deps、features/targets 和 locked 参数。整个 job 从真实启动计最多 15 分钟，唯一 check 最多 10 分钟；复用外置 helper 闭包、源身份检查与有界进程收集，保留独立 stdout/stderr、退出码、进程组清理结果和摘要清单，artifact 上限 16 MiB。Rust >=1.97 的原解析方式使用现有锁的私有副本与 `CARGO_RESOLVER_LOCKFILE_PATH`，源与副本变动均须记录。使用新 runner 的私有 target，明确不复现原多 manifest 的共享 target 历史；成功、不同失败或未完成不能追认旧错误原因。禁止 CodeQL 提取、查询、解码、SARIF/数据库上传；一次运行即停，具体错误形成修复依据后再决定验证，不盲重跑。 针对已确认的原生库发现失败，可在同一总预算内为一次修复验证安装 GTK 3、WebKitGTK 4.1 与 D-Bus 开发依赖：原生准备（安装及版本探针）共用最多 180 秒且早于总截止 90 秒的截止，使用发行版包源，不改变 Cargo features、targets 或锁约束；记录包版本与原失败所需 pkg-config 模块版本。准备失败则不启动 check，保留独立安装 stdout/stderr 与终态；发现通过仅说明该 runner 的前置就绪，不代替真实 check 或 CodeQL 覆盖。特权包管理命令使用自身超时；普通 helper 的进程组清理观测不代签 root apt 子树已空。
 
+容量入口的 prepare 阶段复用单 check 已验证的原生依赖准备，在冻结源码、独立锁及资源记录通过之后、metadata 与官方提取之前安装相同发行版包并检查相同 pkg-config 模块。四条命令共用最多 180 秒且早于容量总截止 120 秒的准备截止，仍计入整个 job 的 45 分钟预算与原 256 MiB artifact 上限；不另执行 Cargo check。准备非零、超时或证据失败即阻止 metadata 和分析，已有安装/模块输出及 prepare 终态由原失败采证路径封存。安装实际版本保留，普通 helper 清理不代签 root 子树已空；此环境准备不改变 features、targets、业务 pin、官方 bundle、查询集或覆盖要求。
+
 本地完整安全结果与解码见证可以作为容量证据保存，但无上传结果不证明 SARIF 关联、平台 provider、批次启用、并发运营或 hosted baseline 已验收。原始失败保留，一次容量评估未完成后停止追加运行；后续若需调整资源、实现或范围，先根据具体结果另定候选和适用验收。
 
 ### 7.3 其他语言
