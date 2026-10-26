@@ -570,6 +570,7 @@ Identity 向 Owner 和 Executor 分别提供独立的命名 service entrypoint�
 | 静态调用角色 | 固定 route enum / native 路径 | 允许条件 |
 | --- | --- | --- |
 | Owner | ParticipantAuthorize / /api/public/hosted-account/v2/participant/authorize | 已批准的同一 provision operation；提交既有 owner 签名的 GameParticipantRegisterV1 |
+| Owner | ParticipantPolicyOriginal / 同前缀的 participant/policy-original | 只读固定 World policy；Account 先登记唯一 observation_nonce，Identity 使用自己的托管 session 转送；返回原 SignedReadRequest 与 SignedServiceResponse，Owner 按固定 World service pin、request digest、nonce 和 world 核验，不信 discovery payload |
 | Owner | ParticipantSubmit、ParticipantLookup / 同前缀的 participant/submit、participant/lookup | 原 participant 请求及关联；submit 需要有效派发 claim，lookup 不重建注册 |
 | Owner | ParticipantOwnerView / 同前缀的 participant/owner-view | 同一账号/世界的有界核对许可；返回供 Owner 验证的原服务响应 |
 | Owner | OwnerControl / 同前缀的 entry-owner/control | 仅既有 EntryOwnerControlRequestV1 与当前 profile 允许的 owner 操作；必须匹配本服务批准/claim 或受限恢复查询许可 |

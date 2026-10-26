@@ -117,6 +117,86 @@ fn authorize(
     .unwrap()
 }
 #[test]
+fn policy_original_preserves_caller_nonce_and_independently_verifiable_world_signature() {
+    let mut f = IdentityService::model_executor_test_fixture();
+    let nonce = hex::encode([0xab; 32]);
+    let server = configure(&mut f.service, |_| {});
+    let value = f
+        .service
+        .participant_route(
+            "POST",
+            "/participant/policy-original",
+            Some(&f.token),
+            &json!({"observation_nonce":nonce}),
+            now_ms(),
+        )
+        .unwrap()
+        .unwrap();
+    server.join().unwrap();
+    let request: SignedReadRequest<ParticipantPolicyRequestV1> =
+        serde_json::from_value(value["request"].clone()).unwrap();
+    let response: SignedServiceResponse<Value> =
+        serde_json::from_value(value["response"].clone()).unwrap();
+    assert_eq!(request.request.observation_nonce, nonce);
+    assert_eq!(request.request.expected_world.world_id, "world");
+    verify_read_request(PARTICIPANT_POLICY_PATH, &request).unwrap();
+    let pin = &f
+        .service
+        .participant_entry
+        .as_ref()
+        .unwrap()
+        .trust
+        .service_public_key;
+    verify_service_response(
+        PARTICIPANT_POLICY_PATH,
+        &request_digest(PARTICIPANT_POLICY_PATH, &request).unwrap(),
+        &response,
+        pin,
+    )
+    .unwrap();
+    let mut changed = request;
+    changed.request.observation_nonce = hex::encode([18; 32]);
+    assert!(
+        verify_service_response(
+            PARTICIPANT_POLICY_PATH,
+            &request_digest(PARTICIPANT_POLICY_PATH, &changed).unwrap(),
+            &response,
+            pin
+        )
+        .is_err()
+    );
+    for payload in [
+        json!({"observation_nonce":"aa"}),
+        json!({"observation_nonce":nonce.to_uppercase()}),
+        json!({"observation_nonce":nonce,"world_id":"caller-world"}),
+    ] {
+        assert!(
+            f.service
+                .participant_route(
+                    "POST",
+                    "/participant/policy-original",
+                    Some(&f.token),
+                    &payload,
+                    now_ms()
+                )
+                .unwrap()
+                .is_err()
+        );
+    }
+    assert!(
+        f.service
+            .participant_route(
+                "POST",
+                "/participant/policy-original",
+                None,
+                &json!({"observation_nonce":nonce}),
+                now_ms()
+            )
+            .unwrap()
+            .is_err()
+    );
+}
+#[test]
 fn current_account_grant_is_separate_from_owner_signature_and_original_binding_survives_restart() {
     let mut f = IdentityService::model_executor_test_fixture();
     let r = owner(8, "original-op");
@@ -189,31 +269,44 @@ fn closed_new_registration_still_issues_recovery_proof_for_canonical_reconciliat
 }
 #[test]
 fn revocation_during_policy_query_is_rechecked_before_signing() {
-    let mut f = IdentityService::model_executor_test_fixture();
-    let path = f.service.config.sqlite_path.clone();
-    let ns = f.service.config.namespace.clone();
-    let rp = f.service.config.rp.clone();
-    let server = configure(&mut f.service, move |_| {
-        let mut store = super::super::store::IdentityStore::open(&path, ns, rp).unwrap();
-        store
-            .transaction(|tx| {
-                let mut row = tx.get::<AccountRecord>("account:a")?.unwrap();
-                row.value.security_epoch += 1;
-                tx.replace(
-                    "account:a",
-                    row.row_version,
-                    "account",
-                    Some("a"),
-                    None,
-                    &row.value,
+    for policy_original in [false, true] {
+        let mut f = IdentityService::model_executor_test_fixture();
+        let path = f.service.config.sqlite_path.clone();
+        let ns = f.service.config.namespace.clone();
+        let rp = f.service.config.rp.clone();
+        let server = configure(&mut f.service, move |_| {
+            let mut store = super::super::store::IdentityStore::open(&path, ns, rp).unwrap();
+            store
+                .transaction(|tx| {
+                    let mut row = tx.get::<AccountRecord>("account:a")?.unwrap();
+                    row.value.security_epoch += 1;
+                    tx.replace(
+                        "account:a",
+                        row.row_version,
+                        "account",
+                        Some("a"),
+                        None,
+                        &row.value,
+                    )
+                })
+                .unwrap();
+        });
+        let result = if policy_original {
+            f.service
+                .participant_route(
+                    "POST",
+                    "/participant/policy-original",
+                    Some(&f.token),
+                    &json!({"observation_nonce":hex::encode([0xab;32])}),
+                    now_ms(),
                 )
-            })
-            .unwrap();
-    });
-    assert!(
-        matches!(authorize(&mut f.service,&f.token,&owner(8,"op")),Err(StoreError::Rejected(code)) if code=="session_expired")
-    );
-    server.join().unwrap();
+                .unwrap()
+        } else {
+            authorize(&mut f.service, &f.token, &owner(8, "op"))
+        };
+        assert!(matches!(result,Err(StoreError::Rejected(code)) if code=="session_expired"));
+        server.join().unwrap();
+    }
 }
 #[test]
 fn upstream_configuration_rejects_public_hosts_paths_weak_keys_and_credentials() {
