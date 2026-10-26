@@ -5,6 +5,9 @@ use serde_json::{Value, json};
 use wasm_bindgen::{JsCast, JsValue};
 use worker::*;
 
+#[path = "envelope_harness.rs"]
+mod envelope_harness;
+
 fn failure(value: impl std::fmt::Debug) -> Error {
     Error::RustError(format!("fixture: {value:?}"))
 }
@@ -60,6 +63,9 @@ impl DurableObject for TestApprovalAuthority {
     }
     async fn fetch(&self, mut request: Request) -> Result<Response> {
         let path = request.path();
+        if path.starts_with("/envelope/") {
+            return envelope_harness::handle(request).await;
+        }
         if path == "/crypto" {
             let body: Value = request.json().await?;
             let bytes: Vec<u8> = serde_json::from_value(body["bytes"].clone())?;

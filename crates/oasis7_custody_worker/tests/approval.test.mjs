@@ -53,6 +53,53 @@ async function fixture(run) {
   finally { await mf.dispose(); rmSync(persist, { recursive: true, force: true }); }
 }
 
+test('actual Rust WebCrypto envelope authenticates identity and both layers; rewrap preserves protocol material', { timeout: 90000 }, async () => fixture(async current => {
+  const mf = current(); const name = 'envelope';
+  const identity = { environment: 'staging', account_id: 'synthetic-account', role: 'executor',
+    key_id: 'synthetic-protocol-key', key_version: '18446744073709551615' };
+  const plaintext = [...Buffer.from('公開 fixture / private key bytes \u0000', 'utf8')];
+  const invoke = (path, body) => ok(mf, name, '/envelope/' + path, { identity, ...body });
+  const first = (await invoke('seal', { plaintext })).envelope;
+  const second = (await invoke('seal', { plaintext })).envelope;
+  assert.notEqual(first.ciphertext, second.ciphertext);
+  assert.notEqual(first.value_nonce, first.wrap_nonce);
+  assert.notEqual(first.value_nonce, second.value_nonce);
+  assert.deepEqual((await invoke('open', { envelope: first })).plaintext, plaintext);
+  assert.doesNotMatch(JSON.stringify(first), /公開 fixture|private key bytes/);
+  const reject = async (envelope, changedIdentity = identity, key = 1) => {
+    assert.equal((await call(mf, name, '/envelope/open', { identity: changedIdentity, envelope, key })).status, 409);
+  };
+  await reject(first, identity, 2);
+  for (const [field, value] of [['environment', 'other'], ['account_id', 'other'], ['role', 'owner'],
+    ['key_id', 'other'], ['key_version', '1']]) {
+    // Supplying a different expected identity must fail even with an untouched envelope.
+    await reject(first, { ...identity, [field]: value });
+    const changed = structuredClone(first); changed.context.identity[field] = value;
+    await reject(changed, changed.context.identity);
+  }
+  for (const field of ['ciphertext', 'wrapped_dek', 'value_nonce', 'wrap_nonce']) {
+    const changed = structuredClone(first);
+    changed[field] = (changed[field][0] === '0' ? '1' : '0') + changed[field].slice(1);
+    await reject(changed);
+  }
+  for (const [field, value] of [['schema_version', 2], ['algorithm', 'unknown']]) {
+    await reject({ ...first, context: { ...first.context, [field]: value } });
+  }
+  await reject({ ...first, wrapping_key_version: '2' });
+  await reject({ ...first, ciphertext: 'A' + first.ciphertext.slice(1) });
+  await reject({ ...first, wrap_nonce: first.value_nonce });
+  const updated = (await invoke('rewrap', { envelope: first })).envelope;
+  assert.equal(updated.ciphertext, first.ciphertext);
+  assert.equal(updated.value_nonce, first.value_nonce);
+  assert.deepEqual(updated.context, first.context);
+  assert.equal(updated.wrapping_key_version, '2');
+  assert.notEqual(updated.wrapped_dek, first.wrapped_dek);
+  assert.deepEqual((await invoke('open', { envelope: updated, key: 2 })).plaintext, plaintext);
+  await reject(updated);
+  assert.equal((await call(mf, name, '/envelope/rewrap', { identity, envelope: updated, key: 2 })).status, 409,
+    'same wrapping version cannot silently replace a KEK slot');
+}));
+
 test('Owner actual Wasm SQLite keeps original nonce, one-time consumption and full-width values after restart', { timeout: 90000 }, async () => fixture(async (current, restart) => {
   let mf = current();
   const input = await prepare(mf, 'original');
