@@ -296,7 +296,21 @@ fn windows_ambiguous_target_spellings_are_refused() {
     let world = root.join("world");
     fs::create_dir(&world).unwrap();
     let guard = ExclusiveDirectoryProcessLock::try_acquire(&world).unwrap();
-    for name in ["world.", "world ", "world:stream", "world./child"] {
+    for name in [
+        "world.",
+        "world ",
+        "world:stream",
+        "world./child",
+        "NUL",
+        "NUL.txt",
+        "CON",
+        "conin$",
+        "PRN.log",
+        "AUX",
+        "COM1",
+        "LPT9.txt",
+        "COM¹",
+    ] {
         assert!(ExclusiveDirectoryProcessLock::try_acquire(&root.join(name)).is_err());
     }
     drop(guard);

@@ -14,9 +14,41 @@ pub(super) static FAIL_NEXT_ANCHOR_SYNC: std::sync::atomic::AtomicBool =
 pub(super) fn normalized_target(path: &Path) -> Result<PathBuf, String> {
     #[cfg(windows)]
     for component in path.components() {
+        if let std::path::Component::Prefix(prefix) = component
+            && !matches!(
+                prefix.kind(),
+                std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)
+            )
+        {
+            return Err("registration replay lock requires a local disk path".into());
+        }
         if let std::path::Component::Normal(name) = component {
             use std::os::windows::ffi::OsStrExt;
             let units: Vec<u16> = name.encode_wide().collect();
+            let text = name.to_str().ok_or_else(|| {
+                "registration replay lock unrepresentable Windows path refused".to_string()
+            })?;
+            let stem = text
+                .split('.')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches(' ')
+                .to_ascii_uppercase();
+            let numbered_device = ["COM", "LPT"].iter().any(|prefix| {
+                stem.strip_prefix(prefix).is_some_and(|suffix| {
+                    matches!(
+                        suffix,
+                        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                    )
+                })
+            });
+            if matches!(
+                stem.as_str(),
+                "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+            ) || numbered_device
+            {
+                return Err("registration replay lock Windows device name refused".into());
+            }
             if units
                 .last()
                 .is_some_and(|c| *c == b'.' as u16 || *c == b' ' as u16)

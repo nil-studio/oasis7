@@ -297,6 +297,7 @@ fn process_is_alive(pid: u32) -> bool {
         return true;
     }
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
     #[link(name = "Kernel32")]
     unsafe extern "system" {
         fn OpenProcess(
@@ -306,14 +307,19 @@ fn process_is_alive(pid: u32) -> bool {
         ) -> *mut std::ffi::c_void;
         fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
         fn GetLastError() -> u32;
+        fn WaitForSingleObject(handle: *mut std::ffi::c_void, milliseconds: u32) -> u32;
     }
 
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
     if handle.is_null() {
         return unsafe { GetLastError() } != 87;
     }
+    // An exited process can still be opened while another process retains a
+    // handle. Only a signaled process object proves termination; timeout or
+    // WAIT_FAILED remains unknown/live and therefore cannot authorize reclaim.
+    let status = unsafe { WaitForSingleObject(handle, 0) };
     unsafe { CloseHandle(handle) };
-    true
+    status != 0 // WAIT_OBJECT_0
 }
 
 #[cfg(not(any(unix, windows)))]
