@@ -240,21 +240,76 @@ pub(super) fn reclaim(
             return Err("attempt output directory symlink/type refused".into());
         }
     }
-    let mut removed = 0usize;
-    let mut read_bytes = 0u64;
     let store = oasis7_runtime::LocalCasStore::new(path.join("storage"));
     let retention = store
         .acquire_retention_guard()
         .map_err(|e| format!("{e:?}"))?;
-    // This private execution scope belongs to the fenced attempt. Once both
-    // destinations independently reproduce the qualified publication, release
-    // only the declared duplicate outputs from its own execution pins. Other
-    // consumers' scopes/global pins remain authoritative for local retention.
+    // A damaged lifecycle file is not authority to release unrelated pins.
+    // Authenticate the identity and existing bytes of one bounded batch before
+    // making any retention change. The guard excludes put/pin/sweep through
+    // validation, owner-pin retirement and unlink, so no second read is needed.
+    let eligible: std::collections::BTreeSet<_> = candidate
+        .material
+        .objects
+        .iter()
+        .map(|object| object.content_hash.clone())
+        .chain(std::iter::once(
+            candidate.candidate.record.after_state_root.clone(),
+        ))
+        .collect();
+    let mut batch = Vec::new();
+    let mut retire_refs = std::collections::BTreeSet::new();
+    let mut read_bytes = 0u64;
+    let mut scanned_all = true;
+    for id in &attempt.duplicate_outputs {
+        if batch.len() >= 8 {
+            scanned_all = false;
+            break;
+        }
+        if id.len() != 64
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        {
+            return Err("attempt invalid delete identity".into());
+        }
+        if !eligible.contains(id) {
+            return Err(
+                "attempt delete identity is outside authenticated candidate material".into(),
+            );
+        }
+        let blob = path.join("storage/blobs").join(format!("{id}.blob"));
+        match std::fs::symlink_metadata(&blob) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                retire_refs.insert(id.clone());
+                continue;
+            }
+            Err(e) => return Err(e.to_string()),
+            Ok(meta) if !meta.is_file() || meta.file_type().is_symlink() => {
+                return Err("attempt delete path not regular".into());
+            }
+            Ok(meta) => {
+                if meta.len() > 64 * 1024 * 1024 {
+                    return Err("attempt duplicate output exceeds object budget".into());
+                }
+                if !batch.is_empty() && read_bytes.saturating_add(meta.len()) > 8 * 1024 * 1024 {
+                    scanned_all = false;
+                    break;
+                }
+                read_bytes += meta.len();
+            }
+        }
+        let bytes = store.get_verified(id).map_err(|e| format!("{e:?}"))?;
+        if !redundant(candidate, id, &bytes)? {
+            return Err("attempt duplicate changed before deletion".into());
+        }
+        retire_refs.insert(id.clone());
+        batch.push((id.clone(), blob));
+    }
+    // Only this attempt's execution scope is retired. A separate owner can
+    // continue retaining the same object through its own scope or global pin.
     retention
-        .retire_pin_scope_references(
-            "execution_bridge_v1",
-            &attempt.duplicate_outputs.iter().cloned().collect(),
-        )
+        .retire_pin_scope_references("execution_bridge_v1", &retire_refs)
         .map_err(|e| format!("retire attempt execution pins: {e:?}"))?;
     let protected: std::collections::BTreeSet<_> = store
         .list_effective_pins()
@@ -267,37 +322,10 @@ pub(super) fn reclaim(
                 .map(|file| file.content_hash),
         )
         .collect();
-    for id in &attempt.duplicate_outputs {
-        if protected.contains(id) {
+    let mut removed = 0usize;
+    for (id, blob) in batch {
+        if protected.contains(&id) {
             return Ok(false);
-        }
-        if id.len() != 64
-            || !id
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        {
-            return Err("attempt invalid delete identity".into());
-        }
-        let blob = path.join("storage/blobs").join(format!("{id}.blob"));
-        match std::fs::symlink_metadata(&blob) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e.to_string()),
-            Ok(meta) if !meta.is_file() || meta.file_type().is_symlink() => {
-                return Err("attempt delete path not regular".into());
-            }
-            Ok(meta) => {
-                if meta.len() > 64 * 1024 * 1024 {
-                    return Err("attempt duplicate output exceeds object budget".into());
-                }
-                if removed > 0 && read_bytes.saturating_add(meta.len()) > 8 * 1024 * 1024 {
-                    return Ok(false);
-                }
-                read_bytes += meta.len();
-            }
-        }
-        let bytes = store.get_verified(id).map_err(|e| format!("{e:?}"))?;
-        if !redundant(candidate, id, &bytes)? {
-            return Err("attempt duplicate changed before deletion".into());
         }
         std::fs::remove_file(&blob).map_err(|e| e.to_string())?;
         removed += 1;
@@ -329,6 +357,9 @@ pub(super) fn reclaim(
         if removed >= 8 {
             return Ok(false);
         }
+    }
+    if !scanned_all {
+        return Ok(false);
     }
     attempt.phase = Phase::ReleasePending;
     attempt.protected_obligations = vec![

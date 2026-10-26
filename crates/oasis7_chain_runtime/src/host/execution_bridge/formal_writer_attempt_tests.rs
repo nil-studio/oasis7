@@ -100,6 +100,91 @@ fn published_attempt_reclamation_retries_independent_readback_and_partial_unlink
     let publication_digest = blake3::hash(&std::fs::read(&publication_path).unwrap())
         .to_hex()
         .to_string();
+    let unrelated = oasis7_runtime::BlobStore::put_bytes(
+        &attempt_store,
+        b"unique recovery evidence outside the candidate",
+    )
+    .unwrap();
+    attempt_store
+        .replace_pin_scope_shard(
+            "execution_bridge_v1",
+            "unique-evidence",
+            &std::collections::BTreeSet::from([unrelated.clone()]),
+        )
+        .unwrap();
+    let lifecycle_path = attempt.join("attempt-lifecycle-v1.cbor");
+    let original_lifecycle = std::fs::read(&lifecycle_path).unwrap();
+    let mut damaged: serde_cbor::Value = serde_cbor::from_slice(&original_lifecycle).unwrap();
+    let serde_cbor::Value::Map(ref mut fields) = damaged else {
+        panic!("attempt map")
+    };
+    let Some(serde_cbor::Value::Array(ids)) =
+        fields.get_mut(&serde_cbor::Value::Text("duplicate_outputs".into()))
+    else {
+        panic!("delete list")
+    };
+    ids.insert(0, serde_cbor::Value::Text(unrelated.clone()));
+    durable_transaction::write_private_file_durable(
+        &lifecycle_path,
+        &serde_cbor::to_vec(&damaged).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        super::super::super::formal_attempt_lifecycle::reclaim(
+            &attempt,
+            &exact.candidate,
+            &publication_digest,
+            &[inventory.clone(), inventory.clone()]
+        )
+        .is_err()
+    );
+    assert!(
+        attempt_store.is_effectively_pinned(&unrelated).unwrap(),
+        "invalid delete list must not revoke an unrelated internal pin"
+    );
+    assert_eq!(
+        attempt_store.get_verified(&unrelated).unwrap(),
+        b"unique recovery evidence outside the candidate"
+    );
+    durable_transaction::write_private_file_durable(&lifecycle_path, &original_lifecycle).unwrap();
+    // Candidate membership alone is insufficient: corrupt source bytes must
+    // fail before releasing the source's own recovery pin as well.
+    attempt_store
+        .replace_pin_scope_shard(
+            "execution_bridge_v1",
+            "source-byte-check",
+            &std::collections::BTreeSet::from([outputs[0].clone()]),
+        )
+        .unwrap();
+    let source = attempt
+        .join("storage/blobs")
+        .join(format!("{}.blob", outputs[0]));
+    let original_source = std::fs::read(&source).unwrap();
+    std::fs::write(&source, b"corrupt original output").unwrap();
+    assert!(
+        super::super::super::formal_attempt_lifecycle::reclaim(
+            &attempt,
+            &exact.candidate,
+            &publication_digest,
+            &[inventory.clone(), inventory.clone()]
+        )
+        .is_err()
+    );
+    let source_pin: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            attempt.join("storage/pin_scopes/execution_bridge_v1/source-byte-check.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        source_pin["pins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id.as_str() == Some(outputs[0].as_str()))
+    );
+    std::fs::write(&source, &original_source).unwrap();
     assert!(
         !super::super::super::formal_attempt_lifecycle::reclaim(
             &attempt,
