@@ -5,6 +5,8 @@
 
 审计轮次: 2
 
+**开发 hold：** 本设计对应的 LetAI 专属后续开发目前暂停，不作为主要开发路径，范围与恢复条件以[主责开发状态](mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold)为准。下述目标合同与安全/资金边界保留，不构成当前实施排期；包括安全错误投影在内的待实现项仍不得写成已修复。
+
 ## 1. 设计目标
 - 把 `OC` 到 LetAI Run 调用额度的路径定义成一条受控、独立部署、可对账的 OpenAPI bridge。
 - 让 bridge-service 直接表达 LetAI 的真实对象模型：`platform user -> project -> token_key -> topup -> query verification`。
