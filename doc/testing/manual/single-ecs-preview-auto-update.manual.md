@@ -70,7 +70,7 @@ timer 默认每次结束后 60 秒再运行独立 oneshot；它不随 player 重
 
 返回的 `identity` 必须与配置中的 world ID、genesis、服务公钥和签名读身份完全一致；`components` 必须与请求一致；`checks` 的 `api/web/skill/signed_world` 均为真实成功。返回 `samples` 至少包含基线和三次不同的有效世界推进，每项有严格递增 `timestamp`、不回退的 `world_tick`、原 `identity` 和 `signed_world:true`，覆盖完整 60 秒；需来自持续真实签名世界观察，不能用三次同一初始快照或定时 sleep 伪造。协调者同时校验调用实际墙钟窗口。`chain_write_status` 明确为 `unchanged`、`compatible`、`unknown` 或 `incompatible`；只有受信读取依据才能确定兼容写入，未知保持未知。
 
-公共 API 与[代理接管合同](#公网-api-路由核对)一致，Web 与 Skill 须与 player 同版本；HTTP 200、unit active 和 CI cold-entry 均不能单独代签部署。具体主机的签名世界读取、鉴权和私有参数通过一次性验证配置提供，不写入公共日志。
+公共 API 与[代理接管合同](#公网-api-路由核对)一致，Web 与 Skill 须与 player 同版本；公开 Web 资源逐项验字节，包内构建清单、生成的 `.d.ts`、预压缩 `.gz` 旁文件和两个 first-agent-claim 自测 HTML 不作为独立公开 URL。它们仍由包内完整性校验覆盖，不能为验收扩大 Nginx 公开路由。HTTP 200、unit active 和 CI cold-entry 均不能单独代签部署。具体主机的签名世界读取、鉴权和私有参数通过一次性验证配置提供，不写入公共日志。
 
 ## 日常发包与观察
 
