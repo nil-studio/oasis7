@@ -1,5 +1,7 @@
 # 单命令 ECS Preview 部署
 
+## 上游需求承接
+
 Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 部署入口](../prd.md#single-ecs-preview-deploy)。
 
 ## 范围与入口
@@ -8,7 +10,7 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 
 控制器固定 GitHub run 的完整 source SHA，要求 ECS workflow/main 成功且同 SHA 的 required-gate 成功。下载同一 run 的最终 ECS artifact，先核对外部 SHA256、归档成员边界、BUILDINFO 和整包 SHA256SUMS。所有后续动作绑定该 SHA，不追逐移动中的 main，不覆盖已存在但不匹配的 release。
 
-## 执行顺序与失败
+## 设计条款：执行顺序与失败
 
 一个 SSH stdio 会话承载有界 JSON 控制帧与有界二进制流：init → install → backup → compare → switch → verify → accept。控制器本地保存 0700 目录 / 0600 停机备份；接收端校验流长度与 SHA256，并将同一备份传回仍停机的目标，以 `tar --compare` 对照原文件。未比较成功不得切换。备份包含现有世界和身份、SQLite sidecars、两个 unit、部署配置与 Skill include；不会改写历史。安装流解压到独立 staging，只接受普通文件/目录、限制总展开长度、拒绝路径逃逸/链接/重复路径。安装前后均至少留 528 MiB，保留旧 release。
 
@@ -22,4 +24,10 @@ Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；承接[单机 Preview 
 
 首行为 bootstrap JSON，包含受测 remote/probe 源；remote 程序随后读 JSON 行。普通响应为 `{ok:true,...}` 或 `{ok:false,error:<bounded-code>}`。`install` 请求声明 archive bytes/digest/expanded bytes/source，随后恰好传输 archive bytes；`backup` 先返回 stream header，随后传输 big-endian u32 长度与 chunk，长度 0 结束，再返回 bytes/digest；`compare` 声明同一备份 bytes/digest 后传输恰好该长度。默认 chunk≤1 MiB；总长和超时受已验证配置与本地可用空间约束。未知 op、缺帧、越界或错误均拒绝，不解释数据为命令。stdout 只作协议，进度与脱敏错误走 stderr。
 
+## 验证
+
 验证包括假 SSH 的完整调用顺序、单一认证/进程、精确包来源、低空间/篡改归档/半写 unit/备份不匹配/连接中断和 post-writer 隔离；真实部署另报告 host、source、run 与实际结果，fixture 通过不能代签线上完成。
+
+## 决策与风险
+
+使用单一 SSH stdio 会话减少重复认证和中间文件，同时让断连对应明确的失败恢复边界。停机备份换取原始文件的一致性；新写入后的恢复需要保留当前历史并另行处理，不能自动启动旧代码。备份路径由运维配置完整覆盖世界、身份和 SQLite 目录；机器空间、已有 Python crypto 依赖和有效 SSH 认证属于部署前置条件，缺失时停止，不能由 fixture 验证代替。
