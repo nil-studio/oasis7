@@ -694,6 +694,325 @@ class RetiredNamespaceTests(unittest.TestCase):
                 self.assertTrue(report['warnings'])
 
 
+class RecoveryTests(unittest.TestCase):
+    entry = staticmethod(WorkspaceRetentionTests.entry)
+    LIMIT = 10_000_000_000
+
+    @staticmethod
+    def observed_inventory():
+        """Replay 2026-10-25 post-#5062 byte counts; identities/times are synthetic.
+
+        The 15-entry, 9,394,586,444-byte snapshot came from the repository cache
+        inventory after runs 40195821864 and 40199887081. This tests a quiet
+        later maintenance window, not permission to delete those live IDs.
+        """
+        entries = [WorkspaceRetentionTests.entry(i, name, size=size) for i, name, size in (
+            (1, 'ordinary', 674_443_658), (2, 'ordinary', 674_568_948),
+            (3, 'formal', 705_744_026), (4, 'formal', 705_666_025),
+            (5, 'formal', 705_655_691), (6, 'ecs', 897_049_399))]
+        entries += [rust_cache(7, 'ci-shared-native-trusted-v3', size=2_463_911_046),
+                    rust_cache(8, 'oasis7-ecs-native-linux-ecs-v2', size=722_718_920)]
+        entries += [cache(i, key=key, size=size) for i, key, size in (
+            (9, 'release-macos-fixture', 551_305_373),
+            (10, 'release-windows-fixture', 594_105_718),
+            (11, 'release-web-fixture', 578_693_347),
+            (12, 'node-cache-fixture', 103_942_381), (13, 'wasm-bindgen-fixture', 8_685_766),
+            (14, 'oasis7-cache-permission-sentinel-fixture', 287),
+            (15, 'trunk-archive-fixture', 8_095_859))]
+        return entries
+
+    def plan(self, entries, **kwargs):
+        return maintenance.plan_recovery(entries, START, repository_limit_bytes=self.LIMIT, **kwargs)
+
+    def apply(self, first, second=None, after=None, **kwargs):
+        api = api_with(first, first if second is None else second, first if after is None else after)
+        api.request.return_value = {'max_cache_size_gb': 10}
+        report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                                      repository_budget_bytes=self.LIMIT, **kwargs)
+        return api, report
+
+    def test_existing_anchors_recover_unconfirmed_saves_and_default_two_generations(self):
+        entries = [self.entry(i, 'formal') for i in (1, 2, 3)]
+        api, report = self.apply(entries, after=entries[1:])
+        self.assertEqual(report['status'], 'completed')
+        self.assertEqual(report['deleted_workspace_ids'], [1])
+        self.assertEqual(report['plan']['current_keys'], [])
+        self.assertEqual(report['stable_workspace_recovery_ids'], [3])
+        api.delete_cache.assert_called_once_with(1)
+        summary = maintenance.render_summary(report)
+        self.assertIn('rotation headroom', summary)
+        self.assertIn('2,684,354,560', summary)
+
+    def test_pressure_reclaims_only_extra_generations_until_target_is_met(self):
+        entries = [self.entry(i, 'formal', size=100) for i in (1, 2, 3)]
+        reserve = maintenance.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
+        normal = maintenance.plan_recovery(entries, START, repository_limit_bytes=reserve + 200)
+        pressure = maintenance.plan_recovery(entries, START, repository_limit_bytes=reserve + 199)
+        self.assertEqual([entry['id'] for entry in normal['delete']], [1])
+        self.assertEqual([entry['id'] for entry in pressure['delete']], [1, 2])
+        self.assertEqual(pressure['rotation']['projected_headroom_deficit_bytes'], 0)
+        self.assertEqual(pressure['workspace_recovery']['recovery_ids'], [3])
+
+    def test_family_pressure_reclaims_extras_even_when_repository_has_free_space(self):
+        entries = [self.entry(i, 'formal', compatibility=group, size=700_000_000)
+                   for i, group in ((1, 'a'), (2, 'a'), (3, 'b'), (4, 'b'))]
+        plan = self.plan(entries)
+        self.assertEqual([entry['id'] for entry in plan['delete']], [1, 3])
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2, 4])
+        self.assertEqual(plan['families']['formal']['projected_bytes'], 1_400_000_000)
+        self.assertLess(plan['families']['formal']['projected_bytes'], maintenance.FORMAL_MAX_BYTES)
+        remaining = [entries[1], entries[3]]
+        admission = maintenance.policy.save_policy(remaining, self.entry(5, 'formal', compatibility='c')['key'],
+                                                   798_904_222, self.LIMIT)
+        self.assertTrue(admission['capacity_allowed'])
+
+    def test_observed_inventory_full_upload_sequence_and_later_catch_up(self):
+        entries = self.observed_inventory()
+        self.assertEqual(maintenance.inventory_summary(entries)['total_bytes'], 9_394_586_444)
+        plan = self.plan(entries)
+        deleted = {entry['id'] for entry in plan['delete']}
+        self.assertEqual(deleted, {1, 3, 4})
+        remaining = [entry for entry in entries if entry['id'] not in deleted]
+        api, report = self.apply(entries, after=remaining)
+        self.assertEqual(report['after']['total_bytes'], 7_308_732_735)
+        self.assertEqual(report['rotation_after']['available_repository_bytes'], 2_691_267_265)
+        self.assertEqual(report['rotation_after']['headroom_deficit_bytes'], 0)
+        for scope, upload in (('ordinary', 764_291_602), ('formal', 798_904_222)):
+            key = self.entry(20, scope)['key']
+            self.assertTrue(maintenance.policy.save_policy(remaining, key, upload, self.LIMIT)['capacity_allowed'])
+            full = maintenance.policy.save_policy(remaining, key, upload, self.LIMIT,
+                reserved_repository_bytes=maintenance.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES)
+            self.assertFalse(full['capacity_allowed'])
+            self.assertEqual(full['reason'], 'dependency rotation headroom')
+        # Exercise the unchanged final-archive admission with a sparse fixture:
+        # only its actual file length matters at this checkpoint, not old sizes.
+        spec = importlib.util.spec_from_file_location('rotation_admission',
+            Path(__file__).with_name('ci-rust-cache-admission.py'))
+        admission = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(admission)
+        env = dict(GITHUB_ACTIONS='true', RUNNER_OS='Linux', RUNNER_ARCH='X64',
+            GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main',
+            GITHUB_SHA='a' * 40, GITHUB_WORKFLOW_SHA='a' * 40, GITHUB_RUN_ID='42',
+            GITHUB_EVENT_NAME='schedule', GITHUB_JOB='full-regression',
+            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            OASIS7_DEPENDENCY_CACHE_FAMILY='shared-native',
+            OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES=str(self.LIMIT))
+        env['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v3'
+        client = Mock(repository='nil-studio/oasis7')
+        client.list_caches.return_value = remaining
+        run = dict(id=42, head_sha='a' * 40, head_branch='main', event='schedule',
+                   path='.github/workflows/rust.yml', repository={'full_name': 'nil-studio/oasis7'})
+        client.request.side_effect = lambda method, path: run if path == '/actions/runs/42' else {'max_cache_size_gb': 10}
+        with tempfile.TemporaryDirectory() as directory:
+            payload = Path(directory) / 'cache.tzst'
+            with payload.open('wb') as stream:
+                stream.truncate(2_463_911_046)
+            allowed = admission.check_archive(payload, env, client)
+            self.assertTrue(allowed['allowed'])
+            self.assertEqual(allowed['projected_repository_bytes'], 9_772_643_781)
+        newer = rust_cache(16, 'ci-shared-native-trusted-v3', dependencies='c', size=2_463_911_046)
+        grown = [dict(entry, last_accessed_at=START) if entry['id'] == 7 else entry for entry in remaining]
+        grown.append(newer)
+        self.assertNotIn(7, [entry['id'] for entry in self.plan(grown)['delete']])
+        later = maintenance.plan_recovery(grown, '2026-10-19T10:00:00Z', repository_limit_bytes=self.LIMIT)
+        self.assertEqual([entry['id'] for entry in later['delete']], [7])
+        client.delete_cache.assert_not_called()
+
+    def test_each_prefix_version_and_other_ref_keep_their_own_recovery(self):
+        entries = [self.entry(1, 'formal'), self.entry(2, 'formal'),
+                   self.entry(3, 'formal', compatibility='b'), self.entry(4, 'formal', compatibility='b'),
+                   self.entry(5, 'formal', version='v2'), self.entry(6, 'formal', version='v2'),
+                   self.entry(7, 'formal', ref='refs/pull/1/merge'),
+                   cache(8, key='formal-workspace-v3-lookalike')]
+        plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1)
+        self.assertEqual({entry['id'] for entry in plan['delete']}, {1, 3, 5})
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2, 4, 6])
+        self.assertGreater(plan['rotation']['projected_headroom_deficit_bytes'], 0)
+
+    def test_ambiguous_or_incomplete_groups_are_never_pressure_candidates(self):
+        for changed in (lambda entries: [*entries, dict(entries[-1], id=4, version='other')],
+                        lambda entries: [entries[0], dict(entries[1], created_at=entries[2]['created_at']), entries[2]],
+                        lambda entries: [dict(entry, size_in_bytes=0) for entry in entries]):
+            entries = changed([self.entry(i, 'formal') for i in (1, 2, 3)])
+            plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1)
+            self.assertEqual(plan['delete'], [])
+            self.assertTrue(plan['workspace_recovery']['blocked_groups'])
+
+    def test_activity_and_zero_bytes_take_priority_over_headroom(self):
+        entries = [self.entry(1, 'formal', size=0), self.entry(2, 'formal', accessed=START),
+                   self.entry(3, 'formal')]
+        plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1)
+        self.assertEqual(plan['delete'], [])
+        plan = self.plan(self.observed_inventory(), active_runs=[active_run()])
+        self.assertEqual(plan['delete'], [])
+        self.assertGreater(plan['rotation']['projected_headroom_deficit_bytes'], 0)
+
+    def test_anchor_changes_defer_the_entire_affected_group(self):
+        first = [self.entry(i, 'formal') for i in (1, 2, 3)]
+        for replacement in (None, dict(first[-1], size_in_bytes=0), dict(first[-1], version='other'),
+                            dict(first[-1], size_in_bytes=1), dict(first[-1], created_at=START),
+                            dict(first[-1], id=4)):
+            with self.subTest(replacement=replacement):
+                second = first[:-1] + ([] if replacement is None else [replacement])
+                api, report = self.apply(first, second=second)
+                self.assertEqual(report['deleted_ids'], [])
+                api.delete_cache.assert_not_called()
+
+    def test_revalidation_cannot_switch_to_another_preexisting_stable_anchor(self):
+        entries = [self.entry(i, 'formal') for i in (1, 2, 3, 4)]
+        api, report = self.apply(entries, second=entries[:-1], after=entries[:-1], current_key=entries[2]['key'])
+        self.assertEqual(report['deleted_ids'], [])
+        self.assertEqual(report['stable_workspace_recovery_ids'], [3])
+        api.delete_cache.assert_not_called()
+
+    def test_revalidation_may_only_shrink_and_activity_can_cancel_pressure(self):
+        first = self.observed_inventory()
+        second = [dict(entry, last_accessed_at=START) if entry['id'] in (1, 3, 4) else entry for entry in first]
+        second.append(self.entry(20, 'formal', compatibility='d'))
+        api, report = self.apply(first, second=second, after=second)
+        api.delete_cache.assert_not_called()
+        self.assertGreater(report['rotation_after']['headroom_deficit_bytes'], 0)
+
+    def test_confirmed_current_is_required_to_retire_other_compatibilities(self):
+        entries = [self.entry(1, 'ordinary', compatibility='b', size=100), self.entry(2, 'ordinary', size=100),
+                   self.entry(3, 'ordinary', size=100)]
+        self.assertEqual(self.plan(entries)['delete'], [])
+        explicit = self.plan(entries, current_key=entries[-1]['key'])
+        self.assertEqual([entry['id'] for entry in explicit['delete']], [1])
+        pressure = maintenance.plan_recovery(entries, START, current_key=entries[-1]['key'], repository_limit_bytes=1)
+        self.assertEqual([entry['id'] for entry in pressure['delete']], [1, 2])
+        self.assertIn(3, pressure['protected_ids'])
+        for invalid in ([*entries, dict(entries[-1], id=4, version='other')], entries[:-1],
+                        [*entries[:-1], dict(entries[-1], size_in_bytes=0)]):
+            with self.subTest(invalid=invalid), self.assertRaises(maintenance.MaintenanceError):
+                self.plan(invalid, current_key=entries[-1]['key'])
+
+    def test_older_exact_current_and_newest_compatible_anchor_both_survive_pressure(self):
+        entries = [self.entry(i, 'formal') for i in (1, 2, 3)]
+        plan = maintenance.plan_recovery(entries, START, current_key=entries[1]['key'], repository_limit_bytes=1)
+        self.assertEqual([entry['id'] for entry in plan['delete']], [1])
+        self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2, 3])
+        self.assertTrue({2, 3}.issubset(plan['protected_ids']))
+
+    def test_quota_denial_is_narrow_and_partial_delete_readback_remains_truthful(self):
+        entries = self.observed_inventory()
+        for message, allowed in (('Resource not accessible by integration', True), ('API rate limit exceeded', False)):
+            def quota(*args):
+                error = HTTPError('https://api.github.com', 403, 'denied', {},
+                                  io.BytesIO(json.dumps({'message': message}).encode()))
+                raise maintenance.MaintenanceApiError('GET', error)
+            api = api_with(entries, entries, entries)
+            api.request.side_effect = quota
+            report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                                          repository_budget_bytes=self.LIMIT)
+            self.assertEqual(report['status'], 'completed' if allowed else 'skipped')
+            if allowed:
+                self.assertEqual(report['capacity_before']['capacity_basis'], 'verified_configured_budget')
+                self.assertIsNone(report['capacity_before']['live_repository_limit_bytes'])
+            else:
+                api.delete_cache.assert_not_called()
+        api = api_with(entries, entries, maintenance.MaintenanceError('readback failed'))
+        api.request.return_value = {'max_cache_size_gb': 10}
+        api.delete_cache.side_effect = [True, maintenance.MaintenanceError('DELETE failed')]
+        report = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                                      repository_budget_bytes=self.LIMIT)
+        self.assertEqual(report['status'], 'partial')
+        self.assertEqual(report['deleted_ids'], [1])
+        self.assertIsNone(report['after'])
+        self.assertIsNone(report['rotation_after'])
+        self.assertEqual(api.delete_cache.call_count, 2)
+
+    def test_failed_inventory_or_quota_does_not_delete_and_repeated_recovery_is_idempotent(self):
+        entries = [self.entry(i, 'formal') for i in (1, 2, 3)]
+        for failure in (maintenance.MaintenanceError('page two failed'),):
+            api, report = self.apply(entries, second=failure)
+            self.assertEqual(report['deleted_ids'], [])
+            api.delete_cache.assert_not_called()
+        api = api_with(entries)
+        api.request.return_value = {'max_cache_size_gb': 0}
+        result = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                                      repository_budget_bytes=self.LIMIT)
+        self.assertEqual(result['status'], 'skipped')
+        api.delete_cache.assert_not_called()
+        api, result = self.apply(entries[1:])
+        self.assertEqual(result['deleted_ids'], [])
+        self.assertEqual(result['status'], 'completed')
+
+
+class ActiveRunRetryTests(unittest.TestCase):
+    def test_count_drift_restarts_the_entire_status_inventory_without_reusing_partial_runs(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        stale = active_run(100, status='requested')
+        api.request = Mock(side_effect=[{'total_count': 1, 'workflow_runs': [stale]},
+            {'total_count': 1, 'workflow_runs': []},
+            *[{'total_count': 0, 'workflow_runs': []} for _ in range(4)],
+            {'total_count': 1, 'workflow_runs': [active_run(200)]}])
+        self.assertEqual([run['id'] for run in api.list_active_runs()], [200])
+        paths = [call.args[1] for call in api.request.call_args_list]
+        self.assertIn('status=requested', paths[2])
+        self.assertEqual(api.active_run_inventory_retries, 1)
+
+    def test_only_complete_retries_can_unlock_two_plan_revalidation(self):
+        entries = [WorkspaceRetentionTests.entry(i, 'formal') for i in (1, 2, 3)]
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        api.list_caches = Mock(side_effect=[entries, entries, entries[1:]])
+        answers = iter([{'total_count': 1, 'workflow_runs': []},
+                        *[{'total_count': 0, 'workflow_runs': []} for _ in range(10)]])
+        api.request = Mock(side_effect=lambda method, path: {'max_cache_size_gb': 10}
+                           if path == '/actions/cache/storage-limit' else next(answers))
+        api.delete_cache = Mock(return_value=True)
+        result = maintenance.maintain(api, run_started_at=START, recover=True, apply=True,
+                                      repository_budget_bytes=10_000_000_000)
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(result['active_run_inventory_retries'], 1)
+        api.delete_cache.assert_called_once_with(1)
+
+    def test_three_incomplete_attempts_never_delete_and_report_exact_attempt_budget(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        entries = [WorkspaceRetentionTests.entry(i, 'formal') for i in (1, 2, 3)]
+        api.list_caches = Mock(return_value=entries)
+        api.request = Mock(return_value={'total_count': 1, 'workflow_runs': []})
+        api.delete_cache = Mock()
+        result = maintenance.maintain(api, entries[-1]['key'], START, apply=True)
+        self.assertEqual(result['status'], 'skipped')
+        self.assertEqual(api.request.call_count, 3)
+        self.assertEqual(result['active_run_inventory_retries'], 2)
+        self.assertIn('active run pagination ended before total_count', result['warnings'][0])
+        api.delete_cache.assert_not_called()
+
+    def test_malformed_identity_and_api_errors_are_not_retried(self):
+        for response in ({'total_count': 1, 'workflow_runs': [active_run(head_sha='bad')]},
+                         {'total_count': 1001, 'workflow_runs': []},
+                         maintenance.MaintenanceError('cache API request/time budget exhausted')):
+            api = maintenance.GitHubApi('nil-studio/oasis7', '')
+            api.request = Mock(side_effect=response) if isinstance(response, Exception) else Mock(return_value=response)
+            with self.assertRaises(maintenance.MaintenanceError):
+                api.list_active_runs()
+            self.assertEqual(api.request.call_count, 1)
+
+    def test_retry_does_not_reset_request_or_time_budget(self):
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        api.requests = maintenance.MAX_REQUESTS - 1
+        response = Mock()
+        response.read.return_value = b'{"total_count":1,"workflow_runs":[]}'
+        opened = Mock()
+        opened.__enter__ = Mock(return_value=response)
+        opened.__exit__ = Mock(return_value=None)
+        api.opener.open = Mock(return_value=opened)
+        deadline = api.deadline
+        with self.assertRaisesRegex(maintenance.MaintenanceError, 'budget exhausted'):
+            api.list_active_runs()
+        self.assertEqual(api.requests, maintenance.MAX_REQUESTS)
+        self.assertEqual(api.deadline, deadline)
+        self.assertEqual(api.opener.open.call_count, 1)
+        self.assertEqual(api.active_run_inventory_retries, 1)
+        api = maintenance.GitHubApi('nil-studio/oasis7', '')
+        api.deadline = 0
+        with self.assertRaisesRegex(maintenance.MaintenanceError, 'budget exhausted'):
+            api.list_active_runs()
+        self.assertEqual(api.active_run_inventory_retries, 0)
+
+
 class ApiTests(unittest.TestCase):
     def test_active_run_statuses_are_completely_paginated_and_cross_status_moves_are_deduplicated(self):
         api = maintenance.GitHubApi('nil-studio/oasis7', '')
@@ -721,7 +1040,7 @@ class ApiTests(unittest.TestCase):
         for second in failures:
             with self.subTest(second=second):
                 api = maintenance.GitHubApi('nil-studio/oasis7', '')
-                api.request = Mock(side_effect=[{'total_count': 101, 'workflow_runs': runs}, second])
+                api.request = Mock(side_effect=[{'total_count': 101, 'workflow_runs': runs}, second] * 3)
                 with self.assertRaises(maintenance.MaintenanceError):
                     api.list_active_runs()
 
@@ -844,6 +1163,50 @@ class TrustTests(unittest.TestCase):
             maintenance.trusted_run_start(api, self.environment(), bootstrap=True)
         with self.assertRaises(maintenance.MaintenanceError):
             maintenance.trusted_run_start(api, self.environment(), cache(3)['key'], bootstrap=True)
+
+    def test_recovery_without_keys_revalidates_rust_and_ecs_identity_and_scopes_explicit_keys(self):
+        api = Mock(repository='nil-studio/oasis7')
+        api.request.return_value = self.run_metadata()
+        self.assertEqual(maintenance.trusted_run_start(api, self.environment(), recover=True), START)
+        for override in ({'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_EVENT_NAME': 'pull_request'},
+                         {'GITHUB_WORKFLOW_SHA': 'b' * 40}, {'GITHUB_REPOSITORY': 'other/repo'},
+                         {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust.yml@feature'}):
+            api.reset_mock()
+            with self.subTest(override=override), self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, dict(self.environment(), **override), recover=True)
+            api.request.assert_not_called()
+        env = dict(self.environment(), GITHUB_EVENT_NAME='workflow_dispatch',
+                   GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/ecs-packages.yml@refs/heads/main')
+        api.request.return_value = dict(self.run_metadata(), event='workflow_dispatch', path='.github/workflows/ecs-packages.yml')
+        self.assertEqual(maintenance.trusted_run_start(api, env, recover=True), START)
+        for name in ('ordinary', 'formal'):
+            api.reset_mock()
+            with self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, env, WorkspaceRetentionTests.entry(3, name)['key'], recover=True)
+            api.request.assert_not_called()
+        with self.assertRaises(maintenance.MaintenanceError):
+            maintenance.trusted_run_start(api, env, bootstrap=True, recover=True)
+
+    def test_recovery_cli_without_saved_key_needs_token_and_verified_budget(self):
+        entries = [WorkspaceRetentionTests.entry(i, 'formal') for i in (1, 2, 3)]
+        api = api_with(entries, entries, entries[1:])
+        api.repository = 'nil-studio/oasis7'
+        api.request.side_effect = lambda method, path: self.run_metadata() if path == '/actions/runs/42' else {'max_cache_size_gb': 10}
+        env = dict(self.environment(), CACHE_MAINTENANCE_TOKEN='scoped-token',
+                   CI_CACHE_REPOSITORY_BUDGET_BYTES='10000000000')
+        with patch.dict(os.environ, env, clear=True), patch.object(maintenance, 'GitHubApi', return_value=api), \
+                patch('sys.stdout', new_callable=io.StringIO) as output:
+            self.assertEqual(maintenance.main(['--recover', '--apply']), 0)
+        report = json.loads(output.getvalue())
+        self.assertTrue(report['recover'])
+        self.assertEqual(report['deleted_ids'], [1])
+        self.assertEqual(report['capacity_revalidation']['configured_repository_budget_bytes'], 10_000_000_000)
+        api.delete_cache.assert_called_once_with(1)
+        for flags in (['--recover', '--apply'], ['--recover', '--bootstrap', '--apply']):
+            with patch.dict(os.environ, self.environment(), clear=True), \
+                    patch.object(maintenance, 'GitHubApi') as api_class, patch('sys.stdout', new_callable=io.StringIO):
+                self.assertEqual(maintenance.main(flags), 0)
+                api_class.assert_not_called()
 
     def test_bootstrap_manual_execution_must_still_be_full(self):
         with tempfile.TemporaryDirectory() as temporary:

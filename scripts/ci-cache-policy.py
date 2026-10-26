@@ -9,6 +9,9 @@ import re
 
 
 MAIN_REF = 'refs/heads/main'
+# Maintenance and main full workspace writers share this rotation-space target.
+# It is neither a bound on the next dependency archive nor an atomic reservation.
+DEPENDENCY_ROTATION_HEADROOM_BYTES = 5 * 1024 ** 3 // 2
 FORMAL_V2 = (r'formal-workspace-v2-ubuntu24-(?:X64|ARM64)-\d+\.\d+\.\d+-'
              r'nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{64}-[0-9a-f]{40}')
 SOURCE_SUFFIX = r'[0-9a-f]{64}-[0-9a-f]{40}'
@@ -102,12 +105,14 @@ def capacity_context(maintenance, api, budget, report):
     return entries
 
 
-def save_policy(entries, key, upload_bytes, repository_limit_bytes):
+def save_policy(entries, key, upload_bytes, repository_limit_bytes, *, reserved_repository_bytes=0):
     name = family_for_key(key)
     if not name or not is_current_key(key):
         raise ValueError('workspace cache key is outside the current managed schema')
     if type(upload_bytes) is not int or upload_bytes <= 0:
         raise ValueError('cache upload bound must be positive bytes')
+    if type(reserved_repository_bytes) is not int or reserved_repository_bytes < 0:
+        raise ValueError('repository rotation reserve must be nonnegative bytes')
     specification = FAMILIES[name]
     family = [entry for entry in entries if entry['ref'] == MAIN_REF
               and family_for_key(entry['key']) == name]
@@ -116,9 +121,14 @@ def save_policy(entries, key, upload_bytes, repository_limit_bytes):
     family_limit = specification['migration_bytes'] if migration else specification['rotation_bytes']
     observed = sum(entry['size_in_bytes'] for entry in entries)
     projected = observed + upload_bytes
+    valid_limit = type(repository_limit_bytes) is int and repository_limit_bytes > 0
     report = dict(capacity_allowed=False, family=name,
                   effective_repository_budget_bytes=repository_limit_bytes,
                   observed_repository_bytes=observed, projected_repository_bytes=projected,
+                  reserved_repository_bytes=reserved_repository_bytes,
+                  projected_available_repository_bytes=(max(0, repository_limit_bytes - projected)
+                                                        if valid_limit else None),
+                  projected_repository_bytes_with_reserve=projected + reserved_repository_bytes,
                   new_payload_upload_bound_bytes=upload_bytes,
                   projected_family_bytes=sum(entry['size_in_bytes'] for entry in family) + upload_bytes,
                   single_upload_limit_bytes=specification['max_upload_bytes'],
@@ -130,10 +140,12 @@ def save_policy(entries, key, upload_bytes, repository_limit_bytes):
                   compatible_generations=len(compatible),
                   rotation_required=len(compatible) >= specification['keep_generations'],
                   compatible_cache_ids=sorted(entry['id'] for entry in compatible))
-    if type(repository_limit_bytes) is not int or repository_limit_bytes <= 0:
+    if not valid_limit:
         report['reason'] = 'repository cache quota unavailable or invalid'
     elif projected > repository_limit_bytes:
         report['reason'] = 'repository cache capacity gap'
+    elif projected + reserved_repository_bytes > repository_limit_bytes:
+        report['reason'] = 'dependency rotation headroom'
     elif any(entry['key'] == key for entry in family):
         report['reason'] = 'existing immutable key'
     elif upload_bytes > specification['max_upload_bytes']:
@@ -141,8 +153,8 @@ def save_policy(entries, key, upload_bytes, repository_limit_bytes):
     elif report['projected_family_bytes'] > family_limit:
         report['reason'] = name + ' main family rotation budget'
     else:
-        # Two generations is the post-save retention target. Admit a temporary
-        # third only when its complete upload fits both budgets; confirmed-save
-        # maintenance may then retire unprotected old generations.
+        # Two generations is the normal retention target. Admit a temporary
+        # third only when its complete upload fits both budgets and any full-run
+        # rotation reserve; maintenance can then reclaim unprotected extra copies.
         report['capacity_allowed'] = True
     return report

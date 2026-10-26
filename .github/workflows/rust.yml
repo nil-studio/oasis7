@@ -318,10 +318,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Retire redundant workspace and dependency cache snapshots
+      - name: Recover workspace and dependency cache rotation headroom
         env:
           CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci-cache-maintenance.py --bootstrap --apply
+        run: python3 scripts/ci-cache-maintenance.py --recover --apply
 
   oasis7-test-build-candidate:
     cache-mode: read
@@ -658,8 +658,8 @@ jobs:
     needs: [oasis7-test-build-trusted, formal-test-build-trusted, full-regression]
     if: >-
       always() && !cancelled() &&
-      ((needs.oasis7-test-build-trusted.result == 'success' && needs.oasis7-test-build-trusted.outputs.cache_confirmed == 'true') ||
-       (needs.formal-test-build-trusted.result == 'success' && needs.formal-test-build-trusted.outputs.cache_confirmed == 'true')) &&
+      (needs.oasis7-test-build-trusted.result == 'success' ||
+       needs.formal-test-build-trusted.result == 'success') &&
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -677,7 +677,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Report storage and retain confirmed workspace generations
+      - name: Recover rotation headroom and retain confirmed workspace generations
         env:
           CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
           ORDINARY_RESULT: ${{ needs.oasis7-test-build-trusted.result }}
@@ -695,11 +695,7 @@ jobs:
           if [[ "$FORMAL_RESULT" == success && "$FORMAL_CONFIRMED" == true ]]; then
             args+=(--current-key "$FORMAL_KEY")
           fi
-          if (( ${#args[@]} )); then
-            python3 scripts/ci-cache-maintenance.py --apply "${args[@]}"
-          else
-            python3 scripts/ci-cache-maintenance.py
-          fi
+          python3 scripts/ci-cache-maintenance.py --recover --apply "${args[@]}"
 
   oasis7-required:
     needs: [select, oasis7-test-build]

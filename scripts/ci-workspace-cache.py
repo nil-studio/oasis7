@@ -121,6 +121,12 @@ def measure_cache(args, report):
 def stage_cache(args, budget, report):
     key = identity(args.scope)['key']
     trusted_writer(args.scope, key)
+    # The trusted schedule/manual-full workflow also writes the shared native
+    # dependency cache later. Keep its rotation space out of workspace uploads;
+    # the dependency writer still admits its actual final archive independently.
+    reserved = (policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
+                if os.environ.get('GITHUB_EVENT_NAME') in ('schedule', 'workflow_dispatch') else 0)
+    report['reserved_repository_bytes'] = reserved
     maximum = policy.FAMILIES[args.scope]['staging_bytes']
     cache = temporary(args.cache)
     state = measure_cache(args, report)
@@ -147,7 +153,8 @@ def stage_cache(args, budget, report):
     # The preflight observation is not a reservation; staging can take minutes.
     entries = policy.capacity_context(maintenance, api_client(), budget, report)
     report.update(policy.save_policy(entries, key, report['upload_bound_bytes'],
-                                     report['effective_repository_budget_bytes']))
+                                     report['effective_repository_budget_bytes'],
+                                     reserved_repository_bytes=reserved))
     if units._cache_inputs(ROOT) != state['inputs']:
         raise ValueError('source inputs changed while packing the workspace cache')
     report['save'] = report['capacity_allowed']

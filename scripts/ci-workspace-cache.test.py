@@ -168,6 +168,76 @@ class Workspace(unittest.TestCase):
             self.assertGreater(report['upload_bound_bytes'], report['archive_bytes'])
             self.assertFalse((args.cache / cache.ARCHIVE_NAME).exists())
 
+    def test_full_stage_preserves_dependency_space_after_final_inventory_read(self):
+        reserve = 5 * 1024 ** 3 // 2
+        limit = 10_000_000_000
+        for scope in ('ordinary', 'formal'):
+            for event in ('push', 'schedule', 'workflow_dispatch'):
+                with self.subTest(scope=scope, event=event), tempfile.TemporaryDirectory() as directory:
+                    directory = Path(directory)
+                    root, state, _ = fixture(directory, scope)
+                    event_path = directory / 'event.json'
+                    event_path.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+                    args = SimpleNamespace(scope=scope, cache=directory / 'cache', state=state)
+                    first = api()
+                    final = api([entry(key='other-families', size_in_bytes=limit - reserve)])
+                    with patch.object(cache, 'ROOT', root), \
+                         patch.object(cache, 'identity', return_value={'key': key(scope)}), \
+                         patch.object(cache, 'api_client', side_effect=[first, final]), \
+                         patch.dict(os.environ, environment(scope, GITHUB_EVENT_NAME=event,
+                                        GITHUB_EVENT_PATH=str(event_path)), clear=True):
+                        report = {}
+                        cache.stage_cache(args, limit, report)
+                    first.list_caches.assert_called_once_with()
+                    final.list_caches.assert_called_once_with()
+                    self.assertEqual(report['observed_repository_bytes'], limit - reserve)
+                    self.assertGreater(report['upload_bound_bytes'], report['archive_bytes'])
+                    self.assertEqual(report['projected_repository_bytes'],
+                                     limit - reserve + report['upload_bound_bytes'])
+                    self.assertEqual(report['save'], event == 'push', report)
+                    self.assertEqual(report['reserved_repository_bytes'], 0 if event == 'push' else reserve)
+                    self.assertEqual((args.cache / cache.ARCHIVE_NAME).exists(), event == 'push')
+                    if event != 'push':
+                        self.assertEqual(report['reason'], 'dependency rotation headroom')
+
+    def test_full_stage_can_save_when_actual_upload_and_rotation_space_both_fit(self):
+        for scope in ('ordinary', 'formal'):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                root, state, _ = fixture(directory, scope)
+                args = SimpleNamespace(scope=scope, cache=directory / 'cache', state=state)
+                with patch.object(cache, 'ROOT', root), \
+                     patch.object(cache, 'identity', return_value={'key': key(scope)}), \
+                     patch.object(cache, 'api_client', return_value=api()), \
+                     patch.dict(os.environ, environment(scope, GITHUB_EVENT_NAME='schedule'), clear=True):
+                    report = {}
+                    cache.stage_cache(args, 10_000_000_000, report)
+                self.assertTrue(report['save'], report)
+                self.assertEqual(report['reserved_repository_bytes'], 5 * 1024 ** 3 // 2)
+                self.assertGreaterEqual(report['projected_available_repository_bytes'],
+                                        report['reserved_repository_bytes'])
+
+    def test_stage_rejects_untrusted_or_nonfull_manual_runs_before_preparation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            event_path = directory / 'event.json'
+            event_path.write_text(json.dumps({'inputs': {'run_mode': 'required'}}))
+            args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=directory / 'state.json')
+            for changes in ({'GITHUB_JOB': 'oasis7-test-build-candidate'},
+                            {'GITHUB_REF': 'refs/pull/1/merge'},
+                            {'GITHUB_WORKFLOW_SHA': 'c' * 40},
+                            {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_EVENT_PATH': str(event_path)}):
+                with self.subTest(changes=changes), \
+                     patch.object(cache, 'identity', return_value={'key': key()}), \
+                     patch.object(cache, 'api_client') as client, \
+                     patch.object(cache, 'measure_cache') as measure, \
+                     patch.dict(os.environ, environment(**changes), clear=True):
+                    with self.assertRaises(ValueError):
+                        cache.stage_cache(args, 10_000_000_000, {})
+                    client.assert_not_called()
+                    measure.assert_not_called()
+                    self.assertFalse(args.cache.exists())
+
     def test_measured_ordinary_selection_fits_staging_without_hashing_or_copying(self):
         # Ordinary producer 120263591919 measured this logical library-only
         # byte count. A sparse file reproduces admission without allocating or

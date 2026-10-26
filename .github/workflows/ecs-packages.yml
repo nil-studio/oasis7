@@ -245,7 +245,7 @@ jobs:
   cache-maintenance:
     needs: native-trusted
     if: >-
-      needs.native-trusted.result == 'success' && needs.native-trusted.outputs.cache_confirmed == 'true' &&
+      always() && !cancelled() && needs.native-trusted.result == 'success' &&
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && github.event_name == 'workflow_dispatch'
     cache-mode: none
     permissions:
@@ -261,11 +261,20 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Report storage and retain confirmed ECS generations
+      - name: Recover rotation headroom and retain confirmed ECS generations
         env:
           CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
+          CI_CACHE_REPOSITORY_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}
+          NATIVE_RESULT: ${{ needs.native-trusted.result }}
+          CURRENT_CACHE_CONFIRMED: ${{ needs.native-trusted.outputs.cache_confirmed }}
           CURRENT_CACHE_KEY: ${{ needs.native-trusted.outputs.cache_key }}
-        run: python3 scripts/ci-cache-maintenance.py --apply --current-key "$CURRENT_CACHE_KEY"
+        shell: bash
+        run: |
+          args=()
+          if [[ "$NATIVE_RESULT" == success && "$CURRENT_CACHE_CONFIRMED" == true ]]; then
+            args+=(--current-key "$CURRENT_CACHE_KEY")
+          fi
+          python3 scripts/ci-cache-maintenance.py --recover --apply "${args[@]}"
 
   build-metrics:
     if: inputs.measure_builds
