@@ -23,6 +23,41 @@ Legacy Scheduler 的纯合同由 `oasis7_agent_api::{legacy_economy, legacy_sche
 这两个边界不保证所有 Runtime 修改均免于重编：状态 schema 或下沉 reducer 改变必须使真实依赖闭包失效。收益用固定工具链、profile、features、jobs、target 和缓存条件的同配置单元/timings 测量；架构成立与跨 run ECS 缓存消费分别验收，不能用普通 CI 或缓存命中代替实际 Cargo Fresh、测试执行与包身份验证。
 
 
+<a id="cognition-projection-read-contract"></a>
+### Cognition 投影的只读解码边界（目标合同）
+
+Trace ID: O7-REQ-b47433b0-57bd-4b7c-8f31-dc61bd93f8b4
+
+这是工程接口要求：同一持久值到服务投影的 schema 解释只有一个 owner，迁移不得改变读取范围、失败行为或已提交投影。产品承诺不变，不新增产品要求。当前 `projection/committed.rs` 仍直接反序列化 Runtime raw accessor 的返回值；下述 codec 接缝是待实现目标，不是已交付 typed Runtime API。
+
+**最小 owner 选择。** `oasis7_world_projection::codec` 拥有这两条投影读取的具体 decoder，直接复用下层 `AgentContinuation` 和本包现有 `WorldServiceContinuationContext`；Service 消费 typed decoder 结果，只负责认证/筛选和组装响应；这些 raw accessor 不授权消费者另写一套投影解码政策。Runtime 仍拥有活 World 的取值、生命周期与恢复；保留 `cognition_continuations()` / `service_continuation_context(id)` 作为持久 JSON 边界。选择在现有 projection owner 封装 decoder，而非新增 Runtime 六字段 context 类型：当前 context 没有同形的下层持久类型，复制 DTO 会形成第二份 schema，Runtime 也不得反向依赖 Projection/Service/Game Client。此选择不要求新 crate、全仓 `Value` 清理或将 Runtime 内部逐字段检查改为完整解码。
+
+建议的进程内接口形状如下（名称为实现落点建议，不是新增 wire）：
+
+| Decoder 输入 | Typed 输出 | 唯一解释责任 |
+| --- | --- | --- |
+| `decode_cognition_continuations(Value)`，值取自现有 Runtime accessor | `Result<Vec<AgentContinuation>, CognitionProjectionDecodeError>` | 完整数组及每项 serde 格式/default；不筛选 terminal/agent，不校验执行资格 |
+| `decode_continuation_context(Value)`，仅在单项 accessor 返回 `Some` 时调用 | `Result<WorldServiceContinuationContext, CognitionProjectionDecodeError>` | 现有六字段：五个 String（baseline observation、goal、policy、precondition summary/digest）及 `policy_revision: u64`；缺字段/类型错沿用现有 serde 拒绝，未知字段沿用原忽略行为 |
+
+错误值区分 continuation/context 解码位置并保留原 serde 原因；Service 对外仍输出原 `error.to_string()` 对应的消息，不追加新前缀、不换成 `WorldError` 的 Debug 文本。Runtime 现有内部 `cognition_continuations_typed` 可继续服务生命周期调用，不成为另一套投影 codec；若以后共用底层解析，应保持同一 serde schema 与错误映射。`active_cognition_continuations` 的终态过滤、digest hydration 和 `validate_authoritative` 不属于此读取，不可直接替代。
+
+**调用次序和兼容矩阵。** 先完成既有 reader/audience 认证；只有 `agent=Some` 的原分支读取 cognition。保持 leases → continuations 完整解码 → agent 过滤 → scheduler wakes → 按保留 continuation 的原顺序逐项读/解码 context。不同阶段同时损坏时仍返回原先最早的错误。不得先按 raw `agent_id` 筛掉畸形 continuation，也不得一次解码全部 context registry。
+
+| 持久输入 | 读取结果/失败边界 |
+| --- | --- |
+| 缺少 `continuations` key | Runtime 原 accessor 给 `[]`，typed 结果为空 |
+| `continuations=[]` | 合法空列表 |
+| `continuations=null`、非数组、数组内畸形项（包括其他 Agent） | 全量解码失败；不降级为空列表 |
+| 合法 active 或 terminal continuation、可被原 serde 接受的 sparse legacy | 保留原顺序、原字段/default 与缺失 digest；仅随后按 agent 筛选，不 hydrate、不 authoritative validation、不修复写入 |
+| 缺少 `continuation_contexts`；registry 为 null/数组/标量；object 中缺少所查 ID | 原 `.get(id)` 返回 None，省略该 context；不新增 registry 格式错误 |
+| 被引用 ID 的值为 null、非 object、缺任一必需字段或字段类型错误 | 单项解码失败；显式 null 不等同缺项 |
+| 被引用 ID 有完整六字段并带未知字段 | 沿用原 serde 行为，输出现有 DTO，不加入未知字段 |
+| 未引用或其他 Agent 的 context 畸形，如 `orphan:null` | 不读取、不解码，不导致新失败 |
+| 无 agent 的原投影分支 | 不新增 cognition 读取/校验；保持原空值与权限裁剪 |
+
+**迁移与验收。** 先在 projection codec 提供上述两个窄 decoder，再替换 Service 的两个 `serde_json::from_value` 调用；raw accessor 的其他生产调用保持原范围。以旧实现作为对照，使用含已填充 continuation/context 的 fixture 覆盖矩阵、重复引用/原顺序、终态和 sparse legacy，分别运行在线与 snapshot/journal restore 后的读取。对 public/owner/delegate/撤销路径、同时存在多处损坏的错误优先级、新旧外部错误文本、投影 JSON/CBOR/default、formal commitment 与签名输入做等价比较；空 golden 或依赖图检查不能单独证明兼容。不得迁移 ledger/schema 或改写 Snapshot/Journal；回退只恢复消费者调用，不做数据回滚。Runtime 的 scheduler、admission、恢复和权限资格仍由各自原 owner 验证。
+
+
 `oasis7_runtime` 拥有完整活 World、准入、事务、cognition 执行、持久化与恢复编排；权威状态值由 `oasis7_world_state` 拥有并经 Runtime 兼容再导出；`oasis7_world_service` 拥有受权服务用例、已提交投影、结果与发布，依赖 Runtime 与合同层。`oasis7` 保留宿主组装及现有消费者需要的兼容门面。Runtime 与 Simulator 是并列的执行实现，不通过对方拥有共享领域值。资源库存和元素预算属于 `oasis7_agent_api::world_resource`，机器人规格和视觉实体属于 `world_entity`，chunk 坐标与纯几何派生属于 `world_geometry`；权威 Agent/body 状态归 `oasis7_world_state::agent_state`，`oasis7_runtime::agent_state` 兼容再导出同一声明。旧 `models` 和 Simulator 类型路径仅作为现有消费者的兼容导出。
 
 资源清单 DTO、规范 hash 和纯上下文由 API 拥有；`runtime::chain_resource` 从权威状态派生，`simulator::chain_resource` 从内核状态派生。派生是两侧的 free function，不在共享 DTO 上挂接执行层固有方法。资源 commit 引用仍是既有资源关联合同，不扩大为共识最终性证明。

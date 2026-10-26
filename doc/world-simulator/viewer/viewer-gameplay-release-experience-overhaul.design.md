@@ -30,6 +30,8 @@
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | 查看、查询、提交及成果表达同一对象和实际方案。 | [当前方案交互](#starter-plan-interaction) | gameplay/M4 参数与报价；Runtime 因果；Viewer/QA 入口验证。 | 不重建 Shell/Inspector，不由 UI 补算成本。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | 报价失效、迟到响应和未知结果保留原请求语义，不重复提交或误归因。 | [当前方案交互](#starter-plan-interaction) | M4/Runtime identity 与重验；Viewer/QA 时序验证。 | 不新增恢复权限，不以退出界面取消已提交动作。 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | 首产物成果连接真实后继目标与自然离场，重入保留既有成果和未决义务。 | [当前方案交互](#starter-plan-interaction) | gameplay 后继条件；Runtime 结算；Viewer/QA 续玩验证。 | 不把候选当建成，不扩张 Agent 授权或生成离线收益。 |
+| [REQ-FIRST-INDUSTRIAL-006](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-006) Trace refs: O7-REQ-d0041aa9-1dfb-46a0-95e0-67417b39bfa3 | 主体/目标限定的能力与恢复查询保留真实原因、动作、证据和未知。 | [主体能力与恢复查询](#subject-capability-recovery-query) | Runtime/gameplay 查询；Viewer 仅呈现。 | 不新增 repair/rebuild/pivot，不覆盖全部工业规则设计。 |
+| [REQ-FIRST-INDUSTRIAL-007](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-007) Trace refs: O7-REQ-df0617cf-2ab6-40ca-934b-f050d6a66812 | API/Viewer 分开个人能力和世界上下文，恢复状态/动作同义。 | [主体能力与恢复查询](#subject-capability-recovery-query) | 实际 API/Viewer 路由 adapter；QA 对账。 | 共享合同不证明端到端 parity 或全部工业 profile 已覆盖。 |
 | [REQ-ENTRY-PERFORMANCE-001 / AC](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)；Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251 | 世界刷新时可交互，过载可解释且不丢事实 | [显示投影与调度](#viewer-render-projection) | Viewer Host / bridge / QA；Runtime 继续提供权威快照 | 不承诺任意世界规模或低端设备，不改变动作执行 |
 | [REQ-ENTRY-PERFORMANCE-002 / AC](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)；Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae | 有界等待，同版本复用，损坏/版本切换安全恢复 | [资源交付与恢复](#viewer-payload-delivery) | Web build / loader / HTTP deployment / QA | 不解决账号、provider 或后端故障，不开放离线可玩 |
 
@@ -346,6 +348,34 @@ unavailable 不可合并，当前 Recent Events/Feedback 名称保持不变。Fu
 
 验证时，`branch_commitment.rs` 内的 `regional_specialist_recommendations_keep_enabled_industrial_routes` 单元样例同时启用模块、工厂核心与合金，逐条核对承诺，再禁用模块候选检查过滤；下表的真实 Runtime 场景补充主指引与合金路线投影。两者组合，避免仅凭一条已启用路线推断所有分支文案均已覆盖。
 
+<a id="subject-capability-recovery-query"></a>
+### 7.1.1 主体能力与恢复查询（目标合同，实施与双入口验收未完成）
+
+本节承接 [REQ-FIRST-INDUSTRIAL-006](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-006) 的真实阻塞/恢复，以及 [REQ-FIRST-INDUSTRIAL-007](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-007) 的双入口同义；Trace refs: O7-REQ-d0041aa9-1dfb-46a0-95e0-67417b39bfa3；O7-REQ-df0617cf-2ab6-40ca-934b-f050d6a66812。首产物与稳定能力仍遵守[首局产品完成边界](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#first-session-concrete-sample)，恢复比较复用[成熟世界专业合同](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#291-disruption-recovery-comparison)，不增加玩法规则。
+
+**方向：** 入口先解析有效主体与可见性范围 → 现有 Runtime/world-query 读取 canonical 事实并评估当前能力/恢复 → projection 保留证据和未知 → Viewer presenter 组织文案、布局与推荐。Runtime/gameplay owner 拥有谓词与可行性，Viewer owner 不从展示 DTO 或自然语言重建政策。该接缝是窄只读 query，不新增巨型 GameService、endpoint 或持久化“个人阶段/恢复真值”。
+
+| 查询输入/输出 | 合同 | 不得混同 |
+| --- | --- | --- |
+| resolved subject | 明确 personal owner 或 spectator，并携带已解析的 world/可见性 scope 与当前身份；personal 必须有合法 owner，缺失则报告主体不可用，不用两个可独立组合的 bool/optional 值默认切换模式 | spectator 只读取允许的世界上下文，不替任意玩家认领能力；选择对象不产生控制权 |
+| 个人能力事实 | 在同一有效快照读取 owner-bound 首产物历史、当前产线/配方身份及 canonical stable-line 谓词、授权动作与必要证据；未知明确保留 | `production_only` 首笔匹配结算不等于稳定能力、建成 Assembler、交付或需求满足；暂停/换线/换配方后历史成果不自动证明当前能力 |
+| 世界上下文 | 单独返回现有全局 IndustryStage 及其公开事实，保持全局 reducer 语义不变 | 另一玩家的稳定工厂或全局累计成果不能变成当前玩家的阶段完成、个人稳定或执行许可 |
+| goal-scoped recovery | 当前 subject、goal、资源/权限及一致快照进入既有可行性规则；每个适用候选返回下表状态、原因码、真实 action 引用（存在时）、证据/快照身份与复查条件（存在时） | 不从 goal_kind、英文关键词、余额、全局计数或 UI fallback 补造事实；查询不扣资源、不预留、不执行修复 |
+
+| recovery 状态 | 最小含义与呈现 | 执行/复查边界 |
+| --- | --- | --- |
+| `available` | 当前证据支持现有真实动作；带可定位的 action/参数约束与事实依据，成本/风险只展示实际规则或报价提供的内容 | 提交时仍重验当前权限、资源、版本和规则；不是未来成功保证 |
+| `blocked` | 已确认当前约束阻止该候选；给出原因码与可见范围内的缺口，保留已得、已损失及待决价值的既有权威含义 | 仅在规则确知时给出解除/复查条件，不捏造代价或自动补足 |
+| `unknown` | 缺主体、证据、freshness 或尚无该恢复能力的已实现领域判断；明确未知/未支持原因，不表示可执行 | 保留当前合法的观察、重新进入或安全停止等入口；复查条件不可知时明确缺失，不无限等待或默认 true/false |
+
+每个判断绑定 subject、goal、world/scope 和快照/相关版本。重连、主体切换、撤权、配方/产线变化或证据过期后按当前条件重查；旧推荐不得恢复权限，仍可按当前读取资格保留历史成果。既有 failure disposition 的真实损失/恢复边界优先保全，不能被乐观 fallback 覆盖。`request_snapshot` 是观察刷新，不因此获得 `repair_now` 语义；没有已开放的 repair/rebuild/pivot 动作就不发布可提交选项。
+
+goal、action discovery、branch、lane 与 fallback 消费同一查询事实。Presenter 只把原因码映射为文案/建议；固定 canonical 状态时更换措辞、拼写或语言不得改变能力、赞助依赖及恢复可行性。建议可以按上下文排序，但不改状态、不添 action，不把世界成熟度当个人成果。
+
+兼容迁移先引入内部 query，再迁移上述消费者，沿用现有 wire DTO adapter 与 UI 结构。旧 snapshot 缺 canonical settlement/line/recovery 证据保持未知，不从余额/计数重建首产物，不把缺省 optional 强转 true 或一概 false；必要时用既有缺省/原因展示表达未知，不能以兼容为名发布可执行承诺。保留 owner-bound 首产物投影及 canonical stable predicate，不加第二事实库，不更改全局阶段。API 与 Viewer 应适配同一事实合同，但共享 DTO 不证明真实路由已接线或端到端 parity。
+
+验证计划（未执行）：在 query 及真实消费者覆盖 A 一次产出/B 稳定世界、A 真正稳定、缺 owner/spectator、换配方/产线、暂停后历史首产物与当前能力分离；同 goal 改资源/权限产生对应 available/blocked，缺证据保持 unknown；同 canonical 状态只改文案/语言时 flags 不变；snapshot-only 不成为 repair、failure disposition 不被覆盖；旧 snapshot 与重连撤权保持边界。随后沿实际 API/Viewer 路由对账 subject、原因、action、证据与复查语义，按既有 S6 检查可见恢复入口；局部 query/DTO 测试不代签双入口运行、真实恢复效果或真人体验。
+
 <a id="fixture-rollback-window"></a>
 ### 7.2 吸引力样例的回退窗口
 
@@ -407,6 +437,8 @@ unavailable 不可合并，当前 Recent Events/Feedback 名称保持不变。Fu
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | [当前方案交互](#starter-plan-interaction) | 查看/查询/提交分开，同参数与实际成果可读；承接 AC-FIRST-INDUSTRIAL-001。 | 待执行：按 [测试手册](../../../testing-manual.md) 选择当前 candidate 的适用 S6 场景，沿 §8.1/8.4 的 quote→submit→receipt 真实消费者核对对象、参数、成本和反馈；覆盖桌面/窄屏、IME、键盘、文字放大与非打断播报。 | PR 中的实际参数、权威结果与 headed captures；记录缺失前置。 | 单元/组件测试不代签 GUI；图形正确不证明真人理解、主体感或留存。 |
 | [REQ-FIRST-INDUSTRIAL-005](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-005) Trace refs: O7-REQ-9a0630f6-b261-420b-85a1-1dd426cf3b48 | [当前方案交互](#starter-plan-interaction) | 失效/迟到结果不污染当前方案，原请求未知与已结算范围分开；承接 AC-FIRST-INDUSTRIAL-003。 | 待执行：按 [测试手册](../../../testing-manual.md) 在当前 candidate 的适用 S6 场景执行 §8.2 的参数/对象改变、报价在途失效、旧响应迟到、权限失效及未知结果恢复；核对实际提交、焦点和原请求身份，缺恢复入口记录 blocked。 | PR 中的消息时序、原请求与领域结果、无重复效果证据及 headed captures。 | reducer 或固定脚本不代签真实消费者、GUI 或自主试玩。 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | [当前方案交互](#starter-plan-interaction) | 单一成果回执、可见后继目标和自然离场分别成立；承接 AC-FIRST-INDUSTRIAL-004。 | 待执行：按 [测试手册](../../../testing-manual.md) 在当前 candidate 的适用 S6 场景验证 §8.2/8.3 的成果到达、后继不可执行、自然离场和重入；检查旧成果不误归给新意图、不重复播报、不复活失效授权；无提示续玩观察单独记录。 | PR 中的成果/后继条件、离场与重入状态、headed captures 和提示介入记录。 | 图形与恢复正确不证明 Agent 主体感或真人留存，未覆盖窗口保持未验证。 |
+| [REQ-FIRST-INDUSTRIAL-006](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-006) Trace refs: O7-REQ-d0041aa9-1dfb-46a0-95e0-67417b39bfa3 | [主体能力与恢复查询](#subject-capability-recovery-query) | 个人事实、真实恢复和 unknown 不由世界阶段/文案/default 推断。 | 待执行：扩展 [industrial_progression.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/industrial_progression.rs)，按本节 query/consumer 验证计划新增场景覆盖混合 owner、配方/产线变化、缺证据、资源/权限变化、措辞不变性与 failure disposition；S6 检查可见恢复入口。 | 实施 PR 中的固定状态、query/consumer 输出与真实 action/证据对账。 | 不新增未开放玩法；不代签全部工业恢复效果。 |
+| [REQ-FIRST-INDUSTRIAL-007](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-007) Trace refs: O7-REQ-df0617cf-2ab6-40ca-934b-f050d6a66812 | [主体能力与恢复查询](#subject-capability-recovery-query) | 两入口对同 subject/goal/snapshot 表达相同状态、原因、动作和复查条件。 | 待执行：按[测试手册 S6](../../../testing-manual.md)新增本节双入口对账场景，沿实际 API/Viewer 路由执行，含旧 snapshot、重连、撤权和 spectator；不是只测共享 DTO。 | 实施 PR 中的路由、输入 scope、输出语义与适用 S6 证据。 | 不代签全部工业 profile、未运行路由或真人体验。 |
 | [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)；Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251 | [显示投影与调度](#viewer-render-projection) | 按[预算](#viewer-performance-verification)验收响应/事实一致性。 | 按[测试手册 S6](../../../testing-manual.md)执行 Host/DTO/Rust 具体解析的正负回归：代理不外泄、未知字段不遍历、同 revision 不转换、每项有效变化必刷新、输出上限、旧代次丢弃、逐条 receipt 不丢；真实浏览器场景各 3×60 秒，p95 按每次完整操作采样，报告样本数与最差一次，不能平均掩盖失败 | 实施 PR：source/build/scene、基线与优化后 trace、分段耗时/转换次数/输入输出大小/正确性及失败 | mock 不代签 WASM/实际 GPU；本设计交付不执行游戏自主试玩，不改变 Skill 或行动行为 |
 | [REQ-ENTRY-PERFORMANCE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)；Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae | [资源交付与恢复](#viewer-payload-delivery) | 按[预算](#viewer-performance-verification)验收公共资源加载/复用及失败恢复。 | 按[测试手册 S6](../../../testing-manual.md)执行 loader 故障回归与真实 HTTP：br/gzip/identity 的解码 hash 相同，响应头/encoded bytes 正确；冷启动 10 次/热启动 20 次均逐次满足预算；切版本/回滚/损坏/超时/离线/淘汰/并发 Retry/迟到 init 正确恢复，记录阶段时长和 body transfer | 实施 PR：相同发布的 manifest/hash/headers、network waterfall、缓存来源、阶段状态与实际退出码；实际部署验证以原 runbook 继续 | 本地服务器、curl 压缩、LCP 或 shell 出现单独不能证明 renderer ready；热性能不证明冷性能，资源就绪不证明可玩 |
 

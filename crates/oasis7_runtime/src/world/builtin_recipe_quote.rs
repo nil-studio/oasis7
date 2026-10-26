@@ -28,19 +28,6 @@ impl World {
             logistics_route_ids: vec![],
             logistics_path_ids: vec![],
         };
-        let mut authorizations = self
-            .agent_delegation_authorizations(agent)?
-            .into_iter()
-            .filter(|a| {
-                a.grant.object_id == factory
-                    && a.grant.action_kinds.iter().any(|k| k == "ScheduleRecipe")
-            });
-        let mut authorization = authorizations
-            .next()
-            .ok_or_else(|| invalid("native recipe grant required"))?;
-        if authorizations.next().is_some() {
-            return Err(invalid("native recipe grant ambiguous"));
-        }
         // Binding happens only on the private clone. Reuse real grant and domain
         // admission without stepping the world or completing unrelated jobs.
         let mut preview_world = self.clone();
@@ -52,6 +39,9 @@ impl World {
             AgentDecisionCausalContextV1::default(),
         )?;
         preview_world.prepare_agent_delegation_commit(request_id, &action)?;
+        let mut authorization = preview_world
+            .bound_agent_delegation_authorization(request_id, &action)?
+            .ok_or_else(|| invalid("native recipe grant required"))?;
         let body = preview_world.action_to_event(&ActionEnvelope {
             id: 0,
             action: action.clone(),

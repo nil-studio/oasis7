@@ -12,6 +12,9 @@ use std::sync::{Arc, Mutex};
 #[path = "durable_peer_record_publisher/tombstone_tests.rs"]
 mod tombstone_tests;
 
+#[path = "durable_peer_record_publisher/initialization_race_tests.rs"]
+mod initialization_race_tests;
+
 static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
 
 struct TestDirectory(PathBuf);

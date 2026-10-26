@@ -33,6 +33,13 @@ compile_error!("approval-harness requires owner and is not a deployment profile"
 pub mod approval_crypto;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 pub mod approval_store;
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "identity", feature = "owner", feature = "executor")
+))]
+pub mod envelope_crypto;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+pub mod provision_approval_store;
 
 #[cfg(target_arch = "wasm32")]
 mod platform;

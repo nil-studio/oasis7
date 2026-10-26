@@ -1,5 +1,5 @@
 // Generated canonical Viewer bundle; source truth lives in ./software_safe_src/.
-//#region \0rolldown/runtime.js
+// \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
 var __exportAll = (all, no_symbols) => {
 	let target = {};
@@ -10,8 +10,7 @@ var __exportAll = (all, no_symbols) => {
 	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
 	return target;
 };
-//#endregion
-//#region node_modules/solid-js/dist/solid.js
+// node_modules/solid-js/dist/solid.js
 var sharedConfig = {
 	context: void 0,
 	registry: void 0,
@@ -749,8 +748,7 @@ function Show(props) {
 		return props.fallback;
 	}, void 0, void 0);
 }
-//#endregion
-//#region node_modules/solid-js/web/dist/web.js
+// node_modules/solid-js/web/dist/web.js
 var memo = (fn) => createMemo(() => fn());
 function reconcileArrays(parentNode, a, b) {
 	let bLength = b.length, aEnd = a.length, bEnd = bLength, aStart = 0, bStart = 0, after = a[aEnd - 1].nextSibling, map = null;
@@ -1092,8 +1090,7 @@ function Portal(props) {
 	}, void 0, { render: !hydrating });
 	return marker;
 }
-//#endregion
-//#region software_safe_src/viewer_ui_primitives.jsx
+// software_safe_src/viewer_ui_primitives.jsx
 var _tmpl$$45 = /*#__PURE__*/ template(`<span>`);
 var _tmpl$2$42 = /*#__PURE__*/ template(`<div>`);
 function Badge(props) {
@@ -1120,8 +1117,7 @@ function EmptyState(props) {
 		return _el$2;
 	})();
 }
-//#endregion
-//#region software_safe_src/recipe_substitution_panel.jsx
+// software_safe_src/recipe_substitution_panel.jsx
 var _tmpl$$44 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$2$41 = /*#__PURE__*/ template(`<section class=panel-section style=min-width:0;overflow-wrap:anywhere><h3></h3><p>`);
 var _tmpl$3$33 = /*#__PURE__*/ template(`<p> · <!> `);
@@ -1367,8 +1363,7 @@ function RecipeSubstitutionPanel(props) {
 		})()
 	});
 }
-//#endregion
-//#region software_safe_src/browser_model_store.js
+// software_safe_src/browser_model_store.js
 var BrowserModelStoreError = class extends Error {
 	constructor(code) {
 		super(code);
@@ -1850,8 +1845,7 @@ async function probeBrowserModel(options = {}) {
 		tool_round_trip: true
 	};
 }
-//#endregion
-//#region software_safe_src/browser_model_session.js
+// software_safe_src/browser_model_session.js
 function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windowRef = globalThis.window, documentRef = globalThis.document, navigatorRef = globalThis.navigator, now = Date.now, monotonicNow = () => globalThis.performance.now() } = {}) {
 	const store = createBrowserModelStore({
 		accountId,
@@ -2033,11 +2027,9 @@ function createBrowserModelSession({ accountId, storage, locks, fetchImpl, windo
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/model_connection_styles.js
+// software_safe_src/model_connection_styles.js
 var modelConnectionStyles = ".model-connection-panel { margin-block: 1rem; padding: .8rem; border: 1px solid var(--border, #777); border-radius: .5rem; min-width: 0; }\n.model-connection-panel summary { cursor: pointer; font-weight: 600; }\n.model-connection-panel p { overflow-wrap: anywhere; line-height: 1.5; }\n.model-connection-panel label { display: grid; gap: .4rem; margin-block: .7rem; min-width: 0; }\n.model-connection-panel select, .model-connection-panel input[type=password] { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; font: inherit; padding: .5rem; }\n.model-connection-panel .model-connection-panel__check { display: flex; align-items: flex-start; gap: .5rem; }\n.model-connection-panel__check input { flex: 0 0 auto; margin-top: .25rem; }\n.model-connection-panel__actions { display: flex; flex-wrap: wrap; gap: .6rem; }\n.model-connection-panel button { white-space: normal; overflow-wrap: anywhere; min-height: 2.75rem; font: inherit; margin-block: .25rem; }\n.model-connection-panel :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }\n\n";
-//#endregion
-//#region software_safe_src/browser_model_connection_panel.jsx
+// software_safe_src/browser_model_connection_panel.jsx
 var _tmpl$$43 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$2$40 = /*#__PURE__*/ template(`<p role=alert>`);
 var _tmpl$3$32 = /*#__PURE__*/ template(`<p>`);
@@ -2291,8 +2283,7 @@ function BrowserModelConnectionPanel(props) {
 	})();
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/browser_game_protocol.js
+// software_safe_src/browser_game_protocol.js
 var loaded;
 function loadBrowserGameProtocol() {
 	if (!loaded) loaded = (async () => {
@@ -2323,8 +2314,7 @@ function loadBrowserGameProtocol() {
 	});
 	return loaded;
 }
-//#endregion
-//#region software_safe_src/browser_game_identity.js
+// software_safe_src/browser_game_identity.js
 var BrowserGameStorageError = class extends Error {
 	constructor(code) {
 		super(code);
@@ -2451,8 +2441,7 @@ function createBrowserExecutorIdentity({ indexedDB, storage, cryptoImpl = global
 		return validate(await database.update(key, (stored) => stored === void 0 ? candidate : stored), scopeKey);
 	} };
 }
-//#endregion
-//#region software_safe_src/browser_game_recovery.js
+// software_safe_src/browser_game_recovery.js
 function stable(value) {
 	if (value === null || typeof value === "string" || typeof value === "boolean") return value;
 	if (typeof value === "number" && Number.isSafeInteger(value)) return value;
@@ -2684,8 +2673,7 @@ function createBrowserGameRecovery({ scope, indexedDB, storage, locks = globalTh
 	};
 	return api;
 }
-//#endregion
-//#region software_safe_src/browser_participant_entry.js
+// software_safe_src/browser_participant_entry.js
 var BrowserParticipantError = class extends Error {
 	constructor(code) {
 		super(code);
@@ -3143,8 +3131,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/browser_game_client.js
+// software_safe_src/browser_game_client.js
 var BrowserGameError = class extends Error {
 	constructor(code) {
 		super(code);
@@ -3748,8 +3735,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		executorPublicKey: executorSigner.publicKeyHex
 	};
 }
-//#endregion
-//#region software_safe_src/browser_agent_runner.js
+// software_safe_src/browser_agent_runner.js
 var fail$3 = (code) => {
 	throw new BrowserGameError(code);
 };
@@ -4114,8 +4100,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		state: () => ({ ...status })
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_model_connection_client.js
+// software_safe_src/viewer_model_connection_client.js
 var API$1 = "/v1/agent-client";
 var IDENTITY = "/api/public/hosted-account/v2/capabilities";
 var CODES = /* @__PURE__ */ new Set([
@@ -4407,8 +4392,7 @@ function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/browser_legacy_run_guard.js
+// software_safe_src/browser_legacy_run_guard.js
 var LegacyRunGuardError = class extends Error {
 	constructor(code) {
 		super(code);
@@ -4447,8 +4431,7 @@ async function assertNoLegacyRun({ client = createViewerModelConnectionClient() 
 		reject("legacy_state_unknown");
 	}
 }
-//#endregion
-//#region software_safe_src/browser_game_session.js
+// software_safe_src/browser_game_session.js
 var same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 var fail$2 = (code) => {
 	throw new BrowserGameError(code);
@@ -4876,8 +4859,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/model_connection_panel.jsx
+// software_safe_src/model_connection_panel.jsx
 var _tmpl$$42 = /*#__PURE__*/ template(`<p role=alert>`);
 var _tmpl$2$39 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$3$31 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
@@ -5440,8 +5422,7 @@ function ModelConnectionPanel(props) {
 	})();
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/browser_owner_entry.js
+// software_safe_src/browser_owner_entry.js
 var fail$1 = (code) => {
 	throw new BrowserParticipantError(code);
 };
@@ -5736,8 +5717,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/browser_byok_surface.jsx
+// software_safe_src/browser_byok_surface.jsx
 var _tmpl$$41 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$2$38 = /*#__PURE__*/ template(`<p role=status>: `);
 var _tmpl$3$30 = /*#__PURE__*/ template(`<button type=button>`);
@@ -6258,8 +6238,7 @@ function BrowserByokSurface(props) {
 	})();
 }
 delegateEvents(["click", "input"]);
-//#endregion
-//#region software_safe_src/viewer_runtime_config_policy.js
+// software_safe_src/viewer_runtime_config_policy.js
 var CONFIG_ID = "oasis7-viewer-runtime-config";
 var MODES = /* @__PURE__ */ new Set(["trusted_local_only", "hosted_public_join"]);
 function parseBrowserGameConfig(raw) {
@@ -6309,15 +6288,13 @@ function resolveViewerEndpoint(config, params) {
 	for (const key of ["ws", "addr"]) if (params.has(key) && normalizeTrustedWsEndpoint(params.get(key)) !== config.viewerWsEndpoint) throw new Error("viewer URL endpoint does not match trusted configuration");
 	return config.viewerWsEndpoint;
 }
-//#endregion
-//#region software_safe_src/viewer_runtime_config_module.js
+// software_safe_src/viewer_runtime_config_module.js
 var fixedConfig;
 function viewerRuntimeConfig() {
 	if (!fixedConfig) fixedConfig = parseViewerRuntimeConfig(document);
 	return fixedConfig;
 }
-//#endregion
-//#region node_modules/solid-js/store/dist/store.js
+// node_modules/solid-js/store/dist/store.js
 var $RAW = Symbol("store-raw");
 var $NODE = Symbol("store-node");
 var $HAS = Symbol("store-has");
@@ -6475,8 +6452,7 @@ function wrap(value) {
 function createMutable(state, options) {
 	return wrap(unwrap(state || {}));
 }
-//#endregion
-//#region software_safe_src/software_safe_constants.js
+// software_safe_src/software_safe_constants.js
 var RENDER_META_GLOBAL_NAME = "__AW_VIEWER_RENDER_META__";
 var VIEWER_RENDER_MODE = "viewer";
 var SOFTWARE_SAFE_RENDER_MODE_ALIAS = "software_safe";
@@ -6509,8 +6485,7 @@ var SOFTWARE_RENDERER_MARKERS = [
 function isHostedPublicJoinDeploymentMode(deploymentMode) {
 	return String(deploymentMode || "").trim() === HOSTED_PUBLIC_JOIN_DEPLOYMENT_MODE;
 }
-//#endregion
-//#region software_safe_src/viewer_auth_crypto.js
+// software_safe_src/viewer_auth_crypto.js
 var ED25519_PKCS8_PREFIX = new Uint8Array([
 	48,
 	46,
@@ -6710,8 +6685,7 @@ function buildPromptControlSigningPayload(mode, request, auth) {
 		updated_by: String(request?.updated_by || "").trim() || void 0
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_auth_session_module.js
+// software_safe_src/viewer_auth_session_module.js
 var sessions = /* @__PURE__ */ new WeakMap();
 var generations = /* @__PURE__ */ new WeakMap();
 var credentialFields = [
@@ -6812,8 +6786,7 @@ function isSessionContextCurrent(state, context, socketGeneration, endpointId) {
 	return Object.keys(current).every((key) => current[key] === context[key]);
 }
 setSigningIdentityLookup(authSigningIdentity, authConnectionGeneration);
-//#endregion
-//#region software_safe_src/viewer_canonical_owner_read_module.js
+// software_safe_src/viewer_canonical_owner_read_module.js
 var DOMAIN = "/v1/world/view";
 var hex$1 = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 var canonicalHex = (value) => hex$1(cborCanonicalEncode(value));
@@ -6959,8 +6932,7 @@ function createCanonicalOwnerReadModule({ state, sendJson, signAuthPayload, rend
 		reset: () => fail("canonical owner read connection reset")
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_canonical_goal_module.js
+// software_safe_src/viewer_canonical_goal_module.js
 function scheduleCanonicalGoalPending({ ack, feedback, state, clone, requestSnapshotSafe, sameAgentChatFeedback, failPendingAgentChatAck, sendJson, scheduleAgentChatAckTimeout, getSocket }) {
 	feedback.stage = "pending";
 	feedback.ok = false;
@@ -7021,8 +6993,7 @@ function authenticatedCanonicalGoal(state, agentId) {
 function canonicalAckMatches(ack, request) {
 	return ack?.agent_id === request.agent_id && ack?.player_id === request.player_id && ack?.intent_seq === request.intent_seq && ack?.intent_tick === request.intent_tick && ack?.auth_nonce === request.auth?.nonce;
 }
-//#endregion
-//#region software_safe_src/canonical_agent_goal.jsx
+// software_safe_src/canonical_agent_goal.jsx
 var _tmpl$$40 = /*#__PURE__*/ template(`<p data-canonical-agent-goal-pending role=status>`);
 var _tmpl$2$37 = /*#__PURE__*/ template(`<p data-canonical-agent-goal>: `);
 function CanonicalAgentGoal(props) {
@@ -7050,8 +7021,7 @@ function CanonicalAgentGoal(props) {
 		}
 	})];
 }
-//#endregion
-//#region software_safe_src/safe_alternative_display.js
+// software_safe_src/safe_alternative_display.js
 var STATUS = {
 	idle: "Ready to compare",
 	awaiting_confirmation: "Awaiting your confirmation",
@@ -7077,11 +7047,9 @@ var alternativeRiskLabel = (value) => value === "position_change" ? "Position ch
 var alternativeAuthorityLabel = (value) => value === "current_agent_owner" ? "Current Agent owner" : "Current authority must be verified";
 var alternativeOutcomeLabel = (outcome) => outcome ? `${alternativeStatusLabel(outcome.status)}${outcome.action_id != null ? `; action ${outcome.action_id}` : ""}${outcome.event_id != null ? `; event ${outcome.event_id}` : ""}${outcome.reason ? "; review current restrictions before another attempt" : ""}` : "No execution result yet";
 var alternativeBlockerLabel = (value) => value === "module_evaluation_unavailable" ? "Active world modules may change movement costs or consequences. A safe comparison is unavailable; nothing has been executed." : value ? "Safe evaluation is unavailable. Read the current state before proceeding." : "";
-//#endregion
-//#region software_safe_src/safe_alternative_styles.js
+// software_safe_src/safe_alternative_styles.js
 var safeAlternativeStyles = `.safe-alternative-panel { min-width:0; margin-block:1rem; } .safe-alternative-panel p { overflow-wrap:anywhere; line-height:1.5; } .safe-alternative-panel label { display:grid; gap:.4rem; margin-block:.7rem; min-width:0; } .safe-alternative-panel input, .safe-alternative-panel textarea { box-sizing:border-box; width:100%; min-width:0; max-width:100%; font:inherit; padding:.5rem; } .safe-alternative-panel button { max-width:100%; white-space:normal; overflow-wrap:anywhere; min-height:2.75rem; font:inherit; margin:.25rem .3rem .25rem 0; } .safe-alternative-panel article { border:1px solid var(--border,#777); padding:.8rem; margin-block:1rem; min-width:0; } .safe-alternative-panel :focus-visible { outline:2px solid currentColor; outline-offset:3px; }`;
-//#endregion
-//#region software_safe_src/safe_alternative_panel.jsx
+// software_safe_src/safe_alternative_panel.jsx
 var _tmpl$$39 = /*#__PURE__*/ template(`<details class=safe-alternative-panel><style></style><summary>Safe movement alternatives / 安全移动替代</summary><p>Waypoint routes and arrival timing are unsupported. Compare a direct movement alternative before independently confirming and executing. Preview and confirmation have no world effect.</p><label>Original goal / 原目标<input></label><label>Waypoint coordinates / 途经点坐标<textarea placeholder="[\{&quot;x_cm&quot;:0,&quot;y_cm&quot;:0,&quot;z_cm&quot;:0},\{&quot;x_cm&quot;:1,&quot;y_cm&quot;:0,&quot;z_cm&quot;:0}]"></textarea></label><label>Requested arrival tick / 原到达时间（可选）<input type=number></label><button>Compare alternatives / 比较替代</button><button>Recover original command / 恢复原命令</button><button>Retry exact original / 重发原签名命令</button><p role=status> `);
 var _tmpl$2$36 = /*#__PURE__*/ template(`<p>Original goal: `);
 var _tmpl$3$29 = /*#__PURE__*/ template(`<p>Requested waypoints: `);
@@ -7271,8 +7239,7 @@ function SafeAlternativePanel(props) {
 	})();
 }
 delegateEvents(["input", "click"]);
-//#endregion
-//#region software_safe_src/agent_chat_owner_controls.jsx
+// software_safe_src/agent_chat_owner_controls.jsx
 function AgentChatOwnerControls(props) {
 	return [createComponent(SafeAlternativePanel, { get core() {
 		return props.core;
@@ -7288,8 +7255,7 @@ function AgentChatOwnerControls(props) {
 		}
 	})];
 }
-//#endregion
-//#region software_safe_src/industrial_starter_outcome_card.jsx
+// software_safe_src/industrial_starter_outcome_card.jsx
 var _tmpl$$38 = /*#__PURE__*/ template(`<section class=panel-section><h3></h3><p> · revision </p><p>`);
 var _tmpl$2$35 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$3$28 = /*#__PURE__*/ template(`<p><strong>: `);
@@ -7368,8 +7334,7 @@ function IndustrialStarterOutcomeCard(props) {
 		}
 	});
 }
-//#endregion
-//#region software_safe_src/target_list_window.jsx
+// software_safe_src/target_list_window.jsx
 var _tmpl$$37 = /*#__PURE__*/ template(`<button type=button>`);
 var _tmpl$2$34 = /*#__PURE__*/ template(`<div class=toolbar><span role=status aria-live=polite>: <!>–<!> / `);
 var PAGE_SIZE = 50;
@@ -7485,8 +7450,7 @@ function TargetListWindow(props) {
 	})];
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/viewer_gameplay_recovery_scope.js
+// software_safe_src/viewer_gameplay_recovery_scope.js
 function gameplayRecoveryScopeFingerprint(scope, { ignoreAuthorityEpoch = false } = {}) {
 	if (!scope?.endpointId || !scope?.worldId) return null;
 	return JSON.stringify(Object.keys(scope).filter((key) => !(ignoreAuthorityEpoch && key === "authorityEpoch")).sort().map((key) => [key, scope[key]]));
@@ -7518,8 +7482,7 @@ function getGameplayRecoveryScope(state) {
 function gameplaySendContextCurrent(state, socket, captured) {
 	return socket === captured.socket && socket?.readyState === WebSocket.OPEN && JSON.stringify(getGameplayRecoveryScope(state)) === JSON.stringify(captured.scope) && isSessionContextCurrent(state, captured.session, authConnectionGeneration(), state.wsUrl);
 }
-//#endregion
-//#region software_safe_src/viewer_gameplay_receipt_feedback.js
+// software_safe_src/viewer_gameplay_receipt_feedback.js
 function settleGameplayOriginal(account, nonce, scope, state) {
 	const auth = state.auth;
 	return account.settleGameplayRequest(nonce, scope).catch((error) => {
@@ -7634,8 +7597,7 @@ function gameplayExecutionStateLabel(state, locale, localeText) {
 	};
 	return localeText(locale, ...labels[state] || labels.executing);
 }
-//#endregion
-//#region software_safe_src/viewer_gameplay_result_recovery.js
+// software_safe_src/viewer_gameplay_result_recovery.js
 var scopeKey = (scope) => scope && JSON.stringify(Object.keys(scope).sort().map((key) => [key, scope[key]]));
 function originalFeedback(state, scope) {
 	const feedback = state.lastGameplayActionFeedback;
@@ -7693,8 +7655,7 @@ function receiveGameplayResult(state, scope, account, result) {
 	}
 	return true;
 }
-//#endregion
-//#region software_safe_src/viewer_feedback_actions.js
+// software_safe_src/viewer_feedback_actions.js
 function actionField$1(action, snakeKey, camelKey) {
 	return action?.[snakeKey] ?? action?.[camelKey] ?? null;
 }
@@ -7747,8 +7708,7 @@ function normalizeGameplayActionRequest(action) {
 		disabled_reason: action.disabled_reason || action.disabledReason || null
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_quote_dependencies.js
+// software_safe_src/viewer_quote_dependencies.js
 function quoteDependencyFingerprint(state, kind, inputs = {}, snapshot = state.snapshot) {
 	const auth = state.auth || {}, model = snapshot?.model || {};
 	const runtime = snapshot?.runtime_snapshot?.state || {};
@@ -7817,8 +7777,11 @@ function invalidateDependentQuote(state, kind, snapshot) {
 		error: null
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_safe_alternative_legacy.js
+function coordinateDependentQuotes(state) {
+	invalidateDependentQuote(state, "refine", state.snapshot);
+	invalidateDependentQuote(state, "product", state.snapshot);
+}
+// software_safe_src/viewer_safe_alternative_legacy.js
 function safeAlternativeMarkup(state, escape) {
 	const ui = state.safeAlternative || {};
 	const record = ui.record;
@@ -7866,8 +7829,7 @@ function bindSafeAlternativeLegacy(state, api, render) {
 		}
 	}));
 }
-//#endregion
-//#region software_safe_src/viewer_safe_alternative_module.js
+// software_safe_src/viewer_safe_alternative_module.js
 var uuid = () => crypto.randomUUID();
 var equal = (a, b) => {
 	const x = cborCanonicalEncode(a);
@@ -7984,8 +7946,7 @@ function createSafeAlternativeModule({ state, sendJson, render, refreshOwner }) 
 		uuid
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_scope.js
+// software_safe_src/pixel_world_scope.js
 function pixelWorldScope(state) {
 	const auth = state.auth || {};
 	return JSON.stringify([
@@ -8028,8 +7989,7 @@ function createPixelWorldScopeGuard(state) {
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_feedback_scope.js
+// software_safe_src/viewer_feedback_scope.js
 var scopes = /* @__PURE__ */ new WeakMap();
 function bindFeedbackScope(feedback, state) {
 	if (feedback && typeof feedback === "object") scopes.set(unwrap(feedback), pixelWorldScope(state));
@@ -8040,8 +8000,7 @@ function feedbackForScope(feedback, state) {
 	if (!scopes.has(unwrap(feedback))) bindFeedbackScope(feedback, state);
 	return scopes.get(unwrap(feedback)) === pixelWorldScope(state) ? feedback : null;
 }
-//#endregion
-//#region software_safe_src/pixel_world_scope_snapshot.js
+// software_safe_src/pixel_world_scope_snapshot.js
 function createScopeSnapshotTransport({ send, getScope, getConnection, timeoutMs = 1e4 }) {
 	const pending = /* @__PURE__ */ new Map();
 	let sequence = 0;
@@ -8101,8 +8060,7 @@ function createScopeSnapshotTransport({ send, getScope, getConnection, timeoutMs
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_world_view_delta.js
+// software_safe_src/pixel_world_world_view_delta.js
 var collections = {
 	entity: ["entities", (value) => `${value.kind}:${value.entity_id}`],
 	relation: ["relations", (value) => value.relation_id],
@@ -8239,8 +8197,7 @@ function freezeWorldView(view) {
 		}))
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_world_view.js
+// software_safe_src/pixel_world_world_view.js
 function worldViewScopeKey(state, deployment = "") {
 	return JSON.stringify([deployment, pixelWorldScope(state)]);
 }
@@ -8562,8 +8519,7 @@ function worldViewRelations(view) {
 		return (runtime || industrial) && endpoint(relation.from) && endpoint(relation.to);
 	});
 }
-//#endregion
-//#region software_safe_src/viewer_account_email_recovery.js
+// software_safe_src/viewer_account_email_recovery.js
 function renderAccountEmailRecovery(root, { state, account, credentials, capabilities, client, run, render }) {
 	function element(tag, text) {
 		const node = document.createElement(tag);
@@ -8701,8 +8657,7 @@ function renderAccountEmailRecovery(root, { state, account, credentials, capabil
 		mode(null);
 	});
 }
-//#endregion
-//#region software_safe_src/viewer_imported_key.js
+// software_safe_src/viewer_imported_key.js
 var encoder = new TextEncoder();
 var prefix = Uint8Array.from([
 	48,
@@ -8861,8 +8816,7 @@ function renderImportedKey(root, { account, busy, client, run, onAuthenticated, 
 	disclosure.append(section);
 	root.append(disclosure);
 }
-//#endregion
-//#region software_safe_src/viewer_passkey_account_module.js
+// software_safe_src/viewer_passkey_account_module.js
 var API = "/api/public/hosted-account/v2";
 function decodePasskeyBytes(encoded) {
 	if (typeof encoded !== "string" || !/^[A-Za-z0-9_-]*$/.test(encoded)) throw new Error("invalid_passkey_encoding");
@@ -9761,8 +9715,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_world_recovery.js
+// software_safe_src/viewer_hosted_world_recovery.js
 var storageKey = "oasis7.hosted-world-recovery.v1";
 var bytes = (value) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 var base64 = (value) => btoa(String.fromCharCode(...new Uint8Array(value)));
@@ -9913,8 +9866,7 @@ function createHostedWorldRecovery({ keyStore = keyOperation } = {}) {
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_world_account_module.js
+// software_safe_src/viewer_hosted_world_account_module.js
 function createHostedWorldAccount({ state, generateKeypair, register, render, clearLegacy, recovery = createHostedWorldRecovery(), getGameplayScope = () => null }) {
 	let recoveryLoaded = false;
 	const client = createPasskeyAccountClient();
@@ -10249,8 +10201,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_account_login_issuer.js
+// software_safe_src/viewer_hosted_account_login_issuer.js
 function createViewerHostedAccountLoginIssuer({ state, canAutoIssueHostedPlayerSession, generateEphemeralEd25519Keypair, installSession, persistHostedPlayerSession, resetHostedLoginChallenge, render, clone, fetch, completeRoute }) {
 	return async function issueHostedAccountLogin() {
 		if (!canAutoIssueHostedPlayerSession()) return state.auth;
@@ -10335,8 +10286,7 @@ function createViewerHostedAccountLoginIssuer({ state, canAutoIssueHostedPlayerS
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_runtime_ack_identity.js
+// software_safe_src/viewer_runtime_ack_identity.js
 function validateRuntimeAckIdentity(ack, auth, registration = false, requestedAgentId = null) {
 	const player = ack?.player_id;
 	const publicKey = ack?.session_pubkey ?? ack?.public_key;
@@ -10346,8 +10296,7 @@ function validateRuntimeAckIdentity(ack, auth, registration = false, requestedAg
 	if (registration && ack?.status !== "session_revoked" && requestedAgentId != null && ack?.agent_id !== requestedAgentId) return "runtime registration ACK target conflict";
 	return null;
 }
-//#endregion
-//#region software_safe_src/viewer_auth_surface_module.js
+// software_safe_src/viewer_auth_surface_module.js
 function createViewerAuthSurfaceModule({ getSearchParams, localeText, state, windowRef }) {
 	function resolveHostedAccessHint() {
 		const raw = getSearchParams().get("hosted_access");
@@ -10674,8 +10623,7 @@ function createViewerAuthSurfaceModule({ getSearchParams, localeText, state, win
 		resolveHostedAccessHint
 	};
 }
-//#endregion
-//#region software_safe_src/recipe_substitution.js
+// software_safe_src/recipe_substitution.js
 var values = (value) => Array.isArray(value) ? value : value && typeof value === "object" ? Object.values(value) : [];
 var text$3 = (value) => typeof value === "string" && value.length ? value : null;
 var number$1 = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -10770,8 +10718,7 @@ function normalizeRecipeSubstitution(value) {
 		}).filter((decision) => decision.id)
 	};
 }
-//#endregion
-//#region software_safe_src/industrial_starter_outcome.js
+// software_safe_src/industrial_starter_outcome.js
 var text$2 = (value) => typeof value === "string" && value.trim() ? value : null;
 var integer = (value) => Number.isSafeInteger(value) && value >= 0;
 var stacks = (value) => Array.isArray(value) && value.every((item) => text$2(item?.kind) && integer(item?.amount)) ? value.map((item) => ({
@@ -10799,8 +10746,7 @@ function normalizeIndustrialStarterProfile(value) {
 		settled
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_feedback_gameplay_economics.js
+// software_safe_src/viewer_feedback_gameplay_economics.js
 function normalizeGameplayToken(value) {
 	return String(value || "").trim().toLowerCase().replaceAll("_", "").replaceAll("-", "");
 }
@@ -10845,8 +10791,7 @@ function buildGameplayEconomicSurface({ locale, localeText, gameplay, availableA
 		blockerLabel: blockerLabel || null
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_validation_unlock_preview_display_model.js
+// software_safe_src/viewer_validation_unlock_preview_display_model.js
 function isRecord$5(value) {
 	return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -10914,8 +10859,7 @@ function buildValidationUnlockPreviewDisplayModel(rawPreview, locale, isLocaleZh
 		localizedNextStepHint: stageStatus === "available" ? `将此产品用于${roleLabel}角色；验证不会解锁新能力。` : stageStatus === "denied" ? `将产业从${currentStageLabel}推进至${requiredStageLabel}；验证不会解锁新能力。` : "请先查看受治理的产品档案，再依赖此验证。"
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_wait_resolution_quote_display_model.js
+// software_safe_src/viewer_wait_resolution_quote_display_model.js
 function displayableString$4(value) {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -10952,8 +10896,7 @@ function buildWaitResolutionQuoteDisplayModel(rawQuote, locale, localeText) {
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/first_delivery_preview_display_model.js
+// software_safe_src/first_delivery_preview_display_model.js
 function displayableStrings$2(value) {
 	return Array.isArray(value) ? value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean) : [];
 }
@@ -10982,8 +10925,7 @@ function normalizeFirstDeliveryPreview(value) {
 		returnVisitHook: displayableString$3(value.return_visit_hook || value.returnVisitHook)
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_factory_failure_disposition_display_model.js
+// software_safe_src/viewer_factory_failure_disposition_display_model.js
 function isRecord$4(value) {
 	return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -11114,8 +11056,7 @@ function normalizeFactoryProductionFailureDisposition(value, locale, localeText,
 		nextRecheckBoundary: nextRecheck == null ? localeText(locale, "下一次 committed 快照", "next committed snapshot") : localeText(locale, `世界时刻 ${nextRecheck}`, `world tick ${nextRecheck}`)
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_prompt_feedback_module.js
+// software_safe_src/viewer_prompt_feedback_module.js
 function isRecord$3(value) {
 	return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -11234,8 +11175,7 @@ function createViewerPromptFeedbackModule({ feedbackBadgeClass, isLocaleZh, loca
 		semanticPromptFeedbackCode
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_feedback_module.js
+// software_safe_src/viewer_feedback_module.js
 function isRecord$2(value) {
 	return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -11960,8 +11900,7 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 		snapshotSemanticFeedback
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_auth_state_module.js
+// software_safe_src/viewer_hosted_auth_state_module.js
 function buildDefaultAuthState(overrides = {}) {
 	return {
 		available: false,
@@ -12117,8 +12056,7 @@ function createViewerHostedAuthStateModule({ hostedPlayerSessionStoragePrefix, i
 		resolveViewerAuthState
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_test_login_module.js
+// software_safe_src/viewer_hosted_test_login_module.js
 function createViewerHostedTestLoginModule({ clone, fetchImpl, generateEphemeralEd25519Keypair, getSearchParams, isHostedPublicJoinDeploymentMode, persistHostedPlayerSession, render, resetHostedLoginChallenge, route, state }) {
 	let startInFlightPromise = null;
 	function isOptedIn() {
@@ -12220,8 +12158,7 @@ function createViewerHostedTestLoginModule({ clone, fetchImpl, generateEphemeral
 		waitForStart
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_login_registration_bridge.js
+// software_safe_src/viewer_hosted_login_registration_bridge.js
 function createViewerHostedLoginRegistrationBridge({ registerPlayerSession, render, state }) {
 	const registrations = /* @__PURE__ */ new WeakMap();
 	function registerIssuedSession(auth) {
@@ -12272,8 +12209,7 @@ function createViewerHostedLoginRegistrationBridge({ registerPlayerSession, rend
 		registerIssuedSession
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_agent_chat_auth_module.js
+// software_safe_src/viewer_agent_chat_auth_module.js
 var CURRENT_WORLD_FEED_STATUSES = /* @__PURE__ */ new Set([
 	"ready",
 	"replay",
@@ -12345,8 +12281,7 @@ function createViewerAgentChatAuthModule({ buildAuthEnvelope, nextAuthNonce, sig
 	}
 	return { buildAuthProof };
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_session_refresh_module.js
+// software_safe_src/viewer_hosted_session_refresh_module.js
 function createViewerHostedSessionRefreshModule({ clone, ensureHostedAuthSigningKey, fetchImpl, legacyViewerAuthBootstrapSource, persistHostedPlayerSession, refreshRoute, state, captureConnection = () => state.wsUrl }) {
 	let active = null;
 	function refreshHostedPlayerLease() {
@@ -12419,8 +12354,7 @@ function createViewerHostedSessionRefreshModule({ clone, ensureHostedAuthSigning
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_session_reconnect_module.js
+// software_safe_src/viewer_hosted_session_reconnect_module.js
 function createViewerHostedSessionReconnectModule({ authHasSigningKeyMaterial, legacyViewerAuthBootstrapSource, onRefreshFailure, refreshHostedPlayerLease, registerHostedPlayerSession, sendReconnectSync, state }) {
 	function needsHostedKeyRecovery() {
 		const auth = state.auth;
@@ -12456,8 +12390,7 @@ function createViewerHostedSessionReconnectModule({ authHasSigningKeyMaterial, l
 		syncHostedPlayerSessionOnConnect
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_prompt_control_module.js
+// software_safe_src/viewer_prompt_control_module.js
 var PROMPT_RESULT_STATUSES = /* @__PURE__ */ new Set([
 	"accepted",
 	"applied",
@@ -12707,8 +12640,7 @@ function createViewerPromptControlModule({ applyPromptAckLocally, assertPromptFe
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_control_loss_module.js
+// software_safe_src/viewer_control_loss_module.js
 var VIEWER_CONTROL_LOST_CODE = "control_lost";
 var VIEWER_CONTROL_LOST_NEXT_STEP = "reauthenticate_and_refresh_binding";
 var VIEWER_CONTROL_LOST_MESSAGE = "Agent control was lost; re-authenticate and refresh the current binding before retrying.";
@@ -12768,8 +12700,7 @@ function createViewerControlLossModule({ render, state }) {
 		markControlLost
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_login_state_module.js
+// software_safe_src/viewer_hosted_login_state_module.js
 function createInitialHostedLoginState() {
 	return {
 		channel: "email",
@@ -12800,8 +12731,7 @@ function resetHostedLoginChallenge$1(hostedLogin) {
 	hostedLogin.completeInFlight = false;
 	hostedLogin.error = null;
 }
-//#endregion
-//#region software_safe_src/viewer_locale_preferences_module.js
+// software_safe_src/viewer_locale_preferences_module.js
 function createViewerLocalePreferencesModule({ documentRef, getSearchParams, normalizeUiLocale, promptOverridesVisibilityStoragePrefix, renderViewer, state, uiLocaleStoragePrefix, windowRef }) {
 	const viewerEntryAliasSegments = [
 		"/viewer.html",
@@ -12922,8 +12852,7 @@ function createViewerLocalePreferencesModule({ documentRef, getSearchParams, nor
 		toggleViewerLocale
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_browser_persistence_module.js
+// software_safe_src/viewer_browser_persistence_module.js
 function createViewerBrowserPersistenceModule({ chatHistoryLimit, chatHistoryStoragePrefix, clone, initialWsUrl, localTestPlayerIdPrefix, localTestPlayerSessionStoragePrefix, state, windowRef }) {
 	function storageSafe() {
 		try {
@@ -13065,8 +12994,7 @@ function createViewerBrowserPersistenceModule({ chatHistoryLimit, chatHistorySto
 		setChatHistory
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_browser_race_handoff_module.js
+// software_safe_src/viewer_browser_race_handoff_module.js
 var HANDOFF_SCHEMA = "oasis7.viewer.race-handoff/v1";
 var CHANNEL_PREFIX = "oasis7.viewer.race-handoff.v1";
 var DEFAULT_TTL_MS = 3e4;
@@ -13348,8 +13276,7 @@ Object.freeze({
 	defaultTtlMs: DEFAULT_TTL_MS,
 	schema: HANDOFF_SCHEMA
 });
-//#endregion
-//#region software_safe_src/viewer_browser_race_identity_test_api_module.js
+// software_safe_src/viewer_browser_race_identity_test_api_module.js
 function createViewerBrowserRaceIdentityTestApi({ authHasSigningKeyMaterial, bumpRequestCounters, clone, connect, isTestApiEnabled, render, state, viewerBrowserRaceHandoffModule = createViewerBrowserRaceHandoffModule() } = {}) {
 	let browserRaceIdentityOffer = null;
 	function requireBrowserRaceHandoff() {
@@ -13412,8 +13339,7 @@ function createViewerBrowserRaceIdentityTestApi({ authHasSigningKeyMaterial, bum
 		offerBrowserRaceIdentityForTest
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_world_scale_module.js
+// software_safe_src/viewer_world_scale_module.js
 function createViewerWorldScaleModule({ documentRef, state, isLocaleZh, normalizeFiniteNumber, finitePositionComponents, trimFixed, getSearchParams, softwareRendererMarkers, softwareSafeRenderModeAlias, viewerRenderMode }) {
 	function trimDisplayValue(value, digits) {
 		const label = trimFixed(value, digits);
@@ -13581,8 +13507,7 @@ function createViewerWorldScaleModule({ documentRef, state, isLocaleZh, normaliz
 		detectRendererMeta
 	};
 }
-//#endregion
-//#region software_safe_src/refine_quote_preflight_state.js
+// software_safe_src/refine_quote_preflight_state.js
 function createRefineQuotePreflightStateModule({ clone, getSearchParams, isTestApiEnabled, render, state }) {
 	function handleRefineQuotePreflight(quote) {
 		if (!quote || typeof quote !== "object" || !quoteResponseMatches(state, state.refineQuoteRequest, quote, "refine")) return;
@@ -13631,8 +13556,7 @@ function createRefineQuotePreflightStateModule({ clone, getSearchParams, isTestA
 		installRefineQuotePreflightVisualFixture
 	};
 }
-//#endregion
-//#region software_safe_src/product_validation_quote_request.js
+// software_safe_src/product_validation_quote_request.js
 function createProductValidationQuoteRequestModule({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	let requestGeneration = 0;
 	async function buildAuthProof(request, auth) {
@@ -13774,8 +13698,7 @@ function createProductValidationQuoteRequestModule({ buildAuthEnvelope, clone, e
 	}
 	return { requestProductValidationQuote };
 }
-//#endregion
-//#region software_safe_src/product_validation_quote_state.js
+// software_safe_src/product_validation_quote_state.js
 function createProductValidationQuoteStateModule({ clone, getSearchParams, isTestApiEnabled, render, state }) {
 	function handleProductValidationQuote(quote) {
 		if (!quote || typeof quote !== "object" || !quoteResponseMatches(state, state.productValidationQuoteRequest, quote, "product")) return;
@@ -13823,8 +13746,7 @@ function createProductValidationQuoteStateModule({ clone, getSearchParams, isTes
 		installProductValidationQuoteVisualFixture
 	};
 }
-//#endregion
-//#region software_safe_src/product_validation_quote_integration.js
+// software_safe_src/product_validation_quote_integration.js
 function createProductValidationQuoteIntegration(getDependencies) {
 	const dependencies = getDependencies();
 	const stateModule = createProductValidationQuoteStateModule(dependencies);
@@ -13834,8 +13756,7 @@ function createProductValidationQuoteIntegration(getDependencies) {
 		...requestModule
 	};
 }
-//#endregion
-//#region software_safe_src/power_survival_quote_request.js
+// software_safe_src/power_survival_quote_request.js
 function createPowerSurvivalQuoteRequestModule({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	async function buildAuthProof(request, auth) {
 		const nonce = nextAuthNonce();
@@ -13947,8 +13868,7 @@ function createPowerSurvivalQuoteRequestModule({ buildAuthEnvelope, clone, ensur
 	}
 	return { requestPowerSurvivalQuote };
 }
-//#endregion
-//#region software_safe_src/power_survival_quote_state.js
+// software_safe_src/power_survival_quote_state.js
 function createPowerSurvivalQuoteStateModule({ clone, getSearchParams, isTestApiEnabled, render, state }) {
 	function handlePowerSurvivalQuote(quote, acceptUnsolicited = false) {
 		if (!quote || typeof quote !== "object" || !acceptUnsolicited && state.powerSurvivalQuoteRequest?.status !== "pending") return false;
@@ -13992,8 +13912,7 @@ function createPowerSurvivalQuoteStateModule({ clone, getSearchParams, isTestApi
 		invalidatePowerSurvivalQuote
 	};
 }
-//#endregion
-//#region software_safe_src/power_survival_quote_integration.js
+// software_safe_src/power_survival_quote_integration.js
 function createPowerSurvivalQuoteIntegration(getDependencies) {
 	const dependencies = getDependencies();
 	return {
@@ -14001,8 +13920,7 @@ function createPowerSurvivalQuoteIntegration(getDependencies) {
 		...createPowerSurvivalQuoteRequestModule(dependencies)
 	};
 }
-//#endregion
-//#region software_safe_src/schedule_recipe_quote_request.js
+// software_safe_src/schedule_recipe_quote_request.js
 function createScheduleRecipeQuoteRequestModule({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	async function requestScheduleRecipeQuote(factoryId, recipeId, batches) {
 		if (state.scheduleRecipeQuoteRequest?.status === "pending") return {
@@ -14111,8 +14029,7 @@ function createScheduleRecipeQuoteRequestModule({ buildAuthEnvelope, clone, ensu
 	}
 	return { requestScheduleRecipeQuote };
 }
-//#endregion
-//#region software_safe_src/schedule_recipe_quote_state.js
+// software_safe_src/schedule_recipe_quote_state.js
 function createScheduleRecipeQuoteStateModule({ clone, getSearchParams, isTestApiEnabled, render, state }) {
 	function handleScheduleRecipeQuote(quote, acceptUnsolicited = false) {
 		if (!quote || typeof quote !== "object" || !acceptUnsolicited && state.scheduleRecipeQuoteRequest?.status !== "pending") return false;
@@ -14156,8 +14073,7 @@ function createScheduleRecipeQuoteStateModule({ clone, getSearchParams, isTestAp
 		installScheduleRecipeQuoteVisualFixture
 	};
 }
-//#endregion
-//#region software_safe_src/schedule_recipe_quote_integration.js
+// software_safe_src/schedule_recipe_quote_integration.js
 function createScheduleRecipeQuoteIntegration(getDependencies) {
 	const dependencies = getDependencies();
 	return {
@@ -14165,8 +14081,7 @@ function createScheduleRecipeQuoteIntegration(getDependencies) {
 		...createScheduleRecipeQuoteRequestModule(dependencies)
 	};
 }
-//#endregion
-//#region software_safe_src/transfer_material_quote_request.js
+// software_safe_src/transfer_material_quote_request.js
 function normalizeRouteIds(value) {
 	return (Array.isArray(value) ? value : String(value || "").split(/[\n,]/)).map((routeId) => String(routeId || "").trim()).filter(Boolean);
 }
@@ -14301,8 +14216,7 @@ function createTransferMaterialQuoteRequestModule({ buildAuthEnvelope, clone, en
 	}
 	return { requestTransferMaterialQuote };
 }
-//#endregion
-//#region software_safe_src/transfer_material_quote_state.js
+// software_safe_src/transfer_material_quote_state.js
 function createTransferMaterialQuoteStateModule({ clone, getSearchParams, isTestApiEnabled, render, state }) {
 	function handleTransferMaterialQuote(quote, acceptUnsolicited = false) {
 		if (!quote || typeof quote !== "object" || !acceptUnsolicited && state.transferMaterialQuoteRequest?.status !== "pending") return false;
@@ -14346,8 +14260,7 @@ function createTransferMaterialQuoteStateModule({ clone, getSearchParams, isTest
 		installTransferMaterialQuoteVisualFixture
 	};
 }
-//#endregion
-//#region software_safe_src/transfer_material_quote_integration.js
+// software_safe_src/transfer_material_quote_integration.js
 function createTransferMaterialQuoteIntegration(getDependencies) {
 	const dependencies = getDependencies();
 	return {
@@ -14355,8 +14268,7 @@ function createTransferMaterialQuoteIntegration(getDependencies) {
 		...createTransferMaterialQuoteRequestModule(dependencies)
 	};
 }
-//#endregion
-//#region software_safe_src/power_sale_quote_request.js
+// software_safe_src/power_sale_quote_request.js
 function createPowerSaleQuoteRequestModule({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	async function buildAuthProof(request, auth) {
 		const nonce = nextAuthNonce();
@@ -14468,8 +14380,7 @@ function createPowerSaleQuoteRequestModule({ buildAuthEnvelope, clone, ensureHos
 	}
 	return { requestPowerSaleQuote };
 }
-//#endregion
-//#region software_safe_src/power_sale_quote_state.js
+// software_safe_src/power_sale_quote_state.js
 function createPowerSaleQuoteStateModule({ clone, isTestApiEnabled, render, state }) {
 	function handlePowerSaleQuote(quote, acceptUnsolicited = false) {
 		if (!quote || typeof quote !== "object" || !acceptUnsolicited && state.powerSaleQuoteRequest?.status !== "pending") return false;
@@ -14509,8 +14420,7 @@ function createPowerSaleQuoteStateModule({ clone, isTestApiEnabled, render, stat
 		invalidatePowerSaleQuote
 	};
 }
-//#endregion
-//#region software_safe_src/power_sale_quote_integration.js
+// software_safe_src/power_sale_quote_integration.js
 function createPowerSaleQuoteIntegration(getDependencies) {
 	const dependencies = getDependencies();
 	return {
@@ -14518,8 +14428,7 @@ function createPowerSaleQuoteIntegration(getDependencies) {
 		...createPowerSaleQuoteRequestModule(dependencies)
 	};
 }
-//#endregion
-//#region software_safe_src/fragment_refill_preview_request.js
+// software_safe_src/fragment_refill_preview_request.js
 function createFragmentRefillPreviewRequestModule({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	async function buildAuthProof(request, auth) {
 		const nonce = nextAuthNonce();
@@ -14632,8 +14541,7 @@ function createFragmentRefillPreviewRequestModule({ buildAuthEnvelope, clone, en
 	}
 	return { requestFragmentRefillPreview };
 }
-//#endregion
-//#region software_safe_src/fragment_refill_preview_state.js
+// software_safe_src/fragment_refill_preview_state.js
 function createFragmentRefillPreviewStateModule({ clone, state }) {
 	function handleFragmentRefillPreview(quote) {
 		if (!quote || typeof quote !== "object" || state.fragmentRefillPreviewRequest?.status !== "pending") return false;
@@ -14677,8 +14585,7 @@ function createFragmentRefillPreviewStateModule({ clone, state }) {
 		invalidateFragmentRefillPreview
 	};
 }
-//#endregion
-//#region software_safe_src/fragment_refill_preview_integration.js
+// software_safe_src/fragment_refill_preview_integration.js
 function createFragmentRefillPreviewIntegration(getDependencies) {
 	const dependencies = getDependencies();
 	return {
@@ -14686,8 +14593,7 @@ function createFragmentRefillPreviewIntegration(getDependencies) {
 		...createFragmentRefillPreviewRequestModule(dependencies)
 	};
 }
-//#endregion
-//#region software_safe_src/governance_vote_quote_integration.js
+// software_safe_src/governance_vote_quote_integration.js
 function createGovernanceVoteQuoteIntegration({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	const requestKey = (proposal, option, weight) => `${proposal}|${option}|${weight}`;
 	async function requestGovernanceVoteQuote(proposalKey, option, weight) {
@@ -14797,8 +14703,7 @@ function createGovernanceVoteQuoteIntegration({ buildAuthEnvelope, clone, ensure
 		invalidateGovernanceVoteQuote
 	};
 }
-//#endregion
-//#region software_safe_src/war_declaration_quote_integration.js
+// software_safe_src/war_declaration_quote_integration.js
 function createWarDeclarationQuoteIntegration({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	const requestKey = (aggressor, defender, intensity) => `${aggressor}|${defender}|${intensity}`;
 	async function requestWarDeclarationQuote(aggressorAllianceId, defenderAllianceId, intensity) {
@@ -14927,8 +14832,7 @@ function createWarDeclarationQuoteIntegration({ buildAuthEnvelope, clone, ensure
 		injectWarDeclarationQuoteForTest
 	};
 }
-//#endregion
-//#region software_safe_src/market_quote_decision_integration.js
+// software_safe_src/market_quote_decision_integration.js
 function createMarketQuoteDecisionIntegration({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket, nextAuthNonce, sendJson, signAuthPayload, state }) {
 	async function requestMarketQuoteDecision(consume) {
 		const normalized = Array.isArray(consume) ? consume.map((item) => ({
@@ -15026,8 +14930,7 @@ function createMarketQuoteDecisionIntegration({ buildAuthEnvelope, clone, ensure
 		injectMarketQuoteDecisionForTest
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_quote_protocol_facade.js
+// software_safe_src/viewer_quote_protocol_facade.js
 function createViewerQuoteProtocolFacade({ fragmentRefillPreview, governanceVoteQuote, handleRefineQuoteError, handleRefineQuotePreflight, marketQuoteDecision, powerSaleQuote, powerSurvivalQuote, productValidationQuote, scheduleRecipeQuote, state, transferMaterialQuote, warDeclarationQuote }) {
 	function handleQuoteGameplayActionError(error) {
 		return handleRefineQuoteError(error) || productValidationQuote.handleProductValidationQuoteError(error) || powerSaleQuote?.handlePowerSaleQuoteError(error) || powerSurvivalQuote.handlePowerSurvivalQuoteError(error) || scheduleRecipeQuote?.handleScheduleRecipeQuoteError(error) || transferMaterialQuote?.handleTransferMaterialQuoteError(error) || fragmentRefillPreview.handleFragmentRefillPreviewError(error) || governanceVoteQuote?.handleGovernanceVoteQuoteError(error) || warDeclarationQuote.handleWarDeclarationQuoteError(error) || marketQuoteDecision.handleMarketQuoteDecisionError(error);
@@ -15092,8 +14995,7 @@ function createViewerQuoteProtocolFacade({ fragmentRefillPreview, governanceVote
 		invalidateSnapshotBoundQuotes
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_render_hook_registry.js
+// software_safe_src/viewer_render_hook_registry.js
 var noop = () => {};
 function createViewerRenderHookRegistry() {
 	let primary = noop;
@@ -15113,8 +15015,37 @@ function createViewerRenderHookRegistry() {
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_entity_list_renderer.js
+// software_safe_src/viewer_application.js
+function createViewerApplication({ coordinateState, bootstrap, onBootstrapError }) {
+	const views = createViewerRenderHookRegistry();
+	let bootstrapped = false;
+	let bootstrapPromise = null;
+	function publish(invalidation) {
+		views.invoke(invalidation);
+	}
+	function coordinateAndPublish(invalidation) {
+		coordinateState();
+		publish(invalidation);
+	}
+	function start() {
+		if (bootstrapped) return bootstrapPromise;
+		bootstrapped = true;
+		bootstrapPromise = bootstrap().catch((error) => {
+			onBootstrapError(error);
+			coordinateAndPublish();
+			throw error;
+		});
+		return bootstrapPromise;
+	}
+	return {
+		start,
+		publish,
+		coordinateAndPublish,
+		setView: (nextHook) => views.set(nextHook),
+		attachView: (nextHook) => views.subscribe(nextHook)
+	};
+}
+// software_safe_src/viewer_entity_list_renderer.js
 function resourceSummary$1(resources) {
 	if (!resources || typeof resources !== "object") return "-";
 	return Object.entries(resources).map(([key, value]) => {
@@ -15165,8 +15096,7 @@ function renderViewerEntityList({ state, lists }) {
     </div>
   `;
 }
-//#endregion
-//#region software_safe_src/world_feed_state.js
+// software_safe_src/world_feed_state.js
 var WORLD_FEED_SCHEMA_VERSION = "world_feed/v1";
 var MAX_U64_DECIMAL = "18446744073709551615";
 var FEED_STATUSES = /* @__PURE__ */ new Set([
@@ -15541,8 +15471,7 @@ function consumeWorldFeed(previous, feed) {
 		requiresSnapshotReload
 	};
 }
-//#endregion
-//#region software_safe_src/software_safe_state.js
+// software_safe_src/software_safe_state.js
 function createSoftwareSafeState() {
 	return createMutable({
 		uiLocale: "en",
@@ -15705,8 +15634,7 @@ function createSoftwareSafeState() {
 		selectedSearch: ""
 	});
 }
-//#endregion
-//#region software_safe_src/world_feed_transport.js
+// software_safe_src/world_feed_transport.js
 function createWorldFeedTransport({ getSocket, getState, render, requestSnapshot, sendJson }) {
 	let generation = 0;
 	let continuationTimer = null;
@@ -15828,8 +15756,7 @@ function createWorldFeedTransport({ getSocket, getState, render, requestSnapshot
 		resetGeneration
 	};
 }
-//#endregion
-//#region software_safe_src/world_event_attention_policy.js
+// software_safe_src/world_event_attention_policy.js
 var WORLD_SCOPED_CRISIS_RUNTIME_KINDS = /* @__PURE__ */ new Set([
 	"runtime.gameplay.crisis_spawned",
 	"runtime.gameplay.crisis_resolved",
@@ -15839,8 +15766,7 @@ function isWorldScopedCrisisRuntimeEvent(event) {
 	const runtimeKind = event?.kind?.type === "RuntimeEvent" ? event?.kind?.data?.kind : null;
 	return WORLD_SCOPED_CRISIS_RUNTIME_KINDS.has(runtimeKind);
 }
-//#endregion
-//#region software_safe_src/legacy_core.js
+// software_safe_src/legacy_core.js
 var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	acceptScopeSnapshot: () => acceptScopeSnapshot,
 	applySelection: () => applySelection,
@@ -15976,9 +15902,15 @@ var pendingControlFeedback = /* @__PURE__ */ new Map();
 var pendingSemanticCommands = [];
 var pendingSessionRegisterWaiter = null;
 var elements = {};
-var renderHook = createViewerRenderHookRegistry();
-var bootstrapped = false;
-var bootstrapPromise = null;
+var application = createViewerApplication({
+	coordinateState: () => coordinateDependentQuotes(state),
+	bootstrap,
+	onBootstrapError(error) {
+		state.connectionStatus = "error";
+		state.auth.error = String(error);
+		state.lastError = String(error);
+	}
+});
 var worldFeedTransport = createWorldFeedTransport({
 	getSocket: () => socket,
 	getState: () => state,
@@ -16047,8 +15979,8 @@ function setSelectedSearch(value) {
 	state.selectedSearch = String(value || "");
 	render();
 }
-var setRenderHook = (nextHook) => renderHook.set(nextHook);
-var subscribeRenderHook = (nextHook) => renderHook.subscribe(nextHook);
+var setRenderHook = (nextHook) => application.setView(nextHook);
+var subscribeRenderHook = (nextHook) => application.attachView(nextHook);
 function getSearchParams() {
 	return new URLSearchParams(window.location.search || "");
 }
@@ -19700,9 +19632,7 @@ function bindEvents() {
 	});
 }
 function render(invalidation) {
-	invalidateDependentQuote(state, "refine", state.snapshot);
-	invalidateDependentQuote(state, "product", state.snapshot);
-	renderHook.invoke(invalidation);
+	application.coordinateAndPublish(invalidation);
 }
 function requestRender() {
 	render();
@@ -19797,16 +19727,7 @@ function updatePixelWorldRuntimeMeta(meta = {}) {
 	return getState();
 }
 function initializeSoftwareSafeCore() {
-	if (bootstrapped) return bootstrapPromise;
-	bootstrapped = true;
-	bootstrapPromise = bootstrap().catch((error) => {
-		state.connectionStatus = "error";
-		state.auth.error = String(error);
-		state.lastError = String(error);
-		render();
-		throw error;
-	});
-	return bootstrapPromise;
+	return application.start();
 }
 window.addEventListener("error", (event) => {
 	reportFatalError(event?.message || event?.error?.message || "window error", "window.error");
@@ -19814,8 +19735,7 @@ window.addEventListener("error", (event) => {
 window.addEventListener("unhandledrejection", (event) => {
 	reportFatalError(event?.reason?.message || String(event?.reason || "unhandled rejection"), "window.unhandledrejection");
 });
-//#endregion
-//#region software_safe_src/first_chat_unlock_preview.jsx
+// software_safe_src/first_chat_unlock_preview.jsx
 var _tmpl$$36 = /*#__PURE__*/ template(`<div class="stack stack--compact"data-testid=first-chat-unlock-preview>`);
 var _tmpl$2$33 = /*#__PURE__*/ template(`<div class=first-chat-unlock-preview__field><div class=metric__label></div><div>`);
 var CHAT_PURPOSE = "Start a first conversation with the Agent you control.";
@@ -19884,8 +19804,7 @@ function FirstChatUnlockPreview(props) {
 		return _el$;
 	})();
 }
-//#endregion
-//#region software_safe_src/pixel_world_host_input.js
+// software_safe_src/pixel_world_host_input.js
 function buildPixelWorldRenderInput(locale = state.uiLocale) {
 	const worldScaleSurface = buildWorldScaleSurface(locale);
 	return {
@@ -19905,8 +19824,7 @@ function buildPixelWorldRenderInput(locale = state.uiLocale) {
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_display_budget.js
+// software_safe_src/pixel_world_display_budget.js
 var raw$2 = (value) => value?.[$RAW] || value;
 var MAX_SOURCE = 1e4;
 var fail = () => {
@@ -20187,8 +20105,7 @@ function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
 	}
 	capacity();
 }
-//#endregion
-//#region software_safe_src/pixel_world_spatial_controller.js
+// software_safe_src/pixel_world_spatial_controller.js
 var refKey = (ref) => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
 	if (!value || ![
@@ -20506,8 +20423,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	});
 	return controller;
 }
-//#endregion
-//#region software_safe_src/pixel_world_world_view_evolution.jsx
+// software_safe_src/pixel_world_world_view_evolution.jsx
 var _tmpl$$35 = /*#__PURE__*/ template(`<section><h4>`);
 var _tmpl$2$32 = /*#__PURE__*/ template(`<section><h4></h4><p>`);
 var _tmpl$3$27 = /*#__PURE__*/ template(`<div><button type=button></button><span> · <!> <!> · </span><button type=button>`);
@@ -20625,8 +20541,7 @@ function PixelWorldEvolutionExplorer(props) {
 	];
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/pixel_world_world_view_inspector.jsx
+// software_safe_src/pixel_world_world_view_inspector.jsx
 var _tmpl$$34 = /*#__PURE__*/ template(`<p>: <!>, <!>, <!> cm`);
 var _tmpl$2$31 = /*#__PURE__*/ template(`<section class=pixel-world-entity-inspection tabindex=-1><strong></strong><p> · <!> · `);
 var _tmpl$3$26 = /*#__PURE__*/ template(`<p>`);
@@ -20759,8 +20674,7 @@ function PixelWorldRouteExplorer(props) {
 	});
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/pixel_world_world_view_explorer.jsx
+// software_safe_src/pixel_world_world_view_explorer.jsx
 var _tmpl$$33 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$2$30 = /*#__PURE__*/ template(`<p class=pixel-world-update-notice role=status> <!> · <!> `);
 var _tmpl$3$25 = /*#__PURE__*/ template(`<section class=pixel-world-exploration><form><label> <input maxlength=128></label><button type=submit></button><button type=button></button><button type=button></button></form><p role=status></p><ul>`);
@@ -21060,8 +20974,7 @@ function PixelWorldWorldViewExplorer(props) {
 	})();
 }
 delegateEvents(["input", "click"]);
-//#endregion
-//#region software_safe_src/pixel_world_spatial_explorer.jsx
+// software_safe_src/pixel_world_spatial_explorer.jsx
 var _tmpl$$32 = /*#__PURE__*/ template(`<div class=pixel-world-exploration-panel>`);
 function PixelWorldSpatialExplorer(props) {
 	let root, openedSelection = null;
@@ -21127,8 +21040,7 @@ function PixelWorldSpatialExplorer(props) {
 		return _el$;
 	})();
 }
-//#endregion
-//#region software_safe_src/pixel_world_runtime_loader.js
+// software_safe_src/pixel_world_runtime_loader.js
 function resolvePixelWorldRuntimeModuleUrl() {
 	if (typeof window !== "undefined" && window.location) return new URL("./pixel-world-bridge/pixel_world_bridge.js", window.location.href).href;
 	return "./pixel-world-bridge/pixel_world_bridge.js";
@@ -21263,8 +21175,7 @@ async function createPixelWorldRuntimeBridge({ onEvent, onFatal, loadRuntimeModu
 		fatal
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_host_adapter.js
+// software_safe_src/pixel_world_host_adapter.js
 function snapshotTick(snapshot) {
 	if (!snapshot || typeof snapshot !== "object") return null;
 	const tick = Number(snapshot.time);
@@ -21529,8 +21440,7 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_hotspot_probe.js
+// software_safe_src/pixel_world_hotspot_probe.js
 var HOTSPOT_POINTER_PROBE_GLOBAL = "__OASIS7_PIXEL_WORLD_HOTSPOT_POINTER_PROBE__";
 function canvasClientPoint(canvas, hotspot) {
 	const rect = canvas.getBoundingClientRect();
@@ -21622,8 +21532,7 @@ function installPixelWorldHotspotPointerProbe({ fixtureName, getCanvas, getRende
 	};
 	return () => delete window[HOTSPOT_POINTER_PROBE_GLOBAL];
 }
-//#endregion
-//#region software_safe_src/pixel_world_focus_controller.js
+// software_safe_src/pixel_world_focus_controller.js
 function createPixelWorldFocusController({ focusMode, commandDrawerOpen, diagnosticsDrawerOpen, setFocusMode, setCommandDrawerOpen, setDiagnosticsDrawerOpen, setMaximized }) {
 	let focusInvoker = null;
 	let commandDrawerInvoker = null;
@@ -21694,8 +21603,7 @@ function createPixelWorldFocusController({ focusMode, commandDrawerOpen, diagnos
 		handleKeyDown
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_renderer_route.js
+// software_safe_src/pixel_world_renderer_route.js
 var PIXEL_WORLD_RENDERER_DEFER_VALUES = /* @__PURE__ */ new Set([
 	"0",
 	"false",
@@ -21754,12 +21662,10 @@ function createPixelWorldRendererRouteSignals(route, signalFactory) {
 		setRuntimeSource
 	];
 }
-//#endregion
-//#region \0release-visual-fixture-disabled
+// \0release-visual-fixture-disabled
 var pixelWorldTestApiEnabled = () => false;
 var installPixelWorldVisualFixtureHook = () => null;
-//#endregion
-//#region software_safe_src/pixel_world_identity.js
+// software_safe_src/pixel_world_identity.js
 function agentIdentityParts(agent, fallbackId = "") {
 	const id = String(agent?.id || fallbackId || "").trim();
 	const explicitLabel = String(agent?.name || agent?.label || "").trim();
@@ -21836,8 +21742,7 @@ function pixelWorldSelectedEntityLabel(visualState, selection, isLocaleZh = fals
 	if (selection.kind === "module_visual") return pixelWorldReadableModuleLabel((visualState.moduleVisualEntities || []).find((candidate) => candidate.id === selection.id), selection.id, isLocaleZh);
 	return pixelWorldReadableLocationLabel(visualState.locations.find((candidate) => candidate.id === selection.id), selection.id, isLocaleZh);
 }
-//#endregion
-//#region software_safe_src/pixel_world_presentation.js
+// software_safe_src/pixel_world_presentation.js
 function isZhLocale$1(locale) {
 	return String(locale || "").trim().toLowerCase().startsWith("zh");
 }
@@ -22037,8 +21942,7 @@ function pixelWorldSparseScenePresentation(data = {}, locale) {
 		hasSparseTopology: routeCount === 0 || terrainCount === 0
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_visual_clarity.jsx
+// software_safe_src/pixel_world_visual_clarity.jsx
 var _tmpl$$31 = /*#__PURE__*/ template(`<button type=button class="pixel-world-entity pixel-world-entity--agent pixel-world-entity--canvas-hit-target"data-pixel-world-agent-marker=true><span class=pixel-world-entity__code>`);
 var _tmpl$2$29 = /*#__PURE__*/ template(`<button type=button class="pixel-world-entity pixel-world-entity--module pixel-world-entity--canvas-hit-target"data-pixel-world-module-marker=true><span class=pixel-world-entity__code>`);
 var _tmpl$3$24 = /*#__PURE__*/ template(`<div class=pixel-world-canvas__grid>`);
@@ -22705,8 +22609,7 @@ function PixelWorldSparseSceneGuidance(props) {
 	});
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/pixel_world_marker_clearance.js
+// software_safe_src/pixel_world_marker_clearance.js
 var GAP = 8;
 var PANELS = "[data-viewer-overlay=\"feed\"], [data-viewer-overlay=\"next-move\"], [data-viewer-overlay=\"receipt\"], [data-viewer-overlay=\"navigation\"], [data-viewer-overlay=\"cinematic-entry\"], [data-focus-hud=\"true\"], .pixel-world-canvas__selection, .pixel-world-canvas__sparse-guidance, .pixel-world-canvas__legend";
 function pixelWorldMarkerClearance(marker, panels, bounds, fallback = {
@@ -22798,8 +22701,7 @@ function observePixelWorldMarkerPanels(sync) {
 	for (const panel of document.querySelectorAll(PANELS)) observer.observe(panel);
 	return () => observer.disconnect();
 }
-//#endregion
-//#region software_safe_src/pixel_world_renderer_decision_area.js
+// software_safe_src/pixel_world_renderer_decision_area.js
 var CLEARANCE = 8;
 var MIN_PANEL_HEIGHT = 160;
 function rendererDecisionMaxHeight(panel, viewportHeight, hotspots) {
@@ -22818,8 +22720,7 @@ function applyRendererDecisionClearance(canvasRoot) {
 	const height = rendererDecisionMaxHeight(panel.getBoundingClientRect(), window.innerHeight, hotspots);
 	panel.style.setProperty("--renderer-decision-max-height", `${height}px`);
 }
-//#endregion
-//#region software_safe_src/pixel_world_mobile_safe_area.js
+// software_safe_src/pixel_world_mobile_safe_area.js
 var MOBILE_SHELL_MAX_WIDTH = 640;
 var SAFE_AREA_GAP_PX = 8;
 function pixelWorldMobileSelectionOffset({ markerTop, markerBottom, commandTop, feedBottom = 0 }) {
@@ -22903,8 +22804,7 @@ function installPixelWorldMobileSelectionSafeArea(canvasRoot) {
 		feed?.removeEventListener("toggle", sync, true);
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_tooltip_placement.js
+// software_safe_src/pixel_world_tooltip_placement.js
 var MARGIN = 10;
 var MIN_HEIGHT = 56;
 function hotspotTooltipSafeBand(summary, command, viewportHeight, preferredTop = 52) {
@@ -22962,8 +22862,7 @@ function installHotspotTooltipPlacement(tooltip) {
 		feed?.removeEventListener("toggle", update);
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_hotspot_focus.js
+// software_safe_src/pixel_world_hotspot_focus.js
 var FOCUSABLE = "button, a[href], input, select, textarea, summary, [tabindex]";
 function firstSummary(details) {
 	return [...details.children].find((child) => child.tagName === "SUMMARY");
@@ -22991,8 +22890,7 @@ function moveFocusFromHotspotTooltip(tooltip, backwards) {
 	next.focus();
 	return document.activeElement === next;
 }
-//#endregion
-//#region software_safe_src/pixel_world_hotspot_projection.js
+// software_safe_src/pixel_world_hotspot_projection.js
 var PIXEL_WORLD_CANVAS_WIDTH = 960;
 var PIXEL_WORLD_CANVAS_HEIGHT = 540;
 function pixelWorldHotspotIntersectsStage(style, stageSize, glyphSize = 20) {
@@ -23045,8 +22943,7 @@ function pixelWorldHotspotStyle(hotspot, worldBounds, index = 0, cameraState, st
 		transform: "translate(-50%, -50%)"
 	};
 }
-//#endregion
-//#region software_safe_src/pixel_world_hotspot.jsx
+// software_safe_src/pixel_world_hotspot.jsx
 var _tmpl$$30 = /*#__PURE__*/ template(`<button type=button class=pixel-world-hotspot data-hotspot-hit-target=44><span class=pixel-world-hotspot__glyph aria-hidden=true style=pointer-events:none>`);
 var _tmpl$2$28 = /*#__PURE__*/ template(`<div class=pixel-world-canvas__hotspot-tooltip data-hotspot-tooltip role=status><span data-hotspot-tooltip-body></span><button type=button class=pixel-world-canvas__hotspot-tooltip-close>×`);
 function isZhLocale(locale) {
@@ -23252,8 +23149,7 @@ delegateEvents([
 	"keydown",
 	"click"
 ]);
-//#endregion
-//#region software_safe_src/pixel_world_renderer_target_input.js
+// software_safe_src/pixel_world_renderer_target_input.js
 function forwardRendererTargetPointer(event) {
 	const canvas = event.currentTarget.closest(".pixel-world-canvas")?.querySelector("canvas");
 	if (!canvas) return;
@@ -23267,8 +23163,7 @@ function forwardRendererTargetPointer(event) {
 		isPrimary: event.isPrimary
 	}));
 }
-//#endregion
-//#region software_safe_src/pixel_world_renderer_targets.jsx
+// software_safe_src/pixel_world_renderer_targets.jsx
 var _tmpl$$29 = /*#__PURE__*/ template(`<button type=button class="pixel-world-entity pixel-world-renderer-target"data-renderer-target=true>`);
 var RENDERER_TARGET_SIZE_PX = 44;
 var MODULE_CO_ANCHOR_RING_OFFSETS = [
@@ -23412,8 +23307,7 @@ function PixelWorldRendererTargets(props) {
 	});
 }
 delegateEvents(["click", "pointerdown"]);
-//#endregion
-//#region software_safe_src/viewer_navigation.jsx
+// software_safe_src/viewer_navigation.jsx
 var _tmpl$$28 = /*#__PURE__*/ template(`<nav class=mobile-rail><a class=mobile-rail__link href=#viewer-stage-panel></a><a class=mobile-rail__link href=#viewer-targets-panel></a><a class=mobile-rail__link href=#viewer-details-panel>`);
 var _tmpl$2$27 = /*#__PURE__*/ template(`<nav class=secondary-viewer-nav><button type=button class=secondary-viewer-nav__more aria-controls=viewer-diagnostics-panel>`);
 function focusViewerTarget(href) {
@@ -23518,8 +23412,7 @@ function SecondaryViewerNavigation(props) {
 	})();
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/pixel_world_host.jsx
+// software_safe_src/pixel_world_host.jsx
 var _tmpl$$27 = /*#__PURE__*/ template(`<div class="pixel-world-canvas__callout pixel-world-canvas__callout--goal">`);
 var _tmpl$2$26 = /*#__PURE__*/ template(`<div class="pixel-world-canvas__callout pixel-world-canvas__callout--blocker">`);
 var _tmpl$3$23 = /*#__PURE__*/ template(`<div class=pixel-world-canvas__selection>`);
@@ -25431,8 +25324,7 @@ function PixelWorldHost(props) {
 	})();
 }
 delegateEvents(["click", "input"]);
-//#endregion
-//#region software_safe_src/world_feed_panel.jsx
+// software_safe_src/world_feed_panel.jsx
 var _tmpl$$26 = /*#__PURE__*/ template(`<div class=world-feed__latest data-world-feed-latest=true><span class=world-feed__latest-copy>`);
 var _tmpl$2$25 = /*#__PURE__*/ template(`<span class=badge>`);
 var _tmpl$3$22 = /*#__PURE__*/ template(`<div class="feedback-detail world-feed__notice">`);
@@ -25723,8 +25615,7 @@ function WorldFeedPanel(props) {
 	})();
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/world_feed_integration.jsx
+// software_safe_src/world_feed_integration.jsx
 function WorldFeedSurface({ core, locale, tr, onReloadSnapshot, onRetryFeed, observeState }) {
 	const feed = () => {
 		observeState?.();
@@ -25751,8 +25642,7 @@ function WorldFeedSurface({ core, locale, tr, onReloadSnapshot, onRetryFeed, obs
 		}
 	});
 }
-//#endregion
-//#region software_safe_src/director_surface.jsx
+// software_safe_src/director_surface.jsx
 var _tmpl$$25 = /*#__PURE__*/ template(`<section id=viewer-director-panel class="panel director-surface"data-viewer-surface=director data-director-mode=active tabindex=-1 aria-labelledby=viewer-director-title><div class="panel__header panel__header--stack"><div class=panel__eyebrow></div><div class=panel__title id=viewer-director-title></div><div class=panel__meta-copy></div><button id=viewer-director-exit type=button class=panel__route-close></button></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--good">server_validated</span><span class=badge></span><span class=badge></span></div><div class=director-density-grid><div class=hero-focus-card><div class=hero-focus-card__label></div><div class="hero-focus-card__value hero-focus-card__value--body"></div></div><div class=hero-focus-card><div class=hero-focus-card__label></div><div class="hero-focus-card__value hero-focus-card__value--body"></div></div><div class=hero-focus-card><div class=hero-focus-card__label></div><div class="hero-focus-card__value hero-focus-card__value--body"></div></div><div class=hero-focus-card><div class=hero-focus-card__label></div><div class="hero-focus-card__value hero-focus-card__value--body"></div></div></div><div class=badge-row><span class=badge></span><span class=badge></span><span class=badge></span></div><div class=feedback-detail></div><div class=director-density-list>`);
 var _tmpl$2$24 = /*#__PURE__*/ template(`<div class=director-density-list__row><span></span><span class="badge badge--diagnostic">`);
 var _tmpl$3$21 = /*#__PURE__*/ template(`<div class=director-entry-card><div class=panel__title></div><div class=feedback-detail></div><div class=toolbar><button id=viewer-director-entry type=button class="button button--secondary">`);
@@ -25899,8 +25789,7 @@ function DirectorEntryCard(props) {
 	})();
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/director_capability_controller.js
+// software_safe_src/director_capability_controller.js
 var DIRECTOR_CAPABILITY_ENDPOINT = "/api/public/director/capability";
 var DIRECTOR_CAPABILITY_MAX_CLOCK_SKEW_MS = 3e4;
 var DIRECTOR_CAPABILITY_MAX_TTL_MS = 6e4;
@@ -26123,8 +26012,7 @@ function createDirectorCapabilityController({ adapter, now = Date.now, onChange 
 		}
 	};
 }
-//#endregion
-//#region software_safe_src/director_viewer_integration.js
+// software_safe_src/director_viewer_integration.js
 function restoreStageRoute() {
 	const hash = String(window.location.hash || "");
 	if (hash === "#viewer-director-entry" || hash === "#viewer-director-panel") window.location.hash = "#viewer-stage-panel";
@@ -26161,8 +26049,7 @@ function createViewerDirectorSession({ core, onChange, fetchImpl } = {}) {
 		})
 	};
 }
-//#endregion
-//#region software_safe_src/micro_depot_facilities_panel.jsx
+// software_safe_src/micro_depot_facilities_panel.jsx
 var _tmpl$$24 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=micro-depot-facilities-panel><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack">`);
 var _tmpl$2$23 = /*#__PURE__*/ template(`<div class="feedback-detail micro-depot-facilities__state-cue micro-depot-facilities__state-cue--empty">`);
 var _tmpl$3$20 = /*#__PURE__*/ template(`<div class="feedback-detail micro-depot-facilities__state-cue micro-depot-facilities__state-cue--unpaid">`);
@@ -26292,8 +26179,7 @@ function MicroDepotFacilitiesPanel(props) {
 		}
 	});
 }
-//#endregion
-//#region software_safe_src/recovery_option_comparison_panel.jsx
+// software_safe_src/recovery_option_comparison_panel.jsx
 var _tmpl$$23 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$22 = /*#__PURE__*/ template(`<div class=event-list data-testid=viewer-recovery-options>`);
 var _tmpl$3$19 = /*#__PURE__*/ template(`<div class="event-card recovery-option-card"><div class=event-card__title><span></span></div><div data-testid=viewer-recovery-option><div class=summary-grid>`);
@@ -26412,8 +26298,7 @@ function RecoveryOptionComparisonPanel(props) {
 		}
 	});
 }
-//#endregion
-//#region software_safe_src/fallback_tradeoff_panel.jsx
+// software_safe_src/fallback_tradeoff_panel.jsx
 var _tmpl$$22 = /*#__PURE__*/ template(`<div class=fallback-tradeoff__detail><dt></dt><dd>`);
 var _tmpl$2$21 = /*#__PURE__*/ template(`<aside class="event-card fallback-tradeoff__handoff"data-testid=viewer-no-safe-fallback-handoff><div class=event-card__title><h4></h4><span class="badge badge--warn"></span></div><dl class=fallback-tradeoff__details>`);
 var _tmpl$3$18 = /*#__PURE__*/ template(`<section class=fallback-tradeoff aria-labelledby=fallback-tradeoff-heading data-testid=viewer-fallback-tradeoff><div class=fallback-tradeoff__heading><h3 id=fallback-tradeoff-heading></h3><span></span></div><div class=summary-grid role=list>`);
@@ -26560,8 +26445,7 @@ function FallbackTradeoffPanel(props) {
 		}
 	});
 }
-//#endregion
-//#region software_safe_src/wait_resolution_quote_card.jsx
+// software_safe_src/wait_resolution_quote_card.jsx
 var _tmpl$$21 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$20 = /*#__PURE__*/ template(`<section class=event-card data-testid=wait-resolution-quote><div class=event-card__title><h3></h3><span></span></div><div class=feedback-summary></div><div class=summary-grid>`);
 function quoteField(quote, snakeCase, camelCase) {
@@ -26630,8 +26514,7 @@ function WaitResolutionQuoteCard(props) {
 		return _el$4;
 	})();
 }
-//#endregion
-//#region software_safe_src/product_validation_quote_card.jsx
+// software_safe_src/product_validation_quote_card.jsx
 var _tmpl$$20 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$19 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=product-validation-quote data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span></span></div><div class=summary-grid></div><div class=feedback-summary data-testid=product-validation-quote-recommended-action>`);
 var _tmpl$3$17 = /*#__PURE__*/ template(`<div class="feedback-summary feedback-summary--warn"data-testid=product-validation-quote-advisory>`);
@@ -26844,8 +26727,7 @@ function ProductValidationQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/power_survival_quote_card.jsx
+// software_safe_src/power_survival_quote_card.jsx
 var _tmpl$$19 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$18 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=power-survival-quote data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span></div><div class=summary-grid></div><div class=feedback-summary data-testid=power-survival-shutdown-avoidance></div><div class=feedback-summary data-testid=power-survival-recommendation>`);
 var _tmpl$3$16 = /*#__PURE__*/ template(`<section id=viewer-power-survival-quote-panel class="panel panel--nested"data-testid=power-survival-quote-panel data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div></div></div><div class="panel__body stack"><form class="stack stack--compact"data-testid=power-survival-quote-request-form><label><span></span><input></label><label><span></span><input type=number min=1 step=1 inputmode=numeric></label><label><span></span><input type=number min=0 step=1 inputmode=numeric></label><button type=submit class="button button--secondary">`);
@@ -27064,8 +26946,7 @@ function PowerSurvivalQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/power_sale_quote_card.jsx
+// software_safe_src/power_sale_quote_card.jsx
 var _tmpl$$18 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$17 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=power-sale-quote data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span></div><div class=summary-grid></div><div data-testid=power-sale-production-risk></div><div class=feedback-summary data-testid=power-sale-rationale></div><div class=feedback-summary data-testid=power-sale-recommendation>`);
 var _tmpl$3$15 = /*#__PURE__*/ template(`<section id=viewer-power-sale-quote-panel class="panel panel--nested"data-testid=power-sale-quote-panel data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div></div></div><div class="panel__body stack"><form class="stack stack--compact"data-testid=power-sale-quote-request-form><label><span></span><input></label><label><span></span><input type=number min=1 step=1 inputmode=numeric></label><label><span></span><input type=number min=0 step=1 inputmode=numeric></label><button type=submit class="button button--secondary">`);
@@ -27288,8 +27169,7 @@ function PowerSaleQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/fragment_refill_preview_card.jsx
+// software_safe_src/fragment_refill_preview_card.jsx
 var _tmpl$$17 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$16 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=fragment-refill-preview-panel data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><form class="stack stack--compact"data-testid=fragment-refill-preview-request-form><label><span></span><input type=number step=1 inputmode=numeric></label><label><span></span><input type=number step=1 inputmode=numeric></label><label><span></span><input type=number step=1 inputmode=numeric></label><button type=submit class="button button--secondary">`);
 var _tmpl$3$14 = /*#__PURE__*/ template(`<div class="feedback-summary feedback-summary--error"role=alert>`);
@@ -27491,8 +27371,7 @@ function FragmentRefillPreviewPanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/refine_quote_preflight_card.jsx
+// software_safe_src/refine_quote_preflight_card.jsx
 var _tmpl$$16 = /*#__PURE__*/ template(`<div><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$15 = /*#__PURE__*/ template(`<div class=metric__detail>`);
 var _tmpl$3$13 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=refine-quote-preflight data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span></div><div class=summary-grid></div><div class=feedback-summary></div><div class=feedback-summary></div><div class=feedback-summary data-testid=refine-quote-next-decision>`);
@@ -27725,8 +27604,7 @@ function RefineQuotePreflightPanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/market_quote_decision_card.jsx
+// software_safe_src/market_quote_decision_card.jsx
 var _tmpl$$15 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$14 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=market-quote-decision data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div data-testid=market-quote-recommendation></div><div class=summary-grid></div><div class=feedback-detail data-testid=market-quote-rationale></div><div class=feedback-detail data-testid=market-quote-next-action></div><div class="feedback-summary feedback-summary--warn"data-testid=market-quote-conditional>`);
 var _tmpl$3$12 = /*#__PURE__*/ template(`<div class=feedback-detail data-testid=market-quote-contribution><strong>`);
@@ -27864,8 +27742,7 @@ function MarketQuoteDecisionPanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/war_declaration_quote_display_model.js
+// software_safe_src/war_declaration_quote_display_model.js
 function known(value, labels, locale, tr) {
 	const label = labels[String(value || "")];
 	return label ? tr(locale, label[0], label[1]) : tr(locale, "状态暂不可用", "Status unavailable");
@@ -27903,8 +27780,7 @@ function buildWarDeclarationQuoteDisplayModel(quote, locale, tr) {
 		affordability: q.mobilization_affordable === true ? tr(locale, "动员资源充足", "Mobilization resources available") : q.mobilization_affordable === false ? tr(locale, "动员资源不足", "Mobilization resources missing") : tr(locale, "状态暂不可用", "Status unavailable")
 	};
 }
-//#endregion
-//#region software_safe_src/war_declaration_quote_card.jsx
+// software_safe_src/war_declaration_quote_card.jsx
 var _tmpl$$14 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$13 = /*#__PURE__*/ template(`<section class="panel panel--nested"id=war-quote-card data-testid=war-declaration-quote data-quote-kind=preflight data-submission-allowed=false><div class=panel__header><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div><div class="panel__body stack"><div id=war-quote-status role=status></div><div id=war-quote-blocker data-testid=war-declaration-blocker></div><div class=summary-grid></div><div class=feedback-summary data-testid=war-declaration-mobilization-electricity></div><div class=feedback-summary data-testid=war-declaration-mobilization-data></div><div id=war-quote-risk class="feedback-summary feedback-summary--warn"data-testid=war-declaration-risk></div><div id=war-quote-recommendation class=feedback-summary data-testid=war-declaration-recommendation></div><div class=feedback-detail></div><button id=war-quote-declare class="button button--secondary"type=button disabled data-testid=war-declaration-submit-disabled>`);
 var _tmpl$3$11 = /*#__PURE__*/ template(`<section class="panel panel--nested"id=war-declaration-quote-panel data-testid=war-declaration-quote-panel><div class=panel__header><div class=panel__title></div></div><div class="panel__body stack"><form class="stack stack--compact"data-testid=war-declaration-quote-request-form><label><span></span><input></label><label><span></span><input></label><label><span></span><input type=number min=1 max=10></label><button id=war-quote-refresh class="button button--secondary"type=submit>`);
@@ -28088,8 +27964,7 @@ function WarDeclarationQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/governance_vote_quote_card.jsx
+// software_safe_src/governance_vote_quote_card.jsx
 var _tmpl$$13 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$12 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=governance-vote-quote data-quote-kind=preflight data-submission-allowed=false><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=summary-grid></div><div class=feedback-summary></div><div class="feedback-summary feedback-summary--warn"></div><div class=feedback-summary><span>`);
 var _tmpl$3$10 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=governance-vote-quote-panel><div class=panel__header><div class="stack stack--compact"><div class=panel__title></div></div></div><div class="panel__body stack"><form class="stack stack--compact"><label><span></span><input></label><label><span></span><input></label><label><span></span><input type=number min=1></label><button class="button button--secondary"type=submit>`);
@@ -28225,8 +28100,7 @@ function GovernanceVoteQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/schedule_recipe_quote_card.jsx
+// software_safe_src/schedule_recipe_quote_card.jsx
 var _tmpl$$12 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$11 = /*#__PURE__*/ template(`<section class="panel panel--nested"data-testid=schedule-recipe-quote data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span></div><div data-testid=schedule-recipe-quote-risk></div><div data-testid=schedule-recipe-quote-recommendation></div><div class=summary-grid></div><div class=feedback-summary></div><div class=feedback-summary>`);
 var _tmpl$3$9 = /*#__PURE__*/ template(`<section id=viewer-schedule-recipe-quote-panel class="panel panel--nested"data-testid=schedule-recipe-quote-panel data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div></div></div><div class="panel__body stack"><form class="stack stack--compact"data-testid=schedule-recipe-quote-request-form><label><span></span><input></label><label><span></span><input></label><label><span></span><input type=number min=1 step=1 inputmode=numeric></label><button type=submit class="button button--secondary">`);
@@ -28441,8 +28315,7 @@ function ScheduleRecipeQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/transfer_material_quote_card.jsx
+// software_safe_src/transfer_material_quote_card.jsx
 var _tmpl$$11 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
 var _tmpl$2$10 = /*#__PURE__*/ template(`<section class="panel panel--nested transfer-material-quote"data-testid=transfer-material-quote data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span></div><div data-testid=transfer-material-quote-recommendation></div><div class=summary-grid></div><div class=feedback-summary></div><div class=feedback-summary>`);
 var _tmpl$3$8 = /*#__PURE__*/ template(`<section id=viewer-transfer-material-quote-panel class="panel panel--nested"data-testid=transfer-material-quote-panel data-quote-kind=preflight><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div></div></div><div class="panel__body stack"><form class="stack stack--compact"data-testid=transfer-material-quote-request-form><label><span></span><input></label><label><span></span><input></label><label><span></span><input></label><label><span></span><input type=number min=1 step=1 inputmode=numeric></label><label><span></span><input type=number min=0 step=1 inputmode=numeric></label><label><span></span><select><option value></option><option value=standard></option><option value=urgent></option></select></label><label><span></span><textarea></textarea></label><label><input type=checkbox> <span></span></label><button type=submit class="button button--secondary">`);
@@ -28763,8 +28636,7 @@ function TransferMaterialQuotePanel(props) {
 	})();
 }
 delegateEvents(["input"]);
-//#endregion
-//#region software_safe_src/gameplay_quote_panels.jsx
+// software_safe_src/gameplay_quote_panels.jsx
 function ScheduleRecipeQuoteGameplayPanel(props) {
 	return createComponent(ScheduleRecipeQuotePanel, {
 		get quote() {
@@ -28961,8 +28833,7 @@ function GovernanceVoteQuoteGameplayPanel(props) {
 		}
 	});
 }
-//#endregion
-//#region software_safe_src/reprioritize_action_form.jsx
+// software_safe_src/reprioritize_action_form.jsx
 var _tmpl$$10 = /*#__PURE__*/ template(`<button data-testid=viewer-available-action-reprioritize>`);
 var _tmpl$2$9 = /*#__PURE__*/ template(`<div class=toolbar data-testid=viewer-reprioritize-action>`);
 var _tmpl$3$7 = /*#__PURE__*/ template(`<div id=viewer-reprioritize-status role=alert tabindex=-1 class=feedback-detail>`);
@@ -29109,8 +28980,7 @@ delegateEvents([
 	"keydown",
 	"input"
 ]);
-//#endregion
-//#region software_safe_src/viewer_agent_claim_display_model.js
+// software_safe_src/viewer_agent_claim_display_model.js
 function createViewerAgentClaimDisplayModel({ state, tr }) {
 	function normalizedId(value) {
 		return String(value || "").trim();
@@ -29264,8 +29134,7 @@ function createViewerAgentClaimDisplayModel({ state, tr }) {
 		slot1ClaimChoiceQuote
 	};
 }
-//#endregion
-//#region software_safe_src/agent_claim_choice_card.jsx
+// software_safe_src/agent_claim_choice_card.jsx
 var _tmpl$$9 = /*#__PURE__*/ template(`<div class=event-list>`);
 var _tmpl$2$8 = /*#__PURE__*/ template(`<div class=feedback-detail><strong></strong>: `);
 var _tmpl$3$6 = /*#__PURE__*/ template(`<div class=event-card data-testid=claim-choice-rationale><div class=event-card__title><span>`);
@@ -29492,8 +29361,7 @@ function AgentClaimChoiceCard(props) {
 		})
 	];
 }
-//#endregion
-//#region software_safe_src/first_delivery_preview.jsx
+// software_safe_src/first_delivery_preview.jsx
 var _tmpl$$8 = /*#__PURE__*/ template(`<div class=feedback-detail><div class=metric__label>`);
 var _tmpl$2$7 = /*#__PURE__*/ template(`<div class="feedback-detail first-delivery-preview"><div class=metric__label>`);
 var _tmpl$3$5 = /*#__PURE__*/ template(`<div>`);
@@ -29582,8 +29450,7 @@ function FirstDeliveryPreview(props) {
 		return _el$;
 	})();
 }
-//#endregion
-//#region software_safe_src/agent_activity_display_model.js
+// software_safe_src/agent_activity_display_model.js
 var KNOWN_ACTIVITY_STATUSES = /* @__PURE__ */ new Set([
 	"idle",
 	"executing",
@@ -29654,8 +29521,7 @@ function describeAgentActivity(activity, locale = "en") {
 		reason
 	};
 }
-//#endregion
-//#region software_safe_src/agent_activity_surface.jsx
+// software_safe_src/agent_activity_surface.jsx
 var _tmpl$$7 = /*#__PURE__*/ template(`<div class=agent-activity__field><span class=metric__label></span><span>`);
 var _tmpl$2$6 = /*#__PURE__*/ template(`<div class=agent-activity><div class="agent-activity__heading metric__label"></div><div class=agent-activity__state>`);
 function AgentActivitySurface(props) {
@@ -29713,8 +29579,7 @@ function AgentActivitySurface(props) {
 		return _el$;
 	})();
 }
-//#endregion
-//#region software_safe_src/viewer_hosted_test_login_view.jsx
+// software_safe_src/viewer_hosted_test_login_view.jsx
 var _tmpl$$6 = /*#__PURE__*/ template(`<div class=stack data-viewer-fixture-state=hosted_test_login_opt_in><div class=toolbar><button type=button data-auth-action=test-login></button></div><div class=feedback-detail>`);
 function shouldShowHostedTestLogin() {
 	const value = String(new URLSearchParams(window.location.search || "").get("hosted_test_login") || "").trim().toLowerCase();
@@ -30017,8 +29882,7 @@ function describeAgentIntent(intent, locale = "en", connectionStatus = "connecte
 		nextStep: nextStep.value
 	};
 }
-//#endregion
-//#region software_safe_src/agent_intent_surface.jsx
+// software_safe_src/agent_intent_surface.jsx
 var _tmpl$$5 = /*#__PURE__*/ template(`<span class="badge badge--accent">`);
 var _tmpl$2$5 = /*#__PURE__*/ template(`<div class=agent-intent__status-row>`);
 var _tmpl$3$4 = /*#__PURE__*/ template(`<div class=agent-intent__summary>`);
@@ -30138,8 +30002,7 @@ function AgentIntentSurface(props) {
 		return _el$;
 	})();
 }
-//#endregion
-//#region software_safe_src/factory_production_failure_disposition_card.jsx
+// software_safe_src/factory_production_failure_disposition_card.jsx
 var _tmpl$$4 = /*#__PURE__*/ template(`<div class=feedback-detail>`);
 var _tmpl$2$4 = /*#__PURE__*/ template(`<div class="event-card event-card--factory-failure"data-testid=viewer-factory-production-failure-disposition role=status aria-live=polite><div class=event-card__title><span></span><span class="badge badge--warn"></span></div><div class=event-card__meta></div><div class=feedback-summary></div><div class=summary-grid></div><div class="badge-row badge-row--spaced"><span class="badge badge--accent"></span></div><div class=feedback-summary></div><div class=feedback-detail data-testid=factory-failure-next-recheck>`);
 var _tmpl$3$3 = /*#__PURE__*/ template(`<div class=metric><div class=metric__label></div><div class=metric__value>`);
@@ -30259,8 +30122,7 @@ function FactoryProductionFailureDispositionCard(props) {
 	});
 }
 delegateEvents(["click"]);
-//#endregion
-//#region software_safe_src/control_proof_panel.jsx
+// software_safe_src/control_proof_panel.jsx
 var _tmpl$$3 = /*#__PURE__*/ template(`<div class=metric style=min-width:0><div class=metric__label style=overflow-wrap:anywhere></div><div class=metric__value style=white-space:normal;overflow-wrap:anywhere>`);
 var _tmpl$2$3 = /*#__PURE__*/ template(`<div class=feedback-detail>`);
 var _tmpl$3$2 = /*#__PURE__*/ template(`<div class=summary-grid data-testid=control-proof-receipt style="grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr))">`);
@@ -30830,8 +30692,7 @@ function ControlProofPanel(props) {
 		return _el$4;
 	})();
 }
-//#endregion
-//#region software_safe_src/viewer_passkey_account_surface.jsx
+// software_safe_src/viewer_passkey_account_surface.jsx
 var _tmpl$$2 = /*#__PURE__*/ template(`<div role=status class=empty>`);
 var _tmpl$2$2 = /*#__PURE__*/ template(`<div class=stack><div class="stack hosted-passkey-account">`);
 function PasskeyAccountSurface(props) {
@@ -30909,8 +30770,7 @@ function hostedAccountGateCopy(signedIn, locale) {
 		summary: zh ? "先登录或创建账号，再进入世界，开始聊天与探索。" : "Sign in or create an account, then enter the world to chat and explore."
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_modal_focus.js
+// software_safe_src/viewer_modal_focus.js
 function keepFocusInDialog(getDialog) {
 	function guard(event) {
 		const dialog = getDialog();
@@ -30920,8 +30780,7 @@ function keepFocusInDialog(getDialog) {
 	document.addEventListener("focusin", guard);
 	return () => document.removeEventListener("focusin", guard);
 }
-//#endregion
-//#region software_safe_src/agent_context_lite.jsx
+// software_safe_src/agent_context_lite.jsx
 var _tmpl$$1 = /*#__PURE__*/ template(`<div class=agent-context-lite__field><div class=metric__label></div><div class=agent-context-lite__value>`);
 var _tmpl$2$1 = /*#__PURE__*/ template(`<div class=feedback-detail>`);
 var _tmpl$3$1 = /*#__PURE__*/ template(`<div class=feedback-detail>: `);
@@ -31171,8 +31030,7 @@ function AgentContextLite(props) {
 		return _el$4;
 	})();
 }
-//#endregion
-//#region software_safe_src/viewer_agent_context_display_model.js
+// software_safe_src/viewer_agent_context_display_model.js
 var FRESHNESS_LABELS = Object.freeze({
 	current: ["当前", "Current"],
 	"last-known": ["最近已知", "Last known"],
@@ -31413,8 +31271,7 @@ function buildAgentContextDisplayModel(input = {}) {
 		control: firstValue(input.controlState, candidateIntent?.control_state, candidateIntent?.controlState) || "unknown"
 	};
 }
-//#endregion
-//#region software_safe_src/viewer_app.jsx
+// software_safe_src/viewer_app.jsx
 var _tmpl$ = /*#__PURE__*/ template(`<div class=entity-list-pending__progress>`);
 var _tmpl$2 = /*#__PURE__*/ template(`<div class=entity-list-pending aria-live=polite aria-busy=true><div class=entity-list-pending__row><span class=entity-list-pending__spinner aria-hidden=true></span><span></span></div><div class=entity-list-pending__skeleton aria-hidden=true><span></span><span></span><span>`);
 var _tmpl$3 = /*#__PURE__*/ template(`<div>`);
@@ -36662,7 +36519,5 @@ delegateEvents([
 	"input",
 	"keydown"
 ]);
-//#endregion
-//#region software_safe_src/main.jsx
+// software_safe_src/main.jsx
 mountViewerApp();
-//#endregion
