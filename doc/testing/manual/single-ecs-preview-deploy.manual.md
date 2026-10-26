@@ -2,7 +2,26 @@
 
 适用：一台已配置好 SSH、systemd、世界目录和身份配置的 Linux ECS，更新 Preview 的 chain、launcher / Viewer，保留现有世界。首次开机配置只做一次；新世界初始化另见 [初始化手册](fresh-world-preview-bootstrap.manual.md)。正式多节点网络使用 [测试网运行手册](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)。
 
-正常路径只有五步：**选版本 → 预检 → 部署 → 验证 → 保留回滚版本**。失败才排障或回滚，不为一次普通部署新增审批系统。
+已完成首次配置的主机，推荐使用下面的单命令入口。后续章节保留首次接管、接口合同和异常处理说明；不会再要求逐条手工执行部署步骤。
+
+## 单命令更新
+
+复制 [配置示例](../../../config/ecs-preview-deploy.example.json) 到本机私有配置目录，填入现有主机、服务路径、world/genesis、服务与 reader 公钥 pin、目标机 reader key 路径。`python_path` 仅用于已安装且受信任的目标机 crypto 模块；部署不运行 pip。配置不放密码或私钥内容；SSH 沿用 agent / config / 正常交互认证。可选 `SSHPASS` 使用已安装的 sshpass，密码只经环境交给 SSH，不写 profile、argv 或 GitHub 子进程；认证只尝试一次，不自动重试。脚本适用于本地 macOS/Linux 的 Python 3 与 OpenSSH，目标为本机已有的 Linux/systemd DevLocal Preview。
+
+ECS Server Package 成功后执行一次：
+
+```bash
+python3 scripts/deploy-ecs-preview.py \
+  --config ~/.config/oasis7/preview-deploy.json \
+  --run <ECS-Server-Package-run-id>
+```
+
+入口自动核对 GitHub main ECS run 与同 source 的 main Rust workflow / required-gate，下载并验证最终包，通过**一个 SSH 进程**传包、预检、停止写入、一致备份、比对备份、切换两个服务、读取签名世界结果并观察完整 60 秒推进、复查公开 API，再调用同包 Skill 发布工具。配置变更、锁占用、低空间或身份校验失败即停止，不扩大公网白名单，不重建世界。各部署阶段只选同一完整 SHA，main 后续前进不重启整轮。
+
+完整停机备份保存到配置的 `local_backup_root`（目录 0700，归档 0600），并传回目标 `tar --compare` 验证后才切换。远端安装采用已在本地校验的归档流，避免同时占用压缩包和新版本的空间；仍保留至少 528 MiB 余量及原 release。新 chain 开始写入后失败或断连会隔离候选并保留历史，不能将旧程序直接指向可能变化的数据。成功输出 source、run、包/备份哈希和实际验收结果。该部署验收不代替后文的外部浏览器、真实登录及玩法验证。
+
+Trace refs: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4；实现边界见[单命令部署设计](../../scripts/ecs-preview-deployment.design.md)。
+
 
 ## 1. 选定一个可用版本
 

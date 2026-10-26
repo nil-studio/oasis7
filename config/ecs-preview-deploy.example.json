@@ -1,0 +1,33 @@
+{
+  "ssh_host": "root@preview.example.test",
+  "repository": "nil-studio/oasis7",
+  "local_backup_root": "~/.local/share/oasis7/preview-backups",
+  "release_root": "/opt/oasis7-preview/releases",
+  "ops_root": "/root/oasis7-preview-ops",
+  "deploy_lock": "/run/lock/oasis7-preview-deploy.lock",
+  "chain_service": "oasis7-preview-chain.service",
+  "player_service": "oasis7-preview-player.service",
+  "backup_paths": [
+    "/var/lib/oasis7-preview",
+    "/etc/oasis7-preview",
+    "/etc/systemd/system/oasis7-preview-chain.service",
+    "/etc/systemd/system/oasis7-preview-player.service",
+    "/etc/nginx/sites-available",
+    "/etc/nginx/snippets"
+  ],
+  "public_origin": "https://preview.example.test",
+  "launcher_http_port": 4173,
+  "nginx_include": "/etc/nginx/snippets/oasis7-skills.conf",
+  "probe": {
+    "expected_world": {
+      "world_id": "replace-with-existing-world-id",
+      "genesis_digest": "blake3:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "service_public_key": "replace-with-pinned-service-public-key",
+    "reader_public_key": "replace-with-pinned-reader-public-key",
+    "reader_key_file": "/var/lib/oasis7-preview/world/private/public-reader.key",
+    "reader_uid": 999,
+    "world_service_url": "http://127.0.0.1:5121",
+    "python_path": []
+  }
+}

@@ -1,0 +1,6 @@
+# Isolated contract-test environment only; deployment never installs packages.
+blake3==1.0.11
+cbor2==6.1.5
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.12

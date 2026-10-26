@@ -238,3 +238,11 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
 | DEC-SCR-004 | 用独立 `cargo-dev.sh` 包装开发态 profile 与 sccache，target 沿用 Cargo 原生解析 | 直接把所有 cargo 流程切到同一个全局 `CARGO_TARGET_DIR` | 集中存放但按 worktree 隔离的 target 不增加跨工作区复用；移除链接、登记与租约，依赖 Cargo 自身的构建锁及 sccache。正式构建围栏不变。 |
 
 开发脚本只提供 Git worktree、本地 Cargo 开发配置、运行隔离和真实验证。普通 PR 使用 Git、gh、实际 CI 与评审，不依赖本地 PM 身份。资源清理保留用户资料、未提交、未推送及使用中资源。
+
+
+<a id="single-ecs-preview-deploy"></a>
+## 单机 Preview 部署入口
+
+Trace ID: O7-REQ-54717f75-7a50-43ae-a713-c5d89272b3e4
+
+已配置好 SSH、服务和世界身份的单机 Preview，在同一 source 的 ECS 包及必要 CI 成功后，应通过一个本地命令完成校验、空间预检、一致备份、版本切换和部署验收。一次调用只建立一个 SSH 会话；不得循环猜测凭据或放宽 HostKey 校验。保留世界、身份、原服务参数和回滚材料，失败不得报告完成。真实玩家登录与玩法结果另按受影响功能验收，不由自动部署代签。实现与失败边界见[单命令部署设计](ecs-preview-deployment.design.md)。
