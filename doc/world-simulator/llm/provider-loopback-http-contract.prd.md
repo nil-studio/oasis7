@@ -6,6 +6,9 @@
 
 审计轮次: 1
 
+Native Launcher 探测的[响应预算与安全诊断](provider-loopback-http-contract.design.md#native-provider-probe-boundary)已定义目标合同，流式字节上限和全消费者验证仍待实现。既有超时及凭据不回显要求保留；本细项不增加异步/取消 UI 或宣称外部 Runtime 已通过实玩验收。
+
+
 ## 产品目标与本地传输范围
 
 本专题提供外部 Runtime 自主游戏的一种本地传输与适配方案。`Local Provider` 是接入角色，loopback HTTP 是传输选择；二者均不代表已支持某个完整 Agent Runtime。用户携带已有 Runtime 的产品旅程、OpenClaw 与 Codex 分别验收的范围及支持声明，以[上游产品 PRD](../../product/agents-world-simulation/external-agent-runtime-play.prd.md)为准。用户只提供 API key 并改用游戏内置模型，不足以证明其原有 Runtime 已接入。

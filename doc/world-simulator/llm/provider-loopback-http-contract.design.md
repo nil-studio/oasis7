@@ -22,6 +22,7 @@
 | --- | --- | --- | --- | --- |
 | [REQ-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-005)；Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7 | target/legacy 路由、身份与 Runtime 裁决保持独立 | [Harness 对齐](#41-harness-contract-alignment) | runtime_engineer、agent_engineer；HTTP adapter | 本地 callback 不替代完整 Runtime/Game API |
 | [REQ-ENTRY-LAUNCH-001](../../product/player-entry-distribution/local-launch-session-continuity-and-recovery.prd.md#req-entry-launch-001)；Trace refs: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1 | 仅承接配置输入与已应用配置的区分，以及停止不撤销已接受世界请求；产物选择和进程清理是专业依赖，不单独算作产品覆盖。 | [交付与生命周期](#local-provider-delivery-contract) | 启动脚本与 Launcher；runtime_engineer、QA | 不停止独立 Provider，不撤销世界已接受请求 |
+| [Flow-OC-LOCAL-004（失败恢复）](provider-loopback-http-contract.prd.md#local-provider-user-flows) | native probe 流式预算与安全诊断 | [Native probe](#native-provider-probe-boundary) | client launcher；status/UI/log | 仅探测工程边界，不新增异步或取消 UX |
 | [Flow-OC-LOCAL-004（失败恢复）](provider-loopback-http-contract.prd.md#local-provider-user-flows)；同节专业验收 AC-2、AC-6、AC-7（列表条款） | 仅承接单请求 transport 的重试分类、模型 SSE 完成及 URL/许可分离；不承接跨会话恢复重验。 | [HTTP 边界](#local-provider-http-boundaries) | adapter、模型桥接器；agent_engineer、QA | 产品适用性：N/A；reason=本行只分配单请求transport兼容验证方法，不定义停止或陈旧状态后的会话/权限恢复；scope=同一请求attempt/deadline、模型SSE终结与URL解析/许可的工程验证。HTTP功能实际产品消费链尚未准确建立；本行不将整个HTTP功能判为产品不适用，亦不填补已撤的LAUNCH-002关系。 |
 
 ## 3. 关键接口 / 入口
@@ -119,6 +120,23 @@ transport 与 adapter 使用一致的 retryable 分类。对现有允许重试�
 
 受支持 URL 解析器对方括号 IPv6 host、scheme 默认端口和 path 的解释保持一致；HTTPS 省略端口与显式 443 的同一地址语义一致。错误括号、含糊的裸 IPv6 和非法/零端口明确拒绝，不猜测拆分位置。语法能够解析不意味着端点获准：本地 callback 继续遵守 loopback/allowlist 限制，上游模型 endpoint 沿用自己的配置和权限边界，不因支持 IPv6 放开远程 callback。
 
+<a id="native-provider-probe-boundary"></a>
+### 7.4 Native launcher compatibility probe 的读取与诊断
+
+Trace ID: O7-REQ-50ef76f3-2e7e-46c6-9154-54b1eb900e57
+
+本节唯一拥有 native `ProviderProbeHttpClient` 的响应字节预算与错误摘要合同；主责 client launcher，UI/status/local log 为消费者。承接配对专业 PRD [发现/失败恢复与 AC-2/6/7](provider-loopback-http-contract.prd.md#local-provider-user-flows) 的探测子范围。产品适用性：N/A；reason=只收紧现有 probe IO/诊断，不新增玩家流程；scope=native info/health probe，不改变决策 callback、模型 SSE 或 Viewer。目标由 [#5103](https://github.com/nil-studio/oasis7/issues/5103) 跟踪。
+
+1. 保留 `info -> health -> evaluate_provider_compatibility` 的顺序、首步失败停止、现有 timeout、端点许可与兼容/降级判断；不得用此改动新增自动 probe/retry、付费调用或 redirect 策略。同步 UI 是否改 worker、取消交互及代次 fencing 不属于本合同，不把现有同步实现称作违反取消承诺。
+2. 每个 info/health HTTP 响应的应用可见 body 上限为 `64 KiB`，包含 HTTP 客户端解压后交给 JSON decoder 的字节；两次顺序请求各自计数，不把总计当单响应预算。读取前设限，按流累计，最多读取上限加一个字节用于判超限；不得先 `.bytes()`/`.text()` 全量分配再截断。若采用压缩传输也必须限制解压后的读取，不以压缩长度替代。该值是目标实现常量，不是当前代码已有的限制。
+3. `Content-Length` 只可用于提前拒绝，缺失、伪小值或 chunked 不能绕过实际计数；禁止按不可信长度预分配。达到上限仍需确认 EOF；第一个超额字节即停止读取、丢弃累积 body，返回固定 `response_too_large`，不继续 drain 或 JSON 解析。恰好上限且完整合法 JSON 可继续正常解析；慢响应仍受原 timeout 约束。
+4. 只返回本地固定分类/说明，可附本地 endpoint 枚举（info/health）、数字 HTTP status 和饱和有界计数。至少区分 unauthorized、其他 HTTP failure、timeout、transport/read failure、response_too_large、decode failure；保留既有 UI 状态含义，不把任意错误归兼容失败。非 2xx 可在状态头处直接拒绝而不读 body；若读取任何 body，预算一律适用。
+5. 错误投影禁止透传供应商 body、任意 error/message、网络库原始错误或包含 token/query/userinfo 的 URL，UI、本地日志与 Debug/Display 使用同一安全摘要。成功 health 中的 `last_error` 也是诊断自由文本，不能因 2xx 直接写 UI/log；映射固定 provider-reported-error 或明确 allowlist 分类，保留 health/兼容结果本身。不改变其余合法结构化 info/health 的业务判定，也不宣称所有成功文本字段已完成通用隐私治理。
+
+静态基线 `b9bc4b2a6df858e27f94754d227b0fdc23ae3639`：[HTTP client](../../../crates/oasis7_client_launcher/src/launcher_core_http.rs) 已有 request timeout，但仍全量 `.bytes()`，401/非 2xx 仍透传 body；[status](../../../crates/oasis7_client_launcher/src/provider_check_status.rs) 展示 detail。这里只确认数据流，不证明真实敏感内容已流出；401 本地日志与 Unreachable 的日志路径不同。
+
+离线验收须在真实 HTTP reader 与 status/log seam 覆盖：缺长度、虚假长度、chunked、压缩（启用时）、恰好上限/上限加一、超大合法/畸形 body、慢响应和读中断；断言预算生效且超限不保留 body。401/其他非 2xx/坏 JSON/2xx health.last_error 放短 canary，断言 UI 和本地日志均无原文；检查固定分类、info/health 次序和原兼容/降级正例不变。不调用真实付费 provider；这些新增用例尚未执行，亦不代签异步/取消 UX 或反馈导出隐私验收。
+
 ## 8. 对应验收与交付判定
 
 | 设计边界 | 最小正例 | 关键反例/结果 |
@@ -140,6 +158,7 @@ transport 与 adapter 使用一致的 retryable 分类。对现有允许重试�
 | --- | --- | --- | --- | --- | --- |
 | [REQ-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-005)；Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7 | [Harness 对齐](#41-harness-contract-alignment) | target outer/feedback correlation 与 legacy 隔离；沿用 mock 合同，真实 Runtime 单独验收 | [HTTP合同测试](../../../crates/oasis7/src/simulator/tests/provider_loopback_http.rs)：`env -u RUSTC_WRAPPER cargo test -p oasis7 provider_loopback_http_client_round_trips_info_health_decision_and_feedback -- --nocapture` 当前仅验证bare legacy DTO往返；target outer/feedback关联与legacy不能关闭target的场景按§4.1另补并记录真实测试ID，不以该legacy正例代签 | 实际 source、命令、退出码和失败反例，记录在 PR/Issue | 本次只建立映射，未执行；mock 不证明真实首局 |
 | [REQ-ENTRY-LAUNCH-001](../../product/player-entry-distribution/local-launch-session-continuity-and-recovery.prd.md#req-entry-launch-001)；Trace refs: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1 | [交付与生命周期](#local-provider-delivery-contract) | 对账输入配置与真实child有效配置，并核对停止不取消世界已接受请求；§8产物选择/TERM/HUP仅属专业依赖验证，不代签该产品子义务。 | [本地 LetAI 回归](../../../scripts/run-local-letai-game-test.test.sh)：`bash scripts/run-local-letai-game-test.test.sh` 现有检查包括help/preflight、缺配置/产物和占用端口诊断；§8全部真实进程停止条件仍是待补/单独验证场景。待补：同候选先记录世界已接受请求的request/Agent/任务关联，停止本地自有进程后按原request查询权威结果，对账停止前后的pending/committed/rejected含义及是否误取消/重放；现有shell不证明此项，不声称已有fixture。 | source、选中产物、输入与真实child有效配置；另存原request关联、停止前后权威查询/receipt及未取消/未重放断言，子树退出和端口释放仅为依赖证据。 | planned；现有测试入口不表示这些新增用例已实现或通过 |
+| [Flow-OC-LOCAL-004（失败恢复）](provider-loopback-http-contract.prd.md#local-provider-user-flows) | [Native probe](#native-provider-probe-boundary) | 上限/长度头/慢响应及 canary，保留顺序与兼容判断 | [回归方法](../../../testing-manual.md#regression-oracle)；HTTP probe 测试入口 `../../../crates/oasis7_client_launcher/src/launcher_core_http.rs`与 status/log 回归，场景见§7.4 | 实际读取量、固定分类、UI/log 无 canary 和请求序列 | planned；尚未实现执行，不含 async/cancel 或真实供应商 |
 | [Flow-OC-LOCAL-004（失败恢复）](provider-loopback-http-contract.prd.md#local-provider-user-flows)；同节专业验收 AC-2、AC-6、AC-7（列表条款） | [HTTP 边界](#local-provider-http-boundaries) | §8 的同请求两次尝试、DONE 后保持连接/禁止额外读取和 IPv6 反例 | [HTTP合同测试](../../../crates/oasis7/src/simulator/tests/provider_loopback_http.rs)：运行 `env -u RUSTC_WRAPPER cargo test -p oasis7 provider_http_failure_retryability_is_deterministic -- --nocapture`，只证明RequestFailed/429/503可重试与401/400不可重试分类；`provider_loopback_http_client_surfaces_http_401_on_decision`只证明401映射。两次尝试/耗尽/取消、SSE完成边界与Rust/Python URL组合仍须各自新增fixture和准确测试ID，不借分类单测声称已证明 | source、客户端类型、尝试/读取计数、结果和命令退出码 | planned；不以 shell 通过或任一客户端结果代签全部 HTTP 验收 |
 
 新增场景与已存在测试入口明确区分。实现任务须把本表场景落实到对应测试并记录真实结果；本表不构造已通过证据，也不以通用手册引用免除 §8 的逐项验收。
