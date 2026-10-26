@@ -236,6 +236,8 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。动态集合使用独�
 
 `NodeRuntimeExecutionDriver` 从原始 V2 QC 链独立重放真实 World，复核治理 parent、动作认证和实际候选 roots，按本节 h/h+1/h+2 合同应用集合。Node 在释放新集合签名前，恢复 provider 的受保护 journal 并对照实际 driver 持久记录完成安装确认；迟到安装与原请求重试沿用前述祖先及 pending 合同。`raw_bft_v2_commit_history_page` 返回原始证书，`bft_v2_status` 只投影进程状态；消费者仍须独立验证完整链及自己的信任起点。历史响应只查询已经验证的连续历史，不在每个轮询请求中重复验证整个证书前缀。
 
+V2 工程 journal 持久保留当前未提交高度的已验签冲突 proposal header 对，追加证据不得改写待完成的签名决定，重启须恢复原证据。只有该高度的合法 QC 持久提交并转入已验证的后继高度后，才退役当前高度 journal；当前工程状态接口与 QC 历史不提供跨高度处罚证据归档或 slashing，不能据此宣称实现了历史处罚链路。
+
 对应验证入口见[动态集合 V2 工程路径](../../testing-manual.md#动态集合-noderuntime-bft-v2-工程路径)。Node 网络用例的确定性 test hook 与内存 signer backend 不证明实际 World、磁盘耐久性或硬件防回滚；真实 World/ledger 由 chain-runtime 用例另行验证。V2 工程入口仍不激活正式 `bft` authority profile，不完成 controlled-to-BFT H/H+1 权威交接、checkpoint/消费者全链路、跨故障域 custody 或部署 readiness；这些是 #4975 保留的后续实现与验收义务。
 
 ### des-p2p-target-recovery
